@@ -390,7 +390,7 @@ export function makeKeyboard(handlers: KeyboardHandlers): Keyboard {
       candidatePanel.setState(state, chinese);
       candidatePending.value = chinese && state.pending;
       preeditPending.value = chinese && state.connected && state.pending && !state.preedit;
-      preedit.value = !chinese ? "" : state.error ? "Retry / clear" :
+      preedit.value = !chinese ? "" :
         state.preedit ? `${state.preedit.slice(0, state.caret)}|${state.preedit.slice(state.caret)}` : !state.connected ? "Offline" : "";
       for (let i = 0; i < candidates.length; i++) candidates[i].value = chinese && !state.pending ? state.candidates[i] ?? "" : "";
     },

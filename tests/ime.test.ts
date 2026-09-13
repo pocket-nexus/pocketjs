@@ -4,14 +4,14 @@ import { createOffloadClient } from "../framework/src/offload.ts";
 import type { ImeSnapshot } from "../contracts/spec/ime.ts";
 
 function fixture() {
-  let session = 1;
+  let session = 1, time = 0;
   const sent: { id: number; method: string; payload: string }[] = [], replies: string[] = [], committed: string[] = [];
   const io = createOffloadClient({ session: () => session, take: () => replies.shift(),
     submit: raw => { sent.push(JSON.parse(raw)); return true; } });
-  const ime = createIme({ io, changed() {}, commit: value => committed.push(value) });
-  const tick = () => { io.step(); ime.step(); };
+  const ime = createIme({ io, now: () => time, changed() {}, commit: value => committed.push(value) });
+  const tick = () => { time += 1 / 60; io.step(); ime.step(); };
   const answer = (request: number, fields: Partial<ImeSnapshot> = {}) => replies.push(JSON.stringify({ id: request,
-    payload: JSON.stringify({ commit: "", preedit: "ni", candidates: ["你", "呢"], page: 0, last: false, caret: (fields.preedit ?? "ni").length, ...fields }) }));
+    payload: JSON.stringify({ raw: (fields.preedit ?? "ni").replaceAll(" ", ""), rawCaret: (fields.preedit ?? "ni").replaceAll(" ", "").length, commit: "", preedit: "ni", candidates: ["你", "呢"], page: 0, last: false, caret: (fields.preedit ?? "ni").length, ...fields }) }));
   return { ime, io, sent, committed, tick, answer, replies, connect: (n: number) => { session = n; } };
 }
 describe("replayable IME", () => {
@@ -97,4 +97,67 @@ describe("replayable IME", () => {
     expect(f.ime.key(0x1f600)).toBe(false);
     expect(f.ime.key(97)).toBe(true);
   });
+});
+
+test("offline input remains visible, editable and locally committable", () => {
+  const f = fixture(); f.connect(0); f.tick();
+  for (const ch of "nihao") f.ime.key(ch.charCodeAt(0));
+  expect(f.ime.state().preedit).toBe("nihao");
+  expect(f.ime.state().pending).toBe(false);
+  f.ime.key(IME.left); f.ime.key(IME.backspace); f.ime.key(120);
+  expect(f.ime.state().preedit).toBe("nihxo"); expect(f.ime.state().caret).toBe(4);
+  f.ime.accept();
+  expect(f.committed).toEqual(["nihxo"]); expect(f.ime.composing()).toBe(false);
+  f.connect(2); for (let i = 0; i < 5; i++) f.tick();
+  expect(f.sent).toHaveLength(0); expect(f.committed).toEqual(["nihxo"]);
+});
+
+test("confirmation has a deadline even when a connected provider never answers", () => {
+  const f = fixture(); for (const ch of "ni") f.ime.key(ch.charCodeAt(0));
+  f.tick(); f.tick(); const old = f.sent.at(-1)!.id;
+  f.ime.accept();
+  for (let i = 0; i < 12; i++) f.tick();
+  f.ime.accept(); // repeated Return cannot extend the first deadline
+  for (let i = 0; i < 14; i++) f.tick();
+  expect(f.committed).toEqual(["ni"]); expect(f.ime.composing()).toBe(false);
+  f.answer(old, { preedit: "", commit: "你" }); f.tick();
+  f.ime.key(104); f.tick(); f.tick();
+  expect(JSON.parse(f.sent.at(-1)!.payload)).toEqual([104]);
+  expect(f.committed).toEqual(["ni"]);
+});
+
+test("disconnect during candidate confirmation commits raw text once", () => {
+  const f = fixture(); for (const ch of "ni") f.ime.key(ch.charCodeAt(0));
+  f.tick(); f.tick(); f.answer(f.sent.at(-1)!.id); f.tick(); f.ime.accept(); f.tick(); f.tick();
+  const old = f.sent.at(-1)!.id;
+  f.connect(0); f.tick();
+  expect(f.committed).toEqual(["ni"]);
+  f.connect(2); f.tick(); f.answer(old, { preedit: "", commit: "你" }); f.tick();
+  expect(f.committed).toEqual(["ni"]); expect(f.ime.composing()).toBe(false);
+});
+
+test("raw snapshot excludes committed prefixes and preserves apostrophes and caret", () => {
+  const f = fixture(); f.ime.key(110); f.tick(); f.tick();
+  f.answer(f.sent.at(-1)!.id, { commit: "你", preedit: "xi an", raw: "xi'an", rawCaret: 2, caret: 2 }); f.tick();
+  f.connect(0); f.tick(); f.ime.key(IME.backspace); f.ime.commitRaw();
+  expect(f.committed).toEqual(["你", "x'an"]);
+  f.connect(2); f.tick(); f.tick(); expect(f.sent).toHaveLength(1);
+});
+
+test("deleting the final offline letter ends composition; a full transcript can still commit", () => {
+  const f = fixture(); f.connect(0); f.tick(); f.ime.key(110); f.ime.key(IME.backspace);
+  expect(f.ime.composing()).toBe(false);
+  for (let i = 0; i < IME.keys; i++) f.ime.key(97);
+  expect(f.ime.key(98)).toBe(false); f.ime.accept();
+  expect(f.committed).toEqual(["a".repeat(IME.keys)]);
+});
+
+test("provider failure and invalid raw data cannot block local confirmation", () => {
+  for (const invalid of [false, true]) {
+    const f = fixture(); f.ime.key(110); f.tick(); f.tick();
+    if (invalid) f.answer(f.sent.at(-1)!.id, { rawCaret: 200 });
+    else f.replies.push(JSON.stringify({ id: f.sent.at(-1)!.id, error: "engine unavailable" }));
+    f.tick(); expect(f.ime.state().error).not.toBe(""); f.ime.accept();
+    expect(f.committed).toEqual(["n"]);
+  }
 });

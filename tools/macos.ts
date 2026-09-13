@@ -1,7 +1,7 @@
-// bun run macos [app] [flags…] — build + launch a PocketJS app on the gpui
+// bun run macos [app] [flags…] — build + launch a PocketJS app on the portable Rust
 // macOS host (hosts/desktop over the macos-app target; docs/BACKENDS.md).
 //
-//   bun run macos                    # the note, native text (the flagship)
+//   bun run macos                    # the note, baked package fonts
 //   bun run macos hero               # a fixed-viewport console demo,
 //                                    # size-locked + baked glyphs
 //   bun run macos note -- --file todo.md
@@ -12,9 +12,7 @@
 // becomes one ResolvedBuildPlan. A directory with pocket.system.json becomes
 // one ResolvedSystemPlan containing complete installed-package
 // plans; the host receives that file without child-plan field projection.
-// The windowed run stays attached to your terminal — ⌘Q quits. On exit the
-// host prints its governor receipt: "pocket-desktop-host: N ticks, M frames
-// rendered" — a settled app should show M ≪ N.
+// The windowed run stays attached to your terminal; Cmd+Q quits.
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { $ } from "bun";
@@ -27,12 +25,12 @@ import {
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 
 const root = new URL("..", import.meta.url).pathname;
-// The host and the gpui backend are git-only crates (npm files map ships
+// The portable desktop host is a git-only crate (npm files map ships
 // this wrapper for parity with tools/note.ts, whose widget host is git-only
 // too) — fail with directions instead of a cargo error mid-build.
 if (!existsSync(`${root}hosts/desktop/Cargo.toml`)) {
   console.error(
-    "bun run macos needs a git checkout: hosts/desktop and engine/backends/gpui are not part of the npm package (github.com/pocket-stack/pocketjs).",
+    "bun run macos needs a git checkout: hosts/desktop is not part of the npm package (github.com/pocket-stack/pocketjs).",
   );
   process.exit(1);
 }
@@ -139,8 +137,6 @@ const env = { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "info" };
 // Every host flag derives from the resolved plan (issue #295 landed the
 // companion list and viewport policy in it):
 //   fixed        — plan.viewport.policy (size-locked run)
-//   native-text  — text.layout.native resolved true (host installs the
-//                  CoreText measurer before mount)
 //   companions   — plan.companions: the svc names the app speaks; the host
 //                  builds its svcOpen allowlist from exactly this list
 //   editor       — the NOTE companion dialect (apps/note/svc.ts) — wired
@@ -159,7 +155,6 @@ const flags: string[] = systemPlanPath
       "--density",
       String(plan.viewport.rasterDensity),
       ...(fixed ? ["--fixed"] : []),
-      ...(plan.features["text.layout.native"] ? ["--native-text"] : []),
       ...(plan.companions.length > 0
         ? ["--companions", plan.companions.join(",")]
         : []),
@@ -179,18 +174,18 @@ if (proof) {
   await $`rm -f ${file}`;
   // Click the header's pencil toggle (note-widget's proof coordinates),
   // then type — the debounced autosave must round-trip the text.
-  await $`${bin} ${flags} --file ${file} --click 350,15@10 --type PROOF-GPUI-@40 --quit-after 220`.env(
+  await $`${bin} ${flags} --file ${file} --click 350,15@10 --type PROOF-POCKET-@40 --quit-after 220`.env(
     env,
   );
   const saved = (
     await Bun.file(file)
       .text()
       .catch(() => "")
-  ).includes("PROOF-GPUI-");
+  ).includes("PROOF-POCKET-");
   if (!saved)
     throw new Error("macos proof: autosave round-trip missed the typed text");
   console.log(
-    "\nproof: typing landed at the caret through the svc protocol and the\ndebounced autosave wrote the file back out through the gpui host.",
+    "\nproof: typing landed at the caret through the svc protocol and the\ndebounced autosave wrote the file back out through the portable host.",
   );
 } else {
   const fileFlags =

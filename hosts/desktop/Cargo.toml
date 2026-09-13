@@ -1,26 +1,20 @@
-# pocket-desktop-host — the PocketJS UI runtime in a native gpui window:
-# the stock host of the `macos-app` and `linux-app` targets.
-#
-# STANDALONE LONE-BIN CRATE (same model as hosts/pocketbook): outside any
-# workspace with its own Cargo.lock, path-depending on the engine crates.
-# gpui stays outside the release workspace, which is also why
-# engine/backends/gpui sits on the engine exclude list.
-#
-# Build + run through the product wrapper, or directly with a resolved plan.
-
 [package]
 name = "pocket-desktop-host"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-description = "PocketJS UI runtime host on gpui for macOS and Linux app targets"
+description = "PocketJS portable Rust renderer and worker-owned desktop runtime"
 
 [dependencies]
 pocketjs-core = { path = "../../engine/core", features = ["std"] }
 pocket-mod = { path = "../../engine/crates/pocket-mod" }
 pocket-ui-surface = { path = "../../engine/crates/pocket-ui-surface" }
-pocket-ui-gpui = { path = "../../engine/backends/gpui" }
-gpui = "0.2.2"
+pocket-text = { path = "../../engine/crates/pocket-text" }
+pocket-ui-wgpu = { path = "../../engine/crates/pocket-ui-wgpu" }
+pocket3d = { path = "../../engine/pocket3d/crates/pocket3d", default-features = false }
+wgpu = "25"
+winit = "0.30"
+arboard = { version = "3", default-features = false }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"

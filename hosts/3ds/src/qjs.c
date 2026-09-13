@@ -20,6 +20,7 @@
 
 #include "qjs.h"
 #include "offload.h"
+#include "media.h"
 #include "offload_coverage.h"
 
 #include <stdlib.h>
@@ -50,6 +51,7 @@
 #define POCKETJS_JS_STACK_SIZE (384 * 1024)
 
 typedef enum {
+  HostMediaOpen, HostMediaClose, HostMediaPaused, HostMediaVolume, HostMediaTexture, HostMediaStatus,
   HostOffloadSession, HostOffloadSubmit, HostOffloadTake, HostOffloadCoverage,
   HostCreateNode,
   HostDestroyNode,
@@ -105,7 +107,7 @@ static char last_error[1024];
 static char debug_poll_buffer[32 * 1024];
 /* contracts/spec/spec.ts SVC_POLL_BUF + the terminating NUL. */
 static char svc_poll_buffer[8192 + 1];
-static uint8_t coverage_pixels[512 * 16 * 4];
+static uint8_t coverage_pixels[16384 * 4];
 static bool coverage_used;
 
 static void set_error(const char *message) {
@@ -241,6 +243,26 @@ static JSValue host_operation(
   size_t text_length = 0;
 
   switch ((HostOperation)magic) {
+#ifdef POCKETJS_MEDIA
+    case HostMediaOpen: {
+      if(argc<3) return JS_FALSE;
+      size_t host_length=0,token_length=0;
+      const char *host=JS_ToCStringLen(ctx,&host_length,argv[0]);
+      const char *token=JS_ToCStringLen(ctx,&token_length,argv[2]);
+      bool ok=host && token && host_length<=15 && token_length==64 &&
+        media_open(host,(unsigned)argument_int(ctx,argc,argv,1),token);
+      if(host) JS_FreeCString(ctx,host);
+      if(token) JS_FreeCString(ctx,token);
+      return JS_NewBool(ctx,ok);
+    }
+    case HostMediaClose: media_close(); return JS_UNDEFINED;
+    case HostMediaPaused: media_paused(argc>0 && JS_ToBool(ctx,argv[0])); return JS_UNDEFINED;
+    case HostMediaVolume: media_volume((float)argument_float(ctx,argc,argv,0)); return JS_UNDEFINED;
+    case HostMediaTexture: return JS_NewInt32(ctx,media_texture_handle());
+    case HostMediaStatus: {
+      char status[640]; media_snapshot(status,sizeof status); return JS_NewString(ctx,status);
+    }
+#endif
     case HostCreateNode:
       return JS_NewInt32(ctx, ui_create_node((uint32_t)argument_int(ctx, argc, argv, 0)));
     case HostDestroyNode:
@@ -571,6 +593,16 @@ static void set_named_property(JSValueConst object, const uint8_t *name, size_t 
 }
 
 static void install_host(void) {
+#ifdef POCKETJS_MEDIA
+  JSValue media=JS_NewObject(context);
+  add_operation(media,"open",3,HostMediaOpen);
+  add_operation(media,"close",0,HostMediaClose);
+  add_operation(media,"paused",1,HostMediaPaused);
+  add_operation(media,"volume",1,HostMediaVolume);
+  add_operation(media,"texture",0,HostMediaTexture);
+  add_operation(media,"status",0,HostMediaStatus);
+  JS_SetPropertyStr(context,global,"media",media);
+#endif
 #ifdef POCKETJS_OFFLOAD
   JSValue offload = JS_NewObject(context);
   add_operation(offload, "uploadCoverage", 6, HostOffloadCoverage);
@@ -834,6 +866,9 @@ const char *qjs_last_error(void) {
 }
 
 void qjs_shutdown(void) {
+#ifdef POCKETJS_MEDIA
+  media_forget_guest();
+#endif
   if (context != NULL) {
     JS_FreeValue(context, frame_function);
     JS_FreeValue(context, global);

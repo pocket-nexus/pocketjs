@@ -1,10 +1,10 @@
 name: 3DS runtime contracts
 on:
   pull_request:
-    paths: ['hosts/3ds/**', 'contracts/**', 'tools/3ds*.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', '.github/workflows/3ds-runtime.yml']
+    paths: ['hosts/3ds/**', 'contracts/**', 'tools/3ds*.ts', 'tools/media-stream.ts', 'framework/src/media.ts', 'tests/media.test.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', '.github/workflows/3ds-runtime.yml']
   push:
     branches: [main]
-    paths: ['hosts/3ds/**', 'contracts/**', 'tools/3ds*.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', '.github/workflows/3ds-runtime.yml']
+    paths: ['hosts/3ds/**', 'contracts/**', 'tools/3ds*.ts', 'tools/media-stream.ts', 'framework/src/media.ts', 'tests/media.test.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', '.github/workflows/3ds-runtime.yml']
 permissions:
   contents: read
 jobs:
@@ -17,4 +17,4 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun test tests/3ds-profile.test.ts tests/3ds-runtime-state.test.ts tests/3ds-runtime-wire.test.ts tests/3ds-soc.test.ts tests/native-source.test.ts tests/blackberry-classic.test.ts
+      - run: bun test tests/3ds-profile.test.ts tests/3ds-runtime-state.test.ts tests/3ds-runtime-wire.test.ts tests/3ds-soc.test.ts tests/native-source.test.ts tests/blackberry-classic.test.ts tests/media.test.ts

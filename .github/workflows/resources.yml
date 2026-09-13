@@ -4,11 +4,15 @@ on:
     paths:
       - 'framework/src/resource*.ts'
       - 'framework/src/offload.ts'
+      - 'framework/src/keyboard-touch.ts'
+      - 'framework/src/indexed-image.ts'
       - 'framework/src/frame.ts'
       - 'framework/src/lifecycle.ts'
       - 'contracts/spec/offload.ts'
       - 'tests/resource*.test.ts'
       - 'tests/offload.test.ts'
+      - 'tests/indexed-image.test.ts'
+      - 'tests/keyboard-touch.test.ts'
       - 'package.json'
       - 'bun.lock'
       - '.github/workflows/resources.yml'
@@ -17,11 +21,15 @@ on:
     paths:
       - 'framework/src/resource*.ts'
       - 'framework/src/offload.ts'
+      - 'framework/src/keyboard-touch.ts'
+      - 'framework/src/indexed-image.ts'
       - 'framework/src/frame.ts'
       - 'framework/src/lifecycle.ts'
       - 'contracts/spec/offload.ts'
       - 'tests/resource*.test.ts'
       - 'tests/offload.test.ts'
+      - 'tests/indexed-image.test.ts'
+      - 'tests/keyboard-touch.test.ts'
       - 'package.json'
       - 'bun.lock'
       - '.github/workflows/resources.yml'
@@ -37,4 +45,4 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun test --conditions=browser tests/resource-cache.test.ts tests/resource-view.test.ts tests/resource.test.ts tests/offload.test.ts
+      - run: bun test --conditions=browser tests/resource-cache.test.ts tests/resource-view.test.ts tests/resource.test.ts tests/offload.test.ts tests/indexed-image.test.ts tests/keyboard-touch.test.ts

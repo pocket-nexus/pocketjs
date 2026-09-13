@@ -14,7 +14,7 @@ static void *produce(void *unused) {
 }
 int main(void) {
   _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "UI queue requires lock-free atomics");
-  uint8_t rgba[512 * 16 * 4];
+  uint8_t rgba[16384 * 4 + 1];
   assert(coverage_decode("5OTk", 4, 12, 1, 0xff123456, rgba) == 16);
   for (unsigned i = 0; i < 12; i++) {
     assert(rgba[i * 4] == 0x56 && rgba[i * 4 + 1] == 0x34 && rgba[i * 4 + 2] == 0x12);
@@ -35,6 +35,15 @@ int main(void) {
   assert(coverage_decode(narrow, sizeof narrow, 256, 16, 0xff123456, rgba) == 256);
   for (unsigned i = 4092; i < 4096; i++) assert(rgba[i * 4 + 3] == (i % 4) * 85);
   assert(coverage_decode("5OQ=", 4, 8, 1, 0xff123456, rgba) == 8);
+  /* A multiline text block fits the same packed wire budget. */
+  char tall[2304]; memset(tall, '/', sizeof tall);
+  rgba[16384 * 4] = 0x5a;
+  assert(coverage_decode(tall, sizeof tall, 192, 36, 0xff123456, rgba) == 256);
+  assert(rgba[(35 * 256 + 191) * 4 + 3] == 255);
+  assert(rgba[(35 * 256 + 192) * 4 + 3] == 0);
+  assert(rgba[(63 * 256 + 255) * 4 + 3] == 0);
+  assert(rgba[16384 * 4] == 0x5a);
+  assert(!coverage_decode(tall, sizeof tall, 512, 64, 0, rgba));
   assert(!coverage_decode("!!!!", 4, 12, 1, 0, rgba));
   assert(!coverage_decode("5OTk", 4, 516, 1, 0, rgba));
   assert(!coverage_decode("5OTk", 4, 12, 17, 0, rgba));

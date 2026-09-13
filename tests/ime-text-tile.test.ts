@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
 import { createTextTileRenderer } from "../tools/ime/text-tile.ts";
-import { createTextProvider } from "../tools/text-provider.ts";
+import { createTextProvider } from "../tools/text-glyph-provider.ts";
 const inter = resolve(import.meta.dir, "../assets/fonts/Inter-Regular.ttf");
 GlobalFonts.registerFromPath(inter, "IME Tile Test");
 const cjk = "/System/Library/Fonts/STHeiti Medium.ttc";

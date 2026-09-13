@@ -66,7 +66,7 @@ for (const [width, height] of [[320, 480], [360, 800]]) test(`Clear retains text
   const compositions = () => sent.filter(r => r.method === "ime.compose");
   function answerComposition(preedit: string, commit = "") {
     const request = compositions().at(-1)!;
-    replies.push(JSON.stringify({ id: request.id, payload: JSON.stringify({ preedit, caret: preedit.length, commit,
+    replies.push(JSON.stringify({ id: request.id, payload: JSON.stringify({ preedit, raw: preedit.replaceAll(" ", ""), rawCaret: preedit.replaceAll(" ", "").length, caret: preedit.length, commit,
       candidates: preedit ? ["你好", "呢"] : [], page: 0, last: false }) }));
   }
   function controlsInk() {
@@ -138,4 +138,36 @@ for (const [width, height] of [[320, 480], [360, 800]]) test(`Clear retains text
   expect(pixel(spaceX, keyY(3))).toEqual([255, 255, 255]); // mode label survives the trackpad branch
   await tap(72 * width / 320, keyY(3)); await idle(4); expect(controlsInk()).toBe(0); // EN
   expect(new Set(uploads).size).toBe(uploads.length);
+});
+
+for (const [width, height] of [[320, 480], [360, 800]]) test(`Clear offline editor can commit, switch mode and close at ${width}x${height}`, async () => {
+  let session = 0;
+  const sent: string[] = [];
+  const world = await bootWorld("clear-main.vue-vapor", 60, { offload: {
+    session: () => session, take: () => undefined, submit: (raw: string) => { sent.push(raw); return true; },
+  } }, undefined, { width, height, rasterDensity: 2 });
+  async function idle(n = 20) { for (let i = 0; i < n; i++) { world.frame(0); world.tick(); await Promise.resolve(); } }
+  async function tap(x: number, y: number) {
+    world.frame(0, undefined, [__packTouchWide(0, x, y)]); world.tick();
+    await idle(1); await idle(3);
+  }
+  const keyY = (row: number) => height - KB_H + KB_PAD + row * (KB_ROW_H + KB_GAP) + KB_ROW_H / 2;
+  const has = (s: string) => treeHasText(world.getTree(), s);
+  await idle(); await tap(100, 31); await idle(); await tap(100, 31); await idle();
+  await tap(224 * width / 320, keyY(2)); await tap(240 * width / 320, keyY(0));
+  expect(has("ni|")).toBe(true);
+  await tap(166 * width / 320, keyY(3)); await idle();
+  expect(has("Swipe right to completeni|")).toBe(true);
+  await tap(224 * width / 320, keyY(2)); await tap(72 * width / 320, keyY(3)); // raw n then EN
+  expect(has("Swipe right to completenin|")).toBe(true);
+  await tap(32 * width / 320, keyY(1));
+  expect(has("Swipe right to completenina|")).toBe(true);
+  await tap(width - 20, keyY(3)); await idle(); // Return closes
+  expect(has("Swipe right to completenina")).toBe(true);
+  expect(has("Swipe right to completenina|")).toBe(false);
+  expect(sent).toHaveLength(0);
+  session = 2; await idle(35);
+  expect(sent.map(raw => JSON.parse(raw).method)).not.toContain("ime.compose");
+  await tap(100, 31); await idle(); // another edit proves the app remains interactive
+  expect(has("Swipe right to completenina|")).toBe(true);
 });

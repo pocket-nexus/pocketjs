@@ -1,5 +1,17 @@
 # PocketJS for PS Vita
 
+For physical rendering acceptance, build with `bun tools/vita.ts hero --features=bench`.
+The live-input build saves three **GXM render-buffer readbacks** and 720 CPU frame
+samples under `ux0:/data/pocketjs-bench/<bundle-hash>/`. Keep it running for at
+least 15 seconds, exercise the controls, then return to VitaShell to retrieve
+the receipts. The `.rgba` files use the dimensions in `receipt.json`.
+The captures wait for GPU completion; exclude capture frames 120, 360, 600 and
+their following frame intervals from timing statistics. `cpu_frame_us` ends at
+swap submission; it does not measure GPU execution or input-to-panel latency.
+This feature keeps physical input and does not use the CPU golden rasterizer.
+An emulator run still requires separate evidence from physical hardware.
+Normal builds do not enable these captures or file writes.
+
 `pocketjs-vita` is the native PS Vita host for PocketJS. It embeds QuickJS,
 feeds the normal PocketJS pak, renders the standard DrawList with vita2d/GXM,
 and reads the physical Vita controller. Applications do not need a

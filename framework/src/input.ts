@@ -688,10 +688,8 @@ function cursorTarget(hit: NodeMirror | null): NodeMirror | null {
  * (the system OSK maps contacts through this). Null when the host has no
  * hitTest op or nothing focusable is under the point.
  */
-export function hitFocusable(x: number, y: number): NodeMirror | null {
-  const ops = getOps();
-  if (!ops.hitTest) return null;
-  return cursorTarget(findMirror(hitRoot ?? root, ops.hitTest(x, y)));
+export function hitFocusable(x: number, y: number, surface: SurfaceId = "primary"): NodeMirror | null {
+  return cursorTarget(hitNode(x, y, surface));
 }
 
 /**

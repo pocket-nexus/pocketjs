@@ -69,10 +69,10 @@ export function createCandidatePanel(options: {
       }
       state = next; chinese = mode;
       if (!loaded && !next.pending && next.page === 0) words = next.candidates.slice();
-      if (!mode || !next.composing) close();
+      if (!mode || !next.composing || !next.connected || next.error) close();
       layout();
     },
-    toggle() { if (!chinese || !state?.composing) return; open ? close() : open = true; },
+    toggle() { if (!chinese || !state?.composing || !state.connected || state.error) return; open ? close() : open = true; },
     close,
     isOpen: () => open,
     max: () => Math.max(0, (cells.at(-1)?.y ?? 0) + CANDIDATE_ROW_H - options.height),

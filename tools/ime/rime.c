@@ -98,6 +98,9 @@ int main(int argc, char **argv) {
     int has = api->get_context(session, &ctx);
     printf("{\"commit\":"); string(committed);
     printf(",\"preedit\":"); string(has ? ctx.composition.preedit : "");
+    const char *raw = api->get_input(session);
+    printf(",\"raw\":"); string(raw);
+    printf(",\"rawCaret\":%d", caret_utf16(raw, (int)api->get_caret_pos(session)));
     printf(",\"caret\":%d,\"page\":%d,\"last\":%s,\"candidates\":[",
       has ? caret_utf16(ctx.composition.preedit, ctx.composition.cursor_pos) : 0, has ? ctx.menu.page_no : 0, !has || ctx.menu.is_last_page ? "true" : "false");
     if (has) for (int i = 0; i < ctx.menu.num_candidates && i < 5; i++) {

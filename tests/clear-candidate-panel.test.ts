@@ -32,7 +32,7 @@ test("candidate panel scroll does not select; tap uses absolute index; mode chan
   let complete: Parameters<Parameters<typeof createCandidatePanel>[0]["browse"]>[1];
   panel = createCandidatePanel({ width: 320, height: 180, scroller: scroll, select: index => selected.push(index),
     browse(offset, callback) { reads.push(offset); complete = callback; return 1; } });
-  const state: ImeState = { preedit: "ni", caret: 2, candidates: ["你"], commit: "", page: 0, last: false,
+  const state: ImeState = { preedit: "ni", raw: "ni", rawCaret: 2, caret: 2, candidates: ["你"], commit: "", page: 0, last: false,
     pending: false, connected: true, error: "", revision: 1, composing: true };
   panel.setState(state, true); panel.toggle(); panel.step();
   expect(reads).toEqual([0]);

@@ -28,6 +28,7 @@
  */
 
 #include "gfx.h"
+#include "media.h"
 
 #include <3ds.h>
 #include <citro3d.h>
@@ -449,6 +450,9 @@ static void sync_resources(void) {
     ImageTexture *entry = &images[slot];
     PocketTexture source;
     if (slot < slots && ui_texture_at((uint32_t)slot, &source)) {
+#ifdef POCKETJS_MEDIA
+      if (media_texture(source.handle)) { release_image(entry); continue; }
+#endif
       if (entry->live && entry->handle == source.handle && entry->revision == source.revision) {
         continue;
       }
@@ -492,6 +496,10 @@ static void sync_resources(void) {
 
 static C3D_Tex *image_texture(int32_t handle, float *u_scale, float *v_scale) {
   if (handle < 0) return NULL;
+#ifdef POCKETJS_MEDIA
+  C3D_Tex *native_media=media_texture(handle);
+  if(native_media) { *u_scale=*v_scale=1; return native_media; }
+#endif
   size_t slot = (size_t)((uint32_t)handle & ui_texture_slot_mask());
   if (slot >= image_capacity) return NULL;
   ImageTexture *entry = &images[slot];

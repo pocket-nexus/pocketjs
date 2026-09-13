@@ -173,6 +173,7 @@ AccessControlInfo:
    - ir:u
    - ir:USER
    - mic:u
+   - mvd:STD
    - ndm:u
    - news:u
    - nwm::UDS
@@ -216,6 +217,8 @@ SystemControlInfo:
     ir: 0x0004013000003302
     mcu: 0x0004013000001f02
     mic: 0x0004013000002002
+    # New 3DS MVD module; PM skips the New-only title on Old 3DS.
+    mvd: 0x0004013020004102
     ndm: 0x0004013000002b02
     news: 0x0004013000003502
     nfc: 0x0004013000004002

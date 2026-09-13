@@ -1,0 +1,22 @@
+[package]
+name = "pocket-text"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Experimental portable worker-owned text layout for PocketJS io.offload"
+
+[workspace]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+pocketjs-core = { path = "../../core", features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cosmic-text = { version = "=0.19.0", default-features = false, features = ["std", "swash"] }
+base64 = "0.22"
+
+[profile.release]
+opt-level = "s"
+lto = true

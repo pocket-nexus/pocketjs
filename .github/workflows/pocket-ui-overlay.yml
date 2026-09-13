@@ -10,6 +10,7 @@ on:
       - 'framework/compiler/subpaths.ts'
       - 'tests/desktop-pointer.test.ts'
       - 'engine/crates/pocket-ui-wgpu/**'
+      - 'engine/core/**'
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/pocket3d/crates/pocket3d/src/app.rs'
       - 'engine/pocket3d/crates/pocket3d/src/input.rs'
@@ -34,6 +35,7 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun test tests/desktop-pointer.test.ts
+      - run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy

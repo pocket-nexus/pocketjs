@@ -1,5 +1,5 @@
 //! DrawList → wgpu. The third DrawList backend (after the PSP GE and the
-//! wasm software rasterizer), executing the closed 7-op set pinned in
+//! wasm software rasterizer), executing the DrawList operations pinned in
 //! spec.ts "DRAWLIST op format".
 //!
 //! The core's CPU clip stage guarantees every coordinate is inside
@@ -9,11 +9,13 @@
 //! upscale the result themselves (see `examples/uihost`).
 //!
 //! Color space: DrawList colors and pak images are sRGB-encoded; the shader
-//! linearizes them and the sRGB render target re-encodes on store.
+//! linearizes them for sRGB targets. UNORM targets retain encoded byte-space
+//! blending for the portable desktop compositor.
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use pocket3d::gpu::Gpu;
 use pocketjs_core::{TexView, Ui, spec};
+use std::collections::HashMap;
 
 /// One glyph atlas uploaded as an R8 grid texture (16 cells per row).
 /// Cells are stored at coverage resolution (logical cell × raster density);
@@ -31,6 +33,7 @@ struct FontTexture {
     tex_h: f32,
     cols: u32,
     glyph_count: u16,
+    revision: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +71,12 @@ enum TexBind {
     White,
     Font(u8),
     Image(i32),
+    Surface(u32),
+}
+
+struct SurfaceBind {
+    bind: wgpu::BindGroup,
+    logical: (u32, u32),
 }
 
 struct DrawCmd {
@@ -80,6 +89,8 @@ struct DrawCmd {
 /// Renders a `pocketjs_core::Ui`'s DrawList into any render target.
 pub struct UiRenderer {
     pipeline: wgpu::RenderPipeline,
+    image_format: wgpu::TextureFormat,
+    surfaces: HashMap<u32, SurfaceBind>,
     bind_layout: wgpu::BindGroupLayout,
     /// Linear sampler: fonts, the white pixel, and `TexView::linear` images.
     sampler: wgpu::Sampler,
@@ -148,7 +159,13 @@ impl UiRenderer {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[(
+                        "LINEAR_OUTPUT",
+                        if target_format.is_srgb() { 1.0 } else { 0.0 },
+                    )],
+                    ..Default::default()
+                },
                 targets: &[Some(wgpu::ColorTargetState {
                     format: target_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -225,6 +242,12 @@ impl UiRenderer {
 
         UiRenderer {
             pipeline,
+            image_format: if target_format.is_srgb() {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            },
+            surfaces: HashMap::new(),
             bind_layout,
             sampler,
             sampler_nearest,
@@ -236,6 +259,38 @@ impl UiRenderer {
             verts: Vec::new(),
             cmds: Vec::new(),
         }
+    }
+
+    /// Bind a host-owned child target outside the guest texture namespace.
+    /// The view must use this renderer's color encoding. Rebind only when the
+    /// target is recreated; rendering new content into it retains the binding.
+    pub fn set_surface(
+        &mut self,
+        gpu: &Gpu,
+        handle: u32,
+        view: &wgpu::TextureView,
+        logical: (u32, u32),
+    ) {
+        let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pocket-ui compositor surface"),
+            layout: &self.bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_nearest),
+                },
+            ],
+        });
+        self.surfaces.insert(handle, SurfaceBind { bind, logical });
+    }
+
+    /// Retire bindings when AppInstances close or fail.
+    pub fn retain_surfaces(&mut self, mut keep: impl FnMut(u32) -> bool) {
+        self.surfaces.retain(|handle, _| keep(*handle));
     }
 
     /// Build this frame's DrawList from `ui` and record it into `encoder` as
@@ -291,6 +346,19 @@ impl UiRenderer {
         scale: f32,
         load: wgpu::LoadOp<wgpu::Color>,
     ) -> Result<()> {
+        ensure!(
+            target_px.0 > 0 && target_px.1 > 0 && scale.is_finite() && scale > 0.0,
+            "invalid GPU viewport/scale"
+        );
+        let mut at = 0;
+        while at < words.len() {
+            let len = pocketjs_core::compositor::draw_op_len(words, at)
+                .ok_or_else(|| anyhow::anyhow!("invalid DrawList at word {at}"))?;
+            at = at
+                .checked_add(len)
+                .filter(|end| *end <= words.len())
+                .ok_or_else(|| anyhow::anyhow!("truncated DrawList"))?;
+        }
         self.sync_textures(gpu, ui);
         self.build_batches(words, target_px, scale);
 
@@ -347,6 +415,10 @@ impl UiRenderer {
                         None => continue,
                     }
                 }
+                TexBind::Surface(handle) => match self.surfaces.get(&handle) {
+                    Some(surface) => &surface.bind,
+                    None => continue,
+                },
                 TexBind::Image(handle) => {
                     // Generation-tagged handle → slot; draw only while the
                     // cached entry is for this exact handle. A stale handle
@@ -446,6 +518,9 @@ impl UiRenderer {
         while i < words.len() {
             match words[i] {
                 spec::draw_op::RECT => {
+                    if cur_tex != TexBind::White {
+                        flush!(TexBind::White, scissor);
+                    }
                     if i + 4 > words.len() {
                         break;
                     }
@@ -466,6 +541,9 @@ impl UiRenderer {
                     i += 4;
                 }
                 spec::draw_op::GRAD_RECT => {
+                    if cur_tex != TexBind::White {
+                        flush!(TexBind::White, scissor);
+                    }
                     if i + 6 > words.len() {
                         break;
                     }
@@ -651,8 +729,47 @@ impl UiRenderer {
                     i += 8 + (words[i + 7] as usize).div_ceil(4);
                 }
                 spec::draw_op::SURFACE_QUAD => {
-                    if i + 9 > words.len() {
-                        break;
+                    let handle = words[i + 1];
+                    if let Some(surface) = self.surfaces.get(&handle) {
+                        let logical = surface.logical;
+                        let (x, y) = (f32::from_bits(words[i + 2]), f32::from_bits(words[i + 3]));
+                        let w = f32::from_bits(words[i + 4]).min(logical.0 as f32);
+                        let h = f32::from_bits(words[i + 5]).min(logical.1 as f32);
+                        if x.is_finite()
+                            && y.is_finite()
+                            && w.is_finite()
+                            && h.is_finite()
+                            && w > 0.0
+                            && h > 0.0
+                            && logical.0 > 0
+                            && logical.1 > 0
+                        {
+                            let saved = scissor;
+                            let (cx, cy) = xy(words[i + 6]);
+                            let (cw, ch) = wh(words[i + 7]);
+                            let x0 = (cx.max(0.0).ceil() as u32).max(saved.0).min(target_px.0);
+                            let y0 = (cy.max(0.0).ceil() as u32).max(saved.1).min(target_px.1);
+                            let x1 = ((cx + cw).max(0.0).ceil() as u32)
+                                .min(saved.0 + saved.2)
+                                .min(target_px.0);
+                            let y1 = ((cy + ch).max(0.0).ceil() as u32)
+                                .min(saved.1 + saved.3)
+                                .min(target_px.1);
+                            flush!(
+                                TexBind::Surface(handle),
+                                (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+                            );
+                            quad(
+                                &mut self.verts,
+                                [x * s, y * s],
+                                [(x + w) * s, (y + h) * s],
+                                [0.0, 0.0],
+                                [w / logical.0 as f32, h / logical.1 as f32],
+                                [0xffffffff; 4],
+                                MODE_IMAGE,
+                            );
+                            flush!(TexBind::White, saved);
+                        }
                     }
                     i += 9;
                 }
@@ -674,29 +791,30 @@ impl UiRenderer {
 
     // ---- texture sync ---------------------------------------------------------
 
-    /// Mirror the core's textures into GPU resources. Font atlases are
-    /// append-only; image slots are not — `freeTexture` empties a slot and
+    /// Mirror the core's textures into GPU resources. Both font and image
+    /// slots have content revisions; `freeTexture` empties a slot and
     /// a later upload reuses it under a new generation-tagged handle, so
     /// each slot re-uploads whenever its current handle or content revision
     /// changes and drops its cache entry when the core frees it.
     fn sync_textures(&mut self, gpu: &Gpu, ui: &Ui) {
-        // Font slots. A slot re-uploads when its glyph count moved — hosts
-        // may extend an atlas at runtime (IME input rasterizing new
-        // codepoints) and reload it via loadFontAtlas.
+        // Replacements can change coverage or metrics without changing the
+        // glyph count (theme switch or runtime glyph delivery).
         if self.fonts.len() < spec::MAX_FONT_SLOTS {
             self.fonts.resize_with(spec::MAX_FONT_SLOTS, || None);
         }
         for slot in 0..spec::MAX_FONT_SLOTS as u8 {
             let Some(atlas) = ui.font_atlas(slot) else {
+                self.fonts[slot as usize] = None;
                 continue;
             };
             if self.fonts[slot as usize]
                 .as_ref()
-                .is_some_and(|f| f.glyph_count == atlas.glyph_count)
+                .is_some_and(|f| f.revision == ui.font_atlas_revision(slot))
             {
                 continue;
             }
-            self.fonts[slot as usize] = Some(self.upload_font(gpu, atlas));
+            self.fonts[slot as usize] =
+                Some(self.upload_font(gpu, atlas, ui.font_atlas_revision(slot)));
         }
         // Image texture slots.
         let slots = ui.texture_slot_count();
@@ -723,7 +841,12 @@ impl UiRenderer {
         }
     }
 
-    fn upload_font(&self, gpu: &Gpu, atlas: &pocketjs_core::text::Atlas) -> FontTexture {
+    fn upload_font(
+        &self,
+        gpu: &Gpu,
+        atlas: &pocketjs_core::text::Atlas,
+        revision: u64,
+    ) -> FontTexture {
         // Cells upload at coverage resolution (logical × raster density) —
         // a density-2 atlas keeps its full detail for scaled rendering.
         let (cov_w, cov_h) = (atlas.coverage_width(), atlas.coverage_height());
@@ -804,6 +927,7 @@ impl UiRenderer {
             tex_h: tex_h as f32,
             cols,
             glyph_count: atlas.glyph_count,
+            revision,
         }
     }
 
@@ -825,7 +949,7 @@ impl UiRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: self.image_format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });

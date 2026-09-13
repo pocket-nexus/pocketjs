@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-use crate::{Collider, Entity, EntityId, ReactiveState, Transform, World, WorldConfig};
+use crate::{Entity, EntityId, ReactiveState, Transform, World, WorldConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TransportSurface {
@@ -407,19 +407,20 @@ fn sphere_hit(from: Vec3, delta: Vec3, center: Vec3, radius: f32) -> Option<f32>
 }
 
 fn collider_hit(from: Vec3, to: Vec3, entity: &Entity) -> Option<f32> {
-    let collider = entity.collider?;
-    let scale = entity.transform.scale.abs().max_element();
-    let radius = collider.radius() * scale;
-    if !radius.is_finite() || radius <= 0.0 {
+    entity.collider?;
+    // Water, contacts and locomotion must agree on one world-space shape.
+    let (start, end, radius) = crate::world::collider_segment(entity);
+    if !start.is_finite() || !end.is_finite() || !radius.is_finite() || radius <= 0.0 {
         return None;
     }
-    let axis = entity.transform.rotation * Vec3::Y;
-    let half = collider.half_height() * scale;
-    let center = entity.transform.position;
+    let segment = end - start;
+    let half = segment.length() * 0.5;
+    let center = (start + end) * 0.5;
     let delta = to - from;
-    if matches!(collider, Collider::Sphere { .. }) || half <= 1e-7 {
+    if half <= 1e-7 {
         return sphere_hit(from, delta, center, radius);
     }
+    let axis = segment / (2.0 * half);
     let local = from - center;
     let axial = local.dot(axis);
     let radial = local - axis * axial;
@@ -440,8 +441,8 @@ fn collider_hit(from: Vec3, to: Vec3, entity: &Entity) -> Option<f32> {
             }
         }
     }
-    hits.extend(sphere_hit(from, delta, center - axis * half, radius));
-    hits.extend(sphere_hit(from, delta, center + axis * half, radius));
+    hits.extend(sphere_hit(from, delta, start, radius));
+    hits.extend(sphere_hit(from, delta, end, radius));
     hits.into_iter().min_by(f32::total_cmp)
 }
 
@@ -489,7 +490,7 @@ pub(crate) fn trace_exposure(
 mod tests {
     use super::*;
     use crate::{
-        EntityBundle, Environment, EnvironmentSample, FlatEnvironment, Interaction,
+        Collider, EntityBundle, Environment, EnvironmentSample, FlatEnvironment, Interaction,
         ReactiveMaterial,
     };
     use glam::Quat;
@@ -555,6 +556,55 @@ mod tests {
                 < 2e-4,
             "{report:?}"
         );
+    }
+
+    #[test]
+    fn water_uses_collision_dimensions_under_nonuniform_and_mirrored_scale() {
+        // Invariant: collision and water delivery use the same world capsule:
+        // X/Z scale its radius, Y scales its axial segment. Spheres use max XYZ.
+        for (capsule, scale, radius, half) in [
+            (true, Vec3::new(2.0, 0.5, 1.0), 0.9, 0.2),
+            (true, Vec3::new(0.5, 3.0, 0.75), 0.3375, 1.2),
+            (true, Vec3::new(-0.5, -2.0, -1.5), 0.675, 0.8),
+            (true, Vec3::new(1.0, 0.0, 2.0), 0.9, 0.0),
+            (false, Vec3::new(0.5, 3.0, -1.0), 1.35, 0.0),
+        ] {
+            for rotation in [Quat::IDENTITY, Quat::from_rotation_z(0.7)] {
+                let mut world = world();
+                let center = Vec3::new(2.0, 3.0, -1.0);
+                let id = receiver(&mut world, center, capsule, 2.0);
+                let entity = world.entity_mut(id).unwrap();
+                entity.transform.scale = scale;
+                entity.transform.rotation = rotation;
+                let (a, b, r) = crate::world::collider_segment(entity);
+                assert!((r - radius).abs() < 1e-6);
+                assert!((a.distance(b) - 2.0 * half).abs() < 1e-6);
+                // Test both the axial tip and radial side, just outside/inside.
+                for (axis, extent) in [(Vec3::Y, half + radius), (Vec3::X, radius)] {
+                    for (offset, expected_hit) in [(0.01, false), (-0.01, true)] {
+                        let origin = center + rotation * axis * (extent + offset);
+                        let emission = WaterEmission {
+                            points: vec![
+                                origin + rotation * Vec3::Z * 4.0,
+                                origin - rotation * Vec3::Z * 4.0,
+                            ],
+                            amount: 0.1,
+                            ..pulse()
+                        };
+                        let distance = world.water_path_distance(&emission);
+                        assert_eq!(
+                            distance < 8.0,
+                            expected_hit,
+                            "capsule={capsule}, scale={scale:?}, axis={axis:?}, offset={offset}"
+                        );
+                        let mut report = TransportReport::default();
+                        world.transport_water(&emission, WaterSource::Emission, &mut report);
+                        assert_eq!(!report.water.is_empty(), expected_hit);
+                        balance(&report);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

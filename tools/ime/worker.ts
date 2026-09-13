@@ -2,7 +2,7 @@ import { dispatchOffload } from "../offload-provider.ts";
 import { validImeKeys, validImeBrowse } from "../../contracts/spec/ime.ts";
 import { GlobalFonts } from "@napi-rs/canvas";
 import { createTextTileRenderer } from "./text-tile.ts";
-import { createTextProvider } from "../text-provider.ts";
+import { createTextProvider } from "../text-glyph-provider.ts";
 declare const self: Worker;
 let enginePort = 0, engineToken = "";
 async function compose(payload: string, browse = false) {

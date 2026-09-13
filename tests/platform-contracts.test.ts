@@ -219,6 +219,8 @@ describe("platform registry", () => {
     expect(POCKET_TARGETS.psp.capabilities).toEqual([
       "input.analog.left",
       "input.buttons",
+      "io.offload",
+      "text.layout.offload",
       "input.cursor",
       "audio.pcm",
       "text.glyphs.baked",
@@ -278,7 +280,8 @@ describe("platform registry", () => {
       "input.buttons",
       "display.viewport.live",
       "text.glyphs.baked",
-      "text.layout.native",
+      "io.offload",
+      "text.layout.offload",
     ]);
     expect(POCKET_TARGETS["macos-app"].roleCapabilities).toEqual({
       systemUI: ["ui.compositor-surfaces"],
@@ -307,7 +310,8 @@ describe("platform registry", () => {
         "input.buttons",
         "display.viewport.live",
         "text.glyphs.baked",
-        "text.layout.native",
+        "io.offload",
+      "text.layout.offload",
       ],
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
     });
@@ -330,6 +334,8 @@ describe("platform registry", () => {
         "input.buttons",
         "display.viewport.live",
         "text.glyphs.baked",
+        "io.offload",
+        "text.layout.offload",
       ],
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
     });
@@ -368,16 +374,13 @@ describe("platform registry", () => {
 });
 
 describe("semantic resolution", () => {
-  test("the note resolves native text on macos-app and baked text elsewhere", async () => {
-    // The flagship contract behind tools/macos.ts's --native-text flag:
-    // text.layout.native is an ENHANCEMENT — true exactly where the gpui
-    // host implements it, false on the widget shell, and never a hard
-    // requirement (the note keeps running on macos-widget).
+  test("the legacy note uses baked text on portable desktop hosts", async () => {
+    // Portable hosts never advertise OS text layout. Async text is explicit.
     const note = await Bun.file(new URL("../apps/note/pocket.json", import.meta.url)).json();
     const onApp = validateAndResolveBuildPlan(note, { target: "macos-app" });
     expect(onApp.ok).toBe(true);
     if (!onApp.ok) return;
-    expect(onApp.plan.features["text.layout.native"]).toBe(true);
+    expect(onApp.plan.features["text.layout.native"]).toBe(false);
     expect(onApp.plan.features["text.glyphs.runtime"]).toBe(false);
     expect(onApp.plan.target.hostAbi).toBe(4);
 
@@ -543,6 +546,7 @@ describe("semantic resolution", () => {
       notifications: [true, true, false, true],
       settings: [true, true, false, true],
       stats: [true, true, false, true],
+      "text-offload": [true, false, false, true], // requires a supported companion transport
       "vue-sfc-lab": [true, true, false, true],
       zoomlab: [true, true, false, true],
     };
@@ -570,6 +574,14 @@ describe("semantic resolution", () => {
     // manifests are shown — the note stays off the landing/playground.
     const note = await Bun.file(new URL("../apps/note/pocket.json", import.meta.url)).json();
     expect(validateAndResolveBuildPlan(note, { target: "psp" }).ok).toBe(false);
+  });
+
+  test("portable text admission requires its offload transport declaration", async () => {
+    const manifest = await Bun.file(new URL("../apps/text-offload/pocket.json", import.meta.url)).json();
+    manifest.engine.capabilities.requires = manifest.engine.capabilities.requires.filter((cap: string) => cap !== "io.offload");
+    for (const target of ["psp", "macos-app"] as const) {
+      expect(validateAndResolveBuildPlan(manifest, { target }).ok).toBe(false);
+    }
   });
 
   test("viewport policy: legacy shorthand, dynamic-required, fixed-unhosted", async () => {

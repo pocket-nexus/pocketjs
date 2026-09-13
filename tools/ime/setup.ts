@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { resolve, join } from "node:path";
 const root = resolve(import.meta.dir, "../..");
 const data = resolve(Bun.argv[2] ?? join(root, ".pocket/ime"));
@@ -25,6 +25,7 @@ cpSync(join(root, "tools/ime/pocket_pinyin.schema.yaml"), join(data, "pocket_pin
 writeFileSync(join(data, "default.custom.yaml"), 'patch:\n  schema_list:\n    - schema: pocket_pinyin\n');
 run([join(prefix, "bin/rime_deployer"), "--build", data, data, join(data, "build")]);
 run(["cc", "-O2", "-Wall", "-Wextra", "-Werror", `-I${prefix}/include`, `-L${prefix}/lib`,
-  "-lrime", join(root, "tools/ime/rime.c"), "-o", join(data, "pocket-rime")]);
+  "-lrime", join(root, "tools/ime/rime.c"), "-o", join(data, "pocket-rime.next")]);
+renameSync(join(data, "pocket-rime.next"), join(data, "pocket-rime"));
 writeFileSync(join(data, "sources.json"), JSON.stringify({ dependencies, schema: readFileSync(join(data, "pocket_pinyin.schema.yaml"), "utf8") }, null, 2));
 console.log(`IME engine and dictionaries: ${data}`);

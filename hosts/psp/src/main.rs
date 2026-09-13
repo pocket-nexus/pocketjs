@@ -531,7 +531,7 @@ unsafe fn run_guest(
     static mut DBG_PROBED: bool = false;
     if !DBG_PROBED {
         DBG_PROBED = true;
-        if dbg::init() {
+        if !pocketjs_psp::offload::enabled() && dbg::init() {
             trace("run: devtools mailbox active");
         }
     }
@@ -656,6 +656,7 @@ unsafe fn run_guest(
         let analog = pocketjs_core::spec::ANALOG_CENTER as i32;
 
         let mut args = [JS_NewInt32(ctx, mask), JS_NewInt32(ctx, analog)];
+        pocketjs_psp::offload::frame(mask as u32, analog as u32);
         let r = JS_Call(ctx, frame_fn, global, 2, args.as_mut_ptr());
         #[cfg(feature = "bench")]
         let bench_after_js = bench_now_us();
@@ -782,6 +783,7 @@ unsafe fn run_guest(
             vid::close(ffi::ui()); // stops audio, frees the plane (Ui alive)
             audio_mod::reset(); // guest-scoped streams die with their guest
             svc::reset();
+            pocketjs_psp::offload::reset();
             JS_FreeValue(ctx, frame_fn);
             JS_FreeValue(ctx, global);
             JS_FreeContext(ctx);

@@ -30,12 +30,8 @@ use pocketjs_core::raster;
 
 static mut UI: Option<Ui> = None;
 static mut FRAMEBUFFER: Vec<u8> = Vec::new();
-#[derive(Clone)]
-struct CompositorRaster {
-    pixels: Vec<u8>,
-    width: u32,
-    height: u32,
-}
+use pocketjs_core::compositor::CompositorRaster;
+static mut AUXILIARY_FRAMEBUFFER: Vec<u8> = Vec::new();
 
 /// Browser System hosts upload visible child AppInstance framebuffers here.
 /// Values are arbitrary-size RGBA rasters indexed by the shell's compositor
@@ -81,6 +77,7 @@ pub extern "C" fn ui_init(raster_density: u32) {
     unsafe {
         UI = Some(Ui::new_with_raster_density(raster_density.max(1)));
         FRAMEBUFFER.clear();
+        AUXILIARY_FRAMEBUFFER.clear();
         COMPOSITOR_RASTERS.clear();
         COMPOSITOR_FRAMES.clear();
         DAMAGE_TRACKER = DamageTracker::new();
@@ -92,6 +89,41 @@ pub extern "C" fn ui_init(raster_density: u32) {
 #[no_mangle]
 pub extern "C" fn ui_set_viewport(width: f32, height: f32) {
     ui().set_viewport(width, height);
+}
+
+#[no_mangle]
+pub extern "C" fn ui_create_auxiliary_surface(width: f32, height: f32) -> i32 {
+    if !width.is_finite() || !height.is_finite() || width < 1.0 || height < 1.0 || width > 4096.0 || height > 4096.0 { return 0; }
+    ui().create_auxiliary_surface(width, height)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_hit_test_auxiliary(x: f32, y: f32) -> i32 { ui().hit_test_auxiliary(x, y) }
+#[no_mangle]
+pub extern "C" fn ui_hit_test_bounds_auxiliary(x: f32, y: f32) -> i32 { ui().hit_test_bounds_auxiliary(x, y) }
+
+struct AuxiliaryResources<'a>(&'a Ui);
+impl pocketjs_core::resources::RenderResources for AuxiliaryResources<'_> {
+    fn viewport(&self) -> (f32, f32) { self.0.auxiliary_viewport().unwrap() }
+    fn raster_revision(&self) -> u64 { self.0.raster_revision() }
+    fn texture(&self, handle: i32) -> Option<pocketjs_core::TexView<'_>> { self.0.texture(handle) }
+    fn font_atlas(&self, slot: u8) -> Option<pocketjs_core::resources::FontView<'_>> {
+        pocketjs_core::resources::RenderResources::font_atlas(self.0, slot)
+    }
+}
+
+/// Auxiliary pixels share textures and frame time, with their own viewport.
+#[no_mangle]
+pub extern "C" fn ui_render_auxiliary() -> *const u8 {
+    let u = ui();
+    let Some((width, height)) = u.auxiliary_viewport() else { return core::ptr::null(); };
+    let Some(draw) = u.draw_auxiliary() else { return core::ptr::null(); };
+    let words = draw.words.clone();
+    unsafe {
+        AUXILIARY_FRAMEBUFFER.resize(width as usize * height as usize * 4, 0);
+        raster::render(&AuxiliaryResources(u), &words, &mut AUXILIARY_FRAMEBUFFER);
+        AUXILIARY_FRAMEBUFFER.as_ptr()
+    }
 }
 
 /// Allocate `len` bytes of scratch in linear memory for host -> wasm buffers.
@@ -214,6 +246,7 @@ pub extern "C" fn ui_compositor_upload_surface(
             pixels: bytes(ptr, len).to_vec(),
             width,
             height,
+            density: 1,
         });
         i32::try_from(surface).unwrap_or(-1)
     }
@@ -376,23 +409,6 @@ fn draw_hash(words: &[u32]) -> u64 {
     hash
 }
 
-fn draw_op_len(words: &[u32], at: usize) -> Option<usize> {
-    let op = *words.get(at)?;
-    Some(match op {
-        pocketjs_core::spec::draw_op::RECT => 4,
-        pocketjs_core::spec::draw_op::GRAD_RECT => 6,
-        pocketjs_core::spec::draw_op::GLYPH_RUN => 3 + 2 * ((*words.get(at + 1)? >> 16) as usize),
-        pocketjs_core::spec::draw_op::TEX_QUAD => 9,
-        pocketjs_core::spec::draw_op::SCISSOR => 3,
-        pocketjs_core::spec::draw_op::SCISSOR_POP => 1,
-        pocketjs_core::spec::draw_op::TRI => 7,
-        pocketjs_core::spec::draw_op::TEX_TRI => 12,
-        pocketjs_core::spec::draw_op::TEXT_RUN => 8 + (*words.get(at + 7)? as usize).div_ceil(4),
-        pocketjs_core::spec::draw_op::SURFACE_QUAD => 9,
-        _ => return None,
-    })
-}
-
 #[inline]
 #[cfg(test)]
 fn packed_xy(x: i32, y: i32) -> u32 {
@@ -405,157 +421,10 @@ fn packed_wh(width: i32, height: i32) -> u32 {
     (width as u16 as u32) | ((height as u16 as u32) << 16)
 }
 
-fn render_segment(
-    ui: &Ui,
-    inherited_scissors: &[[u32; 3]],
-    words: &[u32],
-    framebuffer: &mut [u8],
-    scale: u32,
-) {
-    if words.is_empty() {
-        return;
-    }
-    let mut staged = Vec::with_capacity(inherited_scissors.len() * 3 + words.len());
-    for scissor in inherited_scissors {
-        staged.extend_from_slice(scissor);
-    }
-    staged.extend_from_slice(words);
-    raster::render_scaled_over(ui, &staged, framebuffer, scale);
-}
-
-fn blend_surface(
-    entry: &CompositorRaster,
-    op: &[u32],
-    framebuffer: &mut [u8],
-    viewport_width: u32,
-    viewport_height: u32,
-    scale: u32,
-) {
-    let full_x = f32::from_bits(op[2]);
-    let full_y = f32::from_bits(op[3]);
-    let full_w = f32::from_bits(op[4]).min(entry.width as f32).max(0.0);
-    let full_h = f32::from_bits(op[5]).min(entry.height as f32).max(0.0);
-    let clip_xy = op[6];
-    let clip_wh = op[7];
-    let clip_x = clip_xy as u16 as i16 as i32;
-    let clip_y = (clip_xy >> 16) as u16 as i16 as i32;
-    let clip_w = (clip_wh & 0xffff) as i32;
-    let clip_h = (clip_wh >> 16) as i32;
-    let scale_i = scale as i32;
-    let width = viewport_width as i32 * scale_i;
-    let height = viewport_height as i32 * scale_i;
-    let x0 = (clip_x * scale_i)
-        .max((full_x * scale as f32).ceil() as i32)
-        .max(0);
-    let y0 = (clip_y * scale_i)
-        .max((full_y * scale as f32).ceil() as i32)
-        .max(0);
-    let x1 = ((clip_x + clip_w) * scale_i)
-        .min(((full_x + full_w) * scale as f32).ceil() as i32)
-        .min(width);
-    let y1 = ((clip_y + clip_h) * scale_i)
-        .min(((full_y + full_h) * scale as f32).ceil() as i32)
-        .min(height);
-    if x0 >= x1 || y0 >= y1 {
-        return;
-    }
-
-    for y in y0..y1 {
-        let source_y = (((y as f32 + 0.5) / scale as f32) - full_y).floor() as i32;
-        if !(0..entry.height as i32).contains(&source_y) {
-            continue;
-        }
-        for x in x0..x1 {
-            let source_x = (((x as f32 + 0.5) / scale as f32) - full_x).floor() as i32;
-            if !(0..entry.width as i32).contains(&source_x) {
-                continue;
-            }
-            let source = (source_y as usize * entry.width as usize + source_x as usize) * 4;
-            let destination = (y as usize * width as usize + x as usize) * 4;
-            let alpha = entry.pixels[source + 3] as u32;
-            if alpha == 0 {
-                continue;
-            }
-            if alpha == 255 {
-                framebuffer[destination..destination + 4]
-                    .copy_from_slice(&entry.pixels[source..source + 4]);
-                continue;
-            }
-            let inverse = 255 - alpha;
-            for channel in 0..3 {
-                framebuffer[destination + channel] = ((entry.pixels[source + channel] as u32
-                    * alpha
-                    + framebuffer[destination + channel] as u32 * inverse
-                    + 127)
-                    / 255) as u8;
-            }
-            framebuffer[destination + 3] =
-                (alpha + (framebuffer[destination + 3] as u32 * inverse + 127) / 255) as u8;
-        }
-    }
-}
-
-/// Composite arbitrary-size child rasters at their SURFACE_QUAD painter
-/// positions without entering the guest image texture namespace.
 fn render_composited_words(ui: &Ui, words: &[u32], framebuffer: &mut [u8], scale: u32) {
-    let (viewport_width, viewport_height) = ui.viewport();
-    raster::render_scaled(ui, &[], framebuffer, scale);
-    let mut inherited_scissors: Vec<[u32; 3]> = Vec::new();
-    let mut segment_scissors: Vec<[u32; 3]> = Vec::new();
-    let mut segment_start = 0usize;
-    let mut at = 0usize;
-    while at < words.len() {
-        let Some(len) = draw_op_len(words, at) else {
-            break;
-        };
-        let Some(end) = at.checked_add(len) else {
-            break;
-        };
-        if end > words.len() {
-            break;
-        }
-        match words[at] {
-            pocketjs_core::spec::draw_op::SURFACE_QUAD => {
-                render_segment(
-                    ui,
-                    &segment_scissors,
-                    &words[segment_start..at],
-                    framebuffer,
-                    scale,
-                );
-                let surface = words[at + 1] as usize;
-                if let Some(entry) =
-                    unsafe { COMPOSITOR_RASTERS.get(surface).and_then(Option::as_ref) }
-                {
-                    blend_surface(
-                        entry,
-                        &words[at..end],
-                        framebuffer,
-                        viewport_width as u32,
-                        viewport_height as u32,
-                        scale,
-                    );
-                }
-                segment_start = end;
-                segment_scissors = inherited_scissors.clone();
-            }
-            pocketjs_core::spec::draw_op::SCISSOR => {
-                inherited_scissors.push([words[at], words[at + 1], words[at + 2]]);
-            }
-            pocketjs_core::spec::draw_op::SCISSOR_POP => {
-                inherited_scissors.pop();
-            }
-            _ => {}
-        }
-        at = end;
+    unsafe {
+        pocketjs_core::compositor::render(ui, words, framebuffer, scale, &COMPOSITOR_RASTERS);
     }
-    render_segment(
-        ui,
-        &segment_scissors,
-        &words[segment_start..],
-        framebuffer,
-        scale,
-    );
 }
 
 // ---- DevTools ops (spec ops 18..22, docs/DEVTOOLS.md) -----------------------------
@@ -750,6 +619,40 @@ mod tests {
     }
 
     #[test]
+    fn shared_compositor_preserves_child_pixels_at_two_densities() {
+        for density in [1, 2] {
+            let mut ui = Ui::new();
+            ui.set_viewport(2.0, 1.0);
+            let pixels: Vec<u8> = (0..2 * density * density)
+                .flat_map(|i| [i as u8 * 20, 40, 80, 255])
+                .collect();
+            let surfaces = [
+                None,
+                Some(CompositorRaster {
+                    pixels: pixels.clone(),
+                    width: 2,
+                    height: 1,
+                    density,
+                }),
+            ];
+            let words = [
+                spec::draw_op::SURFACE_QUAD,
+                1,
+                0.0f32.to_bits(),
+                0.0f32.to_bits(),
+                2.0f32.to_bits(),
+                1.0f32.to_bits(),
+                packed_xy(0, 0),
+                packed_wh(2, 1),
+                1,
+            ];
+            let mut framebuffer = vec![0; pixels.len()];
+            pocketjs_core::compositor::render(&ui, &words, &mut framebuffer, density, &surfaces);
+            assert_eq!(framebuffer, pixels);
+        }
+    }
+
+    #[test]
     fn browser_compositor_keeps_child_between_shell_ops() {
         let mut ui = Ui::new();
         ui.set_viewport(4.0, 4.0);
@@ -761,6 +664,7 @@ mod tests {
                     pixels: red,
                     width: 3,
                     height: 2,
+                    density: 1,
                 }),
             ];
         }

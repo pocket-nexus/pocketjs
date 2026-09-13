@@ -206,7 +206,8 @@ against the other.
 
 ### On a desktop
 
-The same markdown editor shelled three ways on an Apple M3 Max
+Historical August 2026 results for the previous gpui host: the same markdown
+editor shelled three ways on an Apple M3 Max
 ([full report](./docs/bench/gpui-vs-tauri-electron-2026-08-18.md), reproduced by
 `bun tools/bench-desktop.ts`):
 
@@ -217,7 +218,7 @@ The same markdown editor shelled three ways on an Apple M3 Max
 | Idle resident memory | **83 MB** | 193 MB | 382 MB |
 | On disk | 10 MB | 9 MB | 242 MB |
 
-With a document open and no input, the pocket build redraws **about twice a
+In that benchmark, with a document open and no input, the pocket build redraws **about twice a
 second**: the caret blinking, and nothing else. The report also records where
 the pocket build loses. Its storm CPU rises with document length, because the
 editor re-wraps the whole document through the QuickJS interpreter on every

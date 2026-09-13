@@ -33,6 +33,7 @@
 #include "pocket_core.h"
 #include "qjs.h"
 #include "offload.h"
+#include "media.h"
 #include "devserver.h"
 #include "devmenu.h"
 #include "runtime.h"
@@ -728,6 +729,9 @@ int main(void) {
 #endif
   PocketRuntimeFailureLineage failures = {0};
   input_init();
+#ifdef POCKETJS_MEDIA
+  if (!media_start()) { media_stop(); fail("Media worker allocation failed"); }
+#endif
 #ifdef POCKETJS_OFFLOAD
   GuestChoice guest = package_choice(embedded, 0, &runtime_state);
   guest.commit_on_accept = false;
@@ -927,6 +931,9 @@ int main(void) {
 #endif
     offload_cpu_start = svcGetSystemTick();
     gfx_begin_frame();
+#ifdef POCKETJS_MEDIA
+    media_present();
+#endif
     if (!gfx_prepare_surface(0, ui_draw_list_ptr(), words, VIEW_W, VIEW_H) ||
         !gfx_prepare_surface(
           1,
@@ -1041,6 +1048,9 @@ int main(void) {
 #endif
   );
   offload_stop();
+#ifdef POCKETJS_MEDIA
+  media_stop();
+#endif
   input_shutdown();
   teardown_guest();
   C3D_FrameEnd(0);

@@ -1,6 +1,9 @@
 use pocketjs_core::spec;
 use pocketjs_vita::{graphics, input, switch, vita_log, Runtime};
 
+#[cfg(feature = "bench")]
+mod bench;
+
 #[cfg(feature = "capture")]
 static CAPTURE_INPUT: &str = env!("POCKETJS_CAPTURE_INPUT");
 #[cfg(feature = "capture")]
@@ -130,12 +133,16 @@ unsafe fn run_guest(app_index: usize) -> usize {
     // A newly booted guest starts latched. If SELECT is still held from the
     // launcher action that booted it, require a release before it can summon.
     let mut previous_select = true;
+    #[cfg(feature = "bench")]
+    let mut benchmark = bench::Bench::new();
     #[cfg(feature = "capture")]
     let wanted = capture_frames();
     #[cfg(feature = "capture")]
     let last_capture = wanted.iter().copied().max().unwrap_or(0);
 
     loop {
+        #[cfg(feature = "bench")]
+        benchmark.begin();
         #[cfg(feature = "capture")]
         let (mut buttons, analog, touches) = (
             scripted_buttons(GLOBAL_FRAME),
@@ -166,6 +173,10 @@ unsafe fn run_guest(app_index: usize) -> usize {
         runtime.tick();
         runtime.render();
         graphics::present();
+        #[cfg(feature = "bench")]
+        if let Err(error) = benchmark.end(GLOBAL_FRAME) {
+            vita_log(format_args!("Vita benchmark: {error}"));
+        }
 
         #[cfg(feature = "capture")]
         if wanted.contains(&GLOBAL_FRAME) {

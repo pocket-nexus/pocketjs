@@ -11,9 +11,11 @@ try {
     const input = keys(pinyin);
     const snapshot = await compose(input);
     assert.equal(snapshot.candidates[0], expected);
+    assert.equal(snapshot.raw, pinyin); assert.equal(snapshot.rawCaret, pinyin.length);
     const committed = await compose([...input, IME.select]);
     assert.equal(committed.commit, expected);
     assert.equal(committed.preedit, "");
+    assert.equal(committed.raw, ""); assert.equal(committed.rawCaret, 0);
     assert.deepEqual(await compose([...input, IME.select]), committed);
   }
   const first = await compose(keys("ni"));
@@ -40,6 +42,7 @@ try {
       assert.ok(next.caret <= previous.caret, `${word}: Left moved right at step ${step}`);
       if (step < word.length) assert.ok(next.caret < previous.caret, `${word}: Left must move one input character`);
       assert.equal(next.commit, "");
+      assert.equal(next.raw, word);
       previous = next;
     }
     assert.equal(previous.caret, 0);
@@ -49,6 +52,7 @@ try {
       assert.ok(next.caret >= previous.caret, `${word}: Right moved left at step ${step}`);
       if (step < word.length) assert.ok(next.caret > previous.caret, `${word}: Right must move one input character`);
       assert.equal(next.commit, "");
+      assert.equal(next.raw, word);
       previous = next;
     }
     assert.deepEqual(previous, original);

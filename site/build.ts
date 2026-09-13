@@ -537,6 +537,9 @@ async function main() {
   // the framework's own touch packing helpers instead of restating them.
   await bundle("playground/embed.js", "pg/embed.js");
   await bundle("assets/pocket-stage-web.js", "assets/pocket-stage-web.js");
+  await bundle("assets/handheld-stages.js", "assets/handheld-stages.js", {
+    external: ["/assets/pocket-stage-web.js"],
+  });
 
   // 2. runtime assets
   // Keep the editor-facing URL byte-identical to the schema used by the
@@ -550,6 +553,9 @@ async function main() {
   copy(ROOT + "hosts/web/app-instance.html", "pg/app-instance.html");
   copy(ROOT + "hosts/web/app-instance.js", "pg/app-instance.js");
   copy(ROOT + "hosts/web/wasm-ops.js", "pg/wasm-ops.js");
+  for (const name of ["offload-worker.js", "text-worker.js", "text-engine.js", "pocket_text.wasm"]) {
+    copy(ROOT + "hosts/web/" + name, "pg/" + name);
+  }
   copy(ROOT + "assets/fonts/Inter-Regular.ttf", "pg/fonts/Inter-Regular.ttf");
   copy(ROOT + "assets/fonts/Inter-Bold.ttf", "pg/fonts/Inter-Bold.ttf");
   for (const f of readdirSync(ROOT + "assets/images/")) copy(ROOT + "assets/images/" + f, "demo-assets/" + f);
@@ -583,6 +589,17 @@ async function main() {
   );
   const pspPackage = ROOT + "engine/pocket3d/examples/handheld/assets/dibad-psp/";
   emitSingleLodStagePackage(pspPackage, OUT + "stage/", "psp-profile.json", "orbit");
+  for (const device of ["new-nintendo-3ds", "ps-vita-2000"]) {
+    emitSingleLodStagePackage(ROOT + `engine/pocket3d/examples/handheld/assets/${device}/`,
+      OUT + `stage/${device}/`, "profile.json", "orbit");
+  }
+  for (const output of ["3ds-demo-main", "motions-main"]) {
+    for (const ext of ["js", "pak"]) {
+      const path = ROOT + `dist/handheld-apps/${output}.${ext}`;
+      if (!existsSync(path)) throw new Error(`missing ${path}; run bun run site:build`);
+      copy(path, `stage/handheld-apps/${output}.${ext}`);
+    }
+  }
 
   // 3. demos manifest
   const demos = demoManifest();
@@ -658,7 +675,9 @@ async function main() {
   write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css", "showcase.css"]
     .map((f) => readFileSync(SITE + "assets/" + f, "utf8"))
     .join("\n"));
-  await bundle("assets/landing.js", "assets/landing.js");
+  await bundle("assets/landing.js", "assets/landing.js", {
+    external: ["/assets/pocket-stage-web.js", "/assets/handheld-stages.js"],
+  });
   for (const image of new Set(SHOWCASE_APPS.map((app) => app.image))) {
     if (image.startsWith("/assets/showcase/")) copy(SITE + image.slice(1), image.slice(1));
   }

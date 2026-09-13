@@ -14,7 +14,7 @@
 //        [--crf N] [--preset P] [--x]
 //
 // Defaults: brand "PocketJS", tagline "UI for / every kind of / computer",
-// url "pocketjs.dev", outro 5.5s, xfade 0.8s, crf 18, preset medium. Pass
+// url "pocketjs.dev", outro 2.8s, xfade 0.35s, crf 18, preset medium. Pass
 // --url "" to hide the url.
 
 import { $ } from "bun";
@@ -27,6 +27,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML = resolve(HERE, "..", "assets", "outro.html");
 const FONT = resolve(HERE, "..", "assets", "VT323-Regular.ttf");
 export const DEFAULT_TAGLINE = "UI for\nevery kind of\ncomputer";
+export const DEFAULT_OUTRO = 2.8;
+export const DEFAULT_XFADE = 0.35;
+
+/** Keep a readable hold after the stagger, including on shorter custom cards. */
+export function resolveOutroTiming(outro: number, xfade: number) {
+  if (!Number.isFinite(outro) || outro <= 0) throw new Error("--outro must be a positive number");
+  if (!Number.isFinite(xfade) || xfade < 0) throw new Error("--xfade must be a non-negative number");
+  if (xfade >= outro) throw new Error("--xfade must be shorter than --outro so the card can appear");
+  const pace = Math.min(1, (outro - xfade) / 0.88);
+  return {
+    logo: { start: xfade, duration: 0.25 * pace },
+    tagline: { start: xfade + 0.12 * pace, duration: 0.25 * pace },
+    url: { start: xfade + 0.24 * pace, duration: 0.20 * pace },
+  };
+}
 
 type Args = {
   input: string;
@@ -52,8 +67,8 @@ function usage(): never {
       '  --tagline <str>       hero line (default: "UI for / every kind of / computer")',
       '  --brand <str>         wordmark (default: "PocketJS")',
       '  --url <str>           footer line (default: "pocketjs.dev"; "" hides it)',
-      "  --outro <secs>        end-card length (default: 5.5)",
-      "  --xfade <secs>        crossfade length (default: 0.8)",
+      `  --outro <secs>        end-card length including transition (default: ${DEFAULT_OUTRO})`,
+      `  --xfade <secs>        crossfade length (default: ${DEFAULT_XFADE})`,
       "  --crf <n>             x264 quality (default: 18)",
       "  --preset <p>          x264 preset (default: medium)",
       "  --x, --x-compatible   export X-safe 30fps CFR within web upload bounds",
@@ -74,8 +89,8 @@ export function parseArgs(argv: string[]): Args {
   let brand = "PocketJS";
   let tagline = DEFAULT_TAGLINE;
   let url = "pocketjs.dev";
-  let outro = 5.5;
-  let xfade = 0.8;
+  let outro = DEFAULT_OUTRO;
+  let xfade = DEFAULT_XFADE;
   let crf = 18;
   let preset = "medium";
   let xCompatible = false;
@@ -97,8 +112,7 @@ export function parseArgs(argv: string[]): Args {
 
   if (!input) usage();
   if (!existsSync(input)) throw new Error(`input not found: ${input}`);
-  if (!Number.isFinite(outro) || outro <= 0) throw new Error("--outro must be a positive number");
-  if (!Number.isFinite(xfade) || xfade < 0) throw new Error("--xfade must be a non-negative number");
+  resolveOutroTiming(outro, xfade);
 
   if (!output) {
     const dir = resolve(dirname(input));
@@ -280,25 +294,22 @@ async function main() {
 
   // type tracks resolution across landscape & portrait
   const scale = Math.min(w, h) / 1080;
-  const slideL = round(24 * scale);
-  const slideT = round(30 * scale);
-  const slideU = round(18 * scale);
-  const offset = Math.max(0, dur - a.xfade);
+  const slideL = round(16 * scale);
+  const slideT = round(20 * scale);
+  const slideU = round(12 * scale);
+  const xfade = Math.min(a.xfade, dur);
+  const offset = dur - xfade;
+  const timing = resolveOutroTiming(a.outro, xfade);
 
   // gentle audio fade fully completing at the original end
-  let afadeDur = a.xfade + 0.6;
+  let afadeDur = xfade + 0.15;
   let afadeSt = dur - afadeDur;
   if (afadeSt < 0) { afadeSt = 0; afadeDur = dur; }
-
-  // entrance keys off the crossfade: text arrives as the transition settles
-  const l0 = Math.max(0, a.xfade - 0.1);
-  const t0 = l0 + 0.35;
-  const u0 = t0 + 0.6;
 
   console.error(`input : ${inputW}x${inputH} @ ${inputFps.toFixed(3)}fps (${inputFpsRate})  dur=${dur}s  audio-streams=${audioStreams}${rotation ? `  rotation=${rotation}` : ""}`);
   console.error(`color : ${[colorSpace, colorTransfer, colorPrimaries, colorRange].filter(Boolean).join("/") || "unspecified"}${isHdr ? " -> bt709 SDR" : ""}`);
   console.error(`video : ${w}x${h} @ ${fps.toFixed(3)}fps (${fpsRate})${a.xCompatible ? "  X-compatible CFR" : ""}`);
-  console.error(`card  : scale=${scale.toFixed(4)}  outro=${a.outro}s  xfade=${a.xfade}s (offset=${offset.toFixed(3)}s)`);
+  console.error(`card  : scale=${scale.toFixed(4)}  outro=${a.outro}s  xfade=${xfade}s (offset=${offset.toFixed(3)}s)`);
   console.error(`output: ${a.output}`);
 
   const tmp = mkdtempSync(join(tmpdir(), "pocketjs-outro-"));
@@ -313,7 +324,7 @@ async function main() {
     for (const [layer, out] of Object.entries(layers)) await shotLayer(chrome, layer, out, w, h, params);
     console.error(`rendered card layers (${w}x${h})`);
 
-    const f = (n: number) => n.toFixed(2);
+    const f = (n: number) => n.toFixed(6);
     const bt709 = "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
     const colorFlags = "lanczos+accurate_rnd+full_chroma_int";
     const cardColor = isHdr
@@ -325,14 +336,16 @@ async function main() {
     const outputColor = isHdr ? `,${bt709}` : "";
     const graphLines = [
       `[1:v]${cardColor}setsar=1,fps=${fpsRate},format=yuv420p${outputColor},setpts=PTS-STARTPTS[bg];`,
-      `[2:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(l0)}:d=0.60:alpha=1,setpts=PTS-STARTPTS[lg];`,
-      `[3:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(t0)}:d=0.60:alpha=1,setpts=PTS-STARTPTS[tg];`,
-      `[4:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(u0)}:d=0.50:alpha=1,setpts=PTS-STARTPTS[ur];`,
-      `[bg][lg]overlay=x=0:y='${slideL}*pow(1-clip((t-${f(l0)})/0.60,0,1),3)'[o1];`,
-      `[o1][tg]overlay=x=0:y='${slideT}*pow(1-clip((t-${f(t0)})/0.60,0,1),3)'[o2];`,
-      `[o2][ur]overlay=x=0:y='${slideU}*pow(1-clip((t-${f(u0)})/0.50,0,1),3)',format=yuv420p${outputColor},setpts=PTS-STARTPTS[outro];`,
+      `[2:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(timing.logo.start)}:d=${f(timing.logo.duration)}:alpha=1,setpts=PTS-STARTPTS[lg];`,
+      `[3:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(timing.tagline.start)}:d=${f(timing.tagline.duration)}:alpha=1,setpts=PTS-STARTPTS[tg];`,
+      `[4:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(timing.url.start)}:d=${f(timing.url.duration)}:alpha=1,setpts=PTS-STARTPTS[ur];`,
+      `[bg][lg]overlay=x=0:y='${slideL}*pow(1-clip((t-${f(timing.logo.start)})/${f(timing.logo.duration)},0,1),3)'[o1];`,
+      `[o1][tg]overlay=x=0:y='${slideT}*pow(1-clip((t-${f(timing.tagline.start)})/${f(timing.tagline.duration)},0,1),3)'[o2];`,
+      `[o2][ur]overlay=x=0:y='${slideU}*pow(1-clip((t-${f(timing.url.start)})/${f(timing.url.duration)},0,1),3)',format=yuv420p${outputColor},trim=duration=${a.outro},setpts=PTS-STARTPTS[outro];`,
       `[0:v]fps=${fpsRate},${mainColor},setpts=PTS-STARTPTS[main];`,
-      `[main][outro]xfade=transition=fade:duration=${a.xfade}:offset=${offset.toFixed(3)},format=yuv420p${outputColor}[v];`,
+      xfade > 0
+        ? `[main][outro]xfade=transition=fade:duration=${xfade}:offset=${offset.toFixed(6)},format=yuv420p${outputColor}[v];`
+        : `[main][outro]concat=n=2:v=1:a=0,format=yuv420p${outputColor}[v];`,
     ];
 
     const maps: string[] = ["-map", "[v]"];

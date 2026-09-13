@@ -87,20 +87,20 @@ describe("launcher registry admission", () => {
     }
   });
 
-  test("Vita admits every PSP demo, plus the touch-only surfaces", () => {
-    // Everything PSP admits, Vita admits (same entries, same metadata).
-    for (const app of registry.apps) {
+  test("PSP and Vita admit demos according to their independent capability profiles", () => {
+    const pspOutputs = new Set(registry.apps.map((app) => app.output));
+    const vitaOutputs = new Set(vitaRegistry.apps.map((app) => app.output));
+    const pspOnly = registry.apps.filter((app) => !vitaOutputs.has(app.output));
+    const vitaOnly = vitaRegistry.apps.filter((app) => !pspOutputs.has(app.output));
+    // PSP advertises the paired text/offload path; Vita has touch, but does
+    // not advertise that transport. A shared DrawList does not imply equal
+    // runtime capabilities or make either target a superset of the other.
+    expect(pspOnly.map((app) => app.output)).toEqual(["text-offload-main"]);
+    expect(vitaOnly.map((app) => app.output).sort()).toEqual(["iphone16-demo-main", "nsengine-main"]);
+    for (const app of registry.apps.filter((app) => vitaOutputs.has(app.output))) {
       expect(vitaRegistry.apps).toContainEqual(app);
     }
-    // The Vita-only delta is exactly the demos requiring input.touch, which
-    // PSP does not advertise. The committed display registry is the union
-    // (scanDisplayRegistry); each host intersects at runtime.
-    const pspOutputs = new Set(registry.apps.map((a) => a.output));
-    const vitaOnly = vitaRegistry.apps
-      .map((a) => a.output)
-      .filter((output) => !pspOutputs.has(output));
-    expect(vitaOnly.sort()).toEqual(["iphone16-demo-main", "nsengine-main"]);
-    expect(registry.apps).toHaveLength(17);
+    expect(registry.apps).toHaveLength(18);
     expect(vitaRegistry.apps).toHaveLength(19);
   });
 

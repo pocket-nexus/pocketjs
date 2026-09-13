@@ -935,12 +935,61 @@ pub unsafe fn add_fn(
 /// Install `globalThis.ui` (full HostOps surface + target identity, textures,
 /// and sprites).
 /// `textures` and `sprites` come from pak::feed.
+unsafe extern "C" fn js_offload_session(
+    ctx: *mut JSContext,
+    _: JSValue,
+    _: i32,
+    _: *mut JSValue,
+) -> JSValue {
+    JS_NewInt32(ctx, crate::offload::session())
+}
+unsafe extern "C" fn js_offload_submit(
+    ctx: *mut JSContext,
+    _: JSValue,
+    n: i32,
+    a: *mut JSValue,
+) -> JSValue {
+    if n < 1 {
+        return JS_NewBool(ctx, false);
+    }
+    let mut len = 0;
+    let p = JS_ToCStringLen2(ctx, &mut len, *a, 0);
+    if p.is_null() {
+        return JS_NewBool(ctx, false);
+    }
+    let ok = crate::offload::submit(core::slice::from_raw_parts(p as *const u8, len));
+    JS_FreeCString(ctx, p);
+    if ok {
+        JS_NewBool(ctx, true)
+    } else {
+        JS_NewBool(ctx, false)
+    }
+}
+unsafe extern "C" fn js_offload_take(
+    ctx: *mut JSContext,
+    _: JSValue,
+    _: i32,
+    _: *mut JSValue,
+) -> JSValue {
+    match crate::offload::take() {
+        Some(s) => JS_NewStringLen(ctx, s.as_ptr(), s.len()),
+        None => JS_UNDEFINED,
+    }
+}
 pub unsafe fn register(
     ctx: *mut JSContext,
     global: JSValue,
     textures: &[(String, i32)],
     sprites: &[crate::pak::SpriteReg],
 ) {
+    if crate::offload::enabled() {
+        crate::offload::start();
+        let io = JS_NewObject(ctx);
+        add_fn(ctx, io, b"session\0", js_offload_session, 0);
+        add_fn(ctx, io, b"submit\0", js_offload_submit, 1);
+        add_fn(ctx, io, b"take\0", js_offload_take, 0);
+        JS_SetPropertyStr(ctx, global, b"offload\0".as_ptr() as *const _, io);
+    }
     let ui_obj = JS_NewObject(ctx);
 
     add_fn(ctx, ui_obj, b"createNode\0", js_create_node, 1);

@@ -14,8 +14,8 @@ test("paired sessions exchange records, fence reconnect and never retry applicat
     socket.on("close", () => sockets.delete(socket));
     let auth = Buffer.alloc(0), paired = false;
     const decoder = new OffloadDecoder();
-    socket.on("data", data => {
-      let chunk = typeof data === "string" ? Buffer.from(data) : data;
+    socket.on("data", rawChunk => {
+      let chunk = typeof rawChunk === "string" ? Buffer.from(rawChunk) : rawChunk;
       if (!paired) {
         auth = Buffer.concat([auth, chunk]);
         if (auth.length < 64) return;

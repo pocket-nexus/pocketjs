@@ -17,6 +17,7 @@
 // ms0:/PocketJS-bench.jsonl and implies --capture.
 
 import { $ } from "bun";
+import { createHash } from "node:crypto";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -307,6 +308,7 @@ const hostEnvironment = buildPlan
     };
 
 const env = {
+  POCKETJS_OFFLOAD_SLOT: buildPlan?.features["io.offload"] ? createHash("sha256").update(buildPlan.app.id).digest("hex").slice(0, 16) : "",
   ...toolchain.environment,
   RUSTFLAGS: rustflags,
   CRATE_CC_NO_DEFAULTS: "1",

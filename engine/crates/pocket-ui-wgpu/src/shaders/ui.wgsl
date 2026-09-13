@@ -5,6 +5,8 @@
 // DrawList colors are sRGB-encoded bytes; linearize here so the sRGB target
 // re-encodes correctly on store.
 
+override LINEAR_OUTPUT: bool = true;
+
 struct VsIn {
     @location(0) pos: vec2f,
     @location(1) uv: vec2f,
@@ -41,7 +43,8 @@ fn srgb_to_linear(c: vec3f) -> vec3f {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
     let t = textureSample(tex, samp, in.uv);
-    var rgb = srgb_to_linear(in.color.rgb);
+    var rgb = in.color.rgb;
+    if LINEAR_OUTPUT { rgb = srgb_to_linear(rgb); }
     var a = in.color.a;
     if in.mode == 1u {
         // Image: sRGB texture already sampled linear; modulate.

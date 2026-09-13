@@ -103,6 +103,7 @@ describe("private Nintendo 3DS build profile", () => {
       },
       capabilities: [
         "io.offload",
+        "media.playback",
         "input.analog.left",
         "input.analog.right",
         "input.buttons",
@@ -118,9 +119,10 @@ describe("private Nintendo 3DS build profile", () => {
   test("takes the next hostAbi in the registry-wide sequence", () => {
     // hostAbi is one sequence across every profile, private ones included:
     // 1 psp, 2 vita, 3 macos-widget, 4 symbian-e7-dev, 5 pocketbook,
-    // 6 iphone2g-dev, 7 the original top-screen-only 3DS wire. A collision
+    // 6 iphone2g-dev, 7 top-screen-only 3DS, 8 dual-screen 3DS,
+    // 9 Blackberry Classic, 10 companion media. A collision
     // would let a bundle mount on the wrong host.
-    expect(THREE_DS_DEV_HOST_ABI).toBe(8);
+    expect(THREE_DS_DEV_HOST_ABI).toBe(10);
     expect(
       Object.values(POCKET_TARGETS).map((profile) => profile.hostAbi),
     ).not.toContain(THREE_DS_DEV_HOST_ABI);
@@ -370,6 +372,9 @@ describe("private Nintendo 3DS build profile", () => {
   });
 
   test("supports a guest-only package build without native toolchains", () => {
+    expect(parse3dsArguments(["--plan=/tmp/app.plan.json", "--manifest=/tmp/pocket.3ds.json"])).toMatchObject({
+      planPath: "/tmp/app.plan.json", manifestPath: "/tmp/pocket.3ds.json", cargoArgs: [],
+    });
     expect(parse3dsArguments(["3ds-demo", "--pocket-only"])).toMatchObject({
       app: "3ds-demo",
       pocketOnly: true,

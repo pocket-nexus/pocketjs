@@ -3,6 +3,7 @@ import {
   DEFAULT_TAGLINE,
   parseArgs,
   parseProbeOutput,
+  resolveOutroTiming,
   resolveOutputSpec,
   xCompatibilityArgs,
 } from "../skills/pocketjs-video-outro/scripts/make-outro.ts";
@@ -17,6 +18,38 @@ describe("branding defaults", () => {
   test("keeps an explicitly supplied tagline unchanged", () => {
     const tagline = "A custom line\nwith an intentional break";
     expect(parseArgs(["-i", import.meta.path, "--tagline", tagline]).tagline).toBe(tagline);
+  });
+});
+
+describe("short outro timing", () => {
+  test("defaults to a complete card below three seconds with a readable hold", () => {
+    const args = parseArgs(["-i", import.meta.path]);
+    const timing = resolveOutroTiming(args.outro, args.xfade);
+    const settled = Math.max(...Object.values(timing).map(layer => layer.start + layer.duration));
+    expect(args.outro).toBeLessThan(3);
+    expect(args.xfade).toBeLessThan(0.5);
+    expect(settled).toBeLessThan(1);
+    expect(args.outro - settled).toBeGreaterThan(1.5);
+  });
+
+  test("keeps ordered entrances after the transition and fits custom card lengths", () => {
+    for (const [outro, xfade] of [[2.8,0.35], [1,0.35], [5.5,0.8], [0.5,0.1], [2,0]]) {
+      const { logo, tagline, url } = resolveOutroTiming(outro, xfade);
+      expect(logo.start).toBe(xfade);
+      expect(tagline.start).toBeGreaterThan(logo.start);
+      expect(url.start).toBeGreaterThan(tagline.start);
+      for (const layer of [logo,tagline,url]) {
+        expect(layer.duration).toBeGreaterThan(0);
+        expect(layer.start + layer.duration).toBeLessThanOrEqual(xfade + (outro-xfade)/2 + 1e-8);
+      }
+    }
+  });
+
+  test("rejects a transition that would consume the whole card", () => {
+    for (const xfade of [1,2]) {
+      expect(() => parseArgs(["-i", import.meta.path, "--outro", "1", "--xfade", String(xfade)]))
+        .toThrow("--xfade must be shorter than --outro");
+    }
   });
 });
 

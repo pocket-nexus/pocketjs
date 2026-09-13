@@ -116,6 +116,12 @@
   "covers/refl-iphone16-demo-main.png": {
     "linear": true
   },
+  "covers/cover-text-offload-main.png": {
+    "linear": true
+  },
+  "covers/refl-text-offload-main.png": {
+    "linear": true
+  },
   "covers/cover-zoomlab-main.png": {
     "linear": true
   },

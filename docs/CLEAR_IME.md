@@ -19,11 +19,11 @@ The v1 offload contract bounds records to **4,096 bytes**, pending requests to *
 
 `tools/ime/serve.ts` owns one native Rime process and an authenticated loopback HTTP endpoint. A per-connection Worker exposes allowlisted methods:
 
-- `ime.compose`: evaluate a transcript of at most 128 key actions; return preedit, UTF-16 caret position, cumulative commit, page state and at most five candidates.
+- `ime.compose`: evaluate a transcript of at most 128 key actions; return preedit, UTF-16 caret position, raw ASCII input and its caret, cumulative commit, page state and at most five candidates.
 - `ime.candidates`: read a window of at most 15 candidates without changing the composition transcript. The guest retains at most 512 candidates and fences windows by revision.
 - `text.font` and `text.glyph`: identify the font rendition and return reusable scalar glyph metrics and coverage. The framework owns the cache and uploads. `text.tile` remains available for older guests.
 
-**Rime evaluates each transcript in a fresh session with user learning disabled.** Replaying the same input therefore avoids repeated dictionary mutations. The guest fences replies by editor revision, retains its transcript during disconnection and applies the new suffix of the cumulative commit once. Closing or cancelling the editor rejects pending commits. This replay policy belongs to IME; it does not change the transport's no-replay policy for sent mutations such as terminal input.
+**Rime evaluates each transcript in a fresh session with user learning disabled.** Replaying the same input therefore avoids repeated dictionary mutations. The guest fences replies by editor revision, retains its transcript during disconnection and applies the new suffix of the cumulative commit once. **Raw input remains editable on the device.** A validated reply refreshes raw input after conversion or a partial commit; generated preedit spacing never becomes source text. Closing or cancelling the editor rejects pending commits. This replay policy belongs to IME; it does not change the transport's no-replay policy for sent mutations such as terminal input.
 
 The native API comes from [librime](https://github.com/rime/librime/blob/master/src/rime_api.h). `tools/ime/setup.ts` pins the Luna Pinyin, Prelude and Essay dictionary revisions. Schema compilation, dictionary storage, OpenCC and system CJK font access stay on the Mac. System fonts and dictionary artifacts are not packaged into the applications.
 
@@ -38,10 +38,10 @@ const ime = createIme({ changed: renderComposition, commit: insertAtCaret });
 onFrame(() => ime.step());
 onCleanup(() => ime.dispose());
 // Keyboard handlers call ime.key(code), ime.key(IME.backspace),
-// ime.select(pageRelativeIndex), or ime.reset().
+// ime.select(pageRelativeIndex), ime.accept(), ime.commitRaw(), or ime.reset().
 ```
 
-`renderComposition` receives pending/connected/error state alongside the snapshot. `insertAtCaret` receives committed text. The application supplies both callbacks and owns its text model.
+`renderComposition` receives pending/connected/error state alongside the snapshot. `insertAtCaret` receives committed text. The application supplies both callbacks and owns its text model. `accept()` selects candidates when available, with a 400 ms virtual-time deadline for confirmation. Disconnection, provider error or deadline expiry commits raw input through the same callback. `commitRaw()` ends the transaction and cancels its requests before delivering text. A mode change uses this operation; cancellation uses `reset()`. Local commits cannot replay after reconnection.
 
 ## Setup on this Mac
 
@@ -101,7 +101,23 @@ bun moto-g-play status --id=<adb serial>
 bun moto-g-play capture --id=<adb serial>
 ```
 
-The two companions can run at the same time: Mac ports 18741 and 28741 forward to each device's loopback port 8741. Each device has its own 256-bit key in a mode-0600 ignored file. Pairing receipts contain a fingerprint, never the key. Stopping a companion leaves local scrolling and editing available. Restoring it resumes the current composition; offline conversion requires the Mac to return.
+For service lifetime across terminal exits and Mac logins, install one user LaunchAgent per target:
+
+```sh
+bun clear:companion ipodtouch4 --id=<iPod UDID> --service
+bun clear:companion moto-g-play --id=<adb serial> --service
+```
+
+**The supervisor reconciles USB state every two seconds.** It recreates a lost ADB forward, restarts a stopped iPod tunnel or provider process, and checks the selected app's pairing key after reconnection and at 30-second intervals. A missing device or installation leaves the supervisor waiting. A process-owned loopback lease on port 18742 or 28742 rejects duplicate supervisors. Each command has a six-second deadline, and reconciliations do not overlap. The socket transport reconnects after the USB route returns. A local port owned by another device is rejected.
+
+LaunchAgents are named `dev.pocket-stack.clear-companion.<target>` and reference the current checkout and Bun executable. Logs stay in ignored `.pocket/ime/services/`. Keep that checkout available while the services run. To stop and uninstall one, replace `<target>` below with `ipodtouch4` or `moto-g-play`:
+
+```sh
+launchctl bootout gui/$(id -u)/dev.pocket-stack.clear-companion.<target>
+rm ~/Library/LaunchAgents/dev.pocket-stack.clear-companion.<target>.plist
+```
+
+The two companions can run at the same time: Mac ports 18741 and 28741 forward to each device's loopback port 8741. Each device has its own 256-bit key in a mode-0600 ignored file. Pairing receipts contain a fingerprint, never the key. Stopping a companion leaves local scrolling and editing available. Restoring it resumes a composition that has not been committed or cancelled. Offline confirmation inserts raw pinyin; dictionary conversion requires the Mac to return.
 
 ## Editing
 
@@ -125,7 +141,7 @@ Keyboard icons are authored filled SVG contours in `apps/clear/`. The globe uses
 
 **CJK glyphs use an alphabetic baseline derived from font and ink ascent.** The label reserves eight logical pixels beyond the font size for ascent, descent and leading; a 16-point candidate has a 24-point line box. A glyph arrives in one bounded coverage envelope. Deleting or moving resident characters reuses their metrics and textures, including while offline. See [text resources and the general shaping architecture](TEXT_RESOURCES.md). Updating this path requires rebuilding the device app and restarting the Mac companion.
 
-`Offline (queued)` means the device retains the current transcript. A composition is bounded to 128 actions; the cancel control clears it if the limit is reached. Clear retains its existing 40-code-point title limit and in-memory demo list model. It does not add list persistence or dictionary learning.
+**Offline typing shows raw input without a pending-candidate animation.** Space or Return commits it; switching to EN also commits it, and leaving the row finishes editing. Deletion and caret movement use the local raw buffer. Connected but unanswered confirmation follows the same path after 400 ms of virtual time. A composition is bounded to 128 actions; the cancel control clears it if the limit is reached. Clear retains its existing 40-code-point title limit and in-memory demo list model. It does not add list persistence or dictionary learning.
 
 ## Validation
 
@@ -138,7 +154,7 @@ To repeat device acceptance after building, installing and starting the companio
 1. Open a list row, type `ni`, expand the candidate panel, scroll, then tap a candidate. Drag release must leave composition active; the later tap commits the selected candidate and restores the keyboard.
 2. Type `haha`, hold Space and drag past each end of the preedit. The caret must stay at the input boundary. Releasing the hold must not insert a space or commit a candidate.
 3. Hold Backspace, then release. Deletion must repeat while held and stop on release. Check the pressed Space cap, mode label and character popup through their transitions.
-4. Commit `你好`, disconnect the companion and delete `好`. The remaining Latin and Han text must retain its pixels. Enter another composition while disconnected, restore the companion and select a candidate; its committed suffix must appear once.
+4. Commit `你好`, disconnect the companion and delete `好`. The remaining Latin and Han text must retain its pixels. Enter another composition while disconnected, commit it with Space, then leave the row with Return. Repeat with an unfinished composition, restore the companion and select a candidate. Local and converted commits must each appear once. Remove the Moto forward or stop the iPod tunnel to verify supervisor repair; restart a provider child to verify process recovery.
 5. Switch between empty PY and EN. Both modes must hide the composition cross and disclosure; Space must show the active mode.
 
 **Static panels and sustained scrolling require separate timing runs.** On iPod, start from a fresh launch, compose `ni`, expand the panel, wait four seconds, then drag 140 logical points over eight seconds in each direction. Sample device status before taking captures. Use distinct 60-frame heartbeat windows with `touch_down=1`; compute delivered FPS as `window_frames × 1,000,000 / window_us`. `frame_us` measures the guest/core frame before presentation, and `submit_us` measures GL submission. Keep first-pass and reverse-pass results separate. Window means do not establish frame-time percentiles or physical-finger response times.

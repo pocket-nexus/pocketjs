@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "name": "New Nintendo 3DS (KTR-001)",
+  "attribution": "ATTRIBUTION.md",
+  "lods": {
+    "settled": "new-nintendo-3ds.glb",
+    "orbit": "new-nintendo-3ds.glb"
+  },
+  "coordinate_system": "authored_mm",
+  "target_width_mm": 142,
+  "rotation_degrees": [
+    90,
+    0,
+    0
+  ],
+  "display": {
+    "logical_size": [
+      400,
+      240
+    ],
+    "raster_density": 1,
+    "auxiliary_size": [
+      320,
+      240
+    ]
+  },
+  "view": {
+    "desk_position_mm": [
+      0,
+      -85,
+      355
+    ],
+    "desk_target_mm": [
+      0,
+      -5,
+      16
+    ],
+    "distance_mm": 355,
+    "focus_distance_mm": 145,
+    "fov_y_degrees": 30,
+    "full_orbit": true,
+    "fit_aspect": 0.95
+  },
+  "screen": {
+    "material_role": "dynamic_screen",
+    "material_name_prefix": "Screen_Primary",
+    "expected_primitives": 1
+  },
+  "parts": [
+    {
+      "name": "screen_auxiliary",
+      "center_mm": [
+        0,
+        -36.8,
+        12.31
+      ],
+      "half_extents_mm": [
+        33.84,
+        25.38,
+        1.5
+      ],
+      "touch_surface": "auxiliary",
+      "logical_size": [
+        320,
+        240
+      ]
+    },
+    {
+      "name": "dpad_up",
+      "center_mm": [
+        -55,
+        -41,
+        12.6
+      ],
+      "half_extents_mm": [
+        3.3,
+        3.3,
+        1.5
+      ],
+      "button": "up"
+    },
+    {
+      "name": "dpad_down",
+      "center_mm": [
+        -55,
+        -53,
+        12.6
+      ],
+      "half_extents_mm": [
+        3.3,
+        3.3,
+        1.5
+      ],
+      "button": "down"
+    },
+    {
+      "name": "dpad_left",
+      "center_mm": [
+        -61,
+        -47,
+        12.6
+      ],
+      "half_extents_mm": [
+        3.3,
+        3.3,
+        1.5
+      ],
+      "button": "left"
+    },
+    {
+      "name": "dpad_right",
+      "center_mm": [
+        -49,
+        -47,
+        12.6
+      ],
+      "half_extents_mm": [
+        3.3,
+        3.3,
+        1.5
+      ],
+      "button": "right"
+    },
+    {
+      "name": "btn_triangle",
+      "center_mm": [
+        55,
+        -21.5,
+        12.8
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "triangle"
+    },
+    {
+      "name": "btn_circle",
+      "center_mm": [
+        63,
+        -29.5,
+        12.8
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "circle"
+    },
+    {
+      "name": "btn_cross",
+      "center_mm": [
+        55,
+        -37.5,
+        12.8
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "cross"
+    },
+    {
+      "name": "btn_square",
+      "center_mm": [
+        47,
+        -29.5,
+        12.8
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "square"
+    },
+    {
+      "name": "btn_start",
+      "center_mm": [
+        45.3,
+        -54,
+        12.8
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "start"
+    },
+    {
+      "name": "btn_select",
+      "center_mm": [
+        45.3,
+        -62.2,
+        12.8
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "select"
+    },
+    {
+      "name": "shoulder_l",
+      "center_mm": [
+        -63,
+        2.5,
+        7.9
+      ],
+      "half_extents_mm": [
+        7,
+        3,
+        1.5
+      ],
+      "button": "l"
+    },
+    {
+      "name": "shoulder_r",
+      "center_mm": [
+        63,
+        2.5,
+        7.9
+      ],
+      "half_extents_mm": [
+        7,
+        3,
+        1.5
+      ],
+      "button": "r"
+    }
+  ],
+  "demo": {
+    "package_id": "dev.pocket-stack.3ds-demo",
+    "output": "3ds-demo-main"
+  },
+  "hinge": {
+    "node": "Lid_Hinge",
+    "clip": "Lid_OpenClose",
+    "default_angle_degrees": 155,
+    "min_angle_degrees": 0,
+    "max_angle_degrees": 175
+  }
+}

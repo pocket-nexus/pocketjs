@@ -33,12 +33,12 @@ export const OG_IMAGE_URL = `${SITE_URL}/og-image.png`;
 // that path rather than the sized ladder the home screen picks from. And Safari
 // could not render an SVG favicon until version 26, so a large PNG favicon has
 // to be declared as well or every Safari before that has only the 96 to scale.
-const ICON_V = "2";
+const ICON_V = "3";
 export const ICON_LINKS = [
-  '<link rel="icon" href="/favicon.svg" type="image/svg+xml">',
-  '<link rel="icon" href="/favicon.ico" sizes="48x48">',
-  '<link rel="icon" href="/favicon-96.png" type="image/png" sizes="96x96">',
-  '<link rel="icon" href="/icon-192.png" type="image/png" sizes="192x192">',
+  `<link rel="icon" href="/favicon.svg?v=${ICON_V}" type="image/svg+xml">`,
+  `<link rel="icon" href="/favicon.ico?v=${ICON_V}" sizes="48x48">`,
+  `<link rel="icon" href="/favicon-96.png?v=${ICON_V}" type="image/png" sizes="96x96">`,
+  `<link rel="icon" href="/icon-192.png?v=${ICON_V}" type="image/png" sizes="192x192">`,
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
   `<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=${ICON_V}">`,
   `<link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png?v=${ICON_V}">`,

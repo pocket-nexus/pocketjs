@@ -494,6 +494,10 @@ export function resolveBuildPlan(
 
   const requires = new Set(manifest.engine.capabilities.requires);
   const enhances = new Set(manifest.engine.capabilities.enhances ?? []);
+  if (requires.has("text.layout.offload") && !requires.has("io.offload") ||
+      enhances.has("text.layout.offload") && !requires.has("io.offload") && !enhances.has("io.offload")) {
+    diagnostics.push({code:"capability.offloadDependency",path:"/engine/capabilities",message:"text.layout.offload requires a matching io.offload declaration"});
+  }
   const auxiliaryDeclared = requires.has(AUXILIARY_DISPLAY) || enhances.has(AUXILIARY_DISPLAY);
   const auxiliaryTouchDeclared = requires.has(AUXILIARY_TOUCH) || enhances.has(AUXILIARY_TOUCH);
   if (Boolean(manifest.app.surfaces?.auxiliary) !== auxiliaryDeclared) {

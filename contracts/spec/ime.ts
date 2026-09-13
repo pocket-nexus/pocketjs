@@ -7,6 +7,9 @@ export const IME = Object.freeze({ keys: 128, candidates: 5, select: 0x1000000,
   pageUp: 0xff55, pageDown: 0xff56 });
 export interface ImeSnapshot {
   preedit: string;
+  /** Unformatted input and its caret for device-owned offline editing. */
+  raw: string;
+  rawCaret: number;
   commit: string;
   candidates: string[];
   page: number;

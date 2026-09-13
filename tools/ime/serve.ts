@@ -18,9 +18,13 @@ const server = Bun.serve({ hostname: "127.0.0.1", port: 0, maxRequestBodySize: 2
     catch { return new Response("IME engine unavailable", { status: 503 }); }
   },
 });
+let lastSession = "";
 const provider = connectOffloadProvider({ address: "127.0.0.1", port, key,
   worker: new URL("./worker.ts", import.meta.url),
-  data: { enginePort: server.port, engineToken: token, font: option("font", "/System/Library/Fonts/STHeiti Medium.ttc") }, log: console.log });
+  data: { enginePort: server.port, engineToken: token, font: option("font", "/System/Library/Fonts/STHeiti Medium.ttc") }, log: message => {
+    if (!message.startsWith("Device ")) console.log(message);
+    else if (message !== lastSession) { lastSession = message; console.log(`Paired ${message}`); }
+  } });
 process.on("SIGINT", () => { provider.close(); engine.close(); server.stop(true); process.exit(0); });
 process.on("SIGTERM", () => { provider.close(); engine.close(); server.stop(true); process.exit(0); });
 console.log(`Pocket IME companion: USB localhost:${port}`);

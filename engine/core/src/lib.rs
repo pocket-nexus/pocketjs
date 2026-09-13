@@ -44,6 +44,7 @@ pub mod layout;
 pub mod package;
 pub mod pak;
 pub mod raster;
+pub mod compositor;
 pub mod spec;
 pub mod stream;
 pub mod stream_rx;
@@ -246,6 +247,7 @@ pub struct Ui {
     tree: tree::Tree,
     styles: style::StyleTable,
     fonts: text::Fonts,
+    font_revisions: [u64; spec::MAX_FONT_SLOTS],
     anims: anim::Anims,
     timelines: Vec<TimelineInst>,
     layout: layout::LayoutEngine,
@@ -335,6 +337,7 @@ impl Ui {
             tree: tree::Tree::new(),
             styles: style::StyleTable::new(),
             fonts: text::Fonts::new(),
+            font_revisions: [0; spec::MAX_FONT_SLOTS],
             anims: anim::Anims::new(),
             timelines: Vec::new(),
             layout: layout::LayoutEngine::new(),
@@ -965,6 +968,8 @@ impl Ui {
     pub fn load_font_atlas(&mut self, bytes: &[u8]) -> bool {
         let ok = self.fonts.load(bytes);
         if ok {
+            let slot = bytes[12] as usize;
+            self.font_revisions[slot] = self.font_revisions[slot].wrapping_add(1);
             self.mark_layout_dirty();
             self.bump_raster_revision();
         }
@@ -1749,6 +1754,11 @@ impl Ui {
     /// A registered font atlas (backends read glyph bitmaps through this).
     pub fn font_atlas(&self, slot: u8) -> Option<&text::Atlas> {
         self.fonts.atlas(slot)
+    }
+
+    /// Per-slot GPU cache invalidation, including same-count atlas replacements.
+    pub fn font_atlas_revision(&self, slot: u8) -> u64 {
+        self.font_revisions.get(slot as usize).copied().unwrap_or(0)
     }
 
     // ---- internals -----------------------------------------------------------

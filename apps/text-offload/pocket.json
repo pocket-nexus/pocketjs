@@ -1,0 +1,24 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.text-offload",
+  "name": "pocket-text-offload",
+  "title": "Portable Text Layout",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "io.offload",
+        "text.layout.offload"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/text-offload/main.tsx",
+    "output": "text-offload-main",
+    "framework": "solid",
+    "viewport": { "fixed": { "logical": [480, 272], "presentation": "native" } }
+  }
+}

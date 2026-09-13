@@ -3,6 +3,7 @@ import { registerServicePump } from "./services.ts";
 
 export { OFFLOAD };
 export type { OffloadOps };
+export { uploadIndexedImage, type IndexedImage } from "./indexed-image.ts";
 /** Fixed-budget native resource upload when implemented by the host.
  * Optional column colors use one hex palette index per pixel column and
  * up to 16 concatenated RGB hex colors. They retain the one-upload budget. */

@@ -83,6 +83,9 @@ jobs:
       - name: Test Rust core
         run: cargo test --locked --manifest-path engine/core/Cargo.toml
 
+      - name: Install headless GPU test driver
+        run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
+
       - name: Test desktop 3D and widget workspace
         run: cargo test --locked --manifest-path engine/Cargo.toml --workspace
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { createTextResources } from "../framework/src/text.ts";
 import { createOffloadClient } from "../framework/src/offload.ts";
-import { createTextProvider } from "../tools/text-provider.ts";
+import { createTextProvider } from "../tools/text-glyph-provider.ts";
 import type { OffloadRequest } from "../contracts/spec/offload.ts";
 const font = existsSync("/System/Library/Fonts/STHeiti Medium.ttc") ? "/System/Library/Fonts/STHeiti Medium.ttc" : "assets/fonts/Inter-Regular.ttf";
 

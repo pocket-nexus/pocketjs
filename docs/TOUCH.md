@@ -246,3 +246,9 @@ wire            ≤8×u32 电平快照 + 并行事实数组
 3. 自定义滚动物理用 `createScroller`,绑 `translateY: -offset()`
 4. 分支只写在 `hasFeature("input.touch")`,且仅当习语不同
 5. 手感用 journey/tape 断言,和逻辑一样
+
+`createKeyboardTouch` from `@pocketjs/framework/osk` tracks contact-owned space
+and backspace holds without assigning focus to character keys. The keyboard
+view supplies contact geometry and virtual time. **Release clears the hold**;
+backspace repeats at most twice per step, and a held space enters caret dragging.
+The view owns key-cap feedback, character insertion, layout and modality.

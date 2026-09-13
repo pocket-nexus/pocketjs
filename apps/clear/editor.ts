@@ -38,7 +38,6 @@ export function makeEditor(host: EditorHost): Editor {
   let editWasNew = false;
   let chinese = hasCompanion();
   let closeAfterComposition = false;
-  let chooseWhenReady = false;
   let keyboardLift = NaN;
 
   function paintEditRow(): void {
@@ -59,7 +58,7 @@ export function makeEditor(host: EditorHost): Editor {
 
   function open(todo: Todo, wasNew: boolean): void {
     ime?.reset();
-    closeAfterComposition = chooseWhenReady = false;
+    closeAfterComposition = false;
     editing = todo;
     editWasNew = wasNew;
     editOriginal = todo.text;
@@ -90,11 +89,11 @@ export function makeEditor(host: EditorHost): Editor {
     if (!todo) return;
     if (commit && ime?.composing()) {
       closeAfterComposition = true;
-      chooseWhenReady = true;
+      ime.accept();
       return;
     }
     ime?.reset();
-    closeAfterComposition = chooseWhenReady = false;
+    closeAfterComposition = false;
     shadeRows(false);
     editing = null;
     kb.setOpen(false);
@@ -138,22 +137,22 @@ export function makeEditor(host: EditorHost): Editor {
     onInsert(ch) {
       if (!editing) return;
       if (chinese && ime && (/^[a-z']$/.test(ch) || ime.composing())) {
-        if (ch === " ") chooseWhenReady = true;
+        if (ch === " ") ime.accept();
         else ime.key(ch.charCodeAt(0));
       } else insert(ch);
     },
     onBackspace() { if (ime?.composing()) ime.key(IME.backspace); else backspace(); },
-    onEnter() { if (ime?.composing()) chooseWhenReady = true; else close(true); },
+    onEnter() { if (ime?.composing()) ime.accept(); else close(true); },
     onMode() {
       if (!ime) return;
-      if (ime.composing()) ime.key(IME.enter);
+      if (ime.composing()) ime.commitRaw();
       chinese = !chinese;
       kb.setIme(ime.state(), chinese);
     },
     onCandidate(index) { ime?.select(index); },
     onCandidateAbsolute(index) { ime?.selectAbsolute(index); },
     onBrowse(offset, complete) { return ime?.browse(offset, complete) ?? 0; },
-    onCancelComposition() { ime?.reset(); closeAfterComposition = chooseWhenReady = false; },
+    onCancelComposition() { ime?.reset(); closeAfterComposition = false; },
     onCaret(direction) {
       if (ime?.composing()) { ime.key(direction < 0 ? IME.left : IME.right); return; }
       if (!editing) return;
@@ -165,11 +164,6 @@ export function makeEditor(host: EditorHost): Editor {
   function step() {
     ime?.step();
     updateLift();
-    if (chooseWhenReady && ime && !ime.state().pending && ime.state().connected) {
-      chooseWhenReady = false;
-      if (ime.state().candidates.length) ime.select(0);
-      else if (ime.composing()) ime.key(IME.enter);
-    }
     if (closeAfterComposition && ime && !ime.composing()) close(true);
   }
   return { kb, editing: () => editing, open, close, step };

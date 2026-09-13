@@ -69,7 +69,8 @@ if a reconnect happens between two UI frames without an observed offline frame.
 
 `uploadCoverage(base64, width, height, foreground)` uploads a bounded 2-bit alpha
 mask when a host implements it. Width must be a multiple of four and at most
-512; height is 1–16. Foreground is ABGR. The texture uses the next power-of-two
+512; height is 1–64. The logical area is at most 8,192 pixels and the texture
+envelope is at most 16,384 pixels. Foreground is ABGR. The texture uses the next power-of-two
 envelope, with a minimum dimension of eight. The 3DS decodes in C into reusable
 scratch storage; a guest does not need a pixel expansion loop. Undefined means
 unsupported; a negative handle means invalid input or exhausted frame credit.
@@ -81,6 +82,15 @@ indices. `palette` contains one to sixteen concatenated six-digit RGB colors.
 **Palette coloring uses the same scratch buffer and one texture upload.** This
 supports prearranged colored text without parsing tokens in the guest; it does
 not change the queue, payload or per-frame upload limits.
+
+`uploadIndexedImage({ width, height, pixels, palette })` expands an opaque
+four-bit indexed image through the host's RGBA texture upload. Pixels are
+base64 bytes with the first index in the low nibble; the palette holds one to
+sixteen RGB hex colors. **Expansion is bounded to 4,096 logical pixels**, at
+most 128×64, with transparent power-of-two padding. The returned object has
+`handle`, `width` and `height` for `ResourceImage`. Call it from a resource
+materializer to share the application's per-frame upload budget. Cache eviction
+owns `freeTexture`; a row that unmounts only withdraws its demand.
 
 ## Provider
 

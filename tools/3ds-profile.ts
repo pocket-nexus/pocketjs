@@ -18,7 +18,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * input.touch.auxiliary.
  */
 export const THREE_DS_DEV_TARGET_ID = "3ds-dev";
-export const THREE_DS_DEV_HOST_ABI = 8;
+export const THREE_DS_DEV_HOST_ABI = 10;
 export const THREE_DS_VIEWPORT = [400, 240] as const;
 export const THREE_DS_AUXILIARY_VIEWPORT = [320, 240] as const;
 
@@ -43,6 +43,7 @@ export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
       },
       capabilities: [
         "io.offload",
+        "media.playback",
         "input.analog.left",
         "input.analog.right",
         "input.buttons",

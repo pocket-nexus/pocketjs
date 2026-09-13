@@ -31,6 +31,7 @@ async function run(...args: string[]) {
 }
 
 await run("tools/wasm.ts");
+await run("tools/text-wasm.ts");
 // The homepage stage ships the Pocket Launcher + every admitted app as
 // `.pocket` packages (docs/LAUNCHER.md + docs/PLATFORM.md): registry scan, per-app
 // bundles, deterministic sim-rendered covers, the launcher bundle, then
@@ -46,6 +47,9 @@ for (const app of docDemoAppsIn(ROOT + "site/content/docs/")) {
   const demo = resolveDocDemo(app);
   await run("tools/build.ts", demo.output, `--framework=${demo.framework}`);
 }
+// Independent display sizes for the two authored handheld models.
+await run("tools/build.ts", "3ds-demo-main", "--outdir=dist/handheld-apps");
+await run("tools/build.ts", "motions-main", "--density=2", "--outdir=dist/handheld-apps");
 // Restore the site's canonical hero table for the generic browser runtime.
 await run("tools/build.ts", "hero");
 await run("site/build.ts");

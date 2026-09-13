@@ -1,6 +1,6 @@
 ---
 name: pocketjs-video-outro
-description: Append the current PocketJS animated end card to a local video (screen recording, demo capture, phone clip). Renders the dark brand card with the logo, wordmark, landing-page VT323 headline and pocketjs.dev, then crossfades it over the source while preserving and fading the original audio. Use when asked to add an outro / end card / 片尾, brand a recording, or produce a shareable PocketJS clip.
+description: Append a short PocketJS animated end card to a local video (screen recording, demo capture, phone clip). Renders the dark brand card with the logo, wordmark, landing-page VT323 headline and pocketjs.dev, then crossfades it over the source while preserving and fading the original audio. Use when asked to add an outro / end card / 片尾, brand a recording, or produce a shareable PocketJS clip.
 ---
 
 # PocketJS Video Outro
@@ -14,15 +14,20 @@ wordmark, and the uppercase VT323 headline. The default positioning is rendered 
 three deliberate lines: `UI FOR` / `EVERY KIND OF` / `COMPUTER`. The exact VT323
 font file is bundled with the skill, so card rendering does not depend on a network
 font request. Headless Chrome renders the layers, then `ffmpeg` crossfades the
-source into the card and animates the text in.
+source into the card and animates the text in. **The default card lasts 2.8 seconds,
+including a 0.35-second crossfade.** Use this short ending unless the user requests
+another duration; `--outro` and `--xfade` remain available for that choice.
 
 Design choices baked into the pipeline:
 
 - **Crossfade first, text second.** The source dissolves into the *empty* branded
   background; the type only starts animating once the transition has settled, so it
   never fights the crossfade.
-- **Staggered entrance.** Logo → tagline → URL, each fades in and eases up
-  (~20-30px, ease-out cubic), ~0.35s apart, then holds.
+- **Staggered entrance.** Logo → tagline → URL start 0.12 seconds apart after
+  the crossfade. Fades last 0.25 / 0.25 / 0.20 seconds, with a 12–20px rise at
+  1080p. The default card settles at 0.79 seconds and holds for about two seconds.
+  Short custom cards compress the entrance to leave at least half the time after
+  the transition for the complete lockup.
 - **Landing-page headline.** The positioning uses the same VT323 face, uppercase
   transform, `0.92` line height and `0.005em` tracking as the site hero. Preserve
   explicit line breaks instead of letting the browser choose the default lockup.
@@ -48,6 +53,7 @@ repo keeps command wrappers in Bun, not shell scripts):
 bun skills/pocketjs-video-outro/scripts/make-outro.ts -i ~/Downloads/clip.mov
 # writes ~/Downloads/clip_outro.mp4  (H.264 high, yuv420p, +faststart, AAC 192k)
 # default card: UI FOR / EVERY KIND OF / COMPUTER
+# 2.8-second card, including its 0.35-second transition
 # prints the output path on stdout; progress/summary on stderr
 ```
 
@@ -81,6 +87,9 @@ ffprobe -v error -select_streams v:0 \
 Do not report a finished video from command success alone. Verify four independent
 properties: full-file decode, delivery metadata, the visible card and its entrance,
 and body-versus-tail audio. Choose a body sample that contains source sound.
+The render log gives the crossfade offset. Subtract it from the final probed
+duration to check that the default ending stays below three seconds, including
+frame-rate rounding. A ten-second source produces about 12.45 seconds in total.
 
 ```bash
 OUTRO_VIDEO=~/Downloads/clip_outro.mp4
@@ -91,9 +100,9 @@ ffprobe -v error -select_streams v:0 \
   -of default=nw=1 "$OUTRO_VIDEO"
 ffmpeg -v error -y -sseof -0.6 -i "$OUTRO_VIDEO" \
   -frames:v 1 /tmp/pocketjs-outro-final.png
-ffmpeg -v error -y -sseof -6 -i "$OUTRO_VIDEO" \
-  -vf 'fps=4/3,scale=480:-2,tile=4x2' -frames:v 1 /tmp/pocketjs-outro-motion.jpg
-ffmpeg -hide_banner -ss 10 -t 5 -i "$OUTRO_VIDEO" \
+ffmpeg -v error -y -sseof -3 -i "$OUTRO_VIDEO" \
+  -vf 'fps=8,scale=240:-2,tile=6x4' -frames:v 1 /tmp/pocketjs-outro-motion.jpg
+ffmpeg -hide_banner -ss 2 -t 3 -i "$OUTRO_VIDEO" \
   -af volumedetect -f null - 2>&1 | rg 'mean_volume|max_volume'
 ffmpeg -hide_banner -sseof -2 -i "$OUTRO_VIDEO" \
   -af volumedetect -f null - 2>&1 | rg 'mean_volume|max_volume'
@@ -103,7 +112,9 @@ Inspect both images. The final frame must use the bundled VT323 face and show th
 requested copy without clipping; the motion sheet must show a clean crossfade and
 the logo → headline → URL stagger. HDR inputs must finish as `tv`, `yuv420p`, and
 `bt709/bt709/bt709`. The body sample must retain audio and the final two seconds
-must be effectively silent.
+must be effectively silent with the defaults. For a shorter custom card, sample
+only the tail after the original source has ended; that silent interval may be
+shorter than two seconds.
 
 ## Options
 
@@ -114,8 +125,8 @@ must be effectively silent.
 | `--tagline` | `UI for` / `every kind of` / `computer` | hero line; explicit newlines are preserved |
 | `--brand` | `PocketJS` | wordmark next to the glyph |
 | `--url` | `pocketjs.dev` | footer line; pass `--url ""` to hide it |
-| `--outro` | `5.5` | end-card length in seconds |
-| `--xfade` | `0.8` | crossfade length; text entrance keys off it |
+| `--outro` | `2.8` | end-card length in seconds, including the transition |
+| `--xfade` | `0.35` | crossfade length; must be shorter than the card; `0` cuts to it |
 | `--crf` / `--preset` | `18` / `medium` | x264 quality/speed |
 | `--x` / `--x-compatible` | off | emit an X-safe 30fps CFR social upload |
 
@@ -126,6 +137,8 @@ must be effectively silent.
   directly to FFmpeg, avoiding floating-point timebases.
 - By default the card uses the source's native resolution and selected frame rate.
   `--x` switches to 30 fps CFR and orientation-aware 1920x1080/1080x1900 bounds.
+- If the source is shorter than the requested crossfade, the transition uses the
+  source duration. The card entrance follows that effective transition time.
 - Display-matrix rotation is applied to the probed dimensions before rendering the
   card, matching FFmpeg's default autorotation for portrait phone footage.
 - **Color:** SDR inputs keep the existing path. HLG and PQ inputs (including the

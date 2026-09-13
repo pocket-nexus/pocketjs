@@ -1,13 +1,7 @@
-name: macOS gpui backend
+name: macOS portable renderer
 
-# The first macOS lane in CI: the gpui backend (engine/backends/gpui) and
-# the macos-app host (hosts/desktop) are standalone crates excluded from the
-# release workspace. This lane pins the macOS build while desktop-linux.yml
-# pins the same crate on Linux. The lane
-# also runs the TS surfaces its path filter watches (contract drift, the
-# platform/note/font-bake tests, and a real macos-app plan+bundle build of
-# the note). gpui needs a window server for anything more; runtime behavior
-# is pinned by the note --proof acceptance run (docs/BACKENDS.md).
+# Native GPU and WASM software rendering share the Rust DrawList core. Text executes in
+# bounded worker adapters; neither host depends on the legacy gpui backend.
 
 on:
   pull_request:
@@ -17,9 +11,23 @@ on:
       - "contracts/schema/**"
       - "engine/core/**"
       - "engine/crates/pocket-ui-surface/**"
-      - "engine/backends/gpui/**"
+      - "engine/crates/pocket-text/**"
+      - "framework/src/text-layout.ts"
+      - "framework/src/offload.ts"
+      - "hosts/web/*offload*.js"
+      - "hosts/web/text-*"
+      - "tools/*offload*"
+      - "tools/companion-session.ts"
+      - "tests/offload-provider.test.ts"
+      - "tests/companion-session.test.ts"
+      - "tests/fixtures/offload-ready-worker.ts"
+      - "tools/text-*"
+      - "tests/text-layout-client.test.ts"
+      - "apps/text-offload/**"
       - "engine/wasm/**"
       - "hosts/desktop/**"
+      - "engine/crates/pocket-ui-wgpu/**"
+      - "engine/pocket3d/crates/pocket3d/**"
       - "tools/macos.ts"
       - "framework/src/components*.ts*"
       - "framework/src/host.ts"
@@ -47,9 +55,23 @@ on:
       - "contracts/schema/**"
       - "engine/core/**"
       - "engine/crates/pocket-ui-surface/**"
-      - "engine/backends/gpui/**"
+      - "engine/crates/pocket-text/**"
+      - "framework/src/text-layout.ts"
+      - "framework/src/offload.ts"
+      - "hosts/web/*offload*.js"
+      - "hosts/web/text-*"
+      - "tools/*offload*"
+      - "tools/companion-session.ts"
+      - "tests/offload-provider.test.ts"
+      - "tests/companion-session.test.ts"
+      - "tests/fixtures/offload-ready-worker.ts"
+      - "tools/text-*"
+      - "tests/text-layout-client.test.ts"
+      - "apps/text-offload/**"
       - "engine/wasm/**"
       - "hosts/desktop/**"
+      - "engine/crates/pocket-ui-wgpu/**"
+      - "engine/pocket3d/crates/pocket3d/**"
       - "tools/macos.ts"
       - "framework/src/components*.ts*"
       - "framework/src/host.ts"
@@ -76,7 +98,7 @@ permissions:
 
 jobs:
   rust:
-    name: gpui backend + host
+    name: portable renderer + text worker + host
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -91,7 +113,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            engine/backends/gpui
+            engine/crates/pocket-text
             hosts/desktop
             engine/wasm
 
@@ -101,7 +123,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Contract + System + note + platform + npm package tests
-        run: bun test tests/platform-contracts.test.ts tests/pocket-system.test.ts tests/web-system-host.test.ts tests/note.test.ts tests/font-bake.test.ts tests/npm-package.test.ts && bun tests/contract.ts
+        run: bun test tests/platform-contracts.test.ts tests/pocket-system.test.ts tests/web-system-host.test.ts tests/text-layout-client.test.ts tests/offload.test.ts tests/offload-provider.test.ts tests/companion-session.test.ts tests/note.test.ts tests/font-bake.test.ts tests/npm-package.test.ts && bun tests/contract.ts
 
       - name: Compile the note against macos-app (plan + bundle + pak)
         run: |
@@ -123,14 +145,22 @@ jobs:
 
       - name: rustfmt
         run: |
-          cargo fmt --check --manifest-path engine/backends/gpui/Cargo.toml
+          cargo fmt --check --manifest-path engine/crates/pocket-text/Cargo.toml
           cargo fmt --check --manifest-path hosts/desktop/Cargo.toml
 
-      - name: Clippy gpui backend
-        run: cargo clippy --locked --manifest-path engine/backends/gpui/Cargo.toml -- -D warnings
+      - name: Portable text and WASM tests
+        run: |
+          cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml
+          cargo test --locked --manifest-path engine/wasm/Cargo.toml
+          bun tools/text-wasm.ts
 
       - name: Clippy native desktop host
         run: cargo clippy --locked --manifest-path hosts/desktop/Cargo.toml -- -D warnings
+
+      - name: Test Metal DrawList rendering and frame leases
+        run: |
+          cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-wgpu
+          cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --include-ignored
 
       - name: Build macos-app host
         run: cargo build --locked --manifest-path hosts/desktop/Cargo.toml

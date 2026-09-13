@@ -3981,3 +3981,20 @@ fn clearing_native_measure_restores_baked_goldens_path() {
     assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 0);
     assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 1);
 }
+
+#[test]
+fn font_revision_changes_only_after_successful_load_and_is_slot_local() {
+    let mut ui = Ui::new();
+    let atlas = encode_atlas(3, 2, 2, 1, 2, 1, &[(65, 0, 2)]);
+    assert_eq!(ui.font_atlas_revision(3), 0);
+    assert!(ui.load_font_atlas(&atlas));
+    assert_eq!(ui.font_atlas_revision(3), 1);
+    assert!(!ui.load_font_atlas(&atlas[..10]));
+    assert_eq!(ui.font_atlas_revision(3), 1);
+    let mut replacement = atlas.clone();
+    *replacement.last_mut().unwrap() = 255;
+    assert!(ui.load_font_atlas(&replacement));
+    assert_eq!(ui.font_atlas_revision(3), 2);
+    assert_eq!(ui.font_atlas_revision(0), 0);
+    assert_eq!(ui.font_atlas_revision(255), 0);
+}

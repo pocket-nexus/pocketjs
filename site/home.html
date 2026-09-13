@@ -53,6 +53,27 @@
         <a class="btn btn--sec" href="https://github.com/pocket-stack/pocketjs">Star on GitHub</a>
       </div>
     </div>
+    <div class="handheld-grid hero-handhelds" aria-label="Try PocketJS on Nintendo 3DS and PS Vita">
+      <figure class="pg-stage motion-stage handheld-stage" data-pocket-stage data-handheld="new-nintendo-3ds" data-device-label="Nintendo 3DS">
+        <figcaption><h3>Nintendo 3DS</h3></figcaption>
+        <div class="pg-stage__viewport" data-stage-viewport role="group" aria-label="Interactive Nintendo 3DS with dual-screen Contacts demo">
+          <canvas class="pg-stage__canvas" data-stage-canvas aria-hidden="true"></canvas>
+          <canvas class="pg-stage__screen" data-stage-screen width="400" height="240" aria-label="Contact details"></canvas>
+          <canvas class="pg-stage__screen" data-stage-auxiliary width="320" height="240" aria-label="Contacts list"></canvas>
+          <div class="pg-stage__status" data-stage-status role="status">Loading Nintendo 3DS</div>
+        </div>
+        <p class="stage-hint">Drag the shell to rotate. Drag the lower screen to scroll, or use the arrow keys.</p>
+      </figure>
+      <figure class="pg-stage motion-stage handheld-stage" data-pocket-stage data-handheld="ps-vita-2000" data-device-label="PS Vita">
+        <figcaption><h3>PS Vita</h3></figcaption>
+        <div class="pg-stage__viewport" data-stage-viewport role="group" aria-label="Interactive PS Vita running PocketJS motion studies">
+          <canvas class="pg-stage__canvas" data-stage-canvas aria-hidden="true"></canvas>
+          <canvas class="pg-stage__screen" data-stage-screen width="960" height="544" aria-label="PocketJS motion studies"></canvas>
+          <div class="pg-stage__status" data-stage-status role="status">Loading PS Vita</div>
+        </div>
+        <p class="stage-hint">Drag to inspect the shell, rear touch pad, cameras and ports.</p>
+      </figure>
+    </div>
     {{SHOWCASE_HERO}}
   </div>
 </section>
@@ -210,6 +231,7 @@
         <figcaption class="stage-hint">Press left or right on the d-pad, or the L and R shoulders, to switch studies.</figcaption>
       </figure>
     </div>
+
   </div>
 </section>
 
@@ -438,10 +460,11 @@
     <text x="279.4" y="256" fill="#8e80ac" font-size="15" text-anchor="middle">160</text>
     <text x="336.3" y="256" fill="#8e80ac" font-size="15" text-anchor="middle">165</text>
     <text x="194.0" y="284" fill="#8e80ac" font-size="15" text-anchor="middle">tallest bar: 6 of 60 runs</text>
-    <rect x="412" y="10" width="332" height="286" fill="#231b3b" stroke="#ffd23f" stroke-opacity=".45"/>
-    <text x="578.0" y="42" fill="#fcf6ff" font-size="20" font-weight="600" text-anchor="middle">frame clock, 60 runs</text>
-    <text x="578.0" y="68" fill="#ffd23f" font-size="16" text-anchor="middle">1 outcome &#183; assertion 60/60</text>
-    <rect x="476.2" y="84.0" width="10" height="148.0" fill="#ffd23f" rx="1.5"/>
+    <g class="hist-frame-clock">
+    <rect x="412" y="10" width="332" height="286" fill="#231b3b" stroke="var(--frame-clock)" stroke-opacity=".45"/>
+    <text x="578.0" y="42" fill="var(--frame-clock)" font-size="20" font-weight="600" text-anchor="middle">frame clock, 60 runs</text>
+    <text x="578.0" y="68" fill="var(--frame-clock)" font-size="16" text-anchor="middle">1 outcome &#183; assertion 60/60</text>
+    <rect x="476.2" y="84.0" width="10" height="148.0" fill="var(--frame-clock)" rx="1.5"/>
     <line x1="426" y1="232" x2="730" y2="232" stroke="#5b4e7d"/>
     <text x="435.7" y="256" fill="#8e80ac" font-size="15" text-anchor="middle">140</text>
     <text x="492.6" y="256" fill="#8e80ac" font-size="15" text-anchor="middle">145</text>
@@ -450,6 +473,7 @@
     <text x="663.4" y="256" fill="#8e80ac" font-size="15" text-anchor="middle">160</text>
     <text x="720.3" y="256" fill="#8e80ac" font-size="15" text-anchor="middle">165</text>
     <text x="578.0" y="284" fill="#8e80ac" font-size="15" text-anchor="middle">frame 144, every run, forever</text>
+    </g>
 </svg>
           <p class="note sm">Same app, same awaited confirmation, same assertion. Driven by requestAnimationFrame
             against a wall clock it lands on <strong>22 different frames</strong>, and the timing assertion passes
@@ -583,8 +607,8 @@
       <span class="fill"></span><span class="hud">shipped on the runtime</span>
     </div>
     <p class="slede">PocketJS carries complete applications on the machines this runtime was built for:
-      games, a design-file viewer, a desktop companion, a streaming client, and the debugger itself. Each card
-      links to how it was built.</p>
+      music, video, maps, documents, shells, games, and developer tools. Each card
+      links to the project or its setup guide.</p>
     <div class="eco">
       <article class="ecard">
         <div class="scr"><img src="/assets/blog/openstrike-psp-dust2.png" alt="OpenStrike on PSP with a Solid JSX HUD"></div>
@@ -623,11 +647,11 @@
         </div>
       </article>
       <article class="ecard">
-        <div class="scr"><img src="/assets/blog/pocket-youtube-results.png" alt="Pocket YouTube search results on a PSP"></div>
+        <div class="scr"><img src="/assets/showcase/pocket-youtube-3ds.png" alt="Pocket YouTube on two 3DS screens, captured in a WASM interface replay"></div>
         <div class="bd">
           <h4>Pocket YouTube<span>client</span></h4>
-          <p>Search, thumbnails, playback and seeking on a console that predates streaming, where
-            <b>the network is a USB cable</b> and a Mac companion does the fetching.</p>
+          <p>Watch on the <b>upper screen</b> while searching and browsing on the touch screen.
+            A Mac companion streams video to the 3DS over Wi-Fi; PSP and PS Vita builds are available too.</p>
           <a class="story" href="/blog/pocket-youtube/">Read the story →</a>
         </div>
       </article>
