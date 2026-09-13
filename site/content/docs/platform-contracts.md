@@ -119,6 +119,70 @@ facts are rejected before an application is resolved. The current package
 format uses one raster asset density for both surfaces, so both display facts
 must declare the same `rasterDensity`.
 
+## Presentations and modality
+
+A **modality** is the interaction structure of a target read off its profile:
+the screens, which screen takes contacts, whether a d-pad and sticks exist,
+where text comes from, and how large the primary screen is.
+`deriveModality` in `contracts/spec/modality.ts` is a pure function of the
+display facts and capability ids the profile already declares. **Nothing
+registers a modality.**
+
+| Field | Values |
+| --- | --- |
+| `screens[]` | per screen: `role`, `logical` size, `orientation`, `touch`, `resizable` |
+| `touch` | `none`, `primary`, `auxiliary` |
+| `pointer` | `none`, `cursor` (synthesized from the nub), `pointer` (a real pointer) |
+| `buttons`, `analog`, `text` | boolean; 0 to 2 sticks; `osk` or `keyboard` |
+| `glyphs` | `playstation` (○ × △ □) or `letters` (A B X Y) |
+
+A PSP derives to one 480×272 landscape screen with no touch, one stick and
+PlayStation glyphs. A New 3DS derives to a 400×240 top screen and a 320×240
+bottom screen with touch, two sticks and letter glyphs.
+
+A **presentation** is an entry module written for one modality. The manifest
+lists them in order under `app.presentations`; each carries a `modality`
+requirement and may carry its own `viewport`, `surfaces`, `output` and
+`capabilities`:
+
+```json
+{
+  "app": {
+    "entry": "app/main.tsx",
+    "viewport": { "logical": [480, 272], "presentation": "integer-fit" },
+    "presentations": [
+      {
+        "id": "dual-screen",
+        "entry": "app/main-dual.tsx",
+        "modality": { "screens": 2, "touch": "auxiliary" },
+        "viewport": { "fixed": { "logical": [400, 240], "presentation": "native" } },
+        "surfaces": { "auxiliary": { "fixed": { "logical": [320, 240], "presentation": "native" } } },
+        "capabilities": { "requires": ["display.auxiliary", "input.touch.auxiliary"] }
+      }
+    ]
+  }
+}
+```
+
+**The resolver takes the first presentation whose requirement the target's
+modality meets; when none matches, `app.entry` is the baseline presentation
+under the id `default`.** `screens` is an exact count, `analog` a minimum,
+`minScreen` and `maxScreen` inclusive bounds on the primary screen, `touch`
+and `pointer` exact values or `"any"`; an absent field matches every device.
+The chosen presentation's capabilities join `engine.capabilities` for
+admission, a presentation `requires` may promote an app-level `enhances`, and
+any other repeated id is a `capability.duplicate` diagnostic. **A
+presentation that matches a device and fails admission there is an error at
+that presentation's JSON Pointer**, because the author addressed it to that
+device.
+
+The plan records `presentation` (`id` and `entry`) and `modality`, and sets
+`app.entry` to the chosen module. The compiler walks the module graph from
+that entry, so **a presentation's modules, class literals, glyphs and image
+assets enter a bundle only when it is the chosen entry**. Inside an entry,
+folded `hasFeature()` calls and the runtime `modality` object from
+`@pocketjs/framework/modality` carry the smaller differences.
+
 ## Viewport policy and companion adapters
 
 A target profile carries a `form` (`takeover`, `window`, `widget`, `kiosk`,

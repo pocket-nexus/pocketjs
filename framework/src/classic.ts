@@ -7,6 +7,19 @@ import { after } from "./clock.ts";
 import { resolveTouchHit } from "./input.ts";
 import type { SurfaceId } from "./display.ts";
 
+/** The classic surface colors app chrome, rows and the classic keyboard
+ *  share: linen background, body ink, secondary ink, selection blue. */
+export const CLASSIC = {
+  background: "#d9dde3",
+  ink: "#283444",
+  dim: "#667485",
+  blue: "#2676cb",
+  rowLine: "#ccd0d6",
+  selectedFrom: "#edf5ff",
+  selectedTo: "#d4e6fd",
+  selectedBar: "#397bd4",
+} as const;
+
 export type ClassicTone = "neutral" | "primary" | "danger" | "key";
 const palettes = {
   neutral: ["#fafcfe", "#cbd6e4", "#8397b1", "#304f78"],

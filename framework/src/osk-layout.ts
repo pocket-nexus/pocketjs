@@ -1,56 +1,95 @@
 // System on-screen-keyboard layout model (@pocketjs/framework/osk).
 //
-// Pure data + math, no components: the key grid is LVGL-style — rows of
-// variable-width keys measured in relative units, normalized per row so
-// every row spans the full panel width. Because the panel computes its own
-// pixel geometry (the JS side has no layout read-back), the same numbers
-// drive rendering, d-pad spatial navigation and touch hit-testing, and they
-// can never disagree.
+// Pure data + math, no components: a key grid is rows of variable-width
+// keys measured in relative units, normalized per row so every row spans
+// the full panel width. Because the panel computes its own pixel geometry
+// (the JS side has no layout read-back), the same numbers drive rendering,
+// d-pad spatial navigation and touch hit-testing, and they can never
+// disagree.
+//
+// Two layouts ship, one per keyboard modality:
+//   - "grid": the LVGL-style panel for a keyboard driven by focus. Every
+//     editing action (caret, hide, commit) is a key, so a d-pad reaches it.
+//   - "staggered": the phone-style panel for a keyboard driven by contacts.
+//     Rows are offset by half a key, shift and backspace flank the bottom
+//     letter row, and caret movement is the hold-space trackpad, not keys.
 //
 // Every typable glyph below is a source literal on purpose: the build's
 // font bake harvests codepoints from literals across the module graph, so
 // importing the OSK is what guarantees its keys can render.
 
-/** Non-typing key behaviors. Keys with `ch` set simply insert it. */
+/** Non-typing key behaviors. Keys with `ch` set insert it. */
 export type OskAction =
-  | "shift" // lower <-> upper
-  | "layer" // letters <-> symbols
+  | "shift" // lower <-> upper (sticky on the grid, one-shot on the staggered layout)
+  | "layer" // switch to `to` (default: letters <-> symbols)
   | "backspace"
   | "enter" // commit (↵ and ✓ both)
   | "left" // caret left
   | "right" // caret right
   | "hide"; // cancel/close
 
+export type OskLayerName = "lower" | "upper" | "symbols" | "numbers";
+
 export interface OskKeyDef {
   /** Literal text this key inserts (typing keys). */
   ch?: string;
   action?: OskAction;
+  /** Layer a "layer" action switches to. */
+  to?: OskLayerName;
   /** Key-cap label; defaults to `ch`. */
   label?: string;
   /** Relative width in row units (normalized per row). */
   w: number;
+  /** Consumes width, renders nothing, takes no focus and no contact. */
+  spacer?: boolean;
 }
 
-export type OskLayerName = "lower" | "upper" | "symbols";
+export type OskLayoutKind = "grid" | "staggered";
 
 // ---------------------------------------------------------------------------
-// Panel metrics (logical pixels, 480-wide screens)
+// Panel metrics (logical pixels)
 // ---------------------------------------------------------------------------
 
 export const OSK_ROW_H = 18;
 export const OSK_GAP = 4;
 export const OSK_PAD = 4;
-/** Docked panel height: 4 rows + 3 gaps + padding. */
+/** Docked grid panel height at the default row height: 4 rows + 3 gaps + padding. */
 export const OSK_H = 4 * OSK_ROW_H + 3 * OSK_GAP + 2 * OSK_PAD; // 92
+
+export interface OskMetrics {
+  readonly rowH: number;
+  readonly gap: number;
+  readonly pad: number;
+  /** Legend strip above the rows (0 = none). */
+  readonly hint: number;
+}
+
+/** Row height a layout defaults to: a focus ring needs 18 px, a finger 30. */
+export const OSK_LAYOUT_ROW_H: Readonly<Record<OskLayoutKind, number>> = { grid: OSK_ROW_H, staggered: 30 };
+
+export function oskMetrics(kind: OskLayoutKind, rowH: number = OSK_LAYOUT_ROW_H[kind], hint = 0): OskMetrics {
+  return { rowH, gap: OSK_GAP, pad: OSK_PAD, hint };
+}
+
+/** Panel height for a metric set: hint strip + 4 rows + 3 gaps + padding. */
+export function oskPanelHeight(metrics: OskMetrics): number {
+  return metrics.hint + 4 * metrics.rowH + 3 * metrics.gap + 2 * metrics.pad;
+}
+
+/** Offset of the first row inside the panel. */
+export function oskRowsTop(metrics: OskMetrics): number {
+  return metrics.hint + metrics.pad;
+}
 
 // ---------------------------------------------------------------------------
 // Layers
 // ---------------------------------------------------------------------------
 
 const chars = (s: string): OskKeyDef[] => [...s].map((ch) => ({ ch, w: 1 }));
+const spacer = (w: number): OskKeyDef => ({ w, spacer: true });
 
-/** Bottom row, LVGL-style: hide · caret-left · space · caret-right · OK. */
-const BOTTOM: OskKeyDef[] = [
+/** Grid bottom row, LVGL-style: hide · caret-left · space · caret-right · OK. */
+const GRID_BOTTOM: OskKeyDef[] = [
   { action: "hide", label: "▼", w: 1.5 },
   { action: "left", label: "‹", w: 1.5 },
   { ch: " ", label: "", w: 7 },
@@ -58,26 +97,84 @@ const BOTTOM: OskKeyDef[] = [
   { action: "enter", label: "✓", w: 1.5 },
 ];
 
-export const OSK_LAYERS: Record<OskLayerName, OskKeyDef[][]> = {
+const GRID_LAYERS: Partial<Record<OskLayerName, OskKeyDef[][]>> = {
   lower: [
-    [{ action: "layer", label: "1#", w: 1.5 }, ...chars("qwertyuiop"), { action: "backspace", label: "⌫", w: 1.5 }],
+    [{ action: "layer", to: "symbols", label: "1#", w: 1.5 }, ...chars("qwertyuiop"), { action: "backspace", label: "⌫", w: 1.5 }],
     [{ action: "shift", label: "ABC", w: 2 }, ...chars("asdfghjkl"), { action: "enter", label: "↵", w: 2 }],
     chars("_-zxcvbnm.,:"),
-    BOTTOM,
+    GRID_BOTTOM,
   ],
   upper: [
-    [{ action: "layer", label: "1#", w: 1.5 }, ...chars("QWERTYUIOP"), { action: "backspace", label: "⌫", w: 1.5 }],
+    [{ action: "layer", to: "symbols", label: "1#", w: 1.5 }, ...chars("QWERTYUIOP"), { action: "backspace", label: "⌫", w: 1.5 }],
     [{ action: "shift", label: "abc", w: 2 }, ...chars("ASDFGHJKL"), { action: "enter", label: "↵", w: 2 }],
     chars("_-ZXCVBNM.,:"),
-    BOTTOM,
+    GRID_BOTTOM,
   ],
   symbols: [
-    [{ action: "layer", label: "abc", w: 1.5 }, ...chars("1234567890"), { action: "backspace", label: "⌫", w: 1.5 }],
+    [{ action: "layer", to: "lower", label: "abc", w: 1.5 }, ...chars("1234567890"), { action: "backspace", label: "⌫", w: 1.5 }],
     [...chars("+-*/=%!?@"), { action: "enter", label: "↵", w: 2 }],
     chars("#()[]'\";&$,."),
-    BOTTOM,
+    GRID_BOTTOM,
   ],
 };
+
+/** Every row of the staggered layout spans ten units, so a letter is one
+ *  tenth of the panel and the half-unit spacers produce the phone offset. */
+function staggeredLetters(row1: string, row2: string, row3: string, shiftLabel: string): OskKeyDef[][] {
+  return [
+    chars(row1),
+    [spacer(0.5), ...chars(row2), spacer(0.5)],
+    [{ action: "shift", label: shiftLabel, w: 1.5 }, ...chars(row3), { action: "backspace", label: "⌫", w: 1.5 }],
+    STAGGERED_BOTTOM("numbers", "123"),
+  ];
+}
+
+const STAGGERED_BOTTOM = (to: OskLayerName, label: string): OskKeyDef[] => [
+  { action: "layer", to, label, w: 1.5 },
+  { action: "hide", label: "▼", w: 1.5 },
+  { ch: " ", label: "", w: 5.5 },
+  { action: "enter", label: "✓", w: 1.5 },
+];
+
+const STAGGERED_LAYERS: Partial<Record<OskLayerName, OskKeyDef[][]>> = {
+  lower: staggeredLetters("qwertyuiop", "asdfghjkl", "zxcvbnm", "⇧"),
+  upper: staggeredLetters("QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM", "⇧"),
+  numbers: [
+    chars("1234567890"),
+    chars("-/:;()$&@\""),
+    [{ action: "layer", to: "symbols", label: "#+=", w: 1.5 }, ...[...".,?!'"].map((ch) => ({ ch, w: 1.4 })), { action: "backspace", label: "⌫", w: 1.5 }],
+    STAGGERED_BOTTOM("lower", "ABC"),
+  ],
+  symbols: [
+    chars("[]{}#%^*+="),
+    chars("_\\|~<>€£¥•"),
+    [{ action: "layer", to: "numbers", label: "123", w: 1.5 }, ...[...".,?!'"].map((ch) => ({ ch, w: 1.4 })), { action: "backspace", label: "⌫", w: 1.5 }],
+    STAGGERED_BOTTOM("lower", "ABC"),
+  ],
+};
+
+/** The grid layers, by name (the historical export). */
+export const OSK_LAYERS: Record<Exclude<OskLayerName, "numbers">, OskKeyDef[][]> = GRID_LAYERS as never;
+
+export const OSK_LAYOUTS: Readonly<Record<OskLayoutKind, Partial<Record<OskLayerName, OskKeyDef[][]>>>> = {
+  grid: GRID_LAYERS,
+  staggered: STAGGERED_LAYERS,
+};
+
+/** The layer a keyboard opens on and every layout has. */
+export const OSK_HOME_LAYER: OskLayerName = "lower";
+
+/** The layer a "layer" key without `to` switches to from `from`. */
+export function oskLayerToggle(kind: OskLayoutKind, from: OskLayerName): OskLayerName {
+  if (kind === "grid") return from === "symbols" ? "lower" : "symbols";
+  return from === "numbers" || from === "symbols" ? "lower" : "numbers";
+}
+
+/** The layer rows for a layout, falling back to the home layer when the
+ *  layout does not carry the requested one (the grid has no "numbers"). */
+export function oskLayer(kind: OskLayoutKind, layer: OskLayerName): OskKeyDef[][] {
+  return OSK_LAYOUTS[kind][layer] ?? OSK_LAYOUTS[kind][OSK_HOME_LAYER]!;
+}
 
 // ---------------------------------------------------------------------------
 // Geometry
@@ -86,6 +183,7 @@ export const OSK_LAYERS: Record<OskLayerName, OskKeyDef[][]> = {
 export interface OskKeyRect {
   key: OskKeyDef;
   row: number;
+  /** Column among the row's KEYS (spacers are not columns). */
   col: number;
   /** Pixel offset inside the row (0 = row left edge). */
   x: number;
@@ -95,7 +193,8 @@ export interface OskKeyRect {
 /**
  * Normalize one layer into per-key pixel rects for an `innerW`-wide row box.
  * Cumulative rounding: key edges land on round(prefix-units share), so the
- * widths always sum exactly to `innerW` with no 1-px drift.
+ * widths always sum exactly to `innerW` with no 1-px drift. Spacers take
+ * their share of the width and a gap, and emit no rect.
  */
 export function layoutRows(layer: readonly OskKeyDef[][], innerW: number, gap: number = OSK_GAP): OskKeyRect[][] {
   return layer.map((row, r) => {
@@ -106,7 +205,7 @@ export function layoutRows(layer: readonly OskKeyDef[][], innerW: number, gap: n
     let left = 0;
     for (let c = 0; c < row.length; c++) {
       const right = Math.round(((prefix + row[c].w) / units) * keyPx);
-      rects.push({ key: row[c], row: r, col: c, x: left + c * gap, w: right - left });
+      if (!row[c].spacer) rects.push({ key: row[c], row: r, col: rects.length, x: left + c * gap, w: right - left });
       prefix += row[c].w;
       left = right;
     }
@@ -124,6 +223,12 @@ export function clampPos(rows: readonly OskKeyRect[][], pos: OskPos): OskPos {
   const row = Math.max(0, Math.min(pos.row, rows.length - 1));
   const col = Math.max(0, Math.min(pos.col, rows[row].length - 1));
   return { row, col };
+}
+
+/** Where a keyboard opens the first time: the 'q' key, or the row's first key. */
+export function homePos(rows: readonly OskKeyRect[][]): OskPos {
+  for (const row of rows) for (const k of row) if (k.key.ch === "q") return { row: k.row, col: k.col };
+  return { row: 0, col: 0 };
 }
 
 /**
@@ -165,10 +270,10 @@ export function navigate(
 }
 
 /**
- * Point -> key for touch input. `x`/`y` are panel-content coordinates (the
- * caller subtracts the panel origin and OSK_PAD). Forgiving in x — a touch
- * in a gap resolves to the nearest key of the row; strict in y only across
- * the panel bounds.
+ * Point -> key for touch input. `x`/`y` are row-box coordinates (the caller
+ * subtracts the panel origin, the hint strip and the padding). Forgiving in
+ * x — a touch in a gap resolves to the nearest key of the row; strict in y
+ * only across the panel bounds.
  */
 export function keyAtPoint(
   rows: readonly OskKeyRect[][],

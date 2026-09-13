@@ -1,5 +1,6 @@
 import type { HostExtension } from "./host-extension.ts";
 import { createHash } from "node:crypto";
+import type { Modality } from "../../../contracts/spec/modality.ts";
 import type { PocketManifestV2 } from "../../../contracts/spec/pocket-manifest.ts";
 import type { PresentationMode, Viewport } from "../../../contracts/spec/platforms.ts";
 
@@ -9,6 +10,13 @@ export interface ResolvedBuildPlanContent {
   readonly app: Pick<PocketManifestV2, "id" | "title" | "version"> &
     Pick<PocketManifestV2["app"], "entry" | "framework"> & {
     readonly output: string;
+  };
+  /** The presentation this build compiles: `app.entry` above IS its entry.
+   *  "default" names the baseline `app.entry` when no declared presentation
+   *  matched the target's modality. */
+  readonly presentation: {
+    readonly id: string;
+    readonly entry: string;
   };
   readonly target: {
     readonly id: string;
@@ -34,6 +42,10 @@ export interface ResolvedBuildPlanContent {
       readonly rasterDensity: number;
     };
   };
+  /** The target's interaction structure, derived from its profile
+   *  (contracts/spec/modality.ts). Consumers read it from the plan, never
+   *  from a second copy of the registry. */
+  readonly modality: Modality;
   /** Required APIs are true; enhancements reflect target availability. */
   readonly features: Readonly<Record<string, boolean>>;
   /** Companion service names from the manifest (app.companions): the exact

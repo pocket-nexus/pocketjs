@@ -280,6 +280,288 @@
               }
             }
           ]
+        },
+        "presentations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "entry",
+              "modality"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+              },
+              "entry": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.tsx?$"
+              },
+              "output": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+              },
+              "modality": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "screens": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2
+                  },
+                  "touch": {
+                    "enum": [
+                      "none",
+                      "primary",
+                      "auxiliary",
+                      "any"
+                    ]
+                  },
+                  "pointer": {
+                    "enum": [
+                      "none",
+                      "cursor",
+                      "pointer",
+                      "any"
+                    ]
+                  },
+                  "buttons": {
+                    "type": "boolean"
+                  },
+                  "analog": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  "text": {
+                    "enum": [
+                      "osk",
+                      "keyboard"
+                    ]
+                  },
+                  "orientation": {
+                    "enum": [
+                      "landscape",
+                      "portrait",
+                      "square"
+                    ]
+                  },
+                  "minScreen": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "maxScreen": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  "form": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "takeover",
+                        "window",
+                        "widget",
+                        "kiosk",
+                        "embedded"
+                      ]
+                    },
+                    "minItems": 1,
+                    "uniqueItems": true
+                  }
+                }
+              },
+              "viewport": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "logical",
+                      "presentation"
+                    ],
+                    "properties": {
+                      "logical": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "presentation": {
+                        "enum": [
+                          "fill",
+                          "fit",
+                          "integer-fit",
+                          "native",
+                          "stretch"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "fixed": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "logical",
+                          "presentation"
+                        ],
+                        "properties": {
+                          "logical": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "presentation": {
+                            "enum": [
+                              "fill",
+                              "fit",
+                              "integer-fit",
+                              "native",
+                              "stretch"
+                            ]
+                          }
+                        }
+                      },
+                      "dynamic": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "default"
+                        ],
+                        "properties": {
+                          "default": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "min": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "max": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "surfaces": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "auxiliary"
+                ],
+                "properties": {
+                  "auxiliary": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "fixed"
+                    ],
+                    "properties": {
+                      "fixed": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "logical",
+                          "presentation"
+                        ],
+                        "properties": {
+                          "logical": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "presentation": {
+                            "enum": [
+                              "fill",
+                              "fit",
+                              "integer-fit",
+                              "native",
+                              "stretch"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "capabilities": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "requires": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"
+                    },
+                    "uniqueItems": true
+                  },
+                  "enhances": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$"
+                    },
+                    "uniqueItems": true
+                  }
+                }
+              }
+            }
+          },
+          "minItems": 1
         }
       }
     }

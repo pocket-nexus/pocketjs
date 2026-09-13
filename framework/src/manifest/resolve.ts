@@ -1,6 +1,11 @@
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
-import type { PocketManifestV2 } from "../../../contracts/spec/pocket-manifest.ts";
+import { deriveModality, modalityMisses } from "../../../contracts/spec/modality.ts";
+import type {
+  ManifestViewport,
+  PocketManifestV2,
+  PresentationSpec,
+} from "../../../contracts/spec/pocket-manifest.ts";
 import {
   POCKET_PLATFORM_CONTRACTS,
   type FixedDisplayProfile,
@@ -144,7 +149,8 @@ const within = (v: Viewport, min: Viewport, max: Viewport): boolean =>
  * pushing diagnostics.
  */
 function resolveViewport(
-  manifest: PocketManifestV2,
+  declared: ManifestViewport,
+  viewportPath: string,
   profile: TargetProfile,
   diagnostics: ContractDiagnostic[],
 ): {
@@ -153,7 +159,7 @@ function resolveViewport(
   physical: Viewport;
   policy: "fixed" | "dynamic";
 } | null {
-  const viewport = normalizeViewport(manifest.app.viewport);
+  const viewport = normalizeViewport(declared);
   const { physicalViewport, logicalViewports, dynamicViewport, presentations, rasterDensity } =
     profile.display;
   const dynamicTarget = DYNAMIC_FORMS.includes(profile.form);
@@ -169,7 +175,7 @@ function resolveViewport(
       if (!within(size, range.min, range.max)) {
         diagnostics.push({
           code: "viewport.logicalUnsupported",
-          path: "/app/viewport/dynamic/default",
+          path: `${viewportPath}/dynamic/default`,
           message: `target admits ${range.min[0]}x${range.min[1]} through ${range.max[0]}x${range.max[1]}, not ${size[0]}x${size[1]}`,
         });
         return null;
@@ -185,7 +191,7 @@ function resolveViewport(
       if (!range.acceptsFixed) {
         diagnostics.push({
           code: "viewport.fixedUnhosted",
-          path: "/app/viewport",
+          path: viewportPath,
           message: `${profile.form}-form target does not host fixed-viewport apps — declare a dynamic viewport variant`,
         });
         return null;
@@ -194,7 +200,7 @@ function resolveViewport(
       if (!within(size, range.min, range.max)) {
         diagnostics.push({
           code: "viewport.logicalUnsupported",
-          path: "/app/viewport/fixed/logical",
+          path: `${viewportPath}/fixed/logical`,
           message: `target admits ${range.min[0]}x${range.min[1]} through ${range.max[0]}x${range.max[1]}, not ${size[0]}x${size[1]}`,
         });
         return null;
@@ -209,7 +215,7 @@ function resolveViewport(
     }
     diagnostics.push({
       code: "viewport.dynamicRequired",
-      path: "/app/viewport",
+      path: viewportPath,
       message: "target has a dynamic window — declare a dynamic viewport variant",
     });
     return null;
@@ -218,13 +224,13 @@ function resolveViewport(
   if (!viewport.fixed) {
     diagnostics.push({
       code: "viewport.fixedRequired",
-      path: "/app/viewport",
+      path: viewportPath,
       message: "target has a fixed screen — declare a fixed viewport variant",
     });
     return null;
   }
   const { logical, presentation } = viewport.fixed;
-  const fixedPath = "logical" in manifest.app.viewport ? "/app/viewport" : "/app/viewport/fixed";
+  const fixedPath = "logical" in declared ? viewportPath : `${viewportPath}/fixed`;
   let ok = true;
   if (!logicalViewports.some((supported) => sameViewport(supported, logical))) {
     diagnostics.push({
@@ -441,7 +447,39 @@ export function resolveBuildPlan(
     });
   }
 
-  const resolvedViewport = resolveViewport(manifest, profile, diagnostics);
+  // The device's modality selects the presentation; the first declared
+  // presentation whose requirement the modality meets is the one this build
+  // compiles. None matching means the baseline `app.entry`.
+  const modality = deriveModality(profile);
+  const presentations = manifest.app.presentations ?? [];
+  const presentationIds = new Map<string, number>();
+  presentations.forEach((candidate, index) => {
+    const previous = presentationIds.get(candidate.id);
+    if (previous !== undefined) {
+      diagnostics.push({
+        code: "presentation.duplicateId",
+        path: `/app/presentations/${index}/id`,
+        message: `presentation id ${JSON.stringify(candidate.id)} was already declared at /app/presentations/${previous}`,
+      });
+      return;
+    }
+    presentationIds.set(candidate.id, index);
+  });
+  const chosenIndex = presentations.findIndex(
+    (candidate) => modalityMisses(modality, candidate.modality).length === 0,
+  );
+  const chosen: PresentationSpec | undefined = chosenIndex >= 0 ? presentations[chosenIndex] : undefined;
+  const presentationPath = chosen ? `/app/presentations/${chosenIndex}` : "/app";
+  const presentation = {
+    id: chosen?.id ?? "default",
+    entry: chosen?.entry ?? manifest.app.entry,
+  };
+
+  const declaredViewport = chosen?.viewport ?? manifest.app.viewport;
+  const viewportPath = chosen?.viewport ? `${presentationPath}/viewport` : "/app/viewport";
+  const resolvedViewport = resolveViewport(declaredViewport, viewportPath, profile, diagnostics);
+  const declaredSurfaces = chosen?.surfaces ?? manifest.app.surfaces;
+  const surfacesPath = chosen?.surfaces ? `${presentationPath}/surfaces` : "/app/surfaces";
 
   const known = new Set<string>(registry.capabilities);
   const role = request.role ?? "application";
@@ -452,20 +490,38 @@ export function resolveBuildPlan(
   const seen = new Map<string, string>();
   const featureAvailability = new Map<string, boolean>();
 
-  for (const [kind, capabilities] of [
-    ["requires", manifest.engine.capabilities.requires],
-    ["enhances", manifest.engine.capabilities.enhances ?? []],
-  ] as const) {
+  // App-level declarations first, then the chosen presentation's additions.
+  // A presentation `requires` may promote an app-level `enhances`; every
+  // other repeat is a duplicate the author should remove.
+  const appEnhances = new Map<string, string>();
+  (manifest.engine.capabilities.enhances ?? []).forEach((capability, index) => {
+    appEnhances.set(capability, capabilityPath("enhances", index));
+  });
+  const declarations: readonly (readonly ["requires" | "enhances", readonly string[], (index: number) => string])[] = [
+    ["requires", manifest.engine.capabilities.requires, (index) => capabilityPath("requires", index)],
+    ["enhances", manifest.engine.capabilities.enhances ?? [], (index) => capabilityPath("enhances", index)],
+    ...(chosen
+      ? ([
+          ["requires", chosen.capabilities?.requires ?? [], (index: number) => `${presentationPath}/capabilities/requires/${index}`],
+          ["enhances", chosen.capabilities?.enhances ?? [], (index: number) => `${presentationPath}/capabilities/enhances/${index}`],
+        ] as const)
+      : []),
+  ];
+
+  for (const [kind, capabilities, pathOf] of declarations) {
     capabilities.forEach((capability, index) => {
-      const path = capabilityPath(kind, index);
+      const path = pathOf(index);
       const previous = seen.get(capability);
       if (previous) {
-        diagnostics.push({
-          code: "capability.duplicate",
-          path,
-          message: `capability was already declared at ${previous}`,
-        });
-        return;
+        const promotes = kind === "requires" && path.startsWith("/app/presentations/") && appEnhances.get(capability) === previous;
+        if (!promotes) {
+          diagnostics.push({
+            code: "capability.duplicate",
+            path,
+            message: `capability was already declared at ${previous}`,
+          });
+          return;
+        }
       }
       seen.set(capability, path);
 
@@ -492,19 +548,26 @@ export function resolveBuildPlan(
     });
   }
 
-  const requires = new Set(manifest.engine.capabilities.requires);
-  const enhances = new Set(manifest.engine.capabilities.enhances ?? []);
+  const requires = new Set([
+    ...manifest.engine.capabilities.requires,
+    ...(chosen?.capabilities?.requires ?? []),
+  ]);
+  const enhances = new Set(
+    [...(manifest.engine.capabilities.enhances ?? []), ...(chosen?.capabilities?.enhances ?? [])].filter(
+      (capability) => !requires.has(capability),
+    ),
+  );
   if (requires.has("text.layout.offload") && !requires.has("io.offload") ||
       enhances.has("text.layout.offload") && !requires.has("io.offload") && !enhances.has("io.offload")) {
     diagnostics.push({code:"capability.offloadDependency",path:"/engine/capabilities",message:"text.layout.offload requires a matching io.offload declaration"});
   }
   const auxiliaryDeclared = requires.has(AUXILIARY_DISPLAY) || enhances.has(AUXILIARY_DISPLAY);
   const auxiliaryTouchDeclared = requires.has(AUXILIARY_TOUCH) || enhances.has(AUXILIARY_TOUCH);
-  if (Boolean(manifest.app.surfaces?.auxiliary) !== auxiliaryDeclared) {
+  if (Boolean(declaredSurfaces?.auxiliary) !== auxiliaryDeclared) {
     diagnostics.push({
       code: "surface.auxiliaryDeclarationMismatch",
-      path: "/app/surfaces",
-      message: "app.surfaces.auxiliary and the display.auxiliary capability must be declared together",
+      path: surfacesPath,
+      message: "surfaces.auxiliary and the display.auxiliary capability must be declared together",
     });
   }
   if (auxiliaryTouchDeclared && !auxiliaryDeclared) {
@@ -527,13 +590,13 @@ export function resolveBuildPlan(
     | undefined;
   if (
     featureAvailability.get(AUXILIARY_DISPLAY) === true &&
-    manifest.app.surfaces?.auxiliary &&
+    declaredSurfaces?.auxiliary &&
     profile.display.auxiliary
   ) {
     resolvedAuxiliary = resolveFixedDisplay(
-      manifest.app.surfaces.auxiliary.fixed,
+      declaredSurfaces.auxiliary.fixed,
       profile.display.auxiliary,
-      "/app/surfaces/auxiliary/fixed",
+      `${surfacesPath}/auxiliary/fixed`,
       requires.has(AUXILIARY_DISPLAY) ? diagnostics : undefined,
     ) ?? undefined;
     if (!resolvedAuxiliary) {
@@ -547,11 +610,16 @@ export function resolveBuildPlan(
   // would otherwise smuggle an invalid name past the schema and fail much
   // later, inside a backend, blaming a plan the resolver itself produced.
   const OUTPUT_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-  const output = manifest.app.output ?? manifest.app.entry.split("/").pop()!.replace(/\.tsx?$/, "");
+  const explicitOutput = chosen?.output ?? manifest.app.output;
+  const output = explicitOutput ?? presentation.entry.split("/").pop()!.replace(/\.tsx?$/, "");
   if (!OUTPUT_NAME.test(output)) {
     diagnostics.push({
       code: "app.outputUnderivable",
-      path: manifest.app.output !== undefined ? "/app/output" : "/app/entry",
+      path: chosen?.output !== undefined
+        ? `${presentationPath}/output`
+        : manifest.app.output !== undefined
+          ? "/app/output"
+          : `${presentationPath}/entry`,
       message: `derived output ${JSON.stringify(output)} is not a valid artifact name — set app.output explicitly`,
     });
   }
@@ -571,10 +639,11 @@ export function resolveBuildPlan(
       id: manifest.id,
       title: manifest.title,
       version: manifest.version,
-      entry: manifest.app.entry,
+      entry: presentation.entry,
       output,
       framework: manifest.app.framework,
     },
+    presentation,
     target: {
       id: request.target,
       hostAbi: profile.hostAbi,
@@ -587,6 +656,7 @@ export function resolveBuildPlan(
       policy: resolvedViewport.policy,
     },
     ...(resolvedAuxiliary ? { surfaces: { auxiliary: resolvedAuxiliary } } : {}),
+    modality,
     features,
     companions: manifest.app.companions ?? [],
     ...(request.hostExtension ? { hostExtension: request.hostExtension } : {}),

@@ -120,6 +120,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   osk: { file: { solid: "framework/src/osk.tsx" } },
   package: { file: "contracts/spec/pocket-package.ts" },
   platform: { file: "framework/src/platform.ts" },
+  modality: { file: "framework/src/modality.ts" },
   "vita-package": { file: "tools/vita-package.ts" },
   prelude: {
     file: {

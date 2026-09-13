@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { deriveModality } from "../contracts/spec/modality.ts";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import {
   SYMBIAN_E7_DEV_CONTRACTS,
@@ -141,6 +142,7 @@ describe("experimental Nokia E7 runtime profile", () => {
           entry: "app.tsx",
           framework: "solid",
         },
+        presentation: { id: "default", entry: "app.tsx" },
         target: { id: SYMBIAN_E7_DEV_TARGET_ID, hostAbi: SYMBIAN_E7_DEV_HOST_ABI },
         viewport: {
           logical: liveViewport ? [640, 360] : [480, 272],
@@ -149,6 +151,7 @@ describe("experimental Nokia E7 runtime profile", () => {
           rasterDensity: 1,
           policy: liveViewport ? "dynamic" : "fixed",
         },
+        modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
         features: {},
         companions: [],
         planHash: `sha256:${"0".repeat(64)}`,

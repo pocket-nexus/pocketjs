@@ -7,6 +7,10 @@
     "output": "main",
     "framework": "solid"
   },
+  "presentation": {
+    "id": "default",
+    "entry": "app/main.tsx"
+  },
   "target": {
     "id": "psp",
     "hostAbi": 1
@@ -24,11 +28,32 @@
     "rasterDensity": 1,
     "policy": "fixed"
   },
+  "modality": {
+    "form": "takeover",
+    "screens": [
+      {
+        "role": "primary",
+        "logical": [
+          480,
+          272
+        ],
+        "orientation": "landscape",
+        "touch": false,
+        "resizable": false
+      }
+    ],
+    "touch": "none",
+    "pointer": "cursor",
+    "buttons": true,
+    "analog": 1,
+    "text": "osk",
+    "glyphs": "playstation"
+  },
   "features": {
     "input.analog.left": true,
     "input.buttons": true,
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:fc32497b58bf5b9fab7c827ba8f6073cd749cb92c6cec6d37829fca7cf7e2085"
+  "planHash": "sha256:fc8e74364fe0661d6286dae6e39d88f949385787e5859ffe08764e0c0146ce03"
 }

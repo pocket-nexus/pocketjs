@@ -5,6 +5,7 @@ import {
   type PresentationMode,
   type Viewport,
 } from "./platforms.ts";
+import { modalityRequirementSchema, type ModalityRequirement } from "./modality.ts";
 
 export const POCKET_MANIFEST_VERSION = 2 as const;
 export const POCKET_MANIFEST_SCHEMA_ID = "https://pocketjs.dev/schema/pocket-2.json";
@@ -80,6 +81,36 @@ export interface PocketManifestV2 {
      * runs standalone everywhere; svcOpen answers false by default.
      */
     readonly companions?: readonly string[];
+    /**
+     * Alternative entry modules addressed to device modalities, tested in
+     * order against the target's derived modality (contracts/spec/
+     * modality.ts). The first match is the presentation a build compiles;
+     * when none matches, `app.entry` with the app-level viewport, surfaces
+     * and capabilities is the baseline presentation. Each presentation may
+     * carry its own viewport, surfaces and output name, and adds its
+     * capabilities to the app-level declaration.
+     */
+    readonly presentations?: readonly PresentationSpec[];
+  };
+}
+
+/** One presentation: an entry module addressed to a device modality. */
+export interface PresentationSpec {
+  readonly id: string;
+  readonly entry: string;
+  readonly output?: string;
+  readonly modality: ModalityRequirement;
+  readonly viewport?: ManifestViewport;
+  readonly surfaces?: {
+    readonly auxiliary: {
+      readonly fixed: FixedViewportSpec;
+    };
+  };
+  /** Added to `engine.capabilities`; a presentation `requires` entry may
+   *  promote an app-level `enhances` entry. */
+  readonly capabilities?: {
+    readonly requires?: readonly string[];
+    readonly enhances?: readonly string[];
   };
 }
 
@@ -112,6 +143,101 @@ export type ManifestViewport =
 const capabilityIdSchema = {
   type: "string",
   pattern: "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$",
+} as const satisfies JsonSchema;
+
+const viewportSizeSchema = {
+  type: "array",
+  items: { type: "integer", minimum: 1 },
+  minItems: 2,
+  maxItems: 2,
+} as const satisfies JsonSchema;
+
+const fixedViewportSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["logical", "presentation"],
+  properties: {
+    logical: viewportSizeSchema,
+    presentation: { enum: PRESENTATION_MODES },
+  },
+} as const satisfies JsonSchema;
+
+const surfacesSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["auxiliary"],
+  properties: {
+    auxiliary: {
+      type: "object",
+      additionalProperties: false,
+      required: ["fixed"],
+      properties: {
+        fixed: fixedViewportSchema,
+      },
+    },
+  },
+} as const satisfies JsonSchema;
+
+const entrySchema = {
+  type: "string",
+  minLength: 1,
+  pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.tsx?$",
+} as const satisfies JsonSchema;
+
+const outputSchema = {
+  type: "string",
+  minLength: 1,
+  maxLength: 64,
+  pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+} as const satisfies JsonSchema;
+
+/** Policy variants: fixed and/or dynamic. An empty object is schema-valid
+ *  but semantically caught by the resolver (viewport.fixedRequired /
+ *  viewport.dynamicRequired). The bare fixed spelling is format-2
+ *  compatibility. */
+const manifestViewportSchema = {
+  anyOf: [
+    fixedViewportSchema,
+    {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        fixed: fixedViewportSchema,
+        dynamic: {
+          type: "object",
+          additionalProperties: false,
+          required: ["default"],
+          properties: {
+            default: viewportSizeSchema,
+            min: viewportSizeSchema,
+            max: viewportSizeSchema,
+          },
+        },
+      },
+    },
+  ],
+} as const satisfies JsonSchema;
+
+const presentationSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "entry", "modality"],
+  properties: {
+    id: outputSchema,
+    entry: entrySchema,
+    output: outputSchema,
+    modality: modalityRequirementSchema,
+    viewport: manifestViewportSchema,
+    surfaces: surfacesSchema,
+    capabilities: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        requires: { type: "array", items: capabilityIdSchema, uniqueItems: true },
+        enhances: { type: "array", items: capabilityIdSchema, uniqueItems: true },
+      },
+    },
+  },
 } as const satisfies JsonSchema;
 
 /** Strict format-2 application intent. Platform facts stay in target profiles. */
@@ -184,46 +310,10 @@ export const pocketManifestV2Schema = {
       additionalProperties: false,
       required: ["entry", "framework", "viewport"],
       properties: {
-        entry: {
-          type: "string",
-          minLength: 1,
-          pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.tsx?$",
-        },
-        output: {
-          type: "string",
-          minLength: 1,
-          maxLength: 64,
-          pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
-        },
+        entry: entrySchema,
+        output: outputSchema,
         framework: { enum: ["solid", "vue-vapor", "octane"] },
-        surfaces: {
-          type: "object",
-          additionalProperties: false,
-          required: ["auxiliary"],
-          properties: {
-            auxiliary: {
-              type: "object",
-              additionalProperties: false,
-              required: ["fixed"],
-              properties: {
-                fixed: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["logical", "presentation"],
-                  properties: {
-                    logical: {
-                      type: "array",
-                      items: { type: "integer", minimum: 1 },
-                      minItems: 2,
-                      maxItems: 2,
-                    },
-                    presentation: { enum: PRESENTATION_MODES },
-                  },
-                },
-              },
-            },
-          },
-        },
+        surfaces: surfacesSchema,
         companions: {
           type: "array",
           items: {
@@ -234,72 +324,11 @@ export const pocketManifestV2Schema = {
           },
           uniqueItems: true,
         },
-        viewport: {
-          anyOf: [
-            // Shorthand: a bare fixed viewport (format-2 compatibility).
-            {
-              type: "object",
-              additionalProperties: false,
-              required: ["logical", "presentation"],
-              properties: {
-                logical: {
-                  type: "array",
-                  items: { type: "integer", minimum: 1 },
-                  minItems: 2,
-                  maxItems: 2,
-                },
-                presentation: { enum: PRESENTATION_MODES },
-              },
-            },
-            // Policy variants: fixed and/or dynamic. An empty object is
-            // schema-valid but semantically caught by the resolver
-            // (viewport.fixedRequired / viewport.dynamicRequired).
-            {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                fixed: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["logical", "presentation"],
-                  properties: {
-                    logical: {
-                      type: "array",
-                      items: { type: "integer", minimum: 1 },
-                      minItems: 2,
-                      maxItems: 2,
-                    },
-                    presentation: { enum: PRESENTATION_MODES },
-                  },
-                },
-                dynamic: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["default"],
-                  properties: {
-                    default: {
-                      type: "array",
-                      items: { type: "integer", minimum: 1 },
-                      minItems: 2,
-                      maxItems: 2,
-                    },
-                    min: {
-                      type: "array",
-                      items: { type: "integer", minimum: 1 },
-                      minItems: 2,
-                      maxItems: 2,
-                    },
-                    max: {
-                      type: "array",
-                      items: { type: "integer", minimum: 1 },
-                      minItems: 2,
-                      maxItems: 2,
-                    },
-                  },
-                },
-              },
-            },
-          ],
+        viewport: manifestViewportSchema,
+        presentations: {
+          type: "array",
+          items: presentationSchema,
+          minItems: 1,
         },
       },
     },

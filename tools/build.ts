@@ -524,6 +524,11 @@ const result = await Bun.build({
     __POCKET_TARGET__: JSON.stringify(buildPlan?.target.id ?? ""),
     __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? 0),
     __POCKET_FEATURES__: JSON.stringify(buildPlan?.features ?? {}),
+    // The modality and presentation the plan resolved; the runtime module
+    // (@pocketjs/framework/modality) falls back to the portable PSP shape
+    // when a bundle is built without a plan.
+    __POCKET_MODALITY__: JSON.stringify(buildPlan?.modality ?? null),
+    __POCKET_PRESENTATION__: JSON.stringify(buildPlan?.presentation.id ?? "default"),
     __POCKET_PIXEL_RATIO__: String(rasterDensity),
     __POCKET_TICK_HZ__: String(tickHz),
     ...(framework === "vue-vapor"

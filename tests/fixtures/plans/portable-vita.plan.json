@@ -7,6 +7,10 @@
     "output": "main",
     "framework": "solid"
   },
+  "presentation": {
+    "id": "default",
+    "entry": "app/main.tsx"
+  },
   "target": {
     "id": "vita",
     "hostAbi": 2
@@ -24,11 +28,32 @@
     "rasterDensity": 2,
     "policy": "fixed"
   },
+  "modality": {
+    "form": "takeover",
+    "screens": [
+      {
+        "role": "primary",
+        "logical": [
+          480,
+          272
+        ],
+        "orientation": "landscape",
+        "touch": true,
+        "resizable": false
+      }
+    ],
+    "touch": "primary",
+    "pointer": "cursor",
+    "buttons": true,
+    "analog": 1,
+    "text": "osk",
+    "glyphs": "playstation"
+  },
   "features": {
     "input.analog.left": true,
     "input.buttons": true,
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:ce59ea6fe09e18d80c3c1df83915487a4f58d082b2ff11b59c95b7d214a3a8ba"
+  "planHash": "sha256:dc1c409e75fc1ee9fe69251d356908a95f57df0443d1ffb147940e640c81a1bd"
 }

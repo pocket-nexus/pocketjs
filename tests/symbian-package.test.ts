@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { deriveModality } from "../contracts/spec/modality.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { SYMBIAN_E7_DEV_CONTRACTS, SYMBIAN_E7_DEV_TARGET_ID } from "../tools/symbian-profile.ts";
 import {
   symbianDataBaseForEmbeddedBytes,
   symbianExecutableName,
@@ -22,6 +24,7 @@ function plan(
       output,
       framework: "solid",
     },
+    presentation: { id: "default", entry: "app/main.tsx" },
     target: { id: "symbian-e7-dev", hostAbi: 4 },
     viewport: {
       logical: [640, 360],
@@ -30,6 +33,7 @@ function plan(
       rasterDensity: 1,
       policy: "dynamic",
     },
+    modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
     features: {},
     companions: [],
     planHash: `sha256:${"0".repeat(64)}`,

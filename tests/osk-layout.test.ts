@@ -6,12 +6,18 @@
 import { describe, expect, test } from "bun:test";
 import {
   clampPos,
+  homePos,
   keyAtPoint,
   layoutRows,
   navigate,
+  oskLayer,
+  oskLayerToggle,
+  oskMetrics,
+  oskPanelHeight,
   OSK_GAP,
   OSK_H,
   OSK_LAYERS,
+  OSK_LAYOUTS,
   OSK_PAD,
   OSK_ROW_H,
   type OskKeyRect,
@@ -20,7 +26,7 @@ import {
 import { SCREEN_W } from "../contracts/spec/spec.ts";
 
 const INNER_W = SCREEN_W - 2 * OSK_PAD;
-const LAYERS = Object.keys(OSK_LAYERS) as OskLayerName[];
+const LAYERS = Object.keys(OSK_LAYERS) as (keyof typeof OSK_LAYERS)[];
 
 const label = (k: OskKeyRect): string => k.key.label ?? k.key.ch ?? "";
 const find = (rows: OskKeyRect[][], want: string): OskKeyRect => {
@@ -132,5 +138,96 @@ describe("touch mapping", () => {
     expect(inGap === null || inGap.row === 0).toBe(true);
     expect(keyAtPoint(rows, 40, -30)).toBeNull();
     expect(keyAtPoint(rows, 40, 4 * (OSK_ROW_H + OSK_GAP) + 20)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The staggered (phone) layout the contact modality renders
+// ---------------------------------------------------------------------------
+
+describe("staggered layout", () => {
+  const AUX_W = 320 - 2 * OSK_PAD; // the 3DS bottom screen
+  const STAGGERED_LAYERS: OskLayerName[] = ["lower", "upper", "numbers", "symbols"];
+
+  test("every row of every layer spans the panel width and spacers emit no key", () => {
+    for (const name of STAGGERED_LAYERS) {
+      const rows = layoutRows(oskLayer("staggered", name), AUX_W);
+      expect(rows.length).toBe(4);
+      rows.forEach((row, r) => {
+        const last = row[row.length - 1];
+        // A row that ends in a half-key spacer stops short of the panel
+        // edge by that spacer; every other row reaches it exactly.
+        const trailingSpacer = oskLayer("staggered", name)[r].at(-1)?.spacer === true;
+        if (trailingSpacer) expect(last.x + last.w).toBeLessThan(AUX_W);
+        else expect(last.x + last.w).toBe(AUX_W);
+        for (const k of row) {
+          expect(k.key.spacer).toBeUndefined();
+          expect(k.w).toBeGreaterThanOrEqual(24);
+        }
+        row.forEach((k, c) => expect(k.col).toBe(c));
+      });
+    }
+  });
+
+  test("the home row is inset by half a key on both sides", () => {
+    const rows = layoutRows(oskLayer("staggered", "lower"), AUX_W);
+    const q = rows[0][0], a = rows[1][0];
+    expect(a.x).toBeGreaterThan(q.x + q.w / 3);
+    expect(a.x).toBeLessThan(q.x + q.w);
+    const p = rows[0][rows[0].length - 1], l = rows[1][rows[1].length - 1];
+    expect(l.x + l.w).toBeLessThan(p.x + p.w);
+    expect(rows[1].length).toBe(9);
+  });
+
+  test("letters are 30 px rows; the grid keeps 18", () => {
+    expect(oskPanelHeight(oskMetrics("staggered"))).toBe(4 * 30 + 3 * OSK_GAP + 2 * OSK_PAD);
+    expect(oskPanelHeight(oskMetrics("grid"))).toBe(OSK_H);
+    expect(oskPanelHeight(oskMetrics("staggered", 30, 14))).toBe(14 + 4 * 30 + 3 * OSK_GAP + 2 * OSK_PAD);
+  });
+
+  test("the layer keys route letters -> numbers -> symbols -> letters", () => {
+    expect(oskLayerToggle("staggered", "lower")).toBe("numbers");
+    expect(oskLayerToggle("staggered", "upper")).toBe("numbers");
+    expect(oskLayerToggle("staggered", "numbers")).toBe("lower");
+    expect(oskLayerToggle("staggered", "symbols")).toBe("lower");
+    expect(oskLayerToggle("grid", "lower")).toBe("symbols");
+    expect(oskLayerToggle("grid", "symbols")).toBe("lower");
+    const numbers = layoutRows(oskLayer("staggered", "numbers"), AUX_W);
+    const toSymbols = numbers[2][0];
+    expect(toSymbols.key.action).toBe("layer");
+    expect(toSymbols.key.to).toBe("symbols");
+    // The grid has no numbers layer: a request for it lands on the home layer.
+    expect(oskLayer("grid", "numbers")).toBe(OSK_LAYOUTS.grid.lower!);
+  });
+
+  test("every key of every layer is reachable from 'q' by d-pad", () => {
+    for (const name of STAGGERED_LAYERS) {
+      const r = layoutRows(oskLayer("staggered", name), AUX_W);
+      const seen = new Set<string>();
+      const queue = [homePos(r)];
+      while (queue.length) {
+        const pos = queue.shift()!;
+        const id = `${pos.row}:${pos.col}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        for (const d of ["up", "down", "left", "right"] as const) queue.push(navigate(r, pos, d));
+      }
+      expect(seen.size).toBe(r.reduce((n, row) => n + row.length, 0));
+    }
+  });
+
+  test("home is 'q' on the letter layers and the first key elsewhere", () => {
+    expect(homePos(layoutRows(oskLayer("staggered", "lower"), AUX_W))).toEqual({ row: 0, col: 0 });
+    expect(homePos(layoutRows(oskLayer("grid", "lower"), INNER_W))).toEqual({ row: 0, col: 1 });
+    expect(homePos(layoutRows(oskLayer("grid", "symbols"), INNER_W))).toEqual({ row: 0, col: 0 });
+  });
+
+  test("touch centres resolve to their key at 30 px rows", () => {
+    const rows = layoutRows(oskLayer("staggered", "lower"), AUX_W);
+    for (const row of rows) {
+      for (const k of row) {
+        expect(keyAtPoint(rows, k.x + k.w / 2, k.row * (30 + OSK_GAP) + 15, 30)).toEqual({ row: k.row, col: k.col });
+      }
+    }
   });
 });

@@ -18,10 +18,11 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/input` | `BTN`, `touches`, `auxiliaryTouches`, `focusNode`, `getFocused`, `pressNode`, `setActiveNode`, `pushFocusScope`, `pushFocusGrid`, `pushFocusController`, `hitFocusable`, `hitNode`, `enableCursor`, `cursorX`, `cursorY` |
 | `@pocketjs/framework/gesture` | `createGesture`, `attachGesture`, `pushTouchBlock`, gesture types (Solid and Vue Vapor) |
 | `@pocketjs/framework/kinetics` | `createScroller`, `bindDpadScroll`, `Scroller` / `ScrollerOptions` / `ScrollerState` types (Solid and Vue Vapor) |
-| `@pocketjs/framework/osk` | `Osk`, `TextField`, `createOsk`, `OSK_H`, `OSK_LAYERS` (Solid) |
+| `@pocketjs/framework/osk` | `Osk`, `TextField`, `createOsk`, `OSK_H`, `OSK_LAYERS`, `OSK_LAYOUTS`, `oskPanelHeight`, `resetPanelMemory` (Solid) |
 | `@pocketjs/framework/virtual-list` | `VirtualList`, `VirtualListProps`, `VirtualListHandle` (Solid) |
 | `@pocketjs/framework/display` | `auxiliaryViewport`, `hasAuxiliarySurface` |
 | `@pocketjs/framework/platform` | `platform`, `hasFeature` |
+| `@pocketjs/framework/modality` | `modality`, `presentation`, `screen`, `surfaceHasTouch`, `supports`, `glyph` |
 | `@pocketjs/framework/clock` | `simulationHz`, `ticksPerFrame`, `virtualFrame`, `virtualNow`, `after` |
 | `@pocketjs/framework/effects` | `installEffectDriver`, `runEffect`, effect types |
 | `@pocketjs/framework/net` | `fetch`, `NetError`, `PocketResponse`, `FetchOptions` |
@@ -1053,6 +1054,27 @@ runtime-created textures; it never changes layout coordinates. Literal
 `hasFeature("…")` calls are folded to booleans during the PocketJS compile, so
 an unavailable enhancement branch can leave the bundle. Computed ids use the
 frozen runtime map.
+
+## `@pocketjs/framework/modality`
+
+```ts
+const modality: Modality;
+const presentation: string;
+function screen(role?: "primary" | "auxiliary"): ScreenModality | undefined
+function surfaceHasTouch(surface?: "primary" | "auxiliary"): boolean
+function supports(requirement: ModalityRequirement): boolean
+function glyph(button: "circle" | "cross" | "triangle" | "square" | "start" | "select" | "ltrigger" | "rtrigger"): string
+```
+
+`modality` is the target's interaction structure the plan resolved
+(`screens`, `touch`, `pointer`, `buttons`, `analog`, `text`, `glyphs`,
+`form`; see [Platform contracts](/docs/platform-contracts/#presentations-and-modality)),
+frozen. `presentation` is the manifest presentation id this bundle compiles,
+`"default"` for the baseline entry. `screen("auxiliary")` is `undefined` on a
+single-screen target. `supports()` evaluates a manifest-shaped requirement
+against `modality`. `glyph("circle")` is `"○"` on a PSP or Vita and `"A"` on a
+3DS, so hint text names the button the shell prints. A bundle built without a
+plan reads the portable PSP modality.
 
 ## `@pocketjs/framework/clock`
 
