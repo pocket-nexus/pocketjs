@@ -375,9 +375,8 @@ One frame on the AOT class:
    one-turn-per-tick rule of `docs/RUNTIMES.md`.
 2. **Dispatch.** Focus navigation and press edges resolve to a node; the
    node's handler runs against `&mut ViewModel` as a method call or a setter.
-   Incremental input reaches the view model as a typed relative-axis delta under
-   the `RelativeAxis` table of `contracts/spec/vapor.ts` (§9); it is never
-   encoded as buttons.
+   Incremental input arrives with v1.1 (§10) as a typed relative-axis delta
+   and is never encoded as buttons.
 3. **Update.** The generated `update(&mut self, ui, &ViewModel)` evaluates every
    binding in the template, compares each result with the value it produced
    last time, and issues `Ui` calls for the ones that changed. `v-if` blocks
@@ -644,9 +643,8 @@ also states:
 
 **One spec file pins what both runtimes implement.** `contracts/spec/vapor.ts`
 holds the host primitive vocabulary (elements, attributes, events, the
-`:style` keys drawn from `PROP`), the built-ins with their signatures, the
-numeric type names, and the `RelativeAxis` table with its millidegree units,
-moved there from `vapor/host/input.ts`. `contracts/spec/gen-rust.ts` emits
+`:style` keys drawn from `PROP`), the built-ins with their signatures and the
+numeric type names. `contracts/spec/gen-rust.ts` emits
 `engine/crates/pocket-vapor/src/spec.rs` from it, the std module's
 declarations and the components' prop types come from the same file, and
 `tests/contract.ts` byte-compares every generated output. The board admission
@@ -687,7 +685,9 @@ today.
   with a static member of the `BTN` table in `contracts/spec/spec.ts` and the
   existing `active` and `latched` options; `<AxisHandler axis="primary"
   @delta="f($event)">` with `$event: i32` in millidegrees and a static member
-  of the `RelativeAxis` table. The JavaScript `AxisHandler` is new SDK work;
+  of the `RelativeAxis` table, whose ids and millidegree units move from
+  `vapor/host/input.ts` into `contracts/spec/vapor.ts` at that point. The
+  JavaScript `AxisHandler` is new SDK work;
   the Rust runtime dispatches press edges and axis deltas to handlers in
   document order. Buttons never encode axis motion.
 - Target admission as trait bounds on the host type (`H: HasTouch` when a
