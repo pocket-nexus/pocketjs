@@ -74,6 +74,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - run: bun install --frozen-lockfile
       - name: Install the UI C ABI's pinned nightly
         run: |
