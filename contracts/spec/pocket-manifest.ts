@@ -91,6 +91,14 @@ export interface PocketManifestV2 {
      * capabilities to the app-level declaration.
      */
     readonly presentations?: readonly PresentationSpec[];
+    /**
+     * The modality the baseline `app.entry` serves. A device that meets no
+     * presentation's requirement and not this one is refused at admission:
+     * a touch-only application states `{ "touch": "primary" }` and a
+     * button-only device never compiles it. Absent, the baseline serves
+     * every device.
+     */
+    readonly modality?: ModalityRequirement;
   };
 }
 
@@ -330,6 +338,7 @@ export const pocketManifestV2Schema = {
           items: presentationSchema,
           minItems: 1,
         },
+        modality: modalityRequirementSchema,
       },
     },
   },

@@ -470,6 +470,17 @@ export function resolveBuildPlan(
   );
   const chosen: PresentationSpec | undefined = chosenIndex >= 0 ? presentations[chosenIndex] : undefined;
   const presentationPath = chosen ? `/app/presentations/${chosenIndex}` : "/app";
+  if (!chosen && manifest.app.modality) {
+    const misses = modalityMisses(modality, manifest.app.modality);
+    if (misses.length > 0) {
+      diagnostics.push({
+        code: "modality.unsupported",
+        path: "/app/modality",
+        message: `target ${request.target} does not meet the application's modality (${misses.join(", ")}) and no presentation matched`,
+      });
+      return { ok: false, diagnostics };
+    }
+  }
   const presentation = {
     id: chosen?.id ?? "default",
     entry: chosen?.entry ?? manifest.app.entry,

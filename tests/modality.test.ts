@@ -268,3 +268,29 @@ describe("presentation selection", () => {
     if (!result.ok) expect(result.diagnostics[0]).toMatchObject({ code: "schema.required", path: "/app/presentations/0/modality" });
   });
 });
+
+describe("application modality", () => {
+  test("a touch-only application is refused where no screen reports contacts", () => {
+    const value = manifest();
+    delete value.app.presentations;
+    value.app.modality = { touch: "primary" };
+    const psp = validateAndResolveBuildPlan(value, { target: "psp" });
+    expect(psp.ok).toBe(false);
+    if (!psp.ok) {
+      expect(psp.diagnostics).toEqual([
+        { code: "modality.unsupported", path: "/app/modality", message: expect.stringContaining("touch") },
+      ]);
+    }
+    const vita = validateAndResolveBuildPlan(value, { target: "vita" });
+    expect(vita.ok && vita.plan.presentation.id).toBe("default");
+  });
+
+  test("a matching presentation serves a device the baseline refuses", () => {
+    const value = manifest();
+    value.app.modality = { touch: "primary" };
+    const dual = validateAndResolveBuildPlan(value, { target: THREE_DS_DEV_TARGET_ID }, THREE_DS_DEV_CONTRACTS);
+    expect(dual.ok && dual.plan.presentation.id).toBe("dual-screen");
+    const psp = validateAndResolveBuildPlan(value, { target: "psp" });
+    expect(psp.ok).toBe(false);
+  });
+});

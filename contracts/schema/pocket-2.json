@@ -562,6 +562,86 @@
             }
           },
           "minItems": 1
+        },
+        "modality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "screens": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2
+            },
+            "touch": {
+              "enum": [
+                "none",
+                "primary",
+                "auxiliary",
+                "any"
+              ]
+            },
+            "pointer": {
+              "enum": [
+                "none",
+                "cursor",
+                "pointer",
+                "any"
+              ]
+            },
+            "buttons": {
+              "type": "boolean"
+            },
+            "analog": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "text": {
+              "enum": [
+                "osk",
+                "keyboard"
+              ]
+            },
+            "orientation": {
+              "enum": [
+                "landscape",
+                "portrait",
+                "square"
+              ]
+            },
+            "minScreen": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "maxScreen": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "form": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "takeover",
+                  "window",
+                  "widget",
+                  "kiosk",
+                  "embedded"
+                ]
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          }
         }
       }
     }
