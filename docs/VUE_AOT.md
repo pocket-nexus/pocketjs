@@ -22,7 +22,7 @@ is a compile error with a `file:line` diagnostic.
 | `import { View, Text, Image } from "@pocketjs/framework/vue-vapor/components"` | host primitives (§4) |
 | `import Row from "./Row.vue"` | child components |
 | `import type { Todo } from "./todo"` | types from any module |
-| `import { count, toggle } from "./todo"` | the logic module (§2) |
+| `import { count, toggle } from "./todo"` | the view-model module (§2) |
 | `import { len, trunc, type i32 } from "@pocketjs/framework/aot"` | built-ins and numeric types (§3, §5); the path is open |
 | `interface`, `type` | shapes used by the contract |
 | `const props = defineProps<T>()`, `const emit = defineEmits<T>()`, `const model = defineModel<T>()` | component interface (§2); Vue's compile-time macros |
@@ -34,7 +34,7 @@ JavaScript engine, no `ui.*` op encoding and no mirror tree.
 
 **One SFC runs in three execution classes.**
 
-| Class | Logic implementation | Pipeline | Status |
+| Class | View-model implementation | Pipeline | Status |
 |---|---|---|---|
 | Browser | `todo.ts` on stock Vue Vapor | `framework/compiler/vue-sfc-compile.ts`, unchanged | exists |
 | QuickJS guest on device | the same `todo.ts` | the guest build, unchanged | exists |
@@ -49,7 +49,7 @@ triple**: PSP, Vita, 3DS, ESP-IDF (P4 and S3), Symbian, QNX, PocketBook,
 desktop and browser. GB, NES and GBA cartridges have no `pocketjs-core` build
 and are out of scope.
 
-## 2. The logic module
+## 2. The view-model module
 
 The SFC imports the values and functions its template uses from a module with
 the same basename, without an extension:
@@ -78,7 +78,7 @@ type-checks template expressions against both module forms.
 
 ### Rust shape
 
-The compiler generates one trait per root component, `<Name>Logic`. The
+The compiler generates one trait per root component, `<Name>ViewModel`. The
 application supplies the type that implements it and owns all state; the
 generated view is generic over that type and stores nothing but node ids and
 memoized binding values.
@@ -97,7 +97,7 @@ The call runs on every frame that evaluates the binding, so a list the
 template iterates belongs in a value, not in a function. A function
 referenced in both positions gets `&self`: binding expressions do not mutate.
 
-**Only the root component imports a logic module in v1.** Child components
+**Only the root component imports a view-model module in v1.** Child components
 are pure: props, emits, model and slots. Stateful child components are open
 (§10).
 
@@ -292,7 +292,7 @@ numbers or objects, scoped slots.
 
 A handler is one of `f()`, `f(args…)`, `x = expr`, `x += expr`, `x -= expr`,
 `x++`, `x--`, `emit("name", args…)`, and for component events `f($event)`.
-Assignment targets are logic-module values, which then get a setter (§2).
+Assignment targets are view-model values, which then get a setter (§2).
 `emit` pushes `<Name>Event::Name(args…)` for the component's own events.
 Anything else, including two statements in one handler, is an error.
 
@@ -318,7 +318,7 @@ as in the checker; an enum displays its literal.
 | `a.b` | field access | |
 | `arr[i]` | `arr.get(i as usize).cloned()` | yields `Option<T>`; `i` is `i32` |
 | `` `${a} ${b}` `` | `format!` | the one string concatenation form; `+` on strings is an error |
-| `f(args…)` | method call on the logic type | |
+| `f(args…)` | method call on the view-model type | |
 | `undefined` | `None` | in comparisons and `??` only |
 
 Not accepted: `typeof`, `in`, `instanceof`, `new`, `delete`, `void`, bitwise
@@ -368,10 +368,10 @@ One frame on the AOT class:
 1. The host calls the generated `frame(input)` once per tick, the
    one-turn-per-tick rule of `docs/RUNTIMES.md`.
 2. **Dispatch.** Focus navigation and press edges resolve to a node; the
-   node's handler runs against `&mut Logic` as a method call or a setter.
-   Incremental input reaches the logic as a typed relative-axis delta under
+   node's handler runs against `&mut ViewModel` as a method call or a setter.
+   Incremental input reaches the view model as a typed relative-axis delta under
    the contract of `vapor/host/input.ts`; it is never encoded as buttons.
-3. **Update.** The generated `update(&mut self, ui, &Logic)` evaluates every
+3. **Update.** The generated `update(&mut self, ui, &ViewModel)` evaluates every
    binding in the template, compares each result with the value it produced
    last time, and issues `Ui` calls for the ones that changed. `v-if` blocks
    mount and unmount; `v-for` blocks reconcile by key and keep per-row memos.
@@ -380,7 +380,7 @@ One frame on the AOT class:
 
 - **`mount` builds the static structure and leaves every dynamic block
   `Empty`; the first `update` mounts the active branches.** `mount` takes no
-  logic reference.
+  view-model reference.
 - **Every `v-if` group is one generated enum**: one variant per branch plus
   `Empty`. A lone `v-if` is an enum with one branch variant and `Empty`; a
   chain with `v-else` uses `Empty` before its first update. `update` computes
@@ -409,7 +409,7 @@ One frame on the AOT class:
 
 **No dependency tracking exists at runtime or at compile time**: no signals,
 no effects, no dirty masks. The cost of a frame is proportional to the number
-of bindings plus the length of rendered lists, and the logic type is a plain
+of bindings plus the length of rendered lists, and the view-model type is a plain
 Rust struct with `&self` and `&mut self` methods. The compile-time dependency
 masks of the Pocket Vapor design do not carry over: application logic in Rust
 is opaque to the compiler, so an edge from a setter to a binding cannot be
@@ -485,7 +485,7 @@ pub enum Filter { All, Active, Done }
 pub struct TodoProps<'a> { pub title: &'a str }
 pub enum TodoEvent { Saved(i32) }
 
-pub trait TodoLogic {
+pub trait TodoViewModel {
     fn count(&self) -> i32;
     fn set_count(&mut self, v: i32);   // assigned by `@press="count++"`
     fn todos(&self) -> &[Todo];
@@ -501,8 +501,8 @@ struct Row { key: i32, block: RowView }     // one <Row v-for> row
 pub struct TodoView { /* node ids, memoized values, If0, If1, Vec<Row> */ }
 impl TodoView {
     pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self; // blocks start Empty
-    pub fn update<L: TodoLogic>(&mut self, ui: &mut Ui, props: &TodoProps<'_>, logic: &L);
-    pub fn dispatch<L: TodoLogic>(&mut self, input: &Input, logic: &mut L, events: &mut Vec<TodoEvent>);
+    pub fn update<M: TodoViewModel>(&mut self, ui: &mut Ui, props: &TodoProps<'_>, vm: &M);
+    pub fn dispatch<M: TodoViewModel>(&mut self, input: &Input, vm: &mut M, events: &mut Vec<TodoEvent>);
     pub fn unmount(self, ui: &mut Ui);
 }
 ```
@@ -512,7 +512,7 @@ Application code:
 ```rust
 struct TodoApp { count: i32, todos: Vec<Todo>, filter: Filter }
 
-impl TodoLogic for TodoApp {
+impl TodoViewModel for TodoApp {
     fn count(&self) -> i32 { self.count }
     fn set_count(&mut self, v: i32) { self.count = v }
     fn todos(&self) -> &[Todo] { &self.todos }
@@ -545,7 +545,7 @@ Vapor IR + TypeScript types ─► View IR ─► Rust AST ─► printer ─►
 emits code.
 
 - **View IR** is the end of analysis and serializes to JSON. Names are
-  resolved (a logic-module value, a `v-for` variable, a built-in), every
+  resolved (a view-model value, a `v-for` variable, a built-in), every
   expression node carries its type, class literals are style ids, memo slots
   and node numbers are assigned, and `v-if` groups, `v-for` blocks and
   handlers are explicit nodes. It knows nothing about Rust and nothing about
@@ -598,7 +598,7 @@ back-end change.
 The generated code is shaped so that `rustc` enforces rules the checker
 also states:
 
-- `update` borrows the logic as `&L` and `dispatch` as `&mut L`, so a
+- `update` borrows the view model as `&M` and `dispatch` as `&mut M`, so a
   binding cannot mutate state during rendering.
 - A new emit in the SFC makes the application's `match` on `<Name>Event`
   non-exhaustive, and a new declaration leaves a trait method unimplemented:
@@ -616,11 +616,11 @@ also states:
 - Back end: the generated Rust compiles under `cargo test` and runs `mount`
   and `update` against a `Ui` recorder that logs the call sequence; the
   sequence is the assertion.
-- Differential: one fixture of props and logic values renders through stock
+- Differential: one fixture of props and view-model values renders through stock
   Vue Vapor on the micro-DOM and through the generated Rust view, and the
   trees are compared.
-- Fixtures come from the contract. The compiler generates a `FixtureLogic`
-  that implements `<Name>Logic` from a JSON document, `serde::Deserialize`
+- Fixtures come from the contract. The compiler generates a `FixtureViewModel`
+  that implements `<Name>ViewModel` from a JSON document, `serde::Deserialize`
   on the contract types behind a `test` feature, and a TypeScript mock
   module of the same shape. One fixture feeds both sides of the differential
   test, and the mock with default values (`0`, empty string, empty list,
@@ -638,7 +638,7 @@ carries over as the source of compile-time demands. The C runtime,
 ## 10. Open items
 
 1. The name of the family and the paths of the types and built-ins module.
-2. Stateful child components (proposed: a `Default`-constructed logic type
+2. Stateful child components (proposed: a `Default`-constructed view-model type
    per instance).
 3. Scoped slots; `withDefaults` with literal defaults; input beyond `@press`
    in templates (button maps, relative-axis handlers).
