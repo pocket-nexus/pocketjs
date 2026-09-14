@@ -718,13 +718,6 @@ today.
   (`width: 80` becomes `Px(80.0)`), and `Color` is the template literal type
   `` `#${string}` `` in TypeScript, so the editor checks the literal's shape,
   and `u32` bits in Rust.
-- Per-value versions for large lists. The view-model trait gains
-  `fn todos_version(&self) -> Option<u32>` beside every array value, with a
-  default body returning `None`. An application that returns `Some(counter)`
-  and bumps the counter when it mutates the list lets `update` skip the key
-  diff and the row updates while the version is unchanged. Read sets of
-  bindings are static, so the skip is exact for values; functions run on
-  every `update`.
 
 **v2**
 
