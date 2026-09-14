@@ -36,6 +36,31 @@ export function classicPalette(tone: ClassicTone = "neutral", pressed = false) {
   return { gradFrom, gradTo, borderColor, textColor };
 }
 
+export interface ClassicSelectionProps {
+  /** Renders nothing while false. */
+  active: boolean;
+  /** Row height the left bar spans (minus 8 px of inset). */
+  height?: number;
+  /** Draw the rounded rim as well as the tint and bar. */
+  ring?: boolean;
+}
+
+/** The selected-row wash every classic list shares: a translucent blue tint
+ *  over the row content, a blue bar at the left edge and, on request, a
+ *  rounded rim. Three flat nodes on purpose — on the PSP GE a rounded,
+ *  bordered node with a translucent fill paints its border colour as an
+ *  opaque fill, so the tint and the rim never share a node. Render it as
+ *  the LAST child of a `relative` row so it paints above the content. */
+export function ClassicSelection(props: ClassicSelectionProps) {
+  const tint = View({ get style() { return { posType: 1, insetL: 0, insetT: 0, insetR: 0, insetB: 0, bgColor: "#2676cb22",
+    display: props.active ? 0 : 1 }; } });
+  const bar = View({ get style() { return { posType: 1, insetL: 0, insetT: 4, width: 3, height: Math.max(8, (props.height ?? 64) - 8),
+    bgColor: CLASSIC.selectedBar, display: props.active ? 0 : 1 }; } });
+  const rim = View({ get style() { return { posType: 1, insetL: 0, insetT: 0, insetR: 0, insetB: 0, radius: 6, borderWidth: 1,
+    borderColor: "#9cbce4", display: props.active && props.ring ? 0 : 1 }; } });
+  return [tint, bar, rim] as unknown as ReturnType<typeof View>;
+}
+
 export interface ClassicFaceProps extends Omit<ViewProps, "onPress" | "focusable"> {
   tone?: ClassicTone;
   pressed?: boolean;

@@ -39,7 +39,7 @@
 //   - cursor: keys are plain Focusables in a scope — hover-focus and click
 //     already work, nothing to adapt.
 
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type Accessor, type JSX as SolidJSX } from "solid-js";
+import { createEffect, createMemo, createSignal, Index, onCleanup, Show, untrack, type Accessor, type JSX as SolidJSX } from "solid-js";
 import { BTN, ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate } from "./anim.ts";
 import { simulationHz, virtualFrame, virtualNow } from "./clock.ts";
@@ -238,6 +238,13 @@ function OskPanel(props: {
   // A contact surface opens without a visible focus ring; the first d-pad
   // press reveals it at the remembered key, the next touch hides it again.
   const [focusShown, setFocusShown] = createSignal(!mode.contact);
+  // The key a press is holding down: the finger's key, or the focused key
+  // while CIRCLE is held. Its cap reads white-on-blue on every modality.
+  const [pressedPos, setPressedPos] = createSignal<OskPos | null>(null);
+  const isPressed = (rect: OskKeyRect): boolean => {
+    const pos = pressedPos();
+    return pos !== null && pos.row === rect.row && pos.col === rect.col;
+  };
   let shiftAt = -Infinity;
   const remember = (): void => rememberPanel(kind, { layer: layer(), pos: lastPos });
   onCleanup(remember);
@@ -280,15 +287,6 @@ function OskPanel(props: {
     setLayerRaw(next);
     remember();
   };
-
-  // Initial focus + refocus after every layer switch (the switch rebuilds
-  // the key subtree, which would otherwise dump focus via removal repair).
-  // A hidden ring stays hidden: the position is kept, the node is not focused.
-  createEffect(() => {
-    rows();
-    if (untrack(focusShown)) focusPos(lastPos);
-    else lastPos = clampPos(rows(), lastPos);
-  });
 
   // -- activation -------------------------------------------------------------
   const shift = (): void => {
@@ -390,6 +388,9 @@ function OskPanel(props: {
         setFocusShown(true);
         focusPos(lastPos);
       }
+      if ((buttons & BTN.CIRCLE) !== (previous & BTN.CIRCLE)) {
+        setPressedPos(buttons & BTN.CIRCLE && untrack(focusShown) ? { row: lastPos.row, col: lastPos.col } : null);
+      }
       previous = buttons;
     });
   }
@@ -421,6 +422,7 @@ function OskPanel(props: {
     const highlight = (rect: OskKeyRect | null): void => {
       if (rect && untrack(focusShown)) focusPos({ row: rect.row, col: rect.col });
       setActiveNode(rect ? keyNodes[rect.row]?.[rect.col] ?? null : null);
+      setPressedPos(rect ? { row: rect.row, col: rect.col } : null);
     };
     const release = (id: number, cancelled: boolean): void => {
       touch.release(id, cancelled);
@@ -429,9 +431,11 @@ function OskPanel(props: {
       if (owner === id) {
         owner = -1;
         setActiveNode(null);
+        setPressedPos(null);
       }
       if (kind === "grid" && rect) {
         setActiveNode(null);
+        setPressedPos(null);
         if (!cancelled && rect.key.action !== "backspace") activate(rect.key);
       }
     };
@@ -463,6 +467,7 @@ function OskPanel(props: {
           focusNode(null);
         }
         setActiveNode(keyNodes[rect.row]?.[rect.col] ?? null);
+        setPressedPos({ row: rect.row, col: rect.col });
         if (holdKind === "other") activate(rect.key);
       },
       onMove: (c) => {
@@ -500,7 +505,15 @@ function OskPanel(props: {
     tracking() ? "Slide to move the cursor" : props.hint ?? `${glyph("cross")} close · ${glyph("start")} confirm`;
   const letterCls = kind === "staggered" ? "text-sm" : "text-xs font-bold";
 
-  return (
+  const classic = props.theme === "classic";
+  const lipStyle = { posType: ENUMS.PosType.Absolute, insetL: 3, insetR: 3, insetT: 1, height: 1, bgColor: "#ffffffaa" };
+
+  // <Index>, not <For>: a layer switch rewrites labels and rects IN PLACE
+  // on the existing key nodes instead of destroying and recreating ~40
+  // Focusables (three nodes each on the classic theme), which stalled the
+  // PSP for a visible beat on every shift. Only rows whose key count
+  // changes create or drop a node.
+  const panel = (
     <FocusScope
       restoreFocus={false}
       autoFocus={false}
@@ -510,10 +523,8 @@ function OskPanel(props: {
       class={PANEL[props.theme]}
       style={{ height: panelHeight, width: viewport.w, translateY: panelHeight }}
     >
-      <Show when={props.theme === "classic"}>
-        <View class="absolute" style={{ insetL: 0, insetT: 0, width: viewport.w, height: 1, bgColor: "#7f8a99" }} />
-        <View class="absolute" style={{ insetL: 0, insetT: 1, width: viewport.w, height: 1, bgColor: "#f5f7fa" }} />
-      </Show>
+      {classic ? <View class="absolute" style={{ insetL: 0, insetT: 0, width: viewport.w, height: 1, bgColor: "#7f8a99" }} /> : null}
+      {classic ? <View class="absolute" style={{ insetL: 0, insetT: 1, width: viewport.w, height: 1, bgColor: "#f5f7fa" }} /> : null}
       <Show when={metrics.hint > 0}>
         <View class="absolute items-center justify-center" style={{ insetL: 0, insetT: 2, width: viewport.w, height: metrics.hint }}>
           <Text class="text-xs" style={{ textColor: HINT_INK, lineHeight: 12 }}>
@@ -521,44 +532,58 @@ function OskPanel(props: {
           </Text>
         </View>
       </Show>
-      {/* Structural reactivity must ride <For> — a bare `{rows().map(…)}`
-          child compiles to a static insert and never re-renders on a layer
-          switch (each layer is a fresh array, so <For> swaps everything). */}
-      <For each={rows()}>
+      <Index each={rows()}>
         {(row, r) => (
           <View
             class="absolute"
-            style={{ insetT: rowsTop + r() * (rowHeight + metrics.gap), insetL: metrics.pad, width: innerWidth, height: rowHeight }}
+            style={{ insetT: rowsTop + r * (rowHeight + metrics.gap), insetL: metrics.pad, width: innerWidth, height: rowHeight }}
           >
-            <For each={row}>
-              {(rect) => (
-                <Focusable
-                  nodeRef={(n) => registerKey(n, rect)}
-                  class={keyCls(rect.key)}
-                  style={{ insetL: rect.x, insetT: 0, width: rect.w, height: rowHeight }}
-                  onPress={() => activate(rect.key)}
-                >
-                  <Show when={props.theme === "classic"}>
-                    <View class="absolute" style={{ insetL: 3, insetR: 3, insetT: 1, height: 1, bgColor: "#ffffffaa" }} />
-                  </Show>
-                  <Text
-                    class={rect.key.ch !== undefined && rect.key.ch !== " " ? letterCls : "text-xs font-bold"}
-                    style={{
-                      textColor: rect.key.ch !== undefined ? INK[props.theme] : INK_DIM[props.theme],
-                      lineHeight: kind === "staggered" ? 14 : 12,
-                      opacity: tracking() ? 0.35 : 1,
+            <Index each={row()}>
+              {(rect) => {
+                let node: NodeMirror | undefined;
+                createEffect(() => {
+                  if (node) registerKey(node, rect());
+                });
+                return (
+                  <Focusable
+                    nodeRef={(n) => {
+                      node = n;
                     }}
+                    class={keyCls(rect().key)}
+                    style={{ insetL: rect().x, insetT: 0, width: rect().w, height: rowHeight }}
+                    onPress={() => activate(rect().key)}
                   >
-                    {labelOf(rect.key)}
-                  </Text>
-                </Focusable>
-              )}
-            </For>
+                    {classic ? <View style={lipStyle} /> : null}
+                    <Text
+                      class={rect().key.ch !== undefined && rect().key.ch !== " " ? letterCls : "text-xs font-bold"}
+                      style={{
+                        textColor: isPressed(rect()) ? "#ffffff" : rect().key.ch !== undefined ? INK[props.theme] : INK_DIM[props.theme],
+                        lineHeight: kind === "staggered" ? 14 : 12,
+                        opacity: tracking() ? 0.35 : 1,
+                      }}
+                    >
+                      {labelOf(rect().key)}
+                    </Text>
+                  </Focusable>
+                );
+              }}
+            </Index>
           </View>
         )}
-      </For>
+      </Index>
     </FocusScope>
   );
+
+  // Initial focus + refocus after every layer switch. Created after the
+  // tree so it runs after the key registrations for the new rows. A hidden
+  // ring stays hidden: the position is kept, the node is not focused.
+  createEffect(() => {
+    rows();
+    if (untrack(focusShown)) focusPos(lastPos);
+    else lastPos = clampPos(rows(), lastPos);
+  });
+
+  return panel;
 }
 
 // ---------------------------------------------------------------------------
