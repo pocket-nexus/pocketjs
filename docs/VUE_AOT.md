@@ -99,7 +99,7 @@ referenced in both positions gets `&self`: binding expressions do not mutate.
 
 **Only the root component imports a logic module in v1.** Child components
 are pure: props, emits, model and slots. Stateful child components are open
-(§9).
+(§10).
 
 ### Component interface
 
@@ -116,7 +116,7 @@ and `&'a T`, and the child memoizes what it renders, so passing props
 allocates nothing. Event payloads are owned.
 
 `defineEmits` accepts the tuple form only. Scoped slots (slot props) and
-`withDefaults` are open (§9).
+`withDefaults` are open (§10).
 
 ## 3. Types
 
@@ -480,30 +480,79 @@ impl TodoLogic for TodoApp {
 A handler the template references and the application does not implement is
 a `rustc` error.
 
-## 9. Build, tooling, open items
+## 9. Compiler, build, tests
 
-- The compiler is TypeScript on Bun. It reuses `parse` from
-  `@vue/compiler-sfc`, `parse` from `@vue/compiler-dom` and `transform` from
-  `@vue/compiler-vapor`, pinned to the repository's Vue version (3.6.0-rc.1;
-  upstream is at rc.8 and the IR is not a public API, so its type definitions
-  are vendored). The expression compiler and the Rust generator are new code;
-  `generate` from `@vue/compiler-vapor` is not used.
-- Output is `gen/<component>.rs` plus the style table for the app crate. How
-  the crate picks the files up, a `build.rs` with `rerun-if-changed` or
-  committed files, is open.
-- Host primitives are built into the Rust AOT runtime with the same props and
-  semantics as the JavaScript components. A shared spec and a drift test for
-  that parity are open.
-- The Pocket Vapor board admission (`vapor/BOARDS.md`) carries over as the
-  source of compile-time demands. The C runtime, `vapor/compiler/compile.ts`,
-  `sccp.ts` and `rom.ts` do not.
-- Testing: a differential snapshot test renders one fixture of props and
-  logic values through stock Vue Vapor on the micro-DOM and through the
-  generated Rust view, then compares the trees. DrawList goldens on the
-  desktop host apply to AOT apps as they do to guest apps. The harness is
-  open.
+The compiler is TypeScript on Bun. It reuses `parse` from
+`@vue/compiler-sfc`, `parse` from `@vue/compiler-dom` and `transform` from
+`@vue/compiler-vapor`, pinned to the repository's Vue version (3.6.0-rc.1;
+upstream is at rc.8 and the IR is not a public API, so its type definitions
+are vendored). `generate` from `@vue/compiler-vapor` is not used.
 
-Open:
+### Pipeline
+
+```
+Vapor IR + TypeScript types ─► View IR ─► Rust AST ─► printer ─► gen/<component>.rs
+```
+
+**Rust source text exists in the printer and nowhere else.** No analysis pass
+emits code.
+
+- **View IR** is the end of analysis and serializes to JSON. Names are
+  resolved (a logic-module value, a `v-for` variable, a built-in), every
+  expression node carries its type, class literals are style ids, memo slots
+  and node numbers are assigned, and `v-if` groups, `v-for` blocks and
+  handlers are explicit nodes. It knows nothing about Rust and nothing about
+  Vue's IR.
+- **Rust AST** covers the subset the compiler emits: `struct`, `enum`,
+  `trait`, `impl`, `fn`, `let`, `if`, `match`, method calls, field access,
+  literals and `format!`. The View IR to Rust AST pass is where the lowering
+  rules of §3 and §5 live: `len()` becomes `chars().count() as i32`, `idiv`
+  becomes a runtime call, display goes through the JavaScript-semantics
+  helper.
+- **The printer** parenthesizes by precedence, rewrites identifiers (keywords
+  get `r#`, string-literal variants become PascalCase, collisions get a
+  suffix), escapes literals and indents. Its output is valid Rust; the build
+  runs `rustfmt` on it when the tool is present and compiles the unformatted
+  file when it is not.
+
+### Output
+
+**Generated files are committed, and a drift test regenerates them in memory
+and compares bytes**, the convention of `engine/core/src/spec.rs` and
+`tests/contract.ts`. `gen/<component>.rs` plus the style table enter the app
+crate as ordinary source, so device builds need no Bun and `build.rs`
+generates nothing. Output is deterministic: the same input produces the same
+bytes, with fields and nodes in a fixed order.
+
+### Alternative emitter
+
+The View IR JSON is also the boundary for a Rust-side emitter: a
+`pocket-vue-codegen` crate built on `quote!` and `prettyplease`, run from
+`build.rs`. That path keeps lowering rules and runtime in one workspace at
+the cost of a two-language compiler and a versioned schema. It is the path
+to take if the front end moves to Rust; the View IR makes that switch a
+back-end change.
+
+### Tests
+
+- Front end: one View IR JSON snapshot per fixture SFC; subset diagnostics
+  asserted by `file:line`.
+- Back end: the generated Rust compiles under `cargo test` and runs `mount`
+  and `update` against a `Ui` recorder that logs the call sequence; the
+  sequence is the assertion.
+- Differential: one fixture of props and logic values renders through stock
+  Vue Vapor on the micro-DOM and through the generated Rust view, and the
+  trees are compared.
+- DrawList goldens on the desktop host apply to AOT apps as they do to guest
+  apps.
+
+Host primitives are built into the Rust AOT runtime with the same props and
+semantics as the JavaScript components; a shared spec and a drift test for
+that parity are open. The Pocket Vapor board admission (`vapor/BOARDS.md`)
+carries over as the source of compile-time demands. The C runtime,
+`vapor/compiler/compile.ts`, `sccp.ts` and `rom.ts` do not.
+
+## 10. Open items
 
 1. The name of the family and the paths of the types and built-ins module.
 2. Stateful child components (proposed: a `Default`-constructed logic type
@@ -512,5 +561,5 @@ Open:
    in templates (button maps, relative-axis handlers).
 4. A warning for unannotated `number` in contract positions.
 5. An auto-generated mock for projects whose logic module is a `.d.ts`.
-6. `build.rs` mechanics, the host-primitive parity spec and drift test, and
-   the differential test harness.
+6. The host-primitive parity spec and drift test, and the differential test
+   harness.
