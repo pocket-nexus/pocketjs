@@ -21,6 +21,7 @@ is a compile error with a `file:line` diagnostic.
 |---|---|
 | `import { View, Text, Image } from "@pocketjs/framework/vue-vapor/components"` | host primitives (§4) |
 | `import Row from "./Row.vue"` | child components |
+| `import type { Todo } from "./todo"` | types from any module |
 | `import { count, toggle } from "./todo"` | the logic module (§2) |
 | `import { len, trunc, type i32 } from "@pocketjs/framework/aot"` | built-ins and numeric types (§3, §5); the path is open |
 | `interface`, `type` | shapes used by the contract |
@@ -230,13 +231,14 @@ values are numeric expressions; each key lowers to one `set_prop` call.
 |---|---|
 | `v-if`, `v-else-if`, `v-else` | the condition is `bool`; `x !== undefined` on an `Option` value narrows `x` to `T` inside the block; a chain that compares one enum value against literals lowers to `match` |
 | `v-show` | the condition is `bool`; lowers to one `set_prop` of `DISPLAY`; the subtree stays mounted |
+| `v-text` | on `Text` only, with no children; the expression follows the `{{ }}` rules; lowers to the same `SET_TEXT` as `{{ }}` |
 | `v-for="item in list"`, `v-for="(item, i) in list"` | `list` is an array; `:key` is required and its type is `i32`, `i64`, `string` or an enum |
 | `v-bind:prop` / `:prop` | the expression type matches the child's declaration |
 | `v-on:event` / `@event` | handler forms below |
 | `v-model` on child components | the value type matches the child's `defineModel<T>` |
 
-Not in v1: `v-html`, `v-text`, `v-once`, `v-memo`, `v-bind="object"`,
-dynamic event names, template refs and imperative animation (transitions come
+Not in v1: `v-html`, `v-once`, `v-memo`, `v-bind="object"`, dynamic event
+names, template refs and imperative animation (transitions come
 from `transition-*` classes through the style table), `<component :is>`,
 `<Teleport>`, `<Transition>`, `<KeepAlive>`, `<Suspense>`, `v-for` over
 numbers or objects, scoped slots.
@@ -244,9 +246,10 @@ numbers or objects, scoped slots.
 ### Handlers
 
 A handler is one of `f()`, `f(args…)`, `x = expr`, `x += expr`, `x -= expr`,
-`x++`, `x--`, and for component events `f($event)`. Assignment targets are
-logic-module values, which then get a setter (§2). Anything else, including
-two statements in one handler, is an error.
+`x++`, `x--`, `emit("name", args…)`, and for component events `f($event)`.
+Assignment targets are logic-module values, which then get a setter (§2).
+`emit` pushes `<Name>Event::Name(args…)` for the component's own events.
+Anything else, including two statements in one handler, is an error.
 
 ### Text
 
@@ -367,7 +370,66 @@ computed at build time.
 
 ## 8. Generated code shape
 
-Illustrative: the names are fixed, the bodies are not.
+Illustrative: the names are fixed, the bodies are not. The source is a root
+component, its declarations module and one child component.
+
+```vue
+<!-- Todo.vue -->
+<script setup lang="ts">
+import { Text, View } from "@pocketjs/framework/vue-vapor/components";
+import { len, type i32 } from "@pocketjs/framework/aot";
+import Row from "./Row.vue";
+import { count, todos, filter, remaining, toggle } from "./todo";
+
+const props = defineProps<{ title: string }>();
+const emit = defineEmits<{ saved: [id: i32] }>();
+</script>
+
+<template>
+  <View class="flex-col gap-2 p-4" :class="filter === 'done' ? 'bg-slate-900' : 'bg-slate-50'">
+    <Text class="text-lg font-bold">{{ props.title }} · {{ remaining() }} left</Text>
+    <Row v-for="t in todos" :key="t.id" :todo="t" @toggle="toggle(t.id)" />
+    <Text v-if="len(todos) === 0" class="text-slate-500">NOTHING HERE</Text>
+    <Text v-if="filter === 'done'">done only</Text>
+    <Text v-else-if="filter === 'active'">active only</Text>
+    <View focusable @press="count++"><Text v-text="count" /></View>
+    <View focusable @press="emit('saved', count)"><Text>SAVE</Text></View>
+  </View>
+</template>
+```
+
+```ts
+// todo.d.ts
+import type { i32 } from "@pocketjs/framework/aot";
+export interface Todo { id: i32; text: string; done: boolean }
+export type Filter = "all" | "active" | "done";
+export declare const count: i32;
+export declare const todos: Todo[];
+export declare const filter: Filter;
+export declare function remaining(): i32;
+export declare function toggle(id: i32): void;
+```
+
+```vue
+<!-- Row.vue -->
+<script setup lang="ts">
+import { Text, View } from "@pocketjs/framework/vue-vapor/components";
+import type { Todo } from "./todo";
+
+const props = defineProps<{ todo: Todo }>();
+const emit = defineEmits<{ toggle: [] }>();
+</script>
+
+<template>
+  <View focusable :class="props.todo.done ? 'text-slate-500' : 'text-white'" @press="emit('toggle')">
+    <Text>{{ props.todo.done ? "[X] " : "[ ] " }}{{ props.todo.text }}</Text>
+  </View>
+</template>
+```
+
+What the compiler generates for `Todo.vue`; `Row.vue` produces
+`RowProps<'a> { todo: &'a Todo }`, `RowEvent { Toggle }` and `RowView` the
+same way:
 
 ```rust
 // generated from Todo.vue + todo.d.ts
@@ -386,8 +448,8 @@ pub trait TodoLogic {
 }
 
 enum If0 { B0(Block0), Empty }             // <Text v-if="len(todos) === 0">
-enum If1 { B0(Block1), B1(Block2), Empty }  // a v-if / v-else-if chain
-struct Row { key: i32, block: RowView }     // one v-for row
+enum If1 { B0(Block1), B1(Block2), Empty }  // the filter v-if / v-else-if chain
+struct Row { key: i32, block: RowView }     // one <Row v-for> row
 
 pub struct TodoView { /* node ids, memoized values, If0, If1, Vec<Row> */ }
 impl TodoView {
