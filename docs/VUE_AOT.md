@@ -421,6 +421,18 @@ masks of the Pocket Vapor design do not carry over: application logic in Rust
 is opaque to the compiler, so an edge from a setter to a binding cannot be
 computed at build time.
 
+Three rules bound that cost:
+
+- **A frame in which no handler ran issues no `update`.** In v1 state
+  changes only through `dispatch`, so an idle frame costs nothing. A host
+  that mutates the application between frames calls `invalidate()` on the
+  generated app, and the next frame runs `update` once.
+- **`update` reads what bindings read.** It calls the getters that template
+  expressions name and nothing else; a field the template does not use is
+  never touched, whatever its size.
+- **A text binding memoizes its inputs, not its output.** `format!` runs
+  only when one of the values it prints changed.
+
 ## 8. Generated code shape
 
 Illustrative: the names are fixed, the bodies are not. The source is a root
@@ -701,6 +713,18 @@ today.
   `PROP` table.
 - Derives by use instead of a fixed derive list; homogeneous tuples
   `[T, T, T]` as `[T; 3]`.
+- Unit newtypes. `Px`, `Ms`, `Deg` and `Color` are `__newtype` aliases
+  (§3.2); `:style` keys demand them (`width: Px`), a literal adopts them
+  (`width: 80` becomes `Px(80.0)`), and `Color` is the template literal type
+  `` `#${string}` `` in TypeScript, so the editor checks the literal's shape,
+  and `u32` bits in Rust.
+- Per-value versions for large lists. The view-model trait gains
+  `fn todos_version(&self) -> Option<u32>` beside every array value, with a
+  default body returning `None`. An application that returns `Some(counter)`
+  and bumps the counter when it mutates the list lets `update` skip the key
+  diff and the row updates while the version is unchanged. Read sets of
+  bindings are static, so the skip is exact for values; functions run on
+  every `update`.
 
 **v2**
 
@@ -713,3 +737,9 @@ today.
   (`<script setup generic="T">`) build on this.
 - Capacity tags (`Todo[] & { readonly __cap?: 32 }` becomes
   `heapless::Vec<Todo, 32>`) for targets without an allocator.
+- Typed provide and inject. `provide("theme", theme)` in the root script and
+  `const theme = inject<Theme>("theme")` in a child are the two runtime
+  statements admitted for this, both stock Vue. The compiler matches them by
+  key, checks the types, and threads a `&Theme` through the generated views,
+  so a deep tree passes no props along the way and the runtime does no
+  lookup.
