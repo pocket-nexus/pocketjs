@@ -90,8 +90,10 @@ jobs:
         run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - name: Native contact lifetimes and cancellation
         run: bun test tests/contact-latch.test.ts
+      - name: Build Clear simulator inputs
+        run: bun tools/wasm.ts && bun tools/build.ts clear-main --framework=vue-vapor
       - name: Clear input and text chain
-        run: bun tools/build.ts clear-main --framework=vue-vapor && bun test --conditions=browser tests/clear-text.test.ts tests/clear-ime-loading.test.ts
+        run: bun test --conditions=browser tests/clear-text.test.ts tests/clear-ime-loading.test.ts
       - name: UI singleton access and alignment policy
         run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features harness-access
       - name: Link and execute the real C allocator
