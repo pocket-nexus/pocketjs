@@ -49,7 +49,7 @@ typedef struct {
 int pocket_runtime_tick(const PocketRuntimeInput *input);
 
 /*
- * Multi-contact frame entry. `id` is the host's contact slot (0-255, stable
+ * Multi-contact frame entry. `id` is a host-owned contact identity (0-255, stable
  * while the finger stays down, reusable after release), `x`/`y` are logical
  * pixels, and `hit` is the bounds hit resolved once at the contact's down
  * edge (pocket_runtime_hit_test_bounds) or zero. Contacts pack into the

@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "pocket_input.h"
+#include "../../../shared/contact_latch.h"
 #include "pocket_runtime.h"
 #include "pocket_spec.h"
 
@@ -60,8 +61,7 @@ static int gl_initialized;
 static char android_error[512];
 static char receipt_path[1024];
 static unsigned long frames, touch_sequences;
-typedef struct { int used, platform_id, ending, sampled; float x, y; int hit; } Contact;
-static Contact contacts[POCKET_RUNTIME_MAX_CONTACTS];
+static PocketContactLatch contacts;
 JNIEXPORT jint JNICALL Java_dev_pocketstack_android_PocketActivity_nativeLogicalWidth(JNIEnv *env, jclass owner) {
   (void)env; (void)owner; return POCKET_LOGICAL_WIDTH;
 }
@@ -82,7 +82,7 @@ JNIEXPORT void JNICALL Java_dev_pocketstack_android_PocketActivity_nativeConfigu
 JNIEXPORT void JNICALL Java_dev_pocketstack_android_PocketActivity_nativeCancelTouches(JNIEnv *env, jclass owner) {
   (void)env; (void)owner;
   pthread_mutex_lock(&input_mutex);
-  for (unsigned i = 0; i < POCKET_RUNTIME_MAX_CONTACTS; i++) if (contacts[i].used) contacts[i].ending = 1;
+  pocket_contacts_cancel(&contacts);
   pthread_mutex_unlock(&input_mutex);
 }
 
@@ -240,17 +240,8 @@ Java_dev_pocketstack_android_PocketActivity_nativeFrame(
   height = surface_height;
   sequences = touch_sequences;
   frame.buttons = sample.buttons;
-  for (unsigned i = 0; i < POCKET_RUNTIME_MAX_CONTACTS; i++) {
-    Contact *contact = &contacts[i];
-    if (!contact->used) continue;
-    if (contact->ending && contact->sampled) { memset(contact, 0, sizeof *contact); continue; }
-    int x = (int)(contact->x * POCKET_LOGICAL_WIDTH / width);
-    int y = (int)(contact->y * POCKET_LOGICAL_HEIGHT / height);
-    if (!contact->sampled) contact->hit = pocket_runtime_hit_test_bounds((float)x, (float)y);
-    PocketRuntimeContact *out = &frame.contacts[frame.contact_count++];
-    out->id = (int)i; out->x = x; out->y = y; out->hit = contact->hit;
-    contact->sampled = 1;
-  }
+  pocket_contacts_sample(&contacts, &frame, width, height, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT,
+    pocket_runtime_hit_test_bounds);
   pthread_mutex_unlock(&input_mutex);
   if (!pocket_runtime_tick_contacts(&frame)) {
     set_android_error(pocket_runtime_error());
@@ -326,16 +317,7 @@ Java_dev_pocketstack_android_PocketActivity_nativeTouch(
   else phase = POCKET_TOUCH_MOVE;
   pthread_mutex_lock(&input_mutex);
   ensure_input();
-  Contact *contact = NULL;
-  for (unsigned i = 0; i < POCKET_RUNTIME_MAX_CONTACTS; i++)
-    if (contacts[i].used && contacts[i].platform_id == pointer_id) { contact = &contacts[i]; break; }
-  if (phase == POCKET_TOUCH_DOWN && !contact && x >= 0 && y >= 0 && x < surface_width && y < surface_height) {
-    for (unsigned i = 0; i < POCKET_RUNTIME_MAX_CONTACTS; i++) if (!contacts[i].used) {
-      contact = &contacts[i]; memset(contact, 0, sizeof *contact); contact->used = 1; contact->platform_id = pointer_id;
-      touch_sequences++; break;
-    }
-  }
-  if (contact) { contact->x = x; contact->y = y; if (phase == POCKET_TOUCH_UP || phase == POCKET_TOUCH_CANCEL) contact->ending = 1; }
+  touch_sequences += pocket_contact_event(&contacts, phase, pointer_id, x, y, surface_width, surface_height);
   pthread_mutex_unlock(&input_mutex);
 }
 

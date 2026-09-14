@@ -8,11 +8,13 @@ function fixture() {
   const sent: { id: number; method: string; payload: string }[] = [], replies: string[] = [], committed: string[] = [];
   const io = createOffloadClient({ session: () => session, take: () => replies.shift(),
     submit: raw => { sent.push(JSON.parse(raw)); return true; } });
-  const ime = createIme({ io, now: () => time, changed() {}, commit: value => committed.push(value) });
+  const events: string[] = [];
+  const ime = createIme({ io, now: () => time, changed() {}, commit: value => { committed.push(value); events.push(`commit:${value}`); },
+    edit: action => events.push(`edit:${action}`) });
   const tick = () => { time += 1 / 60; io.step(); ime.step(); };
   const answer = (request: number, fields: Partial<ImeSnapshot> = {}) => replies.push(JSON.stringify({ id: request,
     payload: JSON.stringify({ raw: (fields.preedit ?? "ni").replaceAll(" ", ""), rawCaret: (fields.preedit ?? "ni").replaceAll(" ", "").length, commit: "", preedit: "ni", candidates: ["你", "呢"], page: 0, last: false, caret: (fields.preedit ?? "ni").length, ...fields }) }));
-  return { ime, io, sent, committed, tick, answer, replies, connect: (n: number) => { session = n; } };
+  return { ime, io, sent, committed, events, tick, answer, replies, connect: (n: number) => { session = n; } };
 }
 describe("replayable IME", () => {
   test("candidate windows are reads and absolute selection is revision fenced", () => {
@@ -160,4 +162,64 @@ test("provider failure and invalid raw data cannot block local confirmation", ()
     f.tick(); expect(f.ime.state().error).not.toBe(""); f.ime.accept();
     expect(f.committed).toEqual(["n"]);
   }
+});
+
+test("confirmation freezes its input boundary while following keys wait in order", () => {
+  const f = fixture(); for (const ch of "ni") f.ime.key(ch.charCodeAt(0));
+  f.tick(); f.tick(); const first = f.sent.at(-1)!.id;
+  f.ime.accept(); for (const ch of "hao") f.ime.key(ch.charCodeAt(0));
+  f.answer(first); f.tick(); f.tick();
+  expect(JSON.parse(f.sent.at(-1)!.payload)).toEqual([110, 105, IME.select]);
+  f.answer(f.sent.at(-1)!.id, { commit: "你", preedit: "", candidates: [] }); f.tick(); f.tick();
+  expect(f.committed).toEqual(["你"]);
+  expect(JSON.parse(f.sent.at(-1)!.payload)).toEqual([104, 97, 111]);
+  f.answer(f.sent.at(-1)!.id, { preedit: "hao", candidates: ["好"] }); f.tick();
+  expect(f.ime.state().raw).toBe("hao"); expect(f.ime.composing()).toBe(true);
+});
+
+test("typing after confirmation cannot move or cancel its fallback deadline", () => {
+  const f = fixture(); for (const ch of "ni") f.ime.key(ch.charCodeAt(0));
+  f.tick(); f.tick(); const old = f.sent.at(-1)!.id; f.ime.accept();
+  for (let i = 0; i < 12; i++) f.tick();
+  for (const ch of "hao") f.ime.key(ch.charCodeAt(0));
+  for (let i = 0; i < 14; i++) f.tick();
+  expect(f.committed).toEqual(["ni"]); expect(f.ime.state().raw).toBe("hao");
+  f.answer(old, { commit: "wrong", preedit: "" }); f.tick(); expect(f.committed).toEqual(["ni"]);
+  f.connect(0); f.tick(); f.ime.accept(); expect(f.committed).toEqual(["ni", "hao"]);
+});
+
+test("queued confirmations keep their order and deadlines across disconnect and reset", () => {
+  const f = fixture(); for (const ch of "ni") f.ime.key(ch.charCodeAt(0)); f.ime.accept();
+  for (const ch of "hao") f.ime.key(ch.charCodeAt(0)); f.ime.accept();
+  f.ime.key(97); f.tick(); f.tick(); const old = f.sent.at(-1)!.id;
+  f.connect(0); f.tick();
+  expect(f.committed).toEqual(["ni", "hao"]); expect(f.ime.state().raw).toBe("a");
+  f.ime.reset(); f.connect(2); f.answer(old, { commit: "wrong", preedit: "" }); f.tick();
+  expect(f.committed).toEqual(["ni", "hao"]); expect(f.ime.composing()).toBe(false);
+});
+
+test("mode-switch raw commit drains confirmed and current input in source order", () => {
+  const f = fixture(); for (const ch of "ni") f.ime.key(ch.charCodeAt(0)); f.ime.accept();
+  for (const ch of "hao") f.ime.key(ch.charCodeAt(0)); f.ime.key(IME.left); f.ime.key(IME.backspace);
+  f.ime.commitRaw(); expect(f.committed.join("")).toBe("niho"); expect(f.ime.composing()).toBe(false);
+});
+
+
+test("committed-text deletion and caret edits wait behind a confirmed prefix", () => {
+  const f = fixture(); for (const ch of "ni") f.ime.key(ch.charCodeAt(0));
+  f.tick(); f.tick(); f.answer(f.sent.at(-1)!.id); f.tick(); f.ime.accept();
+  f.ime.key(IME.backspace); f.ime.key(IME.left); for (const ch of "hao") f.ime.key(ch.charCodeAt(0));
+  f.tick(); f.tick(); f.answer(f.sent.at(-1)!.id, { preedit: "", commit: "你", candidates: [] }); f.tick(); f.tick();
+  expect(f.events).toEqual(["commit:你", "edit:backspace", "edit:left"]);
+  expect(JSON.parse(f.sent.at(-1)!.payload)).toEqual([104, 97, 111]);
+  expect(f.ime.state().raw).toBe("hao");
+});
+
+test("the action budget covers every queued segment and committed-text edit", () => {
+  const f = fixture();
+  for (let i = 0; i < IME.keys / 2; i++) { expect(f.ime.key(97)).toBe(true); f.ime.accept(); expect(f.ime.key(IME.left)).toBe(true); }
+  expect(f.ime.key(98)).toBe(false);
+  f.ime.commitRaw(); expect(f.events).toHaveLength(IME.keys);
+  expect(f.events.slice(0, 4)).toEqual(["commit:a", "edit:left", "commit:a", "edit:left"]);
+  expect(f.ime.composing()).toBe(false);
 });

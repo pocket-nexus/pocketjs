@@ -129,9 +129,16 @@ export function makeEditor(host: EditorHost): Editor {
     editCaret -= count;
     paintEditRow();
   }
+  function moveCaret(direction: number): void {
+    if (!editing) return;
+    if (direction < 0) editCaret -= Array.from(editing.text.slice(0, editCaret)).pop()?.length ?? 0;
+    else editCaret += Array.from(editing.text.slice(editCaret))[0]?.length ?? 0;
+    paintEditRow();
+  }
   const ime = hasCompanion() ? createIme({
     changed: state => kb.setIme(state, chinese),
     commit: insert,
+    edit: action => { if (action === "backspace") backspace(); else moveCaret(action === "left" ? -1 : 1); },
   }) : undefined;
   const kb = makeKeyboard({
     onInsert(ch) {
@@ -155,10 +162,7 @@ export function makeEditor(host: EditorHost): Editor {
     onCancelComposition() { ime?.reset(); closeAfterComposition = false; },
     onCaret(direction) {
       if (ime?.composing()) { ime.key(direction < 0 ? IME.left : IME.right); return; }
-      if (!editing) return;
-      if (direction < 0) editCaret -= Array.from(editing.text.slice(0, editCaret)).pop()?.length ?? 0;
-      else editCaret += Array.from(editing.text.slice(editCaret))[0]?.length ?? 0;
-      paintEditRow();
+      moveCaret(direction);
     },
   });
   function step() {

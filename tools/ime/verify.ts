@@ -2,6 +2,8 @@
 import { strict as assert } from "node:assert";
 import { resolve } from "node:path";
 import { RimeEngine } from "./rime.ts";
+import { createIme } from "../../framework/src/ime.ts";
+import { createOffloadClient } from "../../framework/src/offload.ts";
 import { IME } from "../../contracts/spec/ime.ts";
 const engine = new RimeEngine(resolve(Bun.argv[2] ?? ".pocket/ime"));
 const keys = (s: string) => Array.from(s, c => c.charCodeAt(0));
@@ -65,5 +67,29 @@ try {
   assert.deepEqual(await compose([IME.left, IME.right]), await compose([]));
   assert.equal((await compose([...keys("nihao"), IME.enter])).commit, "nihao");
   assert.equal((await compose([...keys("nihao"), 32])).commit, "你好");
-  console.log("Rime acceptance passed: phrases, selection, replay, paging, read-only windows, absolute selection, deletion, bounded character caret, raw commit, space");
+  // Exercise the guest state machine against real conversion, holding every
+  // response for three frames while both confirmed words arrive beforehand.
+  let frame = 0;
+  const pending: { id: number; payload: string; at: number }[] = [], replies: string[] = [], committed: string[] = [];
+  const transcripts: number[][] = [];
+  const io = createOffloadClient({ session: () => 1, take: () => replies.shift(), submit(raw) {
+    const request = JSON.parse(raw); pending.push({ ...request, at: frame + 3 });
+    transcripts.push(JSON.parse(request.payload)); return true;
+  } });
+  const ime = createIme({ io, now: () => frame / 60, changed() {}, commit: text => committed.push(text) });
+  for (const ch of "ni") ime.key(ch.charCodeAt(0)); ime.accept();
+  for (const ch of "hao") ime.key(ch.charCodeAt(0)); ime.accept();
+  ime.key(97);
+  for (frame = 1; frame <= 35; frame++) {
+    while (pending[0]?.at <= frame) {
+      const request = pending.shift()!;
+      replies.push(JSON.stringify({ id: request.id, payload: await engine.compose(request.payload) }));
+    }
+    io.step(); ime.step();
+  }
+  assert.deepEqual(committed, ["你", "好"]);
+  assert.equal(ime.state().raw, "a");
+  assert.deepEqual(transcripts, [keys("ni"), [...keys("ni"), IME.select], keys("hao"), [...keys("hao"), IME.select], keys("a")]);
+  ime.commitRaw(); assert.deepEqual(committed, ["你", "好", "a"]); ime.dispose(); io.dispose();
+  console.log("Rime acceptance passed: phrases, selection, replay, paging, read-only windows, absolute selection, deletion, bounded character caret, raw commit, space, ordered guest confirmations under delayed replies");
 } finally { engine.close(); }

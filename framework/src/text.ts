@@ -117,6 +117,7 @@ export function createTextResources(options: {
               face = next.id;
               for (const owner of owners) if (owner.glyphs.size) owner.stale = true;
             }
+            cache.retryFailed(request => request.face === face);
             facePending = false; return;
           } catch { /* Keep immutable resident glyphs until a valid face arrives. */ }
           retry = 60;

@@ -9,8 +9,11 @@ const font = existsSync("/System/Library/Fonts/STHeiti Medium.ttc") ? "/System/L
 function fixture(maxGlyphs = 96) {
   const provider = createTextProvider(font), sent: OffloadRequest[] = [], replies: string[] = [], held: OffloadRequest[] = [];
   let session = 1, allow = true, next = 1, frame = 0;
+  let failure: "load" | "upload" | undefined;
   const uploaded: number[] = [], freed: number[] = [];
-  function answer(r: OffloadRequest) { replies.push(JSON.stringify({ id: r.id,
+  function answer(r: OffloadRequest) {
+    if (r.method === "text.glyph" && failure === "load") { replies.push(JSON.stringify({ id: r.id, error: "unavailable" })); return; }
+    replies.push(JSON.stringify({ id: r.id,
     payload: r.method === "text.font" ? provider["text.font"]() : provider["text.glyph"](r.payload) })); }
   const io = createOffloadClient({ session: () => session, take: () => replies.shift(), submit: raw => {
     const request = JSON.parse(raw) as OffloadRequest; sent.push(request);
@@ -18,12 +21,12 @@ function fixture(maxGlyphs = 96) {
     return true;
   } });
   const resources = createTextResources({ io, maxGlyphs, measure: s => s.length * 8,
-    upload() { uploaded.push(frame); return next++; }, free: h => freed.push(h) });
+    upload() { uploaded.push(frame); return failure === "upload" ? undefined : next++; }, free: h => freed.push(h) });
   const layouts: ReturnType<typeof resources.createLayout>[] = [];
   function label() { const label = resources.createLayout({ width: 300, size: 20, density: 2, bold: true, fontSlot: 11 }); layouts.push(label); return label; }
   function step(n = 1) { for (let i = 0; i < n; i++) { frame++; io.step(); resources.step(); for (const l of layouts) l.snapshot(); } }
   return { resources, io, label, sent, uploaded, freed, step, connect: (s: number) => { session = s; },
-    hold() { allow = false; }, resume() { allow = true; for (const request of held.splice(0)) answer(request); } };
+    fail(mode?: "load" | "upload") { failure = mode; }, hold() { allow = false; }, resume() { allow = true; for (const request of held.splice(0)) answer(request); } };
 }
 describe("retained text resources", () => {
   test("a clipped glyph dependency still updates the full measured width", () => {
@@ -89,3 +92,18 @@ describe("retained text resources", () => {
     f.resources.dispose();
   });
 });
+
+for (const mode of ["load", "upload"] as const) for (const offline of [true, false])
+  test(`same-font reconnect restores exhausted ${mode} retries (offline edge ${offline}) without reloading residents`, () => {
+    const f = fixture(), resident = f.label(), missing = f.label(); resident.set("你"); f.step(30);
+    const stable = resident.snapshot(); f.fail(mode); missing.set("好"); f.step(200);
+    const reads = () => f.sent.filter(r => r.method === "text.glyph" && JSON.parse(r.payload).text === "好");
+    expect(reads()).toHaveLength(3); expect(missing.snapshot().pending).toBe(true);
+    f.fail(); f.step(200); expect(reads()).toHaveLength(3); // budget stays exhausted within the old session
+    if (offline) { f.connect(0); f.step(2); }
+    f.connect(2); f.step(200);
+    expect(reads()).toHaveLength(4); expect(missing.snapshot().pending).toBe(false);
+    expect(resident.snapshot()).toBe(stable); expect(f.freed).toEqual([]);
+    expect(f.sent.filter(r => r.method === "text.glyph" && JSON.parse(r.payload).text === "你")).toHaveLength(1);
+    f.resources.dispose();
+  });

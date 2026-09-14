@@ -100,6 +100,13 @@ export function createResourceScheduler(options: ResourceSchedulerOptions) {
         entry.attempts++; entry.charged = true; return true;
       }
     }
+    function invalidateEntry(entry: Entry, dropValue: boolean) {
+      stop(entry); entry.stale = true; entry.attempts = 0; entry.retryAt = 0; entry.error = undefined;
+      const previous = entry.state;
+      if (dropValue || previous.status === "error") entry.state = pending();
+      notify(entry);
+      if (dropValue && previous.status === "ready") config.dispose?.(previous.value);
+    }
     const collection: Collection = {
       candidate() {
         let chosen: Entry | undefined;
@@ -189,15 +196,16 @@ export function createResourceScheduler(options: ResourceSchedulerOptions) {
         return entry ? { state: entry.state, stale: entry.stale, refreshing: entry.busy, error: entry.error }
           : { state: pending(), stale: true, refreshing: false };
       },
+      /** A new provider session or explicit recovery grants failed reads a
+       * fresh retry budget. Healthy resident entries keep their identity. */
+      retryFailed(matches: (input: I) => boolean = () => true) {
+        for (const entry of entries.values()) if (matches(entry.input) &&
+            (entry.state.status === "error" || entry.error !== undefined ||
+              (!entry.busy && entry.stale && entry.attempts > 0))) invalidateEntry(entry, false);
+      },
       /** Retain stale content by default; drop when the identity is unsafe to display. */
       invalidate(matches: (input: I) => boolean = () => true, dropValue = false) {
-        for (const entry of entries.values()) if (matches(entry.input)) {
-          stop(entry); entry.stale = true; entry.attempts = 0; entry.retryAt = 0; entry.error = undefined;
-          const previous = entry.state;
-          if (dropValue || previous.status === "error") entry.state = pending();
-          notify(entry);
-          if (dropValue && previous.status === "ready") config.dispose?.(previous.value);
-        }
+        for (const entry of entries.values()) if (matches(entry.input)) invalidateEntry(entry, dropValue);
       },
       cancel, clear, dispose: collection.dispose,
       stats: () => ({ entries: entries.size, cost, ready: [...entries.values()].reduce((n, e) => n + (e.state.status === "ready" ? 1 : 0), 0) }),

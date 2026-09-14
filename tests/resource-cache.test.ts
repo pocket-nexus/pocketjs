@@ -176,3 +176,22 @@ test("temporary refusals preserve the finite failure budget", () => {
   expect(cache.state("x").status).toBe("error"); expect(scheduler.stats().active).toBe(0);
   scheduler.dispose();
 });
+
+test("retryFailed retains healthy residents and recovers a failed refresh whose error is undefined", () => {
+  const x = setup(); x.want("healthy", "refresh"); x.scheduler.step();
+  x.requests[0].done({ ok: true, value: "H" }); x.requests[1].done({ ok: true, value: "R" });
+  x.scheduler.step(); x.scheduler.step();
+  const healthy = x.cache.state("healthy"), refresh = x.cache.state("refresh");
+  x.cache.invalidate(key => key === "refresh"); x.scheduler.step();
+  x.requests.at(-1)!.done({ ok: false, error: undefined }); x.scheduler.step();
+  x.scheduler.step(); x.scheduler.step(); x.requests.at(-1)!.done({ ok: false, error: undefined }); x.scheduler.step();
+  for (let i = 0; i < 20; i++) x.scheduler.step();
+  expect(x.requests).toHaveLength(4); expect(x.cache.state("refresh")).toBe(refresh);
+  x.cache.retryFailed();
+  expect(x.cache.state("healthy")).toBe(healthy); expect(x.cache.state("refresh")).toBe(refresh);
+  expect(x.freed).toEqual([]); x.scheduler.step();
+  expect(x.requests).toHaveLength(5); expect(x.requests.at(-1)!.key).toBe("refresh");
+  x.requests.at(-1)!.done({ ok: true, value: "R2" }); x.scheduler.step();
+  expect(x.cache.state("refresh")).toEqual({ status: "ready", value: "R2" });
+  expect(x.freed).toEqual(["R"]); x.scheduler.dispose();
+});

@@ -5,6 +5,10 @@ on:
     paths:
       - ".github/workflows/native-c-harness.yml"
       - "engine/quickjs-c/**"
+      - "hosts/shared/contact_latch.h"
+      - "hosts/android/**"
+      - "tests/contact-latch.test.ts"
+      - "tests/fixtures/contact-latch.c"
       - "engine/ui-cabi/**"
       - "engine/core/**"
       - "framework/src/**"
@@ -25,6 +29,10 @@ on:
     paths:
       - ".github/workflows/native-c-harness.yml"
       - "engine/quickjs-c/**"
+      - "hosts/shared/contact_latch.h"
+      - "hosts/android/**"
+      - "tests/contact-latch.test.ts"
+      - "tests/fixtures/contact-latch.c"
       - "engine/ui-cabi/**"
       - "engine/core/**"
       - "framework/src/**"
@@ -70,6 +78,8 @@ jobs:
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
         run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+      - name: Native contact lifetimes and cancellation
+        run: bun test tests/contact-latch.test.ts
       - name: UI singleton access and alignment policy
         run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features harness-access
       - name: Link and execute the real C allocator
