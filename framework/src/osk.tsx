@@ -202,6 +202,12 @@ export function oskPanelMetrics(mode: OskModality, theme: OskThemeName, keyHeigh
   return oskMetrics(mode.layout, rowH, classic && mode.layout === "staggered" ? CLASSIC_HINT_H : 0);
 }
 
+/** The docked panel height a surface's keyboard takes while open, so a
+ *  column can shrink by that amount without mounting the panel. */
+export function oskHeight(surface: SurfaceId = "primary", theme: OskThemeName = "dark", layout?: OskLayoutKind, keyHeight?: number): number {
+  return oskPanelHeight(oskPanelMetrics(resolveOskModality(surface, modality.buttons, layout), theme, keyHeight));
+}
+
 function OskPanel(props: {
   osk: OskController;
   theme: OskThemeName;
