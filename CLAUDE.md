@@ -1,7 +1,6 @@
 # Repository Instructions
 
-- After completing and validating a code or documentation change, publish it as a draft pull request before treating the work as ready for review or merge.
-- If the user also asks to merge the change, open the draft pull request first, then mark it ready and merge it after the relevant checks pass.
+- If the user asks to merge the change, merge it after the relevant checks pass.
 - Name pull requests (and the branch's primary commit) using the Conventional Commits format — `type(scope): summary`, e.g. `feat(gallery): …`, `fix: …`, `docs: …`, `refactor: …`.
 - Keep per-run validation screenshots, videos, raw logs, traces, benchmark dumps, and build/install receipts in ignored `.pocket-build/validation/<task>/<run>/` output or an artifact store. Device validation does not require committing these files to Git.
 - Put reproducible commands, results, build identities, and acceptance limits in the PR description. Attach a small selection of relevant images to the PR; do not add a new source directory for each validation run.
