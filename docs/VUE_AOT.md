@@ -131,13 +131,17 @@ allocates nothing. Event payloads are owned.
 | `T[]`, `Array<T>` | `&[T]` from getters and in props; `Vec<T>` from functions |
 | `[A, B]` | `(A, B)` |
 | `x?: T`, `T \| undefined` | `Option<T>` |
+| discriminated union `{ kind: "a"; … } \| { kind: "b"; … }` (§3.2) | `enum` with one struct or unit variant per member |
+| `T & { readonly __newtype?: "Name" }` (§3.2) | `pub struct Name(pub T)` |
+| `declare const X: 20`, `"text"`, `true` (§3.2) | a folded literal at every use, plus `pub const X` |
 | function type | trait method (§2); not a value |
 
 Rejected in contract positions: `null`, `any`, `unknown`, `never`, `object`,
 `symbol`, `bigint`, `Function`, classes, generic parameters, mapped,
 conditional and template-literal types, index signatures, `Record`, `Map`,
-`Set`, unions other than string literals and `| undefined`, and
-intersections other than the numeric tags below.
+`Set`, unions other than string literals, discriminated unions and
+`| undefined`, and intersections other than the `__type` and `__newtype`
+tags.
 
 ### 3.1 Numeric types
 
@@ -199,6 +203,47 @@ The mechanism behind these aliases is called a *branded type* in compiler
 code and on this page. That name stays in English and does not appear in
 user-facing documentation, which says numeric types.
 
+### 3.2 Newtypes, constants and discriminated unions
+
+**Newtypes use a second tag property.** `type TodoId = i32 & { readonly
+__newtype?: "TodoId" }` generates `pub struct TodoId(pub i32)` with the
+derives of its base type. A second `__type` tag on one alias collapses the
+property to `never` and rejects every value, which is why the property is
+`__newtype` (measured with TypeScript 5.9.3). `TodoId` and `UserId` do not
+assign to each other; a plain `i32` still flows into either, the same
+softness as `number` into `i32`. A literal in a newtype position adopts it:
+`toggle(3)` with `toggle(id: TodoId)` lowers to `TodoId(3)`.
+
+**Literal types carry constants.** `export declare const MAX: 20` and
+`export declare const TITLE: "POCKET TODO"` are declarations with no runtime
+code, and the checker reports the literal as the type. The compiler folds
+the value at every use, a numeric constant adopting the numeric type of its
+context like a literal (§3.1 rule 3), and also emits `pub const MAX` with the
+default mapping for application code.
+
+**Discriminated unions become enums with data.** A union whose members are
+object types sharing one property of distinct string-literal type, declared
+under a `type` alias, generates one enum: the discriminant literal names the
+variant in PascalCase, the remaining properties are the variant's named
+fields, and a member with no other properties is a unit variant.
+
+```ts
+export type Load =
+  | { kind: "loading" }
+  | { kind: "ready"; items: Todo[] }
+  | { kind: "error"; message: string };
+```
+
+```rust
+pub enum Load { Loading, Ready { items: Vec<Todo> }, Error { message: String } }
+```
+
+In templates `load.kind === 'ready'` lowers to `matches!`, `{{ load.kind }}`
+displays the literal, and a `v-if` on the discriminant narrows `load` inside
+the block, so `load.items` lowers to the field of an `if let Load::Ready {
+items } = load` (§9, expression types). A chain over every literal lowers to
+an exhaustive `match`.
+
 ## 4. Template subset
 
 ### Elements and attributes
@@ -255,7 +300,9 @@ Anything else, including two statements in one handler, is an error.
 
 `{{ expr }}` accepts numbers, strings, booleans, enums and `Option` of those;
 `None` and `undefined` display as the empty string, matching Vue. Objects and
-arrays in text are an error.
+arrays in text are an error. Interpolation calls the runtime's display trait,
+implemented for those types only, so a struct in text fails in `rustc` as well
+as in the checker; an enum displays its literal.
 
 ## 5. Expressions and built-ins
 
@@ -453,7 +500,7 @@ struct Row { key: i32, block: RowView }     // one <Row v-for> row
 
 pub struct TodoView { /* node ids, memoized values, If0, If1, Vec<Row> */ }
 impl TodoView {
-    pub fn mount(ui: &mut Ui, parent: i32, anchor: i32) -> Self; // blocks start Empty
+    pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self; // blocks start Empty
     pub fn update<L: TodoLogic>(&mut self, ui: &mut Ui, props: &TodoProps<'_>, logic: &L);
     pub fn dispatch<L: TodoLogic>(&mut self, input: &Input, logic: &mut L, events: &mut Vec<TodoEvent>);
     pub fn unmount(self, ui: &mut Ui);
@@ -503,6 +550,19 @@ emits code.
   and node numbers are assigned, and `v-if` groups, `v-for` blocks and
   handlers are explicit nodes. It knows nothing about Rust and nothing about
   Vue's IR.
+- **Expression types come from the TypeScript checker.** The compiler feeds
+  the virtual TypeScript that `@vue/language-core` generates for the SFC, the
+  code vue-tsc checks, to a program built with `proxyCreateProgram` from
+  `@volar/typescript`, and reads each template expression's type with
+  `getTypeAtLocation`, locating nodes through the virtual code's `mappings`.
+  Control-flow narrowing comes with it. Measured with vue-tsc 3.3.11:
+  `current.text` inside `v-if="current !== undefined"` is `string`,
+  `load.items` inside `v-if="load.kind === 'ready'"` is `Todo[]`, the
+  `v-else` branch sees `load.kind` as `"loading"`, and a `v-for` variable
+  has the element type. The compiler's own checker does three things: subset
+  admission by syntax, numeric tag propagation through arithmetic (§3.1 rule
+  2), and the TypeScript-to-Rust mapping. `@vue/language-core` and
+  `@volar/typescript` are pinned together with vue-tsc.
 - **Rust AST** covers the subset the compiler emits: `struct`, `enum`,
   `trait`, `impl`, `fn`, `let`, `if`, `match`, method calls, field access,
   literals and `format!`. The View IR to Rust AST pass is where the lowering
@@ -533,6 +593,22 @@ the cost of a two-language compiler and a versioned schema. It is the path
 to take if the front end moves to Rust; the View IR makes that switch a
 back-end change.
 
+### Rust-side checks
+
+The generated code is shaped so that `rustc` enforces rules the checker
+also states:
+
+- `update` borrows the logic as `&L` and `dispatch` as `&mut L`, so a
+  binding cannot mutate state during rendering.
+- A new emit in the SFC makes the application's `match` on `<Name>Event`
+  non-exhaustive, and a new declaration leaves a trait method unimplemented:
+  contract changes surface as compile errors in application code.
+- Node ids and style ids are `NodeId` and `StyleId` newtypes over the core's
+  `i32`, so the two cannot be swapped in a `Ui` call.
+- `v-for` keys carry an `Eq + Ord` bound; `f64` is not `Ord`, which is why
+  keys are `i32`, `i64`, `string` or an enum (§4).
+- Text interpolation goes through the display trait (§4).
+
 ### Tests
 
 - Front end: one View IR JSON snapshot per fixture SFC; subset diagnostics
@@ -543,6 +619,13 @@ back-end change.
 - Differential: one fixture of props and logic values renders through stock
   Vue Vapor on the micro-DOM and through the generated Rust view, and the
   trees are compared.
+- Fixtures come from the contract. The compiler generates a `FixtureLogic`
+  that implements `<Name>Logic` from a JSON document, `serde::Deserialize`
+  on the contract types behind a `test` feature, and a TypeScript mock
+  module of the same shape. One fixture feeds both sides of the differential
+  test, and the mock with default values (`0`, empty string, empty list,
+  no-op functions) is what the browser build runs when a project has only a
+  `.d.ts` module.
 - DrawList goldens on the desktop host apply to AOT apps as they do to guest
   apps.
 
@@ -560,6 +643,21 @@ carries over as the source of compile-time demands. The C runtime,
 3. Scoped slots; `withDefaults` with literal defaults; input beyond `@press`
    in templates (button maps, relative-axis handlers).
 4. A warning for unannotated `number` in contract positions.
-5. An auto-generated mock for projects whose logic module is a `.d.ts`.
-6. The host-primitive parity spec and drift test, and the differential test
-   harness.
+5. The host-primitive parity spec and drift test, and the differential test
+   harness beyond the generated fixtures.
+
+Planned after v1, in this order:
+
+- **v1.1**: target admission as trait bounds on the host type (`H: HasTouch`
+  when a template uses touch, the same for relative-axis handlers), with the
+  board data of `vapor/BOARDS.md` kept for diagnostics; optional contract
+  members (`((dt: f32) => void) | undefined` becomes a trait method with an
+  empty default body); editor-side rules in the components' and built-ins'
+  `.d.ts` (`NoInfer` on the second operand of same-type built-ins, `onPress`
+  present only in the `focusable: true` member of a props union, `:style`
+  keys generated from the `PROP` table of `contracts/spec/spec.ts`); derives
+  by use instead of a fixed derive list; homogeneous tuples `[T, T, T]` as
+  `[T; 3]`.
+- **v2**: capacity tags (`Todo[] & { readonly __cap?: 32 }` becomes
+  `heapless::Vec<Todo, 32>`) for targets without an allocator; generic
+  components (`<script setup generic="T">`) together with scoped slots.
