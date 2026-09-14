@@ -1,5 +1,6 @@
 import { Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { animate, jump } from "@pocketjs/framework/animation";
+import { getOps } from "@pocketjs/framework/host";
 import { virtualNow } from "@pocketjs/framework/clock";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import { textResources } from "@pocketjs/framework/text";
@@ -13,10 +14,17 @@ export function remoteText(text: () => string, width: number, size: 12 | 14 | 16
   waiting: () => boolean = () => false, visible: () => boolean = () => true, priority: number | (() => number) = 1,
   measured?: (width: number) => void) {
   const height = size + 8;
-  if (!hasCompanion()) return <View class="relative overflow-hidden flex-row items-center" style={{ width, height }}>
-    <Text class={bold ? "text-xl font-bold" : size === 12 ? "text-xs" : size === 14 ? "text-sm" : "text-base"} style={{ textColor: color() }}>{text()}</Text>
-  </View>;
   const style = { width, size, density: 2, bold, fontSlot: (size === 20 ? 4 : size === 16 ? 2 : size === 14 ? 1 : 0) + (bold ? 7 : 0) };
+  if (!hasCompanion()) {
+    let previous: string | undefined;
+    onFrame(() => {
+      const value = text();
+      if (value !== previous) { previous = value; measured?.(Math.min(width, getOps().measureText(value, style.fontSlot))); }
+    });
+    return <View class="relative overflow-hidden flex-row items-center" style={{ width, height }}>
+      <Text class={bold ? "text-xl font-bold" : size === 12 ? "text-xs" : size === 14 ? "text-sm" : "text-base"} style={{ textColor: color() }}>{text()}</Text>
+    </View>;
+  }
   const label = textResources().createLayout(style);
   let painter: ReturnType<typeof createTextPainter> | undefined, content: NodeMirror | null = null, skeleton: NodeMirror | null = null;
   let loading = false, pulseAt = Infinity, pulseHigh = false, retained = "", measuredRevision = -1;

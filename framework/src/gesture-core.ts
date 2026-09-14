@@ -57,7 +57,7 @@ import { simulationHz, virtualFrame } from "./clock.ts";
 import type { SurfaceId } from "./display.ts";
 import { resolveTouchHit } from "./input.ts";
 import type { NodeMirror } from "./renderer.ts";
-import { __allTouches } from "./touch.ts";
+import { __allTouches, __cancelledTouches } from "./touch.ts";
 
 export type GesturePhase = "down" | "move" | "up" | "cancel";
 
@@ -658,7 +658,17 @@ export function __runGestures(): void {
   const snap = __allTouches();
   if (snap.length === 0 && liveCount === 0) return;
 
-  for (const t of tracks) t.present = false;
+  // Retire old lifetimes before allocating new ones: cancellation must stop
+  // a pending Space before a new DOWN can consume it as a two-thumb chord.
+  // This also frees all eight slots when every contact changes in one frame.
+  const cancelled = __cancelledTouches();
+  for (const t of tracks) {
+    if (t.used && cancelled.some(c => c.surface === t.surface && c.id === t.id)) {
+      for (const rec of t.owners) if (rec.flags[t.slot] & OBSERVING) fireCancel(rec, t);
+      releaseTrack(t);
+    } else if (t.used && !snap.some(c => c.surface === t.surface && c.id === t.id)) finishTrack(t);
+    t.present = false;
+  }
 
   for (const c of snap) {
     let found: Track | null = null;

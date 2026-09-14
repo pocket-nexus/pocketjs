@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { createBakedFontCoverage } from "../framework/src/font-coverage.ts";
+import { loadPack, resetPack } from "../framework/src/pak.ts";
+import { pack, keyFont, PAK_DTYPE } from "../framework/compiler/pak.ts";
+import { bakeAtlases } from "../framework/compiler/bake-font.ts";
 import { existsSync } from "node:fs";
 import { createTextResources } from "../framework/src/text.ts";
 import { createOffloadClient } from "../framework/src/offload.ts";
@@ -107,3 +111,27 @@ for (const mode of ["load", "upload"] as const) for (const offline of [true, fal
     expect(f.sent.filter(r => r.method === "text.glyph" && JSON.parse(r.payload).text === "你")).toHaveLength(1);
     f.resources.dispose();
   });
+
+
+test("shipped baked coverage keeps non-ASCII symbols local before the first companion session", async () => {
+  const [atlas] = await bakeAtlases({ slots: [11], codepoints: Array.from("£¥€•你").map(c => c.codePointAt(0)!) });
+  loadPack(pack([{ key: keyFont(11), dtype: PAK_DTYPE.u8, data: atlas!.bytes }]).buffer as ArrayBuffer);
+  try {
+    let requests = 0;
+    const local = createBakedFontCoverage();
+    for (const c of "£¥€•") expect(local(c, 11)).toBe(true);
+    expect(local("你", 11)).toBe(false); // the font has no glyph, despite being requested at bake
+    expect(local("£", 4)).toBe(false); // coverage is per installed slot
+    const resources = createTextResources({ io: { session: () => 0, request: () => { requests++; return 0; }, cancel() {} },
+      measure: s => s.length * 8, local, upload() { throw new Error("local text must not upload"); }, free() {} });
+    const label = resources.createLayout({ width: 300, size: 20, density: 2, bold: true, fontSlot: 11 });
+    label.set("A£¥€•B");
+    expect(label.snapshot().parts).toEqual([{ kind: "local", text: "A£¥€•B", x: 0, width: 48, start: 0, end: 6 }]);
+    expect(label.snapshot().pending).toBe(false);
+    for (let i = 0; i < 200; i++) resources.step();
+    expect(requests).toBe(0);
+    label.set("£你€");
+    expect(label.snapshot().parts.map(p => [p.text, p.kind])).toEqual([["£", "local"], ["你", "glyph"], ["€", "local"]]);
+    resources.dispose();
+  } finally { resetPack(); }
+});

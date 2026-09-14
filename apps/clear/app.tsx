@@ -25,7 +25,7 @@ import { animate, jump } from "@pocketjs/framework/animation";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import { createGesture } from "@pocketjs/framework/gesture";
 import { createScroller } from "@pocketjs/framework/kinetics";
-import { getOps, reportAppAction } from "@pocketjs/framework/host";
+import { reportAppAction } from "@pocketjs/framework/host";
 import { after } from "@pocketjs/framework/clock";
 import {
   clearDone,
@@ -50,7 +50,6 @@ import {
   SCREEN_H,
   SCREEN_W,
   SWITCH_MS,
-  TITLE_FONT_SLOT,
 } from "./metrics.ts";
 import { KB_H } from "./keyboard-metrics.ts";
 import { makeSlots, PARKED_Y, renderRow, resetSlotMotion, type RowSlot } from "./rows.tsx";
@@ -123,14 +122,6 @@ export default () => {
     throw new Error("clear: row pool exhausted");
   }
 
-  function measureTitle(slot: RowSlot, text: string): number {
-    if (slot.textFor !== text) {
-      slot.textFor = text;
-      slot.textW = text === "" ? 0 : getOps().measureText(text, TITLE_FONT_SLOT);
-    }
-    return slot.textW;
-  }
-
   /** Re-derive every slot from the model. Structural motion (row y, colors)
    *  animates when `animated`; text and looks snap. */
   function layout(animated: boolean): void {
@@ -170,7 +161,6 @@ export default () => {
       slot.y = y;
 
       if (slot.strike && editor.editing() !== todo) {
-        jump(slot.strike, "width", measureTitle(slot, todo.text));
         jump(slot.strike, "scaleX", todo.done ? 1 : 0);
         jump(slot.strike, "bgColor", todo.done ? DONE_TEXT : "#ffffff");
       }

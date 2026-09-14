@@ -31,7 +31,6 @@ export interface RowSlot {
   gradTo: string;
   /** Measured title width (strike-through line length). */
   textW: number;
-  textFor: string;
   textVisible: boolean;
   textPriority: number;
 }
@@ -52,7 +51,6 @@ export function makeSlots(count: number): RowSlot[] {
     gradFrom: "",
     gradTo: "",
     textW: 0,
-    textFor: "",
     textVisible: false,
     textPriority: 2,
   }));
@@ -112,7 +110,10 @@ export function renderRow(slot: RowSlot) {
         <View class="absolute left-0 right-0 bottom-0 bg-[#0000001a]" style={{ height: 1 }} />
         <View class="absolute inset-0 flex-row items-center pl-3">
           {remoteText(() => slot.text.value ?? "", 296, 20, () => slot.done.value ? "#666666" : "#ffffff", true,
-            undefined, () => slot.textVisible, () => slot.textPriority)}
+            undefined, () => slot.textVisible, () => slot.textPriority, width => {
+              slot.textW = width;
+              if (slot.strike) jump(slot.strike, "width", width);
+            })}
         </View>
         <View
           nodeRef={(node) => {

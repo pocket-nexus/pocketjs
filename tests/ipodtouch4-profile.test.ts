@@ -159,8 +159,9 @@ describe("private iPod touch 4 profile", () => {
     expect(runtime).toContain("pocket_runtime_frame_contacts(&frame_input, 2)");
     expect(runtime).toContain("pocket_runtime_hit_test_bounds");
     expect(guest).toContain("POCKET_RUNTIME_MAX_CONTACTS");
-    expect(guest).toContain("(id << 18) | (y << 9) | x");
-    expect(guest).toContain("0x80000000U | (id << 20) | (y << 10) | x");
+    expect(guest).toContain("pocket_runtime_pack_contact(contact)");
+    expect(runtime).toContain("pocket_contacts_sample(&g_contacts");
+    expect(runtime).toContain("pocket_touches_cancelled");
 
 
   });

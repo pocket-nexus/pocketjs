@@ -29,43 +29,52 @@ const WIDE_MARKER = 0x80000000;
 const WIDE_COORD_BITS = 10;
 const WIDE_COORD_MASK = (1 << WIDE_COORD_BITS) - 1;
 const WIDE_ID_SHIFT = WIDE_COORD_BITS * 2;
+const CANCEL_MARKER = 0x40000000;
 const EMPTY: readonly TouchContact[] = Object.freeze([]);
 
 let primarySnapshot: readonly TouchContact[] = EMPTY;
 let auxiliarySnapshot: readonly TouchContact[] = EMPTY;
 let allSnapshot: readonly TouchContact[] = EMPTY;
+let cancelledSnapshot: readonly TouchContact[] = EMPTY;
 
 /**
  * Internal host-frame hook.
  *
  * Existing hosts pack x:9, y:9, id:8 with bit 31 clear. Native viewports
  * wider than 512 use the append-only wide form: bit31=1, x:10, y:10, id:8.
- * Per-contact detection keeps every PSP/Vita tape and host byte-compatible.
+ * Bit 30 carries a terminal CANCEL; at most eight active contacts plus eight
+ * cancellations fit in one frame. Existing words keep their byte encoding.
  */
 export function __setTouches(
   packed: readonly number[] | undefined,
   hits?: readonly number[],
   surfaces?: readonly number[],
 ): void {
+  cancelledSnapshot = EMPTY;
   if (!packed || packed.length === 0) {
     primarySnapshot = EMPTY;
     auxiliarySnapshot = EMPTY;
     allSnapshot = EMPTY;
     return;
   }
-  const all = packed.slice(0, 8).map((value, index) => {
-      const wide = (value & WIDE_MARKER) !== 0;
-      const coordBits = wide ? WIDE_COORD_BITS : LEGACY_COORD_BITS;
-      const coordMask = wide ? WIDE_COORD_MASK : LEGACY_COORD_MASK;
-      const idShift = wide ? WIDE_ID_SHIFT : LEGACY_ID_SHIFT;
-      return Object.freeze({
-        surface: surfaces?.[index] === 1 ? "auxiliary" as const : "primary" as const,
-        id: (value >>> idShift) & 0xff,
-        x: value & coordMask,
-        y: (value >>> coordBits) & coordMask,
-        hit: hits?.[index],
-      });
-    });
+  const all: TouchContact[] = [], cancelled: TouchContact[] = [];
+  for (let index = 0; index < Math.min(packed.length, 16); index++) {
+    const value = packed[index];
+    const output = value & CANCEL_MARKER ? cancelled : all;
+    if (output.length >= 8) continue;
+    const wide = (value & WIDE_MARKER) !== 0;
+    const coordBits = wide ? WIDE_COORD_BITS : LEGACY_COORD_BITS;
+    const coordMask = wide ? WIDE_COORD_MASK : LEGACY_COORD_MASK;
+    const idShift = wide ? WIDE_ID_SHIFT : LEGACY_ID_SHIFT;
+    output.push(Object.freeze({
+      surface: surfaces?.[index] === 1 ? "auxiliary" as const : "primary" as const,
+      id: (value >>> idShift) & 0xff,
+      x: value & coordMask,
+      y: (value >>> coordBits) & coordMask,
+      hit: hits?.[index],
+    }));
+  }
+  cancelledSnapshot = Object.freeze(cancelled);
   allSnapshot = Object.freeze(all);
   primarySnapshot = Object.freeze(all.filter((contact) => contact.surface === "primary"));
   auxiliarySnapshot = Object.freeze(all.filter((contact) => contact.surface === "auxiliary"));
@@ -81,12 +90,16 @@ export function auxiliaryTouches(): readonly TouchContact[] {
   return auxiliarySnapshot;
 }
 
+/** Terminal system cancellations; never exposed as active touches. */
+export function __cancelledTouches(): readonly TouchContact[] { return cancelledSnapshot; }
+
 /** Internal gesture stream across every simultaneously presented surface. */
 export function __allTouches(): readonly TouchContact[] {
   return allSnapshot;
 }
 
 export function __resetTouches(): void {
+  cancelledSnapshot = EMPTY;
   primarySnapshot = EMPTY;
   auxiliarySnapshot = EMPTY;
   allSnapshot = EMPTY;
@@ -118,7 +131,8 @@ export function createTouchHitFacts(
       return undefined;
     }
     const seen = new Set<number>();
-    const hits = packed.slice(0, 8).map((value) => {
+    const hits = packed.slice(0, 16).map((value) => {
+      if (value & CANCEL_MARKER) return 0;
       const wide = (value & WIDE_MARKER) !== 0;
       const coordBits = wide ? WIDE_COORD_BITS : LEGACY_COORD_BITS;
       const coordMask = wide ? WIDE_COORD_MASK : LEGACY_COORD_MASK;
@@ -145,3 +159,6 @@ export function __packTouchWide(id: number, x: number, y: number): number {
     (x & WIDE_COORD_MASK)
   ) >>> 0;
 }
+
+/** Test/TS-host helper for a terminal cancellation on the touch wire. */
+export function __packTouchCancel(id: number): number { return (CANCEL_MARKER | ((id & 255) << LEGACY_ID_SHIFT)) >>> 0; }

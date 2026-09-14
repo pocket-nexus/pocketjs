@@ -152,7 +152,7 @@ const SUITE: readonly Stage[] = [
     name: "clear journeys",
     prep: [["bun", "tools/build.ts", "clear-main", "--framework=vue-vapor"]],
     browser: true,
-    tests: ["tests/clear.test.ts", "tests/clear-ime-loading.test.ts"],
+    tests: ["tests/clear.test.ts", "tests/clear-ime-loading.test.ts", "tests/clear-text.test.ts"],
   },
   {
     name: "octane smoke",

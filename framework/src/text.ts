@@ -2,6 +2,7 @@ import { TEXT, type TextFace, type TextGlyph, type TextGlyphRequest } from "../.
 import { createResourceScheduler, type ResourceDemand } from "./resource-cache.ts";
 import { offloadResource } from "./resource-offload.ts";
 import { offload, uploadCoverage } from "./offload.ts";
+import { createBakedFontCoverage } from "./font-coverage.ts";
 import { getOps } from "./host.ts";
 import { registerServicePump } from "./services.ts";
 
@@ -17,10 +18,12 @@ type Channel = Pick<ReturnType<typeof offload>, "request" | "cancel" | "session"
 export function createTextResources(options: {
   io: Channel;
   measure(text: string, slot: number): number;
+  local?(scalar: string, slot: number): boolean;
   upload(mask: string, width: number, height: number): number | undefined;
   free(handle: number): void;
   maxGlyphs?: number;
 }) {
+  const local = options.local ?? ((scalar: string) => /^[\x20-\x7e]$/.test(scalar));
   const io = options.io, limit = options.maxGlyphs ?? TEXT.maxGlyphs;
   if (!Number.isInteger(limit) || limit < 1 || limit > TEXT.maxGlyphs) throw new Error("Invalid text cache budget");
   let face = "", session = 0, faceRequest = 0, facePending = false, retry = 0, dead = false;
@@ -75,9 +78,15 @@ export function createTextResources(options: {
           let x = 0, start = 0, pending = false;
           // Same scalar cmap model as the core's baked fonts. Shaping runs and
           // grapheme caret boundaries must come from a shaper, not this loop.
-          for (const token of text.match(/[\x20-\x7e]+|[^\x20-\x7e]/gu) ?? []) {
+          const tokens: { text: string; local: boolean }[] = [];
+          for (const scalar of text) {
+            const baked = local(scalar, style.fontSlot), previous = tokens.at(-1);
+            if (baked && previous?.local) previous.text += scalar;
+            else tokens.push({ text: scalar, local: baked });
+          }
+          for (const { text: token, local: baked } of tokens) {
             const end = start + token.length;
-            if (/^[\x20-\x7e]+$/.test(token)) {
+            if (baked) {
               const width = options.measure(token, style.fontSlot);
               parts.push({ kind: "local", text: token, x, width, start, end }); x += width;
             } else {
@@ -143,7 +152,7 @@ let resources: ReturnType<typeof createTextResources> | undefined;
 /** One cache and upload scheduler shared by labels in every UI framework. */
 export function textResources() {
   if (!resources) {
-    resources = createTextResources({ io: offload(), measure: (s, slot) => getOps().measureText(s, slot),
+    resources = createTextResources({ io: offload(), local: createBakedFontCoverage(), measure: (s, slot) => getOps().measureText(s, slot),
       upload: (mask, w, h) => uploadCoverage(mask, w, h, 0xffffffff), free: h => getOps().freeTexture?.(h) });
     registerServicePump(() => resources!.step());
   }

@@ -56,7 +56,7 @@ int pocket_runtime_tick(const PocketRuntimeInput *input);
  * frame() wire words — legacy x:9/y:9/id:8 below 512 logical pixels, the
  * wide bit-31 form above — so a single id-0 contact is byte-identical to the
  * single-touch entry points and every existing tape. The guest snapshot caps
- * at eight contacts (framework/src/touch.ts).
+ * at eight active contacts, plus eight terminal cancellations (framework/src/touch.ts).
  */
 #define POCKET_RUNTIME_MAX_CONTACTS 8
 typedef struct {
@@ -69,7 +69,21 @@ typedef struct {
   uint32_t buttons;
   unsigned int contact_count;
   PocketRuntimeContact contacts[POCKET_RUNTIME_MAX_CONTACTS];
+  unsigned int cancelled_count;
+  int cancelled[POCKET_RUNTIME_MAX_CONTACTS];
 } PocketRuntimeContactsInput;
+/* Bit 30 is a terminal CANCEL record, not an active contact. At most eight
+ * active contacts and eight cancellations travel in one frame's touch words. */
+#define POCKET_TOUCH_CANCEL_WORD 0x40000000U
+static inline uint32_t pocket_runtime_pack_contact(const PocketRuntimeContact *contact) {
+  uint32_t id = (uint32_t)(contact->id & 255);
+  uint32_t x = (uint32_t)(contact->x < 0 ? 0 : contact->x > 1023 ? 1023 : contact->x);
+  uint32_t y = (uint32_t)(contact->y < 0 ? 0 : contact->y > 1023 ? 1023 : contact->y);
+  return x > 511 || y > 511 ? 0x80000000U | (id << 20) | (y << 10) | x : (id << 18) | (y << 9) | x;
+}
+static inline uint32_t pocket_runtime_pack_cancel(int id) {
+  return POCKET_TOUCH_CANCEL_WORD | ((uint32_t)(id & 255) << 18);
+}
 int pocket_runtime_tick_contacts(const PocketRuntimeContactsInput *input);
 int pocket_runtime_frame_contacts(
   const PocketRuntimeContactsInput *input,
