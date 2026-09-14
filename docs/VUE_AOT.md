@@ -2,13 +2,14 @@
 
 **Status: decided on 2026-09-14; nothing is implemented.** This page pins what
 the compiler accepts, what it generates, and where generated Rust ends and
-application Rust begins. It is the contract for the rewrite of the AOT path on
-branch `vue-aot`. For Rust targets it replaces the Pocket Vapor design in
-`vapor/DESIGN.md`; the C pipeline under `vapor/` stays in the tree until the
-Rust pipeline renders `apps/vue-sfc-lab` with the same features.
+application Rust begins. It is the contract for the rewrite of Pocket Vapor
+on branch `vue-aot`: the family keeps its name and its execution class `aot`
+(§10), and this page supersedes `vapor/DESIGN.md`, which describes the C
+pipeline. That pipeline stays in the tree until the Rust pipeline renders
+`apps/vue-sfc-lab` with the same features.
 
-Items marked **open** are not decided. Everything else is fixed for v1;
-changing it means editing this page first.
+Everything on this page is fixed for v1 or scheduled in §10; changing it
+means editing this page first.
 
 ## 1. Input, output, execution classes
 
@@ -23,7 +24,7 @@ is a compile error with a `file:line` diagnostic.
 | `import Row from "./Row.vue"` | child components |
 | `import type { Todo } from "./todo"` | types from any module |
 | `import { count, toggle } from "./todo"` | the view-model module (§2) |
-| `import { len, trunc, type i32 } from "@pocketjs/framework/aot"` | built-ins and numeric types (§3, §5); the path is open |
+| `import { len, trunc, type i32 } from "@pocketjs/framework/vue-vapor/std"` | built-ins and numeric types (§3, §5, §10) |
 | `interface`, `type` | shapes used by the contract |
 | `const props = defineProps<T>()`, `const emit = defineEmits<T>()`, `const model = defineModel<T>()` | component interface (§2); Vue's compile-time macros |
 
@@ -98,8 +99,8 @@ template iterates belongs in a value, not in a function. A function
 referenced in both positions gets `&self`: binding expressions do not mutate.
 
 **Only the root component imports a view-model module in v1.** Child components
-are pure: props, emits, model and slots. Stateful child components are open
-(§10).
+are pure: props, emits, model and slots. Stateful child components are
+scheduled for v1.1 (§10).
 
 ### Component interface
 
@@ -109,14 +110,16 @@ are pure: props, emits, model and slots. Stateful child components are open
 | `defineEmits<{ saved: [id: i32] }>()` | `pub enum <Name>Event { Saved(i32) }` |
 | `defineModel<T>()` | prop `model_value: T` plus event `UpdateModelValue(T)`; `defineModel<T>("name")` uses that name |
 | `<slot />`, `<slot name="footer" />` | one slot parameter per slot; slot content compiles in the parent's scope |
+| `withDefaults(defineProps<{ label?: string }>(), { label: "VALUE +1" })` | the parent's generated code inserts the literal where it omits the prop; inside the child `label` is `&str`, not `Option` |
 
 **Props borrow.** The parent rebuilds a child's props from its own getters on
 every frame; `string`, arrays and object types arrive as `&'a str`, `&'a [T]`
 and `&'a T`, and the child memoizes what it renders, so passing props
 allocates nothing. Event payloads are owned.
 
-`defineEmits` accepts the tuple form only. Scoped slots (slot props) and
-`withDefaults` are open (§10).
+`defineEmits` accepts the tuple form only. Defaults must be literals: strings,
+numbers, booleans or enum literals; an object, array or function default is
+an error. Scoped slots (slot props) are scheduled for v2 (§10).
 
 ## 3. Types
 
@@ -172,7 +175,10 @@ because `i32` and `f32` share a width and differ in type.
 Rules:
 
 1. **Unannotated `number` is `f64`** on every class, so browser and device
-   agree. A warning for unannotated numbers in contract positions is open.
+   agree. The compiler reports a warning for each unannotated `number` in a
+   contract position (view-model values and signatures, props, emits, object
+   fields); `--strict` promotes it to an error, and an explicit `f64`
+   silences it.
 2. The tag survives declarations, array elements, `Ref<T>` and object fields;
    TypeScript drops it through arithmetic (`a + 1` is `number`). The compiler
    types template expressions with the rules below and does not rely on
@@ -370,7 +376,8 @@ One frame on the AOT class:
 2. **Dispatch.** Focus navigation and press edges resolve to a node; the
    node's handler runs against `&mut ViewModel` as a method call or a setter.
    Incremental input reaches the view model as a typed relative-axis delta under
-   the contract of `vapor/host/input.ts`; it is never encoded as buttons.
+   the `RelativeAxis` table of `contracts/spec/vapor.ts` (§9); it is never
+   encoded as buttons.
 3. **Update.** The generated `update(&mut self, ui, &ViewModel)` evaluates every
    binding in the template, compares each result with the value it produced
    last time, and issues `Ui` calls for the ones that changed. `v-if` blocks
@@ -424,7 +431,7 @@ component, its declarations module and one child component.
 <!-- Todo.vue -->
 <script setup lang="ts">
 import { Text, View } from "@pocketjs/framework/vue-vapor/components";
-import { len, type i32 } from "@pocketjs/framework/aot";
+import { len, type i32 } from "@pocketjs/framework/vue-vapor/std";
 import Row from "./Row.vue";
 import { count, todos, filter, remaining, toggle } from "./todo";
 
@@ -447,7 +454,7 @@ const emit = defineEmits<{ saved: [id: i32] }>();
 
 ```ts
 // todo.d.ts
-import type { i32 } from "@pocketjs/framework/aot";
+import type { i32 } from "@pocketjs/framework/vue-vapor/std";
 export interface Todo { id: i32; text: string; done: boolean }
 export type Filter = "all" | "active" | "done";
 export declare const count: i32;
@@ -616,9 +623,15 @@ also states:
 - Back end: the generated Rust compiles under `cargo test` and runs `mount`
   and `update` against a `Ui` recorder that logs the call sequence; the
   sequence is the assertion.
-- Differential: one fixture of props and view-model values renders through stock
-  Vue Vapor on the micro-DOM and through the generated Rust view, and the
-  trees are compared.
+- Differential: `vapor/tests/differential/<name>/` holds `App.vue`, its
+  module, `fixture.json` and `tape.json`, a list of per-frame inputs
+  (buttons, axis deltas). The browser class runs through `hosts/sim`
+  (`bootWorld`, `frame`) with the TypeScript mock built from the fixture; the
+  AOT class runs a `cargo test` binary in `engine/crates/pocket-vapor` that
+  includes the generated code, mounts the view over `FixtureViewModel` and
+  feeds the same tape. Both sides dump a normalized tree after every frame,
+  `{ t: node type, s: style id, x: text, k: children }`, and the runner
+  compares the dumps frame by frame.
 - Fixtures come from the contract. The compiler generates a `FixtureViewModel`
   that implements `<Name>ViewModel` from a JSON document, `serde::Deserialize`
   on the contract types behind a `test` feature, and a TypeScript mock
@@ -629,35 +642,74 @@ also states:
 - DrawList goldens on the desktop host apply to AOT apps as they do to guest
   apps.
 
-Host primitives are built into the Rust AOT runtime with the same props and
-semantics as the JavaScript components; a shared spec and a drift test for
-that parity are open. The Pocket Vapor board admission (`vapor/BOARDS.md`)
-carries over as the source of compile-time demands. The C runtime,
-`vapor/compiler/compile.ts`, `sccp.ts` and `rom.ts` do not.
+**One spec file pins what both runtimes implement.** `contracts/spec/vapor.ts`
+holds the host primitive vocabulary (elements, attributes, events, the
+`:style` keys drawn from `PROP`), the built-ins with their signatures, the
+numeric type names, and the `RelativeAxis` table with its millidegree units,
+moved there from `vapor/host/input.ts`. `contracts/spec/gen-rust.ts` emits
+`engine/crates/pocket-vapor/src/spec.rs` from it, the std module's
+declarations and the components' prop types come from the same file, and
+`tests/contract.ts` byte-compares every generated output. The board admission
+of `vapor/BOARDS.md` carries over as the source of compile-time demands. The
+C runtime, `vapor/compiler/compile.ts`, `sccp.ts` and `rom.ts` do not.
 
-## 10. Open items
+## 10. Name, paths and plan
 
-1. The name of the family and the paths of the types and built-ins module.
-2. Stateful child components (proposed: a `Default`-constructed view-model type
-   per instance).
-3. Scoped slots; `withDefaults` with literal defaults; input beyond `@press`
-   in templates (button maps, relative-axis handlers).
-4. A warning for unannotated `number` in contract positions.
-5. The host-primitive parity spec and drift test, and the differential test
-   harness beyond the generated fixtures.
+**The family keeps the name Pocket Vapor and the execution class keeps the
+name `aot`.** The design is what the name says, Vue Vapor compiled ahead of
+time, and the manifest field, the site and the board admission carry the name
+today.
 
-Planned after v1, in this order:
+| What | Where |
+|---|---|
+| compiler, TypeScript on Bun | `vapor/compiler/`: new files beside the C pipeline until parity, alone after |
+| command | `bun vapor/compiler/cli.ts build <app>` |
+| numeric types and built-ins | `@pocketjs/framework/vue-vapor/std`, file `framework/src/std-vue-vapor.ts` |
+| family spec | `contracts/spec/vapor.ts`, generated into `engine/crates/pocket-vapor/src/spec.rs` (§9) |
+| Rust runtime | `engine/crates/pocket-vapor`, crate `pocket_vapor`: blocks, keyed lists, the display trait, built-ins, input dispatch, `NodeId` and `StyleId` |
+| generated code | `gen/` in the app crate, committed (§9) |
+| fixtures and differential tests | `vapor/tests/` |
 
-- **v1.1**: target admission as trait bounds on the host type (`H: HasTouch`
-  when a template uses touch, the same for relative-axis handlers), with the
-  board data of `vapor/BOARDS.md` kept for diagnostics; optional contract
-  members (`((dt: f32) => void) | undefined` becomes a trait method with an
-  empty default body); editor-side rules in the components' and built-ins'
-  `.d.ts` (`NoInfer` on the second operand of same-type built-ins, `onPress`
-  present only in the `focusable: true` member of a props union, `:style`
-  keys generated from the `PROP` table of `contracts/spec/spec.ts`); derives
-  by use instead of a fixed derive list; homogeneous tuples `[T, T, T]` as
-  `[T; 3]`.
-- **v2**: capacity tags (`Todo[] & { readonly __cap?: 32 }` becomes
-  `heapless::Vec<Todo, 32>`) for targets without an allocator; generic
-  components (`<script setup generic="T">`) together with scoped slots.
+### Planned after v1
+
+**v1.1**
+
+- Stateful child components. The component's module exports a factory, and
+  the script holds the one runtime statement the subset then allows,
+  `const { count, inc } = createRow();`, so stock Vue creates state per
+  instance and the contract is the factory's return type. The parent's
+  view-model trait gains one associated type per stateful child component,
+  `type Row: RowViewModel + Default;`. The generated parent view constructs
+  `M::Row::default()` at every mount, a `v-for` row or a `v-if` branch, drops
+  it at unmount, and runs the child's `dispatch` against that value. Parent
+  and child communicate through props and emits only.
+- Input beyond `@press`. `<ActionHandler :button="BTN.CIRCLE" @press="f()">`
+  with a static member of the `BTN` table in `contracts/spec/spec.ts` and the
+  existing `active` and `latched` options; `<AxisHandler axis="primary"
+  @delta="f($event)">` with `$event: i32` in millidegrees and a static member
+  of the `RelativeAxis` table. The JavaScript `AxisHandler` is new SDK work;
+  the Rust runtime dispatches press edges and axis deltas to handlers in
+  document order. Buttons never encode axis motion.
+- Target admission as trait bounds on the host type (`H: HasTouch` when a
+  template uses touch, the same for relative-axis handlers), with the board
+  data of `vapor/BOARDS.md` kept for diagnostics.
+- Optional contract members: `((dt: f32) => void) | undefined` becomes a
+  trait method with an empty default body.
+- Editor-side rules in the components' and built-ins' `.d.ts`: `NoInfer` on
+  the second operand of same-type built-ins, `onPress` present only in the
+  `focusable: true` member of a props union, `:style` keys generated from the
+  `PROP` table.
+- Derives by use instead of a fixed derive list; homogeneous tuples
+  `[T, T, T]` as `[T; 3]`.
+
+**v2**
+
+- Scoped slots. `defineSlots<{ row(props: { item: Todo }): any }>()` types
+  the slot, `<slot name="row" :item="t" />` supplies the values, and the
+  parent's `<template #row="{ item }">` compiles in the parent's scope with
+  `item` as one more typed parameter. The child exposes the arguments of
+  every slot instance and the parent updates the instances with its own
+  context plus those arguments. Generic components
+  (`<script setup generic="T">`) build on this.
+- Capacity tags (`Todo[] & { readonly __cap?: 32 }` becomes
+  `heapless::Vec<Todo, 32>`) for targets without an allocator.
