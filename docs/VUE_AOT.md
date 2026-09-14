@@ -21,7 +21,7 @@ is a compile error with a `file:line` diagnostic.
 |---|---|
 | `import { View, Text, Image } from "@pocketjs/framework/vue-vapor/components"` | host primitives (§4) |
 | `import Row from "./Row.vue"` | child components |
-| `import { count, toggle } from "./todo.logic"` | the logic module (§2) |
+| `import { count, toggle } from "./todo"` | the logic module (§2) |
 | `import { len, trunc, type i32 } from "@pocketjs/framework/aot"` | built-ins and numeric types (§3, §5); the path is open |
 | `interface`, `type` | shapes used by the contract |
 | `const props = defineProps<T>()`, `const emit = defineEmits<T>()`, `const model = defineModel<T>()` | component interface (§2); Vue's compile-time macros |
@@ -35,8 +35,8 @@ JavaScript engine, no `ui.*` op encoding and no mirror tree.
 
 | Class | Logic implementation | Pipeline | Status |
 |---|---|---|---|
-| Browser | `todo.logic.ts` on stock Vue Vapor | `framework/compiler/vue-sfc-compile.ts`, unchanged | exists |
-| QuickJS guest on device | the same `todo.logic.ts` | the guest build, unchanged | exists |
+| Browser | `todo.ts` on stock Vue Vapor | `framework/compiler/vue-sfc-compile.ts`, unchanged | exists |
+| QuickJS guest on device | the same `todo.ts` | the guest build, unchanged | exists |
 | Rust AOT | a Rust type implementing the generated trait | the compiler this page specifies | new |
 
 **TypeScript logic is never translated to Rust.** The two implementations
@@ -50,19 +50,22 @@ and are out of scope.
 
 ## 2. The logic module
 
-The SFC imports the values and functions its template uses from one module
-next to it:
+The SFC imports the values and functions its template uses from a module with
+the same basename, without an extension:
 
 ```ts
-import { count, todos, filter, remaining, toggle, save } from "./todo.logic";
+import { count, todos, filter, remaining, toggle, save } from "./todo";
 ```
 
-The module takes one of two forms; a component has exactly one of them.
+The module takes one of two forms; a component has exactly one of them, and
+the import does not change when a project moves from one form to the other.
+TypeScript resolves `./todo` to `todo.ts` before `todo.d.ts`, so the compiler
+rejects a component that has both.
 
 | Form | Content | Used by |
 |---|---|---|
-| `todo.logic.ts` | `ref`, `computed` and functions: a Vue implementation | browser and guest classes; its exported types are also the contract for the Rust class |
-| `todo.logic.d.ts` | `export declare const count: i32;` and friends: declarations | Rust-only projects |
+| `todo.ts` | `ref`, `computed` and functions: a Vue implementation | browser and guest classes; its exported types are also the contract for the Rust class |
+| `todo.d.ts` | `export declare const count: i32;` and friends: declarations | Rust-only projects |
 
 **The contract is the TypeScript type of each imported binding**, read
 through the TypeScript checker. `Ref<T>`, `ShallowRef<T>` and
@@ -87,8 +90,11 @@ memoized binding values.
 | function referenced in event handlers only | `fn f(&mut self, args…) -> R` |
 
 `T'` is `T` for numbers, `bool`, enums and `Option` of those; `&str` for
-`string`; `&[T]` for arrays; `&T` for object types. A function referenced in
-both positions gets `&self`: binding expressions do not mutate.
+`string`; `&[T]` for arrays; `&T` for object types. A function's return type
+is owned: `String` for `string`, `Vec<T>` for arrays, `T` for object types.
+The call runs on every frame that evaluates the binding, so a list the
+template iterates belongs in a value, not in a function. A function
+referenced in both positions gets `&self`: binding expressions do not mutate.
 
 **Only the root component imports a logic module in v1.** Child components
 are pure: props, emits, model and slots. Stateful child components are open
@@ -98,10 +104,15 @@ are pure: props, emits, model and slots. Stateful child components are open
 
 | Declaration | Generated |
 |---|---|
-| `defineProps<{ title: string; max?: i32 }>()` | `pub struct <Name>Props { pub title: String, pub max: Option<i32> }` |
+| `defineProps<{ title: string; max?: i32; todo: Todo }>()` | `pub struct <Name>Props<'a> { pub title: &'a str, pub max: Option<i32>, pub todo: &'a Todo }` |
 | `defineEmits<{ saved: [id: i32] }>()` | `pub enum <Name>Event { Saved(i32) }` |
 | `defineModel<T>()` | prop `model_value: T` plus event `UpdateModelValue(T)`; `defineModel<T>("name")` uses that name |
 | `<slot />`, `<slot name="footer" />` | one slot parameter per slot; slot content compiles in the parent's scope |
+
+**Props borrow.** The parent rebuilds a child's props from its own getters on
+every frame; `string`, arrays and object types arrive as `&'a str`, `&'a [T]`
+and `&'a T`, and the child memoizes what it renders, so passing props
+allocates nothing. Event payloads are owned.
 
 `defineEmits` accepts the tuple form only. Scoped slots (slot props) and
 `withDefaults` are open (§9).
@@ -110,13 +121,13 @@ are pure: props, emits, model and slots. Stateful child components are open
 
 | TypeScript | Rust |
 |---|---|
-| `string` | `String` in props and state; `&str` from getters |
+| `string` | `&str` from getters and in props; `String` from functions, in event payloads and wherever the application stores it |
 | `boolean` | `bool` |
 | `number` | `f64` |
 | `i8` … `f64` (§3.1) | the Rust type of the same name |
 | union of string literals `"all" \| "done"` | `enum` with unit variants `All`, `Done`; the literal is the display form |
-| `interface` / object type | `struct` with `#[derive(Clone, Debug, PartialEq)]`, fields in declaration order |
-| `T[]`, `Array<T>` | `Vec<T>` |
+| `interface` / object type | `struct` with `#[derive(Clone, Debug, PartialEq)]`, fields in declaration order; `&T` from getters and in props |
+| `T[]`, `Array<T>` | `&[T]` from getters and in props; `Vec<T>` from functions |
 | `[A, B]` | `(A, B)` |
 | `x?: T`, `T \| undefined` | `Option<T>` |
 | function type | trait method (§2); not a value |
@@ -217,14 +228,16 @@ values are numeric expressions; each key lowers to one `set_prop` call.
 
 | In v1 | Rules |
 |---|---|
-| `v-if`, `v-else-if`, `v-else` | the condition is `bool` |
+| `v-if`, `v-else-if`, `v-else` | the condition is `bool`; `x !== undefined` on an `Option` value narrows `x` to `T` inside the block; a chain that compares one enum value against literals lowers to `match` |
+| `v-show` | the condition is `bool`; lowers to one `set_prop` of `DISPLAY`; the subtree stays mounted |
 | `v-for="item in list"`, `v-for="(item, i) in list"` | `list` is an array; `:key` is required and its type is `i32`, `i64`, `string` or an enum |
 | `v-bind:prop` / `:prop` | the expression type matches the child's declaration |
 | `v-on:event` / `@event` | handler forms below |
 | `v-model` on child components | the value type matches the child's `defineModel<T>` |
 
-Not in v1: `v-show`, `v-html`, `v-text`, `v-once`, `v-memo`,
-`v-bind="object"`, dynamic event names, template refs, `<component :is>`,
+Not in v1: `v-html`, `v-text`, `v-once`, `v-memo`, `v-bind="object"`,
+dynamic event names, template refs and imperative animation (transitions come
+from `transition-*` classes through the style table), `<component :is>`,
 `<Teleport>`, `<Transition>`, `<KeepAlive>`, `<Suspense>`, `v-for` over
 numbers or objects, scoped slots.
 
@@ -313,6 +326,37 @@ One frame on the AOT class:
    last time, and issues `Ui` calls for the ones that changed. `v-if` blocks
    mount and unmount; `v-for` blocks reconcile by key and keep per-row memos.
 
+### Blocks
+
+- **`mount` builds the static structure and leaves every dynamic block
+  `Empty`; the first `update` mounts the active branches.** `mount` takes no
+  logic reference.
+- **Every `v-if` group is one generated enum**: one variant per branch plus
+  `Empty`. A lone `v-if` is an enum with one branch variant and `Empty`; a
+  chain with `v-else` uses `Empty` before its first update. `update` computes
+  the first true branch; the same variant updates in place, a different one
+  unmounts the old block and mounts the new one. There is no `Option` path in
+  the generator.
+- **Blocks have no marker nodes.** Each block exposes `first_node()`; an
+  insertion searches the following siblings for the first node that exists
+  and passes anchor `0` (append) when there is none. `insert_before` in
+  `pocketjs-core` has move semantics.
+- **One `<Text>` is one text node and one `format!`**, whatever the number of
+  `{{ }}` inside it. The view formats into a scratch `String`, compares it
+  with the memo and swaps the two buffers on change, so an unchanged frame
+  allocates nothing.
+- **`v-for` keeps rows in a `Vec<Row { key, block }>` in render order.** The
+  fast path compares the new key sequence with the old one and, when they
+  match, updates rows in place with no allocation. The slow path builds a
+  `BTreeMap` from old keys to indices, reuses and moves matching rows with
+  `insert_before`, mounts the rest and unmounts leftovers. There is no
+  longest-increasing-subsequence pass. Duplicate keys fail a debug assertion
+  and mount a new row in release builds.
+- **Slots compile in the parent's scope.** The child mounts and unmounts a
+  slot through a `SlotBlock` trait with those two methods and decides where
+  and when it appears; the parent updates the slot's content with its own
+  context.
+
 **No dependency tracking exists at runtime or at compile time**: no signals,
 no effects, no dirty masks. The cost of a frame is proportional to the number
 of bindings plus the length of rendered lists, and the logic type is a plain
@@ -326,10 +370,10 @@ computed at build time.
 Illustrative: the names are fixed, the bodies are not.
 
 ```rust
-// generated from Todo.vue + todo.logic.d.ts
+// generated from Todo.vue + todo.d.ts
 pub struct Todo { pub id: i32, pub text: String, pub done: bool }
 pub enum Filter { All, Active, Done }
-pub struct TodoProps { pub title: String }
+pub struct TodoProps<'a> { pub title: &'a str }
 pub enum TodoEvent { Saved(i32) }
 
 pub trait TodoLogic {
@@ -341,10 +385,14 @@ pub trait TodoLogic {
     fn toggle(&mut self, id: i32);     // referenced in a handler: &mut self
 }
 
-pub struct TodoView { /* node ids, memoized values, child blocks */ }
+enum If0 { B0(Block0), Empty }             // <Text v-if="len(todos) === 0">
+enum If1 { B0(Block1), B1(Block2), Empty }  // a v-if / v-else-if chain
+struct Row { key: i32, block: RowView }     // one v-for row
+
+pub struct TodoView { /* node ids, memoized values, If0, If1, Vec<Row> */ }
 impl TodoView {
-    pub fn mount(ui: &mut Ui, parent: i32, anchor: i32) -> Self;
-    pub fn update<L: TodoLogic>(&mut self, ui: &mut Ui, props: &TodoProps, logic: &L);
+    pub fn mount(ui: &mut Ui, parent: i32, anchor: i32) -> Self; // blocks start Empty
+    pub fn update<L: TodoLogic>(&mut self, ui: &mut Ui, props: &TodoProps<'_>, logic: &L);
     pub fn dispatch<L: TodoLogic>(&mut self, input: &Input, logic: &mut L, events: &mut Vec<TodoEvent>);
     pub fn unmount(self, ui: &mut Ui);
 }
@@ -398,8 +446,8 @@ Open:
 1. The name of the family and the paths of the types and built-ins module.
 2. Stateful child components (proposed: a `Default`-constructed logic type
    per instance).
-3. Scoped slots; `withDefaults` with literal defaults; `v-show`; input
-   beyond `@press` in templates (button maps, relative-axis handlers).
+3. Scoped slots; `withDefaults` with literal defaults; input beyond `@press`
+   in templates (button maps, relative-axis handlers).
 4. A warning for unannotated `number` in contract positions.
 5. An auto-generated mock for projects whose logic module is a `.d.ts`.
 6. `build.rs` mechanics, the host-primitive parity spec and drift test, and
