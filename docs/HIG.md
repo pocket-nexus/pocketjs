@@ -180,5 +180,6 @@ returns to the previous application: that is Recents.
 | Launcher veil, frozen shot, whole-guest switch | shipped (`docs/LAUNCHER.md`) |
 | `useActions` intents and the generated legend | shipped (`@pocketjs/framework/actions`); touch tiles read `entries()` by hand |
 | `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSpinner` | shipped (`@pocketjs/framework/classic`) |
-| Host-reserved system chords | proposed; needs a chord table in `spec.ts` and one filter in each host's pad sampler |
+| System sheet on hold-SELECT | shipped in its guest-side form (`@pocketjs/framework/system`); the host-owned chord table stays proposed |
+| Native coverage and indexed-image uploads | shipped on the 3DS and the PSP (`offload.uploadCoverage`, `offload.uploadIndexedImage`), so one row component renders on both |
 | `app.state` suspend/restore | proposed; `docs/PLATFORM.md` names it as a later capability |

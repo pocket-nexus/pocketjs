@@ -13,6 +13,20 @@ export interface IndexedImage {
  * Call from a resource materializer with an explicit per-frame upload budget. */
 export function uploadIndexedImage(image: IndexedImage, ops: Pick<HostOps, "uploadTexture"> = getOps()) {
   const { width, height, pixels, palette } = image;
+  // A host with the native decode (the PSP's offload namespace) uploads the
+  // 4 bpp stream as a CLUT texture in one pass; the JS expansion below is
+  // the fallback for hosts without it.
+  const native = (globalThis as unknown as { offload?: { uploadIndexedImage?: (p: string, w: number, h: number, pal: string) => number } }).offload?.uploadIndexedImage;
+  if (native) {
+    const handle = native(pixels, width, height, palette);
+    if (handle >= 0) {
+      let w = 8, h = 8;
+      while (w < width) w *= 2;
+      while (h < height) h *= 2;
+      return { handle, width: w, height: h };
+    }
+    throw new Error("Indexed image upload failed");
+  }
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 ||
       width > 128 || height > 64 || width * height > 4096 ||
       typeof palette !== "string" || !/^(?:[\da-fA-F]{6}){1,16}$/.test(palette) ||

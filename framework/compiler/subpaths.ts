@@ -122,6 +122,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   platform: { file: "framework/src/platform.ts" },
   modality: { file: "framework/src/modality.ts" },
   actions: { file: { solid: "framework/src/actions.ts" } },
+  system: { file: { solid: "framework/src/system.ts" } },
   "vita-package": { file: "tools/vita-package.ts" },
   prelude: {
     file: {

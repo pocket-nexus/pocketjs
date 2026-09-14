@@ -24,6 +24,7 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/platform` | `platform`, `hasFeature` |
 | `@pocketjs/framework/modality` | `modality`, `presentation`, `screen`, `surfaceHasTouch`, `supports`, `glyph` |
 | `@pocketjs/framework/actions` | `useActions`, `ACTION_BUTTONS`, `ACTION_INTENTS`, `HOLD_SECONDS` (Solid) |
+| `@pocketjs/framework/system` | `installSystemLayer`, `SYSTEM_HOLD_SECONDS` (Solid) |
 | `@pocketjs/framework/classic` | `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSelection`, `ClassicSpinner`, `ClassicSkeleton`, `ClassicButton`, `ClassicFace`, `ClassicPanel`, `ClassicSheet`, `CLASSIC` (Solid) |
 | `@pocketjs/framework/clock` | `simulationHz`, `ticksPerFrame`, `virtualFrame`, `virtualNow`, `after` |
 | `@pocketjs/framework/effects` | `installEffectDriver`, `runEffect`, effect types |
@@ -1099,6 +1100,26 @@ focus system delivers the press. `hold` fires after `HOLD_SECONDS` of holding
 the button and silences the tap. Bindings respect the button-handler block a
 keyboard or sheet pushes. On a device without buttons `legend()` is empty and
 nothing binds; `entries()` still lists the intents for touch controls.
+
+## `@pocketjs/framework/system`
+
+```ts
+function installSystemLayer(options: {
+  title: string; version?: string;
+  status?: () => string;
+  items?: () => readonly { label: string; run: () => void; disabled?: boolean }[];
+  surface?: "primary" | "auxiliary";
+}): { open(): void; close(): void; isOpen: () => boolean }
+```
+
+The system layer of `docs/HIG.md` §4 in its guest-side form. **Holding SELECT
+for `SYSTEM_HOLD_SECONDS` opens the system sheet** over the chosen surface:
+the application's title and version, the live `status` line, the `items` the
+application registers for the moment (a playing screen adds "Stop
+playback"), "Return to launcher" where the host switches guests, and Close.
+The sheet is modal: it pushes the button-handler block and the touch block,
+its rows are Focusables (d-pad and tap), and × or SELECT closes it. No
+application binds SELECT itself.
 
 ## `@pocketjs/framework/classic`
 

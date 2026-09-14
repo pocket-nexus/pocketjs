@@ -976,6 +976,77 @@ unsafe extern "C" fn js_offload_take(
         None => JS_UNDEFINED,
     }
 }
+/// A string argument as bytes, or None when absent/undefined. The caller
+/// frees every returned pointer with JS_FreeCString.
+unsafe fn arg_bytes(ctx: *mut JSContext, argc: i32, argv: *mut JSValue, i: isize) -> Option<(*const i8, &'static [u8])> {
+    if (i as i32) >= argc || JS_IsUndefined(*argv.offset(i)) {
+        return None;
+    }
+    let mut len: size_t = 0;
+    let p = JS_ToCStringLen2(ctx, &mut len, *argv.offset(i), 0);
+    if p.is_null() {
+        return None;
+    }
+    Some((p, core::slice::from_raw_parts(p as *const u8, len)))
+}
+unsafe fn upload_decoded(decoded: Option<crate::offload_image::Decoded>) -> i32 {
+    let Some(d) = decoded else { return -1 };
+    let handle = ui().upload_texture(&d.bytes, d.width, d.height, pocketjs_core::spec::psm::PSM_T8);
+    if handle >= 0 {
+        crate::ge::writeback_texture(ui(), handle);
+    }
+    handle
+}
+/// offload.uploadCoverage(base64, width, height, color, columns?, palette?) -> handle | -1:
+/// the 3DS's native coverage upload, here as one PSM_T8 texture.
+unsafe extern "C" fn js_offload_upload_coverage(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    let Some((sp, text)) = arg_bytes(ctx, argc, argv, 0) else { return JS_NewInt32(ctx, -1) };
+    let width = arg_i32(ctx, argc, argv, 1) as u32;
+    let height = arg_i32(ctx, argc, argv, 2) as u32;
+    let mut color: f64 = 0.0;
+    if argc > 3 {
+        JS_ToFloat64(ctx, &mut color, *argv.offset(3));
+    }
+    let columns = arg_bytes(ctx, argc, argv, 4);
+    let palette = arg_bytes(ctx, argc, argv, 5);
+    let handle = upload_decoded(crate::offload_image::coverage(
+        text,
+        width,
+        height,
+        color as u32,
+        columns.map(|c| c.1),
+        palette.map(|p| p.1),
+    ));
+    JS_FreeCString(ctx, sp);
+    if let Some((p, _)) = columns { JS_FreeCString(ctx, p); }
+    if let Some((p, _)) = palette { JS_FreeCString(ctx, p); }
+    JS_NewInt32(ctx, handle)
+}
+/// offload.uploadIndexedImage(pixels, width, height, palette) -> handle | -1:
+/// a 16-colour 4 bpp reply as one PSM_T8 texture, no JS expansion.
+unsafe extern "C" fn js_offload_upload_indexed(
+    ctx: *mut JSContext,
+    _this: JSValue,
+    argc: i32,
+    argv: *mut JSValue,
+) -> JSValue {
+    let Some((pp, pixels)) = arg_bytes(ctx, argc, argv, 0) else { return JS_NewInt32(ctx, -1) };
+    let Some((cp, palette)) = arg_bytes(ctx, argc, argv, 3) else {
+        JS_FreeCString(ctx, pp);
+        return JS_NewInt32(ctx, -1);
+    };
+    let width = arg_i32(ctx, argc, argv, 1) as u32;
+    let height = arg_i32(ctx, argc, argv, 2) as u32;
+    let handle = upload_decoded(crate::offload_image::indexed(pixels, width, height, palette));
+    JS_FreeCString(ctx, pp);
+    JS_FreeCString(ctx, cp);
+    JS_NewInt32(ctx, handle)
+}
 pub unsafe fn register(
     ctx: *mut JSContext,
     global: JSValue,
@@ -988,6 +1059,8 @@ pub unsafe fn register(
         add_fn(ctx, io, b"session\0", js_offload_session, 0);
         add_fn(ctx, io, b"submit\0", js_offload_submit, 1);
         add_fn(ctx, io, b"take\0", js_offload_take, 0);
+        add_fn(ctx, io, b"uploadCoverage\0", js_offload_upload_coverage, 6);
+        add_fn(ctx, io, b"uploadIndexedImage\0", js_offload_upload_indexed, 4);
         JS_SetPropertyStr(ctx, global, b"offload\0".as_ptr() as *const _, io);
     }
     let ui_obj = JS_NewObject(ctx);

@@ -191,6 +191,7 @@
     "./platform": "./framework/src/platform.ts",
     "./modality": "./framework/src/modality.ts",
     "./actions": "./framework/src/actions.ts",
+    "./system": "./framework/src/system.ts",
     "./vita-package": "./tools/vita-package.ts",
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",
