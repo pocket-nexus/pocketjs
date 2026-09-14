@@ -26,6 +26,8 @@ import {
   type NodeMirror,
 } from "./native-tree.ts";
 import { createRenderRoot, type RenderRoot } from "./renderer-vue-vapor.ts";
+import type { VaporViewProps, VaporTextProps, VaporImageProps } from "./component-types-vue-vapor.ts";
+export type { VaporViewProps, VaporTextProps, VaporImageProps, VaporStyleProps, VaporFloatInput } from "./component-types-vue-vapor.ts";
 
 export type { NodeMirror } from "./renderer-vue-vapor.ts";
 
@@ -47,7 +49,7 @@ const insertVaporBlock = vaporInsert as unknown as (
   parent: NodeMirror,
   anchor?: NodeMirror | null,
 ) => void;
-export interface ViewProps {
+export interface ViewProps extends Omit<VaporViewProps, "style"> {
   class?: string;
   className?: string;
   style?: StyleObject;
@@ -57,7 +59,7 @@ export interface ViewProps {
   children?: VNodeChild;
 }
 
-export interface TextProps {
+export interface TextProps extends VaporTextProps {
   class?: string;
   className?: string;
   style?: StyleObject;
@@ -65,7 +67,7 @@ export interface TextProps {
   children?: VNodeChild;
 }
 
-export interface ImageProps {
+export interface ImageProps extends VaporImageProps {
   class?: string;
   className?: string;
   src?: string;
@@ -276,9 +278,9 @@ function createPrimitiveNode(
   return node;
 }
 
-function primitive(tag: "view" | "text" | "image" | "surface") {
+function primitive<P extends object = Record<string, unknown>>(tag: "view" | "text" | "image" | "surface") {
   return definePocketVaporComponent(
-    (_props: Record<string, unknown>, { attrs, slots }: VaporCtx) => createPrimitiveNode(tag, attrs, slots),
+    (_props: P, { attrs, slots }: VaporCtx) => createPrimitiveNode(tag, attrs, slots),
     NO_FALLTHROUGH,
   );
 }

@@ -1,28 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
 import { Text, View } from "@pocketjs/framework/vue-vapor/components";
+import { count, features, enabledCount, toggleFeature } from "./app";
 import FeatureCard from "./FeatureCard.vue";
 import FeatureToggle from "./FeatureToggle.vue";
 import ModelButton from "./ModelButton.vue";
-
-interface Feature {
-  id: string;
-  label: string;
-  enabled: boolean;
-}
-
-const count = ref(0);
-const features = ref<Feature[]>([
-  { id: "model", label: "MODEL", enabled: true },
-  { id: "for", label: "V-FOR", enabled: true },
-  { id: "slots", label: "SLOTS", enabled: true },
-]);
-const enabledCount = computed(() => features.value.filter((feature) => feature.enabled).length);
-
-function toggleFeature(id: string): void {
-  const feature = features.value.find((candidate) => candidate.id === id);
-  if (feature) feature.enabled = !feature.enabled;
-}
 </script>
 
 <template>

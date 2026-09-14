@@ -144,7 +144,10 @@
     "tsconfig.json",
     "engine/crates/pocket-text/src",
     "engine/crates/pocket-text/Cargo.toml",
-    "engine/crates/pocket-text/Cargo.lock"
+    "engine/crates/pocket-text/Cargo.lock",
+    "vapor/compiler",
+    "engine/crates/pocket-vapor/src",
+    "engine/crates/pocket-vapor/Cargo.toml"
   ],
   "publishConfig": {
     "access": "public"
@@ -206,6 +209,7 @@
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",
     "./virtual-list": "./framework/src/virtual-list.ts",
+    "./vue-vapor/std": {"types":"./framework/src/std-vue-vapor.d.ts","default":"./framework/src/std-vue-vapor.ts"},
     "./solid": "./framework/src/index.ts",
     "./solid/components": "./framework/src/components.ts",
     "./solid/lifecycle": "./framework/src/lifecycle.ts",
@@ -326,10 +330,14 @@
     "clear:companion": "bun tools/ime/device.ts"
   },
   "dependencies": {
+    "@volar/typescript": "2.4.28",
+    "@vue/compiler-dom": "3.6.0-rc.1",
     "@vue/compiler-sfc": "3.6.0-rc.1",
     "@vue/compiler-vapor": "3.6.0-rc.1",
+    "@vue/language-core": "3.3.11",
     "octane": "0.1.26",
     "solid-js": "^1.9",
+    "typescript": "5.9.3",
     "vue": "3.6.0-rc.1",
     "vue-jsx-vapor": "3.2.19"
   },
@@ -354,7 +362,7 @@
     "shiki": "^4.3.1",
     "tailwindcss": "^4.3.2",
     "three": "^0.185.1",
-    "typescript": "^5"
+    "vue-tsc": "3.3.11"
   },
   "trustedDependencies": [
     "@parcel/watcher"

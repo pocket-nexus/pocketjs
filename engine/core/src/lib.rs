@@ -517,6 +517,22 @@ impl Ui {
         }
     }
 
+    /// Parent id of a live node, or 0 for the root, a detached node or a stale id.
+    /// Native renderers use this retained tree directly instead of keeping a mirror.
+    pub fn node_parent(&self, id: i32) -> i32 {
+        self.tree.get(id).map_or(0, |node| node.parent)
+    }
+
+    /// Child ids in document order. Stale ids have no children.
+    pub fn node_children(&self, id: i32) -> &[i32] {
+        self.tree.get(id).map_or(&[], |node| node.children.as_slice())
+    }
+
+    /// Whether a generation-tagged node id still resolves to a live node.
+    pub fn node_exists(&self, id: i32) -> bool {
+        self.tree.resolve(id).is_some()
+    }
+
     // ---- styling ----------------------------------------------------------
 
     /// Apply style-table record `style_id` (spec::STYLE_ID_NONE clears).

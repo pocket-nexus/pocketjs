@@ -1,0 +1,459 @@
+import ts from "typescript";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, dirname, basename, extname } from "node:path";
+import { parse as parseSfc, type SFCDescriptor } from "@vue/compiler-sfc";
+import { parse as parseTemplate, NodeTypes, type ElementNode, type DirectiveNode, type TemplateChildNode, type SimpleExpressionNode } from "@vue/compiler-dom";
+import * as vapor from "@vue/compiler-vapor";
+import { withIsolatedAnimationBake } from "../../framework/compiler/animation.ts";
+import { compileClasses } from "../../framework/compiler/tailwind.ts";
+import { PROP } from "../../contracts/spec/spec.ts";
+import { VAPOR_BUILTINS, VAPOR_ELEMENTS, VAPOR_STYLE_PROPS } from "../../contracts/spec/vapor.ts";
+import { AotCompileError, BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
+import { TypeMapper, createTypeEnvironment, location, fail, typeName, constantNumericSpelling } from "./aot-types.ts";
+import { expression, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
+import type { VaporRootIR, VaporIfIR, VaporForIR, VaporCreateIR, VaporBlockIR, VaporDynamicInfo } from "./vendor/vue-vapor-ir.ts";
+
+const camelize = (name: string) => name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+const COMPONENTS = "@pocketjs/framework/vue-vapor/components", STD = "@pocketjs/framework/vue-vapor/std";
+interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; name: string }
+export interface AnalyzeVueAotOptions { strict?: boolean; source?: string; root?: boolean }
+/** Admission, TypeScript contract analysis, and serializable View IR for all three execution classes. */
+export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {}): AotProgram {
+  entry = resolve(entry);
+  const parsed = new Map<string, ParsedComponent>(), visiting = new Set<string>(), classLiterals = new Set<string>();
+  function collect(file: string, override?: string): ParsedComponent {
+    if (visiting.has(file)) fail(location(file, ""), "Recursive component imports are outside v1");
+    const existing = parsed.get(file); if (existing) return existing;
+    visiting.add(file);
+    const source = override ?? readFileSync(file, "utf8");
+    const result = parseSfc(source, { filename: file });
+    if (result.errors.length) fail(location(file, source), String(result.errors[0]));
+    const descriptor = result.descriptor;
+    if (!descriptor.template || descriptor.template.src || descriptor.template.lang || !descriptor.scriptSetup || descriptor.script || descriptor.scriptSetup.lang !== "ts" || descriptor.scriptSetup.src || descriptor.scriptSetup.attrs.generic || descriptor.styles.length || descriptor.customBlocks.length) fail(location(file, source), 'An AOT SFC contains one <template> and one <script setup lang="ts">; no runtime script, styles, generic parameters, or custom blocks');
+    const script = ts.createSourceFile(file + ".ts", descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const item: ParsedComponent = { file, source, descriptor, script, imports: new Map(), children: new Map(), hosts: new Map(), name: typeName(basename(file, ".vue")) };
+    for (const statement of script.statements) {
+      const loc = location(file, source, descriptor.scriptSetup.loc.start.offset + statement.getStart(script));
+      if (ts.isImportDeclaration(statement)) {
+        if (!ts.isStringLiteral(statement.moduleSpecifier) || !statement.importClause) fail(loc, "Side-effect imports are runtime statements");
+        const module = statement.moduleSpecifier.text, clause = statement.importClause;
+        if (clause.isTypeOnly) continue;
+        if (module.endsWith(".vue")) {
+          if (!clause.name || clause.namedBindings || !module.startsWith(".")) fail(loc, "Child components require a relative default .vue import");
+          const child = resolve(dirname(file), module); if (!existsSync(child)) fail(loc, `Cannot find child component ${module}`); item.children.set(clause.name.text, child); collect(child); continue;
+        }
+        if (clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) fail(loc, "Use named imports for host primitives, built-ins, and view-model bindings");
+        for (const binding of clause.namedBindings.elements) {
+          if (binding.isTypeOnly) continue;
+          const original = binding.propertyName?.text ?? binding.name.text;
+          if (module === COMPONENTS) {
+            if (!(original in VAPOR_ELEMENTS)) fail(loc, `Host component ${original} is outside v1`);
+            item.hosts.set(binding.name.text, original as "View" | "Text" | "Image");
+          } else if (module === STD) {
+            if (!(original in VAPOR_BUILTINS)) fail(loc, `Unknown std built-in ${original}`);
+          } else {
+            if (file !== entry || options.root === false) fail(loc, "Only the root component may import a view-model module");
+            if (!module.startsWith("./") || module.slice(2).toLowerCase() !== basename(file, ".vue").toLowerCase()) fail(loc, "The view-model import must use the SFC basename without an extension");
+            const modulePath = resolve(dirname(file), module);
+            if (existsSync(modulePath + ".ts") && existsSync(modulePath + ".d.ts")) fail(loc, "A view-model cannot have both .ts and .d.ts forms");
+            if (!existsSync(modulePath + ".ts") && !existsSync(modulePath + ".d.ts")) fail(loc, `Cannot find ${module}.ts or ${module}.d.ts`);
+          }
+          item.imports.set(binding.name.text, module);
+        }
+      } else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+        if (statement.typeParameters?.length) fail(loc, "Generic contract declarations are outside v1");
+      } else if (!ts.isVariableStatement(statement)) fail(loc, "Only imports, type declarations, and component macros are allowed in script setup");
+    }
+    parsed.set(file, item); visiting.delete(file); return item;
+  }
+  const root = collect(entry, options.source);
+  // Component names are symbols at the View IR boundary; source filenames may repeat in separate folders.
+  const usedNames = new Set<string>();
+  for (const item of parsed.values()) { const base = item.name; let n = 2; while (usedNames.has(item.name)) item.name = base + n++; usedNames.add(item.name); }
+  const environment = createTypeEnvironment(new Map([...parsed].map(([file, item]) => [file, item.source])), entry);
+  const mapper = new TypeMapper(environment.checker, options.strict, [...parsed.values()].map(c => c.name), environment.locationOf), components: AotComponent[] = [];
+  const byFile = new Map<string, AotComponent>();
+  const locAt = (item: ParsedComponent, offset: number) => location(item.file, item.source, offset);
+  for (const item of parsed.values()) {
+    const { file, source, descriptor, script } = item, scriptOffset = descriptor.scriptSetup!.loc.start.offset;
+    const loc = (node: ts.Node) => locAt(item, scriptOffset + node.getStart(script));
+    const checkedType = (node: ts.Node): ts.Type => {
+      const mapped = environment.nodeAt(file, scriptOffset + node.getStart(script), node.getWidth(script));
+      if (!mapped) fail(loc(node), "Vue virtual code did not map this contract declaration");
+      return environment.checker.getTypeAtLocation(mapped);
+    };
+    const component: AotComponent = { name: item.name, file, root: file === entry && options.root !== false, props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [...item.children.values()].map(f => parsed.get(f)!.name), nodes: [], nodeCount: 0, memoCount: 0, handlerCount: 0 };
+    const ctx: ExpressionContext = { file, mapper, environment, bindings: new Map(), functions: new Map(), builtins: new Map(), narrowings: new Map(), handler: false };
+    let emitName: string | undefined, propsSeen = false, emitsSeen = false;
+    for (const statement of script.statements) {
+      if (ts.isImportDeclaration(statement)) {
+        const module = (statement.moduleSpecifier as ts.StringLiteral).text, clause = statement.importClause;
+        if (!clause || clause.isTypeOnly || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) continue;
+        for (const binding of clause.namedBindings.elements) {
+          if (binding.isTypeOnly || module === COMPONENTS) continue;
+          const name = binding.name.text, sourceName = binding.propertyName?.text ?? name;
+          if (module === STD) { ctx.builtins.set(name, sourceName); continue; }
+          const type = mapper.unwrap(checkedType(binding.name)), signatures = type.getCallSignatures();
+          if (signatures.length) {
+            if (signatures.length !== 1 || signatures[0]!.typeParameters?.length) fail(loc(binding), "View-model functions cannot have overloads or generic parameters");
+            const signature = signatures[0]!;
+            const parameters = signature.getParameters().map(parameter => {
+              const declaration = parameter.valueDeclaration ?? parameter.declarations?.[0];
+              if (!declaration || ts.isParameter(declaration) && (declaration.dotDotDotToken || declaration.questionToken || declaration.initializer)) fail(loc(binding), "Function parameters must be required and cannot be rest parameters");
+              const sf = declaration.getSourceFile();
+              return { name: parameter.name, type: mapper.map(environment.checker.getTypeOfSymbolAtLocation(parameter, declaration), location(sf.fileName, sf.text, declaration.getStart(sf)), `${typeName(name)}${typeName(parameter.name)}`) };
+            });
+            const fn = { name, sourceName, parameters, returns: mapper.map(signature.getReturnType(), loc(binding), `${typeName(name)}Result`, true), binding: false, handler: false };
+            component.functions.push(fn); ctx.functions.set(name, fn);
+          } else {
+            const typeIR = mapper.map(type, loc(binding), typeName(name)), constant = mapper.literal(type);
+            const rawNumber = typeof constant === "number" ? constantNumericSpelling(environment.checker, environment.nodeAt(file, scriptOffset + binding.name.getStart(script))) : undefined;
+            if (constant !== undefined) component.constants.push({ name, sourceName, type: typeIR, value: constant, ...(rawNumber !== undefined ? { rawNumber } : {}) });
+            else component.values.push({ name, sourceName, type: typeIR, writable: false });
+            ctx.bindings.set(name, { type: typeIR, scope: "vm", ...(constant !== undefined ? { constant } : {}), ...(rawNumber !== undefined ? { rawNumber } : {}) });
+          }
+        }
+      }
+      if (!ts.isVariableStatement(statement)) continue;
+      if (!(statement.declarationList.flags & ts.NodeFlags.Const) || statement.declarationList.declarations.length !== 1) fail(loc(statement), "A component macro requires one const declaration");
+      const declaration = statement.declarationList.declarations[0]!;
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isCallExpression(declaration.initializer)) fail(loc(declaration), "Runtime variables and destructured component macros are outside v1");
+      const name = declaration.name.text; let call = declaration.initializer, defaults: ts.ObjectLiteralExpression | undefined;
+      if (ts.isIdentifier(call.expression) && call.expression.text === "withDefaults") {
+        if (call.arguments.length !== 2 || !ts.isCallExpression(call.arguments[0]!) || !ts.isObjectLiteralExpression(call.arguments[1]!)) fail(loc(call), "withDefaults requires defineProps<T>() and an object of literal defaults");
+        defaults = call.arguments[1]; call = call.arguments[0];
+      }
+      if (!ts.isIdentifier(call.expression) || !["defineProps", "defineEmits", "defineModel"].includes(call.expression.text) || call.typeArguments?.length !== 1) fail(loc(call), "Only typed defineProps, defineEmits, and defineModel macros are accepted");
+      const macro = call.expression.text, typeNode = call.typeArguments![0]!, type = checkedType(typeNode);
+      if (defaults && macro !== "defineProps") fail(loc(call), "withDefaults is only supported with defineProps");
+      if (macro === "defineProps") {
+        if (propsSeen || call.arguments.length) fail(loc(call), "Use one defineProps<T>() declaration"); propsSeen = true; ctx.propsName = name;
+        if (type.getCallSignatures().length || !type.isClassOrInterface() && !(type.flags & ts.TypeFlags.Object)) fail(loc(call), "defineProps requires an object type");
+        component.props.push(...mapper.fields(type, loc(typeNode), item.name + "Props"));
+        if (defaults) for (const property of defaults.properties) {
+          if (!ts.isPropertyAssignment(property) || !property.name || !ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name)) fail(loc(property), "Prop defaults must use named literal properties");
+          const prop = component.props.find(p => p.name === property.name.getText(script).replace(/^['"]|['"]$/g, ""));
+          if (!prop) fail(loc(property), "Default names an undeclared prop");
+          const expected = prop.type.kind === "option" ? prop.type.value : prop.type;
+          const value = expression(property.initializer.getText(script), loc(property.initializer), ctx, expected);
+          if (value.kind !== "literal" && !(value.kind === "unary" && value.operator === "-" && value.operand.kind === "literal" && typeof value.operand.value === "number")) fail(loc(property), "Defaults must be literal strings, numbers, booleans, or enum literals");
+          requireType(value, expected, ctx);
+          prop.default = value.kind === "literal" ? value.value : -(value.operand as Extract<AotExpr, {kind: "literal"}>).value as number;
+          if (value.kind === "literal" && value.rawNumber !== undefined) prop.defaultRawNumber = value.rawNumber;
+          prop.type = expected;
+        }
+        for (const prop of component.props) ctx.bindings.set(`props.${prop.name}`, { type: prop.type, scope: "prop" });
+      } else if (macro === "defineEmits") {
+        if (emitsSeen || call.arguments.length || type.getCallSignatures().length) fail(loc(call), "defineEmits accepts one tuple-form declaration"); emitsSeen = true; emitName = name;
+        for (const property of type.getProperties()) {
+          const declaration = property.valueDeclaration ?? property.declarations![0]!;
+          const tuple = environment.checker.getTypeOfSymbolAtLocation(property, declaration);
+          if (!environment.checker.isTupleType(tuple)) fail(loc(call), `Event ${property.name} must use a tuple payload`);
+          const elements = environment.checker.getTypeArguments(tuple as ts.TypeReference);
+          const labels = (tuple as ts.TupleTypeReference).target.labeledElementDeclarations;
+          component.events.push({ name: property.name, parameters: elements.map((t, i) => ({ name: labels?.[i] && ts.isNamedTupleMember(labels[i]!) ? (labels[i] as ts.NamedTupleMember).name.text : `arg${i}`, type: mapper.map(t, loc(call), `${item.name}${typeName(property.name)}${i}`) })) });
+        }
+      } else {
+        let model = "modelValue";
+        if (call.arguments.length && ts.isStringLiteral(call.arguments[0]!)) model = (call.arguments[0] as ts.StringLiteral).text;
+        const config = call.arguments[typeof call.arguments[0] !== "undefined" && ts.isStringLiteral(call.arguments[0]!) ? 1 : 0];
+        if (call.arguments.length > (model === "modelValue" && !ts.isStringLiteral(call.arguments[0] ?? ts.factory.createIdentifier("")) ? 1 : 2)) fail(loc(call), "defineModel accepts a literal name and optional required: true");
+        if (config && (!ts.isObjectLiteralExpression(config) || config.properties.some(p => !ts.isPropertyAssignment(p) || p.name.getText(script) !== "required" || p.initializer.kind !== ts.SyntaxKind.TrueKeyword))) fail(loc(config), "defineModel options only support required: true");
+        if (component.props.some(p => p.name === model)) fail(loc(call), `Duplicate model prop ${model}`);
+        const typeIR = mapper.map(type, loc(call), `${item.name}${typeName(model)}`);
+        component.props.push({ name: model, type: typeIR, model });
+        component.events.push({ name: `update:${model}`, parameters: [{ name: "value", type: typeIR }] });
+        ctx.bindings.set(name, { type: typeIR, scope: "prop", model });
+      }
+    }
+    const templateOffset = descriptor.template!.loc.start.offset;
+    const tplLoc = (node: { loc: { start: { offset: number } } }) => locAt(item, templateOffset + node.loc.start.offset);
+    const parseOptions = { isCustomElement: (tag: string) => item.hosts.has(tag), onError: (error: { message: string; loc?: { start: { offset: number } } }) => fail(locAt(item, templateOffset + (error.loc?.start.offset ?? 0)), error.message) };
+    // Vapor creates the structural blocks before language-neutral analysis.
+    const vaporIr = vapor.transform(parseTemplate(descriptor.template!.content, parseOptions), {
+      ...parseOptions, filename: file, prefixIdentifiers: true,
+      nodeTransforms: [vapor.transformVOnce, vapor.transformVIf, vapor.transformVFor, vapor.transformKey, vapor.transformSlotOutlet, vapor.transformTemplateRef, vapor.transformElement, vapor.transformText, vapor.transformVSlot, vapor.transformComment, vapor.transformChildren],
+      directiveTransforms: { bind: vapor.transformVBind, on: vapor.transformVOn, text: vapor.transformVText, show: vapor.transformVShow, model: vapor.transformVModel },
+    }) as unknown as VaporRootIR;
+    if (vaporIr.type !== 0 || vaporIr.block.type !== 1 || vaporIr.hasTemplateRef) fail(locAt(item, templateOffset), "Unexpected Vapor IR or unsupported template ref");
+    const ast = vaporIr.node;
+    const vaporIf = new Map<number, VaporIfIR>(), vaporFor = new Map<number, VaporForIR>();
+    const vaporElements = new Map<number, VaporCreateIR>();
+    const visited = new WeakSet<object>();
+    function readVapor(value: unknown): void {
+      if (!value || typeof value !== "object" || visited.has(value)) return;
+      visited.add(value);
+      if (Array.isArray(value)) { value.forEach(readVapor); return; }
+      const record = value as Record<string, unknown>;
+      if (record.type === 15 && record.positive) {
+        const op = value as VaporIfIR; vaporIf.set(op.positive.node.loc.start.offset, op);
+      } else if (record.type === 16 && record.render) {
+        const op = value as VaporForIR; vaporFor.set(op.render.node.loc.start.offset, op);
+      } else if (record.type === 1 && record.dynamic && record.node) {
+        const block = value as VaporBlockIR;
+        function associate(node: VaporBlockIR["node"], info: VaporDynamicInfo): void {
+          if (info.operation?.type === 12) vaporElements.set(node.loc.start.offset, info.operation as VaporCreateIR);
+          if (node.type === NodeTypes.ROOT || node.type === NodeTypes.ELEMENT) node.children.forEach((child, i) => { if (info.children[i]) associate(child, info.children[i]!); });
+        }
+        associate(block.node, block.dynamic);
+      }
+      for (const [key, child] of Object.entries(record)) if (!["node", "ast", "loc"].includes(key)) readVapor(child);
+    }
+    readVapor(vaporIr.block);
+
+    const expr = (node: SimpleExpressionNode | undefined, context = ctx, expected?: AotType) => {
+      if (!node || node.type !== NodeTypes.SIMPLE_EXPRESSION || !node.content.trim()) fail(node ? tplLoc(node) : locAt(item, templateOffset), "A directive requires an expression");
+      return expression(node.content, tplLoc(node), context, expected);
+    };
+    const directive = (node: ElementNode, name: string) => node.props.find(p => p.type === NodeTypes.DIRECTIVE && p.name === name) as DirectiveNode | undefined;
+    const argument = (d: DirectiveNode) => {
+      if (!d.arg || d.arg.type !== NodeTypes.SIMPLE_EXPRESSION || !d.arg.isStatic) fail(tplLoc(d), "Directive arguments must be static names");
+      return d.arg.content;
+    };
+    function handler(content: string, at: SourceLocation, context: ExpressionContext, event?: AotEvent): AotHandler {
+      const hctx = { ...context, bindings: new Map(context.bindings), handler: true };
+      if (event?.parameters.length) hctx.bindings.set("$event", { type: event.parameters[0]!.type, scope: "event" });
+      const sourceFile = ts.createSourceFile("handler.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+      const statement = sourceFile.statements[0];
+      if (sourceFile.statements.length !== 1 || !statement || !ts.isExpressionStatement(statement)) fail(at, "A handler must contain one call, assignment, increment, or emit");
+      const node = statement.expression, id = component.handlerCount++;
+      if (ts.isCallExpression(node)) {
+        if (ts.isIdentifier(node.expression) && node.expression.text === emitName && hctx.bindings.get(node.expression.text)?.scope !== "local") {
+          const first = node.arguments[0]; if (!first || !ts.isStringLiteral(first)) fail(at, "emit requires a literal event name");
+          const declared = component.events.find(e => e.name === first.text); if (!declared) fail(at, `Undeclared event ${first.text}`);
+          if (node.arguments.length !== declared.parameters.length + 1) fail(at, `Event ${first.text} expects ${declared.parameters.length} payload values`);
+          return { kind: "emit", id, name: first.text, arguments: node.arguments.slice(1).map((a, i) => { const value = expression(a.getText(sourceFile), at, hctx, declared.parameters[i]!.type); requireType(value, declared.parameters[i]!.type, hctx); return value; }), loc: at };
+        }
+        const value = expression(content, at, hctx);
+        if (value.kind !== "call" || value.target !== "vm") fail(at, "A handler call must name a view-model function");
+        return { kind: "call", id, expression: value, loc: at };
+      }
+      let target: ts.Expression | undefined, valueSource: string | undefined;
+      if (ts.isPostfixUnaryExpression(node) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) {
+        target = node.operand; valueSource = `${target.getText(sourceFile)} ${node.operator === ts.SyntaxKind.PlusPlusToken ? "+" : "-"} 1`;
+      } else if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.MinusEqualsToken].includes(node.operatorToken.kind)) {
+        target = node.left; valueSource = node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.right.getText(sourceFile) : `${target.getText(sourceFile)} ${node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken ? "+" : "-"} (${node.right.getText(sourceFile)})`;
+      }
+      if (!target || !ts.isIdentifier(target) || !valueSource) fail(at, "Assignments must target a view-model value or defineModel binding");
+      const binding = hctx.bindings.get(target.text); if (!binding || binding.constant !== undefined || binding.scope !== "vm" && !binding.model) fail(at, "Assignments must target a view-model value or defineModel binding");
+      const value = expression(valueSource, at, hctx, binding.type); requireType(value, binding.type, hctx);
+      if (binding.model) return { kind: "emit", id, name: `update:${binding.model}`, arguments: [value], loc: at };
+      component.values.find(v => v.name === target.text)!.writable = true;
+      return { kind: "assign", id, name: target.text, value, loc: at };
+    }
+    function nodes(children: TemplateChildNode[], context: ExpressionContext): AotNode[] {
+      const result: AotNode[] = [];
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i]!;
+        if (child.type === NodeTypes.COMMENT || child.type === NodeTypes.TEXT && !child.content.trim()) continue;
+        if (child.type !== NodeTypes.ELEMENT) fail(tplLoc(child), "Text and interpolation must appear inside Text");
+        const condition = directive(child, "if");
+        if (condition) {
+          const operation = vaporIf.get(child.loc.start.offset);
+          if (!operation) fail(tplLoc(child), "Vapor did not produce the conditional block");
+          const group: Extract<AotNode, {kind:"if"}> = { kind: "if", id: component.nodeCount++, branches: [], loc: tplLoc(child) };
+          let branchCtx = context, branch: VaporIfIR | VaporBlockIR | undefined = operation;
+          let consumedOffset = child.loc.start.offset;
+          while (branch) {
+            const conditional: VaporIfIR | undefined = branch.type === 15 ? branch : undefined;
+            const block: VaporBlockIR = conditional ? conditional.positive : branch as VaporBlockIR;
+            const test = conditional ? expr(conditional.condition, branchCtx, BOOL) : undefined;
+            if (test) requireType(test, BOOL, branchCtx);
+            const blockChildren = (block.node.type === NodeTypes.ROOT || block.node.type === NodeTypes.ELEMENT) ? block.node.children : [];
+            group.branches.push({ ...(test ? { condition: test } : {}), children: nodes(blockChildren, test ? narrowed(branchCtx, test, true) : branchCtx) });
+            consumedOffset = Math.max(consumedOffset, block.node.loc.start.offset);
+            if (test) branchCtx = narrowed(branchCtx, test, false);
+            branch = conditional ? conditional.negative : undefined;
+          }
+          while (children[i + 1] && children[i + 1]!.loc.start.offset <= consumedOffset) i++;
+          result.push(group); continue;
+        }
+        if (directive(child, "else") || directive(child, "else-if")) fail(tplLoc(child), "v-else and v-else-if must follow v-if");
+        result.push(...element(child, context));
+      }
+      return result;
+    }
+    function element(node: ElementNode, context: ExpressionContext, ignored = new Set<string>()): AotNode[] {
+      const at = tplLoc(node), loop = directive(node, "for");
+      if (loop && !ignored.has("for")) {
+        const operation = vaporFor.get(node.loc.start.offset);
+        if (!operation || !operation.value || operation.index) fail(tplLoc(loop), "v-for accepts item in list or (item, i) in list");
+        if (!/^[A-Za-z_$][\w$]*$/.test(operation.value.content) || operation.key && !/^[A-Za-z_$][\w$]*$/.test(operation.key.content)) fail(tplLoc(loop), "v-for bindings must be identifiers");
+        const source = expr(operation.source, context);
+        if (source.type.kind !== "array") fail(tplLoc(loop), "v-for only accepts arrays");
+        const id = component.nodeCount++;
+        const itemName = operation.value.content, index = operation.key?.content, rowContext = { ...context, bindings: new Map(context.bindings) };
+        if (itemName === index) fail(tplLoc(loop), "The v-for item and index must have distinct names");
+        const resolvedItem = `${component.name}Loop${id}Item`, resolvedIndex = `${component.name}Loop${id}Index`;
+        rowContext.bindings.set(itemName, { type: source.type.element, scope: "local", resolvedName: resolvedItem });
+        if (index) rowContext.bindings.set(index, { type: I32, scope: "local", resolvedName: resolvedIndex });
+        if (!operation.keyProp) fail(at, "v-for requires :key");
+        const key = expr(operation.keyProp, rowContext), keyDecl = mapper.declaration(key.type);
+        if (!(key.type.kind === "string" || key.type.kind === "number" && ["i32", "i64"].includes(key.type.name) || keyDecl?.kind === "enum")) fail(key.loc, "v-for keys must be i32, i64, string, or a string-literal enum");
+        const renderChildren = (operation.render.node.type === NodeTypes.ROOT || operation.render.node.type === NodeTypes.ELEMENT) ? operation.render.node.children : [];
+        return [{ kind: "for", id, source, item: resolvedItem, ...(index ? {index: resolvedIndex} : {}), itemType: source.type.element, key, children: nodes(renderChildren, rowContext), loc: at }];
+      }
+      const tag = item.hosts.get(node.tag), childFile = item.children.get(node.tag), child = childFile ? byFile.get(childFile)! : undefined;
+      if (node.tag === "template") {
+        for (const prop of node.props) if (prop.type !== NodeTypes.DIRECTIVE || !ignored.has(prop.name) && !(prop.name === "bind" && prop.arg?.type === NodeTypes.SIMPLE_EXPRESSION && prop.arg.content === "key" && ignored.has("key"))) fail(tplLoc(prop), "A template fragment only accepts structural directives");
+        return nodes(node.children, context);
+      }
+      if (node.tag === "slot") {
+        let name = "default";
+        for (const prop of node.props) {
+          if (prop.type === NodeTypes.DIRECTIVE && ignored.has(prop.name)) continue;
+          if (prop.type !== NodeTypes.ATTRIBUTE || prop.name !== "name" || !prop.value) fail(tplLoc(prop), "Slots accept a static name only; scoped slots are outside v1");
+          name = prop.value.content;
+        }
+        if (!component.slots.includes(name)) component.slots.push(name);
+        return [{ kind: "slot", id: component.nodeCount++, name, fallback: nodes(node.children, context), loc: at }];
+      }
+      const creation = vaporElements.get(node.loc.start.offset);
+      if (tag && (!creation || !creation.useCreateElement || creation.tag !== node.tag)) fail(at, "Vapor must lower each host primitive to an explicit create-element operation");
+      if (!tag && !child) fail(at, `Element ${node.tag} is not an imported host primitive or child component`);
+      const host: Extract<AotNode, {kind:"element"}> = { kind: "element", id: component.nodeCount++, tag: tag ?? "View", style: -1, props: [], focusable: false, events: [], children: [], loc: at };
+      const instance: Extract<AotNode, {kind:"component"}> = { kind: "component", id: host.id, component: child?.name ?? "", props: [], events: [], slots: [], loc: at };
+      let staticClass = "", classBinding: SimpleExpressionNode | undefined, textBinding: AotExpr | undefined;
+      for (const attribute of node.props) {
+        if (attribute.type === NodeTypes.DIRECTIVE) {
+          const d = attribute;
+          if (ignored.has(d.name)) continue;
+          if (d.modifiers.length) fail(tplLoc(d), "Directive modifiers are outside v1");
+          if (d.name === "bind" && argument(d) === "key" && ignored.has("key")) continue;
+          if (d.name === "on") {
+            const name = argument(d);
+            if (tag && (tag !== "View" || name !== "press")) fail(tplLoc(d), `${tag} has no ${name} event`);
+            const event = child?.events.find(e => camelize(e.name) === camelize(name));
+            if (child && !event) fail(tplLoc(d), `Child ${child.name} does not emit ${name}`);
+            if (!d.exp || d.exp.type !== NodeTypes.SIMPLE_EXPRESSION) fail(tplLoc(d), "An event requires a handler expression");
+            (child ? instance : host).events.push({ name: event?.name ?? name, handler: handler(d.exp.content, tplLoc(d.exp), context, event) });
+          } else if (d.name === "bind") {
+            const name = argument(d);
+            if (name === "class" && tag) { classBinding = d.exp as SimpleExpressionNode; continue; }
+            if (name === "style" && tag === "View") {
+              const value = d.exp as SimpleExpressionNode | undefined; if (!value) fail(tplLoc(d), ":style requires an object literal");
+              const sf = ts.createSourceFile("style.ts", `(${value.content})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS), statement = sf.statements[0];
+              const obj = statement && ts.isExpressionStatement(statement) && ts.isParenthesizedExpression(statement.expression) ? statement.expression.expression : undefined;
+              if (!obj || !ts.isObjectLiteralExpression(obj)) fail(tplLoc(d), ":style requires an object literal");
+              for (const p of obj.properties) {
+                if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name) && !ts.isStringLiteral(p.name)) fail(tplLoc(d), ":style uses static named numeric properties");
+                const name = p.name.text, spec = VAPOR_STYLE_PROPS[name as keyof typeof VAPOR_STYLE_PROPS]; if (!spec) fail(tplLoc(d), `Unknown numeric style property ${name}`);
+                const valueLoc = tplLoc(value); valueLoc.offset += p.initializer.getStart(sf) - 1;
+                const expected: AotType = { kind: "number", name: spec.type };
+                // First preserve integer arithmetic, then widen the complete host-attribute expression.
+                let e = expression(p.initializer.getText(sf), valueLoc, context);
+                const literalArithmetic = (value: AotExpr): boolean => value.kind === "literal" || value.kind === "unary" && literalArithmetic(value.operand) || value.kind === "binary" && literalArithmetic(value.left) && literalArithmetic(value.right);
+                if (literalArithmetic(e) || numeric(e.type, mapper)?.name.startsWith("f")) e = expression(p.initializer.getText(sf), valueLoc, context, expected);
+                const n = numeric(e.type, mapper);
+                if (spec.type === "f32" && n && !n.name.startsWith("f")) e = { kind: "cast", value: e, type: expected, loc: e.loc };
+                requireType(e, expected, context);
+                host.props.push({ name, prop: spec.id, value: e, memo: component.memoCount++ });
+              }
+              continue;
+            }
+            const prop = child?.props.find(p => p.name === camelize(name));
+            if (!prop) fail(tplLoc(d), `${child?.name ?? tag} does not accept :${name}`);
+            const value = expr(d.exp as SimpleExpressionNode, context, prop.type); requireType(value, prop.type, context); instance.props.push({ name: prop.name, value });
+          } else if (d.name === "model") {
+            if (!child) fail(tplLoc(d), "v-model is supported on child components only");
+            const name = d.arg ? camelize(argument(d)) : "modelValue", prop = child.props.find(p => p.model === name);
+            if (!prop) fail(tplLoc(d), `Child ${child.name} has no model ${name}`);
+            const value = expr(d.exp as SimpleExpressionNode, context, prop.type); requireType(value, prop.type, context); instance.props.push({ name: prop.name, value });
+            instance.events.push({ name: `update:${name}`, handler: handler(`${(d.exp as SimpleExpressionNode).content} = $event`, tplLoc(d), context, child.events.find(e => e.name === `update:${name}`)) });
+          } else if (d.name === "show") {
+            if (!tag) fail(tplLoc(d), "v-show requires a host primitive");
+            const value = expr(d.exp as SimpleExpressionNode, context, BOOL); requireType(value, BOOL, context);
+            host.props.push({ name: "display", prop: PROP.display, value: { kind: "conditional", condition: value, consequent: { kind: "literal", value: 0, type: I32, loc: value.loc }, alternate: { kind: "literal", value: 1, type: I32, loc: value.loc }, type: I32, loc: value.loc }, memo: component.memoCount++ });
+          } else if (d.name === "text") {
+            if (tag !== "Text" || node.children.length) fail(tplLoc(d), "v-text requires Text with no children");
+            textBinding = expr(d.exp as SimpleExpressionNode, context);
+          } else fail(tplLoc(d), `Directive v-${d.name} is outside v1`);
+        } else {
+          const name = attribute.name, value = attribute.value?.content;
+          if (tag) {
+            if (name === "class") staticClass = value ?? "";
+            else if (name === "focusable" && tag === "View" && value === undefined) host.focusable = true;
+            else if (name === "debug-name" && tag === "View" && value !== undefined) host.debugName = value;
+            else if (name === "src" && tag === "Image" && value !== undefined) host.src = value;
+            else fail(tplLoc(attribute), `${tag} does not accept ${name}`);
+          } else {
+            const prop = child!.props.find(p => p.name === camelize(name)); if (!prop) fail(tplLoc(attribute), `${child!.name} does not declare prop ${name}`);
+            const e = expression(value === undefined ? "true" : JSON.stringify(value), tplLoc(attribute), context, prop.type); requireType(e, prop.type, context); instance.props.push({ name: prop.name, value: e });
+          }
+        }
+      }
+      if (child) {
+        const names = new Set<string>();
+        for (const prop of instance.props) { if (names.has(prop.name)) fail(at, `Duplicate prop ${prop.name}`); names.add(prop.name); }
+        for (const prop of child.props) if (!names.has(prop.name)) {
+          if (prop.default !== undefined) instance.props.push({ name: prop.name, value: { kind: "literal", value: prop.default, ...(prop.defaultRawNumber !== undefined ? { rawNumber: prop.defaultRawNumber } : {}), type: prop.type, loc: at } });
+          else if (prop.type.kind === "option") instance.props.push({ name: prop.name, value: { kind: "undefined", type: prop.type, loc: at } });
+          else fail(at, `Missing required ${child.name} prop ${prop.name}`);
+        }
+        const defaultChildren: TemplateChildNode[] = [];
+        for (const content of node.children) {
+          if (content.type === NodeTypes.ELEMENT && content.tag === "template" && directive(content, "slot")) {
+            const slot = directive(content, "slot")!; if (slot.exp || content.props.length !== 1) fail(tplLoc(slot), "Scoped and conditional slot declarations are outside v1");
+            const name = slot.arg ? argument(slot) : "default";
+            if (!child.slots.includes(name)) fail(tplLoc(slot), `Child ${child.name} has no ${name} slot`);
+            if (instance.slots.some(s => s.name === name)) fail(tplLoc(slot), `Duplicate slot ${name}`);
+            instance.slots.push({ name, children: nodes(content.children, context) });
+          } else defaultChildren.push(content);
+        }
+        if (defaultChildren.some(n => n.type !== NodeTypes.COMMENT && !(n.type === NodeTypes.TEXT && !n.content.trim()))) {
+          if (!child.slots.includes("default")) fail(at, `Child ${child.name} has no default slot`);
+          if (instance.slots.some(s => s.name === "default")) fail(at, "Duplicate default slot");
+          instance.slots.push({ name: "default", children: nodes(defaultChildren, context) });
+        }
+        return [instance];
+      }
+      if (host.events.length && !host.focusable) fail(at, "@press requires a focusable View");
+      if (tag === "Image" && (!host.src || node.children.length)) fail(at, "Image requires a static src asset name and has no children");
+      if (classBinding) {
+        const value = expr(classBinding, context);
+        function styles(e: AotExpr): AotExpr {
+          if (e.kind === "conditional") return { ...e, consequent: styles(e.consequent), alternate: styles(e.alternate), type: I32 };
+          if (e.kind !== "literal" || typeof e.value !== "string") fail(e.loc, ":class must be a ternary with full class literal leaves");
+          const classes = `${staticClass} ${e.value}`.trim(); if (classes) classLiterals.add(classes);
+          return { ...e, value: classes, type: I32 };
+        }
+        if (value.kind !== "conditional") fail(value.loc, ":class must be a ternary or chain of ternaries");
+        host.dynamicStyle = { id: component.memoCount++, expression: styles(value) };
+      } else if (staticClass) { classLiterals.add(staticClass); (host as typeof host & { classLiteral?: string }).classLiteral = staticClass; }
+      if (tag === "Text") {
+        const parts: (string | AotExpr)[] = [];
+        if (textBinding) parts.push(textBinding);
+        else for (const content of node.children) {
+          if (content.type === NodeTypes.TEXT) { if (!content.content.isWellFormed()) fail(tplLoc(content), "Text cannot contain unpaired UTF-16 surrogates"); parts.push(content.content); }
+          else if (content.type === NodeTypes.INTERPOLATION) parts.push(expr(content.content as SimpleExpressionNode, context));
+          else if (content.type !== NodeTypes.COMMENT) fail(tplLoc(content), "Text only accepts text and interpolation");
+        }
+        for (const part of parts) if (typeof part !== "string" && !displayable(part.type, mapper)) fail(part.loc, "Text interpolation only supports scalar values and optional scalars");
+        host.text = { parts, memo: component.memoCount++ };
+      } else host.children = nodes(node.children, context);
+      return [host];
+    }
+    component.nodes = nodes(ast.children, ctx);
+    components.push(component); byFile.set(file, component);
+  }
+  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals));
+  for (const classes of classLiterals) if (styles.ids[classes] === undefined) fail(location(entry, root.source), `Unsupported class literal ${JSON.stringify(classes)}`);
+  function finalize(nodes: AotNode[]) {
+    for (const node of nodes) {
+      if (node.kind === "element") {
+        const temporary = node as typeof node & { classLiteral?: string };
+        if (temporary.classLiteral) { node.style = styles.ids[temporary.classLiteral]!; delete temporary.classLiteral; }
+        if (node.dynamicStyle) {
+          const visit = (e: AotExpr) => { if (e.kind === "literal") e.value = e.value === "" ? -1 : styles.ids[e.value as string]!; else if (e.kind === "conditional") { visit(e.consequent); visit(e.alternate); } };
+          visit(node.dynamicStyle.expression);
+        }
+        finalize(node.children);
+      } else if (node.kind === "if") node.branches.forEach(b => finalize(b.children));
+      else if (node.kind === "for") finalize(node.children);
+      else if (node.kind === "component") node.slots.forEach(s => finalize(s.children));
+      else finalize(node.fallback);
+    }
+  }
+  components.forEach(c => finalize(c.nodes));
+  return { version: 1, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics };
+}

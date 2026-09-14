@@ -142,6 +142,13 @@ import {
   VALUE_KIND,
   type PropName,
 } from "./spec.ts";
+import {
+  generateVaporRust,
+  generateVaporNumericTypes,
+  generateVaporStdDeclarations,
+  generateVaporComponentTypes,
+} from "./vapor.ts";
+export { generateVaporRust, generateVaporNumericTypes, generateVaporStdDeclarations, generateVaporComponentTypes };
 
 /** camelCase -> SCREAMING_SNAKE_CASE (width -> WIDTH, paddingT -> PADDING_T). */
 function screaming(name: string): string {
@@ -585,4 +592,14 @@ if (import.meta.main) {
   const out = new URL("../../engine/core/src/spec.rs", import.meta.url).pathname;
   await Bun.write(out, generateRust());
   console.log(`wrote ${out}`);
+  for (const [path, source] of [
+    ["../../engine/crates/pocket-vapor/src/spec.rs", generateVaporRust()],
+    ["../../framework/src/numeric-vue-vapor.ts", generateVaporNumericTypes()],
+    ["../../framework/src/std-vue-vapor.d.ts", generateVaporStdDeclarations()],
+    ["../../framework/src/component-types-vue-vapor.ts", generateVaporComponentTypes()],
+  ]) {
+    const target = new URL(path, import.meta.url).pathname;
+    await Bun.write(target, source);
+    console.log(`wrote ${target}`);
+  }
 }

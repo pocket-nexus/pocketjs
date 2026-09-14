@@ -1,12 +1,15 @@
 # Vue AOT: v1 boundaries and contracts
 
-**Status: decided on 2026-09-14; nothing is implemented.** This page pins what
+**Status: v1 compiler and runtime implementation, 2026-09-14; test work is
+deferred.** This page pins what
 the compiler accepts, what it generates, and where generated Rust ends and
 application Rust begins. It is the contract for the rewrite of Pocket Vapor
 on branch `vue-aot`: the family keeps its name and its execution class `aot`
 (§10), and this page supersedes `vapor/DESIGN.md`, which describes the C
 pipeline. That pipeline stays in the tree until the Rust pipeline renders
 `apps/vue-sfc-lab` with the same features.
+
+Build commands and host integration are in [VUE_AOT_BUILD.md](VUE_AOT_BUILD.md).
 
 Everything on this page is fixed for v1 or scheduled in §10; changing it
 means editing this page first.
@@ -192,7 +195,9 @@ Rules:
    declared as `f32` receiving an integer expression, such as
    `:style="{ width: 80 + count * 12 }"` with `count: i32`.
 6. Float to integer conversion goes through `trunc`, `round`, `floor` or
-   `ceil`, which return `i32`.
+   `ceil`, which return `i32`. **Conversion saturates:** after rounding, NaN
+   becomes `0`, values above `2147483647` become `2147483647`, and values
+   below `-2147483648` become `-2147483648`, including infinities.
 7. `/` and `%` on integer types are errors; `idiv` and `imod` (§5) divide
    integers with the same result on every class. `/` and `%` on float types
    are the plain operators.
@@ -204,6 +209,12 @@ Rules:
 11. **Numbers display the way JavaScript `String(n)` displays them on every
     class.** The Rust runtime implements that conversion, including
     `Infinity`, `-0` as `0`, and the exponent switch at 1e21 and below 1e-6.
+12. **`f32` keeps the execution class's native precision.** TypeScript's
+    numeric annotation is erased: browser and guest classes use JavaScript
+    double precision, while Rust uses single precision. The browser compiler
+    inserts no `Math.fround`. Rounding can change values, displayed digits
+    and comparisons, including the branch a condition selects. Cross-class
+    bit equality is not part of the v1 `f32` contract.
 
 The mechanism behind these aliases is called a *branded type* in compiler
 code and on this page. That name stays in English and does not appear in
@@ -341,7 +352,7 @@ the Rust runtime by name.
 |---|---|---|
 | `len(x)` | `(string \| T[]) → i32` | strings count Unicode scalar values: `[...s].length` in TypeScript, `chars().count()` in Rust |
 | `trunc(x)`, `floor(x)`, `ceil(x)` | `float → i32` | `Math.trunc`, `Math.floor`, `Math.ceil` |
-| `round(x)` | `float → i32` | `Math.round`: halves round toward positive infinity; the Rust implementation is `(x + 0.5).floor()` |
+| `round(x)` | `float → i32` | `Math.round`: halves round toward positive infinity; compare `x - floor(x)` with `0.5` before adding one to the floor, avoiding rounding in `x + 0.5` |
 | `idiv(a, b)`, `imod(a, b)` | `(int, int) → int` | truncating division and remainder; a zero divisor yields `0` on every class |
 | `min(a, b)`, `max(a, b)` | `(T, T) → T` | one numeric type |
 | `abs(x)` | `T → T` | |
@@ -351,7 +362,9 @@ the Rust runtime by name.
 ## 6. Semantics pinned across classes
 
 The same template renders the same text and structure on all three classes
-for every accepted program. The rules above close the known divergences:
+within the numeric precision and overflow boundaries in §3.1. **`f32`
+precision, integers beyond JavaScript's exact range and integer overflow are
+exceptions.** The rules above close the other known divergences:
 
 | Divergence | JavaScript | Rust | Closed by |
 |---|---|---|---|
