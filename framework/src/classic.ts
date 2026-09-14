@@ -1,11 +1,13 @@
-import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, type Accessor, type JSX as SolidJSX } from "solid-js";
 import { View, Text, type ViewProps } from "./primitives.ts";
 import { insert, type NodeMirror } from "./renderer.ts";
 import { createGesture, pushTouchBlock } from "./gesture.ts";
 import { animate, cancelAnim, jump } from "./anim.ts";
 import { after } from "./clock.ts";
+import { onFrame } from "./frame.ts";
 import { resolveTouchHit } from "./input.ts";
 import type { SurfaceId } from "./display.ts";
+import { VirtualList, type VirtualListHandle } from "./virtual-list.ts";
 
 /** The classic surface colors app chrome, rows and the classic keyboard
  *  share: linen background, body ink, secondary ink, selection blue. */
@@ -205,4 +207,194 @@ export function ClassicSheet(props: ClassicSheetProps) {
   });
   onCleanup(() => { deadline?.(); if (slide) cancelAnim(slide); if (fade) cancelAnim(fade); release(); });
   return frame;
+}
+
+// ---------------------------------------------------------------------------
+// Screen chrome (docs/HIG.md §2.4): one 36 px bar, one 24 px footer.
+// ---------------------------------------------------------------------------
+
+export interface ClassicBarProps {
+  /** Logical width of the surface the bar spans. */
+  width: number;
+  /** Embossed title at the left with a 12 px margin. */
+  title?: string;
+  /** Small text at the right with a 12 px margin. */
+  trailing?: string;
+  /** Absolute children (a field, a button) placed inside the bar. */
+  children?: SolidJSX.Element;
+}
+
+/** The glossy title bar: a three-stop gloss, a white top line, a dark bottom
+ *  line, the title embossed in two passes. Height 36. */
+export function ClassicBar(props: ClassicBarProps) {
+  const frame = View({
+    class: "relative h-[36] bg-gradient-to-b from-[#fafbfc] via-[#ccd1d9] to-[#b6beca]",
+    get style() { return { width: props.width }; },
+  });
+  const lines = [
+    View({ get style() { return { posType: 1, insetL: 0, insetT: 0, width: props.width, height: 1, bgColor: "#ffffff" }; } }),
+    View({ get style() { return { posType: 1, insetL: 0, insetT: 35, width: props.width, height: 1, bgColor: "#7f8998" }; } }),
+  ];
+  const title = [
+    View({ style: { posType: 1, insetL: 12, insetT: 11 }, get children() {
+      return Text({ class: "text-sm font-bold", style: { textColor: "#ffffff" }, get children() { return props.title ?? ""; } });
+    } }),
+    View({ style: { posType: 1, insetL: 12, insetT: 10 }, get children() {
+      return Text({ class: "text-sm font-bold", style: { textColor: "#46566c" }, get children() { return props.title ?? ""; } });
+    } }),
+  ];
+  const trailing = View({ get style() { return { posType: 1, insetR: 12, insetT: 12, display: props.trailing ? 0 : 1 }; }, get children() {
+    return Text({ class: "text-xs", style: { textColor: CLASSIC.dim }, get children() { return props.trailing ?? ""; } });
+  } });
+  insert(frame as unknown as NodeMirror, [...lines, ...title, trailing]);
+  insert(frame as unknown as NodeMirror, () => props.children);
+  return frame;
+}
+
+export interface ClassicFooterProps {
+  width: number;
+  /** The counter, status or legend (useActions().legend()). */
+  text: string;
+  /** Red text for an error. */
+  alert?: boolean;
+}
+
+/** The 24 px footer strip: a gloss, a dark top line and one centred line of text. */
+export function ClassicFooter(props: ClassicFooterProps) {
+  const frame = View({
+    class: "relative h-[24] items-center justify-center bg-gradient-to-b from-[#eef0f4] via-[#c6cdd6] to-[#bac2ce]",
+    get style() { return { width: props.width }; },
+  });
+  insert(frame as unknown as NodeMirror, [
+    View({ get style() { return { posType: 1, insetL: 0, insetT: 0, width: props.width, height: 1, bgColor: "#8b96a4" }; } }),
+    View({ get style() { return { posType: 1, insetL: 0, insetT: 1, width: props.width, height: 1, bgColor: "#ffffff" }; } }),
+    Text({ class: "text-xs", get style() { return { textColor: props.alert ? "#a63838" : CLASSIC.dim, lineHeight: 12 }; },
+      get children() { return props.text; } }),
+  ]);
+  return frame;
+}
+
+// ---------------------------------------------------------------------------
+// Activity: the eight-bar spinner, blue on every device.
+// ---------------------------------------------------------------------------
+
+export interface ClassicSpinnerProps {
+  /** Diameter in logical px. Default 22. */
+  size?: number;
+  color?: string;
+}
+
+/** Eight bars on a circle; every four virtual frames the bright bar
+ *  advances one step. One style write per bar per step, no textures. */
+export function ClassicSpinner(props: ClassicSpinnerProps) {
+  const size = props.size ?? 22;
+  const barW = Math.max(2, Math.round(size * 0.12)), barH = Math.max(4, Math.round(size * 0.3));
+  const radius = size / 2 - barH / 2;
+  const [phase, setPhase] = createSignal(0);
+  let frames = 0;
+  onFrame(() => { if (++frames % 4 === 0) setPhase((p) => (p + 1) % 8); });
+  const frame = View({ style: { width: size, height: size } });
+  const bars = Array.from({ length: 8 }, (_, i) => {
+    const angle = i * 45, rad = (angle * Math.PI) / 180;
+    const x = size / 2 + radius * Math.sin(rad) - barW / 2, y = size / 2 - radius * Math.cos(rad) - barH / 2;
+    return View({ get style() {
+      const distance = (i - phase() + 8) % 8;
+      return { posType: 1, insetL: x, insetT: y, width: barW, height: barH, radius: barW / 2, rotate: angle,
+        bgColor: props.color ?? CLASSIC.blue, opacity: 1 - distance * 0.11 };
+    } });
+  });
+  insert(frame as unknown as NodeMirror, bars);
+  return frame;
+}
+
+/** Placeholder text lines for a row whose content is still loading. */
+export function ClassicSkeleton(props: { widths: readonly number[]; gap?: number; height?: number }) {
+  const frame = View({ class: "flex-col", get style() { return { gap: props.gap ?? 4 }; } });
+  insert(frame as unknown as NodeMirror, props.widths.map((width) =>
+    View({ style: { width, height: props.height ?? 6, radius: 3, bgColor: "#d0d7df" } })));
+  return frame;
+}
+
+// ---------------------------------------------------------------------------
+// ClassicList: the HIG list on top of VirtualList — flush rows, the
+// selection wash on the focused row, a trailing loading row that requests
+// the next page for the d-pad as well as for a scrolling finger, and a
+// per-frame window report for demand-driven row resources.
+// ---------------------------------------------------------------------------
+
+export interface ClassicListProps {
+  surface?: SurfaceId;
+  count: number;
+  rowHeight: number;
+  height: number;
+  /** Row content; `active` follows the focused index. */
+  renderRow: (index: number, active: Accessor<boolean>) => SolidJSX.Element;
+  onRowPress?: (index: number) => void;
+  /** A stationary hold on a row (touch) — the HIG's `option` on that row. */
+  onRowHold?: (index: number) => void;
+  inputActive?: () => boolean;
+  /** Paging: a trailing row appears while more rows exist; the list asks
+   *  for them when the finger nears the end or the focus reaches the last
+   *  two rows, and shows a spinner while `loadingMore` is true. */
+  hasMore?: () => boolean;
+  loadingMore?: () => boolean;
+  onLoadMore?: () => void;
+  /** Called once per frame with the first visible row, the visible row
+   *  count and the scroll velocity — the hook for prefetching rows. */
+  onWindow?: (first: number, visible: number, velocity: number) => void;
+  /** Rows of the trailing loading row read this label; default "Loading…". */
+  loadingLabel?: string;
+  ref?: (handle: VirtualListHandle) => void;
+}
+
+export function ClassicList(props: ClassicListProps) {
+  let handle: VirtualListHandle | undefined;
+  const [focused, setFocused] = createSignal<number | null>(null);
+  const hasMore = () => props.hasMore?.() ?? false;
+  const loading = () => props.loadingMore?.() ?? false;
+  const total = () => props.count + (hasMore() ? 1 : 0);
+  const requestMore = () => { if (hasMore() && !loading()) props.onLoadMore?.(); };
+  const visibleRows = () => Math.ceil(props.height / props.rowHeight);
+
+  onFrame(() => {
+    if (!handle) return;
+    const index = handle.focusedIndex();
+    if (index !== focused()) setFocused(index);
+    const offset = handle.scroller.offset(), velocity = handle.scroller.velocity();
+    const first = Math.max(0, Math.floor(offset / props.rowHeight));
+    props.onWindow?.(first, visibleRows(), velocity);
+    // The d-pad's way to the next page: focus within two rows of the end.
+    if (index !== null && index >= props.count - 2) requestMore();
+  });
+
+  const loadingRow = () => View({ class: "relative items-center justify-center flex-row gap-2 bg-white",
+    style: { width: -1, height: props.rowHeight },
+    get children() {
+      return [
+        View({ get style() { return { display: loading() ? 0 : 1 }; }, get children() { return ClassicSpinner({ size: 18 }); } }),
+        Text({ class: "text-sm font-bold", style: { textColor: CLASSIC.dim }, get children() { return loading() ? props.loadingLabel ?? "Loading…" : ""; } }),
+        View({ style: { posType: 1, insetL: 0, insetB: 0, insetR: 0, height: 1, bgColor: CLASSIC.rowLine } }),
+      ];
+    } });
+
+  return VirtualList({
+    surface: props.surface,
+    get count() { return total(); },
+    rowHeight: props.rowHeight,
+    get height() { return props.height; },
+    overscan: props.rowHeight,
+    inputActive: props.inputActive,
+    onRowPress: (index) => { if (index < props.count) props.onRowPress?.(index); else requestMore(); },
+    onRowLongPress: props.onRowHold ? (index) => { if (index < props.count) props.onRowHold!(index); } : undefined,
+    onNearEnd: requestMore,
+    ref: (h) => { handle = h; props.ref?.(h); },
+    renderRow: (index) => {
+      if (index >= props.count) return loadingRow();
+      const active = () => focused() === index;
+      const row = View({ class: "relative", style: { width: -1, height: props.rowHeight } });
+      insert(row as unknown as NodeMirror, () => props.renderRow(index, active));
+      insert(row as unknown as NodeMirror, ClassicSelection({ get active() { return active(); }, height: props.rowHeight }));
+      return row;
+    },
+  });
 }

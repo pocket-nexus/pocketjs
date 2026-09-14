@@ -46,6 +46,11 @@ export interface ButtonPressOptions {
   latched?: boolean;
 }
 
+/** Whether a modal (keyboard, sheet) holds the button-handler block. */
+export function isButtonHandlerBlocked(): boolean {
+  return buttonHandlerBlockDepth > 0;
+}
+
 export function pushButtonHandlerBlock(): () => void {
   buttonHandlerBlockDepth++;
   let disposed = false;

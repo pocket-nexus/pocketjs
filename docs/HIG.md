@@ -41,10 +41,9 @@ useActions({
 | `sections` | Move between top-level sections, or skip in media. |
 | `media` | Play/pause on a media screen, submit on a form. |
 
-`useActions` (proposed; the footer legend in pocket-youtube is the
-hand-written form) binds the intents for the presentation's lifetime and
-hands them to the modality: buttons render a legend, contacts render
-controls, and a device with both renders both. A component that takes
+`useActions` (`@pocketjs/framework/actions`) binds the intents for the
+presentation's lifetime and hands them to the modality: buttons render a
+legend, contacts render controls, and a device with both renders both. A component that takes
 focus, the OSK or a `ClassicSheet`, pushes the button-handler block, so the
 intents stay bound and stay muted while it is up.
 
@@ -179,6 +178,7 @@ returns to the previous application: that is Recents.
 | `ClassicSelection`, `ClassicButton`, `ClassicSheet` | shipped (`@pocketjs/framework/classic`) |
 | Modality-driven keyboard with focus memory | shipped (`@pocketjs/framework/osk`) |
 | Launcher veil, frozen shot, whole-guest switch | shipped (`docs/LAUNCHER.md`) |
-| `useActions` intents and the generated legend and tiles | proposed |
+| `useActions` intents and the generated legend | shipped (`@pocketjs/framework/actions`); touch tiles read `entries()` by hand |
+| `ClassicBar`, `ClassicFooter`, `ClassicList`, `ClassicSpinner` | shipped (`@pocketjs/framework/classic`) |
 | Host-reserved system chords | proposed; needs a chord table in `spec.ts` and one filter in each host's pad sampler |
 | `app.state` suspend/restore | proposed; `docs/PLATFORM.md` names it as a later capability |

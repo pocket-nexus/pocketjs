@@ -190,6 +190,7 @@
     "./package": "./contracts/spec/pocket-package.ts",
     "./platform": "./framework/src/platform.ts",
     "./modality": "./framework/src/modality.ts",
+    "./actions": "./framework/src/actions.ts",
     "./vita-package": "./tools/vita-package.ts",
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",
