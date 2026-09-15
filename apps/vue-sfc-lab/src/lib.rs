@@ -11,7 +11,7 @@ use pocket_vapor::{HasButton, HasRelativeAxis, Host, Input, Ui};
 #[path = "../gen/mod.rs"]
 pub mod generated;
 pub use generated::{
-    AppApp, AppEvent, AppProps, AppView, AppViewModel, Feature, FeatureToggleViewModel,
+    AppApp, AppEvent, AppProps, AppView, AppViewModel, Feature, FeatureToggleViewModel, LabTheme,
 };
 
 #[derive(Default)]
@@ -48,6 +48,7 @@ impl HasRelativeAxis<0> for LabHost {}
 pub struct LabViewModel {
     pub count: i32,
     pub features: Vec<Feature>,
+    pub theme: LabTheme,
     axis_remainder: i32,
 }
 
@@ -56,6 +57,9 @@ impl Default for LabViewModel {
         Self {
             count: 0,
             axis_remainder: 0,
+            theme: LabTheme {
+                enabledLabel: "ON".into(),
+            },
             features: vec![
                 Feature {
                     id: "model".into(),
@@ -88,6 +92,9 @@ impl AppViewModel for LabViewModel {
     }
     fn features(&self) -> &[Feature] {
         &self.features
+    }
+    fn theme(&self) -> &LabTheme {
+        &self.theme
     }
     fn enabledCount(&self) -> i32 {
         self.features

@@ -10,6 +10,7 @@ export type RustType =
   | { kind: "lifetime"; name: string }
   | { kind: "const"; value: number | boolean }
   | { kind: "dyn"; bounds: RustType[] }
+  | { kind: "fnTrait"; name: "FnMut"; params: RustType[]; returns?: RustType }
   | { kind: "binding"; name: string; type: RustType }
   | { kind: "infer" };
 export interface RustField { name: string; type: RustType; public?: boolean }

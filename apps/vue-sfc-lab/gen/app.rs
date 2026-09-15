@@ -24,6 +24,11 @@ use core::fmt::Write;
 use pocket_vapor::{display, Block, Input, KeyedList, NodeId, SlotHandle, StyleId, Ui};
 
 #[derive(Clone)]
+pub struct LabTheme {
+    pub enabledLabel: String,
+}
+
+#[derive(Clone)]
 pub struct Feature {
     pub id: String,
     pub label: String,
@@ -37,6 +42,10 @@ impl pocket_vapor::VaporDisplay for Px {
     fn fmt_vapor(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         pocket_vapor::VaporDisplay::fmt_vapor(&self.0, formatter)
     }
+}
+
+pub struct FeatureListTConstraint {
+    pub id: String,
 }
 
 pub struct FeatureCardProps<'a> {
@@ -440,7 +449,7 @@ impl FeatureCardSlot6 {
                     *slot_parent = parent;
                     *slot_anchor = anchor;
                     slot.move_before(ui, parent, anchor);
-                }
+                };
             }
             Self::Fallback(block) => block.update_at(
                 ui,
@@ -1029,7 +1038,7 @@ impl FeatureCardSlot8 {
                     *slot_parent = parent;
                     *slot_anchor = anchor;
                     slot.move_before(ui, parent, anchor);
-                }
+                };
             }
             Self::Fallback(block) => block.update_at(
                 ui,
@@ -1304,7 +1313,7 @@ impl FeatureCardSlot12 {
                     *slot_parent = parent;
                     *slot_anchor = anchor;
                     slot.move_before(ui, parent, anchor);
-                }
+                };
             }
             Self::Fallback(block) => block.update_at(
                 ui,
@@ -2306,6 +2315,7 @@ impl FeatureToggleBlock17 {
         parent: NodeId,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
         anchor: NodeId,
     ) {
         self.parent = parent;
@@ -2317,6 +2327,7 @@ impl FeatureToggleBlock17 {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -2401,6 +2412,7 @@ impl FeatureToggleNode16 {
         parent: NodeId,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
         anchor: NodeId,
     ) {
         let value_style_memo = if props.enabled { 5i32 } else { 6i32 };
@@ -2424,7 +2436,7 @@ impl FeatureToggleNode16 {
             self.text_inputs = Some((text_input0.to_owned(),));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, __pocket_inject_0, NodeId::NONE);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2432,6 +2444,7 @@ impl FeatureToggleNode16 {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -2445,7 +2458,7 @@ impl FeatureToggleNode16 {
         };
         let mut handled = false;
         self.children
-            .dispatch_step(input, props, vm, events, cursor)
+            .dispatch_step(input, props, vm, __pocket_inject_0, events, cursor)
     }
 
     fn pending(&self, input: &Input) -> bool {
@@ -2506,6 +2519,7 @@ impl FeatureToggleBlock19 {
         parent: NodeId,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
         anchor: NodeId,
     ) {
         self.parent = parent;
@@ -2517,6 +2531,7 @@ impl FeatureToggleBlock19 {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -2601,6 +2616,7 @@ impl FeatureToggleNode18 {
         parent: NodeId,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
         anchor: NodeId,
     ) {
         let value_style_memo = if props.enabled { 7i32 } else { 8i32 };
@@ -2608,7 +2624,11 @@ impl FeatureToggleNode18 {
             ui.set_style(self.node, StyleId(value_style_memo as i32));
             self.style_memo = Some(value_style_memo);
         };
-        let text_input0 = if props.enabled { "ON" } else { "OFF" };
+        let text_input0 = if props.enabled {
+            __pocket_inject_0.enabledLabel.as_str()
+        } else {
+            "OFF"
+        };
         let text_input1 = vm.presses();
         if self.text_inputs.as_ref().map_or(true, |previous| {
             previous.0.as_str() != text_input0 || previous.1 != text_input1
@@ -2628,7 +2648,7 @@ impl FeatureToggleNode18 {
             self.text_inputs = Some((text_input0.to_owned(), text_input1));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, __pocket_inject_0, NodeId::NONE);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2636,6 +2656,7 @@ impl FeatureToggleNode18 {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -2649,7 +2670,7 @@ impl FeatureToggleNode18 {
         };
         let mut handled = false;
         self.children
-            .dispatch_step(input, props, vm, events, cursor)
+            .dispatch_step(input, props, vm, __pocket_inject_0, events, cursor)
     }
 
     fn pending(&self, input: &Input) -> bool {
@@ -2719,18 +2740,21 @@ impl FeatureToggleBlock15 {
         parent: NodeId,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
         anchor: NodeId,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
+        self.child1
+            .update_at(ui, self.parent, props, vm, __pocket_inject_0, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, __pocket_inject_0, anchor0);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2738,6 +2762,7 @@ impl FeatureToggleBlock15 {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -2750,10 +2775,16 @@ impl FeatureToggleBlock15 {
             return false;
         };
         let mut handled = false;
-        if self.child0.dispatch_step(input, props, vm, events, cursor) {
+        if self
+            .child0
+            .dispatch_step(input, props, vm, __pocket_inject_0, events, cursor)
+        {
             return true;
         };
-        if self.child1.dispatch_step(input, props, vm, events, cursor) {
+        if self
+            .child1
+            .dispatch_step(input, props, vm, __pocket_inject_0, events, cursor)
+        {
             return true;
         };
         false
@@ -2859,6 +2890,7 @@ impl FeatureToggleNode14 {
         parent: NodeId,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
         anchor: NodeId,
     ) {
         let value_style_memo = if props.enabled { 3i32 } else { 4i32 };
@@ -2867,7 +2899,7 @@ impl FeatureToggleNode14 {
             self.style_memo = Some(value_style_memo);
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, __pocket_inject_0, NodeId::NONE);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2875,6 +2907,7 @@ impl FeatureToggleNode14 {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -2892,7 +2925,7 @@ impl FeatureToggleNode14 {
             return true;
         };
         self.children
-            .dispatch_step(input, props, vm, events, cursor)
+            .dispatch_step(input, props, vm, __pocket_inject_0, events, cursor)
     }
 
     fn pending(&self, input: &Input) -> bool {
@@ -2962,12 +2995,14 @@ impl FeatureToggleView {
         parent: NodeId,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
         anchor: NodeId,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, __pocket_inject_0, anchor0);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2975,6 +3010,7 @@ impl FeatureToggleView {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -2987,7 +3023,10 @@ impl FeatureToggleView {
             return false;
         };
         let mut handled = false;
-        if self.child0.dispatch_step(input, props, vm, events, cursor) {
+        if self
+            .child0
+            .dispatch_step(input, props, vm, __pocket_inject_0, events, cursor)
+        {
             return true;
         };
         false
@@ -2998,13 +3037,14 @@ impl FeatureToggleView {
         input: &Input,
         props: &FeatureToggleProps<'_>,
         vm: &mut M,
+        __pocket_inject_0: &LabTheme,
         events: &mut dyn pocket_vapor::EventSink<FeatureToggleEvent>,
     ) -> bool {
         let mut cursor = pocket_vapor::DispatchCursor::new();
         let mut handled = false;
         loop {
             cursor.restart();
-            if !self.dispatch_step(input, props, vm, events, &mut cursor) {
+            if !self.dispatch_step(input, props, vm, __pocket_inject_0, events, &mut cursor) {
                 break;
             };
             handled = true;
@@ -3017,8 +3057,9 @@ impl FeatureToggleView {
         ui: &mut Ui,
         props: &FeatureToggleProps<'_>,
         vm: &M,
+        __pocket_inject_0: &LabTheme,
     ) {
-        self.update_at(ui, self.parent, props, vm, self.anchor);
+        self.update_at(ui, self.parent, props, vm, __pocket_inject_0, self.anchor);
     }
 
     pub fn unmount(self, ui: &mut Ui) {
@@ -3851,6 +3892,1027 @@ impl Block for ModelButtonView {
     }
 }
 
+pub struct FeatureListInstance1Props<'a> {
+    pub items: &'a [Feature],
+}
+
+pub enum FeatureListInstance1Event {}
+
+pub enum FeatureListInstance1SlotEvent {
+    Slot0(Input, usize, Feature),
+}
+
+pub enum FeatureListInstance1SlotArguments<'a> {
+    Slot0(&'a Feature),
+}
+
+pub trait FeatureListInstance1ViewModel {}
+
+impl FeatureListInstance1ViewModel for () {}
+
+struct FeatureListInstance1Block31 {
+    parent: NodeId,
+    anchor: NodeId,
+}
+
+impl FeatureListInstance1Block31 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
+        anchor: NodeId,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for FeatureListInstance1Block31 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+enum FeatureListInstance1Slot30 {
+    Native(SlotHandle, NodeId, NodeId, NodeId),
+    Fallback(FeatureListInstance1Block31),
+}
+
+impl FeatureListInstance1Slot30 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+        match slot_row {
+            Some(slot) => {
+                let slot = slot.instantiate();
+                slot.mount(ui, parent, anchor);
+                let first = slot.first_node();
+                Self::Native(slot, parent, anchor, first)
+            }
+            None => Self::Fallback(FeatureListInstance1Block31::mount(
+                ui, parent, anchor, slot_row,
+            )),
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => false,
+            Self::Fallback(block) => block.contains_node(target),
+        }
+    }
+
+    fn update_at<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
+        anchor: NodeId,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
+                if *slot_parent != parent || *slot_anchor != anchor {
+                    *slot_parent = parent;
+                    *slot_anchor = anchor;
+                    slot.move_before(ui, parent, anchor);
+                };
+                let slot_value0: &Feature = __pocket_local_FeatureListInstance1Loop1Item;
+                slot_updates(
+                    ui,
+                    slot.instance_id(),
+                    FeatureListInstance1SlotArguments::Slot0(slot_value0),
+                );
+            }
+            Self::Fallback(block) => block.update_at(
+                ui,
+                parent,
+                props,
+                vm,
+                slot_row,
+                __pocket_local_FeatureListInstance1Loop1Item,
+                anchor,
+                slot_updates,
+            ),
+        };
+    }
+
+    fn dispatch_step<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => events.slot_event(
+                FeatureListInstance1SlotEvent::Slot0(
+                    *input,
+                    slot.instance_id(),
+                    __pocket_local_FeatureListInstance1Loop1Item.to_owned(),
+                ),
+                cursor,
+            ),
+            Self::Fallback(block) => block.dispatch_step(
+                input,
+                props,
+                vm,
+                slot_row,
+                __pocket_local_FeatureListInstance1Loop1Item,
+                events,
+                cursor,
+            ),
+        }
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => slot.pending(input),
+            Self::Fallback(block) => block.pending(input),
+        }
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => slot.sample_idle(input),
+            Self::Fallback(block) => block.sample_idle(input),
+        };
+    }
+
+    fn handler_count(&self) -> usize {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => slot.handler_count(),
+            Self::Fallback(block) => block.handler_count(),
+        }
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
+                slot.pending_after(input, skip)
+            }
+            Self::Fallback(block) => block.pending_after(input, skip),
+        }
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
+                let first = slot.first_node();
+                if *slot_parent != parent || *slot_anchor != anchor || *slot_first != first {
+                    *slot_parent = parent;
+                    *slot_anchor = anchor;
+                    *slot_first = first;
+                    slot.move_before(ui, parent, anchor);
+                };
+                slot.refresh_slot_placement(ui, parent, anchor);
+            }
+            Self::Fallback(block) => block.refresh_slot_placement(ui, parent, anchor),
+        };
+    }
+}
+
+impl Block for FeatureListInstance1Slot30 {
+    fn first_node(&self) -> NodeId {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => slot.first_node(),
+            Self::Fallback(block) => block.first_node(),
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
+                *slot_parent = parent;
+                *slot_anchor = anchor;
+                *slot_first = slot.first_node();
+                slot.move_before(ui, parent, anchor);
+            }
+            Self::Fallback(block) => block.move_before(ui, parent, anchor),
+        };
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        match self {
+            Self::Native(slot, slot_parent, slot_anchor, slot_first) => slot.unmount(ui),
+            Self::Fallback(block) => block.unmount(ui),
+        };
+    }
+}
+
+struct FeatureListInstance1Block29 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: FeatureListInstance1Slot30,
+}
+
+impl FeatureListInstance1Block29 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+        let child0 = FeatureListInstance1Slot30::mount(ui, parent, anchor, slot_row);
+        Self {
+            parent,
+            anchor,
+            child0,
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false || self.child0.contains_node(target)
+    }
+
+    fn update_at<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
+        anchor: NodeId,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let anchor0 = anchor;
+        self.child0.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            slot_row,
+            __pocket_local_FeatureListInstance1Loop1Item,
+            anchor0,
+            slot_updates,
+        );
+    }
+
+    fn dispatch_step<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        if self.child0.dispatch_step(
+            input,
+            props,
+            vm,
+            slot_row,
+            __pocket_local_FeatureListInstance1Loop1Item,
+            events,
+            cursor,
+        ) {
+            return true;
+        };
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.child0.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.child0.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.child0.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        self.child0.pending_after(input, remaining)
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let placement_anchor0 = anchor;
+        self.child0
+            .refresh_slot_placement(ui, parent, placement_anchor0);
+    }
+}
+
+impl Block for FeatureListInstance1Block29 {
+    fn first_node(&self) -> NodeId {
+        if self.child0.first_node() != NodeId::NONE {
+            self.child0.first_node()
+        } else {
+            NodeId::NONE
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        self.child0.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.child0.unmount(ui);
+    }
+}
+
+struct FeatureListInstance1For28 {
+    rows: KeyedList<String, FeatureListInstance1Block29>,
+    parent: NodeId,
+    handler_ends: Vec<usize>,
+}
+
+impl FeatureListInstance1For28 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+        Self {
+            rows: KeyedList::new(),
+            parent,
+            handler_ends: Vec::new(),
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.rows
+            .rows
+            .iter()
+            .any(|row| row.block.contains_node(target))
+    }
+
+    fn update_at<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        anchor: NodeId,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        self.rows.reconcile(
+            ui,
+            parent,
+            anchor,
+            &props.items,
+            |old_key, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
+                old_key.as_str() == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
+            },
+            |__pocket_local_FeatureListInstance1Loop1Item, row_index| {
+                __pocket_local_FeatureListInstance1Loop1Item
+                    .id
+                    .as_str()
+                    .to_owned()
+            },
+            |ui, parent, anchor, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
+                FeatureListInstance1Block29::mount(ui, parent, anchor, slot_row)
+            },
+            |block, ui, __pocket_local_FeatureListInstance1Loop1Item, row_index, row_anchor| {
+                block.update_at(
+                    ui,
+                    parent,
+                    props,
+                    vm,
+                    slot_row,
+                    __pocket_local_FeatureListInstance1Loop1Item,
+                    row_anchor,
+                    slot_updates,
+                );
+            },
+        );
+        self.handler_ends.clear();
+        let mut handler_total = 0usize;
+        for row in self.rows.rows.iter() {
+            handler_total = handler_total.saturating_add(row.block.handler_count());
+            self.handler_ends.push(handler_total);
+        }
+    }
+
+    fn dispatch_step<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        let first_row = self
+            .handler_ends
+            .partition_point(|end| *end <= cursor.completed_offset());
+        cursor.skip_completed(if first_row == 0usize {
+            0usize
+        } else {
+            self.handler_ends[first_row - 1usize]
+        });
+        for (row_index, row) in self.rows.rows.iter_mut().enumerate().skip(first_row) {
+            if row.block.pending_after(input, cursor.completed_offset()) {
+                let mut row_context: Option<(i32, Feature)> = None;
+                let source = props.items;
+                if let Some(__pocket_local_FeatureListInstance1Loop1Item) = source.get(row_index) {
+                    if row.key.as_str() == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
+                    {
+                        row_context = Some((
+                            row_index as i32,
+                            __pocket_local_FeatureListInstance1Loop1Item.to_owned(),
+                        ));
+                    };
+                };
+                if row_context.is_none() {
+                    for (candidate_index, __pocket_local_FeatureListInstance1Loop1Item) in
+                        source.iter().enumerate()
+                    {
+                        if row.key.as_str()
+                            == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
+                        {
+                            row_context = Some((
+                                candidate_index as i32,
+                                __pocket_local_FeatureListInstance1Loop1Item.to_owned(),
+                            ));
+                            break;
+                        };
+                    }
+                };
+                if let Some((row_index, row_value)) = row_context {
+                    let __pocket_local_FeatureListInstance1Loop1Item = &row_value;
+                    if row.block.dispatch_step(
+                        input,
+                        props,
+                        vm,
+                        slot_row,
+                        __pocket_local_FeatureListInstance1Loop1Item,
+                        events,
+                        cursor,
+                    ) {
+                        return true;
+                    };
+                } else {
+                    cursor.skip(row.block.handler_count());
+                    row.block.sample_idle(input);
+                };
+            } else {
+                cursor.skip(row.block.handler_count());
+                row.block.sample_idle(input);
+            };
+        }
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        self.rows.rows.iter().any(|row| row.block.pending(input))
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        for row in self.rows.rows.iter_mut() {
+            row.block.sample_idle(input);
+        }
+    }
+
+    fn handler_count(&self) -> usize {
+        self.handler_ends.last().copied().unwrap_or(0usize)
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let first_row = self.handler_ends.partition_point(|end| *end <= skip);
+        let remaining = skip.saturating_sub(if first_row == 0usize {
+            0usize
+        } else {
+            self.handler_ends[first_row - 1usize]
+        });
+        for (index, row) in self.rows.rows.iter().enumerate().skip(first_row) {
+            if row.block.pending_after(
+                input,
+                if index == first_row {
+                    remaining
+                } else {
+                    0usize
+                },
+            ) {
+                return true;
+            };
+        }
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        let mut next = anchor;
+        for row in self.rows.rows.iter_mut().rev() {
+            row.block.refresh_slot_placement(ui, parent, next);
+            let first = row.block.first_node();
+            if first != NodeId::NONE {
+                next = first;
+            };
+        }
+        self.handler_ends.clear();
+        let mut handler_total = 0usize;
+        for row in self.rows.rows.iter() {
+            handler_total = handler_total.saturating_add(row.block.handler_count());
+            self.handler_ends.push(handler_total);
+        }
+    }
+}
+
+impl Block for FeatureListInstance1For28 {
+    fn first_node(&self) -> NodeId {
+        self.rows.first_node()
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.rows.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.rows.unmount(ui);
+    }
+}
+
+struct FeatureListInstance1Block27 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: FeatureListInstance1For28,
+}
+
+impl FeatureListInstance1Block27 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+        let child0 = FeatureListInstance1For28::mount(ui, parent, anchor, slot_row);
+        Self {
+            parent,
+            anchor,
+            child0,
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false || self.child0.contains_node(target)
+    }
+
+    fn update_at<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        anchor: NodeId,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let anchor0 = anchor;
+        self.child0
+            .update_at(ui, self.parent, props, vm, slot_row, anchor0, slot_updates);
+    }
+
+    fn dispatch_step<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        if self
+            .child0
+            .dispatch_step(input, props, vm, slot_row, events, cursor)
+        {
+            return true;
+        };
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.child0.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.child0.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.child0.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        self.child0.pending_after(input, remaining)
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let placement_anchor0 = anchor;
+        self.child0
+            .refresh_slot_placement(ui, parent, placement_anchor0);
+    }
+}
+
+impl Block for FeatureListInstance1Block27 {
+    fn first_node(&self) -> NodeId {
+        if self.child0.first_node() != NodeId::NONE {
+            self.child0.first_node()
+        } else {
+            NodeId::NONE
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        self.child0.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.child0.unmount(ui);
+    }
+}
+
+struct FeatureListInstance1Node26 {
+    node: NodeId,
+    children: FeatureListInstance1Block27,
+}
+
+impl FeatureListInstance1Node26 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+        let node = ui.create_node(0u8);
+        ui.insert_before(parent, node, anchor);
+        ui.set_style(node, StyleId(21i32));
+        let children = FeatureListInstance1Block27::mount(ui, node, NodeId::NONE, slot_row);
+        Self { node, children }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.node == target || self.children.contains_node(target)
+    }
+
+    fn update_at<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        anchor: NodeId,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        self.children.update_at(
+            ui,
+            self.node,
+            props,
+            vm,
+            slot_row,
+            NodeId::NONE,
+            slot_updates,
+        );
+    }
+
+    fn dispatch_step<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        self.children
+            .dispatch_step(input, props, vm, slot_row, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        self.children
+            .pending_after(input, skip.saturating_sub(0usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children
+            .refresh_slot_placement(ui, self.node, NodeId::NONE);
+    }
+}
+
+impl Block for FeatureListInstance1Node26 {
+    fn first_node(&self) -> NodeId {
+        self.node
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        ui.insert_before(parent, self.node, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+        ui.destroy_node(self.node);
+    }
+}
+
+pub struct FeatureListInstance1View {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: FeatureListInstance1Node26,
+}
+
+impl FeatureListInstance1View {
+    pub fn mount(
+        ui: &mut Ui,
+        parent: NodeId,
+        anchor: NodeId,
+        slot_row: Option<&SlotHandle>,
+    ) -> Self {
+        let child0 = FeatureListInstance1Node26::mount(ui, parent, anchor, slot_row);
+        Self {
+            parent,
+            anchor,
+            child0,
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false || self.child0.contains_node(target)
+    }
+
+    fn update_at<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        anchor: NodeId,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let anchor0 = anchor;
+        self.child0
+            .update_at(ui, self.parent, props, vm, slot_row, anchor0, slot_updates);
+    }
+
+    fn dispatch_step<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        if self
+            .child0
+            .dispatch_step(input, props, vm, slot_row, events, cursor)
+        {
+            return true;
+        };
+        false
+    }
+
+    pub fn dispatch<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        input: &Input,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &mut M,
+        slot_row: Option<&SlotHandle>,
+        events: &mut dyn pocket_vapor::EventSink<
+            FeatureListInstance1Event,
+            FeatureListInstance1SlotEvent,
+        >,
+    ) -> bool {
+        let mut cursor = pocket_vapor::DispatchCursor::new();
+        let mut handled = false;
+        loop {
+            cursor.restart();
+            if !self.dispatch_step(input, props, vm, slot_row, events, &mut cursor) {
+                break;
+            };
+            handled = true;
+        }
+        handled
+    }
+
+    pub fn update<M: FeatureListInstance1ViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        props: &FeatureListInstance1Props<'_>,
+        vm: &M,
+        slot_row: Option<&SlotHandle>,
+        slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+    ) {
+        self.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            slot_row,
+            self.anchor,
+            slot_updates,
+        );
+    }
+
+    pub fn unmount(self, ui: &mut Ui) {
+        Block::unmount(self, ui);
+    }
+
+    pub fn first_node(&self) -> NodeId {
+        Block::first_node(self)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.child0.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.child0.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.child0.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        self.child0.pending_after(input, remaining)
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let placement_anchor0 = anchor;
+        self.child0
+            .refresh_slot_placement(ui, parent, placement_anchor0);
+    }
+}
+
+impl Block for FeatureListInstance1View {
+    fn first_node(&self) -> NodeId {
+        if self.child0.first_node() != NodeId::NONE {
+            self.child0.first_node()
+        } else {
+            NodeId::NONE
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        self.child0.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.child0.unmount(ui);
+    }
+}
+
 pub struct AppProps {}
 
 pub enum AppEvent {}
@@ -3864,6 +4926,8 @@ pub trait AppViewModel {
 
     fn features(&self) -> &[Feature];
 
+    fn theme(&self) -> &LabTheme;
+
     fn enabledCount(&self) -> i32;
 
     fn toggleFeature(&mut self, __pocket_local_id: String);
@@ -3873,12 +4937,12 @@ pub trait AppViewModel {
     fn resetCount(&mut self);
 }
 
-struct AppBlock29 {
+struct AppBlock35 {
     parent: NodeId,
     anchor: NodeId,
 }
 
-impl AppBlock29 {
+impl AppBlock35 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         Self { parent, anchor }
     }
@@ -3940,7 +5004,7 @@ impl AppBlock29 {
     }
 }
 
-impl Block for AppBlock29 {
+impl Block for AppBlock35 {
     fn first_node(&self) -> NodeId {
         NodeId::NONE
     }
@@ -3953,15 +5017,15 @@ impl Block for AppBlock29 {
     fn unmount(self, ui: &mut Ui) {}
 }
 
-struct AppInput28 {
-    children: AppBlock29,
+struct AppInput34 {
+    children: AppBlock35,
     latch: pocket_vapor::ButtonLatch,
 }
 
-impl AppInput28 {
+impl AppInput34 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         Self {
-            children: AppBlock29::mount(ui, parent, anchor),
+            children: AppBlock35::mount(ui, parent, anchor),
             latch: pocket_vapor::ButtonLatch::new(true),
         }
     }
@@ -4038,179 +5102,7 @@ impl AppInput28 {
     }
 }
 
-impl Block for AppInput28 {
-    fn first_node(&self) -> NodeId {
-        self.children.first_node()
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children.move_before(ui, parent, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.children.unmount(ui);
-    }
-}
-
-struct AppBlock31 {
-    parent: NodeId,
-    anchor: NodeId,
-}
-
-impl AppBlock31 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self { parent, anchor }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false
-    }
-
-    fn sample_idle(&mut self, input: &Input) {}
-
-    fn handler_count(&self) -> usize {
-        0usize
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        false
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-}
-
-impl Block for AppBlock31 {
-    fn first_node(&self) -> NodeId {
-        NodeId::NONE
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn unmount(self, ui: &mut Ui) {}
-}
-
-struct AppInput30 {
-    children: AppBlock31,
-}
-
-impl AppInput30 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self {
-            children: AppBlock31::mount(ui, parent, anchor),
-        }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        self.children.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.children.update_at(ui, parent, props, vm, anchor);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        let axis_delta = input.axis_delta(0u8);
-        if cursor.visit() && (axis_delta != 0i32 && true) {
-            let handler_arg0 = axis_delta;
-            vm.adjustCount(handler_arg0);
-            return true;
-        };
-        self.children
-            .dispatch_step(input, props, vm, events, cursor)
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        input.axis_delta(0u8) != 0i32 || self.children.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.children.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        1usize + self.children.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        if skip == 0usize && input.axis_delta(0u8) != 0i32 {
-            return true;
-        };
-        self.children
-            .pending_after(input, skip.saturating_sub(1usize))
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children.refresh_slot_placement(ui, parent, anchor);
-    }
-}
-
-impl Block for AppInput30 {
+impl Block for AppInput34 {
     fn first_node(&self) -> NodeId {
         self.children.first_node()
     }
@@ -4304,17 +5196,189 @@ impl Block for AppBlock37 {
     fn unmount(self, ui: &mut Ui) {}
 }
 
-struct AppNode36 {
-    node: NodeId,
+struct AppInput36 {
     children: AppBlock37,
 }
 
-impl AppNode36 {
+impl AppInput36 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        Self {
+            children: AppBlock37::mount(ui, parent, anchor),
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.children.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.children.update_at(ui, parent, props, vm, anchor);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        let axis_delta = input.axis_delta(0u8);
+        if cursor.visit() && (axis_delta != 0i32 && true) {
+            let handler_arg0 = axis_delta;
+            vm.adjustCount(handler_arg0);
+            return true;
+        };
+        self.children
+            .dispatch_step(input, props, vm, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        input.axis_delta(0u8) != 0i32 || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        1usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        if skip == 0usize && input.axis_delta(0u8) != 0i32 {
+            return true;
+        };
+        self.children
+            .pending_after(input, skip.saturating_sub(1usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children.refresh_slot_placement(ui, parent, anchor);
+    }
+}
+
+impl Block for AppInput36 {
+    fn first_node(&self) -> NodeId {
+        self.children.first_node()
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+    }
+}
+
+struct AppBlock43 {
+    parent: NodeId,
+    anchor: NodeId,
+}
+
+impl AppBlock43 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for AppBlock43 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+struct AppNode42 {
+    node: NodeId,
+    children: AppBlock43,
+}
+
+impl AppNode42 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(13i32));
-        let children = AppBlock37::mount(ui, node, NodeId::NONE);
+        let children = AppBlock43::mount(ui, node, NodeId::NONE);
         ui.set_text(node, "Vue SFC Feature Lab");
         Self { node, children }
     }
@@ -4379,7 +5443,7 @@ impl AppNode36 {
     }
 }
 
-impl Block for AppNode36 {
+impl Block for AppNode42 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -4394,12 +5458,12 @@ impl Block for AppNode36 {
     }
 }
 
-struct AppBlock39 {
+struct AppBlock45 {
     parent: NodeId,
     anchor: NodeId,
 }
 
-impl AppBlock39 {
+impl AppBlock45 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         Self { parent, anchor }
     }
@@ -4461,7 +5525,7 @@ impl AppBlock39 {
     }
 }
 
-impl Block for AppBlock39 {
+impl Block for AppBlock45 {
     fn first_node(&self) -> NodeId {
         NodeId::NONE
     }
@@ -4474,17 +5538,17 @@ impl Block for AppBlock39 {
     fn unmount(self, ui: &mut Ui) {}
 }
 
-struct AppNode38 {
+struct AppNode44 {
     node: NodeId,
-    children: AppBlock39,
+    children: AppBlock45,
 }
 
-impl AppNode38 {
+impl AppNode44 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(8i32));
-        let children = AppBlock39::mount(ui, node, NodeId::NONE);
+        let children = AppBlock45::mount(ui, node, NodeId::NONE);
         ui.set_text(node, "official template syntax · PocketJS Vapor");
         Self { node, children }
     }
@@ -4549,7 +5613,7 @@ impl AppNode38 {
     }
 }
 
-impl Block for AppNode38 {
+impl Block for AppNode44 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -4564,17 +5628,17 @@ impl Block for AppNode38 {
     }
 }
 
-struct AppBlock35 {
+struct AppBlock41 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode36,
-    child1: AppNode38,
+    child0: AppNode42,
+    child1: AppNode44,
 }
 
-impl AppBlock35 {
+impl AppBlock41 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode36::mount(ui, parent, anchor);
-        let child1 = AppNode38::mount(ui, parent, anchor);
+        let child0 = AppNode42::mount(ui, parent, anchor);
+        let child1 = AppNode44::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -4676,7 +5740,7 @@ impl AppBlock35 {
     }
 }
 
-impl Block for AppBlock35 {
+impl Block for AppBlock41 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -4702,17 +5766,17 @@ impl Block for AppBlock35 {
     }
 }
 
-struct AppNode34 {
+struct AppNode40 {
     node: NodeId,
-    children: AppBlock35,
+    children: AppBlock41,
 }
 
-impl AppNode34 {
+impl AppNode40 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(12i32));
-        let children = AppBlock35::mount(ui, node, NodeId::NONE);
+        let children = AppBlock41::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -4728,199 +5792,6 @@ impl AppNode34 {
         vm: &M,
         anchor: NodeId,
     ) {
-        self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        self.children
-            .dispatch_step(input, props, vm, events, cursor)
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.children.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.children.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.children.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        self.children
-            .pending_after(input, skip.saturating_sub(0usize))
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children
-            .refresh_slot_placement(ui, self.node, NodeId::NONE);
-    }
-}
-
-impl Block for AppNode34 {
-    fn first_node(&self) -> NodeId {
-        self.node
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        ui.insert_before(parent, self.node, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.children.unmount(ui);
-        ui.destroy_node(self.node);
-    }
-}
-
-struct AppBlock41 {
-    parent: NodeId,
-    anchor: NodeId,
-}
-
-impl AppBlock41 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self { parent, anchor }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false
-    }
-
-    fn sample_idle(&mut self, input: &Input) {}
-
-    fn handler_count(&self) -> usize {
-        0usize
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        false
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-}
-
-impl Block for AppBlock41 {
-    fn first_node(&self) -> NodeId {
-        NodeId::NONE
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn unmount(self, ui: &mut Ui) {}
-}
-
-struct AppNode40 {
-    node: NodeId,
-    children: AppBlock41,
-    text_inputs: Option<(i32,)>,
-    text_value: String,
-    text_scratch: String,
-}
-
-impl AppNode40 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(1u8);
-        ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(14i32));
-        let children = AppBlock41::mount(ui, node, NodeId::NONE);
-        Self {
-            node,
-            children,
-            text_inputs: None,
-            text_value: String::new(),
-            text_scratch: String::new(),
-        }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        self.node == target || self.children.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        let text_input0 = vm.enabledCount();
-        if self
-            .text_inputs
-            .as_ref()
-            .map_or(true, |previous| previous.0 != text_input0)
-        {
-            self.text_scratch.clear();
-            write!(&mut self.text_scratch, "{}/3 ON", display(&text_input0))
-                .expect("writing to String cannot fail");
-            if self.text_scratch != self.text_value {
-                core::mem::swap(&mut self.text_scratch, &mut self.text_value);
-                ui.set_text(self.node, &self.text_value);
-            };
-            self.text_inputs = Some((text_input0,));
-        };
         self.children
             .update_at(ui, self.node, props, vm, NodeId::NONE);
     }
@@ -4970,233 +5841,6 @@ impl AppNode40 {
 }
 
 impl Block for AppNode40 {
-    fn first_node(&self) -> NodeId {
-        self.node
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        ui.insert_before(parent, self.node, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.children.unmount(ui);
-        ui.destroy_node(self.node);
-    }
-}
-
-struct AppBlock33 {
-    parent: NodeId,
-    anchor: NodeId,
-    child0: AppNode34,
-    child1: AppNode40,
-}
-
-impl AppBlock33 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode34::mount(ui, parent, anchor);
-        let child1 = AppNode40::mount(ui, parent, anchor);
-        Self {
-            parent,
-            anchor,
-            child0,
-            child1,
-        }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false || self.child0.contains_node(target) || self.child1.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
-        let anchor0 = if self.child1.first_node() != NodeId::NONE {
-            self.child1.first_node()
-        } else {
-            anchor
-        };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        if self.child0.dispatch_step(input, props, vm, events, cursor) {
-            return true;
-        };
-        if self.child1.dispatch_step(input, props, vm, events, cursor) {
-            return true;
-        };
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.child0.pending(input) || self.child1.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.child0.sample_idle(input);
-        self.child1.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.child0.handler_count() + self.child1.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        let count0 = self.child0.handler_count();
-        if remaining >= count0 {
-            remaining = remaining - count0;
-        } else {
-            if self.child0.pending_after(input, remaining) {
-                return true;
-            };
-            remaining = 0usize;
-        };
-        self.child1.pending_after(input, remaining)
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-        let placement_anchor1 = anchor;
-        self.child1
-            .refresh_slot_placement(ui, parent, placement_anchor1);
-        let placement_anchor0 = if self.child1.first_node() != NodeId::NONE {
-            self.child1.first_node()
-        } else {
-            anchor
-        };
-        self.child0
-            .refresh_slot_placement(ui, parent, placement_anchor0);
-    }
-}
-
-impl Block for AppBlock33 {
-    fn first_node(&self) -> NodeId {
-        if self.child0.first_node() != NodeId::NONE {
-            self.child0.first_node()
-        } else {
-            if self.child1.first_node() != NodeId::NONE {
-                self.child1.first_node()
-            } else {
-                NodeId::NONE
-            }
-        }
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-        self.child0.move_before(ui, parent, anchor);
-        self.child1.move_before(ui, parent, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.child0.unmount(ui);
-        self.child1.unmount(ui);
-    }
-}
-
-struct AppNode32 {
-    node: NodeId,
-    children: AppBlock33,
-}
-
-impl AppNode32 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(0u8);
-        ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(1i32));
-        let children = AppBlock33::mount(ui, node, NodeId::NONE);
-        Self { node, children }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        self.node == target || self.children.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        self.children
-            .dispatch_step(input, props, vm, events, cursor)
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.children.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.children.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.children.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        self.children
-            .pending_after(input, skip.saturating_sub(0usize))
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children
-            .refresh_slot_placement(ui, self.node, NodeId::NONE);
-    }
-}
-
-impl Block for AppNode32 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -5294,7 +5938,7 @@ impl Block for AppBlock47 {
 struct AppNode46 {
     node: NodeId,
     children: AppBlock47,
-    text_inputs: Option<(String,)>,
+    text_inputs: Option<(i32,)>,
     text_value: String,
     text_scratch: String,
 }
@@ -5303,7 +5947,7 @@ impl AppNode46 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(2i32));
+        ui.set_style(node, StyleId(14i32));
         let children = AppBlock47::mount(ui, node, NodeId::NONE);
         Self {
             node,
@@ -5326,20 +5970,20 @@ impl AppNode46 {
         vm: &M,
         anchor: NodeId,
     ) {
-        let text_input0 = "COMPONENT V-MODEL";
+        let text_input0 = vm.enabledCount();
         if self
             .text_inputs
             .as_ref()
-            .map_or(true, |previous| previous.0.as_str() != text_input0)
+            .map_or(true, |previous| previous.0 != text_input0)
         {
             self.text_scratch.clear();
-            write!(&mut self.text_scratch, "{}", display(&text_input0))
+            write!(&mut self.text_scratch, "{}/3 ON", display(&text_input0))
                 .expect("writing to String cannot fail");
             if self.text_scratch != self.text_value {
                 core::mem::swap(&mut self.text_scratch, &mut self.text_value);
                 ui.set_text(self.node, &self.text_value);
             };
-            self.text_inputs = Some((text_input0.to_owned(),));
+            self.text_inputs = Some((text_input0,));
         };
         self.children
             .update_at(ui, self.node, props, vm, NodeId::NONE);
@@ -5404,187 +6048,17 @@ impl Block for AppNode46 {
     }
 }
 
-struct AppBlock49 {
+struct AppBlock39 {
     parent: NodeId,
     anchor: NodeId,
+    child0: AppNode40,
+    child1: AppNode46,
 }
 
-impl AppBlock49 {
+impl AppBlock39 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self { parent, anchor }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false
-    }
-
-    fn sample_idle(&mut self, input: &Input) {}
-
-    fn handler_count(&self) -> usize {
-        0usize
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        false
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-}
-
-impl Block for AppBlock49 {
-    fn first_node(&self) -> NodeId {
-        NodeId::NONE
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn unmount(self, ui: &mut Ui) {}
-}
-
-struct AppNode48 {
-    node: NodeId,
-    children: AppBlock49,
-}
-
-impl AppNode48 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(1u8);
-        ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(15i32));
-        let children = AppBlock49::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "defineModel()");
-        Self { node, children }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        self.node == target || self.children.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        self.children
-            .dispatch_step(input, props, vm, events, cursor)
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.children.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.children.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.children.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        self.children
-            .pending_after(input, skip.saturating_sub(0usize))
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children
-            .refresh_slot_placement(ui, self.node, NodeId::NONE);
-    }
-}
-
-impl Block for AppNode48 {
-    fn first_node(&self) -> NodeId {
-        self.node
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        ui.insert_before(parent, self.node, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.children.unmount(ui);
-        ui.destroy_node(self.node);
-    }
-}
-
-struct AppBlock45 {
-    parent: NodeId,
-    anchor: NodeId,
-    child0: AppNode46,
-    child1: AppNode48,
-}
-
-impl AppBlock45 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode46::mount(ui, parent, anchor);
-        let child1 = AppNode48::mount(ui, parent, anchor);
+        let child0 = AppNode40::mount(ui, parent, anchor);
+        let child1 = AppNode46::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -5686,7 +6160,7 @@ impl AppBlock45 {
     }
 }
 
-impl Block for AppBlock45 {
+impl Block for AppBlock39 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -5712,17 +6186,17 @@ impl Block for AppBlock45 {
     }
 }
 
-struct AppNode44 {
+struct AppNode38 {
     node: NodeId,
-    children: AppBlock45,
+    children: AppBlock39,
 }
 
-impl AppNode44 {
+impl AppNode38 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(1i32));
-        let children = AppBlock45::mount(ui, node, NodeId::NONE);
+        let children = AppBlock39::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -5786,7 +6260,7 @@ impl AppNode44 {
     }
 }
 
-impl Block for AppNode44 {
+impl Block for AppNode38 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -5893,7 +6367,7 @@ impl AppNode52 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(10i32));
+        ui.set_style(node, StyleId(2i32));
         let children = AppBlock53::mount(ui, node, NodeId::NONE);
         Self {
             node,
@@ -5916,7 +6390,7 @@ impl AppNode52 {
         vm: &M,
         anchor: NodeId,
     ) {
-        let text_input0 = "VALUE +1";
+        let text_input0 = "COMPONENT V-MODEL";
         if self
             .text_inputs
             .as_ref()
@@ -6077,24 +6551,16 @@ impl Block for AppBlock55 {
 struct AppNode54 {
     node: NodeId,
     children: AppBlock55,
-    text_inputs: Option<(i32,)>,
-    text_value: String,
-    text_scratch: String,
 }
 
 impl AppNode54 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(10i32));
+        ui.set_style(node, StyleId(15i32));
         let children = AppBlock55::mount(ui, node, NodeId::NONE);
-        Self {
-            node,
-            children,
-            text_inputs: None,
-            text_value: String::new(),
-            text_scratch: String::new(),
-        }
+        ui.set_text(node, "defineModel()");
+        Self { node, children }
     }
 
     fn contains_node(&self, target: NodeId) -> bool {
@@ -6109,21 +6575,6 @@ impl AppNode54 {
         vm: &M,
         anchor: NodeId,
     ) {
-        let text_input0 = vm.count();
-        if self
-            .text_inputs
-            .as_ref()
-            .map_or(true, |previous| previous.0 != text_input0)
-        {
-            self.text_scratch.clear();
-            write!(&mut self.text_scratch, "{}", display(&text_input0))
-                .expect("writing to String cannot fail");
-            if self.text_scratch != self.text_value {
-                core::mem::swap(&mut self.text_scratch, &mut self.text_value);
-                ui.set_text(self.node, &self.text_value);
-            };
-            self.text_inputs = Some((text_input0,));
-        };
         self.children
             .update_at(ui, self.node, props, vm, NodeId::NONE);
     }
@@ -6334,9 +6785,7 @@ impl AppNode50 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(9i32));
-        ui.set_focusable(node, true);
-        ui.set_debug_name(node, "ModelButton");
+        ui.set_style(node, StyleId(1i32));
         let children = AppBlock51::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
@@ -6374,17 +6823,12 @@ impl AppNode50 {
             return false;
         };
         let mut handled = false;
-        if cursor.visit() && input.is_press(self.node) {
-            let handler_value = vm.count().wrapping_add(1i32);
-            vm.set_count(handler_value);
-            return true;
-        };
         self.children
             .dispatch_step(input, props, vm, events, cursor)
     }
 
     fn pending(&self, input: &Input) -> bool {
-        input.is_press(self.node) || self.children.pending(input)
+        false || self.children.pending(input)
     }
 
     fn sample_idle(&mut self, input: &Input) {
@@ -6392,15 +6836,12 @@ impl AppNode50 {
     }
 
     fn handler_count(&self) -> usize {
-        1usize + self.children.handler_count()
+        0usize + self.children.handler_count()
     }
 
     fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        if skip < 1usize && input.is_press(self.node) {
-            return true;
-        };
         self.children
-            .pending_after(input, skip.saturating_sub(1usize))
+            .pending_after(input, skip.saturating_sub(0usize))
     }
 
     fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
@@ -6410,6 +6851,199 @@ impl AppNode50 {
 }
 
 impl Block for AppNode50 {
+    fn first_node(&self) -> NodeId {
+        self.node
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        ui.insert_before(parent, self.node, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+        ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock59 {
+    parent: NodeId,
+    anchor: NodeId,
+}
+
+impl AppBlock59 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for AppBlock59 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+struct AppNode58 {
+    node: NodeId,
+    children: AppBlock59,
+    text_inputs: Option<(String,)>,
+    text_value: String,
+    text_scratch: String,
+}
+
+impl AppNode58 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let node = ui.create_node(1u8);
+        ui.insert_before(parent, node, anchor);
+        ui.set_style(node, StyleId(10i32));
+        let children = AppBlock59::mount(ui, node, NodeId::NONE);
+        Self {
+            node,
+            children,
+            text_inputs: None,
+            text_value: String::new(),
+            text_scratch: String::new(),
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.node == target || self.children.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        let text_input0 = "VALUE +1";
+        if self
+            .text_inputs
+            .as_ref()
+            .map_or(true, |previous| previous.0.as_str() != text_input0)
+        {
+            self.text_scratch.clear();
+            write!(&mut self.text_scratch, "{}", display(&text_input0))
+                .expect("writing to String cannot fail");
+            if self.text_scratch != self.text_value {
+                core::mem::swap(&mut self.text_scratch, &mut self.text_value);
+                ui.set_text(self.node, &self.text_value);
+            };
+            self.text_inputs = Some((text_input0.to_owned(),));
+        };
+        self.children
+            .update_at(ui, self.node, props, vm, NodeId::NONE);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        self.children
+            .dispatch_step(input, props, vm, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        self.children
+            .pending_after(input, skip.saturating_sub(0usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children
+            .refresh_slot_placement(ui, self.node, NodeId::NONE);
+    }
+}
+
+impl Block for AppNode58 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -6507,16 +7141,24 @@ impl Block for AppBlock61 {
 struct AppNode60 {
     node: NodeId,
     children: AppBlock61,
+    text_inputs: Option<(i32,)>,
+    text_value: String,
+    text_scratch: String,
 }
 
 impl AppNode60 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(8i32));
+        ui.set_style(node, StyleId(10i32));
         let children = AppBlock61::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "v-if: idle");
-        Self { node, children }
+        Self {
+            node,
+            children,
+            text_inputs: None,
+            text_value: String::new(),
+            text_scratch: String::new(),
+        }
     }
 
     fn contains_node(&self, target: NodeId) -> bool {
@@ -6531,6 +7173,21 @@ impl AppNode60 {
         vm: &M,
         anchor: NodeId,
     ) {
+        let text_input0 = vm.count();
+        if self
+            .text_inputs
+            .as_ref()
+            .map_or(true, |previous| previous.0 != text_input0)
+        {
+            self.text_scratch.clear();
+            write!(&mut self.text_scratch, "{}", display(&text_input0))
+                .expect("writing to String cannot fail");
+            if self.text_scratch != self.text_value {
+                core::mem::swap(&mut self.text_scratch, &mut self.text_value);
+                ui.set_text(self.node, &self.text_value);
+            };
+            self.text_inputs = Some((text_input0,));
+        };
         self.children
             .update_at(ui, self.node, props, vm, NodeId::NONE);
     }
@@ -6594,24 +7251,27 @@ impl Block for AppNode60 {
     }
 }
 
-struct AppBlock59 {
+struct AppBlock57 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode60,
+    child0: AppNode58,
+    child1: AppNode60,
 }
 
-impl AppBlock59 {
+impl AppBlock57 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode60::mount(ui, parent, anchor);
+        let child0 = AppNode58::mount(ui, parent, anchor);
+        let child1 = AppNode60::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
             child0,
+            child1,
         }
     }
 
     fn contains_node(&self, target: NodeId) -> bool {
-        false || self.child0.contains_node(target)
+        false || self.child0.contains_node(target) || self.child1.contains_node(target)
     }
 
     fn update_at<M: AppViewModel>(
@@ -6624,7 +7284,13 @@ impl AppBlock59 {
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor0 = anchor;
+        let anchor1 = anchor;
+        self.child1.update_at(ui, self.parent, props, vm, anchor1);
+        let anchor0 = if self.child1.first_node() != NodeId::NONE {
+            self.child1.first_node()
+        } else {
+            anchor
+        };
         self.child0.update_at(ui, self.parent, props, vm, anchor0);
     }
 
@@ -6648,41 +7314,65 @@ impl AppBlock59 {
         if self.child0.dispatch_step(input, props, vm, events, cursor) {
             return true;
         };
+        if self.child1.dispatch_step(input, props, vm, events, cursor) {
+            return true;
+        };
         false
     }
 
     fn pending(&self, input: &Input) -> bool {
-        false || self.child0.pending(input)
+        false || self.child0.pending(input) || self.child1.pending(input)
     }
 
     fn sample_idle(&mut self, input: &Input) {
         self.child0.sample_idle(input);
+        self.child1.sample_idle(input);
     }
 
     fn handler_count(&self) -> usize {
-        0usize + self.child0.handler_count()
+        0usize + self.child0.handler_count() + self.child1.handler_count()
     }
 
     fn pending_after(&self, input: &Input, skip: usize) -> bool {
         let mut remaining = skip;
-        self.child0.pending_after(input, remaining)
+        let count0 = self.child0.handler_count();
+        if remaining >= count0 {
+            remaining = remaining - count0;
+        } else {
+            if self.child0.pending_after(input, remaining) {
+                return true;
+            };
+            remaining = 0usize;
+        };
+        self.child1.pending_after(input, remaining)
     }
 
     fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
         self.parent = parent;
         self.anchor = anchor;
-        let placement_anchor0 = anchor;
+        let placement_anchor1 = anchor;
+        self.child1
+            .refresh_slot_placement(ui, parent, placement_anchor1);
+        let placement_anchor0 = if self.child1.first_node() != NodeId::NONE {
+            self.child1.first_node()
+        } else {
+            anchor
+        };
         self.child0
             .refresh_slot_placement(ui, parent, placement_anchor0);
     }
 }
 
-impl Block for AppBlock59 {
+impl Block for AppBlock57 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
         } else {
-            NodeId::NONE
+            if self.child1.first_node() != NodeId::NONE {
+                self.child1.first_node()
+            } else {
+                NodeId::NONE
+            }
         }
     }
 
@@ -6690,105 +7380,28 @@ impl Block for AppBlock59 {
         self.parent = parent;
         self.anchor = anchor;
         self.child0.move_before(ui, parent, anchor);
+        self.child1.move_before(ui, parent, anchor);
     }
 
     fn unmount(self, ui: &mut Ui) {
         self.child0.unmount(ui);
+        self.child1.unmount(ui);
     }
 }
 
-struct AppBlock64 {
-    parent: NodeId,
-    anchor: NodeId,
-}
-
-impl AppBlock64 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self { parent, anchor }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false
-    }
-
-    fn sample_idle(&mut self, input: &Input) {}
-
-    fn handler_count(&self) -> usize {
-        0usize
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        false
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-}
-
-impl Block for AppBlock64 {
-    fn first_node(&self) -> NodeId {
-        NodeId::NONE
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn unmount(self, ui: &mut Ui) {}
-}
-
-struct AppNode63 {
+struct AppNode56 {
     node: NodeId,
-    children: AppBlock64,
+    children: AppBlock57,
 }
 
-impl AppNode63 {
+impl AppNode56 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(1u8);
+        let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(15i32));
-        let children = AppBlock64::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "v-else-if: active");
+        ui.set_style(node, StyleId(9i32));
+        ui.set_focusable(node, true);
+        ui.set_debug_name(node, "ModelButton");
+        let children = AppBlock57::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -6825,12 +7438,17 @@ impl AppNode63 {
             return false;
         };
         let mut handled = false;
+        if cursor.visit() && input.is_press(self.node) {
+            let handler_value = vm.count().wrapping_add(1i32);
+            vm.set_count(handler_value);
+            return true;
+        };
         self.children
             .dispatch_step(input, props, vm, events, cursor)
     }
 
     fn pending(&self, input: &Input) -> bool {
-        false || self.children.pending(input)
+        input.is_press(self.node) || self.children.pending(input)
     }
 
     fn sample_idle(&mut self, input: &Input) {
@@ -6838,12 +7456,15 @@ impl AppNode63 {
     }
 
     fn handler_count(&self) -> usize {
-        0usize + self.children.handler_count()
+        1usize + self.children.handler_count()
     }
 
     fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        if skip < 1usize && input.is_press(self.node) {
+            return true;
+        };
         self.children
-            .pending_after(input, skip.saturating_sub(0usize))
+            .pending_after(input, skip.saturating_sub(1usize))
     }
 
     fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
@@ -6852,7 +7473,7 @@ impl AppNode63 {
     }
 }
 
-impl Block for AppNode63 {
+impl Block for AppNode56 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -6864,109 +7485,6 @@ impl Block for AppNode63 {
     fn unmount(self, ui: &mut Ui) {
         self.children.unmount(ui);
         ui.destroy_node(self.node);
-    }
-}
-
-struct AppBlock62 {
-    parent: NodeId,
-    anchor: NodeId,
-    child0: AppNode63,
-}
-
-impl AppBlock62 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode63::mount(ui, parent, anchor);
-        Self {
-            parent,
-            anchor,
-            child0,
-        }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false || self.child0.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-        let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        if self.child0.dispatch_step(input, props, vm, events, cursor) {
-            return true;
-        };
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.child0.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.child0.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.child0.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        self.child0.pending_after(input, remaining)
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-        let placement_anchor0 = anchor;
-        self.child0
-            .refresh_slot_placement(ui, parent, placement_anchor0);
-    }
-}
-
-impl Block for AppBlock62 {
-    fn first_node(&self) -> NodeId {
-        if self.child0.first_node() != NodeId::NONE {
-            self.child0.first_node()
-        } else {
-            NodeId::NONE
-        }
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-        self.child0.move_before(ui, parent, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.child0.unmount(ui);
     }
 }
 
@@ -7059,9 +7577,9 @@ impl AppNode66 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(17i32));
+        ui.set_style(node, StyleId(8i32));
         let children = AppBlock67::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "v-else: complete");
+        ui.set_text(node, "v-if: idle");
         Self { node, children }
     }
 
@@ -7243,173 +7761,12 @@ impl Block for AppBlock65 {
     }
 }
 
-enum AppIf58 {
-    B0(AppBlock59),
-    B1(AppBlock62),
-    B2(AppBlock65),
-    Empty,
-}
-
-impl AppIf58 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self::Empty
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        match self {
-            Self::B0(block) => block.contains_node(target),
-            Self::B1(block) => block.contains_node(target),
-            Self::B2(block) => block.contains_node(target),
-            Self::Empty => false,
-        }
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        let selected = if vm.count() == 0i32 {
-            0i32
-        } else {
-            if vm.count() < 4i32 {
-                1i32
-            } else {
-                2i32
-            }
-        };
-        let current = match &*self {
-            Self::B0(_) => 0i32,
-            Self::B1(_) => 1i32,
-            Self::B2(_) => 2i32,
-            Self::Empty => -1i32,
-        };
-        if selected != current {
-            let old = core::mem::replace(self, Self::Empty);
-            old.unmount(ui);
-            *self = match selected {
-                0 => Self::B0(AppBlock59::mount(ui, parent, anchor)),
-                1 => Self::B1(AppBlock62::mount(ui, parent, anchor)),
-                2 => Self::B2(AppBlock65::mount(ui, parent, anchor)),
-                _ => Self::Empty,
-            };
-        };
-        match self {
-            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::B2(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::Empty => (),
-        };
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        match self {
-            Self::B0(block) => block.dispatch_step(input, props, vm, events, cursor),
-            Self::B1(block) => block.dispatch_step(input, props, vm, events, cursor),
-            Self::B2(block) => block.dispatch_step(input, props, vm, events, cursor),
-            Self::Empty => false,
-        }
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        match self {
-            Self::B0(block) => block.pending(input),
-            Self::B1(block) => block.pending(input),
-            Self::B2(block) => block.pending(input),
-            Self::Empty => false,
-        }
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        match self {
-            Self::B0(block) => block.sample_idle(input),
-            Self::B1(block) => block.sample_idle(input),
-            Self::B2(block) => block.sample_idle(input),
-            Self::Empty => (),
-        };
-    }
-
-    fn handler_count(&self) -> usize {
-        match self {
-            Self::B0(block) => block.handler_count(),
-            Self::B1(block) => block.handler_count(),
-            Self::B2(block) => block.handler_count(),
-            Self::Empty => 0usize,
-        }
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        match self {
-            Self::B0(block) => block.pending_after(input, skip),
-            Self::B1(block) => block.pending_after(input, skip),
-            Self::B2(block) => block.pending_after(input, skip),
-            Self::Empty => false,
-        }
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        match self {
-            Self::B0(block) => block.refresh_slot_placement(ui, parent, anchor),
-            Self::B1(block) => block.refresh_slot_placement(ui, parent, anchor),
-            Self::B2(block) => block.refresh_slot_placement(ui, parent, anchor),
-            Self::Empty => (),
-        };
-    }
-}
-
-impl Block for AppIf58 {
-    fn first_node(&self) -> NodeId {
-        match self {
-            Self::B0(block) => block.first_node(),
-            Self::B1(block) => block.first_node(),
-            Self::B2(block) => block.first_node(),
-            Self::Empty => NodeId::NONE,
-        }
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        match self {
-            Self::B0(block) => block.move_before(ui, parent, anchor),
-            Self::B1(block) => block.move_before(ui, parent, anchor),
-            Self::B2(block) => block.move_before(ui, parent, anchor),
-            Self::Empty => (),
-        };
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        match self {
-            Self::B0(block) => block.unmount(ui),
-            Self::B1(block) => block.unmount(ui),
-            Self::B2(block) => block.unmount(ui),
-            Self::Empty => (),
-        };
-    }
-}
-
-struct AppBlock69 {
+struct AppBlock70 {
     parent: NodeId,
     anchor: NodeId,
 }
 
-impl AppBlock69 {
+impl AppBlock70 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         Self { parent, anchor }
     }
@@ -7471,7 +7828,7 @@ impl AppBlock69 {
     }
 }
 
-impl Block for AppBlock69 {
+impl Block for AppBlock70 {
     fn first_node(&self) -> NodeId {
         NodeId::NONE
     }
@@ -7484,272 +7841,18 @@ impl Block for AppBlock69 {
     fn unmount(self, ui: &mut Ui) {}
 }
 
-struct AppNode68 {
+struct AppNode69 {
     node: NodeId,
-    children: AppBlock69,
-    text_inputs: Option<(i32,)>,
-    text_value: String,
-    text_scratch: String,
+    children: AppBlock70,
 }
 
-impl AppNode68 {
+impl AppNode69 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(18i32));
-        let children = AppBlock69::mount(ui, node, NodeId::NONE);
-        Self {
-            node,
-            children,
-            text_inputs: None,
-            text_value: String::new(),
-            text_scratch: String::new(),
-        }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        self.node == target || self.children.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        let text_input0 = vm.count();
-        if self
-            .text_inputs
-            .as_ref()
-            .map_or(true, |previous| previous.0 != text_input0)
-        {
-            self.text_scratch.clear();
-            write!(
-                &mut self.text_scratch,
-                "parent value: {}",
-                display(&text_input0)
-            )
-            .expect("writing to String cannot fail");
-            if self.text_scratch != self.text_value {
-                core::mem::swap(&mut self.text_scratch, &mut self.text_value);
-                ui.set_text(self.node, &self.text_value);
-            };
-            self.text_inputs = Some((text_input0,));
-        };
-        self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        self.children
-            .dispatch_step(input, props, vm, events, cursor)
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.children.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.children.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.children.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        self.children
-            .pending_after(input, skip.saturating_sub(0usize))
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children
-            .refresh_slot_placement(ui, self.node, NodeId::NONE);
-    }
-}
-
-impl Block for AppNode68 {
-    fn first_node(&self) -> NodeId {
-        self.node
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        ui.insert_before(parent, self.node, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.children.unmount(ui);
-        ui.destroy_node(self.node);
-    }
-}
-
-struct AppBlock57 {
-    parent: NodeId,
-    anchor: NodeId,
-    child0: AppIf58,
-    child1: AppNode68,
-}
-
-impl AppBlock57 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppIf58::mount(ui, parent, anchor);
-        let child1 = AppNode68::mount(ui, parent, anchor);
-        Self {
-            parent,
-            anchor,
-            child0,
-            child1,
-        }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false || self.child0.contains_node(target) || self.child1.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
-        let anchor0 = if self.child1.first_node() != NodeId::NONE {
-            self.child1.first_node()
-        } else {
-            anchor
-        };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        if self.child0.dispatch_step(input, props, vm, events, cursor) {
-            return true;
-        };
-        if self.child1.dispatch_step(input, props, vm, events, cursor) {
-            return true;
-        };
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.child0.pending(input) || self.child1.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.child0.sample_idle(input);
-        self.child1.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.child0.handler_count() + self.child1.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        let count0 = self.child0.handler_count();
-        if remaining >= count0 {
-            remaining = remaining - count0;
-        } else {
-            if self.child0.pending_after(input, remaining) {
-                return true;
-            };
-            remaining = 0usize;
-        };
-        self.child1.pending_after(input, remaining)
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-        let placement_anchor1 = anchor;
-        self.child1
-            .refresh_slot_placement(ui, parent, placement_anchor1);
-        let placement_anchor0 = if self.child1.first_node() != NodeId::NONE {
-            self.child1.first_node()
-        } else {
-            anchor
-        };
-        self.child0
-            .refresh_slot_placement(ui, parent, placement_anchor0);
-    }
-}
-
-impl Block for AppBlock57 {
-    fn first_node(&self) -> NodeId {
-        if self.child0.first_node() != NodeId::NONE {
-            self.child0.first_node()
-        } else {
-            if self.child1.first_node() != NodeId::NONE {
-                self.child1.first_node()
-            } else {
-                NodeId::NONE
-            }
-        }
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-        self.child0.move_before(ui, parent, anchor);
-        self.child1.move_before(ui, parent, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.child0.unmount(ui);
-        self.child1.unmount(ui);
-    }
-}
-
-struct AppNode56 {
-    node: NodeId,
-    children: AppBlock57,
-}
-
-impl AppNode56 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(0u8);
-        ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(1i32));
-        let children = AppBlock57::mount(ui, node, NodeId::NONE);
+        ui.set_style(node, StyleId(15i32));
+        let children = AppBlock70::mount(ui, node, NodeId::NONE);
+        ui.set_text(node, "v-else-if: active");
         Self { node, children }
     }
 
@@ -7813,7 +7916,7 @@ impl AppNode56 {
     }
 }
 
-impl Block for AppNode56 {
+impl Block for AppNode69 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -7825,6 +7928,109 @@ impl Block for AppNode56 {
     fn unmount(self, ui: &mut Ui) {
         self.children.unmount(ui);
         ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock68 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: AppNode69,
+}
+
+impl AppBlock68 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let child0 = AppNode69::mount(ui, parent, anchor);
+        Self {
+            parent,
+            anchor,
+            child0,
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false || self.child0.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let anchor0 = anchor;
+        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        if self.child0.dispatch_step(input, props, vm, events, cursor) {
+            return true;
+        };
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.child0.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.child0.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.child0.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        self.child0.pending_after(input, remaining)
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let placement_anchor0 = anchor;
+        self.child0
+            .refresh_slot_placement(ui, parent, placement_anchor0);
+    }
+}
+
+impl Block for AppBlock68 {
+    fn first_node(&self) -> NodeId {
+        if self.child0.first_node() != NodeId::NONE {
+            self.child0.first_node()
+        } else {
+            NodeId::NONE
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        self.child0.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.child0.unmount(ui);
     }
 }
 
@@ -7917,9 +8123,9 @@ impl AppNode72 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(18i32));
+        ui.set_style(node, StyleId(17i32));
         let children = AppBlock73::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "template v-if: fragment");
+        ui.set_text(node, "v-else: complete");
         Self { node, children }
     }
 
@@ -7995,6 +8201,270 @@ impl Block for AppNode72 {
     fn unmount(self, ui: &mut Ui) {
         self.children.unmount(ui);
         ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock71 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: AppNode72,
+}
+
+impl AppBlock71 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let child0 = AppNode72::mount(ui, parent, anchor);
+        Self {
+            parent,
+            anchor,
+            child0,
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false || self.child0.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let anchor0 = anchor;
+        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        if self.child0.dispatch_step(input, props, vm, events, cursor) {
+            return true;
+        };
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.child0.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.child0.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.child0.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        self.child0.pending_after(input, remaining)
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let placement_anchor0 = anchor;
+        self.child0
+            .refresh_slot_placement(ui, parent, placement_anchor0);
+    }
+}
+
+impl Block for AppBlock71 {
+    fn first_node(&self) -> NodeId {
+        if self.child0.first_node() != NodeId::NONE {
+            self.child0.first_node()
+        } else {
+            NodeId::NONE
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        self.child0.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.child0.unmount(ui);
+    }
+}
+
+enum AppIf64 {
+    B0(AppBlock65),
+    B1(AppBlock68),
+    B2(AppBlock71),
+    Empty,
+}
+
+impl AppIf64 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        Self::Empty
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        match self {
+            Self::B0(block) => block.contains_node(target),
+            Self::B1(block) => block.contains_node(target),
+            Self::B2(block) => block.contains_node(target),
+            Self::Empty => false,
+        }
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        let selected = if vm.count() == 0i32 {
+            0i32
+        } else {
+            if vm.count() < 4i32 {
+                1i32
+            } else {
+                2i32
+            }
+        };
+        let current = match &*self {
+            Self::B0(_) => 0i32,
+            Self::B1(_) => 1i32,
+            Self::B2(_) => 2i32,
+            Self::Empty => -1i32,
+        };
+        if selected != current {
+            let old = core::mem::replace(self, Self::Empty);
+            old.unmount(ui);
+            *self = match selected {
+                0 => Self::B0(AppBlock65::mount(ui, parent, anchor)),
+                1 => Self::B1(AppBlock68::mount(ui, parent, anchor)),
+                2 => Self::B2(AppBlock71::mount(ui, parent, anchor)),
+                _ => Self::Empty,
+            };
+        };
+        match self {
+            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor),
+            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor),
+            Self::B2(block) => block.update_at(ui, parent, props, vm, anchor),
+            Self::Empty => (),
+        };
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        match self {
+            Self::B0(block) => block.dispatch_step(input, props, vm, events, cursor),
+            Self::B1(block) => block.dispatch_step(input, props, vm, events, cursor),
+            Self::B2(block) => block.dispatch_step(input, props, vm, events, cursor),
+            Self::Empty => false,
+        }
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        match self {
+            Self::B0(block) => block.pending(input),
+            Self::B1(block) => block.pending(input),
+            Self::B2(block) => block.pending(input),
+            Self::Empty => false,
+        }
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        match self {
+            Self::B0(block) => block.sample_idle(input),
+            Self::B1(block) => block.sample_idle(input),
+            Self::B2(block) => block.sample_idle(input),
+            Self::Empty => (),
+        };
+    }
+
+    fn handler_count(&self) -> usize {
+        match self {
+            Self::B0(block) => block.handler_count(),
+            Self::B1(block) => block.handler_count(),
+            Self::B2(block) => block.handler_count(),
+            Self::Empty => 0usize,
+        }
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        match self {
+            Self::B0(block) => block.pending_after(input, skip),
+            Self::B1(block) => block.pending_after(input, skip),
+            Self::B2(block) => block.pending_after(input, skip),
+            Self::Empty => false,
+        }
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        match self {
+            Self::B0(block) => block.refresh_slot_placement(ui, parent, anchor),
+            Self::B1(block) => block.refresh_slot_placement(ui, parent, anchor),
+            Self::B2(block) => block.refresh_slot_placement(ui, parent, anchor),
+            Self::Empty => (),
+        };
+    }
+}
+
+impl Block for AppIf64 {
+    fn first_node(&self) -> NodeId {
+        match self {
+            Self::B0(block) => block.first_node(),
+            Self::B1(block) => block.first_node(),
+            Self::B2(block) => block.first_node(),
+            Self::Empty => NodeId::NONE,
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        match self {
+            Self::B0(block) => block.move_before(ui, parent, anchor),
+            Self::B1(block) => block.move_before(ui, parent, anchor),
+            Self::B2(block) => block.move_before(ui, parent, anchor),
+            Self::Empty => (),
+        };
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        match self {
+            Self::B0(block) => block.unmount(ui),
+            Self::B1(block) => block.unmount(ui),
+            Self::B2(block) => block.unmount(ui),
+            Self::Empty => (),
+        };
     }
 }
 
@@ -8081,19 +8551,23 @@ impl Block for AppBlock75 {
 struct AppNode74 {
     node: NodeId,
     children: AppBlock75,
-    prop_memo0: Option<Px>,
+    text_inputs: Option<(i32,)>,
+    text_value: String,
+    text_scratch: String,
 }
 
 impl AppNode74 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(0u8);
+        let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(19i32));
+        ui.set_style(node, StyleId(18i32));
         let children = AppBlock75::mount(ui, node, NodeId::NONE);
         Self {
             node,
             children,
-            prop_memo0: None,
+            text_inputs: None,
+            text_value: String::new(),
+            text_scratch: String::new(),
         }
     }
 
@@ -8109,10 +8583,24 @@ impl AppNode74 {
         vm: &M,
         anchor: NodeId,
     ) {
-        let value_prop_memo0 = Px(80i32.wrapping_add(vm.count().wrapping_mul(12i32)) as f32);
-        if self.prop_memo0 != Some(value_prop_memo0) {
-            ui.set_prop(self.node, 1u8, value_prop_memo0.0 as f64);
-            self.prop_memo0 = Some(value_prop_memo0);
+        let text_input0 = vm.count();
+        if self
+            .text_inputs
+            .as_ref()
+            .map_or(true, |previous| previous.0 != text_input0)
+        {
+            self.text_scratch.clear();
+            write!(
+                &mut self.text_scratch,
+                "parent value: {}",
+                display(&text_input0)
+            )
+            .expect("writing to String cannot fail");
+            if self.text_scratch != self.text_value {
+                core::mem::swap(&mut self.text_scratch, &mut self.text_value);
+                ui.set_text(self.node, &self.text_value);
+            };
+            self.text_inputs = Some((text_input0,));
         };
         self.children
             .update_at(ui, self.node, props, vm, NodeId::NONE);
@@ -8177,16 +8665,16 @@ impl Block for AppNode74 {
     }
 }
 
-struct AppBlock71 {
+struct AppBlock63 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode72,
+    child0: AppIf64,
     child1: AppNode74,
 }
 
-impl AppBlock71 {
+impl AppBlock63 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode72::mount(ui, parent, anchor);
+        let child0 = AppIf64::mount(ui, parent, anchor);
         let child1 = AppNode74::mount(ui, parent, anchor);
         Self {
             parent,
@@ -8289,7 +8777,7 @@ impl AppBlock71 {
     }
 }
 
-impl Block for AppBlock71 {
+impl Block for AppBlock63 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -8315,267 +8803,17 @@ impl Block for AppBlock71 {
     }
 }
 
-struct AppBlock78 {
-    parent: NodeId,
-    anchor: NodeId,
-}
-
-impl AppBlock78 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self { parent, anchor }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false
-    }
-
-    fn sample_idle(&mut self, input: &Input) {}
-
-    fn handler_count(&self) -> usize {
-        0usize
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        false
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-}
-
-impl Block for AppBlock78 {
-    fn first_node(&self) -> NodeId {
-        NodeId::NONE
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn unmount(self, ui: &mut Ui) {}
-}
-
-struct AppNode77 {
+struct AppNode62 {
     node: NodeId,
-    children: AppBlock78,
+    children: AppBlock63,
 }
 
-impl AppNode77 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(1u8);
-        ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(16i32));
-        let children = AppBlock78::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "template v-else: press → then ○");
-        Self { node, children }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        self.node == target || self.children.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        self.children
-            .dispatch_step(input, props, vm, events, cursor)
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.children.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.children.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.children.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        self.children
-            .pending_after(input, skip.saturating_sub(0usize))
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children
-            .refresh_slot_placement(ui, self.node, NodeId::NONE);
-    }
-}
-
-impl Block for AppNode77 {
-    fn first_node(&self) -> NodeId {
-        self.node
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        ui.insert_before(parent, self.node, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.children.unmount(ui);
-        ui.destroy_node(self.node);
-    }
-}
-
-struct AppBlock80 {
-    parent: NodeId,
-    anchor: NodeId,
-}
-
-impl AppBlock80 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self { parent, anchor }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false
-    }
-
-    fn sample_idle(&mut self, input: &Input) {}
-
-    fn handler_count(&self) -> usize {
-        0usize
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        false
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-}
-
-impl Block for AppBlock80 {
-    fn first_node(&self) -> NodeId {
-        NodeId::NONE
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn unmount(self, ui: &mut Ui) {}
-}
-
-struct AppNode79 {
-    node: NodeId,
-    children: AppBlock80,
-}
-
-impl AppNode79 {
+impl AppNode62 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(20i32));
-        let children = AppBlock80::mount(ui, node, NodeId::NONE);
+        ui.set_style(node, StyleId(1i32));
+        let children = AppBlock63::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -8639,7 +8877,7 @@ impl AppNode79 {
     }
 }
 
-impl Block for AppNode79 {
+impl Block for AppNode62 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -8654,17 +8892,366 @@ impl Block for AppNode79 {
     }
 }
 
-struct AppBlock76 {
+struct AppBlock79 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode77,
-    child1: AppNode79,
 }
 
-impl AppBlock76 {
+impl AppBlock79 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode77::mount(ui, parent, anchor);
-        let child1 = AppNode79::mount(ui, parent, anchor);
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for AppBlock79 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+struct AppNode78 {
+    node: NodeId,
+    children: AppBlock79,
+}
+
+impl AppNode78 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let node = ui.create_node(1u8);
+        ui.insert_before(parent, node, anchor);
+        ui.set_style(node, StyleId(18i32));
+        let children = AppBlock79::mount(ui, node, NodeId::NONE);
+        ui.set_text(node, "template v-if: fragment");
+        Self { node, children }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.node == target || self.children.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.children
+            .update_at(ui, self.node, props, vm, NodeId::NONE);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        self.children
+            .dispatch_step(input, props, vm, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        self.children
+            .pending_after(input, skip.saturating_sub(0usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children
+            .refresh_slot_placement(ui, self.node, NodeId::NONE);
+    }
+}
+
+impl Block for AppNode78 {
+    fn first_node(&self) -> NodeId {
+        self.node
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        ui.insert_before(parent, self.node, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+        ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock81 {
+    parent: NodeId,
+    anchor: NodeId,
+}
+
+impl AppBlock81 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for AppBlock81 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+struct AppNode80 {
+    node: NodeId,
+    children: AppBlock81,
+    prop_memo0: Option<Px>,
+}
+
+impl AppNode80 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let node = ui.create_node(0u8);
+        ui.insert_before(parent, node, anchor);
+        ui.set_style(node, StyleId(19i32));
+        let children = AppBlock81::mount(ui, node, NodeId::NONE);
+        Self {
+            node,
+            children,
+            prop_memo0: None,
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.node == target || self.children.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        let value_prop_memo0 = Px(80i32.wrapping_add(vm.count().wrapping_mul(12i32)) as f32);
+        if self.prop_memo0 != Some(value_prop_memo0) {
+            ui.set_prop(self.node, 1u8, value_prop_memo0.0 as f64);
+            self.prop_memo0 = Some(value_prop_memo0);
+        };
+        self.children
+            .update_at(ui, self.node, props, vm, NodeId::NONE);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        self.children
+            .dispatch_step(input, props, vm, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        self.children
+            .pending_after(input, skip.saturating_sub(0usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children
+            .refresh_slot_placement(ui, self.node, NodeId::NONE);
+    }
+}
+
+impl Block for AppNode80 {
+    fn first_node(&self) -> NodeId {
+        self.node
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        ui.insert_before(parent, self.node, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+        ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock77 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: AppNode78,
+    child1: AppNode80,
+}
+
+impl AppBlock77 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let child0 = AppNode78::mount(ui, parent, anchor);
+        let child1 = AppNode80::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -8766,7 +9353,7 @@ impl AppBlock76 {
     }
 }
 
-impl Block for AppBlock76 {
+impl Block for AppBlock77 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -8789,145 +9376,6 @@ impl Block for AppBlock76 {
     fn unmount(self, ui: &mut Ui) {
         self.child0.unmount(ui);
         self.child1.unmount(ui);
-    }
-}
-
-enum AppIf70 {
-    B0(AppBlock71),
-    B1(AppBlock76),
-    Empty,
-}
-
-impl AppIf70 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self::Empty
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        match self {
-            Self::B0(block) => block.contains_node(target),
-            Self::B1(block) => block.contains_node(target),
-            Self::Empty => false,
-        }
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        let selected = if vm.count() > 0i32 { 0i32 } else { 1i32 };
-        let current = match &*self {
-            Self::B0(_) => 0i32,
-            Self::B1(_) => 1i32,
-            Self::Empty => -1i32,
-        };
-        if selected != current {
-            let old = core::mem::replace(self, Self::Empty);
-            old.unmount(ui);
-            *self = match selected {
-                0 => Self::B0(AppBlock71::mount(ui, parent, anchor)),
-                1 => Self::B1(AppBlock76::mount(ui, parent, anchor)),
-                _ => Self::Empty,
-            };
-        };
-        match self {
-            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::Empty => (),
-        };
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        match self {
-            Self::B0(block) => block.dispatch_step(input, props, vm, events, cursor),
-            Self::B1(block) => block.dispatch_step(input, props, vm, events, cursor),
-            Self::Empty => false,
-        }
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        match self {
-            Self::B0(block) => block.pending(input),
-            Self::B1(block) => block.pending(input),
-            Self::Empty => false,
-        }
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        match self {
-            Self::B0(block) => block.sample_idle(input),
-            Self::B1(block) => block.sample_idle(input),
-            Self::Empty => (),
-        };
-    }
-
-    fn handler_count(&self) -> usize {
-        match self {
-            Self::B0(block) => block.handler_count(),
-            Self::B1(block) => block.handler_count(),
-            Self::Empty => 0usize,
-        }
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        match self {
-            Self::B0(block) => block.pending_after(input, skip),
-            Self::B1(block) => block.pending_after(input, skip),
-            Self::Empty => false,
-        }
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        match self {
-            Self::B0(block) => block.refresh_slot_placement(ui, parent, anchor),
-            Self::B1(block) => block.refresh_slot_placement(ui, parent, anchor),
-            Self::Empty => (),
-        };
-    }
-}
-
-impl Block for AppIf70 {
-    fn first_node(&self) -> NodeId {
-        match self {
-            Self::B0(block) => block.first_node(),
-            Self::B1(block) => block.first_node(),
-            Self::Empty => NodeId::NONE,
-        }
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        match self {
-            Self::B0(block) => block.move_before(ui, parent, anchor),
-            Self::B1(block) => block.move_before(ui, parent, anchor),
-            Self::Empty => (),
-        };
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        match self {
-            Self::B0(block) => block.unmount(ui),
-            Self::B1(block) => block.unmount(ui),
-            Self::Empty => (),
-        };
     }
 }
 
@@ -9020,9 +9468,9 @@ impl AppNode83 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(8i32));
+        ui.set_style(node, StyleId(16i32));
         let children = AppBlock84::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "props + emits + named slots");
+        ui.set_text(node, "template v-else: press → then ○");
         Self { node, children }
     }
 
@@ -9188,11 +9636,10 @@ struct AppNode85 {
 
 impl AppNode85 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(1u8);
+        let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(16i32));
+        ui.set_style(node, StyleId(20i32));
         let children = AppBlock86::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "ref + computed");
         Self { node, children }
     }
 
@@ -9409,17 +9856,237 @@ impl Block for AppBlock82 {
     }
 }
 
-struct AppNode81 {
-    node: NodeId,
-    children: AppBlock82,
+enum AppIf76 {
+    B0(AppBlock77),
+    B1(AppBlock82),
+    Empty,
 }
 
-impl AppNode81 {
+impl AppIf76 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(0u8);
+        Self::Empty
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        match self {
+            Self::B0(block) => block.contains_node(target),
+            Self::B1(block) => block.contains_node(target),
+            Self::Empty => false,
+        }
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        let selected = if vm.count() > 0i32 { 0i32 } else { 1i32 };
+        let current = match &*self {
+            Self::B0(_) => 0i32,
+            Self::B1(_) => 1i32,
+            Self::Empty => -1i32,
+        };
+        if selected != current {
+            let old = core::mem::replace(self, Self::Empty);
+            old.unmount(ui);
+            *self = match selected {
+                0 => Self::B0(AppBlock77::mount(ui, parent, anchor)),
+                1 => Self::B1(AppBlock82::mount(ui, parent, anchor)),
+                _ => Self::Empty,
+            };
+        };
+        match self {
+            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor),
+            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor),
+            Self::Empty => (),
+        };
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        match self {
+            Self::B0(block) => block.dispatch_step(input, props, vm, events, cursor),
+            Self::B1(block) => block.dispatch_step(input, props, vm, events, cursor),
+            Self::Empty => false,
+        }
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        match self {
+            Self::B0(block) => block.pending(input),
+            Self::B1(block) => block.pending(input),
+            Self::Empty => false,
+        }
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        match self {
+            Self::B0(block) => block.sample_idle(input),
+            Self::B1(block) => block.sample_idle(input),
+            Self::Empty => (),
+        };
+    }
+
+    fn handler_count(&self) -> usize {
+        match self {
+            Self::B0(block) => block.handler_count(),
+            Self::B1(block) => block.handler_count(),
+            Self::Empty => 0usize,
+        }
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        match self {
+            Self::B0(block) => block.pending_after(input, skip),
+            Self::B1(block) => block.pending_after(input, skip),
+            Self::Empty => false,
+        }
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        match self {
+            Self::B0(block) => block.refresh_slot_placement(ui, parent, anchor),
+            Self::B1(block) => block.refresh_slot_placement(ui, parent, anchor),
+            Self::Empty => (),
+        };
+    }
+}
+
+impl Block for AppIf76 {
+    fn first_node(&self) -> NodeId {
+        match self {
+            Self::B0(block) => block.first_node(),
+            Self::B1(block) => block.first_node(),
+            Self::Empty => NodeId::NONE,
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        match self {
+            Self::B0(block) => block.move_before(ui, parent, anchor),
+            Self::B1(block) => block.move_before(ui, parent, anchor),
+            Self::Empty => (),
+        };
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        match self {
+            Self::B0(block) => block.unmount(ui),
+            Self::B1(block) => block.unmount(ui),
+            Self::Empty => (),
+        };
+    }
+}
+
+struct AppBlock90 {
+    parent: NodeId,
+    anchor: NodeId,
+}
+
+impl AppBlock90 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for AppBlock90 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+struct AppNode89 {
+    node: NodeId,
+    children: AppBlock90,
+}
+
+impl AppNode89 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(1i32));
-        let children = AppBlock82::mount(ui, node, NodeId::NONE);
+        ui.set_style(node, StyleId(8i32));
+        let children = AppBlock90::mount(ui, node, NodeId::NONE);
+        ui.set_text(node, "props + emits + named slots");
         Self { node, children }
     }
 
@@ -9483,7 +10150,7 @@ impl AppNode81 {
     }
 }
 
-impl Block for AppNode81 {
+impl Block for AppNode89 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -9498,23 +10165,420 @@ impl Block for AppNode81 {
     }
 }
 
-struct AppBlock43 {
+struct AppBlock92 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode44,
-    child1: AppNode50,
-    child2: AppNode56,
-    child3: AppIf70,
-    child4: AppNode81,
 }
 
-impl AppBlock43 {
+impl AppBlock92 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode44::mount(ui, parent, anchor);
-        let child1 = AppNode50::mount(ui, parent, anchor);
-        let child2 = AppNode56::mount(ui, parent, anchor);
-        let child3 = AppIf70::mount(ui, parent, anchor);
-        let child4 = AppNode81::mount(ui, parent, anchor);
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for AppBlock92 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+struct AppNode91 {
+    node: NodeId,
+    children: AppBlock92,
+}
+
+impl AppNode91 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let node = ui.create_node(1u8);
+        ui.insert_before(parent, node, anchor);
+        ui.set_style(node, StyleId(16i32));
+        let children = AppBlock92::mount(ui, node, NodeId::NONE);
+        ui.set_text(node, "ref + computed");
+        Self { node, children }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.node == target || self.children.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.children
+            .update_at(ui, self.node, props, vm, NodeId::NONE);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        self.children
+            .dispatch_step(input, props, vm, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        self.children
+            .pending_after(input, skip.saturating_sub(0usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children
+            .refresh_slot_placement(ui, self.node, NodeId::NONE);
+    }
+}
+
+impl Block for AppNode91 {
+    fn first_node(&self) -> NodeId {
+        self.node
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        ui.insert_before(parent, self.node, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+        ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock88 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: AppNode89,
+    child1: AppNode91,
+}
+
+impl AppBlock88 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let child0 = AppNode89::mount(ui, parent, anchor);
+        let child1 = AppNode91::mount(ui, parent, anchor);
+        Self {
+            parent,
+            anchor,
+            child0,
+            child1,
+        }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false || self.child0.contains_node(target) || self.child1.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let anchor1 = anchor;
+        self.child1.update_at(ui, self.parent, props, vm, anchor1);
+        let anchor0 = if self.child1.first_node() != NodeId::NONE {
+            self.child1.first_node()
+        } else {
+            anchor
+        };
+        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        if self.child0.dispatch_step(input, props, vm, events, cursor) {
+            return true;
+        };
+        if self.child1.dispatch_step(input, props, vm, events, cursor) {
+            return true;
+        };
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.child0.pending(input) || self.child1.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.child0.sample_idle(input);
+        self.child1.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.child0.handler_count() + self.child1.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        let count0 = self.child0.handler_count();
+        if remaining >= count0 {
+            remaining = remaining - count0;
+        } else {
+            if self.child0.pending_after(input, remaining) {
+                return true;
+            };
+            remaining = 0usize;
+        };
+        self.child1.pending_after(input, remaining)
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        let placement_anchor1 = anchor;
+        self.child1
+            .refresh_slot_placement(ui, parent, placement_anchor1);
+        let placement_anchor0 = if self.child1.first_node() != NodeId::NONE {
+            self.child1.first_node()
+        } else {
+            anchor
+        };
+        self.child0
+            .refresh_slot_placement(ui, parent, placement_anchor0);
+    }
+}
+
+impl Block for AppBlock88 {
+    fn first_node(&self) -> NodeId {
+        if self.child0.first_node() != NodeId::NONE {
+            self.child0.first_node()
+        } else {
+            if self.child1.first_node() != NodeId::NONE {
+                self.child1.first_node()
+            } else {
+                NodeId::NONE
+            }
+        }
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+        self.child0.move_before(ui, parent, anchor);
+        self.child1.move_before(ui, parent, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.child0.unmount(ui);
+        self.child1.unmount(ui);
+    }
+}
+
+struct AppNode87 {
+    node: NodeId,
+    children: AppBlock88,
+}
+
+impl AppNode87 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let node = ui.create_node(0u8);
+        ui.insert_before(parent, node, anchor);
+        ui.set_style(node, StyleId(1i32));
+        let children = AppBlock88::mount(ui, node, NodeId::NONE);
+        Self { node, children }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.node == target || self.children.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.children
+            .update_at(ui, self.node, props, vm, NodeId::NONE);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        self.children
+            .dispatch_step(input, props, vm, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        self.children
+            .pending_after(input, skip.saturating_sub(0usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children
+            .refresh_slot_placement(ui, self.node, NodeId::NONE);
+    }
+}
+
+impl Block for AppNode87 {
+    fn first_node(&self) -> NodeId {
+        self.node
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        ui.insert_before(parent, self.node, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+        ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock49 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: AppNode50,
+    child1: AppNode56,
+    child2: AppNode62,
+    child3: AppIf76,
+    child4: AppNode87,
+}
+
+impl AppBlock49 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let child0 = AppNode50::mount(ui, parent, anchor);
+        let child1 = AppNode56::mount(ui, parent, anchor);
+        let child2 = AppNode62::mount(ui, parent, anchor);
+        let child3 = AppIf76::mount(ui, parent, anchor);
+        let child4 = AppNode87::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -9760,7 +10824,7 @@ impl AppBlock43 {
     }
 }
 
-impl Block for AppBlock43 {
+impl Block for AppBlock49 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -9804,18 +10868,18 @@ impl Block for AppBlock43 {
     }
 }
 
-struct AppNode42 {
+struct AppNode48 {
     node: NodeId,
-    children: AppBlock43,
+    children: AppBlock49,
 }
 
-impl AppNode42 {
+impl AppNode48 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(0i32));
         ui.set_debug_name(node, "FeatureCard");
-        let children = AppBlock43::mount(ui, node, NodeId::NONE);
+        let children = AppBlock49::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -9879,7 +10943,7 @@ impl AppNode42 {
     }
 }
 
-impl Block for AppNode42 {
+impl Block for AppNode48 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -9894,12 +10958,12 @@ impl Block for AppNode42 {
     }
 }
 
-struct AppComponent91<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppComponent97<StateFeatureToggle: FeatureToggleViewModel + Default> {
     view: FeatureToggleView,
     model: StateFeatureToggle,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent91<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent97<StateFeatureToggle> {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let model = StateFeatureToggle::default();
         let view = <FeatureToggleView>::mount(ui, parent, anchor);
@@ -9916,17 +10980,17 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent91<StateF
         parent: NodeId,
         props: &AppProps,
         vm: &M,
-        __pocket_local_AppLoop25Item: &Feature,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         anchor: NodeId,
     ) {
-        let prop_value0 = __pocket_local_AppLoop25Item.label.as_str();
-        let prop_value1 = __pocket_local_AppLoop25Item.enabled;
+        let prop_value0 = __pocket_local_FeatureListInstance1Loop1Item.label.as_str();
+        let prop_value1 = __pocket_local_FeatureListInstance1Loop1Item.enabled;
         let child_props = FeatureToggleProps {
             label: prop_value0,
             enabled: prop_value1,
         };
         self.view
-            .update_at(ui, parent, &child_props, &self.model, anchor);
+            .update_at(ui, parent, &child_props, &self.model, vm.theme(), anchor);
         self.view.refresh_slot_placement(ui, parent, anchor);
     }
 
@@ -9935,7 +10999,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent91<StateF
         input: &Input,
         props: &AppProps,
         vm: &mut M,
-        __pocket_local_AppLoop25Item: &Feature,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         events: &mut dyn pocket_vapor::EventSink<AppEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -9947,8 +11011,12 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent91<StateF
             self.sample_idle(input);
             return false;
         };
-        let prop_owner0 = __pocket_local_AppLoop25Item.label.as_str().to_owned();
-        let prop_owner1 = __pocket_local_AppLoop25Item.enabled;
+        let prop_owner0 = __pocket_local_FeatureListInstance1Loop1Item
+            .label
+            .as_str()
+            .to_owned();
+        let prop_owner1 = __pocket_local_FeatureListInstance1Loop1Item.enabled;
+        let inject_owner0 = vm.theme().to_owned();
         let child_props = FeatureToggleProps {
             label: prop_owner0.as_str(),
             enabled: prop_owner1,
@@ -9957,11 +11025,15 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent91<StateF
             pocket_vapor::dispatch_fn(|dispatch, dispatch_cursor| match dispatch {
                 pocket_vapor::Dispatch::Event(event) => match event {
                     FeatureToggleEvent::Toggle(event_arg0) => {
-                        let handler_arg0 = __pocket_local_AppLoop25Item.id.as_str().to_owned();
+                        let handler_arg0 = __pocket_local_FeatureListInstance1Loop1Item
+                            .id
+                            .as_str()
+                            .to_owned();
                         vm.toggleFeature(handler_arg0);
                         true
                     }
                 },
+                pocket_vapor::Dispatch::ScopedSlot(event) => false,
                 pocket_vapor::Dispatch::Slot(slot_input, slot_id) => {
                     let cursor = dispatch_cursor.expect("slot dispatch cursor");
                     false
@@ -9971,6 +11043,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent91<StateF
             input,
             &child_props,
             &mut self.model,
+            &inject_owner0,
             &mut child_events,
             cursor,
         )
@@ -9998,7 +11071,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent91<StateF
 }
 
 impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
-    for AppComponent91<StateFeatureToggle>
+    for AppComponent97<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
         self.view.first_node()
@@ -10013,15 +11086,15 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
     }
 }
 
-struct AppBlock90<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppBlock96<StateFeatureToggle: FeatureToggleViewModel + Default> {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppComponent91<StateFeatureToggle>,
+    child0: AppComponent97<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock90<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock96<StateFeatureToggle> {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppComponent91::mount(ui, parent, anchor);
+        let child0 = AppComponent97::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -10039,7 +11112,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock90<StateFeatu
         parent: NodeId,
         props: &AppProps,
         vm: &M,
-        __pocket_local_AppLoop25Item: &Feature,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         anchor: NodeId,
     ) {
         self.parent = parent;
@@ -10050,7 +11123,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock90<StateFeatu
             self.parent,
             props,
             vm,
-            __pocket_local_AppLoop25Item,
+            __pocket_local_FeatureListInstance1Loop1Item,
             anchor0,
         );
     }
@@ -10060,7 +11133,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock90<StateFeatu
         input: &Input,
         props: &AppProps,
         vm: &mut M,
-        __pocket_local_AppLoop25Item: &Feature,
+        __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         events: &mut dyn pocket_vapor::EventSink<AppEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -10077,7 +11150,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock90<StateFeatu
             input,
             props,
             vm,
-            __pocket_local_AppLoop25Item,
+            __pocket_local_FeatureListInstance1Loop1Item,
             events,
             cursor,
         ) {
@@ -10113,7 +11186,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock90<StateFeatu
 }
 
 impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
-    for AppBlock90<StateFeatureToggle>
+    for AppBlock96<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
@@ -10134,13 +11207,13 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
     }
 }
 
-struct AppFor89<StateFeatureToggle: FeatureToggleViewModel + Default> {
-    rows: KeyedList<String, AppBlock90<StateFeatureToggle>>,
+struct AppFor95<StateFeatureToggle: FeatureToggleViewModel + Default> {
+    rows: KeyedList<String, AppBlock96<StateFeatureToggle>>,
     parent: NodeId,
     handler_ends: Vec<usize>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor89<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor95<StateFeatureToggle> {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         Self {
             rows: KeyedList::new(),
@@ -10169,22 +11242,25 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor89<StateFeature
             parent,
             anchor,
             &vm.features(),
-            |old_key, __pocket_local_AppLoop25Item, row_index| {
-                old_key.as_str() == __pocket_local_AppLoop25Item.id.as_str()
+            |old_key, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
+                old_key.as_str() == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
             },
-            |__pocket_local_AppLoop25Item, row_index| {
-                __pocket_local_AppLoop25Item.id.as_str().to_owned()
+            |__pocket_local_FeatureListInstance1Loop1Item, row_index| {
+                __pocket_local_FeatureListInstance1Loop1Item
+                    .id
+                    .as_str()
+                    .to_owned()
             },
-            |ui, parent, anchor, __pocket_local_AppLoop25Item, row_index| {
-                AppBlock90::mount(ui, parent, anchor)
+            |ui, parent, anchor, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
+                AppBlock96::mount(ui, parent, anchor)
             },
-            |block, ui, __pocket_local_AppLoop25Item, row_index, row_anchor| {
+            |block, ui, __pocket_local_FeatureListInstance1Loop1Item, row_index, row_anchor| {
                 block.update_at(
                     ui,
                     parent,
                     props,
                     vm,
-                    __pocket_local_AppLoop25Item,
+                    __pocket_local_FeatureListInstance1Loop1Item,
                     row_anchor,
                 );
             },
@@ -10226,31 +11302,37 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor89<StateFeature
             if row.block.pending_after(input, cursor.completed_offset()) {
                 let mut row_context: Option<(i32, Feature)> = None;
                 let source = vm.features();
-                if let Some(__pocket_local_AppLoop25Item) = source.get(row_index) {
-                    if row.key.as_str() == __pocket_local_AppLoop25Item.id.as_str() {
-                        row_context =
-                            Some((row_index as i32, __pocket_local_AppLoop25Item.to_owned()));
+                if let Some(__pocket_local_FeatureListInstance1Loop1Item) = source.get(row_index) {
+                    if row.key.as_str() == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
+                    {
+                        row_context = Some((
+                            row_index as i32,
+                            __pocket_local_FeatureListInstance1Loop1Item.to_owned(),
+                        ));
                     };
                 };
                 if row_context.is_none() {
-                    for (candidate_index, __pocket_local_AppLoop25Item) in source.iter().enumerate()
+                    for (candidate_index, __pocket_local_FeatureListInstance1Loop1Item) in
+                        source.iter().enumerate()
                     {
-                        if row.key.as_str() == __pocket_local_AppLoop25Item.id.as_str() {
+                        if row.key.as_str()
+                            == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
+                        {
                             row_context = Some((
                                 candidate_index as i32,
-                                __pocket_local_AppLoop25Item.to_owned(),
+                                __pocket_local_FeatureListInstance1Loop1Item.to_owned(),
                             ));
                             break;
                         };
                     }
                 };
                 if let Some((row_index, row_value)) = row_context {
-                    let __pocket_local_AppLoop25Item = &row_value;
+                    let __pocket_local_FeatureListInstance1Loop1Item = &row_value;
                     if row.block.dispatch_step(
                         input,
                         props,
                         vm,
-                        __pocket_local_AppLoop25Item,
+                        __pocket_local_FeatureListInstance1Loop1Item,
                         events,
                         cursor,
                     ) {
@@ -10323,7 +11405,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor89<StateFeature
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppFor89<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppFor95<StateFeatureToggle> {
     fn first_node(&self) -> NodeId {
         self.rows.first_node()
     }
@@ -10338,15 +11420,15 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppFor89<St
     }
 }
 
-struct AppBlock88<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppBlock94<StateFeatureToggle: FeatureToggleViewModel + Default> {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppFor89<StateFeatureToggle>,
+    child0: AppFor95<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock88<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock94<StateFeatureToggle> {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppFor89::mount(ui, parent, anchor);
+        let child0 = AppFor95::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -10422,7 +11504,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock88<StateFeatu
 }
 
 impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
-    for AppBlock88<StateFeatureToggle>
+    for AppBlock94<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
@@ -10443,17 +11525,17 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
     }
 }
 
-struct AppNode87<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppNode93<StateFeatureToggle: FeatureToggleViewModel + Default> {
     node: NodeId,
-    children: AppBlock88<StateFeatureToggle>,
+    children: AppBlock94<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode87<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode93<StateFeatureToggle> {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(21i32));
-        let children = AppBlock88::mount(ui, node, NodeId::NONE);
+        let children = AppBlock94::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -10517,7 +11599,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode87<StateFeatur
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode87<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode93<StateFeatureToggle> {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -10532,12 +11614,12 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode87<S
     }
 }
 
-struct AppBlock99 {
+struct AppBlock105 {
     parent: NodeId,
     anchor: NodeId,
 }
 
-impl AppBlock99 {
+impl AppBlock105 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         Self { parent, anchor }
     }
@@ -10552,8 +11634,8 @@ impl AppBlock99 {
         parent: NodeId,
         props: &AppProps,
         vm: &M,
-        __pocket_local_AppLoop29Item: &Feature,
-        __pocket_local_AppLoop29Index: &i32,
+        __pocket_local_AppLoop28Item: &Feature,
+        __pocket_local_AppLoop28Index: &i32,
         anchor: NodeId,
     ) {
         self.parent = parent;
@@ -10565,8 +11647,8 @@ impl AppBlock99 {
         input: &Input,
         props: &AppProps,
         vm: &mut M,
-        __pocket_local_AppLoop29Item: &Feature,
-        __pocket_local_AppLoop29Index: &i32,
+        __pocket_local_AppLoop28Item: &Feature,
+        __pocket_local_AppLoop28Index: &i32,
         events: &mut dyn pocket_vapor::EventSink<AppEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -10603,7 +11685,7 @@ impl AppBlock99 {
     }
 }
 
-impl Block for AppBlock99 {
+impl Block for AppBlock105 {
     fn first_node(&self) -> NodeId {
         NodeId::NONE
     }
@@ -10616,20 +11698,20 @@ impl Block for AppBlock99 {
     fn unmount(self, ui: &mut Ui) {}
 }
 
-struct AppNode98 {
+struct AppNode104 {
     node: NodeId,
-    children: AppBlock99,
+    children: AppBlock105,
     text_inputs: Option<(i32, String)>,
     text_value: String,
     text_scratch: String,
 }
 
-impl AppNode98 {
+impl AppNode104 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(8i32));
-        let children = AppBlock99::mount(ui, node, NodeId::NONE);
+        let children = AppBlock105::mount(ui, node, NodeId::NONE);
         Self {
             node,
             children,
@@ -10649,12 +11731,12 @@ impl AppNode98 {
         parent: NodeId,
         props: &AppProps,
         vm: &M,
-        __pocket_local_AppLoop29Item: &Feature,
-        __pocket_local_AppLoop29Index: &i32,
+        __pocket_local_AppLoop28Item: &Feature,
+        __pocket_local_AppLoop28Index: &i32,
         anchor: NodeId,
     ) {
-        let text_input0 = (*__pocket_local_AppLoop29Index).wrapping_add(1i32);
-        let text_input1 = __pocket_local_AppLoop29Item.label.as_str();
+        let text_input0 = (*__pocket_local_AppLoop28Index).wrapping_add(1i32);
+        let text_input1 = __pocket_local_AppLoop28Item.label.as_str();
         if self.text_inputs.as_ref().map_or(true, |previous| {
             previous.0 != text_input0 || previous.1.as_str() != text_input1
         }) {
@@ -10677,8 +11759,8 @@ impl AppNode98 {
             self.node,
             props,
             vm,
-            __pocket_local_AppLoop29Item,
-            __pocket_local_AppLoop29Index,
+            __pocket_local_AppLoop28Item,
+            __pocket_local_AppLoop28Index,
             NodeId::NONE,
         );
     }
@@ -10688,8 +11770,8 @@ impl AppNode98 {
         input: &Input,
         props: &AppProps,
         vm: &mut M,
-        __pocket_local_AppLoop29Item: &Feature,
-        __pocket_local_AppLoop29Index: &i32,
+        __pocket_local_AppLoop28Item: &Feature,
+        __pocket_local_AppLoop28Index: &i32,
         events: &mut dyn pocket_vapor::EventSink<AppEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -10706,8 +11788,8 @@ impl AppNode98 {
             input,
             props,
             vm,
-            __pocket_local_AppLoop29Item,
-            __pocket_local_AppLoop29Index,
+            __pocket_local_AppLoop28Item,
+            __pocket_local_AppLoop28Index,
             events,
             cursor,
         )
@@ -10736,7 +11818,7 @@ impl AppNode98 {
     }
 }
 
-impl Block for AppNode98 {
+impl Block for AppNode104 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -10751,15 +11833,15 @@ impl Block for AppNode98 {
     }
 }
 
-struct AppBlock97 {
+struct AppBlock103 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode98,
+    child0: AppNode104,
 }
 
-impl AppBlock97 {
+impl AppBlock103 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode98::mount(ui, parent, anchor);
+        let child0 = AppNode104::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -10777,8 +11859,8 @@ impl AppBlock97 {
         parent: NodeId,
         props: &AppProps,
         vm: &M,
-        __pocket_local_AppLoop29Item: &Feature,
-        __pocket_local_AppLoop29Index: &i32,
+        __pocket_local_AppLoop28Item: &Feature,
+        __pocket_local_AppLoop28Index: &i32,
         anchor: NodeId,
     ) {
         self.parent = parent;
@@ -10789,8 +11871,8 @@ impl AppBlock97 {
             self.parent,
             props,
             vm,
-            __pocket_local_AppLoop29Item,
-            __pocket_local_AppLoop29Index,
+            __pocket_local_AppLoop28Item,
+            __pocket_local_AppLoop28Index,
             anchor0,
         );
     }
@@ -10800,8 +11882,8 @@ impl AppBlock97 {
         input: &Input,
         props: &AppProps,
         vm: &mut M,
-        __pocket_local_AppLoop29Item: &Feature,
-        __pocket_local_AppLoop29Index: &i32,
+        __pocket_local_AppLoop28Item: &Feature,
+        __pocket_local_AppLoop28Index: &i32,
         events: &mut dyn pocket_vapor::EventSink<AppEvent>,
         cursor: &mut pocket_vapor::DispatchCursor,
     ) -> bool {
@@ -10818,8 +11900,8 @@ impl AppBlock97 {
             input,
             props,
             vm,
-            __pocket_local_AppLoop29Item,
-            __pocket_local_AppLoop29Index,
+            __pocket_local_AppLoop28Item,
+            __pocket_local_AppLoop28Index,
             events,
             cursor,
         ) {
@@ -10854,7 +11936,7 @@ impl AppBlock97 {
     }
 }
 
-impl Block for AppBlock97 {
+impl Block for AppBlock103 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -10874,13 +11956,13 @@ impl Block for AppBlock97 {
     }
 }
 
-struct AppFor96 {
-    rows: KeyedList<String, AppBlock97>,
+struct AppFor102 {
+    rows: KeyedList<String, AppBlock103>,
     parent: NodeId,
     handler_ends: Vec<usize>,
 }
 
-impl AppFor96 {
+impl AppFor102 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         Self {
             rows: KeyedList::new(),
@@ -10909,35 +11991,35 @@ impl AppFor96 {
             parent,
             anchor,
             &vm.features(),
-            |old_key, __pocket_local_AppLoop29Item, row_index| {
-                let __pocket_local_AppLoop29Index = &row_index;
+            |old_key, __pocket_local_AppLoop28Item, row_index| {
+                let __pocket_local_AppLoop28Index = &row_index;
                 pocket_vapor::formatted_eq(
                     old_key.as_str(),
                     format_args!(
                         "summary-{}",
-                        display(&__pocket_local_AppLoop29Item.id.as_str())
+                        display(&__pocket_local_AppLoop28Item.id.as_str())
                     ),
                 )
             },
-            |__pocket_local_AppLoop29Item, row_index| {
-                let __pocket_local_AppLoop29Index = &row_index;
+            |__pocket_local_AppLoop28Item, row_index| {
+                let __pocket_local_AppLoop28Index = &row_index;
                 alloc::format!(
                     "summary-{}",
-                    display(&__pocket_local_AppLoop29Item.id.as_str())
+                    display(&__pocket_local_AppLoop28Item.id.as_str())
                 )
             },
-            |ui, parent, anchor, __pocket_local_AppLoop29Item, row_index| {
-                AppBlock97::mount(ui, parent, anchor)
+            |ui, parent, anchor, __pocket_local_AppLoop28Item, row_index| {
+                AppBlock103::mount(ui, parent, anchor)
             },
-            |block, ui, __pocket_local_AppLoop29Item, row_index, row_anchor| {
-                let __pocket_local_AppLoop29Index = &row_index;
+            |block, ui, __pocket_local_AppLoop28Item, row_index, row_anchor| {
+                let __pocket_local_AppLoop28Index = &row_index;
                 block.update_at(
                     ui,
                     parent,
                     props,
                     vm,
-                    __pocket_local_AppLoop29Item,
-                    __pocket_local_AppLoop29Index,
+                    __pocket_local_AppLoop28Item,
+                    __pocket_local_AppLoop28Index,
                     row_anchor,
                 );
             },
@@ -10979,49 +12061,49 @@ impl AppFor96 {
             if row.block.pending_after(input, cursor.completed_offset()) {
                 let mut row_context: Option<(i32, Feature)> = None;
                 let source = vm.features();
-                if let Some(__pocket_local_AppLoop29Item) = source.get(row_index) {
+                if let Some(__pocket_local_AppLoop28Item) = source.get(row_index) {
                     let candidate_index_i32 = row_index as i32;
-                    let __pocket_local_AppLoop29Index = &candidate_index_i32;
+                    let __pocket_local_AppLoop28Index = &candidate_index_i32;
                     if pocket_vapor::formatted_eq(
                         row.key.as_str(),
                         format_args!(
                             "summary-{}",
-                            display(&__pocket_local_AppLoop29Item.id.as_str())
+                            display(&__pocket_local_AppLoop28Item.id.as_str())
                         ),
                     ) {
                         row_context =
-                            Some((row_index as i32, __pocket_local_AppLoop29Item.to_owned()));
+                            Some((row_index as i32, __pocket_local_AppLoop28Item.to_owned()));
                     };
                 };
                 if row_context.is_none() {
-                    for (candidate_index, __pocket_local_AppLoop29Item) in source.iter().enumerate()
+                    for (candidate_index, __pocket_local_AppLoop28Item) in source.iter().enumerate()
                     {
                         let candidate_index_i32 = candidate_index as i32;
-                        let __pocket_local_AppLoop29Index = &candidate_index_i32;
+                        let __pocket_local_AppLoop28Index = &candidate_index_i32;
                         if pocket_vapor::formatted_eq(
                             row.key.as_str(),
                             format_args!(
                                 "summary-{}",
-                                display(&__pocket_local_AppLoop29Item.id.as_str())
+                                display(&__pocket_local_AppLoop28Item.id.as_str())
                             ),
                         ) {
                             row_context = Some((
                                 candidate_index as i32,
-                                __pocket_local_AppLoop29Item.to_owned(),
+                                __pocket_local_AppLoop28Item.to_owned(),
                             ));
                             break;
                         };
                     }
                 };
                 if let Some((row_index, row_value)) = row_context {
-                    let __pocket_local_AppLoop29Item = &row_value;
-                    let __pocket_local_AppLoop29Index = &row_index;
+                    let __pocket_local_AppLoop28Item = &row_value;
+                    let __pocket_local_AppLoop28Index = &row_index;
                     if row.block.dispatch_step(
                         input,
                         props,
                         vm,
-                        __pocket_local_AppLoop29Item,
-                        __pocket_local_AppLoop29Index,
+                        __pocket_local_AppLoop28Item,
+                        __pocket_local_AppLoop28Index,
                         events,
                         cursor,
                     ) {
@@ -11094,7 +12176,7 @@ impl AppFor96 {
     }
 }
 
-impl Block for AppFor96 {
+impl Block for AppFor102 {
     fn first_node(&self) -> NodeId {
         self.rows.first_node()
     }
@@ -11109,15 +12191,15 @@ impl Block for AppFor96 {
     }
 }
 
-struct AppBlock95 {
+struct AppBlock101 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppFor96,
+    child0: AppFor102,
 }
 
-impl AppBlock95 {
+impl AppBlock101 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppFor96::mount(ui, parent, anchor);
+        let child0 = AppFor102::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -11192,7 +12274,7 @@ impl AppBlock95 {
     }
 }
 
-impl Block for AppBlock95 {
+impl Block for AppBlock101 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -11212,175 +12294,6 @@ impl Block for AppBlock95 {
     }
 }
 
-struct AppNode94 {
-    node: NodeId,
-    children: AppBlock95,
-}
-
-impl AppNode94 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(0u8);
-        ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(21i32));
-        let children = AppBlock95::mount(ui, node, NodeId::NONE);
-        Self { node, children }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        self.node == target || self.children.contains_node(target)
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        self.children
-            .dispatch_step(input, props, vm, events, cursor)
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false || self.children.pending(input)
-    }
-
-    fn sample_idle(&mut self, input: &Input) {
-        self.children.sample_idle(input);
-    }
-
-    fn handler_count(&self) -> usize {
-        0usize + self.children.handler_count()
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        self.children
-            .pending_after(input, skip.saturating_sub(0usize))
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.children
-            .refresh_slot_placement(ui, self.node, NodeId::NONE);
-    }
-}
-
-impl Block for AppNode94 {
-    fn first_node(&self) -> NodeId {
-        self.node
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        ui.insert_before(parent, self.node, anchor);
-    }
-
-    fn unmount(self, ui: &mut Ui) {
-        self.children.unmount(ui);
-        ui.destroy_node(self.node);
-    }
-}
-
-struct AppBlock101 {
-    parent: NodeId,
-    anchor: NodeId,
-}
-
-impl AppBlock101 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        Self { parent, anchor }
-    }
-
-    fn contains_node(&self, target: NodeId) -> bool {
-        false
-    }
-
-    fn update_at<M: AppViewModel>(
-        &mut self,
-        ui: &mut Ui,
-        parent: NodeId,
-        props: &AppProps,
-        vm: &M,
-        anchor: NodeId,
-    ) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn dispatch_step<M: AppViewModel>(
-        &mut self,
-        input: &Input,
-        props: &AppProps,
-        vm: &mut M,
-        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
-        cursor: &mut pocket_vapor::DispatchCursor,
-    ) -> bool {
-        if cursor.skip_completed(self.handler_count()) {
-            return false;
-        };
-        if !self.pending_after(input, cursor.completed_offset()) {
-            cursor.skip(self.handler_count());
-            self.sample_idle(input);
-            return false;
-        };
-        let mut handled = false;
-        false
-    }
-
-    fn pending(&self, input: &Input) -> bool {
-        false
-    }
-
-    fn sample_idle(&mut self, input: &Input) {}
-
-    fn handler_count(&self) -> usize {
-        0usize
-    }
-
-    fn pending_after(&self, input: &Input, skip: usize) -> bool {
-        let mut remaining = skip;
-        false
-    }
-
-    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-}
-
-impl Block for AppBlock101 {
-    fn first_node(&self) -> NodeId {
-        NodeId::NONE
-    }
-
-    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.parent = parent;
-        self.anchor = anchor;
-    }
-
-    fn unmount(self, ui: &mut Ui) {}
-}
-
 struct AppNode100 {
     node: NodeId,
     children: AppBlock101,
@@ -11388,11 +12301,10 @@ struct AppNode100 {
 
 impl AppNode100 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let node = ui.create_node(1u8);
+        let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
-        ui.set_style(node, StyleId(16i32));
+        ui.set_style(node, StyleId(21i32));
         let children = AppBlock101::mount(ui, node, NodeId::NONE);
-        ui.set_text(node, "→ focus · ○ activate · × reset");
         Self { node, children }
     }
 
@@ -11471,17 +12383,187 @@ impl Block for AppNode100 {
     }
 }
 
-struct AppBlock93 {
+struct AppBlock107 {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode94,
-    child1: AppNode100,
 }
 
-impl AppBlock93 {
+impl AppBlock107 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode94::mount(ui, parent, anchor);
-        let child1 = AppNode100::mount(ui, parent, anchor);
+        Self { parent, anchor }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        false
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        false
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false
+    }
+
+    fn sample_idle(&mut self, input: &Input) {}
+
+    fn handler_count(&self) -> usize {
+        0usize
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        let mut remaining = skip;
+        false
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+}
+
+impl Block for AppBlock107 {
+    fn first_node(&self) -> NodeId {
+        NodeId::NONE
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.parent = parent;
+        self.anchor = anchor;
+    }
+
+    fn unmount(self, ui: &mut Ui) {}
+}
+
+struct AppNode106 {
+    node: NodeId,
+    children: AppBlock107,
+}
+
+impl AppNode106 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let node = ui.create_node(1u8);
+        ui.insert_before(parent, node, anchor);
+        ui.set_style(node, StyleId(16i32));
+        let children = AppBlock107::mount(ui, node, NodeId::NONE);
+        ui.set_text(node, "→ focus · ○ activate · × reset");
+        Self { node, children }
+    }
+
+    fn contains_node(&self, target: NodeId) -> bool {
+        self.node == target || self.children.contains_node(target)
+    }
+
+    fn update_at<M: AppViewModel>(
+        &mut self,
+        ui: &mut Ui,
+        parent: NodeId,
+        props: &AppProps,
+        vm: &M,
+        anchor: NodeId,
+    ) {
+        self.children
+            .update_at(ui, self.node, props, vm, NodeId::NONE);
+    }
+
+    fn dispatch_step<M: AppViewModel>(
+        &mut self,
+        input: &Input,
+        props: &AppProps,
+        vm: &mut M,
+        events: &mut dyn pocket_vapor::EventSink<AppEvent>,
+        cursor: &mut pocket_vapor::DispatchCursor,
+    ) -> bool {
+        if cursor.skip_completed(self.handler_count()) {
+            return false;
+        };
+        if !self.pending_after(input, cursor.completed_offset()) {
+            cursor.skip(self.handler_count());
+            self.sample_idle(input);
+            return false;
+        };
+        let mut handled = false;
+        self.children
+            .dispatch_step(input, props, vm, events, cursor)
+    }
+
+    fn pending(&self, input: &Input) -> bool {
+        false || self.children.pending(input)
+    }
+
+    fn sample_idle(&mut self, input: &Input) {
+        self.children.sample_idle(input);
+    }
+
+    fn handler_count(&self) -> usize {
+        0usize + self.children.handler_count()
+    }
+
+    fn pending_after(&self, input: &Input, skip: usize) -> bool {
+        self.children
+            .pending_after(input, skip.saturating_sub(0usize))
+    }
+
+    fn refresh_slot_placement(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.children
+            .refresh_slot_placement(ui, self.node, NodeId::NONE);
+    }
+}
+
+impl Block for AppNode106 {
+    fn first_node(&self) -> NodeId {
+        self.node
+    }
+
+    fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        ui.insert_before(parent, self.node, anchor);
+    }
+
+    fn unmount(self, ui: &mut Ui) {
+        self.children.unmount(ui);
+        ui.destroy_node(self.node);
+    }
+}
+
+struct AppBlock99 {
+    parent: NodeId,
+    anchor: NodeId,
+    child0: AppNode100,
+    child1: AppNode106,
+}
+
+impl AppBlock99 {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+        let child0 = AppNode100::mount(ui, parent, anchor);
+        let child1 = AppNode106::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -11583,7 +12665,7 @@ impl AppBlock93 {
     }
 }
 
-impl Block for AppBlock93 {
+impl Block for AppBlock99 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
             self.child0.first_node()
@@ -11609,17 +12691,17 @@ impl Block for AppBlock93 {
     }
 }
 
-struct AppNode92 {
+struct AppNode98 {
     node: NodeId,
-    children: AppBlock93,
+    children: AppBlock99,
 }
 
-impl AppNode92 {
+impl AppNode98 {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(1i32));
-        let children = AppBlock93::mount(ui, node, NodeId::NONE);
+        let children = AppBlock99::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -11683,7 +12765,7 @@ impl AppNode92 {
     }
 }
 
-impl Block for AppNode92 {
+impl Block for AppNode98 {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -11698,25 +12780,25 @@ impl Block for AppNode92 {
     }
 }
 
-struct AppBlock27<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppBlock33<StateFeatureToggle: FeatureToggleViewModel + Default> {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppInput28,
-    child1: AppInput30,
-    child2: AppNode32,
-    child3: AppNode42,
-    child4: AppNode87<StateFeatureToggle>,
-    child5: AppNode92,
+    child0: AppInput34,
+    child1: AppInput36,
+    child2: AppNode38,
+    child3: AppNode48,
+    child4: AppNode93<StateFeatureToggle>,
+    child5: AppNode98,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock27<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock33<StateFeatureToggle> {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppInput28::mount(ui, parent, anchor);
-        let child1 = AppInput30::mount(ui, parent, anchor);
-        let child2 = AppNode32::mount(ui, parent, anchor);
-        let child3 = AppNode42::mount(ui, parent, anchor);
-        let child4 = AppNode87::mount(ui, parent, anchor);
-        let child5 = AppNode92::mount(ui, parent, anchor);
+        let child0 = AppInput34::mount(ui, parent, anchor);
+        let child1 = AppInput36::mount(ui, parent, anchor);
+        let child2 = AppNode38::mount(ui, parent, anchor);
+        let child3 = AppNode48::mount(ui, parent, anchor);
+        let child4 = AppNode93::mount(ui, parent, anchor);
+        let child5 = AppNode98::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,
@@ -12025,7 +13107,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock27<StateFeatu
 }
 
 impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
-    for AppBlock27<StateFeatureToggle>
+    for AppBlock33<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
         if self.child0.first_node() != NodeId::NONE {
@@ -12076,18 +13158,18 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
     }
 }
 
-struct AppNode26<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppNode32<StateFeatureToggle: FeatureToggleViewModel + Default> {
     node: NodeId,
-    children: AppBlock27<StateFeatureToggle>,
+    children: AppBlock33<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode26<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode32<StateFeatureToggle> {
     fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(11i32));
         ui.set_debug_name(node, "VueSfcLab");
-        let children = AppBlock27::mount(ui, node, NodeId::NONE);
+        let children = AppBlock33::mount(ui, node, NodeId::NONE);
         Self { node, children }
     }
 
@@ -12151,7 +13233,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode26<StateFeatur
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode26<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode32<StateFeatureToggle> {
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -12171,12 +13253,12 @@ pub type AppView<M: AppViewModel> = AppViewState<M::FeatureToggle>;
 pub struct AppViewState<StateFeatureToggle: FeatureToggleViewModel + Default> {
     parent: NodeId,
     anchor: NodeId,
-    child0: AppNode26<StateFeatureToggle>,
+    child0: AppNode32<StateFeatureToggle>,
 }
 
 impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppViewState<StateFeatureToggle> {
     pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode26::mount(ui, parent, anchor);
+        let child0 = AppNode32::mount(ui, parent, anchor);
         Self {
             parent,
             anchor,

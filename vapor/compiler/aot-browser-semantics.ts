@@ -2,12 +2,30 @@
 import { parse } from "@vue/compiler-sfc";
 import { parse as parseTemplate, NodeTypes, type TemplateChildNode, type SimpleExpressionNode } from "@vue/compiler-dom";
 import ts from "typescript";
-import type { AotExpr, AotProgram, AotType } from "./aot-ir.ts";
+import type { AotComponent, AotExpr, AotProgram, AotType } from "./aot-ir.ts";
+import { fail, location } from "./aot-types.ts";
 
 export function normalizeVueAotSemantics(source: string, filename: string, program: AotProgram): string {
-  const component = program.components.find(item => item.file === filename);
+  const components = program.components.filter(item => item.file === filename);
+  if (!components.length) return source;
+  const normalized = components.map(component => normalizeComponentSemantics(source, filename, program, component));
+  if (normalized.some(value => value !== normalized[0])) {
+    const template = parse(source, { filename }).descriptor.template;
+    fail(location(filename, source, template?.loc.start.offset), "Generic specializations must use the same Color display and equality semantics in a shared template; use separate components when those operations differ");
+  }
+  return normalized[0]!;
+}
+
+/** Native, browser, and guest builds admit the same source-level normalization. */
+export function validateVueAotSemantics(program: AotProgram, sources: ReadonlyMap<string, string>): void {
+  const counts = new Map<string, number>();
+  for (const component of program.components) counts.set(component.file, (counts.get(component.file) ?? 0) + 1);
+  for (const [file, count] of counts) if (count > 1) normalizeVueAotSemantics(sources.get(file)!, file, program);
+}
+
+function normalizeComponentSemantics(source: string, filename: string, program: AotProgram, component: AotComponent): string {
   const descriptor = parse(source, { filename }).descriptor;
-  if (!component || !descriptor.template || !descriptor.scriptSetup) return source;
+  if (!descriptor.template || !descriptor.scriptSetup) return source;
   const units = new Map(program.types.filter(type => type.kind === "newtype").map(type => [type.name, type.unit]));
   const color = (type?: AotType): boolean => !!type && (type.kind === "option" ? color(type.value) : type.kind === "named" && units.get(type.name) === "Color");
   const expressions = new Map<number, AotExpr[]>();

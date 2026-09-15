@@ -7,6 +7,12 @@ export interface Feature {
   enabled: boolean;
 }
 
+export interface LabTheme {
+  enabledLabel: string;
+}
+
+export const theme = ref<LabTheme>({ enabledLabel: "ON" });
+
 export const count = ref<i32>(0);
 export const features = ref<Feature[]>([
   { id: "model", label: "MODEL", enabled: true },

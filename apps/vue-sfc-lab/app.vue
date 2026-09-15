@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ActionHandler, AxisHandler, Text, View } from "@pocketjs/framework/vue-vapor/components";
 import { BTN } from "@pocketjs/framework/vue-vapor/input";
-import { count, features, enabledCount, toggleFeature, adjustCount, resetCount } from "./app";
+import { provide } from "vue";
+import { count, features, theme, enabledCount, toggleFeature, adjustCount, resetCount } from "./app";
 import FeatureCard from "./FeatureCard.vue";
+import FeatureList from "./FeatureList.vue";
 import FeatureToggle from "./FeatureToggle.vue";
 import ModelButton from "./ModelButton.vue";
+
+provide("theme", theme);
 </script>
 
 <template>
@@ -54,15 +58,15 @@ import ModelButton from "./ModelButton.vue";
       </template>
     </FeatureCard>
 
-    <View class="flex-row gap-2">
-      <template v-for="feature in features" :key="feature.id">
+    <FeatureList :items="features">
+      <template #row="{ item: feature }">
         <FeatureToggle
           :label="feature.label"
           :enabled="feature.enabled"
           @toggle="toggleFeature(feature.id)"
         />
       </template>
-    </View>
+    </FeatureList>
 
     <View class="flex-row items-center justify-between">
       <View class="flex-row gap-2">

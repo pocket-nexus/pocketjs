@@ -23,7 +23,9 @@ export interface AotValue { name: string; sourceName: string; type: AotType; wri
 export interface AotFunction { name: string; sourceName: string; parameters: AotField[]; returns: AotType; binding: boolean; handler: boolean; optional?: boolean }
 export interface AotProp extends AotField { default?: LiteralValue; defaultRawNumber?: string; model?: string }
 export interface AotEvent { name: string; parameters: AotField[] }
-export type BindingScope = "vm" | "prop" | "local" | "event";
+export interface AotSlot { name: string; parameters: AotField[] }
+export interface AotSlotBinding extends AotField { prop: string }
+export type BindingScope = "vm" | "prop" | "local" | "event" | "inject";
 export type AotExpr = (
   | { kind: "literal"; value: LiteralValue; rawNumber?: string }
   | { kind: "undefined" }
@@ -50,17 +52,21 @@ export type AotNode =
   | { kind: "element"; id: number; tag: "View" | "Text" | "Image"; style: number; dynamicStyle?: AotMemo; props: AotStyleBinding[]; text?: { parts: (string | AotExpr)[]; memo: number }; focusable: boolean; debugName?: string; src?: string; events: { name: string; handler: AotHandler }[]; children: AotNode[]; loc: SourceLocation }
   | { kind: "if"; id: number; branches: { condition?: AotExpr; children: AotNode[] }[]; loc: SourceLocation }
   | { kind: "for"; id: number; source: AotExpr; item: string; index?: string; itemType: AotType; key: AotExpr; children: AotNode[]; loc: SourceLocation }
-  | { kind: "component"; id: number; component: string; props: { name: string; value: AotExpr }[]; events: { name: string; handler: AotHandler }[]; slots: { name: string; children: AotNode[] }[]; loc: SourceLocation }
-  | { kind: "slot"; id: number; name: string; fallback: AotNode[]; loc: SourceLocation };
+  | { kind: "component"; id: number; component: string; props: { name: string; value: AotExpr }[]; events: { name: string; handler: AotHandler }[]; slots: { name: string; bindings?: AotSlotBinding[]; children: AotNode[] }[]; loc: SourceLocation }
+  | { kind: "slot"; id: number; name: string; props?: { name: string; value: AotExpr }[]; fallback: AotNode[]; loc: SourceLocation };
 export interface AotComponent {
   name: string; file: string; root: boolean;
+  provides?: { key: string; value: AotExpr; loc: SourceLocation }[];
+  injections?: { key: string; name: string; type: AotType; loc: SourceLocation }[];
+  context?: { key: string; type: AotType }[];
   factory?: { name: string; sourceName: string; module: string };
   props: AotProp[]; events: AotEvent[]; slots: string[];
+  slotProps?: AotSlot[];
   values: AotValue[]; functions: AotFunction[]; constants: AotConstant[];
   children: string[]; nodes: AotNode[]; nodeCount: number; memoCount: number; handlerCount: number;
 }
 export interface AotProgram {
-  version: 1; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
+  version: 2; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
   styles: { records: StyleRecord[]; anims: AnimTimeline[]; ids: Record<string, number>; bytes: number[]; usedFontSlots: number[] };
   diagnostics: AotDiagnostic[];
   demands?: { buttons: number[]; axes: number[]; capabilities: string[] };

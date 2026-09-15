@@ -23,9 +23,10 @@ impl ButtonLatch {
     }
 }
 
-pub enum Dispatch<E> {
+pub enum Dispatch<E, S = ()> {
     Event(E),
     Slot(Input, usize),
+    ScopedSlot(S),
 }
 
 /// Resume a document-order walk after each handler without retaining borrowed
@@ -68,11 +69,15 @@ impl DispatchCursor {
     }
 }
 
-pub trait EventSink<E> {
+pub trait EventSink<E, S = ()> {
     fn push(&mut self, event: E);
     fn slot(&mut self, input: &Input, id: usize, cursor: &mut DispatchCursor) -> bool;
+    /// Scoped argument payloads exist only during this dispatch step.
+    fn slot_event(&mut self, _event: S, _cursor: &mut DispatchCursor) -> bool {
+        false
+    }
 }
-impl<E> EventSink<E> for Vec<E> {
+impl<E, S> EventSink<E, S> for Vec<E> {
     fn push(&mut self, event: E) {
         Vec::push(self, event);
     }
@@ -81,16 +86,19 @@ impl<E> EventSink<E> for Vec<E> {
     }
 }
 pub struct DispatchFn<F>(F);
-pub fn dispatch_fn<E, F: FnMut(Dispatch<E>, Option<&mut DispatchCursor>) -> bool>(
+pub fn dispatch_fn<E, S, F: FnMut(Dispatch<E, S>, Option<&mut DispatchCursor>) -> bool>(
     callback: F,
 ) -> DispatchFn<F> {
     DispatchFn(callback)
 }
-impl<E, F: FnMut(Dispatch<E>, Option<&mut DispatchCursor>) -> bool> EventSink<E> for DispatchFn<F> {
+impl<E, S, F: FnMut(Dispatch<E, S>, Option<&mut DispatchCursor>) -> bool> EventSink<E, S> for DispatchFn<F> {
     fn push(&mut self, event: E) {
         (self.0)(Dispatch::Event(event), None);
     }
     fn slot(&mut self, input: &Input, id: usize, cursor: &mut DispatchCursor) -> bool {
         (self.0)(Dispatch::Slot(*input, id), Some(cursor))
+    }
+    fn slot_event(&mut self, event: S, cursor: &mut DispatchCursor) -> bool {
+        (self.0)(Dispatch::ScopedSlot(event), Some(cursor))
     }
 }

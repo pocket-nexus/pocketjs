@@ -10,7 +10,8 @@ import type { AotComponent, AotProgram, AotType } from "./aot-ir.ts";
 const analyzedComponents = new Map<string, { source: string; program: AotProgram }>();
 export function getVueAotProgram(filename: string, source: string): AotProgram | undefined {
   const cached = analyzedComponents.get(resolve(filename));
-  if (cached?.source !== source) return;
+  if (!cached) return;
+  if (cached.source !== source) return checkVueAotSource(source, filename);
   const changed = getAotDependencyVersions(cached.program).some(version => {
     try {
       const current = statSync(version.file);
@@ -38,9 +39,22 @@ export function hasVueAotContract(source: string, filename: string): boolean {
 }
 
 export function checkVueAotSource(source: string, filename: string, strict = false): AotProgram {
-  const program = analyzeVueAot(resolve(filename), { source, strict });
+  filename = resolve(filename);
+  const prior = analyzedComponents.get(filename);
+  const root = prior?.program.components.find(component => component.name === prior.program.root);
+  const entry = root?.file ?? filename;
+  const sources = new Map<string, string>();
+  if (prior) for (const component of prior.program.components) {
+    const cached = analyzedComponents.get(component.file);
+    const version = getAotDependencyVersions(prior.program).find(value => value.file === component.file);
+    let unchanged = false;
+    try { const current = statSync(component.file); unchanged = !!version && current.mtimeMs === version.mtimeMs && current.size === version.size; } catch { /* An in-memory source may have no file. */ }
+    if (cached && (unchanged || !version)) sources.set(component.file, cached.source);
+  }
+  sources.set(filename, source);
+  const program = analyzeVueAot(entry, { sources, strict });
   for (const component of program.components) analyzedComponents.set(component.file, {
-    source: component.file === resolve(filename) ? source : readFileSync(component.file, "utf8"), program,
+    source: sources.get(component.file) ?? readFileSync(component.file, "utf8"), program,
   });
   for (const diagnostic of program.diagnostics) {
     if (diagnostic.severity === "warning") {
@@ -170,7 +184,7 @@ export function resolveVueAotMock(importer: string, specifier: string): string |
   const module = resolve(dirname(importer), specifier);
   if (!existsSync(module + ".d.ts") || existsSync(module + ".ts")) return;
   const source = readFileSync(importer, "utf8");
-  const program = checkVueAotSource(source, importer);
-  const root = program.components.find(c => c.name === program.root)!;
-  return generateVueAotMock(program, root);
+  const program = getVueAotProgram(importer, source) ?? checkVueAotSource(source, importer);
+  const component = program.components.find(value => value.file === resolve(importer))!;
+  return generateVueAotMock(program, component);
 }

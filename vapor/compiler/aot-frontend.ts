@@ -11,12 +11,16 @@ import { VAPOR_BUILTINS, VAPOR_ELEMENTS, VAPOR_STYLE_PROPS, VAPOR_INPUT_ELEMENTS
 import { AotCompileError, BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
 import { TypeMapper, createTypeEnvironment, location, fail, typeName, constantNumericSpelling } from "./aot-types.ts";
 import { expression, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
+import { readSlotContract, readSlotBindings } from "./aot-slots.ts";
+import { constraintNeedsSource, genericParameters, genericSourceType, inferGenericArgument, inferGenericSource, preservesGenericStorage, satisfiesGenericConstraint, satisfiesGenericSourceConstraint, type GenericSourceArguments } from "./aot-generics.ts";
+import { analyzeContextStatement, resolveProvidedContext, vueContextCall } from "./aot-provide-inject.ts";
+import { validateVueAotSemantics } from "./aot-browser-semantics.ts";
 import type { VaporRootIR, VaporIfIR, VaporForIR, VaporCreateIR, VaporBlockIR, VaporDynamicInfo } from "./vendor/vue-vapor-ir.ts";
 
 const camelize = (name: string) => name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
 const COMPONENTS = "@pocketjs/framework/vue-vapor/components", STD = "@pocketjs/framework/vue-vapor/std", INPUT = "@pocketjs/framework/vue-vapor/input";
-interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; inputHosts: Map<string, "ActionHandler" | "AxisHandler">; buttonNames: Set<string>; name: string }
-export interface AnalyzeVueAotOptions { strict?: boolean; source?: string; root?: boolean }
+interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; contextImports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; inputHosts: Map<string, "ActionHandler" | "AxisHandler">; buttonNames: Set<string>; name: string }
+export interface AnalyzeVueAotOptions { strict?: boolean; source?: string; sources?: ReadonlyMap<string, string>; root?: boolean }
 export interface AotDependencyVersion { file: string; mtimeMs: number; size: number }
 const dependencyVersions = new WeakMap<AotProgram, readonly AotDependencyVersion[]>();
 /** Filesystem versions for cache invalidation; compiler sources and ASTs stay outside the View IR. */
@@ -31,13 +35,13 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
     if (visiting.has(file)) fail(location(file, ""), "Recursive component imports are outside v1");
     const existing = parsed.get(file); if (existing) return existing;
     visiting.add(file);
-    const source = override ?? readFileSync(file, "utf8");
+    const source = override ?? options.sources?.get(file) ?? readFileSync(file, "utf8");
     const result = parseSfc(source, { filename: file });
     if (result.errors.length) fail(location(file, source), String(result.errors[0]));
     const descriptor = result.descriptor;
-    if (!descriptor.template || descriptor.template.src || descriptor.template.lang || !descriptor.scriptSetup || descriptor.script || descriptor.scriptSetup.lang !== "ts" || descriptor.scriptSetup.src || descriptor.scriptSetup.attrs.generic || descriptor.styles.length || descriptor.customBlocks.length) fail(location(file, source), 'An AOT SFC contains one <template> and one <script setup lang="ts">; no runtime script, styles, generic parameters, or custom blocks');
+    if (!descriptor.template || descriptor.template.src || descriptor.template.lang || !descriptor.scriptSetup || descriptor.script || descriptor.scriptSetup.lang !== "ts" || descriptor.scriptSetup.src || descriptor.styles.length || descriptor.customBlocks.length) fail(location(file, source), 'An AOT SFC contains one <template> and one <script setup lang="ts">; no runtime script, styles, or custom blocks');
     const script = ts.createSourceFile(file + ".ts", descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const item: ParsedComponent = { file, source, descriptor, script, imports: new Map(), children: new Map(), hosts: new Map(), inputHosts: new Map(), buttonNames: new Set(), name: typeName(basename(file, ".vue")) };
+    const item: ParsedComponent = { file, source, descriptor, script, imports: new Map(), contextImports: new Map(), children: new Map(), hosts: new Map(), inputHosts: new Map(), buttonNames: new Set(), name: typeName(basename(file, ".vue")) };
     for (const statement of script.statements) {
       const loc = location(file, source, descriptor.scriptSetup.loc.start.offset + statement.getStart(script));
       if (ts.isImportDeclaration(statement)) {
@@ -56,6 +60,9 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
             if (original in VAPOR_INPUT_ELEMENTS) item.inputHosts.set(binding.name.text, original as "ActionHandler" | "AxisHandler");
             else if (original in VAPOR_ELEMENTS) item.hosts.set(binding.name.text, original as "View" | "Text" | "Image");
             else fail(loc, `Host component ${original} is outside v1.1`);
+          } else if (module === "vue") {
+            if (original !== "provide" && original !== "inject") fail(loc, "AOT setup imports from Vue accept provide and inject");
+            item.contextImports.set(binding.name.text, original);
           } else if (module === STD) {
             if (!(original in VAPOR_BUILTINS)) fail(loc, `Unknown std built-in ${original}`);
           } else if (module === INPUT) {
@@ -70,8 +77,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           item.imports.set(binding.name.text, module);
         }
       } else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
-        if (statement.typeParameters?.length) fail(loc, "Generic contract declarations are outside v1");
-      } else if (!ts.isVariableStatement(statement)) fail(loc, "Only imports, type declarations, and component macros are allowed in script setup");
+        // Generic contract declarations are resolved by the component specialization.
+      } else if (!ts.isVariableStatement(statement) && !(ts.isExpressionStatement(statement) && (vueContextCall(statement.expression, item.contextImports) === "provide" || ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) && statement.expression.expression.text === "defineSlots"))) fail(loc, "Only imports, type declarations, component macros, and root provide calls are allowed in script setup");
     }
     parsed.set(file, item); visiting.delete(file); return item;
   }
@@ -82,8 +89,11 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
   const environment = createTypeEnvironment(new Map([...parsed].map(([file, item]) => [file, item.source])), entry);
   const mapper = new TypeMapper(environment.checker, options.strict, [...parsed.values()].map(c => c.name), environment.locationOf), components: AotComponent[] = [];
   const byFile = new Map<string, AotComponent>();
+  const specializations = new Map<string, AotComponent>();
   const locAt = (item: ParsedComponent, offset: number) => location(item.file, item.source, offset);
-  for (const item of parsed.values()) {
+  function analyzeComponent(item: ParsedComponent, arguments_ = new Map<string, AotType>(), instanceName = item.name, sourceArguments: GenericSourceArguments = new Map()): AotComponent {
+    if (!item.descriptor.scriptSetup!.attrs.generic && byFile.has(item.file)) return byFile.get(item.file)!;
+    return mapper.withTypeArguments(arguments_, () => {
     const { file, source, descriptor, script } = item, scriptOffset = descriptor.scriptSetup!.loc.start.offset;
     const loc = (node: ts.Node) => locAt(item, scriptOffset + node.getStart(script));
     const checkedType = (node: ts.Node): ts.Type => {
@@ -91,9 +101,15 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       if (!mapped) fail(loc(node), "Vue virtual code did not map this contract declaration");
       return environment.checker.getTypeAtLocation(mapped);
     };
-    const component: AotComponent = { name: item.name, file, root: file === entry && options.root !== false, props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [...item.children.values()].map(f => parsed.get(f)!.name), nodes: [], nodeCount: 0, memoCount: 0, handlerCount: 0 };
+    const component: AotComponent = { name: instanceName, file, root: file === entry && options.root !== false, props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [], nodes: [], nodeCount: 0, memoCount: 0, handlerCount: 0 };
     const ctx: ExpressionContext = { file, mapper, environment, bindings: new Map(), functions: new Map(), builtins: new Map(), narrowings: new Map(), handler: false };
-    let emitName: string | undefined, propsSeen = false, emitsSeen = false;
+    let emitName: string | undefined, propsSeen = false, emitsSeen = false, slotsSeen = false;
+    function defineSlots(call: ts.CallExpression): void {
+      if (slotsSeen || call.arguments.length || call.typeArguments?.length !== 1) fail(loc(call), "Use one typed defineSlots<T>() declaration");
+      slotsSeen = true;
+      component.slotProps = readSlotContract(checkedType(call.typeArguments![0]!), mapper, loc(call), component.name);
+      component.slots.push(...component.slotProps.map(slot => slot.name));
+    }
     const factoryCalls = new Set(script.statements.flatMap(statement => ts.isVariableStatement(statement) ? statement.declarationList.declarations.flatMap(declaration => ts.isObjectBindingPattern(declaration.name) && declaration.initializer && ts.isCallExpression(declaration.initializer) && ts.isIdentifier(declaration.initializer.expression) ? [declaration.initializer.expression.text] : []) : []));
     const factoryImports = new Map<string, { sourceName: string; module: string; type: ts.Type; node: ts.Node }>();
     function addContractBinding(name: string, sourceName: string, raw: ts.Type, at: SourceLocation, sourceNode?: ts.Node): void {
@@ -126,13 +142,15 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         const module = (statement.moduleSpecifier as ts.StringLiteral).text, clause = statement.importClause;
         if (!clause || clause.isTypeOnly || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) continue;
         for (const binding of clause.namedBindings.elements) {
-          if (binding.isTypeOnly || module === COMPONENTS || module === INPUT) continue;
+          if (binding.isTypeOnly || module === COMPONENTS || module === INPUT || module === "vue") continue;
           const name = binding.name.text, sourceName = binding.propertyName?.text ?? name;
           if (module === STD) { ctx.builtins.set(name, sourceName); continue; }
           if (!component.root || factoryCalls.size) factoryImports.set(name, { sourceName, module, type: checkedType(binding.name), node: binding.name });
           else addContractBinding(name, sourceName, checkedType(binding.name), loc(binding), environment.nodeAt(file, scriptOffset + binding.name.getStart(script)));
         }
       }
+      if (analyzeContextStatement(statement, component, item.contextImports, ctx, checkedType, loc)) continue;
+      if (ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) && statement.expression.expression.text === "defineSlots") { defineSlots(statement.expression); continue; }
       if (!ts.isVariableStatement(statement)) continue;
       if (!(statement.declarationList.flags & ts.NodeFlags.Const) || statement.declarationList.declarations.length !== 1) fail(loc(statement), "A component macro requires one const declaration");
       const declaration = statement.declarationList.declarations[0]!;
@@ -156,6 +174,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       }
       if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isCallExpression(declaration.initializer)) fail(loc(declaration), "Runtime variables outside component macros and the child factory are unsupported");
       const name = declaration.name.text; let call = declaration.initializer, defaults: ts.ObjectLiteralExpression | undefined;
+      if (ts.isIdentifier(call.expression) && call.expression.text === "defineSlots") { defineSlots(call); continue; }
       if (ts.isIdentifier(call.expression) && call.expression.text === "withDefaults") {
         if (call.arguments.length !== 2 || !ts.isCallExpression(call.arguments[0]!) || !ts.isObjectLiteralExpression(call.arguments[1]!)) fail(loc(call), "withDefaults requires defineProps<T>() and an object of literal defaults");
         defaults = call.arguments[1]; call = call.arguments[0];
@@ -341,20 +360,127 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         const renderChildren = (operation.render.node.type === NodeTypes.ROOT || operation.render.node.type === NodeTypes.ELEMENT) ? operation.render.node.children : [];
         return [{ kind: "for", id, source, item: resolvedItem, ...(index ? {index: resolvedIndex} : {}), itemType: source.type.element, key, children: nodes(renderChildren, rowContext), loc: at }];
       }
-      const tag = item.hosts.get(node.tag), childFile = item.children.get(node.tag), child = childFile ? byFile.get(childFile)! : undefined;
+      const tag = item.hosts.get(node.tag), childFile = item.children.get(node.tag);
+      let child: AotComponent | undefined;
+      if (childFile) {
+        const childItem = parsed.get(childFile)!, generic = childItem.descriptor.scriptSetup!.attrs.generic;
+        if (generic !== undefined) {
+          if (typeof generic !== "string") fail(at, "generic requires TypeScript type parameter declarations");
+          const parameters = genericParameters(childFile, childItem.source, generic, environment, at);
+          const names = new Set(parameters.map(p => p.name));
+          let inferred = new Map<string, AotType>();
+          const inferredSources: GenericSourceArguments = new Map();
+          const missingSources = new Set<string>();
+          const childOffset = childItem.descriptor.scriptSetup!.loc.start.offset;
+          for (const statement of childItem.script.statements) if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) {
+            let call = declaration.initializer;
+            if (call && ts.isCallExpression(call) && ts.isIdentifier(call.expression) && call.expression.text === "withDefaults") call = call.arguments[0];
+            if (!call || !ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || !["defineProps", "defineModel"].includes(call.expression.text) || !call.typeArguments?.[0]) continue;
+            const typeNode = call.typeArguments[0], mapped = environment.nodeAt(childFile, childOffset + typeNode.getStart(childItem.script), typeNode.getWidth(childItem.script));
+            if (!mapped) fail(at, "Cannot resolve generic component props");
+            const raw = environment.checker.getTypeAtLocation(mapped);
+            for (const attribute of node.props) {
+              let propName: string | undefined, actual: AotExpr | undefined;
+              if (attribute.type === NodeTypes.DIRECTIVE && ["bind", "model"].includes(attribute.name) && attribute.exp?.type === NodeTypes.SIMPLE_EXPRESSION) {
+                propName = attribute.name === "model" && !attribute.arg ? "modelValue" : attribute.arg?.type === NodeTypes.SIMPLE_EXPRESSION && attribute.arg.isStatic ? camelize(attribute.arg.content) : undefined;
+                if (propName && (call.expression.text === "defineModel" || raw.getProperty(propName))) actual = expr(attribute.exp, context);
+              } else if (attribute.type === NodeTypes.ATTRIBUTE) {
+                propName = camelize(attribute.name);
+                if (raw.getProperty(propName)) actual = expression(attribute.value ? JSON.stringify(attribute.value.content) : "true", tplLoc(attribute), context);
+              }
+              if (!actual || !propName) continue;
+              const actualSource = genericSourceType(actual, environment, attribute.type === NodeTypes.DIRECTIVE && attribute.exp?.type === NodeTypes.SIMPLE_EXPRESSION ? attribute.exp.content.length : undefined);
+              const infer = (pattern: ts.Type) => {
+                let argument = actual!;
+                const constraint = pattern.flags & ts.TypeFlags.TypeParameter ? parameters.find(parameter => parameter.name === pattern.symbol.name)?.constraint : undefined;
+                const literalNumber = argument.kind === "literal" && typeof argument.value === "number" || argument.kind === "unary" && ["+", "-"].includes(argument.operator) && argument.operand.kind === "literal" && typeof argument.operand.value === "number";
+                if (literalNumber && constraint && (constraint.flags & ts.TypeFlags.NumberLike || constraint.getProperty("__type")) && attribute.type === NodeTypes.DIRECTIVE && attribute.exp?.type === NodeTypes.SIMPLE_EXPRESSION) {
+                  const expected = mapper.map(constraint, tplLoc(attribute), `${childItem.name}${pattern.symbol.name}Constraint`);
+                  if (numeric(expected, mapper)) argument = expr(attribute.exp, context, expected);
+                }
+                const argumentTypes = new Map<string, AotType>();
+                inferGenericArgument(pattern, argument.type, names, argumentTypes, mapper, tplLoc(attribute));
+                const sourceTypes: GenericSourceArguments = new Map();
+                if (actualSource) inferGenericSource(pattern, actualSource, names, sourceTypes, sourceArguments, mapper);
+                for (const [name, type] of argumentTypes) {
+                  const previous = inferred.get(name);
+                  if (previous && !sameType(previous, type)) fail(tplLoc(attribute), `Conflicting inferred types for generic parameter ${name}`);
+                  inferred.set(name, type);
+                  const types = sourceTypes.get(name);
+                  if (!types?.length) missingSources.add(name);
+                  else inferredSources.set(name, [...new Set([...(inferredSources.get(name) ?? []), ...types])]);
+                }
+              };
+              const modelName = call.arguments[0] && ts.isStringLiteral(call.arguments[0]) ? call.arguments[0].text : "modelValue";
+              if (call.expression.text === "defineModel") {
+                if (modelName === propName) infer(raw);
+              } else {
+                const property = raw.getProperty(propName), declaration = property?.valueDeclaration ?? property?.declarations?.[0];
+                if (property && declaration) infer(environment.checker.getTypeOfSymbolAtLocation(property, declaration));
+              }
+            }
+          }
+          mapper.withTypeArguments(inferred, () => {
+            for (const parameter of parameters) {
+              if (!inferred.has(parameter.name) && parameter.default) {
+                inferred.set(parameter.name, mapper.map(parameter.default, at, `${childItem.name}${parameter.name}`));
+                inferredSources.set(parameter.name, parameter.default.flags & ts.TypeFlags.TypeParameter ? inferredSources.get(parameter.default.symbol.name) ?? [] : [parameter.default]);
+              }
+              const actual = inferred.get(parameter.name);
+              if (!actual) fail(at, `Cannot infer generic parameter ${parameter.name} of ${childItem.name} from supplied props`);
+            }
+            for (const parameter of parameters) {
+              const actual = inferred.get(parameter.name)!;
+              if (parameter.constraint) {
+                const expected = mapper.map(parameter.constraint, at, `${childItem.name}${parameter.name}Constraint`);
+                const originals = inferredSources.get(parameter.name);
+                const sourceRequired = constraintNeedsSource(parameter.constraint, mapper);
+                const fits = missingSources.has(parameter.name) && sourceRequired ? false
+                  : originals?.length ? originals.every(original => satisfiesGenericSourceConstraint(original, parameter.constraint!, inferredSources, mapper))
+                  : !sourceRequired && satisfiesGenericConstraint(actual, expected, mapper);
+                if (!fits || !preservesGenericStorage(actual, expected, mapper)) fail(at, `Generic argument ${parameter.name} does not satisfy its constraint in ${childItem.name}`);
+              }
+            }
+          });
+          inferred = new Map(parameters.map(parameter => [parameter.name, inferred.get(parameter.name)!]));
+          const key = JSON.stringify([childFile, [...inferred], parameters.map(parameter => inferredSources.get(parameter.name)?.map(type => environment.checker.typeToString(type, undefined, ts.TypeFormatFlags.NoTruncation)).sort())]);
+          child = specializations.get(key);
+          if (!child) {
+            const base = `${childItem.name}Instance`; let suffix = 1, name = `${base}${suffix}`;
+            while (usedNames.has(name)) name = `${base}${++suffix}`;
+            usedNames.add(name);
+            child = analyzeComponent(childItem, inferred, name, inferredSources); specializations.set(key, child);
+          }
+        } else child = analyzeComponent(childItem);
+        if (!component.children.includes(child.name)) component.children.push(child.name);
+      }
       if (node.tag === "template") {
         for (const prop of node.props) if (prop.type !== NodeTypes.DIRECTIVE || !ignored.has(prop.name) && !(prop.name === "bind" && prop.arg?.type === NodeTypes.SIMPLE_EXPRESSION && prop.arg.content === "key" && ignored.has("key"))) fail(tplLoc(prop), "A template fragment only accepts structural directives");
         return nodes(node.children, context);
       }
       if (node.tag === "slot") {
         let name = "default";
-        for (const prop of node.props) {
-          if (prop.type === NodeTypes.DIRECTIVE && ignored.has(prop.name)) continue;
-          if (prop.type !== NodeTypes.ATTRIBUTE || prop.name !== "name" || !prop.value) fail(tplLoc(prop), "Slots accept a static name only; scoped slots are outside v1");
-          name = prop.value.content;
+        for (const prop of node.props) if (prop.type === NodeTypes.ATTRIBUTE && prop.name === "name" && prop.value) name = prop.value.content;
+        if (slotsSeen && !component.slots.includes(name)) fail(at, `Slot ${name} is not declared by defineSlots`);
+        const contract = component.slotProps?.find(slot => slot.name === name), values: { name: string; value: AotExpr }[] = [];
+        for (const attribute of node.props) {
+          if (attribute.type === NodeTypes.ATTRIBUTE && attribute.name === "name" && attribute.value) continue;
+          if (attribute.type === NodeTypes.DIRECTIVE && ignored.has(attribute.name)) continue;
+          if (attribute.type === NodeTypes.DIRECTIVE && (attribute.name !== "bind" || attribute.modifiers.length)) fail(tplLoc(attribute), "Slot outlets accept named typed props and a static slot name");
+          const propName = camelize(attribute.type === NodeTypes.ATTRIBUTE ? attribute.name : argument(attribute));
+          if (propName === "name") fail(tplLoc(attribute), "Slot outlets require a static name");
+          const parameter = contract?.parameters.find(prop => prop.name === propName);
+          if (!parameter) fail(tplLoc(attribute), `Slot ${name} has no declared ${propName} prop`);
+          if (values.some(value => value.name === propName)) fail(tplLoc(attribute), `Duplicate slot prop ${propName}`);
+          const value = attribute.type === NodeTypes.ATTRIBUTE ? expression(attribute.value ? JSON.stringify(attribute.value.content) : "true", tplLoc(attribute), context, parameter.type) : expr(attribute.exp as SimpleExpressionNode, context, parameter.type);
+          requireType(value, parameter.type, context); values.push({ name: propName, value });
+        }
+        for (const parameter of contract?.parameters ?? []) if (!values.some(value => value.name === parameter.name)) {
+          if (parameter.type.kind !== "option") fail(at, `Missing required ${name} slot prop ${parameter.name}`);
+          values.push({ name: parameter.name, value: { kind: "undefined", type: parameter.type, loc: at } });
         }
         if (!component.slots.includes(name)) component.slots.push(name);
-        return [{ kind: "slot", id: component.nodeCount++, name, fallback: nodes(node.children, context), loc: at }];
+        return [{ kind: "slot", id: component.nodeCount++, name, ...(values.length ? { props: values } : {}), fallback: nodes(node.children, context), loc: at }];
       }
       const inputTag = item.inputHosts.get(node.tag);
       if (inputTag) {
@@ -489,11 +615,12 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         const defaultChildren: TemplateChildNode[] = [];
         for (const content of node.children) {
           if (content.type === NodeTypes.ELEMENT && content.tag === "template" && directive(content, "slot")) {
-            const slot = directive(content, "slot")!; if (slot.exp || content.props.length !== 1) fail(tplLoc(slot), "Scoped and conditional slot declarations are outside v1");
+            const slot = directive(content, "slot")!; if (content.props.length !== 1 || slot.modifiers.length) fail(tplLoc(slot), "Slot declarations accept a static name and optional props destructuring");
             const name = slot.arg ? argument(slot) : "default";
             if (!child.slots.includes(name)) fail(tplLoc(slot), `Child ${child.name} has no ${name} slot`);
             if (instance.slots.some(s => s.name === name)) fail(tplLoc(slot), `Duplicate slot ${name}`);
-            instance.slots.push({ name, children: nodes(content.children, context) });
+            const scoped = slot.exp && slot.exp.type === NodeTypes.SIMPLE_EXPRESSION ? readSlotBindings(slot.exp.content, child.slotProps?.find(s => s.name === name), context, tplLoc(slot.exp), `${component.name}Slot${instance.id}_${instance.slots.length}_`) : undefined;
+            instance.slots.push({ name, ...(scoped ? { bindings: scoped.bindings } : {}), children: nodes(content.children, scoped?.context ?? context) });
           } else defaultChildren.push(content);
         }
         if (defaultChildren.some(n => n.type !== NodeTypes.COMMENT && !(n.type === NodeTypes.TEXT && !n.content.trim()))) {
@@ -530,8 +657,13 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       return [host];
     }
     component.nodes = nodes(ast.children, ctx);
-    components.push(component); byFile.set(file, component);
+    components.push(component); if (!descriptor.scriptSetup!.attrs.generic) byFile.set(file, component);
+    return component;
+    });
   }
+  if (root.descriptor.scriptSetup!.attrs.generic !== undefined) fail(location(entry, root.source), "A generic component requires a parent that supplies concrete props");
+  for (const item of parsed.values()) if (item.descriptor.scriptSetup!.attrs.generic === undefined) analyzeComponent(item);
+  resolveProvidedContext(components);
   const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals));
   for (const classes of classLiterals) if (styles.ids[classes] === undefined) fail(location(entry, root.source), `Unsupported class literal ${JSON.stringify(classes)}`);
   function finalize(nodes: AotNode[]) {
@@ -564,7 +696,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
     }
   }
   demands(components.find(c => c.name === root.name)!.nodes);
-  const program: AotProgram = { version: 1, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  const program: AotProgram = { version: 2, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  validateVueAotSemantics(program, new Map([...parsed].map(([file, item]) => [file, item.source])));
   const dependencies = new Set(environment.program.getSourceFiles().map(file => resolve(file.fileName)));
   const config = ts.findConfigFile(dirname(entry), ts.sys.fileExists, "tsconfig.json");
   if (config) dependencies.add(resolve(config));

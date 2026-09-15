@@ -1,7 +1,7 @@
-# Vue AOT: v1.1 boundaries and contracts
+# Vue AOT: v2 boundaries and contracts
 
-**Status: v1.1 compiler and runtime implementation, 2026-09-15; test work is
-deferred.** This page pins what
+**Status: v2 compiler and runtime implementation, 2026-09-15;
+new tests are deferred.** This page pins what
 the compiler accepts, what it generates, and where generated Rust ends and
 application Rust begins. It is the contract for the rewrite of Pocket Vapor
 on branch `vue-aot`: the family keeps its name and its execution class `aot`
@@ -11,14 +11,15 @@ pipeline. That pipeline stays in the tree until the Rust pipeline renders
 
 Build commands and host integration are in [VUE_AOT_BUILD.md](VUE_AOT_BUILD.md).
 
-The implemented contract includes v1 and v1.1; v2 is scheduled in §10. Changing it
+The contract includes v1, v1.1 and the v2 additions in §10. Changing it
 means editing this page first.
 
 ## 1. Input, output, execution classes
 
 **Input is a Vue single-file component: one `<template>` and one
 `<script setup lang="ts">`.** The script block may contain the statements in
-the table below and nothing else. The factory call below is the runtime statement admitted for component state.
+the table below and nothing else. Factory calls construct component state;
+`provide` and `inject` connect typed context across components.
 Other runtime statements are compile errors with a `file:line` diagnostic.
 
 | Allowed in `<script setup>` | Purpose |
@@ -31,6 +32,9 @@ Other runtime statements are compile errors with a `file:line` diagnostic.
 | `interface`, `type` | shapes used by the contract |
 | `const { count, inc } = createRow()` | instance state from the basename module factory (§2) |
 | `const props = defineProps<T>()`, `const emit = defineEmits<T>()`, `const model = defineModel<T>()` | component interface (§2); Vue's compile-time macros |
+| `defineSlots<{ row(props: { item: Todo }): any }>()` | typed slot parameters (§10) |
+| `import { provide, inject } from "vue"` | Vue context functions (§10) |
+| `provide("theme", theme)`, `const theme = inject<Theme>("theme")` | root context and child access (§10) |
 
 **Output is Rust source.** The generated module links `pocketjs-core` and
 calls `Ui` methods (`create_node`, `insert_before`, `set_style`, `set_prop`,
@@ -148,7 +152,7 @@ allocates nothing. Event payloads are owned.
 
 `defineEmits` accepts the tuple form only. Defaults must be literals: strings,
 numbers, booleans or enum literals; an object, array or function default is
-an error. Scoped slots (slot props) are scheduled for v2 (§10).
+an error. Scoped slots declare their parameters with `defineSlots` (§10).
 
 ## 3. Types
 
@@ -169,7 +173,7 @@ an error. Scoped slots (slot props) are scheduled for v2 (§10).
 | function type | trait method (§2); not a value |
 
 Rejected in contract positions: `null`, `any`, `unknown`, `never`, `object`,
-`symbol`, `bigint`, `Function`, classes, generic parameters, mapped,
+`symbol`, `bigint`, `Function`, classes, unresolved generic parameters, mapped,
 conditional and template-literal types other than `Color`, index signatures, `Record`, `Map`,
 `Set`, unions other than string literals, discriminated unions and
 `| undefined`, and intersections other than the `__type` and `__newtype`
@@ -353,7 +357,7 @@ the property numeric type or unit in §3.3; each key lowers to one `set_prop` ca
 
 ### Directives
 
-| In v1 | Rules |
+| Supported directive | Rules |
 |---|---|
 | `v-if`, `v-else-if`, `v-else` | the condition is `bool`; `x !== undefined` on an `Option` value narrows `x` to `T` inside the block; a chain that compares one enum value against literals lowers to `match` |
 | `v-show` | the condition is `bool`; lowers to one `set_prop` of `DISPLAY`; the subtree stays mounted |
@@ -363,11 +367,11 @@ the property numeric type or unit in §3.3; each key lowers to one `set_prop` ca
 | `v-on:event` / `@event` | handler forms below |
 | `v-model` on child components | the value type matches the child's `defineModel<T>` |
 
-Not in v1: `v-html`, `v-once`, `v-memo`, `v-bind="object"`, dynamic event
+Outside the subset: `v-html`, `v-once`, `v-memo`, `v-bind="object"`, dynamic event
 names, template refs and imperative animation (transitions come
 from `transition-*` classes through the style table), `<component :is>`,
 `<Teleport>`, `<Transition>`, `<KeepAlive>`, `<Suspense>`, `v-for` over
-numbers or objects, scoped slots.
+numbers or objects.
 
 ### Handlers
 
@@ -495,7 +499,12 @@ One frame on the AOT class:
 - **Slots compile in the parent's scope.** The child mounts and unmounts a
   slot through a `SlotBlock` trait with those two methods and decides where
   and when it appears; the parent updates the slot's content with its own
-  context.
+  context. A scoped outlet supplies typed arguments for that instance.
+  Update callbacks borrow those arguments for the duration of the call;
+  the registry stores no model references. Dispatch owns a snapshot of the
+  arguments so the parent listener can mutate its model, then yields to
+  rebuild the next handler's context. Slot dispatch has a separate payload
+  type and does not add variants to the component's public event enum.
 
 **No dependency tracking exists at runtime or at compile time**: no signals,
 no effects, no dirty masks. Update work visits rendered bindings and list
@@ -657,6 +666,9 @@ emits code.
   and node numbers are assigned, and `v-if` groups, `v-for` blocks and
   handlers are explicit nodes. It knows nothing about Rust and nothing about
   Vue's IR.
+  The v2 schema uses `version: 2` and includes slot parameters, slot bindings
+  and resolved context arguments. Generic components enter this schema as
+  concrete specializations.
 - **Expression types come from the TypeScript checker.** The compiler feeds
   the virtual TypeScript that `@vue/language-core` generates for the SFC, the
   code vue-tsc checks, to a program built with `proxyCreateProgram` from
@@ -780,7 +792,7 @@ today.
 - Optional void methods with empty defaults (§2).
 - Editor rules, units, usage-based derives and fixed tuples (§3.3).
 
-### Planned for v2
+### v2 additions
 
 - Scoped slots. `defineSlots<{ row(props: { item: Todo }): any }>()` types
   the slot, `<slot name="row" :item="t" />` supplies the values, and the
@@ -789,11 +801,27 @@ today.
   every slot instance and the parent updates the instances with its own
   context plus those arguments. Generic components
   (`<script setup generic="T">`) build on this.
-- Capacity tags (`Todo[] & { readonly __cap?: 32 }` becomes
-  `heapless::Vec<Todo, 32>`) for targets without an allocator.
+  **Generic arguments are inferred from supplied props.** Each distinct
+  argument list produces a concrete component in the View IR and Rust;
+  repeated uses share that generated component. Type parameter defaults
+  fill arguments that props do not determine. Constraints check the inferred
+  types, including object fields, numeric tags and literal values. A root component has no
+  parent to supply generic arguments and cannot declare `generic`.
+  **Specializations share browser template code.** A generic template cannot
+  display or compare a value as `Color` in one specialization and as another
+  type in another specialization. The shared front end rejects that case
+  for all execution classes; separate components give each operation its
+  required formatting and equality conversion.
 - Typed provide and inject. `provide("theme", theme)` in the root script and
   `const theme = inject<Theme>("theme")` in a child are the two runtime
   statements admitted for this, both stock Vue. The compiler matches them by
   key, checks the types, and threads a `&Theme` through the generated views,
   so a deep tree passes no props along the way and the runtime does no
   lookup.
+  **A matching root provider makes the injection required.**
+  `inject<Theme>("theme")!` records that guarantee for Vue's editor types;
+  the compiler accepts the assertion after checking the root key and type.
+
+**v2 retains `alloc`.** Owned arrays use `Vec<T>`; nodes, text buffers,
+keyed-list reconciliation and slot registries retain their allocated
+storage. Capacity tags and `heapless` storage are outside this version.

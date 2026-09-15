@@ -33,6 +33,7 @@ export function generateVueAotApp(root: AotComponent, propsType: RustType, deman
       case "infer": return type;
       case "const": return type;
       case "dyn": return { ...type, bounds: type.bounds.map(storedType) };
+      case "fnTrait": return { ...type, params: type.params.map(storedType), ...(type.returns ? { returns: storedType(type.returns) } : {}) };
       case "binding": return { ...type, type: storedType(type.type) };
     }
   }
@@ -90,7 +91,7 @@ export function generateVueAotApp(root: AotComponent, propsType: RustType, deman
         }),
         re({
           kind: "if", condition: rm(field("invalidation"), "take"),
-          then: rb([re(rm(field("view"), "update", rm(field("host"), "ui_mut"), ref(field("props")), ref(field("model")), ...slots))]),
+          then: rb([re(rm(field("view"), "update", rm(field("host"), "ui_mut"), ref(field("props")), ref(field("model")), ...slots, ...(root.slotProps?.some(slot => slot.parameters.length) ? [ref({ kind: "closure", params: [rn("_ui"), rn("_id"), rn("_arguments")], body: { kind: "tuple", elements: [] } }, true)] : [])))]),
         }),
         re(rm(rm(field("host"), "ui_mut"), "tick")),
       ], rm(field("events"), "as_slice")),

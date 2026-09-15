@@ -46,6 +46,25 @@ builds run the same admission pass for roots that import their basename
 contract. Legacy SFCs without this contract retain their current Vue pipeline
 during migration.
 
+**The lab uses the v2 component contracts.** `FeatureList.vue` declares
+`generic="T extends { id: string }"` and a typed `row` slot. The root passes
+`features` and destructures each slot's `item`; each `FeatureToggle` keeps
+its instance model. The root provides `LabTheme`, and the toggle injects
+that type without forwarding a theme prop through the list.
+
+Generic arguments come from supplied props or type parameter defaults.
+The AOT compiler emits a concrete component for each distinct argument
+list. Unresolved arguments and constraint mismatches produce a source
+diagnostic. A generic SFC must be built through a root that supplies its
+arguments.
+
+**Context keys are matched during compilation.** Import `provide` and
+`inject` from `vue`; provide a root view-model binding under a literal key
+and use the shared type in each child's `inject<T>(key)`. Missing keys and
+type mismatches stop compilation. The generated views pass references;
+the Rust runtime has no context lookup table. Owned storage continues to
+use `alloc`, including `Vec<T>` arrays.
+
 A Rust-only app can provide `app.d.ts` in place of `app.ts`. Browser and guest
 builds supply Vue refs with defaults from the declaration types: zero, empty
 strings, empty arrays, false, absent optional values and the first enum

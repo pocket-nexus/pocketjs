@@ -2,8 +2,11 @@
 import { Text, View } from "@pocketjs/framework/vue-vapor/components";
 import type { i32 } from "@pocketjs/framework/vue-vapor/std";
 import { createFeatureToggle } from "./FeatureToggle";
+import { inject } from "vue";
+import type { LabTheme } from "./app";
 
 const { presses, press } = createFeatureToggle();
+const theme = inject<LabTheme>("theme")!;
 
 const props = defineProps<{
   label: string;
@@ -27,7 +30,7 @@ const emit = defineEmits<{
       {{ props.label }}
     </Text>
     <Text :class="props.enabled ? 'text-xs text-white' : 'text-xs text-slate-500'">
-      {{ props.enabled ? "ON" : "OFF" }} · {{ presses }}
+      {{ props.enabled ? theme.enabledLabel : "OFF" }} · {{ presses }}
     </Text>
   </View>
 </template>

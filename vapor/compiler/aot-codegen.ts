@@ -10,7 +10,8 @@ type ExpandedNode = AotNode;
 interface Expansion {
   props: Map<string, AotExpr>;
   events: Map<string, { handler: AotHandler; expansion: Expansion }>;
-  slots: Map<string, AotNode[]>;
+  slots: Map<string, Extract<AotNode, { kind: "component" }>["slots"][number]>;
+  locals?: Map<string, AotExpr>;
   slotExpansion?: Expansion;
   component: AotComponent;
 }
@@ -44,11 +45,13 @@ class Lowerer {
   eventExpressions = new Map<string, RustExpr>();
   derives = new Map<string, Set<string>>();
   staticStates = new Map<string, Set<string>>();
+  scopedLocals = new Set<string>();
+  explicitSlotUpdates = new WeakSet<RustExpr>();
   constructor(readonly program: AotProgram) {
     this.declarations = new Map(program.types.map(t => [t.name, t]));
     this.components = new Map(program.components.map(c => [c.name, c]));
     const reserved = new Set(["Ui", "NodeId", "StyleId", "Input", "Block", "KeyedList", "SlotHandle", "String", "ToString", "Vec", "Option", "ToOwned", "Write", "Default", "Self", "self", "crate", "super", "M", "H", "bool", "str", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64"]);
-    for (const c of program.components) { for (const suffix of ["View", "ViewState", "Props", "Event", "ViewModel", "App"]) reserved.add(`${c.name}${suffix}`); reserved.add(`State${c.name}`); }
+    for (const c of program.components) { for (const suffix of ["View", "ViewState", "Props", "Event", "ViewModel", "App", "SlotArguments", "SlotEvent"]) reserved.add(`${c.name}${suffix}`); reserved.add(`State${c.name}`); }
     this.typeNames = allocateRustTypeNames(program.types.map(t => t.name), name => reserved.has(name) || program.components.some(c => ["Node", "Block", "If", "For", "Slot", "SlotContent", "Component", "Input"].some(s => name.startsWith(`${c.name}${s}`) && /^\d+$/.test(name.slice(c.name.length + s.length)))));
     for (const t of program.types) if (t.kind === "enum" || t.kind === "union") {
       const used = new Set<string>(); const map = new Map<string, string>();
@@ -87,6 +90,9 @@ class Lowerer {
     return type.kind === "option" ? this.hasBorrow(type.value) : type.kind === "tuple" ? type.elements.some(t => this.hasBorrow(t)) : !this.copy(type);
   }
   propsType(component = this.current): RustType { return rt(`${component.name}Props`, ...(component.props.some(p => this.hasBorrow(p.type)) ? [{ kind: "lifetime", name: "_" } as RustType] : [])); }
+  scopedSlots(component = this.current) { return component.slotProps?.filter(slot => slot.parameters.length) ?? []; }
+  slotVariant(name: string, component = this.current): string { return `Slot${component.slots.indexOf(name)}`; }
+  slotArgumentsType(component = this.current): RustType { return rt(`${component.name}SlotArguments`, ...(this.scopedSlots(component).some(slot => slot.parameters.some(p => this.hasBorrow(p.type))) ? [{ kind: "lifetime", name: "_" } as RustType] : [])); }
   borrowedValue(value: RustExpr, type: AotType): RustExpr {
     if (type.kind === "string") return rm(value, "as_str");
     if (type.kind === "array") return type.length === undefined ? rm(value, "as_slice") : ref(value);
@@ -155,6 +161,7 @@ class Lowerer {
         if (e.scope === "event" && this.eventExpressions.has(e.name)) return this.eventExpressions.get(e.name)!;
         if (e.scope === "vm") result = rm(vm, e.name);
         else if (e.scope === "prop") result = rf(props, e.name);
+        else if (e.scope === "inject") result = this.injectionValue(e.name, locals);
         else result = locals.has(e.name) && this.copy(e.type) ? { kind: "unary", operator: "*", expr: rp(this.localName(e.name)) } : rp(e.scope === "local" ? this.localName(e.name) : e.name);
         break;
       }
@@ -266,7 +273,7 @@ class Lowerer {
     return { kind: "match", value: this.expr(first.value, locals), arms };
   }
   rewriteExpr(e: AotExpr, context: Expansion, payload = new Map<string, AotExpr>()): AotExpr {
-    if (e.kind === "binding") return e.scope === "prop" ? context.props.get(e.name) ?? e : e.scope === "event" ? payload.get(e.name) ?? payload.get("$event") ?? e : e;
+    if (e.kind === "binding") return e.scope === "prop" ? context.props.get(e.name) ?? e : e.scope === "local" ? context.locals?.get(e.name) ?? e : e.scope === "event" ? payload.get(e.name) ?? payload.get("$event") ?? e : e;
     switch (e.kind) {
       case "field": return { ...e, object: this.rewriteExpr(e.object, context, payload) };
       case "index": return { ...e, object: this.rewriteExpr(e.object, context, payload), index: this.rewriteExpr(e.index, context, payload) };
@@ -302,10 +309,18 @@ class Lowerer {
           else if (p.default !== undefined) childProps.set(p.name, { kind: "literal", value: p.default, rawNumber: p.defaultRawNumber, type: p.type, loc: node.loc });
           else childProps.set(p.name, { kind: "undefined", type: p.type, loc: node.loc });
         }
-        if (component.factory) return [{ ...node, props: [...childProps].map(([name, value]) => ({ name, value })), events: node.events.flatMap(e => { const handler = this.rewriteHandler(e.handler, context); return handler ? [{ ...e, handler }] : []; }), slots: node.slots.map(s => ({ name: s.name, children: this.expand(s.children, context) })) }];
-        return this.expand(component.nodes, { component, props: childProps, events: new Map(node.events.map(e => [e.name, { handler: e.handler, expansion: context }])), slots: new Map(node.slots.map(s => [s.name, s.children])), slotExpansion: context });
+        if (component.factory) return [{ ...node, props: [...childProps].map(([name, value]) => ({ name, value })), events: node.events.flatMap(e => { const handler = this.rewriteHandler(e.handler, context); return handler ? [{ ...e, handler }] : []; }), slots: node.slots.map(s => ({ ...s, children: this.expand(s.children, context) })) }];
+        return this.expand(component.nodes, { component, props: childProps, events: new Map(node.events.map(e => [e.name, { handler: e.handler, expansion: context }])), slots: new Map(node.slots.map(s => [s.name, s])), slotExpansion: context });
       }
-      if (node.kind === "slot") return context.component === this.current ? [{ ...node, fallback: this.expand(node.fallback, context) }] : this.expand(context.slots.get(node.name) ?? node.fallback, context.slots.has(node.name) ? context.slotExpansion! : context);
+      if (node.kind === "slot") {
+        const values = node.props?.map(prop => ({ ...prop, value: this.rewriteExpr(prop.value, context) }));
+        if (context.component === this.current) return [{ ...node, props: values, fallback: this.expand(node.fallback, context) }];
+        const supplied = context.slots.get(node.name);
+        if (!supplied) return this.expand(node.fallback, context);
+        const expansion = context.slotExpansion!, localValues = new Map(expansion.locals);
+        for (const binding of supplied.bindings ?? []) { const value = values?.find(prop => prop.name === binding.prop)?.value; if (value) localValues.set(binding.name, value); }
+        return this.expand(supplied.children, { ...expansion, locals: localValues });
+      }
       if (node.kind === "if") return [{ ...node, branches: node.branches.map(b => ({ condition: b.condition ? this.rewriteExpr(b.condition, context) : undefined, children: this.expand(b.children, context) })) }];
       if (node.kind === "for") return [{ ...node, source: this.rewriteExpr(node.source, context), key: this.rewriteExpr(node.key, context), children: this.expand(node.children, context) }];
       if (node.kind === "input") return [{ ...node, active: this.rewriteExpr(node.active, context), handler: this.rewriteHandler(node.handler, context) ?? { kind: "emit", name: "__discard", arguments: [], id: node.handler.id, loc: node.handler.loc }, children: this.expand(node.children, context) }];
@@ -313,14 +328,34 @@ class Lowerer {
     }) as ExpandedNode[];
   }
   contextParams(locals: Locals, dispatch = false): RustParam[] {
-    return [param("props", rr(this.propsType())), param("vm", rr(rt("M"), dispatch)), ...this.slotParams(), ...[...locals].map(([name, type]) => param(this.localName(name), rr(this.type(type))))];
+    return [param("props", rr(this.propsType())), param("vm", rr(rt("M"), dispatch)), ...this.injectionContext().map(value => param(this.injectionName(value.key), this.type(value.type, true))), ...this.slotParams(), ...[...locals].map(([name, type]) => param(this.localName(name), this.scopedLocals.has(name) && !this.copy(type) ? this.type(type, true) : rr(this.type(type))))];
   }
-  eventSinkType(component = this.current): RustType { return { kind: "dyn", bounds: [rt("pocket_vapor::EventSink", rt(`${component.name}Event`))] }; }
-  contextArgs(locals: Locals): RustExpr[] { return [props, vm, ...this.slotArgs(), ...[...locals].map(([name]) => rp(this.localName(name)))]; }
+  eventSinkType(component = this.current): RustType { return { kind: "dyn", bounds: [rt("pocket_vapor::EventSink", rt(`${component.name}Event`), ...(this.scopedSlots(component).length ? [rt(`${component.name}SlotEvent`)] : []))] }; }
+  contextArgs(locals: Locals): RustExpr[] { return [props, vm, ...this.injectionContext().map(value => rp(this.injectionName(value.key))), ...this.slotArgs(), ...[...locals].map(([name]) => rp(this.localName(name)))]; }
+  injectionContext(component = this.current): NonNullable<AotComponent["context"]> { return component.root ? [] : component.context ?? []; }
+  injectionName(key: string): string {
+    const root = this.program.components.find(component => component.root);
+    return `__pocket_inject_${root?.provides?.findIndex(value => value.key === key) ?? 0}`;
+  }
+  injectionValue(key: string, locals: Locals): RustExpr {
+    if (!this.current.root) return rp(this.injectionName(key));
+    return this.expr(this.current.provides!.find(value => value.key === key)!.value, locals);
+  }
   slotParams(): RustParam[] { return this.current.slots.map(name => param(`slot_${name}`, rt("Option", rr(rt("SlotHandle"))))); }
   slotArgs(): RustExpr[] { return this.current.slots.map(name => rp(`slot_${name}`)); }
   mountParams(): RustParam[] { return [...nodeParams, ...this.slotParams()]; }
   method(name: string, params: RustParam[], body: RustBlock, returns?: RustType, generic = false, public_ = false): RustFunction {
+    if (["update", "update_at"].includes(name) && this.scopedSlots().length) {
+      params = [...params, param("slot_updates", rr({ kind: "dyn", bounds: [{ kind: "fnTrait", name: "FnMut", params: [rr(rt("Ui"), true), rt("usize"), this.slotArgumentsType()] }] }, true))];
+      const thread = (value: unknown): unknown => {
+        if (!value || typeof value !== "object") return value;
+        if (Array.isArray(value)) return value.map(thread);
+        const mapped = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, thread(child)])) as Record<string, any>;
+        if (mapped.kind === "method" && ["update", "update_at"].includes(mapped.method) && !this.explicitSlotUpdates.has(value as RustExpr)) mapped.args.push(rp("slot_updates"));
+        return mapped;
+      };
+      body = thread(body) as RustBlock;
+    }
     return { kind: "fn", name, public: public_, params, returns, body, ...(generic ? { generics: [{ name: "M", bounds: [rt(`${this.current.name}ViewModel`)] }] } : {}) };
   }
   registerBlock(name: string, children: GeneratedBlock[] = [], _generic = false, broadcast = false, ownState?: string): void { const states = [...new Set([...(ownState ? [ownState] : []), ...children.flatMap(b => b.states)])]; this.blocks.set(name, { generic: !!states.length, states, broadcast: broadcast || children.some(b => b.broadcast), owner: this.current.name }); }
@@ -597,7 +632,11 @@ class Lowerer {
     const name = `${this.current.name}Component${this.serial++}`;
     const child = this.components.get(node.component)!;
     const childView = `${child.name}View`;
-    const slots = node.slots.map(slot => ({ slot, block: this.compileSlotContent(slot.children, locals) }));
+    const slots = node.slots.map(slot => {
+      const slotLocals = new Map(locals);
+      for (const binding of slot.bindings ?? []) { slotLocals.set(binding.name, binding.type); this.scopedLocals.add(binding.name); }
+      return { slot, block: this.compileSlotContent(slot.children, slotLocals), locals: slotLocals };
+    });
     const staticStates = this.staticStates.get(this.current.name) ?? new Set<string>();
     slots.forEach(slot => slot.block.states.forEach(state => staticStates.add(state))); this.staticStates.set(this.current.name, staticStates);
     const childInfo = this.blocks.get(childView)!;
@@ -618,14 +657,28 @@ class Lowerer {
     mount.push(stmtLet("model", rc(rp("M", child.name, "default"))), stmtLet("view", rc({ kind: "qualifiedPath", type: viewType, member: "mount" }, ui, parent, anchor, ...mountedSlots)));
     const propsExpr = (values: RustExpr[]): RustExpr => ({ kind: "struct", path: [`${child.name}Props`], fields: child.props.map((p, i) => ({ name: p.name, value: values[i]! })) });
     const supplied = child.props.map(prop => node.props.find(p => p.name === prop.name)!.value);
+    const injected = this.injectionContext(child);
+    const updateInjections = injected.map(value => this.injectionValue(value.key, locals));
+    const dispatchInjections = injected.map((value, i) => this.current.root ? this.borrowedValue(rp(`inject_owner${i}`), value.type) : this.injectionValue(value.key, locals));
     const update: RustStatement[] = [...slots.map((_, i) => stmtLet(`slot_handle${i}`, rm(rf(self, `slot${i}`), "handle"))), ...supplied.map((value, i) => stmtLet(`prop_value${i}`, this.expr(value, locals))), stmtLet("child_props", propsExpr(supplied.map((value, i) => this.ownsExpression(value) ? this.borrowedValue(rp(`prop_value${i}`), child.props[i]!.type) : rp(`prop_value${i}`))))];
-    update.push(re(rm(rf(self, "view"), "update_at", ui, parent, ref(rp("child_props")), ref(rf(self, "model")), ...updateSlots, anchor)));
-    slots.forEach((_, i) => update.push(re(rm(rf(self, `slot${i}`), "for_each_mut", { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "update", ui, ...this.contextArgs(locals)) }))));
+    const boundArguments = (slot: typeof slots[number], contract: NonNullable<AotComponent["slotProps"]>[number], owned: boolean): RustStatement[] => (slot.slot.bindings ?? []).map(binding => {
+      const index = contract.parameters.findIndex(parameter => parameter.name === binding.prop), value = rp(`slot_arg${index}`);
+      return stmtLet(this.localName(binding.name), this.copy(binding.type) ? ref(value) : owned ? this.borrowedValue(value, binding.type) : value);
+    });
+    const slotUpdate: RustExpr = { kind: "closure", params: [rn("ui"), rn("slot_id"), rn("slot_arguments")], body: { kind: "match", value: rp("slot_arguments"), arms: this.scopedSlots(child).map(contract => {
+      const index = slots.findIndex(slot => slot.slot.name === contract.name), suppliedSlot = slots[index];
+      const statements = suppliedSlot ? [...boundArguments(suppliedSlot, contract, false), re(rm(rf(self, `slot${index}`), "with_instance", rp("slot_id"), { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "update", ui, ...this.contextArgs(suppliedSlot.locals)) }))] : [];
+      return { pattern: { kind: "variant", path: [`${child.name}SlotArguments`, this.slotVariant(contract.name, child)], tuple: contract.parameters.map((_, i) => rn(`slot_arg${i}`)) }, body: blockExpr(statements) };
+    }) } };
+    const childUpdate = rm(rf(self, "view"), "update_at", ui, parent, ref(rp("child_props")), ref(rf(self, "model")), ...updateInjections, ...updateSlots, anchor, ...(this.scopedSlots(child).length ? [ref(slotUpdate, true)] : []));
+    this.explicitSlotUpdates.add(childUpdate); update.push(re(childUpdate));
+    slots.forEach((slot, i) => { if (!this.scopedSlots(child).some(contract => contract.name === slot.slot.name)) update.push(re(rm(rf(self, `slot${i}`), "for_each_mut", { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "update", ui, ...this.contextArgs(slot.locals)) }))); });
     // Registries retain creation order. Placement follows the child's current
     // tree, including roots that an empty slot gained during the update above.
     update.push(re(rm(rf(self, "view"), "refresh_slot_placement", ui, parent, anchor)));
     const dispatch: RustStatement[] = [
       ...supplied.map((value, i) => stmtLet(`prop_owner${i}`, this.expr(value, locals, true))),
+      ...(this.current.root ? injected.map((value, i) => stmtLet(`inject_owner${i}`, this.own(this.injectionValue(value.key, locals), value.type))) : []),
       stmtLet("child_props", propsExpr(child.props.map((prop, i) => this.borrowedValue(rp(`prop_owner${i}`), prop.type)))),
       ...slots.map((_, i) => stmtLet(`slot_handle${i}`, rm(rf(self, `slot${i}`), "handle"))),
     ];
@@ -635,10 +688,18 @@ class Lowerer {
       const statements = listener ? this.withEventValues(values, () => this.handler(listener.handler, locals)) : [];
       return { pattern: { kind: "variant", path: [`${child.name}Event`, this.eventVariant(child, event.name)], ...(event.parameters.length ? { tuple: event.parameters.map((_, i) => rn(`event_arg${i}`)) } : {}) }, body: blockExpr(statements, rl(!!listener)) };
     });
+    const scopedEventArms: Extract<RustExpr, { kind: "match" }>["arms"] = [];
+    for (const contract of this.scopedSlots(child)) {
+      const index = slots.findIndex(slot => slot.slot.name === contract.name), suppliedSlot = slots[index];
+      const statements: RustStatement[] = suppliedSlot ? [stmtLet("cursor", rm(rp("dispatch_cursor"), "expect", rl("scoped slot dispatch cursor"))), ...boundArguments(suppliedSlot, contract, true)] : [];
+      const handled = suppliedSlot ? rm(rm(rf(self, `slot${index}`), "with_instance", rp("slot_id"), { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "dispatch", ref(rp("slot_input")), ...this.contextArgs(suppliedSlot.locals), rp("events")) }), "unwrap_or", rl(false)) : rl(false);
+      scopedEventArms.push({ pattern: { kind: "variant", path: [`${child.name}SlotEvent`, this.slotVariant(contract.name, child)], tuple: [rn("slot_input"), rn("slot_id"), ...contract.parameters.map((_, i) => rn(`slot_arg${i}`))] }, body: blockExpr(statements, handled) });
+    }
     const slotDispatch: RustStatement[] = [];
-    slots.forEach((_, i) => slotDispatch.push(re({ kind: "ifLet", pattern: { kind: "variant", path: ["Some"], tuple: [rn("handled")] }, value: rm(rf(self, `slot${i}`), "with_instance", rp("slot_id"), { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "dispatch", ref(rp("slot_input")), ...this.contextArgs(locals), rp("events")) }), then: rb([{ kind: "return", value: rp("handled") }]) })));
+    slots.forEach((slot, i) => { if (!this.scopedSlots(child).some(contract => contract.name === slot.slot.name)) slotDispatch.push(re({ kind: "ifLet", pattern: { kind: "variant", path: ["Some"], tuple: [rn("handled")] }, value: rm(rf(self, `slot${i}`), "with_instance", rp("slot_id"), { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "dispatch", ref(rp("slot_input")), ...this.contextArgs(locals), rp("events")) }), then: rb([{ kind: "return", value: rp("handled") }]) })); });
     const callback: RustExpr = { kind: "closure", params: [rn("dispatch"), rn("dispatch_cursor")], body: { kind: "match", value: rp("dispatch"), arms: [
       { pattern: { kind: "variant", path: ["pocket_vapor", "Dispatch", "Event"], tuple: [rn("event")] }, body: { kind: "match", value: rp("event"), arms: eventArms } },
+      { pattern: { kind: "variant", path: ["pocket_vapor", "Dispatch", "ScopedSlot"], tuple: [rn("event")] }, body: scopedEventArms.length ? { kind: "match", value: rp("event"), arms: scopedEventArms } : rl(false) },
       { pattern: { kind: "variant", path: ["pocket_vapor", "Dispatch", "Slot"], tuple: [rn("slot_input"), rn("slot_id")] }, body: blockExpr([stmtLet("cursor", rm(rp("dispatch_cursor"), "expect", rl("slot dispatch cursor"))), ...slotDispatch], rl(false)) },
     ] } };
     dispatch.push(stmtLet("child_events", rc(rp("pocket_vapor", "dispatch_fn"), callback), true));
@@ -646,7 +707,7 @@ class Lowerer {
       this.method("mount", this.mountParams(), rb(mount, { kind: "struct", path: ["Self"], fields: fields.map(f => ({ name: f.name })) }), rt("Self")),
       this.method("contains_node", [receiver(), param("target", rt("NodeId"))], rb([], rm(rf(self, "view"), "contains_node", rp("target"))), rt("bool")),
       this.method("update_at", [receiver(true), param("ui", rr(rt("Ui"), true)), param("parent", rt("NodeId")), ...this.contextParams(locals), param("anchor", rt("NodeId"))], rb(update), undefined, true),
-      this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb(dispatch, rm(rf(self, "view"), "dispatch", rp("input"), ref(rp("child_props")), ref(rf(self, "model"), true), ...updateSlots, ref(rp("child_events"), true))), rt("bool"), true),
+      this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb(dispatch, rm(rf(self, "view"), "dispatch", rp("input"), ref(rp("child_props")), ref(rf(self, "model"), true), ...dispatchInjections, ...updateSlots, ref(rp("child_events"), true))), rt("bool"), true),
     ] });
     this.blockImpl(name, rm(rf(self, "view"), "first_node"), [re(rm(rf(self, "view"), "move_before", ui, parent, anchor))], [re(rm(rf(self, "view"), "unmount", ui))]);
     return this.generatedBlock(name, locals);
@@ -667,11 +728,17 @@ class Lowerer {
       { pattern: { kind: "variant", path: ["Some"], tuple: [rn("slot")] }, body: blockExpr([stmtLet("slot", rm(rp("slot"), "instantiate")), re(rm(rp("slot"), "mount", ui, parent, anchor)), stmtLet("first", rm(rp("slot"), "first_node"))], rc(rp("Self", "Native"), rp("slot"), parent, anchor, rp("first"))) },
       { pattern: { kind: "variant", path: ["None"] }, body: rc(rp("Self", "Fallback"), rc(rp(fallback.name, "mount"), ui, parent, anchor, ...this.slotArgs())) },
     ] };
+    const contract = this.scopedSlots().find(slot => slot.name === node.name);
+    const arguments_ = contract?.parameters.map(parameter => node.props!.find(prop => prop.name === parameter.name)!.value) ?? [];
+    const updateArguments: RustStatement[] = arguments_.map((value, i) => stmtLet(`slot_value${i}`, this.expr(value, locals), false, this.type(value.type, !this.ownsExpression(value))));
+    if (contract) updateArguments.push(re(rc(rp("slot_updates"), ui, rm(rp("slot"), "instance_id"), rc(rp(`${this.current.name}SlotArguments`, this.slotVariant(node.name)), ...arguments_.map((value, i) => this.ownsExpression(value) ? this.borrowedValue(rp(`slot_value${i}`), contract.parameters[i]!.type) : rp(`slot_value${i}`))))));
+    const nativeUpdate = blockExpr([re(ifExpr(binary("||", binary("!=", derefSlot("slot_parent"), parent), binary("!=", derefSlot("slot_anchor"), anchor)), [assign(derefSlot("slot_parent"), parent), assign(derefSlot("slot_anchor"), anchor), re(rm(rp("slot"), "move_before", ui, parent, anchor))])), ...updateArguments]);
+    const nativeDispatch = contract ? rm(rp("events"), "slot_event", rc(rp(`${this.current.name}SlotEvent`, this.slotVariant(node.name)), { kind: "unary", operator: "*", expr: rp("input") }, rm(rp("slot"), "instance_id"), ...arguments_.map(value => this.expr(value, locals, true))), rp("cursor")) : rm(rp("events"), "slot", rp("input"), rm(rp("slot"), "instance_id"), rp("cursor"));
     this.items.push({ kind: "impl", type: rt(name), methods: [
       this.method("mount", this.mountParams(), rb([], mount), rt("Self")),
       this.method("contains_node", [receiver(), param("target", rt("NodeId"))], rb([], slotMatch(rl(false), rm(rp("block"), "contains_node", rp("target")))), rt("bool")),
-      this.method("update_at", [receiver(true), param("ui", rr(rt("Ui"), true)), param("parent", rt("NodeId")), ...this.contextParams(locals), param("anchor", rt("NodeId"))], rb([re(slotMatch(ifExpr(binary("||", binary("!=", { kind: "unary", operator: "*", expr: rp("slot_parent") }, parent), binary("!=", { kind: "unary", operator: "*", expr: rp("slot_anchor") }, anchor)), [assign({ kind: "unary", operator: "*", expr: rp("slot_parent") }, parent), assign({ kind: "unary", operator: "*", expr: rp("slot_anchor") }, anchor), re(rm(rp("slot"), "move_before", ui, parent, anchor))]), rm(rp("block"), "update_at", ui, parent, ...this.contextArgs(locals), anchor)))]), undefined, true),
-      this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb([], slotMatch(rm(rp("events"), "slot", rp("input"), rm(rp("slot"), "instance_id"), rp("cursor")), rm(rp("block"), "dispatch", rp("input"), ...this.contextArgs(locals), rp("events")))), rt("bool"), true),
+      this.method("update_at", [receiver(true), param("ui", rr(rt("Ui"), true)), param("parent", rt("NodeId")), ...this.contextParams(locals), param("anchor", rt("NodeId"))], rb([re(slotMatch(nativeUpdate, rm(rp("block"), "update_at", ui, parent, ...this.contextArgs(locals), anchor)))]), undefined, true),
+      this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb([], slotMatch(nativeDispatch, rm(rp("block"), "dispatch", rp("input"), ...this.contextArgs(locals), rp("events")))), rt("bool"), true),
     ] });
     this.blockImpl(name, slotMatch(rm(rp("slot"), "first_node"), rm(rp("block"), "first_node")), [re(slotMatch(blockExpr([assign(derefSlot("slot_parent"), parent), assign(derefSlot("slot_anchor"), anchor), assign(derefSlot("slot_first"), rm(rp("slot"), "first_node")), re(rm(rp("slot"), "move_before", ui, parent, anchor))]), rm(rp("block"), "move_before", ui, parent, anchor)))], [re(slotMatch(rm(rp("slot"), "unmount", ui), rm(rp("block"), "unmount", ui)))]);
     return this.generatedBlock(name, locals);
@@ -791,6 +858,11 @@ class Lowerer {
       const propsBorrow = component.props.some(p => this.hasBorrow(p.type));
       this.items.push({ kind: "struct", name: `${component.name}Props`, public: true, ...(propsBorrow ? { generics: [{ name: "a", lifetime: true }] } : {}), fields: component.props.map(p => ({ name: p.name, type: this.type(p.type, true, propsBorrow ? "a" : undefined), public: true })) });
       this.items.push({ kind: "enum", name: `${component.name}Event`, public: true, variants: component.events.map(e => ({ name: this.eventVariant(component, e.name), ...(e.parameters.length ? { tuple: e.parameters.map(p => this.type(p.type)) } : {}) })) });
+      if (this.scopedSlots().length) {
+        const borrows = this.scopedSlots().some(slot => slot.parameters.some(p => this.hasBorrow(p.type)));
+        this.items.push({ kind: "enum", name: `${component.name}SlotEvent`, public: true, variants: this.scopedSlots().map(slot => ({ name: this.slotVariant(slot.name), tuple: [rt("Input"), rt("usize"), ...slot.parameters.map(p => this.type(p.type))] })) });
+        this.items.push({ kind: "enum", name: `${component.name}SlotArguments`, public: true, ...(borrows ? { generics: [{ name: "a", lifetime: true }] } : {}), variants: this.scopedSlots().map(slot => ({ name: this.slotVariant(slot.name), tuple: slot.parameters.map(p => this.type(p.type, true, borrows ? "a" : undefined)) })) });
+      }
       const traitMethods: RustFunction[] = [];
       for (const v of component.values) {
         traitMethods.push({ kind: "fn", name: v.name, params: [receiver()], returns: this.type(v.type, true) });

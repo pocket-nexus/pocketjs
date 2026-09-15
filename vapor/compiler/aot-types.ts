@@ -142,6 +142,9 @@ export class TypeMapper {
   readonly declarations: AotTypeDeclaration[] = [];
   readonly diagnostics: AotDiagnostic[] = [];
   private readonly names = new Map<ts.Type, string>();
+  private typeArguments = new Map<string, AotType>();
+  private readonly specializedNames = new Map<string, Map<ts.Type, string>>();
+  private readonly parameterized = new Map<ts.Type, boolean>();
   private readonly units = new Map<keyof typeof VAPOR_UNIT_TYPES, AotType>();
   private readonly usedNames = new Map<string, ts.Type>();
   private readonly warned = new Set<string>();
@@ -175,8 +178,52 @@ export class TypeMapper {
     return undefined;
   }
   declaration(type: AotType): AotTypeDeclaration | undefined { return type.kind === "named" ? this.declarations.find(d => d.name === type.name) : undefined; }
+  /** Each concrete component instantiation has a type-parameter environment. */
+  withTypeArguments<T>(arguments_: Map<string, AotType>, action: () => T): T {
+    const previous = this.typeArguments;
+    this.typeArguments = arguments_;
+    try { return action(); } finally { this.typeArguments = previous; }
+  }
+  private dependsOnParameter(type: ts.Type, seen = new Set<ts.Type>()): boolean {
+    if (type.flags & ts.TypeFlags.TypeParameter) return true;
+    const cached = this.parameterized.get(type); if (cached !== undefined) return cached;
+    if (seen.has(type)) return false;
+    seen.add(type);
+    let result = false;
+    if (type.isUnionOrIntersection()) result = type.types.some(t => this.dependsOnParameter(t, seen));
+    else if (this.checker.isArrayType(type) || this.checker.isTupleType(type)) result = this.checker.getTypeArguments(type as ts.TypeReference).some(t => this.dependsOnParameter(t, seen));
+    else if (type.flags & ts.TypeFlags.Object) result = type.getProperties().some(p => {
+      const node = p.valueDeclaration ?? p.declarations?.[0];
+      return !!node && this.dependsOnParameter(this.checker.getTypeOfSymbolAtLocation(p, node), seen);
+    });
+    this.parameterized.set(type, result); return result;
+  }
+  private namesFor(type: ts.Type): Map<ts.Type, string> {
+    if (!this.dependsOnParameter(type)) return this.names;
+    const key = JSON.stringify([...this.typeArguments]);
+    let names = this.specializedNames.get(key);
+    if (!names) this.specializedNames.set(key, names = new Map());
+    return names;
+  }
+  private reuseSpecializedShape(type: ts.Type, declaration: AotTypeDeclaration): AotType | undefined {
+    const symbol = type.aliasSymbol ?? type.symbol;
+    if (!symbol) return;
+    const shape = ({ name: _name, ...rest }: AotTypeDeclaration) => JSON.stringify(rest);
+    const existing = this.declarations.find(candidate => {
+      const original = this.usedNames.get(candidate.name);
+      return original && (original.aliasSymbol ?? original.symbol) === symbol && shape(candidate) === shape(declaration);
+    });
+    if (!existing) return;
+    this.namesFor(type).set(type, existing.name);
+    this.usedNames.delete(declaration.name);
+    return { kind: "named", name: existing.name };
+  }
   map(raw: ts.Type, loc: SourceLocation, hint: string, allowVoid = false): AotType {
     const type = this.unwrap(raw);
+    if (type.flags & ts.TypeFlags.TypeParameter) {
+      const argument = this.typeArguments.get(type.symbol?.name ?? "");
+      if (argument) return argument;
+    }
     if (type.isStringLiteral() && !type.value.isWellFormed() || type.isUnion() && type.types.some(member => member.isStringLiteral() && !member.value.isWellFormed())) fail(loc, "String literals cannot contain unpaired UTF-16 surrogates");
     if (type.isNumberLiteral() && !Number.isFinite(type.value)) fail(loc, "Numeric literal is outside the finite f64 range");
     if (type.flags & ts.TypeFlags.Void) { if (allowVoid) return { kind: "void" }; fail(loc, "void is only supported as a function return type"); }
@@ -196,7 +243,7 @@ export class TypeMapper {
       }
       return { kind: "number", name: "f64" };
     }
-    const known = this.names.get(type);
+    const known = this.namesFor(type).get(type);
     if (known) return { kind: "named", name: known };
     if (type.isUnion()) {
       if (type.types.some(member => !!(member.flags & ts.TypeFlags.Null))) fail(loc, "null is not supported in contract positions; use undefined");
@@ -224,7 +271,9 @@ export class TypeMapper {
         name: this.literal(this.checker.getTypeOfSymbolAtLocation(member.getProperty(discriminant.name)!, member.getProperty(discriminant.name)!.declarations![0]!)) as string,
         fields: this.fields(member, loc, name, new Set([discriminant.name])),
       }));
-      this.declarations.push({ kind: "union", name, discriminant: discriminant.name, variants });
+      const declaration: AotTypeDeclaration = { kind: "union", name, discriminant: discriminant.name, variants };
+      const existing = this.reuseSpecializedShape(type, declaration); if (existing) return existing;
+      this.declarations.push(declaration);
       return { kind: "named", name };
     }
     if (type.isIntersection()) {
@@ -271,7 +320,9 @@ export class TypeMapper {
       const object = type as ts.ObjectType;
       if ((object.objectFlags & (ts.ObjectFlags.Class | ts.ObjectFlags.Mapped) || type.symbol?.declarations?.some(d => ts.isClassDeclaration(d) || ts.isClassExpression(d))) || this.checker.getIndexInfosOfType(type).length) fail(loc, `Unsupported object contract ${this.checker.typeToString(type)}`);
       const name = this.reserve(type, hint);
-      this.declarations.push({ kind: "struct", name, fields: this.fields(type, loc, name) });
+      const declaration: AotTypeDeclaration = { kind: "struct", name, fields: this.fields(type, loc, name) };
+      const existing = this.reuseSpecializedShape(type, declaration); if (existing) return existing;
+      this.declarations.push(declaration);
       return { kind: "named", name };
     }
     fail(loc, `Unsupported contract type ${this.checker.typeToString(type)}`);
@@ -301,7 +352,7 @@ export class TypeMapper {
   private reserve(type: ts.Type, hint: string, exact = false): string {
     const proposed = typeName(exact ? hint : type.aliasSymbol?.name ?? (type.symbol?.name !== "__type" ? type.symbol?.name : undefined) ?? hint);
     let name = proposed, suffix = 2;
-    while (this.reserved.has(name) || this.declarations.some(d => d.name === name) && !this.usedNames.has(name) || /^(Node|Block|If|For)\d+$/.test(name) || this.usedNames.has(name) && this.usedNames.get(name) !== type) name = `${proposed}_${suffix++}`;
-    this.names.set(type, name); this.usedNames.set(name, type); return name;
+    while (this.reserved.has(name) || this.declarations.some(d => d.name === name) || /^(Node|Block|If|For)\d+$/.test(name) || this.usedNames.has(name)) name = `${proposed}_${suffix++}`;
+    this.namesFor(type).set(type, name); this.usedNames.set(name, type); return name;
   }
 }

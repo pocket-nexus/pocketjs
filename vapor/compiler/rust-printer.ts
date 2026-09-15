@@ -52,6 +52,7 @@ function type(t: RustType): string {
     case "lifetime": return `'${t.name}`;
     case "const": return String(t.value);
     case "dyn": return `dyn ${t.bounds.map(type).join(" + ")}`;
+    case "fnTrait": return `${t.name}(${t.params.map(type).join(", ")})${t.returns ? ` -> ${type(t.returns)}` : ""}`;
     case "binding": return `${rustIdentifier(t.name)} = ${type(t.type)}`;
     case "infer": return "_";
   }
