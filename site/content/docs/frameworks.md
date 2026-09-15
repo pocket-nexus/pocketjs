@@ -1,6 +1,6 @@
 # Frameworks
 
-PocketJS supports three app frameworks over the same native tree and Rust
+PocketJS supports three JavaScript app frameworks over the same native tree and Rust
 core:
 
 | Framework | Build id | JSX transform | Runtime renderer | Output suffix |
@@ -8,6 +8,12 @@ core:
 | Solid | `solid` | `babel-preset-solid` universal mode | `renderer-solid.ts` | none |
 | Vue Vapor | `vue-vapor` | `vue-jsx-vapor` | `renderer-vue-vapor.ts` | `.vue-vapor` |
 | Octane | `octane` | Octane universal compiler (host plans + slots) | `renderer-octane.ts` (pocket universal driver over the native tree) | `.octane` |
+
+**Pocket Vapor also compiles Vue SFC templates to Rust.** That workflow uses
+the same host primitives with an application-written Rust view model. Start
+with [Build a native Vue app](/docs/pocket-vapor/) for AOT generation and
+Cargo builds. Selecting `framework: "vue-vapor"` below selects the
+JavaScript adapter.
 
 Solid is the default so existing apps keep building to `dist/<app>.js` and
 `dist/<app>.pak`. Vue Vapor and Octane build next to it:

@@ -1,5 +1,9 @@
 # Architecture
 
+This page describes the JavaScript application path. For Vue templates that
+generate Rust views and call the core through `pocket_vapor::Ui`, see
+[How Vue becomes Rust](/docs/pocket-vapor/#how-vue-becomes-rust).
+
 PocketJS turns component code into native pixels through
 **one Rust core, framework-specific JS adapters, and one layout engine on every
 host.**

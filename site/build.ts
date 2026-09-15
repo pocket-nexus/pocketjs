@@ -938,7 +938,7 @@ type Highlight = (text: string, rawLang: string) => string;
 async function setupMarkdown(): Promise<Highlight> {
   const highlighter = await createHighlighter({
     themes: ["one-dark-pro"],
-    langs: ["tsx", "typescript", "jsx", "javascript", "json", "bash", "rust", "toml", "html", "css", "diff", "c", "cpp"],
+    langs: ["tsx", "typescript", "jsx", "javascript", "json", "bash", "rust", "toml", "html", "vue", "css", "diff", "c", "cpp"],
   });
   const LANG_ALIAS: Record<string, string> = { ts: "typescript", js: "javascript", sh: "bash", shell: "bash", console: "bash", jsonc: "json", rs: "rust", text: "text", txt: "text" };
   const loaded = new Set(highlighter.getLoadedLanguages());

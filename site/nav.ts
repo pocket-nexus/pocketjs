@@ -33,6 +33,14 @@ export const DOC_NAV: DocSection[] = [
     ],
   },
   {
+    title: "Pocket Vapor",
+    items: [
+      { slug: "pocket-vapor", title: "Build a native Vue app" },
+      { slug: "pocket-vapor-components", title: "Components and state" },
+      { slug: "pocket-vapor-reference", title: "API and commands" },
+    ],
+  },
+  {
     title: "Reference",
     items: [
       { slug: "api", title: "API reference" },

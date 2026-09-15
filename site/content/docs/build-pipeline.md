@@ -1,5 +1,9 @@
 # Build pipeline
 
+For Vue SFC-to-Rust generation and Cargo builds, see
+[Pocket Vapor](/docs/pocket-vapor/). The pipeline below produces JavaScript
+bundles and asset packs for guest applications.
+
 This page describes the low-level JS/style/font/pak compiler. Product builds
 should first resolve `pocket.json` through `bun pocket check`, `compile`, or
 `build`; see [Platform contracts](/docs/platform-contracts/) for how one small,

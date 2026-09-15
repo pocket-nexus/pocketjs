@@ -9,6 +9,11 @@ manifest resolves into one target-specific artifact — a PSP EBOOT, a Vita VPK,
 a native window, a browser bundle — and each of them drives the same logical UI
 through the same HostOps op set.
 
+**Pocket Vapor compiles Vue SFC templates into Rust views.** Applications
+provide a Rust view model and call the UI core without a JavaScript engine.
+The [Pocket Vapor guide](/docs/pocket-vapor/) covers that native build;
+the framework adapters described below run JavaScript application logic.
+
 If you know Solid, Vue, or React, you know most of PocketJS. The primitives are
 `View`, `Text`, and `Image`; state comes from the native framework package
 (`solid-js`, `vue`, or `octane`); layout and color come from class strings like
