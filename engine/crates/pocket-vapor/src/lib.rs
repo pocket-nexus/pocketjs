@@ -6,15 +6,20 @@ extern crate alloc;
 pub mod blocks;
 pub mod builtins;
 pub mod display;
+pub mod host;
+pub mod input;
 pub mod spec;
 mod ui;
 
 pub use alloc::{string::String, vec::Vec};
-pub use blocks::{Block, KeyedList, KeyedRow, SlotBlock, SlotHandle};
+pub use blocks::{Block, KeyedList, KeyedRow, SlotBlock, SlotHandle, SlotRegistry};
+pub use display::format_color;
 pub use display::{
     DisplayValue, TemplateOptionDisplay, TextMemo, VaporDisplay, display, formatted_eq,
     template_option_display,
 };
+pub use host::{CoreHost, HasButton, HasButtons, HasRelativeAxis, HasTouch, Host};
+pub use input::{ButtonLatch, Dispatch, DispatchCursor, DispatchFn, EventSink, dispatch_fn};
 pub use pocketjs_core;
 pub use ui::{Input, NodeId, StyleId, Ui};
 

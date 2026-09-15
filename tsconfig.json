@@ -39,7 +39,7 @@
       "@pocketjs/framework/vue-vapor/components": ["./framework/src/components-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/std": ["./framework/src/std-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/gesture": ["./framework/src/gesture.vue-vapor.ts"],
-      "@pocketjs/framework/vue-vapor/input": ["./framework/src/input-api.ts"],
+      "@pocketjs/framework/vue-vapor/input": ["./framework/src/input-api-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/kinetics": ["./framework/src/kinetics.vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/lifecycle": ["./framework/src/lifecycle-vue-vapor.ts"],
       "@pocketjs/framework/vue-vapor/renderer": ["./framework/src/renderer-vue-vapor.ts"],

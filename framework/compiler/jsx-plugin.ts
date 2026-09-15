@@ -462,7 +462,7 @@ export async function transformFile(
   }
 
   if (isVueSfc) {
-    const result = compileVueSfc(src, path, { stripTypes: true, aot: false });
+    const result = compileVueSfc(src, path, { stripTypes: true, checkedAot: true });
     const collected: Collected = { classStrings: [], textCodepoints: new Set() };
     const transformed = await transformAsync(result.code, {
       filename: path,

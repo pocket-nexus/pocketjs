@@ -1,5 +1,5 @@
 /** Root application lifecycle expressed as Rust AST, with no source fragments. */
-import type { AotComponent } from "./aot-ir.ts";
+import type { AotComponent, AotProgram } from "./aot-ir.ts";
 import type { RustExpr, RustFunction, RustGeneric, RustItem, RustParam, RustType } from "./rust-ast.ts";
 import { rb, rc, re, ref, rf, rm, rn, rp, rr, rt } from "./rust-ast.ts";
 
@@ -13,7 +13,7 @@ const receiver = (): RustParam => parameter("self", rr(rt("Self"), true));
  * update method. Its anonymous lifetime becomes the application's lifetime:
  * stored props borrow application-owned data without copying strings or lists.
  */
-export function generateVueAotApp(root: AotComponent, propsType: RustType): RustItem[] {
+export function generateVueAotApp(root: AotComponent, propsType: RustType, demands?: AotProgram["demands"], stateful = false): RustItem[] {
   let borrowsProps = false;
   function storedType(type: RustType): RustType {
     switch (type.kind) {
@@ -31,11 +31,15 @@ export function generateVueAotApp(root: AotComponent, propsType: RustType): Rust
       case "tuple": return { ...type, elements: type.elements.map(storedType) };
       case "array": case "slice": return { ...type, element: storedType(type.element) };
       case "infer": return type;
+      case "const": return type;
+      case "dyn": return { ...type, bounds: type.bounds.map(storedType) };
+      case "binding": return { ...type, type: storedType(type.type) };
     }
   }
   const props = storedType(propsType);
   const name = `${root.name}App`;
   const view = `${root.name}View`;
+  const viewType = rt(view, ...(stateful ? [rt("M")] : []));
   const event = rt(`${root.name}Event`);
   const ui = rt("pocket_vapor::Ui");
   const input = rt("pocket_vapor::Input");
@@ -43,24 +47,26 @@ export function generateVueAotApp(root: AotComponent, propsType: RustType): Rust
   const slotNames = root.slots.map(slot => `slot_${slot}`);
   const slotType = rt("Option", rt("pocket_vapor::SlotHandle"));
   const slots = slotNames.map(name => rm(field(name), "as_ref"));
+  const hostBounds = [rt("pocket_vapor::Host"), ...(demands?.buttons ?? []).map(mask => rt("pocket_vapor::HasButton", { kind: "const", value: mask })), ...(demands?.axes ?? []).map(axis => rt("pocket_vapor::HasRelativeAxis", { kind: "const", value: axis })), ...(demands?.capabilities.includes("touch") ? [rt("pocket_vapor::HasTouch")] : [])];
   const generics: RustGeneric[] = [
     ...(borrowsProps ? [{ name: "a", lifetime: true }] : []),
     { name: "M", bounds: [rt(`${root.name}ViewModel`)] },
+    { name: "H", bounds: hostBounds, ...(!demands?.axes.length && !demands?.capabilities.includes("touch") ? { default: rt("pocket_vapor::CoreHost") } : {}) },
   ];
-  const type = rt(name, ...(borrowsProps ? [{ kind: "lifetime", name: "a" } as RustType] : []), rt("M"));
+  const type = rt(name, ...(borrowsProps ? [{ kind: "lifetime", name: "a" } as RustType] : []), rt("M"), rt("H"));
   const methods: RustFunction[] = [
     {
       kind: "fn", name: "new", public: true,
-      params: [parameter("ui", ui, true), parameter("props", props), parameter("model", rt("M")), ...slotNames.map(name => parameter(name, slotType))],
+      params: [parameter("host", rt("H"), true), parameter("props", props), parameter("model", rt("M")), ...slotNames.map(name => parameter(name, slotType))],
       returns: rt("Self"),
       body: rb([
         {
           kind: "let", pattern: rn("view"),
-          value: rc(rp(view, "mount"), ref(rp("ui"), true), rp("pocket_vapor", "NodeId", "ROOT"), rp("pocket_vapor", "NodeId", "NONE"), ...slotNames.map(name => rm(rp(name), "as_ref"))),
+          value: rc({ kind: "qualifiedPath", type: viewType, member: "mount" }, rm(rp("host"), "ui_mut"), rp("pocket_vapor", "NodeId", "ROOT"), rp("pocket_vapor", "NodeId", "NONE"), ...slotNames.map(name => rm(rp(name), "as_ref"))),
         },
       ], {
         kind: "struct", path: ["Self"], fields: [
-          { name: "ui" }, { name: "model" }, { name: "props" }, { name: "view" },
+          { name: "host" }, { name: "model" }, { name: "props" }, { name: "view" },
           ...slotNames.map(name => ({ name })),
           { name: "invalidation", value: rc(rp("pocket_vapor", "Invalidation", "default")) },
           { name: "events", value: rc(rp("alloc", "vec", "Vec", "new")) },
@@ -73,7 +79,7 @@ export function generateVueAotApp(root: AotComponent, propsType: RustType): Rust
       returns: rr({ kind: "slice", element: event }),
       body: rb([
         re(rm(field("events"), "clear")),
-        { kind: "let", pattern: rn("input"), value: rm(field("ui"), "resolve_input", rp("input")) },
+        { kind: "let", pattern: rn("input"), value: rm(rm(field("host"), "ui_mut"), "resolve_input", rp("input")) },
         {
           kind: "let", pattern: rn("handled"),
           value: rm(field("view"), "dispatch", ref(rp("input")), ref(field("props")), ref(field("model"), true), ...slots, ref(field("events"), true)),
@@ -84,9 +90,9 @@ export function generateVueAotApp(root: AotComponent, propsType: RustType): Rust
         }),
         re({
           kind: "if", condition: rm(field("invalidation"), "take"),
-          then: rb([re(rm(field("view"), "update", ref(field("ui"), true), ref(field("props")), ref(field("model")), ...slots))]),
+          then: rb([re(rm(field("view"), "update", rm(field("host"), "ui_mut"), ref(field("props")), ref(field("model")), ...slots))]),
         }),
-        re(rm(field("ui"), "tick")),
+        re(rm(rm(field("host"), "ui_mut"), "tick")),
       ], rm(field("events"), "as_slice")),
     },
     {
@@ -102,22 +108,24 @@ export function generateVueAotApp(root: AotComponent, propsType: RustType): Rust
     },
     {
       kind: "fn", name: "unmount", public: true, params: [{ pattern: rn("self", true) }], returns: ui,
-      body: rb([re(rm(field("view"), "unmount", ref(field("ui"), true)))], field("ui")),
+      body: rb([re(rm(field("view"), "unmount", rm(field("host"), "ui_mut")))], rm(field("host"), "into_ui")),
     },
+    { kind: "fn", name: "ui", public: true, params: [parameter("self", rr(rt("Self")))], returns: rr(ui), body: rb([], rm(field("host"), "ui")) },
+    { kind: "fn", name: "ui_mut", public: true, params: [receiver()], returns: rr(ui, true), body: rb([], rm(field("host"), "ui_mut")) },
   ];
   return [
     {
       kind: "struct", name, public: true, generics,
       fields: [
-        { name: "ui", type: ui, public: true },
+        { name: "host", type: rt("H"), public: true },
         { name: "model", type: rt("M"), public: true },
         { name: "props", type: props },
-        { name: "view", type: rt(view) },
+        { name: "view", type: viewType },
         { name: "invalidation", type: invalidation },
         { name: "events", type: rt("alloc::vec::Vec", event) },
         ...slotNames.map(name => ({ name, type: slotType })),
       ],
     },
-    { kind: "impl", type, generics, methods },
+    { kind: "impl", type, generics: generics.map(({ default: _default, ...generic }) => generic), methods },
   ];
 }

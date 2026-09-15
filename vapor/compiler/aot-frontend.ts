@@ -1,22 +1,28 @@
 import ts from "typescript";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, basename, extname } from "node:path";
 import { parse as parseSfc, type SFCDescriptor } from "@vue/compiler-sfc";
 import { parse as parseTemplate, NodeTypes, type ElementNode, type DirectiveNode, type TemplateChildNode, type SimpleExpressionNode } from "@vue/compiler-dom";
 import * as vapor from "@vue/compiler-vapor";
 import { withIsolatedAnimationBake } from "../../framework/compiler/animation.ts";
 import { compileClasses } from "../../framework/compiler/tailwind.ts";
-import { PROP } from "../../contracts/spec/spec.ts";
-import { VAPOR_BUILTINS, VAPOR_ELEMENTS, VAPOR_STYLE_PROPS } from "../../contracts/spec/vapor.ts";
+import { PROP, BTN } from "../../contracts/spec/spec.ts";
+import { VAPOR_BUILTINS, VAPOR_ELEMENTS, VAPOR_STYLE_PROPS, VAPOR_INPUT_ELEMENTS, VAPOR_RELATIVE_AXES } from "../../contracts/spec/vapor.ts";
 import { AotCompileError, BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
 import { TypeMapper, createTypeEnvironment, location, fail, typeName, constantNumericSpelling } from "./aot-types.ts";
 import { expression, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
 import type { VaporRootIR, VaporIfIR, VaporForIR, VaporCreateIR, VaporBlockIR, VaporDynamicInfo } from "./vendor/vue-vapor-ir.ts";
 
 const camelize = (name: string) => name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
-const COMPONENTS = "@pocketjs/framework/vue-vapor/components", STD = "@pocketjs/framework/vue-vapor/std";
-interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; name: string }
+const COMPONENTS = "@pocketjs/framework/vue-vapor/components", STD = "@pocketjs/framework/vue-vapor/std", INPUT = "@pocketjs/framework/vue-vapor/input";
+interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; inputHosts: Map<string, "ActionHandler" | "AxisHandler">; buttonNames: Set<string>; name: string }
 export interface AnalyzeVueAotOptions { strict?: boolean; source?: string; root?: boolean }
+export interface AotDependencyVersion { file: string; mtimeMs: number; size: number }
+const dependencyVersions = new WeakMap<AotProgram, readonly AotDependencyVersion[]>();
+/** Filesystem versions for cache invalidation; compiler sources and ASTs stay outside the View IR. */
+export function getAotDependencyVersions(program: AotProgram): readonly AotDependencyVersion[] {
+  return dependencyVersions.get(program) ?? [];
+}
 /** Admission, TypeScript contract analysis, and serializable View IR for all three execution classes. */
 export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {}): AotProgram {
   entry = resolve(entry);
@@ -31,7 +37,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
     const descriptor = result.descriptor;
     if (!descriptor.template || descriptor.template.src || descriptor.template.lang || !descriptor.scriptSetup || descriptor.script || descriptor.scriptSetup.lang !== "ts" || descriptor.scriptSetup.src || descriptor.scriptSetup.attrs.generic || descriptor.styles.length || descriptor.customBlocks.length) fail(location(file, source), 'An AOT SFC contains one <template> and one <script setup lang="ts">; no runtime script, styles, generic parameters, or custom blocks');
     const script = ts.createSourceFile(file + ".ts", descriptor.scriptSetup.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const item: ParsedComponent = { file, source, descriptor, script, imports: new Map(), children: new Map(), hosts: new Map(), name: typeName(basename(file, ".vue")) };
+    const item: ParsedComponent = { file, source, descriptor, script, imports: new Map(), children: new Map(), hosts: new Map(), inputHosts: new Map(), buttonNames: new Set(), name: typeName(basename(file, ".vue")) };
     for (const statement of script.statements) {
       const loc = location(file, source, descriptor.scriptSetup.loc.start.offset + statement.getStart(script));
       if (ts.isImportDeclaration(statement)) {
@@ -47,12 +53,15 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           if (binding.isTypeOnly) continue;
           const original = binding.propertyName?.text ?? binding.name.text;
           if (module === COMPONENTS) {
-            if (!(original in VAPOR_ELEMENTS)) fail(loc, `Host component ${original} is outside v1`);
-            item.hosts.set(binding.name.text, original as "View" | "Text" | "Image");
+            if (original in VAPOR_INPUT_ELEMENTS) item.inputHosts.set(binding.name.text, original as "ActionHandler" | "AxisHandler");
+            else if (original in VAPOR_ELEMENTS) item.hosts.set(binding.name.text, original as "View" | "Text" | "Image");
+            else fail(loc, `Host component ${original} is outside v1.1`);
           } else if (module === STD) {
             if (!(original in VAPOR_BUILTINS)) fail(loc, `Unknown std built-in ${original}`);
+          } else if (module === INPUT) {
+            if (original !== "BTN") fail(loc, "AOT input imports accept BTN; input is handled by ActionHandler and AxisHandler");
+            item.buttonNames.add(binding.name.text);
           } else {
-            if (file !== entry || options.root === false) fail(loc, "Only the root component may import a view-model module");
             if (!module.startsWith("./") || module.slice(2).toLowerCase() !== basename(file, ".vue").toLowerCase()) fail(loc, "The view-model import must use the SFC basename without an extension");
             const modulePath = resolve(dirname(file), module);
             if (existsSync(modulePath + ".ts") && existsSync(modulePath + ".d.ts")) fail(loc, "A view-model cannot have both .ts and .d.ts forms");
@@ -85,39 +94,67 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
     const component: AotComponent = { name: item.name, file, root: file === entry && options.root !== false, props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [...item.children.values()].map(f => parsed.get(f)!.name), nodes: [], nodeCount: 0, memoCount: 0, handlerCount: 0 };
     const ctx: ExpressionContext = { file, mapper, environment, bindings: new Map(), functions: new Map(), builtins: new Map(), narrowings: new Map(), handler: false };
     let emitName: string | undefined, propsSeen = false, emitsSeen = false;
+    const factoryCalls = new Set(script.statements.flatMap(statement => ts.isVariableStatement(statement) ? statement.declarationList.declarations.flatMap(declaration => ts.isObjectBindingPattern(declaration.name) && declaration.initializer && ts.isCallExpression(declaration.initializer) && ts.isIdentifier(declaration.initializer.expression) ? [declaration.initializer.expression.text] : []) : []));
+    const factoryImports = new Map<string, { sourceName: string; module: string; type: ts.Type; node: ts.Node }>();
+    function addContractBinding(name: string, sourceName: string, raw: ts.Type, at: SourceLocation, sourceNode?: ts.Node): void {
+      const type = mapper.unwrap(raw);
+      const optional = type.isUnion() && type.types.some(t => !!(t.flags & ts.TypeFlags.Undefined));
+      const callable = optional ? environment.checker.getNonNullableType(type) : type;
+      const signatures = callable.getCallSignatures();
+      if (signatures.length) {
+        if (signatures.length !== 1 || signatures[0]!.typeParameters?.length) fail(at, "View-model functions cannot have overloads or generic parameters");
+        const signature = signatures[0]!;
+        const parameters = signature.getParameters().map(parameter => {
+          const declaration = parameter.valueDeclaration ?? parameter.declarations?.[0];
+          if (!declaration || ts.isParameter(declaration) && (declaration.dotDotDotToken || declaration.questionToken || declaration.initializer)) fail(at, "Function parameters must be required and cannot be rest parameters");
+          return { name: parameter.name, type: mapper.map(environment.checker.getTypeOfSymbolAtLocation(parameter, declaration), environment.locationOf(declaration), `${typeName(name)}${typeName(parameter.name)}`) };
+        });
+        const returns = mapper.map(signature.getReturnType(), at, `${typeName(name)}Result`, true);
+        if (optional && returns.kind !== "void") fail(at, "Optional view-model methods must return void so the default implementation has an empty body");
+        const fn = { name, sourceName, parameters, returns, binding: false, handler: false, ...(optional ? { optional: true } : {}) };
+        component.functions.push(fn); ctx.functions.set(name, fn);
+      } else {
+        const typeIR = mapper.map(type, at, typeName(name)), constant = mapper.literal(type);
+        const rawNumber = typeof constant === "number" ? constantNumericSpelling(environment.checker, sourceNode) : undefined;
+        if (constant !== undefined) component.constants.push({ name, sourceName, type: typeIR, value: constant, ...(rawNumber !== undefined ? { rawNumber } : {}) });
+        else component.values.push({ name, sourceName, type: typeIR, writable: false });
+        ctx.bindings.set(name, { type: typeIR, scope: "vm", ...(constant !== undefined ? { constant } : {}), ...(rawNumber !== undefined ? { rawNumber } : {}) });
+      }
+    }
     for (const statement of script.statements) {
       if (ts.isImportDeclaration(statement)) {
         const module = (statement.moduleSpecifier as ts.StringLiteral).text, clause = statement.importClause;
         if (!clause || clause.isTypeOnly || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) continue;
         for (const binding of clause.namedBindings.elements) {
-          if (binding.isTypeOnly || module === COMPONENTS) continue;
+          if (binding.isTypeOnly || module === COMPONENTS || module === INPUT) continue;
           const name = binding.name.text, sourceName = binding.propertyName?.text ?? name;
           if (module === STD) { ctx.builtins.set(name, sourceName); continue; }
-          const type = mapper.unwrap(checkedType(binding.name)), signatures = type.getCallSignatures();
-          if (signatures.length) {
-            if (signatures.length !== 1 || signatures[0]!.typeParameters?.length) fail(loc(binding), "View-model functions cannot have overloads or generic parameters");
-            const signature = signatures[0]!;
-            const parameters = signature.getParameters().map(parameter => {
-              const declaration = parameter.valueDeclaration ?? parameter.declarations?.[0];
-              if (!declaration || ts.isParameter(declaration) && (declaration.dotDotDotToken || declaration.questionToken || declaration.initializer)) fail(loc(binding), "Function parameters must be required and cannot be rest parameters");
-              const sf = declaration.getSourceFile();
-              return { name: parameter.name, type: mapper.map(environment.checker.getTypeOfSymbolAtLocation(parameter, declaration), location(sf.fileName, sf.text, declaration.getStart(sf)), `${typeName(name)}${typeName(parameter.name)}`) };
-            });
-            const fn = { name, sourceName, parameters, returns: mapper.map(signature.getReturnType(), loc(binding), `${typeName(name)}Result`, true), binding: false, handler: false };
-            component.functions.push(fn); ctx.functions.set(name, fn);
-          } else {
-            const typeIR = mapper.map(type, loc(binding), typeName(name)), constant = mapper.literal(type);
-            const rawNumber = typeof constant === "number" ? constantNumericSpelling(environment.checker, environment.nodeAt(file, scriptOffset + binding.name.getStart(script))) : undefined;
-            if (constant !== undefined) component.constants.push({ name, sourceName, type: typeIR, value: constant, ...(rawNumber !== undefined ? { rawNumber } : {}) });
-            else component.values.push({ name, sourceName, type: typeIR, writable: false });
-            ctx.bindings.set(name, { type: typeIR, scope: "vm", ...(constant !== undefined ? { constant } : {}), ...(rawNumber !== undefined ? { rawNumber } : {}) });
-          }
+          if (!component.root || factoryCalls.size) factoryImports.set(name, { sourceName, module, type: checkedType(binding.name), node: binding.name });
+          else addContractBinding(name, sourceName, checkedType(binding.name), loc(binding), environment.nodeAt(file, scriptOffset + binding.name.getStart(script)));
         }
       }
       if (!ts.isVariableStatement(statement)) continue;
       if (!(statement.declarationList.flags & ts.NodeFlags.Const) || statement.declarationList.declarations.length !== 1) fail(loc(statement), "A component macro requires one const declaration");
       const declaration = statement.declarationList.declarations[0]!;
-      if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isCallExpression(declaration.initializer)) fail(loc(declaration), "Runtime variables and destructured component macros are outside v1");
+      if (ts.isObjectBindingPattern(declaration.name)) {
+        if (component.factory || !declaration.initializer || !ts.isCallExpression(declaration.initializer) || !ts.isIdentifier(declaration.initializer.expression)) fail(loc(declaration), "A stateful child has one destructured call to its imported factory");
+        const call = declaration.initializer, factoryName = (call.expression as ts.Identifier).text, factory = factoryImports.get(factoryName);
+        if (!factory || call.arguments.length || call.typeArguments?.length) fail(loc(declaration), "A child factory is an imported zero-argument function from the component's module");
+        const signatures = factory.type.getCallSignatures();
+        if (signatures.length !== 1 || signatures[0]!.typeParameters?.length || signatures[0]!.getParameters().length) fail(loc(declaration), "A child factory must have one non-generic zero-argument signature");
+        const result = signatures[0]!.getReturnType();
+        if (!(result.flags & ts.TypeFlags.Object) || (result as ts.ObjectType).objectFlags & (ts.ObjectFlags.Class | ts.ObjectFlags.Mapped) || result.symbol?.declarations?.some(d => ts.isClassDeclaration(d) || ts.isClassExpression(d)) || result.getCallSignatures().length || environment.checker.getIndexInfosOfType(result).length) fail(loc(declaration), "A child factory returns an object of view-model values and methods");
+        component.factory = { name: factoryName, sourceName: factory.sourceName, module: factory.module };
+        for (const binding of declaration.name.elements) {
+          if (!ts.isIdentifier(binding.name) || binding.dotDotDotToken || binding.initializer || binding.propertyName && !ts.isIdentifier(binding.propertyName) && !ts.isStringLiteral(binding.propertyName)) fail(loc(binding), "Factory destructuring accepts named bindings and aliases, without defaults or rest bindings");
+          const sourceName = binding.propertyName ? (binding.propertyName as ts.Identifier | ts.StringLiteral).text : binding.name.text;
+          const property = result.getProperty(sourceName), propertyNode = property?.valueDeclaration ?? property?.declarations?.[0];
+          if (!property || !propertyNode) fail(loc(binding), `The factory does not return ${sourceName}`);
+          addContractBinding(binding.name.text, sourceName, environment.checker.getTypeOfSymbolAtLocation(property, propertyNode), loc(binding), propertyNode);
+        }
+        continue;
+      }
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isCallExpression(declaration.initializer)) fail(loc(declaration), "Runtime variables outside component macros and the child factory are unsupported");
       const name = declaration.name.text; let call = declaration.initializer, defaults: ts.ObjectLiteralExpression | undefined;
       if (ts.isIdentifier(call.expression) && call.expression.text === "withDefaults") {
         if (call.arguments.length !== 2 || !ts.isCallExpression(call.arguments[0]!) || !ts.isObjectLiteralExpression(call.arguments[1]!)) fail(loc(call), "withDefaults requires defineProps<T>() and an object of literal defaults");
@@ -166,9 +203,10 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         ctx.bindings.set(name, { type: typeIR, scope: "prop", model });
       }
     }
+    if (factoryImports.size && (!component.factory || factoryImports.size !== 1)) fail(loc(factoryImports.values().next().value!.node), "A child may import only the factory used by its destructured setup declaration");
     const templateOffset = descriptor.template!.loc.start.offset;
     const tplLoc = (node: { loc: { start: { offset: number } } }) => locAt(item, templateOffset + node.loc.start.offset);
-    const parseOptions = { isCustomElement: (tag: string) => item.hosts.has(tag), onError: (error: { message: string; loc?: { start: { offset: number } } }) => fail(locAt(item, templateOffset + (error.loc?.start.offset ?? 0)), error.message) };
+    const parseOptions = { isCustomElement: (tag: string) => item.hosts.has(tag) || item.inputHosts.has(tag), onError: (error: { message: string; loc?: { start: { offset: number } } }) => fail(locAt(item, templateOffset + (error.loc?.start.offset ?? 0)), error.message) };
     // Vapor creates the structural blocks before language-neutral analysis.
     const vaporIr = vapor.transform(parseTemplate(descriptor.template!.content, parseOptions), {
       ...parseOptions, filename: file, prefixIdentifiers: true,
@@ -217,26 +255,36 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       const statement = sourceFile.statements[0];
       if (sourceFile.statements.length !== 1 || !statement || !ts.isExpressionStatement(statement)) fail(at, "A handler must contain one call, assignment, increment, or emit");
       const node = statement.expression, id = component.handlerCount++;
+      const handlerLoc = (child: ts.Node) => locAt(item, at.offset + child.getStart(sourceFile));
       if (ts.isCallExpression(node)) {
         if (ts.isIdentifier(node.expression) && node.expression.text === emitName && hctx.bindings.get(node.expression.text)?.scope !== "local") {
           const first = node.arguments[0]; if (!first || !ts.isStringLiteral(first)) fail(at, "emit requires a literal event name");
           const declared = component.events.find(e => e.name === first.text); if (!declared) fail(at, `Undeclared event ${first.text}`);
           if (node.arguments.length !== declared.parameters.length + 1) fail(at, `Event ${first.text} expects ${declared.parameters.length} payload values`);
-          return { kind: "emit", id, name: first.text, arguments: node.arguments.slice(1).map((a, i) => { const value = expression(a.getText(sourceFile), at, hctx, declared.parameters[i]!.type); requireType(value, declared.parameters[i]!.type, hctx); return value; }), loc: at };
+          return { kind: "emit", id, name: first.text, arguments: node.arguments.slice(1).map((a, i) => { const value = expression(a.getText(sourceFile), handlerLoc(a), hctx, declared.parameters[i]!.type); requireType(value, declared.parameters[i]!.type, hctx); return value; }), loc: at };
         }
         const value = expression(content, at, hctx);
         if (value.kind !== "call" || value.target !== "vm") fail(at, "A handler call must name a view-model function");
         return { kind: "call", id, expression: value, loc: at };
       }
-      let target: ts.Expression | undefined, valueSource: string | undefined;
+      let target: ts.Expression | undefined, valueSource: string | undefined, valueLoc = at;
       if (ts.isPostfixUnaryExpression(node) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) {
-        target = node.operand; valueSource = `${target.getText(sourceFile)} ${node.operator === ts.SyntaxKind.PlusPlusToken ? "+" : "-"} 1`;
+        target = node.operand; valueLoc = handlerLoc(target);
+        valueSource = `${target.getText(sourceFile)} ${node.operator === ts.SyntaxKind.PlusPlusToken ? "+" : "-"} 1`;
       } else if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.MinusEqualsToken].includes(node.operatorToken.kind)) {
-        target = node.left; valueSource = node.operatorToken.kind === ts.SyntaxKind.EqualsToken ? node.right.getText(sourceFile) : `${target.getText(sourceFile)} ${node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken ? "+" : "-"} (${node.right.getText(sourceFile)})`;
+        target = node.left;
+        if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+          valueSource = node.right.getText(sourceFile); valueLoc = handlerLoc(node.right);
+        } else {
+          // Reuse the '=' character's position for the opening parenthesis. Every
+          // original operand keeps its source offset, including comments/newlines.
+          const operator = node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken ? "+" : "-";
+          valueSource = content.slice(0, node.operatorToken.getStart(sourceFile)) + operator + "(" + content.slice(node.operatorToken.end, node.end) + ")";
+        }
       }
       if (!target || !ts.isIdentifier(target) || !valueSource) fail(at, "Assignments must target a view-model value or defineModel binding");
       const binding = hctx.bindings.get(target.text); if (!binding || binding.constant !== undefined || binding.scope !== "vm" && !binding.model) fail(at, "Assignments must target a view-model value or defineModel binding");
-      const value = expression(valueSource, at, hctx, binding.type); requireType(value, binding.type, hctx);
+      const value = expression(valueSource, valueLoc, hctx, binding.type); requireType(value, binding.type, hctx);
       if (binding.model) return { kind: "emit", id, name: `update:${binding.model}`, arguments: [value], loc: at };
       component.values.find(v => v.name === target.text)!.writable = true;
       return { kind: "assign", id, name: target.text, value, loc: at };
@@ -308,6 +356,54 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         if (!component.slots.includes(name)) component.slots.push(name);
         return [{ kind: "slot", id: component.nodeCount++, name, fallback: nodes(node.children, context), loc: at }];
       }
+      const inputTag = item.inputHosts.get(node.tag);
+      if (inputTag) {
+        let active: AotExpr = { kind: "literal", value: true, type: BOOL, loc: at }, latched = false;
+        let button: { name: string; value: number } | undefined, axis: { name: string; value: number } | undefined;
+        let action: AotHandler | undefined;
+        const seen = new Set<string>();
+        for (const attribute of node.props) {
+          if (attribute.type === NodeTypes.DIRECTIVE && ignored.has(attribute.name)) continue;
+          const name = attribute.type === NodeTypes.ATTRIBUTE ? attribute.name : attribute.name === "bind" || attribute.name === "on" ? argument(attribute) : "";
+          if (!name || seen.has(name)) fail(tplLoc(attribute), `Unsupported or duplicate ${inputTag} attribute`);
+          seen.add(name);
+          if (attribute.type === NodeTypes.DIRECTIVE) {
+            if (attribute.modifiers.length) fail(tplLoc(attribute), "Input directive modifiers are unsupported");
+            if (attribute.name === "on") {
+              const eventName = inputTag === "ActionHandler" ? "press" : "delta";
+              if (name !== eventName || !attribute.exp || attribute.exp.type !== NodeTypes.SIMPLE_EXPRESSION) fail(tplLoc(attribute), `${inputTag} requires @${eventName} with one handler`);
+              action = handler(attribute.exp.content, tplLoc(attribute.exp), context, inputTag === "AxisHandler" ? { name: "delta", parameters: [{ name: "delta", type: I32 }] } : undefined);
+            } else if (name === "active") {
+              active = expr(attribute.exp as SimpleExpressionNode, context, BOOL); requireType(active, BOOL, context);
+            } else if (name === "latched" && inputTag === "ActionHandler") {
+              const value = expr(attribute.exp as SimpleExpressionNode, context, BOOL); requireType(value, BOOL, context);
+              if (value.kind !== "literal" || typeof value.value !== "boolean") fail(tplLoc(attribute), "latched must be a static boolean");
+              latched = value.value;
+            } else if (name === "button" && inputTag === "ActionHandler") {
+              const value = attribute.exp as SimpleExpressionNode | undefined;
+              const buttonSource = ts.createSourceFile("button.ts", `(${value?.content ?? ""})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+              const buttonStatement = buttonSource.statements[0];
+              let buttonExpression = buttonStatement && ts.isExpressionStatement(buttonStatement) ? buttonStatement.expression : undefined;
+              while (buttonExpression && ts.isParenthesizedExpression(buttonExpression)) buttonExpression = buttonExpression.expression;
+              if (!buttonExpression || !ts.isPropertyAccessExpression(buttonExpression) || buttonExpression.questionDotToken || !ts.isIdentifier(buttonExpression.expression) || !item.buttonNames.has(buttonExpression.expression.text) || context.bindings.has(buttonExpression.expression.text)) fail(tplLoc(attribute), "button must be a static member of BTN imported from @pocketjs/framework/vue-vapor/input");
+              const name = buttonExpression.name.text, valueId = BTN[name as keyof typeof BTN];
+              if (valueId === undefined) fail(tplLoc(attribute), `Unknown BTN member ${name}`);
+              button = { name, value: valueId };
+            } else if (name === "axis" && inputTag === "AxisHandler") {
+              const value = expr(attribute.exp as SimpleExpressionNode, context, STRING);
+              if (value.kind !== "literal" || typeof value.value !== "string" || !(value.value in VAPOR_RELATIVE_AXES)) fail(tplLoc(attribute), "axis must be the static literal primary or secondary");
+              axis = { name: value.value, value: VAPOR_RELATIVE_AXES[value.value as keyof typeof VAPOR_RELATIVE_AXES] };
+            } else fail(tplLoc(attribute), `${inputTag} does not accept :${name}`);
+          } else if (name === "active" && !attribute.value) active = { kind: "literal", value: true, type: BOOL, loc: tplLoc(attribute) };
+          else if (name === "latched" && inputTag === "ActionHandler" && !attribute.value) latched = true;
+          else if (name === "axis" && inputTag === "AxisHandler" && attribute.value && attribute.value.content in VAPOR_RELATIVE_AXES) axis = { name: attribute.value.content, value: VAPOR_RELATIVE_AXES[attribute.value.content as keyof typeof VAPOR_RELATIVE_AXES] };
+          else fail(tplLoc(attribute), `${inputTag} requires typed bindings for ${name}`);
+        }
+        if (!action) fail(at, `${inputTag} requires its event handler`);
+        if (inputTag === "ActionHandler" && !button) fail(at, "ActionHandler requires :button=BTN.NAME");
+        if (inputTag === "AxisHandler" && !axis) fail(at, "AxisHandler requires a static axis");
+        return [{ kind: "input", id: component.nodeCount++, input: button ? { kind: "button", name: button.name, button: button.value, latched } : { kind: "axis", name: axis!.name, axis: axis!.value }, active, handler: action, children: nodes(node.children, context), loc: at }];
+      }
       const creation = vaporElements.get(node.loc.start.offset);
       if (tag && (!creation || !creation.useCreateElement || creation.tag !== node.tag)) fail(at, "Vapor must lower each host primitive to an explicit create-element operation");
       if (!tag && !child) fail(at, `Element ${node.tag} is not an imported host primitive or child component`);
@@ -339,13 +435,13 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
                 if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name) && !ts.isStringLiteral(p.name)) fail(tplLoc(d), ":style uses static named numeric properties");
                 const name = p.name.text, spec = VAPOR_STYLE_PROPS[name as keyof typeof VAPOR_STYLE_PROPS]; if (!spec) fail(tplLoc(d), `Unknown numeric style property ${name}`);
                 const valueLoc = tplLoc(value); valueLoc.offset += p.initializer.getStart(sf) - 1;
-                const expected: AotType = { kind: "number", name: spec.type };
+                const expected: AotType = spec.unit ? mapper.unit(spec.unit) : { kind: "number", name: spec.type };
                 // First preserve integer arithmetic, then widen the complete host-attribute expression.
                 let e = expression(p.initializer.getText(sf), valueLoc, context);
                 const literalArithmetic = (value: AotExpr): boolean => value.kind === "literal" || value.kind === "unary" && literalArithmetic(value.operand) || value.kind === "binary" && literalArithmetic(value.left) && literalArithmetic(value.right);
-                if (literalArithmetic(e) || numeric(e.type, mapper)?.name.startsWith("f")) e = expression(p.initializer.getText(sf), valueLoc, context, expected);
+                if (spec.unit === "Color" || literalArithmetic(e) || numeric(e.type, mapper)?.name.startsWith("f")) e = expression(p.initializer.getText(sf), valueLoc, context, expected);
                 const n = numeric(e.type, mapper);
-                if (spec.type === "f32" && n && !n.name.startsWith("f")) e = { kind: "cast", value: e, type: expected, loc: e.loc };
+                if (spec.type === "f32" && n && !n.name.startsWith("f") && e.type.kind === "number") e = { kind: "cast", value: e, type: expected, loc: e.loc };
                 requireType(e, expected, context);
                 host.props.push({ name, prop: spec.id, value: e, memo: component.memoCount++ });
               }
@@ -449,11 +545,34 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         }
         finalize(node.children);
       } else if (node.kind === "if") node.branches.forEach(b => finalize(b.children));
-      else if (node.kind === "for") finalize(node.children);
+      else if (node.kind === "for" || node.kind === "input") finalize(node.children);
       else if (node.kind === "component") node.slots.forEach(s => finalize(s.children));
       else finalize(node.fallback);
     }
   }
   components.forEach(c => finalize(c.nodes));
-  return { version: 1, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics };
+  const buttons = new Set<number>(), axes = new Set<number>(), visitedComponents = new Set<string>();
+  function demands(nodes: AotNode[]): void {
+    for (const node of nodes) {
+      if (node.kind === "input") { if (node.input.kind === "button") buttons.add(node.input.button); else axes.add(node.input.axis); demands(node.children); }
+      else if (node.kind === "component") {
+        node.slots.forEach(slot => demands(slot.children));
+        if (!visitedComponents.has(node.component)) { visitedComponents.add(node.component); demands(components.find(c => c.name === node.component)!.nodes); }
+      } else if (node.kind === "if") node.branches.forEach(branch => demands(branch.children));
+      else if (node.kind === "slot") demands(node.fallback);
+      else demands(node.children);
+    }
+  }
+  demands(components.find(c => c.name === root.name)!.nodes);
+  const program: AotProgram = { version: 1, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  const dependencies = new Set(environment.program.getSourceFiles().map(file => resolve(file.fileName)));
+  const config = ts.findConfigFile(dirname(entry), ts.sys.fileExists, "tsconfig.json");
+  if (config) dependencies.add(resolve(config));
+  const versions: AotDependencyVersion[] = [];
+  for (const file of [...dependencies].sort()) {
+    try { const stat = statSync(file); if (stat.isFile()) versions.push({ file, mtimeMs: stat.mtimeMs, size: stat.size }); }
+    catch { /* Vue virtual files and source overrides have no filesystem version. */ }
+  }
+  dependencyVersions.set(program, versions);
+  return program;
 }

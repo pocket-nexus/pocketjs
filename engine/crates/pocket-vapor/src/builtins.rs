@@ -21,6 +21,11 @@ impl<T> Length for [T] {
         self.len()
     }
 }
+impl<T, const N: usize> Length for [T; N] {
+    fn scalar_len(&self) -> usize {
+        N
+    }
+}
 impl<T> Length for Vec<T> {
     fn scalar_len(&self) -> usize {
         self.len()

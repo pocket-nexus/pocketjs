@@ -236,7 +236,7 @@
     "./vue-vapor/fs": "./framework/src/fs-api.ts",
     "./vue-vapor/gesture": "./framework/src/gesture.vue-vapor.ts",
     "./vue-vapor/lifecycle": "./framework/src/lifecycle-vue-vapor.ts",
-    "./vue-vapor/input": "./framework/src/input-api.ts",
+    "./vue-vapor/input": "./framework/src/input-api-vue-vapor.ts",
     "./vue-vapor/kinetics": "./framework/src/kinetics.vue-vapor.ts",
     "./vue-vapor/net": "./framework/src/net-api.ts",
     "./vue-vapor/renderer": "./framework/src/renderer-vue-vapor.ts",

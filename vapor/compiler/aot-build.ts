@@ -4,12 +4,14 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { analyzeVueAot } from "./aot-frontend.ts";
 import { emitVueAot } from "./aot-codegen.ts";
 import type { AotProgram } from "./aot-ir.ts";
+import { requireVueAotBoard, vueAotBoardAdmission } from "./aot-admission.ts";
 
 export interface VueAotBuildOptions {
   strict?: boolean;
   outDir?: string;
   format?: boolean;
   ir?: string;
+  board?: string;
 }
 export interface VueAotBuildResult {
   entry: string;
@@ -44,6 +46,7 @@ export function resolveVueAotEntry(app: string): string {
 export async function buildVueAot(app: string, options: VueAotBuildOptions = {}): Promise<VueAotBuildResult> {
   const entry = resolveVueAotEntry(app);
   const program = analyzeVueAot(entry, { strict: options.strict });
+  if (options.board) requireVueAotBoard(program, options.board);
   const output = emitVueAot(program);
   const outDir = resolve(options.outDir ?? join(dirname(entry), "gen"));
   const files: string[] = [];
@@ -96,32 +99,43 @@ export async function runVueAotCli(args: string[]): Promise<void> {
   let strict = false;
   let json = false;
   let format = true;
+  let board: string | undefined;
+  let boards = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--strict") strict = true;
     else if (arg === "--json") json = true;
     else if (arg === "--no-format") format = false;
-    else if (arg === "--out" || arg === "--ir") {
+    else if (arg === "--boards") boards = true;
+    else if (arg === "--out" || arg === "--ir" || arg === "--board") {
       const value = args[++i];
       if (!value || value.startsWith("--")) throw new Error(`Vue AOT: ${arg} needs a path`);
       if (arg === "--out") outDir = value;
-      else ir = value;
+      else if (arg === "--ir") ir = value;
+      else board = value;
     } else if (arg.startsWith("--out=")) outDir = arg.slice(6);
     else if (arg.startsWith("--ir=")) ir = arg.slice(5);
+    else if (arg.startsWith("--board=")) board = arg.slice(8);
     else if (arg.startsWith("-")) throw new Error(`Vue AOT: unknown option ${arg}`);
     else if (app) throw new Error(`Vue AOT: unexpected argument ${arg}`);
     else app = arg;
   }
-  if (!app) throw new Error("usage: bun vapor/compiler/cli.ts build <app|Root.vue> [--out gen] [--strict] [--ir file] [--no-format]");
+  if (!app) throw new Error("usage: bun vapor/compiler/cli.ts build <app|Root.vue> [--out gen] [--strict] [--ir file] [--board name] [--boards] [--no-format]");
   const result = command === "build"
-    ? await buildVueAot(app, { strict, outDir, ir, format })
+    ? await buildVueAot(app, { strict, outDir, ir, format, board })
     : { entry: resolveVueAotEntry(app), program: analyzeVueAot(resolveVueAotEntry(app), { strict }), files: [] };
-  if (json) console.log(JSON.stringify(result.program, null, 2));
+  const admission = vueAotBoardAdmission(result.program, board, boards);
+  if (json) console.log(JSON.stringify(admission.length ? { ...result.program, admission } : result.program, null, 2));
   else {
     for (const diagnostic of result.program.diagnostics) {
       console.warn(`${diagnostic.file}:${diagnostic.line}:${diagnostic.column}: ${diagnostic.severity}: ${diagnostic.message}`);
     }
     console.log(`Vue AOT: ${result.program.root}, ${result.program.components.length} components, ${result.program.styles.records.length} styles`);
     for (const file of result.files) console.log(file);
+    for (const row of admission) {
+      console.log(`${row.board}: ${row.ok ? "OK" : "FAIL"} (input profile)`);
+      for (const issue of row.issues) console.log(`  ${issue.severity} ${issue.code}: ${issue.message}`);
+    }
   }
+  if (board && admission.some(row => !row.ok)) process.exitCode = 1;
 }

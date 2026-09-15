@@ -1,5 +1,9 @@
 use crate::{NodeId, Ui};
-use alloc::{collections::BTreeMap, rc::Rc, vec::Vec};
+use alloc::{
+    collections::BTreeMap,
+    rc::{Rc, Weak},
+    vec::Vec,
+};
 use core::cell::RefCell;
 
 /// A marker-free contiguous range of nodes owned by generated code.
@@ -17,29 +21,130 @@ pub trait SlotBlock {
     fn unmount(&mut self, ui: &mut Ui);
     fn first_node(&self) -> NodeId;
     fn move_before(&mut self, ui: &mut Ui, parent: NodeId, anchor: NodeId);
+    fn pending(&self, _input: &crate::Input) -> bool {
+        false
+    }
+    fn pending_after(&self, input: &crate::Input, skip: usize) -> bool {
+        skip == 0 && self.pending(input)
+    }
+    fn sample_idle(&mut self, _input: &crate::Input) {}
+    fn handler_count(&self) -> usize {
+        0
+    }
+    fn refresh_slot_placement(&mut self, _ui: &mut Ui, _parent: NodeId, _anchor: NodeId) {}
 }
 
 /// A child controls slot placement through this handle. The parent retains its
 /// typed `Rc<RefCell<S>>` and updates the slot with the parent's borrowed props
 /// and view model; the handle stores no application context.
 #[derive(Clone)]
-pub struct SlotHandle(Rc<RefCell<dyn SlotBlock>>);
+pub struct SlotHandle(SlotHandleKind);
+
+#[derive(Clone)]
+enum SlotHandleKind {
+    Instance(Rc<RefCell<dyn SlotBlock>>),
+    Factory(Rc<dyn Fn() -> SlotHandle>),
+}
 
 impl SlotHandle {
     pub fn new<S: SlotBlock + 'static>(slot: Rc<RefCell<S>>) -> Self {
-        Self(slot)
+        Self(SlotHandleKind::Instance(slot))
+    }
+    pub fn instantiate(&self) -> Self {
+        match &self.0 {
+            SlotHandleKind::Instance(_) => self.clone(),
+            SlotHandleKind::Factory(factory) => factory(),
+        }
+    }
+    fn instance(&self) -> &Rc<RefCell<dyn SlotBlock>> {
+        match &self.0 {
+            SlotHandleKind::Instance(slot) => slot,
+            SlotHandleKind::Factory(_) => panic!("instantiate a slot factory before using it"),
+        }
+    }
+    pub fn instance_id(&self) -> usize {
+        Rc::as_ptr(self.instance()) as *const () as usize
     }
     pub fn mount(&self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.0.borrow_mut().mount(ui, parent, anchor);
+        self.instance().borrow_mut().mount(ui, parent, anchor);
     }
     pub fn unmount(&self, ui: &mut Ui) {
-        self.0.borrow_mut().unmount(ui);
+        self.instance().borrow_mut().unmount(ui);
     }
     pub fn first_node(&self) -> NodeId {
-        self.0.borrow().first_node()
+        self.instance().borrow().first_node()
     }
     pub fn move_before(&self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
-        self.0.borrow_mut().move_before(ui, parent, anchor);
+        self.instance().borrow_mut().move_before(ui, parent, anchor);
+    }
+    pub fn pending(&self, input: &crate::Input) -> bool {
+        self.instance().borrow().pending(input)
+    }
+    pub fn pending_after(&self, input: &crate::Input, skip: usize) -> bool {
+        self.instance().borrow().pending_after(input, skip)
+    }
+    pub fn sample_idle(&self, input: &crate::Input) {
+        self.instance().borrow_mut().sample_idle(input);
+    }
+    pub fn handler_count(&self) -> usize {
+        self.instance().borrow().handler_count()
+    }
+    pub fn refresh_slot_placement(&self, ui: &mut Ui, parent: NodeId, anchor: NodeId) {
+        self.instance()
+            .borrow_mut()
+            .refresh_slot_placement(ui, parent, anchor);
+    }
+}
+
+/// Every outlet receives a separate block, while the parent can update and
+/// dispatch its live instances with the parent's current borrowed context.
+pub struct SlotRegistry<S> {
+    instances: Rc<RefCell<Vec<Weak<RefCell<S>>>>>,
+    handle: SlotHandle,
+}
+impl<S: SlotBlock + 'static> SlotRegistry<S> {
+    pub fn new(factory: impl Fn() -> S + 'static) -> Self {
+        let instances = Rc::new(RefCell::new(Vec::new()));
+        let registered = instances.clone();
+        let handle = SlotHandle(SlotHandleKind::Factory(Rc::new(move || {
+            let instance = Rc::new(RefCell::new(factory()));
+            registered.borrow_mut().push(Rc::downgrade(&instance));
+            SlotHandle::new(instance)
+        })));
+        Self { instances, handle }
+    }
+    pub fn handle(&self) -> SlotHandle {
+        self.handle.clone()
+    }
+    pub fn for_each(&self, mut callback: impl FnMut(&S)) {
+        let count = self.instances.borrow().len();
+        for index in 0..count {
+            let instance = self.instances.borrow().get(index).and_then(Weak::upgrade);
+            if let Some(instance) = instance {
+                callback(&instance.borrow());
+            }
+        }
+    }
+    pub fn for_each_mut(&mut self, mut callback: impl FnMut(&mut S)) {
+        self.instances
+            .borrow_mut()
+            .retain(|instance| instance.strong_count() > 0);
+        let count = self.instances.borrow().len();
+        for index in 0..count {
+            let instance = self.instances.borrow().get(index).and_then(Weak::upgrade);
+            if let Some(instance) = instance {
+                callback(&mut instance.borrow_mut());
+            }
+        }
+    }
+    pub fn with_instance<R>(&self, id: usize, callback: impl FnOnce(&mut S) -> R) -> Option<R> {
+        let instance = self
+            .instances
+            .borrow()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .find(|instance| Rc::as_ptr(instance) as usize == id);
+        instance.map(|instance| callback(&mut instance.borrow_mut()))
     }
 }
 

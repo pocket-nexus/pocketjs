@@ -1,6 +1,6 @@
 /** The Rust backend's structural output. Source syntax belongs to rust-printer.ts. */
 export interface RustModule { items: RustItem[]; attributes?: { name: string; args: string[] }[] }
-export interface RustGeneric { name: string; lifetime?: boolean; bounds?: RustType[] }
+export interface RustGeneric { name: string; lifetime?: boolean; bounds?: RustType[]; default?: RustType }
 export type RustType =
   | { kind: "path"; path: string[]; args?: RustType[] }
   | { kind: "ref"; type: RustType; mutable?: boolean; lifetime?: string }
@@ -8,6 +8,9 @@ export type RustType =
   | { kind: "slice"; element: RustType }
   | { kind: "array"; element: RustType; length: number }
   | { kind: "lifetime"; name: string }
+  | { kind: "const"; value: number | boolean }
+  | { kind: "dyn"; bounds: RustType[] }
+  | { kind: "binding"; name: string; type: RustType }
   | { kind: "infer" };
 export interface RustField { name: string; type: RustType; public?: boolean }
 export interface RustParam { pattern: RustPattern; type?: RustType }
@@ -20,10 +23,11 @@ export type RustItem =
   | { kind: "mod"; name: string; public?: boolean }
   | { kind: "extern"; name: string }
   | { kind: "struct"; name: string; public?: boolean; derives?: string[]; generics?: RustGeneric[]; fields?: RustField[]; tuple?: RustType[] }
-  | { kind: "enum"; name: string; public?: boolean; derives?: string[]; variants: { name: string; fields?: RustField[]; tuple?: RustType[] }[] }
-  | { kind: "trait"; name: string; public?: boolean; generics?: RustGeneric[]; methods: RustFunction[] }
+  | { kind: "enum"; name: string; public?: boolean; derives?: string[]; generics?: RustGeneric[]; variants: { name: string; fields?: RustField[]; tuple?: RustType[] }[] }
+  | { kind: "trait"; name: string; public?: boolean; generics?: RustGeneric[]; bounds?: RustType[]; associatedTypes?: { name: string; bounds: RustType[] }[]; methods: RustFunction[] }
   | { kind: "impl"; type: RustType; trait?: RustType; generics?: RustGeneric[]; methods: RustFunction[] }
   | { kind: "const"; name: string; public?: boolean; type: RustType; value: RustExpr }
+  | { kind: "typeAlias"; name: string; public?: boolean; generics?: RustGeneric[]; type: RustType }
   | RustFunction;
 export interface RustBlock { statements: RustStatement[]; result?: RustExpr }
 export type RustPattern =
@@ -40,10 +44,13 @@ export type RustStatement =
   | { kind: "assign"; target: RustExpr; value: RustExpr; operator?: string }
   | { kind: "for"; pattern: RustPattern; iterable: RustExpr; body: RustBlock }
   | { kind: "while"; condition: RustExpr; body: RustBlock }
+  | { kind: "loop"; body: RustBlock }
   | { kind: "return"; value?: RustExpr }
-  | { kind: "break" };
+  | { kind: "break" }
+  | { kind: "continue" };
 export type RustExpr =
   | { kind: "path"; path: string[]; typeArgs?: RustType[] }
+  | { kind: "qualifiedPath"; type: RustType; member: string }
   | { kind: "literal"; value: string | number | boolean; suffix?: string; rawNumber?: string }
   | { kind: "call"; callee: RustExpr; args: RustExpr[] }
   | { kind: "method"; object: RustExpr; method: string; args: RustExpr[]; typeArgs?: RustType[] }

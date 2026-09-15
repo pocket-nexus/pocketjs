@@ -1,11 +1,24 @@
 /** Admission and declaration-only view models shared by browser and guest builds. */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parse } from "@vue/compiler-sfc";
 import { parse as parseTemplate, NodeTypes, type ElementNode } from "@vue/compiler-dom";
 import ts from "typescript";
-import { analyzeVueAot } from "./aot-frontend.ts";
+import { analyzeVueAot, getAotDependencyVersions } from "./aot-frontend.ts";
 import type { AotComponent, AotProgram, AotType } from "./aot-ir.ts";
+
+const analyzedComponents = new Map<string, { source: string; program: AotProgram }>();
+export function getVueAotProgram(filename: string, source: string): AotProgram | undefined {
+  const cached = analyzedComponents.get(resolve(filename));
+  if (cached?.source !== source) return;
+  const changed = getAotDependencyVersions(cached.program).some(version => {
+    try {
+      const current = statSync(version.file);
+      return current.mtimeMs !== version.mtimeMs || current.size !== version.size;
+    } catch { return true; }
+  });
+  return changed ? checkVueAotSource(source, filename) : cached.program;
+}
 
 /** Legacy Vapor SFCs keep their existing pipeline while the C family migrates. */
 export function hasVueAotContract(source: string, filename: string): boolean {
@@ -14,8 +27,9 @@ export function hasVueAotContract(source: string, filename: string): boolean {
   const moduleName = `./${basename(filename, ".vue")}`;
   const file = ts.createSourceFile(filename + ".ts", script.content, ts.ScriptTarget.Latest, true);
   return file.statements.some(statement => {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
-      statement.moduleSpecifier.text.toLowerCase() !== moduleName.toLowerCase()) return false;
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) return false;
+    if (statement.moduleSpecifier.text === "@pocketjs/framework/vue-vapor/std") return true;
+    if (statement.moduleSpecifier.text.toLowerCase() !== moduleName.toLowerCase()) return false;
     const clause = statement.importClause;
     if (!clause || clause.isTypeOnly) return false;
     return !!clause.name || !!clause.namedBindings && (ts.isNamespaceImport(clause.namedBindings) ||
@@ -25,6 +39,9 @@ export function hasVueAotContract(source: string, filename: string): boolean {
 
 export function checkVueAotSource(source: string, filename: string, strict = false): AotProgram {
   const program = analyzeVueAot(resolve(filename), { source, strict });
+  for (const component of program.components) analyzedComponents.set(component.file, {
+    source: component.file === resolve(filename) ? source : readFileSync(component.file, "utf8"), program,
+  });
   for (const diagnostic of program.diagnostics) {
     if (diagnostic.severity === "warning") {
       console.warn(`${diagnostic.file}:${diagnostic.line}:${diagnostic.column}: warning: ${diagnostic.message}`);
@@ -94,7 +111,7 @@ function defaultValue(type: AotType, program: AotProgram, seen = new Set<string>
     case "string": return '""';
     case "boolean": return "false";
     case "void": case "undefined": case "option": return "undefined";
-    case "array": return "[]";
+    case "array": return type.length === undefined ? "[]" : `[${Array.from({ length: type.length }, () => defaultValue(type.element, program, seen)).join(", ")}]`;
     case "tuple": return `[${type.elements.map(t => defaultValue(t, program, seen)).join(", ")}]`;
     case "named": {
       if (seen.has(type.name)) throw new Error(`Vue AOT: recursive default for ${type.name}`);
@@ -103,7 +120,7 @@ function defaultValue(type: AotType, program: AotProgram, seen = new Set<string>
       if (!declaration) throw new Error(`Vue AOT: missing declaration ${type.name}`);
       switch (declaration.kind) {
         case "enum": return JSON.stringify(declaration.variants[0]);
-        case "newtype": return defaultValue(declaration.base, program, next);
+        case "newtype": return declaration.unit === "Color" ? '"#00000000"' : defaultValue(declaration.base, program, next);
         case "struct": return `{ ${declaration.fields.map(f => `${JSON.stringify(f.name)}: ${defaultValue(f.type, program, next)}`).join(", ")} }`;
         case "union": {
           const variant = declaration.variants[0]!;
@@ -116,23 +133,33 @@ function defaultValue(type: AotType, program: AotProgram, seen = new Set<string>
 
 /** A declaration-only app receives Vue refs with contract-shaped defaults. */
 export function generateVueAotMock(program: AotProgram, component: AotComponent): string {
+  const exportedName = (name: string) => /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name);
+  if (component.factory) {
+    const members = new Map<string, string>();
+    for (const value of component.values) members.set(value.sourceName, `ref(${defaultValue(value.type, program)})`);
+    for (const fn of component.functions) members.set(fn.sourceName, fn.optional ? "undefined" : `() => (${defaultValue(fn.returns, program)})`);
+    for (const constant of component.constants) members.set(constant.sourceName ?? constant.name, JSON.stringify(constant.value));
+    return `import { ref } from "vue";\nfunction __pocketFactory() {\n  return { ${[...members].map(([name, value]) => `[${JSON.stringify(name)}]: ${value}`).join(", ")} };\n}\nexport { __pocketFactory as ${exportedName(component.factory.sourceName)} };\n`;
+  }
   const lines = ['import { ref } from "vue";'];
   const exported = new Set<string>();
+  function binding(name: string, value: string): void {
+    const local = `__pocketMock${exported.size}`;
+    exported.add(name);
+    lines.push(`const ${local} = ${value};`, `export { ${local} as ${exportedName(name)} };`);
+  }
   for (const value of component.values) {
     if (exported.has(value.sourceName)) continue;
-    exported.add(value.sourceName);
-    lines.push(`export const ${value.sourceName} = ref(${defaultValue(value.type, program)});`);
+    binding(value.sourceName, `ref(${defaultValue(value.type, program)})`);
   }
   for (const fn of component.functions) {
     if (exported.has(fn.sourceName)) continue;
-    exported.add(fn.sourceName);
-    lines.push(`export function ${fn.sourceName}() { return ${defaultValue(fn.returns, program)}; }`);
+    binding(fn.sourceName, fn.optional ? "undefined" : `() => (${defaultValue(fn.returns, program)})`);
   }
   for (const constant of component.constants) {
     const name = constant.sourceName ?? constant.name;
     if (exported.has(name)) continue;
-    exported.add(name);
-    lines.push(`export const ${name} = ${JSON.stringify(constant.value)};`);
+    binding(name, JSON.stringify(constant.value));
   }
   return lines.join("\n") + "\n";
 }

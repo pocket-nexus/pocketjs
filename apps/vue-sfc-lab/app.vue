@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Text, View } from "@pocketjs/framework/vue-vapor/components";
-import { count, features, enabledCount, toggleFeature } from "./app";
+import { ActionHandler, AxisHandler, Text, View } from "@pocketjs/framework/vue-vapor/components";
+import { BTN } from "@pocketjs/framework/vue-vapor/input";
+import { count, features, enabledCount, toggleFeature, adjustCount, resetCount } from "./app";
 import FeatureCard from "./FeatureCard.vue";
 import FeatureToggle from "./FeatureToggle.vue";
 import ModelButton from "./ModelButton.vue";
@@ -11,6 +12,8 @@ import ModelButton from "./ModelButton.vue";
     debug-name="VueSfcLab"
     class="w-full h-full flex-col gap-2 p-4 bg-gradient-to-b from-slate-50 to-slate-100"
   >
+    <ActionHandler :button="BTN.CROSS" :active="count !== 0" latched @press="resetCount()" />
+    <AxisHandler axis="primary" @delta="adjustCount($event)" />
     <View class="flex-row items-center justify-between">
       <View class="flex-col">
         <Text class="text-lg text-slate-950 font-bold">Vue SFC Feature Lab</Text>
@@ -71,7 +74,7 @@ import ModelButton from "./ModelButton.vue";
           {{ index + 1 }}.{{ feature.label }}
         </Text>
       </View>
-      <Text class="text-xs text-slate-400">→ focus · ○ activate</Text>
+      <Text class="text-xs text-slate-400">→ focus · ○ activate · × reset</Text>
     </View>
   </View>
 </template>

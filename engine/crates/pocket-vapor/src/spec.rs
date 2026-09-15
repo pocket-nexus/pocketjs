@@ -101,3 +101,66 @@ pub const BUILTIN_SIGNATURES: &[(&str, &[&str], &str, &str)] = &[
     ("clamp", &["T", "T", "T"], "T", "same"),
     ("fixed", &["float", "i32"], "string", "float"),
 ];
+pub mod relative_axis {
+    pub const PRIMARY: u8 = 0;
+    pub const SECONDARY: u8 = 1;
+    pub const PER_DEGREE: i32 = 1000;
+    pub const PER_TURN: i32 = 360000;
+}
+pub const UNIT_TYPES: &[(&str, &str)] = &[
+    ("Px", "f32"),
+    ("Ms", "f32"),
+    ("Deg", "f32"),
+    ("Color", "u32"),
+];
+pub const STYLE_UNITS: &[(&str, &str)] = &[
+    ("width", "Px"),
+    ("height", "Px"),
+    ("minW", "Px"),
+    ("minH", "Px"),
+    ("maxW", "Px"),
+    ("maxH", "Px"),
+    ("paddingT", "Px"),
+    ("paddingR", "Px"),
+    ("paddingB", "Px"),
+    ("paddingL", "Px"),
+    ("marginT", "Px"),
+    ("marginR", "Px"),
+    ("marginB", "Px"),
+    ("marginL", "Px"),
+    ("gap", "Px"),
+    ("basis", "Px"),
+    ("insetT", "Px"),
+    ("insetR", "Px"),
+    ("insetB", "Px"),
+    ("insetL", "Px"),
+    ("bgColor", "Color"),
+    ("gradFrom", "Color"),
+    ("gradTo", "Color"),
+    ("radius", "Px"),
+    ("borderColor", "Color"),
+    ("borderWidth", "Px"),
+    ("bevelOuterLight", "Color"),
+    ("bevelOuterDark", "Color"),
+    ("bevelInnerLight", "Color"),
+    ("bevelInnerDark", "Color"),
+    ("bevelWidth", "Px"),
+    ("gradVia", "Color"),
+    ("textColor", "Color"),
+    ("lineHeight", "Px"),
+    ("tracking", "Px"),
+    ("translateX", "Px"),
+    ("translateY", "Px"),
+    ("rotate", "Deg"),
+    ("rotateX", "Deg"),
+    ("rotateY", "Deg"),
+    ("translateZ", "Px"),
+    ("perspective", "Px"),
+    ("arcStart", "Deg"),
+    ("arcSweep", "Deg"),
+    ("arcWidth", "Px"),
+];
+pub const INPUT_ELEMENTS: &[(&str, &[&str], &[&str])] = &[
+    ("ActionHandler", &["button", "active", "latched"], &["press"]),
+    ("AxisHandler", &["axis", "active"], &["delta"]),
+];

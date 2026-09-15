@@ -40,6 +40,7 @@ pub struct Input {
     pub pressed: u32,
     pub released: u32,
     pub target: NodeId,
+    pub axis_deltas: [i32; 2],
 }
 
 impl Input {
@@ -59,6 +60,24 @@ impl Input {
     }
     pub fn is_press(&self, node: NodeId) -> bool {
         node != NodeId::NONE && self.target == node
+    }
+    pub fn axis_delta(&self, axis: u8) -> i32 {
+        self.axis_deltas.get(axis as usize).copied().unwrap_or(0)
+    }
+    pub fn with_axis(mut self, axis: u8, delta: i32) -> Self {
+        let value = self
+            .axis_deltas
+            .get_mut(axis as usize)
+            .expect("unknown relative axis");
+        *value = value.saturating_add(delta);
+        self
+    }
+    pub fn has_activity(&self) -> bool {
+        self.buttons != 0
+            || self.pressed != 0
+            || self.released != 0
+            || self.target != NodeId::NONE
+            || self.axis_deltas.iter().any(|delta| *delta != 0)
     }
 }
 
@@ -341,6 +360,7 @@ impl Ui {
             pressed,
             released,
             buttons: input.buttons,
+            axis_deltas: input.axis_deltas,
         }
     }
 }

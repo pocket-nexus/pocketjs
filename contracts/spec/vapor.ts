@@ -6,6 +6,30 @@ export const VAPOR_NUMERIC_TYPES = [
 ] as const;
 export type VaporNumericType = (typeof VAPOR_NUMERIC_TYPES)[number];
 
+export const RelativeAxis = { Primary: 0, Secondary: 1 } as const;
+export const RelativeAxisUnits = { PerDegree: 1_000, PerTurn: 360_000 } as const;
+export type RelativeAxisId = (typeof RelativeAxis)[keyof typeof RelativeAxis];
+export const VAPOR_RELATIVE_AXES = { primary: RelativeAxis.Primary, secondary: RelativeAxis.Secondary } as const;
+export const VAPOR_UNIT_TYPES = { Px: { base: "f32" }, Ms: { base: "f32" }, Deg: { base: "f32" }, Color: { base: "u32" } } as const;
+export type VaporUnitType = keyof typeof VAPOR_UNIT_TYPES;
+export const VAPOR_INPUT_ELEMENTS = {
+  ActionHandler: { attributes: ["button", "active", "latched"], events: ["press"] },
+  AxisHandler: { attributes: ["axis", "active"], events: ["delta"] },
+} as const;
+
+/** CSS hexadecimal RGB(A) syntax converted to core's ABGR bits. */
+export function parseVaporColor(value: string): number {
+  if (!/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(value)) throw new Error(`Invalid Color ${JSON.stringify(value)}; expected #rgb, #rgba, #rrggbb, or #rrggbbaa`);
+  let hex = value.slice(1);
+  if (hex.length <= 4) hex = [...hex].map(c => c + c).join("");
+  if (hex.length === 6) hex += "ff";
+  const rgba = Number.parseInt(hex, 16);
+  return (((rgba & 255) << 24) | (((rgba >>> 8) & 255) << 16) | (((rgba >>> 16) & 255) << 8) | ((rgba >>> 24) & 255)) >>> 0;
+}
+
+const pixelProps = new Set<string>(["width", "height", "minW", "minH", "maxW", "maxH", "paddingT", "paddingR", "paddingB", "paddingL", "marginT", "marginR", "marginB", "marginL", "gap", "basis", "insetT", "insetR", "insetB", "insetL", "radius", "borderWidth", "bevelWidth", "lineHeight", "tracking", "translateX", "translateY", "translateZ", "perspective", "arcWidth"]);
+const degreeProps = new Set<string>(["rotate", "rotateX", "rotateY", "arcStart", "arcSweep"]);
+
 export const VAPOR_ELEMENTS = {
   View: {
     nodeType: NODE_TYPE.view,
@@ -19,9 +43,10 @@ export const VAPOR_ELEMENTS = {
 export const VAPOR_STYLE_PROPS = Object.fromEntries(
   Object.entries(PROP).map(([name, id]) => {
     const kind = PROP_VALUE_KIND[name as keyof typeof PROP];
-    return [name, { id, type: kind === VALUE_KIND.f32 ? "f32" : kind === VALUE_KIND.color ? "u32" : "i32" }];
+    const unit: VaporUnitType | undefined = kind === VALUE_KIND.color ? "Color" : pixelProps.has(name) ? "Px" : degreeProps.has(name) ? "Deg" : undefined;
+    return [name, { id, type: kind === VALUE_KIND.f32 ? "f32" : kind === VALUE_KIND.color ? "u32" : "i32", ...(unit ? { unit } : {}) }];
   }),
-) as { [P in keyof typeof PROP]: { id: (typeof PROP)[P]; type: "f32" | "i32" | "u32" } };
+) as { [P in keyof typeof PROP]: { id: (typeof PROP)[P]; type: "f32" | "i32" | "u32"; unit?: VaporUnitType } };
 
 export const VAPOR_BUILTINS = {
   len: { parameters: ["string | T[]"], result: "i32", numeric: "none" },
@@ -44,40 +69,50 @@ const generated = "// GENERATED — do not edit; run `bun contracts/spec/gen-rus
 export function generateVaporNumericTypes(): string {
   return generated + VAPOR_NUMERIC_TYPES.map((name) =>
     `export type ${name} = number & { readonly __type?: ${JSON.stringify(name)} };`,
+  ).join("\n") + "\n" + Object.entries(VAPOR_UNIT_TYPES).map(([name, unit]) =>
+    `export type ${name} = ${name === "Color" ? '`#${string}`' : unit.base} & { readonly __newtype?: ${JSON.stringify(name)} };`,
   ).join("\n") + "\n";
 }
 
 export function generateVaporStdDeclarations(): string {
   const lines = [generated.trimEnd(), 'export type * from "./numeric-vue-vapor.ts";',
-    'import type { i32, f32, f64 } from "./numeric-vue-vapor.ts";'];
+    'import type { i32, f32, f64, Color, u32 } from "./numeric-vue-vapor.ts";',
+    'export type VaporPlainNumber = number & { readonly __type?: never; readonly __newtype?: never };',
+    'export type VaporNumericResult<T extends number> = T extends VaporPlainNumber ? number : T;'];
   for (const [name, spec] of Object.entries(VAPOR_BUILTINS)) {
     if (name === "len") lines.push("export declare function len<T>(value: string | readonly T[]): i32;");
     else if (name === "fixed") lines.push("export declare function fixed(value: f32 | f64, digits: i32): string;");
     else if (spec.result === "i32") lines.push(`export declare function ${name}(value: f32 | f64): i32;`);
     else {
-      const args = spec.parameters.map((_, index) => `${["value", "other", "upper"][index]}: T`);
-      lines.push(`export declare function ${name}<T extends number>(${args.join(", ")}): T;`);
+      const args = spec.parameters.map((_, index) => `${["value", "other", "upper"][index]}: ${index === 0 ? "T" : "NoInfer<T> | VaporPlainNumber"}`);
+      lines.push(`export declare function ${name}<T extends number>(${args.join(", ")}): VaporNumericResult<T>;`);
     }
   }
+  lines.push("export declare function __colorBits(value: Color): u32;", "export declare function __colorText(value: Color | undefined, missing?: string): string;");
   return lines.join("\n") + "\n";
 }
 
 export function generateVaporComponentTypes(): string {
   const numericInputs = VAPOR_NUMERIC_TYPES.filter(name => name !== "f64");
-  const lines = [generated.trimEnd(), `import type { ${numericInputs.join(", ")} } from "./numeric-vue-vapor.ts";`,
+  const lines = [generated.trimEnd(), `import type { ${[...numericInputs, ...Object.keys(VAPOR_UNIT_TYPES)].join(", ")} } from "./numeric-vue-vapor.ts";`,
     `export type VaporFloatInput = ${numericInputs.join(" | ")};`,
+    `export type VaporIntegerInput = ${VAPOR_NUMERIC_TYPES.filter(name => !name.startsWith("f")).join(" | ")};`,
+    "export type VaporValue<T> = T | (() => T);",
     "export interface VaporStyleProps {"];
-  for (const [name, prop] of Object.entries(VAPOR_STYLE_PROPS)) lines.push(`  ${name}?: ${prop.type === "f32" ? "VaporFloatInput" : prop.type};`);
+  for (const [name, prop] of Object.entries(VAPOR_STYLE_PROPS)) lines.push(`  ${name}?: ${prop.unit ? prop.unit === "Color" ? "Color" : `${prop.unit} | VaporIntegerInput` : prop.type === "f32" ? "VaporFloatInput" : prop.type};`);
   lines.push("}");
   for (const [element, spec] of Object.entries(VAPOR_ELEMENTS)) {
-    lines.push(`export interface Vapor${element}Props {`);
+    lines.push(`export interface Vapor${element}${element === "View" ? "Base" : ""}Props {`);
     for (const attribute of spec.attributes) {
-      const type = attribute === "style" ? "VaporStyleProps" : attribute === "focusable" ? "boolean" : "string";
-      lines.push(`  ${JSON.stringify(attribute)}?: ${type};`);
+      if (attribute === "focusable") continue;
+      const type = attribute === "style" ? "VaporStyleProps" : "string";
+      lines.push(`  ${JSON.stringify(attribute)}?: VaporValue<${type}>;`);
     }
-    for (const event of spec.events) lines.push(`  on${event[0].toUpperCase()}${event.slice(1)}?: () => void;`);
     lines.push("}");
+    if (element === "View") lines.push('export type VaporViewProps = VaporViewBaseProps & ({ focusable: true; onPress?: () => void } | { focusable?: false; onPress?: never });');
   }
+  lines.push('export interface VaporActionHandlerProps { button: number; active?: VaporValue<boolean>; latched?: boolean; onPress?: (pressed: number, buttons: number) => void }',
+    'export interface VaporAxisHandlerProps { axis: "primary" | "secondary"; active?: VaporValue<boolean>; onDelta?: (delta: i32) => void }');
   return lines.join("\n") + "\n";
 }
 
@@ -95,6 +130,15 @@ export function generateVaporRust(): string {
   for (const [name, spec] of Object.entries(VAPOR_ELEMENTS)) lines.push(`    (${JSON.stringify(name)}, &[${spec.events.map((a) => JSON.stringify(a)).join(", ")}]),`);
   lines.push("];", "pub const BUILTIN_SIGNATURES: &[(&str, &[&str], &str, &str)] = &[");
   for (const [name, spec] of Object.entries(VAPOR_BUILTINS)) lines.push(`    (${JSON.stringify(name)}, &[${spec.parameters.map((a) => JSON.stringify(a)).join(", ")}], ${JSON.stringify(spec.result)}, ${JSON.stringify(spec.numeric)}),`);
+  lines.push("];");
+  lines.push("pub mod relative_axis {");
+  for (const [name, id] of Object.entries(VAPOR_RELATIVE_AXES)) lines.push(`    pub const ${name.toUpperCase()}: u8 = ${id};`);
+  lines.push(`    pub const PER_DEGREE: i32 = ${RelativeAxisUnits.PerDegree};`, `    pub const PER_TURN: i32 = ${RelativeAxisUnits.PerTurn};`, "}", "pub const UNIT_TYPES: &[(&str, &str)] = &[");
+  for (const [name, unit] of Object.entries(VAPOR_UNIT_TYPES)) lines.push(`    (${JSON.stringify(name)}, ${JSON.stringify(unit.base)}),`);
+  lines.push("];", "pub const STYLE_UNITS: &[(&str, &str)] = &[");
+  for (const [name, prop] of Object.entries(VAPOR_STYLE_PROPS)) if (prop.unit) lines.push(`    (${JSON.stringify(name)}, ${JSON.stringify(prop.unit)}),`);
+  lines.push("];", "pub const INPUT_ELEMENTS: &[(&str, &[&str], &[&str])] = &[");
+  for (const [name, spec] of Object.entries(VAPOR_INPUT_ELEMENTS)) lines.push(`    (${JSON.stringify(name)}, &[${spec.attributes.map(a => JSON.stringify(a)).join(", ")}], &[${spec.events.map(e => JSON.stringify(e)).join(", ")}]),`);
   lines.push("];");
   return lines.join("\n") + "\n";
 }

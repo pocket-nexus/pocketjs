@@ -10,3 +10,7 @@ export type u64 = number & { readonly __type?: "u64" };
 export type usize = number & { readonly __type?: "usize" };
 export type f32 = number & { readonly __type?: "f32" };
 export type f64 = number & { readonly __type?: "f64" };
+export type Px = f32 & { readonly __newtype?: "Px" };
+export type Ms = f32 & { readonly __newtype?: "Ms" };
+export type Deg = f32 & { readonly __newtype?: "Deg" };
+export type Color = `#${string}` & { readonly __newtype?: "Color" };

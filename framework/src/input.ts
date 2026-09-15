@@ -47,6 +47,7 @@ let root: NodeMirror | null = null;
 let focused: NodeMirror | null = null;
 let pressedNode: NodeMirror | null = null;
 let prevButtons = 0;
+let deferredPressCapture: DeferredPress | undefined;
 const focusScopeStack: NodeMirror[] = [];
 const focusGridStack: FocusGridRegistration[] = [];
 const focusControllerStack: FocusControllerRegistration[] = [];
@@ -285,15 +286,29 @@ function moveFocus(direction: FocusDirection): void {
   moveLinearFocus(direction);
 }
 
-function firePress(): void {
-  firePressFrom(focused);
+export type DeferredPress = (node: NodeMirror, invoke: () => void) => void;
+
+/** Capture declarative Vue press delivery without changing gesture recognition. */
+export function withDeferredPress(defer: DeferredPress, run: () => void): void {
+  const previous = deferredPressCapture;
+  deferredPressCapture = defer;
+  try { run(); }
+  finally { deferredPressCapture = previous; }
 }
 
-function firePressFrom(start: NodeMirror | null): void {
+function firePress(defer?: DeferredPress): void {
+  firePressFrom(focused, defer);
+}
+
+function firePressFrom(start: NodeMirror | null, defer: DeferredPress | undefined = deferredPressCapture): void {
   let n: NodeMirror | null = start;
   while (n) {
     if (n.onPress) {
-      n.onPress();
+      if (defer) {
+        const node = n, callback = n.onPress;
+        defer(node, () => callback.call(node));
+      }
+      else n.onPress();
       return;
     }
     n = n.parent;
@@ -750,7 +765,7 @@ export function resolveTouchHit(
 /** One cursor-mode frame. Returns false when the host predates the cursor
  *  ops — the caller then falls through to the classic d-pad model, so a
  *  stale host never loses input. */
-function cursorFrame(buttons: number, pressed: number, released: number): boolean {
+function cursorFrame(buttons: number, pressed: number, released: number, defer?: DeferredPress): boolean {
   const c = cursor!;
   const ops = getOps();
   if (!ops.hitTest || !ops.setCursor || !ops.setCursorPos) return false;
@@ -815,7 +830,7 @@ function cursorFrame(buttons: number, pressed: number, released: number): boolea
       const fire = target === c.pressTarget;
       c.pressTarget = null;
       setPressedNode(null);
-      if (fire) firePress();
+      if (fire) firePress(defer);
     }
   } else if (released & c.button) {
     // A press that predates the cursor (classic-mode latch, or a press held
@@ -833,11 +848,11 @@ function cursorFrame(buttons: number, pressed: number, released: number): boolea
  * With the virtual cursor enabled, the cursor state machine replaces d-pad
  * traversal and the CIRCLE press entirely.
  */
-export function handleFrame(buttons: number): void {
+export function handleFrame(buttons: number, defer?: DeferredPress): void {
   const pressed = buttons & ~prevButtons;
   const released = prevButtons & ~buttons;
   prevButtons = buttons;
-  if (cursor && cursorFrame(buttons, pressed, released)) return;
+  if (cursor && cursorFrame(buttons, pressed, released, defer)) return;
   if (released & BTN.CIRCLE) setPressedNode(null);
   if (pressed === 0) return;
   if (pressed & BTN.DOWN) moveFocus("down");
@@ -846,6 +861,6 @@ export function handleFrame(buttons: number): void {
   if (pressed & BTN.LEFT) moveFocus("left");
   if (pressed & BTN.CIRCLE) {
     setPressedNode(focused);
-    firePress();
+    firePress(defer);
   }
 }

@@ -1,7 +1,9 @@
 /** Compile a Vue SFC with Vue's production Vapor pipeline. */
 
 import { compileScript, parse } from "@vue/compiler-sfc";
-import { checkVueAotSource, hasVueAotContract, normalizeVueAotClasses } from "../../vapor/compiler/aot-browser.ts";
+import { checkVueAotSource, getVueAotProgram, hasVueAotContract, normalizeVueAotClasses } from "../../vapor/compiler/aot-browser.ts";
+import { normalizeVueAotSemantics } from "../../vapor/compiler/aot-browser-semantics.ts";
+import { resolve } from "node:path";
 
 function compilerError(error: unknown): string {
   if (typeof error === "string") return error;
@@ -22,11 +24,13 @@ function compilerError(error: unknown): string {
 export function compileVueSfc(
   source: string,
   filename: string,
-  options: { stripTypes?: boolean; aot?: boolean; strict?: boolean } = {},
+  options: { stripTypes?: boolean; aot?: boolean; strict?: boolean; checkedAot?: boolean } = {},
 ): { code: string } {
-  if (options.aot ?? hasVueAotContract(source, filename)) {
+  if (!options.checkedAot && (options.aot ?? hasVueAotContract(source, filename))) {
     checkVueAotSource(source, filename, options.strict);
   }
+  const aotProgram = options.aot === false ? undefined : getVueAotProgram(filename, source);
+  if (aotProgram) source = normalizeVueAotSemantics(source, resolve(filename), aotProgram);
   source = normalizeVueAotClasses(source, filename);
   // compileScript reuses the descriptor's pre-parsed template AST, so comments
   // must be stripped here — compilerOptions below would arrive too late.

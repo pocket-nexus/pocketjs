@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { VAPOR_NUMERIC_TYPES } from "../../contracts/spec/vapor.ts";
+import { VAPOR_NUMERIC_TYPES, VAPOR_UNIT_TYPES } from "../../contracts/spec/vapor.ts";
 import { createVueLanguagePlugin, getDefaultCompilerOptions, type Language } from "@vue/language-core";
 import { proxyCreateProgram } from "@volar/typescript/lib/node/proxyCreateProgram";
 import { dirname, resolve } from "node:path";
@@ -142,6 +142,7 @@ export class TypeMapper {
   readonly declarations: AotTypeDeclaration[] = [];
   readonly diagnostics: AotDiagnostic[] = [];
   private readonly names = new Map<ts.Type, string>();
+  private readonly units = new Map<keyof typeof VAPOR_UNIT_TYPES, AotType>();
   private readonly usedNames = new Map<string, ts.Type>();
   private readonly warned = new Set<string>();
   private readonly reserved = new Set(["Ui", "NodeId", "StyleId", "Input", "String", "Vec", "Option", "Block", "KeyedList", "SlotHandle", "Self"]);
@@ -232,24 +233,38 @@ export class TypeMapper {
         const t = this.checker.getNonNullableType(this.checker.getTypeOfSymbolAtLocation(symbol, symbol.declarations![0]!));
         return this.literal(t);
       };
-      const numeric = tag && tagValue(tag);
+      const numeric = tag && tagValue(tag), label = newtype && tagValue(newtype);
+      if (newtype && typeof label !== "string") fail(loc, "__newtype must have one string literal type");
       let base: AotType;
       if (typeof numeric === "string" && NUMERIC.has(numeric)) base = { kind: "number", name: numeric as NumericName };
       else {
         const primitive = type.types.filter(t => !(t.flags & ts.TypeFlags.Object));
         if (primitive.length !== 1 || tag) fail(loc, "Intersections support only numeric and __newtype tags");
-        base = this.map(primitive[0]!, loc, hint);
+        if (label === "Color" && primitive[0]!.flags & ts.TypeFlags.TemplateLiteral) {
+          const template = primitive[0] as ts.TemplateLiteralType;
+          if (template.texts.length !== 2 || template.texts[0] !== "#" || template.texts[1] !== "" || template.types.length !== 1 || !(template.types[0]!.flags & ts.TypeFlags.String)) fail(loc, "Color must use the #${string} template literal type");
+          base = { kind: "number", name: "u32" };
+        } else base = this.map(primitive[0]!, loc, hint);
       }
       const allowed = new Set(["__type", "__newtype"]);
       for (const member of type.types) if (member.flags & ts.TypeFlags.Object && member.getProperties().some(p => !allowed.has(p.name))) fail(loc, "Intersections support only numeric and __newtype tags");
       if (!newtype) return base;
-      const label = tagValue(newtype);
-      if (typeof label !== "string") fail(loc, "__newtype must have one string literal type");
-      const name = this.reserve(type, label, true);
+      if (typeof label === "string" && label in VAPOR_UNIT_TYPES) {
+        const unit = label as keyof typeof VAPOR_UNIT_TYPES;
+        if (base.kind !== "number" || base.name !== VAPOR_UNIT_TYPES[unit].base) fail(loc, `${unit} requires the ${VAPOR_UNIT_TYPES[unit].base} representation`);
+        const mapped = this.unit(unit); this.names.set(type, (mapped as { name: string }).name); return mapped;
+      }
+      const name = this.reserve(type, label as string, true);
       this.declarations.push({ kind: "newtype", name, base });
       return { kind: "named", name };
     }
-    if (this.checker.isTupleType(type)) return { kind: "tuple", elements: this.checker.getTypeArguments(type as ts.TypeReference).map((t, i) => this.map(t, loc, `${hint}${i}`)) };
+    if (this.checker.isTupleType(type)) {
+      const tuple = type as ts.TupleTypeReference;
+      if (tuple.target.elementFlags.some(flag => flag & (ts.ElementFlags.Optional | ts.ElementFlags.Rest | ts.ElementFlags.Variadic))) fail(loc, "Tuples require a fixed set of required elements");
+      const elements = this.checker.getTypeArguments(tuple).map((t, i) => this.map(t, loc, `${hint}${i}`));
+      if (elements.length > 0 && elements.every(t => JSON.stringify(t) === JSON.stringify(elements[0]))) return { kind: "array", element: elements[0]!, length: elements.length };
+      return { kind: "tuple", elements };
+    }
     if (this.checker.isArrayType(type)) return { kind: "array", element: this.map(this.checker.getTypeArguments(type as ts.TypeReference)[0]!, loc, `${hint}Item`) };
     if (type.getCallSignatures().length) fail(loc, "Function types are methods, not stored values");
     if (type.flags & ts.TypeFlags.Object) {
@@ -274,10 +289,19 @@ export class TypeMapper {
       return { name: p.name, type: this.map(this.checker.getTypeOfSymbolAtLocation(p, declaration), fieldLoc, `${hint}${typeName(p.name)}`) };
     });
   }
+  unit(unit: keyof typeof VAPOR_UNIT_TYPES): AotType {
+    const existing = this.units.get(unit); if (existing) return existing;
+    let name: string = unit, suffix = 2;
+    while (this.reserved.has(name) || this.usedNames.has(name) || this.declarations.some(d => d.name === name)) name = `${unit}_${suffix++}`;
+    const value: AotType = { kind: "named", name };
+    this.units.set(unit, value);
+    this.declarations.push({ kind: "newtype", name, base: { kind: "number", name: VAPOR_UNIT_TYPES[unit].base }, unit });
+    return value;
+  }
   private reserve(type: ts.Type, hint: string, exact = false): string {
     const proposed = typeName(exact ? hint : type.aliasSymbol?.name ?? (type.symbol?.name !== "__type" ? type.symbol?.name : undefined) ?? hint);
     let name = proposed, suffix = 2;
-    while (this.reserved.has(name) || /^(Node|Block|If|For)\d+$/.test(name) || this.usedNames.has(name) && this.usedNames.get(name) !== type) name = `${proposed}_${suffix++}`;
+    while (this.reserved.has(name) || this.declarations.some(d => d.name === name) && !this.usedNames.has(name) || /^(Node|Block|If|For)\d+$/.test(name) || this.usedNames.has(name) && this.usedNames.get(name) !== type) name = `${proposed}_${suffix++}`;
     this.names.set(type, name); this.usedNames.set(name, type); return name;
   }
 }

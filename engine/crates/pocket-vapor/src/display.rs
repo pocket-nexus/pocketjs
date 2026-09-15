@@ -2,6 +2,18 @@ use crate::{NodeId, Ui};
 use alloc::string::String;
 use core::fmt;
 
+/// Canonical Color spelling is lowercase RGBA, independent of source shorthand.
+pub fn format_color(bits: u32, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(
+        formatter,
+        "#{:02x}{:02x}{:02x}{:02x}",
+        bits & 255,
+        (bits >> 8) & 255,
+        (bits >> 16) & 255,
+        bits >> 24
+    )
+}
+
 /// Only scalar contract types implement text interpolation.
 pub trait VaporDisplay {
     fn fmt_vapor(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result;

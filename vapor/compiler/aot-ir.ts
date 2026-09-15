@@ -8,7 +8,7 @@ export type AotType =
   | { kind: "number"; name: NumericName }
   | { kind: "string" | "boolean" | "void" | "undefined" }
   | { kind: "option"; value: AotType }
-  | { kind: "array"; element: AotType }
+  | { kind: "array"; element: AotType; length?: number }
   | { kind: "tuple"; elements: AotType[] }
   | { kind: "named"; name: string };
 export interface AotField { name: string; type: AotType }
@@ -16,11 +16,11 @@ export type AotTypeDeclaration =
   | { kind: "struct"; name: string; fields: AotField[] }
   | { kind: "enum"; name: string; variants: string[] }
   | { kind: "union"; name: string; discriminant: string; variants: { name: string; fields: AotField[] }[] }
-  | { kind: "newtype"; name: string; base: AotType };
+  | { kind: "newtype"; name: string; base: AotType; unit?: "Px" | "Ms" | "Deg" | "Color" };
 export type LiteralValue = string | number | boolean;
 export interface AotConstant { name: string; sourceName?: string; type: AotType; value: LiteralValue; rawNumber?: string }
 export interface AotValue { name: string; sourceName: string; type: AotType; writable: boolean }
-export interface AotFunction { name: string; sourceName: string; parameters: AotField[]; returns: AotType; binding: boolean; handler: boolean }
+export interface AotFunction { name: string; sourceName: string; parameters: AotField[]; returns: AotType; binding: boolean; handler: boolean; optional?: boolean }
 export interface AotProp extends AotField { default?: LiteralValue; defaultRawNumber?: string; model?: string }
 export interface AotEvent { name: string; parameters: AotField[] }
 export type BindingScope = "vm" | "prop" | "local" | "event";
@@ -46,6 +46,7 @@ export type AotHandler = (
 export interface AotMemo { id: number; expression: AotExpr }
 export interface AotStyleBinding { prop: number; name: string; value: AotExpr; memo: number }
 export type AotNode =
+  | { kind: "input"; id: number; input: { kind: "button"; name: string; button: number; latched: boolean } | { kind: "axis"; name: string; axis: number }; active: AotExpr; handler: AotHandler; children: AotNode[]; loc: SourceLocation }
   | { kind: "element"; id: number; tag: "View" | "Text" | "Image"; style: number; dynamicStyle?: AotMemo; props: AotStyleBinding[]; text?: { parts: (string | AotExpr)[]; memo: number }; focusable: boolean; debugName?: string; src?: string; events: { name: string; handler: AotHandler }[]; children: AotNode[]; loc: SourceLocation }
   | { kind: "if"; id: number; branches: { condition?: AotExpr; children: AotNode[] }[]; loc: SourceLocation }
   | { kind: "for"; id: number; source: AotExpr; item: string; index?: string; itemType: AotType; key: AotExpr; children: AotNode[]; loc: SourceLocation }
@@ -53,6 +54,7 @@ export type AotNode =
   | { kind: "slot"; id: number; name: string; fallback: AotNode[]; loc: SourceLocation };
 export interface AotComponent {
   name: string; file: string; root: boolean;
+  factory?: { name: string; sourceName: string; module: string };
   props: AotProp[]; events: AotEvent[]; slots: string[];
   values: AotValue[]; functions: AotFunction[]; constants: AotConstant[];
   children: string[]; nodes: AotNode[]; nodeCount: number; memoCount: number; handlerCount: number;
@@ -61,6 +63,7 @@ export interface AotProgram {
   version: 1; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
   styles: { records: StyleRecord[]; anims: AnimTimeline[]; ids: Record<string, number>; bytes: number[]; usedFontSlots: number[] };
   diagnostics: AotDiagnostic[];
+  demands?: { buttons: number[]; axes: number[]; capabilities: string[] };
 }
 export class AotCompileError extends Error {
   constructor(public readonly diagnostics: AotDiagnostic[]) {

@@ -50,11 +50,14 @@ function type(t: RustType): string {
     case "slice": return `[${type(t.element)}]`;
     case "array": return `[${type(t.element)}; ${t.length}]`;
     case "lifetime": return `'${t.name}`;
+    case "const": return String(t.value);
+    case "dyn": return `dyn ${t.bounds.map(type).join(" + ")}`;
+    case "binding": return `${rustIdentifier(t.name)} = ${type(t.type)}`;
     case "infer": return "_";
   }
 }
 function generics(gs?: RustGeneric[]): string {
-  return gs?.length ? `<${gs.map(g => `${g.lifetime ? "'" : ""}${rustIdentifier(g.name)}${g.bounds?.length ? `: ${g.bounds.map(type).join(" + ")}` : ""}`).join(", ")}>` : "";
+  return gs?.length ? `<${gs.map(g => `${g.lifetime ? "'" : ""}${rustIdentifier(g.name)}${g.bounds?.length ? `: ${g.bounds.map(type).join(" + ")}` : ""}${g.default ? ` = ${type(g.default)}` : ""}`).join(", ")}>` : "";
 }
 function pattern(p: RustPattern): string {
   switch (p.kind) {
@@ -76,6 +79,7 @@ class Printer {
     let out: string; let p = 15;
     switch (e.kind) {
       case "path": out = path(e.path) + (e.typeArgs?.length ? `::<${e.typeArgs.map(type).join(", ")}>` : ""); break;
+      case "qualifiedPath": out = `<${type(e.type)}>::${rustIdentifier(e.member)}`; break;
       case "literal": out = literal(e.value, e.suffix, e.rawNumber); break;
       case "call": out = `${this.expression(e.callee, 14)}(${e.args.map(a => this.expression(a)).join(", ")})`; p = 14; break;
       case "method": out = `${this.expression(e.object, 14)}.${rustIdentifier(e.method)}${e.typeArgs?.length ? `::<${e.typeArgs.map(type).join(", ")}>` : ""}(${e.args.map(a => this.expression(a)).join(", ")})`; p = 14; break;
@@ -110,8 +114,10 @@ class Printer {
       case "assign": return `${this.expression(s.target)} ${s.operator ?? "="} ${this.expression(s.value)};`;
       case "for": return `for ${pattern(s.pattern)} in ${this.expression(s.iterable)} ${this.block(s.body)}`;
       case "while": return `while ${this.expression(s.condition)} ${this.block(s.body)}`;
+      case "loop": return `loop ${this.block(s.body)}`;
       case "return": return `return${s.value ? ` ${this.expression(s.value)}` : ""};`;
       case "break": return "break;";
+      case "continue": return "continue;";
     }
   }
   block(b: RustBlock): string {
@@ -134,15 +140,16 @@ class Printer {
       case "use": return `${pub_}use ${path(i.path)}${i.names ? `::{${i.names.map(n => n === "*" ? "*" : rustIdentifier(n)).join(", ")}}` : ""};`;
       case "mod": return `${pub_}mod ${rustIdentifier(i.name)};`;
       case "const": return `${pub_}const ${rustIdentifier(i.name)}: ${type(i.type)} = ${this.expression(i.value)};`;
+      case "typeAlias": return `${pub_}type ${rustIdentifier(i.name)}${generics(i.generics)} = ${type(i.type)};`;
       case "fn": return this.fn(i);
       case "struct": return derives + `${pub_}struct ${rustIdentifier(i.name)}${generics(i.generics)}` + (i.tuple ? `(${i.tuple.map(t => `${pub_}${type(t)}`).join(", ")});` : ` {\n${(i.fields ?? []).map(f => `    ${f.public ? "pub " : ""}${rustIdentifier(f.name)}: ${type(f.type)},`).join("\n")}\n}`);
-      case "enum": return derives + `${pub_}enum ${rustIdentifier(i.name)} {\n${i.variants.map(v => `    ${rustIdentifier(v.name)}${v.tuple ? `(${v.tuple.map(type).join(", ")})` : v.fields?.length ? ` { ${v.fields.map(f => `${rustIdentifier(f.name)}: ${type(f.type)}`).join(", ")} }` : ""},`).join("\n")}\n}`;
+      case "enum": return derives + `${pub_}enum ${rustIdentifier(i.name)}${generics(i.generics)} {\n${i.variants.map(v => `    ${rustIdentifier(v.name)}${v.tuple ? `(${v.tuple.map(type).join(", ")})` : v.fields?.length ? ` { ${v.fields.map(f => `${rustIdentifier(f.name)}: ${type(f.type)}`).join(", ")} }` : ""},`).join("\n")}\n}`;
       case "trait":
       case "impl": {
         this.level++;
-        const body = i.methods.map(f => this.indent() + this.fn(f)).join("\n\n");
+        const body = [...(i.kind === "trait" ? (i.associatedTypes ?? []).map(t => `${this.indent()}type ${rustIdentifier(t.name)}: ${t.bounds.map(type).join(" + ")};`) : []), ...i.methods.map(f => this.indent() + this.fn(f))].join("\n\n");
         this.level--;
-        return (i.kind === "trait" ? `${pub_}trait ${rustIdentifier(i.name)}${generics(i.generics)}` : `impl${generics(i.generics)} ${i.trait ? `${type(i.trait)} for ` : ""}${type(i.type)}`) + ` {\n${body}\n}`;
+        return (i.kind === "trait" ? `${pub_}trait ${rustIdentifier(i.name)}${generics(i.generics)}${i.bounds?.length ? `: ${i.bounds.map(type).join(" + ")}` : ""}` : `impl${generics(i.generics)} ${i.trait ? `${type(i.trait)} for ` : ""}${type(i.type)}`) + ` {\n${body}\n}`;
       }
     }
   }

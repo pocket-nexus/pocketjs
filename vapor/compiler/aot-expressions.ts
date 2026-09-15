@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { VAPOR_BUILTINS } from "../../contracts/spec/vapor.ts";
+import { VAPOR_BUILTINS, parseVaporColor } from "../../contracts/spec/vapor.ts";
 import { BOOL, STRING, I32, F64, sameType, type AotExpr, type AotType, type AotFunction, type BindingScope, type SourceLocation, type AotTypeDeclaration } from "./aot-ir.ts";
 import { fail, exactIntegerLiteral, type TypeMapper, type TypeEnvironment } from "./aot-types.ts";
 
@@ -13,7 +13,7 @@ export interface ExpressionContext {
 export function numeric(type: AotType, mapper: TypeMapper): Extract<AotType, { kind: "number" }> | undefined {
   if (type.kind === "number") return type;
   const d = mapper.declaration(type);
-  return d?.kind === "newtype" ? numeric(d.base, mapper) : undefined;
+  return d?.kind === "newtype" && d.unit !== "Color" ? numeric(d.base, mapper) : undefined;
 }
 export function displayable(type: AotType, mapper: TypeMapper): boolean {
   if (["number", "string", "boolean", "undefined"].includes(type.kind)) return true;
@@ -163,7 +163,7 @@ export function expression(source: string, loc: SourceLocation, context: Express
       const condition = build(node.condition, BOOL, ctx); requireType(condition, BOOL, ctx);
       let consequent = build(node.whenTrue, wanted, narrowed(ctx, condition, true));
       let alternate = build(node.whenFalse, wanted ?? consequent.type, narrowed(ctx, condition, false));
-      if (consequent.kind === "literal" && (numeric(alternate.type, ctx.mapper) || ctx.mapper.declaration(alternate.type)?.kind === "enum")) consequent = build(node.whenTrue, alternate.type, narrowed(ctx, condition, true));
+      if (consequent.kind === "literal" && (numeric(alternate.type, ctx.mapper) || (ctx.mapper.declaration(alternate.type)?.kind === "enum" || ctx.mapper.declaration(alternate.type)?.kind === "newtype" && (ctx.mapper.declaration(alternate.type) as Extract<AotTypeDeclaration,{kind:"newtype"}>).unit === "Color"))) consequent = build(node.whenTrue, alternate.type, narrowed(ctx, condition, true));
       if (wanted?.kind === "option") { consequent = promote(consequent, wanted); alternate = promote(alternate, wanted); }
       requireType(alternate, consequent.type, ctx);
       alternate = promote(alternate, consequent.type);
@@ -186,7 +186,7 @@ export function expression(source: string, loc: SourceLocation, context: Express
       const comparison = ["===", "!==", "<", "<=", ">", ">="].includes(operator);
       let left = build(node.left, comparison ? undefined : wanted, ctx);
       let right = build(node.right, left.type, ctx);
-      if ((literalNode(node.left, ctx) || ts.isStringLiteral(node.left)) && (numeric(right.type, ctx.mapper) || ctx.mapper.declaration(right.type)?.kind === "enum")) left = build(node.left, right.type, ctx);
+      if ((literalNode(node.left, ctx) || ts.isStringLiteral(node.left)) && (numeric(right.type, ctx.mapper) || (ctx.mapper.declaration(right.type)?.kind === "enum" || ctx.mapper.declaration(right.type)?.kind === "newtype" && (ctx.mapper.declaration(right.type) as Extract<AotTypeDeclaration,{kind:"newtype"}>).unit === "Color"))) left = build(node.left, right.type, ctx);
       if ((operator === "===" || operator === "!==") && (left.type.kind === "undefined" || right.type.kind === "undefined")) {
         if (left.type.kind === "undefined") [left, right] = [right, left];
         if (left.type.kind !== "option") fail(here, "undefined comparisons require an optional value");
@@ -263,7 +263,10 @@ function literal(value: string | number | boolean, expected: AotType | undefined
   let type: AotType = typeof value === "number" ? F64 : typeof value === "string" ? STRING : BOOL;
   if (actual) {
     const number = numeric(actual, ctx.mapper), d = ctx.mapper.declaration(actual);
-    if (typeof value === "number" && number) {
+    if (typeof value === "string" && d?.kind === "newtype" && d.unit === "Color") {
+      try { parseVaporColor(value); } catch { fail(loc, "Color literals use #rgb, #rgba, #rrggbb, or #rrggbbaa"); }
+      type = actual;
+    } else if (typeof value === "number" && number) {
       if ((!Number.isInteger(value) || rawNumber !== undefined && exactIntegerLiteral(rawNumber) === undefined) && !number.name.startsWith("f")) fail(loc, `Fractional literals cannot adopt ${number.name}`);
       if (!number.name.startsWith("f")) {
         if (!Number.isFinite(value)) fail(loc, `Literal is outside ${number.name} range`);

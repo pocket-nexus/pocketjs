@@ -1,6 +1,6 @@
-# Vue AOT: v1 boundaries and contracts
+# Vue AOT: v1.1 boundaries and contracts
 
-**Status: v1 compiler and runtime implementation, 2026-09-14; test work is
+**Status: v1.1 compiler and runtime implementation, 2026-09-15; test work is
 deferred.** This page pins what
 the compiler accepts, what it generates, and where generated Rust ends and
 application Rust begins. It is the contract for the rewrite of Pocket Vapor
@@ -11,15 +11,15 @@ pipeline. That pipeline stays in the tree until the Rust pipeline renders
 
 Build commands and host integration are in [VUE_AOT_BUILD.md](VUE_AOT_BUILD.md).
 
-Everything on this page is fixed for v1 or scheduled in §10; changing it
+The implemented contract includes v1 and v1.1; v2 is scheduled in §10. Changing it
 means editing this page first.
 
 ## 1. Input, output, execution classes
 
 **Input is a Vue single-file component: one `<template>` and one
 `<script setup lang="ts">`.** The script block may contain the statements in
-the table below and nothing else. Any statement that produces a runtime value
-is a compile error with a `file:line` diagnostic.
+the table below and nothing else. The factory call below is the runtime statement admitted for component state.
+Other runtime statements are compile errors with a `file:line` diagnostic.
 
 | Allowed in `<script setup>` | Purpose |
 |---|---|
@@ -29,6 +29,7 @@ is a compile error with a `file:line` diagnostic.
 | `import { count, toggle } from "./todo"` | the view-model module (§2) |
 | `import { len, trunc, type i32 } from "@pocketjs/framework/vue-vapor/std"` | built-ins and numeric types (§3, §5, §10) |
 | `interface`, `type` | shapes used by the contract |
+| `const { count, inc } = createRow()` | instance state from the basename module factory (§2) |
 | `const props = defineProps<T>()`, `const emit = defineEmits<T>()`, `const model = defineModel<T>()` | component interface (§2); Vue's compile-time macros |
 
 **Output is Rust source.** The generated module links `pocketjs-core` and
@@ -82,10 +83,11 @@ type-checks template expressions against both module forms.
 
 ### Rust shape
 
-The compiler generates one trait per root component, `<Name>ViewModel`. The
-application supplies the type that implements it and owns all state; the
-generated view is generic over that type and stores nothing but node ids and
-memoized binding values.
+The compiler generates `<Name>ViewModel` traits for component contracts. The
+application supplies the implementing types. The generated app owns the root
+model; generated views own per-instance child models, node ids and memoized
+binding values. Parent state is passed by reference and is not copied into
+child views.
 
 | Binding | Generated |
 |---|---|
@@ -101,9 +103,33 @@ The call runs on every frame that evaluates the binding, so a list the
 template iterates belongs in a value, not in a function. A function
 referenced in both positions gets `&self`: binding expressions do not mutate.
 
-**Only the root component imports a view-model module in v1.** Child components
-are pure: props, emits, model and slots. Stateful child components are
-scheduled for v1.1 (§10).
+**A child obtains instance state from a zero-argument factory.** Its basename
+module exports the factory and its SFC destructures the returned values:
+
+```ts
+import { createRow } from "./Row";
+const { count, inc } = createRow();
+```
+
+The checker reads the factory's return type. A `.ts` factory returns Vue refs
+and functions; a `.d.ts` factory declares the same object shape. Browser
+previews of declaration-only components construct fresh refs per call.
+A component uses either a factory or direct view-model imports. Pure children
+continue to use props, emits, model and slots.
+
+**Each stateful child mount constructs a distinct Rust model.** The parent's
+trait declares `type Row: RowViewModel + Default`; generated views construct
+`M::Row::default()` and own that value until unmount. A keyed row keeps its
+model when it moves. A branch that unmounts drops its child model. Child
+handlers use the child's mutable model, and events return to the parent.
+Slot expressions retain the parent's scope, including across stateful children.
+If slot content owns another stateful child, that stored child's associated
+model type also requires `'static`. The parent model and props can borrow
+application data; the slot registry stores no parent-model reference.
+
+**Optional void functions have a default empty Rust method.** An imported
+`((dt: f32) => void) | undefined` remains callable in a handler. Browser
+compilation inserts optional calls; absence performs no operation.
 
 ### Component interface
 
@@ -133,9 +159,9 @@ an error. Scoped slots (slot props) are scheduled for v2 (§10).
 | `number` | `f64` |
 | `i8` … `f64` (§3.1) | the Rust type of the same name |
 | union of string literals `"all" \| "done"` | `enum` with unit variants `All`, `Done`; the literal is the display form |
-| `interface` / object type | `struct` with `#[derive(Clone, Debug, PartialEq)]`, fields in declaration order; `&T` from getters and in props |
+| `interface` / object type | `struct` with derives selected by use, fields in declaration order; `&T` from getters and in props |
 | `T[]`, `Array<T>` | `&[T]` from getters and in props; `Vec<T>` from functions |
-| `[A, B]` | `(A, B)` |
+| `[A, B]` | `(A, B)`; a nonempty homogeneous tuple `[T, T, T]` becomes `[T; 3]` |
 | `x?: T`, `T \| undefined` | `Option<T>` |
 | discriminated union `{ kind: "a"; … } \| { kind: "b"; … }` (§3.2) | `enum` with one struct or unit variant per member |
 | `T & { readonly __newtype?: "Name" }` (§3.2) | `pub struct Name(pub T)` |
@@ -144,7 +170,7 @@ an error. Scoped slots (slot props) are scheduled for v2 (§10).
 
 Rejected in contract positions: `null`, `any`, `unknown`, `never`, `object`,
 `symbol`, `bigint`, `Function`, classes, generic parameters, mapped,
-conditional and template-literal types, index signatures, `Record`, `Map`,
+conditional and template-literal types other than `Color`, index signatures, `Record`, `Map`,
 `Set`, unions other than string literals, discriminated unions and
 `| undefined`, and intersections other than the `__type` and `__newtype`
 tags.
@@ -261,6 +287,42 @@ the block, so `load.items` lowers to the field of an `if let Load::Ready {
 items } = load` (§9, expression types). A chain over every literal lowers to
 an exhaustive `match`.
 
+### 3.3 Units and derives
+
+**The standard library exports `Px`, `Ms`, `Deg` and `Color`.** `Px`, `Ms`
+and `Deg` wrap `f32`; `Color` has TypeScript type
+`` `#${string}` & { readonly __newtype?: "Color" } `` and Rust storage
+`Color(pub u32)` in the core's ABGR order.
+
+| Style property | Required unit |
+|---|---|
+| dimensions, padding, margin, gap, basis, insets, radius, border/bevel widths, line height, tracking, translations, perspective and arc width | `Px` |
+| rotation and arc angles | `Deg` |
+| every color property in `PROP` | `Color` |
+| grow, shrink, opacity, scale, transform origins and gradient stop fractions | dimensionless `f32` |
+
+Literals adopt the required unit: `width: 80` emits `Px(80.0)`. The integer
+host-attribute widening in §3.1 also constructs the unit wrapper. A value
+with another unit is rejected. `Ms` is available in application signatures;
+the core `PROP` table contains no duration property.
+
+**Color accepts `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`.** Text displays
+lowercase `#rrggbbaa`; equality compares ABGR values, so `#f00` and `#ff0000`
+compare equal. Color arithmetic and ordered comparisons are errors. Browser
+compilation normalizes color display and equality before invoking stock Vue.
+An absent optional Color displays empty text in Vue interpolation and
+`undefined` inside a JavaScript template string.
+
+Derives follow generated operations: copying scalar values needs `Copy`,
+owned snapshots need `Clone`, memo comparison needs `PartialEq`, and keyed
+lists need `Eq` and `Ord`. Requirements propagate into field types. Types
+passed through borrowed props do not gain unused derives.
+
+The generated editor declarations use `NoInfer` for later operands of
+same-type built-ins, preserve literal adoption, and expose `onPress` only
+on the `focusable: true` branch of View props. Style property types are
+generated from the same unit table the compiler reads.
+
 ## 4. Template subset
 
 ### Elements and attributes
@@ -271,6 +333,8 @@ an exhaustive `match`.
 | `Text` | `class`, `:class` | |
 | `Image` | `class`, `:class`, `src` (static asset name) | |
 | child `.vue` component | its declared props, `v-model` | its declared emits |
+| `ActionHandler` | static `:button="BTN.CIRCLE"`, `active`, `latched` | `@press` |
+| `AxisHandler` | static `axis="primary"` or `"secondary"`, `active` | `@delta` with an `i32` millidegree payload |
 
 The compiler recognizes host primitives by their import path and passes them
 to the Vue transform as custom elements, so each one lowers to an explicit
@@ -283,9 +347,9 @@ style id through `compileClasses` in `framework/compiler/tailwind.ts`. A
 full class literals; each leaf becomes a style id and the template picks one
 at runtime. Object and array class syntax is an error.
 
-`:style` takes an object literal whose keys are numeric props from the `PROP`
-table in `contracts/spec/spec.ts` (`width`, `height`, `opacity`, …) and whose
-values are numeric expressions; each key lowers to one `set_prop` call.
+`:style` takes an object literal whose keys come from `PROP` in
+`contracts/spec/spec.ts` (`width`, `height`, `opacity`, …). Values must match
+the property numeric type or unit in §3.3; each key lowers to one `set_prop` call.
 
 ### Directives
 
@@ -388,8 +452,15 @@ One frame on the AOT class:
    one-turn-per-tick rule of `docs/RUNTIMES.md`.
 2. **Dispatch.** Focus navigation and press edges resolve to a node; the
    node's handler runs against `&mut ViewModel` as a method call or a setter.
-   Incremental input arrives with v1.1 (§10) as a typed relative-axis delta
-   and is never encoded as buttons.
+   Action and axis handlers run in document order. A handler's `active`
+   condition controls delivery; button history advances even when inactive.
+   A latched button handler waits until it observes the button released.
+   Incremental input is a typed relative-axis delta and is never encoded as
+   buttons. Multiple deltas for one axis in a frame are summed with i32
+   saturation. Each axis handler receives one nonzero accumulated delta.
+   A handler's emit runs the parent listener before the next handler.
+   The next handler reads fresh parent-derived props and loop values;
+   a component-entry snapshot does not hide an earlier handler's mutation.
 3. **Update.** The generated `update(&mut self, ui, &ViewModel)` evaluates every
    binding in the template, compares each result with the value it produced
    last time, and issues `Ui` calls for the ones that changed. `v-if` blocks
@@ -427,9 +498,13 @@ One frame on the AOT class:
   context.
 
 **No dependency tracking exists at runtime or at compile time**: no signals,
-no effects, no dirty masks. The cost of a frame is proportional to the number
-of bindings plus the length of rendered lists, and the view-model type is a plain
-Rust struct with `&self` and `&mut self` methods. The compile-time dependency
+no effects, no dirty masks. Update work visits rendered bindings and list
+items; application functions and string operations contribute their own cost.
+The view-model type is a plain Rust struct with `&self` and `&mut self` methods.
+Input dispatch uses a cursor to skip completed handlers. Lists cache handler
+prefix counts and locate the next row with a binary search; if an earlier
+handler reorders model data, resolving a retained key may scan the source.
+The compile-time dependency
 masks of the Pocket Vapor design do not carry over: application logic in Rust
 is opaque to the compiler, so an edge from a setter to a binding cannot be
 computed at build time.
@@ -437,7 +512,8 @@ computed at build time.
 Three rules bound that cost:
 
 - **A frame in which no handler ran issues no `update`.** In v1 state
-  changes only through `dispatch`, so an idle frame costs nothing. A host
+  changes only through `dispatch`, so idle frames do no view update. Input
+  handlers still sample button history to arm latches. A host
   that mutates the application between frames calls `invalidate()` on the
   generated app, and the next frame runs `update` once.
 - **`update` reads what bindings read.** It calls the getters that template
@@ -693,46 +769,18 @@ today.
 | generated code | `gen/` in the app crate, committed (§9) |
 | fixtures and differential tests | `vapor/tests/` |
 
-### Planned after v1
+### Implemented in v1.1
 
-**v1.1**
+- Factory-backed stateful children with one model per mounted instance (§2).
+- Action and relative-axis handlers with frame sampling (§4, §7).
+- Host capability bounds: `Host`, `HasButton<MASK>`, `HasRelativeAxis<AXIS>`
+  and `HasTouch`. A generated app requires the capabilities its template
+  uses. `HasTouch` is available to hosts; v1.1 adds no touch-specific
+  template syntax. Board input profiles remain the diagnostic source.
+- Optional void methods with empty defaults (§2).
+- Editor rules, units, usage-based derives and fixed tuples (§3.3).
 
-- Stateful child components. The component's module exports a factory, and
-  the script holds the one runtime statement the subset then allows,
-  `const { count, inc } = createRow();`, so stock Vue creates state per
-  instance and the contract is the factory's return type. The parent's
-  view-model trait gains one associated type per stateful child component,
-  `type Row: RowViewModel + Default;`. The generated parent view constructs
-  `M::Row::default()` at every mount, a `v-for` row or a `v-if` branch, drops
-  it at unmount, and runs the child's `dispatch` against that value. Parent
-  and child communicate through props and emits only.
-- Input beyond `@press`. `<ActionHandler :button="BTN.CIRCLE" @press="f()">`
-  with a static member of the `BTN` table in `contracts/spec/spec.ts` and the
-  existing `active` and `latched` options; `<AxisHandler axis="primary"
-  @delta="f($event)">` with `$event: i32` in millidegrees and a static member
-  of the `RelativeAxis` table, whose ids and millidegree units move from
-  `vapor/host/input.ts` into `contracts/spec/vapor.ts` at that point. The
-  JavaScript `AxisHandler` is new SDK work;
-  the Rust runtime dispatches press edges and axis deltas to handlers in
-  document order. Buttons never encode axis motion.
-- Target admission as trait bounds on the host type (`H: HasTouch` when a
-  template uses touch, the same for relative-axis handlers), with the board
-  data of `vapor/BOARDS.md` kept for diagnostics.
-- Optional contract members: `((dt: f32) => void) | undefined` becomes a
-  trait method with an empty default body.
-- Editor-side rules in the components' and built-ins' `.d.ts`: `NoInfer` on
-  the second operand of same-type built-ins, `onPress` present only in the
-  `focusable: true` member of a props union, `:style` keys generated from the
-  `PROP` table.
-- Derives by use instead of a fixed derive list; homogeneous tuples
-  `[T, T, T]` as `[T; 3]`.
-- Unit newtypes. `Px`, `Ms`, `Deg` and `Color` are `__newtype` aliases
-  (§3.2); `:style` keys demand them (`width: Px`), a literal adopts them
-  (`width: 80` becomes `Px(80.0)`), and `Color` is the template literal type
-  `` `#${string}` `` in TypeScript, so the editor checks the literal's shape,
-  and `u32` bits in Rust.
-
-**v2**
+### Planned for v2
 
 - Scoped slots. `defineSlots<{ row(props: { item: Todo }): any }>()` types
   the slot, `<slot name="row" :item="t" />` supplies the values, and the

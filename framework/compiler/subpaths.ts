@@ -113,7 +113,14 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     aliases: ALL,
   },
   hot: { file: "framework/src/hot.ts" },
-  input: { file: "framework/src/input-api.ts", aliases: TWINS },
+  input: {
+    file: {
+      solid: "framework/src/input-api.ts",
+      "vue-vapor": "framework/src/input-api-vue-vapor.ts",
+      octane: "framework/src/input-api.ts",
+    },
+    aliases: TWINS,
+  },
   kinetics: {
     file: {
       solid: "framework/src/kinetics.ts",

@@ -5,21 +5,57 @@ extern crate alloc;
 
 use alloc::{vec, vec::Vec};
 use core::ops::{Deref, DerefMut};
-use pocket_vapor::{Input, Ui};
+use pocket_vapor::spec::btn;
+use pocket_vapor::{HasButton, HasRelativeAxis, Host, Input, Ui};
 
 #[path = "../gen/mod.rs"]
 pub mod generated;
-pub use generated::{AppApp, AppEvent, AppProps, AppView, AppViewModel, Feature};
+pub use generated::{
+    AppApp, AppEvent, AppProps, AppView, AppViewModel, Feature, FeatureToggleViewModel,
+};
+
+#[derive(Default)]
+pub struct ToggleState {
+    presses: i32,
+}
+
+impl FeatureToggleViewModel for ToggleState {
+    fn presses(&self) -> i32 {
+        self.presses
+    }
+    fn press(&mut self) -> i32 {
+        self.presses = self.presses.wrapping_add(1);
+        self.presses
+    }
+}
+
+/// The embedding host supplies button samples and primary-axis millidegrees.
+pub struct LabHost(pub Ui);
+impl Host for LabHost {
+    fn ui(&self) -> &Ui {
+        &self.0
+    }
+    fn ui_mut(&mut self) -> &mut Ui {
+        &mut self.0
+    }
+    fn into_ui(self) -> Ui {
+        self.0
+    }
+}
+impl HasButton<{ btn::CROSS }> for LabHost {}
+impl HasRelativeAxis<0> for LabHost {}
 
 pub struct LabViewModel {
     pub count: i32,
     pub features: Vec<Feature>,
+    axis_remainder: i32,
 }
 
 impl Default for LabViewModel {
     fn default() -> Self {
         Self {
             count: 0,
+            axis_remainder: 0,
             features: vec![
                 Feature {
                     id: "model".into(),
@@ -43,6 +79,7 @@ impl Default for LabViewModel {
 
 #[allow(non_snake_case)]
 impl AppViewModel for LabViewModel {
+    type FeatureToggle = ToggleState;
     fn count(&self) -> i32 {
         self.count
     }
@@ -63,11 +100,21 @@ impl AppViewModel for LabViewModel {
             feature.enabled = !feature.enabled;
         }
     }
+    fn adjustCount(&mut self, delta: i32) {
+        let total = i64::from(self.axis_remainder) + i64::from(delta);
+        let steps = (total / 15_000) as i32;
+        self.axis_remainder = (total % 15_000) as i32;
+        self.count = self.count.wrapping_add(steps).max(0);
+    }
+    fn resetCount(&mut self) {
+        self.count = 0;
+        self.axis_remainder = 0;
+    }
 }
 
 /// Hosts provide input once per tick and draw through the existing core.
 pub struct LabApp {
-    native: AppApp<LabViewModel>,
+    native: AppApp<LabViewModel, LabHost>,
 }
 
 impl Default for LabApp {
@@ -81,7 +128,7 @@ impl LabApp {
         assert!(ui.load_styles(include_bytes!("../gen/styles.bin")));
         ui.core_mut().set_viewport(480.0, 272.0);
         Self {
-            native: AppApp::new(ui, AppProps {}, LabViewModel::default()),
+            native: AppApp::new(LabHost(ui), AppProps {}, LabViewModel::default()),
         }
     }
 
@@ -100,7 +147,7 @@ impl LabApp {
 }
 
 impl Deref for LabApp {
-    type Target = AppApp<LabViewModel>;
+    type Target = AppApp<LabViewModel, LabHost>;
     fn deref(&self) -> &Self::Target {
         &self.native
     }
