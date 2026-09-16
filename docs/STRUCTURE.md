@@ -38,7 +38,7 @@ pocketjs/
 ├─ framework/    Guest: @pocketjs/framework
 │  ├─ src/        the TS runtime (Solid + Vue Vapor renderers, components, input, osk…)
 │  └─ compiler/   the interpreted-path build pipeline (jsx-plugin, tailwind, pak)
-├─ vapor/        Pocket Vapor: Vue SFC → Rust AOT
+├─ vapor/        Pocket Vapor: Vue SFC / Solid TSX → shared View IR → Rust AOT
 ├─ contracts/    single sources of truth binding the layers
 │  ├─ spec/       op contract, platform contracts, manifest + package spec, gen-rust + gen-c
 │  ├─ generated/  generated C contract headers consumed by native hosts
@@ -79,3 +79,5 @@ New things go where the axis says — never invent a top-level directory:
   `hosts/vita`, `hosts/pocketbook`, and the gu/vita 3D crates each stand alone
   with their own lockfiles. `engine/Cargo.toml` is the one desktop workspace.
 - **Moves are `git mv`** — history stays traceable.
+
+Solid AOT admission, contract mapping and JSX lowering live in `vapor/compiler/aot-solid-frontend.ts`. Both front ends share `aot-contract.ts`, `aot-program.ts` and the Rust generator. The reference is `site/content/docs/pocket-vapor-solid.md`; `apps/solid-aot-lab/` contains the TSX and Rust model example.

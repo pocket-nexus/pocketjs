@@ -1,6 +1,8 @@
 # Pocket Vapor reference
 
-**Pocket Vapor compiles Vue templates and TypeScript contracts into Rust.**
+**Pocket Vapor compiles Vue templates or Solid TSX and TypeScript contracts into Rust.**
+This page covers the Vue form. See [Solid TSX to Rust](/docs/pocket-vapor-solid/)
+for the Solid source subset.
 Use [Getting started](/docs/pocket-vapor/) for the build workflow and
 [Components](/docs/pocket-vapor-components/) for props, events, models,
 slots, instance state, generics and shared context.
@@ -40,7 +42,7 @@ it does not execute the Rust application logic.
 
 Put `ref`, `computed`, functions and other application logic in the `.ts`
 view-model module. Import Vue APIs from `vue`. Setup does not accept local
-runtime variables or statements beyond the factory, macros and context forms.
+runtime variables or statements beyond the factory, macros, context and PocketJS lifecycle forms.
 
 ## Host elements and input
 
@@ -120,10 +122,20 @@ for the inputs the template uses.
 its instance state when its row moves. An unmounted child loses that state.
 The loop index has type `i32`.
 
-A handler contains one operation: `save()`, `save(id)`, `save($event)`,
-`count = value`, `count += 1`, `count -= 1`, `count++`, `count--`, or
-`emit('saved', id)`. Assignments target view-model values or `defineModel`
-bindings. Move multiple operations into a view-model function.
+A handler accepts `save()`, `save(id)`, `save($event)`, `count = value`,
+`count += 1`, `count -= 1`, `count++`, `count--`, or `emit('saved', id)`.
+Assignments target view-model values or `defineModel` bindings. Statement
+sequences and `if` branches combine these operations:
+`@press="if (count < 10) count++; resetAxis();"`. An emission ends the
+handler or a branch of its final `if`; loops, local variables and early returns
+are rejected. Arguments are evaluated once per statement. Owned payloads used
+by several calls are cloned before the last use.
+
+Roots and children with a model factory can register `onMounted` and
+`onUnmounted` from `@pocketjs/framework/vue-vapor/lifecycle`. Each hook calls
+a zero-argument model method. Cleanup runs in reverse creation order, then
+mount hooks run in creation order. Hook writes trigger another update before
+the frame renders.
 
 HTML elements, DOM events, directive modifiers, `v-html`, `v-once`, `v-memo`,
 object `v-bind`, dynamic event names, template refs, dynamic components,
@@ -135,6 +147,10 @@ template language. Use `transition-*` classes for style transitions.
 Static `class` values use the [PocketJS styling classes](/docs/styling/).
 **Dynamic classes select complete class strings with a ternary.** Nested
 ternaries are accepted; class objects, arrays and string construction are not.
+A prop typed `StyleClass`, imported from `@pocketjs/framework/vue-vapor/std`,
+forwards a compiled style ID through `:class="props.tone"`. Pass a class literal,
+a ternary of class literals, or an unchanged `StyleClass` prop. A static class
+cannot accompany a style-prop binding.
 
 ```vue
 <View class="p-4"
@@ -184,6 +200,10 @@ when the template iterates it, to borrow its storage during rendering.
 An exported literal declaration such as `export declare const LIMIT: 20`
 supplies a compile-time constant. A numeric constant adopts its use's expected
 numeric type. A distinct identifier type can use the `__newtype` form above.
+A homogeneous literal tuple such as
+`export declare const FILTERS: readonly ["ALL", "ACTIVE", "DONE"]`
+becomes a fixed native constant array. Literal indices and `len(FILTERS)` fold
+at compile time; a variable index produces an optional value.
 For `string | undefined`, the getter returns `Option<&str>` and stored values
 use `Option<String>`.
 
