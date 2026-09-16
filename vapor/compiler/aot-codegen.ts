@@ -1,9 +1,10 @@
+import { checkAotVersion } from "./aot-ir";
 import type { AotComponent, AotExpr, AotHandler, AotNode, AotProgram, AotType, AotTypeDeclaration } from "./aot-ir";
 import type { RustBlock, RustExpr, RustField, RustFunction, RustItem, RustModule, RustParam, RustPattern, RustStatement, RustType } from "./rust-ast";
 import { rb, rc, re, ref, rf, rl, rm, rn, rp, rr, rt } from "./rust-ast";
 import { allocateRustTypeNames, printRust, rustVariant } from "./rust-printer";
 import { parseVaporColor, VAPOR_ELEMENTS } from "../../contracts/spec/vapor";
-import { generateVueAotApp } from "./aot-app-codegen";
+import { generateVueAotApp, generateAotLifecycle, generateAotReconcile } from "./aot-app-codegen";
 
 type Locals = Map<string, AotType>;
 type ExpandedNode = AotNode;
@@ -36,6 +37,7 @@ const emptyPattern: RustPattern = { kind: "wildcard" };
 class Lowerer {
   items: RustItem[] = [];
   serial = 0;
+  lifecycle: boolean;
   current!: AotComponent;
   declarations: Map<string, AotTypeDeclaration>;
   components: Map<string, AotComponent>;
@@ -43,14 +45,24 @@ class Lowerer {
   variantNames = new Map<string, Map<string, string>>();
   blocks = new Map<string, { generic: boolean; broadcast: boolean; owner: string; states: string[]; pending?: RustExpr; sample?: RustStatement[]; count?: RustExpr; placement?: RustStatement[]; pendingAfter?: RustBlock }>();
   eventExpressions = new Map<string, RustExpr>();
+  eventUses = new Map<string, number>();
+  constantNames = new Map<string, string>();
+  resolvedConstants = new WeakMap<AotExpr, string>();
   derives = new Map<string, Set<string>>();
   staticStates = new Map<string, Set<string>>();
   scopedLocals = new Set<string>();
   explicitSlotUpdates = new WeakSet<RustExpr>();
   constructor(readonly program: AotProgram) {
+    this.lifecycle = program.components.some(component => !!component.hooks?.mount || !!component.hooks?.unmount);
     this.declarations = new Map(program.types.map(t => [t.name, t]));
     this.components = new Map(program.components.map(c => [c.name, c]));
-    const reserved = new Set(["Ui", "NodeId", "StyleId", "Input", "Block", "KeyedList", "SlotHandle", "String", "ToString", "Vec", "Option", "ToOwned", "Write", "Default", "Self", "self", "crate", "super", "M", "H", "bool", "str", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64"]);
+    const usedConstants = new Set<string>();
+    for (const component of [...program.components].sort((a, b) => Number(b.root) - Number(a.root))) for (const constant of component.constants) {
+      const base = usedConstants.has(constant.name) ? `${component.name}_${constant.name}` : constant.name;
+      let name = base, suffix = 2; while (usedConstants.has(name)) name = `${base}_${suffix++}`;
+      usedConstants.add(name); this.constantNames.set(`${component.name}:${constant.name}`, name);
+    }
+    const reserved = new Set(["Ui", "NodeId", "StyleId", "Input", "Block", "KeyedList", "SlotHandle", "String", "ToString", "Vec", "Option", "ToOwned", "Write", "AotLifecycle", "Unmounted", "Default", "Self", "self", "crate", "super", "M", "H", "bool", "str", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64"]);
     for (const c of program.components) { for (const suffix of ["View", "ViewState", "Props", "Event", "ViewModel", "App", "SlotArguments", "SlotEvent"]) reserved.add(`${c.name}${suffix}`); reserved.add(`State${c.name}`); }
     this.typeNames = allocateRustTypeNames(program.types.map(t => t.name), name => reserved.has(name) || program.components.some(c => ["Node", "Block", "If", "For", "Slot", "SlotContent", "Component", "Input"].some(s => name.startsWith(`${c.name}${s}`) && /^\d+$/.test(name.slice(c.name.length + s.length)))));
     for (const t of program.types) if (t.kind === "enum" || t.kind === "union") {
@@ -63,11 +75,13 @@ class Lowerer {
       this.variantNames.set(t.name, map);
     }
   }
+  constantName(name: string, component = this.current): string { return this.constantNames.get(`${component.name}:${name}`) ?? name; }
+  constantExpressionName(expression: Extract<AotExpr, { kind: "constant" }>): string { return this.resolvedConstants.get(expression) ?? this.constantName(expression.name); }
   variant(type: string, value: string) { return this.variantNames.get(type)?.get(value) ?? rustVariant(value); }
   typeName(name: string): string { return this.typeNames.get(name) ?? name; }
   localName(name: string): string { return `__pocket_local_${name}`; }
   copy(type: AotType): boolean {
-    if (type.kind === "number" || type.kind === "boolean" || type.kind === "void") return true;
+    if (type.kind === "style" || type.kind === "number" || type.kind === "boolean" || type.kind === "void") return true;
     if (type.kind === "option") return this.copy(type.value);
     if (type.kind === "tuple") return type.elements.every(t => this.copy(t));
     if (type.kind === "named") { const d = this.declarations.get(type.name); return d?.kind === "enum" || (d?.kind === "newtype" && this.copy(d.base)); }
@@ -75,6 +89,7 @@ class Lowerer {
   }
   type(type: AotType, borrowed = false, lifetime?: string): RustType {
     switch (type.kind) {
+      case "style": return rt("StyleId");
       case "number": return rt(type.name);
       case "boolean": return rt("bool");
       case "void": return unit;
@@ -102,7 +117,7 @@ class Lowerer {
     return value;
   }
   ownsExpression(e: AotExpr): boolean {
-    return e.kind === "call" || e.kind === "template" || e.kind === "index" || e.kind === "undefined"
+    return e.kind === "constant" && e.type.kind === "array" || e.kind === "call" || e.kind === "template" || e.kind === "index" || e.kind === "undefined"
       || e.kind === "literal" && e.type.kind === "named"
       || e.kind === "field" && this.ownsExpression(e.object)
       || e.kind === "conditional" && (this.ownsExpression(e.consequent) || this.ownsExpression(e.alternate))
@@ -148,7 +163,8 @@ class Lowerer {
     let result: RustExpr;
     switch (e.kind) {
       case "literal": {
-        if (e.type.kind === "named") {
+        if (e.type.kind === "style") result = rc(rp("StyleId"), rl(e.value, "i32"));
+        else if (e.type.kind === "named") {
           const d = this.declarations.get(e.type.name);
           if (d?.kind === "enum") result = rp(this.typeName(d.name), this.variant(d.name, String(e.value)));
           else if (d?.kind === "newtype") result = rc(rp(this.typeName(d.name)), d.unit === "Color" && typeof e.value === "string" ? rl(parseVaporColor(e.value), "u32") : this.expr({ ...e, type: d.base }, locals, true));
@@ -156,9 +172,17 @@ class Lowerer {
         } else result = rl(e.value, typeof e.value === "number" && e.type.kind === "number" ? e.type.name : undefined, "rawNumber" in e ? e.rawNumber as string | undefined : undefined);
         break;
       }
+      case "constant": result = e.type.kind === "array" && e.type.element.kind === "string" ? rm(rp(this.constantExpressionName(e)), "map", { kind: "closure", params: [rn("value")], body: rm(rp("value"), "to_owned") }) : rp(this.constantExpressionName(e)); break;
       case "undefined": result = none; break;
       case "binding": {
-        if (e.scope === "event" && this.eventExpressions.has(e.name)) return this.eventExpressions.get(e.name)!;
+        if (e.scope === "event" && this.eventExpressions.has(e.name)) {
+          const value = this.eventExpressions.get(e.name)!;
+          const key = JSON.stringify(value), remaining = (this.eventUses.get(key) ?? 1) - 1;
+          this.eventUses.set(key, remaining);
+          if (!owned) return this.borrowedValue(value, e.type);
+          if (!this.copy(e.type) && remaining > 0) { this.requireDerive(e.type, "Clone"); return rm(value, "clone"); }
+          return value;
+        }
         if (e.scope === "vm") result = rm(vm, e.name);
         else if (e.scope === "prop") result = rf(props, e.name);
         else if (e.scope === "inject") result = this.injectionValue(e.name, locals);
@@ -184,7 +208,9 @@ class Lowerer {
         } else result = this.ownsExpression(e.object) ? rf(this.expr(e.object, locals), e.name) : this.borrowedValue(rf(this.expr(e.object, locals), e.name), e.type);
         break;
       }
-      case "index": this.requireDerive(e.type, "Clone"); result = rm(rm(this.expr(e.object, locals), "get", cast(this.expr(e.index, locals), rt("usize"))), "cloned"); break;
+      case "index": this.requireDerive(e.type, "Clone"); result = rm(rm(e.object.kind === "constant" ? rp(this.constantExpressionName(e.object)) : this.expr(e.object, locals), "get", cast(this.expr(e.index, locals), rt("usize"))), "cloned");
+        if (e.object.kind === "constant" && e.type.kind === "option" && e.type.value.kind === "string") result = rm(result, "map", { kind: "closure", params: [rn("value")], body: rm(rp("value"), "to_owned") });
+        break;
       case "unary": {
         if (e.operator === "-" && e.operand.kind === "literal" && typeof e.operand.value === "number") return this.expr({ ...e.operand, value: -e.operand.value, ...("rawNumber" in e.operand && e.operand.rawNumber ? { rawNumber: String(e.operand.rawNumber).startsWith("-") ? String(e.operand.rawNumber).slice(1) : `-${e.operand.rawNumber}` } : {}), type: e.type }, locals, owned);
         const value = this.unwrapNumeric(this.expr(e.operand, locals), e.operand.type); const base = this.numericBase(e.type);
@@ -273,6 +299,7 @@ class Lowerer {
     return { kind: "match", value: this.expr(first.value, locals), arms };
   }
   rewriteExpr(e: AotExpr, context: Expansion, payload = new Map<string, AotExpr>()): AotExpr {
+    if (e.kind === "constant") { const rewritten = { ...e }; this.resolvedConstants.set(rewritten, this.resolvedConstants.get(e) ?? this.constantName(e.name, context.component)); return rewritten; }
     if (e.kind === "binding") return e.scope === "prop" ? context.props.get(e.name) ?? e : e.scope === "local" ? context.locals?.get(e.name) ?? e : e.scope === "event" ? payload.get(e.name) ?? payload.get("$event") ?? e : e;
     switch (e.kind) {
       case "field": return { ...e, object: this.rewriteExpr(e.object, context, payload) };
@@ -286,17 +313,26 @@ class Lowerer {
       default: return e;
     }
   }
+  inlineHandlers = new WeakMap<AotHandler, { arguments: AotExpr[]; names: string[]; handler?: AotHandler }>();
   rewriteHandler(handler: AotHandler, context: Expansion, payload = new Map<string, AotExpr>()): AotHandler | undefined {
+    if (handler.kind === "sequence") return { ...handler, steps: handler.steps.flatMap(step => { const rewritten = this.rewriteHandler(step, context, payload); return rewritten ? [rewritten] : []; }) };
+    if (handler.kind === "if") return { ...handler, condition: this.rewriteExpr(handler.condition, context, payload), then: handler.then.flatMap(step => { const rewritten = this.rewriteHandler(step, context, payload); return rewritten ? [rewritten] : []; }), ...(handler.else ? { else: handler.else.flatMap(step => { const rewritten = this.rewriteHandler(step, context, payload); return rewritten ? [rewritten] : []; }) } : {}) };
     if (handler.kind === "call") return { ...handler, expression: this.rewriteExpr(handler.expression, context, payload) };
     if (handler.kind === "assign") return { ...handler, value: this.rewriteExpr(handler.value, context, payload) };
     const args = handler.arguments.map(a => this.rewriteExpr(a, context, payload));
     if (context.component === this.current) return { ...handler, arguments: args };
-    const listener = context.events.get(handler.name); if (!listener) return undefined;
+    const listener = context.events.get(handler.name);
+    if (!listener && handler.optional) return { kind: "sequence", steps: [], id: handler.id, loc: handler.loc };
     const event = context.component.events.find(e => e.name === handler.name);
+    const names = args.map((_, i) => `__pocket_emit_${this.serial++}_${i}`);
     const values = new Map<string, AotExpr>();
-    if (args[0]) values.set("$event", args[0]);
-    event?.parameters.forEach((p, i) => { if (args[i]) values.set(p.name, args[i]!); });
-    return this.rewriteHandler(listener.handler, listener.expansion, values);
+    const bindings = args.map((arg, i): AotExpr => ({ kind: "binding", scope: "event", name: names[i]!, type: arg.type, loc: arg.loc }));
+    bindings.forEach((binding, i) => values.set(i === 0 ? "$event" : `$event${i}`, binding));
+    event?.parameters.forEach((p, i) => { if (bindings[i]) values.set(p.name, bindings[i]!); });
+    const rewritten = listener ? this.rewriteHandler(listener.handler, listener.expansion, values) : undefined;
+    const result: AotHandler = { kind: "sequence", steps: [], id: handler.id, loc: handler.loc };
+    this.inlineHandlers.set(result, { arguments: args, names, handler: rewritten });
+    return result;
   }
   expand(nodes: AotNode[], context: Expansion): ExpandedNode[] {
     return nodes.flatMap(node => {
@@ -355,6 +391,20 @@ class Lowerer {
         return mapped;
       };
       body = thread(body) as RustBlock;
+    }
+    if (this.lifecycle && ["mount", "new", "update", "update_at"].includes(name)) {
+      const traitMount = name === "mount" && params[0]?.pattern.kind === "name" && params[0].pattern.name === "self";
+      if (!traitMount) params = [...params, param("lifecycle", rr(rt("AotLifecycle")))];
+      const thread = (value: unknown): unknown => {
+        if (!value || typeof value !== "object") return value;
+        if (Array.isArray(value)) return value.map(thread);
+        const mapped = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, thread(child)])) as Record<string, any>;
+        if (mapped.kind === "call" && (mapped.callee.kind === "qualifiedPath" && mapped.callee.member === "mount" || mapped.callee.kind === "path" && (mapped.callee.path.at(-1) === "mount" && !mapped.callee.path.includes("Block") || mapped.callee.path.at(-1) === "new" && /SlotContent\d+$/.test(mapped.callee.path[0])))) mapped.args.push(rp("lifecycle"));
+        if (mapped.kind === "method" && ["update", "update_at"].includes(mapped.method) && !(mapped.object.kind === "path" && mapped.object.path[0] === "vm")) mapped.args.push(rp("lifecycle"));
+        return mapped;
+      };
+      body = thread(body) as RustBlock;
+      if (traitMount) body.statements.unshift(stmtLet("lifecycle_owner", rm(rf(self, "lifecycle"), "clone")), stmtLet("lifecycle", ref(rp("lifecycle_owner"))));
     }
     return { kind: "fn", name, public: public_, params, returns, body, ...(generic ? { generics: [{ name: "M", bounds: [rt(`${this.current.name}ViewModel`)] }] } : {}) };
   }
@@ -444,14 +494,14 @@ class Lowerer {
       const mapped = visit(item) as RustItem;
       if (mapped.kind === "trait") {
         const component = this.program.components.find(c => mapped.name === `${c.name}ViewModel`);
-        if (component) mapped.associatedTypes = mapped.associatedTypes?.map(t => ({ ...t, bounds: [...t.bounds, ...(this.staticStates.get(component.name)?.has(t.name) ? [{ kind: "lifetime", name: "static" } as RustType] : [])] }));
+        if (component) mapped.associatedTypes = mapped.associatedTypes?.map(t => ({ ...t, bounds: [...t.bounds, ...((this.staticStates.get(component.name)?.has(t.name) || !!this.components.get(t.name)?.hooks) ? [{ kind: "lifetime", name: "static" } as RustType] : [])] }));
       }
       if (mapped.kind === "struct" || mapped.kind === "enum") {
         const declaration = this.program.types.find(t => this.typeName(t.name) === mapped.name);
         if (declaration) mapped.derives = ["Clone", "Copy", "PartialEq", "Eq", "PartialOrd", "Ord"].filter(trait => this.derives.get(declaration.name)?.has(trait));
       }
       if (info?.generic && (mapped.kind === "struct" || mapped.kind === "enum" || mapped.kind === "impl")) {
-        mapped.generics = info.states.map(name => ({ name: stateParameter(name), bounds: [rt(`${name}ViewModel`), rt("Default"), ...(this.staticStates.get(info.owner)?.has(name) ? [{ kind: "lifetime", name: "static" } as RustType] : [])] }));
+        mapped.generics = info.states.map(name => ({ name: stateParameter(name), bounds: [rt(`${name}ViewModel`), rt("Default"), ...((this.staticStates.get(info.owner)?.has(name) || !!this.components.get(name)?.hooks) ? [{ kind: "lifetime", name: "static" } as RustType] : [])] }));
         if (mapped.kind === "impl") mapped.methods = mapped.methods.map(method => ({ ...method, generics: method.generics?.map(g => g.name === "M" ? { ...g, bounds: [rt(`${info.owner}ViewModel`, ...info.states.map(name => ({ kind: "binding", name, type: rt(stateParameter(name)) } as RustType)))] } : g) }));
         else {
           mapped.name = stateName(originalName!);
@@ -492,9 +542,10 @@ class Lowerer {
     };
     this.structure(name, children.map((_, i) => rm(childField(i), "handler_count")).reduce((a, b) => binary("+", a, b), rl(0, "usize")), [assign(rf(self, "parent"), parent), assign(rf(self, "anchor"), anchor), ...children.flatMap((_, index) => { const i = children.length - 1 - index; return [stmtLet(`placement_anchor${i}`, following(i + 1, anchor)), re(rm(childField(i), "refresh_slot_placement", ui, parent, rp(`placement_anchor${i}`)))]; })], this.suffixPending(children.map((_, i) => childField(i))));
     children.forEach((c, i) => {
-      update.unshift(stmtLet(`anchor${i}`, following(i + 1, anchor)), re(rm(childField(i), "update_at", ui, rf(self, "parent"), ...this.contextArgs(locals), rp(`anchor${i}`))));
+      update[this.lifecycle ? "push" : "unshift"](stmtLet(`anchor${i}`, following(i + 1, anchor)), re(rm(childField(i), "update_at", ui, rf(self, "parent"), ...this.contextArgs(locals), rp(`anchor${i}`))));
       dispatch.push(assign(rp("handled"), binary("|", rp("handled"), rm(childField(i), "dispatch", rp("input"), ...this.contextArgs(locals), rp("events")))));
     });
+    if (this.lifecycle) update.push(re(rm(self, "refresh_slot_placement", ui, rf(self, "parent"), anchor)));
     const methods = [
       this.method("mount", this.mountParams(), rb(mount, init), rt("Self"), false, !!requestedName),
       this.method("contains_node", [receiver(), param("target", rt("NodeId"))], rb([], children.map((_, i) => rm(childField(i), "contains_node", rp("target"))).reduce((a, b) => binary("||", a, b), rl(false))), rt("bool")),
@@ -536,7 +587,7 @@ class Lowerer {
       const value = rp(`value_${key}`); const field = rf(self, key);
       update.push(stmtLet(`value_${key}`, this.expr(expression, locals)), re(ifExpr(binary("!=", field, some(value)), [re(apply(value)), assign(field, some(value))])));
     };
-    if (node.dynamicStyle) memo("style_memo", node.dynamicStyle.expression, value => rm(ui, "set_style", nodeId, rc(rp("StyleId"), cast(value, rt("i32")))));
+    if (node.dynamicStyle) memo("style_memo", node.dynamicStyle.expression, value => rm(ui, "set_style", nodeId, node.dynamicStyle!.expression.type.kind === "style" ? value : rc(rp("StyleId"), cast(value, rt("i32")))));
     node.props.forEach((p, i) => memo(`prop_memo${i}`, p.value, value => rm(ui, "set_prop", nodeId, rl(p.prop, "u8"), cast(this.unwrapNumeric(value, p.value.type), rt("f64")))));
     if (node.text) {
       const parts = this.textParts(node.text.parts);
@@ -569,6 +620,32 @@ class Lowerer {
     return this.generatedBlock(name, locals);
   }
   handler(handler: AotHandler, locals: Locals): RustStatement[] {
+    const previous = this.eventUses; this.eventUses = new Map();
+    const count = (value: unknown): void => {
+      if (!value || typeof value !== "object") return;
+      if (Array.isArray(value)) { value.forEach(count); return; }
+      const inline = this.inlineHandlers.get(value as AotHandler);
+      if (inline) { inline.arguments.forEach(count); if (inline.handler) count(inline.handler); return; }
+      const e = value as AotExpr;
+      if (e.kind === "binding" && e.scope === "event" && this.eventExpressions.has(e.name)) {
+        const key = JSON.stringify(this.eventExpressions.get(e.name)); this.eventUses.set(key, (this.eventUses.get(key) ?? 0) + 1);
+      }
+      Object.values(value).forEach(count);
+    };
+    count(handler);
+    try { return this.handlerStatements(handler, locals); } finally { this.eventUses = previous; }
+  }
+  handlerStatements(handler: AotHandler, locals: Locals): RustStatement[] {
+    const inline = this.inlineHandlers.get(handler);
+    if (inline) {
+      const bindings = new Map(this.eventExpressions);
+      const statements = inline.arguments.map((arg, i) => stmtLet(inline.names[i]!, this.expr(arg, locals, true)));
+      inline.names.forEach(name => bindings.set(name, rp(name)));
+      if (inline.handler) statements.push(...this.withEventValues(bindings, () => this.handler(inline.handler!, locals)));
+      return statements;
+    }
+    if (handler.kind === "sequence") return handler.steps.flatMap(step => this.handlerStatements(step, locals));
+    if (handler.kind === "if") return [re(ifExpr(this.expr(handler.condition, locals), handler.then.flatMap(step => this.handlerStatements(step, locals)), handler.else ? rb(handler.else.flatMap(step => this.handlerStatements(step, locals))) : undefined))];
     if (handler.kind === "emit" && handler.name === "__discard") return [];
     if (handler.kind === "assign") return [stmtLet("handler_value", this.expr(handler.value, locals, true)), re(rm(vm, `set_${handler.name}`, rp("handler_value")))];
     if (handler.kind === "call" && handler.expression.kind === "call") {
@@ -577,7 +654,8 @@ class Lowerer {
     }
     if (handler.kind === "call") return [re(this.expr(handler.expression, locals))];
     const event = rp(`${this.current.name}Event`, this.eventVariant(this.current, handler.name));
-    return [re(rm(rp("events"), "push", handler.arguments.length ? rc(event, ...handler.arguments.map(a => this.expr(a, locals, true))) : event))];
+    const statements = [...handler.arguments.map((a, i) => stmtLet(`handler_arg${i}`, this.expr(a, locals, true))), re(rm(rp("events"), "push", handler.arguments.length ? rc(event, ...handler.arguments.map((_, i) => rp(`handler_arg${i}`))) : event))];
+    return handler.optional ? [re(ifExpr(rf(props, this.presenceFlag(handler.name)), statements))] : statements;
   }
   compileInput(node: Extract<ExpandedNode, { kind: "input" }>, locals: Locals): GeneratedBlock {
     const name = `${this.current.name}Input${this.serial++}`;
@@ -607,7 +685,7 @@ class Lowerer {
     const name = `${this.current.name}SlotContent${this.serial++}`;
     const content = this.compileGroup(nodes, locals);
     this.registerBlock(name, [content]);
-    const fields: RustField[] = [{ name: "block", type: rt("Option", rt(content.name)) }, { name: "parent", type: rt("NodeId") }, { name: "anchor", type: rt("NodeId") }, ...this.current.slots.map(slot => ({ name: `slot_${slot}`, type: rt("Option", rt("SlotHandle")) }))];
+    const fields: RustField[] = [...(this.lifecycle ? [{ name: "lifecycle", type: rt("AotLifecycle") }] : []), { name: "block", type: rt("Option", rt(content.name)) }, { name: "parent", type: rt("NodeId") }, { name: "anchor", type: rt("NodeId") }, ...this.current.slots.map(slot => ({ name: `slot_${slot}`, type: rt("Option", rt("SlotHandle")) }))];
     const storedSlots = this.current.slots.map(slot => rm(rf(self, `slot_${slot}`), "as_ref"));
     const whenMounted = (method: string, args: RustExpr[], fallback: RustExpr): RustExpr => ({ kind: "match", value: rm(rf(self, "block"), ["first_node", "pending", "handler_count", "pending_after"].includes(method) ? "as_ref" : "as_mut"), arms: [
       { pattern: { kind: "variant", path: ["Some"], tuple: [rn("block")] }, body: rm(rp("block"), method, ...args) }, { pattern: { kind: "variant", path: ["None"] }, body: fallback },
@@ -617,7 +695,7 @@ class Lowerer {
     this.structure(name, whenMounted("handler_count", [], rl(0, "usize")), [assign(rf(self, "parent"), parent), assign(rf(self, "anchor"), anchor), re(whenMounted("refresh_slot_placement", [ui, parent, anchor], empty))], rb([], whenMounted("pending_after", [rp("input"), rp("skip")], rl(false))));
     const remove: RustExpr = { kind: "ifLet", pattern: { kind: "variant", path: ["Some"], tuple: [rn("block")] }, value: rm(rf(self, "block"), "take"), then: rb([re(rm(rp("block"), "unmount", ui))]) };
     this.items.push({ kind: "struct", name, fields }, { kind: "impl", type: rt(name), methods: [
-      this.method("new", this.slotParams(), rb([], { kind: "struct", path: ["Self"], fields: [{ name: "block", value: none }, { name: "parent", value: noNode }, { name: "anchor", value: noNode }, ...this.current.slots.map(slot => ({ name: `slot_${slot}`, value: rm(rp(`slot_${slot}`), "cloned") }))] }), rt("Self")),
+      this.method("new", this.slotParams(), rb([], { kind: "struct", path: ["Self"], fields: [...(this.lifecycle ? [{ name: "lifecycle", value: rm(rp("lifecycle"), "clone") }] : []), { name: "block", value: none }, { name: "parent", value: noNode }, { name: "anchor", value: noNode }, ...this.current.slots.map(slot => ({ name: `slot_${slot}`, value: rm(rp(`slot_${slot}`), "cloned") }))] }), rt("Self")),
       this.method("update", [receiver(true), param("ui", rr(rt("Ui"), true)), ...this.contextParams(locals)], rb([re(whenMounted("update_at", [ui, rf(self, "parent"), ...this.contextArgs(locals), rf(self, "anchor")], empty))]), undefined, true),
       this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb([], whenMounted("dispatch", [rp("input"), ...this.contextArgs(locals), rp("events")], rl(false))), rt("bool"), true),
     ] }, { kind: "impl", type: rt(name), trait: rt("pocket_vapor::SlotBlock"), methods: [
@@ -643,19 +721,40 @@ class Lowerer {
     this.registerBlock(name, slots.map(s => s.block), true, childInfo.broadcast || slots.some(s => s.block.broadcast), child.name);
     this.inputTraversal(name, rm(rf(self, "view"), "pending", rp("input")), [re(rm(rf(self, "view"), "sample_idle", rp("input")))]);
     this.structure(name, rm(rf(self, "view"), "handler_count"), [re(rm(rf(self, "view"), "refresh_slot_placement", ui, parent, anchor))], rb([], rm(rf(self, "view"), "pending_after", rp("input"), rp("skip"))));
+    const sharedModel = !!child.hooks?.mount || !!child.hooks?.unmount;
     const actualModelType = rt(`M::${child.name}`);
     const viewType = childInfo.generic ? rt(childView, actualModelType) : rt(childView);
-    const fields: RustField[] = [{ name: "view", type: viewType }, { name: "model", type: actualModelType }, ...slots.map((s, i) => ({ name: `slot${i}`, type: rt("pocket_vapor::SlotRegistry", rt(s.block.name)) }))];
+    const fields: RustField[] = [{ name: "view", type: viewType }, { name: "model", type: sharedModel ? rt("alloc::rc::Rc", rt("core::cell::RefCell", actualModelType)) : actualModelType }, ...(sharedModel ? [{ name: "lifecycle", type: rt("AotLifecycle") }, { name: "sequence", type: rt("usize") }] : []), ...slots.map((s, i) => ({ name: `slot${i}`, type: rt("pocket_vapor::SlotRegistry", rt(s.block.name)) }))];
     const mountedSlots = child.slots.map(slot => { const index = slots.findIndex(s => s.slot.name === slot); return index < 0 ? none : some(ref(rp(`slot_handle${index}`))); });
     const updateSlots = child.slots.map(slot => { const index = slots.findIndex(s => s.slot.name === slot); return index < 0 ? none : some(ref(rp(`slot_handle${index}`))); });
     const mount: RustStatement[] = [];
     slots.forEach((s, i) => {
       this.current.slots.forEach(slot => mount.push(stmtLet(`slot${i}_${slot}`, rm(rp(`slot_${slot}`), "cloned"))));
-      const factory: RustExpr = { kind: "closure", params: [], move: true, body: rc(rp(s.block.name, "new"), ...this.current.slots.map(slot => rm(rp(`slot${i}_${slot}`), "as_ref"))) };
+      if (this.lifecycle) mount.push(stmtLet(`slot_lifecycle${i}`, rm(rp("lifecycle"), "clone")));
+      const constructor = rc(rp(s.block.name, "new"), ...this.current.slots.map(slot => rm(rp(`slot${i}_${slot}`), "as_ref")));
+      const factory: RustExpr = { kind: "closure", params: [], move: true, body: this.lifecycle ? blockExpr([stmtLet("lifecycle", ref(rp(`slot_lifecycle${i}`)))], constructor) : constructor };
       mount.push(stmtLet(`slot${i}`, rc(rp("pocket_vapor", "SlotRegistry", "new"), factory)), stmtLet(`slot_handle${i}`, rm(rp(`slot${i}`), "handle")));
     });
-    mount.push(stmtLet("model", rc(rp("M", child.name, "default"))), stmtLet("view", rc({ kind: "qualifiedPath", type: viewType, member: "mount" }, ui, parent, anchor, ...mountedSlots)));
-    const propsExpr = (values: RustExpr[]): RustExpr => ({ kind: "struct", path: [`${child.name}Props`], fields: child.props.map((p, i) => ({ name: p.name, value: values[i]! })) });
+    const modelDefault = rc(rp("M", child.name, "default"));
+    mount.push(stmtLet("model", sharedModel ? rc(rp("alloc", "rc", "Rc", "new"), rc(rp("core", "cell", "RefCell", "new"), modelDefault)) : modelDefault));
+    const hookBody = (handler: AotHandler): RustStatement[] => {
+      if (handler.kind === "sequence") return handler.steps.flatMap(hookBody);
+      if (handler.kind !== "call" || handler.expression.kind !== "call" || handler.expression.arguments.length) throw new Error("Lifecycle hooks require zero-argument model calls");
+      return [re(rm(rm(rp("hook_model"), "borrow_mut"), handler.expression.name))];
+    };
+    const enqueue = (method: string, model: RustExpr, sequence: RustExpr, lifecycle: RustExpr, hook: AotHandler): RustStatement[] => [
+      stmtLet("hook_model", model),
+      re(rm(lifecycle, method, sequence, rc(rp("alloc", "boxed", "Box", "new"), { kind: "closure", params: [], move: true, body: blockExpr(hookBody(hook)) }))),
+    ];
+    if (sharedModel) {
+      mount.push(stmtLet("sequence", rm(rp("lifecycle"), "next_sequence")));
+      if (child.hooks?.mount) mount.push(...enqueue("enqueue_mount", rm(rp("model"), "clone"), rp("sequence"), rp("lifecycle"), child.hooks.mount));
+    }
+    mount.push(stmtLet("view", rc({ kind: "qualifiedPath", type: viewType, member: "mount" }, ui, parent, anchor, ...mountedSlots)));
+    if (sharedModel) mount.push(stmtLet("lifecycle", rm(rp("lifecycle"), "clone")));
+    const modelRef = (mutable = false): RustExpr => ref(sharedModel ? { kind: "unary", operator: "*", expr: rm(rf(self, "model"), mutable ? "borrow_mut" : "borrow") } : rf(self, "model"), mutable);
+
+    const propsExpr = (values: RustExpr[]): RustExpr => ({ kind: "struct", path: [`${child.name}Props`], fields: [...child.props.map((p, i) => ({ name: p.name, value: values[i]! })), ...child.events.filter(event => event.optional).map(event => ({ name: this.presenceFlag(event.name, child), value: rl(node.events.some(listener => listener.name === event.name)) }))] });
     const supplied = child.props.map(prop => node.props.find(p => p.name === prop.name)!.value);
     const injected = this.injectionContext(child);
     const updateInjections = injected.map(value => this.injectionValue(value.key, locals));
@@ -670,7 +769,7 @@ class Lowerer {
       const statements = suppliedSlot ? [...boundArguments(suppliedSlot, contract, false), re(rm(rf(self, `slot${index}`), "with_instance", rp("slot_id"), { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "update", ui, ...this.contextArgs(suppliedSlot.locals)) }))] : [];
       return { pattern: { kind: "variant", path: [`${child.name}SlotArguments`, this.slotVariant(contract.name, child)], tuple: contract.parameters.map((_, i) => rn(`slot_arg${i}`)) }, body: blockExpr(statements) };
     }) } };
-    const childUpdate = rm(rf(self, "view"), "update_at", ui, parent, ref(rp("child_props")), ref(rf(self, "model")), ...updateInjections, ...updateSlots, anchor, ...(this.scopedSlots(child).length ? [ref(slotUpdate, true)] : []));
+    const childUpdate = rm(rf(self, "view"), "update_at", ui, parent, ref(rp("child_props")), modelRef(), ...updateInjections, ...updateSlots, anchor, ...(this.scopedSlots(child).length ? [ref(slotUpdate, true)] : []));
     this.explicitSlotUpdates.add(childUpdate); update.push(re(childUpdate));
     slots.forEach((slot, i) => { if (!this.scopedSlots(child).some(contract => contract.name === slot.slot.name)) update.push(re(rm(rf(self, `slot${i}`), "for_each_mut", { kind: "closure", params: [rn("slot")], body: rm(rp("slot"), "update", ui, ...this.contextArgs(slot.locals)) }))); });
     // Registries retain creation order. Placement follows the child's current
@@ -684,7 +783,7 @@ class Lowerer {
     ];
     const eventArms: Extract<RustExpr, { kind: "match" }>["arms"] = child.events.map(event => {
       const listener = node.events.find(e => e.name === event.name);
-      const values = new Map(event.parameters.map((p, i) => [p.name, rp(`event_arg${i}`)])); if (event.parameters.length) values.set("$event", rp("event_arg0"));
+      const values = new Map(event.parameters.map((p, i) => [p.name, rp(`event_arg${i}`)])); event.parameters.forEach((_, i) => values.set(i === 0 ? "$event" : `$event${i}`, rp(`event_arg${i}`)));
       const statements = listener ? this.withEventValues(values, () => this.handler(listener.handler, locals)) : [];
       return { pattern: { kind: "variant", path: [`${child.name}Event`, this.eventVariant(child, event.name)], ...(event.parameters.length ? { tuple: event.parameters.map((_, i) => rn(`event_arg${i}`)) } : {}) }, body: blockExpr(statements, rl(!!listener)) };
     });
@@ -707,9 +806,12 @@ class Lowerer {
       this.method("mount", this.mountParams(), rb(mount, { kind: "struct", path: ["Self"], fields: fields.map(f => ({ name: f.name })) }), rt("Self")),
       this.method("contains_node", [receiver(), param("target", rt("NodeId"))], rb([], rm(rf(self, "view"), "contains_node", rp("target"))), rt("bool")),
       this.method("update_at", [receiver(true), param("ui", rr(rt("Ui"), true)), param("parent", rt("NodeId")), ...this.contextParams(locals), param("anchor", rt("NodeId"))], rb(update), undefined, true),
-      this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb(dispatch, rm(rf(self, "view"), "dispatch", rp("input"), ref(rp("child_props")), ref(rf(self, "model"), true), ...dispatchInjections, ...updateSlots, ref(rp("child_events"), true))), rt("bool"), true),
+      this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb(dispatch, rm(rf(self, "view"), "dispatch", rp("input"), ref(rp("child_props")), modelRef(true), ...dispatchInjections, ...updateSlots, ref(rp("child_events"), true))), rt("bool"), true),
     ] });
-    this.blockImpl(name, rm(rf(self, "view"), "first_node"), [re(rm(rf(self, "view"), "move_before", ui, parent, anchor))], [re(rm(rf(self, "view"), "unmount", ui))]);
+    const unmount = [re(rm(rf(self, "view"), "unmount", ui))];
+    if (child.hooks?.unmount) unmount.push(...enqueue("enqueue_unmount", rf(self, "model"), rf(self, "sequence"), rf(self, "lifecycle"), child.hooks.unmount));
+    else if (sharedModel) unmount.push(re(rm(rf(self, "lifecycle"), "cancel_mount", rf(self, "sequence"))));
+    this.blockImpl(name, rm(rf(self, "view"), "first_node"), [re(rm(rf(self, "view"), "move_before", ui, parent, anchor))], unmount);
     return this.generatedBlock(name, locals);
   }
   compileSlot(node: Extract<ExpandedNode, { kind: "slot" }>, locals: Locals): GeneratedBlock {
@@ -816,15 +918,24 @@ class Lowerer {
       this.method("mount", this.mountParams(), rb([], { kind: "struct", path: ["Self"], fields: [{ name: "rows", value: rc(rp("KeyedList", "new")) }, { name: "parent" }, { name: "handler_ends", value: rc(rp("Vec", "new")) }] }), rt("Self")),
       this.method("contains_node", [receiver(), param("target", rt("NodeId"))], rb([], rm(rm(rf(rf(self, "rows"), "rows"), "iter"), "any", { kind: "closure", params: [rn("row")], body: rm(rf(rp("row"), "block"), "contains_node", rp("target")) })), rt("bool")),
       this.method("update_at", [receiver(true), param("ui", rr(rt("Ui"), true)), param("parent", rt("NodeId")), ...this.contextParams(locals), param("anchor", rt("NodeId"))], rb([
-        re(rm(rf(self, "rows"), "reconcile", ui, parent, anchor, ref(this.expr(node.source, locals)), sameKey, keyClosure,
+        re((this.lifecycle ? (...args: RustExpr[]) => rc(rp("aot_reconcile"), ref(rf(self, "rows"), true), ...args) : (...args: RustExpr[]) => rm(rf(self, "rows"), "reconcile", ...args))(ui, parent, anchor, ref(this.expr(node.source, locals)), ...(this.lifecycle ? [] : [sameKey]), keyClosure,
           { kind: "closure", params: [rn("ui"), rn("parent"), rn("anchor"), rn(this.localName(node.item)), rn("row_index")], body: rc(rp(row.name, "mount"), ui, parent, anchor, ...this.slotArgs()) },
           { kind: "closure", params: [rn("block"), rn("ui"), rn(this.localName(node.item)), rn("row_index"), rn("row_anchor")], body: blockExpr(updateBody) },
-        )), ...refreshCounts,
+        )), ...(this.lifecycle ? [re(rm(self, "refresh_slot_placement", ui, parent, anchor))] : refreshCounts),
       ]), undefined, true),
       this.method("dispatch", [receiver(true), param("input", rr(rt("Input"))), ...this.contextParams(locals, true), param("events", rr(this.eventSinkType(), true))], rb(dispatch, rp("handled")), rt("bool"), true),
     ] });
     this.blockImpl(name, rm(rf(self, "rows"), "first_node"), [assign(rf(self, "parent"), parent), re(rm(rf(self, "rows"), "move_before", ui, parent, anchor))], [re(rm(rf(self, "rows"), "unmount", ui))]);
     return this.generatedBlock(name, locals);
+  }
+  presenceFlag(name: string, component = this.current): string {
+    const used = new Set(component.props.map(prop => prop.name));
+    for (const event of component.events.filter(event => event.optional)) {
+      const base = `has_on_${event.name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replaceAll(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}`;
+      let flag = base, suffix = 2; while (used.has(flag)) flag = `${base}_${suffix++}`;
+      used.add(flag); if (event.name === name) return flag;
+    }
+    throw new Error(`Optional callback ${name} is missing from ${component.name}'s event contract`);
   }
   eventVariant(component: AotComponent, name: string): string {
     const used = new Set<string>();
@@ -851,12 +962,13 @@ class Lowerer {
   }
   run(): RustModule {
     this.items.push({ kind: "extern", name: "alloc" }, { kind: "use", path: ["alloc", "string"], names: ["String", "ToString"] }, { kind: "use", path: ["alloc", "borrow"], names: ["ToOwned"] }, { kind: "use", path: ["alloc", "vec"], names: ["Vec"] }, { kind: "use", path: ["core", "fmt"], names: ["Write"] }, { kind: "use", path: ["pocket_vapor"], names: ["Ui", "NodeId", "StyleId", "Input", "Block", "KeyedList", "SlotHandle", "display"] });
+    if (this.lifecycle) this.items.push(...generateAotLifecycle(), generateAotReconcile());
     this.emitTypes();
     const emittedConstants = new Set<string>();
     for (const component of this.program.components) {
       this.current = component;
       const propsBorrow = component.props.some(p => this.hasBorrow(p.type));
-      this.items.push({ kind: "struct", name: `${component.name}Props`, public: true, ...(propsBorrow ? { generics: [{ name: "a", lifetime: true }] } : {}), fields: component.props.map(p => ({ name: p.name, type: this.type(p.type, true, propsBorrow ? "a" : undefined), public: true })) });
+      this.items.push({ kind: "struct", name: `${component.name}Props`, public: true, ...(propsBorrow ? { generics: [{ name: "a", lifetime: true }] } : {}), fields: [...component.props.map(p => ({ name: p.name, type: this.type(p.type, true, propsBorrow ? "a" : undefined), public: true })), ...component.events.filter(event => event.optional).map(event => ({ name: this.presenceFlag(event.name), type: rt("bool"), public: true }))] });
       this.items.push({ kind: "enum", name: `${component.name}Event`, public: true, variants: component.events.map(e => ({ name: this.eventVariant(component, e.name), ...(e.parameters.length ? { tuple: e.parameters.map(p => this.type(p.type)) } : {}) })) });
       if (this.scopedSlots().length) {
         const borrows = this.scopedSlots().some(slot => slot.parameters.some(p => this.hasBorrow(p.type)));
@@ -872,17 +984,26 @@ class Lowerer {
       const associatedTypes = this.statefulChildren(component).map(name => ({ name, bounds: [rt(`${name}ViewModel`), rt("Default")] }));
       this.items.push({ kind: "trait", name: `${component.name}ViewModel`, public: true, associatedTypes, methods: traitMethods });
       if (!component.root && !component.factory && !associatedTypes.length) this.items.push({ kind: "impl", type: unit, trait: rt(`${component.name}ViewModel`), methods: [] });
-      for (const c of component.constants) if (!emittedConstants.has(c.name)) { emittedConstants.add(c.name); this.items.push({ kind: "const", name: c.name, public: true, type: c.type.kind === "string" ? rr(rt("str"), false, "static") : this.type(c.type), value: this.expr({ kind: "literal", value: c.value, ...("rawNumber" in c ? { rawNumber: c.rawNumber } : {}), type: c.type, loc: { file: component.file, line: 1, column: 1, offset: 0 } } as AotExpr) }); }
+      for (const c of component.constants) if (!emittedConstants.has(this.constantName(c.name))) {
+        emittedConstants.add(this.constantName(c.name));
+        const loc = { file: component.file, line: 1, column: 1, offset: 0 };
+        const literal = (value: string | number | boolean, type: AotType, rawNumber = c.rawNumber): RustExpr => this.expr({ kind: "literal", value, type, loc, ...(rawNumber ? { rawNumber } : {}) });
+        const array = Array.isArray(c.value) && c.type.kind === "array" ? c.type : undefined;
+        this.items.push({ kind: "const", name: this.constantName(c.name), public: true,
+          type: array ? { kind: "array", element: array.element.kind === "string" ? rr(rt("str"), false, "static") : this.type(array.element), length: (c.value as unknown[]).length } : c.type.kind === "string" ? rr(rt("str"), false, "static") : this.type(c.type),
+          value: array ? { kind: "array", elements: (c.value as (string | number | boolean)[]).map((value, index) => literal(value, array.element, c.rawNumbers?.[index])) } : literal(c.value as string | number | boolean, c.type),
+        });
+      }
       const expanded = this.expand(component.nodes, { component, props: new Map(), events: new Map(), slots: new Map() });
       this.compileGroup(expanded, new Map(), `${component.name}View`);
-      if (component.root) this.items.push(...generateVueAotApp(component, this.propsType(component), this.program.demands, this.blocks.get(`${component.name}View`)!.generic));
+      if (component.root) this.items.push(...generateVueAotApp(component, this.propsType(component), this.program.demands, this.blocks.get(`${component.name}View`)!.generic, this.lifecycle, this.program.version));
     }
     return { items: this.finishGenerics(), attributes: [{ name: "allow", args: ["unused_variables", "unused_imports", "unused_mut", "dead_code", "non_snake_case", "non_camel_case_types", "non_upper_case_globals", "type_alias_bounds"] }] };
   }
 }
 
 export interface VueAotEmission { files: Record<string, string>; ast: RustModule }
-export function lowerVueAot(program: AotProgram): RustModule { return new Lowerer(program).run(); }
+export function lowerVueAot(program: AotProgram): RustModule { checkAotVersion(program); return new Lowerer(program).run(); }
 export function emitVueAot(program: AotProgram): VueAotEmission {
   const ast = lowerVueAot(program);
   const moduleName = program.root.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();

@@ -119,10 +119,10 @@ export function normalizeVueAotClasses(source: string, filename: string): string
   return source;
 }
 
-function defaultValue(type: AotType, program: AotProgram, seen = new Set<string>()): string {
+export function defaultValue(type: AotType, program: AotProgram, seen = new Set<string>()): string {
   switch (type.kind) {
     case "number": return "0";
-    case "string": return '""';
+    case "style": case "string": return '""';
     case "boolean": return "false";
     case "void": case "undefined": case "option": return "undefined";
     case "array": return type.length === undefined ? "[]" : `[${Array.from({ length: type.length }, () => defaultValue(type.element, program, seen)).join(", ")}]`;
@@ -147,6 +147,7 @@ function defaultValue(type: AotType, program: AotProgram, seen = new Set<string>
 
 /** A declaration-only app receives Vue refs with contract-shaped defaults. */
 export function generateVueAotMock(program: AotProgram, component: AotComponent): string {
+  if (program.version !== 3) throw new Error(`Unsupported AOT IR version ${program.version}; expected 3`);
   const exportedName = (name: string) => /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name);
   if (component.factory) {
     const members = new Map<string, string>();

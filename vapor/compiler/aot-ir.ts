@@ -1,4 +1,4 @@
-/** Serializable, language-neutral boundary between Vue analysis and native code generation. */
+/** Serializable, language-neutral boundary between view analysis and native code generation. */
 import type { StyleRecord, AnimTimeline } from "../../contracts/spec/spec.ts";
 
 export type NumericName = "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "usize" | "f32" | "f64";
@@ -6,7 +6,7 @@ export interface SourceLocation { file: string; line: number; column: number; of
 export interface AotDiagnostic extends SourceLocation { severity: "error" | "warning"; message: string }
 export type AotType =
   | { kind: "number"; name: NumericName }
-  | { kind: "string" | "boolean" | "void" | "undefined" }
+  | { kind: "string" | "boolean" | "void" | "undefined" | "style" }
   | { kind: "option"; value: AotType }
   | { kind: "array"; element: AotType; length?: number }
   | { kind: "tuple"; elements: AotType[] }
@@ -18,17 +18,18 @@ export type AotTypeDeclaration =
   | { kind: "union"; name: string; discriminant: string; variants: { name: string; fields: AotField[] }[] }
   | { kind: "newtype"; name: string; base: AotType; unit?: "Px" | "Ms" | "Deg" | "Color" };
 export type LiteralValue = string | number | boolean;
-export interface AotConstant { name: string; sourceName?: string; type: AotType; value: LiteralValue; rawNumber?: string }
+export interface AotConstant { name: string; sourceName?: string; type: AotType; value: LiteralValue | LiteralValue[]; rawNumber?: string; rawNumbers?: (string | undefined)[] }
 export interface AotValue { name: string; sourceName: string; type: AotType; writable: boolean }
 export interface AotFunction { name: string; sourceName: string; parameters: AotField[]; returns: AotType; binding: boolean; handler: boolean; optional?: boolean }
 export interface AotProp extends AotField { default?: LiteralValue; defaultRawNumber?: string; model?: string }
-export interface AotEvent { name: string; parameters: AotField[] }
+export interface AotEvent { name: string; parameters: AotField[]; optional?: true }
 export interface AotSlot { name: string; parameters: AotField[] }
 export interface AotSlotBinding extends AotField { prop: string }
 export type BindingScope = "vm" | "prop" | "local" | "event" | "inject";
 export type AotExpr = (
   | { kind: "literal"; value: LiteralValue; rawNumber?: string }
   | { kind: "undefined" }
+  | { kind: "constant"; name: string }
   | { kind: "binding"; name: string; scope: BindingScope }
   | { kind: "field"; object: AotExpr; name: string; optional: boolean; variant?: string }
   | { kind: "index"; object: AotExpr; index: AotExpr }
@@ -43,7 +44,9 @@ export type AotExpr = (
 export type AotHandler = (
   | { kind: "call"; expression: AotExpr }
   | { kind: "assign"; name: string; value: AotExpr }
-  | { kind: "emit"; name: string; arguments: AotExpr[] }
+  | { kind: "emit"; name: string; arguments: AotExpr[]; optional?: true }
+  | { kind: "sequence"; steps: AotHandler[] }
+  | { kind: "if"; condition: AotExpr; then: AotHandler[]; else?: AotHandler[] }
 ) & { id: number; loc: SourceLocation };
 export interface AotMemo { id: number; expression: AotExpr }
 export interface AotStyleBinding { prop: number; name: string; value: AotExpr; memo: number }
@@ -56,6 +59,7 @@ export type AotNode =
   | { kind: "slot"; id: number; name: string; props?: { name: string; value: AotExpr }[]; fallback: AotNode[]; loc: SourceLocation };
 export interface AotComponent {
   name: string; file: string; root: boolean;
+  hooks?: { mount?: AotHandler; unmount?: AotHandler };
   provides?: { key: string; value: AotExpr; loc: SourceLocation }[];
   injections?: { key: string; name: string; type: AotType; loc: SourceLocation }[];
   context?: { key: string; type: AotType }[];
@@ -66,7 +70,7 @@ export interface AotComponent {
   children: string[]; nodes: AotNode[]; nodeCount: number; memoCount: number; handlerCount: number;
 }
 export interface AotProgram {
-  version: 2; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
+  version: 3; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
   styles: { records: StyleRecord[]; anims: AnimTimeline[]; ids: Record<string, number>; bytes: number[]; usedFontSlots: number[] };
   diagnostics: AotDiagnostic[];
   demands?: { buttons: number[]; axes: number[]; capabilities: string[] };
@@ -82,3 +86,8 @@ export const STRING: AotType = { kind: "string" };
 export const I32: AotType = { kind: "number", name: "i32" };
 export const F64: AotType = { kind: "number", name: "f64" };
 export function sameType(a: AotType, b: AotType): boolean { return JSON.stringify(a) === JSON.stringify(b); }
+
+/** All IR consumers reject unsupported versions before inspecting the payload. */
+export function checkAotVersion(program: Pick<AotProgram, "version">): void {
+  if (program.version !== 3) throw new Error(`Unsupported AOT IR version ${program.version}; expected 3`);
+}

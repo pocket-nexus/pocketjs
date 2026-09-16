@@ -696,7 +696,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
     }
   }
   demands(components.find(c => c.name === root.name)!.nodes);
-  const program: AotProgram = { version: 2, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  const program: AotProgram = { version: 3, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
   validateVueAotSemantics(program, new Map([...parsed].map(([file, item]) => [file, item.source])));
   const dependencies = new Set(environment.program.getSourceFiles().map(file => resolve(file.fileName)));
   const config = ts.findConfigFile(dirname(entry), ts.sys.fileExists, "tsconfig.json");

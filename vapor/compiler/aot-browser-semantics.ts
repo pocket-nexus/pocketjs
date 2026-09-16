@@ -71,6 +71,7 @@ function normalizeComponentSemantics(source: string, filename: string, program: 
       if (value.kind === "cast" || value.kind === "narrow") return matches(node, value.value);
       switch (value.kind) {
         case "binding": return ts.isIdentifier(node) || value.scope === "prop" && ts.isPropertyAccessExpression(node);
+        case "constant": return ts.isIdentifier(node);
         case "literal": return ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
         case "field": return ts.isPropertyAccessExpression(node);
         case "index": return ts.isElementAccessExpression(node);
