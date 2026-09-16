@@ -56,6 +56,7 @@ export function createServiceClient(namespace: string, options: { httpBase?: str
     } catch { fail(id, "Invalid service reply"); }
   };
   const openFiles = () => {
+    if (mailbox) return true;
     if (!files) files = getOps().svcOpen?.(namespace) ?? false;
     return files;
   };

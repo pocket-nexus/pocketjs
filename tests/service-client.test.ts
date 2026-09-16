@@ -31,6 +31,7 @@ for (const companion of [true, false]) test(`${companion ? "companion" : "mailbo
     } else { incoming.push(JSON.stringify({ t: "ready", id: sent.shift().id })); step(5); }
     expect(replies).toEqual([{ t: "ready", id: 42 }]);
     expect(client.image("thumbs/card.img")).toBe(7); expect(client.openStream("media/one.pkst")).toBe(true);
+    expect(opened).toBe(1); // Reopening a mailbox would discard unread replies.
     expect(client.image("../private")).toBe(-1); expect(assets).toEqual(["thumbs/card.img", "media/one.pkst"]);
     client.send({ t: "slow", id: 43 }, (reply: any) => replies.push(reply)); step(81);
     expect(replies[1]).toMatchObject({ t: "error", id: 43, message: "Service operation timed out" });
