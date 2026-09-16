@@ -8,6 +8,7 @@
 // Toolchain recipes carry over from Pocket Static's target packagers.
 
 import { $ } from "bun";
+import { rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { nesFontBytes, VAPOR_TARGETS, type CompiledApp, type VaporTargetName } from "./compile.ts";
 import { buildEsp32Firmware } from "./esp32.ts";
@@ -147,6 +148,8 @@ export async function buildGbRom(app: CompiledApp, outRom: string): Promise<{ ro
   const outDir = dirname(outRom);
   const genDir = join(outDir, "gen-gb");
   await $`mkdir -p ${genDir}`.quiet();
+  // A failed rebuild must not leave the previous ROM looking current.
+  await rm(outRom, { force: true });
   const genC = join(genDir, "gen_app.c");
   await Bun.write(genC, app.c);
 
@@ -154,13 +157,52 @@ export async function buildGbRom(app: CompiledApp, outRom: string): Promise<{ ro
   const defines = targetDefines("gb");
   const cflags = ["-msm83", "--opt-code-size", ...defines, `-I${RUNTIME}`, `-I${gbDir}`];
 
-  for (const [src, rel] of [
+  // The three translation units have no compile-time dependency on each other
+  // and write distinct outputs, so sdcc runs them concurrently — the external
+  // toolchain dominates a GB build's wall clock. Order below is the link order
+  // used further down and also the order failures are reported in, so a build
+  // that breaks two units at once still prints the same message every run.
+  const units = [
     [join(RUNTIME, "vapor_core.c"), "vapor_core.rel"],
     [join(gbDir, "vapor_gb.c"), "vapor_gb.rel"],
     [genC, "gen_app.rel"],
-  ] as const) {
-    await $`sdcc ${cflags} -c ${src} -o ${join(genDir, rel)}`.quiet();
+  ] as const;
+
+  // A .rel left by an earlier build would otherwise still be on disk when its
+  // sdcc run fails, and the link step cannot tell it apart from a fresh one.
+  await Promise.all(units.map(([, rel]) => rm(join(genDir, rel), { force: true })));
+
+  // `.nothrow()` so one unit's failure does not discard the others' output, and
+  // so sdcc's stderr is available to report instead of a bare exit code.
+  const compiled = await Promise.allSettled(
+    units.map(([src, rel]) =>
+      $`sdcc ${cflags} -c ${src} -o ${join(genDir, rel)}`.quiet().nothrow(),
+    ),
+  );
+  const failures = compiled.flatMap((result, i) => {
+    const rel = units[i][1];
+    if (result.status === "rejected") {
+      const reason: unknown = result.reason;
+      return [{ rel, detail: String(reason instanceof Error ? reason.message : reason) }];
+    }
+    if (result.value.exitCode !== 0) {
+      const stderr = result.value.stderr.toString().trim();
+      const stdout = result.value.stdout.toString().trim();
+      return [{ rel, detail: stderr || stdout || `sdcc exited ${result.value.exitCode}` }];
+    }
+    return [];
+  });
+  if (failures.length > 0) {
+    await Promise.all(failures.map(({ rel }) => rm(join(genDir, rel), { force: true })));
+    const [{ rel }] = failures;
+    const alsoFailed = failures.slice(1).map(({ rel: other }) => other);
+    throw new Error(
+      `sdcc failed compiling ${rel} for target gb${
+        alsoFailed.length > 0 ? ` (${alsoFailed.join(", ")} also failed)` : ""
+      }\n${failures.map((failure) => `${failure.rel}: ${failure.detail.trimEnd()}`).join("\n")}`,
+    );
   }
+
   await $`sdasgb -plosgff -o ${join(genDir, "crt0.rel")} ${join(gbDir, "crt0.s")}`.quiet();
 
   // _HOME holds sdcc's library routines (long div/mod): pin it into ROM
