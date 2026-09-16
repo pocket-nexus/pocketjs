@@ -12,7 +12,7 @@
 // codepoints from literals, so this module is what guarantees the keys (and
 // the € £ ¥ • row) can render.
 
-import { KB_GAP, KB_PAD, KB_ROW_H } from "./keyboard-metrics.ts";
+import { KB_GAP, KB_PAD, KB_ROW_H, KB_W } from "./keyboard-metrics.ts";
 
 export type KbAction = "shift" | "backspace" | "num" | "abc" | "sym" | "globe" | "return";
 
@@ -81,6 +81,10 @@ export const KB_LAYERS: Record<KbLayerName, KbKey[][]> = {
     bottomRow(TO_LETTERS),
   ],
 };
+
+// Preserve the authored key proportions on each logical portrait width.
+for (const rows of Object.values(KB_LAYERS)) for (let r = 0; r < rows.length; r++)
+  rows[r] = rows[r].map(key => ({ ...key, x: key.x * KB_W / 320, w: key.w * KB_W / 320 }));
 
 export interface KbPos {
   row: number;

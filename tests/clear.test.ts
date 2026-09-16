@@ -96,6 +96,19 @@ describe("Pocket Clear on the sim", () => {
     const tree = world.getTree();
     expect(treeHasText(tree, "Swipe right to complete")).toBe(true);
     expect(treeHasText(tree, "Pinch two rows apart to insert")).toBe(true);
+    // Short and long titles share the row's 12-point left inset.
+    const pixels = world.render();
+    for (let row = 0; row < 4; row++) {
+      let left = W;
+      for (let y = row * ROW_H; y < (row + 1) * ROW_H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = (y * W + x) * 4;
+          if (pixels[i] > 210 && pixels[i + 1] > 210 && pixels[i + 2] > 210) left = Math.min(left, x);
+        }
+      }
+      expect(left).toBeGreaterThanOrEqual(12);
+      expect(left).toBeLessThanOrEqual(16);
+    }
   });
 
   test("swipe right completes the row under the finger", async () => {
@@ -176,6 +189,55 @@ describe("Pocket Clear on the sim", () => {
     await tapKey("lower", (key) => key.action === "return");
     await idle(20);
     expect(treeHasText(world.getTree(), "Z5€m|")).toBe(false);
+  });
+
+  test("held space scrubs the real editor; held backspace deletes and stops at lift", async () => {
+    await tap(160, rowCenterY(0));
+    await idle(20);
+    const [bx, by] = keyCenter(key => key.action === "backspace");
+    for (let i = 0; i < 180; i++) await step([__packTouch(0, bx, by)]);
+    await step();
+    // Probe a blank part of q's popup: quick taps retain it, then fade;
+    // holding a character keeps it up beyond the minimum display duration.
+    const [qx, qy] = keyCenter(key => key.ch === "q");
+    const pixel = () => Array.from(world.render().slice(((qy - 64) * W + qx) * 4, ((qy - 64) * W + qx) * 4 + 3));
+    const empty = pixel();
+    await step([__packTouch(0, qx, qy)]); await step();
+    const raised = pixel(); expect(raised).not.toEqual(empty);
+    await idle(10); expect(pixel()).toEqual(raised);
+    await idle(20); expect(pixel()).toEqual(empty);
+    for (let i = 0; i < 35; i++) await step([__packTouch(0, qx, qy)]);
+    expect(pixel()).toEqual(raised);
+    await step(); await idle(5); expect(pixel()).toEqual(raised);
+    await idle(20); expect(pixel()).toEqual(empty);
+    await tapKey("lower", key => key.action === "backspace");
+    await tapKey("lower", key => key.action === "backspace");
+    for (const ch of "abcdef") await tapKey("lower", key => key.ch === ch);
+    expect(treeHasText(world.getTree(), "abcdef|")).toBe(true);
+    const [sx, sy] = keyCenter(key => key.ch === " ");
+    const spacePixel = () => Array.from(world.render().slice((sy * W + sx - 60) * 4, (sy * W + sx - 60) * 4 + 3));
+    const restingCap = spacePixel();
+    await step([__packTouch(0, sx, sy)]);
+    const pressedCap = spacePixel(); expect(pressedCap).not.toEqual(restingCap);
+    // The cap stays pressed before and across the shorter 200 ms activation.
+    for (let i = 0; i < 8; i++) await step([__packTouch(0, sx, sy)]);
+    expect(spacePixel()).toEqual(pressedCap);
+    for (let i = 0; i < 6; i++) await step([__packTouch(0, sx, sy)]);
+    expect(spacePixel()).toEqual(pressedCap); // activation must not release the cap
+    await step([__packTouch(0, sx - 30, sy)]);
+    await step(); await idle(13);
+    expect(spacePixel()).toEqual(restingCap);
+    expect(treeHasText(world.getTree(), "abc|def")).toBe(true);
+    await tapKey("lower", key => key.ch === "x");
+    expect(treeHasText(world.getTree(), "abcx|def")).toBe(true);
+    for (let i = 0; i < 40; i++) await step([__packTouch(0, bx, by)]);
+    await step(); await idle(30);
+    expect(treeHasText(world.getTree(), "|def")).toBe(true);
+    await tapKey("lower", key => key.ch === "q");
+    await idle(30); // no delayed repeat may erase q
+    expect(treeHasText(world.getTree(), "q|def")).toBe(true);
+    await tapKey("lower", key => key.action === "return");
+    await idle(20);
   });
 
   test("pull up past the end clears the done pile", async () => {

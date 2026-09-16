@@ -512,7 +512,7 @@ static JSValue host_operation(
         if (columns) JS_FreeCString(ctx, columns); if (palette) JS_FreeCString(ctx, palette);
         if (!valid) return JS_NewInt32(ctx, -1);
       }
-      unsigned padded_height = 8; while (padded_height < (unsigned)height) padded_height *= 2;
+      unsigned padded_height = coverage_height((unsigned)height);
       return JS_NewInt32(ctx, ui_upload_texture(coverage_pixels, envelope * padded_height * 4, envelope, padded_height, 3));
     }
     case HostOffloadSession: return JS_NewInt32(ctx, offload_session());

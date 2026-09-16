@@ -13,6 +13,11 @@ The bundled application is Pocket Clear (`apps/clear`), a Vue Vapor guest
 whose input is entirely gestures; its acceptance receipt is the
 `clear_gesture` action counter.
 
+Clear also supports **companion-backed Chinese pinyin composition** through
+`io.offload`. The device owns the editor and a bounded input transcript; a
+POSIX worker transfers requests to the Mac, where Rime and a CJK font produce
+candidates and coverage tiles. See [Clear IME setup and device validation](CLEAR_IME.md).
+
 ## Multi-contact touch
 
 This target is the reason the legacy UIKit runtime tracks a touch slot table

@@ -28,8 +28,8 @@ test("homepage retains existing case evidence and adds device setup routes", () 
   const ecosystem = sections.find(([, id]) => id === "ecosystem")![0];
   for (const [paragraph] of ecosystem.matchAll(/<p>[\s\S]*?<\/p>/g)) expect(html).toContain(paragraph);
   for (const [link] of ecosystem.matchAll(/<a class="story"[\s\S]*?<\/a>/g)) expect(html).toContain(link);
-  expect(html.match(/data-app-card/g)).toHaveLength(10);
-  for (const id of ["pocket-doc", "pocket-shell", "pocket-term", "pspman"]) {
+  expect(html.match(/data-app-card/g)).toHaveLength(11);
+  for (const id of ["pocket-map", "pocket-doc", "pocket-shell", "pocket-term", "pspman"]) {
     expect(html).toContain(`id="try-${id}"`);
   }
   expect(html).toContain('content="index,follow"');
@@ -41,7 +41,7 @@ test("approved hero strip exposes four setup routes without a second all-cases l
   const html = renderHomeShowcase(home);
   const shelf = html.match(/<aside class="pe-shelf[\s\S]*?<\/aside>/)![0];
   expect([...shelf.matchAll(/data-open-app="([^"]+)"/g)].map((match) => match[1]))
-    .toEqual(["pocket-shell", "openstrike", "pocket-voxel", "pspman"]);
+    .toEqual(["pspman", "pocket-shell", "openstrike", "pocket-voxel"]);
   expect(shelf).not.toContain("All cases");
   expect(shelf).toContain("Nintendo 3DS");
   expect(shelf).toContain("PS Vita");

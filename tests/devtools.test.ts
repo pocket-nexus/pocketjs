@@ -22,7 +22,7 @@ import {
   fmt,
   type Tape,
 } from "../framework/src/devtools.ts";
-import { touches, __packTouch } from "../framework/src/touch.ts";
+import { touches, __packTouch, __packTouchCancel } from "../framework/src/touch.ts";
 import { onFrame, rightAnalogRaw, rightAnalogX, rightAnalogY } from "../framework/src/lifecycle.ts";
 import {
   createComponent,
@@ -408,6 +408,17 @@ describe("tape v2 touch track", () => {
       touches,
     );
   }
+
+  test("a full snapshot retains all terminal cancellations in the recorded tape", () => {
+    mountApp(() => View({}));
+    const words = [...Array.from({ length: 8 }, (_, i) => __packTouch(i + 8, 10, 20)),
+      ...Array.from({ length: 8 }, (_, i) => __packTouchCancel(i))];
+    frameTouch(0, words);
+    push({ t: "dumpTape" }); frame(0);
+    const tape = sent("tape")[0].tape as Tape;
+    expect(tape.touch).toEqual([[0, words]]);
+    expect(expandTapeTouch(tape)![0]).toEqual(words);
+  });
 
   test("a touch-free session still exports v:1 with no touch key", () => {
     mountApp(() => View({}));

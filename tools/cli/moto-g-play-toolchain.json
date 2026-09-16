@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "toolchainVersion": "moto-g-play-api34-v1",
+  "cachePath": "android",
+  "android": {
+    "apiLevel": 34,
+    "platformVersion": "14",
+    "buildToolsVersion": "35.0.0",
+    "ndkVersion": "27.1.12297006",
+    "abi": "arm64-v8a",
+    "clangTarget": "aarch64-linux-android23",
+    "repository": "https://dl.google.com/android/repository/",
+    "packages": []
+  },
+  "javaImage": "eclipse-temurin:17-jdk-jammy@sha256:29467857e8bde40ab1f7befecbda0ea764b95afec1cc7f89aa90f7a766577e19",
+  "quickjs": {
+    "version": "2026-06-04",
+    "repository": "https://github.com/pocket-stack/quickjs-rs.git",
+    "revision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
+  },
+  "rust": {
+    "toolchain": "nightly-2026-07-02",
+    "target": "aarch64-linux-android"
+  },
+  "app": {
+    "manifest": "apps/clear/pocket.android.json",
+    "output": "dist/moto-g-play/pocket-clear.apk"
+  }
+}

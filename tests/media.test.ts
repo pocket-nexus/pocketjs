@@ -81,7 +81,7 @@ test("one-use media ticket delivers a bounded stream and rejects reuse",async()=
   const source=server.publish(mediaHeader(0,1000),async function*(){yield {kind:1,ptsMs:0,data:Uint8Array.of(0,0,1,0x65)};});
   const receive=()=>new Promise<Buffer>((resolve,reject)=>{
     const socket=createConnection(source.port,source.host,()=>socket.write(source.token));
-    const chunks:Buffer[]=[];socket.on("data",chunk=>chunks.push(chunk));socket.on("error",reject);
+    const chunks:Buffer[]=[];socket.on("data",chunk=>chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk));socket.on("error",reject);
     socket.on("close",()=>resolve(Buffer.concat(chunks)));
   });
   try { const bytes=await receive();expect(bytes.readUInt32LE(0)).toBe(MEDIA.magic);expect(bytes[32]).toBe(1);expect(bytes[52]).toBe(3);expect((await receive()).length).toBe(0); }

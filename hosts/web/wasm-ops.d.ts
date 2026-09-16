@@ -48,7 +48,7 @@ export interface WasmUi {
 
 export declare function createWasmUi(
   wasm: ArrayBuffer | Uint8Array | WebAssembly.Module,
-  options?: { width?: number; height?: number; rasterDensity?: number },
+  options?: { width?: number; height?: number; rasterDensity?: number; auxiliary?: [number, number] },
 ): Promise<WasmUi>;
 
 export declare function uploadPackImages(

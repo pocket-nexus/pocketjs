@@ -1,0 +1,31 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.clear",
+  "name": "pocketjs-clear",
+  "title": "Pocket Clear",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "input.touch",
+        "text.glyphs.baked",
+        "io.offload"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/clear/main.tsx",
+    "output": "clear-main",
+    "framework": "vue-vapor",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          360,
+          800
+        ],
+        "presentation": "native"
+      }
+    }
+  }
+}

@@ -101,8 +101,8 @@ export function entries(prefix = ""): string[] {
   return out;
 }
 
-/** Raw bytes of a blob as a fresh Uint8Array (copy); throws on a missing key. */
-export function get(key: string): Uint8Array {
+/** Raw bytes (or a bounded byte range) as a fresh copy; throws if absent. */
+export function get(key: string, start = 0, end?: number): Uint8Array {
   ensureLoaded();
   const e = map ? map.get(key) : undefined;
   if (!e) {
@@ -113,7 +113,10 @@ export function get(key: string): Uint8Array {
     );
   }
   // .slice() copies into a fresh, offset-0, length-exact ArrayBuffer.
-  return bytes!.slice(e.off, e.off + e.len);
+  const stop = end ?? e.len;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(stop) || start < 0 || stop < start || stop > e.len)
+    throw new RangeError("pak: invalid byte range");
+  return bytes!.slice(e.off + start, e.off + stop);
 }
 
 /** Advisory element dtype (spec PAK_DTYPE) of a blob; throws if absent. */

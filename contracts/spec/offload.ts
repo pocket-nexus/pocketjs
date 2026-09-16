@@ -13,10 +13,12 @@ export interface OffloadOps {
   submit(record: string): boolean;
   /** At most one complete record per host frame. Never performs IO. */
   take(): string | undefined;
-  /** Optional bounded 2-bit coverage upload. At most 512x16, one per frame.
-   * Foreground is ABGR; alpha comes from coverage. Optional columns provide one
-   * lowercase hex palette index per pixel column; palette is 1..16 RGB hex colors.
-   * Coloring uses the same scratch buffer and one upload. Returns a texture handle. */
+  /** 2-bit coverage; width 4..512 in multiples of 4, height 1..128.
+   * Power-of-two envelope: min width 8, min height 16, at most 8192 pixels
+   * on POSIX hosts; the 3DS permits 16384 envelope pixels for multiline text.
+   * Source coverage stays within 8192 pixels and one upload per frame.
+   * Foreground is ABGR. Optional columns carry one lowercase hex palette index
+   * per column; palette contains 1..16 concatenated RGB hex colors. */
   uploadCoverage?(base64: string, width: number, height: number, foreground: number, columns?: string, palette?: string): number;
 }
 export interface OffloadRequest { v: 1; id: number; method: string; payload: string }

@@ -10,6 +10,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#ifdef POCKET_OFFLOAD_POSIX
+#include "offload_qjs.h"
+#endif
 
 #ifndef POCKETJS_TARGET_ID
 #error "POCKETJS_TARGET_ID must come from the verified ResolvedBuildPlan"
@@ -488,6 +491,9 @@ static int add_host_operation(
 }
 
 static int install_host(int width, int height) {
+#ifdef POCKET_OFFLOAD_POSIX
+  if (!install_offload(context, global)) return 0;
+#endif
   JSValue ui = JS_NewObject(context);
   if (JS_IsException(ui)) return 0;
   if (!add_host_operation(context, ui, "createNode", 1, HostCreateNode) ||
@@ -575,6 +581,9 @@ static int drain_jobs(void) {
 }
 
 void pocket_runtime_shutdown(void) {
+#ifdef POCKET_OFFLOAD_POSIX
+  pocket_offload_stop();
+#endif
   if (context != 0) {
 #if defined(POCKET_RUNTIME_HARNESS)
     if (!JS_IsUndefined(harness_function)) JS_FreeValue(context, harness_function);
@@ -699,10 +708,14 @@ static int run_frame(
   uint32_t buttons,
   const PocketRuntimeContact *contacts,
   unsigned int contact_count,
+  const int *cancelled, unsigned int cancelled_count,
   unsigned int tick_count
 ) {
   unsigned int tick;
   unsigned int index;
+#ifdef POCKET_OFFLOAD_POSIX
+  offload_submissions = offload_deliveries = offload_uploads = 0;
+#endif
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
 #ifdef POCKET_SVC_WIRE
   /* Bounded, non-blocking: discovery, connect, rx and tx progress once per
@@ -723,12 +736,7 @@ static int run_frame(
   }
   for (index = 0; index < contact_count; index += 1) {
     const PocketRuntimeContact *contact = &contacts[index];
-    uint32_t id = (uint32_t)(contact->id & 0xff);
-    uint32_t x = (uint32_t)(contact->x < 0 ? 0 : contact->x > 1023 ? 1023 : contact->x);
-    uint32_t y = (uint32_t)(contact->y < 0 ? 0 : contact->y > 1023 ? 1023 : contact->y);
-    uint32_t packed = x > 511 || y > 511
-      ? 0x80000000U | (id << 20) | (y << 10) | x
-      : (id << 18) | (y << 9) | x;
+    uint32_t packed = pocket_runtime_pack_contact(contact);
     if (JS_SetPropertyUint32(
           context,
           touch_array,
@@ -746,6 +754,13 @@ static int run_frame(
       take_exception(context);
       runtime_failed = 1;
       return 0;
+    }
+  }
+  for (index = 0; index < cancelled_count && index < POCKET_RUNTIME_MAX_CONTACTS; index++) {
+    if (JS_SetPropertyUint32(context, touch_array, contact_count + index,
+          JS_NewInt32(context, (int32_t)pocket_runtime_pack_cancel(cancelled[index]))) < 0) {
+      JS_FreeValue(context, hit_array); JS_FreeValue(context, touch_array);
+      take_exception(context); runtime_failed = 1; return 0;
     }
   }
   JSValue arguments[4] = {
@@ -804,12 +819,12 @@ int pocket_runtime_tick(const PocketRuntimeInput *input) {
     input->touch_y,
     input->touch_hit
   );
-  return run_frame(input->buttons, &contact, count, 1);
+  return run_frame(input->buttons, &contact, count, NULL, 0, 1);
 }
 
 int pocket_runtime_tick_contacts(const PocketRuntimeContactsInput *input) {
   if (input == 0) return 0;
-  return run_frame(input->buttons, input->contacts, input->contact_count, 1);
+  return run_frame(input->buttons, input->contacts, input->contact_count, input->cancelled, input->cancelled_count, 1);
 }
 
 int pocket_runtime_frame_contacts(
@@ -817,7 +832,7 @@ int pocket_runtime_frame_contacts(
   unsigned int tick_count
 ) {
   if (input == 0) return 0;
-  return run_frame(input->buttons, input->contacts, input->contact_count, tick_count);
+  return run_frame(input->buttons, input->contacts, input->contact_count, input->cancelled, input->cancelled_count, tick_count);
 }
 
 int pocket_runtime_frame_ticks(
@@ -829,7 +844,7 @@ int pocket_runtime_frame_ticks(
 ) {
   PocketRuntimeContact contact;
   unsigned int count = single_contact(&contact, touch_down, touch_x, touch_y, touch_hit);
-  return run_frame(0, &contact, count, tick_count);
+  return run_frame(0, &contact, count, NULL, 0, tick_count);
 }
 
 int pocket_runtime_frame(int touch_down, int touch_x, int touch_y, int touch_hit) {

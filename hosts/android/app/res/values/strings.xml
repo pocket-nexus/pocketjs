@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Rendered from the resolved plan's app title by tools/blackberry-android.ts. -->
+    <string name="app_name">@POCKET_TITLE@</string>
+</resources>

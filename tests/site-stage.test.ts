@@ -316,11 +316,11 @@ test("playground wraps its live framebuffer in the PSP model", () => {
   expect(adapter).toContain("if (suppliedHost)");
   expect(adapter).toContain("const onSuppliedHostError = stageHost.onError");
   expect(adapter).toContain("releaseButton();\n        onSuppliedHostError(error);");
-  expect(adapter).toContain("const modelUrl = STAGE_ROOT + profile.lods.orbit");
+  expect(adapter).toContain("new URL(profile.lods.orbit, new URL(profileUrl, location.href))");
   expect(adapter).toContain("loader.loadAsync(modelUrl)");
   expect(adapter).toContain("screenCanvasId: screenCanvas.id || null");
   expect(adapter).toContain("lastPressedPart");
-  expect(adapter).toContain("return { refreshScreen, releaseInput: releaseButton }");
+  expect(adapter).toContain("return { refreshScreen, releaseInput: releaseButton,");
 
   const build = readFileSync(ROOT + "site/build.ts", "utf8");
   expect(build).not.toContain("screen.css");
@@ -450,7 +450,7 @@ test("the icon family is rendered from one drawing and linked from every head", 
   expect(ICON_LINKS).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png">');
   // Safari could not render an SVG favicon before version 26, so the raster
   // favicons have to reach a size a Favorites tile can use.
-  const pngFavicons = [...ICON_LINKS.matchAll(/rel="icon" href="\/([^"]+\.png)" type="image\/png" sizes="(\d+)x/g)];
+  const pngFavicons = [...ICON_LINKS.matchAll(/rel="icon" href="\/([^"?]+\.png)(?:\?[^" ]*)?" type="image\/png" sizes="(\d+)x/g)];
   expect(Math.max(...pngFavicons.map((m) => Number(m[2])))).toBeGreaterThanOrEqual(192);
   for (const [, file, size] of pngFavicons) {
     expect(ihdr(file)).toEqual([Number(size), Number(size)]);
@@ -513,13 +513,12 @@ test("the icon family is rendered from one drawing and linked from every head", 
   expect(svg).toContain("<svg");
 });
 
-test("public PocketJS icon surfaces keep the arcade mark on the plum backing", () => {
+test("PocketJS favicon uses the yellow shell as its outer silhouette", () => {
   const favicon = readFileSync(ROOT + "site/assets/favicon.svg", "utf8");
   const backing = '<rect width="32" height="32" rx="7" fill="#171226"/>';
   const shell = 'rx="6" fill="none" stroke="#ffd23f" stroke-width="2.6"';
-  expect(favicon).toContain(backing);
-  expect(favicon).toContain(shell);
-  expect(favicon.indexOf(backing)).toBeLessThan(favicon.indexOf(shell));
+  expect(favicon).not.toContain(backing);
+  expect(favicon).toContain('rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"');
   // One flat hue per element, so the mark survives being scaled down: the
   // shell is yellow, the screen dot and short key pink, the long key cyan.
   expect(favicon).not.toContain("Gradient");

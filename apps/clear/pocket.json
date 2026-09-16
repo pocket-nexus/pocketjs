@@ -7,7 +7,13 @@
   "version": "0.1.0",
   "engine": {
     "capabilities": {
-      "requires": ["input.touch", "text.glyphs.baked"]
+      "requires": [
+        "input.touch",
+        "text.glyphs.baked"
+      ],
+      "enhances": [
+        "io.offload"
+      ]
     }
   },
   "app": {
@@ -16,7 +22,10 @@
     "framework": "vue-vapor",
     "viewport": {
       "fixed": {
-        "logical": [320, 480],
+        "logical": [
+          320,
+          480
+        ],
         "presentation": "native"
       }
     }

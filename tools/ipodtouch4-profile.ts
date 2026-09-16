@@ -36,7 +36,7 @@ export const IPODTOUCH4_DEV_CONTRACTS = definePlatformContractRegistry(
         presentations: ["native"],
         rasterDensity: IPODTOUCH4_RASTER_DENSITY,
       },
-      capabilities: ["input.touch", "text.glyphs.baked"],
+      capabilities: ["input.touch", "text.glyphs.baked", "io.offload"],
     },
   }),
 );

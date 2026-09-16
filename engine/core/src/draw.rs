@@ -2135,8 +2135,8 @@ impl<'a> Walker<'a> {
         }
         // Flat fills: four baked-disc corner sprites + three rects — O(1)
         // ops per box instead of per-row coverage spans (the spans cost
-        // ~7 ms/frame of PSP CPU on rounded-heavy screens). Gradients keep
-        // the exact span path below.
+        // ~7 ms/frame of PSP CPU on rounded-heavy screens). High-density
+        // gradients use tinted mask strips below.
         if let Fill::Flat(color) = fill {
             let r_px = roundf(r).max(1.0) as u32;
             // Bake discs only for small radii: UI corner radii recur and
@@ -2182,6 +2182,52 @@ impl<'a> Walker<'a> {
                     self.emit_screen_rect(dl, qx0, qy0 + rf, qx1, qy1 - rf, mid, clip);
                     self.emit_screen_rect(dl, qx0 + rf, qy0, qx1 - rf, qy0 + rf, mid, clip);
                     self.emit_screen_rect(dl, qx0 + rf, qy1 - rf, qx1 - rf, qy1, mid, clip);
+                    return;
+                }
+            }
+        }
+        // At high raster density, logical-pixel coverage spans magnify the
+        // corner staircase. Reuse the density-scaled mask, tinting strips in
+        // the gradient's global coordinates. Colour animation shares the same
+        // bounded radius cache; neither the wire format nor layout changes.
+        let r_px = roundf(r).max(1.0) as u32;
+        if self.raster_density > 1 && r_px <= 32 && matches!(fill, Fill::Grad { .. }) {
+            let qx0 = roundf(sx0);
+            let qy0 = roundf(sy0);
+            let qx1 = roundf(sx1);
+            let qy1 = roundf(sy1);
+            // Integer splits avoid overlapping half-pixel strips on odd sizes.
+            let rf = (r_px as f32).min(floorf((qx1 - qx0) * 0.5)).min(floorf((qy1 - qy0) * 0.5));
+            if rf >= 1.0 {
+                if let Some((tex, dim)) = disc_texture(self.discs, self.textures, self.tex_free, r_px, self.raster_density) {
+                    let du = (r_px * self.raster_density) as f32 / dim as f32;
+                    let vertical = vertical_gradient(&fill);
+                    let (a0, a1) = if vertical {
+                        (qy0.max(floorf(clip.y0)).max(0.0), qy1.min(ceilf(clip.y1)).min(self.screen.1))
+                    } else {
+                        (qx0.max(floorf(clip.x0)).max(0.0), qx1.min(ceilf(clip.x1)).min(self.screen.0))
+                    };
+                    // Group masks into one texture batch. The center uses
+                    // clipped full-box gradients: a constant number of quads,
+                    // with the same global stops as the corner strips.
+                    for a in a0 as i32..a1 as i32 {
+                        let strip = if vertical {
+                            Clip { x0: clip.x0, y0: clip.y0.max(a as f32), x1: clip.x1, y1: clip.y1.min((a + 1) as f32) }
+                        } else {
+                            Clip { x0: clip.x0.max(a as f32), y0: clip.y0, x1: clip.x1.min((a + 1) as f32), y1: clip.y1 }
+                        };
+                        let color = fill_color_at(&fill, sx0, sy0, sx1, sy1, a, a, a + 1, 255);
+                        for &(cx, cy, u, v) in &[(qx0, qy0, 0.0, 0.0), (qx1-rf, qy0, du, 0.0),
+                            (qx0, qy1-rf, 0.0, du), (qx1-rf, qy1-rf, du, du)] {
+                            self.emit_corner_quad(dl, tex, cx, cy, rf, u, v, du, color, &strip);
+                        }
+                    }
+                    for &(x0, y0, x1, y1) in &[(qx0, qy0 + rf, qx1, qy1 - rf),
+                        (qx0 + rf, qy0, qx1 - rf, qy0 + rf), (qx0 + rf, qy1 - rf, qx1 - rf, qy1)] {
+                        let center = Clip { x0: x0.max(clip.x0), y0: y0.max(clip.y0),
+                            x1: x1.min(clip.x1), y1: y1.min(clip.y1) };
+                        self.emit_screen_rect(dl, sx0, sy0, sx1, sy1, fill, &center);
+                    }
                     return;
                 }
             }

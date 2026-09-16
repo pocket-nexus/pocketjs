@@ -116,7 +116,7 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
     receiptSlug: "pocketjs-ipodtouch4",
     actionName: ACTION_NAME,
     svcWire: false,
-    keepAwake: false,
+    keepAwake: true,
   },
 };
 
@@ -700,6 +700,9 @@ async function build(): Promise<void> {
     // so it needs the same switch as the guest runtime.
     ...(APP.svcWire ? ["-DPOCKET_SVC_WIRE"] : []),
   ];
+  const offloadDefines = ["-DPOCKET_OFFLOAD_POSIX", "-I", join(REPOSITORY, "hosts/shared")];
+  const offloadObject = join(nativeBuild, "offload_posix.o");
+  compile(join(REPOSITORY, "hosts/shared/offload_posix.c"), offloadObject, [...warnings, ...offloadDefines]);
   const svcWireDefines = APP.svcWire ? ["-DPOCKET_SVC_WIRE", "-I", join(REPOSITORY, "hosts/ios-legacy")] : [];
   const crtGlobalsObject = join(nativeBuild, "crt_globals.o");
   const runtimeIdentityObject = join(nativeBuild, "runtime.build-id-input.o");
@@ -716,6 +719,7 @@ async function build(): Promise<void> {
   compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntimeObject, [
     ...warnings,
     ...svcWireDefines,
+    ...offloadDefines,
     `-DPOCKETJS_TARGET_ID=\"${inputs.target}\"`,
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -755,6 +759,7 @@ async function build(): Promise<void> {
     { label: "native/crt_globals.o", path: crtGlobalsObject },
     { label: "native/runtime.build-id-input.o", path: runtimeIdentityObject },
     { label: "native/pocket_runtime.o", path: pocketRuntimeObject },
+    { label: "native/offload_posix.o", path: offloadObject },
     ...(APP.svcWire ? [{ label: "native/svcwire.o", path: svcWireObject }] : []),
     { label: "native/compat.o", path: compatObject },
     ...quickJsObjects.map((path) => ({ label: `native/${path.slice(nativeBuild.length + 1)}`, path })),
@@ -782,7 +787,7 @@ async function build(): Promise<void> {
     "-no_source_version", "-no_compact_unwind", "-no_adhoc_codesign", "-no_encryption",
     "-e", "start", "-o", executable, join(nativeBuild, "csu-start.o"),
     join(nativeBuild, "csu-dyld-glue.o"), crtGlobalsObject,
-    runtimeObject, pocketRuntimeObject, ...(APP.svcWire ? [svcWireObject] : []), compatObject,
+    runtimeObject, pocketRuntimeObject, offloadObject, ...(APP.svcWire ? [svcWireObject] : []), compatObject,
     "-force_load", rustLibrary, ...quickJsObjects,
     "-sectcreate", "__DATA", "__pocket_js", embeddedJavaScript,
     "-sectcreate", "__DATA", "__pocket_pak", guestPak,

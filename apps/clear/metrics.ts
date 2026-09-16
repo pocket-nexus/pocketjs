@@ -3,8 +3,10 @@
 // thresholds at one and two row heights of DISPLAYED overscroll, swipes
 // committing at one row height of travel.
 
-export const SCREEN_W = 320;
-export const SCREEN_H = 480;
+import { detectHost, hostViewport } from "@pocketjs/framework/host";
+const viewport = (() => { try { return hostViewport(detectHost().ops); } catch { return null; } })();
+export const SCREEN_W = viewport?.w ?? 320;
+export const SCREEN_H = viewport?.h ?? 480;
 
 /** Row height, todo and list rows alike. */
 export const ROW_H = 62;

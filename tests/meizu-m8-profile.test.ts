@@ -171,7 +171,7 @@ describe("private Meizu M8 build profile", () => {
     expect(runtime).not.toContain("HWND_TOPMOST");
     expect(runtime).toContain("word == VK_HOME || word == VK_ESCAPE");
     expect(runtime).not.toContain("case WM_ACTIVATE:");
-    expect(guestRuntime).toContain("0x80000000U | (id << 20) | (y << 10) | x");
+    expect(guestRuntime).toContain("pocket_runtime_pack_contact(contact)");
     expect(guestRuntime).toContain("return pocket_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 2)");
     expect(runtime).toContain("pocket_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 1)");
     expect(runtime).toContain("touch_hit = pocket_runtime_hit_test_bounds");

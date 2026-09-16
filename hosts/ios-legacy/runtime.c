@@ -1,4 +1,5 @@
 #include "pocket_runtime.h"
+#include "../shared/contact_latch.h"
 /* The svc transport's state, for the acceptance record: "absent" on builds
  * without the network channel, else discover / connecting / hello / up /
  * up-usb / backoff (svcwire.c). */
@@ -236,13 +237,12 @@ typedef struct {
   int live;
   int ending;
   int was_sent;
-  int needs_hit;
-  int hit;
   int x;
   int y;
 } PocketTouchSlot;
 
 static PocketTouchSlot g_touch_slots[POCKET_TOUCH_SLOT_COUNT];
+static PocketContactLatch g_contacts;
 /* Most recent contact position and hit, kept for the acceptance record. */
 static int g_touch_x;
 static int g_touch_y;
@@ -1295,27 +1295,10 @@ static void pocket_tick(id self, SEL command, id timer) {
     return;
   }
 
-  {
-    int index;
-    frame_input.buttons = 0;
-    frame_input.contact_count = 0;
-    for (index = 0; index < POCKET_TOUCH_SLOT_COUNT; index += 1) {
-      PocketTouchSlot *slot = &g_touch_slots[index];
-      PocketRuntimeContact *contact;
-      if (!slot->live && !slot->ending) continue;
-      if (slot->needs_hit) {
-        slot->hit = pocket_runtime_hit_test_bounds((float)slot->x, (float)slot->y);
-        g_last_touch_hit = slot->hit;
-        slot->needs_hit = 0;
-      }
-      contact = &frame_input.contacts[frame_input.contact_count];
-      contact->id = index;
-      contact->x = slot->x;
-      contact->y = slot->y;
-      contact->hit = slot->hit;
-      frame_input.contact_count += 1;
-    }
-  }
+  memset(&frame_input, 0, sizeof frame_input);
+  pocket_contacts_sample(&g_contacts, &frame_input, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT,
+    POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, pocket_runtime_hit_test_bounds);
+  if (frame_input.contact_count) g_last_touch_hit = frame_input.contacts[frame_input.contact_count - 1].hit;
   delivered_touch = frame_input.contact_count > 0;
   frame_started_us = now_us();
   if (!pocket_runtime_frame_contacts(&frame_input, 2)) {
@@ -1334,8 +1317,6 @@ static void pocket_tick(id self, SEL command, id timer) {
         /* The release-latched contact has now been delivered once. */
         slot->ending = 0;
         slot->was_sent = 0;
-        slot->needs_hit = 0;
-        slot->hit = 0;
       }
     }
   }
@@ -1463,6 +1444,8 @@ static PocketTouchSlot *touch_slot_for(id touch) {
 }
 
 static void touch_slot_begin(PocketTouchSlot *slot, id touch, int x, int y) {
+  if (!pocket_contact_event(&g_contacts, POCKET_TOUCH_DOWN, (int)(slot - g_touch_slots),
+        (float)x, (float)y, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT)) return;
   slot->touch = touch;
   slot->live = 1;
   slot->ending = 0;
@@ -1474,12 +1457,8 @@ static void touch_slot_begin(PocketTouchSlot *slot, id touch, int x, int y) {
   g_touch_sequences += 1;
   g_touch_awaiting_completion = 0;
   if (g_state == POCKET_STATE_RUNNING) {
-    slot->hit = pocket_runtime_hit_test_bounds((float)x, (float)y);
-    slot->needs_hit = 0;
-    g_last_touch_hit = slot->hit;
-  } else {
-    slot->hit = 0;
-    slot->needs_hit = 1;
+    g_last_touch_hit = pocket_runtime_hit_test_bounds((float)x, (float)y);
+    pocket_contact_hit(&g_contacts, (int)(slot - g_touch_slots), g_last_touch_hit);
   }
 }
 
@@ -1493,6 +1472,8 @@ static PocketTouchSlot *touch_slot_allocate(void) {
 }
 
 static void touch_slot_move(PocketTouchSlot *slot, int x, int y) {
+  pocket_contact_event(&g_contacts, POCKET_TOUCH_MOVE, (int)(slot - g_touch_slots),
+    (float)x, (float)y, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT);
   slot->x = x;
   slot->y = y;
   g_touch_x = x;
@@ -1502,6 +1483,8 @@ static void touch_slot_move(PocketTouchSlot *slot, int x, int y) {
 static void touch_slot_end(PocketTouchSlot *slot, int x, int y) {
   if (!slot->live) return;
   touch_slot_move(slot, x, y);
+  pocket_contact_event(&g_contacts, POCKET_TOUCH_UP, (int)(slot - g_touch_slots),
+    (float)x, (float)y, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT);
   slot->touch = NULL;
   slot->live = 0;
   if (touch_live_count() == 0) {
@@ -1509,8 +1492,6 @@ static void touch_slot_end(PocketTouchSlot *slot, int x, int y) {
   }
   if (slot->was_sent) {
     slot->ending = 0;
-    slot->needs_hit = 0;
-    slot->hit = 0;
   } else {
     /* Keep a very short tap alive until at least one delivered guest frame. */
     slot->ending = 1;
@@ -1595,6 +1576,19 @@ static void visit_touch_ended(id self, id touch, int x, int y) {
   PocketTouchSlot *slot = touch_slot_for(touch);
   (void)self;
   if (slot != NULL) touch_slot_end(slot, x, y);
+}
+
+static void visit_touch_cancelled(id self, id touch, int x, int y) {
+  PocketTouchSlot *slot = touch_slot_for(touch);
+  (void)self;
+  if (!slot) return;
+  pocket_contact_event(&g_contacts, POCKET_TOUCH_CANCEL, (int)(slot - g_touch_slots),
+    (float)x, (float)y, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT);
+  memset(slot, 0, sizeof *slot);
+}
+static void pocket_touches_cancelled(id self, SEL command, id touches, id event) {
+  (void)command; (void)event;
+  visit_touches(self, touches, visit_touch_cancelled);
 }
 
 static void pocket_touches_began(
@@ -1918,7 +1912,7 @@ static Class register_view_class(void) {
     class_addMethod(
       cls,
       sel_registerName("touchesCancelled:withEvent:"),
-      (void (*)(void))pocket_touches_ended,
+      (void (*)(void))pocket_touches_cancelled,
       "v@:@@"
     ) &&
     class_addMethod(

@@ -17,12 +17,12 @@ export function connectOffloadProvider(options: {
       worker = new Worker(options.worker, { type: "module" });
       const owner = worker;
       worker.postMessage({ init: options.data });
-      worker.onerror = () => { if (worker === owner) session.disconnect(); };
+      worker.onerror = () => { if (worker === owner) { options.log?.("Capability worker failed; reconnecting"); session.disconnect(); } };
       worker.onmessage = (event: MessageEvent<OffloadReply>) => {
         if (worker !== owner) return;
         const reply = event.data;
-        if ((reply as OffloadReply & {ready?:boolean}).ready === true) return;
-        if (!pending.delete(reply.id)) return session.disconnect();
+        if ((reply as OffloadReply & { ready?: boolean }).ready === true) return;
+        if (!pending.delete(reply.id)) { options.log?.("Unexpected capability reply; reconnecting"); return session.disconnect(); }
         clearTimeout(deadlines.get(reply.id)); deadlines.delete(reply.id);
         try {
           if (typeof reply.payload === "string" && reply.payload.length > OFFLOAD.payloadChars) throw new Error("Result budget exceeded");
@@ -38,11 +38,12 @@ export function connectOffloadProvider(options: {
           typeof request.payload !== "string" || request.payload.length > OFFLOAD.payloadChars ||
           pending.size >= OFFLOAD.pending || pending.has(request.id)) throw new Error("Invalid request");
       pending.add(request.id);
-      deadlines.set(request.id, setTimeout(() => session.disconnect(), 9000));
+      deadlines.set(request.id, setTimeout(() => { options.log?.("Capability deadline expired; reconnecting"); session.disconnect(); }, 9000));
       worker!.postMessage(request);
     },
     metrics: text => options.log?.(`Device ${text}`),
-    disconnected() {
+    disconnected(reason) {
+      options.log?.(`Transport disconnected: ${reason}`);
       worker?.terminate(); worker = undefined;
       for (const timer of deadlines.values()) clearTimeout(timer);
       deadlines.clear(); pending.clear();

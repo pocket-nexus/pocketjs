@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "name": "PlayStation Vita 2000 (PCH-2000)",
+  "attribution": "ATTRIBUTION.md",
+  "lods": {
+    "settled": "ps-vita-2000.glb",
+    "orbit": "ps-vita-2000.glb"
+  },
+  "coordinate_system": "authored_mm",
+  "target_width_mm": 183.6,
+  "rotation_degrees": [
+    90,
+    0,
+    0
+  ],
+  "display": {
+    "logical_size": [
+      480,
+      272
+    ],
+    "raster_density": 2
+  },
+  "view": {
+    "desk_position_mm": [
+      0,
+      0,
+      230
+    ],
+    "desk_target_mm": [
+      0,
+      0,
+      0
+    ],
+    "distance_mm": 230,
+    "focus_distance_mm": 145,
+    "fov_y_degrees": 30,
+    "full_orbit": true,
+    "fit_aspect": 1.85
+  },
+  "screen": {
+    "material_role": "dynamic_screen",
+    "material_name_prefix": "Screen_Primary",
+    "expected_primitives": 1
+  },
+  "parts": [
+    {
+      "name": "screen",
+      "center_mm": [
+        0,
+        2,
+        7.5
+      ],
+      "half_extents_mm": [
+        55.35,
+        31.375,
+        1.5
+      ],
+      "touch_surface": "primary",
+      "logical_size": [
+        480,
+        272
+      ]
+    },
+    {
+      "name": "dpad_up",
+      "center_mm": [
+        -75,
+        19.3,
+        8.7
+      ],
+      "half_extents_mm": [
+        3,
+        3,
+        1.5
+      ],
+      "button": "up"
+    },
+    {
+      "name": "dpad_down",
+      "center_mm": [
+        -75,
+        7.300000000000001,
+        8.7
+      ],
+      "half_extents_mm": [
+        3,
+        3,
+        1.5
+      ],
+      "button": "down"
+    },
+    {
+      "name": "dpad_left",
+      "center_mm": [
+        -81,
+        13.3,
+        8.7
+      ],
+      "half_extents_mm": [
+        3,
+        3,
+        1.5
+      ],
+      "button": "left"
+    },
+    {
+      "name": "dpad_right",
+      "center_mm": [
+        -69,
+        13.3,
+        8.7
+      ],
+      "half_extents_mm": [
+        3,
+        3,
+        1.5
+      ],
+      "button": "right"
+    },
+    {
+      "name": "btn_triangle",
+      "center_mm": [
+        75,
+        21.5,
+        9
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "triangle"
+    },
+    {
+      "name": "btn_circle",
+      "center_mm": [
+        83.1,
+        13.3,
+        9
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "circle"
+    },
+    {
+      "name": "btn_cross",
+      "center_mm": [
+        75,
+        5.1,
+        9
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "cross"
+    },
+    {
+      "name": "btn_square",
+      "center_mm": [
+        66.9,
+        13.3,
+        9
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "square"
+    },
+    {
+      "name": "btn_select",
+      "center_mm": [
+        66.4,
+        -24.4,
+        9
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "select"
+    },
+    {
+      "name": "btn_start",
+      "center_mm": [
+        76,
+        -24.4,
+        9
+      ],
+      "half_extents_mm": [
+        3.8,
+        3.8,
+        1.5
+      ],
+      "button": "start"
+    },
+    {
+      "name": "shoulder_l",
+      "center_mm": [
+        -74.5,
+        35.2,
+        6.6
+      ],
+      "half_extents_mm": [
+        9,
+        4,
+        1.5
+      ],
+      "button": "l"
+    },
+    {
+      "name": "shoulder_r",
+      "center_mm": [
+        74.5,
+        35.2,
+        6.6
+      ],
+      "half_extents_mm": [
+        9,
+        4,
+        1.5
+      ],
+      "button": "r"
+    }
+  ],
+  "demo": {
+    "package_id": "dev.pocket-stack.motions",
+    "output": "motions-main"
+  }
+}

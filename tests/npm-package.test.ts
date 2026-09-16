@@ -79,6 +79,8 @@ describe("published npm artifacts", () => {
       "hosts/blackberry-classic-android",
       "hosts/blackberry-classic-qnx",
       "hosts/web",
+      "hosts/android",
+      "hosts/shared",
       "docs/APPLE.md",
       "docs/IPHONE2G.md",
       "docs/IPHONE4S.md",

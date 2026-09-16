@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { BTN, PocketHost } from "../playground/host.js";
 import {
   POCKET_SECTION,
@@ -68,6 +69,7 @@ function canonicalizeModel(rawScene, profile) {
   const degrees = profile.rotation_degrees ?? [0, 0, 0];
   rawScene.rotation.set(...degrees.map(THREE.MathUtils.degToRad));
   rawScene.updateMatrixWorld(true);
+  if (profile.coordinate_system === "authored_mm") return rawScene;
 
   const oriented = new THREE.Box3().setFromObject(rawScene);
   const size = oriented.getSize(new THREE.Vector3());
@@ -86,13 +88,18 @@ function canonicalizeModel(rawScene, profile) {
   return canonical;
 }
 
-function bindPackageMaterials(model, profile, screenTexture) {
+function bindPackageMaterials(model, profile, screenTexture, auxiliaryTexture) {
   let screens = 0;
+  let auxiliaryScreens = 0;
   const suppressedProfiles = profile.suppressed_materials ?? [];
   const suppressedCounts = new Map(suppressedProfiles.map((entry) => [entry, 0]));
 
   const configure = (material) => {
     const role = semantic(material, "pocket3d_role");
+    if (auxiliaryTexture && role === "dynamic_screen_auxiliary") {
+      auxiliaryScreens++;
+      return new THREE.MeshBasicMaterial({ name: material.name, map: auxiliaryTexture, toneMapped: false });
+    }
     const screenMatch = role === profile.screen.material_role ||
       material.name?.startsWith(profile.screen.material_name_prefix);
     if (screenMatch) {
@@ -136,6 +143,7 @@ function bindPackageMaterials(model, profile, screenTexture) {
   if (screens !== profile.screen.expected_primitives) {
     throw new Error(`stage screen matched ${screens} primitives; expected ${profile.screen.expected_primitives}`);
   }
+  if (auxiliaryTexture && auxiliaryScreens !== 1) throw new Error("stage requires one auxiliary screen");
   for (const entry of suppressedProfiles) {
     const matches = suppressedCounts.get(entry);
     if (matches !== entry.expected_primitives) {
@@ -148,9 +156,11 @@ function buildPickProxies(profile) {
   const group = new THREE.Group();
   group.name = "pocket-stage-interaction-proxies";
   for (const part of profile.parts ?? []) {
-    if (!part.button && part.name !== "screen" && part.name !== "nub") continue;
+    if (!part.button && !part.touch_surface && part.name !== "screen" && part.name !== "nub") continue;
     const [hx, hy, hz] = part.half_extents_mm;
-    const geometry = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2);
+    const geometry = part.touch_surface
+      ? new THREE.PlaneGeometry(hx * 2, hy * 2)
+      : new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2);
     // Layer 2 is raycast-only: the camera never draws these proxy boxes.
     const proxy = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
     proxy.layers.set(2);
@@ -214,6 +224,7 @@ export async function mountPocketStage(root, options = {}) {
   const camera = new THREE.PerspectiveCamera(30, 1, 1, 2000);
   camera.position.set(0, 46, 190);
   let focusDistanceMm = 98;
+  let fitAspect = 0;
   scene.add(new THREE.HemisphereLight(0xe8f1ff, 0x151922, 2.4));
   const key = new THREE.DirectionalLight(0xffffff, 3.2);
   key.position.set(-90, 120, 180);
@@ -236,6 +247,12 @@ export async function mountPocketStage(root, options = {}) {
 
   let host = null;
   let screenTexture = null;
+  let auxiliaryTexture = null;
+  let hinge = null;
+  let lidAngle = 155;
+  let hingeRaf = 0;
+  let yawLimit = ORBIT_YAW_LIMIT;
+  let pitchLimit = ORBIT_PITCH_LIMIT;
   let proxyGroup = null;
   let inViewport = true;
   let renderRaf = 0;
@@ -271,6 +288,7 @@ export async function mountPocketStage(root, options = {}) {
   const refreshScreen = () => {
     if (!screenTexture) return;
     screenTexture.needsUpdate = true;
+    if (auxiliaryTexture) auxiliaryTexture.needsUpdate = true;
     screenUploads++;
     invalidate();
   };
@@ -280,6 +298,7 @@ export async function mountPocketStage(root, options = {}) {
     const height = Math.max(1, viewport.clientHeight);
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
+    camera.zoom = fitAspect ? Math.min(1, camera.aspect / fitAspect) : 1;
     camera.updateProjectionMatrix();
     invalidate();
   };
@@ -296,7 +315,9 @@ export async function mountPocketStage(root, options = {}) {
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
-    return raycaster.intersectObjects(proxyGroup.children, false)[0]?.object.userData.stagePart ?? null;
+    if ((hinge && lidAngle < 60) || raycaster.ray.direction.z >= 0) return null;
+    const hit = raycaster.intersectObjects(proxyGroup.children, false)[0];
+    return hit ? { ...hit.object.userData.stagePart, uv: hit.uv } : null;
   };
 
   const tweenPose = (destination, duration = 360) => {
@@ -353,13 +374,13 @@ export async function mountPocketStage(root, options = {}) {
     const spherical = new THREE.Spherical().setFromVector3(offset);
     spherical.theta = THREE.MathUtils.clamp(
       spherical.theta + event.deltaX * 0.0024,
-      -ORBIT_YAW_LIMIT,
-      ORBIT_YAW_LIMIT,
+      -yawLimit,
+      yawLimit,
     );
     spherical.phi = THREE.MathUtils.clamp(
       spherical.phi + (modifiedOrbit ? event.deltaY : 0) * 0.0024,
-      Math.PI / 2 - ORBIT_PITCH_LIMIT,
-      Math.PI / 2 + ORBIT_PITCH_LIMIT,
+      Math.PI / 2 - pitchLimit,
+      Math.PI / 2 + pitchLimit,
     );
     camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(spherical));
     camera.lookAt(controls.target);
@@ -375,7 +396,8 @@ export async function mountPocketStage(root, options = {}) {
     cancelRelease = null;
     const active = pressed;
     pressed = null;
-    host.press(active.bit, false);
+    if (active.touch) host.touch(active.part.touch_surface, null);
+    else host.press(active.bit, false);
     root.dataset.pressedPart = "";
   };
 
@@ -383,14 +405,17 @@ export async function mountPocketStage(root, options = {}) {
     if (!ready || pressed || event.button !== 0) return;
     const part = pick(event);
     const bit = BUTTON_BITS[part?.button];
-    if (!bit) return;
+    if (!bit && !part?.touch_surface) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    pressed = { bit, pointerId: event.pointerId, tickAtPress: host.tickCount };
+    pressed = { bit, touch: !!part.touch_surface, part, pointerId: event.pointerId, tickAtPress: host.tickCount };
     lastPressedPart = part.name;
     root.dataset.pressedPart = part.name;
     canvas.setPointerCapture(event.pointerId);
-    host.press(bit, true);
+    if (pressed.touch) {
+      const [w,h] = part.logical_size;
+      host.touch(part.touch_surface, [part.uv.x * w, (1-part.uv.y) * h]);
+    } else host.press(bit, true);
   }, true);
 
   const finishPointer = (event) => {
@@ -407,9 +432,18 @@ export async function mountPocketStage(root, options = {}) {
   window.addEventListener("blur", releaseButton);
 
   canvas.addEventListener("pointermove", (event) => {
-    if (!ready || pressed) return;
+    if (!ready) return;
+    if (pressed?.touch) {
+      const part = pick(event);
+      if (part?.touch_surface === pressed.part.touch_surface) {
+        const [w,h] = part.logical_size;
+        host.touch(part.touch_surface, [part.uv.x * w, (1-part.uv.y) * h]);
+      }
+      return;
+    }
+    if (pressed) return;
     const part = pick(event);
-    canvas.style.cursor = part?.button || part?.name === "screen" ? "pointer" : "grab";
+    canvas.style.cursor = part?.button || part?.touch_surface || part?.name === "screen" ? "pointer" : "grab";
   });
 
   canvas.addEventListener("dblclick", (event) => {
@@ -482,17 +516,35 @@ export async function mountPocketStage(root, options = {}) {
           },
         });
 
-    const profileUrl = STAGE_ROOT + "psp-profile.json";
+    const profileUrl = options.profileUrl ?? STAGE_ROOT + "psp-profile.json";
     const profileResponse = await fetch(profileUrl).then(failResponse);
     const profile = await profileResponse.json();
-    const modelUrl = STAGE_ROOT + profile.lods.orbit;
+    const modelUrl = new URL(profile.lods.orbit, new URL(profileUrl, location.href)).pathname;
     // The package's view block is the same camera authority the native
     // pocket-stage runtime reads; the adapter carries no model facts.
     const view = profile.view ?? {};
+    fitAspect = view.fit_aspect ?? 0;
+    if (profile.coordinate_system === "authored_mm") {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const room = new RoomEnvironment();
+      scene.environment = pmrem.fromScene(room, .04).texture;
+      scene.environmentIntensity = .35;
+      room.dispose();
+      pmrem.dispose();
+    }
+    if (view.full_orbit) {
+      yawLimit = Infinity;
+      pitchLimit = Math.PI / 2 - .02;
+      controls.minAzimuthAngle = -Infinity;
+      controls.maxAzimuthAngle = Infinity;
+      controls.minPolarAngle = .02;
+      controls.maxPolarAngle = Math.PI - .02;
+    }
     camera.fov = view.fov_y_degrees ?? camera.fov;
     camera.updateProjectionMatrix();
     camera.position.fromArray(options.deskPositionMm ?? view.desk_position_mm ?? [0, 0, 190]);
     controls.target.fromArray(view.desk_target_mm ?? [0, 0, 0]);
+    resize();
     controls.update();
     focusDistanceMm = view.focus_distance_mm ?? focusDistanceMm;
     const loader = new GLTFLoader();
@@ -559,9 +611,21 @@ export async function mountPocketStage(root, options = {}) {
     screenTexture.generateMipmaps = false;
     screenTexture.minFilter = THREE.LinearFilter;
     screenTexture.magFilter = THREE.LinearFilter;
+    const auxiliaryCanvas = root.querySelector("[data-stage-auxiliary]");
+    if (auxiliaryCanvas) {
+      auxiliaryTexture = new THREE.CanvasTexture(auxiliaryCanvas);
+      auxiliaryTexture.colorSpace = THREE.SRGBColorSpace;
+      auxiliaryTexture.flipY = false;
+      auxiliaryTexture.generateMipmaps = false;
+      auxiliaryTexture.minFilter = THREE.LinearFilter;
+    }
 
     const canonical = canonicalizeModel(model.scene, profile);
-    bindPackageMaterials(canonical, profile, screenTexture);
+    bindPackageMaterials(canonical, profile, screenTexture, auxiliaryTexture);
+    hinge = profile.hinge ? canonical.getObjectByName(profile.hinge.node) : null;
+    if (profile.hinge && !hinge) throw new Error("stage hinge node is missing");
+    lidAngle = profile.hinge?.default_angle_degrees ?? lidAngle;
+    if (hinge) hinge.rotation.x = THREE.MathUtils.degToRad(180 - lidAngle);
     scene.add(canonical);
     proxyGroup = buildPickProxies(profile);
     scene.add(proxyGroup);
@@ -607,8 +671,39 @@ export async function mountPocketStage(root, options = {}) {
       focused,
       pressedPart: root.dataset.pressedPart || null,
       lastPressedPart,
+      lidAngle: hinge ? lidAngle : null,
     });
-    return { refreshScreen, releaseInput: releaseButton };
+    const setLidAngle = (degrees, animate = true) => {
+      if (!hinge) return;
+      cancelAnimationFrame(hingeRaf);
+      releaseButton();
+      const from = lidAngle;
+      const to = THREE.MathUtils.clamp(degrees, profile.hinge.min_angle_degrees, profile.hinge.max_angle_degrees);
+      const start = performance.now();
+      const duration = animate && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 650 : 0;
+      const step = (now) => {
+        const t = duration ? Math.min(1, (now-start)/duration) : 1;
+        lidAngle = THREE.MathUtils.lerp(from, to, easeInOut(t));
+        hinge.rotation.x = THREE.MathUtils.degToRad(180-lidAngle);
+        root.dataset.lidAngle = String(Math.round(lidAngle));
+        invalidate();
+        if (t < 1) hingeRaf = requestAnimationFrame(step);
+        else hingeRaf = 0;
+      };
+      step(start);
+    };
+    const setView = (name) => {
+      releaseButton();
+      focused = false;
+      savedDeskPose = null;
+      root.dataset.focused = "false";
+      const target = new THREE.Vector3().fromArray(view.desk_target_mm ?? [0,0,0]);
+      const offset = name === "rear" ? [0,35,-view.distance_mm] : name === "detail"
+        ? [view.distance_mm*.35,-view.distance_mm*.4,view.distance_mm*.8]
+        : view.desk_position_mm.map((v,i) => v-target.getComponent(i));
+      tweenPose({ target, position: target.clone().add(new THREE.Vector3(...offset)) });
+    };
+    return { refreshScreen, releaseInput: releaseButton, setLidAngle, setView };
   } catch (error) {
     root.classList.add("has-error");
     status.textContent = options.errorText ?? "Pocket Stage could not be loaded.";

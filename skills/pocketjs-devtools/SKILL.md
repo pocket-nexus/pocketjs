@@ -19,12 +19,15 @@ answerable from the terminal. Use the panel when a human is co-driving.
 
 ## Headless workflow (no screen needed)
 
+Keep per-run tapes, hashes, captures, and logs in ignored output. For example:
+
 ```bash
-bun run tape record hero-main --frames 180 --input "5:64,40:8192" --out t.json
-bun run tape replay hero-main t.json --hashes h.json     # per-frame FNV hashes
-bun run tape replay hero-main t.json --assert h.json     # exit 1 + FIRST DIVERGENT FRAME
-bun run tape replay hero-main t.json --png 60,120        # render frames to PNG (read them!)
-bun run tape tree   hero-main t.json --at 60             # component tree JSON at frame 60
+mkdir -p .pocket-build/validation/devtools
+bun run tape record hero-main --frames 180 --input "5:64,40:8192" --out .pocket-build/validation/devtools/t.json
+bun run tape replay hero-main .pocket-build/validation/devtools/t.json --hashes .pocket-build/validation/devtools/h.json
+bun run tape replay hero-main .pocket-build/validation/devtools/t.json --assert .pocket-build/validation/devtools/h.json --outdir .pocket-build/validation/devtools
+bun run tape replay hero-main .pocket-build/validation/devtools/t.json --png 60,120 --outdir .pocket-build/validation/devtools
+bun run tape tree   hero-main .pocket-build/validation/devtools/t.json --at 60
 bun run tape:check                                       # committed session golden
 ```
 
@@ -37,6 +40,10 @@ bun run tape:check                                       # committed session gol
   replay is then an approximation (warned automatically).
 - Committed session goldens live in `tests/tapes/`; regenerate hashes only when
   a visual change is intended.
+- A replay capture or exported session is temporary validation output. Promote
+  it to a committed fixture only when a named regression test consumes it.
+  Put selected screenshots in PR attachments and keep raw captures, logs and
+  receipts outside the tracked tree, following `AGENTS.md`/`CLAUDE.md`.
 
 ## Panel workflow (one command)
 

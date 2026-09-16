@@ -47,6 +47,12 @@ int main(void) {
   assert(!coverage_decode("!!!!", 4, 12, 1, 0, rgba));
   assert(!coverage_decode("5OTk", 4, 516, 1, 0, rgba));
   assert(!coverage_decode("5OTk", 4, 12, 17, 0, rgba));
+  /* Whole glyphs use the same 8192-pixel scratch budget as wide text strips. */
+  char glyph[684]; memset(glyph, 'A', sizeof glyph); glyph[683] = '=';
+  assert(coverage_decode(glyph, sizeof glyph, 32, 64, 0xffffffff, rgba) == 32);
+  assert(coverage_height(48) == 64);
+  assert(!coverage_decode(glyph, sizeof glyph, 512, 64, 0xffffffff, rgba));
+  assert(!coverage_decode(glyph, sizeof glyph, 64, 129, 0xffffffff, rgba));
   char byte = 0; OffloadRecord record;
   assert(!offload_pop(&queue, &record));
   assert(!offload_push(&queue, &byte, OFFLOAD_BYTES + 1, 0));

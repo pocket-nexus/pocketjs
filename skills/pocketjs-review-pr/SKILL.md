@@ -7,10 +7,12 @@ description: Review a community pull request on this repo to a merge verdict —
 
 ## Overview
 
-There is no test CI on this repo — `.github/workflows/` is deploy, esp32p4, and
-release only, so `gh pr checks` reports "no checks reported" for every PR. That
-is not a green light: **the local run is the gate**, and the verdict is yours to
-produce. Two habits carry the review:
+Read the current `.github/workflows/` triggers and the PR's check results.
+Path-filtered workflows may leave a documentation-only PR with no reported
+checks; that is neither a passed check nor a failed check. Run the local checks
+appropriate to the changed files and require applicable remote checks before
+merge. For code changes, the curated local suite is the gate. Two habits carry
+the review:
 
 1. **Reproduce, don't read.** Run the bug on `main` and the fix on the branch
    over an input matrix wider than the PR's own test. A PR description is a
@@ -28,7 +30,7 @@ produce. Two habits carry the review:
 gh pr view <n> --json number,title,body,author,isDraft,baseRefName,headRefName,\
 additions,deletions,changedFiles,mergeable,mergeStateStatus,isCrossRepository,maintainerCanModify
 gh pr diff <n>
-gh pr checks <n>          # "no checks reported" is normal here
+gh pr checks <n>          # compare missing checks with current workflow filters
 ```
 
 2. **Get the branch locally without touching `main`.** Superset worktrees can't
@@ -104,6 +106,8 @@ derives `preserveComments` from it, so the two settings must agree).
 
 7. **Run the gate and prove any mechanism empirically.**
 
+For code changes:
+
 ```bash
 rm -f dist/*.js dist/*.pak        # dist bundles are target-flavored
 bun run test                     # the curated gate; report pass/fail counts
@@ -116,6 +120,21 @@ need re-running, not repeating. For a cache-key or build-key change, prove it:
 `rm -rf .cache/transforms`, build, count entries, mutate a source the key should
 cover, rebuild, confirm every entry re-keyed, revert, confirm the original keys
 come back.
+
+For documentation and instruction changes, check links, referenced commands,
+symlink targets, whitespace, and the final file list. Confirm that code and
+test fixtures are unchanged; do not rerun device deployments or broad runtime
+tests merely to validate prose.
+
+Keep per-run screenshots, logs, traces, benchmark dumps, and receipts in
+ignored `.pocket-build/validation/<task>/<run>/` output or an artifact store.
+The PR should contain a concise validation summary and selected attachments.
+Before committing, inspect `git diff --cached --name-status`: a new image or
+recording needs an identified test consumer or maintained product/documentation
+purpose. A local capture is not a fixture merely because it records a test.
+Remove stale links when moving temporary artifacts out of the tracked tree.
+The repository's `AGENTS.md`/`CLAUDE.md` rules govern artifact retention;
+historical session behavior does not create a new requirement to commit files.
 
 8. **Push the fixes onto the contributor's branch.**
 

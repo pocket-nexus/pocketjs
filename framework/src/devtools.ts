@@ -291,7 +291,7 @@ function recordMask(
   const right = rightAnalog ?? ANALOG_CENTER;
   if (right !== ANALOG_CENTER && !state.tapeRightAnalog) state.tapeRightAnalog = new Uint16Array(TAPE_CAP).fill(ANALOG_CENTER);
   // Defensive copy: hosts may reuse the packed-contact buffer across frames.
-  const contacts = touch && touch.length > 0 ? touch.slice(0, 8) : null;
+  const contacts = touch && touch.length > 0 ? touch.slice(0, 16) : null;
   if (contacts && !state.tapeTouch) {
     // First contact of the session: allocate the ring (touch-free sessions
     // never reach here). Frames recorded before this point had no contacts.

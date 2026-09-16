@@ -1048,6 +1048,81 @@ fn rounded_gradients_emit_rect_coverage_spans() {
 }
 
 #[test]
+fn dense_rounded_gradients_share_smooth_masks_and_preserve_global_stops() {
+    for density in [2, 3] {
+        for dir in [spec::GradDir::ToBottom, spec::GradDir::ToTop, spec::GradDir::ToRight, spec::GradDir::ToLeft] {
+            let mut ui = Ui::new_with_raster_density(density);
+            let n = ui.create_node(0);
+            let from = abgr(20, 40, 60, 255);
+            let via = abgr(240, 230, 220, 255);
+            let to = abgr(80, 100, 120, 255);
+            for (prop, value) in [(spec::prop::WIDTH, 36.0), (spec::prop::HEIGHT, 20.0),
+                (spec::prop::POS_TYPE, spec::PosType::Absolute as u32 as f64),
+                (spec::prop::INSET_L, 10.0), (spec::prop::INSET_T, 10.0), (spec::prop::RADIUS, 6.0),
+                (spec::prop::GRAD_FROM, from as f64), (spec::prop::GRAD_VIA, via as f64),
+                (spec::prop::GRAD_VIA_POS, 0.5), (spec::prop::GRAD_TO, to as f64),
+                (spec::prop::GRAD_DIR, dir as u32 as f64)] { ui.set_prop(n, prop, value); }
+            ui.insert_before(spec::ROOT_ID, n, 0);
+            ui.tick();
+            let words = ui.draw().words.clone();
+            let counts = validate_drawlist(&words);
+            assert_eq!(counts[spec::draw_op::TEX_QUAD as usize], 24, "six strips per corner");
+            assert!(counts[spec::draw_op::GRAD_RECT as usize] <= 6, "center geometry must be bounded per box");
+            let horizontal = matches!(dir, spec::GradDir::ToRight | spec::GradDir::ToLeft);
+            let reverse = matches!(dir, spec::GradDir::ToTop | spec::GradDir::ToLeft);
+            let mut texture = None;
+            let mut center_started = false;
+            let mut i = 0;
+            while i < words.len() {
+                let (xy, wh, color) = match words[i] {
+                    spec::draw_op::GRAD_RECT => {
+                        center_started = true;
+                        let (x, y) = decode_xy(words[i+1]);
+                        let (w, h) = decode_wh(words[i+2]);
+                        let (a, b, length) = if horizontal { (x, x+w, 36.0) } else { (y, y+h, 20.0) };
+                        for (point, color) in [(a, if reverse { words[i+4] } else { words[i+3] }),
+                            (b, if reverse { words[i+3] } else { words[i+4] })] {
+                            let t = (point as f32 - 10.0) / length;
+                            let t = if reverse { 1.0 - t } else { t };
+                            let expected = if t < 0.5 { crate::anim::interp(from, via, t * 2.0, true) }
+                                else { crate::anim::interp(via, to, (t - 0.5) * 2.0, true) };
+                            assert_eq!(color, expected, "clipped center retains full-box gradient stops");
+                        }
+                        i += 6; continue;
+                    }
+                    spec::draw_op::TEX_QUAD => {
+                        assert!(!center_started, "mask/solid switches must be bounded per box, not per row");
+                        let handle = words[i+1] as i32;
+                        assert_eq!(*texture.get_or_insert(handle), handle, "all colors share a mask");
+                        let view = ui.texture(handle).unwrap();
+                        assert!(view.linear);
+                        let dim = (12 * density).next_power_of_two();
+                        assert_eq!((view.w, view.h), (dim, dim));
+                        assert!(view.pixels.chunks_exact(4).any(|p| p[3] > 0 && p[3] < 255));
+                        let data = (words[i+2], words[i+3], words[i+8]); i += 9; data
+                    }
+                    spec::draw_op::SCISSOR => { i += 3; continue; }
+                    _ => { i += 1; continue; }
+                };
+                let (x, y) = decode_xy(xy);
+                let (w, h) = decode_wh(wh);
+                let t = if horizontal { assert_eq!(w, 1); (x as f32 + 0.5 - 10.0) / 36.0 }
+                    else { assert_eq!(h, 1); (y as f32 + 0.5 - 10.0) / 20.0 };
+                let t = if reverse { 1.0 - t } else { t };
+                let expected = if t < 0.5 { crate::anim::interp(from, via, t * 2.0, true) }
+                    else { crate::anim::interp(via, to, (t - 0.5) * 2.0, true) };
+                assert_eq!(color, expected, "corners and center use the same gradient coordinates");
+            }
+            ui.set_prop(n, spec::prop::GRAD_FROM, to as f64);
+            ui.tick();
+            let next = ui.draw().words.clone();
+            let i = next.iter().position(|&w| w == spec::draw_op::TEX_QUAD).unwrap();
+            assert_eq!(Some(next[i+1] as i32), texture, "animated color must not mint textures");
+        }
+    }
+}
+
+#[test]
 fn overflow_hidden_emits_balanced_intersected_scissors() {
     let mut ui = Ui::new();
     let outer = ui.create_node(0);

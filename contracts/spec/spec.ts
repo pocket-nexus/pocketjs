@@ -1525,6 +1525,12 @@ export const BTN = {
 // is unchanged. Deadzone/normalization is runtime policy (framework/src/frame.ts), not
 // host policy — hosts pass the raw value through.
 
+// Touch words use bit 30 for a terminal system cancellation. Decode its ID
+// with the word's legacy/wide layout; it is not an active contact. The third
+// frame argument carries at most eight active words plus eight cancellations.
+// Hosts preserve DOWN order; the fifth argument carries surfaces for both.
+// Absence without a cancellation means ordinary UP. See docs/TOUCH.md.
+
 // Optional sixth frame argument carries the right stick with identical packing.
 // Omission reads as center; touch/hit/surface arguments retain their positions.
 export const ANALOG_CENTER = 0x8080;

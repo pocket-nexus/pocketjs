@@ -20,6 +20,7 @@ export async function create(options) {
     width: viewport[0],
     height: viewport[1],
     rasterDensity: density,
+    auxiliary: options.auxiliary,
   });
 
   const incoming = [];
@@ -68,12 +69,17 @@ export async function create(options) {
      * Falls back to the ink query (op 27) and finally to 0 on a pocketjs.wasm
      * predating either, which leaves the gesture layer on its rect fallback.
      */
-    hitTestBounds(x, y) {
-      const query = wasm.ops.hitTestBounds ?? wasm.ops.hitTest;
+    hitTestBounds(x, y, surface = "primary") {
+      const query = surface === "auxiliary"
+        ? wasm.ops.hitTestBoundsAuxiliary
+        : wasm.ops.hitTestBounds ?? wasm.ops.hitTest;
       return query ? query(x, y) : 0;
     },
-    render() {
-      return wasm.render();
+    render(scale = 1) {
+      return scale === 1 ? wasm.render() : wasm.renderScaled(scale);
+    },
+    renderAuxiliary() {
+      return wasm.renderAuxiliary();
     },
     renderComposited() {
       return wasm.renderComposited();

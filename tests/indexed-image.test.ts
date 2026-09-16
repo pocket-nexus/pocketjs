@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { uploadIndexedImage } from "../framework/src/indexed-image.ts";
 
 test("indexed images preserve palette colors, odd rows and transparent padding", () => {
-  let bytes = new Uint8Array();
+  let bytes: Uint8Array = new Uint8Array();
   const image = { width: 3, height: 2, pixels: Buffer.from([0x10, 0x01, 0x10]).toString("base64"), palette: "ff00330080ff" };
   const value = uploadIndexedImage(image, { uploadTexture(b, w, h, psm) { bytes = b; expect([w, h, psm]).toEqual([8, 8, 3]); return 7; } });
   expect(value).toEqual({ handle: 7, width: 8, height: 8 });

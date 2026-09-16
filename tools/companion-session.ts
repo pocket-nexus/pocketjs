@@ -16,7 +16,7 @@ export function connectCompanionSession(options: {
   address: string; key: string; port?: number;
   connected?: () => void;
   record: (record: string) => void;
-  disconnected?: () => void;
+  disconnected?: (reason: string) => void;
   metrics?: (metrics: string) => void;
   retryMs?: number;
 }): CompanionSession {
@@ -37,14 +37,15 @@ export function connectCompanionSession(options: {
     if (stopped) return;
     const socket = connect({ host: options.address, port: options.port ?? OFFLOAD.port });
     current = socket;
+    let reason = "peer closed";
     const decoder = new OffloadDecoder();
     socket.setNoDelay(true);
-    socket.setTimeout(15000, () => socket.destroy());
+    socket.setTimeout(15000, () => { reason = "idle timeout"; socket.destroy(); });
     socket.on("connect", () => {
       socket.write(options.key);
       // TCP connection is not an authentication receipt. The device's first
       // application record establishes its protocol session after key checking.
-      try { options.connected?.(); } catch { socket.destroy(); }
+      try { options.connected?.(); } catch { reason = "invalid record or callback"; socket.destroy(); }
     });
     socket.on("data", chunk => {
       try {
@@ -55,12 +56,12 @@ export function connectCompanionSession(options: {
             options.metrics?.(r.payload);
           } else options.record(raw);
         });
-      } catch { socket.destroy(); }
+      } catch { reason = "invalid record or callback"; socket.destroy(); }
     });
-    socket.on("error", () => {});
+    socket.on("error", error => { reason = (error as NodeJS.ErrnoException).code ?? "socket error"; });
     socket.on("close", () => {
       current = undefined;
-      try { options.disconnected?.(); } finally {
+      try { options.disconnected?.(reason); } finally {
         if (!stopped) retry = setTimeout(attach, options.retryMs ?? 1500);
       }
     });
