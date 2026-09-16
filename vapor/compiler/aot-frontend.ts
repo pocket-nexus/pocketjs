@@ -17,6 +17,7 @@ import { analyzeContextStatement, vueContextCall } from "./aot-provide-inject.ts
 import { validateVueAotSemantics } from "./aot-browser-semantics.ts";
 import type { VaporRootIR, VaporIfIR, VaporForIR, VaporCreateIR, VaporBlockIR, VaporDynamicInfo } from "./vendor/vue-vapor-ir.ts";
 
+const LIFECYCLE = "@pocketjs/framework/vue-vapor/lifecycle";
 const camelize = (name: string) => name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
 const COMPONENTS = "@pocketjs/framework/vue-vapor/components", STD = "@pocketjs/framework/vue-vapor/std", INPUT = "@pocketjs/framework/vue-vapor/input";
 interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; contextImports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; inputHosts: Map<string, "ActionHandler" | "AxisHandler">; buttonNames: Set<string>; name: string }
@@ -63,6 +64,9 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           } else if (module === "vue") {
             if (original !== "provide" && original !== "inject") fail(loc, "AOT setup imports from Vue accept provide and inject");
             item.contextImports.set(binding.name.text, original);
+          } else if (module === LIFECYCLE) {
+            if (!["onMounted", "onUnmounted"].includes(original)) fail(loc, "AOT lifecycle imports accept onMounted and onUnmounted");
+            item.contextImports.set(binding.name.text, original);
           } else if (module === STD) {
             if (!(original in VAPOR_BUILTINS)) fail(loc, `Unknown std built-in ${original}`);
           } else if (module === INPUT) {
@@ -78,7 +82,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         }
       } else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
         // Generic contract declarations are resolved by the component specialization.
-      } else if (!ts.isVariableStatement(statement) && !(ts.isExpressionStatement(statement) && (vueContextCall(statement.expression, item.contextImports) === "provide" || ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) && statement.expression.expression.text === "defineSlots"))) fail(loc, "Only imports, type declarations, component macros, and root provide calls are allowed in script setup");
+      } else if (!ts.isVariableStatement(statement) && !(ts.isExpressionStatement(statement) && ((ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) && ["onMounted", "onUnmounted"].includes(item.contextImports.get(statement.expression.expression.text) ?? "")) || vueContextCall(statement.expression, item.contextImports) === "provide" || ts.isCallExpression(statement.expression) && ts.isIdentifier(statement.expression.expression) && statement.expression.expression.text === "defineSlots"))) fail(loc, "Only imports, type declarations, component macros, and root provide calls are allowed in script setup");
     }
     parsed.set(file, item); visiting.delete(file); return item;
   }
@@ -118,7 +122,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         const module = (statement.moduleSpecifier as ts.StringLiteral).text, clause = statement.importClause;
         if (!clause || clause.isTypeOnly || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) continue;
         for (const binding of clause.namedBindings.elements) {
-          if (binding.isTypeOnly || module === COMPONENTS || module === INPUT || module === "vue") continue;
+          if (binding.isTypeOnly || module === COMPONENTS || module === INPUT || module === "vue" || module === LIFECYCLE) continue;
           const name = binding.name.text, sourceName = binding.propertyName?.text ?? name;
           if (module === STD) { ctx.builtins.set(name, sourceName); continue; }
           if (!component.root || factoryCalls.size) factoryImports.set(name, { sourceName, module, type: checkedType(binding.name), node: binding.name });
@@ -199,6 +203,20 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       }
     }
     if (factoryImports.size && (!component.factory || factoryImports.size !== 1)) fail(loc(factoryImports.values().next().value!.node), "A child may import only the factory used by its destructured setup declaration");
+    for (const statement of script.statements) {
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression) || !ts.isIdentifier(statement.expression.expression)) continue;
+      const call = statement.expression, imported = item.contextImports.get((call.expression as ts.Identifier).text);
+      if (imported !== "onMounted" && imported !== "onUnmounted") continue;
+      if (!component.root && !component.factory) fail(loc(call), "Lifecycle hooks require a root or factory component");
+      const callback = call.arguments[0];
+      if (call.typeArguments?.length || call.arguments.length !== 1 || !callback || !ts.isArrowFunction(callback) || callback.parameters.length || !ts.isCallExpression(callback.body) || !ts.isIdentifier(callback.body.expression) || callback.body.arguments.length || callback.body.typeArguments?.length) fail(loc(call), "Lifecycle hooks require a zero-argument view-model call");
+      const fn = ctx.functions.get(callback.body.expression.text);
+      if (!fn || fn.parameters.length) fail(loc(call), "Lifecycle hooks require a zero-argument view-model method");
+      const name = imported === "onMounted" ? "mount" : "unmount";
+      if (component.hooks?.[name]) fail(loc(call), `Duplicate ${name} lifecycle hook`);
+      fn.handler = true;
+      (component.hooks ??= {})[name] = { kind: "call", id: component.handlerCount++, loc: loc(call), expression: expression(callback.body.getText(script), loc(callback.body), { ...ctx, handler: true }) };
+    }
     const templateOffset = descriptor.template!.loc.start.offset;
     const tplLoc = (node: { loc: { start: { offset: number } } }) => locAt(item, templateOffset + node.loc.start.offset);
     const parseOptions = { isCustomElement: (tag: string) => item.hosts.has(tag) || item.inputHosts.has(tag), onError: (error: { message: string; loc?: { start: { offset: number } } }) => fail(locAt(item, templateOffset + (error.loc?.start.offset ?? 0)), error.message) };
@@ -248,7 +266,27 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       if (event?.parameters.length) hctx.bindings.set("$event", { type: event.parameters[0]!.type, scope: "event" });
       const sourceFile = ts.createSourceFile("handler.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
       const statement = sourceFile.statements[0];
-      if (sourceFile.statements.length !== 1 || !statement || !ts.isExpressionStatement(statement)) fail(at, "A handler must contain one call, assignment, increment, or emit");
+      const parseErrors = (sourceFile as ts.SourceFile & { parseDiagnostics: ts.Diagnostic[] }).parseDiagnostics;
+      if (parseErrors.length) fail(at, "Invalid handler statement syntax");
+      if (sourceFile.statements.length !== 1 || !statement || !ts.isExpressionStatement(statement)) {
+        const hasEmit = (step: AotHandler): boolean => step.kind === "emit" || step.kind === "sequence" && step.steps.some(hasEmit) || step.kind === "if" && [...step.then, ...(step.else ?? [])].some(hasEmit);
+        const atNode = (node: ts.Node) => locAt(item, at.offset + node.getStart(sourceFile));
+        const list = (statements: readonly ts.Statement[], scope: ExpressionContext): AotHandler[] => {
+          const steps = statements.map(stmt => {
+            if (ts.isExpressionStatement(stmt)) return handler(stmt.expression.getText(sourceFile), atNode(stmt.expression), scope, event);
+            if (ts.isIfStatement(stmt)) {
+              const condition = expression(stmt.expression.getText(sourceFile), atNode(stmt.expression), { ...scope, bindings: hctx.bindings, handler: true }, BOOL);
+              requireType(condition, BOOL, scope);
+              const branch = (body: ts.Statement, truth: boolean) => list(ts.isBlock(body) ? body.statements : [body], narrowed(scope, condition, truth));
+              return { kind: "if" as const, id: component.handlerCount++, condition, then: branch(stmt.thenStatement, true), ...(stmt.elseStatement ? { else: branch(stmt.elseStatement, false) } : {}), loc: atNode(stmt) };
+            }
+            fail(atNode(stmt), "Handler blocks accept expression statements and if statements only");
+          });
+          if (steps.slice(0, -1).some(hasEmit)) fail(at, "An emit must be the last statement of its handler or final branch");
+          return steps;
+        };
+        return { kind: "sequence", id: component.handlerCount++, steps: list(sourceFile.statements, context), loc: at };
+      }
       const node = statement.expression, id = component.handlerCount++;
       const handlerLoc = (child: ts.Node) => locAt(item, at.offset + child.getStart(sourceFile));
       if (ts.isCallExpression(node)) {
@@ -616,8 +654,14 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           const classes = `${staticClass} ${e.value}`.trim(); if (classes) classLiterals.add(classes);
           return { ...e, value: classes, type: I32 };
         }
-        if (value.kind !== "conditional") fail(value.loc, ":class must be a ternary or chain of ternaries");
-        host.dynamicStyle = { id: component.memoCount++, expression: styles(value) };
+        if (value.type.kind === "style") {
+          if (staticClass) fail(value.loc, "A static class cannot be combined with a StyleClass prop");
+          if (value.kind !== "binding" || value.scope !== "prop") fail(value.loc, "A StyleClass binding must forward an unchanged prop");
+          host.dynamicStyle = { id: component.memoCount++, expression: value };
+        } else {
+          if (value.kind !== "conditional") fail(value.loc, ":class must be a ternary or chain of ternaries");
+          host.dynamicStyle = { id: component.memoCount++, expression: styles(value) };
+        }
       } else if (staticClass) { classLiterals.add(staticClass); (host as typeof host & { classLiteral?: string }).classLiteral = staticClass; }
       if (tag === "Text") {
         const parts: (string | AotExpr)[] = [];
