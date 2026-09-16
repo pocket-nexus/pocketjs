@@ -45,11 +45,26 @@ void *memset(void *dst, int v, unsigned long n) {
   return dst;
 }
 
+/* The ROM carries the font 1bpp (95 glyphs x 8 B, MSB = leftmost pixel) and
+ * BG0 is 4bpp, so each row byte expands to 4 B of tile data with pixel 1 = ink
+ * and 2 = paper. Expanding here rather than shipping the expanded 3040 B table
+ * trades one boot loop for 2196 B less ROM in every app. VRAM rejects 8-bit
+ * writes, so each row goes out as two u16: low pixels first, leftmost pixel in
+ * the low nibble. */
 static void upload_font(void) {
-  const u16 *src = (const u16 *)vp_font_tiles;
   volatile u16 *dst = VRAM + 16; /* tile 1; tile 0 stays blank */
   u16 i;
-  for (i = 0; i < 95 * 16; i++) dst[i] = src[i];
+  for (i = 0; i < 95 * 8; i++) {
+    u8 row = vp_font_tiles[i];
+    u16 lo = 0, hi = 0;
+    u8 x;
+    for (x = 0; x < 4; x++) {
+      lo |= (u16)((row >> (7 - x)) & 1 ? 1 : 2) << (x * 4);
+      hi |= (u16)((row >> (3 - x)) & 1 ? 1 : 2) << (x * 4);
+    }
+    *dst++ = lo;
+    *dst++ = hi;
+  }
 }
 
 static void commit_rows(void) {

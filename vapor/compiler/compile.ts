@@ -2385,8 +2385,9 @@ class AppCompiler {
     const romStrings =
       [...this.strLits.keys()].reduce((a, s) => a + s.length + 1, 0) + this.title.length + 1;
     const pairCount = this.styleTable.pairs.length;
-    const fontBytes =
-      this.target.name === "esp32" || this.target.name === "playdate" ? 95 * 8 : 95 * 32;
+    /* GBA/ESP32/Playdate ship the 1bpp bitmap and expand at boot; GB and NES
+     * bake the two glyph styles into the ROM/CHR table. */
+    const fontBytes = this.target.name === "gb" || this.target.name === "nes" ? 95 * 32 : 95 * 8;
     const styleBytes =
       this.target.name === "gba"
         ? pairCount * 16 * 2 + pairCount + 3
@@ -2421,8 +2422,14 @@ class AppCompiler {
 const INK = 1;
 const PAPER = 2;
 
-/** GBA: 95 glyphs, 4bpp, pixel 1 = ink / 2 = paper (real palette banks). */
-function emitFontGba(): string {
+/** The 4bpp GBA tile bytes for the whole font: 95 glyphs x 32 B, pixel 1 = ink
+ * / 2 = paper (real palette banks), two pixels per byte with the leftmost in
+ * the low nibble. This is what reaches GBA VRAM, but it is not what ships in
+ * the ROM: `upload_font()` in vapor/runtime/gba/vapor_gba.c expands the 1bpp
+ * `vp_font_tiles` into exactly these bytes at boot, so the ROM carries 760 B
+ * instead of 3040 B. Exported as the reference encoding the expansion is
+ * tested against; nothing in the compiler emits it. */
+export function gbaFontTileBytes(): number[] {
   const bytes: number[] = [];
   for (let g = 0; g < 95; g++) {
     const bitmap = FONT8[g];
@@ -2434,7 +2441,7 @@ function emitFontGba(): string {
       }
     }
   }
-  return `const u8 vp_font_tiles[] = { ${bytes.join(",")} };`;
+  return bytes;
 }
 
 /** Direct 1bpp targets: one byte per 8-pixel row, MSB = leftmost pixel. */
@@ -2513,7 +2520,7 @@ function emitTargetData(target: VaporTarget, styles: StyleTable): string {
         banks.push(...bank);
       }
       return (
-        `${emitFontGba()}\n` +
+        `${emitFont1bpp()}\n` +
         `const u16 vp_palettes[] = { ${banks.join(",")} };\n` +
         `const u8 vp_palette_count = ${styles.pairs.length};\n` +
         `const u16 vp_backdrop = ${rgb555(BACKDROP)};\n` +

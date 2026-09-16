@@ -107,7 +107,8 @@ u8 app_flush(void);       /* computeds + dirty effects; 1 if painted */
 u16 app_debug_state(volatile u8 *out); /* mirror reactive state; returns bytes */
 
 /* generated data the runtime uploads at boot (per-target encodings):
- *   GBA: vp_font_tiles 95x32B 4bpp, vp_palettes/vp_palette_count/vp_backdrop
+ *   GBA: vp_font_tiles 95x8B 1bpp, expanded to 4bpp tiles by upload_font;
+ *        vp_palettes/vp_palette_count/vp_backdrop
  *   GB:  vp_font_tiles (2 styles x 95) x 16B 2bpp interleaved
  *   NES: vp_font_tiles (2 styles x 95) x 16B 2bpp planar
  *   ESP32: vp_font_tiles 95x8B 1bpp, direct RGB565 ink/paper tables
