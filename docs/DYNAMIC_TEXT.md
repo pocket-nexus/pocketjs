@@ -1,154 +1,193 @@
-# Dynamic text and local font archives
+# CJK residency and prepared text
 
-**Ordinary `<Text>` accepts Unicode strings produced at runtime.** A filename,
-metadata field or paragraph uses the selected font slot. Packaged glyphs render
-without a provider. An app that declares `text.glyphs.streamed` can extend those
-slots from an external font archive through **`io.offload`**.
+**`prepareText()` reserves and loads every glyph in a text batch before reporting
+ready.** Music metadata and book chapters can arrive after the app was built.
+The app chooses a resident common-character set and a budget; it holds a lease
+for each title, chapter or prefetched page that must remain renderable.
 
-## Load an external font
+## Configure residency
 
 ```ts
 import { openFontArchive } from '@pocketjs/framework/fonts';
 
-// Call after the host and packaged font slots are installed.
 const font = openFontArchive({
   path: 'fonts/cjk.pjfa',
-  slots: [0, 2, 4], // regular 12, 16, 20 px
-  capacity: 384,   // additional resident glyphs per slot
-  blockMs: 3000,   // reserve space while visible missing glyphs load
+  slots: [2],                 // regular 16 px, also declared by the app's styles
+  provider: 'companion',      // default; 'local' selects the PSP storage worker
+  capacity: 768,              // extra source cells per slot
+  maxBytes: 768 * 1024,       // extra source bitmap budget
+  resident: [{ slot: 2, text: commonCharacters }],
 });
-// Existing <Text>{filename}</Text> components need no replacement.
-// Release on application disposal:
-// font.dispose();
 ```
+
+`commonCharacters` can come from configuration, a PAK text asset or a provider
+read. **The resident set loads before pending dynamic batches and remains pinned
+until the archive is disposed.** Packaged glyphs do not consume streamed cells.
+The native cache admits the union of scalar values held by all leases; repeated
+characters and overlapping texts share cells. Each size uses its own font slot
+and its own glyph cells.
+
+The capacity is 1–4096 cells per slot. **All streamed source cells share a 2 MiB
+native limit.** `maxBytes` can impose a lower controller budget. Cell cost is
+width × height bytes, including source padding; the storage archive uses two
+bits per pixel. `stats().bytes` reports reserved source bitmap bytes. Baked
+atlases, their padding, lease metadata, offload buffers and GPU pages are outside
+that counter. Leave room for those allocations in the app's memory budget.
+
+A batch accepts up to 65,536 UTF-16 units and 4096 unique scalars. One controller
+holds at most 32 batches, including resident sets. **A batch that cannot fit
+enters error before any of its missing glyphs are requested.** It cannot wait
+for eviction of a glyph that another live batch owns. Release a previous batch,
+reduce the resident set, increase capacity within the byte limit, or split the
+content into pages. A chapter's character count can exceed its unique-scalar
+count because repeated glyphs share residency.
+
+## Preload and reveal a text
+
+```tsx
+import { createSignal, onCleanup } from 'solid-js';
+import { Text, View } from '@pocketjs/framework/components';
+import type { TextResource } from '@pocketjs/framework/fonts';
+
+const [title, setTitle] = createSignal<TextResource>();
+function selectSong(filename: string) {
+  title()?.dispose();
+  setTitle(font.prepareText(filename, { slot: 2 }));
+}
+onCleanup(() => { title()?.dispose(); font.dispose(); });
+
+<View class="h-[48]">
+  <Text
+    resource={title()}
+    class="text-base text-white"
+    fallback={() => <Text class="text-base">Loading title...</Text>}
+    errorFallback={() => <Text class="text-base">Title unavailable</Text>}
+  />
+</View>;
+```
+
+**`Text resource` uses the framework's `ResourceBoundary`.** Pending content
+shows `fallback`; ready content appears as one text value; errors select
+`errorFallback`. There is no per-character reveal timer. A parent `View` can
+reserve layout while the fallback and text have different sizes. The immutable
+prepared value supplies both text and font slot, so a selected filename
+cannot borrow an old batch's ready flag. `children` and a conflicting
+`style.fontSlot` do not override that prepared value.
+
+`prepareText()` works before a component is mounted. It returns a
+framework-neutral `TextResource` with `state()`, `subscribe()` and `dispose()`.
+The state is `ResourceState<PreparedText>` and can feed a `ResourceBoundary` that
+reveals several rows together. For a reader, prepare the complete chapter,
+subscribe to its state, then render pages from the ready value. Keep the lease
+until the chapter and its prefetched views no longer need it. The Solid `Text`
+adapter subscribes and unsubscribes with its owner; **the caller owns disposal
+of the batch**. Other UI adapters can consume the same state and subscription.
+
+**Ready glyphs stay pinned even when their text is offscreen.** Releasing a batch
+allows eviction of cells no other lease holds. Cached cells can serve later
+batches without I/O. Drawing and measurement do not create glyph requests.
+Ordinary `Text` without a resource can use baked or resident glyphs; it does not
+initiate streaming for a missing scalar.
+
+A missing glyph fails the whole batch. This keeps a title with an unsupported
+character from being reported as complete. I/O and malformed replies have at
+most three attempts per demanded glyph; failure enters error and withdraws
+that batch's pins. `reload()` invalidates leases to pending, reopens the archive
+and retries them. A provider session change does the same. Generation and
+request checks reject replies from a superseded session. `dispose()` invalidates
+consumers before releasing their native pins. `pause(true)` stops new glyph
+requests; already submitted replies may complete.
+
+## Offload providers and archive format
 
 The app manifest requires `text.glyphs.baked`, `text.glyphs.streamed` and
-`io.offload`. **The PSP grants the streamed capability.** Other hosts retain
-baked text and their existing native or companion text paths. WASM exposes the
-core operations for injected-provider tests; this does not grant the capability
-to a stock browser, Vita or 3DS host.
+`io.offload`. PSP implements the batch operations. WASM exposes them for host
+adapters and injected-provider tests; other native hosts need these operations
+before they can advertise streamed glyph support.
 
-`offload('local')` selects a device worker with its own session and credits.
-`offload()` retains the paired companion provider. Each provider copies bounded
-requests and replies at frame boundaries. Local font access needs no network
-connection or pairing key. On PSP, paths are relative to
-`ms0:/PSP/COMMON/pocketjs/`; absolute paths and parent traversal are rejected.
+**Both providers speak `font.open`, `font.glyphs`, `font.stats` and `font.close`
+through `io.offload`.** The companion's `createFontArchiveProvider()` accepts an
+exact mapping from provider-relative paths to granted archive files. Run it in
+the existing companion Worker using `dispatchOffload()`. Export:
+`@pocketjs/framework/fonts/provider`. File reads, index lookup and checksums
+belong to the worker. The UI scheduler holds at most two requests and applies
+at most one delivered reply per frame. Replies contain at most four cells and
+fit the 2500-character payload / 4096-byte record limits.
 
-The worker owns file open, seek, read, glyph checksums and **eight 4 KiB index
-cache pages**. Binary search locates a Unicode scalar without retaining the
-complete cmap. A response carries at most four packed glyph cells and fits the
-4096-byte offload record / 2500-character payload limits. The worker uses fixed
-buffers and a 256 KiB stack; it does not call QuickJS, the UI core, GE or the
-single-thread allocator.
-
-**Only glyphs that survive viewport and clip rejection create demand.** The
-framework schedules at most two pending glyph batches and consumes at most one
-reply per frame. Additional resident glyph cells are capped at 2 MiB across streamed slots, with
-at most 1024 extra glyphs per slot. The byte counter reports these reserved cells;
-packaged glyphs and their padding use separate storage. Resident glyphs painted in the last frame
-remain pinned. New pages replace unused glyphs by last use; a full pinned cache
-rejects an insertion and preserves the characters already on screen. An
-unsupported scalar uses the missing-glyph cell and a bounded negative cache.
-
-`status()` reports readiness, errors and accepted loads; `stats()` reports
-resident source bytes, pending demand and evictions. `pause(true)` stops new
-glyph requests while input and painting continue. `reload()` discards the
-streamed cells and reopens the archive. Failed reads retry after a bounded
-frame delay. Reconnection reopens the source; generation checks reject old
-replies. `dispose()` detaches the slots and closes the worker's archive.
-
-**One archive controller owns the streamed slots in a realm.** Each strike must
-match the slot's baseline, line height and density. PJFA/1 currently supports
-density 1 and fixed scalar metrics. Baked glyphs keep their local path and
-metrics. A loaded glyph's advance participates in the same core measurement
-and layout as its pixels. Before loading, an absent glyph uses the strike's
-nominal advance, so proportional text can reflow when metrics arrive.
-
-**`blockMs` hides pending glyph ink while preserving its advance.** The default
-is 0; the accepted range is 0–3000 ms. The interval starts when a missing glyph
-becomes visible and advances with the core clock. Demand collection continues
-while ink is hidden. Loaded and packaged glyphs remain visible. A provider
-reply that confirms no glyph shows the missing-glyph marker without waiting
-for the interval. An unresolved request shows that marker after the interval;
-a later successful reply replaces it. Leaving the visible set releases the
-wait state. This is a bounded loading presentation, not a substitute font.
-
-## Build and install the archive
+`provider: 'local'` uses the PSP's storage worker under
+`ms0:/PSP/COMMON/pocketjs/`. That worker has eight 4 KiB index-cache pages, fixed
+request/reply buffers and a 256 KiB stack. It does not call QuickJS, the UI core,
+GE or the single-thread allocator. Absolute paths and parent traversal are
+rejected. A companion connection is not required for this provider.
 
 ```sh
-bun tools/font-archive.ts --font=MyFont.otf --out=cjk.pjfa --slots=0,2,4
+bun tools/font-archive.ts --font=MyFont.otf --out=cjk.pjfa --slots=2
 ```
 
-The builder uses the source font's complete mapped character set, with Inter
-for the packaged slot metrics and Latin coverage. **PJFA/1 is external storage,
-not an embedded PAK asset.** It contains a SHA-256 content identity, strike
-metadata, a sorted scalar index, per-cell FNV checksums and 2-bit coverage.
-Checksums detect damaged glyph cells; they are not a signature or a trust
-boundary. The reader validates lengths, bounds and strike geometry before use.
+**PJFA/1 stays outside the embedded PAK.** It contains a SHA-256 content identity,
+strike geometry, sorted scalar indices, FNV cell checksums and packed coverage.
+Checksums detect cell damage; provider path grants define access. A strike must
+match the baked slot's baseline, line height and density. The format supports
+density 1 and scalar coverage. It does not add shaping, bidi, grapheme editing,
+Unicode line breaking or language-selected Han variants. See
+[Text resources](TEXT_RESOURCES.md) for the separate editor glyph service.
 
-The archive stores pre-rasterized strikes. It does not parse OpenType outlines
-on PSP. It does not add shaping, bidi, grapheme navigation, Unicode line breaking
-or language-specific Han variant selection. Those remain separate text-layout
-capabilities, including the [companion text service](TEXT_RESOURCES.md).
-
-## Text Lab acceptance
+## Text Lab
 
 ```sh
 bun tools/text-lab-assets.ts .pocket-build/text-lab
 bun tools/pocket.ts build --target psp --manifest apps/text-cjk/pocket.json --project-root . -- --release
+bun tools/text-lab-companion.ts --assets .pocket-build/text-lab --usb /path/to/host0
 ```
 
-Copy `fonts/` and `text-lab.txt` from the asset output directory to
-`ms0:/PSP/COMMON/pocketjs/`. The pinned Noto source and license are described in
-`assets/fonts/NotoSansCJK-Demo.md`. The full archive has 44,811 mapped entries per
-strike, for 12, 16 and 20 px, and occupies 28,410,334 bytes. The app's PAK contains
-its interface glyphs; the generated CJK grid and external document are absent.
+The USB companion uses the app's existing offload worker. The companion CLI
+also accepts `--address` and `POCKET_COMPANION_KEY` for hosts with the paired
+network transport. PSP uses the USB path. For local mode, copy `fonts/` and the
+four generated text files to `ms0:/PSP/COMMON/pocketjs/`. The app starts in
+companion mode; Square switches provider.
 
-`apps/text-cjk/main.tsx` uses ordinary `<Text>` throughout. L/R or Up/Down moves
-through 82 pages of Unicode scalars. Triangle cycles sizes: 320, 192 or 120
-characters per grid. Square opens the external UTF-8 document, Circle pauses
-font requests, and Cross reloads the font and document. The local text-read
-capability limits the external document to 1536 bytes.
+The generated common set, song filenames and chapters are read at runtime.
+They contain simplified and traditional Han, Japanese kana, rare glyphs such as
+`龘靐齉麤`, and supplementary-plane `𠮷`. They are absent from the app's baked
+atlas. Each document file fits the local 1536-byte read budget; larger books
+need an application document paging capability before chapter preparation.
+The fixture font's source and license are in `assets/fonts/NotoSansCJK-Demo.md`.
+Generated full archives, binaries and captures remain under `.pocket-build/`.
 
-The cyan marker in the header moves on a 2.4-second loop during loading, pause,
-failure and idle. It runs on the UI thread and animates translation without
-changing layout. It reports frame continuity, not loading progress. The demo
-reserves text space while the archive opens, then uses `blockMs: 3000` for
-visible glyph misses. The `frame` readout is the latest frame interval including
-presentation waits; it is not CPU text-rendering time or a percentile.
+L/R selects music, two chapters, cache pressure, over-budget text or a missing
+glyph. Triangle pages within the prepared chapter. Circle pauses loading and
+Cross reloads the files and font. In the pressure case, Cross advances to a new
+320-character set while retaining the cache. The cyan marker animates on the UI thread throughout loading
+and failure. The app uses 768 streamed cells at 16 px and pins its common set.
 
-Acceptance exercises:
+Acceptance checks:
 
-1. Start without a paired companion. Watch the cyan marker while characters
-   appear, then wait for zero pending glyphs. The marker must keep moving.
-2. Browse enough pages to exceed 384 resident glyphs in one slot. Return to the
-   first page and compare glyph identity and baseline placement.
-3. Cycle all three sizes, including 320 distinct characters on one screen.
-4. Pause loading, change pages and verify that controls still respond. Resume
-   and wait for the remaining glyphs.
-5. Edit the external document after building the EBOOT; reload and verify the
-   new Chinese/Japanese text without rebuilding.
-6. Move the archive aside, reload, then restore it. The interface remains usable
-   during failure and loads glyphs after recovery.
-
-`tests/text-cjk.test.ts` drives the built app and WASM core through an injected
-provider. Core tests cover clipping, visible residency, stale replies, negative
-caching, corrupt cells and bounded archive reads. Run:
+1. Pause on a new chapter: fallback persists and the marker and controls work.
+   Resume: the first content frame contains the complete visible page.
+2. Page through a ready chapter: no additional glyph requests occur.
+3. Change selections during loading: no old chapter or partial title appears.
+4. Reload pressure sets until eviction occurs, then revisit a chapter and
+   compare glyph identity. Common glyphs remain resident.
+5. Select the over-budget and missing-glyph cases: error replaces the whole
+   content, with no unbounded retry loop.
+6. Edit a text file after building and reload. Disconnect/reconnect the provider
+   and verify fallback, recovery and the absence of stale content.
 
 ```sh
 bun tools/wasm.ts
-bun test tests/font-config.test.ts tests/text-cjk.test.ts
+bun test tests/font-config.test.ts tests/font-archive.test.ts tests/text-batch.test.ts tests/text-cjk.test.ts
+bun test --conditions=browser tests/renderer.test.ts
 cargo test --locked --manifest-path engine/core/Cargo.toml
 ```
 
-The PSP `devtools-offload` Cargo feature enables the mailbox for scripted device
-validation. **Mailbox polling performs main-thread host0 I/O.** It is disabled
-in production offload builds; measure performance on a normal build. Keep
-captures and per-run logs under `.pocket-build/validation/`.
+The `devtools-offload` Cargo feature enables mailbox-driven device replay.
+**The debug mailbox performs main-thread host0 I/O**; use a normal build for
+performance measurements. Captures and per-run logs belong under
+`.pocket-build/validation/`.
 
-## Packaged coverage and GPU residency
+## Packaged fonts and GPU pages
 
-Small fixed character sets can still use `fonts.json` beside the app entry:
+`fonts.json` beside the app entry still declares baked coverage:
 
 ```json
 {
@@ -159,30 +198,22 @@ Small fixed character sets can still use `fonts.json` beside the app entry:
 }
 ```
 
-Paths are relative to this file. The build tracks character files and font
-files as dependencies. Character files have a 4 MiB limit; the declared set has
-a 65,534-scalar limit before the atlas adds ASCII and its missing-glyph cell.
-The final atlas enforces its own glyph-count limit. Declaring a character does
-not add an outline absent from the source font.
+Paths are relative to that file. Character files have a 4 MiB limit; the declared
+set has a 65,534-scalar limit before adding ASCII and the missing-glyph cell.
+Declaring a scalar cannot supply an outline absent from the source font.
 
-The PSP GE renderer materializes **at most sixteen 64×128 ABGR4444 pages**, with
-at most 256 KiB of pixels. Page keys contain slot, atlas revision and glyph
-range. The GPU cell width excludes transparent right-hand archive padding, while the source row stride and text advances stay fixed.
-An accepted streamed batch changes the revision. A page referenced by
-queued GE commands stays immutable until `sceGuSync`; retired pages use LRU
-replacement. If every page is pinned, the renderer paints from CPU source
-coverage. That preserves glyph identity but can increase frame cost.
+The PSP GE renderer keeps **at most sixteen 64×128 ABGR4444 pages, 256 KiB of
+pixels**. Page identities include slot, atlas revision and glyph range. Source
+stride, ink width and logical advance remain separate. Pages referenced by
+queued GE commands stay immutable until `sceGuSync`. When every GPU page is
+pinned, rendering uses CPU source coverage. Source leases preserve glyph
+identity across that GPU replacement policy.
 
-## PSPMAN integration boundary
+## Migration from #426
 
-[PSPMAN's public issues](https://github.com/obsoletesony/PSPMAN-Issues) report
-damaged Han glyphs and partial rendering of `気迫`. This framework now supplies
-an external archive, bounded source residency and ordinary `<Text>` integration
-that PSPMAN can adopt instead of maintaining its own glyph-loading path.
-PJFA/1 is distinct from PSPMAN's PJPF/1; an existing archive needs rebuilding or
-an adapter. Updating the PocketJS dependency alone does not switch that path.
-
-Tests here establish glyph identity under cache pressure and dynamic CJK
-coverage. They do not establish the cause of a defect in PSPMAN's private source,
-repair directory scanning, or validate duplicate-row behavior. Closing the
-reported issues requires an integration and reproduction in PSPMAN itself.
+Remove `blockMs` and replace draw-triggered loading with `prepareText()` leases.
+Use `Text resource` or a `ResourceBoundary` for atomic presentation. Set
+`provider: 'local'` when retaining device storage; the new default is companion.
+The external PJFA/1 archive format is unchanged. The former editor-oriented
+`text.glyph` image cache and PSPMAN's separate PJPF/1 format are not converted by
+this change.

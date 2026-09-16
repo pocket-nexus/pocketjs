@@ -131,6 +131,8 @@ export interface HostOps {
   fontStreamRequests?(): string;
   fontStreamCommit?(glyphs: Uint8Array): number;
   fontStreamStats?(): string;
+  /** PFB1 batch lease: 1 ready, 0 pending, -1 missing, -2 budget, -3 stale. */
+  fontStreamBatch?(descriptor: Uint8Array): number;
   /** JS-side convenience; layout measures natively. → width in px. */
   measureText(str: string, fontSlot: number): number;
   /** Soft-wrap break columns for ONE line under maxW px (spec op 43):

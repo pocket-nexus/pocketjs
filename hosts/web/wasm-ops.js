@@ -132,6 +132,7 @@ export async function createWasmUi(wasm, options = {}) {
   if (ex.ui_font_stream_configure) {
     ops.fontStreamConfigure = (buf) => !!withBytes(buf, (p, l) => ex.ui_font_stream_configure(p, l));
     ops.fontStreamCommit = (buf) => withBytes(buf, (p, l) => ex.ui_font_stream_commit(p, l));
+    ops.fontStreamBatch = (buf) => withBytes(buf, (p, l) => ex.ui_font_stream_batch(p, l));
     const streamJSON = (fn) => {
       const n = fn();
       return new TextDecoder().decode(new Uint8Array(ex.memory.buffer, ex.ui_font_stream_json_ptr(), n));

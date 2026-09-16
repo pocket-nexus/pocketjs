@@ -1,41 +1,39 @@
-//! Bounded on-demand glyph cells for ordinary baked Text. Disk work belongs to
-//! io.offload; this module only plans visible demand and applies bounded replies.
+//! Bounded leased glyph cells. Disk work belongs to io.offload.
+//! Drawing never creates demand; a batch pins its entire set until release.
 use crate::{
     text::{Atlas, CmapEntry},
     Ui,
 };
 use alloc::{format, string::String, vec, vec::Vec};
-use core::cell::{Cell, RefCell};
+use core::cell::Cell;
 
 pub const CONFIG_MAGIC: u32 = 0x31534650; // PFS1
 pub const GLYPH_MAGIC: u32 = 0x31474650; // PFG1
-pub const MAX_ENTRIES: usize = 1024;
+pub const MAX_ENTRIES: usize = 4096;
+pub const BATCH_MAGIC: u32 = 0x31424650; // PFB1
+pub const MAX_LEASES: usize = 32;
 pub const MAX_PIXELS: usize = 4096;
 pub const MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_BATCH: usize = 4;
-const MAX_VISIBLE_MISSES: usize = 2048;
 
 pub(crate) struct Entry {
     cp: u32,
     seen: Cell<u64>,
     ink_width: u32,
 }
-struct Waiting {
-    cp: u32,
-    since: u64,
-    seen: u64,
+struct Lease {
+    id: u32,
+    scalars: Vec<u32>,
 }
 pub(crate) struct Stream {
     pub generation: u32,
     base: u16,
     base_texture_width: u32,
     entries: Vec<Entry>,
-    wanted: RefCell<Vec<u32>>,
+    wanted: Vec<u32>,
+    leases: Vec<Lease>,
     absent: Vec<u32>,
     epoch: Cell<u64>,
-    frame: Cell<u64>,
-    block_ticks: u64,
-    waiting: RefCell<Vec<Waiting>>,
     request_cursor: Cell<usize>,
     width: usize,
     height: usize,
@@ -51,42 +49,89 @@ fn scalar(cp: u32) -> bool {
 }
 
 impl Atlas {
-    pub(crate) fn stream_begin(&self, frame: u64) {
+    pub(crate) fn stream_begin(&self, _frame: u64) {
         if let Some(s) = &self.stream {
-            s.waiting.borrow_mut().retain(|w| w.seen >= s.epoch.get());
             s.epoch.set(s.epoch.get().saturating_add(1));
-            s.frame.set(frame);
-            s.wanted.borrow_mut().clear();
         }
     }
-    /// Records visible demand even while a pending glyph's ink is hidden.
-    /// Returns whether to paint the glyph; layout and advances are unchanged.
-    pub(crate) fn stream_visible(&self, cp: u32, gid: u16) -> bool {
-        let Some(s) = &self.stream else { return true };
-        if gid >= s.base && (gid - s.base) < s.entries.len() as u16 {
-            s.entries[(gid - s.base) as usize].seen.set(s.epoch.get());
-        } else if gid == 0 && scalar(cp) && self.lookup(cp).is_none() && !s.absent.contains(&cp) {
-            let mut wanted = s.wanted.borrow_mut();
-            if wanted.len() < MAX_VISIBLE_MISSES && !wanted.contains(&cp) {
-                wanted.push(cp);
-            }
-            if s.block_ticks > 0 {
-                let mut waiting = s.waiting.borrow_mut();
-                if let Some(w) = waiting.iter_mut().find(|w| w.cp == cp) {
-                    w.seen = s.epoch.get();
-                    return s.frame.get().saturating_sub(w.since) >= s.block_ticks;
-                }
-                if waiting.len() < MAX_VISIBLE_MISSES {
-                    waiting.push(Waiting {
-                        cp,
-                        since: s.frame.get(),
-                        seen: s.epoch.get(),
-                    });
-                    return false;
-                }
+    pub(crate) fn stream_visible(&self, _cp: u32, gid: u16) -> bool {
+        if let Some(s) = &self.stream {
+            if gid >= s.base && (gid - s.base) < s.entries.len() as u16 {
+                s.entries[(gid - s.base) as usize].seen.set(s.epoch.get());
             }
         }
         true
+    }
+    fn stream_batch(&mut self, b: &[u8]) -> i32 {
+        let Some(s) = self.stream.as_ref() else {
+            return -3;
+        };
+        if u32_at(b, 4) != Some(s.generation) {
+            return -3;
+        }
+        let id = u32_at(b, 12).unwrap();
+        if id == 0 {
+            return -3;
+        }
+        let action = b[9];
+        if action == 0 {
+            if s.leases.len() >= MAX_LEASES {
+                return -2;
+            }
+            if s.leases.iter().any(|l| l.id == id) {
+                return -3;
+            }
+            let mut scalars = Vec::new();
+            for chunk in b[16..].chunks_exact(4) {
+                let cp = u32::from_le_bytes(chunk.try_into().unwrap());
+                if !scalar(cp) {
+                    return -3;
+                }
+                // Baked cells do not consume streamed residency, including gid 0.
+                if self.lookup(cp).is_some_and(|(gid, _)| gid < s.base) {
+                    continue;
+                }
+                scalars.push(cp);
+            }
+            scalars.sort_unstable();
+            scalars.dedup();
+            let mut union = s.wanted.clone();
+            union.extend_from_slice(&scalars);
+            union.sort_unstable();
+            union.dedup();
+            if union.len() > s.entries.len() {
+                return -2;
+            }
+            let s = self.stream.as_mut().unwrap();
+            s.wanted = union;
+            s.leases.push(Lease { id, scalars });
+        } else if b.len() != 16 {
+            return -3;
+        }
+        if action == 2 {
+            let s = self.stream.as_mut().unwrap();
+            s.leases.retain(|l| l.id != id);
+            s.wanted.clear();
+            for lease in &s.leases {
+                s.wanted.extend_from_slice(&lease.scalars);
+            }
+            s.wanted.sort_unstable();
+            s.wanted.dedup();
+            s.absent.retain(|cp| s.wanted.binary_search(cp).is_ok());
+            return 1;
+        }
+        let s = self.stream.as_ref().unwrap();
+        let Some(lease) = s.leases.iter().find(|l| l.id == id) else {
+            return -3;
+        };
+        if lease.scalars.iter().any(|cp| s.absent.contains(cp)) {
+            return -1;
+        }
+        if lease.scalars.iter().all(|cp| self.lookup(*cp).is_some()) {
+            1
+        } else {
+            0
+        }
     }
     fn stream_bytes(&self) -> usize {
         self.stream.as_ref().map_or(0, |s| {
@@ -94,7 +139,7 @@ impl Atlas {
         })
     }
 
-    fn stream_configure(&mut self, b: &[u8], tick_rate: u32) -> bool {
+    fn stream_configure(&mut self, b: &[u8]) -> bool {
         let generation = u32_at(b, 4).unwrap();
         let base = self.stream.as_ref().map_or(self.glyph_count, |s| s.base);
         let base_texture_width = self
@@ -162,13 +207,10 @@ impl Atlas {
                     ink_width: 0,
                 })
                 .collect(),
-            wanted: RefCell::new(Vec::with_capacity(MAX_VISIBLE_MISSES)),
+            wanted: Vec::new(),
+            leases: Vec::new(),
             absent: Vec::with_capacity(capacity),
             epoch: Cell::new(1),
-            frame: Cell::new(0),
-            block_ticks: (u16::from_le_bytes([b[18], b[19]]) as u64 * tick_rate as u64)
-                .div_ceil(1000),
-            waiting: RefCell::new(Vec::new()),
             request_cursor: Cell::new(0),
             width: w,
             height: h,
@@ -209,7 +251,7 @@ impl Atlas {
         for i in 0..n {
             let at = 12 + i * (8 + packed);
             let cp = u32_at(b, at).unwrap();
-            if !s.wanted.borrow().contains(&cp)
+            if s.wanted.binary_search(&cp).is_err()
                 || self.cmap.binary_search_by_key(&cp, |e| e.codepoint).is_ok()
             {
                 continue;
@@ -227,7 +269,7 @@ impl Atlas {
                 s.entries
                     .iter()
                     .enumerate()
-                    .filter(|(_, e)| e.seen.get() < s.epoch.get())
+                    .filter(|(_, e)| s.wanted.binary_search(&e.cp).is_err())
                     .min_by_key(|(_, e)| e.seen.get())
                     .map(|(i, _)| i)
             });
@@ -297,7 +339,8 @@ impl Ui {
             || u32_at(b, 0) != Some(CONFIG_MAGIC)
             || b[8] as usize >= crate::spec::MAX_FONT_SLOTS
             || b[15] != 0
-            || u16::from_le_bytes([b[18], b[19]]) > 3000
+            || b[18] != 0
+            || b[19] != 0
         {
             return false;
         }
@@ -316,12 +359,7 @@ impl Ui {
         {
             return false;
         }
-        let tick_rate = self.tick_rate();
-        let ok = self
-            .fonts
-            .atlas_mut(slot)
-            .unwrap()
-            .stream_configure(b, tick_rate);
+        let ok = self.fonts.atlas_mut(slot).unwrap().stream_configure(b);
         if ok {
             self.font_revisions[slot as usize] = self.font_revisions[slot as usize].wrapping_add(1);
             self.mark_layout_dirty();
@@ -329,7 +367,23 @@ impl Ui {
         }
         ok
     }
-    /// Visible misses only. The scheduler owns duplicate/in-flight filtering.
+    /// PFB1: generation, slot, action (retain/query/release), two reserved bytes,
+    /// nonzero lease id, then at most MAX_ENTRIES Unicode scalars on retain.
+    /// 1 ready, 0 pending, -1 missing, -2 budget, -3 invalid/stale.
+    pub fn font_stream_batch(&mut self, b: &[u8]) -> i32 {
+        if b.len() < 16
+            || b.len() > 16 + MAX_ENTRIES * 4
+            || b.len() % 4 != 0
+            || u32_at(b, 0) != Some(BATCH_MAGIC)
+            || b[9] > 2
+            || b[10] != 0
+            || b[11] != 0
+        {
+            return -3;
+        }
+        self.fonts.atlas_mut(b[8]).map_or(-3, |a| a.stream_batch(b))
+    }
+    /// Explicit batch demand only. The scheduler filters in-flight requests.
     pub fn font_stream_requests(&self) -> String {
         use core::fmt::Write;
         let mut out = String::from("[");
@@ -351,7 +405,7 @@ impl Ui {
                     continue;
                 };
                 let Some(s) = &a.stream else { continue };
-                let wanted = s.wanted.borrow();
+                let wanted = &s.wanted;
                 while visited[slot] < wanted.len() {
                     let cp = wanted[(starts[slot] + visited[slot]) % wanted.len()];
                     visited[slot] += 1;
@@ -403,7 +457,6 @@ impl Ui {
                     bytes += a.stream_bytes();
                     pending += s
                         .wanted
-                        .borrow()
                         .iter()
                         .filter(|cp| a.lookup(**cp).is_none() && !s.absent.contains(cp))
                         .count();

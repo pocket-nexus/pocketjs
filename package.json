@@ -162,6 +162,7 @@
     "./text-view": "./framework/src/text-view.ts",
     "./text/provider": "./tools/text-glyph-provider.ts",
     "./fonts": "./framework/src/fonts.ts",
+    "./fonts/provider": "./tools/font-archive-provider.ts",
     "./offload": "./framework/src/offload.ts",
     "./text-layout": "./framework/src/text-layout.ts",
     "./resource-state": "./framework/src/resource-state.ts",

@@ -1,155 +1,117 @@
 // @title Pocket Text Lab
-import { createMemo, createSignal, For, onCleanup } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { mount } from "@pocketjs/framework";
 import { Text, View } from "@pocketjs/framework/components";
 import { onButtonPress, onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN } from "@pocketjs/framework/input";
-import { openFontArchive } from "@pocketjs/framework/fonts";
+import { openFontArchive, type TextResource } from "@pocketjs/framework/fonts";
 import { offload } from "@pocketjs/framework/offload";
 
+const modes = ["MUSIC", "CHAPTER 1", "CHAPTER 2", "CACHE PRESSURE", "OVER BUDGET", "MISSING GLYPH"];
+function wrap(text: string) {
+  return text.split("\n").map(line => {
+    const chars = Array.from(line), lines: string[] = [];
+    for (let at = 0; at < chars.length; at += 27) lines.push(chars.slice(at, at + 27).join(""));
+    return lines.join("\n");
+  }).join("\n");
+}
 function TextLab() {
-  const [page, setPage] = createSignal(0),
-    [size, setSize] = createSignal(1),
-    [document, setDocument] = createSignal(false);
-  const [paragraph, setParagraph] = createSignal("Loading external text..."),
-    [status, setStatus] = createSignal("Opening local font archive...");
-  const [cache, setCache] = createSignal(""),
-    [io, setIo] = createSignal(""),
-    [paused, setPaused] = createSignal(false),
-    [fontReady, setFontReady] = createSignal(false);
-  let archive: ReturnType<typeof openFontArchive> | undefined,
-    frames = 0,
-    started = false,
-    statsPending = false;
-  const readDocument = () =>
-    offload("local").request("fs.read-text", "text-lab.txt", (r) =>
-      setParagraph(r.ok ? r.value : r.error),
-    );
-  const next = (d: number) => setPage((page() + d + 82) % 82);
-  onButtonPress(BTN.RTRIGGER, () => next(1));
-  onButtonPress(BTN.LTRIGGER, () => next(-1));
-  onButtonPress(BTN.DOWN, () => next(1));
-  onButtonPress(BTN.UP, () => next(-1));
-  onButtonPress(BTN.SQUARE, () => {
-    setDocument(!document());
-    if (document()) readDocument();
-  });
-  onButtonPress(BTN.TRIANGLE, () => setSize((size() + 1) % 3));
-  onButtonPress(BTN.CIRCLE, () => {
-    setPaused(!paused());
-    archive?.pause(paused());
-  });
-  onButtonPress(BTN.CROSS, () => {
-    archive?.reload();
-    readDocument();
-  });
-  onCleanup(() => archive?.dispose());
+  const [mode, setMode] = createSignal(0), [page, setPage] = createSignal(0);
+  const [pages, setPages] = createSignal(1);
+  const [provider, setProvider] = createSignal<"companion" | "local">("companion");
+  const [resource, setResource] = createSignal<TextResource>();
+  const [status, setStatus] = createSignal("Opening companion..."), [metrics, setMetrics] = createSignal("");
+  const [phase, setPhase] = createSignal("PENDING"), [paused, setPaused] = createSignal(false);
+  let archive: ReturnType<typeof openFontArchive> | undefined, started = false, frames = 0,
+    revision = 0, pressure = 0, sourceSession = 0, stop: (() => void) | undefined;
+  const requests = new Set<number>();
+  const clear = () => { stop?.(); stop = undefined; resource()?.dispose(); setResource(undefined); setPhase("PENDING"); setPage(0); };
+  function read(path: string, token: number, done: (text: string) => void) {
+    const client = offload(provider());
+    const id = client.request("fs.read-text", path, r => {
+      requests.delete(id);
+      if (token !== revision) return;
+      if (r.ok) done(r.value); else { setPhase("ERROR"); setStatus(r.error); }
+    });
+    if (id) requests.add(id); else { setPhase("ERROR"); setStatus("Document request budget exceeded; press X"); }
+  }
+  const cancelReads = () => { for (const id of requests) offload(provider()).cancel(id); requests.clear(); };
+  function content() {
+    const token = ++revision;
+    cancelReads(); clear();
+    if (!archive) return;
+    const prepare = (text: string) => {
+      if (token !== revision || !archive) return;
+      const formatted = wrap(text);
+      setPages(Math.max(1, Math.ceil(formatted.split("\n").length / 7)));
+      try {
+        const batch = archive.prepareText(formatted, { slot: 2 });
+        setResource(batch);
+        const update = () => {
+          const s = batch.state(); setPhase(s.status.toUpperCase());
+          if (s.status === "error") setStatus(String(s.error));
+        };
+        stop = batch.subscribe(update); update();
+      } catch (e) { setPhase("ERROR"); setStatus(String(e)); }
+    };
+    if (mode() === 3 || mode() === 4) {
+      const count = mode() === 4 ? 800 : 320, start = 0x4e00 + pressure++ % 20 * 320;
+      prepare(Array.from({ length: count }, (_, i) => String.fromCodePoint(start + i)).join(""));
+    } else if (mode() === 5) prepare(String.fromCodePoint(0x10ffff));
+    else read(mode() === 0 ? "songs.txt" : `chapter-${mode()}.txt`, token, prepare);
+  }
+  function boot() {
+    sourceSession = offload(provider()).session();
+    const token = ++revision;
+    cancelReads(); clear(); archive?.dispose(); archive = undefined;
+    setStatus("Loading configured resident set...");
+    read("common.txt", token, common => {
+      archive = openFontArchive({ path: "fonts/cjk.pjfa", slots: [2], provider: provider(), capacity: 768,
+        maxBytes: 768 * 1024, resident: [{ slot: 2, text: common }] });
+      archive.pause(paused()); content();
+    });
+  }
+  onButtonPress(BTN.RTRIGGER, () => { setMode((mode() + 1) % modes.length); content(); });
+  onButtonPress(BTN.LTRIGGER, () => { setMode((mode() + modes.length - 1) % modes.length); content(); });
+  onButtonPress(BTN.TRIANGLE, () => setPage((page() + 1) % pages()));
+  onButtonPress(BTN.CIRCLE, () => { setPaused(!paused()); archive?.pause(paused()); });
+  onButtonPress(BTN.CROSS, () => mode() === 3 ? content() : boot());
+  onButtonPress(BTN.SQUARE, () => { cancelReads(); setProvider(provider() === "companion" ? "local" : "companion"); boot(); });
+  onCleanup(() => { revision++; cancelReads(); clear(); archive?.dispose(); });
   onFrame(() => {
-    if (!started) {
-      started = true;
-      archive = openFontArchive({
-        path: "fonts/cjk.pjfa",
-        slots: [0, 2, 4],
-        capacity: 384,
-        blockMs: 3000,
-        onChange: () => setFontReady(archive?.status().state === "ready"),
-      });
-      readDocument();
+    if (!started) { started = true; boot(); }
+    const session = offload(provider()).session();
+    if (session !== sourceSession) {
+      sourceSession = session;
+      if (session > 0) { if (archive) content(); else boot(); }
     }
-    frames++;
-    if (frames % 15 === 0 && archive) {
-      const s = archive.status(),
-        c = archive.stats();
-      setStatus(
-        s.state === "ready"
-          ? s.paused
-            ? "I/O PAUSED - controls remain live"
-            : "LOCAL FONT - no companion"
-          : s.error || "Opening local font archive...",
-      );
-      setCache(
-        `${c.resident}/1152 cached | ${Math.round(c.bytes / 1024)} KiB | ${c.pending} pending | ${c.evictions} evicted`,
-      );
-      if (!statsPending && s.state === "ready") {
-        statsPending = true;
-        offload("local").request("font.stats", "", (r) => {
-          statsPending = false;
-          if (r.ok) {
-            const v = JSON.parse(r.value);
-            setIo(
-              `${v.glyphs} reads | ${Math.round(v.bytes / 1024)} KiB I/O | frame ${v.frameUs ? Math.round(v.frameUs / 1000) : 0} ms`,
-            );
-          }
-        });
-      }
-    }
-  });
-  const dimensions = () =>
-    size() === 0 ? [32, 10] : size() === 1 ? [24, 8] : [20, 6];
-  const lines = createMemo(() => {
-    const [cols, rows] = dimensions();
-    if (document()) {
-      const chars = Array.from(paragraph().replace(/\r/g, "")),
-        out: string[] = [];
-      let line = "";
-      for (const c of chars) {
-        if (c === "\n" || Array.from(line).length === cols) {
-          out.push(line);
-          line = "";
-        }
-        if (c !== "\n") line += c;
-      }
-      if (line) out.push(line);
-      const start = (page() * rows) % Math.max(1, out.length);
-      return out.slice(start, start + rows);
-    }
-    return Array.from({ length: rows }, (_, r) =>
-      Array.from({ length: cols }, (_, c) =>
-        String.fromCodePoint(0x4e00 + ((page() * 256 + r * cols + c) % 20992)),
-      ).join(""),
-    );
+    if (++frames % 15 || !archive) return;
+    const s = archive.status(), c = archive.stats();
+    if (phase() !== "ERROR") setStatus(s.error || (paused() ? "I/O PAUSED - content waits as one batch" :
+      `${provider().toUpperCase()} | ${s.state.toUpperCase()} | common glyphs stay resident`));
+    setMetrics(`${c.resident}/768 cells | ${Math.round(c.bytes / 1024)} KiB | ${c.pending} pending | ${c.evictions} evicted`);
   });
   return (
-    <View
-      class="w-full h-full bg-slate-950 flex-col p-2 gap-[2]"
-      debugName="TextLab"
-    >
+    <View class="w-full h-full bg-slate-950 flex-col p-2 gap-[2]" debugName="TextLab">
       <View class="flex-row justify-between items-center">
         <Text class="text-base text-white font-bold">Pocket Text Lab</Text>
-        <View class="w-[80] h-[6] rounded-[3px] bg-slate-800" debugName="FrameMotionTrack">
+        <View class="w-[80] h-[6] rounded-[3px] bg-slate-800">
           <View class="w-[16] h-[6] rounded-[3px] bg-cyan-300 animate-frame-motion" debugName="FrameMotion" />
         </View>
-        <Text class="text-xs text-cyan-300">{`${document() ? "DOCUMENT" : "UNICODE GRID"} ${page() + 1}/82 | ${[12, 16, 20][size()]} px`}</Text>
+        <Text class="text-xs text-cyan-300">{`${modes[mode()]} | ${phase()}`}</Text>
       </View>
       <Text class="text-xs text-slate-400">{status()}</Text>
-      <View
-        class="h-[172] overflow-hidden flex-col"
-        debugName="DynamicText"
-        style={{ opacity: fontReady() ? 1 : 0 }}
-      >
-        <For each={lines()}>
-          {(line) => (
-            <Text
-              class="text-white"
-              style={{
-                fontSlot: [0, 2, 4][size()],
-                lineHeight: [16, 21, 27][size()],
-              }}
-            >
-              {line}
-            </Text>
-          )}
-        </For>
-        {/* Declare each strike at build time without declaring CJK coverage. */}
-        <Text class="text-xs hidden">12</Text>
-        <Text class="text-base hidden">16</Text>
-        <Text class="text-xl hidden">20</Text>
+      <View class="h-[147] overflow-hidden flex-col" debugName="DynamicText">
+        <Text resource={resource()} class="text-base text-white" debugName="PreparedContent"
+          style={{ lineHeight: 21, translateY: -page() * 147 }}
+          fallback={() => phase() === "ERROR"
+            ? <Text class="text-base text-amber-300" debugName="DocumentError">Document unavailable. Press X to retry.</Text>
+            : <Text class="text-base text-cyan-300" debugName="TextLoading">Loading whole text...</Text>}
+          errorFallback={() => <Text class="text-base text-amber-300" debugName="TextError">Text unavailable. Change selection or press X.</Text>} />
       </View>
-      <Text class="text-xs text-cyan-300">{cache()}</Text>
-      <Text class="text-xs text-slate-400">{io()}</Text>
-      <Text class="text-xs text-slate-300">
-        L/R page TRI size SQ doc O pause X reload
-      </Text>
+      <Text class="text-xs text-cyan-300">{metrics()}</Text>
+      <Text class="text-xs text-slate-400">{`Page ${page() + 1}/${pages()} | preloads the entire chapter`}</Text>
+      <Text class="text-xs text-slate-300">L/R case TRI page O pause X reload SQ provider</Text>
     </View>
   );
 }

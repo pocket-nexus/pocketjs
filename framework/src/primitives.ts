@@ -6,6 +6,10 @@
 // tests can import the public entry without a Solid transform step.
 
 import type { JSX as SolidJSX } from "solid-js";
+import { createRenderEffect, createSignal, onCleanup, untrack } from "solid-js";
+import { ResourceBoundary } from "./resource-boundary.ts";
+import { pending, type ResourceState } from "./resource-state.ts";
+import type { PreparedText, TextResource } from "./fonts.ts";
 import { createElement, spread } from "./renderer.ts";
 import type { NodeMirror } from "./renderer.ts";
 
@@ -29,6 +33,10 @@ export interface ViewProps {
 }
 
 export interface TextProps {
+  /** A prepared whole-text lease. Its immutable text and font slot own content. */
+  resource?: TextResource;
+  fallback?: () => SolidJSX.Element;
+  errorFallback?: (error: unknown) => SolidJSX.Element;
   class?: string;
   style?: StyleObject;
   /** DevTools semantic name shown in the component tree (docs/DEVTOOLS.md). */
@@ -88,6 +96,30 @@ export function View(props: ViewProps): SolidJSX.Element {
 }
 
 export function Text(props: TextProps): SolidJSX.Element {
+  // The presence of this prop selects the resource form for this component's lifetime.
+  if ("resource" in props) {
+    const [state, setState] = createSignal<ResourceState<PreparedText>>(pending());
+    createRenderEffect(() => {
+      const resource = props.resource;
+      const update = () => setState(() => resource?.state() ?? pending());
+      untrack(update);
+      const unsubscribe = resource?.subscribe(update);
+      onCleanup(() => unsubscribe?.());
+    });
+    return ResourceBoundary({
+      state,
+      fallback: () => props.fallback?.() ?? null,
+      errorFallback: error => props.errorFallback?.(error) ?? props.fallback?.() ?? null,
+      children: value => primitive("text", {
+        get class() { return props.class; },
+        get style() { return { ...props.style, fontSlot: value().slot }; },
+        get debugName() { return props.debugName; },
+        get ref() { return props.ref; },
+        get nodeRef() { return props.nodeRef; },
+        get children() { return value().text; },
+      }),
+    });
+  }
   return primitive("text", props as Record<string, unknown>);
 }
 

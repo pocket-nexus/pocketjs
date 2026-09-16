@@ -28,6 +28,7 @@ export function archiveProvider(bytes: Uint8Array) {
   const requests: any[] = [],
     replies: string[] = [],
     seen: any[] = [];
+  const documents = new Map<string, string>([["common.txt", "你好"]]);
   const ops: OffloadOps = {
     session: () => session,
     submit(record) {
@@ -40,8 +41,10 @@ export function archiveProvider(bytes: Uint8Array) {
     ops,
     seen,
     setText: (s: string) => (text = s),
+    setDocument: (name: string, value: string) => documents.set(name, value),
     fail: (value: boolean) => (fail = value),
     reconnect: () => session++,
+    disconnect: () => session = 0,
     step() {
       const r = requests.shift();
       if (!r) return;
@@ -64,7 +67,8 @@ export function archiveProvider(bytes: Uint8Array) {
               s.count,
             ]),
           });
-        else if (r.method === "fs.read-text") payload = text;
+        else if (r.method === "fs.read-text") payload = documents.get(r.payload) ?? text;
+        else if (r.method === "font.close") payload = "";
         else if (r.method === "font.stats")
           payload = JSON.stringify({
             glyphs,

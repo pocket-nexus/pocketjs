@@ -1151,6 +1151,16 @@ unsafe extern "C" fn js_font_stream_requests(
     let s = ui().font_stream_requests();
     JS_NewStringLen(ctx, s.as_ptr(), s.len())
 }
+unsafe extern "C" fn js_font_stream_batch(
+    ctx: *mut JSContext, _: JSValue, n: i32, a: *mut JSValue,
+) -> JSValue {
+    let result = if n > 0 {
+        buffer_bytes(ctx, *a)
+            .map(|(p, l)| ui().font_stream_batch(core::slice::from_raw_parts(p, l)))
+            .unwrap_or(-3)
+    } else { -3 };
+    JS_NewInt32(ctx, result)
+}
 unsafe extern "C" fn js_font_stream_stats(
     ctx: *mut JSContext,
     _: JSValue,
@@ -1280,6 +1290,7 @@ pub unsafe fn register(
     add_fn(ctx, ui_obj, b"fontStreamCommit\0", js_font_stream_commit, 1);
     add_fn(ctx, ui_obj, b"fontStreamRequests\0", js_font_stream_requests, 0);
     add_fn(ctx, ui_obj, b"fontStreamStats\0", js_font_stream_stats, 0);
+    add_fn(ctx, ui_obj, b"fontStreamBatch\0", js_font_stream_batch, 1);
     add_fn(ctx, ui_obj, b"measureText\0", js_measure_text, 2);
     // DevTools ops + mailbox transport (docs/DEVTOOLS.md; debug-only, default-off).
     add_fn(ctx, ui_obj, b"debugInspect\0", js_debug_inspect, 1);

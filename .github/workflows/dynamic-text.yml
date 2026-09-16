@@ -7,6 +7,13 @@ on:
       - 'framework/compiler/**'
       - 'framework/src/pak.ts'
       - 'framework/src/fonts.ts'
+      - 'framework/src/primitives.ts'
+      - 'framework/src/host.ts'
+      - 'framework/src/resource.ts'
+      - 'framework/src/resource-boundary.ts'
+      - 'tools/font-archive-provider.ts'
+      - 'tools/text-lab-*.ts'
+      - 'tests/text-batch.test.ts'
       - 'framework/src/offload.ts'
       - 'contracts/spec/font-archive.ts'
       - 'hosts/psp/src/offload_local.rs'
@@ -17,12 +24,14 @@ on:
       - 'tools/text-lab-assets.ts'
       - 'framework/src/bytes.ts'
       - 'engine/core/**'
+      - 'engine/wasm/**'
       - 'hosts/psp/src/ge.rs'
       - 'apps/text-cjk/**'
       - 'assets/fonts/**'
       - 'tests/font-config.test.ts'
       - 'tests/font-archive.test.ts'
       - 'tests/text-cjk.test.ts'
+      - 'tests/renderer.test.ts'
       - 'tools/build.ts'
       - 'tools/test.ts'
   workflow_dispatch:
@@ -50,4 +59,5 @@ jobs:
             engine/wasm
       - run: cargo test --locked --manifest-path engine/core/Cargo.toml
       - run: bun tools/wasm.ts
-      - run: bun test tests/font-bake.test.ts tests/font-config.test.ts tests/font-archive.test.ts tests/text-cjk.test.ts
+      - run: bun test tests/font-bake.test.ts tests/font-config.test.ts tests/font-archive.test.ts tests/text-batch.test.ts tests/text-cjk.test.ts
+      - run: bun test --conditions=browser tests/renderer.test.ts

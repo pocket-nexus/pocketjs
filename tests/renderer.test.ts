@@ -1852,3 +1852,33 @@ describe("public render() (index.ts)", () => {
     dispose();
   });
 });
+
+test("Text resource swaps one complete value and unsubscribes from superseded batches", () => {
+  function resource() {
+    let state: ResourceState<{ text: string; slot: number }> = pending();
+    const listeners = new Set<() => void>();
+    return { state: () => state, listeners, dispose() {},
+      subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
+      publish(next: typeof state) { state = next; for (const fn of listeners) fn(); },
+    };
+  }
+  const first = resource(), second = resource(), [selected, setSelected] = createSignal(first);
+  const dispose = render(() => Text({ get resource() { return selected(); },
+    children: "must not leak unprepared children", style: { fontSlot: 0 },
+    fallback: () => Text({ children: "Loading" }), errorFallback: () => Text({ children: "Error" }),
+  }) as unknown as NodeMirror, root);
+  expect(host.of("setText").some(c => c[2] === "Loading")).toBe(true);
+  expect(host.of("setText").some(c => String(c[2]).includes("unprepared"))).toBe(false);
+  first.publish(ready({ text: "你好𠮷野", slot: 2 })); runSweep();
+  expect(host.of("setText").some(c => c[2] === "你好𠮷野")).toBe(true);
+  expect(host.of("setProp").some(c => c[2] === PROP.fontSlot && c[3] === 2)).toBe(true);
+  setSelected(second); runSweep(); host.clear();
+  expect(first.listeners.size).toBe(0);
+  first.publish(ready({ text: "stale", slot: 2 }));
+  expect(host.of("setText")).toHaveLength(0);
+  second.publish(ready({ text: "new", slot: 4 }));
+  expect(host.of("setText").some(c => c[2] === "new")).toBe(true);
+  second.publish(failed("offline")); runSweep();
+  expect(host.of("setText").some(c => c[2] === "Error")).toBe(true);
+  dispose(); expect(second.listeners.size).toBe(0);
+});
