@@ -1,6 +1,7 @@
 // Browser and QuickJS implementations of the Pocket Vapor built-ins.
 // Signatures and numeric aliases are generated from contracts/spec/vapor.ts.
 export type * from "./numeric-vue-vapor.ts";
+export type StyleClass = string & { readonly __style?: true };
 import type { Color, f32, f64, i32, u32 } from "./numeric-vue-vapor.ts";
 import { parseVaporColor } from "../../contracts/spec/vapor.ts";
 export type VaporPlainNumber = number & { readonly __type?: never; readonly __newtype?: never };

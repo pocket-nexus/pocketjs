@@ -165,6 +165,11 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     npmFile: "framework/src/std-vue-vapor.ts",
     npmTypes: "framework/src/std-vue-vapor.d.ts",
   },
+  "solid/std": {
+    file: { solid: "framework/src/std-vue-vapor.ts" },
+    npmFile: "framework/src/std-vue-vapor.ts",
+    npmTypes: "framework/src/std-vue-vapor.d.ts",
+  },
 };
 
 /** The bare npm export target for a row (npmFile > invariant file > solid). */

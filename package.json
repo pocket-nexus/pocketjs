@@ -210,6 +210,7 @@
     "./renderer": "./framework/src/renderer.ts",
     "./virtual-list": "./framework/src/virtual-list.ts",
     "./vue-vapor/std": {"types":"./framework/src/std-vue-vapor.d.ts","default":"./framework/src/std-vue-vapor.ts"},
+    "./solid/std": {"types":"./framework/src/std-vue-vapor.d.ts","default":"./framework/src/std-vue-vapor.ts"},
     "./solid": "./framework/src/index.ts",
     "./solid/components": "./framework/src/components.ts",
     "./solid/lifecycle": "./framework/src/lifecycle.ts",

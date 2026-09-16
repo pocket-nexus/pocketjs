@@ -30,6 +30,7 @@
       "@pocketjs/framework/prelude": ["./framework/src/prelude.ts"],
       "@pocketjs/framework/renderer": ["./framework/src/renderer.ts"],
       "@pocketjs/framework/solid": ["./framework/src/index.ts"],
+      "@pocketjs/framework/solid/std": ["./framework/src/std-vue-vapor.ts"],
       "@pocketjs/framework/solid/components": ["./framework/src/components.ts"],
       "@pocketjs/framework/solid/lifecycle": ["./framework/src/lifecycle.ts"],
       "@pocketjs/framework/solid/renderer": ["./framework/src/renderer-solid.ts"],
