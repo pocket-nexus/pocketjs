@@ -39,10 +39,12 @@ import {
   insert,
   insertNode,
   missCounters,
+  registerSprite,
   registerTexture,
   release,
   render,
   resetRendererState,
+  resetSprites,
   resetTextures,
   retain,
   runSweep,
@@ -286,6 +288,7 @@ beforeEach(() => {
   installHost(host);
   resetRendererState();
   resetStyles();
+  resetSprites();
   resetTextures();
   resetPack();
   resetInput();
@@ -818,6 +821,35 @@ describe("setProperty dispatch table [R]", () => {
     host.clear();
     setProp(el, "src", null, "");
     expect(host.of("setImage")).toEqual([["setImage", el.id, -1]]);
+  });
+
+  test("sprite frameStep overrides the manifest and can be updated at runtime", () => {
+    registerSprite("spinner-atlas.svg", { handle: 41, frames: 8, cols: 4, step: 3 });
+    const overridden = createElement("image");
+    setProp(overridden, "frameStep", 6, undefined);
+    setProp(overridden, "sprite", "spinner-atlas.svg", undefined);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 6],
+    ]);
+
+    host.clear();
+    setProp(overridden, "frameStep", 2.9, 6);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 2],
+    ]);
+
+    host.clear();
+    setProp(overridden, "frameStep", undefined, 2.9);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 3],
+    ]);
+
+    host.clear();
+    const fromManifest = createElement("image");
+    setProp(fromManifest, "sprite", "spinner-atlas.svg", undefined);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", fromManifest.id, 41, 8, 4, 3],
+    ]);
   });
 
   test("classList / bool: / prop: / unknown props are loud errors", () => {

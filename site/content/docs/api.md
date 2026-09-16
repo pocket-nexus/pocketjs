@@ -219,10 +219,10 @@ The host primitives, wrapped React Native-style. `View` is the flex container/bo
 
 **`TextProps`** — `class`, `style`, `ref`, `children`, `debugName`.
 **`ImageProps`** — `class`, `src` (`string`), `style`, `ref`, `debugName`.
-**`SpriteProps`** — `class`, `sprite` (`string` — a `ui:sprite.<name>` atlas key), `style`, `ref`, `debugName`.
+**`SpriteProps`** — `class`, `sprite` (`string` — a `ui:sprite.<name>` atlas key), `frameStep` (`number`), `style`, `ref`, `debugName`.
 **`CompositorSurfaceProps`** — `class`, `style`, `package` (installed reverse-DNS package id), `focused`, `ref`, `debugName`.
 
-`Sprite` is a native animated primitive: its atlas (a pow2 texture holding a grid of frames) is baked into the pak, and the Rust core advances the frame cell from its own tick counter — deterministic and with **zero per-frame JS**. It auto-plays from the first frame the moment it is displayed, so a sprite revealed by paging or a `Show`/`Lazy` starts animating on its own. Bake atlases by listing them in a demo's `sprites.json` (`{ "<atlas>.png": { cols, rows, frames, step } }`); `step` is core ticks per frame, so the sprite runs at `tick rate / step` fps (`step: 2` is 30 fps on a 60 Hz bundle). See `apps/gallery` (its covers are shader-baked animated sprites).
+`Sprite` is a native animated primitive: its atlas (a pow2 texture holding a grid of frames) is baked into the pak, and the Rust core advances the frame cell from its own tick counter — deterministic and with **zero per-frame JS**. It auto-plays from the first frame the moment it is displayed, so a sprite revealed by paging or a `Show`/`Lazy` starts animating on its own. Bake atlases by listing them in a demo's `sprites.json` (`{ "<atlas>.png": { cols, rows, frames, step } }`); `step` is core ticks per frame, so the sprite runs at `tick rate / step` fps (`step: 2` is 30 fps on a 60 Hz bundle). **`frameStep` overrides the manifest's `step` at runtime** and is clamped to the core's 1–65535 tick range. See `apps/gallery` (its covers are shader-baked animated sprites).
 
 ### `Screen`
 

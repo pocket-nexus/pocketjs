@@ -5,26 +5,14 @@
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import {
   Image,
+  Sprite,
   Text,
   View,
   type NodeMirror,
 } from "@pocketjs/framework/components";
 import { animate } from "@pocketjs/framework/animation";
 import { TICKS_PER_SECOND } from "@pocketjs/framework/clock";
-import { createSpriteAnimation } from "@pocketjs/framework/lifecycle";
 import { frameworkName } from "@pocketjs/framework/solid";
-
-const SPINNER_FRAME_STEP = 3;
-const SPINNER_FRAMES = [
-  "spinner-00.svg",
-  "spinner-01.svg",
-  "spinner-02.svg",
-  "spinner-03.svg",
-  "spinner-04.svg",
-  "spinner-05.svg",
-  "spinner-06.svg",
-  "spinner-07.svg",
-];
 
 function Stat(props: { label: string; value: string; cls: string; largeLayout?: boolean }) {
   return (
@@ -53,9 +41,6 @@ export default function Hero(props: HeroProps = {}) {
   createEffect(() => {
     const completedCount = count();
     if (completedCount > 0) props.onAction?.(completedCount);
-  });
-  const spinnerSrc = createSpriteAnimation(SPINNER_FRAMES, {
-    frameStep: props.spinnerFrameStep ?? SPINNER_FRAME_STEP,
   });
   let underline: NodeMirror | undefined;
   onMount(() => {
@@ -135,7 +120,11 @@ export default function Hero(props: HeroProps = {}) {
             : "text-4xl text-slate-950 font-bold"}>
             {props.headline ?? `JSX at ${TICKS_PER_SECOND} FPS.`}
           </Text>
-          <Image class={props.largeLayout ? "w-[60] h-[60]" : "w-10 h-10"} src={spinnerSrc()} />
+          <Sprite
+            class={props.largeLayout ? "w-[60] h-[60]" : "w-10 h-10"}
+            frameStep={props.spinnerFrameStep}
+            sprite="spinner-atlas.svg"
+          />
         </View>
         <View
           ref={underline}

@@ -1,20 +1,7 @@
 import { onMounted, ref } from "vue";
-import { Image, Text, View, type NodeMirror } from "@pocketjs/framework/vue-vapor/components";
+import { Image, Sprite, Text, View, type NodeMirror } from "@pocketjs/framework/vue-vapor/components";
 import { animate } from "@pocketjs/framework/vue-vapor/animation";
-import { createSpriteAnimation } from "@pocketjs/framework/vue-vapor/lifecycle";
 import { frameworkName } from "@pocketjs/framework/vue-vapor";
-
-const SPINNER_FRAME_STEP = 3;
-const SPINNER_FRAMES = [
-  "spinner-00.svg",
-  "spinner-01.svg",
-  "spinner-02.svg",
-  "spinner-03.svg",
-  "spinner-04.svg",
-  "spinner-05.svg",
-  "spinner-06.svg",
-  "spinner-07.svg",
-];
 
 const Stat = (props: { label: string; value: string; cls: string }) => {
   return (
@@ -27,7 +14,6 @@ const Stat = (props: { label: string; value: string; cls: string }) => {
 
 export default function Hero() {
   const count = ref(0);
-  const spinnerSrc = createSpriteAnimation(SPINNER_FRAMES, { frameStep: SPINNER_FRAME_STEP });
   let underline: NodeMirror | undefined;
 
   onMounted(() => {
@@ -55,7 +41,7 @@ export default function Hero() {
         <Text class="text-xs text-blue-600 tracking-wide">ONE RUST CORE - ONE VUE VAPOR APP</Text>
         <View class="flex-row items-center justify-between">
           <Text class="text-4xl text-slate-950 font-bold">JSX at 60 FPS.</Text>
-          <Image class="w-10 h-10" src={spinnerSrc.value} />
+          <Sprite class="w-10 h-10" sprite="spinner-atlas.svg" />
         </View>
         <View
           nodeRef={(node: NodeMirror | null) => {

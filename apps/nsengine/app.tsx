@@ -1,20 +1,9 @@
 // @title NS Engine — pocketjs guest talking to a NativeScript host
 import { createSignal, onMount } from "solid-js";
-import { Image, Screen, Text, View } from "@pocketjs/framework/components";
+import { Image, Screen, Sprite, Text, View } from "@pocketjs/framework/components";
 import { runEffect } from "@pocketjs/framework/effects";
-import { createSpriteAnimation, onFrame } from "@pocketjs/framework/lifecycle";
+import { onFrame } from "@pocketjs/framework/lifecycle";
 import { pumpHostLines } from "./channel.ts";
-
-const SPINNER_FRAMES = [
-  "spinner-00.svg",
-  "spinner-01.svg",
-  "spinner-02.svg",
-  "spinner-03.svg",
-  "spinner-04.svg",
-  "spinner-05.svg",
-  "spinner-06.svg",
-  "spinner-07.svg",
-];
 
 // Bakes the glyphs dynamic host strings may use (digits, punctuation).
 const GLYPH_SEED = "0123456789 #:{}\"pong hello from NativeScript,.!?-_iOS via sandboxed realm";
@@ -40,8 +29,6 @@ export default function App() {
   const [reply, setReply] = createSignal("waiting");
   const [hostEvent, setHostEvent] = createSignal("none yet");
   const [count, setCount] = createSignal(0);
-  const spinnerSrc = createSpriteAnimation(SPINNER_FRAMES, { frameStep: 5 });
-
   onFrame(() => pumpHostLines((message) => {
     setHostEvent(String(message["msg"] ?? JSON.stringify(message)));
   }));
@@ -69,7 +56,7 @@ export default function App() {
             </Text>
           </View>
         </View>
-        <Image class="w-8 h-8" src={spinnerSrc()} />
+        <Sprite class="w-8 h-8" sprite="spinner-atlas.svg" />
       </View>
 
       <View class="flex-row gap-3">

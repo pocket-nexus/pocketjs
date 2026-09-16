@@ -66,6 +66,8 @@ export interface SpriteProps {
   class?: string;
   /** DevTools semantic name shown in the component tree (docs/DEVTOOLS.md). */
   debugName?: string;
+  /** Core ticks per atlas frame. Overrides the sprite manifest when provided. */
+  frameStep?: number;
   /** Sprite-atlas key (a `ui:sprite.<name>` entry baked into the pak). */
   sprite?: string;
   style?: StyleObject;

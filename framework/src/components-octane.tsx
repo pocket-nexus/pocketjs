@@ -135,6 +135,7 @@ export interface ImageProps {
 export interface SpriteProps {
   class?: string;
   className?: string;
+  frameStep?: number;
   sprite?: string;
   style?: StyleObject;
   debugName?: string;

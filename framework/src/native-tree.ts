@@ -77,6 +77,8 @@ const NATIVE_ATTRIBUTE_NAMES = new Set([
   "className",
   "style",
   "src",
+  "sprite",
+  "frameStep",
   "onPress",
   "on:press",
   "focusable",
@@ -620,6 +622,14 @@ function setSrc(node: NodeMirror, value: unknown): void {
 
 /** `sprite` prop → bind an animated sprite atlas. Auto-play is native; JS never
  *  touches it per frame. Clearing reverts the node to a plain (empty) image. */
+function spriteStep(node: NodeMirror, fallback: number, value: unknown = node.domAttrs?.frameStep): number {
+  if (value == null) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error("PocketJS: frameStep must be a finite number");
+  }
+  return Math.min(0xffff, Math.max(1, Math.floor(value)));
+}
+
 function setSpriteSrc(node: NodeMirror, value: unknown): void {
   const ops = getOps();
   if (value == null || value === "") {
@@ -639,7 +649,7 @@ function setSpriteSrc(node: NodeMirror, value: unknown): void {
     missCounters.unknownTexture++;
     return;
   }
-  ops.setSprite(node.id, meta.handle, meta.frames, meta.cols, meta.step);
+  ops.setSprite(node.id, meta.handle, meta.frames, meta.cols, spriteStep(node, meta.step));
 }
 
 function setCompositorBinding(node: NodeMirror): void {
@@ -720,6 +730,24 @@ export function setProp<T>(node: NodeMirror, name: string, value: T, prev?: T): 
       return value;
     case "sprite":
       setSpriteSrc(node, value);
+      return value;
+    case "frameStep":
+      if (value != null) spriteStep(node, 1, value);
+      if (node.domAttrs?.sprite != null) {
+        const key = node.domAttrs.sprite;
+        const meta = sprites.get(String(key));
+        if (meta !== undefined) {
+          getOps().setSprite(
+            node.id,
+            meta.handle,
+            meta.frames,
+            meta.cols,
+            spriteStep(node, meta.step, value),
+          );
+        } else {
+          setSpriteSrc(node, key);
+        }
+      }
       return value;
     case "package":
     case "focused":
