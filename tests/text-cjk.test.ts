@@ -32,13 +32,16 @@ test("Text reveals complete runtime content with fallback, pause, cancellation, 
   const hasNode = (name: string) => JSON.stringify(world.getTree()).includes(`"${name}"`);
   function contentInk(pixels: Uint8Array) {
     let count = 0;
-    for (let y = 50; y < 195; y++) for (let x = 8; x < 472; x++) {
+    for (let y = 50; y < 202; y++) for (let x = 8; x < 472; x++) {
       const at = (y * 480 + x) * 4;
       if (pixels[at] > 240 && pixels[at + 1] > 240 && pixels[at + 2] > 240) count++;
     }
     return count;
   }
-  const bodyHash = (pixels: Uint8Array) => fnv1a(pixels.subarray(50 * 480 * 4, 195 * 480 * 4));
+  const bodyHash = (pixels: Uint8Array) => fnv1a(pixels.subarray(50 * 480 * 4, 202 * 480 * 4));
+  // Navigate while the initial common-set file read has no provider reply yet.
+  step();
+  for (const mask of [BTN.RTRIGGER, 0, BTN.LTRIGGER, 0]) { world.frame(mask); world.tick(); world.render(); }
   advance(5); expect(hasNode("TextSkeleton")).toBe(true); expect(hasNode("MusicList")).toBe(false);
   expect(hasNode("FrameMotion")).toBe(false);
   advance(80); expect(has("MUSIC | READY"), JSON.stringify(world.getTree())).toBe(true); expect(has("你好世界")).toBe(true);

@@ -93,9 +93,10 @@ function TextLab() {
   }
   const cancelReads = () => { for (const id of requests) offload(provider()).cancel(id); requests.clear(); };
   function content() {
+    // A selection can supersede the common-set read before the archive exists.
+    if (!archive) { boot(); return; }
     const token = ++revision;
     cancelReads(); clear();
-    if (!archive) return;
     const prepare = (text: string) => {
       if (token !== revision || !archive) return;
       const formatted = mode() === 0 ? text : wrap(text);
