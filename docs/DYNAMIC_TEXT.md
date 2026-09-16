@@ -154,22 +154,37 @@ need an application document paging capability before chapter preparation.
 The fixture font's source and license are in `assets/fonts/NotoSansCJK-Demo.md`.
 Generated full archives, binaries and captures remain under `.pocket-build/`.
 
-L/R selects music, two chapters, cache pressure, over-budget text or a missing
-glyph. Triangle pages within the prepared chapter. Circle pauses loading and
-Cross reloads the files and font. In the pressure case, Cross advances to a new
-320-character set while retaining the cache. The cyan marker animates on the UI thread throughout loading
-and failure. The app uses 768 streamed cells at 16 px and pins its common set.
+**L/R cycles through the music library and two chapters.** The library presents
+four tracks per page with filenames, album labels, formats and durations.
+Up/Down selects a track; Triangle changes pages. `songs.txt` contains one track
+per line, with tab-separated filename, duration and ASCII album label fields.
+This is a metadata browsing demo; it does not play audio.
+
+**Pending content shows an animated skeleton.** Music uses cover and label
+placeholders; chapters use paragraph lines. The opacity loop runs on the UI
+thread. One batch gates the entire music list through `ResourceBoundary`;
+chapters use `Text resource`. Both reveal after all required glyphs are ready.
+Circle pauses glyph loading and Cross reloads the files and font. The app uses
+768 streamed cells at 16 px and pins its common set.
+
+Start enters or leaves diagnostics. Within diagnostics, L/R selects cache
+pressure, over-budget text or a missing glyph. In the pressure case, Cross
+advances to a new 320-character set while retaining the cache. The over-budget
+and missing-glyph cases display `EXPECTED` only when the returned error matches
+the injected condition. Provider errors remain errors. These cases do not
+appear in the library/reader navigation.
 
 Acceptance checks:
 
-1. Pause on a new chapter: fallback persists and the marker and controls work.
+1. Pause on a new chapter: the skeleton keeps animating and controls work.
    Resume: the first content frame contains the complete visible page.
 2. Page through a ready chapter: no additional glyph requests occur.
 3. Change selections during loading: no old chapter or partial title appears.
 4. Reload pressure sets until eviction occurs, then revisit a chapter and
    compare glyph identity. Common glyphs remain resident.
-5. Select the over-budget and missing-glyph cases: error replaces the whole
-   content, with no unbounded retry loop.
+5. Enter diagnostics and select the over-budget and missing-glyph cases:
+   the expected rejection replaces the whole content, with no unbounded retry
+   loop. Start returns to the library.
 6. Edit a text file after building and reload. Disconnect/reconnect the provider
    and verify fallback, recovery and the absence of stale content.
 

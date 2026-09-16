@@ -1,20 +1,19 @@
 import { definePocketConfig } from "@pocketjs/framework/config";
 
-// A paint-only loop on the same UI thread as glyph commits and rendering.
-// It keeps moving during loading, pause, failure and idle; it is not progress.
+// Pending placeholders animate on the UI thread without requesting glyphs.
 export default definePocketConfig({
   theme: {
     keyframes: {
-      "frame-motion": {
-        from: { translateX: 0 },
-        "50%": { translateX: 64 },
-        to: { translateX: 0 },
+      "skeleton-pulse": {
+        from: { opacity: 0.35 },
+        "50%": { opacity: 0.9 },
+        to: { opacity: 0.35 },
       },
     },
     animation: {
-      "frame-motion": {
-        value: "frame-motion 2400ms linear both",
-        loop: "2400ms",
+      "skeleton-pulse": {
+        value: "skeleton-pulse 1600ms linear both",
+        loop: "1600ms",
       },
     },
   },

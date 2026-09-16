@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { bakeFontArchive } from "../framework/compiler/font-archive.ts";
 import { archiveProvider } from "./helpers/font-archive-provider.ts";
-import { bootWorld, treeHasText } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText, fnv1a } from "../hosts/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 import { unpack } from "../framework/compiler/pak.ts";
 
@@ -19,7 +19,9 @@ test("Text reveals complete runtime content with fallback, pause, cancellation, 
     for (let i = 0; i < v.getUint16(6, true); i++) expect(v.getUint32(16 + i * 8, true)).not.toBe(0x4e00);
   }
   const provider = archiveProvider(await bakeFontArchive({ font: "assets/fonts/NotoSansCJK-Demo.otf", slots: [2] }));
-  provider.setText("你好世界。気迫。日本語の文。");
+  provider.setText(["01 - 你好世界.flac\t4:32\tNight Sessions", "02 - 気迫.mp3\t3:48\tCity Lights",
+    "03 - 日本語.ogg\t5:16\tLive", "04 - 文.m4a\t2:57\tQuiet Hours",
+    "05 - 世界.wav\t6:04\tLost & Found", "06 - 你好.flac\t4:21\tNight Sessions"].join("\n"));
   provider.setDocument("chapter-1.txt", chapter); provider.setDocument("chapter-2.txt", other);
   let host: any;
   const world = await bootWorld("text-cjk-main", 60, { offload: { ...provider.ops, local: provider.ops } }, ops => { host = ops; });
@@ -27,6 +29,7 @@ test("Text reveals complete runtime content with fallback, pause, cancellation, 
   const advance = (n: number) => { for (let i = 0; i < n; i++) step(); };
   const press = (mask: number) => { step(mask); step(); };
   const has = (text: string) => treeHasText(world.getTree(), text);
+  const hasNode = (name: string) => JSON.stringify(world.getTree()).includes(`"${name}"`);
   function contentInk(pixels: Uint8Array) {
     let count = 0;
     for (let y = 50; y < 195; y++) for (let x = 8; x < 472; x++) {
@@ -35,10 +38,22 @@ test("Text reveals complete runtime content with fallback, pause, cancellation, 
     }
     return count;
   }
-  advance(80); expect(has("MUSIC | READY")).toBe(true); expect(has("你好世界")).toBe(true);
+  const bodyHash = (pixels: Uint8Array) => fnv1a(pixels.subarray(50 * 480 * 4, 195 * 480 * 4));
+  advance(5); expect(hasNode("TextSkeleton")).toBe(true); expect(hasNode("MusicList")).toBe(false);
+  expect(hasNode("FrameMotion")).toBe(false);
+  advance(80); expect(has("MUSIC | READY"), JSON.stringify(world.getTree())).toBe(true); expect(has("你好世界")).toBe(true);
+  expect(hasNode("MusicList")).toBe(true); expect(hasNode("TextSkeleton")).toBe(false);
+  expect(has("Night Sessions / FLAC")).toBe(true); expect(has("4:32")).toBe(true);
+  const musicReads = provider.seen.filter(r => r.method === "font.glyphs").length;
+  press(BTN.UP); expect(has("6 tracks | 6 selected")).toBe(true); expect(hasNode("Track6")).toBe(true);
+  press(BTN.DOWN); expect(has("6 tracks | 1 selected")).toBe(true); expect(hasNode("Track1")).toBe(true);
+  expect(provider.seen.filter(r => r.method === "font.glyphs")).toHaveLength(musicReads);
   press(BTN.CIRCLE); press(BTN.RTRIGGER); advance(10);
-  expect(has("CHAPTER 1 | PENDING")).toBe(true); expect(has("Loading whole text")).toBe(true);
+  expect(has("CHAPTER 1 | PENDING")).toBe(true); expect(hasNode("TextSkeleton")).toBe(true);
+  expect(has("Loading whole text")).toBe(false); expect(hasNode("PreparedContent")).toBe(false);
   expect(contentInk(step())).toBe(0);
+  const earlySkeleton = bodyHash(step());
+  advance(25); expect(bodyHash(step())).not.toBe(earlySkeleton);
   advance(220); expect(contentInk(step())).toBe(0); // no timeout reveals partial content
   expect(has("I/O PAUSED")).toBe(true);
   press(BTN.CIRCLE);
@@ -61,12 +76,20 @@ test("Text reveals complete runtime content with fallback, pause, cancellation, 
   expect(has("CHAPTER 1 | READY")).toBe(true);
   provider.disconnect(); advance(5); press(BTN.RTRIGGER); advance(680);
   expect(has("CHAPTER 2 | ERROR")).toBe(true);
-  expect(has("Document unavailable")).toBe(true);
+  expect(has("Unable to load this selection")).toBe(true);
   provider.reconnect(); advance(180); expect(has("CHAPTER 2 | READY")).toBe(true);
+  // Ordinary browsing must never enter injected failure cases.
+  press(BTN.RTRIGGER); advance(120); expect(has("MUSIC | READY")).toBe(true);
+  press(BTN.LTRIGGER); advance(120); expect(has("CHAPTER 2 | READY")).toBe(true);
   press(BTN.LTRIGGER); advance(120); expect(has("CHAPTER 1 | READY")).toBe(true);
-  press(BTN.RTRIGGER); press(BTN.RTRIGGER); press(BTN.RTRIGGER); advance(20);
-  expect(has("OVER BUDGET | ERROR")).toBe(true); expect(contentInk(step())).toBe(0);
-  press(BTN.RTRIGGER); advance(30); expect(has("MISSING GLYPH | ERROR")).toBe(true);
+  press(BTN.START); press(BTN.RTRIGGER); advance(20);
+  expect(has("OVER BUDGET | EXPECTED")).toBe(true); expect(contentInk(step())).toBe(0);
+  press(BTN.RTRIGGER); advance(30); expect(has("MISSING GLYPH | EXPECTED")).toBe(true);
+  expect(has("Expected: character absent from the font")).toBe(true);
   expect(JSON.parse(host.fontStreamStats()).pending).toBe(0);
+  provider.fail(true); press(BTN.CROSS); advance(25);
+  expect(has("MISSING GLYPH | ERROR")).toBe(true); expect(has("Expected:")).toBe(false);
+  provider.fail(false); press(BTN.START); press(BTN.CROSS); advance(180);
+  expect(has("MUSIC | READY")).toBe(true);
   expect(provider.seen.filter(r => r.method === "font.glyphs").every(r => JSON.parse(r.payload).scalars.length <= 4)).toBe(true);
 }, 30000);
