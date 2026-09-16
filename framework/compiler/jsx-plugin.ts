@@ -8,6 +8,8 @@ import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
+import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../vapor/compiler/aot-solid-browser.ts";
+import { normalizeSolidAotSemantics } from "../../vapor/compiler/aot-solid-semantics.ts";
 import { exposeVaporFrameFlush } from "./vue-vapor-frame-flush.ts";
 import { checkVueAotSource, hasVueAotContract, resolveVueAotMock } from "../../vapor/compiler/aot-browser.ts";
 import {
@@ -449,12 +451,14 @@ export async function transformFile(
   // Contract dependencies can change without changing the SFC's transform
   // hash, so admission precedes the cache lookup on browser and guest builds.
   if (isVueSfc && hasVueAotContract(src, path)) checkVueAotSource(src, path);
+  const solidAot = framework === "solid" && path.endsWith(".tsx") ? getSolidAotProgram(path, src) : undefined;
+  if (solidAot) src = normalizeSolidAotSemantics(src, path, solidAot);
   const key = await hashKey(path, src, framework, options.features);
   const cacheFile = CACHE_DIR + key + ".json";
   const cached = (await Bun.file(cacheFile).json().catch(() => null)) as CacheEntry | null;
   // SFC output also depends on imported props and declaration modules. Their
   // contents are outside this per-file hash, including on pure child views.
-  if (!isVueSfc && cached && typeof cached.code === "string") {
+  if (!isVueSfc && !solidAot && cached && typeof cached.code === "string") {
     return {
       code: cached.code,
       classStrings: cached.classStrings,
@@ -464,7 +468,7 @@ export async function transformFile(
 
   if (isVueSfc) {
     const result = compileVueSfc(src, path, { stripTypes: true, checkedAot: true });
-    const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+    const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set() };
     const transformed = await transformAsync(result.code, {
       filename: path,
       presets: [],
@@ -493,7 +497,7 @@ export async function transformFile(
     };
   }
 
-  const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+  const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set() };
   const opts = transformOptions(framework);
   const plugins = [
     ...(options.features === undefined ? [] : [makeFeatureFolder(options.features)]),
@@ -600,6 +604,19 @@ export function jsxPlugin(
         const path = packagePath(args.path, framework);
         return path ? { path } : undefined;
       });
+      if (framework === "solid") {
+        build.onResolve({ filter: /^\.{1,2}\// }, args => {
+          const mock = resolveSolidAotMock(args.importer, args.path);
+          if (mock === undefined) {
+            const path = resolveSolidAotModel(args.importer, args.path);
+            return path ? { path } : undefined;
+          }
+          const path = resolveSolidAotModel(args.importer, args.path)!;
+          declarationMocks.set(path, mock);
+          return { path, namespace: "solid-aot-declarations" };
+        });
+        build.onLoad({ filter: /.*/, namespace: "solid-aot-declarations" }, args => ({ contents: declarationMocks.get(args.path)!, loader: "js", resolveDir: new URL(".", import.meta.url).pathname }));
+      }
       if (framework !== "solid") {
         build.onResolve({ filter: /^\.{1,2}\// }, (args) => {
           if (framework === "vue-vapor") {

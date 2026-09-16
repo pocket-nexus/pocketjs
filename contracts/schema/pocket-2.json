@@ -123,6 +123,9 @@
             "octane"
           ]
         },
+        "aot": {
+          "type": "boolean"
+        },
         "surfaces": {
           "type": "object",
           "additionalProperties": false,

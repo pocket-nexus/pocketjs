@@ -1,3 +1,4 @@
+import { resolveSolidAotModel } from "../vapor/compiler/aot-solid-browser.ts";
 import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 // tools/build.ts <app> — the TWO-PASS app build (docs/DESIGN.md "Build pipeline").
@@ -256,6 +257,8 @@ function resolveImport(fromFile: string, spec: string): string | null {
     return exported && /\.tsx?$/.test(exported) ? exported : null;
   }
   if (!spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/")) return null; // external bare
+  const model = framework === "solid" ? resolveSolidAotModel(fromFile, spec) : undefined;
+  if (model) return model.endsWith(".d.ts") ? null : model;
   let resolved: string;
   try {
     resolved = Bun.resolveSync(spec, dirname(fromFile));
