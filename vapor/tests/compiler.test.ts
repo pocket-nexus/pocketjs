@@ -8,6 +8,13 @@ import { esp32BuildId } from "../compiler/esp32.ts";
 import { FONT8 } from "../compiler/font.gen.ts";
 
 const ENTRY = join(import.meta.dir, "..", "examples", "todo", "todo.tsx");
+const SIX_BUTTON = join(
+  import.meta.dir,
+  "..",
+  "examples",
+  "playdate-six-button",
+  "playdate-six-button.tsx",
+);
 
 const HEADER = `
 import { computed, ref } from "vue";
@@ -50,6 +57,51 @@ describe("pocket vapor compiler", () => {
     expect(a.c).toContain("vp_mark");
     expect(a.graph).toContain("visible: view(maxLen 12)");
     expect(a.plan).toContain("pools");
+  });
+
+  test("gb emits the font 1bpp and leaves the other targets' encodings alone", async () => {
+    const source = await Bun.file(ENTRY).text();
+    const fontOf = (target: "gb" | "gba" | "nes" | "esp32") => {
+      const c = compileVaporApp(ENTRY, source, "VAPOR TODO", target).c;
+      const m = c.match(/const u8 vp_font_tiles\[\] = \{ ([^}]*) \};/);
+      return m === null ? null : m[1].split(",").map(Number);
+    };
+
+    // GB ships FONT8 itself; vapor_gb.c's upload_font builds the 2 styles x
+    // 95 x 16 B of 2bpp VRAM from it (proven byte-for-byte in gb-font.test.ts).
+    const gb = fontOf("gb");
+    expect(gb).toHaveLength(95 * 8);
+    expect(gb).toEqual(FONT8.flat());
+    const gbC = compileVaporApp(ENTRY, source, "VAPOR TODO", "gb").c;
+    expect(gbC).toContain("const u8 vp_pal_style[");
+    expect(gbC).not.toContain("vp_palettes");
+    expect(compileVaporApp(ENTRY, source, "VAPOR TODO", "gb").c).toBe(gbC);
+
+    // GBA stays 4bpp, 95 x 32 B, pixels drawn from ink(1)/paper(2) only.
+    const gba = fontOf("gba")!;
+    expect(gba).toHaveLength(95 * 32);
+    expect([...new Set(gba.flatMap((b) => [b & 0xf, b >> 4]))].sort()).toEqual([1, 2]);
+
+    // NES ships its font as CHR-ROM, so it has no C font table at all.
+    expect(fontOf("nes")).toBeNull();
+    // esp32 and playdate were already 1bpp and must be untouched. (todo.tsx
+    // has no playdate input mapping, so that target reads the six-button one.)
+    expect(fontOf("esp32")).toEqual(FONT8.flat());
+    const pdSource = await Bun.file(SIX_BUTTON).text();
+    const pd = compileVaporApp(SIX_BUTTON, pdSource, "PLAYDATE SIX", "playdate").c.match(
+      /const u8 vp_font_tiles\[\] = \{ ([^}]*) \};/,
+    );
+    expect(pd![1].split(",").map(Number)).toEqual(FONT8.flat());
+  });
+
+  test("the memory plan prices the gb font at its emitted 760 B", async () => {
+    const source = await Bun.file(ENTRY).text();
+    const planFont = (target: "gb" | "gba" | "nes") =>
+      compileVaporApp(ENTRY, source, "VAPOR TODO", target).plan.match(/(\d+) B font/)![1];
+    expect(planFont("gb")).toBe("760");
+    // 4bpp GBA and CHR-ROM NES still carry the 3040 B figure.
+    expect(planFont("gba")).toBe("3040");
+    expect(planFont("nes")).toBe("3040");
   });
 
   test("esp32 uses its 20x18 display grid and emits 1bpp RGB565 data", () => {

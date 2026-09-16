@@ -2386,7 +2386,7 @@ class AppCompiler {
       [...this.strLits.keys()].reduce((a, s) => a + s.length + 1, 0) + this.title.length + 1;
     const pairCount = this.styleTable.pairs.length;
     const fontBytes =
-      this.target.name === "esp32" || this.target.name === "playdate" ? 95 * 8 : 95 * 32;
+      this.target.name === "gba" || this.target.name === "nes" ? 95 * 32 : 95 * 8;
     const styleBytes =
       this.target.name === "gba"
         ? pairCount * 16 * 2 + pairCount + 3
@@ -2441,31 +2441,6 @@ function emitFontGba(): string {
 function emitFont1bpp(): string {
   const bytes: number[] = [];
   for (let g = 0; g < 95; g++) bytes.push(...FONT8[g]);
-  return `const u8 vp_font_tiles[] = { ${bytes.join(",")} };`;
-}
-
-/** DMG can't do per-tile palettes: styles are baked as glyph copies.
- * Style 0 = ink shade 3 on paper 0, style 1 = inverse. 2bpp interleaved. */
-function emitFontGb(): string {
-  const bytes: number[] = [];
-  for (const [ink, paper] of [
-    [3, 0],
-    [0, 3],
-  ]) {
-    for (let g = 0; g < 95; g++) {
-      const bitmap = FONT8[g];
-      for (let y = 0; y < 8; y++) {
-        let lo = 0;
-        let hi = 0;
-        for (let x = 0; x < 8; x++) {
-          const v = bitmap[y] & (0x80 >> x) ? ink : paper;
-          if (v & 1) lo |= 0x80 >> x;
-          if (v & 2) hi |= 0x80 >> x;
-        }
-        bytes.push(lo, hi);
-      }
-    }
-  }
   return `const u8 vp_font_tiles[] = { ${bytes.join(",")} };`;
 }
 
@@ -2532,7 +2507,13 @@ function emitTargetData(target: VaporTarget, styles: StyleTable): string {
       );
     }
     case "gb":
-      return `${emitFontGb()}\n${styleTable}`;
+      /* DMG can't do per-tile palettes, so styles are baked as glyph copies:
+       * style 0 = ink shade 3 on paper 0, style 1 = inverse. The 2 x 95 x 16 B
+       * of 2bpp interleaved tile data holds no bit FONT8 does not — shade 3
+       * sets both planes and shade 0 clears both, so every row is `bits, bits`
+       * and style 1 is style 0 complemented. Ship 1bpp; upload_font in
+       * vapor/runtime/gb/vapor_gb.c expands it into VRAM. */
+      return `${emitFont1bpp()}\n${styleTable}`;
     case "nes":
       /* NES font ships as CHR-ROM (rom.ts); only the style map is C data. */
       return styleTable;

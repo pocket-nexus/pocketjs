@@ -108,7 +108,8 @@ u16 app_debug_state(volatile u8 *out); /* mirror reactive state; returns bytes *
 
 /* generated data the runtime uploads at boot (per-target encodings):
  *   GBA: vp_font_tiles 95x32B 4bpp, vp_palettes/vp_palette_count/vp_backdrop
- *   GB:  vp_font_tiles (2 styles x 95) x 16B 2bpp interleaved
+ *   GB:  vp_font_tiles 95x8B 1bpp; upload_font expands to 2 styles x 95
+ *        tiles of 2bpp interleaved VRAM (style 1 = style 0 inverted)
  *   NES: vp_font_tiles (2 styles x 95) x 16B 2bpp planar
  *   ESP32: vp_font_tiles 95x8B 1bpp, direct RGB565 ink/paper tables
  *   Playdate: vp_font_tiles 95x8B 1bpp, vp_pal_style maps pair -> normal/inverse

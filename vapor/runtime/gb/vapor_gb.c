@@ -122,10 +122,25 @@ static u8 read_keys(void) {
 }
 
 static void upload_font(void) {
-  /* 2 styles x 95 glyphs, 2bpp interleaved; tile 0 stays blank */
+  /* vp_font_tiles is 1bpp: 95 glyphs x 8 rows, MSB = leftmost pixel. DMG tiles
+   * are 2bpp interleaved (per row: plane 0 byte, then plane 1 byte), and the
+   * two baked styles are shade 3 on 0 and its inverse — so a set bit means
+   * shade 3 (both planes set) and a clear bit means shade 0 (both clear).
+   * Every row is therefore `bits, bits`, and style 1 is style 0 complemented.
+   * Expand here rather than shipping 3040 B of ROM holding 760 B of bits.
+   * Tile 0 stays blank; style 1 follows style 0's 95 tiles. */
   volatile u8 *d = VRAM8(0x8000 + 16);
+  volatile u8 *inv = VRAM8(0x8000 + 16 + 95 * 16);
+  const u8 *src = vp_font_tiles;
   u16 i;
-  for (i = 0; i < (u16)(2 * 95 * 16); i++) d[i] = vp_font_tiles[i];
+  for (i = 0; i < (u16)(95 * 8); i++) {
+    u8 bits = src[i];
+    *d++ = bits;
+    *d++ = bits;
+    bits = (u8)~bits;
+    *inv++ = bits;
+    *inv++ = bits;
+  }
 }
 
 void main(void) {
