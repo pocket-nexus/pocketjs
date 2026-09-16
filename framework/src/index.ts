@@ -41,10 +41,11 @@ import {
 import { setOverlayRoot } from "./overlay.ts";
 import { mountAuxiliarySurface, unmountAuxiliarySurface } from "./display.ts";
 import { registerStyles, resolveStyle } from "./styles.ts";
-import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot } from "./input.ts";
+import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferredPress } from "./input.ts";
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame.ts";
+import type { AxisDelta } from "./relative-axis.ts";
 import { flushLifecycleHooks, flushUnmountedHooks } from "./lifecycle-solid-aot.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
@@ -278,16 +279,16 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       hits?: readonly number[],
       touchSurfaces?: readonly number[],
       rightAnalog?: number,
+      axisDeltas?: readonly AxisDelta[],
     ) => {
       __advanceClock(); // virtual frame++, fire due after() timers
       __setAnalog(analog, rightAnalog); // latch the nub before any app code reads it
       __setTouches(touches, hits, touchSurfaces); // latch contacts + surface-specific hit facts
       runServicePumps(); // only modules with pending async work register here
       __drainEffects(); // frame-boundary deliveries enter the world first
-      __runGestures(); // contact lifecycles resolve before app hooks read them
-      runFrameHooks(buttons); // app lifecycle callbacks: onFrame/onButtonPress/etc.
-      handleFrame(buttons); // edge-detect, focus nav, onPress (runs effects)
-      flushLifecycleHooks();
+      runFrameHooks(buttons, axisDeltas,
+        defer => handleFrame(buttons, defer),
+        defer => withDeferredPress(defer, __runGestures));
       runSweep(); // then destroy subtrees still detached [R]
     }),
   );

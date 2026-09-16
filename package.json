@@ -331,6 +331,7 @@
     "clear:companion": "bun tools/ime/device.ts"
   },
   "dependencies": {
+    "@solid-primitives/keyed": "^1.5.3",
     "@volar/typescript": "2.4.28",
     "@vue/compiler-dom": "3.6.0-rc.1",
     "@vue/compiler-sfc": "3.6.0-rc.1",
