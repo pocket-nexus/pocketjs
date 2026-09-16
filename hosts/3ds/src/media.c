@@ -3,8 +3,6 @@
 #include "media.h"
 #include "media_wire.h"
 #include "media_adpcm.h"
-#include "media_archive.h"
-#include "media_library.h"
 #include "pocket_core.h"
 #include "soc.h"
 #include <3ds.h>
@@ -20,9 +18,9 @@
 #include <unistd.h>
 
 enum { IDLE, OPENING, BUFFERING, PLAYING, ENDED, FAILED };
-enum { ERR_NONE, ERR_MEMORY, ERR_SOCKET, ERR_HEADER, ERR_PACKET, ERR_MVD_INIT, ERR_MVD_DECODE, ERR_MVD_RENDER, ERR_AUDIO, ERR_REMOTE, ERR_FILE };
+enum { ERR_NONE, ERR_MEMORY, ERR_SOCKET, ERR_HEADER, ERR_PACKET, ERR_MVD_INIT, ERR_MVD_DECODE, ERR_MVD_RENDER, ERR_AUDIO, ERR_REMOTE };
 enum { VIDEO_SLOTS=16, AUDIO_SLOTS=24, COMMAND_SLOTS=4, AUDIO_CHANNEL=0 };
-typedef struct { char host[16], token[65]; unsigned port, generation, seek_ms; char key[65]; } Command;
+typedef struct { char host[16], token[65]; unsigned port, generation; } Command;
 typedef struct { uint8_t *pixels; uint32_t pts, generation; } VideoFrame;
 static Command commands[COMMAND_SLOTS];
 static _Atomic unsigned command_read, command_write, requested, status_generation;
@@ -44,14 +42,7 @@ static bool startup_ready, draining;
 static uint32_t origin_position, buffer_origin;
 static unsigned last_volume=101;
 static uint8_t *nal_buffer;
-static unsigned current_generation, seek_target;
-static FILE *local_file;
-static long local_end;
-typedef struct { unsigned pts,end,generation; uint8_t data[MEDIA_CAPTION_BYTES-8]; } Caption;
-static Caption captions[8];
-static _Atomic unsigned caption_read,caption_write;
-static unsigned caption_generation,caption_end;
-static bool caption_visible;
+static unsigned current_generation;
 _Static_assert(ATOMIC_INT_LOCK_FREE==2, "Media UI handoff must be lock-free");
 
 static bool current(void) { return atomic_load(&running) && atomic_load(&requested)==current_generation; }
@@ -86,20 +77,18 @@ static void audio_tick(void) {
   was_starved=starved;
 }
 static bool receive_exact(int fd, void *data, size_t count) {
-  if(local_file && (uint64_t)ftell(local_file)+count>(uint64_t)local_end) return false;
   uint8_t *p=data; uint64_t deadline=osGetTime()+10000;
   while (count && current()) {
     audio_tick();
     if (atomic_load(&paused)) { deadline=osGetTime()+10000; svcSleepThread(1000000); continue; }
-    int n=local_file ? (int)fread(p,1,count,local_file) : recv(fd,p,count,0);
+    int n=recv(fd,p,count,0);
     if (n>0) { p+=n; count-=n; atomic_fetch_add(&received,n); deadline=osGetTime()+10000; continue; }
-    if (local_file || !n || (errno!=EWOULDBLOCK && errno!=EAGAIN) || osGetTime()>deadline) return false;
+    if (!n || (errno!=EWOULDBLOCK && errno!=EAGAIN) || osGetTime()>deadline) return false;
     svcSleepThread(1000000);
   }
   return count==0 && current();
 }
 static bool put_audio(const uint8_t *data, unsigned size, uint32_t pts) {
-  if(pts<seek_target) return current();
   while (current()) {
     audio_tick();
     for (unsigned i=0;i<AUDIO_SLOTS;i++) if (waves[i].status==NDSP_WBUF_FREE || waves[i].status==NDSP_WBUF_DONE) {
@@ -131,7 +120,6 @@ static bool render_frame(MVDSTD_Config *config, uint32_t pts) {
   unsigned us=(unsigned)((svcGetSystemTick()-started)*1000000/SYSCLOCK_ARM11);
   if(us>atomic_load(&decode_max)) atomic_store(&decode_max,us);
   if (r!=MVD_STATUS_OK) { fail(ERR_MVD_RENDER,r); return false; }
-  if(pts<seek_target) return current();
   slot->pts=pts; slot->generation=current_generation;
   atomic_fetch_add(&decoded,1);
   atomic_store_explicit(&frame_write,write+1,memory_order_release);
@@ -173,20 +161,6 @@ static bool decode_video(MVDSTD_Config *config,const uint8_t *data,size_t size,u
   }
   return current();
 }
-static bool put_caption(const uint8_t *data,unsigned size,uint32_t pts) {
-  if(size!=MEDIA_CAPTION_BYTES || media_u16(data+4)!=MEDIA_CAPTION_WIDTH || media_u16(data+6)!=MEDIA_CAPTION_HEIGHT
-    || !media_u32(data) || media_u32(data)>3600000 || (uint64_t)pts+media_u32(data)>UINT32_MAX) {fail(ERR_PACKET,0);return false;}
-  if(pts+media_u32(data)<=seek_target) return true;
-  while(current()) {
-    unsigned write=atomic_load_explicit(&caption_write,memory_order_relaxed);
-    if(write-atomic_load_explicit(&caption_read,memory_order_acquire)<8) {
-      Caption *cue=&captions[write%8];cue->pts=pts;cue->end=pts+media_u32(data);cue->generation=current_generation;
-      memcpy(cue->data,data+8,sizeof cue->data);atomic_store_explicit(&caption_write,write+1,memory_order_release);return true;
-    }
-    audio_tick();svcSleepThread(1000000);
-  }
-  return false;
-}
 static void play(const Command *cmd) {
   current_generation=cmd->generation;
   atomic_store(&phase,OPENING); atomic_store(&failure,0); atomic_store(&result_code,0);
@@ -195,19 +169,6 @@ static void play(const Command *cmd) {
   atomic_store(&underruns,0); atomic_store(&buffered_until,0);
   atomic_store_explicit(&status_generation,current_generation,memory_order_release);
   int fd=-1; bool mvd=false; uint8_t *packet=NULL;
-  uint8_t header[32],archive[256];uint32_t start_pts=0,offset=32,caption_offset=0;
-  local_file=NULL;seek_target=0;
-  if(cmd->key[0]) {
-    char path[320];snprintf(path,sizeof path,"%s/%s.pkd",POCKETJS_MEDIA_ROOT,cmd->key);
-    local_file=fopen(path,"rb");
-    if(!local_file || fread(archive,1,256,local_file)!=256 || !media_archive_valid(archive) || !media_u32(archive+8)) {fail(ERR_FILE,0);goto done;}
-    seek_target=cmd->seek_ms;
-    unsigned duration=media_u32(archive+20);if(duration && seek_target>=duration) seek_target=duration-1;
-    local_end=256+media_u32(archive+8);
-    if(!media_archive_seek(local_file,archive,seek_target,&start_pts,&offset,&caption_offset)
-      || fseek(local_file,256,SEEK_SET)) {fail(ERR_FILE,0);goto done;}
-    goto source_ready;
-  }
   while (current() && !soc_ensure(NULL,0)) svcSleepThread(10000000);
   if (!current()) return;
   fd=socket(AF_INET,SOCK_STREAM,0);
@@ -225,11 +186,10 @@ static void play(const Command *cmd) {
     else svcSleepThread(1000000);
   }
   if (sent!=64) { fail(ERR_SOCKET,errno); goto done; }
-source_ready:
+  uint8_t header[32];
   if (!receive_exact(fd,header,32)) { fail(ERR_SOCKET,errno); goto done; }
   if (!media_header_valid(header)) { fail(ERR_HEADER,0); goto done; }
-  origin_position=local_file ? seek_target : media_u32(header+24);
-  if(!local_file) start_pts=origin_position;
+  origin_position=media_u32(header+24);
   buffer_origin=origin_position;
   atomic_store(&position,origin_position);
   packet=malloc(MEDIA_PACKET_BYTES);
@@ -251,14 +211,7 @@ source_ready:
   MVDSTD_Config config;
   mvdstdGenerateDefaultConfig(&config,MEDIA_WIDTH,MEDIA_HEIGHT,MEDIA_WIDTH,MEDIA_HEIGHT,NULL,(u32*)frames[0].pixels,(u32*)frames[0].pixels);
   atomic_store(&phase,BUFFERING);
-  if(local_file) {
-    if(caption_offset) {
-      if(fseek(local_file,256+caption_offset,SEEK_SET) || !receive_exact(fd,header,16) || header[0]!=5 || !media_packet_valid(header)
-        || !receive_exact(fd,packet,media_u32(header+4)) || !put_caption(packet,media_u32(header+4),media_u32(header+8))) {fail(ERR_FILE,0);goto done;}
-    }
-    if(fseek(local_file,256+offset,SEEK_SET)) {fail(ERR_FILE,0);goto done;}
-  }
-  uint32_t last_video=start_pts,last_audio=start_pts;
+  uint32_t last_video=media_u32(header+24),last_audio=last_video;
   while (current()) {
     if (!receive_exact(fd,header,16)) { fail(ERR_SOCKET,errno); break; }
     if (!media_packet_valid(header)) { fail(ERR_PACKET,0); break; }
@@ -270,10 +223,9 @@ source_ready:
     if (size && !receive_exact(fd,packet,size)) { fail(ERR_SOCKET,errno); break; }
     if (header[0]==1 && !decode_video(&config,packet,size,pts)) break;
     if (header[0]==2 && !put_audio(packet,size,pts)) break;
-    if (header[0]==5 && !put_caption(packet,size,pts)) break;
-    if (!atomic_load(&decoded) && (header[0]==1 || header[0]==2) && pts>origin_position+1000) { fail(ERR_MVD_DECODE,0); break; }
+    if (!atomic_load(&decoded) && (header[0]==1 || header[0]==2) && pts-origin_position>500) { fail(ERR_MVD_DECODE,0); break; }
     if (header[0]==4) { fail(ERR_REMOTE,0); break; }
-    if(!local_file && (header[0]==1 || header[0]==2 || header[0]==5)) {
+    if(header[0]==1 || header[0]==2) {
       char credit=1; bool acknowledged=false;
       while(current()) {
         if(send(fd,&credit,1,0)==1) { acknowledged=true; break; }
@@ -299,8 +251,6 @@ source_ready:
   }
 done:
   if (fd>=0) close(fd);
-  if(local_file) fclose(local_file);
-  local_file=NULL;
   if (audio_live) { ndspChnWaveBufClear(AUDIO_CHANNEL); ndspExit(); audio_live=false; }
   if (mvd) mvdstdExit();
   free(packet);
@@ -332,10 +282,9 @@ bool media_start(void) {
   texture_live=true; memset(texture.data,0,texture.size); GSPGPU_FlushDataCache(texture.data,texture.size);
   C3D_TexSetFilter(&texture,GPU_LINEAR,GPU_LINEAR); C3D_TexSetWrap(&texture,GPU_CLAMP_TO_EDGE,GPU_CLAMP_TO_EDGE);
   atomic_store(&running,true); worker=threadCreate(run,NULL,64*1024,0x3e,-2,false);
-  return worker!=NULL && media_library_start();
+  return worker!=NULL;
 }
 void media_stop(void) {
-  media_library_stop();
   atomic_store(&running,false); atomic_fetch_add(&requested,1);
   if (worker) { threadJoin(worker,U64_MAX); threadFree(worker); worker=NULL; }
   for (unsigned i=0;i<VIDEO_SLOTS;i++) { if(frames[i].pixels) linearFree(frames[i].pixels); frames[i].pixels=NULL; }
@@ -350,48 +299,10 @@ bool media_open(const char *host,unsigned port,const char *token) {
   for(unsigned i=0;i<64;i++) if(!((token[i]>='0' && token[i]<='9') || (token[i]>='a' && token[i]<='f'))) return false;
   unsigned write=atomic_load_explicit(&command_write,memory_order_relaxed);
   if(write-atomic_load_explicit(&command_read,memory_order_acquire)>=COMMAND_SLOTS) return false;
-  Command *cmd=&commands[write%COMMAND_SLOTS]; memset(cmd,0,sizeof *cmd); strcpy(cmd->host,host); strcpy(cmd->token,token); cmd->port=port;
+  Command *cmd=&commands[write%COMMAND_SLOTS]; strcpy(cmd->host,host); strcpy(cmd->token,token); cmd->port=port;
   cmd->generation=atomic_fetch_add(&requested,1)+1;
   atomic_store(&paused,false); atomic_store(&requested_open,true);
   atomic_store_explicit(&command_write,write+1,memory_order_release); return true;
-}
-bool media_open_local(const char *key,unsigned position_ms) {
-  if(!atomic_load(&running) || !media_key_valid(key) || position_ms>86400000) return false;
-  unsigned write=atomic_load_explicit(&command_write,memory_order_relaxed);
-  if(write-atomic_load_explicit(&command_read,memory_order_acquire)>=COMMAND_SLOTS) return false;
-  Command *cmd=&commands[write%COMMAND_SLOTS];memset(cmd,0,sizeof *cmd);strcpy(cmd->key,key);cmd->seek_ms=position_ms;
-  cmd->generation=atomic_fetch_add(&requested,1)+1;
-  atomic_store(&paused,false);atomic_store(&requested_open,true);
-  atomic_store_explicit(&command_write,write+1,memory_order_release);return true;
-}
-/* Consume due cues and encode at most one 2 KiB coverage block per call.
- * The guest uploads the returned coverage with its existing bounded texture op. */
-bool media_caption_snapshot(char *out,size_t capacity) {
-  unsigned generation=atomic_load(&requested),now=atomic_load(&position);
-  bool changed=false;Caption selected;bool found=false;
-  if(caption_generation!=generation || !atomic_load(&requested_open)) {caption_generation=generation;caption_visible=false;changed=true;}
-  unsigned read=atomic_load_explicit(&caption_read,memory_order_relaxed),write=atomic_load_explicit(&caption_write,memory_order_acquire);
-  while(read!=write) {
-    Caption *cue=&captions[read%8];
-    if(cue->generation==generation && cue->pts>now) break;
-    if(cue->generation==generation) {selected=*cue;found=true;}
-    read++;
-  }
-  atomic_store_explicit(&caption_read,read,memory_order_release);
-  if(found && selected.end>now) {
-    static const char digits[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    size_t at=(size_t)snprintf(out,capacity,"{\"width\":%u,\"height\":%u,\"endMs\":%u,\"coverage\":\"",MEDIA_CAPTION_WIDTH,MEDIA_CAPTION_HEIGHT,selected.end);
-    if(capacity<at+((sizeof selected.data+2)/3)*4+3) return false;
-    for(size_t i=0;i<sizeof selected.data;i+=3) {
-      unsigned n=sizeof selected.data-i,v=(unsigned)selected.data[i]<<16;
-      if(n>1)v|=(unsigned)selected.data[i+1]<<8;
-      if(n>2)v|=selected.data[i+2];
-      out[at++]=digits[v>>18];out[at++]=digits[(v>>12)&63];out[at++]=n>1?digits[(v>>6)&63]:'=';out[at++]=n>2?digits[v&63]:'=';
-    }
-    out[at++]='"';out[at++]='}';out[at]=0;caption_end=selected.end;caption_visible=true;return true;
-  }
-  if(caption_visible && now>=caption_end) {caption_visible=false;changed=true;}
-  if(changed) {snprintf(out,capacity,"{}");return true;}return false;
 }
 void media_close(void) { atomic_fetch_add(&requested,1); atomic_store(&requested_open,false); atomic_store(&paused,false); }
 void media_paused(bool value) { atomic_store(&paused,value); }
@@ -403,7 +314,7 @@ int32_t media_texture_handle(void) {
   }
   return texture_handle;
 }
-void media_forget_guest(void) { media_close(); media_library_forget_guest(); texture_handle=-1; }
+void media_forget_guest(void) { media_close(); texture_handle=-1; }
 C3D_Tex *media_texture(int32_t handle) { return texture_live && handle>=0 && handle==texture_handle ? &texture : NULL; }
 void media_present(void) {
   unsigned read=atomic_load_explicit(&frame_read,memory_order_relaxed),write=atomic_load_explicit(&frame_write,memory_order_acquire);
@@ -426,7 +337,7 @@ void media_present(void) {
 }
 void media_snapshot(char *out,size_t capacity) {
   static const char *names[]={"idle","opening","buffering","playing","ended","error"};
-  static const char *errors[]={"","Media allocation failed","Media connection lost","Unsupported media stream","Invalid media packet","H.264 hardware decoder unavailable","H.264 decode failed","Video render failed","Audio output unavailable","Companion media failed","Local media file unavailable or corrupt"};
+  static const char *errors[]={"","Media allocation failed","Media connection lost","Unsupported media stream","Invalid media packet","H.264 hardware decoder unavailable","H.264 decode failed","Video render failed","Audio output unavailable","Companion media failed"};
   unsigned p=atomic_load(&phase),e=atomic_load(&failure),now=atomic_load(&position),until=atomic_load(&buffered_until);
   if(!atomic_load(&requested_open)) { p=IDLE; e=0; }
   else if(atomic_load_explicit(&status_generation,memory_order_acquire)!=atomic_load(&requested)) { p=OPENING; e=0; now=until=0; }

@@ -6,27 +6,14 @@ export const MEDIA = Object.freeze({
   sampleRate: 22050, channels: 2, audioFrames: 1024,
   tokenChars: 64,
   packetCredits: 8,
-  captionWidth: 256, captionHeight: 32,
 });
-export const MEDIA_PACKET = Object.freeze({ video: 1, audio: 2, end: 3, error: 4, caption: 5 });
+export const MEDIA_PACKET = Object.freeze({ video: 1, audio: 2, end: 3, error: 4 });
 export interface MediaSource {
   /** Numeric IPv4 address of the paired companion's media endpoint. */
   host: string;
   port: number;
   /** Ephemeral stream ticket issued by that companion. */
   token: string;
-}
-export interface LocalMediaSource { file: string; positionMs?: number }
-export interface MediaCaption { width: number; height: number; coverage: string; endMs: number }
-export interface MediaLibraryEntry { key: string; title: string; language: string; durationMs: number; bytes: number; video: boolean; captions: boolean }
-export interface MediaDownloadStatus { phase: "idle" | "connecting" | "downloading" | "verifying" | "complete" | "cancelled" | "error"; receivedBytes: number; totalBytes: number; error: string }
-export interface MediaLibraryOps {
-  download(host: string, port: number, token: string, key: string): boolean;
-  cancelDownload(): void;
-  downloadStatus(): string;
-  refreshLibrary(): boolean;
-  library(): string | null;
-  removeDownload(key: string): boolean;
 }
 export type MediaPhase = "idle" | "opening" | "buffering" | "playing" | "paused" | "ended" | "error";
 export interface MediaStatus {
@@ -52,11 +39,7 @@ export interface MediaOps {
   texture(): number;
   /** Bounded snapshot. No socket, filesystem or decoder calls on the UI. */
   status(): string;
-  openLocal?(key: string, positionMs: number): boolean;
-  /** Changed timed caption, null when unchanged, or an empty object to clear. */
-  caption?(): string | null;
 }
-export function validMediaKey(key: string): boolean { return typeof key === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(key); }
 export function validMediaSource(source: MediaSource): boolean {
   return typeof source?.host === "string" && /^\d{1,3}(\.\d{1,3}){3}$/.test(source.host)
     && source.host.split(".").every(p => Number(p) <= 255)

@@ -73,7 +73,7 @@ firmware in Rosalina, then reopen the media source. The dump reads firmware
 from the console; the application does not distribute firmware. See the
 [devkitPro audio setup](https://github.com/devkitPro/3ds-examples/blob/master/audio/README.md).
 The 3DS profile remains
-private and its host ABI is 11; earlier launchers require a native replacement.
+private and its host ABI is 10; ABI 8 launchers require a native replacement.
 The CIA declares `mvd:STD` service access and the MVD system-module dependency
 listed in [3dbrew's title table](https://www.3dbrew.org/wiki/Title_list#00040130_-_System_Modules).
 
@@ -93,50 +93,3 @@ The 3DS decoder requests **`MVD_OUTPUT_BGR565` (0x40002)** for the packed words
 consumed by `GX_TRANSFER_FMT_RGB565` and `GPU_RGB565`. The MVD and GPU names use
 different channel-order conventions. Selecting MVD's `RGB565` exchanges red
 and blue; the companion must retain the source colors.
-
-## Local media and downloads
-
-`mediaLibrary()` submits downloads, refreshes and deletions to a storage
-worker. `download(source, key)` accepts a ticketed companion endpoint and an
-entry key containing 1–64 ASCII letters, digits, hyphens or underscores.
-**The key names an entry under `sdmc:/pocketjs/media/<app-slot>/`.** It cannot
-name a path outside that directory. The application reads `status()` for
-connection, transfer, verification, completion, cancellation and errors;
-`entries()` returns a new library snapshot when one is published.
-
-`createMediaDownloadServer` in `tools/media-download.ts` serves immutable
-PKDL files. Each transfer consumes one ticket and acknowledges the 256-byte
-header, then each **32 KiB block**. The storage worker writes `.part`, checks
-the payload CRC32, closes the file, reads it back, checks CRC32 again, exports
-the UTF-8 `.vtt` sidecar, and renames the package to `.pkd`. **Only committed
-packages appear in the library.** Cancel and transfer failures remove the
-temporary package. Starting a download never replaces an existing key.
-
-The 256-byte PKDL header records media, index and caption byte lengths,
-duration, CRC32, a bounded UTF-8 title and language. The payload contains a
-PKMV stream, 12-byte keyframe records `(PTS, media offset, active-caption
-offset)`, then WebVTT. Caption-only packages have zero media and index bytes.
-The current limits are **64 library entries, a package below 2 GiB, a duration
-up to 24 hours, and 4 MiB of WebVTT**. The companion owns preparation and
-progress reporting before transfer; the native worker owns SD progress.
-
-`mediaPlayer().open({ file: key, positionMs })` opens a committed package.
-The playback worker searches the keyframe index, starts at the preceding IDR,
-and discards audio and presentation frames before the requested position.
-**Local playback, pause, volume and seek require no companion connection.**
-An application must keep its local player mounted when a companion session
-disconnects. Deleting the selected entry requires closing that player first.
-
-## Timed captions
-
-Packet kind 5 contains a duration in milliseconds, 16-bit width and height,
-and **256×32 pixels of 2-bit alpha coverage**. The companion rasterizes text
-in the source script. Coverage stays in the saved stream, and WebVTT remains
-available as text on SD. Native playback queues eight cues and selects them
-using the audio clock; local seek restores the cue active at the keyframe.
-
-`mediaPlayer().caption()` returns a changed cue, an empty object to clear,
-or `null` when unchanged. The guest polls this method even when captions are
-hidden, uploads changed coverage through `uploadCoverage`, and releases the
-previous texture. Each caption handoff copies at most 2 KiB of coverage;
-the UI performs no file or socket reads.

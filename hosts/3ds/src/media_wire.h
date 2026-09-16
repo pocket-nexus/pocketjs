@@ -8,9 +8,6 @@
 #define MEDIA_PACKET_BYTES (128 * 1024)
 #define MEDIA_SAMPLE_RATE 22050
 #define MEDIA_AUDIO_FRAMES 1024
-#define MEDIA_CAPTION_WIDTH 256
-#define MEDIA_CAPTION_HEIGHT 32
-#define MEDIA_CAPTION_BYTES (8+MEDIA_CAPTION_WIDTH*MEDIA_CAPTION_HEIGHT/4)
 static inline uint32_t media_u32(const uint8_t *p) {
   return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24;
 }
@@ -29,7 +26,6 @@ static inline bool media_packet_valid(const uint8_t *p) {
     case 2: return n>=8 && n<=MEDIA_AUDIO_FRAMES+7;
     case 3: return n==0;
     case 4: return n>0 && n<=160;
-    case 5: return n==MEDIA_CAPTION_BYTES;
     default: return false;
   }
 }

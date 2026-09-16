@@ -18,8 +18,7 @@ export function mediaPacket(packet: MediaPacket): Buffer {
   const n=packet.data.byteLength;
   const valid=packet.kind===1 ? n>=4 && n<=MEDIA.packetBytes
     : packet.kind===2 ? n>=8 && n<=MEDIA.audioFrames+7
-    : packet.kind===3 ? n===0 : packet.kind===4 ? n>0 && n<=160
-    : packet.kind===5 && n===8+MEDIA.captionWidth*MEDIA.captionHeight/4;
+    : packet.kind===3 ? n===0 : packet.kind===4 && n>0 && n<=160;
   if (!valid || !Number.isInteger(packet.ptsMs) || packet.ptsMs<0) throw new Error("Invalid media packet");
   const out=Buffer.alloc(MEDIA.packetHeaderBytes+n);
   out[0]=packet.kind; out.writeUInt32LE(n,4); out.writeUInt32LE(packet.ptsMs,8);

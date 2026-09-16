@@ -21,7 +21,6 @@
 #include "qjs.h"
 #include "offload.h"
 #include "media.h"
-#include "media_library.h"
 #include "offload_coverage.h"
 
 #include <stdlib.h>
@@ -53,7 +52,6 @@
 
 typedef enum {
   HostMediaOpen, HostMediaClose, HostMediaPaused, HostMediaVolume, HostMediaTexture, HostMediaStatus,
-  HostMediaOpenLocal, HostMediaCaption, HostMediaDownload, HostMediaCancelDownload, HostMediaDownloadStatus, HostMediaLibraryRefresh, HostMediaLibrary, HostMediaRemoveDownload,
   HostOffloadSession, HostOffloadSubmit, HostOffloadTake, HostOffloadCoverage,
   HostCreateNode,
   HostDestroyNode,
@@ -257,28 +255,6 @@ static JSValue host_operation(
       if(token) JS_FreeCString(ctx,token);
       return JS_NewBool(ctx,ok);
     }
-    case HostMediaDownload: {
-      if(argc<4) return JS_FALSE;
-      const char *host=JS_ToCString(ctx,argv[0]),*token=JS_ToCString(ctx,argv[2]),*key=JS_ToCString(ctx,argv[3]);
-      bool ok=media_download(host,(unsigned)argument_int(ctx,argc,argv,1),token,key);
-      if(host) JS_FreeCString(ctx,host);
-      if(token) JS_FreeCString(ctx,token);
-      if(key) JS_FreeCString(ctx,key);
-      return JS_NewBool(ctx,ok);
-    }
-    case HostMediaOpenLocal:
-    case HostMediaRemoveDownload: {
-      if(argc<1) return JS_FALSE;
-      const char *key=JS_ToCString(ctx,argv[0]);
-      bool ok=magic==HostMediaOpenLocal ? media_open_local(key,(unsigned)argument_int(ctx,argc,argv,1)) : media_library_remove(key);
-      if(key) JS_FreeCString(ctx,key);
-      return JS_NewBool(ctx,ok);
-    }
-    case HostMediaCaption: {char caption[3000];return media_caption_snapshot(caption,sizeof caption)?JS_NewString(ctx,caption):JS_NULL;}
-    case HostMediaCancelDownload: media_download_cancel();return JS_UNDEFINED;
-    case HostMediaDownloadStatus: {char status[320];media_download_status(status,sizeof status);return JS_NewString(ctx,status);}
-    case HostMediaLibraryRefresh: return JS_NewBool(ctx,media_library_refresh());
-    case HostMediaLibrary: {const char *value=media_library_snapshot();return value?JS_NewString(ctx,value):JS_NULL;}
     case HostMediaClose: media_close(); return JS_UNDEFINED;
     case HostMediaPaused: media_paused(argc>0 && JS_ToBool(ctx,argv[0])); return JS_UNDEFINED;
     case HostMediaVolume: media_volume((float)argument_float(ctx,argc,argv,0)); return JS_UNDEFINED;
@@ -625,14 +601,6 @@ static void install_host(void) {
   add_operation(media,"volume",1,HostMediaVolume);
   add_operation(media,"texture",0,HostMediaTexture);
   add_operation(media,"status",0,HostMediaStatus);
-  add_operation(media,"openLocal",2,HostMediaOpenLocal);
-  add_operation(media,"caption",0,HostMediaCaption);
-  add_operation(media,"download",4,HostMediaDownload);
-  add_operation(media,"cancelDownload",0,HostMediaCancelDownload);
-  add_operation(media,"downloadStatus",0,HostMediaDownloadStatus);
-  add_operation(media,"refreshLibrary",0,HostMediaLibraryRefresh);
-  add_operation(media,"library",0,HostMediaLibrary);
-  add_operation(media,"removeDownload",1,HostMediaRemoveDownload);
   JS_SetPropertyStr(context,global,"media",media);
 #endif
 #ifdef POCKETJS_OFFLOAD

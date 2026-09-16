@@ -7,8 +7,6 @@
 bool media_start(void);
 void media_stop(void);
 bool media_open(const char *host, unsigned port, const char *token);
-bool media_open_local(const char *key, unsigned position_ms);
-bool media_caption_snapshot(char *out, size_t capacity);
 void media_close(void);
 void media_paused(bool paused);
 void media_volume(float volume);
