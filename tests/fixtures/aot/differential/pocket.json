@@ -1,0 +1,1 @@
+{ "app": { "framework": "solid", "aot": true, "entry": "App.tsx" } }

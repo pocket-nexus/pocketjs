@@ -1,0 +1,6 @@
+{
+  "rows": [
+    { "id": "a", "label": "A", "children": [{ "id": "a1" }] },
+    { "id": "b", "label": "B", "children": [{ "id": "b1" }] }
+  ]
+}

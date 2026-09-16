@@ -183,6 +183,23 @@ const SUITE: readonly Stage[] = [
     ],
   },
   {
+    name: "AOT frontends and execution parity",
+    prep: [["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"]],
+    browser: true,
+    tests: [
+      "tests/aot-types.test.ts",
+      "tests/aot-vue-frontend.test.ts",
+      "tests/aot-solid-frontend.test.ts",
+      "tests/aot-solid-browser.test.ts",
+      "tests/aot-constant-contracts.test.ts",
+      "tests/aot-codegen.test.ts",
+      "tests/aot-differential.test.ts",
+      "tests/solid-for.test.ts",
+      "tests/solid-aot-lab.test.ts",
+      "tests/vue-vapor-frame-flush.test.ts",
+    ],
+  },
+  {
     name: "vue-sfc journeys",
     prep: [
       ["bun", "tools/build.ts", "hero-vue-sfc-main", "--framework=vue-vapor"],
