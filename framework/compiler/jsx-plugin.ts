@@ -8,6 +8,7 @@ import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
+import { exposeVaporFrameFlush } from "./vue-vapor-frame-flush.ts";
 import { checkVueAotSource, hasVueAotContract, resolveVueAotMock } from "../../vapor/compiler/aot-browser.ts";
 import {
   propsHelperCode,
@@ -639,6 +640,7 @@ export function jsxPlugin(
           resolveDir: new URL(".", import.meta.url).pathname,
         }));
         build.onResolve({ filter: /^vue$/ }, () => ({ path: VUE_VAPOR_RUNTIME_PATH }));
+        build.onLoad({ filter: /vue\.runtime-with-vapor\.esm-browser\.prod\.js$/ }, async args => ({ contents: exposeVaporFrameFlush(await Bun.file(args.path).text()), loader: "js" }));
         build.onResolve({ filter: /^\/vue-jsx-vapor\/(?:props|vdom|vapor|ssr)$/ }, (args) => ({
           path: args.path,
           namespace: "vue-vapor-helper",

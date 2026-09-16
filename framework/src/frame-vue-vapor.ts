@@ -6,6 +6,7 @@ import { __beginAxisFrame, __endAxisFrame, __resetAxisInput, __axisDelta, Relati
 import type { i32 } from "./numeric-vue-vapor.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
+import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-vue-aot.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
@@ -21,6 +22,7 @@ export function resetFrameHooks(): void {
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
   __resetAxisInput();
+  resetLifecycleHooks();
 }
 
 export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void): void {
@@ -56,6 +58,7 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
     };
     for (const root of roots) collect(root);
     for (const invoke of ordered) invoke();
+    flushLifecycleHooks();
   }
   finally { __endAxisFrame(); }
 }

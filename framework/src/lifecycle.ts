@@ -14,3 +14,4 @@ export {
   type ButtonPressOptions,
   type SpriteAnimationOptions,
 } from "./frame.ts";
+export { onMount, onCleanup } from "./lifecycle-solid-aot.ts";

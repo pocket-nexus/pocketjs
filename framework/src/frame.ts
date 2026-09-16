@@ -6,6 +6,7 @@
 
 import { createSignal, onCleanup, type Accessor } from "solid-js";
 import { __resetAnalog } from "./analog.ts";
+import { resetLifecycleHooks } from "./lifecycle-solid-aot.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
@@ -18,6 +19,7 @@ export function resetFrameHooks(): void {
   callbacks.clear();
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
+  resetLifecycleHooks();
 }
 
 export function runFrameHooks(buttons: number): void {

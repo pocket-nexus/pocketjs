@@ -30,6 +30,7 @@ import { mountAuxiliarySurface, unmountAuxiliarySurface } from "./display.ts";
 import { registerStyles, resolveStyle } from "./styles.ts";
 import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferredPress } from "./input.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame-vue-vapor.ts";
+import { flushLifecycleHooks, flushUnmountedHooks } from "./lifecycle-vue-aot.ts";
 import type { AxisDelta } from "./relative-axis.ts";
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
@@ -243,12 +244,14 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
   );
 
   const dispose = rendererRender(code, appRoot);
+  flushLifecycleHooks();
   const removeResizeViewportHook = installResizeViewportHook(resizeViewport);
   return () => {
     removeResizeViewportHook();
     __resetTouches();
     resetGestures();
     dispose();
+    flushUnmountedHooks();
     setInputRoot(null);
     setHitRoot(null);
     setAuxiliaryHitRoot(null);

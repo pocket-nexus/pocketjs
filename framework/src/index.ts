@@ -45,6 +45,7 @@ import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot } from "./in
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame.ts";
+import { flushLifecycleHooks, flushUnmountedHooks } from "./lifecycle-solid-aot.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
 import { __drainEffects, resetEffects } from "./effects.ts";
@@ -286,17 +287,20 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       __runGestures(); // contact lifecycles resolve before app hooks read them
       runFrameHooks(buttons); // app lifecycle callbacks: onFrame/onButtonPress/etc.
       handleFrame(buttons); // edge-detect, focus nav, onPress (runs effects)
+      flushLifecycleHooks();
       runSweep(); // then destroy subtrees still detached [R]
     }),
   );
 
   const dispose = rendererRender(code as () => NodeMirror, appRoot);
+  flushLifecycleHooks();
   const removeResizeViewportHook = installResizeViewportHook(resizeViewport);
   return () => {
     removeResizeViewportHook();
     __resetTouches();
     resetGestures();
     dispose(); // tears down reactivity only — universal keeps the nodes
+    flushUnmountedHooks();
     setInputRoot(null); // drops focus state (native focus dies with the nodes)
     setHitRoot(null);
     setAuxiliaryHitRoot(null);
