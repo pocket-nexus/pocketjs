@@ -533,6 +533,16 @@ impl Ui {
         self.tree.resolve(id).is_some()
     }
 
+    /// Retained node kind for inspection. Stale generation-tagged ids return None.
+    pub fn node_type(&self, id: i32) -> Option<u8> {
+        self.tree.get(id).map(|node| node.node_type)
+    }
+
+    /// Retained text for inspection. Stale ids return None; non-text nodes are empty.
+    pub fn node_text(&self, id: i32) -> Option<&str> {
+        self.tree.get(id).map(|node| node.text.as_str())
+    }
+
     // ---- styling ----------------------------------------------------------
 
     /// Apply style-table record `style_id` (spec::STYLE_ID_NONE clears).

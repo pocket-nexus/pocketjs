@@ -150,6 +150,53 @@ pub extern "C" fn ui_create_node(node_type: u32) -> i32 {
     ui().create_node(node_type as u8)
 }
 
+// Read-only retained-tree inspection for host tools and differential tests.
+// Borrowed pointers remain valid until the next mutation of this Ui instance.
+#[no_mangle]
+pub extern "C" fn ui_node_type(id: i32) -> i32 {
+    ui().node_type(id).map_or(-1, i32::from)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_focused() -> i32 {
+    ui().focused()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_text_ptr(id: i32) -> *const u8 {
+    ui().node_text(id).map_or(core::ptr::null(), str::as_ptr)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_text_len(id: i32) -> usize {
+    ui().node_text(id).map_or(0, str::len)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_children_ptr(id: i32) -> *const i32 {
+    ui().node_children(id).as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_children_len(id: i32) -> usize {
+    ui().node_children(id).len()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_display(id: i32) -> i32 {
+    ui().resolved_style(id).map_or(-1, |style| i32::from(style.display))
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_bg_color(id: i32) -> u32 {
+    ui().resolved_style(id).map_or(0, |style| style.bg_color)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_text_color(id: i32) -> u32 {
+    ui().resolved_style(id).map_or(0, |style| style.text_color)
+}
+
 #[no_mangle]
 pub extern "C" fn ui_destroy_node(id: i32) {
     ui().destroy_node(id)
