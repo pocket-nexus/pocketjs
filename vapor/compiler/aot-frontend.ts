@@ -1,19 +1,19 @@
 import ts from "typescript";
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { resolve, dirname, basename, extname } from "node:path";
+import { resolve, dirname, basename } from "node:path";
 import { parse as parseSfc, type SFCDescriptor } from "@vue/compiler-sfc";
 import { parse as parseTemplate, NodeTypes, type ElementNode, type DirectiveNode, type TemplateChildNode, type SimpleExpressionNode } from "@vue/compiler-dom";
 import * as vapor from "@vue/compiler-vapor";
-import { withIsolatedAnimationBake } from "../../framework/compiler/animation.ts";
-import { compileClasses } from "../../framework/compiler/tailwind.ts";
+import { addAotContractBinding } from "./aot-contract.ts";
+import { finalizeAotProgram } from "./aot-program.ts";
 import { PROP, BTN } from "../../contracts/spec/spec.ts";
 import { VAPOR_BUILTINS, VAPOR_ELEMENTS, VAPOR_STYLE_PROPS, VAPOR_INPUT_ELEMENTS, VAPOR_RELATIVE_AXES } from "../../contracts/spec/vapor.ts";
-import { AotCompileError, BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
-import { TypeMapper, createTypeEnvironment, location, fail, typeName, constantNumericSpelling } from "./aot-types.ts";
+import { BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
+import { TypeMapper, createTypeEnvironment, location, fail, typeName } from "./aot-types.ts";
 import { expression, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
 import { readSlotContract, readSlotBindings } from "./aot-slots.ts";
 import { constraintNeedsSource, genericParameters, genericSourceType, inferGenericArgument, inferGenericSource, preservesGenericStorage, satisfiesGenericConstraint, satisfiesGenericSourceConstraint, type GenericSourceArguments } from "./aot-generics.ts";
-import { analyzeContextStatement, resolveProvidedContext, vueContextCall } from "./aot-provide-inject.ts";
+import { analyzeContextStatement, vueContextCall } from "./aot-provide-inject.ts";
 import { validateVueAotSemantics } from "./aot-browser-semantics.ts";
 import type { VaporRootIR, VaporIfIR, VaporForIR, VaporCreateIR, VaporBlockIR, VaporDynamicInfo } from "./vendor/vue-vapor-ir.ts";
 
@@ -32,7 +32,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
   entry = resolve(entry);
   const parsed = new Map<string, ParsedComponent>(), visiting = new Set<string>(), classLiterals = new Set<string>();
   function collect(file: string, override?: string): ParsedComponent {
-    if (visiting.has(file)) fail(location(file, ""), "Recursive component imports are outside v1");
+    if (visiting.has(file)) fail(location(file, ""), "Recursive component imports are outside the AOT subset");
     const existing = parsed.get(file); if (existing) return existing;
     visiting.add(file);
     const source = override ?? options.sources?.get(file) ?? readFileSync(file, "utf8");
@@ -50,7 +50,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         if (clause.isTypeOnly) continue;
         if (module.endsWith(".vue")) {
           if (!clause.name || clause.namedBindings || !module.startsWith(".")) fail(loc, "Child components require a relative default .vue import");
-          const child = resolve(dirname(file), module); if (!existsSync(child)) fail(loc, `Cannot find child component ${module}`); item.children.set(clause.name.text, child); collect(child); continue;
+          const child = resolve(dirname(file), module); if (!existsSync(child) && !options.sources?.has(child)) fail(loc, `Cannot find child component ${module}`); item.children.set(clause.name.text, child); collect(child); continue;
         }
         if (clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) fail(loc, "Use named imports for host primitives, built-ins, and view-model bindings");
         for (const binding of clause.namedBindings.elements) {
@@ -59,7 +59,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           if (module === COMPONENTS) {
             if (original in VAPOR_INPUT_ELEMENTS) item.inputHosts.set(binding.name.text, original as "ActionHandler" | "AxisHandler");
             else if (original in VAPOR_ELEMENTS) item.hosts.set(binding.name.text, original as "View" | "Text" | "Image");
-            else fail(loc, `Host component ${original} is outside v1.1`);
+            else fail(loc, `Host component ${original} is outside the AOT subset`);
           } else if (module === "vue") {
             if (original !== "provide" && original !== "inject") fail(loc, "AOT setup imports from Vue accept provide and inject");
             item.contextImports.set(binding.name.text, original);
@@ -71,8 +71,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           } else {
             if (!module.startsWith("./") || module.slice(2).toLowerCase() !== basename(file, ".vue").toLowerCase()) fail(loc, "The view-model import must use the SFC basename without an extension");
             const modulePath = resolve(dirname(file), module);
-            if (existsSync(modulePath + ".ts") && existsSync(modulePath + ".d.ts")) fail(loc, "A view-model cannot have both .ts and .d.ts forms");
-            if (!existsSync(modulePath + ".ts") && !existsSync(modulePath + ".d.ts")) fail(loc, `Cannot find ${module}.ts or ${module}.d.ts`);
+            if ((existsSync(modulePath + ".ts") || options.sources?.has(modulePath + ".ts")) && (existsSync(modulePath + ".d.ts") || options.sources?.has(modulePath + ".d.ts"))) fail(loc, "A view-model cannot have both .ts and .d.ts forms");
+            if (!(existsSync(modulePath + ".ts") || options.sources?.has(modulePath + ".ts")) && !(existsSync(modulePath + ".d.ts") || options.sources?.has(modulePath + ".d.ts"))) fail(loc, `Cannot find ${module}.ts or ${module}.d.ts`);
           }
           item.imports.set(binding.name.text, module);
         }
@@ -86,7 +86,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
   // Component names are symbols at the View IR boundary; source filenames may repeat in separate folders.
   const usedNames = new Set<string>();
   for (const item of parsed.values()) { const base = item.name; let n = 2; while (usedNames.has(item.name)) item.name = base + n++; usedNames.add(item.name); }
-  const environment = createTypeEnvironment(new Map([...parsed].map(([file, item]) => [file, item.source])), entry);
+  const environment = createTypeEnvironment(new Map([...(options.sources ?? []), ...[...parsed].map(([file, item]) => [file, item.source] as [string, string])]), entry);
   const mapper = new TypeMapper(environment.checker, options.strict, [...parsed.values()].map(c => c.name), environment.locationOf), components: AotComponent[] = [];
   const byFile = new Map<string, AotComponent>();
   const specializations = new Map<string, AotComponent>();
@@ -112,31 +112,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
     }
     const factoryCalls = new Set(script.statements.flatMap(statement => ts.isVariableStatement(statement) ? statement.declarationList.declarations.flatMap(declaration => ts.isObjectBindingPattern(declaration.name) && declaration.initializer && ts.isCallExpression(declaration.initializer) && ts.isIdentifier(declaration.initializer.expression) ? [declaration.initializer.expression.text] : []) : []));
     const factoryImports = new Map<string, { sourceName: string; module: string; type: ts.Type; node: ts.Node }>();
-    function addContractBinding(name: string, sourceName: string, raw: ts.Type, at: SourceLocation, sourceNode?: ts.Node): void {
-      const type = mapper.unwrap(raw);
-      const optional = type.isUnion() && type.types.some(t => !!(t.flags & ts.TypeFlags.Undefined));
-      const callable = optional ? environment.checker.getNonNullableType(type) : type;
-      const signatures = callable.getCallSignatures();
-      if (signatures.length) {
-        if (signatures.length !== 1 || signatures[0]!.typeParameters?.length) fail(at, "View-model functions cannot have overloads or generic parameters");
-        const signature = signatures[0]!;
-        const parameters = signature.getParameters().map(parameter => {
-          const declaration = parameter.valueDeclaration ?? parameter.declarations?.[0];
-          if (!declaration || ts.isParameter(declaration) && (declaration.dotDotDotToken || declaration.questionToken || declaration.initializer)) fail(at, "Function parameters must be required and cannot be rest parameters");
-          return { name: parameter.name, type: mapper.map(environment.checker.getTypeOfSymbolAtLocation(parameter, declaration), environment.locationOf(declaration), `${typeName(name)}${typeName(parameter.name)}`) };
-        });
-        const returns = mapper.map(signature.getReturnType(), at, `${typeName(name)}Result`, true);
-        if (optional && returns.kind !== "void") fail(at, "Optional view-model methods must return void so the default implementation has an empty body");
-        const fn = { name, sourceName, parameters, returns, binding: false, handler: false, ...(optional ? { optional: true } : {}) };
-        component.functions.push(fn); ctx.functions.set(name, fn);
-      } else {
-        const typeIR = mapper.map(type, at, typeName(name)), constant = mapper.literal(type);
-        const rawNumber = typeof constant === "number" ? constantNumericSpelling(environment.checker, sourceNode) : undefined;
-        if (constant !== undefined) component.constants.push({ name, sourceName, type: typeIR, value: constant, ...(rawNumber !== undefined ? { rawNumber } : {}) });
-        else component.values.push({ name, sourceName, type: typeIR, writable: false });
-        ctx.bindings.set(name, { type: typeIR, scope: "vm", ...(constant !== undefined ? { constant } : {}), ...(rawNumber !== undefined ? { rawNumber } : {}) });
-      }
-    }
+    const addContractBinding = (name: string, sourceName: string, raw: ts.Type, at: SourceLocation, sourceNode?: ts.Node) => addAotContractBinding(component, ctx, name, sourceName, raw, at, sourceNode);
     for (const statement of script.statements) {
       if (ts.isImportDeclaration(statement)) {
         const module = (statement.moduleSpecifier as ts.StringLiteral).text, clause = statement.importClause;
@@ -540,7 +516,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         if (attribute.type === NodeTypes.DIRECTIVE) {
           const d = attribute;
           if (ignored.has(d.name)) continue;
-          if (d.modifiers.length) fail(tplLoc(d), "Directive modifiers are outside v1");
+          if (d.modifiers.length) fail(tplLoc(d), "Directive modifiers are outside the AOT subset");
           if (d.name === "bind" && argument(d) === "key" && ignored.has("key")) continue;
           if (d.name === "on") {
             const name = argument(d);
@@ -589,7 +565,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           } else if (d.name === "text") {
             if (tag !== "Text" || node.children.length) fail(tplLoc(d), "v-text requires Text with no children");
             textBinding = expr(d.exp as SimpleExpressionNode, context);
-          } else fail(tplLoc(d), `Directive v-${d.name} is outside v1`);
+          } else fail(tplLoc(d), `Directive v-${d.name} is outside the AOT subset`);
         } else {
           const name = attribute.name, value = attribute.value?.content;
           if (tag) {
@@ -663,40 +639,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
   }
   if (root.descriptor.scriptSetup!.attrs.generic !== undefined) fail(location(entry, root.source), "A generic component requires a parent that supplies concrete props");
   for (const item of parsed.values()) if (item.descriptor.scriptSetup!.attrs.generic === undefined) analyzeComponent(item);
-  resolveProvidedContext(components);
-  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals));
-  for (const classes of classLiterals) if (styles.ids[classes] === undefined) fail(location(entry, root.source), `Unsupported class literal ${JSON.stringify(classes)}`);
-  function finalize(nodes: AotNode[]) {
-    for (const node of nodes) {
-      if (node.kind === "element") {
-        const temporary = node as typeof node & { classLiteral?: string };
-        if (temporary.classLiteral) { node.style = styles.ids[temporary.classLiteral]!; delete temporary.classLiteral; }
-        if (node.dynamicStyle) {
-          const visit = (e: AotExpr) => { if (e.kind === "literal") e.value = e.value === "" ? -1 : styles.ids[e.value as string]!; else if (e.kind === "conditional") { visit(e.consequent); visit(e.alternate); } };
-          visit(node.dynamicStyle.expression);
-        }
-        finalize(node.children);
-      } else if (node.kind === "if") node.branches.forEach(b => finalize(b.children));
-      else if (node.kind === "for" || node.kind === "input") finalize(node.children);
-      else if (node.kind === "component") node.slots.forEach(s => finalize(s.children));
-      else finalize(node.fallback);
-    }
-  }
-  components.forEach(c => finalize(c.nodes));
-  const buttons = new Set<number>(), axes = new Set<number>(), visitedComponents = new Set<string>();
-  function demands(nodes: AotNode[]): void {
-    for (const node of nodes) {
-      if (node.kind === "input") { if (node.input.kind === "button") buttons.add(node.input.button); else axes.add(node.input.axis); demands(node.children); }
-      else if (node.kind === "component") {
-        node.slots.forEach(slot => demands(slot.children));
-        if (!visitedComponents.has(node.component)) { visitedComponents.add(node.component); demands(components.find(c => c.name === node.component)!.nodes); }
-      } else if (node.kind === "if") node.branches.forEach(branch => demands(branch.children));
-      else if (node.kind === "slot") demands(node.fallback);
-      else demands(node.children);
-    }
-  }
-  demands(components.find(c => c.name === root.name)!.nodes);
-  const program: AotProgram = { version: 3, root: root.name, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  const program = finalizeAotProgram(root.name, components, mapper, classLiterals);
   validateVueAotSemantics(program, new Map([...parsed].map(([file, item]) => [file, item.source])));
   const dependencies = new Set(environment.program.getSourceFiles().map(file => resolve(file.fileName)));
   const config = ts.findConfigFile(dirname(entry), ts.sys.fileExists, "tsconfig.json");
