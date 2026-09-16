@@ -1,0 +1,31 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.solid.aot.lab",
+  "name": "pocketjs-solid-aot-lab",
+  "title": "PocketJS: Solid AOT Feature Lab",
+  "version": "0.6.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/solid-aot-lab/main.tsx",
+    "output": "solid-aot-lab-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          480,
+          272
+        ],
+        "presentation": "integer-fit"
+      }
+    },
+    "aot": true
+  }
+}

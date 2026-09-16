@@ -36,6 +36,14 @@ function analyze(body: string, extra = "", children: Record<string, string> = {}
 const portable = (value: unknown) => JSON.parse(JSON.stringify(value, (key, value) => key === "file" ? relative(root, value) : value));
 function flatten(nodes: AotNode[]): AotNode[] { return nodes.flatMap(node => [node, ...(node.kind === "if" ? node.branches.flatMap(b => flatten(b.children)) : node.kind === "component" ? node.slots.flatMap(s => flatten(s.children)) : node.kind === "slot" ? flatten(node.fallback) : flatten(node.children))]); }
 
+test("Solid lab View IR is deterministic", () => {
+  const program = analyzeSolidAot(resolve(root, "apps/solid-aot-lab/app.tsx"), { strict: true });
+  expect(portable(program)).toMatchSnapshot();
+  expect(program.version).toBe(3);
+  expect(program.components.some(c => c.factory)).toBe(true);
+  expect(program.components.some(c => c.name === "FeatureListInstance1")).toBe(true);
+});
+
 test("signals, derived values, keyed lists and input lower directly to shared nodes", () => {
   const program = analyze(`const zero = () => count() === 0; const width = createMemo(() => 80 + count() * 12);
     return <View style={{ width: width() }}>
