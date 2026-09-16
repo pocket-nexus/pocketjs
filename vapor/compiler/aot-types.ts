@@ -76,32 +76,65 @@ export function createTypeEnvironment(files: Map<string, string>, entry = files.
   const options: ts.CompilerOptions = {
     ...configured,
     target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true, skipLibCheck: true, allowNonTsExtensions: true, allowImportingTsExtensions: true, noEmit: true,
+    jsx: ts.JsxEmit.Preserve, strict: true, skipLibCheck: true, allowNonTsExtensions: true, allowImportingTsExtensions: true, noEmit: true,
     baseUrl: configured.baseUrl, paths: {
       ...configured.paths,
+      "@pocketjs/framework/solid/components": [resolve(base, "framework/src/components.ts")],
+      "@pocketjs/framework/solid/std": [resolve(base, "framework/src/std-vue-vapor.ts")],
+      "@pocketjs/framework/solid/lifecycle": [resolve(base, "framework/src/lifecycle.ts")],
+      "@pocketjs/framework/input": [resolve(base, "framework/src/input-api.ts")],
       "@pocketjs/framework/vue-vapor/components": [resolve(base, "framework/src/components-vue-vapor.ts")],
       "@pocketjs/framework/vue-vapor/std": [resolve(base, "framework/src/std-vue-vapor.ts")],
     },
   };
   const host = ts.createCompilerHost(options);
   const read = host.readFile.bind(host);
+  const exists = host.fileExists.bind(host);
+  host.fileExists = path => files.has(resolve(path)) || exists(path);
+  const directoryExists = host.directoryExists?.bind(host);
+  host.directoryExists = path => [...files.keys()].some(file => file.startsWith(resolve(path) + "/")) || !!directoryExists?.(path);
   host.readFile = path => files.get(resolve(path)) ?? read(path);
   host.getSourceFile = (path, languageVersion) => {
     const text = host.readFile(path);
     return text === undefined ? undefined : ts.createSourceFile(path, text, languageVersion, true);
   };
+  host.resolveModuleNames = (names, containingFile) => names.map(name => {
+    // Explicit .tsx imports name views; extensionless imports name their contracts.
+    // TypeScript otherwise prefers App.tsx over the sibling App.d.ts.
+    if (name.startsWith(".") && !/\.[^/]+$/.test(name)) {
+      const base = resolve(dirname(containingFile), name);
+      for (const [suffix, extension] of [[".ts", ts.Extension.Ts], [".d.ts", ts.Extension.Dts]] as const) {
+        if (host.fileExists(base + suffix)) return { resolvedFileName: base + suffix, extension };
+      }
+    }
+    return ts.resolveModuleName(name, containingFile, options, host).resolvedModule;
+  });
   let language!: Language<string>;
   const createProgram = proxyCreateProgram(ts, ts.createProgram, () => ({
     languagePlugins: [createVueLanguagePlugin(ts, options, getDefaultCompilerOptions(3.6, "vue", true), id => id)],
     setup(value) { language = value; },
   }));
-  const program = createProgram({ rootNames: [...files.keys()], options, host });
+  const program = [...files.keys()].some(file => file.endsWith(".vue"))
+    ? createProgram({ rootNames: [...files.keys()], options, host })
+    : ts.createProgram({ rootNames: [...files.keys()], options, host });
   const checker = program.getTypeChecker();
   function nodeAt(file: string, offset: number, width = 1): ts.Node | undefined {
-    const script = language.scripts.get(file);
+    const script = language?.scripts.get(file);
     const service = (script?.generated?.languagePlugin as { typescript?: { getServiceScript(root: unknown): { code: { mappings: { sourceOffsets: number[]; generatedOffsets: number[]; lengths: number[]; generatedLengths?: number[] }[] }; preventLeadingOffset?: boolean } | undefined } } | undefined)?.typescript?.getServiceScript(script!.generated!.root);
     const sourceFile = program.getSourceFile(file);
-    if (!service || !sourceFile) return undefined;
+    if (!sourceFile) return undefined;
+    if (!file.endsWith(".vue")) {
+      let best: ts.Node | undefined;
+      function visit(node: ts.Node) {
+        if (node.getStart(sourceFile) <= offset && node.end >= offset + width) {
+          best = node;
+          ts.forEachChild(node, visit);
+        }
+      }
+      visit(sourceFile);
+      return best;
+    }
+    if (!service) return undefined;
     // A service script starts after an equal-length blank copy of the original SFC.
     const leading = service.preventLeadingOffset ? 0 : files.get(file)?.length ?? 0;
     let best: ts.Node | undefined;
@@ -124,7 +157,8 @@ export function createTypeEnvironment(files: Map<string, string>, entry = files.
   function locationOf(node: ts.Node): SourceLocation {
     const sf = node.getSourceFile(), original = files.get(sf.fileName);
     if (original === undefined) return location(sf.fileName, sf.text, node.getStart(sf));
-    const script = language.scripts.get(sf.fileName);
+    if (!sf.fileName.endsWith(".vue")) return location(sf.fileName, original, node.getStart(sf));
+    const script = language?.scripts.get(sf.fileName);
     const service = (script?.generated?.languagePlugin as { typescript?: { getServiceScript(root: unknown): { code: { mappings: { sourceOffsets: number[]; generatedOffsets: number[]; lengths: number[]; generatedLengths?: number[] }[] }; preventLeadingOffset?: boolean } | undefined } } | undefined)?.typescript?.getServiceScript(script!.generated!.root);
     if (service) {
       const offset = node.getStart(sf) - (service.preventLeadingOffset ? 0 : original.length);
@@ -153,6 +187,8 @@ export class TypeMapper {
     for (const name of componentNames) for (const suffix of ["Props", "Event", "View", "ViewModel", "App"]) this.reserved.add(name + suffix);
   }
   unwrap(type: ts.Type): ts.Type {
+    const accessor = solidTypeAlias(type, "Accessor", this.checker);
+    if (accessor) return accessor;
     const refNames = new Set(["Ref", "ShallowRef", "ComputedRef", "WritableComputedRef", "ModelRef"]);
     const vueRef = [type.aliasSymbol, type.symbol].some(symbol => symbol && refNames.has(symbol.name) && symbol.declarations?.some(declaration => /\/node_modules\/(?:@vue\/(?:reactivity|runtime-core)|vue)\//.test(declaration.getSourceFile().fileName.replaceAll("\\", "/"))));
     if (vueRef) {
@@ -220,6 +256,7 @@ export class TypeMapper {
   }
   map(raw: ts.Type, loc: SourceLocation, hint: string, allowVoid = false): AotType {
     const type = this.unwrap(raw);
+    if (type.isIntersection() && type.getProperty("__style") && type.types.some(t => !!(t.flags & ts.TypeFlags.String))) return { kind: "style" };
     if (type.flags & ts.TypeFlags.TypeParameter) {
       const argument = this.typeArguments.get(type.symbol?.name ?? "");
       if (argument) return argument;
@@ -354,5 +391,56 @@ export class TypeMapper {
     let name = proposed, suffix = 2;
     while (this.reserved.has(name) || this.declarations.some(d => d.name === name) || /^(Node|Block|If|For)\d+$/.test(name) || this.usedNames.has(name)) name = `${proposed}_${suffix++}`;
     this.namesFor(type).set(type, name); this.usedNames.set(name, type); return name;
+  }
+}
+
+/** Resolve a Solid alias by its declaration origin, including user alias chains. */
+export function solidTypeAlias(type: ts.Type, kind: "Accessor" | "Setter" | "Context", checker: ts.TypeChecker): ts.Type | undefined {
+  const origin = (symbol: ts.Symbol | undefined): boolean => !!symbol && symbol.name === kind && !!symbol.declarations?.some(d => /\/node_modules\/solid-js\//.test(d.getSourceFile().fileName.replaceAll("\\", "/")));
+  const seen = new Set<ts.Symbol>();
+  function follows(symbol: ts.Symbol | undefined): boolean {
+    if (!symbol || seen.has(symbol)) return false;
+    seen.add(symbol);
+    if (symbol.flags & ts.SymbolFlags.Alias) return follows(checker.getAliasedSymbol(symbol));
+    if (origin(symbol)) return true;
+    return !!symbol.declarations?.some(d => {
+      if (!ts.isTypeAliasDeclaration(d)) return false;
+      let node = d.type;
+      while (ts.isParenthesizedTypeNode(node)) node = node.type;
+      return ts.isTypeReferenceNode(node) && follows(checker.getSymbolAtLocation(node.typeName));
+    });
+  }
+  if (!follows(type.aliasSymbol) && !follows(type.symbol)) return;
+  if (kind === "Accessor") return type.getCallSignatures()[0]?.getReturnType();
+  // Read the concrete T through Solid's declaration; aliases can substitute or fix T.
+  if (kind === "Context") {
+    const property = type.getProperty("defaultValue"), declaration = property?.valueDeclaration ?? property?.declarations?.[0];
+    if (property && declaration) return checker.getTypeOfSymbolAtLocation(property, declaration);
+  }
+  if (kind === "Setter") {
+    for (const signature of type.getCallSignatures()) {
+      const parameter = signature.typeParameters?.[0];
+      const constraint = parameter && checker.getBaseConstraintOfType(parameter);
+      if (constraint) return constraint;
+    }
+  }
+  return type.aliasTypeArguments?.[0] ?? ((type.flags & ts.TypeFlags.Object) ? checker.getTypeArguments(type as ts.TypeReference)[0] : undefined);
+}
+
+/** Literal tuple spellings survive JS Number rounding for i64/u64 tables. */
+export function constantArraySpellings(checker: ts.TypeChecker, node: ts.Node | undefined, seen = new Set<ts.Node>()): (string | undefined)[] | undefined {
+  if (!node || seen.has(node)) return;
+  seen.add(node);
+  if (ts.isArrayLiteralExpression(node)) return node.elements.map(element => constantNumericSpelling(checker, element));
+  if (ts.isTupleTypeNode(node)) return node.elements.map(element => constantNumericSpelling(checker, element));
+  if (ts.isAsExpression(node) || ts.isParenthesizedExpression(node) || ts.isTypeAssertionExpression(node)) return constantArraySpellings(checker, node.expression, seen);
+  if (ts.isTypeOperatorNode(node) || ts.isParenthesizedTypeNode(node)) return constantArraySpellings(checker, node.type, seen);
+  if (ts.isVariableDeclaration(node)) return constantArraySpellings(checker, node.type, seen) ?? constantArraySpellings(checker, node.initializer, seen);
+  if (ts.isTypeAliasDeclaration(node)) return constantArraySpellings(checker, node.type, seen);
+  if (ts.isTypeReferenceNode(node)) return constantArraySpellings(checker, node.typeName, seen);
+  let symbol = checker.getSymbolAtLocation(node);
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  for (const declaration of symbol?.declarations ?? []) {
+    const value = constantArraySpellings(checker, declaration, seen); if (value) return value;
   }
 }

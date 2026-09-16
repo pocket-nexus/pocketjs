@@ -1,13 +1,14 @@
 import ts from "typescript";
 import { VAPOR_BUILTINS, parseVaporColor } from "../../contracts/spec/vapor.ts";
-import { BOOL, STRING, I32, F64, sameType, type AotExpr, type AotType, type AotFunction, type BindingScope, type SourceLocation, type AotTypeDeclaration } from "./aot-ir.ts";
+import { BOOL, STRING, I32, F64, sameType, type AotExpr, type AotType, type AotFunction, type AotConstant, type BindingScope, type SourceLocation, type AotTypeDeclaration } from "./aot-ir.ts";
 import { fail, exactIntegerLiteral, type TypeMapper, type TypeEnvironment } from "./aot-types.ts";
 
-export interface ExpressionBinding { type: AotType; scope: BindingScope; resolvedName?: string; constant?: string | number | boolean; rawNumber?: string; model?: string }
+export interface ExpressionBinding { type: AotType; scope: BindingScope; resolvedName?: string; accessor?: boolean; constantDefinition?: AotConstant; constantNumericType?: AotType; rawNumbers?: (string | undefined)[]; constant?: string | number | boolean | (string | number | boolean)[]; rawNumber?: string; model?: string }
 export interface Narrowing { type: AotType; variant?: string }
 export interface ExpressionContext {
   file: string; mapper: TypeMapper; environment: TypeEnvironment;
   bindings: Map<string, ExpressionBinding>; functions: Map<string, AotFunction>; builtins: Map<string, string>;
+  derived?: Map<string, { source: string; loc: SourceLocation; context: ExpressionContext }>;
   propsName?: string; narrowings: Map<string, Narrowing>; handler: boolean;
 }
 export function numeric(type: AotType, mapper: TypeMapper): Extract<AotType, { kind: "number" }> | undefined {
@@ -95,7 +96,9 @@ export function expression(source: string, loc: SourceLocation, context: Express
       }
       const binding = ctx.bindings.get(node.text);
       if (!binding) fail(here, `Unknown template binding ${node.text}`);
+      if (Array.isArray(binding.constant)) return result({ kind: "constant", name: binding.resolvedName ?? node.text }, binding.type);
       if (binding.constant !== undefined) return literal(binding.constant, wanted, here, ctx, binding.rawNumber);
+      if (binding.accessor) fail(here, `Accessor ${node.text} must be read with a zero-argument call`);
       let value = result({ kind: "binding", name: binding.resolvedName ?? binding.model ?? node.text, scope: binding.scope }, binding.type);
       const n = ctx.narrowings.get(pathOf(value)!);
       if (n) value = result({ kind: "narrow", value, variant: n.variant }, n.type);
@@ -142,9 +145,28 @@ export function expression(source: string, loc: SourceLocation, context: Express
     }
     if (ts.isElementAccessExpression(node)) {
       if (node.questionDotToken || !node.argumentExpression) fail(here, "Only arr[i] indexing is supported");
+      const expectedElement = wanted?.kind === "option" ? wanted.value : wanted;
+      if (ts.isIdentifier(node.expression) && expectedElement && numeric(expectedElement, ctx.mapper)) {
+        const binding = ctx.bindings.get(node.expression.text);
+        if (binding && Array.isArray(binding.constant) && typeof binding.constant[0] === "number") {
+          if (binding.constantNumericType && !sameType(binding.constantNumericType, expectedElement)) fail(here, `Constant ${node.expression.text} is used with conflicting numeric types`);
+          binding.constant.forEach((value, i) => literal(value, expectedElement, here, ctx, binding.rawNumbers?.[i]));
+          binding.constantNumericType = expectedElement;
+          binding.type = { kind: "array", element: expectedElement, length: binding.constant.length };
+          if (binding.constantDefinition) binding.constantDefinition.type = binding.type;
+        }
+      }
       const object = build(node.expression, undefined, ctx);
       if (object.type.kind !== "array") fail(here, "Only arrays can be indexed; computed property names are unsupported");
       const index = build(node.argumentExpression, I32, ctx); requireType(index, I32, ctx);
+      if (object.kind === "constant" && index.kind === "literal" && typeof index.value === "number") {
+        const binding = [...ctx.bindings.values()].find(b => Array.isArray(b.constant) && (b.resolvedName === object.name || ctx.bindings.get(object.name) === b));
+        const values = binding?.constant;
+        if (Array.isArray(values)) {
+          if (index.value < 0 || index.value >= values.length) fail(here, "Literal array index is out of range");
+          return literal(values[index.value]!, expectedElement, here, ctx, binding?.rawNumbers?.[index.value]);
+        }
+      }
       return result({ kind: "index", object, index }, { kind: "option", value: object.type.element });
     }
     if (ts.isPrefixUnaryExpression(node)) {
@@ -178,7 +200,7 @@ export function expression(source: string, loc: SourceLocation, context: Express
         return result({ kind: "binary", operator, left, right }, BOOL);
       }
       if (operator === "??") {
-        const left = build(node.left, undefined, ctx);
+        const left = build(node.left, wanted ? (wanted.kind === "option" ? wanted : { kind: "option", value: wanted }) : undefined, ctx);
         if (left.type.kind !== "option") fail(here, "The left operand of ?? must be optional");
         const right = build(node.right, left.type.value, ctx); requireType(right, left.type.value, ctx);
         return result({ kind: "binary", operator, left, right }, left.type.value);
@@ -206,6 +228,19 @@ export function expression(source: string, loc: SourceLocation, context: Express
     if (ts.isCallExpression(node)) {
       if (!ts.isIdentifier(node.expression) || node.typeArguments?.length || node.arguments.some(ts.isSpreadElement)) fail(here, "Calls must name an imported view-model function or built-in");
       const name = node.expression.text;
+      const binding = ctx.bindings.get(name);
+      if (binding?.accessor) {
+        if (node.arguments.length || node.questionDotToken) fail(here, `Accessor ${name} requires a zero-argument call`);
+        let value = result({ kind: "binding", name: binding.resolvedName ?? name, scope: binding.scope }, binding.type);
+        const n = ctx.narrowings.get(pathOf(value)!);
+        if (n) value = result({ kind: "narrow", value, variant: n.variant }, n.type);
+        return checkerNarrow(value, node, ctx);
+      }
+      const derived = !binding ? ctx.derived?.get(name) : undefined;
+      if (derived) {
+        if (node.arguments.length || node.questionDotToken) fail(here, `Derived value ${name} requires a zero-argument call`);
+        return { ...expression(derived.source, derived.loc, { ...derived.context, handler: ctx.handler }, wanted), loc: here };
+      }
       if (ctx.bindings.get(name)?.scope === "local") fail(here, `Loop binding ${name} is not callable`);
       const fn = ctx.functions.get(name);
       if (fn) {
@@ -222,6 +257,7 @@ export function expression(source: string, loc: SourceLocation, context: Express
       if (builtin === "len") {
         args = [build(node.arguments[0]!, undefined, ctx)];
         if (!["string", "array"].includes(args[0]!.type.kind)) fail(here, "len() accepts a string or array");
+        if (args[0]!.kind === "constant" && args[0]!.type.kind === "array" && args[0]!.type.length !== undefined) return literal(args[0]!.type.length, I32, here, ctx);
         returns = I32;
       } else if (["trunc", "floor", "ceil", "round", "fixed"].includes(builtin)) {
         args = [build(node.arguments[0]!, undefined, ctx)];
@@ -263,7 +299,8 @@ function literal(value: string | number | boolean, expected: AotType | undefined
   let type: AotType = typeof value === "number" ? F64 : typeof value === "string" ? STRING : BOOL;
   if (actual) {
     const number = numeric(actual, ctx.mapper), d = ctx.mapper.declaration(actual);
-    if (typeof value === "string" && d?.kind === "newtype" && d.unit === "Color") {
+    if (typeof value === "string" && actual.kind === "style") type = actual;
+    else if (typeof value === "string" && d?.kind === "newtype" && d.unit === "Color") {
       try { parseVaporColor(value); } catch { fail(loc, "Color literals use #rgb, #rgba, #rrggbb, or #rrggbbaa"); }
       type = actual;
     } else if (typeof value === "number" && number) {
