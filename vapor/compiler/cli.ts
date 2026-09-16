@@ -10,8 +10,8 @@ const isSfc = candidate?.endsWith(".vue") || (candidate &&
     existsSync(path) && statSync(path).isDirectory(),
   ));
 if (args[0] === "--help" || args[0] === "-h") {
-  console.log("bun vapor/compiler/cli.ts build <app|Root.vue> [--out gen] [--strict] [--ir file] [--board name] [--no-format]\nbun vapor/compiler/cli.ts check <app|Root.vue> [--strict] [--boards | --board name] [--json]");
-} else if (args[0] === "build" || isSfc) {
+  console.log("bun vapor/compiler/cli.ts build <app|Root.vue|App.tsx> [--out gen] [--strict] [--ir file] [--board name] [--no-format]\nbun vapor/compiler/cli.ts check <app|Root.vue|App.tsx> [--strict] [--boards | --board name] [--json]");
+} else if (args[0] === "build" || args[0] === "check" && candidate?.endsWith(".tsx") || isSfc) {
   try {
     const { runVueAotCli } = await import("./aot-build.ts");
     await runVueAotCli(args);
