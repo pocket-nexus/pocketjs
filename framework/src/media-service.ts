@@ -76,7 +76,10 @@ export function createMediaService(service: ServiceClient) {
             else opened = service.openStream(source.stream);
             if (!opened) throw new Error("Player unavailable. Retry playback.");
             if (!native) snapshot.phase = "playing";
-          } catch (error) { snapshot.phase = "error"; snapshot.error = String(error); }
+          } catch (error) {
+            close(); snapshot.phase = "error"; snapshot.error = String(error);
+            deliver({ t: "error", id: message.id, message: snapshot.error }); return;
+          }
         } else if (reply.t === "state" && active) {
           snapshot.phase = reply.playing ? "playing" : "paused";
           if (typeof reply.position === "number") snapshot.positionMs = reply.position * 1000;

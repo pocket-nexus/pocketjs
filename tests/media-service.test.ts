@@ -25,7 +25,7 @@ function rig(native: boolean) {
   const player = createMediaService(service); cleanups.push(player.dispose);
   const source = native ? { host: "127.0.0.1", port: 9000, token: "a".repeat(64) } : undefined;
   const playing = { t: "playing", stream: "media/one.pkst", source, fps: 12, position: 0 };
-  return { player, requests, calls, playing, push: (event: ServiceMessage) => push(event),
+  return { player, service, requests, calls, playing, push: (event: ServiceMessage) => push(event),
     step: (count: number) => { for (let i = 0; i < count; i++) runServicePumps(); } };
 }
 for (const native of [true, false]) test(`${native ? "native" : "ring"} provider owns open, clock, pause, seek and stop`, () => {
@@ -73,4 +73,14 @@ test("a new playback lifetime does not cancel unrelated service deliveries", () 
   r.player.send({ t: "play" }, () => {}); r.requests.shift()!.reply(r.playing);
   search.reply({ t: "results", items: [] });
   expect(delivered).toEqual([{ t: "results", items: [] }]);
+});
+for (const native of [true, false]) test(`a refused ${native ? "native" : "ring"} open stays an error until retry`, () => {
+  const r = rig(native), delivered: ServiceMessage[] = [];
+  if (native) (globalThis as any).media.open = () => false;
+  else r.service.openStream = () => false;
+  r.player.send({ t: "play", id: 42 }, reply => delivered.push(reply));
+  r.requests.shift()!.reply(r.playing); r.step(120);
+  expect(delivered[0]).toMatchObject({ t: "error", id: 42 });
+  expect(r.player.status().phase).toBe("error");
+  expect(r.requests).toHaveLength(0);
 });
