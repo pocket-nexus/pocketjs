@@ -93,3 +93,25 @@ The 3DS decoder requests **`MVD_OUTPUT_BGR565` (0x40002)** for the packed words
 consumed by `GX_TRANSFER_FMT_RGB565` and `GPU_RGB565`. The MVD and GPU names use
 different channel-order conventions. Selecting MVD's `RGB565` exchanges red
 and blue; the companion must retain the source colors.
+
+## Service playback providers
+
+**`createServiceClient(namespace)` owns service transport.** Companion commands
+use `<namespace>.command`; an asynchronous `{ job }` reply is read through
+`<namespace>.poll`. Mailbox and HTTP providers expose the same `send` and
+`subscribe` methods. Pending requests have a frame deadline, and a session
+change fails pending work before publishing an `offline` event. The service
+opens its asset namespace when an image or stream is requested.
+
+**`createMediaService(client)` owns one playback lifetime.** A `playing` reply
+contains either a native media source or a frame-indexed stream, plus its frame
+rate and position. The provider opens the decoder and exposes `texture()`,
+`status()` and `volume()`. Applications send `play`, `pause`, `resume`, `seek`
+and `stop` commands through this interface without reading host capabilities.
+
+Native media pauses on the device and reports its audio clock. A companion
+ring pauses through the service, advances through the host video plane, and
+polls its provider for completion every 120 frames. Mailbox providers supply
+completion events. Stop and disconnect close the decoder and invalidate
+outstanding playback replies. Applications place the texture on their chosen
+surface and render progress from the shared status.

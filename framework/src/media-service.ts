@@ -51,6 +51,9 @@ export function createMediaService(service: ServiceClient) {
   return {
     subscribe(deliver: (event: ServiceMessage) => void) { listeners.add(deliver); return () => listeners.delete(deliver); },
     send(message: ServiceMessage, deliver: (reply: ServiceMessage) => void) {
+      if (!["play", "pause", "resume", "seek", "stop"].includes(message.t)) {
+        service.send(message, deliver); return;
+      }
       if ((message.t === "pause" || message.t === "resume") && native) {
         native.pause(message.t === "pause");
         deliver({ t: "state", id: message.id, playing: message.t === "resume", position: native.status().positionMs / 1000 }); return;

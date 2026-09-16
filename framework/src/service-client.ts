@@ -1,6 +1,6 @@
 import { getOps } from "./host.ts";
 import { offload } from "./offload.ts";
-import { hasFeature } from "./platform.ts";
+import { hasFeature, platform } from "./platform.ts";
 import { registerServicePump } from "./services.ts";
 
 /** JSON service protocol shared by mailbox, HTTP and companion providers. */
@@ -105,7 +105,7 @@ export function createServiceClient(namespace: string, options: { httpBase?: str
       if (pending.size >= 16) { deliver({ t: "error", id: message.id, message: "Service busy" }); return; }
       const work: Work = { message, deliver, job: 0, busy: true, deadline: frame + (options.timeoutFrames ?? 3600) };
       pending.set(id, work);
-      const raw = JSON.stringify({ ...message, id });
+      const raw = JSON.stringify({ ...(message.t === "hello" ? { device: { target: platform.target } } : {}), ...message, id });
       if (via === "companion") {
         const ticket = client().request(`${namespace}.command`, raw, result => {
           work.busy = false;
