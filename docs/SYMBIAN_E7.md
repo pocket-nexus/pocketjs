@@ -472,7 +472,8 @@ application build.
 app keeps its QuickJS guest, native extension and resources in its own process.
 The foreground app runs frames; background apps stop advancing the guest and
 simulation. **Background apps release GLES resources and reset their EGL
-context and surface.** The next activation recreates the context and uploads
+context and surface.** Qt chrome uses the raster graphics system; app content
+uses GLES. The next activation recreates the context and uploads
 textures from retained CPU data. This avoids Symbian's graphics-memory monitor
 terminating a background app that retains its GPU resources. Launching an existing task brings it to the foreground. Launching
 an absent task starts its installed UID through the application server.
@@ -497,7 +498,7 @@ receipt records the encoded registry hash.
 ```sh
 bun tools/symbian.ts build app --manifest apps/clear/pocket.symbian.json \
   --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
-  --frame-rate 60 --sis-version 0.3.4
+  --frame-rate 60 --sis-version 0.3.8
 ```
 
 **Child apps reserve the bottom 28 pixels for a host-owned return gesture.**

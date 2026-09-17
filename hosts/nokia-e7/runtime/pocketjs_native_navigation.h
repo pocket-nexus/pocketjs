@@ -271,6 +271,9 @@ void PocketJsRuntime::suspendNativeGraphics()
     const_cast<QGLContext *>(context())->reset();
     glInitialized_ = false;
     nativeGraphicsSuspended_ = true;
+#ifdef POCKETJS_PERF_TRACE
+    recordNativeEvent("suspend-graphics", nativeSelf_, 0);
+#endif
 }
 
 bool PocketJsRuntime::resumeNativeGraphics()
@@ -281,6 +284,9 @@ bool PocketJsRuntime::resumeNativeGraphics()
         return false;
     }
     nativeGraphicsSuspended_ = false;
+#ifdef POCKETJS_PERF_TRACE
+    recordNativeEvent("resume-graphics", nativeSelf_, 0);
+#endif
     // QGLWidget invokes initializeGL again after QGLContext::reset/create.
     // CPU textures and the native scene remain retained for the first paint.
     updateGL();

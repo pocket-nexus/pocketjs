@@ -2794,6 +2794,9 @@ void PocketJsRuntime::timerEvent(QTimerEvent *event)
 
 int main(int argc, char *argv[])
 {
+    // The host paints app content through GLES itself. Raster Qt chrome avoids
+    // keeping a second OpenVG graphics system alive behind a suspended context.
+    QApplication::setGraphicsSystem("raster");
     QApplication application(argc, argv);
     PocketJsRuntime runtime;
     runtime.showFullScreen();
