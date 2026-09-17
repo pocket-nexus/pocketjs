@@ -300,7 +300,6 @@
     "site:icons": "bun tools/icons.ts",
     "site:verify-playground": "bun run site:build && bun site/verify-playground.ts",
     "site:verify-doc-demos": "bun run site:build && bun site/verify-doc-demos.ts",
-    "gba:imagegen": "bun imagegen",
     "serve": "bun hosts/web/serve.ts",
     "golden": "bun tests/golden.ts",
     "e2e": "bun tests/e2e/ppsspp.ts",
