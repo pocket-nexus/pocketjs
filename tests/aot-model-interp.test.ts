@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ModelInterpreter } from "../vapor/compiler/model-interp.ts";
-import { lowerModelTasks } from "../vapor/compiler/aot-model-tasks.ts";
+import { assertModelProgram, lowerModelTasks } from "../vapor/compiler/aot-model-tasks.ts";
 import type { ModelProgram, ModelModule, ModelExpr, ModelStmt } from "../vapor/compiler/aot-model-ir.ts";
 
 // Expectations in this corpus are derived from MODEL_AOT.md §3, never from an emitter.
@@ -26,7 +26,8 @@ function program(parts: Partial<ModelModule> = {}): ModelProgram {
 }
 const run = (p: ModelProgram, opts = {}) => new ModelInterpreter(lowerModelTasks(p), opts);
 const dispatch = (model: ModelInterpreter, id: number, args: any[] = [], extra = {}) => model.frame({ dispatch: [{ fn: id, args }], ...extra });
-const inc = (id: number) => set(id, bin(read(900, "local"), "+", lit(1)), { pre: binder(900) });
+let preId = 100_000;
+const inc = (id: number) => { const pre = binder(preId++); return set(id, bin(read(pre.id, "local"), "+", lit(1)), { pre }); };
 const events = (frame: any, kind: string) => frame.trace.filter((x: any) => x.kind === kind);
 
 test("functional setter reads pre without subscribing; one effect run per reaction", () => {
@@ -224,4 +225,81 @@ test("65 signals do not share a fixed-width dirty mask", () => {
   const signals = Array.from({ length: 65 }, (_, i) => signal(i + 1));
   const m = run(program({ signals, functions: [fn(100, [inc(65)])], effects: [effect(101, [65], [inc(1)])], schedule: [101] }));
   expect(dispatch(m, 100).state).toMatchObject({ s1: 1, s65: 1 });
+});
+
+const net = () => ({ kind: "service", module: "net", call: "get", args: [lit("https://example.test")], result: { kind: "named", name: "Response" } });
+const field = (id: number, name: string, type: any = S) => e({ kind: "member", object: read(id, "local", { kind: "named", name: "Response" }), name }, type);
+
+test("service delivers only at the scripted boundary with current RequestId", () => {
+  const m = run(program({ signals: [signal(1, "")], functions: [fn(2, [wait(net(), binder(3, "response", { kind: "named", name: "Response" })), set(1, field(3, "kind"))], true)] }), { services: { net: {} } });
+  const start = dispatch(m, 2), request = events(start, "request")[0].request;
+  expect(m.frame().state.s1).toBe("");
+  expect(m.frame({ deliveries: [{ request, value: { kind: "ok" } }] }).state.s1).toBe("ok");
+});
+
+for (const variant of ["unavailable", "busy", "malformed"]) test(`service failure ${variant} is a typed value`, () => {
+  const options = variant === "unavailable" ? {} : { services: { net: { capacity: variant === "busy" ? 0 : 1, validate: () => false } } };
+  const m = run(program({ signals: [signal(1, "")], functions: [fn(2, [wait(net(), binder(3, "response", { kind: "named", name: "Response" })), set(1, field(3, "kind"))], true)] }), options);
+  const first = dispatch(m, 2), requests = events(first, "request");
+  const result = m.frame({ deliveries: variant === "malformed" ? [{ request: requests[0].request, value: "not a response" }] : [] });
+  expect(result.state.s1).toBe(variant);
+  if (variant !== "malformed") expect(requests).toHaveLength(0);
+});
+
+test("late result of resolved any is dropped while the task remains live", () => {
+  const m = run(program({ signals: [signal(1)], functions: [fn(2, [wait({ kind: "any", members: [net(), frames(1)] }), wait(frames(4)), inc(1)], true)] }), { services: { net: {} } });
+  const request = events(dispatch(m, 2), "request")[0].request;
+  m.frame(); const late = m.frame({ deliveries: [{ request, value: { kind: "ok" } }] });
+  expect(events(late, "delivery-drop")).toHaveLength(1); expect(late.state.s1).toBe(0);
+});
+
+test("any ties choose lower member result even if deliveries arrive in reverse order", () => {
+  const m = run(program({ signals: [signal(1, "")], functions: [fn(2, [wait({ kind: "any", members: [net(), net()] }, binder(3, "response", { kind: "named", name: "Response" })), set(1, field(3, "kind"))], true)] }), { services: { net: { capacity: 2 } } });
+  const requests = events(dispatch(m, 2), "request");
+  expect(m.frame({ deliveries: [{ request: requests[1].request, value: { kind: "second" } }, { request: requests[0].request, value: { kind: "first" } }] }).state.s1).toBe("first");
+});
+
+for (const completion of ["ended", "replaced", "dropped"]) test(`await animate delivers ${completion}`, () => {
+  const m = run(program({ signals: [signal(1, "")], functions: [fn(2, [wait({ kind: "animate", args: [lit(7), lit("width"), lit(200)] }, binder(3, "outcome", S)), set(1, read(3, "local", S))], true)] }));
+  const command = events(dispatch(m, 2), "command")[0];
+  expect(m.frame({ deliveries: [{ request: command.request, value: completion }] }).state.s1).toBe(completion);
+});
+
+test("all keeps completed members until every member has completed", () => {
+  const m = run(program({ signals: [signal(1), signal(2)], functions: [fn(3, [wait({ kind: "all", members: [{ kind: "until", predicate: bin(read(1), ">", lit(0), B) }, frames(3)] }), inc(2)], true), fn(4, [set(1, lit(1))]), fn(5, [set(1, lit(0))])] }));
+  dispatch(m, 3); dispatch(m, 4); dispatch(m, 5); expect(m.frame().state.s2).toBe(1);
+});
+
+test("bounded loop evaluates its bound once before writes in its body", () => {
+  const m = run(program({ signals: [signal(1, 3), signal(2)], functions: [fn(3, [{ kind: "for", binder: binder(4), bound: read(1), body: block(set(1, lit(0)), inc(2)) }])] }));
+  expect(dispatch(m, 3).state.s2).toBe(3);
+});
+
+test("array capacity truncates past N elements in release builds", () => {
+  const array = { kind: "array", element: I } as const;
+  const m = run(program({ signals: [{ ...signal(1), type: array, seed: e({ kind: "array", element: I, items: [] }, array), capacity: 2 }], functions: [fn(2, [set(1, e({ kind: "array", element: I, items: [lit(1), lit(2), lit(3)] }, array))])] }), { development: false });
+  expect(dispatch(m, 2).state.s1).toEqual([1, 2]);
+});
+
+const invalidIR: [string, () => ModelProgram, string][] = [
+  ["undeclared signal", () => program({ functions: [fn(1, [{ kind: "expr", value: read(123) }])] }), "undeclared signal"],
+  ["branch local escape", () => program({ functions: [fn(1, [{ kind: "if", condition: lit(true), then: block({ kind: "let", binder: binder(2), init: lit(1) }) }, { kind: "expr", value: read(2, "local") }])] }), "undeclared local"],
+  ["non-atomic call", () => program({ functions: [fn(1, [{ kind: "call", callee: 2, args: [bin(lit(1), "+", lit(2))] }]), fn(2, [])] }), "non-atomic"],
+  ["return in effect", () => program({ effects: [effect(1, [], [{ kind: "return" }])], schedule: [1] }), "return outside"],
+  ["reversed schedule", () => program({ signals: [signal(1), signal(2)], effects: [effect(3, [1], [set(2, lit(1))]), effect(4, [2], [])], schedule: [4, 3] }), "schedule edge"],
+  ["memo over field", () => program({ fields: [{ id: 1, name: "private", type: I, seed: lit(1) }], memos: [memo(2, [], read(1, "field"))], schedule: [2] }), "impure"],
+  ["untyped expression", () => program({ functions: [fn(1, [{ kind: "expr", value: { ...lit(1), type: undefined } }])] }), "admissible type"],
+  ["await outside async", () => program({ functions: [fn(1, [wait(frames(1))])] }), "await outside"],
+  ["view mutation", () => program({ signals: [signal(1)], functions: [fn(2, [{ kind: "let", binder: { ...binder(3), owned: false }, init: read(1) }, { kind: "assign", target: { kind: "element", owner: 3, index: lit(0) }, value: lit(1) }])] }), "write through a view"],
+  ["forged write-back", () => program({ signals: [signal(1)], functions: [fn(2, [set(1, lit(4), { writeBack: true })])] }), "invalid write-back"],
+];
+for (const [name, create, message] of invalidIR) test(`IR admission rejects ${name}`, () => expect(() => assertModelProgram(lowerModelTasks(create()))).toThrow(message));
+
+test("IR admission rejects missing live task field", () => {
+  const p = lowerModelTasks(program({ signals: [signal(1)], functions: [fn(2, [{ kind: "let", binder: binder(3), init: lit(7) }, wait(frames(1)), set(1, read(3, "local"))], true)] }));
+  p.modules[0]!.tasks[0]!.fields = []; expect(() => assertModelProgram(p)).toThrow("liveness");
+});
+
+test("IR admission rejects a cyclic task start graph", () => {
+  expect(() => lowerModelTasks(program({ functions: [fn(1, [start(2)], true), fn(2, [start(1)], true)] }))).toThrow("cycle of task starts");
 });

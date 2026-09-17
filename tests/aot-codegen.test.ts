@@ -16,7 +16,7 @@ const boolean: AotType = { kind: "boolean" }, string: AotType = { kind: "string"
 const read = (name: string, type: AotType): AotExpr => ({ kind: "binding", scope: "vm", name, type, loc });
 const call = (name: string, args: AotExpr[] = [], returns: AotType = { kind: "void" }): AotHandler => ({ kind: "call", expression: { kind: "call", target: "vm", name, arguments: args, type: returns, loc }, id: 0, loc });
 const component = (name: string, nodes: AotNode[] = []): AotComponent => ({ name, file: `${name}.tsx`, root: name === "App", props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [], nodes, nodeCount: 0, memoCount: 0, handlerCount: 0 });
-function program(components: AotComponent[]): AotProgram { return { version: 3, root: "App", components, types: [], styles: { records: [], anims: [], ids: {}, bytes: [], usedFontSlots: [] }, diagnostics: [] }; }
+function program(components: AotComponent[]): AotProgram { return { version: 4, root: "App", components, types: [], styles: { records: [], anims: [], ids: {}, bytes: [], usedFontSlots: [] }, diagnostics: [] }; }
 function method(name: string, parameters: { name: string; type: AotType }[] = [], returns: AotType = { kind: "void" }) { return { name, sourceName: name, parameters, returns, binding: false, handler: true }; }
 function childNode(name: string): AotNode { return { kind: "component", id: 0, component: name, props: [], events: [], slots: [], loc }; }
 function branch(name: string, binding: string): AotNode { return { kind: "if", id: 0, branches: [{ condition: read(binding, boolean), children: [childNode(name)] }], loc }; }

@@ -147,7 +147,7 @@ export function defaultValue(type: AotType, program: AotProgram, seen = new Set<
 
 /** A declaration-only app receives Vue refs with contract-shaped defaults. */
 export function generateVueAotMock(program: AotProgram, component: AotComponent): string {
-  if (program.version !== 3) throw new Error(`Unsupported AOT IR version ${program.version}; expected 3`);
+  if (program.version !== 4) throw new Error(`Unsupported AOT IR version ${program.version}; model protocol fields require 4`);
   const exportedName = (name: string) => /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name);
   if (component.factory) {
     const members = new Map<string, string>();

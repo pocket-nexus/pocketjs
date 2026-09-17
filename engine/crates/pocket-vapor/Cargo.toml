@@ -10,6 +10,7 @@ description = "Vue Vapor AOT blocks and direct retained-UI runtime"
 pocketjs-core = { path = "../../core", default-features = false }
 ryu-js = { version = "1.0.3", default-features = false }
 libm = "0.2"
+heapless = "0.8"
 
 [features]
 default = []

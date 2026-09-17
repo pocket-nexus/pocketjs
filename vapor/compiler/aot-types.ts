@@ -256,6 +256,19 @@ export class TypeMapper {
   }
   map(raw: ts.Type, loc: SourceLocation, hint: string, allowVoid = false): AotType {
     const type = this.unwrap(raw);
+    if (type.isIntersection() && type.getProperty("__capacity")) {
+      const tag = type.getProperty("__capacity")!;
+      const declaration = tag.valueDeclaration ?? tag.declarations?.[0];
+      const rawCapacity = declaration && this.checker.getTypeOfSymbolAtLocation(tag, declaration);
+      const members = rawCapacity?.isUnion() ? rawCapacity.types.filter(t => !(t.flags & ts.TypeFlags.Undefined)) : rawCapacity ? [rawCapacity] : [];
+      const capacity = members.length === 1 && members[0]!.isNumberLiteral() ? members[0]!.value : undefined;
+      if (capacity === undefined || !Number.isInteger(capacity) || capacity < 1) fail(loc, "Cap requires a positive integer capacity");
+      const base = type.types.find(t => !!(t.flags & ts.TypeFlags.StringLike) || this.checker.isArrayType(t) || this.checker.isTupleType(t));
+      if (!base) fail(loc, "Cap applies to strings and arrays only");
+      const mapped = this.map(base, loc, hint);
+      if (mapped.kind !== "string" && mapped.kind !== "array") fail(loc, "Cap applies to strings and arrays only");
+      return { ...mapped, capacity };
+    }
     if (type.isIntersection() && type.getProperty("__style") && type.types.some(t => !!(t.flags & ts.TypeFlags.String))) return { kind: "style" };
     if (type.flags & ts.TypeFlags.TypeParameter) {
       const argument = this.typeArguments.get(type.symbol?.name ?? "");

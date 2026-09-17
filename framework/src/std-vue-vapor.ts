@@ -2,6 +2,9 @@
 // Signatures and numeric aliases are generated from contracts/spec/vapor.ts.
 export type * from "./numeric-vue-vapor.ts";
 export type StyleClass = string & { readonly __style?: true };
+export type Cap<T extends string | readonly unknown[], N extends number> = T & { readonly __capacity?: N };
+export { copy, equals } from "./model-reactive.ts";
+export { frames, after, until, join, all, any, cancel, type Join } from "./model-tasks.ts";
 import type { Color, f32, f64, i32, u32 } from "./numeric-vue-vapor.ts";
 import { parseVaporColor } from "../../contracts/spec/vapor.ts";
 export type VaporPlainNumber = number & { readonly __type?: never; readonly __newtype?: never };
@@ -13,6 +16,11 @@ export function len<T>(value: string | readonly T[]): i32 {
   for (const _ of value) count++;
   return count;
 }
+
+export function map<T, U>(value: readonly T[], fn: (value: T, index: i32) => U): U[] { return value.map(fn); }
+export function filter<T>(value: readonly T[], fn: (value: T, index: i32) => boolean): T[] { return value.filter(fn); }
+export function find<T>(value: readonly T[], fn: (value: T, index: i32) => boolean): T | undefined { return value.find(fn); }
+export function some<T>(value: readonly T[], fn: (value: T, index: i32) => boolean): boolean { return value.some(fn); }
 
 function saturateI32(value: number): i32 {
   if (Number.isNaN(value) || value === 0) return 0;

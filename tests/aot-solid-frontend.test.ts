@@ -39,7 +39,7 @@ function flatten(nodes: AotNode[]): AotNode[] { return nodes.flatMap(node => [no
 test("Solid lab View IR is deterministic", () => {
   const program = analyzeSolidAot(resolve(root, "apps/solid-aot-lab/app.tsx"), { strict: true });
   expect(portable(program)).toMatchSnapshot();
-  expect(program.version).toBe(3);
+  expect(program.version).toBe(4);
   expect(program.components.some(c => c.factory)).toBe(true);
   expect(program.components.some(c => c.name === "FeatureListInstance1")).toBe(true);
 });

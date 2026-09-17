@@ -6,9 +6,10 @@ export interface SourceLocation { file: string; line: number; column: number; of
 export interface AotDiagnostic extends SourceLocation { severity: "error" | "warning"; message: string }
 export type AotType =
   | { kind: "number"; name: NumericName }
-  | { kind: "string" | "boolean" | "void" | "undefined" | "style" }
+  | { kind: "string"; capacity?: number }
+  | { kind: "boolean" | "void" | "undefined" | "style" }
   | { kind: "option"; value: AotType }
-  | { kind: "array"; element: AotType; length?: number }
+  | { kind: "array"; element: AotType; length?: number; capacity?: number }
   | { kind: "tuple"; elements: AotType[] }
   | { kind: "named"; name: string };
 export interface AotField { name: string; type: AotType }
@@ -19,7 +20,7 @@ export type AotTypeDeclaration =
   | { kind: "newtype"; name: string; base: AotType; unit?: "Px" | "Ms" | "Deg" | "Color" };
 export type LiteralValue = string | number | boolean;
 export interface AotConstant { name: string; sourceName?: string; type: AotType; value: LiteralValue | LiteralValue[]; rawNumber?: string; rawNumbers?: (string | undefined)[] }
-export interface AotValue { name: string; sourceName: string; type: AotType; writable: boolean }
+export interface AotValue { name: string; sourceName: string; type: AotType; writable: boolean; memo?: boolean }
 export interface AotFunction { name: string; sourceName: string; parameters: AotField[]; returns: AotType; binding: boolean; handler: boolean; optional?: boolean }
 export interface AotProp extends AotField { default?: LiteralValue; defaultRawNumber?: string; model?: string }
 export interface AotEvent { name: string; parameters: AotField[]; optional?: true }
@@ -63,16 +64,17 @@ export interface AotComponent {
   provides?: { key: string; value: AotExpr; loc: SourceLocation }[];
   injections?: { key: string; name: string; type: AotType; loc: SourceLocation }[];
   context?: { key: string; type: AotType }[];
-  factory?: { name: string; sourceName: string; module: string };
+  factory?: { name: string; sourceName: string; module: string; params?: AotField[]; arguments?: AotExpr[] };
   props: AotProp[]; events: AotEvent[]; slots: string[];
   slotProps?: AotSlot[];
   values: AotValue[]; functions: AotFunction[]; constants: AotConstant[];
   children: string[]; nodes: AotNode[]; nodeCount: number; memoCount: number; handlerCount: number;
 }
 export interface AotProgram {
-  version: 3; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
+  version: 4; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
   styles: { records: StyleRecord[]; anims: AnimTimeline[]; ids: Record<string, number>; bytes: number[]; usedFontSlots: number[] };
   diagnostics: AotDiagnostic[];
+  model?: import("./aot-model-ir.ts").ModelProgram;
   demands?: { buttons: number[]; axes: number[]; capabilities: string[] };
 }
 export class AotCompileError extends Error {
@@ -89,5 +91,5 @@ export function sameType(a: AotType, b: AotType): boolean { return JSON.stringif
 
 /** All IR consumers reject unsupported versions before inspecting the payload. */
 export function checkAotVersion(program: Pick<AotProgram, "version">): void {
-  if (program.version !== 3) throw new Error(`Unsupported AOT IR version ${program.version}; expected 3`);
+  if (program.version !== 4) throw new Error(`Unsupported AOT IR version ${program.version}; model protocol fields require 4`);
 }

@@ -148,7 +148,7 @@ class Printer {
       case "trait":
       case "impl": {
         this.level++;
-        const body = [...(i.kind === "trait" ? (i.associatedTypes ?? []).map(t => `${this.indent()}type ${rustIdentifier(t.name)}: ${t.bounds.map(type).join(" + ")};`) : []), ...i.methods.map(f => this.indent() + this.fn(f))].join("\n\n");
+        const body = [...(i.kind === "trait" ? (i.associatedTypes ?? []).map(t => `${this.indent()}type ${rustIdentifier(t.name)}: ${t.bounds.map(type).join(" + ")};`) : (i.associatedTypes ?? []).map(t => `${this.indent()}type ${rustIdentifier(t.name)} = ${type(t.type)};`)), ...i.methods.map(f => this.indent() + this.fn(f))].join("\n\n");
         this.level--;
         return (i.kind === "trait" ? `${pub_}trait ${rustIdentifier(i.name)}${generics(i.generics)}${i.bounds?.length ? `: ${i.bounds.map(type).join(" + ")}` : ""}` : `impl${generics(i.generics)} ${i.trait ? `${type(i.trait)} for ` : ""}${type(i.type)}`) + ` {\n${body}\n}`;
       }

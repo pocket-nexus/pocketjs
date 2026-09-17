@@ -20,7 +20,7 @@ describe("Model AOT front end: MODEL_AOT §§2–5", () => {
       expect(error).toBeInstanceOf(AotCompileError);
       const diagnostic = (error as AotCompileError).diagnostics[0]!;
       expect(diagnostic.message).toContain("fractional literal");
-      expect([diagnostic.file, diagnostic.line, diagnostic.column]).toEqual([entry, 4, 41]);
+      expect([diagnostic.file, diagnostic.line, diagnostic.column]).toEqual([entry, 4, 44]);
     }
   });
   test("keeps pre reads separate from subscriptions and orders the writer before its reader", () => {
@@ -90,4 +90,47 @@ export function increment() { count.value += 1; }`]]) });
     expect(m.effects[0]!.subscriptions).toEqual([m.signals[0]!.id]);
     expect(m.functions[0]!.ledger.writes).toEqual([m.signals[0]!.id]);
   });
+});
+
+describe("Model AOT admitted module shapes", () => {
+  test("pure helpers import through checker symbols, including import aliases", () => {
+    const p = analyze('import { twice as double, LIMIT } from "./math"; export const [n, setN] = createSignal(LIMIT); export function press(): i32 { return double(n()); }', { "math.ts": 'import type { i32 } from "@pocketjs/framework/solid/std"; export const LIMIT = 3; export function twice(n: i32): i32 { return n * 2; }' });
+    expect(p.modules.map(m => m.kind)).toEqual(["root", "pure"]);
+    expect(p.modules[0]!.signals[0]!.seed).toMatchObject({ kind: "literal", value: 3 });
+    expect(p.modules[0]!.functions[0]!.ledger.reads).toEqual([p.modules[0]!.signals[0]!.id]);
+  });
+  test("factory parameters seed separate region fields and returned members become public", () => {
+    const file = resolve(entry, "../Row.ts");
+    const p = analyzeModel(entry, { factories: [file], sources: new Map([[entry, prelude + "export const [n, setN] = createSignal(0);"], [file, prelude + "export function createRow(seed: i32) { const [n, setN] = createSignal(seed); function inc() { setN(x => x + 1); } return { n, inc }; }"]]) });
+    const m = p.modules[1]!;
+    expect(m.kind).toBe("factory");
+    expect(m.signals[0]!.seed).toMatchObject({ kind: "local", id: m.params[0]!.id });
+    expect(m.signals[0]!.exported).toBe(true);
+    expect(m.functions[0]!.exported).toBe(true);
+  });
+  test("async lowering records bounded loop continuations and captured owned locals", () => {
+    const p = analyze('import { frames } from "@pocketjs/framework/solid/std"; export const [n, setN] = createSignal(0); export async function load(): Promise<void> { const before = n(); for (let i = 0; i < 2; i++) { await frames(1); setN(before + i); } }');
+    const task = p.modules[0]!.tasks[0]!;
+    expect(task.states.some(s => s.suspend?.kind === "frames")).toBe(true);
+    expect(task.fields.some(f => f.name === "before" && f.owned)).toBe(true);
+    expect(task.fields.some(f => f.name === "i" && f.owned)).toBe(true);
+  });
+  test("capacity metadata survives signal types and nested struct fields", () => {
+    const p = analyze('import type { Cap } from "@pocketjs/framework/solid/std"; interface Row { title: Cap<string, 16> } export const [rows, setRows] = createSignal<Cap<Row[], 4>>([]);');
+    expect(p.modules[0]!.signals[0]!.type).toMatchObject({ kind: "array", capacity: 4 });
+    expect(p.types.find(t => t.kind === "struct" && t.name === "Row")).toMatchObject({ fields: [{ name: "title", type: { kind: "string", capacity: 16 } }] });
+  });
+  test("collection arrows retain symbol binding and capture subscriptions", () => {
+    const p = analyze('import { map, some } from "@pocketjs/framework/solid/std"; export const [items, setItems] = createSignal<i32[]>([1, 2]); export const [n, setN] = createSignal(1); export const active = createMemo(() => some(items(), x => x > n())); export function press() { setItems(map(items(), x => x + 1)); }');
+    const m = p.modules[0]!;
+    expect(m.memos[0]!.inputs).toEqual(m.signals.map(s => s.id));
+    expect(m.functions[0]!.body.stmts.at(-1)).toMatchObject({ kind: "set", value: { kind: "builtin", name: "map" } });
+  });
+  test.each([
+    ['import { createMemo } from "solid-js"; export const x = createMemo(() => 1);', "framework reactive"],
+    ['import { shallowRef } from "vue"; export const x = shallowRef(1);', "outside"],
+    [prelude + 'export async function load(): Promise<void> { await fetch("url"); }', "closed model set"],
+    [prelude + 'export async function load(): Promise<void> { load(); }', "cycle of task starts"],
+    [prelude + 'export function f() { return (() => 1); }', "outside"],
+  ])("rejects unavailable import, awaitable or closure: %s", (text, message) => expect(() => analyzeModel(entry, { source: text })).toThrow(message));
 });

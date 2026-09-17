@@ -1,6 +1,13 @@
 // GENERATED — do not edit; run `bun contracts/spec/gen-rust.ts`.
 export type * from "./numeric-vue-vapor.ts";
 export type StyleClass = string & { readonly __style?: true };
+export type Cap<T extends string | readonly unknown[], N extends number> = T & { readonly __capacity?: N };
+export { copy, equals } from "./model-reactive.ts";
+export { frames, after, until, join, all, any, cancel, type Join } from "./model-tasks.ts";
+export declare function map<T, U>(value: readonly T[], fn: (value: T, index: i32) => U): U[];
+export declare function filter<T>(value: readonly T[], fn: (value: T, index: i32) => boolean): T[];
+export declare function find<T>(value: readonly T[], fn: (value: T, index: i32) => boolean): T | undefined;
+export declare function some<T>(value: readonly T[], fn: (value: T, index: i32) => boolean): boolean;
 import type { i32, f32, f64, Color, u32 } from "./numeric-vue-vapor.ts";
 export type VaporPlainNumber = number & { readonly __type?: never; readonly __newtype?: never };
 export type VaporNumericResult<T extends number> = T extends VaporPlainNumber ? number : T;
