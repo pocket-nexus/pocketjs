@@ -1,6 +1,6 @@
 {
   "name": "@pocketjs/cli",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "The PocketJS CLI — manifest-first handheld builds, app scaffolding, and pinned native toolchain setup.",
   "license": "MIT",
   "type": "module",

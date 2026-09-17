@@ -3,6 +3,70 @@
 Engine and site milestones, newest first. Versions track the
 `@pocketjs/framework` npm package.
 
+## 0.12.0 — September 17, 2026
+
+**Whole-text CJK loading, background resources, and device-aware presentations.**
+PSPMAN's Japanese text feedback helped shape this release's CJK work.
+PocketJS can keep common characters in memory, load uncommon characters in
+the background, and show an animated skeleton until an entire text is ready.
+Dynamic content such as song titles and book chapters can appear together,
+without characters arriving a few at a time.
+
+- **Prepared text reserves every required glyph before loading begins.**
+  `openFontArchive` configures common-character residency and memory limits;
+  `prepareText` returns a resource for the complete text. Live resources pin
+  their glyphs, including while offscreen, and overlapping texts share cells.
+  Solid's `Text` consumes the resource through the existing resource boundary
+  with loading and error fallbacks. A batch that exceeds capacity or contains
+  an unavailable glyph reports an error instead of displaying partial text.
+- **Font I/O runs through companion or PSP storage workers.** Both providers
+  use `io.offload` with bounded requests, retries and session checks. Streamed
+  source bitmaps share a 2 MiB native ceiling; closing an archive releases its
+  allocations, and failed index-page reads cannot poison later cache hits.
+  The Text Lab demonstrates a music list and chapter reader with animated
+  skeletons. Regression coverage includes 1,000 runtime song titles, uncommon
+  characters, eviction, pinned content and reloads; the PSP build was checked
+  on hardware. The implementation is available on PSP and through WASM host
+  operations. Other native hosts need the batch operations before enabling it.
+- **External fonts are generated assets with an explicit migration path.**
+  Font tooling builds PJFA archives from application-supplied font files and
+  can derive coverage from text files or Unicode ranges. Full font sources
+  and generated archives stay outside Git. Downstream apps using custom
+  formats, including PSPMAN's PJPF, must regenerate archives and adopt the
+  prepared-text lifecycle. This release supplies that framework path; it does
+  not migrate PSPMAN itself. See the
+  [dynamic text guide](https://github.com/pocket-stack/pocketjs/blob/v0.12.0/docs/DYNAMIC_TEXT.md).
+- **Shared resources and offload queues separate I/O from frame work.**
+  Scoped demand, reactive reads and cache ownership connect visibility to
+  resource lifetime. Bounded worker mailboxes carry provider requests and
+  results without socket or storage calls on the UI thread. Shared companion
+  sessions add reconnect and backpressure for stateful services. A bounded
+  Rust prediction module reconciles simulation state without rewinding UI or
+  repeating external effects.
+- **Applications select presentations from device input and display facts.**
+  Manifest presentations can target screen count, touch location and control
+  availability. Shared actions express confirm, back and media intents;
+  keyboards choose layouts for buttons or touch surfaces. Classic controls
+  add shared lists, footers, skeletons and sprite spinners, while the system
+  sheet exposes application actions and return-to-launcher behavior.
+- **Media and text services cover more application flows.** Native 3DS
+  playback uses the shared media provider with audio-clock timing and bounded
+  buffering. Media support adds local downloads and timed captions. Clear's
+  companion input uses reusable glyph resources, revision-checked candidate
+  windows and text layouts that preserve cached characters across edits.
+- **Desktop rendering and native integrations expand.** Desktop hosts gain
+  portable GPU rendering and offloaded text. ESP-IDF integrations provide
+  separate package, guest, UI and renderer components for ESP32-P4 and S3.
+  The 3DS runtime isolates application state, returns to the Homebrew Launcher,
+  and acquires native sources without PSP dependencies. Legacy iPod touch
+  installs use removable user applications.
+- **Pocket3D shares geometry across rendering and simulation.** Handheld
+  animation uses shared skin bindings and indexed PICA skinning. Collision
+  geometry also governs water transport; contact-based locomotion, occluder
+  fading and themed PocketJS control overlays extend the shared world.
+  The site adds handheld application demos, updated use cases and restored
+  mobile documentation navigation.
+
 ## 0.11.0 — August 30, 2026
 
 **Two more device families run PocketJS, a second backend class paints through gpui and measures text on the host, and a paired Nintendo 3DS takes new guests over Wi-Fi.**
