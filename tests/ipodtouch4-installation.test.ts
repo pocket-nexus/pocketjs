@@ -45,6 +45,14 @@ describe("iPod User application installation", () => {
       mkdirSync(join(root, "legacy"));
       writeFileSync(join(root, "legacy/old-code"), "old");
       writeFileSync(join(root, "app.ipa"), "ipa");
+      // The device's OpenSSL prints SHA256(...); Linux OpenSSL 3 prints
+      // SHA2-256(...). Model the device command while hashing the real bytes.
+      const digest = join(root, "device-digest.ts");
+      writeFileSync(digest, `import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+const path = process.argv[2];
+console.log("SHA256(" + path + ")= " + createHash("sha256").update(readFileSync(path)).digest("hex"));
+`);
       writeFileSync(join(root, "installer"), `#!/bin/sh
 case "$1" in
   bundle-id) echo '${bundleId}' ;;
@@ -59,6 +67,7 @@ case "$1" in
 esac
 `, { mode: 0o755 });
       const script = userDeploymentScript({ bundleId, bundleName, archive: `${root}/app.ipa`, archiveHash: hash("ipa"), files: { App: hash("new") } })
+        .replaceAll("/usr/bin/openssl dgst -sha256", `${shellQuote(process.execPath)} ${shellQuote(digest)}`)
         .replace("/var/root/Library/PocketJS/ipodtouch4-installer", `${root}/installer`)
         .replace(`/Applications/${bundleName}`, `${root}/legacy`)
         .replace(`/var/root/Library/PocketJS/${bundleId}.migration`, `${root}/journal`)

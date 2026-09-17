@@ -148,7 +148,10 @@ pocketjs_bytes_t pocketjs_package_manifest(const pocketjs_package_t *package) {
 }
 
 static bool target_matches(const uint8_t *field, const char *target) {
-  const size_t length = strnlen(target, POCKETJS_PACKAGE_TARGET_BYTES);
+  size_t length = 0;
+  while (length < POCKETJS_PACKAGE_TARGET_BYTES && target[length] != '\0') {
+    ++length;
+  }
   if (length == 0U || length >= POCKETJS_PACKAGE_TARGET_BYTES) {
     return false;
   }
