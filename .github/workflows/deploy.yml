@@ -43,8 +43,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install text worker toolchain
-        run: sudo apt-get update && sudo apt-get install -y emscripten
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 5.0.5
 
       - name: Build site (wasm + launcher stage + docs + playground)
         run: bun run site:build

@@ -69,7 +69,10 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: sudo apt-get update && sudo apt-get install -y emscripten libfreetype6-dev pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y libfreetype6-dev pkg-config
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 5.0.5
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
           targets: wasm32-unknown-unknown
@@ -90,5 +93,6 @@ jobs:
           name: runtime-font-preview
           path: .pocket-build/validation/runtime-ttf/preview/runtime-note.png
           if-no-files-found: ignore
+          include-hidden-files: true
       - run: bun test tests/font-bake.test.ts tests/font-config.test.ts tests/font-archive.test.ts tests/text-batch.test.ts tests/text-cjk.test.ts
       - run: bun test --conditions=browser tests/renderer.test.ts

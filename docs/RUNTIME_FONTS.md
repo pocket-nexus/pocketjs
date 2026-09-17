@@ -68,7 +68,7 @@ The existing point-sampled atlas and streamed font-archive paths remain availabl
 
 ## Builds and platform validation
 
-Native workers require FreeType development headers and `pkg-config`. `bun tools/text-wasm.ts` requires Emscripten and builds the Rust module plus `pocket_freetype.js` and `pocket_freetype.wasm`. The Emscripten FreeType port controls its source revision. Both modules execute in the same text worker, using separate linear memories. Static web deployments must serve all three generated files and the worker adapters.
+Native workers require FreeType development headers and `pkg-config`. `bun tools/text-wasm.ts` requires Emscripten and builds the Rust module plus `pocket_freetype.js` and `pocket_freetype.wasm`. CI uses the official Emscripten SDK at version 5.0.5, whose FreeType port fixes its source revision. The SDK cache must permit writes for port compilation; the read-only cache in some distribution packages cannot build this port. Both modules execute in the same text worker, using separate linear memories. Static web deployments must serve all three generated files and the worker adapters.
 
 Portions of this software are copyright © 2024 The FreeType Project (https://www.freetype.org). All rights reserved. The distributed worker includes `FreeType-LICENSE.txt` under the FreeType License.
 
