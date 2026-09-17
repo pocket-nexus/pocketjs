@@ -1,17 +1,16 @@
 // @pocketjs/framework/launcher — the guest side of app switching
 // (spec ops 39..41, docs/LAUNCHER.md).
 //
-// Multi-app hosts embed several bundles and swap the whole guest between
-// them; these wrappers expose the table, the switch request, and the frozen
-// frame the SELECT summon captured. Every accessor degrades on hosts
-// without the ops (single-app EBOOTs, web, vita): appTable() -> null,
-// launchApp() -> false, frozenShot() -> -1 — so a launcher bundle stays
-// admissible anywhere and just renders its empty state.
+// Embedded catalogs replace the guest on each switch. Native catalogs retain
+// a process per installed app and foreground it on launch. Hosts without the
+// optional operations return null/false/-1 from these accessors.
 
 import { getOps } from "./host.ts";
 
-/** One embedded bundle, as the host reports it (registry order). */
+/** One configured app, as the host reports it (registry order). */
 export interface AppEntry {
+  /** Native navigation lists configured apps even before installation. */
+  installed?: boolean;
   /** dist output name — the appLaunch() key (e.g. "cafe-main"). */
   output: string;
   /** Manifest id (e.g. "dev.pocket-stack.cafe"). */
@@ -21,6 +20,8 @@ export interface AppEntry {
 }
 
 export interface AppTable {
+  /** Native apps retain their process; embedded apps relaunch on every switch. */
+  kind?: "native";
   apps: AppEntry[];
   /** Output name of the running bundle. */
   current: string;
@@ -35,18 +36,24 @@ export function launcherActive(): boolean {
   return typeof getOps().appTable === "function";
 }
 
-/** The embedded bundle table, or null on hosts without app switching. */
+/** The app table, or null on hosts without app switching. */
 export function appTable(): AppTable | null {
   const raw = getOps().appTable?.();
   if (!raw) return null;
   const parsed = JSON.parse(raw) as AppTable;
-  return { apps: parsed.apps ?? [], current: parsed.current ?? "", resume: parsed.resume ?? null };
+  return { apps: parsed.apps ?? [], current: parsed.current ?? "", resume: parsed.resume ?? null,
+    ...(parsed.kind === "native" ? { kind: parsed.kind } : {}) };
 }
 
-/** Request a whole-guest switch. True = scheduled (the host swaps after the
- *  current frame presents); false = unknown output or no switching host. */
+/** Request a switch after the current frame. Native apps foreground their
+ * retained process; embedded catalogs replace the guest. False means rejected. */
 export function launchApp(output: string): boolean {
   return (getOps().appLaunch?.(output) ?? 0) !== 0;
+}
+
+/** Close a native child app through its OS task. False means unsupported or refused. */
+export function closeApp(output: string): boolean {
+  return (getOps().appClose?.(output) ?? 0) !== 0;
 }
 
 /** Texture handle of the summon's frozen frame (256×128 PSM_8888), -1 when
@@ -54,4 +61,44 @@ export function launchApp(output: string): boolean {
  *  registerTexture(key, handle) and reference it as <Image src={key}>. */
 export function frozenShot(): number {
   return getOps().appShot?.() ?? -1;
+}
+
+export interface NativeAppReturn {
+  output: string;
+  destination: "home" | "switcher";
+  /** Host-owned last-frame texture, or -1. Replaced on the next return from this app. */
+  shot: number;
+  /** Zero on return; a native launch error otherwise. */
+  error: number;
+  pose: { x: number; y: number; scale: number };
+}
+
+type NativeGlobal = typeof globalThis & {
+  __pocketjsNativeReturn?: (output: string, destination: "home" | "switcher", shot: number, error: number, x: number, y: number, scale: number) => void;
+};
+const nativeListeners = new Set<(event: NativeAppReturn) => void>();
+let previousNativeReturn: NativeGlobal["__pocketjsNativeReturn"];
+const dispatchNativeReturn: NonNullable<NativeGlobal["__pocketjsNativeReturn"]> = (output, destination, shot, error, x, y, scale) => {
+  previousNativeReturn?.(output, destination, shot, error, x, y, scale);
+  for (const listener of [...nativeListeners]) listener({ output, destination, shot, error, pose: { x, y, scale } });
+};
+
+/** Subscribe to native foreground handoffs. Unsubscribe before unmounting the shell.
+ * The host calls this before the first resumed frame, never while JS is running. */
+export function onNativeAppReturn(listener: (event: NativeAppReturn) => void): () => void {
+  const target = globalThis as NativeGlobal;
+  if (nativeListeners.size === 0) {
+    previousNativeReturn = target.__pocketjsNativeReturn;
+    target.__pocketjsNativeReturn = dispatchNativeReturn;
+  }
+  // Each subscription owns its entry, including repeated use of one callback.
+  const entry = (event: NativeAppReturn) => listener(event);
+  nativeListeners.add(entry);
+  return () => {
+    nativeListeners.delete(entry);
+    if (nativeListeners.size === 0 && target.__pocketjsNativeReturn === dispatchNativeReturn) {
+      target.__pocketjsNativeReturn = previousNativeReturn;
+      previousNativeReturn = undefined;
+    }
+  };
 }

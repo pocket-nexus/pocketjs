@@ -282,6 +282,9 @@ export const OP = {
   fontStreamRequests: 48, // () -> JSON of at most 32 [generation,slot,scalar] misses.
   fontStreamCommit: 49, // (PFG1 bytes) -> accepted count, at most four cells.
   fontStreamStats: 50, // () -> JSON: residency, visible misses, eviction counters.
+  appClose: 51, // (output: string) -> 0|1. Native navigation only: request
+  //                graceful closure of a configured child app. Never closes
+  //                the shell or caller. Embedded hosts omit this operation.
 } as const;
 
 // ---------------------------------------------------------------------------

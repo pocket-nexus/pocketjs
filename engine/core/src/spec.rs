@@ -104,6 +104,7 @@ pub mod op {
     pub const FONT_STREAM_REQUESTS: u8 = 48;
     pub const FONT_STREAM_COMMIT: u8 = 49;
     pub const FONT_STREAM_STATS: u8 = 50;
+    pub const APP_CLOSE: u8 = 51;
 }
 
 /// Property ids (u8, stable, append-only). Groups:

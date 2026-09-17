@@ -225,6 +225,8 @@ export interface HostOps {
   /** OP.appShot — texture handle of the SELECT summon's frozen frame
    *  (256×128 PSM_8888), -1 when none was captured. */
   appShot?(): number;
+  /** Native navigation: request graceful closure of a configured child app. */
+  appClose?(output: string): number;
   /**
    * Optional host-owned acceptance sink. Applications report a completed,
    * user-visible action; hosts that do not collect hardware receipts omit it.

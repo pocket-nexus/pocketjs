@@ -1,4 +1,11 @@
 #include <QApplication>
+#include <QDir>
+#include <QElapsedTimer>
+#ifdef Q_OS_SYMBIAN
+#include <apgcli.h>
+#include <apgtask.h>
+#include <coemain.h>
+#endif
 #include <QBasicTimer>
 #include <QByteArray>
 #include <QEvent>
@@ -36,6 +43,7 @@ extern "C" {
 #include "pocketjs_symbian_core.h"
 #include "pocketjs_symbian_extension.h"
 #include "pocketjs_symbian_keys.h"
+#include "pocketjs_navigation_gesture.h"
 
 typedef char PocketJsQuickJsValueMustBeEightBytes[
     sizeof(JSValue) == 8 ? 1 : -1
@@ -1006,13 +1014,16 @@ void addHostOperation(
     JS_SetPropertyStr(context, object, name, function);
 }
 
+JSValue hostAppClose(JSContext *, JSValueConst, int, JSValueConst *);
+
 bool installHostOps(
     PocketJsRuntime *owner,
     JSContext *context,
     JSValueConst global,
     int viewportWidth,
     int viewportHeight,
-    bool multiApp
+    bool multiApp,
+    bool nativeNavigation
 )
 {
     JS_SetContextOpaque(context, owner);
@@ -1069,6 +1080,8 @@ bool installHostOps(
             JS_NewCFunction(context, hostAppShot, "appShot", 0)
         );
     }
+
+    if (nativeNavigation) JS_SetPropertyStr(context, ui, "appClose", JS_NewCFunction(context, hostAppClose, "appClose", 1));
 
     JSValue viewport = JS_NewObject(context);
     JS_SetPropertyStr(
@@ -1184,6 +1197,7 @@ public:
         size_t *length
     ) const;
     bool requestAppLaunch(const QString &output);
+    bool requestAppClose(const QString &output);
 
 protected:
     bool event(QEvent *event);
@@ -1196,6 +1210,24 @@ protected:
     void timerEvent(QTimerEvent *event);
 
 private:
+    struct NativeApp { uint32_t uid; QString output, id, title; int shot; bool portrait; };
+    QVector<NativeApp> nativeApps_;
+    int nativeSelf_, pendingNativeApp_, lastNativeApp_, nativeReturnDestination_;
+    bool nativeWasBackground_, nativeShotPending_, nativeIgnoreUntilRelease_;
+    double nativePoseX_, nativePoseY_, nativePoseScale_;
+    QElapsedTimer navigationClock_;
+    PocketJsNavigationGesture navigationGesture_;
+    QImage nativeReturnShot_;
+    bool initializeNativeNavigation();
+    QString navigationDirectory() const;
+    bool nativeInstalled(int index) const;
+    QByteArray nativeAppTable() const;
+    int activateNativeApp(int index);
+    void notifyNativeReturn(int index, int destination, int error);
+    void receiveNativeReturn();
+    void finishNativeLaunch();
+    bool navigationTouch(QTouchEvent *event);
+    void paintNavigationBar();
     bool initialize(const QSize &viewport);
     bool initializeCatalog();
     bool bootGuest(int appIndex, const QSize &windowViewport);
@@ -1229,6 +1261,9 @@ private:
     QByteArray catalogBlob_;
     QByteArray frozenShot_;
 #ifdef POCKETJS_PERF_TRACE
+    QString perfPrefix_;
+    uint32_t perfTouch_;
+    void recordNativeEvent(const char *action, int index, int error);
     struct PerfSample {
         int elapsed, delta, js, tick, draw, present, touches;
         int replay;
@@ -1299,6 +1334,8 @@ bool PocketJsRuntime::lookupPackEntry(
 
 PocketJsRuntime::PocketJsRuntime()
     : QGLWidget(pocketJsGlFormat()),
+      nativeSelf_(-1), pendingNativeApp_(-1), lastNativeApp_(-1), nativeReturnDestination_(1), nativeWasBackground_(true), nativeShotPending_(false), nativeIgnoreUntilRelease_(false),
+      nativePoseX_(0), nativePoseY_(0), nativePoseScale_(1),
       runtime_(0),
       context_(0),
       global_(JS_UNDEFINED),
@@ -1328,8 +1365,15 @@ PocketJsRuntime::PocketJsRuntime()
       glInitialized_(false)
 {
 #ifdef POCKETJS_PERF_TRACE
-    QFile::remove("E:/Installs/pocketjs-perf.tsv");
-    QFile::remove("E:/Installs/pocketjs-perf.png");
+    perfPrefix_ = "E:/Installs/pocketjs-perf";
+#ifdef POCKETJS_SYMBIAN_UID
+    const QString appPrefix = QString("E:/Installs/pocketjs-perf-%1").arg(uint32_t(POCKETJS_SYMBIAN_UID), 8, 16, QChar('0'));
+    if (QFile::exists(appPrefix + "-input.tsv")) perfPrefix_ = appPrefix;
+#endif
+    perfTouch_ = 0;
+    QFile::remove(perfPrefix_ + ".tsv");
+    QFile::remove(perfPrefix_ + ".png");
+    QFile::remove(perfPrefix_ + "-navigation.tsv");
     perfLastMs_ = -1;
     perfInputIndex_ = 0;
     perfDrawMs_ = 0;
@@ -1341,7 +1385,7 @@ PocketJsRuntime::PocketJsRuntime()
     perfSamples_.reserve(2048);
     // Opt-in diagnostic builds can replay one packed contact (zero releases).
     // A bounded file is read once, outside the measured frame loop.
-    QFile input("E:/Installs/pocketjs-perf-input.tsv");
+    QFile input(perfPrefix_ + "-input.tsv");
     if (input.open(QIODevice::ReadOnly) && input.size() <= 131072) {
         const QList<QByteArray> lines = input.readAll().split('\n');
         for (int i = 0; i < lines.size() && perfInputs_.size() < 4096; ++i) {
@@ -1395,6 +1439,8 @@ PocketJsRuntime::PocketJsRuntime()
     // QApplication::exec() starts only after main() calls showFullScreen().
     // The first timer event therefore observes the native fullscreen extent
     // instead of QWidget's pre-show default geometry.
+    if (!initializeNativeNavigation()) { fail("Invalid native navigation table"); return; }
+    if (nativeSelf_ >= 0 && nativeApps_.at(nativeSelf_).portrait) { setAttribute(Qt::WA_AutoOrientation, false); setAttribute(Qt::WA_LockPortraitOrientation, true); }
     const int interval = qMax(1, 1000 / POCKETJS_FRAME_RATE);
     timer_.start(interval, this);
 }
@@ -1664,7 +1710,7 @@ bool PocketJsRuntime::bootGuest(
 
     const EmbeddedApp &app = apps_.at(appIndex);
     const QSize viewport = app.liveViewport
-        ? windowViewport
+        ? QSize(windowViewport.width(), windowViewport.height() - (nativeSelf_ > 0 ? 28 : 0))
         : app.logicalViewport;
     if (!validViewport(viewport)) {
         fail(
@@ -1720,7 +1766,8 @@ bool PocketJsRuntime::bootGuest(
             global_,
             viewport.width(),
             viewport.height(),
-            apps_.size() > 1)) {
+            apps_.size() > 1 || nativeSelf_ >= 0,
+            nativeSelf_ >= 0)) {
         fail(takeException(context_));
         return false;
     }
@@ -1877,8 +1924,11 @@ void appendJsonString(QByteArray *json, const QString &value)
     json->append('"');
 }
 
+#include "pocketjs_native_navigation.h"
+
 QByteArray PocketJsRuntime::appTableJson() const
 {
+    if (nativeSelf_ >= 0) return nativeAppTable();
     QByteArray json("{\"apps\":[");
     for (int index = 0; index < apps_.size(); ++index) {
         if (index > 0) json.append(',');
@@ -1910,6 +1960,14 @@ int PocketJsRuntime::frozenShotHandle() const
 
 bool PocketJsRuntime::requestAppLaunch(const QString &output)
 {
+    if (nativeSelf_ >= 0) {
+        for (int i = 0; i < nativeApps_.size(); ++i) {
+            if (nativeApps_.at(i).output != output || i == nativeSelf_ || !nativeInstalled(i)) continue;
+            pendingNativeApp_ = i;
+            return true;
+        }
+        return false;
+    }
     for (int index = 0; index < apps_.size(); ++index) {
         if (apps_.at(index).output == output) {
             pendingApp_ = index;
@@ -1981,6 +2039,16 @@ JSValue hostAppLaunch(
     return JS_NewInt32(context, scheduled ? 1 : 0);
 }
 
+JSValue hostAppClose(JSContext *context, JSValueConst, int argc, JSValueConst *argv)
+{
+    PocketJsRuntime *runtime = static_cast<PocketJsRuntime *>(JS_GetContextOpaque(context));
+    const char *output = 0; size_t length = 0;
+    if (!runtime || !stringArgument(context, argc, argv, 0, &output, &length)) return JS_EXCEPTION;
+    const bool result = runtime->requestAppClose(QString::fromUtf8(output, length));
+    JS_FreeCString(context, output);
+    return JS_NewInt32(context, result ? 1 : 0);
+}
+
 JSValue hostAppShot(
     JSContext *context,
     JSValueConst,
@@ -2002,7 +2070,9 @@ void PocketJsRuntime::fail(const QString &message)
 {
     if (failed_) return;
     failed_ = true;
-    timer_.stop();
+    if (nativeSelf_ <= 0) timer_.stop();
+    // Keep the host-owned return gesture available after a child guest fails.
+    errorLabel_->setAttribute(Qt::WA_TransparentForMouseEvents);
     errorLabel_->setText(
         QString("PocketJS E7 runtime stopped\n\n%1").arg(message)
     );
@@ -2049,8 +2119,9 @@ bool PocketJsRuntime::drainJobs()
     return true;
 }
 
-void PocketJsRuntime::queueViewport(const QSize &viewport)
+void PocketJsRuntime::queueViewport(const QSize &windowViewport)
 {
+    const QSize viewport(windowViewport.width(), windowViewport.height() - (nativeSelf_ > 0 ? 28 : 0));
     // Symbian can report a transient empty extent while changing layout.
     // Wait for the final non-empty QWidget size rather than resizing the core
     // to a geometry it cannot render.
@@ -2080,6 +2151,8 @@ void PocketJsRuntime::queueViewport(const QSize &viewport)
 
     // Coordinates and held keyboard directions belong to the old screen
     // orientation. Never deliver them against the replacement layout.
+    if (nativeSelf_ > 0 && (navigationGesture_.owned || !touches_.isEmpty())) nativeIgnoreUntilRelease_ = true;
+    navigationGesture_.reset();
     clearInput();
 }
 
@@ -2131,6 +2204,13 @@ bool PocketJsRuntime::applyPendingViewport()
 
 QRect PocketJsRuntime::presentationRect() const
 {
+    if (nativeSelf_ > 0) {
+        const int lift = nativeShotPending_ ? 0 : qMin(navigationGesture_.lift(), height() / 2);
+        const double scale = 1.0 - 0.18 * lift / qMax(1, height() / 2);
+        const int w = qMax(1, static_cast<int>(width() * scale));
+        const int h = qMax(1, static_cast<int>((height() - 28) * scale));
+        return QRect((width() - w) / 2, -lift / 5, w, h);
+    }
     if (guestLiveViewport_ || viewportSize_.isEmpty()) return rect();
 
     const int availableWidth = qMax(1, width());
@@ -2183,8 +2263,22 @@ void PocketJsRuntime::runFrame()
     while (!perfWarmup && perfInputIndex_ < perfInputs_.size() &&
            perfInputs_.at(perfInputIndex_).ms <= replayMs) {
         const uint32_t touch = perfInputs_.at(perfInputIndex_++).touch;
-        touches_.clear();
-        if (touch != 0) touches_.append(touch);
+        if (nativeSelf_ >= 0) {
+            if (touch || perfTouch_) {
+                const uint32_t packed = touch ? touch : perfTouch_;
+                QTouchEvent::TouchPoint point((packed >> 20) & 255);
+                const Qt::TouchPointState state = !touch ? Qt::TouchPointReleased : !perfTouch_ ? Qt::TouchPointPressed : Qt::TouchPointMoved;
+                point.setState(state); point.setPos(QPointF(packed & 1023, (packed >> 10) & 1023));
+                QList<QTouchEvent::TouchPoint> points; points.append(point);
+                QTouchEvent input(!touch ? QEvent::TouchEnd : !perfTouch_ ? QEvent::TouchBegin : QEvent::TouchUpdate,
+                    QTouchEvent::TouchScreen, Qt::NoModifier, state, points);
+                event(&input);
+            }
+            perfTouch_ = touch;
+        } else {
+            touches_.clear();
+            if (touch != 0) touches_.append(touch);
+        }
     }
     QElapsedTimer perfTimer;
     perfTimer.start();
@@ -2288,6 +2382,7 @@ void PocketJsRuntime::runFrame()
     }
 #endif
     finishPendingSwitch();
+    finishNativeLaunch();
 }
 
 #ifdef POCKETJS_PERF_TRACE
@@ -2312,7 +2407,7 @@ void PocketJsRuntime::finishPerfTrace()
             QByteArray::number(s.submit) + "\t" + QByteArray::number(s.batches) + "\t" +
             QByteArray::number(s.vertices) + "\n");
     }
-    QFile trace("E:/Installs/pocketjs-perf.tsv");
+    QFile trace(perfPrefix_ + ".tsv");
     if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) trace.write(buffer);
     perfSamples_.clear();
 }
@@ -2465,7 +2560,7 @@ bool PocketJsRuntime::event(QEvent *event)
     if (event->type() == QEvent::TouchBegin ||
         event->type() == QEvent::TouchUpdate ||
         event->type() == QEvent::TouchEnd) {
-        updateTouches(static_cast<QTouchEvent *>(event));
+        if (!navigationTouch(static_cast<QTouchEvent *>(event))) updateTouches(static_cast<QTouchEvent *>(event));
         event->accept();
         return true;
     }
@@ -2520,6 +2615,8 @@ void PocketJsRuntime::keyReleaseEvent(QKeyEvent *event)
 
 void PocketJsRuntime::focusOutEvent(QFocusEvent *event)
 {
+    nativeIgnoreUntilRelease_ = navigationGesture_.owned || !touches_.isEmpty();
+    navigationGesture_.reset();
     clearInput();
     QGLWidget::focusOutEvent(event);
 }
@@ -2542,7 +2639,7 @@ void PocketJsRuntime::initializeGL()
 #ifdef POCKETJS_GL_STAGES
     ui_gl_set_trace(recordGlStage);
 #endif
-    QFile trace("E:/Installs/pocketjs-perf.tsv");
+    QFile trace(perfPrefix_ + ".tsv");
     if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
         trace.write("# gles_version\t");
         trace.write(version == 0 ? "unknown" : version);
@@ -2621,9 +2718,11 @@ void PocketJsRuntime::paintGL()
         // Capture the next completed back buffer, outside the measurement
         // window and before QGLWidget swaps it to the display.
         perfShotDone_ = true;
-        readFrame().save("E:/Installs/pocketjs-perf.png");
+        readFrame().save(perfPrefix_ + ".png");
     }
 #endif
+    if (nativeSelf_ > 0 && nativeShotPending_) { nativeReturnShot_ = readFrame(); nativeShotPending_ = false; }
+    paintNavigationBar();
     if (pendingApp_ >= 0 && pendingSummon_) {
         // QGLWidget auto-swaps only after paintGL returns, so this captures
         // the outgoing guest's just-rendered back buffer, never an undefined
@@ -2642,7 +2741,21 @@ void PocketJsRuntime::resizeEvent(QResizeEvent *event)
 void PocketJsRuntime::timerEvent(QTimerEvent *event)
 {
     if (event->timerId() == timer_.timerId()) {
-        if (failed_) return;
+        if (failed_) {
+            if (nativeSelf_ > 0 && pendingNativeApp_ >= 0) finishNativeLaunch();
+            return;
+        }
+        if (nativeSelf_ >= 0 && initialized_) {
+            if (!isActiveWindow()) { nativeWasBackground_ = true; clearInput(); return; }
+            if (nativeWasBackground_) {
+                nativeWasBackground_ = false;
+                navigationGesture_.reset();
+                receiveNativeReturn();
+#ifdef POCKETJS_PERF_TRACE
+                recordNativeEvent("foreground", nativeSelf_, 0);
+#endif
+            }
+        }
 
         // QResizeEvent is authoritative; polling size() is a cheap fallback
         // for Belle variants that coalesce a native layout notification.

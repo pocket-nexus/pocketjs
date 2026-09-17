@@ -465,3 +465,70 @@ application build.
 - [Qt Creator 2.4 CODA serial transport](https://code.qt.io/cgit/qt-creator/qt-creator.git/tree/src/shared/symbianutils/codadevice.cpp?h=v2.4.1)
 - [Qt Creator 2.4 macOS Symbian device discovery](https://code.qt.io/cgit/qt-creator/qt-creator.git/tree/src/shared/symbianutils/symbiandevicemanager.cpp?h=v2.4.1)
 - [libmtp `mtp-sendfile` implementation](https://github.com/libmtp/libmtp/blob/v1.1.23/examples/sendfile.c)
+
+## Installed-app navigation
+
+**`--navigation <file.json>` packages an allowlist of separate SIS apps.** Each
+app keeps its QuickJS guest, native extension and resources in its own process.
+The foreground app runs frames; background apps stop advancing the guest and
+simulation. Launching an existing task brings it to the foreground. Launching
+an absent task starts its installed UID through the application server.
+This mode cannot be combined with an embedded `--catalog`.
+
+The registry has `shell` (the Shell UID) and `apps` (2–32 entries). Every entry
+contains `uid`, `id`, `output` and `title`; `orientation` accepts `auto` or
+`portrait`. UIDs, manifest IDs and output keys must be unique. Build every
+participating package with the same registry, including its own UID. The build
+receipt records the encoded registry hash.
+
+```json
+{
+  "shell": "0xEA360236",
+  "apps": [
+    { "uid": "0xEA360236", "id": "dev.pocket-stack.fluid", "output": "pocketshell-touch", "title": "Pocket Shell" },
+    { "uid": "0xE16ACD8E", "id": "dev.pocket-stack.clear", "output": "clear-main", "title": "Pocket Clear", "orientation": "portrait" }
+  ]
+}
+```
+
+```sh
+bun tools/symbian.ts build app --manifest apps/clear/pocket.symbian.json \
+  --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
+  --frame-rate 60 --sis-version 0.3.4
+```
+
+**Child apps reserve the bottom 28 pixels for a host-owned return gesture.**
+The guest receives the remaining viewport and never receives a contact that
+starts in the return strip. A tap or upward swipe returns to Shell Home; a
+220 ms hold after lifting opens the Shell switcher. The app presentation
+shrinks with the contact. Release passes its normalized pose and last frame to
+Shell before the first resumed guest frame. Focus loss, rotation and additional
+contacts cancel the gesture. The operating system Home key is unchanged.
+
+`appTable()` reports `kind: "native"` and each configured entry's `installed`
+state. `launchApp(output)` schedules activation after presentation;
+`onNativeAppReturn(listener)` receives return destination, normalized pose,
+last-frame texture and launch errors. `closeApp(output)` lets Shell request
+`EndTask` for a configured child. A successful return means the close request
+was sent, not that the process has exited. Other hosts can omit `appClose`.
+Missing packages and rejected activation leave the calling app usable.
+
+Return metadata and screenshots live under
+`E:/Data/PocketJS/navigation/<shell-uid>/`. The host consumes a return mailbox
+once and uploads a 256×512 (portrait) or 512×256 (landscape) thumbnail. A texture
+belongs to the host and is replaced on that app's next return. Shell must bind
+the new handle before its next paint. These files contain app content; they are
+not an OS window server or a security boundary between installed apps.
+
+**Process retention lasts until the app closes or the OS terminates it.** This
+protocol does not serialize JavaScript state or implement cross-process deep
+links. Native children can return to a cold Shell. Background snapshots do not
+update until another return. Native rendering and touch controls can use the
+same host gesture without adding application-specific navigation code.
+
+For `--perf-trace` builds, an existing
+`E:/Installs/pocketjs-perf-<uid>-input.tsv` selects a per-app replay and output
+prefix; otherwise the host uses `pocketjs-perf`. Native replay passes through
+the Qt touch routing and return-strip ownership. Its virtual clock pauses
+with the background process. `*-navigation.tsv` records activations alongside
+the frame trace. Release builds do not read replay files.

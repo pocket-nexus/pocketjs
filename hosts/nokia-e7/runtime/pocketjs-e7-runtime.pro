@@ -8,7 +8,7 @@ CONFIG += release
 CONFIG -= debug app_bundle
 
 SOURCES += main.cpp
-HEADERS += pocketjs_symbian_core.h pocketjs_symbian_extension.h pocketjs_symbian_keys.h
+HEADERS += pocketjs_native_navigation.h pocketjs_navigation_gesture.h pocketjs_symbian_core.h pocketjs_symbian_extension.h pocketjs_symbian_keys.h
 RESOURCES += pocketjs-runtime.qrc
 
 isEmpty(POCKETJS_QUICKJS_INCLUDE): error(POCKETJS_QUICKJS_INCLUDE is required)
@@ -53,9 +53,12 @@ symbian {
     isEmpty(POCKETJS_SYMBIAN_UID): error(POCKETJS_SYMBIAN_UID is required)
     QMAKE_LINK = /toolchain/current/bin/symbian-gcce-link
     TARGET.UID3 = $$POCKETJS_SYMBIAN_UID
+    DEFINES += POCKETJS_SYMBIAN_UID=$$POCKETJS_SYMBIAN_UID
+    LIBS += -lapparc -lcone -lws32 -lapgrfx
     TARGET.CAPABILITY = None
     TARGET.EPOCSTACKSIZE = 0x100000
-    TARGET.EPOCHEAPSIZE = 0x400000 0x2000000
+    # The maximum permits native game data; the initial commitment stays 4 MiB.
+    TARGET.EPOCHEAPSIZE = 0x400000 0x4000000
 
     QMAKE_ELF2E32_FLAGS -= --compressionmethod bytepair
     QMAKE_ELF2E32_FLAGS += --compressionmethod inflate

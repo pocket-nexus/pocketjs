@@ -559,7 +559,7 @@ describe("experimental Nokia E7 runtime profile", () => {
 
     expect(project).toContain("QT += core gui opengl");
     expect(project).toContain("equals(POCKETJS_PERF_TRACE, 1): DEFINES += POCKETJS_PERF_TRACE");
-    expect(project).toContain("TARGET.EPOCHEAPSIZE = 0x400000 0x2000000");
+    expect(project).toContain("TARGET.EPOCHEAPSIZE = 0x400000 0x4000000");
     expect(project).toContain(
       "DEPLOYMENT.display_name = $$POCKETJS_SYMBIAN_CAPTION",
     );

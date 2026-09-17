@@ -170,6 +170,9 @@ if test "$catalog_enabled" = true; then
         } | awk '{ total += $1 } END { print total + 0 }'
     )
 fi
+if test -f "$payload/navigation.tsv"; then
+    actual_embedded_bytes=$((actual_embedded_bytes + $(stat -c %s "$payload/navigation.tsv")))
+fi
 if test "$actual_embedded_bytes" != "$embedded_bytes"; then
     echo "Symbian embedded payload changed after link layout resolution." >&2
     exit 1
@@ -313,6 +316,11 @@ arm-none-symbianelf-ar cqs "$build/libquickjs.a" "$quickjs_objects"/*.o
 
 cp "$runtime_source"/* "$build/"
 cp "$payload/app.js" "$payload/app.pak" "$build/"
+if test -f "$payload/navigation.tsv"; then
+    cp "$payload/navigation.tsv" "$build/navigation.tsv"
+else
+    : > "$build/navigation.tsv"
+fi
 if test "$catalog_enabled" = true; then
     cp "$catalog_index" "$build/catalog.tsv"
     cp "$catalog_blob" "$build/catalog.bin"
@@ -408,6 +416,7 @@ jq -n \
     --arg coreSha256 "$core_sha256" \
     --arg catalogIndexSha256 "$catalog_index_sha256" \
     --arg catalogBlobSha256 "$catalog_blob_sha256" \
+    --arg navigationSha256 "$(sha256sum "$build/navigation.tsv" | cut -d " " -f 1)" \
     --arg dataBase "$data_base" \
     --arg embeddedBytes "$embedded_bytes" \
     --slurpfile data "$data_receipt" \
@@ -430,6 +439,7 @@ jq -n \
         appPak: $appPakSha256,
         plan: $planSha256,
         core: $coreSha256,
+        navigation: $navigationSha256,
         catalogIndex: (if $catalogIndexSha256 == "" then null else $catalogIndexSha256 end),
         catalogBlob: (if $catalogBlobSha256 == "" then null else $catalogBlobSha256 end)
       },
