@@ -16,7 +16,15 @@ on:
       - "tools/ipodtouch4-installation.ts"
       - "tests/clear-text.test.ts"
       - "tests/clear-ime-loading.test.ts"
-      - "apps/clear/**"
+      - "apps/**"
+      - "assets/**"
+      - "engine/wasm/**"
+      - "hosts/web/wasm-ops.js"
+      - "tests/golden*.ts"
+      - "tests/goldens/web/**"
+      - "tests/tapes/**"
+      - "tests/png.ts"
+      - "tools/tape.ts"
       - "tests/fixtures/contact-latch.c"
       - "engine/ui-cabi/**"
       - "engine/core/**"
@@ -49,7 +57,15 @@ on:
       - "tools/ipodtouch4-installation.ts"
       - "tests/clear-text.test.ts"
       - "tests/clear-ime-loading.test.ts"
-      - "apps/clear/**"
+      - "apps/**"
+      - "assets/**"
+      - "engine/wasm/**"
+      - "hosts/web/wasm-ops.js"
+      - "tests/golden*.ts"
+      - "tests/goldens/web/**"
+      - "tests/tapes/**"
+      - "tests/png.ts"
+      - "tools/tape.ts"
       - "tests/fixtures/contact-latch.c"
       - "engine/ui-cabi/**"
       - "engine/core/**"
@@ -110,3 +126,6 @@ jobs:
         run: bun test tests/ui-cabi-allocator.test.ts
       - name: Contract drift
         run: bun tests/contract.ts
+      - name: Renderer goldens and deterministic replay
+        if: runner.os == 'Linux'
+        run: bun tests/golden.ts && bun run tape:check
