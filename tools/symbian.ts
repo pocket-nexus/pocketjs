@@ -321,6 +321,10 @@ export interface SymbianBuildTransaction {
 }
 
 export interface SymbianBuildAppOptions {
+  /** Opt-in, bounded on-device frame trace. Omitted from release builds. */
+  perfTrace?: boolean;
+  /** Presentation rate; the fixed 60 Hz core must divide into whole ticks. */
+  frameRate?: number;
   projectRoot?: string;
   outputRoot?: string;
   uid?: string;
@@ -365,6 +369,10 @@ export async function buildApp(
   sisVersion: string,
   options: SymbianBuildAppOptions = {},
 ): Promise<string> {
+  const frameRate = options.frameRate ?? SYMBIAN_TOOLCHAIN.runtime.frameRate;
+  if (!Number.isInteger(frameRate) || frameRate <= 0 || 60 % frameRate !== 0) {
+    throw new Error("Symbian frame rate must be a positive integer divisor of 60");
+  }
   const version = sisVersion.match(/^([0-9]+)\.([0-9]+)\.([0-9]+)$/);
   if (!version || version.slice(1).some((part) => Number(part) > 32767)) {
     throw new Error(
@@ -575,6 +583,8 @@ export async function buildApp(
         sisVersion,
         dataBase,
         String(embeddedBytes),
+        String(frameRate),
+        options.perfTrace ? "1" : "0",
       ],
       {
         repository: root,
@@ -634,6 +644,7 @@ const HELP = `PocketJS Nokia E7 / Symbian toolchain
                            [--catalog-index <catalog.tsv> --catalog-blob <catalog.bin>]
                            [--core-library <application-core.a>]
                            [--mass-storage-data-root <dir>]
+                           [--frame-rate 30] [--perf-trace]
                                     build an independently installable PocketJS E7 SIS
   pocket symbian deploy <sis>       copy to Mass memory/Installs and verify by MTP readback
   pocket symbian coda usb           run the CODA USB ping + Locator handshake
@@ -680,6 +691,9 @@ export async function symbianMain(
           sisVersion,
           {
             projectRoot: flagValue(args.slice(2), "--project-root"),
+            perfTrace: args.includes("--perf-trace"),
+            frameRate: flagValue(args, "--frame-rate") === undefined
+              ? undefined : Number(flagValue(args, "--frame-rate")),
             outputRoot: flagValue(args.slice(2), "--outdir"),
             uid: flagValue(args.slice(2), "--uid"),
             catalogIndex: flagValue(args.slice(2), "--catalog-index"),

@@ -474,10 +474,10 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(runtime).not.toContain("QPainter");
     expect(runtime).not.toContain("framebuffer_");
     expect(runtime).not.toContain("ui_render(");
-    expect(runtime).toContain("frame_delta_ms");
-    expect(runtime).toContain("update_gl_ms");
+    expect(runtime).toContain("delta_ms");
+    expect(runtime).toContain("present_ms");
     expect(runtime).not.toContain("\\tgpu_ms");
-    expect(runtime).toContain("perfTraceBuffer_.append(");
+    expect(runtime).toContain("perfSamples_.append(sample)");
     expect(runtime).toContain("0x80000000U |");
     expect(runtime).toContain("point.id()) & 0xff) << 20");
     expect(runtime).toContain("static_cast<uint32_t>(y) & 0x3ff) << 10");
@@ -558,7 +558,7 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(coreHeader).toContain("int32_t ui_upload_tileset_tile(");
 
     expect(project).toContain("QT += core gui opengl");
-    expect(project).not.toContain("DEFINES += POCKETJS_PERF_TRACE");
+    expect(project).toContain("equals(POCKETJS_PERF_TRACE, 1): DEFINES += POCKETJS_PERF_TRACE");
     expect(project).toContain("TARGET.EPOCHEAPSIZE = 0x400000 0x2000000");
     expect(project).toContain(
       "DEPLOYMENT.display_name = $$POCKETJS_SYMBIAN_CAPTION",

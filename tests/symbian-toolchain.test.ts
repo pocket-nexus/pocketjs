@@ -233,7 +233,9 @@ describe("canonical Symbian E7 toolchain", () => {
     expect(buildProbe).toContain("actual_uid=$(od ");
     expect(buildApp).toContain("quickjs-symbian-gcce.patch");
     expect(buildApp).toContain("-std=gnu99");
-    expect(buildApp).toContain("-O0");
+    expect(buildApp).toContain("-O2");
+    expect(buildApp).toContain("-fwrapv");
+    expect(buildApp).toContain("-fno-strict-aliasing");
     expect(buildApp).toContain("POCKETJS_CORE_LIBRARY");
     expect(buildApp).toContain("POCKETJS_SYMBIAN_TARGET");
     expect(buildApp).toContain("POCKETJS_SYMBIAN_CAPTION");

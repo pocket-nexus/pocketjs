@@ -10,14 +10,21 @@ if test "$POCKETJS_SYMBIAN_IMAGE_IMPLEMENTATION_SHA256" != \
     exit 1
 fi
 
-if test "$#" != 4; then
-    echo "usage: pocketjs-symbian-build-app <output-name> <sis-version> <data-base> <embedded-bytes>" >&2
+if test "$#" != 6; then
+    echo "usage: pocketjs-symbian-build-app <output-name> <sis-version> <data-base> <embedded-bytes> <frame-rate> <perf-trace>" >&2
     exit 1
 fi
 app_output=$1
 sis_version=$2
 data_base=$3
 embedded_bytes=$4
+frame_rate=$5
+perf_trace=$6
+if [[ ! "$frame_rate" =~ ^(1|2|3|4|5|6|10|12|15|20|30|60)$ ]] ||
+    [[ ! "$perf_trace" =~ ^[01]$ ]]; then
+    echo "Invalid frame rate or performance trace option." >&2
+    exit 1
+fi
 if [[ ! "$app_output" =~ ^[A-Za-z0-9._-]+$ ]]; then
     echo "Unsafe PocketJS app output name: $app_output" >&2
     exit 1
@@ -279,12 +286,14 @@ quickjs_flags=(
     "-I${EPOCROOT}epoc32/include/gcce"
     "-I${compiler_include}"
     "-I${quickjs_source}"
+    -O2
+    -fwrapv
+    -fno-strict-aliasing
 )
 for source in cutils.c dtoa.c libregexp.c libunicode.c quickjs.c; do
     arm-none-symbianelf-gcc \
         "${quickjs_flags[@]}" \
         -std=gnu99 \
-        -O0 \
         -funsigned-char \
         -D_GNU_SOURCE \
         "-DCONFIG_VERSION=\"$quickjs_version\"" \
@@ -294,7 +303,6 @@ done
 arm-none-symbianelf-gcc \
     "${quickjs_flags[@]}" \
     -std=gnu99 \
-    -O0 \
     -funsigned-char \
     -D_GNU_SOURCE \
     "-DCONFIG_VERSION=\"$quickjs_version\"" \
@@ -318,7 +326,8 @@ qmake \
     "POCKETJS_QUICKJS_INCLUDE=$quickjs_source" \
     "POCKETJS_QUICKJS_LIBRARY=$build/libquickjs.a" \
     "POCKETJS_CORE_LIBRARY=$rust_library" \
-    "POCKETJS_FRAME_RATE=$(jq -r .runtime.frameRate "$manifest")" \
+    "POCKETJS_FRAME_RATE=$frame_rate" \
+    "POCKETJS_PERF_TRACE=$perf_trace" \
     "POCKETJS_HOST_ABI=$host_abi" \
     "POCKETJS_INITIAL_LOGICAL_WIDTH=$initial_logical_width" \
     "POCKETJS_INITIAL_LOGICAL_HEIGHT=$initial_logical_height" \
@@ -390,6 +399,8 @@ jq -n \
     --arg sisVersion "$sis_version" \
     --arg quickjsVersion "$quickjs_version" \
     --arg quickjsRevision "$quickjs_revision" \
+    --argjson frameRate "$frame_rate" \
+    --argjson perfTrace "$perf_trace" \
     --arg appJsSha256 "$app_js_sha256" \
     --arg appPakSha256 "$app_pak_sha256" \
     --arg planSha256 "$plan_sha256" \
@@ -407,7 +418,8 @@ jq -n \
       uid: $uid,
       executable: $executable,
       sisVersion: $sisVersion,
-      quickjs: {version: $quickjsVersion, revision: $quickjsRevision},
+      quickjs: {version: $quickjsVersion, revision: $quickjsRevision, optimization: "O2"},
+      runtime: {frameRate: $frameRate, perfTrace: ($perfTrace == 1)},
       link: {
         dataBase: $dataBase,
         embeddedBytes: ($embeddedBytes | tonumber)

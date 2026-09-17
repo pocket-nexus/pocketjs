@@ -261,8 +261,10 @@ The experimental host has these runtime semantics:
   `360x360`–`640x640` dynamic variant with a `640x360` default.
 - The default host calls the JavaScript frame at 30 Hz and advances the
   PocketJS core with `60 / POCKETJS_FRAME_RATE` fixed ticks per frame (two at
-  the default rate). Builds reject non-positive rates and rates that do not
-  divide the core's fixed 60 Hz clock exactly.
+  the default rate). **`build app --frame-rate 60` requests a 60 Hz host timer.**
+  Builds reject non-positive rates and rates that do not divide the core's
+  fixed 60 Hz clock. The requested rate is a scheduling target; frame work
+  and presentation can reduce the achieved rate.
 - Arrow keys map to the four directions, the navigation center/Select key and
   keyboard Enter to `CIRCLE`, Escape to `CROSS`, Space to `START`, Q/E to the
   left/right triggers, and T/S to `TRIANGLE`/`SQUARE`.
@@ -274,6 +276,30 @@ The experimental host has these runtime semantics:
   axis while retaining the original untagged 9-bit wire for PSP/Vita-era
   hosts. `symbian-e7-dev` advertises `input.touch`; the framework exposes the
   same immutable per-frame contact snapshots on both encodings.
+
+### Measure frame work
+
+**`build app --perf-trace` enables a bounded native trace.** It records the
+GLES version, vendor and renderer, then buffers up to 30 seconds or 2,048
+frames in memory. After measurement, it writes
+`E:/Installs/pocketjs-perf.tsv`. Normal builds omit tracing and replay.
+The SIS receipt records the requested frame rate, tracing flag and QuickJS
+optimization level (`-O2`, with wrapping signed arithmetic and strict aliasing
+disabled).
+
+The frame rows contain elapsed time, frame interval, JavaScript execution,
+core ticks, GLES submission and presentation time in milliseconds.
+`present_ms` includes `draw_ms` and Qt's swap. **These are CPU wall times,
+not GPU timer queries or panel scanout measurements.** The measured loop does
+not read pixels, call `glFinish`, or write files.
+
+For repeatable input, a trace build reads `E:/Installs/pocketjs-perf-input.tsv`
+at startup. Each row contains an elapsed millisecond timestamp and one packed
+touch-v2 contact, separated by a tab; zero releases the contact. Timestamps
+must stay ordered, remain within 0–30,000 ms and end with a release. The file is
+limited to 128 KiB and 4,096 points. Remove it before measuring manual input.
+Replay exercises the guest input path; it does not measure physical touch
+delivery through Qt.
 
 ## Build the E7 Pocket Launcher
 
