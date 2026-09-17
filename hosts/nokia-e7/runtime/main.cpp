@@ -1214,6 +1214,7 @@ private:
     QVector<NativeApp> nativeApps_;
     int nativeSelf_, pendingNativeApp_, lastNativeApp_, nativeReturnDestination_;
     bool nativeWasBackground_, nativeShotPending_, nativeIgnoreUntilRelease_, nativeGraphicsSuspended_;
+    int nativeActivationDeadline_;
     double nativePoseX_, nativePoseY_, nativePoseScale_;
     QElapsedTimer navigationClock_;
     PocketJsNavigationGesture navigationGesture_;
@@ -1337,6 +1338,7 @@ bool PocketJsRuntime::lookupPackEntry(
 PocketJsRuntime::PocketJsRuntime()
     : QGLWidget(pocketJsGlFormat()),
       nativeSelf_(-1), pendingNativeApp_(-1), lastNativeApp_(-1), nativeReturnDestination_(1), nativeWasBackground_(true), nativeShotPending_(false), nativeIgnoreUntilRelease_(false), nativeGraphicsSuspended_(false),
+      nativeActivationDeadline_(0),
       nativePoseX_(0), nativePoseY_(0), nativePoseScale_(1),
       runtime_(0),
       context_(0),
@@ -2749,7 +2751,14 @@ void PocketJsRuntime::timerEvent(QTimerEvent *event)
             return;
         }
         if (nativeSelf_ >= 0 && initialized_) {
-            if (!isActiveWindow()) { nativeWasBackground_ = true; suspendNativeGraphics(); clearInput(); return; }
+            if (!isActiveWindow()) { nativeActivationDeadline_ = 0; nativeWasBackground_ = true; suspendNativeGraphics(); clearInput(); return; }
+            // StartDocument can return before the next app owns a window. Keep
+            // our GPU resources released through that startup interval.
+            if (nativeActivationDeadline_ > navigationClock_.elapsed()) return;
+            if (nativeActivationDeadline_ != 0) {
+                nativeActivationDeadline_ = 0;
+                nativeWasBackground_ = true;
+            }
             if (nativeWasBackground_) {
                 if (!resumeNativeGraphics()) return;
                 nativeWasBackground_ = false;

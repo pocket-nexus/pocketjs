@@ -472,10 +472,12 @@ application build.
 app keeps its QuickJS guest, native extension and resources in its own process.
 The foreground app runs frames; background apps stop advancing the guest and
 simulation. **Background apps release GLES resources and reset their EGL
-context and surface.** Qt chrome uses the raster graphics system; app content
-uses GLES. The next activation recreates the context and uploads
-textures from retained CPU data. This avoids Symbian's graphics-memory monitor
-terminating a background app that retains its GPU resources. Launching an existing task brings it to the foreground. Launching
+context and surface.** A navigation handoff releases the outgoing surface
+before activating the destination, so their GPU allocations do not overlap
+during startup. Qt repaint delivery stays disabled until foreground restoration.
+Qt chrome uses the raster graphics system; app content uses GLES. The next
+activation recreates the context and uploads textures from retained CPU data.
+Launching an existing task brings it to the foreground. Launching
 an absent task starts its installed UID through the application server.
 This mode cannot be combined with an embedded `--catalog`.
 

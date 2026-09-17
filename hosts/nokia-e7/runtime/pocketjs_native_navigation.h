@@ -171,12 +171,18 @@ void PocketJsRuntime::finishNativeLaunch()
             mailbox.write(nativeApps_.at(nativeSelf_).output.toUtf8() + "\t" + QByteArray::number(nativeReturnDestination_) + "\t" + QByteArray::number(double(pose.x()) / width()) + "\t" + QByteArray::number(double(pose.y()) / height()) + "\t" + QByteArray::number(double(pose.width()) / width()) + "\n");
         }
     }
+    // Retire our surface before the destination allocates one. Waiting for a
+    // background notification permits a transient two-context GPU peak.
+    suspendNativeGraphics();
+    nativeActivationDeadline_ = navigationClock_.elapsed() + 5000;
     const int error = activateNativeApp(next);
 #ifdef POCKETJS_PERF_TRACE
     recordNativeEvent("launch", next, error);
 #endif
     if (error == 0 && nativeSelf_ == 0) lastNativeApp_ = next;
     if (error != 0) {
+        nativeActivationDeadline_ = 0;
+        resumeNativeGraphics();
         notifyNativeReturn(next, 1, error);
         // A missing shell leaves the child usable, with its return handle.
         qWarning("PocketJS native app launch failed: %d", error);
@@ -234,6 +240,9 @@ bool PocketJsRuntime::requestAppClose(const QString &output)
         TApaTaskList tasks(CCoeEnv::Static()->WsSession());
         TApaTask task = tasks.FindApp(TUid::Uid(nativeApps_.at(i).uid));
         if (task.Exists()) task.EndTask();
+#ifdef POCKETJS_PERF_TRACE
+        recordNativeEvent("close", i, 0);
+#endif
         QFile::remove(navigationDirectory() + QString("/%1.png").arg(nativeApps_.at(i).uid, 8, 16, QChar('0')));
         return true;
     }
@@ -260,6 +269,7 @@ void PocketJsRuntime::suspendNativeGraphics()
 {
     if (nativeGraphicsSuspended_ || !glInitialized_) return;
     if (extension_ && extension_->struct_size < sizeof(PocketJsSymbianGraphicsExtensionV1)) return;
+    setUpdatesEnabled(false);
     makeCurrent();
     if (extension_) {
         const PocketJsSymbianGraphicsExtensionV1 *graphics =
@@ -284,6 +294,7 @@ bool PocketJsRuntime::resumeNativeGraphics()
         return false;
     }
     nativeGraphicsSuspended_ = false;
+    setUpdatesEnabled(true);
 #ifdef POCKETJS_PERF_TRACE
     recordNativeEvent("resume-graphics", nativeSelf_, 0);
 #endif
