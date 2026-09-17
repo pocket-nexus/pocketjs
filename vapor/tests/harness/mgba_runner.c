@@ -11,6 +11,9 @@
  *   R <name> <addr-hex> <size>       read 1/2/4 bytes little-endian
  *   D <name> <addr-hex> <len>        read len bytes, emit as hex string
  *   S <path>                         screenshot (PPM P6)
+ *   K <keymask-hex>                  set held keys (no frames run)
+ *   M <frames> <prefix>              movie: run n frames, dumping every one
+ *                                    as <prefix>NNNNN.ppm (for video capture)
  * Output: one JSON object on stdout: {"ok":true,"reads":{...}}.
  */
 #include <stdint.h>
@@ -140,6 +143,21 @@ int main(int argc, char **argv) {
       char path[512];
       sscanf(line + 1, "%511s", path);
       screenshot(path);
+    } else if (op == 'K') {
+      unsigned mask = 0;
+      sscanf(line + 1, "%x", &mask);
+      core->setKeys(core, mask);
+    } else if (op == 'M') {
+      char prefix[400];
+      char path[512];
+      int n = 0, i;
+      static int movie_at = 0;
+      sscanf(line + 1, "%d %399s", &n, prefix);
+      for (i = 0; i < n; i++) {
+        core->runFrame(core);
+        snprintf(path, sizeof path, "%s%05d.ppm", prefix, movie_at++);
+        screenshot(path);
+      }
     }
   }
   printf("}}\n");
