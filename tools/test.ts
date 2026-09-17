@@ -116,6 +116,13 @@ const SUITE: readonly Stage[] = [
       "tests/video-outro.test.ts",
       "tests/osk-layout.test.ts",
       "tests/test-suite.test.ts",
+      "tests/perf-comparator.test.ts",
+      "tests/perf-receipts.test.ts",
+      "tests/perf-runner.test.ts",
+      "tests/perf-cli.test.ts",
+      "tests/perf-qemu-executor.test.ts",
+      "tests/perf-damage-executor.test.ts",
+      "tests/perf-vapor-executor.test.ts",
     ],
   },
   {

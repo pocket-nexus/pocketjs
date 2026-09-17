@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.settings.style-journey.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "settings-main",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "settings-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "input.buttons",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 120,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.settings.style-journey.v1",
+    "frames": 120,
+    "tracks": [
+      {
+        "kind": "button",
+        "control": "down",
+        "samples": [
+          { "frame": 4, "pressed": true }, { "frame": 5, "pressed": false },
+          { "frame": 16, "pressed": true }, { "frame": 17, "pressed": false },
+          { "frame": 28, "pressed": true }, { "frame": 29, "pressed": false },
+          { "frame": 40, "pressed": true }, { "frame": 41, "pressed": false },
+          { "frame": 44, "pressed": true }, { "frame": 45, "pressed": false },
+          { "frame": 48, "pressed": true }, { "frame": 49, "pressed": false }
+        ]
+      },
+      {
+        "kind": "button",
+        "control": "primary",
+        "samples": [
+          { "frame": 10, "pressed": true }, { "frame": 11, "pressed": false },
+          { "frame": 22, "pressed": true }, { "frame": 23, "pressed": false },
+          { "frame": 34, "pressed": true }, { "frame": 35, "pressed": false },
+          { "frame": 54, "pressed": true }, { "frame": 55, "pressed": false }
+        ]
+      }
+    ]
+  },
+  "phases": [
+    { "name": "interaction", "startFrame": 0, "endFrame": 70, "collect": true },
+    { "name": "settle", "startFrame": 70, "endFrame": 120, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 69, "capture": ["framebuffer"] },
+    { "frame": 119, "capture": ["framebuffer", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 6,
+    "gateMetrics": ["guest.instructions", "guest.load_store_events", "memory.allocated_bytes"],
+    "diagnosticMetrics": ["native.phase.interaction.wall_time_ns", "native.phase.settle.wall_time_ns"]
+  }
+}

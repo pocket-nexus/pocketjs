@@ -1,0 +1,8 @@
+{
+  "guest_insn_dispatched": 18,
+  "guest_instruction_bytes": 36,
+  "guest_insn_size_2": 18,
+  "guest_insn_size_4": 0,
+  "guest_load_events": 1,
+  "guest_store_events": 1
+}

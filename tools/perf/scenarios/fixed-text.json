@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.stats.text-update.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "stats-main",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "stats-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 180,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.stats.idle-180.v1",
+    "frames": 180,
+    "tracks": []
+  },
+  "phases": [
+    { "name": "text-active", "startFrame": 0, "endFrame": 80, "collect": true },
+    { "name": "settled", "startFrame": 80, "endFrame": 180, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 79, "capture": ["framebuffer"] },
+    { "frame": 179, "capture": ["framebuffer", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 4,
+    "gateMetrics": [
+      "guest.instructions",
+      "guest.load_store_events",
+      "memory.allocated_bytes"
+    ],
+    "diagnosticMetrics": [
+      "native.phase.text-active.wall_time_ns",
+      "native.phase.settled.wall_time_ns"
+    ]
+  }
+}

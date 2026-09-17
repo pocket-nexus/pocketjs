@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.im.touch-row.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "im-main",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "im-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "input.touch",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 110,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.im.row-touch.v1",
+    "frames": 110,
+    "tracks": [
+      {
+        "kind": "touch",
+        "control": "contact-0",
+        "samples": [
+          { "frame": 60, "phase": "start", "x": 240, "y": 90 },
+          { "frame": 63, "phase": "end", "x": 240, "y": 90 }
+        ]
+      }
+    ]
+  },
+  "phases": [
+    { "name": "bootstrap", "startFrame": 0, "endFrame": 50, "collect": false },
+    { "name": "touch", "startFrame": 50, "endFrame": 80, "collect": true },
+    { "name": "settle", "startFrame": 80, "endFrame": 110, "collect": false }
+  ],
+  "checkpoints": [
+    { "frame": 59, "capture": ["framebuffer"] },
+    { "frame": 79, "capture": ["framebuffer"] },
+    { "frame": 109, "capture": ["framebuffer", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 5,
+    "gateMetrics": ["guest.instructions", "memory.allocated_bytes"],
+    "diagnosticMetrics": ["memory.current_bytes", "native.phase.touch.wall_time_ns"]
+  }
+}

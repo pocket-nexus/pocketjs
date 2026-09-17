@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.cafe.timer-effects.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "cafe-main",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "cafe-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "input.buttons",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 390,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.cafe.timer-effects.v1",
+    "frames": 390,
+    "tracks": [
+      {
+        "kind": "button",
+        "control": "primary",
+        "samples": [
+          { "frame": 60, "pressed": true }, { "frame": 61, "pressed": false },
+          { "frame": 120, "pressed": true }, { "frame": 121, "pressed": false },
+          { "frame": 180, "pressed": true }, { "frame": 181, "pressed": false }
+        ]
+      },
+      {
+        "kind": "button",
+        "control": "down",
+        "samples": [
+          { "frame": 90, "pressed": true }, { "frame": 91, "pressed": false }
+        ]
+      },
+      {
+        "kind": "button",
+        "control": "start",
+        "samples": [
+          { "frame": 210, "pressed": true }, { "frame": 211, "pressed": false }
+        ]
+      }
+    ]
+  },
+  "phases": [
+    { "name": "timer-effects", "startFrame": 0, "endFrame": 390, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 29, "capture": ["framebuffer", "effects"] },
+    { "frame": 269, "capture": ["framebuffer", "effects"] },
+    { "frame": 389, "capture": ["framebuffer", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 7,
+    "gateMetrics": ["guest.instructions", "memory.allocated_bytes"],
+    "diagnosticMetrics": ["native.phase.timer-effects.wall_time_ns"]
+  }
+}

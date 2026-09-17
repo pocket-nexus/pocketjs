@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.fixture.idle-600.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "tools/perf/apps/idle-fixture-main.tsx",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "idle-fixture-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 720,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.fixture.idle-720.v1",
+    "frames": 720,
+    "tracks": []
+  },
+  "phases": [
+    { "name": "warmup", "startFrame": 0, "endFrame": 120, "collect": false },
+    { "name": "idle", "startFrame": 120, "endFrame": 720, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 119, "capture": ["framebuffer", "drawList"] },
+    { "frame": 719, "capture": ["framebuffer", "drawList", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 6,
+    "gateMetrics": [
+      "guest.instructions",
+      "guest.load_store_events",
+      "memory.allocated_bytes",
+      "quickjs.live_bytes_after_gc"
+    ],
+    "diagnosticMetrics": [
+      "memory.current_bytes",
+      "memory.peak_bytes",
+      "native.phase.idle.wall_time_ns"
+    ]
+  }
+}

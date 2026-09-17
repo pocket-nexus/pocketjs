@@ -1,0 +1,1 @@
+POCKETJS_PERF_QEMU {"schema":"pocketjs.perf.qemu","version":1,"event":"error","plugin_api":6,"qemu_version":"11.0.3","target":"arm","code":"missing_end","measurements":0}

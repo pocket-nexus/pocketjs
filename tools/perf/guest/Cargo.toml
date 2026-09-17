@@ -1,0 +1,27 @@
+[workspace]
+
+[package]
+name = "pocketjs-perf-guest"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+pocket-mod = { path = "../../../engine/crates/pocket-mod" }
+pocket-ui-surface = { path = "../../../engine/crates/pocket-ui-surface" }
+pocketjs-core = { path = "../../../engine/core", features = ["std"] }
+# Enable the production QuickJS crate's Rust allocator adapter so the global
+# benchmark allocator observes both Rust and QuickJS allocations. The QEMU
+# staging build resolves this dependency from the measured source lockfile.
+rquickjs = { version = "0.12", features = ["rust-alloc"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.zoomlab.deepzoom.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "zoomlab-main",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "zoomlab-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "input.buttons",
+    "input.analog",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 480,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.zoomlab.zoom-pan.v1",
+    "frames": 480,
+    "tracks": [
+      {
+        "kind": "button",
+        "control": "shoulder-right",
+        "samples": [
+          { "frame": 60, "pressed": true },
+          { "frame": 180, "pressed": false }
+        ]
+      },
+      {
+        "kind": "analog",
+        "control": "x",
+        "samples": [
+          { "frame": 180, "value": -1 },
+          { "frame": 360, "value": 0 }
+        ]
+      }
+    ]
+  },
+  "phases": [
+    { "name": "warmup", "startFrame": 0, "endFrame": 60, "collect": false },
+    { "name": "zoom", "startFrame": 60, "endFrame": 180, "collect": true },
+    { "name": "pan", "startFrame": 180, "endFrame": 360, "collect": true },
+    { "name": "glide", "startFrame": 360, "endFrame": 480, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 59, "capture": ["framebuffer"] },
+    { "frame": 179, "capture": ["framebuffer"] },
+    { "frame": 359, "capture": ["framebuffer"] },
+    { "frame": 479, "capture": ["framebuffer", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 12,
+    "gateMetrics": [
+      "guest.instructions",
+      "guest.load_store_events",
+      "memory.allocated_bytes"
+    ],
+    "diagnosticMetrics": [
+      "memory.current_bytes",
+      "memory.peak_bytes",
+      "native.phase.zoom.wall_time_ns",
+      "native.phase.pan.wall_time_ns",
+      "native.phase.glide.wall_time_ns"
+    ]
+  }
+}

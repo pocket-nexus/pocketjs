@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.hero.boot.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "hero-main",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "hero-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 120,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.hero.boot.idle-120.v1",
+    "frames": 120,
+    "tracks": []
+  },
+  "phases": [
+    { "name": "first-frame", "startFrame": 0, "endFrame": 1, "collect": true },
+    { "name": "settle", "startFrame": 1, "endFrame": 120, "collect": false }
+  ],
+  "checkpoints": [
+    { "frame": 0, "capture": ["framebuffer"] },
+    { "frame": 119, "capture": ["framebuffer", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 4,
+    "measureBoot": true,
+    "frameworks": ["solid", "vue-vapor", "octane"],
+    "frameworkSubjects": {
+      "vue-vapor": {
+        "id": "hero-vue-vapor-main",
+        "entry": "hero-vue-vapor-main.vue-vapor"
+      }
+    },
+    "gateMetrics": [
+      "artifact.bundle_bytes",
+      "guest.instructions",
+      "quickjs.live_bytes_after_gc"
+    ],
+    "diagnosticMetrics": [
+      "memory.current_bytes",
+      "memory.peak_bytes",
+      "native.boot_wall_time_ns",
+      "native.phase.first-frame.wall_time_ns"
+    ]
+  }
+}

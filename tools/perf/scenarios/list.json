@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "guest.fixture.keyed-list.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "tools/perf/apps/list-fixture-main.tsx",
+    "family": "guest-app",
+    "framework": "solid",
+    "entry": "list-fixture-main"
+  },
+  "executorRequirements": [
+    "guest.frame",
+    "core.ui",
+    "renderer.framebuffer",
+    "assets.pak",
+    "input.buttons",
+    "correctness.framebuffer",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.state-final"
+  ],
+  "frames": 180,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "guest.fixture.keyed-list.v1",
+    "frames": 180,
+    "tracks": [
+      {
+        "kind": "button",
+        "control": "quaternary",
+        "samples": [
+          { "frame": 32, "pressed": true },
+          { "frame": 33, "pressed": false }
+        ]
+      },
+      {
+        "kind": "button",
+        "control": "secondary",
+        "samples": [
+          { "frame": 62, "pressed": true },
+          { "frame": 63, "pressed": false }
+        ]
+      },
+      {
+        "kind": "button",
+        "control": "primary",
+        "samples": [
+          { "frame": 92, "pressed": true },
+          { "frame": 93, "pressed": false }
+        ]
+      }
+    ]
+  },
+  "phases": [
+    { "name": "warmup", "startFrame": 0, "endFrame": 30, "collect": false },
+    { "name": "keyed-insert", "startFrame": 30, "endFrame": 60, "collect": true },
+    { "name": "keyed-reorder", "startFrame": 60, "endFrame": 90, "collect": true },
+    { "name": "keyed-delete", "startFrame": 90, "endFrame": 120, "collect": true },
+    { "name": "steady", "startFrame": 120, "endFrame": 180, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 59, "capture": ["framebuffer", "drawList"] },
+    { "frame": 89, "capture": ["framebuffer", "drawList"] },
+    { "frame": 119, "capture": ["framebuffer", "drawList"] },
+    { "frame": 179, "capture": ["framebuffer", "drawList", "effects", "state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 8,
+    "gateMetrics": [
+      "guest.instructions",
+      "guest.load_store_events",
+      "memory.allocated_bytes"
+    ],
+    "diagnosticMetrics": [
+      "memory.current_bytes",
+      "memory.peak_bytes",
+      "native.phase.keyed-insert.wall_time_ns",
+      "native.phase.keyed-reorder.wall_time_ns",
+      "native.phase.keyed-delete.wall_time_ns",
+      "native.phase.steady.wall_time_ns"
+    ]
+  }
+}

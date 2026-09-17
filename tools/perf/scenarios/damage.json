@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "core.damage-cases.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "core-damage-lab",
+    "family": "core-lab",
+    "framework": "core",
+    "entry": "tools/perf/fixtures/core-damage-lab"
+  },
+  "executorRequirements": ["fixture.core.damage", "correctness.framebuffer", "correctness.draw-list"],
+  "frames": 960,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "core.damage-cases.idle.v1",
+    "frames": 960,
+    "tracks": []
+  },
+  "phases": [
+    { "name": "single-small", "startFrame": 0, "endFrame": 120, "collect": true },
+    { "name": "corner-touch", "startFrame": 120, "endFrame": 240, "collect": true },
+    { "name": "overlap", "startFrame": 240, "endFrame": 360, "collect": true },
+    { "name": "eight-sparse", "startFrame": 360, "endFrame": 480, "collect": true },
+    { "name": "structural", "startFrame": 480, "endFrame": 600, "collect": true },
+    { "name": "clip-transform", "startFrame": 600, "endFrame": 720, "collect": true },
+    { "name": "texture-in-place", "startFrame": 720, "endFrame": 840, "collect": true },
+    { "name": "settle", "startFrame": 840, "endFrame": 960, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 119, "capture": ["framebuffer", "drawList"] },
+    { "frame": 479, "capture": ["framebuffer", "drawList"] },
+    { "frame": 839, "capture": ["framebuffer", "drawList"] },
+    { "frame": 959, "capture": ["framebuffer", "drawList"] }
+  ],
+  "params": {
+    "estimatedSeconds": 8,
+    "gateMetrics": ["guest.instructions", "guest.load_store_events", "memory.allocated_bytes"],
+    "diagnosticMetrics": []
+  }
+}

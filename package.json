@@ -266,6 +266,7 @@
     "bootstrap": "bun tools/bootstrap.ts",
     "pocket": "bun tools/pocket.ts",
     "build": "bun tools/build.ts",
+    "perf": "bun tools/perf.ts",
     "play": "bun tools/play.ts",
     "widget": "bun tools/widget.ts",
     "widget:ipod": "bun tools/widget.ts --stage ipod",

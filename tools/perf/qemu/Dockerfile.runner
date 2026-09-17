@@ -1,0 +1,30 @@
+ARG QEMU_BASE_IMAGE=pocketjs-perf-qemu-base:11.0.3
+FROM ${QEMU_BASE_IMAGE}
+
+ARG RUST_VERSION=1.93.0
+ARG RUSTUP_INIT_SHA256_AMD64=4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
+ARG RUSTUP_INIT_SHA256_ARM64=9732d6c5e2a098d3521fca8145d826ae0aaa067ef2385ead08e6feac88fa5792
+
+# Build the runtime guest in the same final image as QEMU. rustc and both
+# target standard libraries are pinned; rustup-init is verified before use.
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    CARGO_HOME=/opt/rust/cargo \
+    PATH=/opt/rust/cargo/bin:${PATH}
+RUN case "$(dpkg --print-architecture)" in \
+      amd64) rustup_host=x86_64-unknown-linux-gnu; rustup_sha="${RUSTUP_INIT_SHA256_AMD64}" ;; \
+      arm64) rustup_host=aarch64-unknown-linux-gnu; rustup_sha="${RUSTUP_INIT_SHA256_ARM64}" ;; \
+      *) echo "unsupported container architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSLo /tmp/rustup-init \
+      "https://static.rust-lang.org/rustup/dist/${rustup_host}/rustup-init" && \
+    echo "${rustup_sha}  /tmp/rustup-init" | sha256sum --check - && \
+    chmod +x /tmp/rustup-init && \
+    /tmp/rustup-init -y --no-modify-path --profile minimal \
+      --default-toolchain "${RUST_VERSION}" \
+      --target armv7-unknown-linux-gnueabihf \
+      --target aarch64-unknown-linux-gnu && \
+    rm /tmp/rustup-init && \
+    rustc --version --verbose && \
+    cargo --version
+
+WORKDIR /opt/pocketjs-perf-qemu

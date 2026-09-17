@@ -1,0 +1,199 @@
+name: Performance regression
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/perf.yml"
+      - "apps/**"
+      - "assets/**"
+      - "bun.lock"
+      - "contracts/**"
+      - "engine/Cargo.lock"
+      - "engine/Cargo.toml"
+      - "engine/core/**"
+      - "engine/crates/pocket-mod/**"
+      - "engine/crates/pocket-ui-surface/**"
+      - "engine/wasm/**"
+      - "framework/**"
+      - "hosts/web/**"
+      - "package.json"
+      - "pocket.config.ts"
+      - "pocket.json"
+      - "tests/perf-*.test.ts"
+      - "tools/build.ts"
+      - "tools/perf.ts"
+      - "tools/perf/**"
+      - "tools/test.ts"
+      - "tools/wasm.ts"
+      - "tsconfig.json"
+      - "vapor/**"
+  push:
+    branches:
+      - main
+      - "agent/**"
+    paths:
+      - ".github/workflows/perf.yml"
+      - "apps/**"
+      - "assets/**"
+      - "bun.lock"
+      - "contracts/**"
+      - "engine/Cargo.lock"
+      - "engine/Cargo.toml"
+      - "engine/core/**"
+      - "engine/crates/pocket-mod/**"
+      - "engine/crates/pocket-ui-surface/**"
+      - "engine/wasm/**"
+      - "framework/**"
+      - "hosts/web/**"
+      - "package.json"
+      - "pocket.config.ts"
+      - "pocket.json"
+      - "tests/perf-*.test.ts"
+      - "tools/build.ts"
+      - "tools/perf.ts"
+      - "tools/perf/**"
+      - "tools/test.ts"
+      - "tools/wasm.ts"
+      - "tsconfig.json"
+      - "vapor/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  TZ: UTC
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+  CARGO_TERM_COLOR: always
+
+jobs:
+  contracts:
+    name: Contracts and Native A/A
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.93.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test performance protocol and executors
+        run: bun test tests/perf-*.test.ts
+
+      - name: Generate clean-checkout build inputs
+        run: bun tools/build.ts hero
+
+      - name: Typecheck
+        run: bunx tsc --noEmit
+
+      - name: Test benchmark Rust harnesses
+        run: |
+          cargo test --locked --manifest-path tools/perf/guest/Cargo.toml
+          cargo fmt --check --manifest-path tools/perf/guest/Cargo.toml
+          cargo test --locked --manifest-path tools/perf/damage-fixture/Cargo.toml
+          cargo fmt --check --manifest-path tools/perf/damage-fixture/Cargo.toml
+
+      - name: Compare two isolated Native runs
+        run: |
+          mkdir -p "$RUNNER_TEMP/pocketjs-perf/native"
+          bun perf local --base HEAD --executor native --suite quick \
+            --format markdown \
+            --out "$RUNNER_TEMP/pocketjs-perf/native/comparison.md"
+          cat "$RUNNER_TEMP/pocketjs-perf/native/comparison.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Native comparison
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: perf-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pocketjs-perf/native/comparison.md
+          if-no-files-found: warn
+          retention-days: 7
+
+  qemu:
+    name: ${{ matrix.executor }} A/A
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        executor:
+          - qemu-armv7-thumb2
+          - qemu-aarch64
+    env:
+      PERF_ROOT: perf-results/${{ matrix.executor }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.93.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build pinned QEMU runner
+        run: tools/perf/qemu/docker.sh build
+
+      - name: Test QEMU marker and counter protocol
+        if: matrix.executor == 'qemu-armv7-thumb2'
+        run: docker run --rm pocketjs-perf-qemu:11.0.3
+
+      - name: Check executor prerequisites
+        run: |
+          mkdir -p "$PERF_ROOT"
+          bun perf doctor --json | tee "$PERF_ROOT/doctor.json"
+
+      - name: Run and compare the quick suite twice
+        env:
+          PERF_EXECUTOR: ${{ matrix.executor }}
+        run: |
+          bun perf run --executor "$PERF_EXECUTOR" --suite quick \
+            --out-dir "$PERF_ROOT/base"
+          bun perf run --executor "$PERF_EXECUTOR" --suite quick \
+            --out-dir "$PERF_ROOT/candidate"
+          bun perf compare --base "$PERF_ROOT/base" --candidate "$PERF_ROOT/candidate" \
+            --format markdown --out "$PERF_ROOT/comparison.md"
+          cat "$PERF_ROOT/comparison.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload QEMU receipts and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: perf-${{ matrix.executor }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.PERF_ROOT }}/doctor.json
+            ${{ env.PERF_ROOT }}/comparison.md
+            ${{ env.PERF_ROOT }}/**/*.receipt.json
+            ${{ env.PERF_ROOT }}/**/run.json
+            ${{ env.PERF_ROOT }}/**/*.log
+          if-no-files-found: warn
+          retention-days: 7

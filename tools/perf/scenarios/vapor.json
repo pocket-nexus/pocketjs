@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "kind": "pocketjs.perf.scenario",
+  "id": "vapor.todo.reactive-grid.v1",
+  "suite": "quick",
+  "subject": {
+    "id": "vapor-todo",
+    "family": "vapor",
+    "framework": "core",
+    "entry": "vapor/examples/todo/todo.tsx"
+  },
+  "executorRequirements": [
+    "fixture.vapor.generated-c",
+    "input.buttons",
+    "input.relative-axis",
+    "correctness.draw-list",
+    "correctness.effects",
+    "correctness.framebuffer",
+    "correctness.state-final"
+  ],
+  "frames": 720,
+  "tape": {
+    "schemaVersion": 1,
+    "kind": "pocketjs.perf.input-tape",
+    "id": "vapor.todo.quick-actions.v1",
+    "frames": 720,
+    "tracks": [
+      {
+        "kind": "button",
+        "control": "down",
+        "samples": [
+          { "frame": 120, "pressed": true },
+          { "frame": 121, "pressed": false }
+        ]
+      },
+      {
+        "kind": "button",
+        "control": "primary",
+        "samples": [
+          { "frame": 180, "pressed": true },
+          { "frame": 181, "pressed": false }
+        ]
+      },
+      {
+        "kind": "relative-axis",
+        "control": "primary",
+        "samples": [
+          { "frame": 240, "delta": 44999 },
+          { "frame": 241, "delta": 1 },
+          { "frame": 300, "delta": -45000 }
+        ]
+      }
+    ]
+  },
+  "phases": [
+    { "name": "idle", "startFrame": 0, "endFrame": 120, "collect": true },
+    { "name": "reactive", "startFrame": 120, "endFrame": 360, "collect": true },
+    { "name": "settle", "startFrame": 360, "endFrame": 720, "collect": true }
+  ],
+  "checkpoints": [
+    { "frame": 119, "capture": ["state"] },
+    { "frame": 359, "capture": ["state"] },
+    { "frame": 719, "capture": ["state"] }
+  ],
+  "params": {
+    "estimatedSeconds": 20,
+    "gateMetrics": [
+      "guest.instructions",
+      "memory.allocations",
+      "memory.allocated_bytes",
+      "artifact.elf_text_rodata_bytes"
+    ],
+    "diagnosticMetrics": []
+  }
+}
