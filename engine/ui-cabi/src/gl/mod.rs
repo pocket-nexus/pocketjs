@@ -35,6 +35,20 @@ use pocketjs_core::spec;
 use pocketjs_core::text::Atlas;
 use pocketjs_core::{TexView, Ui};
 
+pub type Trace = extern "C" fn(u32, u32, u32);
+static mut TRACE: Option<Trace> = None;
+
+pub unsafe fn set_trace(trace: Option<Trace>) {
+    TRACE = trace;
+}
+
+#[inline]
+unsafe fn trace(stage: u32, commands: usize, vertices: usize) {
+    if let Some(callback) = TRACE {
+        callback(stage, commands as u32, vertices as u32);
+    }
+}
+
 type GLenum = u32;
 type GLuint = u32;
 type GLint = i32;
@@ -153,7 +167,35 @@ struct FontTexture {
     texture_h: u32,
     columns: u32,
     glyph_count: u16,
+    white_uv: Option<[f32; 2]>,
     dirty: bool,
+}
+
+// Reuse unused atlas padding for solid fills between glyph runs. Keep two
+// clear pixels between the patch and any glyph cell to prevent linear-filter
+// bleed, and a 4x4 white area for mediump texture-coordinate precision.
+fn font_white_patch(
+    w: u32,
+    h: u32,
+    cw: u32,
+    ch: u32,
+    columns: u32,
+    count: u16,
+) -> Option<(u32, u32)> {
+    let rows = (count as u32).div_ceil(columns);
+    let candidate = if count as u32 % columns != 0 && cw >= 8 && ch >= 8 {
+        Some((
+            count as u32 % columns * cw + 2,
+            count as u32 / columns * ch + 2,
+        ))
+    } else if w >= columns * cw + 6 && h >= 6 {
+        Some((columns * cw + 2, 2))
+    } else if h >= rows * ch + 6 && w >= 6 {
+        Some((2, rows * ch + 2))
+    } else {
+        None
+    };
+    candidate.filter(|&(x, y)| x + 4 <= w && y + 4 <= h)
 }
 
 struct Renderer {
@@ -451,6 +493,24 @@ impl Renderer {
                     .copy_from_slice(&source[source_start..source_start + coverage_w as usize]);
             }
         }
+        let white_uv = font_white_patch(
+            texture_w,
+            texture_h,
+            coverage_w,
+            coverage_h,
+            columns,
+            atlas.glyph_count,
+        )
+        .map(|(x, y)| {
+            for row in y..y + 4 {
+                let start = (row * texture_w + x) as usize;
+                alpha[start..start + 4].fill(255);
+            }
+            [
+                (x + 2) as f32 / texture_w as f32,
+                (y + 2) as f32 / texture_h as f32,
+            ]
+        });
         // GLES2 alpha-only textures sample as (0, 0, 0, A), which would
         // multiply every DrawList text color to black in the shared shader.
         // LUMINANCE_ALPHA preserves white RGB while coverage still scales A.
@@ -473,6 +533,7 @@ impl Renderer {
             texture_h,
             columns,
             glyph_count: atlas.glyph_count,
+            white_uv,
             dirty: false,
         })
     }
@@ -605,6 +666,19 @@ impl Renderer {
     fn flush(&mut self, texture: GLuint, clip: Clip, start: &mut usize) {
         let end = self.vertices.len();
         if end > *start {
+            // A no-op clip push/pop can split otherwise contiguous geometry.
+            // Merge only adjacent ranges with identical texture and scissor;
+            // painter order and alpha compositing stay unchanged.
+            if let Some(previous) = self.commands.last_mut() {
+                if previous.texture == texture
+                    && previous.clip == clip
+                    && previous.first + previous.count == *start as i32
+                {
+                    previous.count += (end - *start) as i32;
+                    *start = end;
+                    return;
+                }
+            }
             self.commands.push(Command {
                 texture,
                 first: *start as i32,
@@ -627,34 +701,50 @@ impl Renderer {
         let mut clip = full;
         let mut clip_stack = Vec::<Clip>::new();
         let mut texture = self.white;
+        let mut fill_source = 0;
+        let mut fill = (self.white, [0.5, 0.5]);
         let mut start = 0usize;
         let mut index = 0usize;
 
         while index < words.len() {
             match words[index] {
                 spec::draw_op::RECT if index + 4 <= words.len() => {
-                    if texture != self.white {
+                    if fill_source != texture {
+                        fill = self
+                            .fonts
+                            .iter()
+                            .flatten()
+                            .find(|font| font.name == texture)
+                            .and_then(|font| font.white_uv.map(|uv| (texture, uv)))
+                            .unwrap_or((self.white, [0.5, 0.5]));
+                        fill_source = fill.0;
+                    }
+                    if texture != fill.0 {
                         self.flush(texture, clip, &mut start);
-                        texture = self.white;
+                        texture = fill.0;
                     }
                     let (x, y) = xy(words[index + 1]);
                     let (width, height) = wh(words[index + 2]);
                     let color = words[index + 3];
                     if width > 0.0 && height > 0.0 && color >> 24 != 0 {
-                        self.quad(
-                            [x, y],
-                            [x + width, y + height],
-                            [0.0, 0.0],
-                            [1.0, 1.0],
-                            [color; 4],
-                        );
+                        self.quad([x, y], [x + width, y + height], fill.1, fill.1, [color; 4]);
                     }
                     index += 4;
                 }
                 spec::draw_op::GRAD_RECT if index + 6 <= words.len() => {
-                    if texture != self.white {
+                    if fill_source != texture {
+                        fill = self
+                            .fonts
+                            .iter()
+                            .flatten()
+                            .find(|font| font.name == texture)
+                            .and_then(|font| font.white_uv.map(|uv| (texture, uv)))
+                            .unwrap_or((self.white, [0.5, 0.5]));
+                        fill_source = fill.0;
+                    }
+                    if texture != fill.0 {
                         self.flush(texture, clip, &mut start);
-                        texture = self.white;
+                        texture = fill.0;
                     }
                     let (x, y) = xy(words[index + 1]);
                     let (width, height) = wh(words[index + 2]);
@@ -671,13 +761,7 @@ impl Renderer {
                         [from, from, to, to]
                     };
                     if width > 0.0 && height > 0.0 {
-                        self.quad(
-                            [x, y],
-                            [x + width, y + height],
-                            [0.0, 0.0],
-                            [1.0, 1.0],
-                            colors,
-                        );
+                        self.quad([x, y], [x + width, y + height], fill.1, fill.1, colors);
                     }
                     index += 6;
                 }
@@ -833,9 +917,15 @@ impl Renderer {
         let x1 = (clip.x + clip.w).clamp(0, logical_width);
         let y1 = (clip.y + clip.h).clamp(0, logical_height);
         let scale_floor = |value: i32, target: i32, logical: i32| -> i32 {
+            if target == logical {
+                return value;
+            }
             (value as i64 * target as i64 / logical as i64) as i32
         };
         let scale_ceil = |value: i32, target: i32, logical: i32| -> i32 {
+            if target == logical {
+                return value;
+            }
             ((value as i64 * target as i64 + logical as i64 - 1) / logical as i64) as i32
         };
         let left = target_x + scale_floor(x0, target_width, logical_width);
@@ -875,7 +965,9 @@ impl Renderer {
             return true;
         }
 
+        trace(0, 0, 0);
         let draw_list: *const pocketjs_core::DrawList = ui.draw();
+        trace(1, 0, 0);
         let ui_ref: &Ui = &*(ui as *const Ui);
         let words = &(*draw_list).words;
         let (logical_width, logical_height) = ui_ref.viewport();
@@ -884,7 +976,9 @@ impl Renderer {
         if !self.sync_resources(ui_ref) {
             return false;
         }
+        trace(2, 0, 0);
         self.build(words, logical_width, logical_height);
+        trace(3, self.commands.len(), self.vertices.len());
 
         self.pipeline
             .begin_frame(logical_width as f32, logical_height as f32);
@@ -911,7 +1005,9 @@ impl Renderer {
             self.pipeline.bind_vertices(size_of::<Vertex>() as i32);
         }
 
+        trace(4, self.commands.len(), self.vertices.len());
         let mut bound = 0;
+        let mut scissor = None;
         for command in &self.commands {
             if command.texture != bound {
                 glBindTexture(GL_TEXTURE_2D, command.texture);
@@ -930,14 +1026,19 @@ impl Renderer {
             if physical.w <= 0 || physical.h <= 0 {
                 continue;
             }
-            glScissor(physical.x, physical.y, physical.w, physical.h);
+            if scissor != Some(physical) {
+                glScissor(physical.x, physical.y, physical.w, physical.h);
+                scissor = Some(physical);
+            }
             glDrawArrays(GL_TRIANGLES, command.first, command.count);
         }
         glDisable(GL_SCISSOR_TEST);
         self.pipeline.unbind_vertices();
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindTexture(GL_TEXTURE_2D, 0);
-        glGetError() == GL_NO_ERROR
+        let ok = glGetError() == GL_NO_ERROR;
+        trace(5, self.commands.len(), self.vertices.len());
+        ok
     }
 }
 
@@ -1229,6 +1330,7 @@ mod tests {
             texture_h: 8,
             columns: 1,
             glyph_count: 1,
+            white_uv: None,
             dirty: false,
         }));
         renderer.build(
@@ -1247,6 +1349,145 @@ mod tests {
         assert!(renderer.vertices.iter().all(|vertex| vertex.color == color));
         assert_eq!(renderer.commands.len(), 1);
         assert_eq!(renderer.commands[0].texture, 7);
+
+        let font = renderer.fonts[0].as_mut().unwrap();
+        font.texture_w = 16;
+        font.texture_h = 16;
+        let fill_color = 0x8040_3020;
+        let words = [
+            spec::draw_op::GLYPH_RUN,
+            1 << 16,
+            color,
+            pack_xy(4, 5),
+            0,
+            spec::draw_op::RECT,
+            pack_xy(12, 5),
+            pack_wh(6, 8),
+            fill_color,
+            spec::draw_op::GLYPH_RUN,
+            1 << 16,
+            color,
+            pack_xy(18, 5),
+            0,
+        ];
+        renderer.build(&words, 100, 50);
+        assert_eq!(renderer.commands.len(), 3); // full atlases retain the fallback
+        let positions: Vec<_> = renderer
+            .vertices
+            .iter()
+            .map(|v| (v.position, v.color))
+            .collect();
+        renderer.fonts[0].as_mut().unwrap().white_uv = Some([0.75, 0.25]);
+        renderer.build(&words, 100, 50);
+        assert_eq!(renderer.commands.len(), 1);
+        assert_eq!(renderer.commands[0].texture, 7);
+        assert_eq!(
+            renderer
+                .vertices
+                .iter()
+                .map(|v| (v.position, v.color))
+                .collect::<Vec<_>>(),
+            positions
+        );
+        assert!(renderer.vertices[6..12]
+            .iter()
+            .all(|v| v.uv == [0.75, 0.25]));
+    }
+
+    #[test]
+    fn font_fill_patch_stays_in_padding_with_a_filter_guard() {
+        assert_eq!(font_white_patch(64, 64, 16, 16, 4, 16), None);
+        for (w, h, cw, ch, columns, count) in (1..16)
+            .map(|n| (64, 64, 16, 16, 4, n))
+            .chain([(64, 32, 10, 10, 4, 8), (64, 64, 16, 10, 4, 20)])
+        {
+            let (x, y) = font_white_patch(w, h, cw, ch, columns, count).unwrap();
+            assert!(x + 4 <= w && y + 4 <= h);
+            for glyph in 0..count as u32 {
+                let gx = glyph % columns * cw;
+                let gy = glyph / columns * ch;
+                assert!(x >= gx + cw + 2 || y >= gy + ch + 2 || x + 6 <= gx || y + 6 <= gy);
+            }
+        }
+    }
+
+    #[test]
+    fn no_op_scissors_merge_without_crossing_a_different_clip() {
+        let mut renderer = planner(0, 9);
+        let rect = |color| [spec::draw_op::RECT, pack_xy(2, 3), pack_wh(4, 5), color];
+        let colors = [0x80112233, 0x80445566, 0x80778899, 0x80aabbcc, 0x80ddeeff];
+        let mut words = rect(colors[0]).to_vec();
+        words.extend_from_slice(&[spec::draw_op::SCISSOR, pack_xy(0, 0), pack_wh(100, 50)]);
+        words.extend_from_slice(&rect(colors[1]));
+        words.push(spec::draw_op::SCISSOR_POP);
+        words.extend_from_slice(&rect(colors[2]));
+        words.extend_from_slice(&[spec::draw_op::SCISSOR, pack_xy(0, 0), pack_wh(50, 50)]);
+        words.extend_from_slice(&rect(colors[3]));
+        words.push(spec::draw_op::SCISSOR_POP);
+        words.extend_from_slice(&rect(colors[4]));
+        renderer.build(&words, 100, 50);
+        assert_eq!(renderer.vertices.len(), 30);
+        for (vertices, color) in renderer.vertices.chunks(6).zip(colors) {
+            assert!(vertices.iter().all(|v| v.color == color));
+        }
+        assert_eq!(
+            renderer
+                .commands
+                .iter()
+                .map(|c| (c.first, c.count, c.clip.w))
+                .collect::<Vec<_>>(),
+            vec![(0, 18, 100), (18, 6, 50), (24, 6, 100)]
+        );
+    }
+
+    #[test]
+    fn native_scissor_preserves_offset_clipping_and_y_inversion() {
+        assert_eq!(
+            Renderer::physical_clip(
+                Clip {
+                    x: -3,
+                    y: -4,
+                    w: 20,
+                    h: 30
+                },
+                360,
+                640,
+                10,
+                20,
+                360,
+                640,
+                700,
+            ),
+            Clip {
+                x: 10,
+                y: 654,
+                w: 17,
+                h: 26
+            }
+        );
+        assert_eq!(
+            Renderer::physical_clip(
+                Clip {
+                    x: 630,
+                    y: 350,
+                    w: 20,
+                    h: 30
+                },
+                640,
+                360,
+                0,
+                0,
+                640,
+                360,
+                360,
+            ),
+            Clip {
+                x: 630,
+                y: 0,
+                w: 10,
+                h: 10
+            }
+        );
     }
 
     #[test]

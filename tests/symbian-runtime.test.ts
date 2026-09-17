@@ -534,7 +534,7 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(runtime).toContain(
       "setAttribute(Qt::WA_InputMethodEnabled, false)",
     );
-    expect(runtime).not.toContain("WA_LockLandscapeOrientation");
+    expect(runtime).toContain("Qt::WA_LockPortraitOrientation : Qt::WA_LockLandscapeOrientation");
     expect(runtime).toContain('"__pocketResizeViewport"');
     expect(runtime).toContain("queueViewport(event->size())");
     expect(runtime).toContain("queueViewport(size())");

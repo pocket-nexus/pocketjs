@@ -279,19 +279,38 @@ The experimental host has these runtime semantics:
 
 ### Measure frame work
 
+The GLES backend joins adjacent ranges with matching textures and scissors,
+skips repeated scissor state, and uses direct coordinates for a native-sized
+viewport. **A 4 × 4 opaque patch in unused font-atlas padding** lets solid fills
+share a batch with surrounding glyphs. A two-pixel gap protects glyph filtering;
+atlases without room use the separate white texture.
+
 **`build app --perf-trace` enables a bounded native trace.** It records the
-GLES version, vendor and renderer, then buffers up to 30 seconds or 2,048
-frames in memory. After measurement, it writes
+GLES version, vendor and renderer, then buffers a 30-second workload with
+limits of 60 wall-clock seconds and 2,048 frames. After measurement, it writes
 `E:/Installs/pocketjs-perf.tsv`. Normal builds omit tracing and replay.
+Collection and replay begin after 120 warmup frames, allowing first-presentation
+uploads and deferred context cleanup to settle before the opening gesture.
 The SIS receipt records the requested frame rate, tracing flag and QuickJS
 optimization level (`-O2`, with wrapping signed arithmetic and strict aliasing
 disabled). **The E7 host, QuickJS and Rust core use VFPv2 instructions with the
 soft argument ABI** required by the Symbian C libraries and Qt. The E7 HAL
 reports `EHardwareFloatingPoint=EFpTypeVFPv2`; the SIS receipt identifies this
 as `vfpv2-softfp`.
+The built-in E7 Rust core uses `opt-level=3`; other hosts retain their build
+profiles. A caller-supplied `--core-library` retains its caller's compiler flags.
 
 The frame rows contain elapsed time, frame interval, JavaScript execution,
 core ticks, GLES submission and presentation time in milliseconds.
+**Replay uses the framework's virtual frame clock** (`replay_ms`), so a slow
+frame cannot skip a whole press/release sequence. Phase assignment uses this
+clock; FPS and CPU durations use wall time. Without replay, both clocks use
+wall time. This measures rendering throughput for a fixed input sequence.
+Drawing is split into scene generation, resource synchronization, vertex
+generation, buffer upload and GLES submission, with batch and vertex counts.
+The C ABI `ui_gl_set_trace` callback supplies these boundaries on the render
+thread; a null callback disables them. Callbacks must not re-enter the UI or
+issue GL commands.
 `present_ms` includes `draw_ms` and Qt's swap. **These are CPU wall times,
 not GPU timer queries or panel scanout measurements.** The measured loop does
 not read pixels, call `glFinish`, or write files.
@@ -299,8 +318,10 @@ The next completed frame after measurement is saved to
 `E:/Installs/pocketjs-perf.png` for visual inspection. This readback is outside
 the measured interval.
 On Symbian, diagnostic builds reset the inactivity timer once per second
-during collection: packed replay bypasses the window server's input activity
-tracking. Normal builds retain the device's idle and sleep behavior.
+for five minutes, covering collection and inspection: packed replay bypasses
+the window server's input activity tracking. Replay fixes orientation to the
+manifest's initial viewport so icon hit targets stay at the recorded positions.
+Normal builds retain automatic orientation and device sleep behavior.
 Keep the device unlocked with the application in front. `inactive_frames`
 counts samples taken without an active window after the first startup second;
 discard such runs when measuring interactive performance.

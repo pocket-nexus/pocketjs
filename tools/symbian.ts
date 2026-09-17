@@ -551,6 +551,8 @@ export async function buildApp(
         "build",
         "--release",
         "--locked",
+        "--config",
+        "profile.release.opt-level=3",
         "--target",
         resolve(root, "hosts/nokia-e7/targets/armv6-symbian-eabi.json"),
         "-Z",

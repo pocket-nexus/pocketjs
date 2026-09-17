@@ -83,6 +83,21 @@ const int kShotWidth = 256;
 const int kShotHeight = 128;
 const uint32_t kPixelStorage8888 = 3;
 
+#ifdef POCKETJS_PERF_TRACE
+QElapsedTimer perfGlClock;
+int perfGlStages[6] = { 0, 0, 0, 0, 0, 0 };
+uint32_t perfGlBatches = 0;
+uint32_t perfGlVertices = 0;
+void recordGlStage(uint32_t stage, uint32_t batches, uint32_t vertices)
+{
+    if (stage >= 6) return;
+    if (stage == 0) perfGlClock.start();
+    perfGlStages[stage] = perfGlClock.elapsed();
+    perfGlBatches = batches;
+    perfGlVertices = vertices;
+}
+#endif
+
 const PocketJsSymbianExtensionV1 *pocketJsNativeExtension()
 {
     const PocketJsSymbianExtensionV1 *extension =
@@ -1216,6 +1231,9 @@ private:
 #ifdef POCKETJS_PERF_TRACE
     struct PerfSample {
         int elapsed, delta, js, tick, draw, present, touches;
+        int replay;
+        int scene, resources, geometry, upload, submit;
+        uint32_t batches, vertices;
     };
     struct PerfInput { int ms; uint32_t touch; };
     QVector<PerfSample> perfSamples_;
@@ -1226,6 +1244,7 @@ private:
     int perfDrawMs_;
     int perfWakeMs_;
     int perfInactiveFrames_;
+    int perfWarmupFrames_;
     bool perfDone_;
     bool perfShotDone_;
     void finishPerfTrace();
@@ -1316,6 +1335,7 @@ PocketJsRuntime::PocketJsRuntime()
     perfDrawMs_ = 0;
     perfWakeMs_ = -1000;
     perfInactiveFrames_ = 0;
+    perfWarmupFrames_ = 0;
     perfDone_ = false;
     perfShotDone_ = false;
     perfSamples_.reserve(2048);
@@ -1345,6 +1365,14 @@ PocketJsRuntime::PocketJsRuntime()
 #endif
     setAttribute(Qt::WA_OpaquePaintEvent, true);
     setAttribute(Qt::WA_AcceptTouchEvents, true);
+#ifdef POCKETJS_PERF_TRACE
+    // Replay coordinates belong to the manifest's initial viewport. Physical
+    // rotation must not change icon hit targets during a comparison run.
+    if (!perfInputs_.isEmpty()) {
+        setAttribute(POCKETJS_INITIAL_LOGICAL_WIDTH < POCKETJS_INITIAL_LOGICAL_HEIGHT
+            ? Qt::WA_LockPortraitOrientation : Qt::WA_LockLandscapeOrientation, true);
+    } else
+#endif
     setAttribute(Qt::WA_AutoOrientation, true);
     // This surface is a controller, not a Qt text editor. Do not advertise
     // input-method capabilities; controller identity comes from nativeScanCode.
@@ -2133,21 +2161,27 @@ void PocketJsRuntime::runFrame()
 #ifdef POCKETJS_PERF_TRACE
     // Do not depend on the installed Qt DLL's default timer sentinel. E7
     // firmware can pair these 4.7 headers with a different QtCore build.
-    if (perfLastMs_ < 0) perfClock_.start();
+    const bool perfWarmup = perfWarmupFrames_ < 120;
+    if (perfWarmup || perfLastMs_ < 0) perfClock_.start();
     const int elapsedMs = perfClock_.elapsed();
+    // Match the framework's virtual frame clock. Wall-clock replay skips
+    // entire contacts when a slow frame spans a gesture's press and release.
+    const int replayMs = perfInputs_.isEmpty() ? elapsedMs
+        : perfSamples_.size() * 1000 / POCKETJS_FRAME_RATE;
     const int frameDeltaMs = perfLastMs_ < 0 ? 0 : elapsedMs - perfLastMs_;
     perfLastMs_ = elapsedMs;
     if (!perfDone_ && elapsedMs >= 1000 && !isActiveWindow()) ++perfInactiveFrames_;
 #ifdef Q_OS_SYMBIAN
     // Packed replay bypasses the window server's real-input activity reset.
-    // Keep only the bounded diagnostic interval awake, like a live gesture.
-    if (!perfDone_ && elapsedMs - perfWakeMs_ >= 1000) {
+    // Allow a bounded inspection window after collection, too. Release builds
+    // retain normal sleep behavior.
+    if (elapsedMs < 5 * 60 * 1000 && elapsedMs - perfWakeMs_ >= 1000) {
         User::ResetInactivityTime();
         perfWakeMs_ = elapsedMs;
     }
 #endif
-    while (perfInputIndex_ < perfInputs_.size() &&
-           perfInputs_.at(perfInputIndex_).ms <= elapsedMs) {
+    while (!perfWarmup && perfInputIndex_ < perfInputs_.size() &&
+           perfInputs_.at(perfInputIndex_).ms <= replayMs) {
         const uint32_t touch = perfInputs_.at(perfInputIndex_++).touch;
         touches_.clear();
         if (touch != 0) touches_.append(touch);
@@ -2234,14 +2268,23 @@ void PocketJsRuntime::runFrame()
     updateGL();
 #ifdef POCKETJS_PERF_TRACE
     const int presentEndMs = perfTimer.elapsed();
-    if (!perfDone_) {
+    if (perfWarmup) {
+        // First presentation can upload textures for seconds. Start replay
+        // after 120 completed frames so deferred uploads/context cleanup
+        // settle before the first contact is injected.
+        ++perfWarmupFrames_;
+        perfLastMs_ = -1;
+    } else if (!perfDone_) {
         PerfSample sample = { elapsedMs, frameDeltaMs, jsMs,
             tickEndMs - jsMs, perfDrawMs_, presentEndMs - tickEndMs,
-            touches_.size() };
+            touches_.size(), replayMs, perfGlStages[1] - perfGlStages[0],
+            perfGlStages[2] - perfGlStages[1], perfGlStages[3] - perfGlStages[2],
+            perfGlStages[4] - perfGlStages[3], perfGlStages[5] - perfGlStages[4],
+            perfGlBatches, perfGlVertices };
         perfSamples_.append(sample);
         // No per-frame formatting, filesystem I/O, readback or glFinish.
         // Write only after the bounded measurement window has ended.
-        if (elapsedMs >= 30000 || perfSamples_.size() >= 2048) finishPerfTrace();
+        if (replayMs >= 30000 || elapsedMs >= 60000 || perfSamples_.size() >= 2048) finishPerfTrace();
     }
 #endif
     finishPendingSwitch();
@@ -2256,13 +2299,18 @@ void PocketJsRuntime::finishPerfTrace()
     buffer.append("# viewport\t" + QByteArray::number(width()) + "\t" + QByteArray::number(height()) + "\n");
     buffer.append("# replay_points\t" + QByteArray::number(perfInputs_.size()) + "\n");
     buffer.append("# inactive_frames\t" + QByteArray::number(perfInactiveFrames_) + "\n");
-    buffer.append("frame\telapsed_ms\tdelta_ms\tjs_ms\ttick_ms\tdraw_ms\tpresent_ms\ttouches\n");
+    buffer.append("# warmup_frames\t" + QByteArray::number(perfWarmupFrames_) + "\n");
+    buffer.append("frame\telapsed_ms\tdelta_ms\tjs_ms\ttick_ms\tdraw_ms\tpresent_ms\ttouches\treplay_ms\tscene_ms\tresources_ms\tgeometry_ms\tupload_ms\tsubmit_ms\tbatches\tvertices\n");
     for (int i = 0; i < perfSamples_.size(); ++i) {
         const PerfSample &s = perfSamples_.at(i);
         buffer.append(QByteArray::number(i) + "\t" + QByteArray::number(s.elapsed) + "\t" +
             QByteArray::number(s.delta) + "\t" + QByteArray::number(s.js) + "\t" +
             QByteArray::number(s.tick) + "\t" + QByteArray::number(s.draw) + "\t" +
-            QByteArray::number(s.present) + "\t" + QByteArray::number(s.touches) + "\n");
+            QByteArray::number(s.present) + "\t" + QByteArray::number(s.touches) + "\t" + QByteArray::number(s.replay) + "\t" +
+            QByteArray::number(s.scene) + "\t" + QByteArray::number(s.resources) + "\t" +
+            QByteArray::number(s.geometry) + "\t" + QByteArray::number(s.upload) + "\t" +
+            QByteArray::number(s.submit) + "\t" + QByteArray::number(s.batches) + "\t" +
+            QByteArray::number(s.vertices) + "\n");
     }
     QFile trace("E:/Installs/pocketjs-perf.tsv");
     if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) trace.write(buffer);
@@ -2491,6 +2539,9 @@ void PocketJsRuntime::initializeGL()
         maximumTextureSize
     );
 #ifdef POCKETJS_PERF_TRACE
+#ifdef POCKETJS_GL_STAGES
+    ui_gl_set_trace(recordGlStage);
+#endif
     QFile trace("E:/Installs/pocketjs-perf.tsv");
     if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
         trace.write("# gles_version\t");

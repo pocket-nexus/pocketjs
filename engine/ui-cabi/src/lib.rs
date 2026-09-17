@@ -557,6 +557,22 @@ pub extern "C" fn ui_gl_shutdown() {
 }
 
 #[no_mangle]
+pub extern "C" fn ui_gl_set_trace(callback: Option<extern "C" fn(u32, u32, u32)>) {
+    #[cfg(all(
+        any(target_os = "none", feature = "bare-platform"),
+        not(feature = "software-only")
+    ))]
+    unsafe {
+        gl::set_trace(callback);
+    }
+    #[cfg(any(
+        feature = "software-only",
+        not(any(target_os = "none", feature = "bare-platform"))
+    ))]
+    let _ = callback;
+}
+
+#[no_mangle]
 pub extern "C" fn ui_gl_render(
     target_x: i32,
     target_y: i32,
