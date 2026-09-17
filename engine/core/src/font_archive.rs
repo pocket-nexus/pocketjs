@@ -215,6 +215,11 @@ impl<R: ReadAt> Archive<R> {
                 let size = (self.len - page_offset).min(PAGE as u32) as usize;
                 self.stats.reads += 1;
                 self.stats.bytes += size as u64;
+                // ReadAt can modify a prefix before failing. The old page key
+                // must no longer identify these bytes, including on retry.
+                self.pages[i].offset = u32::MAX;
+                self.pages[i].len = 0;
+                self.pages[i].used = 0;
                 if !self
                     .reader
                     .read_at(page_offset, &mut self.pages[i].bytes[..size])
@@ -434,5 +439,61 @@ mod tests {
                 "offset {offset}"
             );
         }
+    }
+
+    #[test]
+    fn partially_overwritten_index_page_is_not_reused_after_read_failure() {
+        struct ShortRead {
+            bytes: Vec<u8>,
+            fail_at: Option<u32>,
+        }
+        impl ReadAt for ShortRead {
+            fn read_at(&mut self, at: u32, out: &mut [u8]) -> bool {
+                if self.fail_at == Some(at) {
+                    let partial = out.len().min(12);
+                    out[..partial].fill(0xee);
+                    return false;
+                }
+                out.copy_from_slice(&self.bytes[at as usize..at as usize + out.len()]);
+                true
+            }
+        }
+        let bytes = fixture(4000);
+        let len = bytes.len() as u32;
+        let mut a = Archive::open(
+            ShortRead {
+                bytes,
+                fail_at: None,
+            },
+            len,
+        )
+        .unwrap();
+        let mut out = [0; 12];
+        // Fill all eight cache pages, then fail partway through the ninth read.
+        for page in 0..PAGES {
+            a.index_bytes((page * PAGE) as u32, &mut out).unwrap();
+        }
+        let ninth = (PAGES * PAGE) as u32;
+        a.reader.fail_at = Some(ninth);
+        assert_eq!(a.index_bytes(ninth, &mut out), Err(Error::Io));
+        a.reader.fail_at = None;
+        let reads = a.stats.reads;
+        a.index_bytes(0, &mut out).unwrap();
+        assert_eq!(out, a.reader.bytes[..12]);
+        assert_eq!(
+            a.stats.reads,
+            reads + 1,
+            "a poisoned page must be read again"
+        );
+        a.index_bytes(ninth, &mut out).unwrap();
+        assert_eq!(out, a.reader.bytes[ninth as usize..ninth as usize + 12]);
+        let mut glyph = [0; 1250];
+        assert_eq!(
+            a.batch(1, 2, &[0x4e00 + 333, 0x4e00 + 3999], &mut glyph),
+            Ok(60)
+        );
+        assert!(glyph[20..36].iter().all(|v| *v == 333u32 as u8));
+        assert!(glyph[44..60].iter().all(|v| *v == 3999u32 as u8));
+        assert_eq!(a.stats.failures, 1);
     }
 }

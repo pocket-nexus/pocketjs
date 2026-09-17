@@ -29,6 +29,8 @@ pub(crate) struct Stream {
     pub generation: u32,
     base: u16,
     base_texture_width: u32,
+    base_cell_w: u32,
+    base_cell_h: u32,
     entries: Vec<Entry>,
     wanted: Vec<u32>,
     leases: Vec<Lease>,
@@ -146,15 +148,35 @@ impl Atlas {
             .stream
             .as_ref()
             .map_or(self.texture_cell_w, |s| s.base_texture_width);
+        let (base_cell_w, base_cell_h) = self
+            .stream
+            .as_ref()
+            .map_or((self.cell_w, self.cell_h), |s| {
+                (s.base_cell_w, s.base_cell_h)
+            });
         let capacity = u16::from_le_bytes([b[16], b[17]]) as usize;
         if generation == 0 && capacity == 0 {
+            // Streaming may pad baked cells. Compact them before releasing the
+            // allocation so detaching also restores the original atlas stride.
+            let old_w = self.coverage_width() as usize;
+            let old_h = self.coverage_height() as usize;
+            let w = base_cell_w as usize * self.raster_density as usize;
+            let h = base_cell_h as usize * self.raster_density as usize;
+            for g in 0..base as usize {
+                for y in 0..h {
+                    let from = g * old_w * old_h + y * old_w;
+                    self.bitmap.copy_within(from..from + w, g * w * h + y * w);
+                }
+            }
+            self.cell_w = base_cell_w;
+            self.cell_h = base_cell_h;
             self.texture_cell_w = base_texture_width;
             self.stream = None;
             self.glyph_count = base;
             self.cmap.retain(|e| e.gid < base);
-            self.bitmap.truncate(
-                base as usize * self.coverage_width() as usize * self.coverage_height() as usize,
-            );
+            self.cmap.shrink_to_fit();
+            self.bitmap.truncate(base as usize * w * h);
+            self.bitmap.shrink_to_fit();
             return true;
         }
         let (w, h) = (b[9] as usize, b[10] as usize);
@@ -200,6 +222,8 @@ impl Atlas {
             generation,
             base,
             base_texture_width,
+            base_cell_w,
+            base_cell_h,
             entries: (0..capacity)
                 .map(|_| Entry {
                     cp: u32::MAX,

@@ -4163,3 +4163,55 @@ fn streamed_batches_validate_bounds_and_share_request_slots() {
     config[18] = 1;
     assert!(!ui.font_stream_configure(&config));
 }
+
+#[test]
+fn streamed_detach_reclaims_capacity_and_restores_baked_cells_across_slots() {
+    let mut ui = Ui::new();
+    for slot in 0..4 {
+        let mut atlas = encode_atlas(
+            slot,
+            8,
+            8,
+            7,
+            10,
+            2,
+            &[(65, 1, 6), (0xfffd, 0, 8)]
+        );
+        for (i, pixel) in atlas[32..].iter_mut().enumerate() {
+            *pixel = (i + 1) as u8;
+        }
+        assert!(ui.load_font_atlas(&atlas));
+    }
+    let baked = ui.font_atlas(0).unwrap().bitmap.clone();
+    let baseline: usize = (0..4)
+        .map(|s| ui.font_atlas(s).unwrap().bitmap.capacity())
+        .sum();
+    for generation in 1..=3 {
+        for slot in 0..4 {
+            let mut config = stream_config(generation, 4096);
+            config[8] = slot;
+            config[9] = 32;
+            config[10] = 16;
+            assert!(ui.font_stream_configure(&config));
+            // Reopening the same slot must remember the original baked geometry.
+            config[4..8].copy_from_slice(&(generation + 10).to_le_bytes());
+            assert!(ui.font_stream_configure(&config));
+            config[4..8].fill(0);
+            config[16..18].fill(0);
+            assert!(ui.font_stream_configure(&config));
+            let actual: usize = (0..4)
+                .map(|s| ui.font_atlas(s).unwrap().bitmap.capacity())
+                .sum();
+            assert_eq!(
+                actual, baseline,
+                "released slots must not hide retained bitmap allocations"
+            );
+            let atlas = ui.font_atlas(slot).unwrap();
+            assert_eq!((atlas.cell_w, atlas.cell_h), (8, 8));
+            assert_eq!(atlas.bitmap, baked);
+            assert_eq!(atlas.cmap.capacity(), atlas.cmap.len());
+            assert!(ui.font_stream_stats().contains("\"bytes\":0"));
+            assert_eq!(ui.measure_text("AA", slot), 12.0);
+        }
+    }
+}

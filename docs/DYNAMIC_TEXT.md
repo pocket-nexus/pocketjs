@@ -232,3 +232,66 @@ Use `Text resource` or a `ResourceBoundary` for atomic presentation. Set
 The external PJFA/1 archive format is unchanged. The former editor-oriented
 `text.glyph` image cache and PSPMAN's separate PJPF/1 format are not converted by
 this change.
+
+## Adopting the shared API from a downstream font extension
+
+**PJPF/1 and PJFA/1 identify different archive layouts and their versions.**
+They are not text encodings or Unicode coverage levels. PSPMAN's public packages
+contain PJPF/1; this provider reads PJFA/1. Renaming the file does not convert it.
+
+Regenerate PJFA from the licensed source font with the current compiler. Select
+the strikes the app uses, declare those slots in its baked styles, and keep the
+archive outside the PAK. Set `provider: 'local'` for a standalone PSP player, or
+grant the archive to a companion Worker. Both paths use the same batch API.
+An adapter for an existing archive would need to supply validated cells through
+the provider protocol; it would preserve defects in the input bitmaps.
+
+| Product requirement | Shared mechanism |
+| --- | --- |
+| Names and tags discovered after build | Pass decoded Unicode strings to `prepareText` |
+| Common UI characters stay available | Configure `resident` per slot |
+| A list appears as one complete selection | Prepare the visible rows together; reveal through `ResourceBoundary` |
+| Now Playing survives library scrolling | Keep its lease while releasing old list windows |
+| Reader pages remain stable | Hold a chapter lease, or bounded page leases when its union exceeds capacity |
+| Reopen, reconnect and retry | Invalidate to pending with `reload`; use error fallback on failure |
+| No computer during playback | Select the PSP local storage worker |
+
+**The active glyph union determines residency, not the total track count.** A
+library can keep metadata for 1000 tracks while holding leases for the current
+title, visible list and a prefetched window. Count the union across those leases
+and the resident set before choosing capacity. Each strike consumes its own
+cells; every slot shares the native byte limit. The loader does not decode ID3
+tags, repair malformed Unicode, perform shaping, or create missing font outlines.
+
+### Regression coverage without a downstream source tree
+
+`tests/text-batch.test.ts` drives the production companion reader, batch
+controller and WASM core with 1000 runtime titles at regular 12/14/16/24 px and
+bold 12 px. Each strike uses a 32-cell cache, a pinned `気迫Ａ１𠮷` title and a
+resident common set. It compares every five-row page against a baked reference,
+then revisits the first page after eviction. Embedded ASCII keeps its original
+coverage; streamed reference cells use the archive's two-bit coverage.
+
+`tests/font-archive.test.ts` compares those CFF glyphs against source contours
+with explicit closing edges. **A checksum proves byte integrity; it does not
+prove that the baker drew the intended shape.** The contour regression fails
+when implicit closure is removed. The built Text Lab test covers atomic reveal,
+loading animation, cancellation and recovery. Native tests check actual vector
+capacity after slot detach and retry after a partially overwritten index page.
+
+PSPMAN's [public report #58](https://github.com/obsoletesony/PSPMAN-Issues/issues/58)
+describes `迫` rendering incorrectly in Alpha 4. Its diagnostic log reports zero
+capacity, decode and read failures. Comparing the published Alpha 4 and Alpha 5
+PJPF files finds the same 6790 codepoints. At 16 px, the historical PocketJS
+baker before `1446d244` reproduces Alpha 4's `気迫Ａ１` coverage byte for byte after
+four-bit quantization; adding contour closure reproduces Alpha 5. The current
+baker also matches Alpha 5 for those cells. This isolates a reproducible asset
+generation defect without the private application source. The
+[Alpha 5 release notes](https://www.obsoletesony.com/pspman/releases) report a
+Japanese rendering improvement. This comparison does not establish which
+private commit changed PSPMAN or validate its metadata and playback pipeline.
+
+Rebuild old assets when adopting the shared API. Mainline already contains the
+contour closure fix; changing residency or increasing a cache cannot repair an
+incorrect bitmap stored in an old archive. **These tests validate the shared
+font functionality; downstream application acceptance remains a separate run.**
