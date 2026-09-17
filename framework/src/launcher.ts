@@ -1,5 +1,5 @@
 // @pocketjs/framework/launcher — the guest side of app switching
-// (spec ops 39..41, docs/LAUNCHER.md).
+// (spec ops 39..41 and 51, docs/LAUNCHER.md).
 //
 // Embedded catalogs replace the guest on each switch. Native catalogs retain
 // a process per installed app and foreground it on launch. Hosts without the
@@ -25,7 +25,7 @@ export interface AppTable {
   apps: AppEntry[];
   /** Output name of the running bundle. */
   current: string;
-  /** The app interrupted by the last SELECT summon; null after a cold boot
+  /** Embedded catalogs: the app interrupted by the last SELECT summon; null after a cold boot
    *  or an explicit launch. Resume = launchApp(resume) — a fresh relaunch,
    *  never a thaw (docs/LAUNCHER.md: there is no suspend in this protocol). */
   resume: string | null;

@@ -475,8 +475,11 @@ simulation. **Background apps release GLES resources and reset their EGL
 context and surface.** A navigation handoff releases the outgoing surface
 before activating the destination, so their GPU allocations do not overlap
 during startup. Qt repaint delivery stays disabled until foreground restoration.
-Qt chrome uses the raster graphics system; app content uses GLES. The next
-activation recreates the context and uploads textures from retained CPU data.
+Qt chrome uses the raster graphics system; app content uses GLES. The host also
+terminates its process-owned EGL connection and releases thread state: destroying
+the context alone leaves VideoCore client allocations resident. The next
+activation initializes EGL, recreates the context and uploads textures from
+retained CPU data.
 Launching an existing task brings it to the foreground. Launching
 an absent task starts its installed UID through the application server.
 This mode cannot be combined with an embedded `--catalog`.
@@ -500,7 +503,7 @@ receipt records the encoded registry hash.
 ```sh
 bun tools/symbian.ts build app --manifest apps/clear/pocket.symbian.json \
   --navigation /path/to/pocket-shell/shells/touch/native-apps.json \
-  --frame-rate 60 --sis-version 0.3.8
+  --frame-rate 60 --sis-version 0.3.12
 ```
 
 **Child apps reserve the bottom 28 pixels for a host-owned return gesture.**
