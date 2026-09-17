@@ -22,10 +22,24 @@ edition = "2021"
 
 [dependencies]
 psp = { git = "https://github.com/pocket-stack/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
-libquickjs-sys = { git = "https://github.com/pocket-stack/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b" }
+libquickjs-sys = { git = "https://github.com/pocket-stack/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b", optional = true }
 pocketjs-core = { path = "../../engine/core" }
 
+# The stock EBOOT (`pocketjs-psp`) is a QuickJS guest host and needs the
+# `quickjs` feature. A native-app EBOOT (hosts/psp-micro, Pocket Micro
+# output) links this crate with `default-features = false` for the arena
+# allocator trio, graphics init, the GE backend and the pak feeder, and never
+# compiles QuickJS.
+[[bin]]
+name = "pocketjs-psp"
+path = "src/main.rs"
+required-features = ["quickjs"]
+
 [features]
+default = ["quickjs"]
+# The QuickJS embedding: ffi.rs (`globalThis.ui`), qjs_alloc.rs and the
+# JS helpers in host.rs.
+quickjs = ["dep:libquickjs-sys"]
 # E2E frame-dump build for tests/e2e/ppsspp.ts (dumps frames to ms0:/dc_cap).
 capture = []
 # PSP-side microsecond timing summary for tools/bench-ppsspp.ts.

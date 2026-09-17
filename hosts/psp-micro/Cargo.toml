@@ -1,0 +1,23 @@
+# pocket-micro-psp — the Pocket Micro PSP EBOOT: a compiled Micro TS app +
+# pocketjs-core + the sceGu backend. No JavaScript engine is linked.
+#
+# STANDALONE LONE-BIN CRATE: cargo-psp requires this crate to be outside any
+# workspace. Build via `bun micro/compiler/cli.ts build <app> --psp`, which
+# points POCKET_MICRO_APP_RS at the generated module and POCKET_MICRO_PAK at
+# the app pack; build.rs bakes both in.
+#
+# The `pocketjs-psp` dependency is the QuickJS host's library half with its
+# `quickjs` feature off: arena allocator (installed program-wide), graphics
+# init, worker thread, GE DrawList backend. The same pinned rust-psp revision
+# and features as hosts/psp/Cargo.toml keep one `psp` crate in the graph.
+
+[package]
+name = "pocket-micro-psp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+psp = { git = "https://github.com/pocket-stack/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
+pocketjs-core = { path = "../../engine/core" }
+pocketjs-psp = { path = "../psp", default-features = false }
+pocket-micro = { path = "../../engine/crates/pocket-micro" }

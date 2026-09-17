@@ -17,12 +17,13 @@ pocketjs/
 │  ├─ quickjs-c/  portable QuickJS guest driver used by native C hosts
 │  ├─ ios/        iOS C ABI and UIKit PocketSurfaceView
 │  ├─ pocket3d/   the 3D core family (bsp, cook, gu, vita, GLES2) + desktop examples
-│  ├─ crates/     non-3D engine crates: pocket-mod, pocket-ui-surface, pocket-ui-wgpu, pocket-vrm, pocket-widget
+│  ├─ crates/     non-3D engine crates: pocket-micro, pocket-mod, pocket-ui-surface, pocket-ui-wgpu, pocket-vrm, pocket-widget
 │  └─ Cargo.toml  the desktop workspace root (core/, wasm/, ui-cabi/, and
 │                 console-toolchain crates are deliberately excluded and
 │                 standalone; see each crate's Cargo.toml for its toolchain)
 ├─ hosts/        Surfaces: every embedding of the cores
-│  ├─ psp/        QuickJS + rust-psp EBOOT host
+│  ├─ psp/        QuickJS + rust-psp EBOOT host (feature `quickjs`; off, it is the PSP substrate a compiled app links)
+│  ├─ psp-micro/  Pocket Micro EBOOT host: a compiled Micro TS app + core + sceGu, no JS engine
 │  ├─ vita/       Vita host
 │  ├─ esp32p4/    reusable ESP-IDF PPA adapter + component smoke build
 │  ├─ pocketbook/ PocketBook e-reader host (inkview, standalone lone-bin crate)
@@ -39,6 +40,7 @@ pocketjs/
 │  ├─ src/        the TS runtime (Solid + Vue Vapor renderers, components, input, osk…)
 │  └─ compiler/   the interpreted-path build pipeline (jsx-plugin, tailwind, pak)
 ├─ vapor/        Pocket Vapor: the AOT compiler family (Vue Vapor subset → GBA/GB/NES)
+├─ micro/        Pocket Micro: Micro TS (a Solid + PocketJS subset) → Rust over pocketjs-core; compiler, IR, harness, tests
 ├─ contracts/    single sources of truth binding the layers
 │  ├─ spec/       op contract, platform contracts, manifest + package spec, gen-rust + gen-c
 │  ├─ generated/  generated C contract headers consumed by native hosts
@@ -77,7 +79,7 @@ New things go where the axis says — never invent a top-level directory:
 - **npm surface is frozen**: `@pocketjs/framework/*` export *keys* never
   change; the `exports`/`files` maps in package.json absorb internal moves.
 - **Cargo stays non-workspace where toolchains demand it**: `engine/core`,
-  `engine/wasm`, `engine/ui-cabi`, `engine/backends/rgb565`, `hosts/psp`,
+  `engine/wasm`, `engine/ui-cabi`, `engine/backends/rgb565`, `hosts/psp`, `hosts/psp-micro`, `micro/harness`,
   `hosts/vita`, `hosts/pocketbook`, and the gu/vita 3D crates each stand alone
   with their own lockfiles. `engine/Cargo.toml` is the one desktop workspace.
 - **Moves are `git mv`** — history stays traceable.

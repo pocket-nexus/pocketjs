@@ -1,0 +1,21 @@
+{
+  // Editors + `bunx tsc --noEmit -p micro` typecheck ONLY. The Micro TS
+  // compiler consumes the app's TSX itself; nothing here is bundled.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": ["bun"],
+    "jsx": "preserve",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".."
+  },
+  "include": ["compiler", "tests", "../framework/compiler/ambient.d.ts"]
+}

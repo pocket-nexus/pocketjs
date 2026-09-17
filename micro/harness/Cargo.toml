@@ -1,0 +1,25 @@
+# micro/harness — the desktop parity harness for a compiled Micro app.
+#
+# Links the generated `app.rs` (path in POCKET_MICRO_APP_RS at build time)
+# against pocket-micro + pocketjs-core with std, feeds the app pak, drives a
+# button tape through the same frame contract the PSP host uses, and dumps
+# the software-rasterized RGBA framebuffer at chosen frames. micro/tests/
+# parity.ts compares those dumps byte for byte with the Solid web goldens.
+#
+# Standalone crate (own lockfile): it consumes a per-app generated module.
+[package]
+name = "pocket-micro-harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+pocket-micro = { path = "../../engine/crates/pocket-micro", features = ["std"] }
+pocketjs-core = { path = "../../engine/core", features = ["std"] }
+
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3

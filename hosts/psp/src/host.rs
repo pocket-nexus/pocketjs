@@ -5,6 +5,7 @@
 
 use core::ffi::c_void;
 
+#[cfg(feature = "quickjs")]
 use libquickjs_sys::*;
 use psp::sys::{
     self, DisplayPixelFormat, GuContextType, GuState, GuSyncBehavior, GuSyncMode, ShadingModel,
@@ -126,11 +127,13 @@ pub unsafe fn init_graphics(cfg: GfxConfig) {
 
 // libquickjs-sys omits JS_ExecutePendingJob; the linked QuickJS C library
 // provides it (local-extern pattern). size_t stays usize (MIPS o32).
+#[cfg(feature = "quickjs")]
 extern "C" {
     fn JS_ExecutePendingJob(rt: *mut JSRuntime, pctx: *mut *mut JSContext) -> i32;
 }
 
 /// Drain queued microtask jobs (queueMicrotask polyfill = promise jobs).
+#[cfg(feature = "quickjs")]
 pub unsafe fn drain_jobs(rt: *mut JSRuntime) {
     loop {
         let mut pctx: *mut JSContext = core::ptr::null_mut();
@@ -142,6 +145,7 @@ pub unsafe fn drain_jobs(rt: *mut JSRuntime) {
 
 /// Print the pending JS exception via the debug screen; `sink` also receives
 /// the message (trace files, mailboxes).
+#[cfg(feature = "quickjs")]
 pub unsafe fn log_exception_with(ctx: *mut JSContext, sink: impl Fn(&str)) {
     let e = JS_GetException(ctx);
     let mut len: size_t = 0;

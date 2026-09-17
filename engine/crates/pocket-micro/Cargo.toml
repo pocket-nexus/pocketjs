@@ -1,0 +1,23 @@
+# pocket-micro — the native runtime under Pocket Micro output.
+#
+# A Micro TS component compiles to one Rust module that calls this crate:
+# the retained tree is pocketjs-core's, this crate owns the two root layers
+# the Solid runtime would create, the d-pad focus model, press dispatch, the
+# signal flush loop contract (`App`), JS-compatible number formatting, and
+# the platform-neutral .pak feeder. #![no_std] + alloc: the same crate links
+# into the PSP EBOOT (hosts/psp-micro) and the desktop parity harness
+# (micro/harness).
+[package]
+name = "pocket-micro"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/pocket-stack/pocketjs"
+description = "Pocket Micro native runtime: focus, press dispatch, flush contract and pak feeder over pocketjs-core"
+
+[dependencies]
+pocketjs-core = { path = "../../core", default-features = false }
+
+[features]
+default = []
+std = ["pocketjs-core/std"]

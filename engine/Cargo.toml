@@ -14,6 +14,7 @@ members = [
     "ios",
     "crates/pocket-db",
     "crates/pocket-fs",
+    "crates/pocket-micro",
     "crates/pocket-mod",
     "crates/pocket-net",
     "crates/pocket-sim",

@@ -11,6 +11,10 @@
 //! the `ui` surface, the DrawList GE backend, the pak feeder and the
 //! DevTools mailbox, then adds its own surfaces and frame loop.
 //!
+//! Feature `quickjs` (default) carries the QuickJS embedding (ffi, qjs_alloc,
+//! the JS helpers in host.rs). Without it the crate is the PSP substrate a
+//! compiled native app links: allocator, graphics, GE backend, pak feeder.
+//!
 //! Linking this library installs the arena-backed `#[global_allocator]`
 //! (and `#[alloc_error_handler]`) program-wide — the single-kernel-block
 //! memory model from docs/DESIGN.md "Memory (the blocker fix)".
@@ -26,10 +30,12 @@ pub mod audio;
 pub mod audio_mod;
 pub mod c_heap;
 pub mod dbg;
+#[cfg(feature = "quickjs")]
 pub mod ffi;
 pub mod ge;
 pub mod host;
 pub mod pak;
+#[cfg(feature = "quickjs")]
 pub mod qjs_alloc;
 pub mod stats;
 pub mod svc;

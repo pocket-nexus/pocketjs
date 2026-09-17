@@ -47,3 +47,6 @@ hosts/ios-nativescript/package-lock.json
 tools/bench-desktop/tauri/src-tauri/gen/
 
 hosts/web/pocket_text.wasm
+
+# generated per-app XMB metadata (micro/compiler/cli.ts --psp, from apps/<app>/psp/Psp.toml)
+hosts/psp-micro/Psp.toml

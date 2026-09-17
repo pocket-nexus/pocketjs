@@ -1768,6 +1768,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-micro"
+version = "0.1.0"
+dependencies = [
+ "pocketjs-core",
+]
+
+[[package]]
 name = "pocket-mod"
 version = "0.1.0"
 dependencies = [
