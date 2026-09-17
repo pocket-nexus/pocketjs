@@ -1370,7 +1370,8 @@ PocketJsRuntime::PocketJsRuntime()
     perfPrefix_ = "E:/Installs/pocketjs-perf";
 #ifdef POCKETJS_SYMBIAN_UID
     const QString appPrefix = QString("E:/Installs/pocketjs-perf-%1").arg(uint32_t(POCKETJS_SYMBIAN_UID), 8, 16, QChar('0'));
-    if (QFile::exists(appPrefix + "-input.tsv")) perfPrefix_ = appPrefix;
+    QFile appInput(appPrefix + "-input.tsv");
+    if (appInput.exists() && appInput.size() > 0) perfPrefix_ = appPrefix;
 #endif
     perfTouch_ = 0;
     QFile::remove(perfPrefix_ + ".tsv");

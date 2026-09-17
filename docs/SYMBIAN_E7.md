@@ -529,7 +529,7 @@ links. Native children can return to a cold Shell. Background snapshots do not
 update until another return. Native rendering and touch controls can use the
 same host gesture without adding application-specific navigation code.
 
-For `--perf-trace` builds, an existing
+For `--perf-trace` builds, a nonempty
 `E:/Installs/pocketjs-perf-<uid>-input.tsv` selects a per-app replay and output
 prefix; otherwise the host uses `pocketjs-perf`. Native replay passes through
 the Qt touch routing and return-strip ownership. Its virtual clock pauses

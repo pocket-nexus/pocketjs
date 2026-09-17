@@ -465,7 +465,7 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(runtime).toContain("const QRect target = presentationRect();");
     expect(runtime).toContain("glReadPixels(");
     expect(runtime).toContain(
-      "const QRect sourceRect = presentationRect().intersected(rect());",
+      "const QRect sourceRect = nativeSelf_ > 0 ? rect() : presentationRect().intersected(rect());",
     );
     expect(runtime).toContain("height() - sourceRect.y() - sourceRect.height()");
     expect(runtime).toContain("if (pendingApp_ >= 0 && pendingSummon_)");
