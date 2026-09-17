@@ -285,13 +285,25 @@ frames in memory. After measurement, it writes
 `E:/Installs/pocketjs-perf.tsv`. Normal builds omit tracing and replay.
 The SIS receipt records the requested frame rate, tracing flag and QuickJS
 optimization level (`-O2`, with wrapping signed arithmetic and strict aliasing
-disabled).
+disabled). **The E7 host, QuickJS and Rust core use VFPv2 instructions with the
+soft argument ABI** required by the Symbian C libraries and Qt. The E7 HAL
+reports `EHardwareFloatingPoint=EFpTypeVFPv2`; the SIS receipt identifies this
+as `vfpv2-softfp`.
 
 The frame rows contain elapsed time, frame interval, JavaScript execution,
 core ticks, GLES submission and presentation time in milliseconds.
 `present_ms` includes `draw_ms` and Qt's swap. **These are CPU wall times,
 not GPU timer queries or panel scanout measurements.** The measured loop does
 not read pixels, call `glFinish`, or write files.
+The next completed frame after measurement is saved to
+`E:/Installs/pocketjs-perf.png` for visual inspection. This readback is outside
+the measured interval.
+On Symbian, diagnostic builds reset the inactivity timer once per second
+during collection: packed replay bypasses the window server's input activity
+tracking. Normal builds retain the device's idle and sleep behavior.
+Keep the device unlocked with the application in front. `inactive_frames`
+counts samples taken without an active window after the first startup second;
+discard such runs when measuring interactive performance.
 
 For repeatable input, a trace build reads `E:/Installs/pocketjs-perf-input.tsv`
 at startup. Each row contains an elapsed millisecond timestamp and one packed

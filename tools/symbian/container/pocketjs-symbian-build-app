@@ -264,7 +264,8 @@ quickjs_flags=(
     -mapcs
     -mthumb-interwork
     -nostdinc
-    -msoft-float
+    -mfloat-abi=softfp
+    -mfpu=vfp
     "--include=${EPOCROOT}epoc32/include/gcce/gcce.h"
     -include "${EPOCROOT}mkspecs/common/symbian/symbianincludes.h"
     -D__GCCE__
@@ -419,7 +420,7 @@ jq -n \
       executable: $executable,
       sisVersion: $sisVersion,
       quickjs: {version: $quickjsVersion, revision: $quickjsRevision, optimization: "O2"},
-      runtime: {frameRate: $frameRate, perfTrace: ($perfTrace == 1)},
+      runtime: {frameRate: $frameRate, perfTrace: ($perfTrace == 1), floatingPoint: "vfpv2-softfp"},
       link: {
         dataBase: $dataBase,
         embeddedBytes: ($embeddedBytes | tonumber)

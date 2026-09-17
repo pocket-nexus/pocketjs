@@ -41,6 +41,14 @@ QMAKE_LFLAGS += --no-whole-archive
 PRE_TARGETDEPS += $$POCKETJS_CORE_LIBRARY
 
 symbian {
+    # E7 reports HAL EHardwareFloatingPoint=EFpTypeVFPv2. Use its FPU while
+    # retaining the soft argument ABI used by Qt and the Symbian C libraries.
+    QMAKE_CFLAGS -= -msoft-float
+    QMAKE_CXXFLAGS -= -msoft-float
+    QMAKE_CFLAGS += -mfloat-abi=softfp -mfpu=vfp
+    QMAKE_CXXFLAGS += -mfloat-abi=softfp -mfpu=vfp
+    QMAKE_ELF2E32_FLAGS -= --fpu=softvfp
+    QMAKE_ELF2E32_FLAGS += --fpu=vfpv2
     isEmpty(POCKETJS_SYMBIAN_UID): error(POCKETJS_SYMBIAN_UID is required)
     QMAKE_LINK = /toolchain/current/bin/symbian-gcce-link
     TARGET.UID3 = $$POCKETJS_SYMBIAN_UID

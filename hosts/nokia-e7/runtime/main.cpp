@@ -17,6 +17,9 @@
 #include <QTouchEvent>
 #ifdef POCKETJS_PERF_TRACE
 #include <QElapsedTimer>
+#ifdef Q_OS_SYMBIAN
+#include <e32std.h>
+#endif
 #endif
 #include <QVector>
 #include <QWidget>
@@ -1182,6 +1185,7 @@ private:
     bool initializeCatalog();
     bool bootGuest(int appIndex, const QSize &windowViewport);
     bool applyPendingViewport();
+    QImage readFrame();
     void captureFrozenShot();
     void destroyGuest();
     void finishPendingSwitch();
@@ -1220,7 +1224,10 @@ private:
     int perfLastMs_;
     int perfInputIndex_;
     int perfDrawMs_;
+    int perfWakeMs_;
+    int perfInactiveFrames_;
     bool perfDone_;
+    bool perfShotDone_;
     void finishPerfTrace();
 #endif
     QVector<EmbeddedApp> apps_;
@@ -1303,10 +1310,14 @@ PocketJsRuntime::PocketJsRuntime()
 {
 #ifdef POCKETJS_PERF_TRACE
     QFile::remove("E:/Installs/pocketjs-perf.tsv");
-    perfLastMs_ = 0;
+    QFile::remove("E:/Installs/pocketjs-perf.png");
+    perfLastMs_ = -1;
     perfInputIndex_ = 0;
     perfDrawMs_ = 0;
+    perfWakeMs_ = -1000;
+    perfInactiveFrames_ = 0;
     perfDone_ = false;
+    perfShotDone_ = false;
     perfSamples_.reserve(2048);
     // Opt-in diagnostic builds can replay one packed contact (zero releases).
     // A bounded file is read once, outside the measured frame loop.
@@ -2120,10 +2131,21 @@ QRect PocketJsRuntime::presentationRect() const
 void PocketJsRuntime::runFrame()
 {
 #ifdef POCKETJS_PERF_TRACE
-    if (!perfClock_.isValid()) perfClock_.start();
+    // Do not depend on the installed Qt DLL's default timer sentinel. E7
+    // firmware can pair these 4.7 headers with a different QtCore build.
+    if (perfLastMs_ < 0) perfClock_.start();
     const int elapsedMs = perfClock_.elapsed();
-    const int frameDeltaMs = elapsedMs - perfLastMs_;
+    const int frameDeltaMs = perfLastMs_ < 0 ? 0 : elapsedMs - perfLastMs_;
     perfLastMs_ = elapsedMs;
+    if (!perfDone_ && elapsedMs >= 1000 && !isActiveWindow()) ++perfInactiveFrames_;
+#ifdef Q_OS_SYMBIAN
+    // Packed replay bypasses the window server's real-input activity reset.
+    // Keep only the bounded diagnostic interval awake, like a live gesture.
+    if (!perfDone_ && elapsedMs - perfWakeMs_ >= 1000) {
+        User::ResetInactivityTime();
+        perfWakeMs_ = elapsedMs;
+    }
+#endif
     while (perfInputIndex_ < perfInputs_.size() &&
            perfInputs_.at(perfInputIndex_).ms <= elapsedMs) {
         const uint32_t touch = perfInputs_.at(perfInputIndex_++).touch;
@@ -2233,6 +2255,7 @@ void PocketJsRuntime::finishPerfTrace()
     buffer.append("# frame_rate\t" + QByteArray::number(POCKETJS_FRAME_RATE) + "\n");
     buffer.append("# viewport\t" + QByteArray::number(width()) + "\t" + QByteArray::number(height()) + "\n");
     buffer.append("# replay_points\t" + QByteArray::number(perfInputs_.size()) + "\n");
+    buffer.append("# inactive_frames\t" + QByteArray::number(perfInactiveFrames_) + "\n");
     buffer.append("frame\telapsed_ms\tdelta_ms\tjs_ms\ttick_ms\tdraw_ms\tpresent_ms\ttouches\n");
     for (int i = 0; i < perfSamples_.size(); ++i) {
         const PerfSample &s = perfSamples_.at(i);
@@ -2247,12 +2270,11 @@ void PocketJsRuntime::finishPerfTrace()
 }
 #endif
 
-void PocketJsRuntime::captureFrozenShot()
+QImage PocketJsRuntime::readFrame()
 {
-    frozenShot_.clear();
-    if (!glInitialized_ || !isValid()) return;
+    if (!glInitialized_ || !isValid()) return QImage();
     const QRect sourceRect = presentationRect().intersected(rect());
-    if (sourceRect.isEmpty()) return;
+    if (sourceRect.isEmpty()) return QImage();
 
     QByteArray pixels;
     pixels.resize(sourceRect.width() * sourceRect.height() * 4);
@@ -2266,10 +2288,7 @@ void PocketJsRuntime::captureFrozenShot()
         GL_UNSIGNED_BYTE,
         pixels.data()
     );
-    if (glGetError() != GL_NO_ERROR) {
-        frozenShot_.clear();
-        return;
-    }
+    if (glGetError() != GL_NO_ERROR) return QImage();
 
     // GLES readback is RGBA and bottom-left-origin. Convert once on the
     // summon path; steady frames never allocate or read back the framebuffer.
@@ -2288,6 +2307,14 @@ void PocketJsRuntime::captureFrozenShot()
             );
         }
     }
+    return frame;
+}
+
+void PocketJsRuntime::captureFrozenShot()
+{
+    frozenShot_.clear();
+    const QImage frame = readFrame();
+    if (frame.isNull()) return;
     const QImage shot = frame.scaled(
         kShotWidth,
         kShotHeight,
@@ -2539,6 +2566,12 @@ void PocketJsRuntime::paintGL()
     }
 #ifdef POCKETJS_PERF_TRACE
     perfDrawMs_ = drawTimer.elapsed();
+    if (perfDone_ && !perfShotDone_) {
+        // Capture the next completed back buffer, outside the measurement
+        // window and before QGLWidget swaps it to the display.
+        perfShotDone_ = true;
+        readFrame().save("E:/Installs/pocketjs-perf.png");
+    }
 #endif
     if (pendingApp_ >= 0 && pendingSummon_) {
         // QGLWidget auto-swaps only after paintGL returns, so this captures
