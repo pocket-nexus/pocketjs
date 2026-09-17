@@ -1,0 +1,425 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/switch/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/switch/App.ts",
+              "line": 4,
+              "column": 46,
+              "offset": 318
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/switch/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [],
+      "effects": [],
+      "functions": [
+        {
+          "id": 2,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "let",
+                "binder": {
+                  "id": 3,
+                  "name": "n",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "owned": true,
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                    "line": 4,
+                    "column": 77,
+                    "offset": 349
+                  }
+                },
+                "init": {
+                  "kind": "literal",
+                  "value": 2,
+                  "rawNumber": "2",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                    "line": 4,
+                    "column": 83,
+                    "offset": 355
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                  "line": 4,
+                  "column": 77,
+                  "offset": 349
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              {
+                "kind": "switch",
+                "value": {
+                  "kind": "local",
+                  "id": 3,
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                    "line": 4,
+                    "column": 92,
+                    "offset": 364
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "cases": [
+                  {
+                    "value": {
+                      "kind": "literal",
+                      "value": 1,
+                      "rawNumber": "1",
+                      "type": {
+                        "kind": "number",
+                        "name": "i32"
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                        "line": 4,
+                        "column": 100,
+                        "offset": 372
+                      },
+                      "ledger": {
+                        "reads": [],
+                        "writes": [],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    },
+                    "body": {
+                      "stmts": [
+                        {
+                          "kind": "set",
+                          "signal": 1,
+                          "value": {
+                            "kind": "literal",
+                            "value": 1,
+                            "rawNumber": "1",
+                            "type": {
+                              "kind": "number",
+                              "name": "i32"
+                            },
+                            "loc": {
+                              "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                              "line": 4,
+                              "column": 112,
+                              "offset": 384
+                            },
+                            "ledger": {
+                              "reads": [],
+                              "writes": [],
+                              "subscriptions": [],
+                              "external": false,
+                              "maySubscribe": [],
+                              "mustSubscribe": []
+                            }
+                          },
+                          "loc": {
+                            "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                            "line": 4,
+                            "column": 102,
+                            "offset": 374
+                          },
+                          "ledger": {
+                            "reads": [],
+                            "writes": [
+                              1
+                            ],
+                            "subscriptions": [],
+                            "external": false,
+                            "maySubscribe": [],
+                            "mustSubscribe": []
+                          }
+                        }
+                      ],
+                      "ledger": {
+                        "reads": [],
+                        "writes": [
+                          1
+                        ],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    }
+                  },
+                  {
+                    "value": {
+                      "kind": "literal",
+                      "value": 2,
+                      "rawNumber": "2",
+                      "type": {
+                        "kind": "number",
+                        "name": "i32"
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                        "line": 4,
+                        "column": 126,
+                        "offset": 398
+                      },
+                      "ledger": {
+                        "reads": [],
+                        "writes": [],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    },
+                    "body": {
+                      "stmts": [
+                        {
+                          "kind": "set",
+                          "signal": 1,
+                          "value": {
+                            "kind": "literal",
+                            "value": 7,
+                            "rawNumber": "7",
+                            "type": {
+                              "kind": "number",
+                              "name": "i32"
+                            },
+                            "loc": {
+                              "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                              "line": 4,
+                              "column": 138,
+                              "offset": 410
+                            },
+                            "ledger": {
+                              "reads": [],
+                              "writes": [],
+                              "subscriptions": [],
+                              "external": false,
+                              "maySubscribe": [],
+                              "mustSubscribe": []
+                            }
+                          },
+                          "loc": {
+                            "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                            "line": 4,
+                            "column": 128,
+                            "offset": 400
+                          },
+                          "ledger": {
+                            "reads": [],
+                            "writes": [
+                              1
+                            ],
+                            "subscriptions": [],
+                            "external": false,
+                            "maySubscribe": [],
+                            "mustSubscribe": []
+                          }
+                        }
+                      ],
+                      "ledger": {
+                        "reads": [],
+                        "writes": [
+                          1
+                        ],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    }
+                  },
+                  {
+                    "body": {
+                      "stmts": [
+                        {
+                          "kind": "set",
+                          "signal": 1,
+                          "value": {
+                            "kind": "literal",
+                            "value": 9,
+                            "rawNumber": "9",
+                            "type": {
+                              "kind": "number",
+                              "name": "i32"
+                            },
+                            "loc": {
+                              "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                              "line": 4,
+                              "column": 165,
+                              "offset": 437
+                            },
+                            "ledger": {
+                              "reads": [],
+                              "writes": [],
+                              "subscriptions": [],
+                              "external": false,
+                              "maySubscribe": [],
+                              "mustSubscribe": []
+                            }
+                          },
+                          "loc": {
+                            "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                            "line": 4,
+                            "column": 155,
+                            "offset": 427
+                          },
+                          "ledger": {
+                            "reads": [],
+                            "writes": [
+                              1
+                            ],
+                            "subscriptions": [],
+                            "external": false,
+                            "maySubscribe": [],
+                            "mustSubscribe": []
+                          }
+                        }
+                      ],
+                      "ledger": {
+                        "reads": [],
+                        "writes": [
+                          1
+                        ],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    }
+                  }
+                ],
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/switch/App.ts",
+                  "line": 4,
+                  "column": 85,
+                  "offset": 357
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    1
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [
+                1
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [
+              1
+            ],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/switch/App.ts",
+            "line": 4,
+            "column": 49,
+            "offset": 321
+          }
+        }
+      ],
+      "schedule": [],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

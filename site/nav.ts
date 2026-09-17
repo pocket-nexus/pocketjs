@@ -39,6 +39,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "pocket-vapor-components", title: "Components and state" },
       { slug: "pocket-vapor-reference", title: "API and commands" },
       { slug: "pocket-vapor-solid", title: "Solid TSX to Rust" },
+      { slug: "pocket-vapor-model", title: "TypeScript models to Rust" },
     ],
   },
   {

@@ -1,0 +1,75 @@
+{
+  "designRow": 4,
+  "viewOnly": true,
+  "frames": [
+    {
+      "text": [
+        "0:0:0:0:1",
+        "stable:0"
+      ],
+      "commands": [
+        "root-mount",
+        "mount:stable"
+      ]
+    },
+    {
+      "text": [
+        "1:1:2:2:2",
+        "stable:1"
+      ],
+      "commands": [
+        "root:1",
+        "record:2",
+        "stable:1"
+      ]
+    },
+    {
+      "text": [
+        "1:1:2:2:2",
+        "stable:1"
+      ],
+      "commands": []
+    },
+    {
+      "text": [
+        "1:1:2:2:2"
+      ],
+      "commands": [
+        "unmount:stable"
+      ]
+    },
+    {
+      "text": [
+        "1:1:2:2:2"
+      ],
+      "commands": []
+    },
+    {
+      "text": [
+        "1:1:2:2:2",
+        "stable:0"
+      ],
+      "commands": [
+        "mount:stable"
+      ]
+    },
+    {
+      "text": [
+        "1:1:2:2:2",
+        "stable:0"
+      ],
+      "commands": []
+    },
+    {
+      "text": [
+        "1:1:4:4:2",
+        "stable:1"
+      ],
+      "commands": [
+        "root:2",
+        "record:4",
+        "stable:1"
+      ]
+    }
+  ]
+}

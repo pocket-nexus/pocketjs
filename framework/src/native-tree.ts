@@ -4,6 +4,7 @@
 import { NODE_TYPE, PROP, ROOT_ID, STYLE_ID_NONE, type PropName } from "../../contracts/spec/spec.ts";
 import { encodePropValue, getHost, getOps } from "./host.ts";
 import { __notifyTreeMutation, notifyDetached, registerFocusable, registerPress } from "./input.ts";
+import { clearNodeReferences } from "./model-node-ref.ts";
 
 export interface NodeMirror {
   /** Native generation-tagged node id. */
@@ -396,6 +397,7 @@ export function runSweep(): void {
       keep.push(node);
       continue;
     }
+    clearNodeReferences(node);
     ops.destroyNode(node.id);
   }
   sweepSet.clear();

@@ -1,12 +1,13 @@
-/** Normalize Color display/equality before Solid's universal JSX transform. */
+/** Normalize typed view operations before Solid's universal JSX transform. */
 import ts from "typescript";
 import type { AotComponent, AotExpr, AotProgram, AotType } from "./aot-ir.ts";
 import { fail, location } from "./aot-types.ts";
+import { createAotNumericNormalizer } from "./aot-numeric-semantics.ts";
 
 export function normalizeSolidAotSemantics(source: string, filename: string, program: AotProgram): string {
   const components = program.components.filter(c => c.file === filename);
   const results = components.map(component => normalize(source, filename, program, component));
-  if (results.some(result => result !== results[0])) fail(location(filename, source), "Generic specializations must use the same Color display and equality semantics; use separate components");
+  if (results.some(result => result !== results[0])) fail(location(filename, source), "Generic specializations must use the same typed display and arithmetic semantics; use separate components");
   return results[0] ?? source;
 }
 function normalize(source: string, filename: string, program: AotProgram, component: AotComponent): string {
@@ -23,8 +24,33 @@ function normalize(source: string, filename: string, program: AotProgram, compon
     for (const [name, child] of Object.entries(value)) if (name !== "loc" && name !== "type") collect(child);
   }
   collect(component.nodes); collect(component.hooks);
-  if (![...expressions.values()].some(list => list.some(e => color(e.type)))) return source;
+  const numeric = createAotNumericNormalizer(program, source);
+  if (![...expressions.values()].some(list => list.some(e => color(e.type)) || numeric.eligible(list))) return source;
   const ast = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  // A derived accessor's expanded IR root points at its use site. Recover the
+  // declaration's root so its operation rounds before subsequent getter reads.
+  const derived = new Map<string, ts.Expression>(), calls = new Map<number, ts.CallExpression[]>();
+  const index = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const initializer = node.initializer;
+      const arrow = ts.isArrowFunction(initializer) ? initializer : ts.isCallExpression(initializer) && initializer.arguments[0] && ts.isArrowFunction(initializer.arguments[0]) ? initializer.arguments[0] : undefined;
+      if (arrow && !ts.isBlock(arrow.body)) derived.set(node.name.text, arrow.body);
+    }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const values = calls.get(node.getStart(ast)) ?? []; values.push(node); calls.set(node.getStart(ast), values);
+    }
+    ts.forEachChild(node, index);
+  };
+  index(ast);
+  const pending = [...expressions].flatMap(([offset, values]) => values.map(value => ({ offset, value })));
+  for (let index = 0; index < pending.length; index++) {
+    const { offset, value } = pending[index]!;
+    for (const call of calls.get(offset) ?? []) {
+      const body = derived.get((call.expression as ts.Identifier).text); if (!body) continue;
+      const target = body.getStart(ast), values = expressions.get(target) ?? [];
+      if (!values.includes(value)) { values.push(value); expressions.set(target, values); pending.push({ offset: target, value }); }
+    }
+  }
   const unique = (base: string) => { let name = base, index = 0; while (source.includes(name)) name = base + ++index; return name; };
   const bits = unique("__pocketColorBits"), text = unique("__pocketColorText");
   let usedBits = false, usedText = false;
@@ -48,12 +74,12 @@ function normalize(source: string, filename: string, program: AotProgram, compon
         usedText = true;
         return ts.factory.updateJsxExpression(transformed, call(text, [transformed.expression]));
       }
-      return transformed;
+      return numeric.rewrite(node, transformed, expressions.get(node.getStart(ast)) ?? []) ?? transformed;
     };
     return root => ts.visitNode(root, visit) as ts.SourceFile;
   }]);
   const output = ts.createPrinter().printFile(result.transformed[0]!); result.dispose();
-  if (!usedBits && !usedText) return source;
-  const imports = [usedBits ? `__colorBits as ${bits}` : "", usedText ? `__colorText as ${text}` : ""].filter(Boolean);
+  const imports = [usedBits ? `__colorBits as ${bits}` : "", usedText ? `__colorText as ${text}` : "", ...numeric.imports()].filter(Boolean);
+  if (!imports.length) return source;
   return `import { ${imports.join(", ")} } from "@pocketjs/framework/solid/std";\n${output}`;
 }

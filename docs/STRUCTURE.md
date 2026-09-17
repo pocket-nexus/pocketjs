@@ -80,4 +80,6 @@ New things go where the axis says — never invent a top-level directory:
   with their own lockfiles. `engine/Cargo.toml` is the one desktop workspace.
 - **Moves are `git mv`** — history stays traceable.
 
-Solid AOT admission, contract mapping and JSX lowering live in `vapor/compiler/aot-solid-frontend.ts`. Both front ends share `aot-contract.ts`, `aot-program.ts` and the Rust generator. The reference is `site/content/docs/pocket-vapor-solid.md`; `apps/solid-aot-lab/` contains the TSX and Rust model example.
+Solid AOT admission, contract mapping and JSX lowering live in `vapor/compiler/aot-solid-frontend.ts`. Both front ends share `aot-contract.ts`, `aot-program.ts` and the Rust generator. The reference is `site/content/docs/pocket-vapor-solid.md`; `apps/solid-aot-lab/` contains the TSX view and compiled TypeScript model example.
+
+**Model AOT admission is separate from View IR.** `vapor/compiler/aot-model-frontend.ts` builds Model IR, `aot-model-ledger.ts` records dependencies and schedules reactions, and `aot-model-tasks.ts` lowers task continuations. `aot-model-codegen.ts` emits Rust; `aot-model-js.ts` emits the browser and guest model. `model-interp.ts` executes the reference contract, and `model-fuzz.ts` generates programs for differential tests. The runtime protocol lives in `engine/crates/pocket-vapor/src/model.rs`; JavaScript scheduling and service delivery live in `framework/src/model-reactive.ts` and `model-tasks.ts`. The reference is `site/content/docs/pocket-vapor-model.md`.

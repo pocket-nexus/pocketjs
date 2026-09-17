@@ -4,6 +4,7 @@ export type * from "./numeric-vue-vapor.ts";
 export type StyleClass = string & { readonly __style?: true };
 export type Cap<T extends string | readonly unknown[], N extends number> = T & { readonly __capacity?: N };
 export { copy, equals } from "./model-reactive.ts";
+export { capacity as __capacity } from "./model-reactive.ts";
 export { frames, after, until, join, all, any, cancel, type Join } from "./model-tasks.ts";
 import type { Color, f32, f64, i32, u32 } from "./numeric-vue-vapor.ts";
 import { parseVaporColor } from "../../contracts/spec/vapor.ts";
@@ -47,6 +48,21 @@ export function clamp<T extends number>(value: T, other: NoInfer<T> | VaporPlain
   return Math.min(Math.max(value, other), upper) as VaporNumericResult<T>;
 }
 export function fixed(value: f32 | f64, digits: i32): string { return value.toFixed(digits); }
+
+/** Internal compiled-view helpers keep arithmetic at the declared storage width. */
+export function __modelNumber(value: number, type: string): number {
+  switch (type) {
+    case "i8": return value << 24 >> 24;
+    case "u8": return value & 255;
+    case "i16": return value << 16 >> 16;
+    case "u16": return value & 65535;
+    case "i32": return value | 0;
+    case "u32": case "usize": return value >>> 0;
+    case "f32": return Math.fround(value);
+    default: throw new Error(`Invalid compiled view numeric type ${type}`);
+  }
+}
+export function __modelMultiply(left: number, right: number): number { return Math.imul(left, right); }
 
 /** Internal lowering helpers: Color values compare by bits and display one spelling. */
 export function __colorBits(value: Color): u32 { return parseVaporColor(value); }

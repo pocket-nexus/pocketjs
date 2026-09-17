@@ -1,0 +1,15 @@
+[
+  {
+    "clock": 0,
+    "buttons": 1,
+    "dispatch": [
+      {
+        "fn": "press"
+      }
+    ]
+  },
+  {
+    "clock": 16.666666666666668,
+    "buttons": 0
+  }
+]

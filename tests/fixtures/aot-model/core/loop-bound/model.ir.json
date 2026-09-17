@@ -1,0 +1,425 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "count",
+          "setter": "setCount",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 3,
+            "rawNumber": "3",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+              "line": 4,
+              "column": 44,
+              "offset": 316
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        },
+        {
+          "id": 2,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+              "line": 4,
+              "column": 92,
+              "offset": 364
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+            "line": 4,
+            "column": 60,
+            "offset": 332
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [],
+      "effects": [],
+      "functions": [
+        {
+          "id": 3,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "for",
+                "binder": {
+                  "id": 4,
+                  "name": "i",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "owned": true,
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                    "line": 4,
+                    "column": 127,
+                    "offset": 399
+                  }
+                },
+                "start": {
+                  "kind": "literal",
+                  "value": 0,
+                  "rawNumber": "0",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                    "line": 4,
+                    "column": 129,
+                    "offset": 401
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "bound": {
+                  "kind": "signal",
+                  "id": 1,
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                    "line": 4,
+                    "column": 133,
+                    "offset": 405
+                  },
+                  "ledger": {
+                    "reads": [
+                      1
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      1
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      1
+                    ],
+                    "mustSubscribe": [
+                      1
+                    ]
+                  }
+                },
+                "inclusive": false,
+                "body": {
+                  "stmts": [
+                    {
+                      "kind": "set",
+                      "signal": 1,
+                      "value": {
+                        "kind": "literal",
+                        "value": 0,
+                        "rawNumber": "0",
+                        "type": {
+                          "kind": "number",
+                          "name": "i32"
+                        },
+                        "loc": {
+                          "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                          "line": 4,
+                          "column": 155,
+                          "offset": 427
+                        },
+                        "ledger": {
+                          "reads": [],
+                          "writes": [],
+                          "subscriptions": [],
+                          "external": false,
+                          "maySubscribe": [],
+                          "mustSubscribe": []
+                        }
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                        "line": 4,
+                        "column": 146,
+                        "offset": 418
+                      },
+                      "ledger": {
+                        "reads": [],
+                        "writes": [
+                          1
+                        ],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    },
+                    {
+                      "kind": "set",
+                      "signal": 2,
+                      "value": {
+                        "kind": "binary",
+                        "operator": "+",
+                        "left": {
+                          "kind": "local",
+                          "id": 5,
+                          "type": {
+                            "kind": "number",
+                            "name": "i32"
+                          },
+                          "loc": {
+                            "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                            "line": 4,
+                            "column": 171,
+                            "offset": 443
+                          },
+                          "ledger": {
+                            "reads": [],
+                            "writes": [],
+                            "subscriptions": [],
+                            "external": false,
+                            "maySubscribe": [],
+                            "mustSubscribe": []
+                          }
+                        },
+                        "right": {
+                          "kind": "literal",
+                          "value": 1,
+                          "rawNumber": "1",
+                          "type": {
+                            "kind": "number",
+                            "name": "i32"
+                          },
+                          "loc": {
+                            "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                            "line": 4,
+                            "column": 173,
+                            "offset": 445
+                          },
+                          "ledger": {
+                            "reads": [],
+                            "writes": [],
+                            "subscriptions": [],
+                            "external": false,
+                            "maySubscribe": [],
+                            "mustSubscribe": []
+                          }
+                        },
+                        "type": {
+                          "kind": "number",
+                          "name": "i32"
+                        },
+                        "loc": {
+                          "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                          "line": 4,
+                          "column": 171,
+                          "offset": 443
+                        },
+                        "ledger": {
+                          "reads": [],
+                          "writes": [],
+                          "subscriptions": [],
+                          "external": false,
+                          "maySubscribe": [],
+                          "mustSubscribe": []
+                        }
+                      },
+                      "pre": {
+                        "id": 5,
+                        "name": "n",
+                        "type": {
+                          "kind": "number",
+                          "name": "i32"
+                        },
+                        "owned": false,
+                        "loc": {
+                          "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                          "line": 4,
+                          "column": 168,
+                          "offset": 440
+                        }
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                        "line": 4,
+                        "column": 158,
+                        "offset": 430
+                      },
+                      "ledger": {
+                        "reads": [
+                          2
+                        ],
+                        "writes": [
+                          2
+                        ],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    }
+                  ],
+                  "ledger": {
+                    "reads": [
+                      2
+                    ],
+                    "writes": [
+                      1,
+                      2
+                    ],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+                  "line": 4,
+                  "column": 119,
+                  "offset": 391
+                },
+                "ledger": {
+                  "reads": [
+                    1,
+                    2
+                  ],
+                  "writes": [
+                    1,
+                    2
+                  ],
+                  "subscriptions": [
+                    1
+                  ],
+                  "external": false,
+                  "maySubscribe": [
+                    1
+                  ],
+                  "mustSubscribe": [
+                    1
+                  ]
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [
+                1,
+                2
+              ],
+              "writes": [
+                1,
+                2
+              ],
+              "subscriptions": [
+                1
+              ],
+              "external": false,
+              "maySubscribe": [
+                1
+              ],
+              "mustSubscribe": [
+                1
+              ]
+            }
+          },
+          "ledger": {
+            "reads": [
+              1,
+              2
+            ],
+            "writes": [
+              1,
+              2
+            ],
+            "subscriptions": [
+              1
+            ],
+            "external": false,
+            "maySubscribe": [
+              1
+            ],
+            "mustSubscribe": [
+              1
+            ]
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/loop-bound/App.ts",
+            "line": 4,
+            "column": 95,
+            "offset": 367
+          }
+        }
+      ],
+      "schedule": [],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

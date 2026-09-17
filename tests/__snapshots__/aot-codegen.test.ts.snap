@@ -53,7 +53,21 @@ pub enum FeatureCardEvent {
 }
 
 pub trait FeatureCardViewModel {
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
 
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
 }
 
 impl FeatureCardViewModel for () {
@@ -1481,6 +1495,22 @@ pub trait FeatureToggleViewModel {
     fn presses(&self) -> i32;
 
     fn press(&mut self) -> i32;
+
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
 }
 
 struct FeatureToggleBlock17 {
@@ -2135,7 +2165,21 @@ pub enum ModelButtonEvent {
 }
 
 pub trait ModelButtonViewModel {
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
 
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
 }
 
 impl ModelButtonViewModel for () {
@@ -2766,7 +2810,21 @@ pub enum FeatureListInstance1SlotArguments<'a> {
 }
 
 pub trait FeatureListInstance1ViewModel {
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
 
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
 }
 
 impl FeatureListInstance1ViewModel for () {
@@ -3489,6 +3547,22 @@ pub trait AppViewModel {
     fn adjustCount(&mut self, __pocket_local_delta: i32);
 
     fn resetCount(&mut self);
+
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
 }
 
 struct AppBlock36 {

@@ -1,6 +1,7 @@
-import { createContext, createMemo, createSignal } from "solid-js";
+import { createContext, createSignal } from "solid-js";
+import { createMemo } from "@pocketjs/framework/solid/reactive";
 import type { Accessor } from "solid-js";
-import type { i32 } from "@pocketjs/framework/solid/std";
+import { filter, idiv, imod, len, map, max, type i32 } from "@pocketjs/framework/solid/std";
 
 export interface Feature { id: string; label: string; enabled: boolean }
 export interface LabTheme { enabledLabel: string }
@@ -13,15 +14,15 @@ export const [features, setFeatures] = createSignal<Feature[]>([
   { id: "for", label: "KEYED FOR", enabled: true },
   { id: "slots", label: "SLOTS", enabled: true },
 ]);
-export const enabledCount = createMemo<i32>(() => features().filter((f) => f.enabled).length);
+export const enabledCount = createMemo<i32>(() => len(filter(features(), (f) => f.enabled)));
 
-let axisRemainder = 0;
+let axisRemainder: i32 = 0;
 
 export function adjustCount(delta: i32): void {
   axisRemainder += delta;
-  const steps = Math.trunc(axisRemainder / 15_000);
-  axisRemainder %= 15_000;
-  setCount(Math.max(0, count() + steps));
+  const steps = idiv(axisRemainder, 15_000);
+  axisRemainder = imod(axisRemainder, 15_000);
+  setCount(max(0, count() + steps));
 }
 
 export function resetCount(): void {
@@ -30,5 +31,5 @@ export function resetCount(): void {
 }
 
 export function toggleFeature(id: string): void {
-  setFeatures((list) => list.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f)));
+  setFeatures((list) => map(list, (f) => ({ id: f.id, label: f.label, enabled: f.id === id ? !f.enabled : f.enabled })));
 }

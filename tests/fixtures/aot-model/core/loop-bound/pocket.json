@@ -1,0 +1,11 @@
+{
+  "pocket": 2,
+  "id": "test.model.loop-bound",
+  "name": "loop-bound",
+  "app": {
+    "entry": "App.tsx",
+    "framework": "solid",
+    "aot": true,
+    "model": "compiled"
+  }
+}

@@ -1,0 +1,733 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "trigger",
+          "setter": "setTrigger",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+              "line": 4,
+              "column": 48,
+              "offset": 320
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        },
+        {
+          "id": 2,
+          "name": "count",
+          "setter": "setCount",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+              "line": 4,
+              "column": 94,
+              "offset": 366
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+            "line": 4,
+            "column": 64,
+            "offset": 336
+          }
+        },
+        {
+          "id": 4,
+          "name": "x",
+          "setter": "setX",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+              "line": 4,
+              "column": 178,
+              "offset": 450
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+            "line": 4,
+            "column": 156,
+            "offset": 428
+          }
+        },
+        {
+          "id": 5,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+              "line": 4,
+              "column": 226,
+              "offset": 498
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+            "line": 4,
+            "column": 194,
+            "offset": 466
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [
+        {
+          "id": 3,
+          "name": "double",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "body": {
+            "kind": "sequence",
+            "body": {
+              "stmts": [
+                {
+                  "kind": "let",
+                  "binder": {
+                    "id": 8,
+                    "name": "_arg0",
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "owned": true,
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                      "line": 4,
+                      "column": 132,
+                      "offset": 404
+                    }
+                  },
+                  "init": {
+                    "kind": "signal",
+                    "id": 2,
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                      "line": 4,
+                      "column": 132,
+                      "offset": 404
+                    },
+                    "ledger": {
+                      "reads": [
+                        2
+                      ],
+                      "writes": [],
+                      "subscriptions": [
+                        2
+                      ],
+                      "external": false,
+                      "maySubscribe": [
+                        2
+                      ],
+                      "mustSubscribe": [
+                        2
+                      ]
+                    }
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                    "line": 4,
+                    "column": 132,
+                    "offset": 404
+                  },
+                  "ledger": {
+                    "reads": [
+                      2
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      2
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      2
+                    ],
+                    "mustSubscribe": [
+                      2
+                    ]
+                  }
+                }
+              ],
+              "ledger": {
+                "reads": [
+                  2
+                ],
+                "writes": [],
+                "subscriptions": [
+                  2
+                ],
+                "external": false,
+                "maySubscribe": [
+                  2
+                ],
+                "mustSubscribe": [
+                  2
+                ]
+              }
+            },
+            "value": {
+              "kind": "binary",
+              "operator": "*",
+              "left": {
+                "kind": "local",
+                "id": 8,
+                "type": {
+                  "kind": "number",
+                  "name": "i32"
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                  "line": 4,
+                  "column": 132,
+                  "offset": 404
+                }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 2,
+                "rawNumber": "2",
+                "type": {
+                  "kind": "number",
+                  "name": "i32"
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                  "line": 4,
+                  "column": 140,
+                  "offset": 412
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              "type": {
+                "kind": "number",
+                "name": "i32"
+              },
+              "loc": {
+                "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                "line": 4,
+                "column": 132,
+                "offset": 404
+              },
+              "ledger": {
+                "reads": [],
+                "writes": [],
+                "subscriptions": [],
+                "external": false,
+                "maySubscribe": [],
+                "mustSubscribe": []
+              }
+            },
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+              "line": 4,
+              "column": 132,
+              "offset": 404
+            },
+            "ledger": {
+              "reads": [
+                2
+              ],
+              "writes": [],
+              "subscriptions": [
+                2
+              ],
+              "external": false,
+              "maySubscribe": [
+                2
+              ],
+              "mustSubscribe": [
+                2
+              ]
+            }
+          },
+          "inputs": [
+            2
+          ],
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+            "line": 4,
+            "column": 110,
+            "offset": 382
+          }
+        }
+      ],
+      "effects": [
+        {
+          "id": 6,
+          "subscriptions": [
+            1
+          ],
+          "declared": true,
+          "defer": true,
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 2,
+                "value": {
+                  "kind": "literal",
+                  "value": 1,
+                  "rawNumber": "1",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                    "line": 4,
+                    "column": 269,
+                    "offset": 541
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                  "line": 4,
+                  "column": 260,
+                  "offset": 532
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    2
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              {
+                "kind": "set",
+                "signal": 4,
+                "value": {
+                  "kind": "memo",
+                  "id": 3,
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                    "line": 4,
+                    "column": 277,
+                    "offset": 549
+                  },
+                  "ledger": {
+                    "reads": [
+                      3
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      3
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      3
+                    ],
+                    "mustSubscribe": [
+                      3
+                    ]
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                  "line": 4,
+                  "column": 272,
+                  "offset": 544
+                },
+                "ledger": {
+                  "reads": [
+                    3
+                  ],
+                  "writes": [
+                    4
+                  ],
+                  "subscriptions": [
+                    3
+                  ],
+                  "external": false,
+                  "maySubscribe": [
+                    3
+                  ],
+                  "mustSubscribe": [
+                    3
+                  ]
+                }
+              },
+              {
+                "kind": "set",
+                "signal": 2,
+                "value": {
+                  "kind": "literal",
+                  "value": 2,
+                  "rawNumber": "2",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                    "line": 4,
+                    "column": 296,
+                    "offset": 568
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                  "line": 4,
+                  "column": 287,
+                  "offset": 559
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    2
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              {
+                "kind": "set",
+                "signal": 5,
+                "value": {
+                  "kind": "memo",
+                  "id": 3,
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                    "line": 4,
+                    "column": 309,
+                    "offset": 581
+                  },
+                  "ledger": {
+                    "reads": [
+                      3
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      3
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      3
+                    ],
+                    "mustSubscribe": [
+                      3
+                    ]
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                  "line": 4,
+                  "column": 299,
+                  "offset": 571
+                },
+                "ledger": {
+                  "reads": [
+                    3
+                  ],
+                  "writes": [
+                    5
+                  ],
+                  "subscriptions": [
+                    3
+                  ],
+                  "external": false,
+                  "maySubscribe": [
+                    3
+                  ],
+                  "mustSubscribe": [
+                    3
+                  ]
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [
+                3
+              ],
+              "writes": [
+                2,
+                4,
+                5
+              ],
+              "subscriptions": [
+                3
+              ],
+              "external": false,
+              "maySubscribe": [
+                3
+              ],
+              "mustSubscribe": [
+                3
+              ]
+            }
+          },
+          "ledger": {
+            "reads": [
+              3
+            ],
+            "writes": [
+              2,
+              4,
+              5
+            ],
+            "subscriptions": [
+              1
+            ],
+            "external": false,
+            "maySubscribe": [
+              3
+            ],
+            "mustSubscribe": [
+              3
+            ]
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+            "line": 4,
+            "column": 229,
+            "offset": 501
+          }
+        }
+      ],
+      "functions": [
+        {
+          "id": 7,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 1,
+                "value": {
+                  "kind": "literal",
+                  "value": 1,
+                  "rawNumber": "1",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                    "line": 4,
+                    "column": 371,
+                    "offset": 643
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+                  "line": 4,
+                  "column": 360,
+                  "offset": 632
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    1
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [
+                1
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [
+              1
+            ],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-between-writes/App.ts",
+            "line": 4,
+            "column": 336,
+            "offset": 608
+          }
+        }
+      ],
+      "schedule": [
+        6,
+        3
+      ],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

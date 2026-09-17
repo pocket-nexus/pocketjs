@@ -1,0 +1,56 @@
+[
+  {
+    "clock": 0,
+    "dispatch": [
+      {
+        "fn": "press"
+      }
+    ]
+  },
+  {
+    "clock": 16,
+    "deliveries": [
+      {
+        "request": {
+          "task": {
+            "region": 1,
+            "fn": 2,
+            "generation": 1
+          },
+          "generation": 1,
+          "member": 0
+        },
+        "value": {
+          "kind": "failed",
+          "message": "winner"
+        }
+      }
+    ]
+  },
+  {
+    "clock": 32,
+    "deliveries": [
+      {
+        "request": {
+          "task": {
+            "region": 1,
+            "fn": 2,
+            "generation": 1
+          },
+          "generation": 1,
+          "member": 1
+        },
+        "value": {
+          "kind": "failed",
+          "message": "late"
+        }
+      }
+    ]
+  },
+  {
+    "clock": 48
+  },
+  {
+    "clock": 64
+  }
+]

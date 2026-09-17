@@ -46,7 +46,7 @@ import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame.ts";
 import type { AxisDelta } from "./relative-axis.ts";
-import { flushLifecycleHooks, flushUnmountedHooks } from "./lifecycle-solid-aot.ts";
+import { flushLifecycleHooks, flushUnmountedHooks, disposeRootModelRegions } from "./lifecycle-solid-aot.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
 import { __drainEffects, resetEffects } from "./effects.ts";
@@ -301,6 +301,7 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
     __resetTouches();
     resetGestures();
     dispose(); // tears down reactivity only — universal keeps the nodes
+    disposeRootModelRegions();
     flushUnmountedHooks();
     setInputRoot(null); // drops focus state (native focus dies with the nodes)
     setHitRoot(null);

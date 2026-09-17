@@ -3,3 +3,6 @@
 mod app;
 
 pub use self::app::*;
+
+mod app_model;
+pub use self::app_model::*;

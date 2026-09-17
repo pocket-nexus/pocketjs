@@ -1,4 +1,5 @@
 /** Executable frame contract for Model IR; independent of native and browser emitters. */
+import { parseVaporColor } from "../../contracts/spec/vapor.ts";
 import type { AotType } from "./aot-ir.ts";
 import { assertModelProgram } from "./aot-model-tasks.ts";
 import type { ModelAwaitable, ModelBinder, ModelBlock, ModelExpr, ModelFunction, ModelMemo, ModelModule, ModelProgram, ModelTask, ModelTaskState } from "./aot-model-ir.ts";
@@ -13,9 +14,12 @@ export interface ModelFrame { frame: number; state: Record<string, any>; regions
 export interface ModelWorkCounts { scheduledMemos: number; demandMemos: number; effects: number; taskSegments: number; loopIterations: number }
 export interface ModelService { available?: boolean; capacity?: number; validate?: (value: unknown) => boolean }
 export interface ModelInterpreterOptions {
-  development?: boolean; recursionLimit?: number;
+  development?: boolean; recursionLimit?: number; deferInitial?: boolean;
   services?: Record<string, ModelService>;
   update?: (interpreter: ModelInterpreter) => void;
+  dispatch?: (interpreter: ModelInterpreter, input: ModelFrameInput) => boolean;
+  mount?: (interpreter: ModelInterpreter, region: number) => void;
+  cleanup?: (interpreter: ModelInterpreter) => boolean;
 }
 type Value = any;
 type Env = Map<number, Value>;
@@ -28,12 +32,13 @@ interface Region {
 interface RunningTask { id: TaskId; region: Region; definition: ModelTask; state: number; env: Env; sequence: number; generation: number; wait?: Wait; status: "live" | "done" | "cancelled"; value?: Value }
 interface Wait {
   kind: ModelAwaitable["kind"]; request?: RequestId; members?: Wait[]; due?: number; source?: ModelAwaitable;
-  env?: Env; task?: RunningTask; value?: Value; ready?: boolean; delivered?: boolean; cancelled?: boolean; service?: string; issued?: boolean;
+  env?: Env; task?: RunningTask; value?: Value; ready?: boolean; delivered?: boolean; cancelled?: boolean; released?: boolean; service?: string; issued?: boolean;
 }
 interface Ready { task: RunningTask; value?: Value; cancel?: boolean }
 class Returned { constructor(readonly value: Value) {} }
 const clone = <T>(value: T): T => value === undefined ? value : structuredClone(value);
 const key = (id: RequestId) => `${id.task.region}:${id.task.fn}:${id.task.generation}:${id.generation}:${id.member}`;
+const bound = (value: {capacity?:number;type:AotType}) => value.capacity ?? ("capacity" in value.type ? value.type.capacity : undefined);
 const primitive = (value: Value) => value === null || typeof value !== "object";
 const freshCounts = (): ModelWorkCounts => ({ scheduledMemos: 0, demandMemos: 0, effects: 0, taskSegments: 0, loopIterations: 0 });
 
@@ -57,24 +62,32 @@ export class ModelInterpreter {
     this.options = options;
     const root = program.modules.find(m => m.kind === "root");
     if (!root) throw new Error("Model IR has no root module");
-    this.mount(root.name);
+    this.mount(root.name, [], options.deferInitial ?? false);
     this.trace = []; this.counts = freshCounts();
   }
 
   /** A mount owns seeds, memo caches and a fresh task identity namespace. */
-  mount(module: string | number, args: Value[] = []): number {
+  mount(module: string | number, args: Value[] = [], defer = false): number {
     const definition = typeof module === "number" ? this.program.modules[module] : this.program.modules.find(m => m.name === module || m.factory === module);
     if (!definition || definition.kind === "pure") throw new Error(`Unknown model region ${module}`);
     const region: Region = { id: ++this.sequence, module: definition, cells: new Map(), fields: new Map(), params: new Map(definition.params.map((p, i) => [p.id, clone(args[i])])), generations: new Map(), tasks: new Map(), startSequence: 0, initial: true, watch: new Map() };
     this.regions.set(region.id, region);
-    for (const s of definition.signals) region.cells.set(s.id, { value: this.capacity(this.expr(s.seed, region, region.params), s.capacity, s.name), version: 1, changed: false });
-    for (const f of definition.fields) region.fields.set(f.id, this.capacity(this.expr(f.seed, region, region.params), f.capacity, f.name));
+    for (const s of definition.signals) region.cells.set(s.id, { value: this.capacity(this.expr(s.seed, region, region.params, s.name), bound(s), s.name), version: 1, changed: false });
+    for (const f of definition.fields) region.fields.set(f.id, this.capacity(this.expr(f.seed, region, region.params, f.name), bound(f), f.name));
     for (const memo of definition.memos) region.cells.set(memo.id, { value: undefined, version: 0, changed: false, seen: [] });
     this.emit({ kind: "region-create", region: region.id, module: definition.name });
     for (const id of definition.schedule) { const memo = definition.memos.find(m => m.id === id); if (memo) this.memo(memo, region, "construction"); }
     for (const cell of region.cells.values()) cell.changed = false;
+    for(const effect of definition.effects)if(effect.defer&&effect.watch){
+      const values=effect.watch.sources.map(id=>this.read(id,region.id));
+      region.watch.set(effect.id,clone(values.length===1?values[0]:values));
+    }
     // View adapters can mount during update; caches are already available at the first read.
-    if (!this.initializing) { this.react(region, true); this.settle(region); region.initial = false; }
+    if (!this.initializing && !defer) {
+      this.react(region, true); region.initial = false;
+      if (this.options.mount) { this.options.mount(this, region.id); this.react(region); }
+      this.settle(region);
+    }
     return region.id;
   }
 
@@ -92,6 +105,21 @@ export class ModelInterpreter {
     for (const s of [...region.module.signals, ...region.module.memos]) result[s.name] = clone(region.cells.get(s.id)!.value);
     for (const f of region.module.fields) result[f.name] = clone(region.fields.get(f.id));
     return result;
+  }
+
+  /** View callbacks call model functions with arguments evaluated at dispatch. */
+  call(id: number | string, args: Value[] = [], regionId = 1, handler = false): Value {
+    const region = this.region(regionId), fn = this.findFunction(id, region);
+    if (handler) this.emit({ kind: "handler", region: region.id, fn: fn.id, name: fn.name, args: clone(args) });
+    return this.invoke(fn.id, clone(args), region);
+  }
+  write(id: number | string, input: Value, regionId = 1): void {
+    const region = this.region(regionId), signal = region.module.signals.find(signal => signal.id === id || signal.name === id || signal.setter === id);
+    if (!signal) throw new Error(`Unknown model signal ${id}`);
+    const cell = region.cells.get(signal.id)!, value = this.capacity(this.numeric(input,signal.type), bound(signal), signal.name);
+    const changed = !this.primitiveType(signal.type) || value !== cell.value;
+    if (changed) { cell.value = clone(value); cell.version++; cell.changed = true; }
+    this.emit({ kind: "set", region: region.id, id: signal.id, name: signal.name, value: clone(value), changed, version: cell.version });
   }
 
   /** Dispatch-time view expressions must use this entry point; state() reads settled caches. */
@@ -118,7 +146,7 @@ export class ModelInterpreter {
       const result = this.ready(task.wait, region);
       if (result.ready) ready.push({ task, value: result.value, cancel: result.cancelled });
     }
-    const dirty = ready.length > 0 || !!input.dispatch?.length || input.invalidate || this.invalidated;
+    let dirty = ready.length > 0 || !!input.dispatch?.length || input.invalidate || this.invalidated;
     this.invalidated = false;
     for (const item of ready) {
       const task = item.task;
@@ -136,22 +164,31 @@ export class ModelInterpreter {
       this.emit({ kind: "handler", region: region.id, fn: fn.id, name: fn.name, args: clone(dispatch.args ?? []) });
       this.invoke(fn.id, dispatch.args ?? [], region);
     }
+    if (this.options.dispatch?.(this, input)) dirty = true;
     if (dirty) {
       for (const region of this.regions.values()) this.react(region);
       for (const region of this.regions.values()) this.settle(region);
       this.initializing = true;
       try { this.options.update?.(this); } finally { this.initializing = false; }
-      let rounds = 0;
-      while ([...this.regions.values()].some(r => r.initial)) {
-        if (++rounds > 8 && this.options.development !== false) throw new Error("Model mount rounds exceeded 8");
-        for (const region of [...this.regions.values()]) if (region.initial) { this.react(region, true); region.initial = false; }
-        for (const region of this.regions.values()) { this.react(region); this.settle(region); }
-        this.initializing = true;
-        try { this.options.update?.(this); } finally { this.initializing = false; }
-      }
+      this.initialize();
     }
     for (const region of this.regions.values()) for (const cell of region.cells.values()) cell.changed = false;
     return { frame: this.instant, state: this.regions.has(1) ? this.state() : {}, regions: Object.fromEntries([...this.regions.keys()].map(id => [id, this.state(id)])), trace: clone(this.trace), counts: { ...this.counts } };
+  }
+
+  /** Mount rounds run after the view has created every region for an update. */
+  initialize(): void {
+    let rounds = 0, cleanup = this.options.cleanup?.(this) ?? false;
+    while (cleanup || [...this.regions.values()].some(region => region.initial)) {
+      if (++rounds > 8 && this.options.development !== false) throw new Error("Model mount rounds exceeded 8");
+      for (const region of [...this.regions.values()]) if (region.initial) {
+        this.react(region, true); region.initial = false; this.options.mount?.(this, region.id);
+      }
+      for (const region of this.regions.values()) { this.react(region); this.settle(region); }
+      this.initializing = true;
+      try { this.options.update?.(this); } finally { this.initializing = false; }
+      cleanup = this.options.cleanup?.(this) ?? false;
+    }
   }
 
   private region(id: number): Region { const region = this.regions.get(id); if (!region) throw new Error(`Region ${id} is not mounted`); return region; }
@@ -165,7 +202,7 @@ export class ModelInterpreter {
     if (fn.async) return this.start(id, args, region);
     if (this.options.development !== false && this.depth >= (this.options.recursionLimit ?? this.program.recursionLimit ?? 256)) throw new Error(`Model recursion limit exceeded in ${fn.name}`);
     this.depth++;
-    try { this.block(fn.body, region, new Map([...region.params, ...fn.params.map((p, i) => [p.id, clone(args[i])] as const)])); }
+    try { this.block(fn.body, region, new Map([...region.params, ...fn.params.map((p, i) => [p.id, this.capacity(args[i], bound(p), p.name)] as const)])); }
     catch (result) { if (result instanceof Returned) return clone(result.value); throw result; }
     finally { this.depth--; }
   }
@@ -175,10 +212,10 @@ export class ModelInterpreter {
     for (const id of memo.inputs) { const input = region.module.memos.find(m => m.id === id); if (input) this.memo(input, region, mode === "construction" ? "construction" : "demand"); }
     const versions = memo.inputs.map(id => region.cells.get(id)!.version);
     if (!cell.version || versions.some((v, i) => cell.seen![i] !== v)) {
-      const value = this.expr(memo.body, region, new Map(region.params));
-      const changed = !cell.version || !primitive(value) || value !== cell.value;
-      cell.value = clone(value); cell.seen = versions;
-      if (changed) { cell.version++; cell.changed = true; }
+      const value = this.expr(memo.body, region, new Map(region.params), memo.name);
+      const changed = !cell.version || !this.primitiveType(memo.type) || value !== cell.value;
+      cell.seen = versions;
+      if (changed) { cell.value = clone(value); cell.version++; cell.changed = true; }
       if (mode === "demand") this.counts.demandMemos++;
       this.emit({ kind: "memo", region: region.id, id: memo.id, name: memo.name, mode, value: clone(value), changed, version: cell.version });
     }
@@ -199,7 +236,7 @@ export class ModelInterpreter {
         if (effect.watch.previous) env.set(effect.watch.previous.id, clone(region.watch.get(id)));
         region.watch.set(id, clone(value));
       }
-      this.block(effect.body, region, env);
+      try { this.block(effect.body, region, env); } catch (result) { if (!(result instanceof Returned)) throw result; }
     }
     for (const cell of region.cells.values()) cell.changed = false;
   }
@@ -215,15 +252,40 @@ export class ModelInterpreter {
     for (const ch of value) { const bytes = new TextEncoder().encode(ch).length; if (length + bytes > limit) break; result += ch; length += bytes; }
     return result;
   }
-  private numeric(value: Value, type: AotType): Value {
+  private primitiveType(type:AotType):boolean {
+    if(type.kind==="option")return false;
+    if(type.kind==="named"){const declaration=this.program.types.find(value=>value.name===type.name);return declaration?.kind==="enum"||declaration?.kind==="newtype"&&this.primitiveType(declaration.base);}
+    return ["number","boolean","string","undefined","void","style"].includes(type.kind);
+  }
+  numeric(value: Value, type: AotType): Value {
+    if(type.kind==="option")return value===undefined?undefined:this.numeric(value,type.value);
+    if(type.kind==="named"){
+      const declaration=this.program.types.find(declaration=>declaration.name===type.name);
+      if(declaration?.kind==="newtype"){
+        if(declaration.unit==="Color"){const bits=parseVaporColor(value);return "#"+[bits&255,(bits>>>8)&255,(bits>>>16)&255,bits>>>24].map(byte=>byte.toString(16).padStart(2,"0")).join("");}
+        return this.numeric(value,declaration.base);
+      }
+    }
     if (type.kind !== "number") return value;
     switch (type.name) { case "i32": return value | 0; case "u32": return value >>> 0; case "i8": return value << 24 >> 24; case "u8": return value & 255; case "i16": return value << 16 >> 16; case "u16": return value & 65535; case "f32": return Math.fround(value); default: return value; }
   }
   private defaultValue(type: AotType): Value {
-    switch (type.kind) { case "number": return 0; case "string": return ""; case "boolean": return false; case "array": return []; case "tuple": return type.elements.map(t => this.defaultValue(t)); case "option": case "undefined": case "void": return undefined; case "named": { const definition = this.program.types?.find(t => t.name === type.name); return definition?.kind === "struct" ? Object.fromEntries(definition.fields.map(f => [f.name, this.defaultValue(f.type)])) : undefined; } default: return undefined; }
+    switch (type.kind) { case "number": return 0; case "string": return ""; case "boolean": return false; case "array": return []; case "tuple": return type.elements.map(t => this.defaultValue(t)); case "option": case "undefined": case "void": return undefined; case "named": {
+      const definition = this.program.types?.find(t => t.name === type.name);
+      if(definition?.kind==="enum")return definition.variants[0];
+      if(definition?.kind==="newtype")return definition.unit==="Color"?"#00000000":this.defaultValue(definition.base);
+      if(definition?.kind==="struct")return Object.fromEntries(definition.fields.map(f=>[f.name,this.defaultValue(f.type)]));
+      if(definition?.kind==="union"){const variant=definition.variants[0]!;return{[definition.discriminant]:variant.name,...Object.fromEntries(variant.fields.map(f=>[f.name,this.defaultValue(f.type)]))};}
+      return undefined;
+    } default: return undefined; }
   }
 
-  private expr(expr: ModelExpr, region: Region, env: Env): Value {
+  private expr(expr: ModelExpr, region: Region, env: Env, name = "expression"): Value {
+    if (expr.kind === "lambda") return this.rawExpr(expr, region, env);
+    const value = this.numeric(this.rawExpr(expr, region, env), expr.type), limit = "capacity" in expr.type ? expr.type.capacity : undefined;
+    return limit === undefined ? value : this.capacity(value, limit, name);
+  }
+  private rawExpr(expr: ModelExpr, region: Region, env: Env): Value {
     const evaluate = (e: ModelExpr) => this.expr(e, region, env);
     switch (expr.kind) {
       case "literal": return expr.value;
@@ -233,7 +295,7 @@ export class ModelInterpreter {
       case "memo": return this.memo(region.module.memos.find(m => m.id === expr.id)!, region, "demand");
       case "field": return region.fields.get(expr.id);
       case "array": return expr.items.map(evaluate);
-      case "struct": return Object.fromEntries(expr.fields.map(f => [f.name, evaluate(f.value)]));
+      case "struct": return Object.fromEntries(expr.fields.map(f => [f.name, this.expr(f.value, region, env, f.name)]));
       case "member": return evaluate(expr.object)?.[expr.name];
       case "index": { const object = evaluate(expr.object), index = evaluate(expr.index); return Number.isInteger(index) && index >= 0 && index < object.length ? object[index] : this.defaultValue(expr.type); }
       case "copy": return clone(evaluate(expr.value));
@@ -260,10 +322,10 @@ export class ModelInterpreter {
       case "invoke": return this.invoke(expr.callee, expr.args.map(evaluate), region);
       case "builtin": return this.builtin(expr.name, expr.args.map(evaluate), expr.type);
       case "lambda": return (...args: Value[]) => { const inner = new Map(env); expr.params.forEach((b, i) => inner.set(b.id, clone(args[i]))); try { this.block(expr.body, region, inner); } catch (result) { if (result instanceof Returned) return result.value; throw result; } };
-      case "sequence": this.block(expr.body, region, env); return evaluate(expr.value);
+      case "sequence": try { this.block(expr.body, region, env); return evaluate(expr.value); } catch (result) { if (result instanceof Returned) return result.value; throw result; }
     }
   }
-  private builtin(name: string, args: Value[], type: AotType): Value {
+  builtin(name: string, args: Value[], type: AotType): Value {
     const [a, b, c] = args;
     switch (name) {
       case "String": case "display": return String(a); case "Number": return this.numeric(Number(a), type); case "len": return typeof a === "string" ? [...a].length : a.length;
@@ -282,19 +344,19 @@ export class ModelInterpreter {
     for (const stmt of block.stmts) {
       const evaluate = (e: ModelExpr) => this.expr(e, region, env);
       switch (stmt.kind) {
-        case "let": env.set(stmt.binder.id, this.capacity(evaluate(stmt.init), stmt.binder.capacity, stmt.binder.name)); break;
+        case "let": env.set(stmt.binder.id, this.capacity(this.expr(stmt.init, region, env, stmt.binder.name), bound(stmt.binder), stmt.binder.name)); break;
         case "assign": {
           const value = clone(evaluate(stmt.value)), target = stmt.target;
           if (target.kind === "local") env.set(target.id, value);
-          else if (target.kind === "field") { const field = region.module.fields.find(f => f.id === target.id)!; region.fields.set(target.id, this.capacity(value, field.capacity, field.name)); }
+          else if (target.kind === "field") { const field = region.module.fields.find(f => f.id === target.id)!; region.fields.set(target.id, this.capacity(value, bound(field), field.name)); }
           else if (target.kind === "element" || target.kind === "member") { const owner = env.get(target.owner); if (target.kind === "member") owner[target.name] = value; else { const index = evaluate(target.index); if (Number.isInteger(index) && index >= 0 && index < owner.length) owner[index] = value; } }
           break;
         }
         case "set": {
           const cell = region.cells.get(stmt.signal)!, signal = region.module.signals.find(s => s.id === stmt.signal)!;
           if (stmt.pre) env.set(stmt.pre.id, clone(cell.value));
-          const value = this.capacity(evaluate(stmt.value), signal.capacity, signal.name);
-          const changed = !stmt.writeBack && (!primitive(value) || value !== cell.value);
+          const value = this.capacity(this.expr(stmt.value, region, env, signal.name), bound(signal), signal.name);
+          const changed = !stmt.writeBack && (!this.primitiveType(signal.type) || value !== cell.value);
           if (changed) { cell.value = clone(value); cell.version++; cell.changed = true; }
           this.emit({ kind: "set", region: region.id, id: stmt.signal, name: signal.name, value: clone(value), changed, version: cell.version });
           if (stmt.pre) env.delete(stmt.pre.id); break;
@@ -324,7 +386,7 @@ export class ModelInterpreter {
     if (!definition) throw new Error(`No coroutine for ${fn.name}`);
     const old = region.tasks.get(id); if (old?.status === "live") this.cancelTask(old, "restart");
     const generation = (region.generations.get(id) ?? 0) + 1; region.generations.set(id, generation);
-    const task: RunningTask = { id: { region: region.id, fn: id, generation }, region, definition, state: 0, env: new Map([...region.params, ...fn.params.map((p, i) => [p.id, clone(args[i])] as const)]), sequence: ++region.startSequence, generation: 0, status: "live" };
+    const task: RunningTask = { id: { region: region.id, fn: id, generation }, region, definition, state: 0, env: new Map([...region.params, ...fn.params.map((p, i) => [p.id, this.capacity(args[i], bound(p), p.name)] as const)]), sequence: ++region.startSequence, generation: 0, status: "live" };
     region.tasks.set(id, task); this.emit({ kind: "task-start", task: clone(task.id), state: 0 }); this.segment(task); return task;
   }
   private taskState(task: RunningTask): ModelTaskState { const state = task.definition.states.find(s => s.id === task.state); if (!state) throw new Error(`Unknown task state ${task.state}`); return state; }
@@ -333,11 +395,14 @@ export class ModelInterpreter {
     try {
       while (task.state !== -1 && task.status === "live") {
         const state = this.taskState(task);
+        if (state.loop) this.counts.loopIterations++;
         this.block(state.body, task.region, task.env);
         if (state.suspend) {
           task.generation++;
           task.env = new Map([...task.env].map(([id, value]) => [id, clone(value)]));
-          task.wait = this.wait(state.suspend, task, { member: 0 }); return;
+          task.wait = this.wait(state.suspend, task, { member: 0 });
+          if (this.hasCancelledJoin(task.wait)) this.cancelTask(task, "awaited task cancelled");
+          return;
         }
         task.state = state.branch ? (this.expr(state.branch.condition, task.region, task.env) ? state.branch.then : state.branch.else) : state.next ?? -1;
       }
@@ -351,8 +416,13 @@ export class ModelInterpreter {
     this.emit({ kind: "task-cancel", task: clone(task.id), reason });
     for (const region of this.regions.values()) for (const parent of region.tasks.values()) if (parent.status === "live" && parent.wait && this.cancelledJoin(parent.wait, task)) this.cancelTask(parent, "awaited task cancelled");
   }
-  private cancelledJoin(wait: Wait, task: RunningTask): boolean { return wait.kind === "join" && wait.task === task && !(wait.source as Extract<ModelAwaitable, {kind: "join"}>).wrapped || !!wait.members?.some(w => this.cancelledJoin(w, task)); }
+  private cancelledJoin(wait: Wait, task: RunningTask): boolean { return !wait.released && (wait.kind === "join" && wait.task === task && !(wait.source as Extract<ModelAwaitable, {kind: "join"}>).wrapped || !!wait.members?.some(w => this.cancelledJoin(w, task))); }
+  private hasCancelledJoin(wait: Wait): boolean {
+    return !wait.released && (wait.kind === "join" && wait.task?.status === "cancelled" && !(wait.source as Extract<ModelAwaitable,{kind:"join"}>).wrapped || !!wait.members?.some(member => this.hasCancelledJoin(member)));
+  }
   private release(wait: Wait): void {
+    if (wait.released) return;
+    wait.released = true;
     for (const child of wait.members ?? []) this.release(child);
     if (wait.request) {
       this.requests.delete(key(wait.request));
@@ -393,7 +463,10 @@ export class ModelInterpreter {
     if (wait.kind === "all" || wait.kind === "any") {
       const members = wait.members!.map(w => this.ready(w, region));
       if (wait.kind === "all") return { ready: members.every(m => m.ready), value: members.map(m => clone(m.value)), cancelled: members.some(m => m.cancelled) };
-      return members.find(m => m.ready) ?? { ready: false };
+      const winner = members.findIndex(member => member.ready);
+      if (winner < 0) return { ready: false };
+      for (let index = 0; index < wait.members!.length; index++) if (index !== winner) this.release(wait.members![index]!);
+      return members[winner]!;
     }
     switch (wait.kind) {
       case "frames": return { ready: this.instant >= wait.due! };

@@ -1,0 +1,455 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "count",
+          "setter": "setCount",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+              "line": 4,
+              "column": 44,
+              "offset": 316
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        },
+        {
+          "id": 2,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "string"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": "x",
+            "type": {
+              "kind": "string"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+              "line": 4,
+              "column": 93,
+              "offset": 365
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+            "line": 4,
+            "column": 61,
+            "offset": 333
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [],
+      "effects": [
+        {
+          "id": 3,
+          "subscriptions": [
+            1
+          ],
+          "declared": true,
+          "defer": true,
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 2,
+                "value": {
+                  "kind": "sequence",
+                  "body": {
+                    "stmts": [
+                      {
+                        "kind": "let",
+                        "binder": {
+                          "id": 6,
+                          "name": "_arg0",
+                          "type": {
+                            "kind": "string"
+                          },
+                          "owned": true,
+                          "loc": {
+                            "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                            "line": 4,
+                            "column": 140,
+                            "offset": 412
+                          }
+                        },
+                        "init": {
+                          "kind": "binary",
+                          "operator": "+",
+                          "left": {
+                            "kind": "local",
+                            "id": 5,
+                            "type": {
+                              "kind": "string"
+                            },
+                            "loc": {
+                              "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                              "line": 4,
+                              "column": 140,
+                              "offset": 412
+                            },
+                            "ledger": {
+                              "reads": [],
+                              "writes": [],
+                              "subscriptions": [],
+                              "external": false,
+                              "maySubscribe": [],
+                              "mustSubscribe": []
+                            }
+                          },
+                          "right": {
+                            "kind": "local",
+                            "id": 5,
+                            "type": {
+                              "kind": "string"
+                            },
+                            "loc": {
+                              "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                              "line": 4,
+                              "column": 142,
+                              "offset": 414
+                            },
+                            "ledger": {
+                              "reads": [],
+                              "writes": [],
+                              "subscriptions": [],
+                              "external": false,
+                              "maySubscribe": [],
+                              "mustSubscribe": []
+                            }
+                          },
+                          "type": {
+                            "kind": "string"
+                          },
+                          "loc": {
+                            "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                            "line": 4,
+                            "column": 140,
+                            "offset": 412
+                          },
+                          "ledger": {
+                            "reads": [],
+                            "writes": [],
+                            "subscriptions": [],
+                            "external": false,
+                            "maySubscribe": [],
+                            "mustSubscribe": []
+                          }
+                        },
+                        "loc": {
+                          "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                          "line": 4,
+                          "column": 140,
+                          "offset": 412
+                        },
+                        "ledger": {
+                          "reads": [],
+                          "writes": [],
+                          "subscriptions": [],
+                          "external": false,
+                          "maySubscribe": [],
+                          "mustSubscribe": []
+                        }
+                      }
+                    ],
+                    "ledger": {
+                      "reads": [],
+                      "writes": [],
+                      "subscriptions": [],
+                      "external": false,
+                      "maySubscribe": [],
+                      "mustSubscribe": []
+                    }
+                  },
+                  "value": {
+                    "kind": "binary",
+                    "operator": "+",
+                    "left": {
+                      "kind": "local",
+                      "id": 6,
+                      "type": {
+                        "kind": "string"
+                      },
+                      "ledger": {
+                        "reads": [],
+                        "writes": [],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                        "line": 4,
+                        "column": 140,
+                        "offset": 412
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": "x",
+                      "type": {
+                        "kind": "string"
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                        "line": 4,
+                        "column": 144,
+                        "offset": 416
+                      },
+                      "ledger": {
+                        "reads": [],
+                        "writes": [],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    },
+                    "type": {
+                      "kind": "string"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                      "line": 4,
+                      "column": 140,
+                      "offset": 412
+                    },
+                    "ledger": {
+                      "reads": [],
+                      "writes": [],
+                      "subscriptions": [],
+                      "external": false,
+                      "maySubscribe": [],
+                      "mustSubscribe": []
+                    }
+                  },
+                  "type": {
+                    "kind": "string"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                    "line": 4,
+                    "column": 140,
+                    "offset": 412
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "pre": {
+                  "id": 5,
+                  "name": "s",
+                  "type": {
+                    "kind": "string"
+                  },
+                  "owned": false,
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                    "line": 4,
+                    "column": 137,
+                    "offset": 409
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                  "line": 4,
+                  "column": 127,
+                  "offset": 399
+                },
+                "ledger": {
+                  "reads": [
+                    2
+                  ],
+                  "writes": [
+                    2
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [
+                2
+              ],
+              "writes": [
+                2
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [
+              2
+            ],
+            "writes": [
+              2
+            ],
+            "subscriptions": [
+              1
+            ],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+            "line": 4,
+            "column": 99,
+            "offset": 371
+          }
+        }
+      ],
+      "functions": [
+        {
+          "id": 4,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 1,
+                "value": {
+                  "kind": "literal",
+                  "value": 1,
+                  "rawNumber": "1",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                    "line": 4,
+                    "column": 198,
+                    "offset": 470
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+                  "line": 4,
+                  "column": 189,
+                  "offset": 461
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    1
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [
+                1
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [
+              1
+            ],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/string-pre/App.ts",
+            "line": 4,
+            "column": 165,
+            "offset": 437
+          }
+        }
+      ],
+      "schedule": [
+        3
+      ],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

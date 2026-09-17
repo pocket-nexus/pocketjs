@@ -173,6 +173,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "solid/reactive": { file: { solid: "framework/src/reactive-solid.ts" }, npmFile: "framework/src/reactive-solid.ts" },
   "vue-vapor/reactive": { file: { "vue-vapor": "framework/src/reactive-vue-vapor.ts" }, npmFile: "framework/src/reactive-vue-vapor.ts" },
   "model/tasks": { file: "framework/src/model-tasks.ts" },
+  "model/animation": { file: "framework/src/model-animation.ts" },
   "net/model": { file: "framework/src/net-model.ts" },
 };
 

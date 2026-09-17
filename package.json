@@ -214,6 +214,7 @@
     "./solid/reactive": "./framework/src/reactive-solid.ts",
     "./vue-vapor/reactive": "./framework/src/reactive-vue-vapor.ts",
     "./model/tasks": "./framework/src/model-tasks.ts",
+    "./model/animation": "./framework/src/model-animation.ts",
     "./net/model": "./framework/src/net-model.ts",
     "./solid": "./framework/src/index.ts",
     "./solid/components": "./framework/src/components.ts",
@@ -332,7 +333,8 @@
     "android": "bun tools/android.ts",
     "moto-g-play": "bun tools/moto-g-play.ts",
     "ime:setup": "bun tools/ime/setup.ts",
-    "clear:companion": "bun tools/ime/device.ts"
+    "clear:companion": "bun tools/ime/device.ts",
+    "test:fuzz": "bun vapor/compiler/model-fuzz.ts"
   },
   "dependencies": {
     "@solid-primitives/keyed": "^1.5.3",

@@ -23,19 +23,143 @@ use core::fmt::Write;
 
 use pocket_vapor::{display, Block, Input, KeyedList, NodeId, SlotHandle, StyleId, Ui};
 
+enum Unmounted {
+    Hook(alloc::boxed::Box<dyn FnMut()>),
+}
+
 #[derive(Clone)]
+pub struct AotLifecycle {
+    next: alloc::rc::Rc<core::cell::RefCell<usize>>,
+    mounted: alloc::rc::Rc<core::cell::RefCell<Vec<(usize, alloc::boxed::Box<dyn FnMut()>)>>>,
+    unmounted: alloc::rc::Rc<core::cell::RefCell<Vec<(usize, Unmounted)>>>,
+    models: pocket_vapor::ModelRegions,
+}
+
+impl AotLifecycle {
+    fn new() -> Self {
+        Self {
+            next: alloc::rc::Rc::new(core::cell::RefCell::new(1usize)),
+            mounted: alloc::rc::Rc::new(core::cell::RefCell::new(Vec::new())),
+            unmounted: alloc::rc::Rc::new(core::cell::RefCell::new(Vec::new())),
+            models: pocket_vapor::ModelRegions::default(),
+        }
+    }
+
+    fn next_sequence(&self) -> usize {
+        let mut next = self.next.borrow_mut();
+        let sequence = *next;
+        *next = sequence + 1usize;
+        sequence
+    }
+
+    fn enqueue_mount(&self, sequence: usize, hook: alloc::boxed::Box<dyn FnMut()>) {
+        self.mounted.borrow_mut().push((sequence, hook));
+    }
+
+    fn enqueue_unmount(&self, sequence: usize, hook: alloc::boxed::Box<dyn FnMut()>) {
+        self.mounted
+            .borrow_mut()
+            .retain(|entry| entry.0 != sequence);
+        self.unmounted
+            .borrow_mut()
+            .push((sequence, Unmounted::Hook(hook)));
+    }
+
+    fn cancel_mount(&self, sequence: usize) {
+        self.mounted
+            .borrow_mut()
+            .retain(|entry| entry.0 != sequence);
+    }
+
+    fn discard_mounts(&self) {
+        self.mounted.borrow_mut().clear();
+    }
+
+    fn run_unmounts(&self) -> bool {
+        let mut pending = core::mem::take(&mut *self.unmounted.borrow_mut());
+        let ran = !pending.is_empty();
+        pending.sort_by_key(|entry| core::cmp::Reverse(entry.0));
+        for (_, Unmounted::Hook(mut hook)) in pending {
+            hook();
+        }
+        ran
+    }
+
+    fn run_mounts(&self) -> bool {
+        let mut pending = core::mem::take(&mut *self.mounted.borrow_mut());
+        let ran = !pending.is_empty();
+        pending.sort_by_key(|entry| entry.0);
+        for (_, mut hook) in pending {
+            hook();
+        }
+        ran
+    }
+}
+
+fn aot_reconcile<
+    K: Ord + Clone,
+    B: Block,
+    T,
+    FKey: FnMut(&T, i32) -> K,
+    FMount: FnMut(&mut Ui, NodeId, NodeId, &T, i32) -> B,
+    FUpdate: FnMut(&mut B, &mut Ui, &T, i32, NodeId),
+>(
+    list: &mut KeyedList<K, B>,
+    ui: &mut Ui,
+    parent: NodeId,
+    anchor: NodeId,
+    items: &[T],
+    mut key: FKey,
+    mut mount: FMount,
+    mut update: FUpdate,
+) {
+    let mut old: Vec<Option<pocket_vapor::KeyedRow<K, B>>> = core::mem::take(&mut list.rows)
+        .into_iter()
+        .map(Some)
+        .collect();
+    let mut rows: Vec<pocket_vapor::KeyedRow<K, B>> = Vec::with_capacity(items.len());
+    let mut by_key = alloc::collections::BTreeMap::new();
+    for (index, row) in old.iter().enumerate() {
+        by_key.insert(row.as_ref().unwrap().key.clone(), index);
+    }
+    let mut seen = alloc::collections::BTreeSet::new();
+    for (position, item) in items.iter().enumerate() {
+        let position = position as i32;
+        let row_key = key(item, position);
+        debug_assert!(seen.insert(row_key.clone()), "duplicate AOT list key");
+        let index = by_key.remove(&row_key);
+        let mut row = match index {
+            Some(index) => old[index].take().unwrap(),
+            None => pocket_vapor::KeyedRow {
+                key: row_key,
+                block: mount(ui, parent, anchor, item, position),
+            },
+        };
+        update(&mut row.block, ui, item, position, anchor);
+        rows.push(row);
+    }
+    for row in old.into_iter().flatten() {
+        row.block.unmount(ui);
+    }
+    list.rows = rows;
+    for row in &mut list.rows {
+        row.block.move_before(ui, parent, anchor);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct LabTheme {
     pub enabledLabel: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Feature {
     pub id: String,
     pub label: String,
     pub enabled: bool,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Px(pub f32);
 
 impl pocket_vapor::VaporDisplay for Px {
@@ -44,6 +168,7 @@ impl pocket_vapor::VaporDisplay for Px {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeatureListTConstraint {
     pub id: String,
 }
@@ -54,7 +179,23 @@ pub struct FeatureCardProps<'a> {
 
 pub enum FeatureCardEvent {}
 
-pub trait FeatureCardViewModel {}
+pub trait FeatureCardViewModel {
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
+}
 
 impl FeatureCardViewModel for () {}
 
@@ -71,6 +212,7 @@ impl FeatureCardBlock5 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         Self { parent, anchor }
     }
@@ -89,9 +231,11 @@ impl FeatureCardBlock5 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -167,6 +311,7 @@ impl FeatureCardNode4 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
@@ -178,6 +323,7 @@ impl FeatureCardNode4 {
             slot_badge,
             slot_default,
             slot_footer,
+            lifecycle,
         );
         Self {
             node,
@@ -202,6 +348,7 @@ impl FeatureCardNode4 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = props.title;
         if self
@@ -227,6 +374,7 @@ impl FeatureCardNode4 {
             slot_default,
             slot_footer,
             NodeId::NONE,
+            lifecycle,
         );
     }
 
@@ -313,6 +461,7 @@ impl FeatureCardBlock7 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         Self { parent, anchor }
     }
@@ -331,9 +480,11 @@ impl FeatureCardBlock7 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -406,6 +557,7 @@ impl FeatureCardSlot6 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         match slot_badge {
             Some(slot) => {
@@ -421,6 +573,7 @@ impl FeatureCardSlot6 {
                 slot_badge,
                 slot_default,
                 slot_footer,
+                lifecycle,
             )),
         }
     }
@@ -442,6 +595,7 @@ impl FeatureCardSlot6 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         match self {
             Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
@@ -460,6 +614,7 @@ impl FeatureCardSlot6 {
                 slot_default,
                 slot_footer,
                 anchor,
+                lifecycle,
             ),
         };
     }
@@ -590,11 +745,26 @@ impl FeatureCardBlock3 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
-        let child0 =
-            FeatureCardNode4::mount(ui, parent, anchor, slot_badge, slot_default, slot_footer);
-        let child1 =
-            FeatureCardSlot6::mount(ui, parent, anchor, slot_badge, slot_default, slot_footer);
+        let child0 = FeatureCardNode4::mount(
+            ui,
+            parent,
+            anchor,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            lifecycle,
+        );
+        let child1 = FeatureCardSlot6::mount(
+            ui,
+            parent,
+            anchor,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            lifecycle,
+        );
         Self {
             parent,
             anchor,
@@ -617,20 +787,10 @@ impl FeatureCardBlock3 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(
-            ui,
-            self.parent,
-            props,
-            vm,
-            slot_badge,
-            slot_default,
-            slot_footer,
-            anchor1,
-        );
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
@@ -645,7 +805,21 @@ impl FeatureCardBlock3 {
             slot_default,
             slot_footer,
             anchor0,
+            lifecycle,
         );
+        let anchor1 = anchor;
+        self.child1.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            anchor1,
+            lifecycle,
+        );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -777,6 +951,7 @@ impl FeatureCardNode2 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
@@ -788,6 +963,7 @@ impl FeatureCardNode2 {
             slot_badge,
             slot_default,
             slot_footer,
+            lifecycle,
         );
         Self { node, children }
     }
@@ -806,6 +982,7 @@ impl FeatureCardNode2 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children.update_at(
             ui,
@@ -816,6 +993,7 @@ impl FeatureCardNode2 {
             slot_default,
             slot_footer,
             NodeId::NONE,
+            lifecycle,
         );
     }
 
@@ -902,6 +1080,7 @@ impl FeatureCardBlock9 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         Self { parent, anchor }
     }
@@ -920,9 +1099,11 @@ impl FeatureCardBlock9 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -995,6 +1176,7 @@ impl FeatureCardSlot8 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         match slot_default {
             Some(slot) => {
@@ -1010,6 +1192,7 @@ impl FeatureCardSlot8 {
                 slot_badge,
                 slot_default,
                 slot_footer,
+                lifecycle,
             )),
         }
     }
@@ -1031,6 +1214,7 @@ impl FeatureCardSlot8 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         match self {
             Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
@@ -1049,6 +1233,7 @@ impl FeatureCardSlot8 {
                 slot_default,
                 slot_footer,
                 anchor,
+                lifecycle,
             ),
         };
     }
@@ -1177,6 +1362,7 @@ impl FeatureCardBlock13 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         Self { parent, anchor }
     }
@@ -1195,9 +1381,11 @@ impl FeatureCardBlock13 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -1270,6 +1458,7 @@ impl FeatureCardSlot12 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         match slot_footer {
             Some(slot) => {
@@ -1285,6 +1474,7 @@ impl FeatureCardSlot12 {
                 slot_badge,
                 slot_default,
                 slot_footer,
+                lifecycle,
             )),
         }
     }
@@ -1306,6 +1496,7 @@ impl FeatureCardSlot12 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         match self {
             Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
@@ -1324,6 +1515,7 @@ impl FeatureCardSlot12 {
                 slot_default,
                 slot_footer,
                 anchor,
+                lifecycle,
             ),
         };
     }
@@ -1453,9 +1645,17 @@ impl FeatureCardBlock11 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
-        let child0 =
-            FeatureCardSlot12::mount(ui, parent, anchor, slot_badge, slot_default, slot_footer);
+        let child0 = FeatureCardSlot12::mount(
+            ui,
+            parent,
+            anchor,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            lifecycle,
+        );
         Self {
             parent,
             anchor,
@@ -1477,6 +1677,7 @@ impl FeatureCardBlock11 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
@@ -1490,7 +1691,9 @@ impl FeatureCardBlock11 {
             slot_default,
             slot_footer,
             anchor0,
+            lifecycle,
         );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -1587,6 +1790,7 @@ impl FeatureCardNode10 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
@@ -1598,6 +1802,7 @@ impl FeatureCardNode10 {
             slot_badge,
             slot_default,
             slot_footer,
+            lifecycle,
         );
         Self { node, children }
     }
@@ -1616,6 +1821,7 @@ impl FeatureCardNode10 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children.update_at(
             ui,
@@ -1626,6 +1832,7 @@ impl FeatureCardNode10 {
             slot_default,
             slot_footer,
             NodeId::NONE,
+            lifecycle,
         );
     }
 
@@ -1715,13 +1922,35 @@ impl FeatureCardBlock1 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
-        let child0 =
-            FeatureCardNode2::mount(ui, parent, anchor, slot_badge, slot_default, slot_footer);
-        let child1 =
-            FeatureCardSlot8::mount(ui, parent, anchor, slot_badge, slot_default, slot_footer);
-        let child2 =
-            FeatureCardNode10::mount(ui, parent, anchor, slot_badge, slot_default, slot_footer);
+        let child0 = FeatureCardNode2::mount(
+            ui,
+            parent,
+            anchor,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            lifecycle,
+        );
+        let child1 = FeatureCardSlot8::mount(
+            ui,
+            parent,
+            anchor,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            lifecycle,
+        );
+        let child2 = FeatureCardNode10::mount(
+            ui,
+            parent,
+            anchor,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            lifecycle,
+        );
         Self {
             parent,
             anchor,
@@ -1748,35 +1977,10 @@ impl FeatureCardBlock1 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor2 = anchor;
-        self.child2.update_at(
-            ui,
-            self.parent,
-            props,
-            vm,
-            slot_badge,
-            slot_default,
-            slot_footer,
-            anchor2,
-        );
-        let anchor1 = if self.child2.first_node() != NodeId::NONE {
-            self.child2.first_node()
-        } else {
-            anchor
-        };
-        self.child1.update_at(
-            ui,
-            self.parent,
-            props,
-            vm,
-            slot_badge,
-            slot_default,
-            slot_footer,
-            anchor1,
-        );
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
@@ -1795,7 +1999,37 @@ impl FeatureCardBlock1 {
             slot_default,
             slot_footer,
             anchor0,
+            lifecycle,
         );
+        let anchor1 = if self.child2.first_node() != NodeId::NONE {
+            self.child2.first_node()
+        } else {
+            anchor
+        };
+        self.child1.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            anchor1,
+            lifecycle,
+        );
+        let anchor2 = anchor;
+        self.child2.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            anchor2,
+            lifecycle,
+        );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -1972,6 +2206,7 @@ impl FeatureCardNode0 {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
@@ -1984,6 +2219,7 @@ impl FeatureCardNode0 {
             slot_badge,
             slot_default,
             slot_footer,
+            lifecycle,
         );
         Self { node, children }
     }
@@ -2002,6 +2238,7 @@ impl FeatureCardNode0 {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children.update_at(
             ui,
@@ -2012,6 +2249,7 @@ impl FeatureCardNode0 {
             slot_default,
             slot_footer,
             NodeId::NONE,
+            lifecycle,
         );
     }
 
@@ -2099,9 +2337,17 @@ impl FeatureCardView {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
-        let child0 =
-            FeatureCardNode0::mount(ui, parent, anchor, slot_badge, slot_default, slot_footer);
+        let child0 = FeatureCardNode0::mount(
+            ui,
+            parent,
+            anchor,
+            slot_badge,
+            slot_default,
+            slot_footer,
+            lifecycle,
+        );
         Self {
             parent,
             anchor,
@@ -2123,6 +2369,7 @@ impl FeatureCardView {
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
@@ -2136,7 +2383,9 @@ impl FeatureCardView {
             slot_default,
             slot_footer,
             anchor0,
+            lifecycle,
         );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureCardViewModel>(
@@ -2213,6 +2462,7 @@ impl FeatureCardView {
         slot_badge: Option<&SlotHandle>,
         slot_default: Option<&SlotHandle>,
         slot_footer: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) {
         self.update_at(
             ui,
@@ -2223,6 +2473,7 @@ impl FeatureCardView {
             slot_default,
             slot_footer,
             self.anchor,
+            lifecycle,
         );
     }
 
@@ -2293,6 +2544,22 @@ pub trait FeatureToggleViewModel {
     fn presses(&self) -> i32;
 
     fn press(&mut self) -> i32;
+
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
 }
 
 struct FeatureToggleBlock17 {
@@ -2301,7 +2568,7 @@ struct FeatureToggleBlock17 {
 }
 
 impl FeatureToggleBlock17 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -2317,9 +2584,11 @@ impl FeatureToggleBlock17 {
         vm: &M,
         __pocket_inject_0: &LabTheme,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2387,11 +2656,11 @@ struct FeatureToggleNode16 {
 }
 
 impl FeatureToggleNode16 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(-1i32));
-        let children = FeatureToggleBlock17::mount(ui, node, NodeId::NONE);
+        let children = FeatureToggleBlock17::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -2414,6 +2683,7 @@ impl FeatureToggleNode16 {
         vm: &M,
         __pocket_inject_0: &LabTheme,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let value_style_memo = if props.enabled { 5i32 } else { 6i32 };
         if self.style_memo != Some(value_style_memo) {
@@ -2435,8 +2705,15 @@ impl FeatureToggleNode16 {
             };
             self.text_inputs = Some((text_input0.to_owned(),));
         };
-        self.children
-            .update_at(ui, self.node, props, vm, __pocket_inject_0, NodeId::NONE);
+        self.children.update_at(
+            ui,
+            self.node,
+            props,
+            vm,
+            __pocket_inject_0,
+            NodeId::NONE,
+            lifecycle,
+        );
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2505,7 +2782,7 @@ struct FeatureToggleBlock19 {
 }
 
 impl FeatureToggleBlock19 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -2521,9 +2798,11 @@ impl FeatureToggleBlock19 {
         vm: &M,
         __pocket_inject_0: &LabTheme,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2591,11 +2870,11 @@ struct FeatureToggleNode18 {
 }
 
 impl FeatureToggleNode18 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(-1i32));
-        let children = FeatureToggleBlock19::mount(ui, node, NodeId::NONE);
+        let children = FeatureToggleBlock19::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -2618,6 +2897,7 @@ impl FeatureToggleNode18 {
         vm: &M,
         __pocket_inject_0: &LabTheme,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let value_style_memo = if props.enabled { 7i32 } else { 8i32 };
         if self.style_memo != Some(value_style_memo) {
@@ -2647,8 +2927,15 @@ impl FeatureToggleNode18 {
             };
             self.text_inputs = Some((text_input0.to_owned(), text_input1));
         };
-        self.children
-            .update_at(ui, self.node, props, vm, __pocket_inject_0, NodeId::NONE);
+        self.children.update_at(
+            ui,
+            self.node,
+            props,
+            vm,
+            __pocket_inject_0,
+            NodeId::NONE,
+            lifecycle,
+        );
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2719,9 +3006,9 @@ struct FeatureToggleBlock15 {
 }
 
 impl FeatureToggleBlock15 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = FeatureToggleNode16::mount(ui, parent, anchor);
-        let child1 = FeatureToggleNode18::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = FeatureToggleNode16::mount(ui, parent, anchor, lifecycle);
+        let child1 = FeatureToggleNode18::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -2742,19 +3029,35 @@ impl FeatureToggleBlock15 {
         vm: &M,
         __pocket_inject_0: &LabTheme,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1
-            .update_at(ui, self.parent, props, vm, __pocket_inject_0, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0
-            .update_at(ui, self.parent, props, vm, __pocket_inject_0, anchor0);
+        self.child0.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            __pocket_inject_0,
+            anchor0,
+            lifecycle,
+        );
+        let anchor1 = anchor;
+        self.child1.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            __pocket_inject_0,
+            anchor1,
+            lifecycle,
+        );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2866,13 +3169,13 @@ struct FeatureToggleNode14 {
 }
 
 impl FeatureToggleNode14 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(-1i32));
         ui.set_focusable(node, true);
         ui.set_debug_name(node, "FeatureToggle");
-        let children = FeatureToggleBlock15::mount(ui, node, NodeId::NONE);
+        let children = FeatureToggleBlock15::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -2892,14 +3195,22 @@ impl FeatureToggleNode14 {
         vm: &M,
         __pocket_inject_0: &LabTheme,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let value_style_memo = if props.enabled { 3i32 } else { 4i32 };
         if self.style_memo != Some(value_style_memo) {
             ui.set_style(self.node, StyleId(value_style_memo as i32));
             self.style_memo = Some(value_style_memo);
         };
-        self.children
-            .update_at(ui, self.node, props, vm, __pocket_inject_0, NodeId::NONE);
+        self.children.update_at(
+            ui,
+            self.node,
+            props,
+            vm,
+            __pocket_inject_0,
+            NodeId::NONE,
+            lifecycle,
+        );
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -2977,8 +3288,8 @@ pub struct FeatureToggleView {
 }
 
 impl FeatureToggleView {
-    pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = FeatureToggleNode14::mount(ui, parent, anchor);
+    pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = FeatureToggleNode14::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -2998,12 +3309,21 @@ impl FeatureToggleView {
         vm: &M,
         __pocket_inject_0: &LabTheme,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0
-            .update_at(ui, self.parent, props, vm, __pocket_inject_0, anchor0);
+        self.child0.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            __pocket_inject_0,
+            anchor0,
+            lifecycle,
+        );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureToggleViewModel>(
@@ -3059,8 +3379,17 @@ impl FeatureToggleView {
         props: &FeatureToggleProps<'_>,
         vm: &M,
         __pocket_inject_0: &LabTheme,
+        lifecycle: &AotLifecycle,
     ) {
-        self.update_at(ui, self.parent, props, vm, __pocket_inject_0, self.anchor);
+        self.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            __pocket_inject_0,
+            self.anchor,
+            lifecycle,
+        );
     }
 
     pub fn unmount(self, ui: &mut Ui) {
@@ -3126,7 +3455,23 @@ pub enum ModelButtonEvent {
     Change(i32),
 }
 
-pub trait ModelButtonViewModel {}
+pub trait ModelButtonViewModel {
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
+}
 
 impl ModelButtonViewModel for () {}
 
@@ -3136,7 +3481,7 @@ struct ModelButtonBlock23 {
 }
 
 impl ModelButtonBlock23 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -3151,9 +3496,11 @@ impl ModelButtonBlock23 {
         props: &ModelButtonProps<'_>,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: ModelButtonViewModel>(
@@ -3219,11 +3566,11 @@ struct ModelButtonNode22 {
 }
 
 impl ModelButtonNode22 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(10i32));
-        let children = ModelButtonBlock23::mount(ui, node, NodeId::NONE);
+        let children = ModelButtonBlock23::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -3244,6 +3591,7 @@ impl ModelButtonNode22 {
         props: &ModelButtonProps<'_>,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = props.label;
         if self
@@ -3261,7 +3609,7 @@ impl ModelButtonNode22 {
             self.text_inputs = Some((text_input0.to_owned(),));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: ModelButtonViewModel>(
@@ -3329,7 +3677,7 @@ struct ModelButtonBlock25 {
 }
 
 impl ModelButtonBlock25 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -3344,9 +3692,11 @@ impl ModelButtonBlock25 {
         props: &ModelButtonProps<'_>,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: ModelButtonViewModel>(
@@ -3412,11 +3762,11 @@ struct ModelButtonNode24 {
 }
 
 impl ModelButtonNode24 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(10i32));
-        let children = ModelButtonBlock25::mount(ui, node, NodeId::NONE);
+        let children = ModelButtonBlock25::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -3437,6 +3787,7 @@ impl ModelButtonNode24 {
         props: &ModelButtonProps<'_>,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = props.value;
         if self
@@ -3454,7 +3805,7 @@ impl ModelButtonNode24 {
             self.text_inputs = Some((text_input0,));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: ModelButtonViewModel>(
@@ -3524,9 +3875,9 @@ struct ModelButtonBlock21 {
 }
 
 impl ModelButtonBlock21 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = ModelButtonNode22::mount(ui, parent, anchor);
-        let child1 = ModelButtonNode24::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = ModelButtonNode22::mount(ui, parent, anchor, lifecycle);
+        let child1 = ModelButtonNode24::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -3546,17 +3897,21 @@ impl ModelButtonBlock21 {
         props: &ModelButtonProps<'_>,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: ModelButtonViewModel>(
@@ -3660,13 +4015,13 @@ struct ModelButtonNode20 {
 }
 
 impl ModelButtonNode20 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(9i32));
         ui.set_focusable(node, true);
         ui.set_debug_name(node, "ModelButton");
-        let children = ModelButtonBlock21::mount(ui, node, NodeId::NONE);
+        let children = ModelButtonBlock21::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -3681,9 +4036,10 @@ impl ModelButtonNode20 {
         props: &ModelButtonProps<'_>,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: ModelButtonViewModel>(
@@ -3760,8 +4116,8 @@ pub struct ModelButtonView {
 }
 
 impl ModelButtonView {
-    pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = ModelButtonNode20::mount(ui, parent, anchor);
+    pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = ModelButtonNode20::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -3780,11 +4136,14 @@ impl ModelButtonView {
         props: &ModelButtonProps<'_>,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: ModelButtonViewModel>(
@@ -3834,8 +4193,9 @@ impl ModelButtonView {
         ui: &mut Ui,
         props: &ModelButtonProps<'_>,
         vm: &M,
+        lifecycle: &AotLifecycle,
     ) {
-        self.update_at(ui, self.parent, props, vm, self.anchor);
+        self.update_at(ui, self.parent, props, vm, self.anchor, lifecycle);
     }
 
     pub fn unmount(self, ui: &mut Ui) {
@@ -3906,7 +4266,23 @@ pub enum FeatureListInstance1SlotArguments<'a> {
     Slot0(&'a Feature),
 }
 
-pub trait FeatureListInstance1ViewModel {}
+pub trait FeatureListInstance1ViewModel {
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
+}
 
 impl FeatureListInstance1ViewModel for () {}
 
@@ -3916,7 +4292,13 @@ struct FeatureListInstance1Block31 {
 }
 
 impl FeatureListInstance1Block31 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+    fn mount(
+        ui: &mut Ui,
+        parent: NodeId,
+        anchor: NodeId,
+        slot_row: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
+    ) -> Self {
         Self { parent, anchor }
     }
 
@@ -3934,9 +4316,11 @@ impl FeatureListInstance1Block31 {
         __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         anchor: NodeId,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureListInstance1ViewModel>(
@@ -4004,7 +4388,13 @@ enum FeatureListInstance1Slot30 {
 }
 
 impl FeatureListInstance1Slot30 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+    fn mount(
+        ui: &mut Ui,
+        parent: NodeId,
+        anchor: NodeId,
+        slot_row: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
+    ) -> Self {
         match slot_row {
             Some(slot) => {
                 let slot = slot.instantiate();
@@ -4013,7 +4403,7 @@ impl FeatureListInstance1Slot30 {
                 Self::Native(slot, parent, anchor, first)
             }
             None => Self::Fallback(FeatureListInstance1Block31::mount(
-                ui, parent, anchor, slot_row,
+                ui, parent, anchor, slot_row, lifecycle,
             )),
         }
     }
@@ -4035,6 +4425,7 @@ impl FeatureListInstance1Slot30 {
         __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         anchor: NodeId,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
         match self {
             Self::Native(slot, slot_parent, slot_anchor, slot_first) => {
@@ -4059,6 +4450,7 @@ impl FeatureListInstance1Slot30 {
                 __pocket_local_FeatureListInstance1Loop1Item,
                 anchor,
                 slot_updates,
+                lifecycle,
             ),
         };
     }
@@ -4187,8 +4579,14 @@ struct FeatureListInstance1Block29 {
 }
 
 impl FeatureListInstance1Block29 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
-        let child0 = FeatureListInstance1Slot30::mount(ui, parent, anchor, slot_row);
+    fn mount(
+        ui: &mut Ui,
+        parent: NodeId,
+        anchor: NodeId,
+        slot_row: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
+    ) -> Self {
+        let child0 = FeatureListInstance1Slot30::mount(ui, parent, anchor, slot_row, lifecycle);
         Self {
             parent,
             anchor,
@@ -4210,6 +4608,7 @@ impl FeatureListInstance1Block29 {
         __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         anchor: NodeId,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
@@ -4223,7 +4622,9 @@ impl FeatureListInstance1Block29 {
             __pocket_local_FeatureListInstance1Loop1Item,
             anchor0,
             slot_updates,
+            lifecycle,
         );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureListInstance1ViewModel>(
@@ -4315,7 +4716,13 @@ struct FeatureListInstance1For28 {
 }
 
 impl FeatureListInstance1For28 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+    fn mount(
+        ui: &mut Ui,
+        parent: NodeId,
+        anchor: NodeId,
+        slot_row: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
+    ) -> Self {
         Self {
             rows: KeyedList::new(),
             parent,
@@ -4339,15 +4746,14 @@ impl FeatureListInstance1For28 {
         slot_row: Option<&SlotHandle>,
         anchor: NodeId,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
-        self.rows.reconcile(
+        aot_reconcile(
+            &mut self.rows,
             ui,
             parent,
             anchor,
             &props.items,
-            |old_key, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
-                old_key.as_str() == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
-            },
             |__pocket_local_FeatureListInstance1Loop1Item, row_index| {
                 __pocket_local_FeatureListInstance1Loop1Item
                     .id
@@ -4355,7 +4761,7 @@ impl FeatureListInstance1For28 {
                     .to_owned()
             },
             |ui, parent, anchor, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
-                FeatureListInstance1Block29::mount(ui, parent, anchor, slot_row)
+                FeatureListInstance1Block29::mount(ui, parent, anchor, slot_row, lifecycle)
             },
             |block, ui, __pocket_local_FeatureListInstance1Loop1Item, row_index, row_anchor| {
                 block.update_at(
@@ -4367,15 +4773,11 @@ impl FeatureListInstance1For28 {
                     __pocket_local_FeatureListInstance1Loop1Item,
                     row_anchor,
                     slot_updates,
+                    lifecycle,
                 );
             },
         );
-        self.handler_ends.clear();
-        let mut handler_total = 0usize;
-        for row in self.rows.rows.iter() {
-            handler_total = handler_total.saturating_add(row.block.handler_count());
-            self.handler_ends.push(handler_total);
-        }
+        self.refresh_slot_placement(ui, parent, anchor);
     }
 
     fn dispatch_step<M: FeatureListInstance1ViewModel>(
@@ -4537,8 +4939,14 @@ struct FeatureListInstance1Block27 {
 }
 
 impl FeatureListInstance1Block27 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
-        let child0 = FeatureListInstance1For28::mount(ui, parent, anchor, slot_row);
+    fn mount(
+        ui: &mut Ui,
+        parent: NodeId,
+        anchor: NodeId,
+        slot_row: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
+    ) -> Self {
+        let child0 = FeatureListInstance1For28::mount(ui, parent, anchor, slot_row, lifecycle);
         Self {
             parent,
             anchor,
@@ -4559,12 +4967,22 @@ impl FeatureListInstance1Block27 {
         slot_row: Option<&SlotHandle>,
         anchor: NodeId,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0
-            .update_at(ui, self.parent, props, vm, slot_row, anchor0, slot_updates);
+        self.child0.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            slot_row,
+            anchor0,
+            slot_updates,
+            lifecycle,
+        );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureListInstance1ViewModel>(
@@ -4649,11 +5067,18 @@ struct FeatureListInstance1Node26 {
 }
 
 impl FeatureListInstance1Node26 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, slot_row: Option<&SlotHandle>) -> Self {
+    fn mount(
+        ui: &mut Ui,
+        parent: NodeId,
+        anchor: NodeId,
+        slot_row: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
+    ) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(21i32));
-        let children = FeatureListInstance1Block27::mount(ui, node, NodeId::NONE, slot_row);
+        let children =
+            FeatureListInstance1Block27::mount(ui, node, NodeId::NONE, slot_row, lifecycle);
         Self { node, children }
     }
 
@@ -4670,6 +5095,7 @@ impl FeatureListInstance1Node26 {
         slot_row: Option<&SlotHandle>,
         anchor: NodeId,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
         self.children.update_at(
             ui,
@@ -4679,6 +5105,7 @@ impl FeatureListInstance1Node26 {
             slot_row,
             NodeId::NONE,
             slot_updates,
+            lifecycle,
         );
     }
 
@@ -4757,8 +5184,9 @@ impl FeatureListInstance1View {
         parent: NodeId,
         anchor: NodeId,
         slot_row: Option<&SlotHandle>,
+        lifecycle: &AotLifecycle,
     ) -> Self {
-        let child0 = FeatureListInstance1Node26::mount(ui, parent, anchor, slot_row);
+        let child0 = FeatureListInstance1Node26::mount(ui, parent, anchor, slot_row, lifecycle);
         Self {
             parent,
             anchor,
@@ -4779,12 +5207,22 @@ impl FeatureListInstance1View {
         slot_row: Option<&SlotHandle>,
         anchor: NodeId,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0
-            .update_at(ui, self.parent, props, vm, slot_row, anchor0, slot_updates);
+        self.child0.update_at(
+            ui,
+            self.parent,
+            props,
+            vm,
+            slot_row,
+            anchor0,
+            slot_updates,
+            lifecycle,
+        );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: FeatureListInstance1ViewModel>(
@@ -4847,6 +5285,7 @@ impl FeatureListInstance1View {
         vm: &M,
         slot_row: Option<&SlotHandle>,
         slot_updates: &mut dyn FnMut(&mut Ui, usize, FeatureListInstance1SlotArguments<'_>),
+        lifecycle: &AotLifecycle,
     ) {
         self.update_at(
             ui,
@@ -4856,6 +5295,7 @@ impl FeatureListInstance1View {
             slot_row,
             self.anchor,
             slot_updates,
+            lifecycle,
         );
     }
 
@@ -4918,13 +5358,17 @@ pub struct AppProps {}
 pub enum AppEvent {}
 
 pub trait AppViewModel {
-    type FeatureToggle: FeatureToggleViewModel + Default;
+    type FeatureToggle: FeatureToggleViewModel + Default + 'static;
 
     fn count(&self) -> i32;
 
     fn set_count(&mut self, value: i32);
 
     fn enabledCount(&self) -> i32;
+
+    fn enabledCount_now(&mut self) -> i32 {
+        self.enabledCount()
+    }
 
     fn features(&self) -> &[Feature];
 
@@ -4935,6 +5379,22 @@ pub trait AppViewModel {
     fn resetCount(&mut self);
 
     fn toggleFeature(&mut self, __pocket_local_id: String);
+
+    fn react(&mut self, _initial: bool, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn settle(&mut self) {}
+
+    fn prepare_resume(&mut self, _ready: &pocket_vapor::Ready) {}
+
+    fn resume(&mut self, _ready: &pocket_vapor::Ready, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn cancel_tasks(&mut self, _cmds: &mut Vec<pocket_vapor::Cmd>) {}
+
+    fn bind_commands(&mut self, _queue: pocket_vapor::CommandQueue) {}
+
+    fn model_changed(&self) -> bool {
+        false
+    }
 }
 
 struct AppBlock36 {
@@ -4943,7 +5403,7 @@ struct AppBlock36 {
 }
 
 impl AppBlock36 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -4958,9 +5418,11 @@ impl AppBlock36 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5023,9 +5485,9 @@ struct AppInput35 {
 }
 
 impl AppInput35 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self {
-            children: AppBlock36::mount(ui, parent, anchor),
+            children: AppBlock36::mount(ui, parent, anchor, lifecycle),
             latch: pocket_vapor::ButtonLatch::new(true),
         }
     }
@@ -5041,8 +5503,10 @@ impl AppInput35 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
-        self.children.update_at(ui, parent, props, vm, anchor);
+        self.children
+            .update_at(ui, parent, props, vm, anchor, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5122,7 +5586,7 @@ struct AppBlock38 {
 }
 
 impl AppBlock38 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -5137,9 +5601,11 @@ impl AppBlock38 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5201,9 +5667,9 @@ struct AppInput37 {
 }
 
 impl AppInput37 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self {
-            children: AppBlock38::mount(ui, parent, anchor),
+            children: AppBlock38::mount(ui, parent, anchor, lifecycle),
         }
     }
 
@@ -5218,8 +5684,10 @@ impl AppInput37 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
-        self.children.update_at(ui, parent, props, vm, anchor);
+        self.children
+            .update_at(ui, parent, props, vm, anchor, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5294,7 +5762,7 @@ struct AppBlock44 {
 }
 
 impl AppBlock44 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -5309,9 +5777,11 @@ impl AppBlock44 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5374,11 +5844,11 @@ struct AppNode43 {
 }
 
 impl AppNode43 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(13i32));
-        let children = AppBlock44::mount(ui, node, NodeId::NONE);
+        let children = AppBlock44::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "Solid AOT Feature Lab");
         Self { node, children }
     }
@@ -5394,9 +5864,10 @@ impl AppNode43 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5464,7 +5935,7 @@ struct AppBlock46 {
 }
 
 impl AppBlock46 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -5479,9 +5950,11 @@ impl AppBlock46 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5544,11 +6017,11 @@ struct AppNode45 {
 }
 
 impl AppNode45 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(8i32));
-        let children = AppBlock46::mount(ui, node, NodeId::NONE);
+        let children = AppBlock46::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "typed TSX views · PocketJS Vapor");
         Self { node, children }
     }
@@ -5564,9 +6037,10 @@ impl AppNode45 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5636,9 +6110,9 @@ struct AppBlock42 {
 }
 
 impl AppBlock42 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode43::mount(ui, parent, anchor);
-        let child1 = AppNode45::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode43::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode45::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -5658,17 +6132,21 @@ impl AppBlock42 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5772,11 +6250,11 @@ struct AppNode41 {
 }
 
 impl AppNode41 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(12i32));
-        let children = AppBlock42::mount(ui, node, NodeId::NONE);
+        let children = AppBlock42::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -5791,9 +6269,10 @@ impl AppNode41 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5861,7 +6340,7 @@ struct AppBlock48 {
 }
 
 impl AppBlock48 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -5876,9 +6355,11 @@ impl AppBlock48 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -5944,11 +6425,11 @@ struct AppNode47 {
 }
 
 impl AppNode47 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(14i32));
-        let children = AppBlock48::mount(ui, node, NodeId::NONE);
+        let children = AppBlock48::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -5969,6 +6450,7 @@ impl AppNode47 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = vm.enabledCount();
         if self
@@ -5986,7 +6468,7 @@ impl AppNode47 {
             self.text_inputs = Some((text_input0,));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6056,9 +6538,9 @@ struct AppBlock40 {
 }
 
 impl AppBlock40 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode41::mount(ui, parent, anchor);
-        let child1 = AppNode47::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode41::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode47::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -6078,17 +6560,21 @@ impl AppBlock40 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6192,11 +6678,11 @@ struct AppNode39 {
 }
 
 impl AppNode39 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(1i32));
-        let children = AppBlock40::mount(ui, node, NodeId::NONE);
+        let children = AppBlock40::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -6211,9 +6697,10 @@ impl AppNode39 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6281,7 +6768,7 @@ struct AppBlock54 {
 }
 
 impl AppBlock54 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -6296,9 +6783,11 @@ impl AppBlock54 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6364,11 +6853,11 @@ struct AppNode53 {
 }
 
 impl AppNode53 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(2i32));
-        let children = AppBlock54::mount(ui, node, NodeId::NONE);
+        let children = AppBlock54::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -6389,6 +6878,7 @@ impl AppNode53 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = "PROPS + CALLBACKS";
         if self
@@ -6406,7 +6896,7 @@ impl AppNode53 {
             self.text_inputs = Some((text_input0.to_owned(),));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6474,7 +6964,7 @@ struct AppBlock56 {
 }
 
 impl AppBlock56 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -6489,9 +6979,11 @@ impl AppBlock56 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6554,11 +7046,11 @@ struct AppNode55 {
 }
 
 impl AppNode55 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(15i32));
-        let children = AppBlock56::mount(ui, node, NodeId::NONE);
+        let children = AppBlock56::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "Accessor + Setter");
         Self { node, children }
     }
@@ -6574,9 +7066,10 @@ impl AppNode55 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6646,9 +7139,9 @@ struct AppBlock52 {
 }
 
 impl AppBlock52 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode53::mount(ui, parent, anchor);
-        let child1 = AppNode55::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode53::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode55::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -6668,17 +7161,21 @@ impl AppBlock52 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6782,11 +7279,11 @@ struct AppNode51 {
 }
 
 impl AppNode51 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(1i32));
-        let children = AppBlock52::mount(ui, node, NodeId::NONE);
+        let children = AppBlock52::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -6801,9 +7298,10 @@ impl AppNode51 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6871,7 +7369,7 @@ struct AppBlock60 {
 }
 
 impl AppBlock60 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -6886,9 +7384,11 @@ impl AppBlock60 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -6954,11 +7454,11 @@ struct AppNode59 {
 }
 
 impl AppNode59 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(10i32));
-        let children = AppBlock60::mount(ui, node, NodeId::NONE);
+        let children = AppBlock60::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -6979,6 +7479,7 @@ impl AppNode59 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = "VALUE +1";
         if self
@@ -6996,7 +7497,7 @@ impl AppNode59 {
             self.text_inputs = Some((text_input0.to_owned(),));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7064,7 +7565,7 @@ struct AppBlock62 {
 }
 
 impl AppBlock62 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -7079,9 +7580,11 @@ impl AppBlock62 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7147,11 +7650,11 @@ struct AppNode61 {
 }
 
 impl AppNode61 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(10i32));
-        let children = AppBlock62::mount(ui, node, NodeId::NONE);
+        let children = AppBlock62::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -7172,6 +7675,7 @@ impl AppNode61 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = vm.count();
         if self
@@ -7189,7 +7693,7 @@ impl AppNode61 {
             self.text_inputs = Some((text_input0,));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7259,9 +7763,9 @@ struct AppBlock58 {
 }
 
 impl AppBlock58 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode59::mount(ui, parent, anchor);
-        let child1 = AppNode61::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode59::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode61::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -7281,17 +7785,21 @@ impl AppBlock58 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7395,13 +7903,13 @@ struct AppNode57 {
 }
 
 impl AppNode57 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(9i32));
         ui.set_focusable(node, true);
         ui.set_debug_name(node, "ModelButton");
-        let children = AppBlock58::mount(ui, node, NodeId::NONE);
+        let children = AppBlock58::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -7416,9 +7924,10 @@ impl AppNode57 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7495,7 +8004,7 @@ struct AppBlock68 {
 }
 
 impl AppBlock68 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -7510,9 +8019,11 @@ impl AppBlock68 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7575,11 +8086,11 @@ struct AppNode67 {
 }
 
 impl AppNode67 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(8i32));
-        let children = AppBlock68::mount(ui, node, NodeId::NONE);
+        let children = AppBlock68::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "Switch: idle");
         Self { node, children }
     }
@@ -7595,9 +8106,10 @@ impl AppNode67 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7666,8 +8178,8 @@ struct AppBlock66 {
 }
 
 impl AppBlock66 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode67::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode67::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -7686,11 +8198,14 @@ impl AppBlock66 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7768,7 +8283,7 @@ struct AppBlock71 {
 }
 
 impl AppBlock71 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -7783,9 +8298,11 @@ impl AppBlock71 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7848,11 +8365,11 @@ struct AppNode70 {
 }
 
 impl AppNode70 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(15i32));
-        let children = AppBlock71::mount(ui, node, NodeId::NONE);
+        let children = AppBlock71::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "Switch: active");
         Self { node, children }
     }
@@ -7868,9 +8385,10 @@ impl AppNode70 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -7939,8 +8457,8 @@ struct AppBlock69 {
 }
 
 impl AppBlock69 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode70::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode70::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -7959,11 +8477,14 @@ impl AppBlock69 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8041,7 +8562,7 @@ struct AppBlock74 {
 }
 
 impl AppBlock74 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -8056,9 +8577,11 @@ impl AppBlock74 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8121,11 +8644,11 @@ struct AppNode73 {
 }
 
 impl AppNode73 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(17i32));
-        let children = AppBlock74::mount(ui, node, NodeId::NONE);
+        let children = AppBlock74::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "Switch: complete");
         Self { node, children }
     }
@@ -8141,9 +8664,10 @@ impl AppNode73 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8212,8 +8736,8 @@ struct AppBlock72 {
 }
 
 impl AppBlock72 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode73::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode73::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -8232,11 +8756,14 @@ impl AppBlock72 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8316,7 +8843,7 @@ enum AppIf65 {
 }
 
 impl AppIf65 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self::Empty
     }
 
@@ -8336,6 +8863,7 @@ impl AppIf65 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let selected = if vm.count() == 0i32 {
             0i32
@@ -8356,16 +8884,16 @@ impl AppIf65 {
             let old = core::mem::replace(self, Self::Empty);
             old.unmount(ui);
             *self = match selected {
-                0 => Self::B0(AppBlock66::mount(ui, parent, anchor)),
-                1 => Self::B1(AppBlock69::mount(ui, parent, anchor)),
-                2 => Self::B2(AppBlock72::mount(ui, parent, anchor)),
+                0 => Self::B0(AppBlock66::mount(ui, parent, anchor, lifecycle)),
+                1 => Self::B1(AppBlock69::mount(ui, parent, anchor, lifecycle)),
+                2 => Self::B2(AppBlock72::mount(ui, parent, anchor, lifecycle)),
                 _ => Self::Empty,
             };
         };
         match self {
-            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::B2(block) => block.update_at(ui, parent, props, vm, anchor),
+            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor, lifecycle),
+            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor, lifecycle),
+            Self::B2(block) => block.update_at(ui, parent, props, vm, anchor, lifecycle),
             Self::Empty => (),
         };
     }
@@ -8475,7 +9003,7 @@ struct AppBlock76 {
 }
 
 impl AppBlock76 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -8490,9 +9018,11 @@ impl AppBlock76 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8558,11 +9088,11 @@ struct AppNode75 {
 }
 
 impl AppNode75 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(18i32));
-        let children = AppBlock76::mount(ui, node, NodeId::NONE);
+        let children = AppBlock76::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -8583,6 +9113,7 @@ impl AppNode75 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = vm.count();
         if self
@@ -8604,7 +9135,7 @@ impl AppNode75 {
             self.text_inputs = Some((text_input0,));
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8674,9 +9205,9 @@ struct AppBlock64 {
 }
 
 impl AppBlock64 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppIf65::mount(ui, parent, anchor);
-        let child1 = AppNode75::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppIf65::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode75::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -8696,17 +9227,21 @@ impl AppBlock64 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8810,11 +9345,11 @@ struct AppNode63 {
 }
 
 impl AppNode63 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(1i32));
-        let children = AppBlock64::mount(ui, node, NodeId::NONE);
+        let children = AppBlock64::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -8829,9 +9364,10 @@ impl AppNode63 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8899,7 +9435,7 @@ struct AppBlock80 {
 }
 
 impl AppBlock80 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -8914,9 +9450,11 @@ impl AppBlock80 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -8979,11 +9517,11 @@ struct AppNode79 {
 }
 
 impl AppNode79 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(18i32));
-        let children = AppBlock80::mount(ui, node, NodeId::NONE);
+        let children = AppBlock80::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "Show: fragment");
         Self { node, children }
     }
@@ -8999,9 +9537,10 @@ impl AppNode79 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9069,7 +9608,7 @@ struct AppBlock82 {
 }
 
 impl AppBlock82 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -9084,9 +9623,11 @@ impl AppBlock82 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9150,11 +9691,11 @@ struct AppNode81 {
 }
 
 impl AppNode81 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(19i32));
-        let children = AppBlock82::mount(ui, node, NodeId::NONE);
+        let children = AppBlock82::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -9173,6 +9714,7 @@ impl AppNode81 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let value_prop_memo0 = Px(80i32.wrapping_add(vm.count().wrapping_mul(12i32)) as f32);
         if self.prop_memo0 != Some(value_prop_memo0) {
@@ -9180,7 +9722,7 @@ impl AppNode81 {
             self.prop_memo0 = Some(value_prop_memo0);
         };
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9250,9 +9792,9 @@ struct AppBlock78 {
 }
 
 impl AppBlock78 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode79::mount(ui, parent, anchor);
-        let child1 = AppNode81::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode79::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode81::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -9272,17 +9814,21 @@ impl AppBlock78 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9386,7 +9932,7 @@ struct AppBlock85 {
 }
 
 impl AppBlock85 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -9401,9 +9947,11 @@ impl AppBlock85 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9466,11 +10014,11 @@ struct AppNode84 {
 }
 
 impl AppNode84 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(16i32));
-        let children = AppBlock85::mount(ui, node, NodeId::NONE);
+        let children = AppBlock85::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "Show fallback: press → then ○");
         Self { node, children }
     }
@@ -9486,9 +10034,10 @@ impl AppNode84 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9556,7 +10105,7 @@ struct AppBlock87 {
 }
 
 impl AppBlock87 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -9571,9 +10120,11 @@ impl AppBlock87 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9636,11 +10187,11 @@ struct AppNode86 {
 }
 
 impl AppNode86 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(20i32));
-        let children = AppBlock87::mount(ui, node, NodeId::NONE);
+        let children = AppBlock87::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -9655,9 +10206,10 @@ impl AppNode86 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9727,9 +10279,9 @@ struct AppBlock83 {
 }
 
 impl AppBlock83 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode84::mount(ui, parent, anchor);
-        let child1 = AppNode86::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode84::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode86::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -9749,17 +10301,21 @@ impl AppBlock83 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -9864,7 +10420,7 @@ enum AppIf77 {
 }
 
 impl AppIf77 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self::Empty
     }
 
@@ -9883,6 +10439,7 @@ impl AppIf77 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let selected = if vm.count() > 0i32 { 0i32 } else { 1i32 };
         let current = match &*self {
@@ -9894,14 +10451,14 @@ impl AppIf77 {
             let old = core::mem::replace(self, Self::Empty);
             old.unmount(ui);
             *self = match selected {
-                0 => Self::B0(AppBlock78::mount(ui, parent, anchor)),
-                1 => Self::B1(AppBlock83::mount(ui, parent, anchor)),
+                0 => Self::B0(AppBlock78::mount(ui, parent, anchor, lifecycle)),
+                1 => Self::B1(AppBlock83::mount(ui, parent, anchor, lifecycle)),
                 _ => Self::Empty,
             };
         };
         match self {
-            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor),
-            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor),
+            Self::B0(block) => block.update_at(ui, parent, props, vm, anchor, lifecycle),
+            Self::B1(block) => block.update_at(ui, parent, props, vm, anchor, lifecycle),
             Self::Empty => (),
         };
     }
@@ -10002,7 +10559,7 @@ struct AppBlock91 {
 }
 
 impl AppBlock91 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -10017,9 +10574,11 @@ impl AppBlock91 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10082,11 +10641,11 @@ struct AppNode90 {
 }
 
 impl AppNode90 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(8i32));
-        let children = AppBlock91::mount(ui, node, NodeId::NONE);
+        let children = AppBlock91::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "props + emits + named slots");
         Self { node, children }
     }
@@ -10102,9 +10661,10 @@ impl AppNode90 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10172,7 +10732,7 @@ struct AppBlock93 {
 }
 
 impl AppBlock93 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -10187,9 +10747,11 @@ impl AppBlock93 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10252,11 +10814,11 @@ struct AppNode92 {
 }
 
 impl AppNode92 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(16i32));
-        let children = AppBlock93::mount(ui, node, NodeId::NONE);
+        let children = AppBlock93::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "signal + memo");
         Self { node, children }
     }
@@ -10272,9 +10834,10 @@ impl AppNode92 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10344,9 +10907,9 @@ struct AppBlock89 {
 }
 
 impl AppBlock89 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode90::mount(ui, parent, anchor);
-        let child1 = AppNode92::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode90::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode92::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -10366,17 +10929,21 @@ impl AppBlock89 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10480,11 +11047,11 @@ struct AppNode88 {
 }
 
 impl AppNode88 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(1i32));
-        let children = AppBlock89::mount(ui, node, NodeId::NONE);
+        let children = AppBlock89::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -10499,9 +11066,10 @@ impl AppNode88 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10574,12 +11142,12 @@ struct AppBlock50 {
 }
 
 impl AppBlock50 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode51::mount(ui, parent, anchor);
-        let child1 = AppNode57::mount(ui, parent, anchor);
-        let child2 = AppNode63::mount(ui, parent, anchor);
-        let child3 = AppIf77::mount(ui, parent, anchor);
-        let child4 = AppNode88::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode51::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode57::mount(ui, parent, anchor, lifecycle);
+        let child2 = AppNode63::mount(ui, parent, anchor, lifecycle);
+        let child3 = AppIf77::mount(ui, parent, anchor, lifecycle);
+        let child4 = AppNode88::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -10607,41 +11175,10 @@ impl AppBlock50 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor4 = anchor;
-        self.child4.update_at(ui, self.parent, props, vm, anchor4);
-        let anchor3 = if self.child4.first_node() != NodeId::NONE {
-            self.child4.first_node()
-        } else {
-            anchor
-        };
-        self.child3.update_at(ui, self.parent, props, vm, anchor3);
-        let anchor2 = if self.child3.first_node() != NodeId::NONE {
-            self.child3.first_node()
-        } else {
-            if self.child4.first_node() != NodeId::NONE {
-                self.child4.first_node()
-            } else {
-                anchor
-            }
-        };
-        self.child2.update_at(ui, self.parent, props, vm, anchor2);
-        let anchor1 = if self.child2.first_node() != NodeId::NONE {
-            self.child2.first_node()
-        } else {
-            if self.child3.first_node() != NodeId::NONE {
-                self.child3.first_node()
-            } else {
-                if self.child4.first_node() != NodeId::NONE {
-                    self.child4.first_node()
-                } else {
-                    anchor
-                }
-            }
-        };
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
@@ -10659,7 +11196,45 @@ impl AppBlock50 {
                 }
             }
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = if self.child2.first_node() != NodeId::NONE {
+            self.child2.first_node()
+        } else {
+            if self.child3.first_node() != NodeId::NONE {
+                self.child3.first_node()
+            } else {
+                if self.child4.first_node() != NodeId::NONE {
+                    self.child4.first_node()
+                } else {
+                    anchor
+                }
+            }
+        };
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        let anchor2 = if self.child3.first_node() != NodeId::NONE {
+            self.child3.first_node()
+        } else {
+            if self.child4.first_node() != NodeId::NONE {
+                self.child4.first_node()
+            } else {
+                anchor
+            }
+        };
+        self.child2
+            .update_at(ui, self.parent, props, vm, anchor2, lifecycle);
+        let anchor3 = if self.child4.first_node() != NodeId::NONE {
+            self.child4.first_node()
+        } else {
+            anchor
+        };
+        self.child3
+            .update_at(ui, self.parent, props, vm, anchor3, lifecycle);
+        let anchor4 = anchor;
+        self.child4
+            .update_at(ui, self.parent, props, vm, anchor4, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10875,12 +11450,12 @@ struct AppNode49 {
 }
 
 impl AppNode49 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(0i32));
         ui.set_debug_name(node, "FeatureCard");
-        let children = AppBlock50::mount(ui, node, NodeId::NONE);
+        let children = AppBlock50::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -10895,9 +11470,10 @@ impl AppNode49 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -10959,16 +11535,59 @@ impl Block for AppNode49 {
     }
 }
 
-struct AppComponent98<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppComponent98<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     view: FeatureToggleView,
-    model: StateFeatureToggle,
+    model: alloc::rc::Rc<core::cell::RefCell<StateFeatureToggle>>,
+    lifecycle: AotLifecycle,
+    sequence: usize,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent98<StateFeatureToggle> {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let model = StateFeatureToggle::default();
-        let view = <FeatureToggleView>::mount(ui, parent, anchor);
-        Self { view, model }
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static>
+    AppComponent98<StateFeatureToggle>
+{
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let model = alloc::rc::Rc::new(core::cell::RefCell::new(StateFeatureToggle::default()));
+        let sequence = lifecycle.next_sequence();
+        model
+            .borrow_mut()
+            .bind_commands(lifecycle.models.commands.clone());
+        let phase_model = model.clone();
+        lifecycle.models.register(
+            sequence,
+            alloc::boxed::Box::new(move |phase, ready, cmds| {
+                let mut model = phase_model.borrow_mut();
+                match phase {
+                    pocket_vapor::ModelPhase::Prepare => model.prepare_resume(ready),
+                    pocket_vapor::ModelPhase::Resume => model.resume(ready, cmds),
+                    pocket_vapor::ModelPhase::React => model.react(false, cmds),
+                    pocket_vapor::ModelPhase::Settle => model.settle(),
+                    pocket_vapor::ModelPhase::Dispose => model.cancel_tasks(cmds),
+                };
+                model.model_changed()
+            }),
+        );
+        let hook_model = model.clone();
+        let hook_regions = lifecycle.models.clone();
+        lifecycle.enqueue_mount(
+            sequence,
+            alloc::boxed::Box::new(move || {
+                let mut cmds = Vec::new();
+                hook_model
+                    .borrow_mut()
+                    .prepare_resume(&hook_regions.ready());
+                hook_model.borrow_mut().react(true, &mut cmds);
+                hook_model.borrow_mut().settle();
+                hook_regions.commands.extend(cmds);
+            }),
+        );
+        let view = <FeatureToggleView>::mount(ui, parent, anchor, lifecycle);
+        let lifecycle = lifecycle.clone();
+        Self {
+            view,
+            model,
+            lifecycle,
+            sequence,
+        }
     }
 
     fn contains_node(&self, target: NodeId) -> bool {
@@ -10983,6 +11602,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent98<StateF
         vm: &M,
         __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let prop_value0 = __pocket_local_FeatureListInstance1Loop1Item.label.as_str();
         let prop_value1 = __pocket_local_FeatureListInstance1Loop1Item.enabled;
@@ -10990,8 +11610,15 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent98<StateF
             label: prop_value0,
             enabled: prop_value1,
         };
-        self.view
-            .update_at(ui, parent, &child_props, &self.model, vm.theme(), anchor);
+        self.view.update_at(
+            ui,
+            parent,
+            &child_props,
+            &*self.model.borrow(),
+            vm.theme(),
+            anchor,
+            lifecycle,
+        );
         self.view.refresh_slot_placement(ui, parent, anchor);
     }
 
@@ -11043,7 +11670,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent98<StateF
         self.view.dispatch_step(
             input,
             &child_props,
-            &mut self.model,
+            &mut *self.model.borrow_mut(),
             &inject_owner0,
             &mut child_events,
             cursor,
@@ -11071,7 +11698,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppComponent98<StateF
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
     for AppComponent98<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
@@ -11084,18 +11711,29 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
 
     fn unmount(self, ui: &mut Ui) {
         self.view.unmount(ui);
+        let hook_model = self.model;
+        let hook_regions = self.lifecycle.models.clone();
+        let sequence = self.sequence;
+        self.lifecycle.enqueue_unmount(
+            sequence,
+            alloc::boxed::Box::new(move || {
+                hook_regions.remove(sequence);
+            }),
+        );
     }
 }
 
-struct AppBlock97<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppBlock97<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     parent: NodeId,
     anchor: NodeId,
     child0: AppComponent98<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock97<StateFeatureToggle> {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppComponent98::mount(ui, parent, anchor);
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static>
+    AppBlock97<StateFeatureToggle>
+{
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppComponent98::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -11115,6 +11753,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock97<StateFeatu
         vm: &M,
         __pocket_local_FeatureListInstance1Loop1Item: &Feature,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
@@ -11126,7 +11765,9 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock97<StateFeatu
             vm,
             __pocket_local_FeatureListInstance1Loop1Item,
             anchor0,
+            lifecycle,
         );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel<FeatureToggle = StateFeatureToggle>>(
@@ -11186,7 +11827,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock97<StateFeatu
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
     for AppBlock97<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
@@ -11208,14 +11849,14 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
     }
 }
 
-struct AppFor96<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppFor96<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     rows: KeyedList<String, AppBlock97<StateFeatureToggle>>,
     parent: NodeId,
     handler_ends: Vec<usize>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor96<StateFeatureToggle> {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> AppFor96<StateFeatureToggle> {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self {
             rows: KeyedList::new(),
             parent,
@@ -11237,15 +11878,14 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor96<StateFeature
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
-        self.rows.reconcile(
+        aot_reconcile(
+            &mut self.rows,
             ui,
             parent,
             anchor,
             &vm.features(),
-            |old_key, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
-                old_key.as_str() == __pocket_local_FeatureListInstance1Loop1Item.id.as_str()
-            },
             |__pocket_local_FeatureListInstance1Loop1Item, row_index| {
                 __pocket_local_FeatureListInstance1Loop1Item
                     .id
@@ -11253,7 +11893,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor96<StateFeature
                     .to_owned()
             },
             |ui, parent, anchor, __pocket_local_FeatureListInstance1Loop1Item, row_index| {
-                AppBlock97::mount(ui, parent, anchor)
+                AppBlock97::mount(ui, parent, anchor, lifecycle)
             },
             |block, ui, __pocket_local_FeatureListInstance1Loop1Item, row_index, row_anchor| {
                 block.update_at(
@@ -11263,15 +11903,11 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor96<StateFeature
                     vm,
                     __pocket_local_FeatureListInstance1Loop1Item,
                     row_anchor,
+                    lifecycle,
                 );
             },
         );
-        self.handler_ends.clear();
-        let mut handler_total = 0usize;
-        for row in self.rows.rows.iter() {
-            handler_total = handler_total.saturating_add(row.block.handler_count());
-            self.handler_ends.push(handler_total);
-        }
+        self.refresh_slot_placement(ui, parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel<FeatureToggle = StateFeatureToggle>>(
@@ -11406,7 +12042,9 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppFor96<StateFeature
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppFor96<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
+    for AppFor96<StateFeatureToggle>
+{
     fn first_node(&self) -> NodeId {
         self.rows.first_node()
     }
@@ -11421,15 +12059,17 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppFor96<St
     }
 }
 
-struct AppBlock95<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppBlock95<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     parent: NodeId,
     anchor: NodeId,
     child0: AppFor96<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock95<StateFeatureToggle> {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppFor96::mount(ui, parent, anchor);
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static>
+    AppBlock95<StateFeatureToggle>
+{
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppFor96::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -11448,11 +12088,14 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock95<StateFeatu
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel<FeatureToggle = StateFeatureToggle>>(
@@ -11504,7 +12147,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock95<StateFeatu
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
     for AppBlock95<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
@@ -11526,17 +12169,17 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
     }
 }
 
-struct AppNode94<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppNode94<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     node: NodeId,
     children: AppBlock95<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode94<StateFeatureToggle> {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> AppNode94<StateFeatureToggle> {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(21i32));
-        let children = AppBlock95::mount(ui, node, NodeId::NONE);
+        let children = AppBlock95::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -11551,9 +12194,10 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode94<StateFeatur
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel<FeatureToggle = StateFeatureToggle>>(
@@ -11600,7 +12244,9 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode94<StateFeatur
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode94<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
+    for AppNode94<StateFeatureToggle>
+{
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -11621,7 +12267,7 @@ struct AppBlock106 {
 }
 
 impl AppBlock106 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -11638,9 +12284,11 @@ impl AppBlock106 {
         __pocket_local_AppLoop28Item: &Feature,
         __pocket_local_AppLoop28Index: &i32,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -11708,11 +12356,11 @@ struct AppNode105 {
 }
 
 impl AppNode105 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(8i32));
-        let children = AppBlock106::mount(ui, node, NodeId::NONE);
+        let children = AppBlock106::mount(ui, node, NodeId::NONE, lifecycle);
         Self {
             node,
             children,
@@ -11735,6 +12383,7 @@ impl AppNode105 {
         __pocket_local_AppLoop28Item: &Feature,
         __pocket_local_AppLoop28Index: &i32,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         let text_input0 = (*__pocket_local_AppLoop28Index).wrapping_add(1i32);
         let text_input1 = __pocket_local_AppLoop28Item.label.as_str();
@@ -11763,6 +12412,7 @@ impl AppNode105 {
             __pocket_local_AppLoop28Item,
             __pocket_local_AppLoop28Index,
             NodeId::NONE,
+            lifecycle,
         );
     }
 
@@ -11841,8 +12491,8 @@ struct AppBlock104 {
 }
 
 impl AppBlock104 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode105::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode105::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -11863,6 +12513,7 @@ impl AppBlock104 {
         __pocket_local_AppLoop28Item: &Feature,
         __pocket_local_AppLoop28Index: &i32,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
@@ -11875,7 +12526,9 @@ impl AppBlock104 {
             __pocket_local_AppLoop28Item,
             __pocket_local_AppLoop28Index,
             anchor0,
+            lifecycle,
         );
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -11964,7 +12617,7 @@ struct AppFor103 {
 }
 
 impl AppFor103 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self {
             rows: KeyedList::new(),
             parent,
@@ -11986,22 +12639,14 @@ impl AppFor103 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
-        self.rows.reconcile(
+        aot_reconcile(
+            &mut self.rows,
             ui,
             parent,
             anchor,
             &vm.features(),
-            |old_key, __pocket_local_AppLoop28Item, row_index| {
-                let __pocket_local_AppLoop28Index = &row_index;
-                pocket_vapor::formatted_eq(
-                    old_key.as_str(),
-                    format_args!(
-                        "summary-{}",
-                        display(&__pocket_local_AppLoop28Item.id.as_str())
-                    ),
-                )
-            },
             |__pocket_local_AppLoop28Item, row_index| {
                 let __pocket_local_AppLoop28Index = &row_index;
                 alloc::format!(
@@ -12010,7 +12655,7 @@ impl AppFor103 {
                 )
             },
             |ui, parent, anchor, __pocket_local_AppLoop28Item, row_index| {
-                AppBlock104::mount(ui, parent, anchor)
+                AppBlock104::mount(ui, parent, anchor, lifecycle)
             },
             |block, ui, __pocket_local_AppLoop28Item, row_index, row_anchor| {
                 let __pocket_local_AppLoop28Index = &row_index;
@@ -12022,15 +12667,11 @@ impl AppFor103 {
                     __pocket_local_AppLoop28Item,
                     __pocket_local_AppLoop28Index,
                     row_anchor,
+                    lifecycle,
                 );
             },
         );
-        self.handler_ends.clear();
-        let mut handler_total = 0usize;
-        for row in self.rows.rows.iter() {
-            handler_total = handler_total.saturating_add(row.block.handler_count());
-            self.handler_ends.push(handler_total);
-        }
+        self.refresh_slot_placement(ui, parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -12199,8 +12840,8 @@ struct AppBlock102 {
 }
 
 impl AppBlock102 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppFor103::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppFor103::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -12219,11 +12860,14 @@ impl AppBlock102 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -12301,11 +12945,11 @@ struct AppNode101 {
 }
 
 impl AppNode101 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(21i32));
-        let children = AppBlock102::mount(ui, node, NodeId::NONE);
+        let children = AppBlock102::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -12320,9 +12964,10 @@ impl AppNode101 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -12390,7 +13035,7 @@ struct AppBlock108 {
 }
 
 impl AppBlock108 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         Self { parent, anchor }
     }
 
@@ -12405,9 +13050,11 @@ impl AppBlock108 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -12470,11 +13117,11 @@ struct AppNode107 {
 }
 
 impl AppNode107 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(1u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(16i32));
-        let children = AppBlock108::mount(ui, node, NodeId::NONE);
+        let children = AppBlock108::mount(ui, node, NodeId::NONE, lifecycle);
         ui.set_text(node, "→ focus · ○ activate · × reset");
         Self { node, children }
     }
@@ -12490,9 +13137,10 @@ impl AppNode107 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -12562,9 +13210,9 @@ struct AppBlock100 {
 }
 
 impl AppBlock100 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode101::mount(ui, parent, anchor);
-        let child1 = AppNode107::mount(ui, parent, anchor);
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode101::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppNode107::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -12584,17 +13232,21 @@ impl AppBlock100 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor1 = anchor;
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
             anchor
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = anchor;
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -12698,11 +13350,11 @@ struct AppNode99 {
 }
 
 impl AppNode99 {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(1i32));
-        let children = AppBlock100::mount(ui, node, NodeId::NONE);
+        let children = AppBlock100::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -12717,9 +13369,10 @@ impl AppNode99 {
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel>(
@@ -12781,7 +13434,7 @@ impl Block for AppNode99 {
     }
 }
 
-struct AppBlock34<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppBlock34<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     parent: NodeId,
     anchor: NodeId,
     child0: AppInput35,
@@ -12792,14 +13445,16 @@ struct AppBlock34<StateFeatureToggle: FeatureToggleViewModel + Default> {
     child5: AppNode99,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock34<StateFeatureToggle> {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppInput35::mount(ui, parent, anchor);
-        let child1 = AppInput37::mount(ui, parent, anchor);
-        let child2 = AppNode39::mount(ui, parent, anchor);
-        let child3 = AppNode49::mount(ui, parent, anchor);
-        let child4 = AppNode94::mount(ui, parent, anchor);
-        let child5 = AppNode99::mount(ui, parent, anchor);
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static>
+    AppBlock34<StateFeatureToggle>
+{
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppInput35::mount(ui, parent, anchor, lifecycle);
+        let child1 = AppInput37::mount(ui, parent, anchor, lifecycle);
+        let child2 = AppNode39::mount(ui, parent, anchor, lifecycle);
+        let child3 = AppNode49::mount(ui, parent, anchor, lifecycle);
+        let child4 = AppNode94::mount(ui, parent, anchor, lifecycle);
+        let child5 = AppNode99::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -12829,59 +13484,10 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock34<StateFeatu
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
-        let anchor5 = anchor;
-        self.child5.update_at(ui, self.parent, props, vm, anchor5);
-        let anchor4 = if self.child5.first_node() != NodeId::NONE {
-            self.child5.first_node()
-        } else {
-            anchor
-        };
-        self.child4.update_at(ui, self.parent, props, vm, anchor4);
-        let anchor3 = if self.child4.first_node() != NodeId::NONE {
-            self.child4.first_node()
-        } else {
-            if self.child5.first_node() != NodeId::NONE {
-                self.child5.first_node()
-            } else {
-                anchor
-            }
-        };
-        self.child3.update_at(ui, self.parent, props, vm, anchor3);
-        let anchor2 = if self.child3.first_node() != NodeId::NONE {
-            self.child3.first_node()
-        } else {
-            if self.child4.first_node() != NodeId::NONE {
-                self.child4.first_node()
-            } else {
-                if self.child5.first_node() != NodeId::NONE {
-                    self.child5.first_node()
-                } else {
-                    anchor
-                }
-            }
-        };
-        self.child2.update_at(ui, self.parent, props, vm, anchor2);
-        let anchor1 = if self.child2.first_node() != NodeId::NONE {
-            self.child2.first_node()
-        } else {
-            if self.child3.first_node() != NodeId::NONE {
-                self.child3.first_node()
-            } else {
-                if self.child4.first_node() != NodeId::NONE {
-                    self.child4.first_node()
-                } else {
-                    if self.child5.first_node() != NodeId::NONE {
-                        self.child5.first_node()
-                    } else {
-                        anchor
-                    }
-                }
-            }
-        };
-        self.child1.update_at(ui, self.parent, props, vm, anchor1);
         let anchor0 = if self.child1.first_node() != NodeId::NONE {
             self.child1.first_node()
         } else {
@@ -12903,7 +13509,64 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock34<StateFeatu
                 }
             }
         };
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        let anchor1 = if self.child2.first_node() != NodeId::NONE {
+            self.child2.first_node()
+        } else {
+            if self.child3.first_node() != NodeId::NONE {
+                self.child3.first_node()
+            } else {
+                if self.child4.first_node() != NodeId::NONE {
+                    self.child4.first_node()
+                } else {
+                    if self.child5.first_node() != NodeId::NONE {
+                        self.child5.first_node()
+                    } else {
+                        anchor
+                    }
+                }
+            }
+        };
+        self.child1
+            .update_at(ui, self.parent, props, vm, anchor1, lifecycle);
+        let anchor2 = if self.child3.first_node() != NodeId::NONE {
+            self.child3.first_node()
+        } else {
+            if self.child4.first_node() != NodeId::NONE {
+                self.child4.first_node()
+            } else {
+                if self.child5.first_node() != NodeId::NONE {
+                    self.child5.first_node()
+                } else {
+                    anchor
+                }
+            }
+        };
+        self.child2
+            .update_at(ui, self.parent, props, vm, anchor2, lifecycle);
+        let anchor3 = if self.child4.first_node() != NodeId::NONE {
+            self.child4.first_node()
+        } else {
+            if self.child5.first_node() != NodeId::NONE {
+                self.child5.first_node()
+            } else {
+                anchor
+            }
+        };
+        self.child3
+            .update_at(ui, self.parent, props, vm, anchor3, lifecycle);
+        let anchor4 = if self.child5.first_node() != NodeId::NONE {
+            self.child5.first_node()
+        } else {
+            anchor
+        };
+        self.child4
+            .update_at(ui, self.parent, props, vm, anchor4, lifecycle);
+        let anchor5 = anchor;
+        self.child5
+            .update_at(ui, self.parent, props, vm, anchor5, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel<FeatureToggle = StateFeatureToggle>>(
@@ -13107,7 +13770,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppBlock34<StateFeatu
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
     for AppBlock34<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
@@ -13159,18 +13822,18 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
     }
 }
 
-struct AppNode33<StateFeatureToggle: FeatureToggleViewModel + Default> {
+struct AppNode33<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     node: NodeId,
     children: AppBlock34<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode33<StateFeatureToggle> {
-    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> AppNode33<StateFeatureToggle> {
+    fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
         let node = ui.create_node(0u8);
         ui.insert_before(parent, node, anchor);
         ui.set_style(node, StyleId(11i32));
         ui.set_debug_name(node, "SolidAotLab");
-        let children = AppBlock34::mount(ui, node, NodeId::NONE);
+        let children = AppBlock34::mount(ui, node, NodeId::NONE, lifecycle);
         Self { node, children }
     }
 
@@ -13185,9 +13848,10 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode33<StateFeatur
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.children
-            .update_at(ui, self.node, props, vm, NodeId::NONE);
+            .update_at(ui, self.node, props, vm, NodeId::NONE, lifecycle);
     }
 
     fn dispatch_step<M: AppViewModel<FeatureToggle = StateFeatureToggle>>(
@@ -13234,7 +13898,9 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppNode33<StateFeatur
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode33<StateFeatureToggle> {
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
+    for AppNode33<StateFeatureToggle>
+{
     fn first_node(&self) -> NodeId {
         self.node
     }
@@ -13251,15 +13917,17 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block for AppNode33<S
 
 pub type AppView<M: AppViewModel> = AppViewState<M::FeatureToggle>;
 
-pub struct AppViewState<StateFeatureToggle: FeatureToggleViewModel + Default> {
+pub struct AppViewState<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> {
     parent: NodeId,
     anchor: NodeId,
     child0: AppNode33<StateFeatureToggle>,
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppViewState<StateFeatureToggle> {
-    pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId) -> Self {
-        let child0 = AppNode33::mount(ui, parent, anchor);
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static>
+    AppViewState<StateFeatureToggle>
+{
+    pub fn mount(ui: &mut Ui, parent: NodeId, anchor: NodeId, lifecycle: &AotLifecycle) -> Self {
+        let child0 = AppNode33::mount(ui, parent, anchor, lifecycle);
         Self {
             parent,
             anchor,
@@ -13278,11 +13946,14 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppViewState<StateFea
         props: &AppProps,
         vm: &M,
         anchor: NodeId,
+        lifecycle: &AotLifecycle,
     ) {
         self.parent = parent;
         self.anchor = anchor;
         let anchor0 = anchor;
-        self.child0.update_at(ui, self.parent, props, vm, anchor0);
+        self.child0
+            .update_at(ui, self.parent, props, vm, anchor0, lifecycle);
+        self.refresh_slot_placement(ui, self.parent, anchor);
     }
 
     fn dispatch_step<M: AppViewModel<FeatureToggle = StateFeatureToggle>>(
@@ -13332,8 +14003,9 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppViewState<StateFea
         ui: &mut Ui,
         props: &AppProps,
         vm: &M,
+        lifecycle: &AotLifecycle,
     ) {
-        self.update_at(ui, self.parent, props, vm, self.anchor);
+        self.update_at(ui, self.parent, props, vm, self.anchor, lifecycle);
     }
 
     pub fn unmount(self, ui: &mut Ui) {
@@ -13370,7 +14042,7 @@ impl<StateFeatureToggle: FeatureToggleViewModel + Default> AppViewState<StateFea
     }
 }
 
-impl<StateFeatureToggle: FeatureToggleViewModel + Default> Block
+impl<StateFeatureToggle: FeatureToggleViewModel + Default + 'static> Block
     for AppViewState<StateFeatureToggle>
 {
     fn first_node(&self) -> NodeId {
@@ -13396,6 +14068,9 @@ pub struct AppApp<
     M: AppViewModel,
     H: pocket_vapor::Host + pocket_vapor::HasButton<16384> + pocket_vapor::HasRelativeAxis<0>,
 > {
+    lifecycle: AotLifecycle,
+    mount_pending: bool,
+    commands: Vec<pocket_vapor::Cmd>,
     pub host: H,
     pub model: M,
     props: AppProps,
@@ -13409,25 +14084,48 @@ impl<
         H: pocket_vapor::Host + pocket_vapor::HasButton<16384> + pocket_vapor::HasRelativeAxis<0>,
     > AppApp<M, H>
 {
-    pub fn new(mut host: H, props: AppProps, model: M) -> Self {
+    pub fn new(mut host: H, props: AppProps, mut model: M) -> Self {
+        let lifecycle = AotLifecycle::new();
+        model.bind_commands(lifecycle.models.commands.clone());
         let view = <AppView<M>>::mount(
             host.ui_mut(),
             pocket_vapor::NodeId::ROOT,
             pocket_vapor::NodeId::NONE,
+            &lifecycle,
         );
-        Self {
+        let mut app = Self {
             host,
             model,
             props,
             view,
+            lifecycle,
+            mount_pending: true,
+            commands: Vec::new(),
             invalidation: pocket_vapor::Invalidation::default(),
             events: alloc::vec::Vec::new(),
-        }
+        };
+        app.initialize_model();
+        app
     }
 
     pub fn frame(&mut self, input: &pocket_vapor::Input) -> &[AppEvent] {
         self.events.clear();
         let input = self.host.ui_mut().resolve_input(input);
+        let ready = self.host.model_ready();
+        self.model.prepare_resume(&ready);
+        self.lifecycle.models.run(
+            pocket_vapor::ModelPhase::Prepare,
+            &ready,
+            &mut self.commands,
+        );
+        self.model.resume(&ready, &mut self.commands);
+        let resumed =
+            self.lifecycle
+                .models
+                .run(pocket_vapor::ModelPhase::Resume, &ready, &mut self.commands);
+        if resumed || self.model.model_changed() {
+            self.invalidation.invalidate();
+        };
         let handled = self
             .view
             .dispatch(&input, &self.props, &mut self.model, &mut self.events);
@@ -13435,9 +14133,56 @@ impl<
             self.invalidation.invalidate();
         };
         if self.invalidation.take() {
-            self.view
-                .update(self.host.ui_mut(), &self.props, &self.model);
+            self.model.react(false, &mut self.commands);
+            self.lifecycle
+                .models
+                .run(pocket_vapor::ModelPhase::React, &ready, &mut self.commands);
+            self.model.settle();
+            self.lifecycle
+                .models
+                .run(pocket_vapor::ModelPhase::Settle, &ready, &mut self.commands);
+            self.view.update(
+                self.host.ui_mut(),
+                &self.props,
+                &self.model,
+                &self.lifecycle,
+            );
         };
+        let mut hook_rounds = 0;
+        loop {
+            let mut ran_hooks = self.lifecycle.run_unmounts();
+            if self.mount_pending {
+                self.mount_pending = false;
+                self.model.react(true, &mut self.commands);
+                self.model.settle();
+                ran_hooks = true;
+            };
+            ran_hooks = self.lifecycle.run_mounts() | ran_hooks;
+            let invalidated = self.invalidation.take();
+            if !(ran_hooks || invalidated) {
+                break;
+            };
+            hook_rounds = hook_rounds + 1;
+            debug_assert!(hook_rounds <= 8, "AOT lifecycle exceeded eight hook rounds");
+            self.model.react(false, &mut self.commands);
+            self.lifecycle
+                .models
+                .run(pocket_vapor::ModelPhase::React, &ready, &mut self.commands);
+            self.model.settle();
+            self.lifecycle
+                .models
+                .run(pocket_vapor::ModelPhase::Settle, &ready, &mut self.commands);
+            self.view.update(
+                self.host.ui_mut(),
+                &self.props,
+                &self.model,
+                &self.lifecycle,
+            );
+        }
+        self.lifecycle.models.commands.drain_to(&mut self.commands);
+        for command in core::mem::take(&mut self.commands) {
+            self.host.model_command(command);
+        }
         self.host.ui_mut().tick();
         self.events.as_slice()
     }
@@ -13453,6 +14198,13 @@ impl<
 
     pub fn unmount(mut self) -> pocket_vapor::Ui {
         self.view.unmount(self.host.ui_mut());
+        self.lifecycle.discard_mounts();
+        self.lifecycle.run_unmounts();
+        self.model.cancel_tasks(&mut self.commands);
+        self.lifecycle.models.commands.drain_to(&mut self.commands);
+        for command in core::mem::take(&mut self.commands) {
+            self.host.model_command(command);
+        }
         self.host.into_ui()
     }
 
@@ -13462,5 +14214,56 @@ impl<
 
     pub fn ui_mut(&mut self) -> &mut pocket_vapor::Ui {
         self.host.ui_mut()
+    }
+
+    fn initialize_model(&mut self) {
+        let ready = self.host.model_initial_ready();
+        self.model.prepare_resume(&ready);
+        self.lifecycle.models.run(
+            pocket_vapor::ModelPhase::Prepare,
+            &ready,
+            &mut self.commands,
+        );
+        self.view.update(
+            self.host.ui_mut(),
+            &self.props,
+            &self.model,
+            &self.lifecycle,
+        );
+        self.model.react(true, &mut self.commands);
+        self.model.settle();
+        let mut hook_rounds = 0;
+        loop {
+            let mut ran_hooks = self.lifecycle.run_unmounts();
+            if self.mount_pending {
+                self.mount_pending = false;
+                ran_hooks = true;
+            };
+            ran_hooks = self.lifecycle.run_mounts() | ran_hooks;
+            let invalidated = self.invalidation.take();
+            if !(ran_hooks || invalidated) {
+                break;
+            };
+            hook_rounds = hook_rounds + 1;
+            debug_assert!(hook_rounds <= 8, "AOT lifecycle exceeded eight hook rounds");
+            self.model.react(false, &mut self.commands);
+            self.lifecycle
+                .models
+                .run(pocket_vapor::ModelPhase::React, &ready, &mut self.commands);
+            self.model.settle();
+            self.lifecycle
+                .models
+                .run(pocket_vapor::ModelPhase::Settle, &ready, &mut self.commands);
+            self.view.update(
+                self.host.ui_mut(),
+                &self.props,
+                &self.model,
+                &self.lifecycle,
+            );
+        }
+        self.lifecycle.models.commands.drain_to(&mut self.commands);
+        for command in core::mem::take(&mut self.commands) {
+            self.host.model_command(command);
+        }
     }
 }

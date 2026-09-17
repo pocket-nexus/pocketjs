@@ -3,19 +3,20 @@ import ts from "typescript";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { BOOL, F64, I32, STRING, sameType, type AotType, type SourceLocation } from "./aot-ir.ts";
-import { createTypeEnvironment, fail, location, TypeMapper, typeName } from "./aot-types.ts";
+import { createTypeEnvironment, fail, location, TypeMapper, typeName, type TypeEnvironment } from "./aot-types.ts";
 import { emptyLedger, type ModelBinder, type ModelProgram, type ModelModule, type ModelExpr, type ModelBlock, type ModelStmt, type ModelFunction, type ModelAwaitable, type ModelTarget } from "./aot-model-ir.ts";
 import { analyzeModelLedgers } from "./aot-model-ledger.ts";
 import { modelNumberType } from "./aot-model-numbers.ts";
 import { lowerModelTasks, assertModelProgram } from "./aot-model-tasks.ts";
+import { parseVaporColor } from "../../contracts/spec/vapor.ts";
 
-export interface AnalyzeModelOptions { sources?: ReadonlyMap<string, string>; source?: string; strict?: boolean; recursionLimit?: number; name?: string; factories?: readonly string[]; framework?: "solid" | "vue" }
-type Binding = { id: number; name: string; kind: "signal" | "setter" | "memo" | "field" | "local" | "constant" | "function" | "ref"; type: AotType; node: ts.Node; module: ModelModule; binder?: ModelBinder; value?: ModelExpr; fn?: ModelFunction; declaration?: ts.VariableDeclaration; capacity?: number };
+export interface AnalyzeModelOptions { sources?: ReadonlyMap<string, string>; source?: string; strict?: boolean; recursionLimit?: number; name?: string; factories?: readonly string[]; framework?: "solid" | "vue"; componentNames?: string[]; environment?: TypeEnvironment; mapper?: TypeMapper }
+type Binding = { id: number; name: string; kind: "signal" | "setter" | "memo" | "field" | "local" | "constant" | "function" | "ref"; type: AotType; node: ts.Node; module: ModelModule; binder?: ModelBinder; value?: ModelExpr; fn?: ModelFunction; declaration?: ts.VariableDeclaration; capacity?: number; arrayBound?: number };
 type Imported = { name: string; source: string };
 const VOID: AotType = { kind: "void" };
 const numericNames = new Set(["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64"]);
 const stdNames = new Set(["len", "trunc", "floor", "ceil", "round", "idiv", "imod", "min", "max", "abs", "clamp", "fixed", "copy", "equals", "map", "filter", "find", "some", "frames", "after", "until", "join", "all", "any", "cancel"]);
-const primitive = (t: AotType) => ["number", "boolean", "string", "undefined", "void"].includes(t.kind);
+const primitiveType = (t: AotType) => ["number", "boolean", "string", "undefined", "void"].includes(t.kind);
 const modifiers = (node: ts.Node) => ts.canHaveModifiers(node) ? ts.getModifiers(node) ?? [] : [];
 const exported = (node: ts.Node) => modifiers(node).some(m => m.kind === ts.SyntaxKind.ExportKeyword);
 const asyncFn = (node: ts.Node) => modifiers(node).some(m => m.kind === ts.SyntaxKind.AsyncKeyword);
@@ -35,15 +36,22 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (visiting.has(file)) return; visiting.add(file); reachable.push(file);
     const ast = ts.createSourceFile(file, source(file), ts.ScriptTarget.Latest, true);
     if (file.endsWith(".d.ts")) fail(location(file, source(file)), "compiled models require a .ts module with bodies, not .d.ts");
-    for (const node of ast.statements) if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text.startsWith(".") && !node.importClause?.isTypeOnly) collect(resolveImport(node.moduleSpecifier.text, file, node));
+    for (const node of ast.statements) if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text.startsWith(".") && !node.importClause?.isTypeOnly && !(node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings) && node.importClause.namedBindings.elements.every(item => item.isTypeOnly))) collect(resolveImport(node.moduleSpecifier.text, file, node));
   }
   collect(entry); for (const factory of options.factories ?? []) collect(resolve(factory));
-  const env = createTypeEnvironment(files, entry), checker = env.checker, mapper = new TypeMapper(checker, options.strict ?? false, [], env.locationOf);
+  const componentNames = options.componentNames ?? [options.name ?? "App", ...(options.factories ?? []).map(file => typeName(basename(file, ".ts")))];
+  const env = options.environment ?? createTypeEnvironment(files, entry), checker = env.checker, mapper = options.mapper ?? new TypeMapper(checker, options.strict ?? false, componentNames, env.locationOf);
   const result: ModelProgram = { version: 1, modules: [], types: mapper.declarations, diagnostics: mapper.diagnostics, recursionLimit: options.recursionLimit ?? 256 };
+  const declaration = (t: AotType) => t.kind === "named" ? result.types.find(definition => definition.name === t.name) : undefined;
+  const scalarBase = (t: AotType): AotType => { const definition=declaration(t);return definition?.kind==="newtype"?scalarBase(definition.base):t; };
+  const color = (t: AotType): boolean => { const definition=declaration(t);return definition?.kind==="newtype"&&definition.unit==="Color"; };
+  const numeric = (t: AotType): Extract<AotType,{kind:"number"}>|undefined => { const base=scalarBase(t);return !color(t)&&base.kind==="number"?base:undefined; };
+  const primitive = (t: AotType): boolean => primitiveType(t) || declaration(t)?.kind === "enum" || declaration(t)?.kind === "newtype" && primitive(scalarBase(t));
   if (!Number.isInteger(result.recursionLimit) || result.recursionLimit < 1) fail(location(entry, source(entry)), "recursionLimit must be a positive integer");
   const bindings = new Map<ts.Symbol, Binding>(), imports = new Map<ts.Symbol, Imported>(), aliases = new Map<string, ts.TypeNode>();
   const declarations = new Map<ModelModule, readonly ts.Statement[]>(), moduleByFile = new Map<string, ModelModule>(), constantActive = new Set<number>();
-  let nextId = 1, current!: ModelModule, currentFunction: ModelFunction | undefined, effectDepth = 0, generated = 0;
+  const joinTypes = new Map<string, string>();
+  let nextId = 1, current!: ModelModule, currentFunction: ModelFunction | undefined, callbackReturnType: AotType | undefined, effectDepth = 0, generated = 0;
   const loc = (node: ts.Node) => env.locationOf(node);
   function error(node: ts.Node, message: string): never { return fail(loc(node), message); }
   function symbol(node: ts.Node, follow = false): ts.Symbol | undefined { let s = checker.getSymbolAtLocation(node); if (follow && s && s.flags & ts.SymbolFlags.Alias) s = checker.getAliasedSymbol(s); return s; }
@@ -58,8 +66,22 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (expected.kind === "string" && value.type.kind === "string") return { ...value, type: expected };
     if (expected.kind === "array" && value.type.kind === "array" && sameType(expected.element, value.type.element)) return { ...value, type: expected };
     if (value.kind === "literal" && typeof value.value === "number" && expected.kind === "number") return { ...value, type: modelNumberType(value.rawNumber ?? String(value.value), expected, loc(node)) };
-    if (expected.kind === "option" && (sameType(value.type, expected.value) || value.type.kind === "undefined")) return { ...value, type: expected };
+    if (expected.kind === "option" && value.type.kind !== "option") return value.kind === "undefined" ? { ...value, type:expected } : make(node,{kind:"cast",value:check(value,expected.value,node)},expected);
     if (expected.kind === "named" && value.type.kind === "named" && value.kind === "struct") return { ...value, type: expected, name: expected.name };
+    if (expected.kind === "named" && value.kind === "literal") {
+      const definition = result.types.find(type => type.name === expected.name);
+      if (definition?.kind === "enum" && definition.variants.includes(String(value.value))) return { ...value, type: expected };
+      if (definition?.kind === "newtype") {
+        if (definition.unit === "Color") {
+          if (typeof value.value !== "string") error(node,"Color literals use #rgb, #rgba, #rrggbb, or #rrggbbaa");
+          let bits:number;try { bits=parseVaporColor(value.value); } catch { error(node,"Color literals use #rgb, #rgba, #rrggbb, or #rrggbbaa"); }
+          return { ...value, value: "#"+[bits&255,(bits>>>8)&255,(bits>>>16)&255,bits>>>24].map(byte=>byte.toString(16).padStart(2,"0")).join(""), type:expected };
+        }
+        const adopted=check(value,definition.base,node);return {...adopted,type:expected};
+      }
+    }
+    const target = declaration(expected), source = declaration(value.type);
+    if (target?.kind === "newtype" && target.unit !== "Color" && sameType(value.type,target.base) || source?.kind === "newtype" && source.unit !== "Color" && sameType(source.base,expected)) return make(node,{kind:"cast",value},expected);
     if (value.type.kind === "number" && expected.kind === "number") error(node, `numeric type cannot change from ${expected.name} to ${value.type.name}; annotate the local or use idiv`);
     error(node, `expected ${JSON.stringify(expected)}, received ${JSON.stringify(value.type)}`);
   }
@@ -94,9 +116,10 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     }
   }
   function bindLocal(node: ts.Identifier, valueType: AotType, owned = true): ModelBinder {
-    const b: ModelBinder = { id: nextId++, name: node.text, type: valueType, owned, loc: loc(node) };
+    const b: ModelBinder = { id: nextId++, name: node.text, type: valueType, owned, ...(storageCapacity(valueType) !== undefined ? { capacity: storageCapacity(valueType) } : {}), loc: loc(node) };
     register(node, { id: b.id, name: b.name, kind: "local", type: valueType, node, module: current, binder: b }); return b;
   }
+  function storageCapacity(valueType: AotType): number | undefined { return valueType.kind === "array" || valueType.kind === "string" ? valueType.capacity : undefined; }
   function temp(value: ModelExpr, into: ModelStmt[]): ModelExpr {
     if (["literal", "undefined", "local"].includes(value.kind)) return value;
     const b: ModelBinder = { id: nextId++, name: `_arg${generated++}`, type: value.type, owned: true, loc: value.loc };
@@ -114,12 +137,18 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (!constantExpression(b.value)) error(b.declaration!.initializer!, "module constants and seeds require literals, constants, or object and array literals of literals");
     current = before; constantActive.delete(b.id); return b.value;
   }
-  function constantExpression(e: ModelExpr): boolean { return e.kind === "literal" || e.kind === "undefined" || e.kind === "struct" && e.fields.every(x => constantExpression(x.value)) || e.kind === "array" && e.items.every(constantExpression) || e.kind === "local" && current.params.some(p => p.id === e.id); }
+  function constantExpression(e: ModelExpr): boolean { return e.kind === "literal" || e.kind === "undefined" || e.kind === "cast" && constantExpression(e.value) || e.kind === "struct" && e.fields.every(x => constantExpression(x.value)) || e.kind === "array" && e.items.every(constantExpression) || e.kind === "local" && current.params.some(p => p.id === e.id); }
   function read(b: Binding, node: ts.Node): ModelExpr {
     if (b.kind === "constant") return { ...loadConstant(b), loc: loc(node) };
     if (b.kind === "function" || b.kind === "setter") error(node, "function values may not escape; call the function or use an admitted inline callback");
     if (b.kind === "ref") return make(node, { kind: "literal", value: b.name }, STRING);
-    return make(node, { kind: b.kind, id: b.id }, b.type);
+    const value=make(node, { kind: b.kind, id: b.id }, b.type);
+    if(b.type.kind==="option") {
+      const narrowed=checker.getTypeAtLocation(node);
+      const optional=(t:ts.Type):boolean=>!!(t.flags&ts.TypeFlags.Undefined)||t.isUnion()&&t.types.some(optional);
+      if(!(narrowed.flags&(ts.TypeFlags.Any|ts.TypeFlags.Unknown))&&!optional(narrowed))return make(node,{kind:"cast",value},b.type.value);
+    }
+    return value;
   }
   function memberType(object: ModelExpr, name: string, node: ts.Node): AotType {
     const base = object.type.kind === "option" ? object.type.value : object.type;
@@ -139,15 +168,16 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
       const target = type(node.type)!; const value = expr(node.expression, target, into); return check(make(node, { kind: "cast", value }, target), expected, node);
     }
     if (ts.isNumericLiteral(node) || ts.isPrefixUnaryExpression(node) && [ts.SyntaxKind.MinusToken, ts.SyntaxKind.PlusToken].includes(node.operator) && ts.isNumericLiteral(node.operand)) {
-      const raw = node.getText(), numberType = modelNumberType(raw, expected, loc(node));
-      return check(make(node, { kind: "literal", value: Number(raw.replaceAll("_", "")), rawNumber: raw }, numberType), expected, node);
+      const raw = node.getText(), numberType = modelNumberType(raw, expected ? numeric(expected) ?? expected : undefined, loc(node));
+      const spelling = raw.replaceAll("_", ""), sign = spelling.startsWith("-") ? -1 : 1;
+      return check(make(node, { kind: "literal", value: sign * Number(spelling.replace(/^[+-]/, "")), rawNumber: raw }, numberType), expected, node);
     }
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return check(make(node, { kind: "literal", value: node.text }, expected?.kind === "string" ? expected : STRING), expected, node);
     if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) return check(make(node, { kind: "literal", value: node.kind === ts.SyntaxKind.TrueKeyword }, BOOL), expected, node);
     if (ts.isIdentifier(node)) {
       if (node.text === "undefined") return check(make(node, { kind: "undefined" }, { kind: "undefined" }), expected, node);
       const b = binding(node); if (!b) error(node, `unresolved model name ${node.text}`);
-      if (["signal", "memo"].includes(b.kind) && !isVueBinding(b)) error(node, "Solid accessors must be called to read their values");
+      if (["signal", "memo"].includes(b.kind)) error(node, isVueBinding(b) ? "Vue refs and computed values must be read through .value" : "Solid accessors must be called to read their values");
       return check(read(b, node), expected, node);
     }
     if (ts.isPropertyAccessExpression(node)) {
@@ -155,19 +185,28 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
       if (b?.kind === "memo") ensureMemo(b.id);
       if (b && ["signal", "memo"].includes(b.kind) && node.name.text === "value" && isVueBinding(b)) return check(read(b, node), expected, node);
       const enumSymbol = symbol(node.expression, true), enumDecl = enumSymbol?.declarations?.find(ts.isEnumDeclaration);
-      if (enumDecl) { const member = enumDecl.members.find(m => m.name.getText() === node.name.text); if (!member) error(node, "unknown enum member"); const value = checker.getConstantValue(member); if (value === undefined) error(node, "enum members require constant values"); return make(node, { kind: "literal", value }, typeof value === "string" ? STRING : I32); }
+      if (enumDecl) { const member = enumDecl.members.find(m => m.name.getText() === node.name.text); if (!member) error(node, "unknown enum member"); const value = checker.getConstantValue(member); if (value === undefined) error(node, "enum members require constant values"); const enumType=typeof value==="string"?mapper.map(checker.getDeclaredTypeOfSymbol(enumSymbol!),loc(node),enumDecl.name.text):I32;return check(make(node, { kind: "literal", value }, enumType), expected, node); }
       if (imported(node.expression)?.name === "BTN") {
         const property = checker.getSymbolAtLocation(node.name), decl = property?.valueDeclaration;
         if (decl && ts.isPropertyAssignment(decl) && ts.isNumericLiteral(decl.initializer)) return expr(decl.initializer, I32, into);
         error(node, `unresolved button constant ${node.name.text}`);
       }
       const object = expr(node.expression, undefined, into), valueType = memberType(object, node.name.text, node);
-      return check(make(node, { kind: "member", object, name: node.name.text, optional: !!node.questionDotToken }, valueType), expected, node);
+      const objectBase = object.type.kind === "option" ? object.type.value : object.type;
+      const objectName = objectBase.kind === "named" ? objectBase.name : undefined;
+      const definition = result.types.find(t => t.name === objectName);
+      let variant: string | undefined;
+      if (definition?.kind === "union") {
+        const narrowed = checker.getTypeAtLocation(node.expression), discriminant = narrowed.getProperty(definition.discriminant);
+        const tag = discriminant && mapper.literal(checker.getTypeOfSymbolAtLocation(discriminant, node.expression));
+        if (typeof tag === "string" && definition.variants.some(v => v.name === tag)) variant = tag;
+      }
+      return check(make(node, { kind: "member", object, name: node.name.text, optional: !!node.questionDotToken, ...(variant ? { variant } : {}) }, valueType), expected, node);
     }
     if (ts.isElementAccessExpression(node)) {
       const object = expr(node.expression, undefined, into); if (object.type.kind !== "array") error(node, "only arrays admit index reads");
       const index = expr(node.argumentExpression, I32, into);
-      if (index.kind === "literal" && typeof index.value === "number" && (index.value < 0 || object.type.length !== undefined && index.value >= object.type.length)) error(node.argumentExpression, "constant array index is outside the array");
+      checkArrayIndex(object, index, node.argumentExpression);
       return check(make(node, { kind: "index", object, index }, object.type.element), expected, node);
     }
     if (ts.isObjectLiteralExpression(node)) {
@@ -179,7 +218,9 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
         const annotation = definition?.kind === "struct" ? definition.fields.find(f => f.name === name)?.type : definition?.kind === "union" ? definition.variants.flatMap(v => v.fields).find(f => f.name === name)?.type : undefined;
         return { name, value: expr(ts.isPropertyAssignment(property) ? property.initializer : property.name, annotation, into) };
       });
-      return make(node, { kind: "struct", name: target.name, fields }, target);
+      const tag = definition?.kind === "union" ? fields.find(f => f.name === definition.discriminant)?.value : undefined;
+      const variant = tag?.kind === "literal" && typeof tag.value === "string" ? tag.value : undefined;
+      return make(node, { kind: "struct", name: target.name, fields, ...(variant ? { variant } : {}) }, target);
     }
     if (ts.isArrayLiteralExpression(node)) {
       const element = expected?.kind === "array" ? expected.element : node.elements[0] ? expr(node.elements[0] as ts.Expression, undefined, []).type : undefined;
@@ -190,26 +231,34 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (ts.isPrefixUnaryExpression(node)) {
       const operator = ts.tokenToString(node.operator); if (!["!", "-", "+"].includes(operator ?? "")) error(node, "unsupported unary operator");
       const operand = expr(node.operand, operator === "!" ? BOOL : expected, into);
-      if (operator !== "!" && operand.type.kind !== "number") error(node, "numeric unary operator requires a number");
+      if (operator !== "!" && !numeric(operand.type)) error(node, "numeric unary operator requires a number");
       return check(make(node, { kind: "unary", operator, operand }, operator === "!" ? BOOL : operand.type), expected, node);
     }
     if (ts.isConditionalExpression(node)) {
-      const condition = expr(node.condition, BOOL, into), consequent = isolated(node.whenTrue, expected), alternate = isolated(node.whenFalse, expected ?? consequent.type);
+      const condition = expr(node.condition, BOOL, into);
+      let consequent = isolated(node.whenTrue, expected), alternate = isolated(node.whenFalse, expected ?? (consequent.kind==="literal"?undefined:consequent.type));
+      if(!expected&&consequent.kind==="literal"&&(numeric(alternate.type)||color(alternate.type)||declaration(alternate.type)?.kind==="enum"))consequent=check(consequent,alternate.type,node.whenTrue);
+      alternate=check(alternate,consequent.type,node.whenFalse);
       return make(node, { kind: "conditional", condition, consequent, alternate }, consequent.type);
     }
     if (ts.isBinaryExpression(node)) {
       const operator = node.operatorToken.getText();
       if (!["+", "-", "*", "/", "%", "<", "<=", ">", ">=", "===", "!==", "&&", "||", "??", "&", "|", "^", "<<", ">>", ">>>"].includes(operator)) error(node.operatorToken, `operator ${operator} is outside the model subset`);
       const comparison = ["<", "<=", ">", ">=", "===", "!=="].includes(operator), logic = ["&&", "||"].includes(operator);
-      let left = expr(node.left, logic ? BOOL : !comparison && operator !== "/" && expected?.kind === "number" ? expected : undefined, into);
+      let left = expr(node.left, logic ? BOOL : !comparison && operator !== "/" && operator !== "??" && expected && numeric(expected) ? expected : undefined, into);
       left = temp(left, into);
-      const right = ["&&", "||", "??"].includes(operator) ? isolated(node.right, logic ? BOOL : left.type.kind === "option" ? left.type.value : undefined) : expr(node.right, operator === "+" && (left.type.kind === "string" || ts.isStringLiteral(node.right) || ts.isTemplateExpression(node.right)) ? undefined : left.type, into);
-      if (["===", "!=="].includes(operator) && (!primitive(left.type) || !primitive(right.type))) error(node, "=== and !== on non-primitive values are outside the subset; use equals(a, b)");
+      const literalLeft = left.kind === "literal" && (typeof left.value === "number" || typeof left.value === "string");
+      const right = ["&&", "||", "??"].includes(operator) ? isolated(node.right, logic ? BOOL : left.type.kind === "option" ? left.type.value : undefined) : expr(node.right, literalLeft && !(expected&&!comparison&&numeric(expected)) || comparison && left.kind === "undefined" || operator === "+" && (left.type.kind === "string" || ts.isStringLiteral(node.right) || ts.isTemplateExpression(node.right)) ? undefined : left.type, into);
+      if (literalLeft && (numeric(right.type) && typeof (left as Extract<ModelExpr,{kind:"literal"}>).value === "number" || comparison && (declaration(right.type)?.kind === "enum" || color(right.type)))) left = check(left,right.type,node.left);
+      const presence = left.type.kind === "option" && right.kind === "undefined" || left.kind === "undefined" && right.type.kind === "option";
+      if ((color(left.type)||color(right.type))&&!["===","!==","??"].includes(operator)) error(node,"Color arithmetic and ordered comparisons are outside the subset");
+      if (["===", "!=="].includes(operator) && !presence && (!primitive(left.type) || !primitive(right.type))) error(node, "=== and !== on non-primitive values are outside the subset; use equals(a, b)");
       if (operator === "??" && left.type.kind !== "option") error(node, "?? requires an Option value");
-      if (["-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>"].includes(operator) && (left.type.kind !== "number" || right.type.kind !== "number")) error(node, "numeric operator requires numbers");
+      if (["-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>"].includes(operator) && (!numeric(left.type) || !numeric(right.type))) error(node, "numeric operator requires numbers");
+      if (["<","<=",">",">="].includes(operator)&&(!numeric(left.type)||!numeric(right.type))&&!(scalarBase(left.type).kind==="string"&&scalarBase(right.type).kind==="string")) error(node,"ordered comparisons require numbers or strings");
       if (operator === "%") error(node.operatorToken, "use imod() for integer remainder");
-      const outType = comparison || logic ? BOOL : operator === "/" ? F64 : operator === "+" && (left.type.kind === "string" || right.type.kind === "string") ? STRING : operator === "??" && left.type.kind === "option" ? left.type.value : left.type;
-      if (outType.kind === "number" && outType.name === "i64") {
+      const outType = comparison || logic ? BOOL : operator === "/" ? numeric(left.type)?.name.startsWith("f")?left.type:F64 : operator === "+" && (scalarBase(left.type).kind === "string" || scalarBase(right.type).kind === "string") ? declaration(left.type)?.kind==="newtype"&&scalarBase(left.type).kind==="string"?left.type:STRING : operator === "??" && left.type.kind === "option" ? left.type.value : left.type;
+      if (numeric(outType)?.name === "i64") {
         if (options.strict) error(node, "i64 arithmetic loses precision above 2^53 on JavaScript classes");
         if (!result.diagnostics.some(d => d.offset === node.getStart() && d.file === node.getSourceFile().fileName)) result.diagnostics.push({ ...loc(node), severity: "warning", message: "i64 arithmetic loses precision above 2^53 on JavaScript classes" });
       }
@@ -256,13 +305,34 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
   }
   function isVueBinding(b: Binding) { return ts.isVariableDeclaration(b.node) && !!b.node.initializer && ts.isCallExpression(b.node.initializer) && ["ref", "computed"].includes(callName(b.node.initializer.expression) ?? ""); }
   function viewOf(e: ModelExpr): number | undefined { return e.kind === "signal" ? e.id : e.kind === "local" ? [...bindings.values()].find(b => b.id === e.id)?.binder?.viewOf : undefined; }
+  function arrayBound(e: ModelExpr): number | undefined {
+    if (e.kind === "array") return e.items.length;
+    if (e.kind === "copy" || e.kind === "cast") return arrayBound(e.value);
+    if (e.kind === "local") { const bound = [...bindings.values()].find(b => b.id === e.id)?.arrayBound; if (bound !== undefined) return bound; }
+    if (e.type.kind === "array") return e.type.length ?? e.type.capacity;
+  }
+  function checkArrayIndex(object: ModelExpr, index: ModelExpr, node: ts.Node): void {
+    const bound = arrayBound(object);
+    if (index.kind === "literal" && typeof index.value === "number" && (index.value < 0 || bound !== undefined && index.value >= bound)) error(node, "constant array index is outside the array");
+  }
+  function immutableView(e: ModelExpr): boolean {
+    if (e.kind === "signal" || e.kind === "memo") return true;
+    if (e.kind === "local") return [...bindings.values()].find(b => b.id === e.id)?.binder?.owned === false;
+    if (e.kind === "member" || e.kind === "index") return immutableView(e.object);
+    if (e.kind === "cast") return immutableView(e.value);
+    if (e.kind === "conditional") return immutableView(e.consequent) || immutableView(e.alternate);
+    if (e.kind === "sequence") return immutableView(e.value);
+    return false;
+  }
   function setter(signal: Binding, valueNode: ts.Expression, into: ModelStmt[], node: ts.Node): void {
     let value: ModelExpr, pre: ModelBinder | undefined;
     if (ts.isArrowFunction(valueNode)) {
       if (valueNode.parameters.length !== 1 || !ts.isIdentifier(valueNode.parameters[0]!.name)) error(valueNode, "a functional setter requires one parameter");
       pre = bindLocal(valueNode.parameters[0]!.name as ts.Identifier, signal.type, false);
       if (ts.isBlock(valueNode.body)) {
+        const previousReturnType = callbackReturnType; callbackReturnType = signal.type;
         const body = lowerBlock(valueNode.body), last = body.stmts.at(-1);
+        callbackReturnType = previousReturnType;
         if (last?.kind !== "return" || !last.value) error(valueNode.body, "setter callback must return its value");
         body.stmts.pop(); value = make(valueNode, { kind: "sequence", body, value: check(last.value, signal.type, valueNode) }, signal.type);
       } else value = isolated(valueNode.body, signal.type);
@@ -278,35 +348,55 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     const name = callName(node.expression), fn = binding(node.expression);
     if (name === "frames" || name === "after") {
       if (node.arguments.length !== 1) error(node, `${name} requires one argument`);
-      const value = expr(node.arguments[0]!, name === "frames" ? I32 : undefined, into);
+      const value = isolated(node.arguments[0]!, name === "frames" ? I32 : undefined);
       return { source: name === "frames" ? { kind: "frames", count: value } : { kind: "after", ms: value }, type: VOID };
     }
     if (name === "until") {
       const callback = node.arguments[0]; if (!callback || !ts.isArrowFunction(callback) || ts.isBlock(callback.body) || callback.parameters.length) error(node, "until requires an inline predicate expression");
       return { source: { kind: "until", predicate: isolated(callback.body, BOOL) }, type: VOID };
     }
-    if (fn?.fn?.async) return { source: { kind: "join", task: fn.id, wrapped: false, args: args(node.arguments, into, fn.fn.params) }, type: fn.fn.returns };
+    if (fn?.fn?.async) {
+      ensureFunction(fn.id);
+      if (node.arguments.length !== fn.fn.params.length) error(node, `function ${fn.name} expects ${fn.fn.params.length} arguments`);
+      return { source: { kind: "join", task: fn.id, wrapped: false, args: node.arguments.map((arg, i) => isolated(arg, fn.fn!.params[i]?.type)) }, type: fn.fn.returns };
+    }
     if (name === "join") {
       const call = node.arguments[0]; if (!call) error(node, "join requires one task call");
       const inner = awaitable(call, into); if (inner.source.kind !== "join") error(node, "join requires an async function call");
-      const joined = `Join${typeName(inner.type.kind === "named" ? inner.type.name : inner.type.kind)}`;
-      if (!result.types.some(t => t.name === joined)) result.types.push({ kind: "union", name: joined, discriminant: "kind", variants: [{ name: "done", fields: inner.type.kind === "void" ? [] : [{ name: "value", type: inner.type }] }, { name: "cancelled", fields: [] }] });
+      const key = JSON.stringify(inner.type), base = `Join${typeName(inner.type.kind === "named" ? inner.type.name : inner.type.kind)}`;
+      let joined = joinTypes.get(key);
+      if (!joined) {
+        joined = base; let suffix = 2; while (result.types.some(t => t.name === joined)) joined = `${base}${suffix++}`;
+        joinTypes.set(key, joined);
+        result.types.push({ kind: "union", name: joined, discriminant: "kind", variants: [{ name: "done", fields: inner.type.kind === "void" ? [] : [{ name: "value", type: inner.type }] }, { name: "cancelled", fields: [] }] });
+      }
       return { source: { ...inner.source, wrapped: true }, type: { kind: "named", name: joined } };
     }
     if (name === "all" || name === "any") {
       const array = node.arguments[0]; if (!array || !ts.isArrayLiteralExpression(array) || !array.elements.length) error(node, `${name} requires a nonempty literal array of awaitables`);
       const members = array.elements.map(n => awaitable(n as ts.Expression, into));
-      if (name === "any" && !members.every(m => sameType(m.type, members[0]!.type))) error(node, "any members require the same result type");
-      return { source: { kind: name, members: members.map(m => m.source) }, type: name === "all" ? { kind: "tuple", elements: members.map(m => m.type) } : members[0]!.type };
+      let returned: AotType = { kind: "tuple", elements: members.map(m => m.type) };
+      if (name === "any") {
+        const concrete = members.flatMap(m => m.type.kind === "void" || m.type.kind === "undefined" ? [] : [m.type.kind === "option" ? m.type.value : m.type]);
+        const optional = members.some(m => ["void", "undefined", "option"].includes(m.type.kind));
+        if (!concrete.length) returned = VOID;
+        else if (concrete.every(t => sameType(t, concrete[0]!))) returned = optional ? { kind: "option", value: concrete[0]! } : concrete[0]!;
+        else {
+          const resultType = checker.getAwaitedType(checker.getTypeAtLocation(node));
+          if (!resultType) error(node, "any result requires a closed contract union");
+          returned = mapper.map(resultType, loc(node), "AnyResult");
+        }
+      }
+      return { source: { kind: name, members: members.map(m => m.source) }, type: returned };
     }
-    if (name === "animate") return { source: { kind: "animate", args: args(node.arguments, into) }, type: STRING };
+    if (name === "animate") return { source: { kind: "animate", args: node.arguments.map(arg => isolated(arg)) }, type: STRING };
     if (ts.isPropertyAccessExpression(node.expression)) {
       const service = imported(node.expression.expression);
       if (service?.source.endsWith("/model")) {
         const valueType = checker.getAwaitedType(checker.getTypeAtLocation(node));
-        const returned = valueType && !(valueType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) ? mapper.map(valueType, loc(node), "ServiceResult") : { kind: "named", name: "ModelServiceResult" } as AotType;
-        if (returned.kind === "named" && returned.name === "ModelServiceResult" && !result.types.some(t => t.name === returned.name)) result.types.push({ kind: "union", name: returned.name, discriminant: "kind", variants: ["ok", "busy", "unavailable", "malformed"].map(name => ({ name, fields: name === "ok" ? [{ name: "value", type: STRING }] : [] })) });
-        return { source: { kind: "service", module: service.source, call: node.expression.name.text, args: args(node.arguments, into), result: returned }, type: returned };
+        if (!valueType || valueType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) error(node, "model services require a resolved typed awaitable contract");
+        const returned = mapper.map(valueType, loc(node), "ServiceResult");
+        return { source: { kind: "service", module: service.source, call: node.expression.name.text, args: node.arguments.map(arg => isolated(arg)), result: returned }, type: returned };
       }
     }
     error(node, "awaitable is outside the closed model set");
@@ -321,7 +411,7 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (vue && isVueBinding(vue)) {
       if (vue.kind !== "signal") error(left, "computed values are read-only");
       if (operator === "=") return setter(vue, right, into, node);
-      const lhs = read(vue, left), rhs = expr(right, vue.type, into);
+      const lhs = temp(read(vue, left), into), rhs = expr(right, vue.type, into);
       const value = binaryAssignment(operator, lhs, rhs, node);
       into.push({ kind: "set", signal: vue.id, value, loc: loc(node) }); return;
     }
@@ -335,19 +425,25 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
       if (!owner?.binder?.owned) error(left, "write through a view is outside the model subset; use copy()");
       if (ts.isElementAccessExpression(left)) {
         if (owner.type.kind !== "array") error(left, "element assignment requires an owned array");
-        target = { kind: "element", owner: owner.id, index: expr(left.argumentExpression, I32, into) }; expected = owner.type.element;
+        const object = read(owner, left.expression), index = expr(left.argumentExpression, I32, into);
+        checkArrayIndex(object, index, left.argumentExpression);
+        target = { kind: "element", owner: owner.id, index: temp(index, into) }; expected = owner.type.element;
       } else { target = { kind: "member", owner: owner.id, name: left.name.text }; expected = memberType(read(owner, left), left.name.text, left); }
     } else error(left, "assignment target must be a local, a private field, or an owned value");
+    const previous = operator === "=" ? undefined : temp(target.kind === "element"
+      ? make(left, { kind: "index", object: read(binding((left as ts.ElementAccessExpression).expression)!, (left as ts.ElementAccessExpression).expression), index: target.index }, expected!)
+      : expr(left, undefined, into), into);
     let value = expr(right, operator === "/=" ? undefined : expected, into);
-    if (operator !== "=") value = binaryAssignment(operator, expr(left, undefined, into), value, node);
+    if (previous) value = binaryAssignment(operator, previous, value, node);
     check(value, expected, node);
     if (!primitive(value.type)) value = make(right, { kind: "copy", value }, value.type);
     into.push({ kind: "assign", target, value, loc: loc(node) });
-    if (direct?.binder) delete direct.binder.viewOf;
+    if (direct?.binder) { delete direct.binder.viewOf; delete direct.arrayBound; }
   }
   function binaryAssignment(operator: string, left: ModelExpr, right: ModelExpr, node: ts.Node): ModelExpr {
     const op = operator.slice(0, -1); if (!["+", "-", "*", "/", "&", "|", "^", "<<", ">>", ">>>"].includes(op)) error(node, `compound operator ${operator} is outside the subset`);
-    return check(make(node, { kind: "binary", operator: op, left, right }, op === "/" ? F64 : left.type), left.type, node);
+    if(color(left.type)||color(right.type))error(node,"Color arithmetic and ordered comparisons are outside the subset");
+    return check(make(node, { kind: "binary", operator: op, left, right }, op === "/" ? left.type.kind==="named"&&numeric(left.type)?.name.startsWith("f")?left.type:F64 : left.type), left.type, node);
   }
   function lowerStmt(node: ts.Statement, into: ModelStmt[]): void {
     if (ts.isEmptyStatement(node)) return;
@@ -357,12 +453,14 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
         if (!ts.isIdentifier(d.name) || !d.initializer) error(d, "locals require a simple binder and initializer");
         if (ts.isAwaitExpression(d.initializer)) {
           const awaited = awaitable(d.initializer.expression, into), expected = type(d.type, d.name.text) ?? awaited.type;
+          if (!sameType(expected, awaited.type)) error(d, "await result must match the local's contract type");
           const b = bindLocal(d.name, expected); into.push({ kind: "await", source: awaited.source, binder: b, loc: loc(d) }); continue;
         }
         let init = expr(d.initializer, type(d.type, d.name.text), into);
         const view = !primitive(init.type) ? viewOf(init) : undefined;
-        const owned = view === undefined;
+        const owned = primitive(init.type) || !immutableView(init);
         const b = bindLocal(d.name, init.type, owned); if (view !== undefined) b.viewOf = view;
+        const bound = arrayBound(init); if (bound !== undefined) binding(d.name)!.arrayBound = bound;
         if (owned && !primitive(init.type) && init.kind === "local") init = make(d.initializer, { kind: "copy", value: init }, init.type);
         into.push({ kind: "let", binder: b, init, loc: loc(d) });
       } return;
@@ -373,7 +471,7 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
       if (ts.isBinaryExpression(e) && ["=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", ">>>="].includes(e.operatorToken.getText())) { assignment(e.left, e.right, e.operatorToken.getText(), into, e); return; }
       if ((ts.isPostfixUnaryExpression(e) || ts.isPrefixUnaryExpression(e)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(e.operator)) {
         const value = expr(e.operand, undefined, into), b = binding(e.operand);
-        if (!b || !["local", "field"].includes(b.kind) || value.type.kind !== "number") error(e, "increment requires a numeric local or field");
+        if (!b || !["local", "field"].includes(b.kind) || !numeric(value.type)) error(e, "increment requires a numeric local or field");
         into.push({ kind: "assign", target: { kind: b.kind as "local" | "field", id: b.id }, value: make(e, { kind: "binary", operator: e.operator === ts.SyntaxKind.PlusPlusToken ? "+" : "-", left: value, right: make(e, { kind: "literal", value: 1 }, value.type) }, value.type), loc: loc(node) }); return;
       }
       if (ts.isCallExpression(e)) {
@@ -382,7 +480,7 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
         if (name === "untrack" || name === "batch") {
           if (name === "untrack" && !effectDepth) error(e, "untrack is admitted inside effects only");
           const callback = e.arguments[0]; if (!callback || !ts.isArrowFunction(callback) || callback.parameters.length) error(e, `${name} requires an inline callback`);
-          const body = ts.isBlock(callback.body) ? lowerBlock(callback.body) : { stmts: [{ kind: "expr", value: isolated(callback.body) } as ModelStmt] };
+          const body = ts.isBlock(callback.body) ? lowerBlock(callback.body) : expressionStatementBody(callback.body);
           into.push({ kind: name, body, loc: loc(node) }); return;
         }
         if (b?.kind === "function") {
@@ -400,8 +498,9 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
       into.push({ kind: "expr", value: expr(e, undefined, into), loc: loc(node) }); return;
     }
     if (ts.isReturnStatement(node)) {
-      if (!currentFunction && !effectDepth) error(node, "return occurs only inside a function body");
-      into.push({ kind: "return", ...(node.expression ? { value: expr(node.expression, currentFunction?.returns.kind === "void" ? undefined : currentFunction?.returns, into) } : {}), loc: loc(node) }); return;
+      if (!currentFunction && !effectDepth && !callbackReturnType) error(node, "return occurs only inside a function body");
+      const expected = callbackReturnType ?? currentFunction?.returns;
+      into.push({ kind: "return", ...(node.expression ? { value: expr(node.expression, expected?.kind === "void" ? undefined : expected, into) } : {}), loc: loc(node) }); return;
     }
     if (ts.isIfStatement(node)) { into.push({ kind: "if", condition: expr(node.expression, BOOL, into), then: lowerBlock(node.thenStatement), ...(node.elseStatement ? { else: lowerBlock(node.elseStatement) } : {}), loc: loc(node) }); return; }
     if (ts.isForOfStatement(node)) {
@@ -414,7 +513,7 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (ts.isForStatement(node)) {
       if (!node.initializer || !ts.isVariableDeclarationList(node.initializer) || node.initializer.declarations.length !== 1 || !node.condition || !ts.isBinaryExpression(node.condition) || !["<", "<="].includes(node.condition.operatorToken.getText()) || !node.incrementor) error(node, "bounded for requires let i = start; i < bound; i++");
       const declaration = node.initializer.declarations[0]!; if (!ts.isIdentifier(declaration.name) || !declaration.initializer) error(declaration, "bounded for requires an initialized local counter");
-      const start = expr(declaration.initializer, type(declaration.type) ?? I32, into), binder = bindLocal(declaration.name, start.type);
+      const start = temp(expr(declaration.initializer, type(declaration.type) ?? I32, into), into), binder = bindLocal(declaration.name, start.type);
       if (binding(node.condition.left)?.id !== binder.id || !(ts.isPostfixUnaryExpression(node.incrementor) || ts.isPrefixUnaryExpression(node.incrementor)) || node.incrementor.operator !== ts.SyntaxKind.PlusPlusToken || binding(node.incrementor.operand)?.id !== binder.id) error(node, "bounded for increments its own counter by one");
       const bound = expr(node.condition.right, binder.type, into);
       into.push({ kind: "for", binder, start, bound, inclusive: node.condition.operatorToken.kind === ts.SyntaxKind.LessThanEqualsToken, body: lowerBlock(node.statement), loc: loc(node) }); return;
@@ -432,6 +531,12 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (ts.isWhileStatement(node) || ts.isDoStatement(node)) error(node, "while and do loops are outside the model subset; use a bounded for loop");
     if (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) return;
     error(node, `${ts.SyntaxKind[node.kind]} is outside the model statement subset`);
+  }
+  function expressionStatementBody(expression: ts.Expression): ModelBlock {
+    const into: ModelStmt[] = [], statement = ts.factory.createExpressionStatement(expression);
+    ts.setTextRange(statement, expression);
+    (statement as { parent: ts.Node }).parent = expression.parent;
+    lowerStmt(statement, into); return { stmts: into };
   }
   // Register import provenance before interpreting any declaration.
   for (const file of reachable) {
@@ -459,7 +564,8 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
   const factoryDeclarations = new Map<ModelModule, ts.FunctionDeclaration>();
   for (const file of reachable) {
     const ast = env.program.getSourceFile(file)!;
-    const factory = ast.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && !!node.body && exported(node) && node.body.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => d.initializer && ts.isCallExpression(d.initializer) && ["createSignal", "ref"].includes(callName(d.initializer.expression) ?? ""))));
+    const explicitFactory = options.factories?.some(factory => resolve(factory) === file);
+    const factory = ast.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && !!node.body && exported(node) && (explicitFactory && node.body.statements.some(s => ts.isReturnStatement(s) && s.expression && ts.isObjectLiteralExpression(s.expression)) || node.body.statements.some(s => ts.isVariableStatement(s) && s.declarationList.declarations.some(d => d.initializer && ts.isCallExpression(d.initializer) && ["createSignal", "ref"].includes(callName(d.initializer.expression) ?? "")))));
     const isRoot = file === entry;
     const model: ModelModule = { name: isRoot ? options.name ?? "App" : typeName(basename(file, ".ts")), file, kind: isRoot ? "root" : factory ? "factory" : "pure", params: [], signals: [], fields: [], memos: [], effects: [], functions: [], schedule: [], refs: [], tasks: [], constants: [] };
     if (factory && !isRoot) { model.factory = factory.name?.text; factoryDeclarations.set(model, factory); declarations.set(model, factory.body!.statements); }
@@ -508,7 +614,7 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
             const b = register(d.name, { id: nextId++, name: d.name.text, kind: "memo", type: type(init.typeArguments?.[0], d.name.text) ?? VOID, node: d, module: model });
             pendingMemos.push({ b, init: init as ts.CallExpression, exported: exported(node) }); continue;
           }
-          if (name === "createNodeRef") { const id = nextId++; model.refs.push({ id, name: d.name.text }); register(d.name, { id, name: d.name.text, kind: "ref", type: STRING, node: d, module: model }); continue; }
+          if (name === "createNodeRef") { if (model.kind === "pure") error(d, "pure module cannot declare a node reference"); const id = nextId++; model.refs.push({ id, name: d.name.text }); register(d.name, { id, name: d.name.text, kind: "ref", type: STRING, node: d, module: model }); continue; }
           if (name === "createContext") continue;
           if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) error(init, "closures as stored values are outside the model subset");
           const mutable = !(node.declarationList.flags & ts.NodeFlags.Const);
@@ -546,23 +652,25 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     const seed = isolated(init.arguments[0]!, b.type.kind === "void" ? undefined : b.type);
     if (!constantExpression(seed)) error(init.arguments[0]!, "signal seeds require literals, constants, or literal objects and arrays");
     b.type = seed.type;
+    b.capacity ??= storageCapacity(seed.type);
     const setterBinding = [...bindings.values()].find(s => s.kind === "setter" && s.id === b.id); if (setterBinding) setterBinding.type = seed.type;
     b.module.signals.push({ id: b.id, name: b.name, ...(setterBinding ? { setter: setterBinding.name } : {}), exported: pending.exported, type: b.type, ...(b.capacity ? { capacity: b.capacity } : {}), seed, loc: loc(b.node) });
   }
   for (const model of result.modules) {
     current = model;
-    for (const b of bindings.values()) if (b.module === model && b.kind === "constant") model.constants!.push({ id: b.id, name: b.name, value: loadConstant(b) });
+    for (const b of bindings.values()) if (b.module === model && b.kind === "constant") model.constants!.push({ id: b.id, name: b.name, value: loadConstant(b), exported: exported(b.declaration!.parent.parent) });
     for (const field of model.fields) {
       const b = [...bindings.values()].find(b => b.id === field.id)!;
       field.seed = isolated(b.declaration!.initializer!, b.type.kind === "void" ? undefined : b.type);
       if (!constantExpression(field.seed)) error(b.node, "private field seeds require constants or literal values");
       field.type = b.type = field.seed.type;
+      field.capacity ??= storageCapacity(field.type);
     }
   }
   function ensureFunction(id: number) {
     const item = functionsByBinding.get(id); if (!item || item.state === "done" || item.state === "active") return;
-    item.state = "active"; const beforeModule = current, beforeFunction = currentFunction;
-    current = item.b.module; currentFunction = item.b.fn!;
+    item.state = "active"; const beforeModule = current, beforeFunction = currentFunction, beforeReturnType = callbackReturnType;
+    current = item.b.module; currentFunction = item.b.fn!; callbackReturnType = undefined;
     currentFunction.body = lowerBlock(item.node.body!);
     if (!item.node.type) {
       const returns: AotType[] = [];
@@ -571,14 +679,14 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
       if (!returns.every(t => sameType(t, currentFunction!.returns))) error(item.node, "function returns require one consistent contract type");
       item.b.type = currentFunction.returns;
     }
-    current = beforeModule; currentFunction = beforeFunction; item.state = "done";
+    current = beforeModule; currentFunction = beforeFunction; callbackReturnType = beforeReturnType; item.state = "done";
   }
   for (const item of functionsByBinding.values()) ensureFunction(item.b.id);
   function ensureMemo(id: number) {
     if (memoDone.has(id)) return;
     const item = pendingMemos.find(m => m.b.id === id); if (!item) return;
     if (memoActive.has(id)) error(item.b.node, `reactive cycle: memo ${item.b.name}`);
-    memoActive.add(id); const before = current; current = item.b.module;
+    memoActive.add(id); const before = current, beforeReturnType = callbackReturnType; current = item.b.module; callbackReturnType = item.b.type;
     const callback = item.init.arguments[0]; if (!callback || !ts.isArrowFunction(callback) || callback.parameters.length || item.init.arguments.length !== 1) error(item.init, "memo requires one pure inline callback");
     let value: ModelExpr;
     if (ts.isBlock(callback.body)) {
@@ -590,7 +698,7 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     } else value = isolated(callback.body, item.b.type.kind === "void" ? undefined : item.b.type);
     item.b.type = value.type;
     item.b.module.memos.push({ id, name: item.b.name, exported: item.exported, type: value.type, body: value, inputs: [], loc: loc(item.b.node) });
-    memoActive.delete(id); memoDone.add(id); current = before;
+    memoActive.delete(id); memoDone.add(id); current = before; callbackReturnType = beforeReturnType;
   }
   for (const m of pendingMemos) ensureMemo(m.b.id);
   function sourcesOf(node: ts.Expression): number[] {
@@ -616,10 +724,10 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (name === "watch" && callback.parameters.length) {
       if (subscriptions.length !== 1 || callback.parameters.length > 2) error(callback, "watch values and previous values require one source");
       const signal = [...current.signals, ...current.memos].find(s => s.id === subscriptions[0])!;
-      const params = callback.parameters.map(p => { if (!ts.isIdentifier(p.name)) error(p, "watch parameter requires a simple binder"); return bindLocal(p.name, signal.type, false); });
+      const params = callback.parameters.map((p,index) => { if (!ts.isIdentifier(p.name)) error(p, "watch parameter requires a simple binder"); return bindLocal(p.name, index===1&&!defer&&signal.type.kind!=="option"?{kind:"option",value:signal.type}:signal.type, false); });
       watch = { sources: subscriptions, value: params[0], previous: params[1] };
     } else if (callback.parameters.length) error(callback, "effect callbacks take no parameters");
-    const body = ts.isBlock(callback.body) ? lowerBlock(callback.body) : (() => { const into: ModelStmt[] = []; const statement = ts.factory.createExpressionStatement(callback.body); ts.setTextRange(statement, callback.body); (statement as { parent: ts.Node }).parent = callback.body.parent; lowerStmt(statement, into); return { stmts: into }; })();
+    const body = ts.isBlock(callback.body) ? lowerBlock(callback.body) : expressionStatementBody(callback.body);
     current.effects.push({ id: pending.id, subscriptions, declared, defer, body, ledger: emptyLedger(), loc: loc(call), ...(watch ? { watch } : {}) }); effectDepth--;
   }
   function effectOptions(node: ts.Expression, name: string): boolean {
@@ -632,9 +740,14 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (!returned || !ts.isReturnStatement(returned) || !returned.expression || !ts.isObjectLiteralExpression(returned.expression)) error(factory, "factory must end with a returned object literal naming its contract");
     for (const p of returned.expression.properties) {
       if (!ts.isShorthandPropertyAssignment(p)) error(p, "factory return entries must name declared region bindings");
-      const b = binding(p.name); if (!b || b.module !== model || !["signal", "memo", "function"].includes(b.kind)) error(p, "factory contract must expose its own signals, memos and functions");
+      const b = binding(p.name); if (!b || b.module !== model || !["signal", "memo", "function", "ref"].includes(b.kind)) error(p, "factory contract must expose its own signals, memos, node references and functions");
       const exposed = [...model.signals, ...model.memos, ...model.functions].find(v => v.id === b.id); if (exposed) exposed.exported = true;
     }
+  }
+  for (const file of reachable) {
+    const ast = env.program.getSourceFile(file)!;
+    const diagnostic = [...env.program.getSyntacticDiagnostics(ast), ...env.program.getSemanticDiagnostics(ast)].find(d => d.category === ts.DiagnosticCategory.Error);
+    if (diagnostic) fail(location(file, files.get(file)!, diagnostic.start ?? 0), ts.flattenDiagnosticMessageText(diagnostic.messageText, " "));
   }
   lowerModelTasks(result);
   analyzeModelLedgers(result);

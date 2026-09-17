@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/large-number-display/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "string"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": "",
+            "type": {
+              "kind": "string"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/large-number-display/App.ts",
+              "line": 4,
+              "column": 46,
+              "offset": 318
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/large-number-display/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [],
+      "effects": [],
+      "functions": [
+        {
+          "id": 2,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 1,
+                "value": {
+                  "kind": "builtin",
+                  "name": "String",
+                  "args": [
+                    {
+                      "kind": "literal",
+                      "value": 9007199254740992,
+                      "rawNumber": "9007199254740992.0",
+                      "type": {
+                        "kind": "number",
+                        "name": "f64"
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/large-number-display/App.ts",
+                        "line": 4,
+                        "column": 92,
+                        "offset": 364
+                      },
+                      "ledger": {
+                        "reads": [],
+                        "writes": [],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    }
+                  ],
+                  "type": {
+                    "kind": "string"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/large-number-display/App.ts",
+                    "line": 4,
+                    "column": 85,
+                    "offset": 357
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/large-number-display/App.ts",
+                  "line": 4,
+                  "column": 75,
+                  "offset": 347
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    1
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [
+                1
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [
+              1
+            ],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/large-number-display/App.ts",
+            "line": 4,
+            "column": 51,
+            "offset": 323
+          }
+        }
+      ],
+      "schedule": [],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

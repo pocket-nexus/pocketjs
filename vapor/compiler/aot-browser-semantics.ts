@@ -4,6 +4,7 @@ import { parse as parseTemplate, NodeTypes, type TemplateChildNode, type SimpleE
 import ts from "typescript";
 import type { AotComponent, AotExpr, AotProgram, AotType } from "./aot-ir.ts";
 import { fail, location } from "./aot-types.ts";
+import { createAotNumericNormalizer } from "./aot-numeric-semantics.ts";
 
 export function normalizeVueAotSemantics(source: string, filename: string, program: AotProgram): string {
   const components = program.components.filter(item => item.file === filename);
@@ -11,7 +12,7 @@ export function normalizeVueAotSemantics(source: string, filename: string, progr
   const normalized = components.map(component => normalizeComponentSemantics(source, filename, program, component));
   if (normalized.some(value => value !== normalized[0])) {
     const template = parse(source, { filename }).descriptor.template;
-    fail(location(filename, source, template?.loc.start.offset), "Generic specializations must use the same Color display and equality semantics in a shared template; use separate components when those operations differ");
+    fail(location(filename, source, template?.loc.start.offset), "Generic specializations must use the same typed display and arithmetic semantics in a shared template; use separate components when those operations differ");
   }
   return normalized[0]!;
 }
@@ -41,8 +42,9 @@ function normalizeComponentSemantics(source: string, filename: string, program: 
     for (const [name, child] of Object.entries(value)) if (name !== "loc" && name !== "type") collect(child);
   }
   collect(component.nodes);
+  const numeric = createAotNumericNormalizer(program, source);
   const optional = new Set(component.functions.filter(fn => fn.optional).map(fn => fn.name));
-  if (!optional.size && ![...expressions.values()].some(values => values.some(value => color(value.type)))) return source;
+  if (!optional.size && ![...expressions.values()].some(values => values.some(value => color(value.type)) || numeric.eligible(values))) return source;
   function unique(base: string): string {
     let name = base, suffix = 2;
     while (source.includes(name)) name = `${base}${suffix++}`;
@@ -107,6 +109,8 @@ function normalizeComponentSemantics(source: string, filename: string, program: 
           return ts.factory.updateTemplateSpan(transformed,
             ts.factory.createCallExpression(ts.factory.createIdentifier(colorText), undefined, [transformed.expression, ts.factory.createStringLiteral("undefined")]), transformed.literal);
         }
+        const normalized = numeric.rewrite(node, transformed, expressions.get(offset + node.getStart(file) - 1) ?? []);
+        if (normalized) { changed = true; return normalized; }
         return transformed;
       };
       return root => ts.visitNode(root, visit) as ts.Expression;
@@ -133,8 +137,8 @@ function normalizeComponentSemantics(source: string, filename: string, program: 
     }
   }
   parseTemplate(descriptor.template.content).children.forEach(visit);
-  if (usedBits || usedText) {
-    const imports = [usedBits ? `__colorBits as ${colorBits}` : "", usedText ? `__colorText as ${colorText}` : ""].filter(Boolean);
+  const imports = [usedBits ? `__colorBits as ${colorBits}` : "", usedText ? `__colorText as ${colorText}` : "", ...numeric.imports()].filter(Boolean);
+  if (imports.length) {
     edits.push({ start: descriptor.scriptSetup.loc.start.offset, end: descriptor.scriptSetup.loc.start.offset,
       text: `\nimport { ${imports.join(", ")} } from "@pocketjs/framework/vue-vapor/std";\n` });
   }

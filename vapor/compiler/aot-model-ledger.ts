@@ -14,6 +14,11 @@ export function analyzeModelLedgers(program: ModelProgram): void {
   const functions = new Map(program.modules.flatMap(m => m.functions.map(f => [f.id, f] as const)));
   const fields = new Set(program.modules.flatMap(m => m.fields.map(f => f.id)));
   const tasks = new Map(program.modules.flatMap(m => m.tasks.map(t => [t.fn, t] as const)));
+  function primitive(type: ModelExpr["type"]): boolean {
+    if(["number","boolean","string","undefined","void"].includes(type.kind))return true;
+    const definition=type.kind==="named"?program.types.find(value=>value.name===type.name):undefined;
+    return definition?.kind==="enum"||definition?.kind==="newtype"&&primitive(definition.base);
+  }
   function expr(e: ModelExpr): Ledger {
     let result = emptyLedger();
     switch (e.kind) {
@@ -29,7 +34,7 @@ export function analyzeModelLedgers(program: ModelProgram): void {
       case "struct": result = combineModelLedgers(...e.fields.map(x => expr(x.value))); break;
       case "array": result = combineModelLedgers(...e.items.map(expr)); break;
       case "invoke": result = combineModelLedgers(...e.args.map(expr), functions.get(e.callee)?.ledger ?? emptyLedger()); break;
-      case "builtin": result = combineModelLedgers(...e.args.map(expr)); break;
+      case "builtin": result = combineModelLedgers(...e.args.map(value => value.kind === "lambda" ? branches(emptyLedger(), [expr(value), emptyLedger()]) : expr(value))); break;
       case "lambda": result = block(e.body); break;
       case "sequence": result = combineModelLedgers(block(e.body), expr(e.value)); break;
     }
@@ -112,5 +117,67 @@ export function analyzeModelLedgers(program: ModelProgram): void {
       pending.delete(next.id); schedule.push(next.id);
     }
     m.schedule = schedule;
+  }
+  // A view aliases the current signal only until a write on any reachable path.
+  // Callee ledgers are complete here, including recursive helpers and task starts.
+  const invalidate = (aliases: Map<number, number>, writes: readonly number[]) => {
+    for (const [local, signal] of aliases) if (writes.includes(signal)) aliases.delete(local);
+  };
+  const intersect = (target: Map<number, number>, choices: Map<number, number>[]) => {
+    target.clear();
+    for (const [local, signal] of choices[0] ?? []) if (choices.every(choice => choice.get(local) === signal)) target.set(local, signal);
+  };
+  function valueAlias(value: ModelExpr, aliases: Map<number, number>): number | undefined {
+    if (value.kind === "signal") return value.id;
+    if (value.kind === "local") return aliases.get(value.id);
+    if (value.kind === "sequence") { markBlock(value.body, aliases); return valueAlias(value.value, aliases); }
+    if (value.kind === "cast") return valueAlias(value.value, aliases);
+    if (value.kind === "conditional") {
+      valueAlias(value.condition, aliases);
+      const a = new Map(aliases), b = new Map(aliases);
+      const left = valueAlias(value.consequent, a), right = valueAlias(value.alternate, b);
+      intersect(aliases, [a, b]); return left === right ? left : undefined;
+    }
+    invalidate(aliases, value.ledger.writes);
+    return undefined;
+  }
+  function markBlock(body: ModelBlock, aliases = new Map<number, number>()) {
+    for (const s of body.stmts) {
+      if (s.kind === "let") {
+        const signal = valueAlias(s.init, aliases);
+        if (!s.binder.owned && signal !== undefined) aliases.set(s.binder.id, signal);
+      } else if (s.kind === "set") {
+        if (s.pre) aliases.set(s.pre.id, s.signal);
+        const signal = valueAlias(s.value, aliases);
+        delete s.writeBack;
+        if (!primitive(s.value.type) && signal === s.signal) s.writeBack = true;
+        else invalidate(aliases, [s.signal]);
+        if (s.pre) aliases.delete(s.pre.id);
+      } else if (s.kind === "if") {
+        valueAlias(s.condition, aliases);
+        const a = new Map(aliases), b = new Map(aliases);
+        markBlock(s.then, a); if (s.else) markBlock(s.else, b);
+        intersect(aliases, [a, b]);
+      } else if (s.kind === "switch") {
+        valueAlias(s.value, aliases);
+        const paths = s.cases.map(branch => { const path = new Map(aliases); markBlock(branch.body, path); return path; });
+        if (!s.cases.some(branch => !branch.value)) paths.push(new Map(aliases));
+        intersect(aliases, paths);
+      } else if (s.kind === "for" || s.kind === "forOf") {
+        invalidate(aliases, s.ledger?.writes ?? []);
+        markBlock(s.body, new Map(aliases));
+      } else if (s.kind === "batch" || s.kind === "untrack") markBlock(s.body, aliases);
+      else if (s.kind === "await") aliases.clear();
+      else {
+        if (s.kind === "assign" && s.target.kind === "local") aliases.delete(s.target.id);
+        invalidate(aliases, s.ledger?.writes ?? []);
+      }
+    }
+  }
+  for (const module of program.modules) {
+    for (const fn of module.functions) markBlock(fn.body);
+    for (const effect of module.effects) markBlock(effect.body);
+    // Lowering clones statements into task states. A resumed view is an owned snapshot.
+    for (const task of module.tasks) for (const state of task.states) markBlock(state.body);
   }
 }

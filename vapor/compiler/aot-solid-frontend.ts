@@ -8,6 +8,8 @@ import { BOOL, I32, STRING, sameType, type AotComponent, type AotEvent, type Aot
 import { createTypeEnvironment, fail, location, typeName, TypeMapper } from "./aot-types.ts";
 import { displayable, expression, narrowed, numeric, requireType, type ExpressionContext } from "./aot-expressions.ts";
 import { addAotContractBinding, solidTypeAlias } from "./aot-contract.ts";
+import { analyzeViewModel, viewModelModule, validateViewModelBindings } from "./aot-model-view.ts";
+import { attachAotModel } from "./aot-ir.ts";
 import { finalizeAotProgram } from "./aot-program.ts";
 import { inferGenericArgument, inferGenericSource, preservesGenericStorage, satisfiesGenericConstraint, satisfiesGenericSourceConstraint, constraintNeedsSource, type GenericSourceArguments } from "./aot-generics.ts";
 import { hasJsxEntity, JSX_ENTITY_DIAGNOSTIC, normalizeJsxText } from "./aot-jsx-text.ts";
@@ -84,6 +86,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
   for (const item of parsed.values()) { const base = item.name; let suffix = 2; while (usedNames.has(item.name)) item.name = base + suffix++; usedNames.add(item.name); }
   const environment = createTypeEnvironment(files, entry), checker = environment.checker;
   const mapper = new TypeMapper(checker, options.strict, [...parsed.values()].map(i => i.name), environment.locationOf);
+  const model = analyzeViewModel(entry, [...parsed.values()].map(item => ({ file: item.file, name: item.name, factory: item.declaration.body!.statements.some(statement => ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration => ts.isObjectBindingPattern(declaration.name) && !!declaration.initializer && ts.isCallExpression(declaration.initializer))) })), files, environment, mapper);
   const components: AotComponent[] = [], byFile = new Map<string, AotComponent>(), specializations = new Map<string, AotComponent>(), requiredSlots = new Map<string, Set<string>>();
   const checked = (item: Parsed, node: ts.Node) => {
     const mapped = environment.nodeAt(item.file, node.getStart(item.script), node.getWidth(item.script));
@@ -104,7 +107,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
       const loc = (node: ts.Node): SourceLocation => location(item.file, item.source, node.getStart(item.script));
       const component: AotComponent = { name: instanceName, file: item.file, root: item.file === entry && options.root !== false, props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [], nodes: [], nodeCount: 0, memoCount: 0, handlerCount: 0 };
       requiredSlots.set(instanceName, new Set());
-      const context: ExpressionContext = { file: item.file, mapper, environment, bindings: new Map(), functions: new Map(), builtins: new Map(), narrowings: new Map(), handler: false };
+      const context: ExpressionContext = { file: item.file, mapper, environment, modelModule: viewModelModule(model, item.file), bindings: new Map(), functions: new Map(), builtins: new Map(), narrowings: new Map(), handler: false };
       const setters = new Map<string, string>(), contexts = new Map<string, { key: string; type: ts.Type }>(), derived = new Map<string, ts.Expression>(), models = new Map<string, Import>();
       const sameReference = (node: ts.Identifier, declaration: ts.Identifier): boolean => {
         const use = environment.nodeAt(item.file, node.getStart(item.script), node.getWidth(item.script));
@@ -259,12 +262,22 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
         if (ts.isArrayBindingPattern(declaration.name)) fail(loc(declaration), "Component state and lifecycle belong to the basename module and the Rust model");
         if (ts.isObjectBindingPattern(declaration.name)) {
           if (ts.isIdentifier(init) && init.text === context.propsName) fail(loc(declaration), "Read props as props.x; destructuring is outside the view subset");
-          if (component.factory || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression) || !models.has(init.expression.text) || init.arguments.length || init.typeArguments?.length) fail(loc(declaration), "A stateful component has one destructured call to its imported zero-argument factory");
+          if (component.factory || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression) || !models.has(init.expression.text) || init.typeArguments?.length) fail(loc(declaration), "A stateful component has one destructured call to its imported factory");
           const factory = models.get(init.expression.text)!, signatures = checked(item, factory.node.name).getCallSignatures();
-          if (signatures.length !== 1 || signatures[0]!.parameters.length || signatures[0]!.typeParameters?.length) fail(loc(init), "A child factory must have one non-generic zero-argument signature");
+          if (signatures.length !== 1 || signatures[0]!.typeParameters?.length) fail(loc(init), "A child factory must have one non-generic signature");
+          const parameters = signatures[0]!.parameters.map(parameter => {
+            const declaration = parameter.valueDeclaration ?? parameter.declarations?.[0];
+            if (!declaration || ts.isParameter(declaration) && (declaration.questionToken || declaration.dotDotDotToken || declaration.initializer)) fail(loc(init), "Factory parameters require a fixed set of mount-time values");
+            return { name: parameter.name, type: mapper.map(checker.getTypeOfSymbolAtLocation(parameter, declaration), loc(init), typeName(parameter.name)) };
+          });
+          if (init.arguments.length !== parameters.length) fail(loc(init), `Factory ${factory.sourceName} expects ${parameters.length} mount-time arguments`);
+          const arguments_ = init.arguments.map((argument, index) => {
+            const value = expr(argument, context, parameters[index]!.type); requireType(value, parameters[index]!.type, context);
+            assertPure(value, "Factory arguments must be mount-time values without view-model method calls"); return value;
+          });
           const result = signatures[0]!.getReturnType();
           if (!(result.flags & ts.TypeFlags.Object) || result.getCallSignatures().length || checker.getIndexInfosOfType(result).length || result.isClass()) fail(loc(init), "A child factory returns an object of view-model values and methods");
-          component.factory = { name: factory.name, sourceName: factory.sourceName, module: factory.module };
+          component.factory = { name: factory.name, sourceName: factory.sourceName, module: factory.module, ...(parameters.length ? { params: parameters, arguments: arguments_ } : {}) };
           register(declaration.name.elements.map(binding => {
             if (!ts.isIdentifier(binding.name) || binding.initializer || binding.dotDotDotToken || binding.propertyName && !ts.isIdentifier(binding.propertyName)) fail(loc(binding), "Factory destructuring accepts named bindings and aliases, without defaults or rest bindings");
             const sourceName = (binding.propertyName as ts.Identifier | undefined)?.text ?? binding.name.text, property = result.getProperty(sourceName), node = property?.valueDeclaration ?? property?.declarations?.[0];
@@ -389,7 +402,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
           if (!ts.isIdentifier(attribute.name) || !/^[A-Za-z_$][\w$]*$/.test(attribute.name.text)) fail(loc(attribute), "Attribute names are camelCase identifiers; use debugName");
           const name = attribute.name.text;
           if (result.has(name)) fail(loc(attribute), `Duplicate attribute ${name}`);
-          if (name === "ref" || name === "nodeRef") fail(loc(attribute), "Node references are outside the view subset");
+          if (name === "nodeRef") fail(loc(attribute), "Use ref with a model createNodeRef binding");
           if (attribute.initializer && !ts.isStringLiteral(attribute.initializer) && !ts.isJsxExpression(attribute.initializer)) fail(loc(attribute), "Element attribute values must be written inside braces");
           if (attribute.initializer && ts.isStringLiteral(attribute.initializer) && hasJsxEntity(attribute.initializer.getText(item.script))) fail(loc(attribute), JSX_ENTITY_DIAGNOSTIC);
           result.set(name, attribute);
@@ -592,9 +605,13 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
         }
         if (imp?.module !== COMPONENTS || !["View", "Text", "Image"].includes(kind ?? "")) fail(loc(tag), `Element ${tag.text} is not an imported host primitive or child component`);
         const host: Extract<AotNode,{kind:"element"}> = { kind: "element", id: component.nodeCount++, tag: kind as "View"|"Text"|"Image", style: -1, props: [], focusable: false, events: [], children: [], loc: loc(node) };
-        only(attributes, kind === "View" ? ["class", "style", "focusable", "debugName", "onPress"] : kind === "Image" ? ["class", "src"] : ["class"], kind!);
+        only(attributes, kind === "View" ? ["class", "style", "focusable", "debugName", "onPress", "ref"] : kind === "Image" ? ["class", "src", "ref"] : ["class", "ref"], kind!);
         for (const [name, attribute] of attributes) {
-          if (name === "class") {
+          if (name === "ref") {
+            const value = attrExpr(attribute);
+            if (!ts.isIdentifier(value) || !component.refs?.some(slot => slot.name === value.text)) fail(loc(attribute), "ref requires a model createNodeRef binding");
+            host.ref = value.text;
+          } else if (name === "class") {
             if (!attribute.initializer) fail(loc(attribute), "class requires a full class literal or literal ternary");
             if (ts.isStringLiteral(attribute.initializer)) { const text = attribute.initializer.text.trim(); if (text) { classLiterals.add(text); (host as typeof host & { classLiteral?: string }).classLiteral = text; } }
             else {
@@ -653,6 +670,8 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
   if (root.declaration.typeParameters?.length) fail(location(entry, root.source), "A generic component requires a parent that supplies concrete props");
   for (const item of parsed.values()) if (!item.declaration.typeParameters?.length) analyze(item);
   const program = finalizeAotProgram(root.name, components, mapper, classLiterals);
+  if (model) attachAotModel(program, model);
+  validateViewModelBindings(program);
   const versions: SolidAotDependencyVersion[] = [];
   for (const file of [...new Set(environment.program.getSourceFiles().map(f => resolve(f.fileName)))].sort()) { try { const stat = statSync(file); if (stat.isFile()) versions.push({ file, mtimeMs: stat.mtimeMs, size: stat.size }); } catch {} }
   dependencies.set(program, versions);

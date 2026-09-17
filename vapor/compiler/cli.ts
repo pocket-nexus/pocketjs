@@ -10,8 +10,8 @@ const isSfc = candidate?.endsWith(".vue") || (candidate &&
     existsSync(path) && statSync(path).isDirectory(),
   ));
 if (args[0] === "--help" || args[0] === "-h") {
-  console.log("bun vapor/compiler/cli.ts build <app|Root.vue|App.tsx> [--out gen] [--strict] [--ir file] [--board name] [--no-format]\nbun vapor/compiler/cli.ts check <app|Root.vue|App.tsx> [--strict] [--boards | --board name] [--json]");
-} else if (args[0] === "build" || args[0] === "check" && candidate?.endsWith(".tsx") || isSfc) {
+  console.log("bun vapor/compiler/cli.ts build <app|Root.vue|App.tsx> [--out gen] [--strict] [--ir file] [--board name] [--no-format]\nbun vapor/compiler/cli.ts check <app|Root.vue|App.tsx> [--strict] [--boards | --board name] [--json]\nbun vapor/compiler/cli.ts run <app> --tape <file>");
+} else if (args[0] === "build" || args[0] === "run" || args[0] === "check" && candidate?.endsWith(".tsx") || isSfc) {
   try {
     const { runVueAotCli } = await import("./aot-build.ts");
     await runVueAotCli(args);
@@ -20,6 +20,6 @@ if (args[0] === "--help" || args[0] === "-h") {
     process.exitCode = 1;
   }
 } else {
-  console.error("Pocket AOT: expected build or check; use --help for commands");
+  console.error("Pocket AOT: expected build, check or run; use --help for commands");
   process.exitCode = 1;
 }

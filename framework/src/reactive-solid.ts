@@ -1,11 +1,13 @@
 import { createSignal as stockSignal, getOwner, onCleanup, type Accessor, type Setter } from "solid-js";
 import { ModelRegion, registerModelRegion } from "./model-reactive.ts";
+import { registerModelLifecycle } from "./lifecycle-solid-aot.ts";
 export function createModelRegion(development = true, recursionLimit = 256): ModelRegion {
-  const region = registerModelRegion(new ModelRegion(<T>(seed: T) => {
+  const region = registerModelRegion(new ModelRegion(<T>(seed: T): [() => T, (value: T) => void] => {
     const [read, set] = stockSignal(seed, { equals: false });
-    return [read, value => { set(() => value); }];
+    return [read, (value: T) => { set(() => value); }];
   }, development, recursionLimit));
-  if (getOwner()) onCleanup(() => region.dispose());
+  const dispose = registerModelLifecycle(region, !getOwner());
+  if (getOwner()) onCleanup(dispose);
   return region;
 }
 /** Source signatures; compiled calls register the analyzed dependency sets. */

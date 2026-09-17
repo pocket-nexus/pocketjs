@@ -3858,6 +3858,6 @@ exports[`Vue feature lab View IR 1`] = `
       "name": "FeatureListTConstraint",
     },
   ],
-  "version": 3,
+  "version": 4,
 }
 `;

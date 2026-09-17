@@ -22,7 +22,7 @@ const fn = (id: number, stmts: any[], async = false) => ({ id, name: `f${id}`, e
 const effect = (id: number, subscriptions: number[], stmts: any[], defer = true) => ({ id, subscriptions, declared: true, defer, body: block(...stmts), ledger });
 const memo = (id: number, inputs: number[], body: ModelExpr) => ({ id, name: `m${id}`, exported: true, type: body.type, inputs, body });
 function program(parts: Partial<ModelModule> = {}): ModelProgram {
-  return { version: 1, modules: [{ name: "App", file: "core.ts", kind: "root", params: [], signals: [], fields: [], memos: [], effects: [], functions: [], schedule: [], refs: [], tasks: [], ...parts }] } as ModelProgram;
+  return { version: 1, types: [], diagnostics: [], recursionLimit: 256, modules: [{ name: "App", file: "core.ts", kind: "root", params: [], signals: [], fields: [], memos: [], effects: [], functions: [], schedule: [], refs: [], tasks: [], ...parts }] } as ModelProgram;
 }
 const run = (p: ModelProgram, opts = {}) => new ModelInterpreter(lowerModelTasks(p), opts);
 const dispatch = (model: ModelInterpreter, id: number, args: any[] = [], extra = {}) => model.frame({ dispatch: [{ fn: id, args }], ...extra });
@@ -285,7 +285,6 @@ const invalidIR: [string, () => ModelProgram, string][] = [
   ["undeclared signal", () => program({ functions: [fn(1, [{ kind: "expr", value: read(123) }])] }), "undeclared signal"],
   ["branch local escape", () => program({ functions: [fn(1, [{ kind: "if", condition: lit(true), then: block({ kind: "let", binder: binder(2), init: lit(1) }) }, { kind: "expr", value: read(2, "local") }])] }), "undeclared local"],
   ["non-atomic call", () => program({ functions: [fn(1, [{ kind: "call", callee: 2, args: [bin(lit(1), "+", lit(2))] }]), fn(2, [])] }), "non-atomic"],
-  ["return in effect", () => program({ effects: [effect(1, [], [{ kind: "return" }])], schedule: [1] }), "return outside"],
   ["reversed schedule", () => program({ signals: [signal(1), signal(2)], effects: [effect(3, [1], [set(2, lit(1))]), effect(4, [2], [])], schedule: [4, 3] }), "schedule edge"],
   ["memo over field", () => program({ fields: [{ id: 1, name: "private", type: I, seed: lit(1) }], memos: [memo(2, [], read(1, "field"))], schedule: [2] }), "impure"],
   ["untyped expression", () => program({ functions: [fn(1, [{ kind: "expr", value: { ...lit(1), type: undefined } }])] }), "admissible type"],
@@ -302,4 +301,35 @@ test("IR admission rejects missing live task field", () => {
 
 test("IR admission rejects a cyclic task start graph", () => {
   expect(() => lowerModelTasks(program({ functions: [fn(1, [start(2)], true), fn(2, [start(1)], true)] }))).toThrow("cycle of task starts");
+});
+
+
+test("nested any releases a losing request before enclosing all finishes", () => {
+  const m = run(program({signals:[signal(1)],functions:[fn(2,[wait({kind:"all",members:[{kind:"any",members:[frames(1),net()]},frames(4)]}),inc(1)],true)]}),{services:{net:{capacity:1}}});
+  const request = events(dispatch(m,2),"request")[0].request;
+  const won=m.frame(); expect(won.state.s1).toBe(0); expect(events(won,"request-cancel")).toHaveLength(1);
+  const late=m.frame({deliveries:[{request,value:{kind:"ok"}}]}); expect(events(late,"delivery-drop")).toHaveLength(1);
+  m.frame(); const done=m.frame(); expect(done.state.s1).toBe(1); expect(events(done,"request-cancel")).toEqual([]);
+});
+
+test("view dispatch bridge evaluates current model reads before the reaction", () => {
+  const p = lowerModelTasks(program({signals:[signal(1),signal(2)],functions:[fn(3,[inc(1)])],effects:[effect(4,[1],[set(2,read(1))])],schedule:[4]}));
+  const observed: unknown[] = [];
+  const m = new ModelInterpreter(p,{dispatch(model,input){if(!input.buttons)return false;model.call(3,[],1,true);observed.push(model.read(2));return true;}});
+  const frame=m.frame({buttons:1}); expect(observed).toEqual([0]); expect(frame.state).toMatchObject({s1:1,s2:1});
+  expect(events(frame,"handler")).toHaveLength(1);
+});
+
+test("deferred root mount runs initial effects then mount hook and its ordinary reaction", () => {
+  const p=lowerModelTasks(program({signals:[signal(1),signal(2)],effects:[effect(3,[1],[inc(2)],false)],schedule:[3]}));
+  const order: unknown[]=[];
+  const m=new ModelInterpreter(p,{deferInitial:true,mount(model,region){order.push(model.state(region).s2);model.write(1,1,region);},update(model){order.push(model.state().s2);}});
+  expect(m.state().s2).toBe(0);m.initialize();expect(m.state()).toMatchObject({s1:1,s2:2});expect(order).toEqual([1,2]);
+  m.initialize();expect(order).toEqual([1,2]);
+});
+
+
+test("return ends only the current effect callback", () => {
+  const m=run(program({signals:[signal(1),signal(2)],effects:[effect(3,[1],[set(2,lit(1)),{kind:"return"},set(2,lit(9))])],functions:[fn(4,[set(1,lit(1))])],schedule:[3]}));
+  expect(dispatch(m,4).state.s2).toBe(1);
 });

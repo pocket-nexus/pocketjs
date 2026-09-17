@@ -1,9 +1,12 @@
 /** Typed model awaitables over the existing host network transport. */
-import { fetch as hostFetch, netHost } from "./net-api.ts";
+import { __requestNet, netHost } from "./net-api.ts";
+import { NET_ERROR } from "../../contracts/spec/net.ts";
+import { utf8ToString } from "./bytes.ts";
 import { registerModelService, type Wait } from "./model-tasks.ts";
+import type { i32 } from "./numeric-vue-vapor.ts";
 
 export type NetResult =
-  | { kind: "ok"; status: number; body: string }
+  | { kind: "ok"; status: i32; body: string }
   | { kind: "failed"; message: string }
   | { kind: "unavailable" } | { kind: "busy" } | { kind: "malformed" };
 
@@ -19,14 +22,16 @@ registerModelService("@pocketjs/framework/net/model", {
   available: () => netHost() !== null,
   validate: validateNetResult,
   request(call, args, _request, deliver) {
-    let cancelled = false;
     if (call !== "get" || typeof args[0] !== "string") { deliver({ kind: "malformed" }); return; }
-    hostFetch(args[0]).then(async response => {
-      const body = await response.text();
-      if (!cancelled) deliver({ kind: "ok", status: response.status, body });
-    }).catch(error => { if (!cancelled) deliver({ kind: "failed", message: String(error?.message ?? error) }); });
-    // The adapter drops a result when the existing transport cannot cancel one request.
-    return () => { cancelled = true; };
+    return __requestNet(args[0],{},(status,_url,_headers,buffer)=>{
+      try { deliver({kind:"ok",status,body:utf8ToString(new Uint8Array(buffer))}); }
+      catch { deliver({kind:"malformed"}); }
+    },error=>{
+      if(error.code===NET_ERROR.protocol)deliver({kind:"malformed"});
+      else if(error.code===NET_ERROR.unavailable)deliver({kind:"unavailable"});
+      else if(error.code===NET_ERROR.busy)deliver({kind:"busy"});
+      else deliver({kind:"failed",message:error.message});
+    });
   },
 });
 

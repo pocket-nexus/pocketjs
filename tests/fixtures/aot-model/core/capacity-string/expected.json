@@ -1,0 +1,20 @@
+{
+  "state": {
+    "result": "é雪"
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": "é雪",
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": "é雪",
+      "changed": true
+    }
+  ]
+}

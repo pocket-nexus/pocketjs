@@ -92,7 +92,7 @@ test.each([
   ['const total = count(); return <Text>{total}</Text>;', "Only the factory call"],
   ['const [open, setOpen] = read(); return <View/>;', "belong to the basename module"],
   ['return <Show when={items()}><Text>x</Text></Show>;', "requires a boolean condition"],
-  ['return <View ref={reset}/>;', "Node references"],
+  ['return <View ref={reset}/>;', "ref requires a model createNodeRef binding"],
   ['return <div/>;', "not an imported host primitive"],
   ['return <View {...items()}/>;', "Spread attributes"],
   ['return <View debug-name="card"/>;', "camelCase identifiers"],

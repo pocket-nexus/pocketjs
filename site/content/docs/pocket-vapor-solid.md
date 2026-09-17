@@ -5,9 +5,11 @@ The Solid and Vue front ends produce the same View IR. The Rust generator,
 host input contract and `pocket_vapor` runtime consume that IR.
 
 The browser and guest execute the TypeScript model with Solid. Native AOT
-executes a Rust model implementing the generated trait. **TypeScript function
-bodies are not translated to Rust.** Both model implementations must provide
-the same state transitions.
+executes a Rust model implementing the generated trait. **Setting
+`app.model` to `"compiled"` translates the supported TypeScript model subset
+to Rust.** The default `"rust"` mode uses the application's Rust implementation.
+See [TypeScript models to Rust](/docs/pocket-vapor-model/) for admission,
+reaction scheduling and tasks.
 
 ## Build a view
 
@@ -68,7 +70,7 @@ value type. A plain function remains a method.
 
 The component file contains imports, type declarations and one default-exported
 function declaration. The body accepts prop defaults through `mergeProps`, a
-zero-argument model factory, context reads, derived expressions, PocketJS
+model factory with mount-time arguments, context reads, derived expressions, PocketJS
 lifecycle hooks and one JSX return. State creation and application logic belong
 to the basename module and the Rust model.
 
@@ -143,6 +145,6 @@ After a structural update, cleanup runs in reverse creation order and mount
 runs in creation order, in one batch. A round that ran hooks triggers another
 update. Root disposal runs outstanding cleanup hooks without another frame.
 
-Native code generation consumes **View IR format 3**. Older IR is rejected.
+Native code generation consumes **View IR format 4**. Older IR is rejected.
 The shared format includes statement sequences, conditions, lifecycle hooks,
 style props, optional callback emissions and literal array constants.

@@ -1,0 +1,79 @@
+{
+  "state": {
+    "count": 0,
+    "result": 3
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 0,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "count",
+      "value": 0,
+      "changed": false
+    },
+    {
+      "name": "result",
+      "value": 2,
+      "changed": true
+    },
+    {
+      "name": "count",
+      "value": 0,
+      "changed": false
+    },
+    {
+      "name": "result",
+      "value": 3,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 0,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 0,
+      "changed": false
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 2,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 0,
+      "changed": false
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 3,
+      "changed": true
+    }
+  ],
+  "work": {
+    "loopIterations": 3
+  }
+}

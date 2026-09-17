@@ -42,6 +42,7 @@ JSValue JS_NewUint32(JSContext *context, uint32_t value);
 JSValue JS_NewFloat64(JSContext *context, double value);
 JSValue JS_NewBool(JSContext *context, int value);
 JSValue JS_NewString(JSContext *context, const char *value);
+JSValue JS_NewStringLen(JSContext *context, const char *value, size_t length);
 JSValue JS_NewObject(JSContext *context);
 JSValue JS_NewArray(JSContext *context);
 JSValue JS_NewArrayBuffer(JSContext *context, uint8_t *buffer, size_t length,

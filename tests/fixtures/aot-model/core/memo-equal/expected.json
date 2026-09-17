@@ -1,0 +1,29 @@
+{
+  "state": {
+    "count": 2,
+    "positive": true,
+    "result": 0
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 2,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 2,
+      "changed": true
+    },
+    {
+      "kind": "memo",
+      "name": "positive",
+      "value": true,
+      "changed": false,
+      "mode": "scheduled"
+    }
+  ]
+}

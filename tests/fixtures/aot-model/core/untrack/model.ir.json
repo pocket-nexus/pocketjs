@@ -1,0 +1,440 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "count",
+          "setter": "setCount",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+              "line": 4,
+              "column": 44,
+              "offset": 316
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        },
+        {
+          "id": 2,
+          "name": "tick",
+          "setter": "setTick",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+              "line": 4,
+              "column": 88,
+              "offset": 360
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+            "line": 4,
+            "column": 60,
+            "offset": 332
+          }
+        },
+        {
+          "id": 3,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+              "line": 4,
+              "column": 136,
+              "offset": 408
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+            "line": 4,
+            "column": 104,
+            "offset": 376
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [],
+      "effects": [
+        {
+          "id": 4,
+          "subscriptions": [
+            1
+          ],
+          "declared": false,
+          "defer": false,
+          "body": {
+            "stmts": [
+              {
+                "kind": "expr",
+                "value": {
+                  "kind": "signal",
+                  "id": 1,
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+                    "line": 4,
+                    "column": 157,
+                    "offset": 429
+                  },
+                  "ledger": {
+                    "reads": [
+                      1
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      1
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      1
+                    ],
+                    "mustSubscribe": [
+                      1
+                    ]
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+                  "line": 4,
+                  "column": 157,
+                  "offset": 429
+                },
+                "ledger": {
+                  "reads": [
+                    1
+                  ],
+                  "writes": [],
+                  "subscriptions": [
+                    1
+                  ],
+                  "external": false,
+                  "maySubscribe": [
+                    1
+                  ],
+                  "mustSubscribe": [
+                    1
+                  ]
+                }
+              },
+              {
+                "kind": "untrack",
+                "body": {
+                  "stmts": [
+                    {
+                      "kind": "set",
+                      "signal": 3,
+                      "value": {
+                        "kind": "signal",
+                        "id": 2,
+                        "type": {
+                          "kind": "number",
+                          "name": "i32"
+                        },
+                        "loc": {
+                          "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+                          "line": 4,
+                          "column": 187,
+                          "offset": 459
+                        },
+                        "ledger": {
+                          "reads": [
+                            2
+                          ],
+                          "writes": [],
+                          "subscriptions": [
+                            2
+                          ],
+                          "external": false,
+                          "maySubscribe": [
+                            2
+                          ],
+                          "mustSubscribe": [
+                            2
+                          ]
+                        }
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+                        "line": 4,
+                        "column": 177,
+                        "offset": 449
+                      },
+                      "ledger": {
+                        "reads": [
+                          2
+                        ],
+                        "writes": [
+                          3
+                        ],
+                        "subscriptions": [
+                          2
+                        ],
+                        "external": false,
+                        "maySubscribe": [
+                          2
+                        ],
+                        "mustSubscribe": [
+                          2
+                        ]
+                      }
+                    }
+                  ],
+                  "ledger": {
+                    "reads": [
+                      2
+                    ],
+                    "writes": [
+                      3
+                    ],
+                    "subscriptions": [
+                      2
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      2
+                    ],
+                    "mustSubscribe": [
+                      2
+                    ]
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+                  "line": 4,
+                  "column": 165,
+                  "offset": 437
+                },
+                "ledger": {
+                  "reads": [
+                    2
+                  ],
+                  "writes": [
+                    3
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [
+                1,
+                2
+              ],
+              "writes": [
+                3
+              ],
+              "subscriptions": [
+                1
+              ],
+              "external": false,
+              "maySubscribe": [
+                1
+              ],
+              "mustSubscribe": [
+                1
+              ]
+            }
+          },
+          "ledger": {
+            "reads": [
+              1,
+              2
+            ],
+            "writes": [
+              3
+            ],
+            "subscriptions": [
+              1
+            ],
+            "external": false,
+            "maySubscribe": [
+              1
+            ],
+            "mustSubscribe": [
+              1
+            ]
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+            "line": 4,
+            "column": 139,
+            "offset": 411
+          }
+        }
+      ],
+      "functions": [
+        {
+          "id": 5,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 2,
+                "value": {
+                  "kind": "literal",
+                  "value": 1,
+                  "rawNumber": "1",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+                    "line": 4,
+                    "column": 231,
+                    "offset": 503
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+                  "line": 4,
+                  "column": 223,
+                  "offset": 495
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    2
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [
+                2
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [
+              2
+            ],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/untrack/App.ts",
+            "line": 4,
+            "column": 199,
+            "offset": 471
+          }
+        }
+      ],
+      "schedule": [
+        4
+      ],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

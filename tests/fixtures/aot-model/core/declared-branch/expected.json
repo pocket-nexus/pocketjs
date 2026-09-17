@@ -1,0 +1,22 @@
+{
+  "state": {
+    "armed": false,
+    "tick": 1,
+    "result": 0
+  },
+  "writes": [
+    {
+      "name": "tick",
+      "value": 1,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "tick",
+      "value": 1,
+      "changed": true
+    }
+  ]
+}

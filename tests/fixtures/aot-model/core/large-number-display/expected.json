@@ -1,0 +1,20 @@
+{
+  "state": {
+    "result": "9007199254740992"
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": "9007199254740992",
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": "9007199254740992",
+      "changed": true
+    }
+  ]
+}

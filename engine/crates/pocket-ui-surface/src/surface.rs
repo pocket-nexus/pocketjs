@@ -412,6 +412,23 @@ impl UiSurface {
                 .cancel_anim(id));
 
             let ui = self.inner.clone();
+            op!("takeAnimationCompletions", move || -> String {
+                use core::fmt::Write;
+                let mut output = String::from("[");
+                ui.borrow_mut().ui.drain_animation_completions(|completion| {
+                    if output.len() > 1 { output.push(','); }
+                    let reason = match completion.reason {
+                        pocketjs_core::anim::CompletionReason::Ended => 0,
+                        pocketjs_core::anim::CompletionReason::Replaced => 1,
+                        pocketjs_core::anim::CompletionReason::Dropped => 2,
+                    };
+                    let _ = write!(output, "[{},{}]", completion.id, reason);
+                });
+                output.push(']');
+                output
+            });
+
+            let ui = self.inner.clone();
             op!("setFocus", move |id: i32| ui.borrow_mut().ui.set_focus(id));
 
             let ui = self.inner.clone();

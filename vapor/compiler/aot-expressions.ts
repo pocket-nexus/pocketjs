@@ -10,6 +10,7 @@ export interface ExpressionContext {
   bindings: Map<string, ExpressionBinding>; functions: Map<string, AotFunction>; builtins: Map<string, string>;
   derived?: Map<string, { source: string; loc: SourceLocation; context: ExpressionContext }>;
   propsName?: string; narrowings: Map<string, Narrowing>; handler: boolean;
+  modelModule?: import("./aot-model-ir.ts").ModelModule;
 }
 export function numeric(type: AotType, mapper: TypeMapper): Extract<AotType, { kind: "number" }> | undefined {
   if (type.kind === "number") return type;
@@ -299,7 +300,7 @@ function literal(value: string | number | boolean, expected: AotType | undefined
   let type: AotType = typeof value === "number" ? F64 : typeof value === "string" ? STRING : BOOL;
   if (actual) {
     const number = numeric(actual, ctx.mapper), d = ctx.mapper.declaration(actual);
-    if (typeof value === "string" && actual.kind === "style") type = actual;
+    if (typeof value === "string" && (actual.kind === "style" || actual.kind === "string")) type = actual;
     else if (typeof value === "string" && d?.kind === "newtype" && d.unit === "Color") {
       try { parseVaporColor(value); } catch { fail(loc, "Color literals use #rgb, #rgba, #rrggbb, or #rrggbbaa"); }
       type = actual;

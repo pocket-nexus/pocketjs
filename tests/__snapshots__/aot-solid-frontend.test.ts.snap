@@ -2455,6 +2455,7 @@ exports[`Solid lab View IR is deterministic 1`] = `
           "writable": true,
         },
         {
+          "memo": true,
           "name": "enabledCount",
           "sourceName": "enabledCount",
           "type": {
@@ -2499,6 +2500,7 @@ exports[`Solid lab View IR is deterministic 1`] = `
     ],
   },
   "diagnostics": [],
+  "modelProtocol": true,
   "root": "App",
   "styles": {
     "anims": [],
@@ -3871,6 +3873,6 @@ exports[`Solid lab View IR is deterministic 1`] = `
       "name": "FeatureListTConstraint",
     },
   ],
-  "version": 3,
+  "version": 4,
 }
 `;

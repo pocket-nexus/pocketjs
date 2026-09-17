@@ -1,8 +1,19 @@
 import { batch, getOwner, onCleanup as disposeWithOwner, type Owner } from "solid-js";
 import { createLifecycleScheduler } from "./aot-lifecycle.ts";
+import { reactModelRegions, type ModelRegion } from "./model-reactive.ts";
+import { disposeModelTasks, drainModelCommands } from "./model-tasks.ts";
 
-const scheduler = createLifecycleScheduler(batch);
+const scheduler = createLifecycleScheduler(run => batch(() => { run(); reactModelRegions(); }));
 let roots = new WeakSet<Owner>();
+const models = new Map<ModelRegion, { root: boolean; dispose: () => void }>();
+export function registerModelLifecycle(region: ModelRegion, root = false): () => void {
+  const mount = scheduler.register(() => { if (!region.disposed && region.initial) { region.react(true); region.settle(); } }, "mount");
+  const unmount = scheduler.register(() => { region.dispose(); disposeModelTasks(region); models.delete(region); }, "unmount");
+  const dispose = () => { mount(); unmount(); };
+  models.set(region, { root, dispose });
+  return dispose;
+}
+export function disposeRootModelRegions(): void { for (const entry of models.values()) if (entry.root) entry.dispose(); }
 
 function register(callback: () => void, phase: "mount" | "unmount"): void {
   const owner = getOwner();
@@ -21,6 +32,9 @@ function register(callback: () => void, phase: "mount" | "unmount"): void {
 
 export function onMount(callback: () => void): void { register(callback, "mount"); }
 export function onCleanup(callback: () => void): void { register(callback, "unmount"); }
-export function flushLifecycleHooks(): void { scheduler.flush(); }
-export function flushUnmountedHooks(): void { scheduler.flushUnmounted(); }
-export function resetLifecycleHooks(): void { scheduler.reset(); roots = new WeakSet(); }
+export function flushLifecycleHooks(): void { scheduler.flush(); drainModelCommands(); }
+export function flushUnmountedHooks(): void { scheduler.flushUnmounted(); drainModelCommands(); }
+export function resetLifecycleHooks(): void {
+  scheduler.reset(); roots = new WeakSet();
+  for (const [region, entry] of [...models]) if (!region.disposed && region.initial) registerModelLifecycle(region, entry.root);
+}

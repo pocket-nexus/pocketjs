@@ -55,7 +55,7 @@ export interface ModelModule {
   schedule: number[];
   refs: { id: number; name: string }[];
   tasks: ModelTask[];
-  constants?: { id: number; name: string; value: ModelExpr }[];
+  constants?: { id: number; name: string; value: ModelExpr; exported?: boolean }[];
 }
 export type ModelExpr = (
   | { kind: "literal"; value: string | number | boolean; rawNumber?: string }
@@ -98,6 +98,8 @@ export type ModelStmt = (
 export interface ModelBlock { stmts: ModelStmt[]; ledger?: Ledger }
 export interface ModelTaskState {
   id: number; body: ModelBlock;
+  /** Measurement marker at the entry to one source loop iteration. */
+  loop?: true;
   suspend?: ModelAwaitable;
   /** Result of this state's suspension; bound before entering next. */
   resume?: ModelBinder;

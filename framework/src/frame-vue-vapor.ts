@@ -7,6 +7,9 @@ import type { i32 } from "./numeric-vue-vapor.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
 import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-vue-aot.ts";
+import { reactModelRegions } from "./model-reactive.ts";
+import { resumeModelTasks, resetModelTaskClock } from "./model-tasks.ts";
+import { pollModelAnimations } from "./model-animation.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
@@ -17,6 +20,7 @@ const placedCallbacks = new Map<FrameCallback, NodeMirror>();
 let buttonHandlerBlockDepth = 0;
 
 export function resetFrameHooks(): void {
+  resetModelTaskClock();
   callbacks.clear();
   placedCallbacks.clear();
   buttonHandlerBlockDepth = 0;
@@ -28,6 +32,7 @@ export function resetFrameHooks(): void {
 export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void): void {
   __beginAxisFrame(axisDeltas);
   try {
+    pollModelAnimations(); resumeModelTasks();
     const pending = new Map<NodeMirror, (() => void)[]>();
     const enqueue: DeferredPress = (node, invoke) => {
       const entries = pending.get(node);
@@ -58,6 +63,7 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
     };
     for (const root of roots) collect(root);
     for (const invoke of ordered) invoke();
+    reactModelRegions();
     flushLifecycleHooks();
   }
   finally { __endAxisFrame(); }

@@ -21,7 +21,7 @@ export type AotTypeDeclaration =
 export type LiteralValue = string | number | boolean;
 export interface AotConstant { name: string; sourceName?: string; type: AotType; value: LiteralValue | LiteralValue[]; rawNumber?: string; rawNumbers?: (string | undefined)[] }
 export interface AotValue { name: string; sourceName: string; type: AotType; writable: boolean; memo?: boolean }
-export interface AotFunction { name: string; sourceName: string; parameters: AotField[]; returns: AotType; binding: boolean; handler: boolean; optional?: boolean }
+export interface AotFunction { name: string; sourceName: string; parameters: AotField[]; returns: AotType; binding: boolean; handler: boolean; optional?: boolean; async?: true }
 export interface AotProp extends AotField { default?: LiteralValue; defaultRawNumber?: string; model?: string }
 export interface AotEvent { name: string; parameters: AotField[]; optional?: true }
 export interface AotSlot { name: string; parameters: AotField[] }
@@ -53,7 +53,7 @@ export interface AotMemo { id: number; expression: AotExpr }
 export interface AotStyleBinding { prop: number; name: string; value: AotExpr; memo: number }
 export type AotNode =
   | { kind: "input"; id: number; input: { kind: "button"; name: string; button: number; latched: boolean } | { kind: "axis"; name: string; axis: number }; active: AotExpr; handler: AotHandler; children: AotNode[]; loc: SourceLocation }
-  | { kind: "element"; id: number; tag: "View" | "Text" | "Image"; style: number; dynamicStyle?: AotMemo; props: AotStyleBinding[]; text?: { parts: (string | AotExpr)[]; memo: number }; focusable: boolean; debugName?: string; src?: string; events: { name: string; handler: AotHandler }[]; children: AotNode[]; loc: SourceLocation }
+  | { kind: "element"; id: number; tag: "View" | "Text" | "Image"; style: number; dynamicStyle?: AotMemo; props: AotStyleBinding[]; text?: { parts: (string | AotExpr)[]; memo: number }; focusable: boolean; debugName?: string; src?: string; ref?: string; events: { name: string; handler: AotHandler }[]; children: AotNode[]; loc: SourceLocation }
   | { kind: "if"; id: number; branches: { condition?: AotExpr; children: AotNode[] }[]; loc: SourceLocation }
   | { kind: "for"; id: number; source: AotExpr; item: string; index?: string; itemType: AotType; key: AotExpr; children: AotNode[]; loc: SourceLocation }
   | { kind: "component"; id: number; component: string; props: { name: string; value: AotExpr }[]; events: { name: string; handler: AotHandler }[]; slots: { name: string; bindings?: AotSlotBinding[]; children: AotNode[] }[]; loc: SourceLocation }
@@ -65,6 +65,7 @@ export interface AotComponent {
   injections?: { key: string; name: string; type: AotType; loc: SourceLocation }[];
   context?: { key: string; type: AotType }[];
   factory?: { name: string; sourceName: string; module: string; params?: AotField[]; arguments?: AotExpr[] };
+  refs?: { name: string; sourceName: string }[];
   props: AotProp[]; events: AotEvent[]; slots: string[];
   slotProps?: AotSlot[];
   values: AotValue[]; functions: AotFunction[]; constants: AotConstant[];
@@ -75,7 +76,13 @@ export interface AotProgram {
   styles: { records: StyleRecord[]; anims: AnimTimeline[]; ids: Record<string, number>; bytes: number[]; usedFontSlots: number[] };
   diagnostics: AotDiagnostic[];
   model?: import("./aot-model-ir.ts").ModelProgram;
+  modelProtocol?: true;
   demands?: { buttons: number[]; axes: number[]; capabilities: string[] };
+}
+/** Keep model bodies off the serializable view boundary. */
+export function attachAotModel(program: AotProgram, model: import("./aot-model-ir.ts").ModelProgram): void {
+  program.modelProtocol = true;
+  Object.defineProperty(program, "model", { value: model, writable: true, configurable: true, enumerable: false });
 }
 export class AotCompileError extends Error {
   constructor(public readonly diagnostics: AotDiagnostic[]) {

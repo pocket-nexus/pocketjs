@@ -37,7 +37,9 @@ export function lowerModelTasks(program: ModelProgram): ModelProgram {
               const limit = hidden(`__bound_${stmt.binder.id}`);
               const check = state();
               const increment = state({ stmts: [{ kind: "assign", target: { kind: "local", id: stmt.binder.id }, value: makeExpr({ kind: "binary", operator: "+", left: local(stmt.binder), right: makeExpr({ kind: "literal", value: 1 }) }) }] }, { next: check });
-              states[check]!.branch = { condition: makeExpr({ kind: "binary", operator: stmt.inclusive ? "<=" : "<", left: local(stmt.binder), right: local(limit) }, { kind: "boolean" }), then: compile(stmt.body, increment), else: next };
+              const advance = stmt.inclusive ? state(undefined, { branch: { condition: makeExpr({ kind: "binary", operator: "===", left: local(stmt.binder), right: local(limit) }, { kind: "boolean" }), then: next, else: increment } }) : increment;
+              const body = compile(stmt.body, advance); states[body]!.loop = true;
+              states[check]!.branch = { condition: makeExpr({ kind: "binary", operator: stmt.inclusive ? "<=" : "<", left: local(stmt.binder), right: local(limit) }, { kind: "boolean" }), then: body, else: next };
               next = state({ stmts: [{ kind: "let", binder: limit, init: stmt.bound }, { kind: "let", binder: stmt.binder, init: stmt.start ?? makeExpr({ kind: "literal", value: 0 }) }] }, { next: check });
               break;
             }
@@ -46,6 +48,7 @@ export function lowerModelTasks(program: ModelProgram): ModelProgram {
               const check = state();
               const increment = state({ stmts: [{ kind: "assign", target: { kind: "local", id: index.id }, value: makeExpr({ kind: "binary", operator: "+", left: local(index), right: makeExpr({ kind: "literal", value: 1 }) }) }] }, { next: check });
               const body = compile({ stmts: [{ kind: "let", binder: stmt.binder, init: makeExpr({ kind: "index", object: local(collection), index: local(index) }, stmt.binder.type) }, ...stmt.body.stmts] }, increment);
+              states[body]!.loop = true;
               states[check]!.branch = { condition: makeExpr({ kind: "binary", operator: "<", left: local(index), right: local(limit) }, { kind: "boolean" }), then: body, else: next };
               next = state({ stmts: [{ kind: "let", binder: collection, init: stmt.source }, { kind: "let", binder: index, init: makeExpr({ kind: "literal", value: 0 }) }, { kind: "let", binder: limit, init: makeExpr({ kind: "builtin", name: "len", args: [local(collection)] }) }] }, { next: check });
               break;
@@ -99,7 +102,21 @@ export function lowerModelTasks(program: ModelProgram): ModelProgram {
         }
       } while (changed);
       const fields = new Set<number>();
-      for (const s of lowered) if (s.suspend && s.next !== undefined) for (const b of live[s.next]!) fields.add(b);
+      // Match arms have separate lexical scopes even when a transition does not suspend.
+      for (const s of lowered) for (const next of s.branch ? [s.branch.then, s.branch.else] : s.next === undefined ? [] : [s.next]) for (const b of live[next]!) fields.add(b);
+      // until reads its captured environment while suspended, before the successor runs.
+      const retainWaitCaptures = (wait: ModelAwaitable): void => {
+        if (wait.kind === "until") {
+          const captured = new Set<number>(), local = new Set<number>();
+          objects(wait.predicate, node => {
+            if (node.kind === "local") captured.add(node.id);
+            if (node.binder) local.add(node.binder.id);
+            if (node.kind === "lambda") for (const parameter of node.params) local.add(parameter.id);
+          });
+          for (const id of captured) if (!local.has(id)) fields.add(id);
+        } else if (wait.kind === "all" || wait.kind === "any") wait.members.forEach(retainWaitCaptures);
+      };
+      for (const state of lowered) if (state.suspend) retainWaitCaptures(state.suspend);
       module.tasks.push({ id: fn.id, fn: fn.id, fields: [...fields].sort((a, b) => a - b).filter(id => binders.has(id)).map(id => ({ ...binders.get(id)!, owned: true, viewOf: undefined })), states: lowered });
     }
     const edges = new Map<number, Set<number>>();
@@ -226,7 +243,7 @@ export function assertModelProgram(program: ModelProgram): void {
     for (const memo of m.memos) {
       checkExpr(memo.body, base);
       if (memo.body.ledger.external || memo.body.ledger.writes.length || memo.body.ledger.reads.some(id => fields.has(id))) fail(`memo ${memo.name} is impure`);
-      objects(memo.body, n => { if (n.kind === "field" || n.kind === "sequence" && n.body.stmts.some((s: ModelStmt) => ["set", "start", "external", "assign"].includes(s.kind))) fail(`memo ${memo.name} is impure`); });
+      objects(memo.body, n => { if (n.kind === "field") fail(`memo ${memo.name} is impure`); });
       if (memo.inputs.some(id => !signals.has(id) && !memos.has(id))) fail(`memo ${memo.name} has an undeclared input`);
     }
     const writes = (body: ModelBlock, seen = new Set<number>()): Set<number> => {
@@ -245,7 +262,7 @@ export function assertModelProgram(program: ModelProgram): void {
     for (const ef of m.effects) {
       declaredLocals = new Set(); origins.clear(); owned.clear(); const scope = new Set(base);
       for (const b of [ef.watch?.value, ef.watch?.previous]) if (b) bind(b, scope);
-      checkBlock(ef.body, scope, false, false);
+      checkBlock(ef.body, scope, true, false);
       if (ef.subscriptions.some(id => !signals.has(id) && !memos.has(id))) fail(`effect ${ef.id} has an undeclared subscription`);
       if (!ef.declared) {
         const must = ef.ledger.mustSubscribe ?? ef.ledger.subscriptions, may = ef.ledger.maySubscribe ?? ef.ledger.subscriptions;

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
 import { generateModelJavaScript } from "../vapor/compiler/aot-model-js.ts";
 import { ModelRegion, capacity } from "../framework/src/model-reactive.ts";
-import { ModelTasks, resumeModelTasks } from "../framework/src/model-tasks.ts";
+import { ModelTasks, resumeModelTasks, resetModelTaskClock } from "../framework/src/model-tasks.ts";
 
 const storage = <T>(value: T): [() => T, (next: T) => void] => [() => value, next => { value = next; }];
 const prelude = `import {createSignal} from "solid-js";
@@ -11,6 +11,7 @@ import {createMemo,createEffect,on} from "@pocketjs/framework/solid/reactive";
 import {frames, copy, type i32} from "@pocketjs/framework/solid/std";\n`;
 let sequence = 0;
 async function compile(source: string) {
+  resetModelTaskClock();
   const entry = resolve("tests/fixtures/aot-model/js/app.ts");
   const program = analyzeModel(entry, { source: prelude + source });
   const output = generateModelJavaScript(program, program.modules[0], {
@@ -56,6 +57,7 @@ export async function blink():Promise<void> {setN(1);await frames(2);setN(0);}`)
   resumeModelTasks(2, 32); expect(module.n()).toBe(0);
 });
 test("all task readiness is sampled before any segment runs", () => {
+  resetModelTaskClock();
   const r = new ModelRegion(storage); r.signal(1,"n",0);r.finish([]); const tasks = new ModelTasks(r);
   tasks.start(10,[],state=>state===0 ? {next:1,suspend:{kind:"frames",count:1}} : (r.write(1,1),{done:true}));
   tasks.start(11,[],state=>state===0 ? {next:1,suspend:{kind:"until",predicate:()=>r.read(1)===1}} : (r.write(1,2),{done:true}));
@@ -65,4 +67,10 @@ test("all task readiness is sampled before any segment runs", () => {
 test("capacity counts UTF-8 bytes and truncates only at character boundaries", () => {
   expect(capacity("é雪x",4,"name",false)).toBe("é");
   expect(()=>capacity("é雪",4,"name",true)).toThrow("name");
+});
+test("generated JS keeps exported constants and source names separate from compiler bindings", async () => {
+  const { module } = await compile(`export const STEP:i32=3;
+export const [__r,setR]=createSignal<i32>(0);
+export function f1():void {setR(STEP);}`);
+  expect(module.STEP).toBe(3); module.f1(); expect(module.__r()).toBe(3);
 });

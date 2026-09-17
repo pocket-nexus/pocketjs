@@ -6,6 +6,8 @@ interface Cell {
   read: () => unknown; store: (value: unknown) => void;
   inputs?: number[]; seen?: number[]; compute?: () => unknown; computing?: boolean;
   capacity?: number;
+  scalar?: boolean;
+  pending?: boolean;
 }
 interface Effect { id: number; inputs: number[]; body: () => void; defer: boolean }
 export const copy = <T>(value: T): T => {
@@ -43,22 +45,32 @@ export class ModelRegion {
   readonly instance = ++sequence;
   readonly cells = new Map<number, Cell>();
   readonly effects = new Map<number, Effect>();
+  readonly refs = new Map<string, unknown>();
+  readonly fields = new Map<string, () => unknown>();
   schedule: number[] = [];
   trace: ModelTrace[] = [];
   initial = true;
   disposed = false;
   dirty = false;
   private depth = 0;
-  constructor(private storage: ModelStorage, readonly development = true, readonly recursionLimit = 256) {}
+  private fieldRevision = 0;
+  private fieldsDirty = false;
+  private fieldRead: () => number;
+  private fieldStore: (value: number) => void;
+  constructor(private storage: ModelStorage, readonly development = true, readonly recursionLimit = 256) {
+    [this.fieldRead, this.fieldStore] = storage(0);
+  }
+  field<T>(value: T): T { this.fieldRead(); return value; }
+  fieldChanged(): void { this.fieldsDirty = true; this.dirty = true; }
   emit(kind: string, data: Record<string, unknown> = {}): void { this.trace.push({ kind, region: this.instance, ...data }); }
-  signal<T>(id: number, name: string, seed: T, cap?: number): [() => T, (value: T | ((old: T) => T), writeBack?: boolean) => T] {
+  signal<T>(id: number, name: string, seed: T, cap?: number, scalar?: boolean): [() => T, (value: T | ((old: T) => T), writeBack?: boolean) => T] {
     const value = capacity(copy(seed), cap, name, this.development), [read, store] = this.storage(value);
-    this.cells.set(id, { id, name, value, version: 1, changed: false, read, store: store as any, capacity: cap });
+    this.cells.set(id, { id, name, value, version: 1, changed: false, read, store: store as any, capacity: cap, scalar });
     return [() => this.read(id) as T, (next, writeBack = false) => { const value = typeof next === "function" ? (next as (v: T) => T)(this.cells.get(id)!.value as T) : next; this.write(id, value, writeBack); return value; }];
   }
-  memo<T>(id: number, name: string, inputs: number[], compute: () => T): () => T {
+  memo<T>(id: number, name: string, inputs: number[], compute: () => T, scalar?: boolean): () => T {
     const [read, store] = this.storage<unknown>(undefined);
-    this.cells.set(id, { id, name, inputs, compute, seen: [], value: undefined, version: 0, changed: false, read, store });
+    this.cells.set(id, { id, name, inputs, compute, seen: [], value: undefined, version: 0, changed: false, read, store, scalar });
     return () => this.read(id) as T;
   }
   effect(id: number, inputs: number[], body: () => void, defer = false): void { this.effects.set(id, { id, inputs, body, defer }); }
@@ -79,10 +91,10 @@ export class ModelRegion {
         const versions = cell.inputs!.map(id => this.cells.get(id)!.version);
         if (cell.version === 0 || versions.some((v, i) => v !== cell.seen![i])) {
           const value = cell.compute();
-          const changed = cell.version === 0 || !primitive(value) || value !== cell.value;
+          const changed = cell.version === 0 || !(cell.scalar ?? primitive(value)) || value !== cell.value;
           cell.seen = versions;
-          if (changed) { cell.value = copy(value); cell.version++; cell.changed = true; cell.store(cell.value); }
-          this.emit("memo", { id, mode, value: copy(value), changed });
+          if (changed) { cell.value = copy(value); cell.version++; cell.changed = true; cell.pending = true; }
+          this.emit("memo", { id, name: cell.name, mode, value: copy(value), changed, version: cell.version });
         }
       } finally { cell.computing = false; }
     }
@@ -93,25 +105,29 @@ export class ModelRegion {
   write(id: number, input: unknown, writeBack = false): void {
     const cell = this.cells.get(id)!;
     const value = capacity(input, cell.capacity, cell.name, this.development);
-    const changed = primitive(value) ? value !== cell.value : !writeBack;
-    if (changed) { cell.value = copy(value); cell.version++; cell.changed = true; this.dirty = true; cell.store(cell.value); }
-    this.emit("set", { id, value: copy(value), changed });
+    const changed = (cell.scalar ?? primitive(value)) ? value !== cell.value : !writeBack;
+    if (changed) { cell.value = copy(value); cell.version++; cell.changed = true; this.dirty = true; cell.pending = true; }
+    this.emit("set", { id, name: cell.name, value: copy(value), changed, version: cell.version });
   }
   react(initial = false): void {
     for (const id of this.schedule) {
       const effect = this.effects.get(id);
       if (!effect) this.read(id, "scheduled");
       else if (initial ? !effect.defer : effect.inputs.some(id => this.cells.get(id)!.changed)) {
-        this.emit("effect", { id }); effect.body();
+        this.emit("effect", { id, initial }); effect.body();
       }
     }
     for (const cell of this.cells.values()) cell.changed = false;
     this.initial = false; this.dirty = false;
   }
-  settle(): void { for (const id of this.schedule) if (!this.effects.has(id)) this.read(id, "settle"); }
+  settle(): void {
+    for (const id of this.schedule) if (!this.effects.has(id)) this.read(id, "settle");
+    for (const cell of this.cells.values()) if (cell.pending) { cell.pending = false; cell.store(cell.value); }
+    if (this.fieldsDirty) { this.fieldsDirty = false; this.fieldStore(++this.fieldRevision); }
+  }
   enter(name: string): void { if (this.development && ++this.depth > this.recursionLimit) { this.depth--; throw new Error(`model recursion limit exceeded in ${name}`); } }
   leave(): void { if (this.development) this.depth--; }
-  state(): Record<string, unknown> { return Object.fromEntries([...this.cells.values()].map(cell => [cell.name, copy(cell.value)])); }
+  state(): Record<string, unknown> { return Object.fromEntries([...this.cells.values()].map(cell => [cell.name, copy(cell.value)]).concat([...this.fields].map(([name, read]) => [name, copy(read())]))); }
   dispose(): void { this.disposed = true; }
 }
 

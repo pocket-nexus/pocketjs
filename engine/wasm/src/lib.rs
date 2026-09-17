@@ -40,6 +40,7 @@ static mut COMPOSITOR_RASTERS: Vec<Option<CompositorRaster>> = Vec::new();
 /// Staged compositor frame records. Each record is ten u32 words:
 /// handle, full x/y/w/h f32 bits, clip x/y/w/h f32 bits, focused (0/1).
 static mut COMPOSITOR_FRAMES: Vec<u32> = Vec::new();
+static mut ANIMATION_COMPLETIONS: Vec<i32> = Vec::new();
 static mut DAMAGE_TRACKER: DamageTracker<DEFAULT_DAMAGE_REGIONS> = DamageTracker::new();
 /// wrapText result staging (same lifetime contract as FRAMEBUFFER: the
 /// pointer from `ui_wrap_text_ptr` stays valid until the next wrapText or
@@ -359,6 +360,27 @@ pub extern "C" fn ui_animate(
 #[no_mangle]
 pub extern "C" fn ui_cancel_anim(anim_id: i32) {
     ui().cancel_anim(anim_id)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_take_animation_completions() -> u32 {
+    unsafe {
+        ANIMATION_COMPLETIONS.clear();
+        ui().drain_animation_completions(|completion| {
+            let reason = match completion.reason {
+                pocketjs_core::anim::CompletionReason::Ended => 0,
+                pocketjs_core::anim::CompletionReason::Replaced => 1,
+                pocketjs_core::anim::CompletionReason::Dropped => 2,
+            };
+            ANIMATION_COMPLETIONS.extend_from_slice(&[completion.id, reason]);
+        });
+        (ANIMATION_COMPLETIONS.len() / 2) as u32
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ui_animation_completions_ptr() -> *const i32 {
+    unsafe { ANIMATION_COMPLETIONS.as_ptr() }
 }
 
 #[no_mangle]

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
 import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../vapor/compiler/aot-solid-browser.ts";
 import { normalizeSolidAotSemantics } from "../../vapor/compiler/aot-solid-semantics.ts";
+import { transformCompiledModel } from "../../vapor/compiler/aot-model-build.ts";
 import { exposeVaporFrameFlush } from "./vue-vapor-frame-flush.ts";
 import { checkVueAotSource, hasVueAotContract, resolveVueAotMock } from "../../vapor/compiler/aot-browser.ts";
 import {
@@ -453,6 +454,7 @@ export async function transformFile(
   if (isVueSfc && hasVueAotContract(src, path)) checkVueAotSource(src, path);
   const solidAot = framework === "solid" && path.endsWith(".tsx") ? getSolidAotProgram(path, src) : undefined;
   if (solidAot) src = normalizeSolidAotSemantics(src, path, solidAot);
+  src = transformCompiledModel(src, path) ?? src;
   const key = await hashKey(path, src, framework, options.features);
   const cacheFile = CACHE_DIR + key + ".json";
   const cached = (await Bun.file(cacheFile).json().catch(() => null)) as CacheEntry | null;

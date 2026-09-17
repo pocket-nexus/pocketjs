@@ -184,7 +184,7 @@ export class TypeMapper {
   private readonly warned = new Set<string>();
   private readonly reserved = new Set(["Ui", "NodeId", "StyleId", "Input", "String", "Vec", "Option", "Block", "KeyedList", "SlotHandle", "Self"]);
   constructor(readonly checker: ts.TypeChecker, readonly strict = false, componentNames: string[] = [], readonly sourceLocation?: (node: ts.Node) => SourceLocation) {
-    for (const name of componentNames) for (const suffix of ["Props", "Event", "View", "ViewModel", "App"]) this.reserved.add(name + suffix);
+    for (const name of componentNames) for (const suffix of ["Props", "Event", "View", "ViewModel", "Model", "App"]) this.reserved.add(name + suffix);
   }
   unwrap(type: ts.Type): ts.Type {
     const accessor = solidTypeAlias(type, "Accessor", this.checker);
@@ -256,6 +256,16 @@ export class TypeMapper {
   }
   map(raw: ts.Type, loc: SourceLocation, hint: string, allowVoid = false): AotType {
     const type = this.unwrap(raw);
+    // TypeScript distributes boolean & Brand into false & Brand | true & Brand.
+    const booleanBrand = type.isUnion() && type.getProperty("__newtype");
+    if (booleanBrand && !type.getProperty("__type") && type.types.every(member => member.isIntersection() && member.types.some(part => !!(part.flags & ts.TypeFlags.BooleanLiteral)) && member.types.every(part => !!(part.flags & ts.TypeFlags.BooleanLiteral) || !!(part.flags & ts.TypeFlags.Object) && part.getProperties().every(property => property.name === "__newtype")))) {
+      const known = this.namesFor(type).get(type); if (known) return { kind: "named", name: known };
+      const label = this.literal(this.checker.getNonNullableType(this.checker.getTypeOfSymbolAtLocation(booleanBrand, booleanBrand.declarations![0]!)));
+      if (typeof label !== "string") fail(loc, "__newtype must have one string literal type");
+      const name = this.reserve(type, label, true);
+      this.declarations.push({ kind: "newtype", name, base: { kind: "boolean" } });
+      return { kind: "named", name };
+    }
     if (type.isIntersection() && type.getProperty("__capacity")) {
       const tag = type.getProperty("__capacity")!;
       const declaration = tag.valueDeclaration ?? tag.declarations?.[0];

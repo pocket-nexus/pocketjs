@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 1073741824,
+            "rawNumber": "1073741824",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+              "line": 4,
+              "column": 51,
+              "offset": 323
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [],
+      "effects": [],
+      "functions": [
+        {
+          "id": 2,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 1,
+                "value": {
+                  "kind": "binary",
+                  "operator": "*",
+                  "left": {
+                    "kind": "local",
+                    "id": 3,
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+                      "line": 4,
+                      "column": 100,
+                      "offset": 372
+                    },
+                    "ledger": {
+                      "reads": [],
+                      "writes": [],
+                      "subscriptions": [],
+                      "external": false,
+                      "maySubscribe": [],
+                      "mustSubscribe": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 4,
+                    "rawNumber": "4",
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+                      "line": 4,
+                      "column": 102,
+                      "offset": 374
+                    },
+                    "ledger": {
+                      "reads": [],
+                      "writes": [],
+                      "subscriptions": [],
+                      "external": false,
+                      "maySubscribe": [],
+                      "mustSubscribe": []
+                    }
+                  },
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+                    "line": 4,
+                    "column": 100,
+                    "offset": 372
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "pre": {
+                  "id": 3,
+                  "name": "n",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "owned": false,
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+                    "line": 4,
+                    "column": 97,
+                    "offset": 369
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+                  "line": 4,
+                  "column": 87,
+                  "offset": 359
+                },
+                "ledger": {
+                  "reads": [
+                    1
+                  ],
+                  "writes": [
+                    1
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [
+                1
+              ],
+              "writes": [
+                1
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [
+              1
+            ],
+            "writes": [
+              1
+            ],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/overflow-multiply/App.ts",
+            "line": 4,
+            "column": 63,
+            "offset": 335
+          }
+        }
+      ],
+      "schedule": [],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

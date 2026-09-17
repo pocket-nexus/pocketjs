@@ -79,6 +79,7 @@ export function generateVaporStdDeclarations(): string {
     'export type StyleClass = string & { readonly __style?: true };',
     'export type Cap<T extends string | readonly unknown[], N extends number> = T & { readonly __capacity?: N };',
     'export { copy, equals } from "./model-reactive.ts";',
+    'export { capacity as __capacity } from "./model-reactive.ts";',
     'export { frames, after, until, join, all, any, cancel, type Join } from "./model-tasks.ts";',
     'export declare function map<T, U>(value: readonly T[], fn: (value: T, index: i32) => U): U[];',
     'export declare function filter<T>(value: readonly T[], fn: (value: T, index: i32) => boolean): T[];',
@@ -97,6 +98,7 @@ export function generateVaporStdDeclarations(): string {
     }
   }
   lines.push("export declare function __colorBits(value: Color): u32;", "export declare function __colorText(value: Color | undefined, missing?: string): string;");
+  lines.push("export declare function __modelNumber(value: number, type: string): number;", "export declare function __modelMultiply(left: number, right: number): number;");
   return lines.join("\n") + "\n";
 }
 

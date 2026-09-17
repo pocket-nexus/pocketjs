@@ -5,6 +5,8 @@ import { parse as parseSfc, type SFCDescriptor } from "@vue/compiler-sfc";
 import { parse as parseTemplate, NodeTypes, type ElementNode, type DirectiveNode, type TemplateChildNode, type SimpleExpressionNode } from "@vue/compiler-dom";
 import * as vapor from "@vue/compiler-vapor";
 import { addAotContractBinding } from "./aot-contract.ts";
+import { analyzeViewModel, viewModelModule, validateViewModelBindings } from "./aot-model-view.ts";
+import { attachAotModel } from "./aot-ir.ts";
 import { finalizeAotProgram } from "./aot-program.ts";
 import { PROP, BTN } from "../../contracts/spec/spec.ts";
 import { VAPOR_BUILTINS, VAPOR_ELEMENTS, VAPOR_STYLE_PROPS, VAPOR_INPUT_ELEMENTS, VAPOR_RELATIVE_AXES } from "../../contracts/spec/vapor.ts";
@@ -90,8 +92,10 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
   // Component names are symbols at the View IR boundary; source filenames may repeat in separate folders.
   const usedNames = new Set<string>();
   for (const item of parsed.values()) { const base = item.name; let n = 2; while (usedNames.has(item.name)) item.name = base + n++; usedNames.add(item.name); }
-  const environment = createTypeEnvironment(new Map([...(options.sources ?? []), ...[...parsed].map(([file, item]) => [file, item.source] as [string, string])]), entry);
+  const modelSources = new Map([...(options.sources ?? []), ...[...parsed].map(([file, item]) => [file, item.source] as [string, string])]);
+  const environment = createTypeEnvironment(modelSources, entry);
   const mapper = new TypeMapper(environment.checker, options.strict, [...parsed.values()].map(c => c.name), environment.locationOf), components: AotComponent[] = [];
+  const model = analyzeViewModel(entry, [...parsed.values()].map(item => ({ file: item.file, name: item.name, factory: item.script.statements.some(statement => ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration => ts.isObjectBindingPattern(declaration.name) && !!declaration.initializer && ts.isCallExpression(declaration.initializer))) })), modelSources, environment, mapper);
   const byFile = new Map<string, AotComponent>();
   const specializations = new Map<string, AotComponent>();
   const locAt = (item: ParsedComponent, offset: number) => location(item.file, item.source, offset);
@@ -106,7 +110,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       return environment.checker.getTypeAtLocation(mapped);
     };
     const component: AotComponent = { name: instanceName, file, root: file === entry && options.root !== false, props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [], nodes: [], nodeCount: 0, memoCount: 0, handlerCount: 0 };
-    const ctx: ExpressionContext = { file, mapper, environment, bindings: new Map(), functions: new Map(), builtins: new Map(), narrowings: new Map(), handler: false };
+    const ctx: ExpressionContext = { file, mapper, environment, modelModule: viewModelModule(model, file), bindings: new Map(), functions: new Map(), builtins: new Map(), narrowings: new Map(), handler: false };
     let emitName: string | undefined, propsSeen = false, emitsSeen = false, slotsSeen = false;
     function defineSlots(call: ts.CallExpression): void {
       if (slotsSeen || call.arguments.length || call.typeArguments?.length !== 1) fail(loc(call), "Use one typed defineSlots<T>() declaration");
@@ -137,12 +141,28 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       if (ts.isObjectBindingPattern(declaration.name)) {
         if (component.factory || !declaration.initializer || !ts.isCallExpression(declaration.initializer) || !ts.isIdentifier(declaration.initializer.expression)) fail(loc(declaration), "A stateful child has one destructured call to its imported factory");
         const call = declaration.initializer, factoryName = (call.expression as ts.Identifier).text, factory = factoryImports.get(factoryName);
-        if (!factory || call.arguments.length || call.typeArguments?.length) fail(loc(declaration), "A child factory is an imported zero-argument function from the component's module");
+        if (!factory || call.typeArguments?.length) fail(loc(declaration), "A child factory is an imported function from the component's module");
         const signatures = factory.type.getCallSignatures();
-        if (signatures.length !== 1 || signatures[0]!.typeParameters?.length || signatures[0]!.getParameters().length) fail(loc(declaration), "A child factory must have one non-generic zero-argument signature");
+        if (signatures.length !== 1 || signatures[0]!.typeParameters?.length) fail(loc(declaration), "A child factory must have one non-generic signature");
+        const parameters = signatures[0]!.getParameters().map(parameter => {
+          const declaration = parameter.valueDeclaration ?? parameter.declarations?.[0];
+          if (!declaration || ts.isParameter(declaration) && (declaration.questionToken || declaration.dotDotDotToken || declaration.initializer)) fail(loc(call), "Factory parameters require a fixed set of mount-time values");
+          return { name: parameter.name, type: mapper.map(environment.checker.getTypeOfSymbolAtLocation(parameter, declaration), loc(call), typeName(parameter.name)) };
+        });
+        if (call.arguments.length !== parameters.length) fail(loc(call), `Factory ${factory.sourceName} expects ${parameters.length} mount-time arguments`);
+        const arguments_ = call.arguments.map((argument, index) => {
+          const value = expression(argument.getText(script), loc(argument), ctx, parameters[index]!.type); requireType(value, parameters[index]!.type, ctx);
+          const inspect = (node: AotExpr): void => {
+            if (node.kind === "call" && node.target === "vm") fail(node.loc, "Factory arguments must be mount-time values without view-model method calls");
+            for (const [key, child] of Object.entries(node)) if (!["type", "loc"].includes(key)) {
+              if (Array.isArray(child)) for (const item of child) { if (item && typeof item === "object" && "kind" in item) inspect(item as AotExpr); }
+              else if (child && typeof child === "object" && "kind" in child) inspect(child as AotExpr);
+            }
+          }; inspect(value); return value;
+        });
         const result = signatures[0]!.getReturnType();
         if (!(result.flags & ts.TypeFlags.Object) || (result as ts.ObjectType).objectFlags & (ts.ObjectFlags.Class | ts.ObjectFlags.Mapped) || result.symbol?.declarations?.some(d => ts.isClassDeclaration(d) || ts.isClassExpression(d)) || result.getCallSignatures().length || environment.checker.getIndexInfosOfType(result).length) fail(loc(declaration), "A child factory returns an object of view-model values and methods");
-        component.factory = { name: factoryName, sourceName: factory.sourceName, module: factory.module };
+        component.factory = { name: factoryName, sourceName: factory.sourceName, module: factory.module, ...(parameters.length ? { params: parameters, arguments: arguments_ } : {}) };
         for (const binding of declaration.name.elements) {
           if (!ts.isIdentifier(binding.name) || binding.dotDotDotToken || binding.initializer || binding.propertyName && !ts.isIdentifier(binding.propertyName) && !ts.isStringLiteral(binding.propertyName)) fail(loc(binding), "Factory destructuring accepts named bindings and aliases, without defaults or rest bindings");
           const sourceName = binding.propertyName ? (binding.propertyName as ts.Identifier | ts.StringLiteral).text : binding.name.text;
@@ -226,7 +246,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       nodeTransforms: [vapor.transformVOnce, vapor.transformVIf, vapor.transformVFor, vapor.transformKey, vapor.transformSlotOutlet, vapor.transformTemplateRef, vapor.transformElement, vapor.transformText, vapor.transformVSlot, vapor.transformComment, vapor.transformChildren],
       directiveTransforms: { bind: vapor.transformVBind, on: vapor.transformVOn, text: vapor.transformVText, show: vapor.transformVShow, model: vapor.transformVModel },
     }) as unknown as VaporRootIR;
-    if (vaporIr.type !== 0 || vaporIr.block.type !== 1 || vaporIr.hasTemplateRef) fail(locAt(item, templateOffset), "Unexpected Vapor IR or unsupported template ref");
+    if (vaporIr.type !== 0 || vaporIr.block.type !== 1) fail(locAt(item, templateOffset), "Unexpected Vapor IR");
     const ast = vaporIr.node;
     const vaporIf = new Map<number, VaporIfIR>(), vaporFor = new Map<number, VaporForIR>();
     const vaporElements = new Map<number, VaporCreateIR>();
@@ -565,6 +585,11 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
             (child ? instance : host).events.push({ name: event?.name ?? name, handler: handler(d.exp.content, tplLoc(d.exp), context, event) });
           } else if (d.name === "bind") {
             const name = argument(d);
+            if (name === "ref" && tag) {
+              const value = d.exp?.type === NodeTypes.SIMPLE_EXPRESSION ? d.exp.content.trim() : "";
+              if (!component.refs?.some(slot => slot.name === value)) fail(tplLoc(d), ":ref requires a model createNodeRef binding");
+              host.ref = value; continue;
+            }
             if (name === "class" && tag) { classBinding = d.exp as SimpleExpressionNode; continue; }
             if (name === "style" && tag === "View") {
               const value = d.exp as SimpleExpressionNode | undefined; if (!value) fail(tplLoc(d), ":style requires an object literal");
@@ -684,6 +709,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
   if (root.descriptor.scriptSetup!.attrs.generic !== undefined) fail(location(entry, root.source), "A generic component requires a parent that supplies concrete props");
   for (const item of parsed.values()) if (item.descriptor.scriptSetup!.attrs.generic === undefined) analyzeComponent(item);
   const program = finalizeAotProgram(root.name, components, mapper, classLiterals);
+  if (model) attachAotModel(program, model);
+  validateViewModelBindings(program);
   validateVueAotSemantics(program, new Map([...parsed].map(([file, item]) => [file, item.source])));
   const dependencies = new Set(environment.program.getSourceFiles().map(file => resolve(file.fileName)));
   const config = ts.findConfigFile(dirname(entry), ts.sys.fileExists, "tsconfig.json");

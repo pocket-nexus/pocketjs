@@ -5,6 +5,8 @@ pub trait Host {
     fn ui(&self) -> &Ui;
     fn ui_mut(&mut self) -> &mut Ui;
     fn into_ui(self) -> Ui;
+    /// Initial model capabilities without consuming a frame or a delivery.
+    fn model_initial_ready(&mut self) -> crate::Ready { self.ui().model_initial_ready() }
     /// One immutable readiness snapshot before this frame's dispatch.
     fn model_ready(&mut self) -> crate::Ready { self.ui_mut().model_ready() }
     /// Drain model commands after reaction, settle and view updates.

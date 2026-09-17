@@ -90,6 +90,8 @@ export interface HostOps {
     delayMs: number,
   ): number;
   cancelAnim(animId: number): void;
+  /** Drain [[trackId, reason]] from core; reasons: ended=0, replaced=1, dropped=2. */
+  takeAnimationCompletions?(): string;
   /** 0 clears focus. Applies the `focus:` style variant natively. */
   setFocus(idOr0: number): void;
   /** Set/clear the `active:` pressed variant natively (0/1 int; stale ids

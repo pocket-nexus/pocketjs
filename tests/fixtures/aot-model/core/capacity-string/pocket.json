@@ -1,0 +1,11 @@
+{
+  "pocket": 2,
+  "id": "test.model.capacity-string",
+  "name": "capacity-string",
+  "app": {
+    "entry": "App.tsx",
+    "framework": "solid",
+    "aot": true,
+    "model": "compiled"
+  }
+}

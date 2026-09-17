@@ -114,6 +114,11 @@ export async function createWasmUi(wasm, options = {}) {
     animate: (id, propId, to, durMs, easing, delayMs) =>
       ex.ui_animate(id, propId, to, durMs, easing, delayMs),
     cancelAnim: (animId) => ex.ui_cancel_anim(animId),
+    takeAnimationCompletions: ex.ui_take_animation_completions ? () => {
+      const count = ex.ui_take_animation_completions();
+      const values = new Int32Array(ex.memory.buffer, ex.ui_animation_completions_ptr(), count * 2);
+      return JSON.stringify(Array.from({ length: count }, (_, i) => [values[i * 2], values[i * 2 + 1]]));
+    } : undefined,
     setFocus: (id) => ex.ui_set_focus(id),
     setActive: (id, active) => ex.ui_set_active(id, active ? 1 : 0),
     loadStyles: (buf) => {

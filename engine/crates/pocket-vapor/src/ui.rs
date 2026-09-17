@@ -220,6 +220,9 @@ impl Ui {
         self.model_services.sort();
         self.model_services.dedup();
     }
+    pub fn model_initial_ready(&self) -> crate::Ready {
+        crate::Ready { frame: self.model_frame, now_ms: self.model_ticks as f64 / self.core.tick_rate() as f64 * 1000.0, services: self.model_services.clone(), ..crate::Ready::default() }
+    }
     pub fn model_ready(&mut self) -> crate::Ready {
         use crate::model::{AnimationResult, Completion, Delivery};
         use pocketjs_core::anim::CompletionReason;

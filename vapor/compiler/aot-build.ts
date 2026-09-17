@@ -6,9 +6,12 @@ import { analyzeVueAot } from "./aot-frontend.ts";
 import { emitVueAot } from "./aot-codegen.ts";
 import type { AotProgram } from "./aot-ir.ts";
 import { requireVueAotBoard, vueAotBoardAdmission } from "./aot-admission.ts";
+import { attachCompiledModel } from "./aot-model-build.ts";
+import { generateModelRust } from "./aot-model-codegen.ts";
+import { replayModelTape } from "./aot-model-tape.ts";
 
 export function analyzeAot(entry: string, options: { strict?: boolean } = {}): AotProgram {
-  return entry.endsWith(".tsx") ? analyzeSolidAot(entry, options) : analyzeVueAot(entry, options);
+  return attachCompiledModel(entry.endsWith(".tsx") ? analyzeSolidAot(entry, options) : analyzeVueAot(entry, options), entry, options.strict);
 }
 export interface VueAotBuildOptions {
   strict?: boolean;
@@ -52,6 +55,11 @@ export async function buildVueAot(app: string, options: VueAotBuildOptions = {})
   const program = analyzeAot(entry, { strict: options.strict });
   if (options.board) requireVueAotBoard(program, options.board);
   const output = emitVueAot(program);
+  if (program.model) {
+    const name = program.root.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase() + "_model";
+    output.files[`${name}.rs`] = generateModelRust(program.model, program);
+    output.files["mod.rs"] += `\nmod ${name};\npub use self::${name}::*;\n`;
+  }
   const outDir = resolve(options.outDir ?? join(dirname(entry), "gen"));
   const files: string[] = [];
   const formatted = new Map<string, string>();
@@ -90,11 +98,24 @@ export async function buildVueAot(app: string, options: VueAotBuildOptions = {})
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(program, null, 2) + "\n");
     files.push(path);
+    if (program.model) {
+      const modelPath = path.replace(/\.json$/, "") + ".model.json";
+      writeFileSync(modelPath, JSON.stringify(program.model, null, 2) + "\n"); files.push(modelPath);
+    }
   }
   return { entry, outDir, files, program };
 }
 
 export async function runVueAotCli(args: string[]): Promise<void> {
+  if (args[0] === "run") {
+    const app = args[1], tapeIndex = args.indexOf("--tape"), tapePath = args[tapeIndex + 1];
+    if (!app || tapeIndex < 0 || !tapePath) throw new Error("usage: bun vapor/compiler/cli.ts run <app> --tape <file>");
+    const program = analyzeAot(resolveVueAotEntry(app));
+    if (!program.model) throw new Error("Model interpreter requires app.model = compiled");
+    const tape = JSON.parse(readFileSync(tapePath, "utf8"));
+    for (const frame of replayModelTape(program, tape)) console.log(JSON.stringify(frame));
+    return;
+  }
   const command = args[0] === "check" ? "check" : "build";
   if (args[0] === "build" || args[0] === "check") args = args.slice(1);
   let app: string | undefined;
@@ -128,6 +149,12 @@ export async function runVueAotCli(args: string[]): Promise<void> {
   const result = command === "build"
     ? await buildVueAot(app, { strict, outDir, ir, format, board })
     : { entry: resolveVueAotEntry(app), program: analyzeAot(resolveVueAotEntry(app), { strict }), files: [] };
+  if (command === "check" && ir) {
+    const path = resolve(ir);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(result.program, null, 2) + "\n");
+    if (result.program.model) writeFileSync(path.replace(/\.json$/, "") + ".model.json", JSON.stringify(result.program.model, null, 2) + "\n");
+  }
   const admission = vueAotBoardAdmission(result.program, board, boards);
   if (json) console.log(JSON.stringify(admission.length ? { ...result.program, admission } : result.program, null, 2));
   else {

@@ -1,0 +1,400 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "items",
+          "setter": "setItems",
+          "exported": true,
+          "type": {
+            "kind": "array",
+            "element": {
+              "kind": "number",
+              "name": "i32"
+            }
+          },
+          "seed": {
+            "kind": "array",
+            "element": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "items": [
+              {
+                "kind": "literal",
+                "value": 1,
+                "rawNumber": "1",
+                "type": {
+                  "kind": "number",
+                  "name": "i32"
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                  "line": 4,
+                  "column": 52,
+                  "offset": 324
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "type": {
+              "kind": "array",
+              "element": {
+                "kind": "number",
+                "name": "i32"
+              }
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+              "line": 4,
+              "column": 51,
+              "offset": 323
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        },
+        {
+          "id": 2,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+              "line": 4,
+              "column": 101,
+              "offset": 373
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+            "line": 4,
+            "column": 69,
+            "offset": 341
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [],
+      "effects": [
+        {
+          "id": 3,
+          "subscriptions": [
+            1
+          ],
+          "declared": true,
+          "defer": true,
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 2,
+                "value": {
+                  "kind": "binary",
+                  "operator": "+",
+                  "left": {
+                    "kind": "local",
+                    "id": 5,
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                      "line": 4,
+                      "column": 145,
+                      "offset": 417
+                    },
+                    "ledger": {
+                      "reads": [],
+                      "writes": [],
+                      "subscriptions": [],
+                      "external": false,
+                      "maySubscribe": [],
+                      "mustSubscribe": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 1,
+                    "rawNumber": "1",
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                      "line": 4,
+                      "column": 147,
+                      "offset": 419
+                    },
+                    "ledger": {
+                      "reads": [],
+                      "writes": [],
+                      "subscriptions": [],
+                      "external": false,
+                      "maySubscribe": [],
+                      "mustSubscribe": []
+                    }
+                  },
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                    "line": 4,
+                    "column": 145,
+                    "offset": 417
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "pre": {
+                  "id": 5,
+                  "name": "r",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "owned": false,
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                    "line": 4,
+                    "column": 142,
+                    "offset": 414
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                  "line": 4,
+                  "column": 132,
+                  "offset": 404
+                },
+                "ledger": {
+                  "reads": [
+                    2
+                  ],
+                  "writes": [
+                    2
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [
+                2
+              ],
+              "writes": [
+                2
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [
+              2
+            ],
+            "writes": [
+              2
+            ],
+            "subscriptions": [
+              1
+            ],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+            "line": 4,
+            "column": 104,
+            "offset": 376
+          }
+        }
+      ],
+      "functions": [
+        {
+          "id": 4,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 1,
+                "value": {
+                  "kind": "array",
+                  "element": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "items": [
+                    {
+                      "kind": "literal",
+                      "value": 1,
+                      "rawNumber": "1",
+                      "type": {
+                        "kind": "number",
+                        "name": "i32"
+                      },
+                      "loc": {
+                        "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                        "line": 4,
+                        "column": 199,
+                        "offset": 471
+                      },
+                      "ledger": {
+                        "reads": [],
+                        "writes": [],
+                        "subscriptions": [],
+                        "external": false,
+                        "maySubscribe": [],
+                        "mustSubscribe": []
+                      }
+                    }
+                  ],
+                  "type": {
+                    "kind": "array",
+                    "element": {
+                      "kind": "number",
+                      "name": "i32"
+                    }
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                    "line": 4,
+                    "column": 198,
+                    "offset": 470
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+                  "line": 4,
+                  "column": 189,
+                  "offset": 461
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    1
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [
+                1
+              ],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [
+              1
+            ],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/fresh-array/App.ts",
+            "line": 4,
+            "column": 165,
+            "offset": 437
+          }
+        }
+      ],
+      "schedule": [
+        3
+      ],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

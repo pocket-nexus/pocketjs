@@ -1,0 +1,674 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [
+        {
+          "id": 1,
+          "name": "count",
+          "setter": "setCount",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+              "line": 4,
+              "column": 44,
+              "offset": 316
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+            "line": 4,
+            "column": 14,
+            "offset": 286
+          }
+        },
+        {
+          "id": 4,
+          "name": "result",
+          "setter": "setResult",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "seed": {
+            "kind": "literal",
+            "value": 0,
+            "rawNumber": "0",
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+              "line": 4,
+              "column": 173,
+              "offset": 445
+            },
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+            "line": 4,
+            "column": 141,
+            "offset": 413
+          }
+        }
+      ],
+      "fields": [],
+      "memos": [
+        {
+          "id": 2,
+          "name": "m1",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "body": {
+            "kind": "sequence",
+            "body": {
+              "stmts": [
+                {
+                  "kind": "let",
+                  "binder": {
+                    "id": 6,
+                    "name": "_arg0",
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "owned": true,
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                      "line": 4,
+                      "column": 78,
+                      "offset": 350
+                    }
+                  },
+                  "init": {
+                    "kind": "signal",
+                    "id": 1,
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                      "line": 4,
+                      "column": 78,
+                      "offset": 350
+                    },
+                    "ledger": {
+                      "reads": [
+                        1
+                      ],
+                      "writes": [],
+                      "subscriptions": [
+                        1
+                      ],
+                      "external": false,
+                      "maySubscribe": [
+                        1
+                      ],
+                      "mustSubscribe": [
+                        1
+                      ]
+                    }
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                    "line": 4,
+                    "column": 78,
+                    "offset": 350
+                  },
+                  "ledger": {
+                    "reads": [
+                      1
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      1
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      1
+                    ],
+                    "mustSubscribe": [
+                      1
+                    ]
+                  }
+                }
+              ],
+              "ledger": {
+                "reads": [
+                  1
+                ],
+                "writes": [],
+                "subscriptions": [
+                  1
+                ],
+                "external": false,
+                "maySubscribe": [
+                  1
+                ],
+                "mustSubscribe": [
+                  1
+                ]
+              }
+            },
+            "value": {
+              "kind": "binary",
+              "operator": "+",
+              "left": {
+                "kind": "local",
+                "id": 6,
+                "type": {
+                  "kind": "number",
+                  "name": "i32"
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                  "line": 4,
+                  "column": 78,
+                  "offset": 350
+                }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 1,
+                "rawNumber": "1",
+                "type": {
+                  "kind": "number",
+                  "name": "i32"
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                  "line": 4,
+                  "column": 86,
+                  "offset": 358
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              "type": {
+                "kind": "number",
+                "name": "i32"
+              },
+              "loc": {
+                "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                "line": 4,
+                "column": 78,
+                "offset": 350
+              },
+              "ledger": {
+                "reads": [],
+                "writes": [],
+                "subscriptions": [],
+                "external": false,
+                "maySubscribe": [],
+                "mustSubscribe": []
+              }
+            },
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+              "line": 4,
+              "column": 78,
+              "offset": 350
+            },
+            "ledger": {
+              "reads": [
+                1
+              ],
+              "writes": [],
+              "subscriptions": [
+                1
+              ],
+              "external": false,
+              "maySubscribe": [
+                1
+              ],
+              "mustSubscribe": [
+                1
+              ]
+            }
+          },
+          "inputs": [
+            1
+          ],
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+            "line": 4,
+            "column": 60,
+            "offset": 332
+          }
+        },
+        {
+          "id": 3,
+          "name": "m2",
+          "exported": true,
+          "type": {
+            "kind": "number",
+            "name": "i32"
+          },
+          "body": {
+            "kind": "sequence",
+            "body": {
+              "stmts": [
+                {
+                  "kind": "let",
+                  "binder": {
+                    "id": 7,
+                    "name": "_arg1",
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "owned": true,
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                      "line": 4,
+                      "column": 120,
+                      "offset": 392
+                    }
+                  },
+                  "init": {
+                    "kind": "memo",
+                    "id": 2,
+                    "type": {
+                      "kind": "number",
+                      "name": "i32"
+                    },
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                      "line": 4,
+                      "column": 120,
+                      "offset": 392
+                    },
+                    "ledger": {
+                      "reads": [
+                        2
+                      ],
+                      "writes": [],
+                      "subscriptions": [
+                        2
+                      ],
+                      "external": false,
+                      "maySubscribe": [
+                        2
+                      ],
+                      "mustSubscribe": [
+                        2
+                      ]
+                    }
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                    "line": 4,
+                    "column": 120,
+                    "offset": 392
+                  },
+                  "ledger": {
+                    "reads": [
+                      2
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      2
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      2
+                    ],
+                    "mustSubscribe": [
+                      2
+                    ]
+                  }
+                }
+              ],
+              "ledger": {
+                "reads": [
+                  2
+                ],
+                "writes": [],
+                "subscriptions": [
+                  2
+                ],
+                "external": false,
+                "maySubscribe": [
+                  2
+                ],
+                "mustSubscribe": [
+                  2
+                ]
+              }
+            },
+            "value": {
+              "kind": "binary",
+              "operator": "*",
+              "left": {
+                "kind": "local",
+                "id": 7,
+                "type": {
+                  "kind": "number",
+                  "name": "i32"
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                  "line": 4,
+                  "column": 120,
+                  "offset": 392
+                }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 2,
+                "rawNumber": "2",
+                "type": {
+                  "kind": "number",
+                  "name": "i32"
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                  "line": 4,
+                  "column": 125,
+                  "offset": 397
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              "type": {
+                "kind": "number",
+                "name": "i32"
+              },
+              "loc": {
+                "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                "line": 4,
+                "column": 120,
+                "offset": 392
+              },
+              "ledger": {
+                "reads": [],
+                "writes": [],
+                "subscriptions": [],
+                "external": false,
+                "maySubscribe": [],
+                "mustSubscribe": []
+              }
+            },
+            "type": {
+              "kind": "number",
+              "name": "i32"
+            },
+            "loc": {
+              "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+              "line": 4,
+              "column": 120,
+              "offset": 392
+            },
+            "ledger": {
+              "reads": [
+                2
+              ],
+              "writes": [],
+              "subscriptions": [
+                2
+              ],
+              "external": false,
+              "maySubscribe": [
+                2
+              ],
+              "mustSubscribe": [
+                2
+              ]
+            }
+          },
+          "inputs": [
+            2
+          ],
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+            "line": 4,
+            "column": 102,
+            "offset": 374
+          }
+        }
+      ],
+      "effects": [],
+      "functions": [
+        {
+          "id": 5,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "set",
+                "signal": 1,
+                "value": {
+                  "kind": "literal",
+                  "value": 4,
+                  "rawNumber": "4",
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                    "line": 4,
+                    "column": 209,
+                    "offset": 481
+                  },
+                  "ledger": {
+                    "reads": [],
+                    "writes": [],
+                    "subscriptions": [],
+                    "external": false,
+                    "maySubscribe": [],
+                    "mustSubscribe": []
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                  "line": 4,
+                  "column": 200,
+                  "offset": 472
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [
+                    1
+                  ],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              {
+                "kind": "set",
+                "signal": 4,
+                "value": {
+                  "kind": "memo",
+                  "id": 3,
+                  "type": {
+                    "kind": "number",
+                    "name": "i32"
+                  },
+                  "loc": {
+                    "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                    "line": 4,
+                    "column": 222,
+                    "offset": 494
+                  },
+                  "ledger": {
+                    "reads": [
+                      3
+                    ],
+                    "writes": [],
+                    "subscriptions": [
+                      3
+                    ],
+                    "external": false,
+                    "maySubscribe": [
+                      3
+                    ],
+                    "mustSubscribe": [
+                      3
+                    ]
+                  }
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+                  "line": 4,
+                  "column": 212,
+                  "offset": 484
+                },
+                "ledger": {
+                  "reads": [
+                    3
+                  ],
+                  "writes": [
+                    4
+                  ],
+                  "subscriptions": [
+                    3
+                  ],
+                  "external": false,
+                  "maySubscribe": [
+                    3
+                  ],
+                  "mustSubscribe": [
+                    3
+                  ]
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [
+                3
+              ],
+              "writes": [
+                1,
+                4
+              ],
+              "subscriptions": [
+                3
+              ],
+              "external": false,
+              "maySubscribe": [
+                3
+              ],
+              "mustSubscribe": [
+                3
+              ]
+            }
+          },
+          "ledger": {
+            "reads": [
+              3
+            ],
+            "writes": [
+              1,
+              4
+            ],
+            "subscriptions": [
+              3
+            ],
+            "external": false,
+            "maySubscribe": [
+              3
+            ],
+            "mustSubscribe": [
+              3
+            ]
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/core/memo-chain/App.ts",
+            "line": 4,
+            "column": 176,
+            "offset": 448
+          }
+        }
+      ],
+      "schedule": [
+        2,
+        3
+      ],
+      "refs": [],
+      "tasks": [],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}
