@@ -6,7 +6,9 @@ use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCach
 use pocketjs_core::Ui;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
+
+mod runtime;
 
 pub const MAX_DOCUMENT: usize = 65536;
 pub const MAX_JOBS: usize = 8;
@@ -43,6 +45,9 @@ pub struct Engine {
     documents: BTreeMap<String, Document>,
     fonts: FontSystem,
     swash: SwashCache,
+    runtime: runtime::RuntimeText,
+    font_sources: Vec<Arc<Vec<u8>>>,
+    font_source_bytes: usize,
 }
 impl Default for Engine {
     fn default() -> Self {
@@ -59,18 +64,46 @@ impl Engine {
                 cosmic_text::fontdb::Database::new(),
             ),
             swash: SwashCache::new(),
+            runtime: runtime::RuntimeText::default(),
+            font_sources: Vec::new(),
+            font_source_bytes: 0,
         }
     }
     pub fn load_atlas(&mut self, bytes: &[u8]) -> bool {
         self.ui.load_font_atlas(bytes)
     }
     pub fn load_font(&mut self, bytes: &[u8]) -> bool {
-        if bytes.len() > 32 * 1024 * 1024 {
+        if self
+            .font_sources
+            .iter()
+            .any(|source| source.as_slice() == bytes)
+        {
+            return true;
+        }
+        let faces = ttf_parser::fonts_in_collection(bytes).unwrap_or(1) as usize;
+        if self.font_source_bytes + bytes.len() > 32 * 1024 * 1024
+            || faces + self.fonts.db().faces().count() > 64
+        {
             return false;
         }
-        let before = self.fonts.db().faces().count();
-        self.fonts.db_mut().load_font_data(bytes.to_vec());
-        self.fonts.db().faces().count() > before
+        let source = Arc::new(bytes.to_vec());
+        let ids = self
+            .fonts
+            .db_mut()
+            .load_font_source(cosmic_text::fontdb::Source::Binary(source.clone()));
+        if ids.is_empty() {
+            return false;
+        }
+        let runtime = self.runtime.load_shared_font(source.clone());
+        if !runtime && runtime::RuntimeText::is_static_ttf(bytes) {
+            for id in ids {
+                self.fonts.db_mut().remove_face(id);
+            }
+            return false;
+        }
+        self.font_source_bytes += source.len();
+        self.font_sources.push(source);
+        true
     }
     pub fn load_pak(&mut self, pak: &[u8]) {
         for entry in pocketjs_core::pak::entries(pak) {
@@ -109,6 +142,16 @@ impl Engine {
         }
         let v: Value = serde_json::from_str(payload).map_err(|_| "Invalid JSON")?;
         let result = match method {
+            method if method.starts_with("runtime.") => {
+                let mut result = self.runtime.dispatch(method, &v)?;
+                if matches!(method, "runtime.stats" | "runtime.budget") {
+                    result["fontBytes"] =
+                        json!(self.font_source_bytes + self.runtime.source_bytes());
+                    result["fontSourceBytes"] = json!(self.font_source_bytes);
+                    result["fontSourceBudget"] = json!(32 * 1024 * 1024);
+                }
+                result
+            }
             "text.capabilities" => {
                 json!({"version":1,"layout":true,"shape":self.fonts.db().faces().count()>0,"maxDocument":MAX_DOCUMENT,"pageRows":PAGE_ROWS})
             }
@@ -517,6 +560,25 @@ mod tests {
         let resized: Value =
             serde_json::from_str(&e.dispatch("text.edit", &edit.to_string()).unwrap()).unwrap();
         assert_eq!(resized["total"], 4);
+    }
+    #[test]
+    fn shared_font_sources_are_deduplicated_and_aggregate_admission_is_bounded() {
+        let mut e = Engine::new();
+        let ttf = include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+        let cff = include_bytes!("../../../../assets/fonts/W95FA.otf");
+        assert!(e.load_font(ttf));
+        assert!(e.load_font(cff));
+        let count = e.fonts.db().faces().count();
+        assert!(e.load_font(ttf));
+        assert_eq!(e.fonts.db().faces().count(), count);
+        let stats: Value =
+            serde_json::from_str(&e.dispatch("runtime.stats", "{}").unwrap()).unwrap();
+        assert_eq!(stats["fontSourceBytes"], ttf.len() + cff.len());
+        assert_eq!(stats["fontBytes"], ttf.len() * 2 + cff.len());
+        e.font_source_bytes = 32 * 1024 * 1024;
+        assert!(!e.load_font(include_bytes!("../../../../assets/fonts/Inter-Bold.ttf")));
+        assert_eq!(e.fonts.db().faces().count(), count);
+        assert_eq!(e.font_sources.len(), 2);
     }
     #[test]
     fn pure_rust_shaping_requires_explicit_fonts() {

@@ -93,6 +93,8 @@ pub struct Node {
     /// provider per node per layout, never re-decided at paint time
     /// (docs/BACKENDS.md).
     pub text_native: bool,
+    /// Immutable worker layout. Glyph IDs name font resources, never texture slots.
+    pub runtime_text: Option<crate::font_runtime::RuntimeLayout>,
 }
 
 impl Node {
@@ -120,6 +122,7 @@ impl Node {
             taffy: None,
             layout: LayoutRect::default(),
             text_native: false,
+            runtime_text: None,
         }
     }
 

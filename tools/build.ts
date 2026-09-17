@@ -351,6 +351,9 @@ for (const a of atlases) {
 const blobs: PakBlob[] = [
   { key: KEY_STYLES, dtype: PAK_DTYPE.u8, data: styles.bin },
   ...atlases.map((a) => ({ key: keyFont(a.slot), dtype: PAK_DTYPE.u8, data: a.bytes })),
+  ...await Promise.all(fontConfig.runtimeTtfs.map(async (path, index) => ({
+    key: `text:font.${index}`, dtype: PAK_DTYPE.u8, data: new Uint8Array(await Bun.file(path).arrayBuffer()),
+  }))),
 ];
 const appDir = dirname(entry);
 // Optional per-app sprite manifest: images listed here are baked as animated

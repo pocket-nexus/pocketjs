@@ -151,6 +151,7 @@ static mut DAMAGE_TRACKER: DamageTracker<DEFAULT_DAMAGE_REGIONS> = DamageTracker
 /// wrapText result staging (FRAMEBUFFER lifetime contract: valid until the
 /// next wrapText or init call).
 static mut WRAP_BREAKS: Vec<u32> = Vec::new();
+static mut FONT_STREAM_JSON: alloc::string::String = alloc::string::String::new();
 /*
  * Damage statistics for the incremental raster path.
  *
@@ -268,6 +269,7 @@ pub extern "C" fn ui_shutdown() {
     }
     unsafe {
         UI = None;
+        FONT_STREAM_JSON = alloc::string::String::new();
     }
     clear_framebuffer();
 }
@@ -486,6 +488,42 @@ pub extern "C" fn ui_load_font_atlas(ptr: *const u8, len: usize) -> i32 {
         }
     }
     loaded as i32
+}
+
+#[no_mangle]
+pub extern "C" fn ui_font_stream_configure(ptr: *const u8, len: usize) -> i32 {
+    ui().font_stream_configure(unsafe { bytes(ptr, len) }) as i32
+}
+
+#[no_mangle]
+pub extern "C" fn ui_font_stream_commit(ptr: *const u8, len: usize) -> u32 {
+    ui().font_stream_commit(unsafe { bytes(ptr, len) }) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ui_font_stream_batch(ptr: *const u8, len: usize) -> i32 {
+    ui().font_stream_batch(unsafe { bytes(ptr, len) })
+}
+
+#[no_mangle]
+pub extern "C" fn ui_font_stream_requests() -> usize {
+    unsafe {
+        FONT_STREAM_JSON = ui().font_stream_requests();
+        FONT_STREAM_JSON.len()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ui_font_stream_stats() -> usize {
+    unsafe {
+        FONT_STREAM_JSON = ui().font_stream_stats();
+        FONT_STREAM_JSON.len()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ui_font_stream_json_ptr() -> *const u8 {
+    unsafe { FONT_STREAM_JSON.as_ptr() }
 }
 
 #[no_mangle]

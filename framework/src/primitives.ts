@@ -10,6 +10,7 @@ import { createRenderEffect, createSignal, onCleanup, untrack } from "solid-js";
 import { ResourceBoundary } from "./resource-boundary.ts";
 import { pending, type ResourceState } from "./resource-state.ts";
 import type { PreparedText, TextResource } from "./fonts.ts";
+import type { RuntimeFont, RuntimeLayoutOptions } from "./runtime-fonts.ts";
 import { createElement, spread } from "./renderer.ts";
 import type { NodeMirror } from "./renderer.ts";
 
@@ -33,6 +34,9 @@ export interface ViewProps {
 }
 
 export interface TextProps {
+  /** A runtime font creates and disposes a whole-text lease with this Text. */
+  font?: RuntimeFont;
+  textLayout?: RuntimeLayoutOptions;
   /** A prepared whole-text lease. Its immutable text and font slot own content. */
   resource?: TextResource;
   fallback?: () => SolidJSX.Element;
@@ -98,6 +102,21 @@ export function View(props: ViewProps): SolidJSX.Element {
 }
 
 export function Text(props: TextProps): SolidJSX.Element {
+  if ("font" in props) {
+    const [resource, setResource] = createSignal<TextResource>();
+    createRenderEffect(() => {
+      const font = props.font, text = props.children;
+      if (text != null && typeof text !== "string" && typeof text !== "number") throw Error("Runtime Text children must be a string or number");
+      const lease = font?.prepareText(String(text ?? ""), props.textLayout);
+      setResource(lease); onCleanup(() => lease?.dispose());
+    });
+    return Text({
+      get resource() { return resource(); },
+      get class() { return props.class; }, get style() { return props.style; },
+      get debugName() { return props.debugName; }, get ref() { return props.ref; }, get nodeRef() { return props.nodeRef; },
+      fallback: props.fallback, errorFallback: props.errorFallback,
+    });
+  }
   // The presence of this prop selects the resource form for this component's lifetime.
   if ("resource" in props) {
     const [state, setState] = createSignal<ResourceState<PreparedText>>(pending());
@@ -118,7 +137,8 @@ export function Text(props: TextProps): SolidJSX.Element {
         get debugName() { return props.debugName; },
         get ref() { return props.ref; },
         get nodeRef() { return props.nodeRef; },
-        get children() { return value().text; },
+        get preparedText() { return value(); },
+        get children() { return value().layout ? undefined : value().text; },
       }),
     });
   }

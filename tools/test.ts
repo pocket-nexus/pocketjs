@@ -183,6 +183,17 @@ const SUITE: readonly Stage[] = [
     ],
   },
   {
+    name: "runtime text",
+    prep: [
+      ["bun", "tools/wasm.ts"],
+      ["bun", "tools/text-wasm.ts"],
+      ["bun", "tools/build.ts", "runtime-note-main"],
+      ["cargo", "build", "--release", "--locked", "--manifest-path", "engine/crates/pocket-text/Cargo.toml", "--example", "runtime_probe"],
+    ],
+    browser: true,
+    tests: ["tests/runtime-text-worker.test.ts", "tests/runtime-fonts.test.ts", "tests/runtime-font-ui.test.ts", "tests/runtime-note.test.ts"],
+  },
+  {
     name: "vue-sfc journeys",
     prep: [
       ["bun", "tools/build.ts", "hero-vue-sfc-main", "--framework=vue-vapor"],

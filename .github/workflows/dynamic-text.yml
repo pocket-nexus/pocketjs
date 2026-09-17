@@ -7,6 +7,26 @@ on:
       - 'framework/compiler/**'
       - 'framework/src/pak.ts'
       - 'framework/src/fonts.ts'
+      - 'framework/src/runtime-fonts.ts'
+      - 'framework/src/text-geometry.ts'
+      - 'framework/src/native-tree.ts'
+      - 'contracts/spec/runtime-text.ts'
+      - 'engine/crates/pocket-text/**'
+      - 'hosts/web/*freetype*'
+      - 'hosts/web/text-*'
+      - 'hosts/web/engine.js'
+      - 'hosts/web/offload-worker.js'
+      - 'tools/text-wasm.ts'
+      - 'tools/text-provider-worker.ts'
+      - 'tools/text-worker-assets.ts'
+      - 'tools/text-assets.ts'
+      - 'tests/runtime-text*.test.ts'
+      - 'tests/runtime-fonts.test.ts'
+      - 'tests/runtime-font-ui.test.ts'
+      - 'tests/runtime-note.test.ts'
+      - 'apps/runtime-note/**'
+      - 'tests/helpers/runtime-text-worker.ts'
+      - 'tests/fixtures/runtime-font/**'
       - 'framework/src/primitives.ts'
       - 'framework/src/host.ts'
       - 'framework/src/resource.ts'
@@ -42,13 +62,14 @@ permissions:
 jobs:
   text:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y emscripten libfreetype6-dev pkg-config
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
           targets: wasm32-unknown-unknown
@@ -57,7 +78,17 @@ jobs:
           workspaces: |
             engine/core
             engine/wasm
+            engine/crates/pocket-text
       - run: cargo test --locked --manifest-path engine/core/Cargo.toml
       - run: bun tools/wasm.ts
+      - run: bun tools/test.ts --stage="runtime text"
+        env:
+          POCKET_RUNTIME_FONT_SHOT: .pocket-build/validation/runtime-ttf/preview/runtime-note.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-font-preview
+          path: .pocket-build/validation/runtime-ttf/preview/runtime-note.png
+          if-no-files-found: ignore
       - run: bun test tests/font-bake.test.ts tests/font-config.test.ts tests/font-archive.test.ts tests/text-batch.test.ts tests/text-cjk.test.ts
       - run: bun test --conditions=browser tests/renderer.test.ts

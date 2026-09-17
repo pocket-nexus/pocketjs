@@ -47,8 +47,7 @@ impl<'js> FromJs<'js> for LossyString {
                 let c = js.to_cstring()?;
                 // CString::as_str assumes valid UTF-8, which lone
                 // surrogates break — read the raw bytes instead.
-                let bytes =
-                    unsafe { std::slice::from_raw_parts(c.as_ptr() as *const u8, c.len()) };
+                let bytes = unsafe { std::slice::from_raw_parts(c.as_ptr() as *const u8, c.len()) };
                 Ok(LossyString(String::from_utf8_lossy(bytes).into_owned()))
             }
         }
@@ -146,8 +145,10 @@ impl UiSurface {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.inner.borrow_mut().svc_allowlist =
-            services.into_iter().map(Into::into).collect::<Vec<String>>();
+        self.inner.borrow_mut().svc_allowlist = services
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<String>>();
     }
 
     /// Queue one JSON line for the guest's next `svcPoll` (host → guest).
@@ -367,11 +368,14 @@ impl UiSurface {
                 .set_image(id, tex));
 
             let ui = self.inner.clone();
-            op!("setCompositorSurface", move |id: i32, surface: i32, focused: i32| {
-                ui.borrow_mut()
-                    .ui
-                    .set_compositor_surface(id, surface, focused != 0)
-            });
+            op!(
+                "setCompositorSurface",
+                move |id: i32, surface: i32, focused: i32| {
+                    ui.borrow_mut()
+                        .ui
+                        .set_compositor_surface(id, surface, focused != 0)
+                }
+            );
 
             let ui = self.inner.clone();
             op!("setSprite", move |id: i32,
@@ -433,8 +437,14 @@ impl UiSurface {
             });
 
             let ui = self.inner.clone();
-            op!("setCursor", move |tex: i32, hot_x: f64, hot_y: f64, w: f64, h: f64| {
-                ui.borrow_mut().ui.set_cursor(tex, hot_x as f32, hot_y as f32, w as f32, h as f32)
+            op!("setCursor", move |tex: i32,
+                                   hot_x: f64,
+                                   hot_y: f64,
+                                   w: f64,
+                                   h: f64| {
+                ui.borrow_mut()
+                    .ui
+                    .set_cursor(tex, hot_x as f32, hot_y as f32, w as f32, h as f32)
             });
 
             let ui = self.inner.clone();
@@ -459,17 +469,44 @@ impl UiSurface {
             });
 
             let ui = self.inner.clone();
+            op!("fontStreamConfigure", move |buf: TypedArray<u8>| {
+                buf.as_bytes()
+                    .is_some_and(|bytes| ui.borrow_mut().ui.font_stream_configure(bytes))
+            });
+            let ui = self.inner.clone();
+            op!("fontStreamCommit", move |buf: TypedArray<u8>| {
+                buf.as_bytes().map_or(0, |bytes| {
+                    ui.borrow_mut().ui.font_stream_commit(bytes) as u32
+                })
+            });
+            let ui = self.inner.clone();
+            op!("fontStreamBatch", move |buf: TypedArray<u8>| {
+                buf.as_bytes()
+                    .map_or(-3, |bytes| ui.borrow_mut().ui.font_stream_batch(bytes))
+            });
+            let ui = self.inner.clone();
+            op!("fontStreamRequests", move || ui
+                .borrow_mut()
+                .ui
+                .font_stream_requests());
+            let ui = self.inner.clone();
+            op!("fontStreamStats", move || ui
+                .borrow()
+                .ui
+                .font_stream_stats());
+
+            let ui = self.inner.clone();
             op!("measureText", move |s: LossyString, slot: i32| {
                 ui.borrow_mut().ui.measure_text(&s.0, slot as u8) as f64
             });
 
             let ui = self.inner.clone();
-            op!(
-                "wrapText",
-                move |s: LossyString, slot: i32, max_w: f64| -> Vec<u32> {
-                    ui.borrow_mut().ui.wrap_text(&s.0, slot as u8, max_w as f32)
-                }
-            );
+            op!("wrapText", move |s: LossyString,
+                                  slot: i32,
+                                  max_w: f64|
+                  -> Vec<u32> {
+                ui.borrow_mut().ui.wrap_text(&s.0, slot as u8, max_w as f32)
+            });
 
             // ---- streamed textures (spec ops 23..25) ---------------------
             let ui = self.inner.clone();
@@ -709,6 +746,35 @@ mod tests {
     }
 
     #[test]
+    fn runtime_text_packets_cross_the_quickjs_surface() {
+        let guest = Guest::new().unwrap();
+        let surface = UiSurface::new((64.0, 64.0));
+        surface.mount(&guest).unwrap();
+        guest
+            .eval(
+                "runtime-font",
+                r#"
+            const node = ui.createNode(1);
+            const packet = new Uint8Array(24);
+            const view = new DataView(packet.buffer);
+            view.setUint32(0, 0x31465452, true);
+            view.setUint32(4, 1, true);
+            view.setInt32(8, node, true);
+            view.setFloat32(16, 20, true);
+            view.setFloat32(20, 24, true);
+            globalThis.runtimeCommitted = ui.fontStreamCommit(packet);
+            globalThis.invalidCommitted = ui.fontStreamCommit(new Uint8Array(3));
+            globalThis.streamStats = JSON.parse(ui.fontStreamStats());
+        "#,
+            )
+            .unwrap();
+        guest.with(|ctx| {
+            assert_eq!(ctx.globals().get::<_, u32>("runtimeCommitted").unwrap(), 1);
+            assert_eq!(ctx.globals().get::<_, u32>("invalidCommitted").unwrap(), 0);
+        });
+    }
+
+    #[test]
     fn compositor_surface_has_its_own_namespace_and_core_binding() {
         let guest = Guest::new().unwrap();
         let surface = UiSurface::new((16.0, 16.0));
@@ -732,7 +798,10 @@ mod tests {
         assert_eq!(published, handle);
         surface.with_ui(|ui| {
             assert!(ui.texture(handle).is_none());
-            assert_eq!(ui.compositor_surface_bindings(), vec![(handle as u32, true)]);
+            assert_eq!(
+                ui.compositor_surface_bindings(),
+                vec![(handle as u32, true)]
+            );
         });
     }
 }

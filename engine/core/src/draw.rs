@@ -2791,6 +2791,55 @@ impl<'a> Walker<'a> {
         if alpha(color) == 0 {
             return;
         }
+        if let Some(layout) = &node.runtime_text {
+            for placement in &layout.glyphs {
+                let Some(page) = self.fonts.runtime.page(placement.instance, placement.glyph)
+                else {
+                    continue;
+                };
+                if page.width == 0
+                    || page.height == 0
+                    || crate::tex_resolve(self.textures, page.handle).is_none()
+                {
+                    continue;
+                }
+                let glyph_world = world.then(&Affine::translate(
+                    placement.x + page.left as f32,
+                    placement.baseline - page.top as f32,
+                ));
+                let start = dl.words.len();
+                self.emit_tex_quad(
+                    dl,
+                    &glyph_world,
+                    page.width as f32,
+                    page.height as f32,
+                    page.handle as u32,
+                    1.0,
+                    clip,
+                    0.0,
+                    0.0,
+                    page.width as f32 / page.width.next_power_of_two() as f32,
+                    page.height as f32 / page.height.next_power_of_two() as f32,
+                );
+                // Runtime pages contain white RGB and grayscale alpha. The
+                // draw color remains paint state and never enters layout.
+                let mut at = start;
+                while at < dl.words.len() {
+                    match dl.words[at] {
+                        spec::draw_op::TEX_QUAD => {
+                            dl.words[at + 8] = color;
+                            at += 9;
+                        }
+                        spec::draw_op::TEX_TRI => {
+                            dl.words[at + 11] = color;
+                            at += 12;
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            return;
+        }
         let slot = r.font_slot as u8;
         let mut run = alloc::string::String::new();
         // paint() gives us the node ref; re-walk its subtree for the run.

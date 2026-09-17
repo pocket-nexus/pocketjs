@@ -32,7 +32,7 @@ export function createWorkerOffload({ workerUrl, wasmUrl, pak }) {
     replies.push(data.record);
   };
   worker.postMessage({ init: true, wasmUrl: String(wasmUrl), pak });
-  return {
+  const host = {
     ops: {
       session: () => generation,
       submit(record) {
@@ -62,4 +62,8 @@ export function createWorkerOffload({ workerUrl, wasmUrl, pak }) {
       fail();
     },
   };
+  // This host's default provider is its local worker. A single client owns
+  // the aliased queue so ticket IDs and frame delivery credits stay shared.
+  host.ops.local = host.ops;
+  return host;
 }

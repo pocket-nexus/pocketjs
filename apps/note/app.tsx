@@ -12,7 +12,8 @@
 // mouse stream directly; on hosts without svc (PSP, sim, goldens) the app
 // is a read-only note scrolled by d-pad — unmodified-app base case.
 
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createRenderEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import type { RuntimeFont, RuntimeTextLayout, RuntimeTextResource } from "@pocketjs/framework/fonts";
 import { Focusable, Image, Portal, Text, View } from "@pocketjs/framework/components";
 import { after, virtualNow } from "@pocketjs/framework/clock";
 import { onButtonPress, onFrame } from "@pocketjs/framework/lifecycle";
@@ -38,6 +39,9 @@ import {
   deleteSel,
   emptyHistory,
   layoutDoc,
+  layoutFromText,
+  lineCaretX,
+  moveCaret,
   lineEnd,
   lineStart,
   moveVertical,
@@ -144,7 +148,7 @@ function segColor(seg: Seg, ink: Ink): string {
   }
 }
 
-export default function Note(): ReturnType<typeof View> {
+export default function Note(props: { font?: RuntimeFont; initialEditing?: boolean } = {}): ReturnType<typeof View> {
   const svc = connectSvc();
   // Editing and pointer gestures arrive over the COMPANION svc adapter
   // (svc.ts), so their gates track its runtime presence — never a target
@@ -160,7 +164,7 @@ export default function Note(): ReturnType<typeof View> {
   const widgetChrome = platform.target === "macos-widget";
   const [vp, setVp] = createSignal({ w: 480, h: 272 });
   const [doc, setDoc] = createSignal(SAMPLE_DOC);
-  const [editing, setEditing] = createSignal(false);
+  const [editing, setEditing] = createSignal(props.initialEditing ?? false);
   const [dark, setDark] = createSignal(true);
   const [menuOpen, setMenuOpenRaw] = createSignal(false);
   const [caret, setCaret] = createSignal(0);
@@ -226,15 +230,38 @@ export default function Note(): ReturnType<typeof View> {
     const p = preedit();
     return p ? caret() + p.cursor : caret();
   };
-  const dlines = createMemo(() => layoutDoc(displayDoc(), contentW(), bodyWidth));
-  const editTotal = () => dlines().length * BODY_LINE_H + EDGE_PAD * 2;
+  const [runtimeResource, setRuntimeResource] = createSignal<RuntimeTextResource>();
+  const [runtimeLayout, setRuntimeLayout] = createSignal<RuntimeTextLayout>();
+  const [runtimeError, setRuntimeError] = createSignal("");
+  createRenderEffect(() => {
+    const font = props.font, source = displayDoc(), width = contentW();
+    setRuntimeLayout(undefined);
+    setRuntimeResource(undefined); setRuntimeError("");
+    if (!font) { setRuntimeResource(undefined); return; }
+    let resource: RuntimeTextResource;
+    try { resource = font.prepareText(source, { width }); }
+    catch (error) { setRuntimeError(String(error)); return; }
+    setRuntimeResource(resource);
+    const update = () => {
+      setRuntimeLayout(resource.layout());
+      const state = resource.state();
+      if (state.status === "error") setRuntimeError(String(state.error));
+    };
+    update(); const unsubscribe = resource.subscribe(update);
+    onCleanup(() => { unsubscribe(); resource.dispose(); });
+  });
+  const dlines = createMemo(() => props.font
+    ? runtimeLayout() ? layoutFromText(runtimeLayout()!) : [{ start: 0, end: 0, soft: false, carets: [[0, 0] as const] }]
+    : layoutDoc(displayDoc(), contentW(), bodyWidth));
+  const editLineHeight = () => runtimeLayout()?.font.lineHeight ?? BODY_LINE_H;
+  const editTotal = () => dlines().length * editLineHeight() + EDGE_PAD * 2;
   const maxScrollE = () => Math.max(0, editTotal() - viewH());
   const visibleLines = createMemo(() => {
     const lines = dlines();
-    const from = Math.max(0, Math.floor((scrollE() - OVERSCAN - EDGE_PAD) / BODY_LINE_H));
+    const from = Math.max(0, Math.floor((scrollE() - OVERSCAN - EDGE_PAD) / editLineHeight()));
     const to = Math.min(
       lines.length,
-      Math.ceil((scrollE() + viewH() + OVERSCAN - EDGE_PAD) / BODY_LINE_H),
+      Math.ceil((scrollE() + viewH() + OVERSCAN - EDGE_PAD) / editLineHeight()),
     );
     const out: { index: number; start: number; end: number; soft: boolean }[] = [];
     for (let i = from; i < to; i++) {
@@ -268,10 +295,10 @@ export default function Note(): ReturnType<typeof View> {
     svc?.send({ t: "save", text: doc() });
   };
   const revealCaret = () => {
-    const y = EDGE_PAD + caretRow() * BODY_LINE_H;
+    const y = EDGE_PAD + caretRow() * editLineHeight();
     if (y < scrollE() + 4) setScrollE(Math.max(0, y - 4));
-    else if (y + BODY_LINE_H > scrollE() + viewH() - 4) {
-      setScrollE(Math.min(maxScrollE(), y + BODY_LINE_H - viewH() + 4));
+    else if (y + editLineHeight() > scrollE() + viewH() - 4) {
+      setScrollE(Math.min(maxScrollE(), y + editLineHeight() - viewH() + 4));
     }
   };
   const selState = (): SelEdit => ({ doc: doc(), caret: caret(), anchor: anchor() });
@@ -322,7 +349,7 @@ export default function Note(): ReturnType<typeof View> {
     setAnchor(pos);
     breakRun(history);
     // Keep roughly the same place on screen across the mode switch.
-    const y = EDGE_PAD + caretLine(dlines(), pos) * BODY_LINE_H;
+    const y = EDGE_PAD + caretLine(dlines(), pos) * editLineHeight();
     setScrollE(Math.max(0, Math.min(maxScrollE(), y - viewH() / 3)));
     setEditing(true);
     goalSticky = false;
@@ -337,6 +364,7 @@ export default function Note(): ReturnType<typeof View> {
   };
 
   const handleKey = (k: string, shift = false) => {
+    if (props.font && !runtimeLayout() && ["Left", "Right", "Up", "Down", "Home", "End", "Backspace", "Delete"].includes(k)) return;
     // Shift + navigation extends the selection: the caret moves, the
     // anchor holds.
     if (shift && editing() && !preedit()) {
@@ -347,10 +375,10 @@ export default function Note(): ReturnType<typeof View> {
       };
       switch (k) {
         case "Left":
-          extend(caret() - 1);
+          extend(moveCaret(doc(), dlines(), caret(), -1));
           return;
         case "Right":
-          extend(caret() + 1);
+          extend(moveCaret(doc(), dlines(), caret(), 1));
           return;
         case "Home":
           extend(lineStart(dlines(), caret()));
@@ -415,10 +443,10 @@ export default function Note(): ReturnType<typeof View> {
     }
     switch (k) {
       case "Backspace":
-        mutate("delete", backspaceSel);
+        mutate("delete", s => backspaceSel(s, dlines()));
         break;
       case "Delete":
-        mutate("delete", deleteSel);
+        mutate("delete", s => deleteSel(s, dlines()));
         break;
       case "Enter":
         mutate("other", (s) => typeText(s, "\n"));
@@ -427,10 +455,10 @@ export default function Note(): ReturnType<typeof View> {
         mutate("other", (s) => typeText(s, "  "));
         break;
       case "Left":
-        collapseOr("lo", (s) => Math.max(0, s.caret - 1));
+        collapseOr("lo", (s) => moveCaret(s.doc, dlines(), s.caret, -1));
         break;
       case "Right":
-        collapseOr("hi", (s) => Math.min(s.doc.length, s.caret + 1));
+        collapseOr("hi", (s) => moveCaret(s.doc, dlines(), s.caret, 1));
         break;
       case "Home":
         collapseOr("lo", (s) => lineStart(dlines(), s.caret));
@@ -485,7 +513,8 @@ export default function Note(): ReturnType<typeof View> {
   };
 
   const editPosAt = (x: number, y: number): number => {
-    const line = Math.floor((y - HEADER_H + scrollE() - EDGE_PAD) / BODY_LINE_H);
+    if (props.font && !runtimeLayout()) return caret();
+    const line = Math.floor((y - HEADER_H + scrollE() - EDGE_PAD) / editLineHeight());
     return caretFromX(doc(), dlines(), line, x - marginX(), bodyWidth);
   };
   const viewPosAt = (x: number, y: number): RowPos => {
@@ -650,8 +679,8 @@ export default function Note(): ReturnType<typeof View> {
     if (editing()) {
       const rect = {
         x: Math.round(marginX() + caretPx()),
-        y: Math.round(HEADER_H + EDGE_PAD + caretRow() * BODY_LINE_H - scrollE()),
-        h: BODY_LINE_H,
+        y: Math.round(HEADER_H + EDGE_PAD + caretRow() * editLineHeight() - scrollE()),
+        h: editLineHeight(),
       };
       if (rect.x !== lastCaretRect.x || rect.y !== lastCaretRect.y) {
         lastCaretRect = rect;
@@ -704,8 +733,8 @@ export default function Note(): ReturnType<typeof View> {
     const hi = Math.min(sel.hi, line.end);
     if (hi < lo) return null;
     if (hi === lo && !(sel.lo < line.start && sel.hi > line.end)) return null;
-    const x0 = bodyWidth(displayDoc().slice(line.start, lo));
-    const x1 = bodyWidth(displayDoc().slice(line.start, hi));
+    const x0 = lineCaretX(displayDoc(), dlines()[line.index], lo, bodyWidth);
+    const x1 = lineCaretX(displayDoc(), dlines()[line.index], hi, bodyWidth);
     // A fully-selected empty line still shows a sliver (the newline).
     return { x0, x1: Math.max(x1, x0 + (hi === line.end && sel.hi > line.end ? 4 : 0)) };
   };
@@ -718,8 +747,8 @@ export default function Note(): ReturnType<typeof View> {
     const hi = Math.min(caret() + p.text.length, line.end);
     if (hi <= lo) return null;
     return {
-      x0: bodyWidth(displayDoc().slice(line.start, lo)),
-      x1: bodyWidth(displayDoc().slice(line.start, hi)),
+      x0: lineCaretX(displayDoc(), dlines()[line.index], lo, bodyWidth),
+      x1: lineCaretX(displayDoc(), dlines()[line.index], hi, bodyWidth),
     };
   };
 
@@ -839,7 +868,7 @@ export default function Note(): ReturnType<typeof View> {
               {(line) => (
                 <View
                   class="absolute left-0 right-0"
-                  style={{ insetT: EDGE_PAD + line.index * BODY_LINE_H, height: BODY_LINE_H }}
+                  style={{ insetT: EDGE_PAD + line.index * editLineHeight(), height: editLineHeight() }}
                 >
                   <Show when={lineSelRect(line) != null}>
                     <View
@@ -851,7 +880,7 @@ export default function Note(): ReturnType<typeof View> {
                           2,
                           (lineSelRect(line)?.x1 ?? 0) - (lineSelRect(line)?.x0 ?? 0),
                         ),
-                        height: BODY_LINE_H - 2,
+                        height: editLineHeight() - 2,
                         bgColor: ink().sel,
                       }}
                     />
@@ -861,7 +890,7 @@ export default function Note(): ReturnType<typeof View> {
                       class="absolute rounded-sm"
                       style={{
                         insetL: preeditRect(line)?.x0 ?? 0,
-                        insetT: BODY_LINE_H - 3,
+                        insetT: editLineHeight() - 3,
                         width: Math.max(
                           2,
                           (preeditRect(line)?.x1 ?? 0) - (preeditRect(line)?.x0 ?? 0),
@@ -871,22 +900,26 @@ export default function Note(): ReturnType<typeof View> {
                       }}
                     />
                   </Show>
-                  <Text
+                  <Show when={!props.font}><Text
                     class="absolute text-sm"
                     style={{
                       insetL: 0,
                       insetT: 0,
-                      height: BODY_LINE_H,
-                      lineHeight: BODY_LINE_H,
+                      height: editLineHeight(),
+                      lineHeight: editLineHeight(),
                       textColor: ink().body,
                     }}
                   >
                     {displayDoc().slice(line.start, line.end)}
-                  </Text>
+                  </Text></Show>
                 </View>
               )}
             </For>
-            <Show when={!editSel()}>
+            <Show when={props.font}>
+              <Text resource={runtimeResource()} class="absolute" style={{ insetL: 0, insetT: EDGE_PAD, textColor: ink().body }} />
+            </Show>
+            <Show when={runtimeError()}><Text class="text-xs" style={{ textColor: ink().dim }}>{runtimeError()}</Text></Show>
+            <Show when={!editSel() && (!props.font || runtimeLayout())}>
               <Show
                 when={caretResting()}
                 fallback={
@@ -895,7 +928,7 @@ export default function Note(): ReturnType<typeof View> {
                     style={{
                       width: 2,
                       insetL: caretPx() - 1,
-                      insetT: EDGE_PAD + caretRow() * BODY_LINE_H + (BODY_LINE_H - CARET_H) / 2,
+                      insetT: EDGE_PAD + caretRow() * editLineHeight() + (editLineHeight() - CARET_H) / 2,
                       height: CARET_H,
                       bgColor: ink().accent,
                     }}
@@ -907,7 +940,7 @@ export default function Note(): ReturnType<typeof View> {
                   style={{
                     width: 2,
                     insetL: caretPx() - 1,
-                    insetT: EDGE_PAD + caretRow() * BODY_LINE_H + (BODY_LINE_H - CARET_H) / 2,
+                    insetT: EDGE_PAD + caretRow() * editLineHeight() + (editLineHeight() - CARET_H) / 2,
                     height: CARET_H,
                     bgColor: ink().accent,
                   }}

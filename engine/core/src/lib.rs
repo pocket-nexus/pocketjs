@@ -53,6 +53,7 @@ pub mod text;
 pub mod font_pages;
 pub mod font_stream;
 pub mod font_archive;
+pub mod font_runtime;
 pub mod touch;
 pub mod tree;
 pub mod wire;
@@ -590,6 +591,11 @@ impl Ui {
             let node = &mut self.tree.slots[slot as usize];
             node.text.clear();
             node.text.push_str(text);
+        }
+        // Worker text keeps the last complete layout until its replacement
+        // arrives. Raw string edits cannot resize that immutable geometry.
+        if self.tree.slots[root_slot as usize].runtime_text.is_some() {
+            return;
         }
         run.clear();
         self.tree.collect_run(root_slot, &mut run);

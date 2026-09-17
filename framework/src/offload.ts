@@ -12,7 +12,7 @@ export function uploadCoverage(base64: string, width: number, height: number, fo
   return (globalThis as unknown as { offload?: OffloadOps }).offload?.uploadCoverage?.(base64, width, height, foreground, colors?.columns, colors?.palette);
 }
 export type OffloadResult = { ok: true; value: string } | { ok: false; error: string };
-type Pending = { record: string; callback: (result: OffloadResult) => void; deadline: number; sent: boolean; session: number };
+type Pending = { record: string; callback: (result: OffloadResult) => void; deadline: number; sent: boolean; session: number; expectedSession?: number };
 
 /** One client per JS realm. Inputs are already serialized bounded strings:
  * arbitrary object traversal/serialization is never hidden inside this API. */
@@ -29,7 +29,7 @@ export function createOffloadClient(ops: OffloadOps) {
     connected: () => !disposed && ops.session() > 0,
     session: () => disposed ? 0 : ops.session(),
     pending: () => pending.size,
-    request(method: string, payload: string, callback: Pending["callback"]): number {
+    request(method: string, payload: string, callback: Pending["callback"], options?: { session: number }): number {
       if (disposed || pending.size >= OFFLOAD.pending) return 0;
       if (!/^[a-z][a-z0-9_.-]{0,63}$/.test(method)) throw new Error("Invalid offload capability");
       if (typeof payload !== "string" || payload.length > OFFLOAD.payloadChars) throw new Error("Offload payload exceeds budget");
@@ -43,7 +43,7 @@ export function createOffloadClient(ops: OffloadOps) {
         else bytes += c < 128 ? 1 : c < 2048 ? 2 : 3;
       }
       if (bytes > OFFLOAD.recordBytes) throw new Error("Offload record exceeds budget");
-      pending.set(id, { record, callback, deadline: frame + OFFLOAD.timeoutFrames, sent: false, session: 0 });
+      pending.set(id, { record, callback, deadline: frame + OFFLOAD.timeoutFrames, sent: false, session: 0, expectedSession: options?.session });
       return id;
     },
     cancel(id: number) { pending.delete(id); },
@@ -68,6 +68,11 @@ export function createOffloadClient(ops: OffloadOps) {
       }
       let submitted = 0;
       for (const [id, item] of pending) {
+        if (item.expectedSession !== undefined && item.expectedSession !== session) {
+          if (!delivered) { delivered = true; finish(id, { ok: false, error: "Provider session changed" }); }
+          // Never submit an old mutation while waiting for its bounded error delivery.
+          continue;
+        }
         if (!delivered && (frame >= item.deadline || (item.sent && item.session !== session))) {
           delivered = true;
           finish(id, { ok: false, error: item.sent ? "Connection lost or request expired; outcome may be unknown" : "Provider unavailable" });
@@ -83,10 +88,13 @@ export function createOffloadClient(ops: OffloadOps) {
 let client: ReturnType<typeof createOffloadClient> | undefined;
 let localClient: ReturnType<typeof createOffloadClient> | undefined;
 /** No synchronous FS, DB, DNS or socket operation is exposed to the guest. */
-export function offload(provider: "companion" | "local" = "companion") {
+export function offload(provider: "companion" | "local" = "companion"): ReturnType<typeof createOffloadClient> {
+  const root = (globalThis as unknown as { offload?: OffloadOps }).offload;
+  // Native desktop and web expose one local queue under both names. Keep
+  // one ticket namespace and one consumer when the host aliases that queue.
+  if (provider === "local" && root && root.local === root) return offload("companion");
   if (provider === "local" && localClient) return localClient;
   if (provider === "companion" && client) return client;
-  const root = (globalThis as unknown as { offload?: OffloadOps }).offload;
   const ops = provider === "local" ? root?.local : root;
   if (!ops) throw new Error("Host does not implement io.offload");
   const next = createOffloadClient(ops);

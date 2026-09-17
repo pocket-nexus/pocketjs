@@ -4,6 +4,7 @@
 import { NODE_TYPE, PROP, ROOT_ID, STYLE_ID_NONE, type PropName } from "../../contracts/spec/spec.ts";
 import { encodePropValue, getHost, getOps } from "./host.ts";
 import { __notifyTreeMutation, notifyDetached, registerFocusable, registerPress } from "./input.ts";
+import type { PreparedText } from "./fonts.ts";
 
 export interface NodeMirror {
   /** Native generation-tagged node id. */
@@ -87,6 +88,7 @@ const NATIVE_ATTRIBUTE_NAMES = new Set([
   "nodeRef",
   "key",
   "children",
+  "preparedText",
 ]);
 
 function domAttrs(node: NodeMirror): Record<string, unknown> {
@@ -718,6 +720,16 @@ export function setProp<T>(node: NodeMirror, name: string, value: T, prev?: T): 
     else domAttrs(node)[name] = value;
   }
   switch (name) {
+    case "preparedText": {
+      const prepared = value as PreparedText | undefined;
+      (prev as PreparedText | undefined)?.clear?.(node.id);
+      if (prepared?.layout) {
+        if (!prepared.paint?.(node.id)) throw Error("Runtime text layout could not be bound");
+        node.text = prepared.text;
+        treeMutated();
+      }
+      return value;
+    }
     case "class":
       setClass(node, value);
       return value;

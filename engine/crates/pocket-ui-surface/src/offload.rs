@@ -68,6 +68,7 @@ impl OffloadWorker {
     }
     pub fn mount(&self, guest: &Guest) -> Result<()> {
         guest.mount("offload", |ctx, ns| {
+            ns.set("local", ns.clone())?;
             let m = self.inner.clone();
             ns.set(
                 "session",
@@ -128,7 +129,7 @@ mod tests {
             }
             thread::sleep(std::time::Duration::from_millis(1));
         }
-        guest.eval("queue", "if(offload.session()<=0)throw Error('not ready'); for(let i=0;i<8;i++)if(!offload.submit('test'))throw Error('no credit'); if(offload.submit('overflow'))throw Error('unbounded queue');").unwrap();
+        guest.eval("queue", "if(offload.local!==offload)throw Error('local alias missing'); if(offload.session()<=0)throw Error('not ready'); for(let i=0;i<8;i++)if(!offload.submit('test'))throw Error('no credit'); if(offload.submit('overflow'))throw Error('unbounded queue');").unwrap();
         thread::sleep(std::time::Duration::from_millis(20));
         worker.begin_frame();
         guest.eval("reply", "if(offload.take()!=='test')throw Error('no reply'); if(offload.take()!==undefined)throw Error('multiple deliveries');").unwrap();

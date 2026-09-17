@@ -47,3 +47,6 @@ hosts/ios-nativescript/package-lock.json
 tools/bench-desktop/tauri/src-tauri/gen/
 
 hosts/web/pocket_text.wasm
+hosts/web/pocket_freetype.js
+hosts/web/pocket_freetype.wasm
+hosts/web/FreeType-LICENSE.txt

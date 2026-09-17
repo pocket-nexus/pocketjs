@@ -122,6 +122,9 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install worker font toolchain
+        run: brew install freetype pkgconf emscripten
+
       - name: Contract + System + note + platform + npm package tests
         run: bun test tests/platform-contracts.test.ts tests/pocket-system.test.ts tests/web-system-host.test.ts tests/text-layout-client.test.ts tests/offload.test.ts tests/offload-provider.test.ts tests/companion-session.test.ts tests/note.test.ts tests/font-bake.test.ts tests/npm-package.test.ts && bun tests/contract.ts
 

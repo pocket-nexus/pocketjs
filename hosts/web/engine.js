@@ -18,6 +18,7 @@ import { createWasmUi, FB_W as DEFAULT_FB_W, FB_H as DEFAULT_FB_H } from "./wasm
 import { drawHud, wasmMemoryBytes } from "./hud.js";
 import { createAudioHost } from "./audio.js";
 import { createNetHost } from "./net.js";
+import { createWorkerOffload } from "./offload-worker.js";
 
 const query = new URLSearchParams(location.search);
 function positiveIntParam(name, fallback, max = 32000) {
@@ -96,6 +97,7 @@ function packedAnalog() {
 }
 
 let wasm = null; // createWasmUi result
+let textWorker = null;
 let canvas = null;
 let ctx = null;
 let imageData = null;
@@ -213,6 +215,7 @@ async function devtoolsSeek(frame) {
 }
 
 function safeFrame() {
+  textWorker?.beginFrame();
   if (!frameCb) return;
   try {
     // Audio module: fold the audio clock's facts into this tick's event
@@ -349,6 +352,8 @@ export async function mount(theCanvas, opts = {}) {
 export async function load(name, opts = {}) {
   if (!wasm) throw new Error("mount() first");
   stop();
+  textWorker?.dispose(); textWorker = null;
+  globalThis.offload = undefined;
   frameCb = null;
   wasm.init(RASTER_DENSITY); // fresh Ui: tree/styles/atlases/textures all reset
   // Host contract (see apps/hero/main.tsx): both globals BEFORE eval, reset
@@ -376,6 +381,9 @@ export async function load(name, opts = {}) {
   try {
     const pak = await fetch("dist/" + name + ".pak");
     globalThis.__pak = pak.ok ? await pak.arrayBuffer() : undefined;
+    textWorker = createWorkerOffload({ workerUrl: new URL("./text-worker.js", import.meta.url),
+      wasmUrl: new URL("./pocket_text.wasm", import.meta.url), pak: globalThis.__pak });
+    globalThis.offload = textWorker.ops;
     const srcRes = await fetch("dist/" + name + ".js");
     if (!srcRes.ok) throw new Error("dist/" + name + ".js not found — run: bun tools/build.ts " + name);
     const src = await srcRes.text();

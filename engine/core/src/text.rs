@@ -236,6 +236,7 @@ pub type WrapFn = alloc::boxed::Box<dyn Fn(&str, u8, f32) -> alloc::vec::Vec<u32
 
 /// The per-core atlas registry.
 pub struct Fonts {
+    pub(crate) runtime: crate::font_runtime::RuntimeFonts,
     slots: [Option<Atlas>; spec::MAX_FONT_SLOTS],
     /// cmap-miss counter (Cell: measurement is `&self` per the pinned `Ui`
     /// signature but a miss must still count).
@@ -266,6 +267,7 @@ impl Fonts {
 
     pub fn new() -> Fonts {
         Fonts {
+            runtime: Default::default(),
             slots: Default::default(),
             misses: Cell::new(0),
             native: None,

@@ -69,6 +69,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install text worker toolchain
+        run: sudo apt-get update && sudo apt-get install -y emscripten libfreetype6-dev pkg-config
+
       - name: Build wasm (core + software rasterizer)
         run: bun tools/wasm.ts
 

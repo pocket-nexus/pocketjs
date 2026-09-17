@@ -1835,10 +1835,17 @@ name = "pocket-text"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "cc",
  "cosmic-text",
+ "harfrust",
+ "pkg-config",
  "pocketjs-core",
  "serde",
  "serde_json",
+ "ttf-parser",
+ "unicode-bidi",
+ "unicode-script",
+ "unicode-segmentation",
 ]
 
 [[package]]

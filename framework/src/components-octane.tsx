@@ -28,6 +28,9 @@ import {
   type NodeMirror,
 } from "./renderer-octane.ts";
 import { getAuxiliarySurfaceRoots } from "./display.ts";
+import type { PreparedText, TextResource } from "./fonts.ts";
+import type { RuntimeFont, RuntimeLayoutOptions } from "./runtime-fonts.ts";
+import { pending, type ResourceState } from "./resource-state.ts";
 
 export type { NodeMirror } from "./renderer-octane.ts";
 
@@ -113,6 +116,11 @@ export interface ViewProps {
 }
 
 export interface TextProps {
+  font?: RuntimeFont;
+  textLayout?: RuntimeLayoutOptions;
+  resource?: TextResource;
+  fallback?: () => VNodeChild;
+  errorFallback?: (error: unknown) => VNodeChild;
   class?: string;
   className?: string;
   style?: StyleObject;
@@ -171,7 +179,30 @@ function primitive<P extends object>(tag: "view" | "text" | "image" | "surface")
 }
 
 export const View = primitive<ViewProps>("view");
-export const Text = primitive<TextProps>("text");
+const NativeText = primitive<TextProps & { preparedText?: PreparedText }>("text");
+export function Text(props: TextProps): SolidJSX.Element {
+  const source = valueOf(props.children);
+  const owned = useMemo(() => {
+    if (!props.font) return undefined;
+    if (source != null && typeof source !== "string" && typeof source !== "number") throw Error("Runtime Text children must be text");
+    return props.font.prepareText(String(source ?? ""), props.textLayout);
+  }, [props.font, source, props.textLayout?.width, props.textLayout?.maxLines, props.textLayout?.overflow]);
+  const resource = props.resource ?? owned;
+  const [state, setState] = useState<ResourceState<PreparedText>>(pending());
+  useLayoutEffect(() => {
+    const update = () => setState(resource?.state() ?? pending());
+    update(); const unsubscribe = resource?.subscribe(update);
+    return () => { unsubscribe?.(); };
+  }, [resource]);
+  useLayoutEffect(() => () => owned?.dispose(), [owned]);
+  const { font, resource: _resource, textLayout, fallback, errorFallback, ...rest } = props;
+  if (!font && !("resource" in props)) return <NativeText {...rest} />;
+  if (state.status === "error") return (errorFallback?.(state.error) ?? fallback?.() ?? null) as SolidJSX.Element;
+  if (state.status !== "ready") return (fallback?.() ?? null) as SolidJSX.Element;
+  return <NativeText {...rest} preparedText={state.value} style={{ ...props.style, fontSlot: state.value.slot }}>
+    {state.value.layout ? null : state.value.text}
+  </NativeText>;
+}
 export const Image = primitive<ImageProps>("image");
 export const Sprite = primitive<SpriteProps>("image");
 export const CompositorSurface = primitive<CompositorSurfaceProps>("surface");
