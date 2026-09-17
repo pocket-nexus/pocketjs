@@ -1838,6 +1838,7 @@ dependencies = [
  "cc",
  "cosmic-text",
  "harfrust",
+ "libm",
  "pkg-config",
  "pocketjs-core",
  "serde",

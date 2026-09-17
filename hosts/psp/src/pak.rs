@@ -38,7 +38,8 @@ static mut PAK: &[u8] = &[];
 /// Single-threaded main-thread contract (ffi::UI's): no concurrent
 /// `install`/`installed` calls exist.
 pub unsafe fn install(pak: &'static [u8]) {
-    PAK = pak
+    PAK = pak;
+    crate::offload_local::install_pak(pak);
 }
 
 /// The installed pak (empty slice until `install` runs — every `find` on it

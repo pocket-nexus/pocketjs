@@ -7,7 +7,7 @@ import { dirname } from "node:path";
 
 test("runtime Note paints worker geometry and deletes combining graphemes through its input service", async () => {
   const worker = await runtimeWorker(), replies: string[] = [], events: unknown[] = [], sent: any[] = [];
-  const source = "e\u0301AV office — proportional text";
+  const source = "e\u0301AV office - proportional text";
   const offloadOps: any = {
     session: () => 1, take: () => replies.shift(), submit(raw: string) {
       const r = JSON.parse(raw); sent.push(r);
@@ -39,10 +39,10 @@ test("runtime Note paints worker geometry and deletes combining graphemes throug
       await Bun.write(process.env.POCKET_RUNTIME_FONT_SHOT, canvas.toBuffer("image/png"));
     }
     events.push({ t: "key", k: "Right" }); world.frame(0); world.tick();
-    events.push({ t: "key", k: "Backspace" }); await settle("AV office — proportional text");
+    events.push({ t: "key", k: "Backspace" }); await settle("AV office - proportional text");
     expect(treeHasText(world.getTree(), source)).toBe(false);
     events.push({ t: "key", k: "Right", sh: true }); world.frame(0); world.tick();
-    events.push({ t: "key", k: "Delete" }); await settle("V office — proportional text");
-    expect(treeHasText(world.getTree(), "AV office — proportional text")).toBe(false);
+    events.push({ t: "key", k: "Delete" }); await settle("V office - proportional text");
+    expect(treeHasText(world.getTree(), "AV office - proportional text")).toBe(false);
   } finally { worker.close(); delete (globalThis as any).offload; }
 }, 30000);

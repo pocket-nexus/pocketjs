@@ -8,7 +8,9 @@
 //! feature `external-global-alloc`, which gates out both its
 //! `#[global_allocator]` and its `#[alloc_error_handler]`; this module
 //! provides the replacements. Rust, QuickJS (qjs_alloc.rs) and newlib C
-//! (c_heap.rs) all sub-allocate from the SAME single kernel block.
+//! (c_heap.rs) use the UI arena. Before the local provider starts, it reserves
+//! one block for a private worker heap. Thread routing keeps worker allocations
+//! and frees out of the UI free lists, including FreeType's C allocations.
 //!
 //! The allocator can be hit before any explicit init runs — `arena::alloc`
 //! lazily `ensure_init`s itself (via direct sceKernel* syscalls, never
@@ -23,13 +25,28 @@ use crate::arena;
 
 struct ArenaAlloc;
 
+pub(crate) unsafe fn allocate(size: usize, align: usize) -> *mut u8 {
+    if crate::worker_heap::is_worker() {
+        crate::worker_heap::allocate(size, align)
+    } else {
+        arena::alloc(size, align)
+    }
+}
+pub(crate) unsafe fn deallocate(pointer: *mut u8, size: usize, align: usize) {
+    if crate::worker_heap::owns(pointer) {
+        crate::worker_heap::free(pointer, size)
+    } else {
+        arena::dealloc(pointer, size, align)
+    }
+}
+
 unsafe impl GlobalAlloc for ArenaAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        arena::alloc(layout.size(), layout.align())
+        allocate(layout.size(), layout.align())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        arena::dealloc(ptr, layout.size(), layout.align())
+        deallocate(ptr, layout.size(), layout.align())
     }
 }
 
@@ -38,6 +55,9 @@ static GLOBAL: ArenaAlloc = ArenaAlloc;
 
 #[alloc_error_handler]
 fn alloc_error(layout: Layout) -> ! {
+    if crate::worker_heap::is_worker() {
+        crate::offload_local::allocation_failed();
+    }
     psp::dprintln!("[PocketJS oom] alloc of {} bytes failed", layout.size());
     loop {
         unsafe { psp::sys::sceDisplayWaitVblankStart() };

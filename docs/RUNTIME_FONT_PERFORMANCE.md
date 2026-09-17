@@ -50,4 +50,26 @@ Across the runtime scenarios, the benchmark process's peak RSS rises from 97.1 t
 
 The tests require native/WASM equality of glyph IDs, positions and caret maps; a real `ffi` ligature; proportional advances and kerning; combining-character editing boundaries; explicit fallback; independent cache limits; whole-batch readiness; rejection under a pinned budget; and session-safe cancellation. The UI tests require color changes to avoid preparation and width changes to reuse shaping. Existing bitmap, Clear and Note tests remain part of validation.
 
-The measured frame-work ceiling for this run is 3.04 ms. It is a result from this host, not a cross-platform frame-time guarantee. A run made during concurrent compilation showed frame outliers; the run with per-stage profiling and no concurrent compilation had no frame above 8 ms. No PSP hardware, PPSSPP display run, or browser UI session was available. PSP companion packet exchange and MIPS compilation were verified on the host; the SDK FreeType archive has an EABI32/O32 link incompatibility. See [Runtime TrueType fonts](RUNTIME_FONTS.md) for supported contracts and device-local prerequisites.
+The measured frame-work ceiling for this desktop run is 3.04 ms. It is a result from this host, not a cross-platform frame-time guarantee. A run made during concurrent compilation showed frame outliers; the run with per-stage profiling and no concurrent compilation had no frame above 8 ms. No physical PSP hardware or browser UI session was available. See [Runtime TrueType fonts](RUNTIME_FONTS.md) for supported contracts.
+
+## PSP device-local validation
+
+**The PSP EBOOT renders runtime fonts without a companion.** Official PPSSPP at commit `676724ee5e` passes the offline harness in IR and JIT CPU modes. The test starts no provider process and also covers a build with no companion slot configured. The displayed text contains proportional Latin, `ffi`, a combining acute accent and Chinese fallback glyphs. Thirty-two captured frames include matching final pixels across IR and JIT.
+
+The packaged fonts occupy 175,236 source bytes. The run rasterizes and uploads 38 glyphs, with 54,656 bytes of padded RGBA coverage installed in the core. A subsequent `runtime.load` reads Inter from a confined `ms0:` path, creates a font instance, shapes text and returns 210 grayscale coverage bytes for its requested glyph. The validation removes the temporary file after the run.
+
+**Worker thread 286 and UI thread 277 use separate heaps.** The private 4,194,304-byte worker heap peaks at 1,342,128 bytes after the external-font probe, with zero allocation failures. The package-font stage peaks at 438,832 bytes. A request to set the bitmap cache above 131,072 bytes receives `Invalid cache budget`; the UI frame counter advances after the refusal. These are emulated PSP counters, not process RSS.
+
+The warm 32-frame diagnostic window reports 1,978 microseconds average frame work and 21,874 microseconds maximum in IR mode; JIT reports 1,994 and 21,892 microseconds. This window includes DevTools and capture activity under emulation. It is not a physical PSP frame-time claim. Each Rust UI allocation checks thread identity after the worker starts; QuickJS allocations retain their direct UI-arena route. Physical-device timing remains to be measured.
+
+```sh
+bun tools/psp.ts runtime-note-main --release --bench
+# For capture evidence, build with POCKETJS_CAP_START=600,
+# POCKETJS_CAP_N=32 and POCKETJS_BENCH_DUMP_FRAMES=1.
+bun tools/runtime-text-psp-smoke.ts --headless /path/to/PPSSPPHeadless \
+  --eboot hosts/psp/target/mipsel-sony-psp/release/EBOOT.PBP \
+  --js dist/runtime-note-main.js --pak dist/runtime-note-main.pak \
+  --font assets/fonts/Inter-Regular.ttf --cpu ir --frames 32
+```
+
+The harness creates its own DevTools sentinel, probes resource and worker state, compares the embedded JS/PAK identity and stores raw records beneath ignored `.pocket-build/validation/psp-runtime-fonts/`. Production builds omit the capture, bench and trace options. The 1 MiB font-source cap and 512-unit request limit bound the local path; they do not imply full-Unicode font coverage on every PSP.

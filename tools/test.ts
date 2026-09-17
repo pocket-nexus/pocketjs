@@ -125,6 +125,9 @@ const SUITE: readonly Stage[] = [
       "tests/psp-toolchain.test.ts",
       "tests/psp-arena.test.ts",
       "tests/psp-qjs-allocator.test.ts",
+      "tests/psp-freetype.test.ts",
+      "tests/psp-load-image.test.ts",
+      "tests/psp-worker-heap.test.ts",
       "tests/symbian-data.test.ts",
       "tests/symbian-toolchain.test.ts",
       "tests/symbian-device.test.ts",
@@ -187,6 +190,7 @@ const SUITE: readonly Stage[] = [
     prep: [
       ["bun", "tools/wasm.ts"],
       ["bun", "tools/text-wasm.ts"],
+      ["cargo", "test", "--locked", "--manifest-path", "hosts/psp/tests/local-text/Cargo.toml"],
       ["bun", "tools/build.ts", "runtime-note-main"],
       ["cargo", "build", "--release", "--locked", "--manifest-path", "engine/crates/pocket-text/Cargo.toml", "--example", "runtime_probe"],
     ],

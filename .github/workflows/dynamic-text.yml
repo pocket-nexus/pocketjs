@@ -37,6 +37,17 @@ on:
       - 'framework/src/offload.ts'
       - 'contracts/spec/font-archive.ts'
       - 'hosts/psp/src/offload_local.rs'
+      - 'hosts/psp/src/local_text.rs'
+      - 'hosts/psp/src/worker_heap.rs'
+      - 'hosts/psp/src/alloc.rs'
+      - 'hosts/psp/src/c_heap.rs'
+      - 'hosts/psp/targets/**'
+      - 'hosts/psp/tests/local-text/**'
+      - 'tools/psp-freetype.ts'
+      - 'tools/psp-load-image.ts'
+      - 'tests/psp-freetype.test.ts'
+      - 'tests/psp-load-image.test.ts'
+      - 'tests/psp-worker-heap.test.ts'
       - 'hosts/psp/src/ffi.rs'
       - 'hosts/web/wasm-ops.js'
       - 'tests/helpers/font-archive-provider.ts'
@@ -83,6 +94,8 @@ jobs:
             engine/wasm
             engine/crates/pocket-text
       - run: cargo test --locked --manifest-path engine/core/Cargo.toml
+      - run: cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml --no-default-features --features runtime --lib
+      - run: bun test tests/psp-freetype.test.ts tests/psp-load-image.test.ts tests/psp-worker-heap.test.ts
       - run: bun tools/wasm.ts
       - run: bun tools/test.ts --stage="runtime text"
         env:

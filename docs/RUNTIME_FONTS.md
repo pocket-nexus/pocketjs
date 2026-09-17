@@ -80,17 +80,36 @@ bun tools/runtime-text-bench.ts
 bun tools/runtime-bitmap-bench.ts
 ```
 
-The PSP companion accepts the new runtime methods through the existing paired transport:
+The PSP runs the shared Rust text service and FreeType in its device-local worker. **`provider: "local"` needs no companion or pairing.** The worker loads `text:font.N` entries from the app's PAK. The UI copies bounded request and reply records; it does not read or parse fonts.
+
+```ts
+const font = openRuntimeFont({ family: "Inter", size: 18, fallback: [],
+  provider: "local", bitmapBytes: 128 * 1024, gpuBytes: 512 * 1024 });
+```
+
+The local worker also accepts `runtime.load` with `{"path":"fonts/Inter-Regular.ttf"}` through `offload("local")`. The path resolves below `ms0:/PSP/COMMON/pocketjs/`. It must contain at most 127 ASCII letters, digits, `/`, `.`, `_` or `-`, with no leading slash or `..`. The worker checks file size against the remaining source budget before allocating or reading the font. `runtime.fonts` reports granted face names and PSP limits; `runtime.memory` reports worker/UI thread IDs and private-heap residency.
+
+| PSP local limit | Value |
+| --- | ---: |
+| Private worker heap | 4 MiB |
+| Source TTF bytes | 1 MiB total; FreeType's copy is included in a 2 MiB source-residency cap |
+| Faces / instances / stable glyph IDs | 4 / 32 / 4,096 |
+| Text per request / shaped glyphs | 512 UTF-16 units / 2,048 |
+| Shaping / layout / gray8 bitmap caches | 64 KiB / 64 KiB / 128 KiB |
+
+**The worker has its own allocator and free lists.** The UI reserves one backing block before thread creation. Rust and C allocations on the local thread use that block; FreeType allocations cannot use the UI heap. Cache limits return protocol errors and cannot be raised above the PSP caps. A private-heap OOM takes the provider offline and preserves the UI heap. Large full CJK fonts can exceed the 1 MiB source cap; use a static subset or an explicit companion provider for them.
+
+The companion remains available through the existing paired transport:
 
 ```sh
 bun tools/text-provider.ts --pak dist/APP.pak --font assets/fonts/Inter-Regular.ttf \
   --usb /path/to/host0 --app APP_ID
 ```
 
-Use `provider: "companion"` on the runtime font for PSP. The local PSP offload service has no runtime TTF capability and does not fall back to parsing on the UI thread.
+Use `provider: "companion"` to select that service. A local error never changes the provider or runs parsing on the UI thread.
 
 `bun tools/build.ts runtime-note-main` builds the proportional-font editor example. The browser playground URL is `/?demo=runtime-note-main`; it creates a text worker for each loaded app. This example opens the runtime-font edit surface. Typing and pointer selection use Note's desktop input service; hosts without that service show the document. The Note preview keeps its markdown styling and baked font slots.
 
-**Validation distinguishes the shared renderer from a device run.** Automated coverage exercises the native Rust service, a WASM service in a real Bun Worker, the shared WASM software renderer, the native QuickJS surface, and WGPU on Apple M4 Metal. The PSP companion test uses its USB packet protocol and generation checks on the development host. No PSP hardware or PPSSPP display run was available for this change.
+**Validation distinguishes emulation from physical hardware.** Automated coverage exercises the native Rust service, a WASM service in a real Bun Worker, the shared WASM software renderer, the native QuickJS surface, and WGPU on Apple M4 Metal. PSP EBOOT runs in PPSSPP IR and JIT modes verify offline TTF/CJK rendering, a TTF read from `ms0:`, distinct UI/worker threads, bounded private-heap use and cache-budget refusal while frames continue. The two CPU modes produce matching final pixels. Physical PSP hardware was not connected for this validation.
 
-The FreeType C bridge cross-compiles to MIPS2/o32 against the pinned PSP SDK; its text section is 1,312 bytes. Linking the supplied `libfreetype.a` with the project's LLVM linker fails with `symbol (5) has invalid binding: 0` in several FreeType objects. The SDK's GNU linker reports that the archive uses EABI32 while the project uses O32. Device-local support needs a FreeType rebuild with the project's ABI flags, a bounded font/raster worker, and device measurements of heap usage and frame fences. The companion remains the PSP route for this version. See [performance and acceptance](RUNTIME_FONT_PERFORMANCE.md) for measured latency, memory, upload counts and remaining limits.
+`tools/psp-freetype.ts` builds a SHA-512-verified FreeType 2.13.3 source archive with the project's MIPS2/O32/noabicalls flags. It enables the TrueType, SFNT and gray renderer modules. The SDK's EABI32 FreeType archive is not linked. The PSP target uses one ELF LOAD segment, and `tools/psp-load-image.ts` checks the ELF/PRX mapping and module-info pointer after packaging. This prevents segment-alignment gaps from corrupting the PRX image. See [performance and acceptance](RUNTIME_FONT_PERFORMANCE.md) for measurements and reproduction commands.

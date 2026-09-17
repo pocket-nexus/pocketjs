@@ -223,6 +223,14 @@ RUSTFLAGS `-A linker-messages …`), `POCKETJS_APP_OUTPUT=<app>` and
 `POCKETJS_OUTPUT_DIR` carries the CLI artifact directory without putting a
 machine-local path into the checksummed build plan.
 
+**The PSP linker emits one `PT_LOAD` segment.** The target script assigns
+allocated sections to that segment, so each section's file offset equals the
+load offset plus its virtual address. The pinned `prxgen` merges load segments
+without moving bytes across alignment gaps; separate code and data segments
+can put module metadata and import stubs at the wrong addresses. The build
+validates the ELF and PRX section mappings and PRX module-info pointer before
+reporting the EBOOT output.
+
 ## The native contract (`ui.*`)
 
 Mutation-only ops; the Solid renderer keeps a JS mirror tree (`{id, parent,

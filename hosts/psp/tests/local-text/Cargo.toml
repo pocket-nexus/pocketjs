@@ -1,0 +1,12 @@
+[package]
+name = "pocketjs-psp-local-text-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+pocket-text = { path = "../../../../engine/crates/pocket-text", default-features = false, features = ["runtime"] }
+pocketjs-core = { path = "../../../../engine/core", features = ["std"] }
+serde_json = "1"

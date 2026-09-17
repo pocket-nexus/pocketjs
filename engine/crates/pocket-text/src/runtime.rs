@@ -1,18 +1,72 @@
 //! Immutable runtime font instances, shaping and layout; raster residency is independent.
+#[cfg(not(target_has_atomic = "ptr"))]
+use alloc::rc::Rc as FontSource;
+#[cfg(target_has_atomic = "ptr")]
+use alloc::sync::Arc as FontSource;
+use alloc::{
+    borrow::ToOwned,
+    collections::BTreeMap,
+    format,
+    rc::Rc,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use base64::Engine as _;
+use core::ffi::c_void;
 use harfrust::{FontRef, ShaperData, UnicodeBuffer};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, ffi::c_void, sync::Arc};
 use ttf_parser::Face;
 use unicode_bidi::{BidiInfo, Level};
 use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 
-const MAX_FONT_BYTES: usize = 64 * 1024 * 1024;
-const MAX_GLYPH_KEYS: usize = 65536;
-const MAX_INSTANCES: usize = 256;
-const MAX_UNITS: usize = 2048;
-const MAX_GLYPHS: usize = 8192;
+/// Admission limits owned by the worker. Wire requests cannot raise these caps.
+#[derive(Clone, Copy, Debug)]
+pub struct RuntimeLimits {
+    /// Includes the immutable Rust source and the FreeType-owned source copy.
+    pub font_bytes: usize,
+    pub fonts: usize,
+    pub instances: usize,
+    pub glyph_keys: usize,
+    pub units: usize,
+    pub glyphs: usize,
+    /// Each cache starts at its cap and may be reduced by `runtime.budget`.
+    pub shaping_bytes: usize,
+    pub layout_bytes: usize,
+    pub bitmap_bytes: usize,
+}
+impl Default for RuntimeLimits {
+    fn default() -> Self {
+        Self {
+            font_bytes: 64 * 1024 * 1024,
+            fonts: 64,
+            instances: 256,
+            glyph_keys: 65536,
+            units: 2048,
+            glyphs: 8192,
+            shaping_bytes: 64 * 1024 * 1024,
+            layout_bytes: 64 * 1024 * 1024,
+            bitmap_bytes: 64 * 1024 * 1024,
+        }
+    }
+}
+impl RuntimeLimits {
+    /// A PSP worker keeps font admission, shaping, layout and bitmaps independent.
+    pub const fn psp() -> Self {
+        Self {
+            font_bytes: 2 * 1024 * 1024,
+            fonts: 4,
+            instances: 32,
+            glyph_keys: 4096,
+            units: 512,
+            glyphs: 2048,
+            shaping_bytes: 64 * 1024,
+            layout_bytes: 64 * 1024,
+            bitmap_bytes: 128 * 1024,
+        }
+    }
+}
 #[cfg_attr(target_arch = "wasm32", link(wasm_import_module = "pocket_freetype"))]
 unsafe extern "C" {
     fn pocket_ft_face(bytes: *const u8, len: u32) -> *mut c_void;
@@ -21,7 +75,7 @@ unsafe extern "C" {
     fn pocket_ft_copy(face: *mut c_void, bytes: *mut u8, capacity: u32) -> i32;
 }
 struct Font {
-    data: Arc<Vec<u8>>,
+    data: FontSource<Vec<u8>>,
     family: String,
     name: String,
     handle: *mut c_void,
@@ -92,7 +146,7 @@ struct Bitmap {
 }
 struct Entry<T> {
     key: String,
-    value: Arc<T>,
+    value: Rc<T>,
     bytes: usize,
     tick: u64,
     pins: u32,
@@ -122,14 +176,14 @@ impl<T> Cache<T> {
             clock: 0,
         }
     }
-    fn get(&mut self, id: u32) -> Option<Arc<T>> {
+    fn get(&mut self, id: u32) -> Option<Rc<T>> {
         self.clock += 1;
         self.entries.get_mut(&id).map(|e| {
             e.tick = self.clock;
             e.value.clone()
         })
     }
-    fn find(&mut self, key: &str) -> Option<(u32, Arc<T>)> {
+    fn find(&mut self, key: &str) -> Option<(u32, Rc<T>)> {
         let id = self
             .entries
             .iter()
@@ -180,7 +234,7 @@ impl<T> Cache<T> {
             id,
             Entry {
                 key,
-                value: Arc::new(value),
+                value: Rc::new(value),
                 bytes,
                 tick: self.clock,
                 pins: 0,
@@ -215,6 +269,7 @@ impl<T> Cache<T> {
     }
 }
 pub struct RuntimeText {
+    limits: RuntimeLimits,
     fonts: Vec<Font>,
     font_bytes: usize,
     instances: BTreeMap<u32, Instance>,
@@ -230,16 +285,26 @@ pub struct RuntimeText {
 }
 impl Default for RuntimeText {
     fn default() -> Self {
+        let mut service = Self::with_limits(RuntimeLimits::default());
+        service.shapes.budget = 1024 * 1024;
+        service.layouts.budget = 1024 * 1024;
+        service.bitmaps.budget = 2 * 1024 * 1024;
+        service
+    }
+}
+impl RuntimeText {
+    pub fn with_limits(limits: RuntimeLimits) -> Self {
         Self {
+            limits,
             fonts: vec![],
             font_bytes: 0,
             instances: BTreeMap::new(),
             leases: BTreeMap::new(),
             glyph_ids: BTreeMap::new(),
             glyph_keys: vec![],
-            shapes: Cache::new(1024 * 1024),
-            layouts: Cache::new(1024 * 1024),
-            bitmaps: Cache::new(2 * 1024 * 1024),
+            shapes: Cache::new(limits.shaping_bytes),
+            layouts: Cache::new(limits.layout_bytes),
+            bitmaps: Cache::new(limits.bitmap_bytes),
             rasterizations: 0,
             layout_count: 0,
             shape_count: 0,
@@ -247,9 +312,34 @@ impl Default for RuntimeText {
     }
 }
 impl RuntimeText {
-    #[cfg(test)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn limits(&self) -> RuntimeLimits {
+        self.limits
+    }
     pub fn load_font(&mut self, bytes: &[u8]) -> bool {
-        self.load_shared_font(Arc::new(bytes.to_vec()))
+        if self.fonts.iter().any(|f| f.data.as_slice() == bytes) {
+            return true;
+        }
+        if !self.can_load_font_bytes(bytes.len()) {
+            return false;
+        }
+        self.load_owned_font(bytes.to_vec())
+    }
+    /// Transfer worker-owned bytes without making a second Rust source copy.
+    pub fn load_owned_font(&mut self, bytes: Vec<u8>) -> bool {
+        self.load_shared_font(FontSource::new(bytes))
+    }
+    /// Hosts check this before allocating or reading an advertised font length.
+    pub fn can_load_font_bytes(&self, length: usize) -> bool {
+        length > 0
+            && length <= 32 * 1024 * 1024
+            && self.fonts.len() < self.limits.fonts
+            && length
+                .checked_mul(2)
+                .and_then(|n| self.font_bytes.checked_add(n))
+                .is_some_and(|n| n <= self.limits.font_bytes)
     }
     pub fn is_static_ttf(bytes: &[u8]) -> bool {
         Face::parse(bytes, 0).is_ok_and(|face| {
@@ -265,14 +355,11 @@ impl RuntimeText {
     pub fn source_bytes(&self) -> usize {
         self.font_bytes / 2
     }
-    pub fn load_shared_font(&mut self, data: Arc<Vec<u8>>) -> bool {
+    pub fn load_shared_font(&mut self, data: FontSource<Vec<u8>>) -> bool {
         if self.fonts.iter().any(|f| f.data == data) {
             return true;
         }
-        if self.font_bytes + data.len() * 2 > MAX_FONT_BYTES
-            || self.fonts.len() >= 64
-            || !Self::is_static_ttf(&data)
-        {
+        if !self.can_load_font_bytes(data.len()) || !Self::is_static_ttf(&data) {
             return false;
         }
         let face = Face::parse(&data, 0).unwrap();
@@ -280,14 +367,14 @@ impl RuntimeText {
             .names()
             .into_iter()
             .filter(|n| n.name_id == 16 || n.name_id == 1)
-            .filter_map(|n| n.to_string().map(|s| (n.name_id, s)))
+            .filter_map(|n| font_name(&n).map(|s| (n.name_id, s)))
             .max_by_key(|(id, _)| *id)
             .map(|(_, s)| s);
         let name = face
             .names()
             .into_iter()
             .filter(|n| n.name_id == 4)
-            .find_map(|n| n.to_string());
+            .find_map(|n| font_name(&n));
         let (Some(family), Some(name)) = (family, name) else {
             return false;
         };
@@ -299,12 +386,15 @@ impl RuntimeText {
         {
             return false;
         }
+        let Ok(font_ref) = FontRef::new(&data) else {
+            return false;
+        };
         let handle = unsafe { pocket_ft_face(data.as_ptr(), data.len() as u32) };
         if handle.is_null() {
             return false;
         }
         self.font_bytes += data.len() * 2;
-        let shaper_data = ShaperData::new(&FontRef::new(&data).unwrap());
+        let shaper_data = ShaperData::new(&font_ref);
         self.fonts.push(Font {
             data,
             family,
@@ -352,7 +442,7 @@ impl RuntimeText {
             end += 1;
         }
         Ok(
-            json!({"families":names,"faces":faces,"next":if end<self.fonts.len(){Some(end)}else{None},"total":self.fonts.len(),"staticTTF":true,"gray8":true,"density":1,"maxUnits":MAX_UNITS}),
+            json!({"families":names,"faces":faces,"next":if end<self.fonts.len(){Some(end)}else{None},"total":self.fonts.len(),"staticTTF":true,"gray8":true,"density":1,"maxUnits":self.limits.units}),
         )
     }
     pub fn dispatch(&mut self, method: &str, v: &Value) -> Result<Value, String> {
@@ -455,9 +545,14 @@ impl RuntimeText {
                     ("bitmap", 0),
                 ] {
                     if let Some(n) = v.get(name) {
+                        let maximum = match name {
+                            "shaping" => self.limits.shaping_bytes,
+                            "layout" => self.limits.layout_bytes,
+                            _ => self.limits.bitmap_bytes,
+                        };
                         let n = n
                             .as_u64()
-                            .filter(|n| *n <= 64 * 1024 * 1024)
+                            .filter(|n| *n <= maximum as u64)
                             .ok_or("Invalid cache budget")?
                             as usize;
                         if n < pinned {
@@ -480,7 +575,7 @@ impl RuntimeText {
         }
     }
     fn stats(&self) -> Value {
-        json!({"shaping":self.shapes.stats(),"layout":self.layouts.stats(),"bitmap":self.bitmaps.stats(),"shapeCount":self.shape_count,"layoutCount":self.layout_count,"rasterizations":self.rasterizations,"fontBytes":self.font_bytes,"fontSourceBytes":self.font_bytes/2,"leases":self.leases.len(),"fontBudget":MAX_FONT_BYTES,"glyphKeys":self.glyph_keys.len(),"glyphKeyBudget":MAX_GLYPH_KEYS,"instances":self.instances.len(),"instanceBudget":MAX_INSTANCES})
+        json!({"shaping":self.shapes.stats(),"layout":self.layouts.stats(),"bitmap":self.bitmaps.stats(),"shapeCount":self.shape_count,"layoutCount":self.layout_count,"rasterizations":self.rasterizations,"fontBytes":self.font_bytes,"fontSourceBytes":self.font_bytes/2,"leases":self.leases.len(),"fontBudget":self.limits.font_bytes,"glyphKeys":self.glyph_keys.len(),"glyphKeyBudget":self.limits.glyph_keys,"instances":self.instances.len(),"instanceBudget":self.limits.instances})
     }
     fn font(&mut self, v: &Value) -> Result<Value, String> {
         let family = v["family"].as_str().ok_or("Font family required")?;
@@ -494,7 +589,7 @@ impl RuntimeText {
         if fallback.len() > 8 {
             return Err("Fallback budget exceeded".into());
         }
-        let names = std::iter::once(Ok(family)).chain(
+        let names = core::iter::once(Ok(family)).chain(
             fallback
                 .iter()
                 .map(|s| s.as_str().ok_or("Invalid fallback family")),
@@ -523,7 +618,7 @@ impl RuntimeText {
                 faces.push(face)
             }
         }
-        let size64 = (size * 64.0).round() as u32;
+        let size64 = libm::round(size * 64.0) as u32;
         let size = size64 as f32 / 64.0;
         let mut ascent: f32 = 0.0;
         let mut descent: f32 = 0.0;
@@ -545,7 +640,7 @@ impl RuntimeText {
         let font = if let Some(id) = existing {
             id
         } else {
-            if self.instances.len() >= MAX_INSTANCES {
+            if self.instances.len() >= self.limits.instances {
                 return Err("Font instance budget exceeded".into());
             }
             let id = self.instances.len() as u32 + 1;
@@ -568,7 +663,7 @@ impl RuntimeText {
         if let Some(id) = self.glyph_ids.get(&key) {
             return Ok(*id);
         }
-        if self.glyph_keys.len() >= MAX_GLYPH_KEYS {
+        if self.glyph_keys.len() >= self.limits.glyph_keys {
             return Err("Glyph identity budget exceeded".into());
         }
         let id = self.glyph_keys.len() as u32 + 1;
@@ -576,14 +671,14 @@ impl RuntimeText {
         self.glyph_ids.insert(key, id);
         Ok(id)
     }
-    fn shape(&mut self, font: u32, text: &str) -> Result<(u32, Arc<Shape>), String> {
+    fn shape(&mut self, font: u32, text: &str) -> Result<(u32, Rc<Shape>), String> {
         let instance = self
             .instances
             .get(&font)
             .ok_or("Font instance unavailable")?
             .clone();
         let units = text.encode_utf16().count();
-        if units > MAX_UNITS {
+        if units > self.limits.units {
             return Err("Shaping text budget exceeded".into());
         }
         let key = format!("{font}:{text}");
@@ -591,7 +686,7 @@ impl RuntimeText {
             return Ok(hit);
         }
         // Reject before shaping if even the immutable source cannot fit.
-        if key.len() + text.len() + std::mem::size_of::<Shape>() > self.shapes.budget {
+        if key.len() + text.len() + core::mem::size_of::<Shape>() > self.shapes.budget {
             return Err("Shaping budget exceeded".into());
         }
         let bidi = BidiInfo::new(text, None);
@@ -605,7 +700,7 @@ impl RuntimeText {
         let boundaries: Vec<(usize, usize)> = text
             .grapheme_indices(true)
             .map(|(b, _)| (b, byte_units[b]))
-            .chain(std::iter::once((text.len(), units)))
+            .chain(core::iter::once((text.len(), units)))
             .collect();
         let mut clusters = vec![];
         let mut missing = 0;
@@ -709,7 +804,7 @@ impl RuntimeText {
                     glyphs.push(ShapeGlyph { id, advance, x, y });
                     width += advance;
                     total_glyphs += 1;
-                    if total_glyphs > MAX_GLYPHS {
+                    if total_glyphs > self.limits.glyphs {
                         return Err("Shaped glyph budget exceeded".into());
                     }
                 }
@@ -727,15 +822,15 @@ impl RuntimeText {
             }
             at = last;
         }
-        let bytes = std::mem::size_of::<Shape>()
+        let bytes = core::mem::size_of::<Shape>()
             + 128
             + key.capacity()
-            + clusters.capacity() * std::mem::size_of::<Cluster>()
+            + clusters.capacity() * core::mem::size_of::<Cluster>()
             + clusters
                 .iter()
                 .map(|c| {
-                    c.glyphs.capacity() * std::mem::size_of::<ShapeGlyph>()
-                        + c.stops.capacity() * std::mem::size_of::<usize>()
+                    c.glyphs.capacity() * core::mem::size_of::<ShapeGlyph>()
+                        + c.stops.capacity() * core::mem::size_of::<usize>()
                 })
                 .sum::<usize>();
         let shape = Shape {
@@ -991,12 +1086,12 @@ impl RuntimeText {
         carets.sort_by(|a, b| a.3.cmp(&b.3).then(a.0.cmp(&b.0)).then(a.1.total_cmp(&b.1)));
         carets.dedup();
         let height = round(rows.len() as f32 * instance.line_height);
-        let bytes = std::mem::size_of::<Layout>()
+        let bytes = core::mem::size_of::<Layout>()
             + 128
             + key.capacity()
-            + glyphs.capacity() * std::mem::size_of::<LayoutGlyph>()
-            + rows.capacity() * std::mem::size_of::<LayoutRow>()
-            + carets.capacity() * std::mem::size_of::<Caret>();
+            + glyphs.capacity() * core::mem::size_of::<LayoutGlyph>()
+            + rows.capacity() * core::mem::size_of::<LayoutRow>()
+            + carets.capacity() * core::mem::size_of::<Caret>();
         let value = Layout {
             shape: sid,
             glyphs,
@@ -1022,7 +1117,7 @@ impl RuntimeText {
         }
     }
     fn glyph(&mut self, v: &Value) -> Result<Value, String> {
-        if self.bitmaps.budget < std::mem::size_of::<Bitmap>() + 128 {
+        if self.bitmaps.budget < core::mem::size_of::<Bitmap>() + 128 {
             return Err("Cache budget exceeded".into());
         }
         let glyph = id(v, "glyph")?;
@@ -1052,7 +1147,8 @@ impl RuntimeText {
             {
                 return Err("Glyph bitmap budget exceeded".into());
             }
-            let cost = length as usize + std::mem::size_of::<Bitmap>() + cache_key.capacity() + 128;
+            let cost =
+                length as usize + core::mem::size_of::<Bitmap>() + cache_key.capacity() + 128;
             self.bitmaps.reserve(cost)?;
             let mut bytes = vec![0; length as usize];
             if unsafe { pocket_ft_copy(handle, bytes.as_mut_ptr(), bytes.len() as u32) } != length {
@@ -1097,11 +1193,30 @@ fn choose_face(fonts: &[Font], instance: &Instance, text: &str) -> usize {
         })
         .unwrap_or(instance.faces[0])
 }
+// ttf-parser's name conversion is std-only. Decode the same Unicode records
+// with alloc, and bound metadata before allocation on constrained workers.
+fn font_name(name: &ttf_parser::name::Name<'_>) -> Option<String> {
+    if !name.is_unicode() || name.name.len() > 256 || !name.name.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut result = String::new();
+    for c in core::char::decode_utf16(
+        name.name
+            .chunks_exact(2)
+            .map(|b| u16::from_be_bytes([b[0], b[1]])),
+    ) {
+        result.push(c.ok()?);
+        if result.len() > 128 {
+            return None;
+        }
+    }
+    Some(result)
+}
 fn is_cjk(c: char) -> bool {
     matches!(c as u32,0x2e80..=0x9fff|0xac00..=0xd7af|0xf900..=0xfaff|0x20000..=0x3134f)
 }
 fn round(n: f32) -> f32 {
-    (n * 64.0).round() / 64.0
+    libm::roundf(n * 64.0) / 64.0
 }
 fn page_offset(v: &Value) -> Result<usize, String> {
     if v["offset"].is_null() {
@@ -1152,11 +1267,78 @@ mod tests {
             .as_u64()
             .unwrap() as u32
     }
-    fn layout(s: &mut RuntimeText, font: u32, text: &str, width: f32) -> (u32, Arc<Layout>) {
+    fn layout(s: &mut RuntimeText, font: u32, text: &str, width: f32) -> (u32, Rc<Layout>) {
         let (shape, _) = s.shape(font, text).unwrap();
         let v = s.layout(&json!({"shape":shape,"width":width})).unwrap();
         let id = v["layout"].as_u64().unwrap() as u32;
         (id, s.layouts.get(id).unwrap())
+    }
+    #[test]
+    fn constrained_worker_enforces_font_text_and_cache_caps() {
+        let limits = RuntimeLimits::psp();
+        let mut s = RuntimeText::with_limits(limits);
+        let bytes = include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+        assert!(!s.can_load_font_bytes(usize::MAX));
+        assert!(!s.can_load_font_bytes(limits.font_bytes / 2 + 1));
+        assert!(s.load_owned_font(bytes.to_vec()));
+        let f = font(&mut s, 24);
+        let shaped = s
+            .dispatch(
+                "runtime.shape",
+                &json!({"font":f,"text":"office AV e\u{301}"}),
+            )
+            .unwrap();
+        let laid = s
+            .dispatch(
+                "runtime.layout",
+                &json!({"shape":shaped["shape"],"width":200}),
+            )
+            .unwrap();
+        let before = s.dispatch("runtime.stats", &json!({})).unwrap();
+        assert_eq!(before["fontBytes"], bytes.len() * 2);
+        assert_eq!(before["fontBudget"], limits.font_bytes);
+        assert_eq!(
+            s.dispatch("runtime.fonts", &json!({})).unwrap()["maxUnits"],
+            limits.units
+        );
+        assert!(s
+            .dispatch(
+                "runtime.budget",
+                &json!({"shaping":0,"bitmap":limits.bitmap_bytes + 1})
+            )
+            .is_err());
+        assert_eq!(s.shapes.budget, limits.shaping_bytes);
+        assert!(s
+            .dispatch(
+                "runtime.shape",
+                &json!({"font":f,"text":"a".repeat(limits.units + 1)})
+            )
+            .is_err());
+        assert_eq!(s.layout_count, 1);
+        let lid = laid["layout"].as_u64().unwrap() as u32;
+        let glyph = s.layouts.get(lid).unwrap().glyphs[0].0;
+        assert!(s.dispatch("runtime.glyph", &json!({"glyph":glyph})).is_ok());
+        s.dispatch("runtime.budget", &json!({"bitmap":0})).unwrap();
+        assert!(s
+            .dispatch("runtime.glyph", &json!({"glyph":glyph}))
+            .is_err());
+        assert!(s.layouts.get(lid).is_some());
+        assert_eq!(s.layout_count, 1);
+    }
+    #[test]
+    fn owned_font_deduplication_works_at_the_admission_limit() {
+        let bytes = include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+        let mut limits = RuntimeLimits::psp();
+        limits.fonts = 1;
+        limits.font_bytes = bytes.len() * 2;
+        let mut s = RuntimeText::with_limits(limits);
+        assert!(s.load_owned_font(bytes.to_vec()));
+        assert!(!s.can_load_font_bytes(bytes.len()));
+        assert!(s.load_font(bytes));
+        assert!(s.load_owned_font(bytes.to_vec()));
+        assert!(!s.load_font(include_bytes!("../../../../assets/fonts/Inter-Bold.ttf")));
+        assert_eq!(s.source_bytes(), bytes.len());
+        assert_eq!(s.fonts.len(), 1);
     }
     #[test]
     fn full_face_names_distinguish_styles_and_conflicting_sources_are_rejected() {

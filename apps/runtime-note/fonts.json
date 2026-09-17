@@ -1,1 +1,1 @@
-{ "runtime": ["../../assets/fonts/Inter-Regular.ttf"] }
+{ "runtime": ["../../tests/fixtures/runtime-font/NotoSans-Ligature.ttf", "../../tests/fixtures/runtime-font/NotoSansSC-Test.ttf"] }

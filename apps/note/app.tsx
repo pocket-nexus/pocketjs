@@ -148,7 +148,7 @@ function segColor(seg: Seg, ink: Ink): string {
   }
 }
 
-export default function Note(props: { font?: RuntimeFont; initialEditing?: boolean } = {}): ReturnType<typeof View> {
+export default function Note(props: { font?: RuntimeFont; initialEditing?: boolean; initialDocument?: string } = {}): ReturnType<typeof View> {
   const svc = connectSvc();
   // Editing and pointer gestures arrive over the COMPANION svc adapter
   // (svc.ts), so their gates track its runtime presence — never a target
@@ -163,7 +163,7 @@ export default function Note(props: { font?: RuntimeFont; initialEditing?: boole
   // OS provides corners, resizing and closing.
   const widgetChrome = platform.target === "macos-widget";
   const [vp, setVp] = createSignal({ w: 480, h: 272 });
-  const [doc, setDoc] = createSignal(SAMPLE_DOC);
+  const [doc, setDoc] = createSignal(props.initialDocument ?? SAMPLE_DOC);
   const [editing, setEditing] = createSignal(props.initialEditing ?? false);
   const [dark, setDark] = createSignal(true);
   const [menuOpen, setMenuOpenRaw] = createSignal(false);
@@ -1006,7 +1006,7 @@ export default function Note(props: { font?: RuntimeFont; initialEditing?: boole
               color={ink().body}
               onPress={() => {
                 recordEdit(history, selState(), "other");
-                setDoc(SAMPLE_DOC);
+                setDoc(props.initialDocument ?? SAMPLE_DOC);
                 setCaret(0);
                 setAnchor(0);
                 setVsel(null);
