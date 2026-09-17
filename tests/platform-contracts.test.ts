@@ -545,6 +545,7 @@ describe("semantic resolution", () => {
       music: [true, true, false, true],
       "text-cjk": [true, false, false, false],
       note: [false, false, true, true],
+      "runtime-note": [true, false, false, true], // fixed editor backed by the portable text worker/companion
       notifications: [true, true, false, true],
       settings: [true, true, false, true],
       stats: [true, true, false, true],
