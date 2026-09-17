@@ -436,7 +436,7 @@ export function resolveBuildPlan(
   }
 
   // This resolver only produces guest-class plans. AOT-class packages are
-  // admitted at compile time by their compiler family (see vapor/BOARDS.md);
+  // admitted at compile time by their compiler family;
   // a manifest that ships no guest artifact has nothing for us to build.
   const executionClasses = manifest.execution?.classes ?? ["guest"];
   if (!executionClasses.includes("guest")) {

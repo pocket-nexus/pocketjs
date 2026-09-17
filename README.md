@@ -338,23 +338,12 @@ documented in [`hosts/vita/README.md`](./hosts/vita/README.md). Guest builds can
 be packaged as inspectable, target-thinnable
 [`.pocket` files](./docs/PLATFORM.md) instead of per-port directories.
 
-## Ahead-of-time compilation
+## Independent experiment
 
-For machines that cannot host a JavaScript engine at all,
-[Pocket Vapor](./vapor/README.md) compiles a strict Vue Vapor subset ahead of
-time into target-native C: `.gba`, `.gb`, `.nes`, ESP32 firmware, and Playdate
-`.pdx` artifacts, with no JS engine, GC, or allocator on the device. It is a
-separate compiler with its own target and board contracts, not a low-memory mode
-for arbitrary PocketJS applications.
-
-```sh
-bun run vapor:dev             # run the component against the real Vue oracle in a browser
-bun run vapor:test            # oracle + compiler + console parity suites
-bun vapor/compiler/cli.ts vapor/examples/todo/todo.tsx --target gb
-```
-
-Compiler-derived demands are checked against a target or board profile before
-lowering; see [`vapor/DESIGN.md`](./vapor/DESIGN.md).
+[Pocket Vapor](https://github.com/pocket-stack/pocket-vapor) is an early
+TypeScript-to-native compiler experiment in a separate repository. **It is not
+a PocketJS mainline feature.** Its source, examples, toolchains and tests live
+in that repository.
 
 ## Repository layout
 
@@ -365,7 +354,6 @@ lowering; see [`vapor/DESIGN.md`](./vapor/DESIGN.md).
 | [`contracts/`](./contracts/) | Generated wire specs, capability registry, manifests, build plans, and package formats |
 | [`hosts/`](./hosts/) | PSP, Vita, web, desktop, e-reader, phone, and MCU host integrations |
 | [`hosts/esp-idf/`](./hosts/esp-idf/) | Composable package, QuickJS, UI, RGB565, PPA, and runner components for P4/S3 firmware |
-| [`vapor/`](./vapor/) | Pocket Vapor compiler, oracle, board contracts, target runtimes, and parity harnesses |
 | [`apps/`](./apps/) | Framework demos and system applications used by the launcher and acceptance suites |
 | [`tools/`](./tools/) | Build, package, launcher, device, DevTools, benchmark, and release commands |
 | [`tests/`](./tests/) | Contract, compiler, simulation, emulator, package, and golden verification |

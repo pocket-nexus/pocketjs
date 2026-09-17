@@ -129,14 +129,6 @@ export const BLOG_POSTS: BlogPost[] = [
     author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
   },
   {
-    slug: "pocket-vapor",
-    title: "Pocket Vapor: Vue, Compiled All the Way Down",
-    date: "2026-07-23",
-    description:
-      "A real Vue component (ref, computed, filter/map/slice, JSX, Tailwind classes) compiled to a 9.1 KB Game Boy Advance ROM, a 32 KB Game Boy cartridge, and a 40 KB NES cartridge. No JS engine, no GC, no malloc. The trick is one observation: a reactive UI program is far more static than the machinery we run it on. Refs become dirty bits, dependency edges become ROM bitmasks, filter/slice become index views over a struct pool, and Vue's own runtime becomes the test oracle that keeps every claim honest, cell by cell, 7,264 assertions per commit. First public writeup of an experiment; includes the part where the differential suite found a bug in Vue's release candidate.",
-    author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
-  },
-  {
     slug: "pocket-character",
     title: "Pocket Character: a Desktop Digital Human in One Native Process",
     date: "2026-07-19",

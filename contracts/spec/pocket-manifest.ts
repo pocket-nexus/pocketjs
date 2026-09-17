@@ -48,7 +48,7 @@ export interface PocketManifestV2 {
   /**
    * Execution classes this package ships as; omitted means ["guest"].
    * Declaring "aot" states that the entry compiles under an AOT family
-   * (Pocket Vapor/Static) whose admission is compile-time derived demands
+   * whose admission is compile-time derived demands
    * against a board profile, not this manifest's capability ids. A package
    * whose classes exclude "guest" is refused by the guest build resolver.
    * Per-class blocks (e.g. an `aot` section) hang off this object later.

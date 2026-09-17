@@ -637,9 +637,6 @@ async function main() {
   // The hero demo wall + its poster frame (baked by site/bake-demo-wall.ts).
   copy(SITE + "assets/pocketjs-demo-wall.mp4", "assets/pocketjs-demo-wall.mp4");
   copy(SITE + "assets/pocketjs-demo-wall.jpg", "assets/pocketjs-demo-wall.jpg");
-  // The Pocket Vapor promo film (embedded at the top of the pocket-vapor post;
-  // rendered by vapor/scripts/promo/, poster frame lives in assets/blog/).
-  copy(SITE + "assets/pocket-vapor-promo.mp4", "assets/pocket-vapor-promo.mp4");
   // Blog illustration loops (animated GIFs rendered by the engine itself).
   if (existsSync(SITE + "assets/blog/")) {
     for (const f of readdirSync(SITE + "assets/blog/")) copy(SITE + "assets/blog/" + f, "assets/blog/" + f);

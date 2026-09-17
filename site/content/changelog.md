@@ -524,15 +524,19 @@ JavaScript where no browser fits.
 
 ## 0.7.0 — July 23, 2026
 
+Pocket Vapor entries below describe the historical experiment, now maintained
+in [its own repository](https://github.com/pocket-stack/pocket-vapor). **Pocket
+Vapor is not a current PocketJS mainline feature.** Run its commands there.
+
 **Vue compiles all the way down.** Pocket Vapor takes a real Vue Vapor
 component — actual `ref`/`computed`, actual JSX — and emits native code for
 machines that could never host a JavaScript engine: Game Boy Advance, Game
 Boy, NES cartridges, and now an ESP32 dev board, with the same file proven
 cell-identical against real `vue@3.6` after every button press. [The film
-and the whole argument](/blog/pocket-vapor/). Around it, the platform grew
+and the whole argument](https://github.com/pocket-stack/pocket-vapor/blob/experiment/standalone/site/content/blog/pocket-vapor.md). Around it, the platform grew
 a launcher, a package format, and a desktop widget runtime.
 
-- **Pocket Vapor** (`vapor/`) — an AOT compiler for a strict TypeScript
+- **[Pocket Vapor](https://github.com/pocket-stack/pocket-vapor)** (now an independent early experiment) — an AOT compiler for a strict TypeScript
   subset of Vue Vapor: reactivity lowered to dirty-bit dependency masks
   baked into ROM, template bindings to span-merged paint effects, every
   byte planned at compile time (no allocator, no GC). One TodoMVC component
@@ -560,7 +564,7 @@ a launcher, a package format, and a desktop widget runtime.
   runtime; the compiler derives what an app demands (buttons statically
   used, style pairs, grid) and `check --json` judges every registered
   board. pocket.json v2 names the guest/aot split (`execution.classes`) —
-  [vapor/BOARDS.md](https://github.com/pocket-stack/pocketjs/blob/main/vapor/BOARDS.md)
+  [board contracts](https://github.com/pocket-stack/pocket-vapor/blob/experiment/standalone/vapor/BOARDS.md)
   is the scaling argument.
 - **Cover Flow launcher + whole-guest app switching** — the launcher is
   Home: scrub a cover deck with real momentum, boot any installed app, and

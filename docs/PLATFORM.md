@@ -27,12 +27,10 @@ guest can observe is a surface op behind a capability id — never a host
 branch. The launcher followed it (ops 39..41) and stayed testable on every
 host; distribution must follow it too.
 
-Everything in this document is the **guest** execution class — one portable
-bundle, runtime admission against the target registry. The AOT class
-(Pocket Vapor/Static: recompiled per device, compile-time admission against
-board *data*) scales by a different rule set on purpose; pocket.json's
-`execution.classes` names the split and [vapor/BOARDS.md](../vapor/BOARDS.md)
-is its constitution.
+This document covers the **guest execution class**: one portable bundle
+with runtime admission against the target registry. The manifest also reserves
+`aot` in `execution.classes`; guest hosts reject packages without a guest
+artifact.
 
 ## The switch veil (system transition)
 
