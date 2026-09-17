@@ -71,6 +71,14 @@ typedef struct PocketJsSymbianExtensionV1 {
     );
 } PocketJsSymbianExtensionV1;
 
+/* Optional tail: base.struct_size covers this complete table. The V1 prefix
+ * remains binary compatible. release_graphics drops only GPU resources;
+ * guest and simulation state survive. The next render lazily restores them. */
+typedef struct PocketJsSymbianGraphicsExtensionV1 {
+    PocketJsSymbianExtensionV1 base;
+    void (*release_graphics)(int32_t gl_context_current);
+} PocketJsSymbianGraphicsExtensionV1;
+
 /*
  * Every core exports this provider. The stock core returns null; a custom
  * core disables that default Cargo feature and supplies its own table. An

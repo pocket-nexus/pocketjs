@@ -471,7 +471,10 @@ application build.
 **`--navigation <file.json>` packages an allowlist of separate SIS apps.** Each
 app keeps its QuickJS guest, native extension and resources in its own process.
 The foreground app runs frames; background apps stop advancing the guest and
-simulation. Launching an existing task brings it to the foreground. Launching
+simulation. **Background apps release GLES resources and reset their EGL
+context and surface.** The next activation recreates the context and uploads
+textures from retained CPU data. This avoids Symbian's graphics-memory monitor
+terminating a background app that retains its GPU resources. Launching an existing task brings it to the foreground. Launching
 an absent task starts its installed UID through the application server.
 This mode cannot be combined with an embedded `--catalog`.
 
@@ -532,3 +535,12 @@ prefix; otherwise the host uses `pocketjs-perf`. Native replay passes through
 the Qt touch routing and return-strip ownership. Its virtual clock pauses
 with the background process. `*-navigation.tsv` records activations alongside
 the frame trace. Release builds do not read replay files.
+
+Native renderers opt into graphics suspension with the optional
+`PocketJsSymbianGraphicsExtensionV1` / `GraphicsExtensionV1` tail. Its V1 prefix
+and provider symbol remain unchanged; `base.struct_size` covers the full table.
+`release_graphics(gl_context_current)` releases GPU handles and retains CPU
+scene/game data. The next `render` rebuilds GPU resources. A host checks the
+size before accessing the tail. Existing extensions without it retain their
+previous lifecycle; native navigation ports must add it to release background
+graphics memory.

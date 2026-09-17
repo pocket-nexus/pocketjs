@@ -1213,12 +1213,14 @@ private:
     struct NativeApp { uint32_t uid; QString output, id, title; int shot; bool portrait; };
     QVector<NativeApp> nativeApps_;
     int nativeSelf_, pendingNativeApp_, lastNativeApp_, nativeReturnDestination_;
-    bool nativeWasBackground_, nativeShotPending_, nativeIgnoreUntilRelease_;
+    bool nativeWasBackground_, nativeShotPending_, nativeIgnoreUntilRelease_, nativeGraphicsSuspended_;
     double nativePoseX_, nativePoseY_, nativePoseScale_;
     QElapsedTimer navigationClock_;
     PocketJsNavigationGesture navigationGesture_;
     QImage nativeReturnShot_;
     bool initializeNativeNavigation();
+    void suspendNativeGraphics();
+    bool resumeNativeGraphics();
     QString navigationDirectory() const;
     bool nativeInstalled(int index) const;
     QByteArray nativeAppTable() const;
@@ -1334,7 +1336,7 @@ bool PocketJsRuntime::lookupPackEntry(
 
 PocketJsRuntime::PocketJsRuntime()
     : QGLWidget(pocketJsGlFormat()),
-      nativeSelf_(-1), pendingNativeApp_(-1), lastNativeApp_(-1), nativeReturnDestination_(1), nativeWasBackground_(true), nativeShotPending_(false), nativeIgnoreUntilRelease_(false),
+      nativeSelf_(-1), pendingNativeApp_(-1), lastNativeApp_(-1), nativeReturnDestination_(1), nativeWasBackground_(true), nativeShotPending_(false), nativeIgnoreUntilRelease_(false), nativeGraphicsSuspended_(false),
       nativePoseX_(0), nativePoseY_(0), nativePoseScale_(1),
       runtime_(0),
       context_(0),
@@ -2416,7 +2418,7 @@ void PocketJsRuntime::finishPerfTrace()
 QImage PocketJsRuntime::readFrame()
 {
     if (!glInitialized_ || !isValid()) return QImage();
-    const QRect sourceRect = presentationRect().intersected(rect());
+    const QRect sourceRect = nativeSelf_ > 0 ? rect() : presentationRect().intersected(rect());
     if (sourceRect.isEmpty()) return QImage();
 
     QByteArray pixels;
@@ -2746,8 +2748,9 @@ void PocketJsRuntime::timerEvent(QTimerEvent *event)
             return;
         }
         if (nativeSelf_ >= 0 && initialized_) {
-            if (!isActiveWindow()) { nativeWasBackground_ = true; clearInput(); return; }
+            if (!isActiveWindow()) { nativeWasBackground_ = true; suspendNativeGraphics(); clearInput(); return; }
             if (nativeWasBackground_) {
+                if (!resumeNativeGraphics()) return;
                 nativeWasBackground_ = false;
                 navigationGesture_.reset();
                 receiveNativeReturn();

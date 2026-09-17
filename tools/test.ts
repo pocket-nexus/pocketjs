@@ -129,6 +129,8 @@ const SUITE: readonly Stage[] = [
       "tests/symbian-toolchain.test.ts",
       "tests/symbian-device.test.ts",
       "tests/symbian-runtime.test.ts",
+      "tests/symbian-navigation.test.ts",
+      "tests/native-navigation.test.ts",
       "tests/symbian-package.test.ts",
       "tests/cli.test.ts",
       "tests/npm-package.test.ts",

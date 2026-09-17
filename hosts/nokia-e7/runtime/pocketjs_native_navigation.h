@@ -253,3 +253,36 @@ void PocketJsRuntime::recordNativeEvent(const char *action, int index, int error
     }
 }
 #endif
+
+// VideoCore's graphics OOM monitor can terminate background QGLWidget apps
+// even while ordinary RAM is available. Retire the EGL surface/context too.
+void PocketJsRuntime::suspendNativeGraphics()
+{
+    if (nativeGraphicsSuspended_ || !glInitialized_) return;
+    if (extension_ && extension_->struct_size < sizeof(PocketJsSymbianGraphicsExtensionV1)) return;
+    makeCurrent();
+    if (extension_) {
+        const PocketJsSymbianGraphicsExtensionV1 *graphics =
+            reinterpret_cast<const PocketJsSymbianGraphicsExtensionV1 *>(extension_);
+        if (graphics->release_graphics) graphics->release_graphics(1);
+    }
+    ui_gl_shutdown();
+    doneCurrent();
+    const_cast<QGLContext *>(context())->reset();
+    glInitialized_ = false;
+    nativeGraphicsSuspended_ = true;
+}
+
+bool PocketJsRuntime::resumeNativeGraphics()
+{
+    if (!nativeGraphicsSuspended_) return true;
+    if (!const_cast<QGLContext *>(context())->create()) {
+        fail("PocketJS could not restore its OpenGL ES 2 context.");
+        return false;
+    }
+    nativeGraphicsSuspended_ = false;
+    // QGLWidget invokes initializeGL again after QGLContext::reset/create.
+    // CPU textures and the native scene remain retained for the first paint.
+    updateGL();
+    return !failed_ && glInitialized_;
+}

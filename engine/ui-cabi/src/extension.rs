@@ -60,6 +60,15 @@ pub struct ExtensionV1 {
     >,
 }
 
+/// Optional tail used by native app navigation to retire GPU resources while
+/// retaining the guest and simulation. Set base.struct_size to this table's size.
+#[repr(C)]
+pub struct GraphicsExtensionV1 {
+    pub base: ExtensionV1,
+    pub release_graphics: Option<unsafe extern "C" fn(gl_context_current: i32)>,
+}
+unsafe impl Sync for GraphicsExtensionV1 {}
+
 impl ExtensionV1 {
     pub const fn struct_size() -> u32 {
         core::mem::size_of::<Self>() as u32
@@ -91,6 +100,13 @@ mod tests {
                 | KEY_WALK,
             0x0fff
         );
+    }
+
+    #[test]
+    fn graphics_tail_preserves_the_v1_prefix() {
+        assert_eq!(core::mem::offset_of!(GraphicsExtensionV1, base), 0);
+        assert_eq!(core::mem::offset_of!(GraphicsExtensionV1, release_graphics), core::mem::size_of::<ExtensionV1>());
+        assert_eq!(core::mem::size_of::<GraphicsExtensionV1>(), core::mem::size_of::<ExtensionV1>() + core::mem::size_of::<usize>());
     }
 
     #[test]
