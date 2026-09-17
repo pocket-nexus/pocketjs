@@ -106,6 +106,11 @@ impl Ui {
         if styles {
             self.styles = staged.styles;
         }
+        for slot in 0..spec::MAX_FONT_SLOTS {
+            if staged.fonts.atlas(slot as u8).is_some() {
+                self.font_revisions[slot] = self.font_revisions[slot].wrapping_add(1);
+            }
+        }
         self.fonts.merge_atlases(&mut staged.fonts);
         for handle in &mut staged_handles {
             if *handle >= 0 {

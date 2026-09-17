@@ -1644,6 +1644,75 @@ fn scale_x_transform_is_paint_only_and_can_anchor_left() {
 }
 
 #[test]
+fn scaled_glyph_cells_follow_the_window_at_both_raster_densities() {
+    for density in [1, 2] {
+        let mut ui = Ui::new_with_raster_density(density);
+        let mut blob = encode_atlas_version_density(spec::font_atlas::VERSION, density as u8,
+            0, 8, 8, 7, 8, 1, &[('A' as u32, 0, 8)]);
+        blob[24..].fill(255);
+        assert!(ui.load_font_atlas(&blob));
+        let text = ui.create_node(spec::NodeType::Text as u8);
+        ui.set_text(text, "AA");
+        for (p, v) in [(spec::prop::WIDTH, 16.0), (spec::prop::HEIGHT, 8.0),
+            (spec::prop::SCALE_X, 0.5), (spec::prop::SCALE_Y, 0.75),
+            (spec::prop::ORIGIN_X, -0.5), (spec::prop::ORIGIN_Y, -0.5),
+            (spec::prop::TEXT_COLOR, abgr(60, 120, 180, 255) as f64)] { ui.set_prop(text, p, v); }
+        ui.insert_before(spec::ROOT_ID, text, 0);
+        ui.tick();
+        let words = ui.draw().words.clone();
+        assert_eq!(validate_drawlist(&words)[spec::draw_op::TEX_QUAD as usize], 2);
+        assert_eq!(decode_xy(words[2]), (0, 0));
+        assert_eq!(decode_xy(words[11]), (4, 0));
+        assert_eq!(decode_wh(words[3]), (4, 6));
+        assert_eq!(decode_wh(words[12]), (4, 6));
+        assert_eq!(words[1], words[10], "glyphs and runs reuse the font page");
+        let texture = ui.texture(words[1] as i32).unwrap();
+        assert!(texture.linear);
+        let mut frame = alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
+        crate::raster::render(&ui, &words, &mut frame);
+        let at = (2 * spec::SCREEN_W as usize + 2) * 4;
+        assert_eq!(&frame[at..at + 3], &[60, 120, 180]);
+        // The same page survives a new scale, but must not survive a font
+        // replacement with the same dimensions and glyph count.
+        let handle = words[1] as i32;
+        ui.set_prop(text, spec::prop::SCALE_X, 0.75);
+        assert_eq!(ui.draw().words[1] as i32, handle);
+        blob[24..].fill(0);
+        assert!(ui.load_font_atlas(&blob));
+        let replaced = ui.draw().words.clone();
+        assert_ne!(replaced[1] as i32, handle);
+        assert!(ui.texture(handle).is_none());
+        assert!(ui.texture(replaced[1] as i32).unwrap().pixels.iter().all(|&b| b == 0));
+        assert_eq!(ui.texture_slot_count(), 1, "replacement reuses storage without stale handles");
+    }
+}
+
+#[test]
+fn scaled_glyph_crossing_viewport_is_uv_clipped_instead_of_dropped() {
+    let mut ui = Ui::new();
+    ui.load_font_atlas(&encode_atlas(0, 8, 8, 7, 8, 1, &[('A' as u32, 0, 8)]));
+    let text = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_text(text, "A");
+    for (p, v) in [(spec::prop::WIDTH, 8.0), (spec::prop::HEIGHT, 8.0),
+        (spec::prop::SCALE, 0.5), (spec::prop::ORIGIN_X, -0.5), (spec::prop::ORIGIN_Y, -0.5),
+        (spec::prop::TRANSLATE_X, -2.0)] { ui.set_prop(text, p, v); }
+    ui.insert_before(spec::ROOT_ID, text, 0);
+    ui.tick();
+    let words = ui.draw().words.clone();
+    assert_eq!(validate_drawlist(&words)[spec::draw_op::TEX_QUAD as usize], 1);
+    assert_eq!(decode_xy(words[2]), (0, 0));
+    assert_eq!(decode_wh(words[3]), (2, 4));
+    let texture = ui.texture(words[1] as i32).unwrap();
+    let u0 = f32::from_bits(words[4]) * texture.w as f32;
+    let u1 = f32::from_bits(words[6]) * texture.w as f32;
+    assert_eq!((u0, u1), (5.0, 9.0), "half-cell clip preserves its coverage coordinates");
+    ui.free_texture(words[1] as i32);
+    let rebaked = ui.draw().words.clone();
+    assert_ne!(rebaked[1], words[1]);
+    assert!(ui.texture(rebaked[1] as i32).is_some());
+}
+
+#[test]
 fn root_cannot_be_reparented_under_a_detached_node() {
     let mut ui = Ui::new();
     // A DETACHED parent defeats the ancestor-walk cycle guard; the explicit
@@ -3806,7 +3875,8 @@ fn tracked_and_transformed_runs_use_the_baked_pair_on_both_sides() {
     let words = ui.draw().words.clone();
     let counts = validate_drawlist(&words);
     assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 0);
-    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 3);
+    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 2);
+    assert_eq!(counts[spec::draw_op::TEX_QUAD as usize], 1, "scaled baked glyph uses a textured cell");
     // Column layout: width cross-stretches, so the measurement provider is
     // observable through the main-axis HEIGHT. All three leaves measured
     // with the atlas (10 px line), matching their painted glyphs.

@@ -259,8 +259,8 @@ pub struct Ui {
     textures: Vec<TexSlot>,
     /// LIFO free list of texture slots (freed most recently, reused first).
     tex_free: Vec<u32>,
-    /// Baked rounded-corner disc sprites (see draw::DiscCache).
-    discs: draw::DiscCache,
+    /// Core-owned corner masks and scaled-glyph pages (see draw::PaintCache).
+    paint_cache: draw::PaintCache,
     /// Raster pixels baked for each logical UI pixel. Layout and DrawList
     /// coordinates always remain logical; only core-owned bitmap resources
     /// (currently rounded-corner masks) use this density.
@@ -347,7 +347,7 @@ impl Ui {
             auxiliary: None,
             textures: Vec::new(),
             tex_free: Vec::new(),
-            discs: draw::DiscCache::new(),
+            paint_cache: draw::PaintCache::new(),
             raster_density,
             raster_revision: 1,
             focused: 0,
@@ -802,7 +802,7 @@ impl Ui {
     /// the slot's generation so every outstanding copy of the handle goes
     /// stale (resolves to nothing, draws nothing), and push the slot on the
     /// LIFO free list. Stale/unknown handles are silent no-ops. Freeing a
-    /// core-internal texture (a baked corner disc) is safe: the DiscCache
+    /// core-internal texture (a baked corner disc) is safe: the PaintCache
     /// re-validates its handles each use and re-bakes dead ones.
     pub fn free_texture(&mut self, handle: i32) {
         let Some(slot) = tex_resolve(&self.textures, handle) else {
@@ -1474,11 +1474,12 @@ impl Ui {
             &self.tree,
             &self.styles,
             &self.fonts,
+            &self.font_revisions,
             self.frame,
             self.layout.viewport,
             &mut self.textures,
             &mut self.tex_free,
-            &mut self.discs,
+            &mut self.paint_cache,
             self.raster_density,
             &mut self.draw_list,
             self.inspect_id,
@@ -1500,11 +1501,12 @@ impl Ui {
                 &self.tree,
                 &self.styles,
                 &self.fonts,
+                &self.font_revisions,
                 self.frame,
                 self.layout.viewport,
                 &mut self.textures,
                 &mut self.tex_free,
-                &mut self.discs,
+                &mut self.paint_cache,
                 self.raster_density,
                 &mut self.draw_list,
                 self.inspect_id,
@@ -1546,12 +1548,13 @@ impl Ui {
             &self.tree,
             &self.styles,
             &self.fonts,
+            &self.font_revisions,
             self.frame,
             auxiliary.root,
             auxiliary.layout.viewport,
             &mut self.textures,
             &mut self.tex_free,
-            &mut self.discs,
+            &mut self.paint_cache,
             self.raster_density,
             &mut auxiliary.draw_list,
             self.inspect_id,
@@ -1572,12 +1575,13 @@ impl Ui {
                 &self.tree,
                 &self.styles,
                 &self.fonts,
+                &self.font_revisions,
                 self.frame,
                 auxiliary.root,
                 auxiliary.layout.viewport,
                 &mut self.textures,
                 &mut self.tex_free,
-                &mut self.discs,
+                &mut self.paint_cache,
                 self.raster_density,
                 &mut auxiliary.draw_list,
                 self.inspect_id,

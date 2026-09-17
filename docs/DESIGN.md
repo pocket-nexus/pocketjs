@@ -331,6 +331,12 @@ widths):
 - **transform** (animatable, no relayout): `translate-x/y-N`, `scale-N`,
   `rotate-N`, `scale-x/y-N`, `origin-center|top|bottom|left|right|top-left|…`
   (transform origin as size fractions; rotation/scale pivot)
+  **Axis-aligned scale transforms both glyph positions and glyph cells.**
+  The core emits clipped `TEX_QUAD` cells from shared coverage pages, with
+  linear filtering and text-color tint. Pages reuse the font atlas across
+  scale changes and expire when that font's revision changes. Identity-scale
+  text retains `GLYPH_RUN`; rotated and perspective text retain their existing
+  upright glyph behavior.
 - **3D transforms**: `perspective-[N]` makes a node a 3D CONTEXT ROOT — its
   subtree composes 3x4 affine matrices (implicit preserve-3d), projects
   through N px about the root center and painter-sorts by camera depth into

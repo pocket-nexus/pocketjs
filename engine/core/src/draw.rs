@@ -11,8 +11,8 @@
 //! boxes are corner-transformed, Sutherland-Hodgman-clipped and emitted as
 //! TRI ops. v1 degradations (documented):
 //!   - rotated IMAGE quads are conservatively culled (no textured-tri op);
-//!   - glyph cells position along the rotated/scaled frame but stay upright
-//!     and unscaled (bitmap cells); glyphs whose cell top-left leaves the
+//!   - rotated glyph cells stay upright and unscaled; axis-aligned scales
+//!     use clipped, tinted atlas TEX_QUADs. Unscaled cells whose top-left leaves the
 //!     screen range or whose cell leaves the clip rect are dropped;
 //!   - rounded corners and shadows are emitted for axis-aligned boxes as
 //!     deterministic alpha-covered RECT spans; rotated rounded boxes degrade
@@ -429,24 +429,108 @@ fn fill_color_at(fill: &Fill, x0: f32, y0: f32, x1: f32, y1: f32, sx0: i32, sy: 
 
 // ---- the walker ------------------------------------------------------------------
 
-/// Baked antialiased disc sprites keyed by integer radius — rounded corners
-/// render as four O(1) corner TEX_QUADs + three RECTs instead of per-row
-/// coverage spans (the spans measured ~7 ms/frame of CPU on real PSP
-/// hardware for rounded-heavy screens).
-pub struct DiscCache {
+/// Core-owned textures shared across draws. Antialiased discs turn rounded
+/// corners into O(1) TEX_QUADs instead of per-row coverage spans. Glyph pages
+/// keep scaled text on the portable texture path without a new DrawList op.
+pub struct PaintCache {
     /// (logical radius px, generation-tagged texture handle). Handles re-validate
     /// through `tex_resolve` on every use: `free_texture` is allowed to free
     /// a disc slot (JS misuse), which simply goes stale here and re-bakes.
     entries: Vec<(u32, i32)>,
+    glyphs: Vec<GlyphPage>,
 }
 
-impl DiscCache {
-    pub const fn new() -> DiscCache {
-        DiscCache { entries: Vec::new() }
+struct GlyphPage {
+    slot: u8,
+    revision: u64,
+    page: u32,
+    handle: i32,
+    width: u32,
+    height: u32,
+}
+
+impl PaintCache {
+    pub const fn new() -> PaintCache {
+        PaintCache { entries: Vec::new(), glyphs: Vec::new() }
     }
 }
 
-impl Default for DiscCache {
+/// Coverage pages for transformed text use the existing portable TEX_QUAD
+/// contract. T8 keeps one byte per sample; the palette supplies white RGB and
+/// coverage alpha, so text color remains a per-quad tint. Pages are shared by
+/// all runs at every scale, with one transparent texel around each cell to
+/// prevent bilinear sampling from bleeding a neighboring glyph.
+fn glyph_page(
+    cache: &mut PaintCache,
+    textures: &mut Vec<crate::TexSlot>,
+    free: &mut Vec<u32>,
+    atlas: &crate::text::Atlas,
+    revision: u64,
+    gid: u16,
+) -> Option<(u32, [f32; 4])> {
+    let cw = atlas.coverage_width();
+    let ch = atlas.coverage_height();
+    let stride_x = cw + 2;
+    let stride_y = ch + 2;
+    let columns = spec::TEX_MAX_DIM / stride_x;
+    let rows = spec::TEX_MAX_DIM / stride_y;
+    if columns == 0 || rows == 0 { return None; }
+    let capacity = columns * rows;
+    let page = gid as u32 / capacity;
+    // A load/stream update invalidates every page of that font. Release the
+    // old generation before allocating its replacement; stale handles cannot
+    // alias a new texture even if the free-list reuses the same slot.
+    cache.glyphs.retain(|entry| {
+        if entry.slot != atlas.slot || entry.revision == revision { return true; }
+        if let Some(index) = crate::tex_resolve(textures, entry.handle) {
+            let slot = &mut textures[index as usize];
+            slot.tex = None;
+            slot.gen = ((slot.gen as u32 + 1) & crate::TEX_GEN_MASK) as u16;
+            free.push(index);
+        }
+        false
+    });
+    let cached = cache.glyphs.iter().position(|e| e.slot == atlas.slot && e.page == page);
+    let entry = if let Some(i) = cached.filter(|&i| crate::tex_resolve(textures, cache.glyphs[i].handle).is_some()) {
+        &cache.glyphs[i]
+    } else {
+        if let Some(i) = cached { cache.glyphs.swap_remove(i); }
+        let first = page * capacity;
+        let count = (atlas.glyph_count as u32 - first).min(capacity);
+        let width = pow2_at_least(columns.min(count) * stride_x);
+        let height = pow2_at_least(count.div_ceil(columns) * stride_y);
+        let byte_len = (width * height) as usize;
+        let mut data = alloc::vec![0u128; byte_len.div_ceil(16)];
+        let bytes = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, byte_len) };
+        for n in 0..count {
+            let source = atlas.glyph_rows((first + n) as u16);
+            let x = (n % columns) * stride_x + 1;
+            let y = (n / columns) * stride_y + 1;
+            for row in 0..ch {
+                let from = (row * cw) as usize;
+                let to = ((y + row) * width + x) as usize;
+                bytes[to..to + cw as usize].copy_from_slice(&source[from..from + cw as usize]);
+            }
+        }
+        let mut palette = alloc::vec![0u128; 64];
+        let colors = unsafe { core::slice::from_raw_parts_mut(palette.as_mut_ptr() as *mut u32, 256) };
+        for (a, color) in colors.iter_mut().enumerate() { *color = 0x00ff_ffff | ((a as u32) << 24); }
+        let handle = crate::tex_alloc(textures, free, crate::Texture {
+            data, byte_len, w: width, h: height, psm: spec::psm::PSM_T8,
+            palette: Some(palette), linear: true, revision: 0,
+        });
+        if handle < 0 { return None; }
+        cache.glyphs.push(GlyphPage { slot: atlas.slot, revision, page, handle, width, height });
+        cache.glyphs.last()?
+    };
+    let n = gid as u32 % capacity;
+    let x = (n % columns) * stride_x + 1;
+    let y = (n / columns) * stride_y + 1;
+    Some((entry.handle as u32, [x as f32 / entry.width as f32, y as f32 / entry.height as f32,
+        (x + cw) as f32 / entry.width as f32, (y + ch) as f32 / entry.height as f32]))
+}
+
+impl Default for PaintCache {
     fn default() -> Self {
         Self::new()
     }
@@ -458,7 +542,7 @@ impl Default for DiscCache {
 /// by the fill color, which matches the old span math's scale_alpha exactly
 /// up to AA rounding.
 fn disc_texture(
-    cache: &mut DiscCache,
+    cache: &mut PaintCache,
     textures: &mut Vec<crate::TexSlot>,
     tex_free: &mut Vec<u32>,
     r_px: u32,
@@ -848,6 +932,7 @@ struct Walker<'a> {
     tree: &'a Tree,
     styles: &'a StyleTable,
     fonts: &'a Fonts,
+    font_revisions: &'a [u64; spec::MAX_FONT_SLOTS],
     /// Global vblank counter — drives deterministic sprite frame selection.
     frame: u64,
     /// Viewport bounds in px — every emitted coordinate is clipped to
@@ -867,7 +952,7 @@ struct Walker<'a> {
     /// during the walk, through the same slot storage as uploads).
     textures: &'a mut Vec<crate::TexSlot>,
     tex_free: &'a mut Vec<u32>,
-    discs: &'a mut DiscCache,
+    paint_cache: &'a mut PaintCache,
     raster_density: u32,
     /// DevTools: slot to capture the world AABB of (u32::MAX = none).
     inspect_slot: u32,
@@ -885,11 +970,12 @@ pub fn build(
     tree: &Tree,
     styles: &StyleTable,
     fonts: &Fonts,
+    font_revisions: &[u64; spec::MAX_FONT_SLOTS],
     frame: u64,
     screen: (f32, f32),
     textures: &mut Vec<crate::TexSlot>,
     tex_free: &mut Vec<u32>,
-    discs: &mut DiscCache,
+    paint_cache: &mut PaintCache,
     raster_density: u32,
     dl: &mut DrawList,
     inspect_id: i32,
@@ -900,12 +986,13 @@ pub fn build(
         tree,
         styles,
         fonts,
+        font_revisions,
         frame,
         spec::ROOT_ID,
         screen,
         textures,
         tex_free,
-        discs,
+        paint_cache,
         raster_density,
         dl,
         inspect_id,
@@ -921,12 +1008,13 @@ pub fn build_root(
     tree: &Tree,
     styles: &StyleTable,
     fonts: &Fonts,
+    font_revisions: &[u64; spec::MAX_FONT_SLOTS],
     frame: u64,
     root_id: i32,
     screen: (f32, f32),
     textures: &mut Vec<crate::TexSlot>,
     tex_free: &mut Vec<u32>,
-    discs: &mut DiscCache,
+    paint_cache: &mut PaintCache,
     raster_density: u32,
     dl: &mut DrawList,
     inspect_id: i32,
@@ -946,12 +1034,13 @@ pub fn build_root(
         tree,
         styles,
         fonts,
+        font_revisions,
         frame,
         screen,
         glyph_scratch: Vec::new(),
         textures,
         tex_free,
-        discs,
+        paint_cache,
         raster_density,
         inspect_slot,
         inspect_hit: None,
@@ -2147,7 +2236,7 @@ impl<'a> Walker<'a> {
             const DISC_MAX_R: u32 = 32;
             if r_px <= DISC_MAX_R {
                 if let Some((tex, dim)) = disc_texture(
-                    self.discs,
+                    self.paint_cache,
                     self.textures,
                     self.tex_free,
                     r_px,
@@ -2199,7 +2288,7 @@ impl<'a> Walker<'a> {
             // Integer splits avoid overlapping half-pixel strips on odd sizes.
             let rf = (r_px as f32).min(floorf((qx1 - qx0) * 0.5)).min(floorf((qy1 - qy0) * 0.5));
             if rf >= 1.0 {
-                if let Some((tex, dim)) = disc_texture(self.discs, self.textures, self.tex_free, r_px, self.raster_density) {
+                if let Some((tex, dim)) = disc_texture(self.paint_cache, self.textures, self.tex_free, r_px, self.raster_density) {
                     let du = (r_px * self.raster_density) as f32 / dim as f32;
                     let vertical = vertical_gradient(&fill);
                     let (a0, a1) = if vertical {
@@ -2564,6 +2653,23 @@ impl<'a> Walker<'a> {
         scratch.clear();
         self.fonts
             .layout_run(&run, slot, r.tracking, r.line_height, r.text_align, box_w, &mut scratch);
+        if world.is_axis_aligned() && (world.a != 1.0 || world.d != 1.0) {
+            for g in &scratch {
+                let (x, y) = world.apply(g.x, g.y);
+                if x + cell_w * world.a <= clip.x0 || x >= clip.x1 ||
+                    y + cell_h * world.d <= clip.y0 || y >= clip.y1 || !atlas.stream_visible(g.codepoint, g.gid) {
+                    continue;
+                }
+                let Some((texture, uv)) = glyph_page(self.paint_cache, self.textures, self.tex_free,
+                    atlas, self.font_revisions[slot as usize], g.gid) else { continue; };
+                let glyph_world = world.then(&Affine::translate(g.x, g.y));
+                let before = dl.words.len();
+                self.emit_tex_quad(dl, &glyph_world, cell_w, cell_h, texture, 1.0, clip, uv[0], uv[1], uv[2], uv[3]);
+                if dl.words.len() > before { *dl.words.last_mut().unwrap() = color; }
+            }
+            self.glyph_scratch = scratch;
+            return;
+        }
         let start = dl.words.len();
         dl.words.push(spec::draw_op::GLYPH_RUN);
         dl.words.push(0); // patched below: slot | count << 16
