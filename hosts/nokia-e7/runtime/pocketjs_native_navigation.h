@@ -279,6 +279,10 @@ void PocketJsRuntime::suspendNativeGraphics()
     ui_gl_shutdown();
     doneCurrent();
     const_cast<QGLContext *>(context())->reset();
+    // VideoCore retains per-client pools after the last context is destroyed.
+    // This host uses raster Qt chrome and owns the process's only EGL client.
+    eglTerminate(eglGetDisplay(EGL_DEFAULT_DISPLAY));
+    eglReleaseThread();
     glInitialized_ = false;
     nativeGraphicsSuspended_ = true;
 #ifdef POCKETJS_PERF_TRACE
@@ -289,6 +293,10 @@ void PocketJsRuntime::suspendNativeGraphics()
 bool PocketJsRuntime::resumeNativeGraphics()
 {
     if (!nativeGraphicsSuspended_) return true;
+    if (!eglInitialize(eglGetDisplay(EGL_DEFAULT_DISPLAY), 0, 0)) {
+        fail("PocketJS could not restore its EGL connection.");
+        return false;
+    }
     if (!const_cast<QGLContext *>(context())->create()) {
         fail("PocketJS could not restore its OpenGL ES 2 context.");
         return false;

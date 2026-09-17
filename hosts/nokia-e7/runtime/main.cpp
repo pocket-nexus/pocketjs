@@ -32,6 +32,7 @@
 #include <QWidget>
 #include <QtGlobal>
 #include <QtOpenGL/QGLWidget>
+#include <EGL/egl.h>
 
 #include <stdint.h>
 #include <string.h>
