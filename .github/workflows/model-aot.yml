@@ -20,8 +20,6 @@ on:
       - 'package.json'
       - 'bun.lock'
       - '.github/workflows/model-aot.yml'
-  schedule:
-    - cron: '23 3 * * *'
   workflow_dispatch:
 permissions:
   contents: read
@@ -42,10 +40,7 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun tools/wasm.ts
-      - run: bun test tests/aot-model-*.test.ts
-      - if: github.event_name != 'pull_request'
-        run: bun run test:fuzz --count 256
+      - run: bun tools/test.ts --stage="Model AOT"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

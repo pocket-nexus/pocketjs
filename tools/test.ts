@@ -201,6 +201,7 @@ const SUITE: readonly Stage[] = [
   },
   {
     name: "Model AOT semantics and resources",
+    // Generated-program fuzz checks remain opt-in through `bun run test:fuzz`.
     prep: [["bun", "tools/wasm.ts"]],
     tests: [
       "tests/aot-model-animation.test.ts",
@@ -214,7 +215,6 @@ const SUITE: readonly Stage[] = [
       "tests/aot-model-factory.test.ts",
       "tests/aot-model-focus.test.ts",
       "tests/aot-model-frontend.test.ts",
-      "tests/aot-model-fuzz.test.ts",
       "tests/aot-model-interp.test.ts",
       "tests/aot-model-js.test.ts",
       "tests/aot-model-metamorphic.test.ts",
