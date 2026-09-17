@@ -207,6 +207,8 @@ export interface SimViewportOptions {
   height?: number;
   rasterDensity?: number;
   renderScale?: number;
+  /** Optional auxiliary surface dimensions, created before the guest mounts. */
+  auxiliary?: [number, number];
 }
 
 /**
