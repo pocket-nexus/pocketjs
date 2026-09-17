@@ -2,9 +2,10 @@
 //
 // One module, two lives. Under the oracle (real Vue Vapor on a JS host) this
 // file executes: handlers register here and the test harness feeds button
-// edges through __dispatchButton. Under the Pocket Vapor compiler the module
-// is never executed — the compiler recognizes button and relative-axis
-// registrations from this path and emits hooks fed by each target runtime.
+// edges/repeats through the dispatch helpers. Under the Pocket Vapor compiler
+// the module is never executed — the compiler recognizes button and
+// relative-axis registrations from this path and emits hooks fed by each
+// target runtime.
 //
 // Button values ARE the shared Pocket pad ABI. RelativeAxis values are the
 // hardware-neutral ABI for incremental controls: a Playdate crank, rotary
@@ -34,6 +35,7 @@ export type ButtonId = (typeof Button)[keyof typeof Button];
 type ButtonHandler = (button: number) => void;
 
 const handlers: ButtonHandler[] = [];
+const repeatHandlers: ButtonHandler[] = [];
 
 export const RelativeAxis = {
   Primary: 0,
@@ -67,6 +69,17 @@ export function onButton(handler: ButtonHandler): void {
 }
 
 /**
+ * Register for normalized D-pad repeat events after the initial press edge.
+ *
+ * The GBA host currently supplies this capability: after a short hold delay,
+ * it emits repeats at a fixed frame cadence. Applications decide which modes
+ * consume them, so a world can keep moving without making menus auto-repeat.
+ */
+export function onButtonRepeat(handler: ButtonHandler): void {
+  repeatHandlers.push(handler);
+}
+
+/**
  * Register a handler for signed, relative movement on one logical axis.
  *
  * `delta` is a non-zero integer in canonical axis units. Rotary adapters use
@@ -85,6 +98,11 @@ export function __dispatchButton(button: number): void {
   for (const handler of handlers) handler(button);
 }
 
+/** Oracle-only: deliver one normalized held-D-pad repeat event. */
+export function __dispatchButtonRepeat(button: number): void {
+  for (const handler of repeatHandlers) handler(button);
+}
+
 /** Oracle-only: deliver one non-zero, integral relative-axis delta. */
 export function __dispatchAxisDelta(axis: RelativeAxisId, delta: number): void {
   assertRelativeAxis(axis);
@@ -97,5 +115,6 @@ export function __dispatchAxisDelta(axis: RelativeAxisId, delta: number): void {
 /** Oracle-only: drop all registered input handlers (fresh boot between tests). */
 export function __resetButtons(): void {
   handlers.length = 0;
+  repeatHandlers.length = 0;
   axisHandlers.clear();
 }

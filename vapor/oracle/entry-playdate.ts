@@ -9,6 +9,7 @@ import TodoApp from "../examples/todo/todo.playdate.tsx";
 import {
   __dispatchAxisDelta,
   __dispatchButton,
+  __dispatchButtonRepeat,
   __resetButtons,
 } from "../host/input.ts";
 
@@ -27,6 +28,10 @@ hooks.__vaporBoot = (container: unknown): AnyApp => {
 
 hooks.__vaporPress = (button: number): void => {
   __dispatchButton(button);
+};
+
+hooks.__vaporRepeat = (button: number): void => {
+  __dispatchButtonRepeat(button);
 };
 
 hooks.__vaporAxisDelta = (axis: number, delta: number): void => {

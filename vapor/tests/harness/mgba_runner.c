@@ -10,6 +10,7 @@
  *                                    run release frames
  *   R <name> <addr-hex> <size>       read 1/2/4 bytes little-endian
  *   D <name> <addr-hex> <len>        read len bytes, emit as hex string
+ *   H <name>                         hash the current 240x160 video buffer
  *   S <path>                         screenshot (PPM P6)
  * Output: one JSON object on stdout: {"ok":true,"reads":{...}}.
  */
@@ -58,6 +59,23 @@ static void screenshot(const char *path) {
     }
   }
   fclose(f);
+}
+
+static uint32_t video_hash(void) {
+  uint32_t hash = 2166136261u;
+  unsigned i;
+  for (i = 0; i < vw * vh; i++) {
+    uint32_t pixel = videoBuffer[i];
+    hash ^= pixel & 0xff;
+    hash *= 16777619u;
+    hash ^= (pixel >> 8) & 0xff;
+    hash *= 16777619u;
+    hash ^= (pixel >> 16) & 0xff;
+    hash *= 16777619u;
+    hash ^= (pixel >> 24) & 0xff;
+    hash *= 16777619u;
+  }
+  return hash;
 }
 
 int main(int argc, char **argv) {
@@ -135,6 +153,11 @@ int main(int argc, char **argv) {
       printf("%s\"%s\":\"", first_read ? "" : ",", name);
       for (i = 0; i < len; i++) printf("%02x", core->busRead8(core, addr + (unsigned)i));
       printf("\"");
+      first_read = 0;
+    } else if (op == 'H') {
+      char name[256];
+      sscanf(line + 1, "%255s", name);
+      printf("%s\"%s\":%u", first_read ? "" : ",", name, video_hash());
       first_read = 0;
     } else if (op == 'S') {
       char path[512];

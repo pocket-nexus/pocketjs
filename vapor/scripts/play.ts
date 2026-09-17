@@ -11,7 +11,8 @@ const ROOT = join(import.meta.dir, "..", "..");
 const entry = resolve(process.argv[2] ?? join(import.meta.dir, "..", "examples", "todo", "todo.tsx"));
 const name = basename(entry).replace(/\.tsx$/, "");
 
-const app = compileVaporApp(entry, await Bun.file(entry).text(), name === "todo" ? "VAPOR TODO" : name.toUpperCase());
+const title = name === "todo" ? "VAPOR TODO" : name === "rpg" ? "VAPOR QUEST" : name.toUpperCase();
+const app = compileVaporApp(entry, await Bun.file(entry).text(), title);
 console.log(app.graph);
 console.log(app.plan);
 const rom = join(ROOT, "dist", "vapor", `${name}.gba`);

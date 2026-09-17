@@ -6,6 +6,14 @@ import { loadBoard } from "../compiler/boards.ts";
 import { compileVaporApp, VAPOR_TARGETS, VaporCompileError } from "../compiler/compile.ts";
 import { esp32BuildId } from "../compiler/esp32.ts";
 import { FONT8 } from "../compiler/font.gen.ts";
+import {
+  __dispatchButton,
+  __dispatchButtonRepeat,
+  __resetButtons,
+  Button,
+  onButton,
+  onButtonRepeat,
+} from "../host/input.ts";
 
 const ENTRY = join(import.meta.dir, "..", "examples", "todo", "todo.tsx");
 
@@ -47,7 +55,9 @@ describe("pocket vapor compiler", () => {
     const a = compileVaporApp(ENTRY, source, "VAPOR TODO");
     const b = compileVaporApp(ENTRY, source, "VAPOR TODO");
     expect(a.c).toBe(b.c);
+    expect(a.rpgEnabled).toBe(false);
     expect(a.c).toContain("vp_mark");
+    expect(a.c).toContain("vp_row_clear");
     expect(a.graph).toContain("visible: view(maxLen 12)");
     expect(a.plan).toContain("pools");
   });
@@ -168,6 +178,67 @@ export default () => {
     expect(app.c).toContain("KM_editKeys");
     expect(app.c).toMatch(/\? KM_editKeys : KM_listKeys/); // dispatch ternary
     expect(app.c).toContain("fn_closeEditor"); // bare fn reference as keymap value
+  });
+
+  test("GBA button repeat is explicit and lowers to a separate native hook", () => {
+    const source = minimal(`
+  onButtonRepeat((b) => {
+    if (b === Button.Right) count.value = count.value + 10;
+  });`).replace("{ Button, onButton }", "{ Button, onButton, onButtonRepeat }");
+    const app = compileVaporApp("repeat.tsx", source, "REPEAT", "gba");
+    expect(app.c).toContain("void app_on_button_repeat(u8 b)");
+    expect(app.c).toMatch(/app_on_button_repeat[\s\S]*g_count \+ 10/);
+    expect(app.graph).toContain("button repeats: directional (gba)");
+    expect(() => compileVaporApp("repeat.tsx", source, "REPEAT", "gb")).toThrow(
+      /onButtonRepeat is currently supported only on the gba target/,
+    );
+  });
+
+  test("official Vue Vapor onFrame and BTN imports lower to the fixed GBA frame hook", () => {
+    const source = `${HEADER}
+import { onFrame } from "@pocketjs/framework/vue-vapor/lifecycle";
+import { BTN } from "@pocketjs/framework/vue-vapor/input";
+export default () => {
+  const count = ref(0);
+  onFrame((buttons) => {
+    if (buttons & (BTN.RIGHT | BTN.CROSS)) count.value = count.value + 2;
+  });
+  onButton((b) => {
+    if (b === Button.A) count.value = count.value + 1;
+  });
+  return (<><row y={0}>{count.value}</row></>);
+};
+`;
+    const app = compileVaporApp("frame.tsx", source, "FRAME", "gba");
+    expect(app.c).toContain("void app_on_frame(u32 buttons)");
+    expect(app.c).toMatch(/app_on_frame[\s\S]*buttons_arg & \(32 \| 16384\)/);
+    expect(app.buttonsUsed).toEqual([0, 4]);
+    expect(app.graph).toContain("frame hook: fixed (gba)");
+    expect(() => compileVaporApp("frame.tsx", source, "FRAME", "gb")).toThrow(
+      /onFrame is currently supported only on the gba target/,
+    );
+  });
+
+  test("negative numeric ref seeds survive native initialization", () => {
+    const source = minimal("const idle = ref<number>(-1);");
+    const app = compileVaporApp("negative-seed.tsx", source, "NEGATIVE", "gba");
+    expect(app.c).toContain("g_idle = -1;");
+  });
+
+  test("oracle repeat dispatch stays separate from physical press edges", () => {
+    let presses = 0;
+    let repeats = 0;
+    __resetButtons();
+    try {
+      onButton(() => presses++);
+      onButtonRepeat(() => repeats++);
+      __dispatchButtonRepeat(Button.Right);
+      expect([presses, repeats]).toEqual([0, 1]);
+      __dispatchButton(Button.Right);
+      expect([presses, repeats]).toEqual([1, 1]);
+    } finally {
+      __resetButtons();
+    }
   });
 
   test("computed can yield a record reference (current todo)", async () => {

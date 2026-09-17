@@ -223,9 +223,9 @@ oxlint plugin would give red squiggles without booting the compiler. The
 Each target presents a fixed logical cell screen: 30×20 on GBA, 20×18 on
 GB and ESP32, 22×18 on NES, and 50×30 on Playdate. The ESP32 MeowBit profile rasterizes its
 20×18 grid as 8×7 cells into a 160×126 content area on the 160×128 ST7735
-panel. The JSX vocabulary is deliberately one intrinsic with two
-interpreters — the C cell grid on device, and a ~60-line tree walker over
-the oracle's micro-DOM:
+panel. The portable, cross-target cell vocabulary is deliberately one
+intrinsic with two interpreters — the C cell grid on device, and a ~60-line
+tree walker over the oracle's micro-DOM:
 
 - `<row y={n} x={n} pal={p}>` — paints its text children at (x, y) in
   palette `p`, padded with spaces to the right edge; later rows overwrite
@@ -239,15 +239,65 @@ the oracle's micro-DOM:
 - Looks come from the class DSL (§4.5); the painter and every runtime
   agree on pair ids, and the oracle asserts them as a per-cell grid.
 
-Input is not DOM events. The host module exposes two explicit capabilities:
+There is one deliberately target-specific exception to that portable cell
+vocabulary: the experimental GBA RPG host. It is a narrow vertical slice,
+not a new general-purpose JSX renderer, and non-GBA target admission rejects
+it. Its responsibilities are split four ways:
+
+1. **Static assets — `defineRpgMap(...)`.** Map rows, solid characters,
+   event-character ids, and dialogue records are build-time declarations.
+   The compiler validates the 30×20 bound, equal row widths and byte-oriented
+   ids, then emits flat tile/collision data plus event and dialogue tables in
+   ROM. None of this is mutable gameplay state.
+2. **Pure world queries — `rpgBlocked(...)` / `rpgEventAt(...)`.** The host
+   module provides real, deterministic JS lookup semantics; AOT recognizes
+   the same calls and emits calls to fixed C helpers over the generated map.
+   Out-of-bounds movement fails closed.
+3. **Reactive gameplay — ordinary Vue Vapor.** Mode, integer player position,
+   facing, in-flight pixel progress, quest state, current dialogue/choice, HP
+   and battle selection are ordinary `ref` slots; gates are `computed` and
+   screen offsets are derived expressions. `onButton` keymaps, the standard
+   Vue Vapor `onFrame(buttons)` lifecycle, and setup functions implement movement,
+   interaction, dialogue and battle. A step advances by a deterministic 2px
+   per 60 Hz tick; the destination cell and its event commit only on arrival.
+   They use the same dirty-bit graph and direct C lowering as Todo. There is
+   no residual script bytecode, stack machine, hidden controller state, or
+   second gameplay VM.
+4. **Fixed presentation — `<RpgScreen .../>`.** The component is stateless:
+   every dynamic input, including the signed player pixel offsets and walk
+   frame, arrives as a prop and therefore participates in the normal
+   dependency mask. The GBA runtime derives a fractional camera from those
+   props, renders a 16×11 overscan tile window on BG1 and characters through
+   OBJ, then commits tile/OAM/scroll/window shadows during VBlank. It does not
+   own a hidden motion timeline or expose GBA registers or SDK concepts to
+   application code.
+
+The RPG movement contract consumes the standard hardware-neutral button mask
+through `@pocketjs/framework/vue-vapor/lifecycle`'s `onFrame`. The GBA adapter
+maps its physical held keys to the shared `BTN` ABI; app code never reads GBA
+key bits. Direction priority is deterministic, a current step finishes after
+release, and turning, collision and arrival events remain gameplay state that
+the compiler/debug tape can observe. Dialogue and battle still use
+`onButton` press edges, so choices advance once per physical press.
+The JS `RpgScreen` currently returns no pixels, so collision/event behavior
+can run in the JS/oracle path but pixel-frame acceptance is mGBA-only for
+this POC. A browser pixel renderer, saves, audio and CJK text are follow-ups,
+not implied capabilities.
+
+Input is not DOM events. Pocket Vapor exposes four explicit capabilities:
 
 - `onButton((b: Button) => void)` for frame-latched press edges;
+- `onButtonRepeat((b: Button) => void)` for normalized held-D-pad repeats
+  (currently supplied by the GBA target);
+- `onFrame((buttons) => void)` from the public Vue Vapor lifecycle for the
+  shared held `BTN` mask (currently lowered by the GBA target);
 - `onAxisDelta(RelativeAxis.Primary, (delta) => void)` for signed,
   hardware-neutral incremental movement in canonical units.
 
 Under the oracle the module executes and the test tape feeds it; under the
-compiler registrations become `app_on_button()` and
-`app_on_axis_delta(axis, delta)`. Physical hosts own normalization:
+compiler registrations become `app_on_button()`, `app_on_button_repeat()`,
+`app_on_frame(buttons)`, and `app_on_axis_delta(axis, delta)`. Physical hosts
+own normalization:
 rotary adapters preserve signed motion as millidegrees, while applications
 own detents, acceleration, and sensitivity. Playdate forwards crank motion
 to Primary; a future ESP32 board can adapt an encoder without exposing pins

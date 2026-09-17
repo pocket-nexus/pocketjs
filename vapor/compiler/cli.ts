@@ -136,10 +136,15 @@ if (target !== "playdate" && playdateModeIdx >= 0) {
 
 const source = await Bun.file(entry).text();
 const name = basename(entry).replace(/\.tsx$/, "");
+const title = name.startsWith("todo")
+  ? "VAPOR TODO"
+  : name === "rpg"
+    ? "VAPOR QUEST"
+    : name.toUpperCase();
 const app = compileVaporApp(
   entry,
   source,
-  name.startsWith("todo") ? "VAPOR TODO" : name.toUpperCase(),
+  title,
   target,
 );
 

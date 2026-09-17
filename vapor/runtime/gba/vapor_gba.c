@@ -1,9 +1,9 @@
 /* vapor/runtime/gba/vapor_gba.c — the GBA half of the runtime.
  *
- * Mode 0, BG0 only: the 30x20 cell grid from vapor_core.c rendered as font
- * tiles with real per-bank palettes. Cells diff at write time and mark row
- * bits; the commit after vblank copies only dirty rows into the
- * screenblock. The debug block is mirrored to EWRAM each frame.
+ * Mode 0 always keeps the 30x20 BG0 cell grid from vapor_core.c. RPG apps
+ * additionally enable the fixed BG1 tile-world + OBJ host; their generated
+ * refs still own every gameplay transition. Commits happen after vblank and
+ * the debug block is mirrored to EWRAM each frame.
  */
 #include "vapor.h"
 
@@ -14,6 +14,19 @@
 #define REG_BG0HOFS REG(0x04000010)
 #define REG_BG0VOFS REG(0x04000012)
 #define REG_KEYINPUT REG(0x04000130)
+#define VP_DPAD_MASK 0x00f0
+#define VP_REPEAT_DELAY_FRAMES 12
+#define VP_REPEAT_INTERVAL_FRAMES 6
+#define VP_BTN_SELECT 0x0001u
+#define VP_BTN_START 0x0008u
+#define VP_BTN_UP 0x0010u
+#define VP_BTN_RIGHT 0x0020u
+#define VP_BTN_DOWN 0x0040u
+#define VP_BTN_LEFT 0x0080u
+#define VP_BTN_LTRIGGER 0x0100u
+#define VP_BTN_RTRIGGER 0x0200u
+#define VP_BTN_CIRCLE 0x2000u
+#define VP_BTN_CROSS 0x4000u
 #define PAL_BG ((volatile u16 *)0x05000000)
 #define VRAM ((volatile u16 *)0x06000000)
 #define SB_MAP 8
@@ -88,14 +101,36 @@ static void vsync(void) {
   while (REG_VCOUNT < 160) {}
 }
 
+/* Translate GBA KEYINPUT positions to the public PocketJS BTN contract used
+ * by PocketJS framework lifecycle callbacks. Unsupported PSP face buttons
+ * remain clear; GBA A/B are the primary CROSS/CIRCLE actions. */
+static u32 framework_buttons(u16 held) {
+  u32 buttons = 0;
+  if (held & (1 << 0)) buttons |= VP_BTN_CROSS;
+  if (held & (1 << 1)) buttons |= VP_BTN_CIRCLE;
+  if (held & (1 << 2)) buttons |= VP_BTN_SELECT;
+  if (held & (1 << 3)) buttons |= VP_BTN_START;
+  if (held & (1 << 4)) buttons |= VP_BTN_RIGHT;
+  if (held & (1 << 5)) buttons |= VP_BTN_LEFT;
+  if (held & (1 << 6)) buttons |= VP_BTN_UP;
+  if (held & (1 << 7)) buttons |= VP_BTN_DOWN;
+  if (held & (1 << 8)) buttons |= VP_BTN_RTRIGGER;
+  if (held & (1 << 9)) buttons |= VP_BTN_LTRIGGER;
+  return buttons;
+}
+
 int main(void) {
   u16 i;
   u16 prev_keys = 0x03ff;
+  u8 repeat_frames[10] = { 0 };
   u32 frame = 0, flushes = 0;
 
   for (i = 0; i < (u16)(vp_palette_count * 16); i++) PAL_BG[i] = vp_palettes[i];
   PAL_BG[0] = vp_backdrop;
   upload_font();
+#if defined(VP_ENABLE_RPG)
+  if (vp_rpg_enabled) vp_rpg_video_init();
+#endif
   REG_BG0CNT = (SB_MAP << 8) | 0; /* 4bpp, charblock 0, priority 0 */
   REG_BG0HOFS = 0;
   REG_BG0VOFS = 0;
@@ -105,21 +140,44 @@ int main(void) {
   app_flush();
   flushes++;
 
-  REG_DISPCNT = 0x0100; /* mode 0, BG0 on */
+  /* RPG: mode 0 + 1D OBJ mapping + BG0/BG1/OBJ. Text apps remain BG0-only. */
+#if defined(VP_ENABLE_RPG)
+  REG_DISPCNT = vp_rpg_enabled ? 0x1340 : 0x0100;
+#else
+  REG_DISPCNT = 0x0100;
+#endif
 
   for (;;) {
-    u16 keys, edges;
+    u16 keys, edges, held;
     u8 b;
     vsync();
     commit_rows();
+#if defined(VP_ENABLE_RPG)
+    if (vp_rpg_enabled) vp_rpg_video_commit();
+#endif
     frame++;
     debug_commit(frame, flushes);
 
     keys = (u16)(REG_KEYINPUT & 0x03ff);
     edges = (u16)(prev_keys & ~keys); /* KEYINPUT is active-low */
+    held = (u16)(~keys & 0x03ff);
     prev_keys = keys;
-    for (b = 0; b < 10; b++)
-      if (edges & (u16)(1 << b)) app_on_button(b);
+    for (b = 0; b < 10; b++) {
+      u16 bit = (u16)(1 << b);
+      if (edges & bit) {
+        app_on_button(b);
+        repeat_frames[b] = (bit & VP_DPAD_MASK) ? VP_REPEAT_DELAY_FRAMES : 0;
+      } else if ((held & bit) && repeat_frames[b]) {
+        repeat_frames[b]--;
+        if (!repeat_frames[b]) {
+          app_on_button_repeat(b);
+          repeat_frames[b] = VP_REPEAT_INTERVAL_FRAMES;
+        }
+      } else {
+        repeat_frames[b] = 0;
+      }
+    }
+    app_on_frame(framework_buttons(held));
     if (app_flush()) flushes++;
   }
 }

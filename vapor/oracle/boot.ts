@@ -42,6 +42,8 @@ export interface Oracle {
   root: VaporElement;
   /** Deliver one button edge and settle vapor's scheduler. */
   press(button: number): Promise<void>;
+  /** Deliver one normalized held-D-pad repeat and settle the scheduler. */
+  repeat(button: number): Promise<void>;
   /** Deliver one relative-axis delta and settle vapor's scheduler. */
   axisDelta(axis: number, delta: number): Promise<void>;
   /** Current rendered grid. */
@@ -69,6 +71,7 @@ export async function bootOracle(opts: OracleOptions = {}): Promise<Oracle> {
   const hooks = globalThis as Record<string, unknown>;
   const boot = hooks.__vaporBoot as (container: unknown) => { unmount(): void };
   const pressHook = hooks.__vaporPress as (button: number) => void;
+  const repeatHook = hooks.__vaporRepeat as (button: number) => void;
   const axisDeltaHook = hooks.__vaporAxisDelta as (axis: number, delta: number) => void;
   const tick = hooks.__vaporTick as () => Promise<void>;
 
@@ -80,6 +83,10 @@ export async function bootOracle(opts: OracleOptions = {}): Promise<Oracle> {
     root,
     async press(button: number) {
       pressHook(button);
+      await tick();
+    },
+    async repeat(button: number) {
+      repeatHook(button);
       await tick();
     },
     async axisDelta(axis: number, delta: number) {

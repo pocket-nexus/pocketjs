@@ -17,6 +17,7 @@
 // arms), which can only cause redundant repaints, never a missed one.
 
 import ts from "typescript";
+import { BTN as FRAMEWORK_BTN } from "../../contracts/spec/spec.ts";
 import { FONT8 } from "./font.gen.ts";
 import { sccpRefConstants } from "./sccp.ts";
 import { rgb555, rgb565, StyleTable, type StyleIssue } from "./styles.ts";
@@ -56,6 +57,18 @@ export const VAPOR_TARGETS: Record<VaporTargetName, VaporTarget> = {
 };
 
 const BUTTON_NAMES = ["A", "B", "Select", "Start", "Right", "Left", "Up", "Down", "R", "L"] as const;
+const FRAMEWORK_BUTTON_TO_VAPOR: Readonly<Record<string, number>> = {
+  CROSS: 0,
+  CIRCLE: 1,
+  SELECT: 2,
+  START: 3,
+  RIGHT: 4,
+  LEFT: 5,
+  UP: 6,
+  DOWN: 7,
+  RTRIGGER: 8,
+  LTRIGGER: 9,
+};
 const PLAYDATE_BUTTONS = new Set([0, 1, 4, 5, 6, 7]);
 const RELATIVE_AXIS_NAMES = ["Primary", "Secondary"] as const;
 const TARGET_RELATIVE_AXES: Record<VaporTargetName, readonly number[]> = {
@@ -69,6 +82,8 @@ const TARGET_RELATIVE_AXES: Record<VaporTargetName, readonly number[]> = {
 export interface CompiledApp {
   c: string;
   title: string;
+  /** GBA-only pixel RPG host/runtime is required by this app. */
+  rpgEnabled: boolean;
   graph: string;
   plan: string;
   debugSlots: DebugSlot[];
@@ -161,6 +176,30 @@ interface ComponentBinding {
   body: ts.JsxElement | ts.JsxSelfClosingElement; // the root <row>
 }
 
+interface RpgEventSrc {
+  tile: number;
+  event: number;
+}
+
+interface RpgDialogSrc {
+  speaker: string;
+  line1: string;
+  line2: string;
+  choice0: string;
+  choice1: string;
+}
+
+interface RpgMapBinding {
+  kind: "rpgMap";
+  name: string;
+  width: number;
+  height: number;
+  rows: string[];
+  solid: string;
+  events: RpgEventSrc[];
+  dialogs: RpgDialogSrc[];
+}
+
 /** Active props substitution while inlining one component use. */
 interface PropsCtx {
   param: string;
@@ -189,7 +228,8 @@ type Binding =
   | ConstBinding
   | LocalBinding
   | KeymapBinding
-  | ComponentBinding;
+  | ComponentBinding
+  | RpgMapBinding;
 
 // ---------------------------------------------------------------------------
 // Compiler
@@ -240,14 +280,26 @@ class AppCompiler {
   private computeds: ComputedBinding[] = [];
   private fns: FnBinding[] = [];
   private handler: ts.ArrowFunction | null = null;
+  private repeatHandler: ts.ArrowFunction | null = null;
+  private frameHandler: ts.ArrowFunction | null = null;
   private axisHandlers = new Map<number, ts.ArrowFunction>();
   private template: ts.JsxFragment | null = null;
 
   private vueRef = "";
   private vueComputed = "";
   private hostOnButton = "";
+  private hostOnButtonRepeat = "";
   private hostButton = "";
   private hostOnAxisDelta = "";
+  private frameworkOnFrame = "";
+  private frameworkButton = "";
+  private hostDefineRpgMap = "";
+  private hostRpgBlocked = "";
+  private hostRpgEventAt = "";
+  private hostRpgScreen = "";
+
+  private rpgMaps: RpgMapBinding[] = [];
+  private rpgScreenCount = 0;
 
   // emission
   private decls: string[] = [];
@@ -385,7 +437,7 @@ class AppCompiler {
       else if (ts.isInterfaceDeclaration(stmt)) this.scanInterface(stmt);
       else if (ts.isTypeAliasDeclaration(stmt)) continue; // types are erased
       else if (ts.isFunctionDeclaration(stmt)) this.scanComponent(stmt);
-      else if (ts.isVariableStatement(stmt)) this.scanModuleConst(stmt);
+      else if (ts.isVariableStatement(stmt)) this.scanModuleConst(stmt, true);
       else if (ts.isExportAssignment(stmt)) {
         if (!ts.isArrowFunction(stmt.expression)) this.err(stmt, "export default must be an arrow component");
         component = stmt.expression;
@@ -418,6 +470,7 @@ class AppCompiler {
         else this.err(spec, `unsupported vue import: ${imported} (subset allows ref, computed)`);
       } else if (/\/host\/input(\.ts)?$/.test(from)) {
         if (imported === "onButton") this.hostOnButton = local;
+        else if (imported === "onButtonRepeat") this.hostOnButtonRepeat = local;
         else if (imported === "Button") this.hostButton = local;
         else if (imported === "onAxisDelta") this.hostOnAxisDelta = local;
         else if (imported === "RelativeAxis")
@@ -440,6 +493,22 @@ class AppCompiler {
           name: local,
           value: { width: this.target.width, height: this.target.height },
         });
+      } else if (/\/host\/rpg(\.ts)?$/.test(from)) {
+        if (this.target.name !== "gba")
+          this.err(spec, "Pocket Vapor RPG is currently supported only on the gba target");
+        if (imported === "defineRpgMap") this.hostDefineRpgMap = local;
+        else if (imported === "rpgBlocked") this.hostRpgBlocked = local;
+        else if (imported === "rpgEventAt") this.hostRpgEventAt = local;
+        else if (imported === "RpgScreen") this.hostRpgScreen = local;
+        else this.err(spec, `unsupported RPG host import: ${imported}`);
+      } else if (from === "@pocketjs/framework/vue-vapor/lifecycle") {
+        if (imported === "onFrame") this.frameworkOnFrame = local;
+        else this.err(spec, `unsupported framework lifecycle import: ${imported}`);
+      } else if (from === "@pocketjs/framework/vue-vapor/input") {
+        if (imported === "BTN") {
+          this.frameworkButton = local;
+          this.scope.set(local, { kind: "const", name: local, value: FRAMEWORK_BTN });
+        } else this.err(spec, `unsupported framework input import: ${imported}`);
       } else this.err(stmt, `unsupported import source: ${from}`);
     }
   }
@@ -460,12 +529,21 @@ class AppCompiler {
     this.ifaces.set(decl.name.text, { name: decl.name.text, fields });
   }
 
-  private scanModuleConst(stmt: ts.VariableStatement): void {
+  private scanModuleConst(stmt: ts.VariableStatement, allowRpg: boolean): void {
     if (!(stmt.declarationList.flags & ts.NodeFlags.Const)) this.err(stmt, "module variables must be const");
     for (const decl of stmt.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name) || !decl.initializer) this.err(decl, "const needs a simple name + initializer");
       const name = decl.name.text;
       const init = decl.initializer;
+      if (
+        ts.isCallExpression(init) &&
+        ts.isIdentifier(init.expression) &&
+        init.expression.text === this.hostDefineRpgMap
+      ) {
+        if (!allowRpg) this.err(init, "defineRpgMap() must initialize a module-level const");
+        this.scanRpgMap(name, init);
+        continue;
+      }
       const folded = this.constNum(init) ?? this.constBool(init);
       if (folded !== null) this.scope.set(name, { kind: "const", name, value: folded });
       else if (ts.isStringLiteral(init)) this.scope.set(name, { kind: "const", name, value: init.text });
@@ -487,6 +565,152 @@ class AppCompiler {
         this.scope.set(name, { kind: "const", name, value: record });
       } else this.err(init, "module consts must be number, string, string[], or {name: number} literals");
     }
+  }
+
+  // ---- RPG static assets ----------------------------------------------------
+
+  private rpgPropertyName(prop: ts.PropertyAssignment, context: string): string {
+    if (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) return prop.name.text;
+    this.err(prop.name, `${context} keys must be identifiers or string literals`);
+  }
+
+  private rpgObjectFields(
+    obj: ts.ObjectLiteralExpression,
+    context: string,
+    allowed: readonly string[],
+    required: readonly string[],
+  ): Map<string, ts.Expression> {
+    const fields = new Map<string, ts.Expression>();
+    for (const prop of obj.properties) {
+      if (!ts.isPropertyAssignment(prop))
+        this.err(prop, `${context} must use explicit \`name: value\` properties (no shorthand or spreads)`);
+      const name = this.rpgPropertyName(prop, context);
+      if (!allowed.includes(name))
+        this.err(prop.name, `unknown ${context} property ${JSON.stringify(name)}; expected ${allowed.join(", ")}`);
+      if (fields.has(name)) this.err(prop.name, `duplicate ${context} property ${JSON.stringify(name)}`);
+      fields.set(name, prop.initializer);
+    }
+    for (const name of required)
+      if (!fields.has(name)) this.err(obj, `${context} is missing required property ${JSON.stringify(name)}`);
+    return fields;
+  }
+
+  private rpgString(e: ts.Expression, context: string): string {
+    if (!ts.isStringLiteral(e)) this.err(e, `${context} must be a string literal`);
+    return e.text;
+  }
+
+  /** RPG tile keys and dialogue text are byte-oriented in the GBA POC. */
+  private assertRpgAscii(node: ts.Node, text: string, context: string): void {
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      if (code < 0x20 || code > 0x7e)
+        this.err(node, `${context} must contain printable single-byte ASCII characters`);
+    }
+  }
+
+  private scanRpgMap(name: string, call: ts.CallExpression): void {
+    if (this.target.name !== "gba") this.err(call, "Pocket Vapor RPG is currently supported only on the gba target");
+    if (call.arguments.length !== 1 || !ts.isObjectLiteralExpression(call.arguments[0]))
+      this.err(call, "defineRpgMap() takes exactly one object literal");
+    if (this.scope.has(name)) this.err(call, `duplicate binding ${name}`);
+
+    const spec = this.rpgObjectFields(
+      call.arguments[0],
+      "RPG map",
+      ["rows", "solid", "events", "dialogs"],
+      ["rows", "solid", "events", "dialogs"],
+    );
+
+    const rowsExpr = spec.get("rows")!;
+    if (!ts.isArrayLiteralExpression(rowsExpr)) this.err(rowsExpr, "RPG map rows must be a string-literal array");
+    if (rowsExpr.elements.length === 0) this.err(rowsExpr, "RPG map rows cannot be empty");
+    if (rowsExpr.elements.length > 20) this.err(rowsExpr, "RPG map height exceeds the GBA limit of 20 rows");
+    const rows = rowsExpr.elements.map((row, i) => {
+      if (!ts.isStringLiteral(row)) this.err(row, `RPG map row ${i} must be a string literal`);
+      this.assertRpgAscii(row, row.text, `RPG map row ${i}`);
+      return row.text;
+    });
+    const width = rows[0].length;
+    if (width === 0) this.err(rowsExpr.elements[0], "RPG map rows cannot be empty strings");
+    if (width > 30) this.err(rowsExpr.elements[0], "RPG map width exceeds the GBA limit of 30 columns");
+    for (let i = 1; i < rows.length; i++)
+      if (rows[i].length !== width)
+        this.err(
+          rowsExpr.elements[i],
+          `RPG map rows must be equal width: row 0 is ${width}, row ${i} is ${rows[i].length}`,
+        );
+
+    const solidExpr = spec.get("solid")!;
+    const solid = this.rpgString(solidExpr, "RPG map solid");
+    this.assertRpgAscii(solidExpr, solid, "RPG map solid");
+    const seenSolid = new Set<string>();
+    for (const ch of solid) {
+      if (seenSolid.has(ch)) this.err(solidExpr, `RPG map solid contains duplicate tile ${JSON.stringify(ch)}`);
+      seenSolid.add(ch);
+    }
+
+    const eventsExpr = spec.get("events")!;
+    if (!ts.isObjectLiteralExpression(eventsExpr))
+      this.err(eventsExpr, "RPG map events must be an object of single-character keys to event ids");
+    if (eventsExpr.properties.length > 255) this.err(eventsExpr, "RPG map supports at most 255 event tile keys");
+    const events: RpgEventSrc[] = [];
+    const seenEventKeys = new Set<string>();
+    const flatRows = rows.join("");
+    for (const prop of eventsExpr.properties) {
+      if (!ts.isPropertyAssignment(prop)) this.err(prop, "RPG event entries must use \`\"X\": id\`");
+      const key = this.rpgPropertyName(prop, "RPG event");
+      if (key.length !== 1) this.err(prop.name, "RPG event keys must be exactly one character");
+      this.assertRpgAscii(prop.name, key, "RPG event key");
+      if (seenEventKeys.has(key)) this.err(prop.name, `duplicate RPG event key ${JSON.stringify(key)}`);
+      seenEventKeys.add(key);
+      if (!flatRows.includes(key))
+        this.err(prop.name, `RPG event key ${JSON.stringify(key)} does not occur in any map row`);
+      const event = this.constNum(prop.initializer);
+      if (event === null || !Number.isInteger(event) || event < 1 || event > 255)
+        this.err(prop.initializer, "RPG event ids must be compile-time integers in 1..255 (0 means no event)");
+      events.push({ tile: key.charCodeAt(0), event });
+    }
+
+    const dialogsExpr = spec.get("dialogs")!;
+    if (!ts.isArrayLiteralExpression(dialogsExpr)) this.err(dialogsExpr, "RPG dialogs must be an object-literal array");
+    if (dialogsExpr.elements.length > 255) this.err(dialogsExpr, "RPG maps support at most 255 dialogs");
+    const dialogs = dialogsExpr.elements.map((dialog, i): RpgDialogSrc => {
+      if (!ts.isObjectLiteralExpression(dialog)) this.err(dialog, `RPG dialog ${i} must be an object literal`);
+      const fields = this.rpgObjectFields(
+        dialog,
+        `RPG dialog ${i}`,
+        ["speaker", "line1", "line2", "choice0", "choice1"],
+        ["speaker", "line1"],
+      );
+      const read = (field: "speaker" | "line1" | "line2" | "choice0" | "choice1"): string => {
+        const value = fields.get(field);
+        if (!value) return "";
+        const text = this.rpgString(value, `RPG dialog ${i}.${field}`);
+        this.assertRpgAscii(value, text, `RPG dialog ${i}.${field}`);
+        return text;
+      };
+      return {
+        speaker: read("speaker"),
+        line1: read("line1"),
+        line2: read("line2"),
+        choice0: read("choice0"),
+        choice1: read("choice1"),
+      };
+    });
+
+    const binding: RpgMapBinding = {
+      kind: "rpgMap",
+      name,
+      width,
+      height: rows.length,
+      rows,
+      solid,
+      events,
+      dialogs,
+    };
+    this.rpgMaps.push(binding);
+    this.scope.set(name, binding);
   }
 
   // ---- setup scan ----------------------------------------------------------
@@ -524,6 +748,30 @@ class AppCompiler {
           const arg = call.arguments[0];
           if (!arg || !ts.isArrowFunction(arg)) this.err(call, "onButton takes an arrow");
           this.handler = arg;
+        } else if (
+          ts.isCallExpression(call) &&
+          ts.isIdentifier(call.expression) &&
+          call.expression.text === this.hostOnButtonRepeat
+        ) {
+          if (this.target.name !== "gba")
+            this.err(call, "onButtonRepeat is currently supported only on the gba target");
+          if (this.repeatHandler) this.err(call, "only one onButtonRepeat handler is supported");
+          const arg = call.arguments[0];
+          if (!arg || !ts.isArrowFunction(arg)) this.err(call, "onButtonRepeat takes an arrow");
+          this.repeatHandler = arg;
+        } else if (
+          ts.isCallExpression(call) &&
+          ts.isIdentifier(call.expression) &&
+          call.expression.text === this.frameworkOnFrame
+        ) {
+          if (this.target.name !== "gba")
+            this.err(call, "onFrame is currently supported only on the gba target");
+          if (this.frameHandler) this.err(call, "only one onFrame handler is supported");
+          const arg = call.arguments[0];
+          if (!arg || !ts.isArrowFunction(arg)) this.err(call, "onFrame takes an arrow");
+          if (arg.parameters.length > 1 || (arg.parameters[0] && !ts.isIdentifier(arg.parameters[0].name)))
+            this.err(arg, "onFrame arrow takes zero args or one simple buttons parameter");
+          this.frameHandler = arg;
         } else if (
           ts.isCallExpression(call) &&
           ts.isIdentifier(call.expression) &&
@@ -587,7 +835,7 @@ class AppCompiler {
       ) {
         this.scanKeymap(name, init);
       } else {
-        this.scanModuleConst(stmt);
+        this.scanModuleConst(stmt, false);
         return;
       }
     }
@@ -1000,8 +1248,8 @@ class AppCompiler {
     if (sub) return this.constNum(sub);
     if (ts.isNumericLiteral(e)) return Number(e.text);
     if (ts.isPrefixUnaryExpression(e) && e.operator === ts.SyntaxKind.MinusToken) {
-      const v = this.constNum(e.operand);
-      return v === null ? null : -v;
+      const operand = this.constNum(e.operand);
+      return operand === null ? null : -operand;
     }
     // SCCP-folded ref reads: `flag.value` where flag is proven constant.
     // Scope check keeps shadowing locals (map/filter params) out.
@@ -1024,7 +1272,15 @@ class AppCompiler {
         if (b?.kind === "const" && Array.isArray(b.value) && e.name.text === "length") return b.value.length;
         if (b?.kind === "const" && typeof b.value === "object" && !Array.isArray(b.value)) {
           const record = b.value as Record<string, number>;
-          if (e.name.text in record) return record[e.name.text];
+          if (e.name.text in record) {
+            if (e.expression.text === this.frameworkButton) {
+              const button = FRAMEWORK_BUTTON_TO_VAPOR[e.name.text];
+              if (button === undefined)
+                this.err(e, `BTN.${e.name.text} has no Pocket Vapor button mapping`);
+              this.buttonsUsed.add(button);
+            }
+            return record[e.name.text];
+          }
         }
         if (e.expression.text === this.hostButton) {
           const buttons: Record<string, number> = {
@@ -1309,8 +1565,39 @@ class AppCompiler {
     return cName;
   }
 
+  private rpgMapArg(e: ts.Expression, callName: string): RpgMapBinding {
+    e = this.unparen(e);
+    if (!ts.isIdentifier(e)) this.err(e, `${callName} map must be a defineRpgMap module const`);
+    const binding = this.scope.get(e.text);
+    if (binding?.kind !== "rpgMap") this.err(e, `${callName} map must be a defineRpgMap module const`);
+    return binding;
+  }
+
+  private compileRpgQuery(
+    e: ts.CallExpression,
+    out: string[],
+    ind: string,
+    callName: "rpgBlocked" | "rpgEventAt",
+  ): { c: string; ty: Ty } {
+    if (this.target.name !== "gba") this.err(e, `${callName} is currently supported only on the gba target`);
+    if (e.arguments.length !== 3) this.err(e, `${callName}() takes (map, x, y)`);
+    const map = this.rpgMapArg(e.arguments[0], callName);
+    const x = this.compileExpr(e.arguments[1], out, ind);
+    const y = this.compileExpr(e.arguments[2], out, ind);
+    if (x.ty.k !== "num" || y.ty.k !== "num") this.err(e, `${callName} x and y must be numbers`);
+    const cName = callName === "rpgBlocked" ? "vp_rpg_blocked" : "vp_rpg_event_at";
+    return {
+      c: `${cName}(&RPG_${map.name}, ${x.c}, ${y.c})`,
+      ty: callName === "rpgBlocked" ? BOOL : NUM,
+    };
+  }
+
   private compileCall(e: ts.CallExpression, out: string[], ind: string): { c: string; ty: Ty } {
     const callee = this.unparen(e.expression);
+    if (ts.isIdentifier(callee) && callee.text === this.hostRpgBlocked)
+      return this.compileRpgQuery(e, out, ind, "rpgBlocked");
+    if (ts.isIdentifier(callee) && callee.text === this.hostRpgEventAt)
+      return this.compileRpgQuery(e, out, ind, "rpgEventAt");
     // Integer-safe Math subset. Every compiled NUM is s32, so Math.trunc is
     // an identity after C integer division while preserving Vue-oracle parity.
     if (
@@ -1372,6 +1659,8 @@ class AppCompiler {
       [K.AsteriskToken]: "*",
       [K.SlashToken]: "/",
       [K.PercentToken]: "%",
+      [K.AmpersandToken]: "&",
+      [K.BarToken]: "|",
       [K.LessThanToken]: "<",
       [K.GreaterThanToken]: ">",
       [K.LessThanEqualsToken]: "<=",
@@ -1726,6 +2015,8 @@ class AppCompiler {
       decls: string[];
       body: string[];
       isStatic: boolean;
+      /** The native host owns this unit's backing rows and redraw policy. */
+      skipRowClear?: boolean;
     }
     const units: Unit[] = [];
 
@@ -1735,7 +2026,11 @@ class AppCompiler {
         continue;
       }
       if (ts.isJsxElement(rawChild) || ts.isJsxSelfClosingElement(rawChild)) {
-        units.push(this.compileRowUnit(rawChild));
+        const tag = ts.isJsxElement(rawChild)
+          ? rawChild.openingElement.tagName.getText(this.sf)
+          : rawChild.tagName.getText(this.sf);
+        if (this.hostRpgScreen && tag === this.hostRpgScreen) units.push(this.compileRpgScreenUnit(rawChild));
+        else units.push(this.compileRowUnit(rawChild));
         continue;
       }
       if (ts.isJsxExpression(rawChild)) {
@@ -1758,6 +2053,10 @@ class AppCompiler {
       }
     }
 
+    if (this.rpgScreenCount > 0 && units.length !== 1) {
+      this.err(this.template!, "RpgScreen owns the full native display and must be the only root render unit");
+    }
+
     // static rows paint once; overlap with a dynamic span demotes to dynamic
     const dynamic = units.filter((u) => !u.isStatic);
     const overlap = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
@@ -1771,6 +2070,7 @@ class AppCompiler {
       const hit = merged.find((m) => overlap(m.span, u.span));
       if (hit) {
         hit.span = [Math.min(hit.span[0], u.span[0]), Math.max(hit.span[1], u.span[1])];
+        hit.skipRowClear = !!hit.skipRowClear && !!u.skipRowClear;
         for (const d of u.deps) hit.deps.add(d);
         hit.decls.push(...u.decls);
         hit.body.push(...u.body);
@@ -1795,6 +2095,7 @@ class AppCompiler {
               Math.min(merged[i].span[0], merged[j].span[0]),
               Math.max(merged[i].span[1], merged[j].span[1]),
             ];
+            merged[i].skipRowClear = !!merged[i].skipRowClear && !!merged[j].skipRowClear;
             for (const d of merged[j].deps) merged[i].deps.add(d);
             merged[i].decls.push(...merged[j].decls);
             merged[i].body.push(...merged[j].body);
@@ -1811,7 +2112,11 @@ class AppCompiler {
     const effects: { name: string; mask: number; span: [number, number] }[] = [];
     merged.forEach((u, i) => {
       const name = `eff_${i}`;
-      const body = [...u.decls, `  vp_row_clear(${u.span[0]}, ${u.span[1]});`, ...u.body];
+      const body = [
+        ...u.decls,
+        ...(u.skipRowClear ? [] : [`  vp_row_clear(${u.span[0]}, ${u.span[1]});`]),
+        ...u.body,
+      ];
       this.bodies.push(`static void ${name}(void) {\n${body.join("\n")}\n}\n`);
       effects.push({ name, mask: this.maskOf(u.deps), span: u.span });
     });
@@ -2015,6 +2320,91 @@ class AppCompiler {
     return { span: [y, y + 1], deps, decls, body, isStatic: false };
   }
 
+  private compileRpgScreenUnit(el: ts.JsxElement | ts.JsxSelfClosingElement): {
+    span: [number, number];
+    deps: Set<string>;
+    decls: string[];
+    body: string[];
+    isStatic: boolean;
+    skipRowClear: boolean;
+  } {
+    if (this.target.name !== "gba") this.err(el, "RpgScreen is currently supported only on the gba target");
+    if (!ts.isJsxSelfClosingElement(el)) this.err(el, "RpgScreen must be a self-closing element");
+    if (this.rpgScreenCount > 0) this.err(el, "only one RpgScreen is supported per component");
+    this.rpgScreenCount++;
+
+    const required = [
+      "map",
+      "mode",
+      "playerX",
+      "playerY",
+      "playerOffsetX",
+      "playerOffsetY",
+      "facing",
+      "playerFrame",
+      "quest",
+      "dialog",
+      "choice",
+      "heroHp",
+      "enemyHp",
+      "battleCursor",
+    ] as const;
+    type RpgScreenProp = (typeof required)[number];
+    const attrs = new Map<RpgScreenProp, ts.Expression>();
+    for (const prop of el.attributes.properties) {
+      if (!ts.isJsxAttribute(prop)) this.err(prop, "RpgScreen does not support spread props");
+      const name = prop.name.getText(this.sf);
+      if (!(required as readonly string[]).includes(name))
+        this.err(prop, `unknown RpgScreen prop ${JSON.stringify(name)}; expected exactly ${required.join(", ")}`);
+      const typedName = name as RpgScreenProp;
+      if (attrs.has(typedName)) this.err(prop, `duplicate RpgScreen prop ${JSON.stringify(name)}`);
+      attrs.set(typedName, this.attrExpr(prop));
+    }
+    for (const name of required)
+      if (!attrs.has(name)) this.err(el, `RpgScreen is missing required prop ${JSON.stringify(name)}`);
+
+    const map = this.rpgMapArg(attrs.get("map")!, "RpgScreen");
+    const deps = new Set<string>();
+    const prev = this.curDeps;
+    this.curDeps = deps;
+    const { decls, body } = this.withOwner(`unit${this.unitCounter++}`, () => this.withHoist((out) => {
+      const readNumber = (name: Exclude<RpgScreenProp, "map">): { c: string; ty: Ty } => {
+        const value = this.compileExpr(attrs.get(name)!, out, "  ");
+        if (value.ty.k !== "num") this.err(attrs.get(name)!, `RpgScreen ${name} must be a number`);
+        return value;
+      };
+      const mode = readNumber("mode");
+      const playerX = readNumber("playerX");
+      const playerY = readNumber("playerY");
+      const playerOffsetX = readNumber("playerOffsetX");
+      const playerOffsetY = readNumber("playerOffsetY");
+      const facing = readNumber("facing");
+      const playerFrame = readNumber("playerFrame");
+      const quest = readNumber("quest");
+      const dialog = readNumber("dialog");
+      const choice = readNumber("choice");
+      const heroHp = readNumber("heroHp");
+      const enemyHp = readNumber("enemyHp");
+      const battleCursor = readNumber("battleCursor");
+      out.push(
+        `  vp_rpg_render(&RPG_${map.name}, (u8)(${mode.c}), ${playerX.c}, ${playerY.c}, ` +
+          `${playerOffsetX.c}, ${playerOffsetY.c}, (u8)(${facing.c}), (u8)(${playerFrame.c}), ` +
+          `${quest.c}, ${dialog.c}, ${choice.c}, ${heroHp.c}, ${enemyHp.c}, ${battleCursor.c});`,
+      );
+    }));
+    this.curDeps = prev;
+    /* The RPG host maintains BG0 UI incrementally. Clearing the full character
+     * grid before every movement effect would erase the cached fixed HUD. */
+    return {
+      span: [0, this.target.height],
+      deps,
+      decls,
+      body,
+      isStatic: false,
+      skipRowClear: true,
+    };
+  }
+
   private compileMapUnit(call: ts.CallExpression): {
     span: [number, number];
     deps: Set<string>;
@@ -2091,6 +2481,48 @@ class AppCompiler {
     this.err(yExpr, "map row y must be `i` or `CONST + i`");
   }
 
+  private emitRpgData(): string {
+    const out: string[] = [];
+    for (const map of this.rpgMaps) {
+      const prefix = `RPG_${map.name}`;
+      const tiles = map.rows.join("");
+      const solidSet = new Set(map.solid.split(""));
+      const solidMask = tiles.split("").map((tile) => (solidSet.has(tile) ? 1 : 0));
+      out.push(`static const u8 ${prefix}_tiles[] = "${this.escC(tiles)}";`);
+      out.push(`static const u8 ${prefix}_solid[${solidMask.length}] = { ${solidMask.join(", ")} };`);
+
+      if (map.events.length > 0) {
+        out.push(
+          `static const vp_rpg_event ${prefix}_events[${map.events.length}] = { ${map.events
+            .map((event) => `{ ${event.tile}, ${event.event} }`)
+            .join(", ")} };`,
+        );
+      } else {
+        out.push(`static const vp_rpg_event ${prefix}_events[1] = { { 0, 0 } };`);
+      }
+
+      if (map.dialogs.length > 0) {
+        out.push(
+          `static const vp_rpg_dialog ${prefix}_dialogs[${map.dialogs.length}] = { ${map.dialogs
+            .map(
+              (dialog) =>
+                `{ ${this.cStrLit(dialog.speaker)}, ${this.cStrLit(dialog.line1)}, ${this.cStrLit(dialog.line2)}, ` +
+                `${this.cStrLit(dialog.choice0)}, ${this.cStrLit(dialog.choice1)} }`,
+            )
+            .join(", ")} };`,
+        );
+      } else {
+        out.push(`static const vp_rpg_dialog ${prefix}_dialogs[1] = { { 0, 0, 0, 0, 0 } };`);
+      }
+
+      out.push(
+        `static const vp_rpg_map ${prefix} = { ${map.width}, ${map.height}, ${prefix}_tiles, ${prefix}_solid, ` +
+          `${prefix}_events, ${map.events.length}, ${prefix}_dialogs, ${map.dialogs.length} };`,
+      );
+    }
+    return out.join("\n");
+  }
+
   // ---- final emission -------------------------------------------------------
 
   private emit(): CompiledApp {
@@ -2111,6 +2543,49 @@ class AppCompiler {
         }
       }));
       handlerOut = [...decls, ...body];
+      this.scope = saved;
+    }
+
+    let repeatHandlerOut: string[] = [];
+    if (this.repeatHandler) {
+      const saved = new Map(this.scope);
+      const param = this.repeatHandler.parameters[0]?.name.getText(this.sf);
+      if (!param) this.err(this.repeatHandler, "onButtonRepeat arrow needs a (b) param");
+      this.scope.set(param, { kind: "local", cName: "b_arg", ty: NUM });
+      const repeatHandlerArrow = this.repeatHandler;
+      const { decls, body } = this.withOwner("app_on_button_repeat", () => this.withHoist((out) => {
+        if (ts.isBlock(repeatHandlerArrow.body)) {
+          for (const stmt of repeatHandlerArrow.body.statements) this.compileStmt(stmt, out, "  ");
+        } else {
+          this.compileExprStmt(repeatHandlerArrow.body, out, "  ");
+        }
+      }));
+      repeatHandlerOut = [...decls, ...body];
+      this.scope = saved;
+    }
+
+    let frameHandlerOut: string[] = [];
+    if (this.frameHandler) {
+      const saved = new Map(this.scope);
+      const parameter = this.frameHandler.parameters[0];
+      if (parameter) {
+        if (!ts.isIdentifier(parameter.name))
+          this.err(this.frameHandler, "onFrame arrow needs a simple buttons parameter");
+        this.scope.set(parameter.name.text, {
+          kind: "local",
+          cName: "buttons_arg",
+          ty: NUM,
+        });
+      }
+      const frameHandlerArrow = this.frameHandler;
+      const { decls, body } = this.withOwner("app_on_frame", () => this.withHoist((out) => {
+        if (ts.isBlock(frameHandlerArrow.body)) {
+          for (const stmt of frameHandlerArrow.body.statements) this.compileStmt(stmt, out, "  ");
+        } else {
+          this.compileExprStmt(frameHandlerArrow.body, out, "  ");
+        }
+      }));
+      frameHandlerOut = [...decls, ...body];
       this.scope = saved;
     }
 
@@ -2141,6 +2616,8 @@ class AppCompiler {
     }
 
     const { inits, effects } = this.emitTemplate();
+    // Collect RPG dialogue literals before the shared string table is emitted.
+    const rpgData = this.emitRpgData();
 
     // seed + init
     const initOut: string[] = [];
@@ -2235,6 +2712,7 @@ class AppCompiler {
       "static inline const char *VP_UNUSED_FN vp_cstr_at(const char *const *arr, s32 n, s32 i) { return (i >= 0 && i < n) ? arr[i] : (const char *)\"\"; }",
     );
     c.push("static inline char VP_UNUSED_FN vp_char_at(const char *s, s32 n, s32 i) { return (i >= 0 && i < n) ? s[i] : ' '; }");
+    c.push(`const u8 vp_rpg_enabled = ${this.rpgMaps.length > 0 ? 1 : 0};`);
     c.push("");
 
     // record structs
@@ -2261,6 +2739,10 @@ class AppCompiler {
     // string literals
     for (const [text, name] of this.strLits) c.push(`static const char ${name}[] = "${this.escC(text)}";`);
     c.push("");
+    if (rpgData) {
+      c.push(rpgData);
+      c.push("");
+    }
     c.push(this.decls.join("\n"));
     c.push("");
     c.push(this.bodies.join("\n"));
@@ -2274,6 +2756,22 @@ class AppCompiler {
 
     // handler
     c.push(`void app_on_button(u8 b) {\n  s32 b_arg = (s32)b;\n${handlerOut.join("\n")}\n}\n`);
+    if (this.frameHandler) {
+      c.push(
+        `void app_on_frame(u32 buttons) {\n  s32 buttons_arg = (s32)buttons;\n${frameHandlerOut.join("\n")}\n}\n`,
+      );
+    } else {
+      c.push("void app_on_frame(u32 buttons) {\n  (void)buttons;\n}\n");
+    }
+    if (this.target.name === "gba") {
+      if (this.repeatHandler) {
+        c.push(
+          `void app_on_button_repeat(u8 b) {\n  s32 b_arg = (s32)b;\n${repeatHandlerOut.join("\n")}\n}\n`,
+        );
+      } else {
+        c.push("void app_on_button_repeat(u8 b) {\n  (void)b;\n}\n");
+      }
+    }
     c.push(axisHandlerFns.join("\n\n"));
     if (axisHandlerCases.length > 0) {
       c.push(
@@ -2332,6 +2830,14 @@ class AppCompiler {
 
     // ---- reports ----
     const graphLines: string[] = [];
+    if (this.rpgMaps.length > 0) {
+      graphLines.push("rpg maps:");
+      for (const map of this.rpgMaps)
+        graphLines.push(
+          `  ${map.name}: ${map.width}x${map.height}, ${map.events.length} event keys, ${map.dialogs.length} dialogs`,
+        );
+      graphLines.push(`rpg screen effects: ${this.rpgScreenCount} full-screen runtime effect(s)`);
+    }
     graphLines.push("refs:");
     for (const r of this.refs) {
       const folded = this.sccpFolded?.has(r.name)
@@ -2362,6 +2868,8 @@ class AppCompiler {
           .join(", ") || "none"
       }`,
     );
+    graphLines.push(`  frame hook: ${this.frameHandler ? "fixed (gba)" : "none"}`);
+    graphLines.push(`  button repeats: ${this.repeatHandler ? "directional (gba)" : "none"}`);
     graphLines.push(
       `  relative axes: ${
         [...this.axisHandlers.keys()]
@@ -2399,10 +2907,21 @@ class AppCompiler {
       `reactive tables: ${this.refs.length} dirty bits, ${this.computeds.length} validity bits, ${effects.length} effects`,
       `ROM data: ${romStrings} B strings + ${fontBytes} B font + ${styleBytes} B style data`,
     ];
+    if (this.rpgMaps.length > 0) {
+      const tileCount = this.rpgMaps.reduce((sum, map) => sum + map.width * map.height, 0);
+      const eventCount = this.rpgMaps.reduce((sum, map) => sum + map.events.length, 0);
+      const dialogCount = this.rpgMaps.reduce((sum, map) => sum + map.dialogs.length, 0);
+      planLines.push(
+        `RPG assets: ${this.rpgMaps.length} map(s), ${tileCount} tiles + collision bytes, ${eventCount} events, ${dialogCount} dialogs; ${this.rpgScreenCount} full-screen effect(s)`,
+      );
+      planLines.push("RPG art: 54 BG tiles + 6 static and 16 walking 32x32 world frames + 2 64x64 battle OBJ frames, 4 palette banks; 17216 B ROM copied to VRAM");
+      planLines.push("RPG host RAM: 3136 B fixed BG1 tilemap + OAM/UI/cache/register shadow state");
+    }
 
     return {
       c: c.join("\n").replace(/@OVL(\d+)@/g, (_m, id) => ovl.names.get(Number(id))!),
       title: this.title,
+      rpgEnabled: this.rpgMaps.length > 0,
       graph: graphLines.join("\n"),
       plan: planLines.join("\n"),
       debugSlots,

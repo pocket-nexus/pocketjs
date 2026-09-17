@@ -172,6 +172,64 @@ Vapor in your browser — inspectable DOM rows, keyboard as the pad,
 `?target=esp32` to preview the MeowBit viewport, or `?target=playdate` for
 the 50×30 one-bit contract.
 
+## GBA RPG POC
+
+[`examples/rpg/rpg.tsx`](examples/rpg/rpg.tsx) is an experimental,
+GBA-only RPG vertical slice. It adds a small native game host without adding
+a second gameplay language or VM:
+
+- `defineRpgMap(...)` declares static map rows, solid tile characters, event
+  characters, and dialogue records. The compiler validates the declaration
+  and emits fixed ROM tables.
+- `rpgBlocked(...)` and `rpgEventAt(...)` are pure map queries with real JS
+  implementations for behavior/oracle use and equivalent native C helpers.
+- The player, mode, facing, quest, dialogue choice, HP, battle cursor, and
+  in-flight walking progress are ordinary `ref` state; the quest gate is an
+  ordinary `computed` and presentation offsets are derived expressions.
+  Button/frame handlers and setup functions contain the actual gameplay and
+  compile directly to C.
+- One stateless `<RpgScreen .../>` receives that complete reactive state. On
+  GBA the compiler lowers it to the fixed tile/sprite RPG renderer rather
+  than shipping Vue or JavaScript in the ROM.
+- The world uses 16×16 logical metatiles with a pixel-scrolled, clamped 15×10
+  camera, detailed 32×32 world actors, four-frame directional walk cycles,
+  and 64×64 battle portraits. A 16×11 overscan buffer keeps fractional camera
+  movement covered while HUD, dialogue, font, and command UI remain fixed on
+  the native 8×8 screen grid.
+
+The demo's eleven reactive refs occupy 44 bytes. The fixed GBA host adds 3,136
+bytes of BG1 tilemap, OAM, UI/camera-cache, and register-shadow state so VRAM,
+OAM, scroll, and window commits stay inside VBlank; map, collision, event,
+dialogue, tile and sprite assets remain in ROM. The fixed four-bank art payload
+is 17,216 bytes, including sixteen generated directional walk frames.
+
+The demo is one complete loop: start at `(2,2)`, walk next to the solid
+Elder, face them and press A, choose whether to accept the quest, walk onto
+the Slime event, use ATTACK or HEAL in a turn battle, defeat the Slime with
+three attacks, then return to the Elder to complete the quest.
+
+Controls:
+
+- World: D-pad starts a cardinal step and advances it by 2 pixels per fixed
+  60 Hz frame. Holding continues seamlessly; releasing finishes the accepted
+  step without stopping between cells. The integer map coordinate and any
+  destination event commit only after all 16 pixels arrive. A talks to the
+  event cell directly in front of an idle player.
+- Dialogue: Up/Down selects YES or NO; A confirms or advances.
+- Battle: Up/Down selects ATTACK or HEAL; A performs the action.
+
+```sh
+bun run vapor:rpg       # build dist/vapor/rpg.gba
+bun run vapor:rpg:play  # build and open the ROM in mGBA
+```
+
+The POC deliberately keeps a narrow evidence and product boundary. It is
+GBA-only, tile-based, and uses printable English ASCII; there is no save
+data, audio, or CJK text yet. The JS collision/event helpers are real, but
+the browser `RpgScreen` is currently a stateless placeholder rather than a
+pixel oracle renderer. Validation is scoped to mGBA; this section does not
+claim physical-GBA or flash-cart acceptance.
+
 ## Commands
 
 The ESP32 `flash` and default `verify` commands below write the connected
@@ -219,7 +277,8 @@ arithmetic and bit masks come from a ROM table.
 vapor/
   DESIGN.md            the thesis + subset + target/style contracts
   examples/todo/       portable Todo + Playdate relative-axis input variant
-  host/                input.ts (buttons + relative axes), screen.ts (SCREEN geometry)
+  examples/rpg/        experimental GBA-only reactive RPG vertical slice
+  host/                input/screen contracts + the experimental RPG host
   oracle/              micro-DOM + grid painter + bundle boot (real vue)
   compiler/            compile.ts (TS AST → C), styles.ts (class DSL), rom.ts, cli.ts
   runtime/             vapor.h contract + vapor_core.c (shared grid/strings/line)

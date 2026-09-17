@@ -56,6 +56,44 @@ typedef struct {
   u8 idx[VP_VIEW_CAP];
 } vp_view;
 
+/* ---- RPG host --------------------------------------------------------------
+ * Static world/dialogue data is emitted by the Pocket Vapor compiler. Dynamic
+ * gameplay state remains in ordinary generated refs; these records only give
+ * the fixed GBA renderer and pure map-query helpers access to ROM assets. */
+typedef struct {
+  u8 tile;
+  u8 event;
+} vp_rpg_event;
+
+typedef struct {
+  const char *speaker;
+  const char *line1;
+  const char *line2;
+  const char *choice0;
+  const char *choice1;
+} vp_rpg_dialog;
+
+typedef struct {
+  u8 width;
+  u8 height;
+  const u8 *tiles;       /* width * height source glyphs */
+  const u8 *solid;       /* width * height, 0 or 1 */
+  const vp_rpg_event *events;
+  u8 event_count;
+  const vp_rpg_dialog *dialogs;
+  u8 dialog_count;
+} vp_rpg_map;
+
+u8 vp_rpg_blocked(const vp_rpg_map *map, s32 x, s32 y);
+u8 vp_rpg_event_at(const vp_rpg_map *map, s32 x, s32 y);
+void vp_rpg_video_init(void);
+void vp_rpg_render(const vp_rpg_map *map, u8 mode, s32 player_x,
+                   s32 player_y, s32 player_offset_x,
+                   s32 player_offset_y, u8 facing, u8 player_frame,
+                   s32 quest, s32 dialog, s32 choice, s32 hero_hp,
+                   s32 enemy_hp, s32 battle_cursor);
+void vp_rpg_video_commit(void);
+
 /* ---- grid (runtime-owned) -------------------------------------------------- */
 void vp_row_clear(u8 y0, u8 y1); /* rows [y0, y1): space, pair 0 */
 
@@ -99,6 +137,9 @@ extern const u32 vp_bit32[32]; /* vp_bit32[n] == 1UL << n */
 #define VP_RELATIVE_AXIS_SECONDARY 1
 void app_init(void);      /* seed state + first paint (all effects) */
 void app_on_button(u8 b); /* one press edge, GBA key bit index */
+/* One fixed semantic tick with the hardware-neutral framework BTN mask. */
+void app_on_frame(u32 buttons);
+void app_on_button_repeat(u8 b); /* normalized held-D-pad repeat */
 /* Signed physical motion on a hardware-neutral relative axis. Axis 0 is
  * RelativeAxis.Primary. Rotary hosts use millidegrees and preserve the
  * signed total; applications own detents and sensitivity. */
@@ -121,5 +162,6 @@ extern const u16 vp_ink565[];
 extern const u16 vp_paper565[];
 extern const u8 vp_pal_style[];
 extern const char vp_app_title[]; /* cartridge title, <= 12 chars */
+extern const u8 vp_rpg_enabled;   /* compiler-selected GBA pixel host */
 
 #endif

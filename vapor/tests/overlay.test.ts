@@ -102,4 +102,31 @@ export default () => {
     // filter().length also materializes a temp -> reachability forces 2 slots
     expect(slots(app.c, "view")).toEqual(["ovl_view0", "ovl_view1"]);
   });
+
+  test("GBA edge, repeat, and frame hooks share overlay slots without aliasing owners", () => {
+    const src = `${HEADER.replace(
+      'import { Button, onButton } from "../../host/input.ts";',
+      'import { Button, onButton, onButtonRepeat } from "../../host/input.ts";',
+    )}
+import { onFrame } from "@pocketjs/framework/vue-vapor/lifecycle";
+import { BTN } from "@pocketjs/framework/vue-vapor/input";
+export default () => {
+  const text = ref("x");
+  onButton((b) => {
+    if (b === Button.A) text.value = text.value + "a";
+  });
+  onButtonRepeat((b) => {
+    if (b === Button.Right) text.value = text.value + "r";
+  });
+  onFrame((buttons) => {
+    if (buttons & BTN.RIGHT) text.value = text.value + "f";
+  });
+  return (<><row y={0}>{text.value}</row></>);
+};
+`;
+    const app = compileVaporApp("ovl-gba-hooks.tsx", src, "OVERLAY", "gba");
+    // These entry points run sequentially and cannot nest, so their three
+    // string builders may share one slot while retaining distinct owners.
+    expect(slots(app.c, "sb")).toEqual(["ovl_sb0"]);
+  });
 });

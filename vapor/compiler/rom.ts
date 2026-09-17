@@ -125,7 +125,9 @@ export async function buildGbaRom(app: CompiledApp, outRom: string): Promise<{ r
   const gbaDir = join(RUNTIME, "gba");
   const elf = join(genDir, "app.elf");
   const defines = targetDefines("gba");
-  await $`arm-none-eabi-gcc -mcpu=arm7tdmi -mthumb-interwork -marm -ffreestanding -nostdlib -Os -fno-strict-aliasing -Wall -Werror=implicit-function-declaration ${defines} -I${RUNTIME} -I${gbaDir} -T${gbaDir}/gba.ld ${gbaDir}/crt0.s ${RUNTIME}/vapor_core.c ${gbaDir}/vapor_gba.c ${genC} -lgcc -o ${elf}`;
+  const rpgDefine = app.rpgEnabled ? ["-DVP_ENABLE_RPG=1"] : [];
+  const rpgSource = app.rpgEnabled ? [join(gbaDir, "vapor_rpg.c")] : [];
+  await $`arm-none-eabi-gcc -mcpu=arm7tdmi -mthumb-interwork -marm -ffreestanding -nostdlib -Os -fno-strict-aliasing -Wall -Werror=implicit-function-declaration ${defines} ${rpgDefine} -I${RUNTIME} -I${gbaDir} -T${gbaDir}/gba.ld ${gbaDir}/crt0.s ${RUNTIME}/vapor_core.c ${rpgSource} ${gbaDir}/vapor_gba.c ${genC} -lgcc -o ${elf}`;
   await $`arm-none-eabi-objcopy -O binary ${elf} ${outRom}`;
 
   const rom = new Uint8Array(await Bun.file(outRom).arrayBuffer());
