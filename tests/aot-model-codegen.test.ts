@@ -103,7 +103,7 @@ test("generated task resumes after the boundary, restarts and keeps earlier writ
     m.resume(&Ready { frame: 1, ..Default::default() }, &mut cmds);
     assert_eq!(m.count(), 1);
     m.blink(); m.react(false, &mut cmds);
-    assert!(cmds.iter().any(|c| matches!(c, Cmd::Cancel { .. })));
+    assert!(cmds.is_empty());
     m.resume(&Ready { frame: 2, ..Default::default() }, &mut cmds); assert_eq!(m.count(), 1);
     m.resume(&Ready { frame: 3, ..Default::default() }, &mut cmds); assert_eq!(m.count(), 7);
     assert!(m.model_changed()); m.react(false, &mut cmds); m.settle(); assert!(!m.model_changed());
@@ -154,10 +154,10 @@ export function press() { setCount(n => n + 1); setText(s => s + "é"); }
 `), `
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-struct CountAlloc; static ACTIVE: AtomicBool = AtomicBool::new(false); static ALLOCS: AtomicUsize = AtomicUsize::new(0);
-unsafe impl GlobalAlloc for CountAlloc { unsafe fn alloc(&self, l: Layout) -> *mut u8 { if ACTIVE.load(Ordering::SeqCst) { ALLOCS.fetch_add(1, Ordering::SeqCst); } System.alloc(l) } unsafe fn dealloc(&self, p: *mut u8, l: Layout) { System.dealloc(p,l) } }
+struct CountAlloc; thread_local! { static ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; } static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+unsafe impl GlobalAlloc for CountAlloc { unsafe fn alloc(&self, l: Layout) -> *mut u8 { if ACTIVE.try_with(|active| active.get()).unwrap_or(false) { ALLOCS.fetch_add(1, Ordering::SeqCst); } System.alloc(l) } unsafe fn dealloc(&self, p: *mut u8, l: Layout) { System.dealloc(p,l) } }
 #[global_allocator] static ALLOC: CountAlloc = CountAlloc;
-#[test] fn bounded() { let mut m = AppModel::default(); let mut cmds = Vec::new(); m.react(true, &mut cmds); ACTIVE.store(true, Ordering::SeqCst); m.press(); m.react(false, &mut cmds); m.settle(); ACTIVE.store(false, Ordering::SeqCst); assert_eq!(ALLOCS.load(Ordering::SeqCst), 0); assert_eq!(m.text(), "éé"); assert_eq!(m.double(), 2); }
+#[test] fn bounded() { let mut m = AppModel::default(); let mut cmds = Vec::new(); m.react(true, &mut cmds); ACTIVE.with(|active| active.set(true)); m.press(); m.react(false, &mut cmds); m.settle(); ACTIVE.with(|active| active.set(false)); assert_eq!(ALLOCS.load(Ordering::SeqCst), 0); assert_eq!(m.text(), "éé"); assert_eq!(m.double(), 2); }
 `);
 }, 120_000);
 
@@ -168,4 +168,67 @@ export const [rows, setRows] = createSignal<Row[]>([{ id: 1, name: "a", enabled:
 export const enabled = createMemo(() => len(filter(rows(), r => r.enabled)));
 export function toggle() { setRows(map(rows(), r => ({ id: r.id, name: r.name, enabled: !r.enabled }))); }
 `), `#[test] fn records() { let mut m = AppModel::default(); assert_eq!(m.enabled(), 1); m.toggle(); m.settle(); assert_eq!(m.enabled(), 1); assert!(!m.rows()[0].enabled); }`);
+}, 120_000);
+
+test("task readiness uses one snapshot and nested waits retain earlier completions", () => {
+  checkModelRust("task-snapshot", compileSource(`
+export const [gate, setGate] = createSignal(0);
+export const [seen, setSeen] = createSignal(0);
+export async function writer(): Promise<void> { await frames(1); setGate(1); }
+export async function reader(): Promise<void> { await until(() => gate() > 0); setSeen(1); }
+export async function nested(): Promise<void> { await all([any([frames(1), frames(9)]), frames(2)]); setSeen(2); }
+`), `#[test] fn snapshot() { let mut m = AppModel::default(); let mut cmds = Vec::new(); m.writer(); m.reader(); m.resume(&Ready { frame: 1, ..Default::default() }, &mut cmds); assert_eq!(m.gate(), 1); assert_eq!(m.seen(), 0); m.resume(&Ready { frame: 2, ..Default::default() }, &mut cmds); assert_eq!(m.seen(), 1); m.nested(); m.resume(&Ready { frame: 3, ..Default::default() }, &mut cmds); assert_eq!(m.seen(), 1); m.resume(&Ready { frame: 4, ..Default::default() }, &mut cmds); assert_eq!(m.seen(), 2); assert!(cmds.is_empty()); }`);
+}, 120_000);
+
+test("typed services enforce capability, region capacity, boundary validation and late-result dropping", () => {
+  checkModelRust("task-service", compileSource(`
+import { net } from "@pocketjs/framework/net/model";
+export const [result, setResult] = createSignal("idle");
+export async function load(): Promise<void> { const r = await net.get("/resource"); setResult(r.kind); }
+export async function crowded(): Promise<void> { const r = await all([net.get("/1"), net.get("/2"), net.get("/3"), net.get("/4"), net.get("/5")]); }
+export async function nested(): Promise<void> { const r = await all([any([net.get("/first"), net.get("/loser")]), net.get("/last")]); }
+`), `
+use pocket_vapor::model::{Value, Completion, Delivery};
+fn ready(frame: u64) -> Ready { Ready { frame, services: vec!["@pocketjs/framework/net/model".into()], ..Default::default() } }
+#[test] fn services() {
+ let mut m = AppModel::default(); let mut cmds = Vec::new(); m.load(); assert_eq!(m.result(), "idle"); m.resume(&Ready { frame: 1, ..Default::default() }, &mut cmds); assert_eq!(m.result(), "unavailable"); assert!(cmds.is_empty());
+ m.prepare_resume(&ready(2)); m.load(); m.react(false, &mut cmds); let old = match cmds.pop().unwrap() { Cmd::Request { request, .. } => request, _ => panic!() };
+ m.load(); m.react(false, &mut cmds); let current = match cmds.pop().unwrap() { Cmd::Request { request, .. } => request, _ => panic!() }; assert_ne!(old, current);
+ let mut boundary = ready(3); boundary.deliveries.push(Delivery { request: old, result: Completion::Value(Value::String("late".into())) }); m.resume(&boundary, &mut cmds); assert_eq!(m.result(), "unavailable");
+ boundary.frame = 4; boundary.deliveries = vec![Delivery { request: current, result: Completion::Value(Value::Object(vec![("kind".into(), Value::String("ok".into())), ("status".into(), Value::I32(900)), ("body".into(), Value::String("bad".into()))])) }]; m.resume(&boundary, &mut cmds); assert_eq!(m.result(), "malformed");
+ cmds.clear(); m.crowded(); m.react(false, &mut cmds); assert_eq!(cmds.iter().filter(|cmd| matches!(cmd, Cmd::Request { .. })).count(), 4);
+ m.cancel_tasks(&mut cmds); assert_eq!(cmds.iter().filter(|cmd| matches!(cmd, Cmd::Cancel { .. })).count(), 4);
+ cmds.clear(); m.nested(); m.react(false, &mut cmds); let pending: Vec<_> = cmds.iter().filter_map(|cmd| match cmd { Cmd::Request { request, .. } => Some(*request), _ => None }).collect(); assert_eq!(pending.len(), 3);
+ cmds.clear(); let mut boundary = ready(5); boundary.deliveries.push(Delivery { request: pending[0], result: Completion::Value(Value::Object(vec![("kind".into(), Value::String("failed".into())), ("message".into(), Value::String("failure".into()))])) }); m.resume(&boundary, &mut cmds);
+ assert_eq!(cmds, vec![Cmd::Cancel { request: pending[1] }]);
+ cmds.clear(); m.crowded(); m.react(false, &mut cmds); assert_eq!(cmds.iter().filter(|cmd| matches!(cmd, Cmd::Request { .. })).count(), 3);
+}`);
+}, 120_000);
+
+test("awaited animation emits a tracked command and decodes all track outcomes", () => {
+  checkModelRust("task-animation", compileSource(`
+import { createNodeRef, animate, jump } from "@pocketjs/framework/animation";
+export const bar = createNodeRef();
+export const [result, setResult] = createSignal("idle");
+export async function run(): Promise<void> { const end = await animate(bar, "width", 200, { dur: 15_000, easing: "out" }); setResult(end); }
+export function move() { jump(bar, "bgColor", "#010203"); }
+`), `
+use pocket_vapor::model::{Completion, Delivery, AnimationResult};
+#[test] fn animation() { let mut m = AppModel::default(); let mut cmds = Vec::new(); m.run(); m.react(false, &mut cmds); let request = match cmds.pop().unwrap() { Cmd::Animate { node, prop, to, dur, easing, request: Some(request), .. } => { assert_eq!(node, None); assert_eq!(prop, 1); assert_eq!(to, 200.0); assert_eq!(dur, 15000); assert_eq!(easing, 2); request }, _ => panic!() }; m.resume(&Ready { frame: 1, deliveries: vec![Delivery { request, result: Completion::Animation(AnimationResult::Dropped) }], ..Default::default() }, &mut cmds); assert_eq!(m.result(), "dropped"); m.r#move(); m.react(false, &mut cmds); assert!(matches!(cmds.pop(), Some(Cmd::Jump { value, .. }) if value == 0xff030201_u32 as f64)); }
+`);
+}, 120_000);
+
+test("primitive task segments and bounded completion retention allocate nothing after mount", () => {
+  checkModelRust("task-allocation", compileSource(`
+export const [count, setCount] = createSignal(0);
+async function child(): Promise<i32> { await frames(1); return 7; }
+export async function run(): Promise<void> { const value = await child(); setCount(value); }
+`), `
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::atomic::{AtomicUsize, Ordering};
+struct CountAlloc; thread_local! { static ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; } static ALLOCS: AtomicUsize = AtomicUsize::new(0);
+unsafe impl GlobalAlloc for CountAlloc { unsafe fn alloc(&self, l: Layout) -> *mut u8 { if ACTIVE.try_with(|active| active.get()).unwrap_or(false) { ALLOCS.fetch_add(1, Ordering::SeqCst); } System.alloc(l) } unsafe fn dealloc(&self, p: *mut u8, l: Layout) { System.dealloc(p,l) } }
+#[global_allocator] static ALLOC: CountAlloc = CountAlloc;
+#[test] fn allocation() { let mut m = AppModel::default(); let mut cmds = Vec::new(); m.react(true, &mut cmds); ACTIVE.with(|active| active.set(true)); for cycle in 0..100 { m.run(); m.run(); for frame in (cycle*3 + 1)..=(cycle*3 + 3) { m.resume(&Ready { frame, ..Default::default() }, &mut cmds); m.react(false, &mut cmds); m.settle(); } } ACTIVE.with(|active| active.set(false)); assert_eq!(ALLOCS.load(Ordering::SeqCst), 0); assert_eq!(m.count(), 7); }
+`);
 }, 120_000);

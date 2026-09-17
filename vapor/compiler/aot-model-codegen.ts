@@ -4,6 +4,8 @@ import { checkModelVersion, type ModelBinder, type ModelBlock, type ModelExpr, t
 import type { RustBlock, RustExpr, RustField, RustFunction, RustItem, RustParam, RustStatement, RustType } from "./rust-ast.ts";
 import { rb, rc, re, ref, rf, rl, rm, rn, rp, rr, rt } from "./rust-ast.ts";
 import { printRust, rustVariant } from "./rust-printer.ts";
+import { exactIntegerLiteral } from "./aot-types.ts";
+import { ANIMATABLE, PROP, type PropName } from "../../contracts/spec/spec.ts";
 
 const self = rp("self"), unit: RustType = { kind: "tuple", elements: [] };
 const field = (name: string) => rf(self, name);
@@ -23,6 +25,7 @@ class ModelRust {
   serial = 0;
   current!: ModelModule;
   mutable = true;
+  constructing = false;
   task: ModelTask | undefined;
   predicates = new Map<ModelAwaitable, number>();
   binders = new Map<number, ModelBinder>();
@@ -37,9 +40,9 @@ class ModelRust {
   signal(id: number) { const signal = this.current.signals.find(s => s.id === id); if (!signal) throw new Error(`Unknown model signal ${id}`); return signal; }
   node(id: number) { return [...this.current.signals, ...this.current.memos].find(s => s.id === id)!; }
   storage(id: number): RustExpr {
-    if (this.current.params.some(p => p.id === id)) return field(this.name(id));
+    if (this.current.params.some(p => p.id === id)) return this.constructing ? rp(this.name(id)) : field(this.name(id));
     if (this.task?.fields.some(p => p.id === id)) return field(`task_${this.task.id}_${this.name(id)}`);
-    if ([...this.current.signals, ...this.current.fields, ...this.current.memos].some(p => p.id === id)) return field(this.name(id));
+    if ([...this.current.signals, ...this.current.fields, ...this.current.memos, ...this.current.refs].some(p => p.id === id)) return field(this.name(id));
     return rp(this.name(id));
   }
   copy(type: AotType): boolean {
@@ -92,19 +95,25 @@ class ModelRust {
       case "literal": {
         if (e.type.kind === "named") { const d = this.declarations.get(e.type.name); if (d?.kind === "enum") return rp(d.name, rustVariant(String(e.value))); if (d?.kind === "newtype") return rc(rp(d.name), this.expr({ ...e, type: d.base })); }
         if (typeof e.value === "string") return capacity === undefined ? rc(rp("String", "from"), rl(e.value)) : rc({ kind: "path", path: ["pocket_vapor", "model", "bounded_string"], typeArgs: [{ kind: "const", value: capacity }] }, rl(e.value), rl("value"));
-        return rl(e.value, e.type.kind === "number" ? e.type.name : undefined, e.rawNumber);
+        const raw = e.rawNumber === undefined ? undefined : exactIntegerLiteral(e.rawNumber) ?? e.rawNumber.replaceAll("_", "").replace(/^\./, "0.").replace(/\.$/, ".0");
+        return rl(e.value, e.type.kind === "number" ? e.type.name : undefined, raw);
       }
       case "undefined": return rp("None");
       case "local": case "signal": case "field": return this.own(this.storage(e.id), e.type);
       case "memo": return this.mutable ? rm(self, `read_${e.id}`) : this.own(this.storage(e.id), e.type);
       case "member": {
+        const declaration = e.object.type.kind === "named" ? this.declarations.get(e.object.type.name) : undefined;
+        if (declaration?.kind === "union" && e.name === declaration.discriminant) return { kind: "match", value: this.expr(e.object), arms: declaration.variants.map(variant => ({ pattern: { kind: "variant", path: [declaration.name, rustVariant(variant.name)], fields: [], rest: true }, body: this.expr({ kind: "literal", value: variant.name, type: e.type, ledger: e.ledger, loc: e.loc }) })) };
         if (e.variant) {
           const object = this.expr(e.object), d = e.object.type.kind === "named" ? this.declarations.get(e.object.type.name) : undefined;
           if (d?.kind === "union") return { kind: "match", value: object, arms: [ { pattern: { kind: "variant", path: [d.name, rustVariant(e.variant)], fields: [{ name: e.name, pattern: rn("value") }], rest: true }, body: rp("value") }, { pattern: { kind: "wildcard" }, body: { kind: "macro", name: ["unreachable"], args: [] } } ] };
         }
         return this.own(rf(this.expr(e.object), e.name), e.type);
       }
-      case "index": return rm(rm(this.expr(e.object), "get", cast(this.expr(e.index), rt("usize"))), "cloned");
+      case "index": {
+        const value = rm(rm(this.expr(e.object), "get", cast(this.expr(e.index), rt("usize"))), "cloned");
+        return e.type.kind === "option" ? value : rm(value, "unwrap_or_else", { kind: "closure", params: [], body: this.defaultValue(e.type) });
+      }
       case "copy": return this.expr(e.value, capacity);
       case "cast": return cast(this.expr(e.value), this.type(e.type));
       case "unary": {
@@ -176,7 +185,7 @@ class ModelRust {
       }
       case "set": {
         const signal = this.signal(s.signal), prefix = s.pre ? [let_(this.name(s.pre.id), this.own(this.storage(s.signal), signal.type))] : [];
-        if (s.writeBack) return prefix;
+        if (s.writeBack) return [...prefix, this.trace("set", signal.id, signal.name, rm(this.storage(signal.id), "model_value"), { changed: rl(false), version: field(`version_${signal.id}`) })];
         const valueName = `write_${this.serial++}`;
         return [...prefix, let_(valueName, this.expr(s.value, signal.capacity)), re(rm(self, `write_${s.signal}`, rp(valueName)))];
       }
@@ -205,6 +214,7 @@ class ModelRust {
           return [let_(name, rc(rp("String", "new")), true), ...s.args.flatMap((arg, index) => [...(index ? [re(rm(rp(name), "push_str", rl(" ")))] : []), re(rc(rp("pocket_vapor", "model", "append_display"), ref(rp(name), true), ref(this.expr(arg))))]), condition({ kind: "macro", name: ["cfg"], args: [rp("debug_assertions")] }, [re(rm(field("commands"), "push", rc(rp("Cmd", "Log"), rp(name))))])];
         }
         if (s.op === "cancel") return s.args.map(arg => re(rm(self, `cancel_${arg.kind === "literal" ? arg.value : "id" in arg ? arg.id : 0}`)));
+        if (s.op === "animate" || s.op === "jump") return [re(rm(field("commands"), "push", this.animation(s.op, s.args)))];
         throw new Error(`Model Rust external ${s.op} is not implemented`);
       }
       case "start": return [re(rm(self, `start_${this.current.tasks.find(t => t.id === s.task)?.fn ?? s.task}`, ...s.args.map(arg => this.expr(arg))))];
@@ -219,6 +229,35 @@ class ModelRust {
     const result = fn(this.current.kind === "pure" ? `pure_${func.id}` : `${render ? "render_fn" : "fn"}_${func.id}`, [ ...(this.current.kind === "pure" ? [param("depth", rr(rt("Depth")))] : [receiver(!render)]), ...func.params.map(p => param(this.name(p.id), this.type(p.type, false, p.capacity))) ], rb([re(rm(depth, "enter", rl(func.name))), let_("result", expression), re(rm(depth, "leave"))], rp("result")), this.type(func.returns));
     this.mutable = previous; return result;
   }
+  trace(kind: string, id: number, name: string, value: RustExpr = rp("Value", "Unit"), extras: Record<string, RustExpr> = {}): RustStatement {
+    const fields = { kind: rl(kind), region: field("instance"), id: rl(id, "u32"), name: rl(name), mode: rl(""), value, changed: rl(false), version: rl(0), initial: rl(false), ...extras };
+    return condition(rc(rp("pocket_vapor", "model", "trace_enabled")), [re(rc(rp("pocket_vapor", "model", "trace"), { kind: "struct", path: ["pocket_vapor", "model", "ModelTrace"], fields: Object.entries(fields).map(([name, value]) => ({ name, value })), rest: rc(rp("Default", "default")) }))]);
+  }
+  codecs() {
+    const string = (value: string) => rc(rp("String", "from"), rl(value));
+    const object = (fields: { name: string; value: RustExpr }[]) => rc(rp("Value", "Object"), { kind: "macro", name: ["alloc", "vec"], args: fields.map(f => ({ kind: "tuple", elements: [string(f.name), f.value] })) } as RustExpr);
+    const construct = (path: string[], fields: { name: string; type: AotType }[]): RustExpr => ({ kind: "match", value: { kind: "tuple", elements: fields.map(f => rc({ kind: "path", path: ["pocket_vapor", "model", "decode_field"], typeArgs: [this.type(f.type)] }, rp("value"), rl(f.name))) }, arms: [
+      { pattern: { kind: "tuple", elements: fields.map(f => ({ kind: "variant", path: ["Some"], tuple: [rn(f.name)] })) }, body: rc(rp("Some"), { kind: "struct", path, fields: fields.map(f => ({ name: f.name, value: rp(f.name) })) }) },
+      { pattern: { kind: "wildcard" }, body: rp("None") },
+    ] });
+    for (const d of this.program.types) {
+      let encode: RustExpr, decode: RustExpr;
+      if (d.kind === "struct") {
+        encode = object(d.fields.map(f => ({ name: f.name, value: rm(field(f.name), "model_value") })));
+        decode = construct([d.name], d.fields);
+      } else if (d.kind === "enum") {
+        encode = { kind: "match", value: self, arms: d.variants.map(name => ({ pattern: { kind: "variant", path: [d.name, rustVariant(name)] }, body: rc(rp("Value", "String"), string(name)) })) };
+        decode = { kind: "match", value: rc(rp("pocket_vapor", "model", "value_string"), rp("value")), arms: [...d.variants.map(name => ({ pattern: { kind: "variant" as const, path: ["Some"], tuple: [{ kind: "literal" as const, value: name }] }, body: rc(rp("Some"), rp(d.name, rustVariant(name))) })), { pattern: { kind: "wildcard" }, body: rp("None") }] };
+      } else if (d.kind === "union") {
+        encode = { kind: "match", value: self, arms: d.variants.map(v => ({ pattern: { kind: "variant", path: [d.name, rustVariant(v.name)], fields: v.fields.map(f => ({ name: f.name, pattern: rn(f.name) })) }, body: object([{ name: d.discriminant, value: rc(rp("Value", "String"), string(v.name)) }, ...v.fields.map(f => ({ name: f.name, value: rm(rp(f.name), "model_value") }))]) })) };
+        decode = { kind: "match", value: rc(rp("pocket_vapor", "model", "value_tag"), rp("value"), rl(d.discriminant)), arms: [...d.variants.map(v => ({ pattern: { kind: "variant" as const, path: ["Some"], tuple: [{ kind: "literal" as const, value: v.name }] }, body: construct([d.name, rustVariant(v.name)], v.fields) })), { pattern: { kind: "wildcard" }, body: rp("None") }] };
+      } else {
+        encode = rm(rf(self, 0), "model_value");
+        decode = rm(rc({ kind: "qualifiedPath", type: this.type(d.base), member: "from_model_value" }, rp("value")), "map", rp(d.name));
+      }
+      this.items.push({ kind: "impl", type: rt(d.name), trait: rt("ModelValue"), methods: [fn("model_value", [receiver()], rb([], encode), rt("Value")), fn("from_model_value", [param("value", rr(rt("Value")))], rb([], decode), rt("Option", rt("Self")))] });
+    }
+  }
   emitTypes() {
     for (const d of this.program.types) {
       if (d.kind === "struct") this.items.push({ kind: "struct", name: d.name, public: true, derives: ["Clone", "Debug", "PartialEq"], fields: d.fields.map(f => ({ ...f, public: true, type: this.type(f.type) })) });
@@ -231,16 +270,19 @@ class ModelRust {
     this.current = module;
     if (module.kind === "pure") { for (const func of module.functions) this.items.push(this.function(func)); return; }
     const modelName = `${module.name}Model`, traitName = `${module.name}ViewModel`;
-    const fields: RustField[] = [{ name: "depth", type: rt("Depth") }, { name: "commands", type: rt("Vec", rt("Cmd")) }, { name: "instance", type: rt("u32") }, { name: "frame", type: rt("u64") }, { name: "now_ms", type: rt("f64") }, { name: "resumed", type: rt("bool") }];
-    const seeds: { name: string; value: RustExpr }[] = [ { name: "depth", value: rc(rp("Depth", "new"), rl(this.program.recursionLimit, "u32")) }, { name: "commands", value: rc(rp("Vec", "new")) }, { name: "instance", value: rc(rp("pocket_vapor", "model", "next_region")) }, { name: "frame", value: rl(0) }, { name: "now_ms", value: rl(0, "f64") }, { name: "resumed", value: rl(false) } ];
+    const fields: RustField[] = [{ name: "depth", type: rt("Depth") }, { name: "commands", type: rt("pocket_vapor::CommandQueue") }, { name: "instance", type: rt("u32") }, { name: "frame", type: rt("u64") }, { name: "now_ms", type: rt("f64") }, { name: "resumed", type: rt("bool") }, { name: "trace_mode", type: rr(rt("str"), false, "static") }];
+    const seeds: { name: string; value: RustExpr }[] = [ { name: "depth", value: rc(rp("Depth", "new"), rl(this.program.recursionLimit, "u32")) }, { name: "commands", value: rc(rp("pocket_vapor", "CommandQueue", "default")) }, { name: "instance", value: rc(rp("pocket_vapor", "model", "next_region")) }, { name: "frame", value: rl(0) }, { name: "now_ms", value: rl(0, "f64") }, { name: "resumed", value: rl(false) }, { name: "trace_mode", value: rl("construction") } ];
     const methods: RustFunction[] = [], traitMethods: RustFunction[] = [];
-    for (const p of module.params) { fields.push({ name: this.name(p.id), type: this.type(p.type, false, p.capacity) }); seeds.push({ name: this.name(p.id), value: rp(this.name(p.id)) }); }
+    methods.push(fn("model_state", [receiver()], rb([], { kind: "if", condition: rc(rp("pocket_vapor", "model", "trace_enabled")), then: rb([], rc(rp("Value", "Object"), { kind: "macro", name: ["alloc", "vec"], args: [...module.signals, ...module.memos, ...module.fields].map(item => ({ kind: "tuple", elements: [rc(rp("String", "from"), rl(item.name)), rm(this.storage(item.id), "model_value")] })) })), otherwise: rb([], rp("Value", "Unit")) }), rt("Value"), true));
+    for (const p of module.params) { fields.push({ name: this.name(p.id), type: this.type(p.type, false, p.capacity) }); seeds.push({ name: this.name(p.id), value: this.own(rp(this.name(p.id)), p.type) }); }
+    this.constructing = true;
     for (const s of [...module.signals, ...module.fields]) { fields.push({ name: this.name(s.id), type: this.type(s.type, false, s.capacity) }); seeds.push({ name: this.name(s.id), value: this.expr(s.seed, s.capacity) }); }
+    this.constructing = false;
     for (const s of module.signals) {
       fields.push({ name: `version_${s.id}`, type: rt("u32") }, { name: `changed_${s.id}`, type: rt("bool") });
       seeds.push({ name: `version_${s.id}`, value: rl(1) }, { name: `changed_${s.id}`, value: rl(false) });
       const write = [assign(this.storage(s.id), rp("value")), assign(field(`version_${s.id}`), rm(field(`version_${s.id}`), "wrapping_add", rl(1))), assign(field(`changed_${s.id}`), rl(true))];
-      methods.push(fn(`write_${s.id}`, [receiver(true), param("value", this.type(s.type, false, s.capacity))], rb(this.primitive(s.type) ? [condition(bin("!=", rp("value"), this.storage(s.id)), write)] : write)));
+      methods.push(fn(`write_${s.id}`, [receiver(true), param("value", this.type(s.type, false, s.capacity))], rb([let_("changed", this.primitive(s.type) ? bin("!=", rp("value"), this.storage(s.id)) : rl(true)), condition(rp("changed"), write), this.trace("set", s.id, s.name, rm(this.storage(s.id), "model_value"), { changed: rp("changed"), version: field(`version_${s.id}`) })])));
     }
     for (const memo of module.memos) {
       fields.push({ name: this.name(memo.id), type: this.type(memo.type) }, { name: `version_${memo.id}`, type: rt("u32") }, { name: `changed_${memo.id}`, type: rt("bool") }, { name: `initialized_${memo.id}`, type: rt("bool") });
@@ -249,7 +291,7 @@ class ModelRust {
       const updates = [assign(this.storage(memo.id), rp("value")), assign(field(`version_${memo.id}`), rm(field(`version_${memo.id}`), "wrapping_add", rl(1))), assign(field(`changed_${memo.id}`), rl(true))];
       methods.push(fn(`read_${memo.id}`, [receiver(true)], rb([
         ...memo.inputs.filter(input => module.memos.some(m => m.id === input)).map(input => re(rm(self, `read_${input}`))),
-        condition(or([{ kind: "unary", operator: "!", expr: field(`initialized_${memo.id}`) }, ...memo.inputs.map(input => bin("!=", field(`seen_${memo.id}_${input}`), field(`version_${input}`)))]), [let_("value", this.expr(memo.body)), ...(this.primitive(memo.type) ? [condition(bin("!=", rp("value"), this.storage(memo.id)), updates)] : updates), ...memo.inputs.map(input => assign(field(`seen_${memo.id}_${input}`), field(`version_${input}`))), assign(field(`initialized_${memo.id}`), rl(true))]),
+        condition(or([{ kind: "unary", operator: "!", expr: field(`initialized_${memo.id}`) }, ...memo.inputs.map(input => bin("!=", field(`seen_${memo.id}_${input}`), field(`version_${input}`)))]), [let_("value", this.expr(memo.body)), let_("changed", this.primitive(memo.type) ? or([{ kind: "unary", operator: "!", expr: field(`initialized_${memo.id}`) }, bin("!=", rp("value"), this.storage(memo.id))]) : rl(true)), ...(this.primitive(memo.type) ? [condition(rp("changed"), updates)] : updates), ...memo.inputs.map(input => assign(field(`seen_${memo.id}_${input}`), field(`version_${input}`))), assign(field(`initialized_${memo.id}`), rl(true)), this.trace("memo", memo.id, memo.name, rm(this.storage(memo.id), "model_value"), { changed: rp("changed"), version: field(`version_${memo.id}`), mode: field("trace_mode") })]),
       ], this.own(this.storage(memo.id), memo.type)), this.type(memo.type)));
     }
     for (const reference of module.refs) { fields.push({ name: this.name(reference.id), type: rt("NodeSlot") }); seeds.push({ name: this.name(reference.id), value: rc(rp("NodeSlot", "default")) }); }
@@ -258,8 +300,12 @@ class ModelRust {
     this.tasks(module, fields, seeds, methods, traitMethods);
     const memoOrder = module.schedule.filter(id => module.memos.some(m => m.id === id));
     const reset = () => [...module.signals, ...module.memos].map(s => assign(field(`changed_${s.id}`), rl(false)));
-    const newBody = rb([let_("model", { kind: "struct", path: ["Self"], fields: seeds }, true), ...memoOrder.map(id => re(rm(rp("model"), `read_${id}`))), ...[...module.signals, ...module.memos].map(s => assign(rf(rp("model"), `changed_${s.id}`), rl(false)))], rp("model"));
-    if (module.params.length) methods.push(fn("new", module.params.map(p => param(this.name(p.id), this.type(p.type))), newBody, rt("Self"), true));
+    const newBody = rb([let_("model", { kind: "struct", path: ["Self"], fields: seeds }, true), ...memoOrder.map(id => re(rm(rp("model"), `read_${id}`))), assign(rf(rp("model"), "trace_mode"), rl("demand")), ...[...module.signals, ...module.memos].map(s => assign(rf(rp("model"), `changed_${s.id}`), rl(false)))], rp("model"));
+    if (module.params.length) {
+      methods.push(fn("new", module.params.map(p => param(this.name(p.id), this.type(p.type))), newBody, rt("Self"), true));
+      const args: RustType = { kind: "tuple", elements: module.params.map(p => this.type(p.type)) };
+      this.items.push({ kind: "impl", type: rt(modelName), trait: rt("pocket_vapor::New", args), methods: [fn("new", [param("args", args)], rb([], rc(rp("Self", "new"), ...module.params.map((_, i) => rf(rp("args"), i)))), rt("Self"))] });
+    }
     else this.items.push({ kind: "impl", type: rt(modelName), trait: rt("Default"), methods: [fn("default", [], newBody, rt("Self"))] });
     const view = this.view?.components.find(c => c.name === module.name);
     for (const value of view?.values ?? [...module.signals, ...module.memos].filter(s => s.exported).map(s => ({ ...s, sourceName: s.name, writable: module.signals.some(signal => signal.id === s.id) }))) {
@@ -274,17 +320,30 @@ class ModelRust {
     }
     for (const f of view?.functions ?? module.functions.filter(f => f.exported).map(f => ({ name: f.name, sourceName: f.name, parameters: f.params, returns: f.returns, handler: f.async || f.ledger.writes.length > 0 || f.ledger.external, binding: false }))) {
       const func = module.functions.find(item => item.name === f.sourceName || item.name === f.name); if (!func) throw new Error(`No model source for ${module.name}.${f.name}`);
-      const mutable = f.handler || func.async;
+      const mutable = this.view ? !f.binding || func.async : f.handler || func.async;
       traitMethods.push(fn(f.name, [receiver(mutable), ...f.parameters.map(p => param(p.name, this.type(p.type)))], func.async ? rb([re(rm(self, `start_${func.id}`, ...f.parameters.map(p => rp(p.name))))]) : rb([], rm(self, `${mutable ? "fn" : "render_fn"}_${func.id}`, ...f.parameters.map(p => rp(p.name)))), func.async ? unit : this.type(f.returns)));
     }
-    for (const reference of module.refs) traitMethods.push(fn(reference.name, [receiver()], rb([], ref(this.storage(reference.id))), rr(rt("NodeSlot"))));
+    for (const method of traitMethods) {
+      const func = module.functions.find(f => f.name === method.name);
+      if (func && method.body) method.body.statements.unshift(this.trace("handler", func.id, func.name, rc(rp("Value", "Array"), { kind: "macro", name: ["alloc", "vec"], args: method.params.slice(1).map(p => rm(rp((p.pattern as { name: string }).name), "model_value")) })));
+    }
+    for (const reference of view?.refs ?? module.refs.map(reference => ({ name: reference.name, sourceName: reference.name }))) {
+      const source = module.refs.find(item => item.name === reference.sourceName);
+      if (!source) throw new Error(`No model node reference for ${module.name}.${reference.name}`);
+      traitMethods.push(fn(reference.name, [receiver()], rb([], ref(this.storage(source.id))), rr(rt("NodeSlot"))));
+    }
     traitMethods.push(fn("react", [receiver(true), param("initial", rt("bool")), param("cmds", rr(rt("Vec", rt("Cmd")), true))], rb([
-      ...module.schedule.map(id => { const effect = module.effects.find(e => e.id === id); return effect ? condition(or([...(effect.defer ? [] : [rp("initial")]), bin("&&", { kind: "unary", operator: "!", expr: rp("initial") }, or(effect.subscriptions.map(s => field(`changed_${s}`))))]), [re(rm(self, `effect_${id}`))]) : re(rm(self, `read_${id}`)); }),
-      ...reset(), assign(field("resumed"), rl(false)), re(rm(rp("cmds"), "append", ref(field("commands"), true))),
+      ...module.schedule.map(id => { const effect = module.effects.find(e => e.id === id); return effect ? condition(or([...(effect.defer ? [] : [rp("initial")]), bin("&&", { kind: "unary", operator: "!", expr: rp("initial") }, or(effect.subscriptions.map(s => field(`changed_${s}`))))]), [this.trace("effect", id, "", rp("Value", "Unit"), { initial: rp("initial") }), assign(field("trace_mode"), rl("demand")), re(rm(self, `effect_${id}`))]) : re(block([assign(field("trace_mode"), rl("scheduled")), re(rm(self, `read_${id}`)), assign(field("trace_mode"), rl("demand"))])); }),
+      ...reset(), assign(field("resumed"), rl(false)), re(rm(field("commands"), "drain_to", rp("cmds"))),
     ])));
-    traitMethods.push(fn("settle", [receiver(true)], rb([...memoOrder.map(id => re(rm(self, `read_${id}`))), ...reset()])));
+    traitMethods.push(fn("settle", [receiver(true)], rb([assign(field("trace_mode"), rl("settle")), ...memoOrder.map(id => re(rm(self, `read_${id}`))), ...reset(), assign(field("trace_mode"), rl("demand"))])));
+    traitMethods.push(fn("bind_commands", [receiver(true), param("commands", rt("pocket_vapor::CommandQueue"))], rb([assign(field("commands"), rp("commands"))])));
     traitMethods.push(fn("model_changed", [receiver()], rb([], or([field("resumed"), ...module.signals.map(s => field(`changed_${s.id}`)), { kind: "unary", operator: "!", expr: rm(field("commands"), "is_empty") }])), rt("bool")));
-    if (!module.tasks.length) traitMethods.push(fn("resume", [receiver(true), param("ready", rr(rt("Ready"))), param("_cmds", rr(rt("Vec", rt("Cmd")), true))], rb([assign(field("frame"), rf(rp("ready"), "frame")), assign(field("now_ms"), rf(rp("ready"), "now_ms"))])));
+    if (!module.tasks.length) {
+      traitMethods.push(fn("prepare_resume", [receiver(true), param("ready", rr(rt("Ready")))], rb([assign(field("frame"), rf(rp("ready"), "frame")), assign(field("now_ms"), rf(rp("ready"), "now_ms"))])));
+      traitMethods.push(fn("resume", [receiver(true), param("ready", rr(rt("Ready"))), param("_cmds", rr(rt("Vec", rt("Cmd")), true))], rb([re(rm(self, "prepare_resume", rp("ready")))])));
+      traitMethods.push(fn("cancel_tasks", [receiver(true), param("cmds", rr(rt("Vec", rt("Cmd")), true))], rb([re(rm(field("commands"), "drain_to", rp("cmds")))])));
+    }
     this.items.push({ kind: "struct", name: modelName, public: true, fields });
     this.items.push({ kind: "impl", type: rt(modelName), methods });
     if (!this.view) this.items.push({ kind: "trait", name: traitName, public: true, methods: traitMethods.map(f => ({ ...f, body: undefined })) });
@@ -293,13 +352,18 @@ class ModelRust {
   }
   tasks(module: ModelModule, fields: RustField[], seeds: { name: string; value: RustExpr }[], methods: RustFunction[], traitMethods: RustFunction[]) {
     if (!module.tasks.length) return;
-    fields.push({ name: "task_order", type: rt("u64") }, { name: "outcomes", type: rt("Vec", rt("TaskOutcome")) });
-    seeds.push({ name: "task_order", value: rl(0) }, { name: "outcomes", value: rc(rp("Vec", "new")) });
+    const countWait = (wait: ModelAwaitable, kind?: ModelAwaitable["kind"]): number => (kind === undefined || wait.kind === kind ? 1 : 0) + (wait.kind === "all" || wait.kind === "any" ? wait.members.reduce((n, child) => n + countWait(child, kind), 0) : 0);
+    const bound = (task: ModelTask, kind?: ModelAwaitable["kind"]) => Math.max(0, ...task.states.map(state => state.suspend ? countWait(state.suspend, kind) : 0));
+    const joins = module.tasks.reduce((n, task) => n + bound(task, "join"), 0);
+    const services = module.tasks.reduce((n, task) => n + bound(task, "service"), 0);
+    fields.push({ name: "prepared_frame", type: rt("u64") }, { name: "task_order", type: rt("u64") }, { name: "outcomes", type: rt("heapless::Vec", rt("TaskOutcome"), { kind: "const", value: module.tasks.length + joins + 1 }) }, { name: "services", type: rt("Vec", rt("String")) }, { name: "requests", type: rt("ServiceRequests", { kind: "const", value: services }) });
+    seeds.push({ name: "prepared_frame", value: rp("u64", "MAX") }, { name: "task_order", value: rl(0) }, { name: "outcomes", value: rc(rp("heapless", "Vec", "new")) }, { name: "services", value: rc(rp("Vec", "new")) }, { name: "requests", value: rc(rp("ServiceRequests", "default")) });
+    methods.push(fn("prune_outcomes", [receiver(true)], rb([re(rm(field("outcomes"), "retain", { kind: "closure", params: [rn("outcome")], body: or(module.tasks.flatMap(task => [bin("==", rf(field(`task_${task.id}`), "task"), rf(rp("outcome"), "task")), rm(field(`task_${task.id}`), "references", rf(rp("outcome"), "task"))])) }))])));
     const predicates: RustExpr[] = [];
     const predicateWalk = (awaitable: ModelAwaitable) => {
       if (awaitable.kind === "until") {
         const id = this.predicates.size; this.predicates.set(awaitable, id);
-        predicates.push({ kind: "tuple", elements: [rl(id, "u32"), this.expr(awaitable.predicate)] });
+        predicates.push({ kind: "tuple", elements: [rl(id, "u32"), { kind: "if", condition: rm(field(`task_${this.task!.id}`), "waits_for_predicate", rl(id, "u32")), then: rb([], this.expr(awaitable.predicate)), otherwise: rb([], rl(false)) }] });
       }
       if (awaitable.kind === "all" || awaitable.kind === "any") awaitable.members.forEach(predicateWalk);
     };
@@ -307,20 +371,31 @@ class ModelRust {
       const func = this.functions.get(task.fn)!;
       this.task = { ...task, fields: [...new Map([...task.fields, ...func.params].map(p => [p.id, p])).values()] };
       const taskField = field(`task_${task.id}`);
-      fields.push({ name: `task_${task.id}`, type: rt("TaskState") });
-      seeds.push({ name: `task_${task.id}`, value: rc(rp("TaskState", "default")) });
+      fields.push({ name: `task_${task.id}`, type: rt("TaskState", { kind: "const", value: bound(task) }) }, { name: `prepared_${task.id}`, type: rt("Option", rt("Completion")) }, { name: `prepared_id_${task.id}`, type: rt("TaskId") }, { name: `prepared_order_${task.id}`, type: rt("u64") });
+      seeds.push({ name: `task_${task.id}`, value: rc(rp("TaskState", "default")) }, { name: `prepared_${task.id}`, value: rp("None") }, { name: `prepared_id_${task.id}`, value: rc(rp("TaskId", "default")) }, { name: `prepared_order_${task.id}`, value: rl(0) });
       for (const binder of this.task.fields) {
         fields.push({ name: `task_${task.id}_${this.name(binder.id)}`, type: this.type(binder.type, false, binder.capacity) });
         seeds.push({ name: `task_${task.id}_${this.name(binder.id)}`, value: this.defaultValue(binder.type) });
       }
       for (const state of task.states) if (state.suspend) predicateWalk(state.suspend);
-      methods.push(fn(`cancel_${func.id}`, [receiver(true)], rb([re(rm(taskField, "cancel", ref(field("commands"), true), ref(field("outcomes"), true)))])));
+      methods.push(fn(`release_${func.id}`, [receiver(true)], rb(this.task.fields.map(binder => assign(this.storage(binder.id), this.defaultValue(binder.type))))));
+      methods.push(fn(`cancel_${func.id}`, [receiver(true)], rb([re(rm(self, `cancel_reason_${func.id}`, rl("cancel")))])));
+      methods.push(fn(`cancel_reason_${func.id}`, [receiver(true), param("reason", rr(rt("str"), false, "static"))], rb([
+        condition({ kind: "unary", operator: "!", expr: rf(taskField, "live") }, [{ kind: "return" }]),
+        let_("cancelled", rf(taskField, "task")),
+        re(rm(taskField, "cancel", ref(rm(field("commands"), "borrow_mut"), true), ref(field("outcomes"), true), ref(field("requests"), true), rp("reason"))),
+        re(rm(self, `release_${func.id}`)),
+        ...module.tasks.filter(other => other.id !== task.id).map(other => condition(rm(field(`task_${other.id}`), "awaits_bare", rp("cancelled")), [re(rm(self, `cancel_reason_${other.fn}`, rl("awaited task cancelled")))])),
+        re(rm(self, "prune_outcomes")),
+      ])));
       methods.push(fn(`start_${func.id}`, [receiver(true), ...func.params.map(p => param(this.name(p.id), this.type(p.type)))], rb([
-        re(rm(self, `cancel_${func.id}`)),
+        re(rm(self, `cancel_reason_${func.id}`, rl("restart"))),
         assign(field("task_order"), rm(field("task_order"), "wrapping_add", rl(1))),
         let_("task", rm(taskField, "start", field("instance"), rl(func.id, "u32"), field("task_order"))),
         ...func.params.map(p => assign(this.storage(p.id), rp(this.name(p.id)))),
         re(rm(self, `segment_${func.id}`, rl(0), rp("None"))),
+        condition({ kind: "unary", operator: "!", expr: rf(taskField, "live") }, [re(rm(self, `release_${func.id}`))]),
+        re(rm(self, "prune_outcomes")),
       ], rp("task")), rt("TaskId")));
       const arms = task.states.map(state => {
         const previous = task.states.find(candidate => candidate.suspend && (candidate.next ?? candidate.id + 1) === state.id && candidate.resume);
@@ -333,8 +408,8 @@ class ModelRust {
         }
         body.push(...this.statements(state.body));
         if (state.suspend) {
-          body.push(assign(rf(taskField, "wait_generation"), rm(rf(taskField, "wait_generation"), "wrapping_add", rl(1))));
-          const wait = this.awaitable(state.suspend, task, { member: 0 });
+          body.push(assign(rf(taskField, "wait_generation"), rm(rm(rf(taskField, "wait_generation"), "checked_add", rl(1)), "expect", rl("model wait identity exhausted"))));
+          const wait = rc(rp("Wait", "new"), { kind: "array", elements: this.awaitables(state.suspend, task) });
           body.push(let_("wait", wait), re(rm(taskField, "suspend", rl(state.next ?? state.id + 1, "u32"), field("frame"), rp("wait"))), { kind: "return" });
         } else if (state.branch) body.push(assign(rp("state"), { kind: "if", condition: this.expr(state.branch.condition), then: rb([], rl(state.branch.then, "u32")), otherwise: rb([], rl(state.branch.else, "u32")) }), { kind: "continue" });
         else if (state.next !== undefined) body.push(assign(rp("state"), rl(state.next, "u32")), { kind: "continue" });
@@ -345,46 +420,97 @@ class ModelRust {
       methods.push(fn(`segment_${func.id}`, [receiver(true), { pattern: rn("state", true), type: rt("u32") }, param("result", rt("Option", rt("Completion")))], rb([{ kind: "loop", body: rb([re({ kind: "match", value: rp("state"), arms })]) }])));
     }
     this.task = undefined;
-    const readyItems = module.tasks.map(task => ({ kind: "tuple" as const, elements: [rf(field(`task_${task.id}`), "order"), rl(task.id, "u32"), rm(field(`task_${task.id}`), "poll", rp("ready"), ref(rp("predicates")), ref(field("outcomes")))] }));
+    traitMethods.push(fn("prepare_resume", [receiver(true), param("ready", rr(rt("Ready")))], rb([
+      assign(field("frame"), rf(rp("ready"), "frame")), assign(field("now_ms"), rf(rp("ready"), "now_ms")), assign(field("prepared_frame"), rf(rp("ready"), "frame")), condition(bin("!=", field("services"), rf(rp("ready"), "services")), [assign(field("services"), rm(rf(rp("ready"), "services"), "clone"))]),
+      condition(rc(rp("pocket_vapor", "model", "trace_enabled")), [{ kind: "for", pattern: rn("delivery"), iterable: ref(rf(rp("ready"), "deliveries")), body: rb([condition(bin("==", rf(rf(rf(rp("delivery"), "request"), "task"), "region"), field("instance")), [re({ kind: "match", value: rf(rf(rf(rp("delivery"), "request"), "task"), "function"), arms: [...module.tasks.map(task => ({ pattern: { kind: "literal" as const, value: task.fn }, body: rm(field(`task_${task.id}`), "trace_delivery", rp("delivery")) })), { pattern: { kind: "wildcard" }, body: rc(rp("pocket_vapor", "model", "trace_delivery_drop"), rp("delivery")) }] })])]) }]),
+      let_("predicates", { kind: "array", elements: predicates }, false, { kind: "array", element: { kind: "tuple", elements: [rt("u32"), rt("bool")] }, length: predicates.length }),
+      ...module.tasks.flatMap(task => [assign(field(`prepared_${task.id}`), rm(field(`task_${task.id}`), "poll", rp("ready"), ref(rp("predicates")), ref(field("outcomes")), ref(field("requests"), true), ref(field("commands")))), assign(field(`prepared_id_${task.id}`), rf(field(`task_${task.id}`), "task")), assign(field(`prepared_order_${task.id}`), rf(field(`task_${task.id}`), "order"))]),
+    ])));
+    const readyItems = module.tasks.map(task => ({ kind: "tuple" as const, elements: [field(`prepared_order_${task.id}`), rl(task.id, "u32"), field(`prepared_id_${task.id}`), rm(field(`prepared_${task.id}`), "take")] }));
     const branches = module.tasks.map(task => ({ pattern: { kind: "literal" as const, value: task.id }, body: block([
-      condition({ kind: "matches", value: rp("completion"), pattern: { kind: "variant", path: ["Completion", "Cancelled"] } }, [re(rm(self, `cancel_${task.fn}`))], rb([
-        re(rm(field(`task_${task.id}`), "complete_wait", ref(field("commands"), true))),
+      condition(bin("||", { kind: "unary", operator: "!", expr: rf(field(`task_${task.id}`), "live") }, bin("!=", rf(field(`task_${task.id}`), "task"), rp("task_id"))), [{ kind: "continue" }]),
+      condition({ kind: "matches", value: rp("completion"), pattern: { kind: "variant", path: ["Completion", "Cancelled"] } }, [re(rm(self, `cancel_reason_${task.fn}`, rl("awaited task cancelled")))], rb([
+        re(rm(field(`task_${task.id}`), "complete_wait", ref(rm(field("commands"), "borrow_mut"), true), ref(field("requests"), true))),
         let_("state", rf(field(`task_${task.id}`), "state")),
+        re(rc(rp("pocket_vapor", "model", "trace_task_resume"), rp("task_id"), rp("state"))),
         re(rm(self, `segment_${task.fn}`, rp("state"), rc(rp("Some"), rp("completion")))),
+        condition({ kind: "unary", operator: "!", expr: rf(field(`task_${task.id}`), "live") }, [re(rm(self, `release_${task.fn}`))]),
+        re(rm(self, "prune_outcomes")),
       ])),
     ]) }));
     branches.push({ pattern: { kind: "wildcard" } as never, body: { kind: "macro", name: ["unreachable"], args: [] } });
     traitMethods.push(fn("resume", [receiver(true), param("ready", rr(rt("Ready"))), param("cmds", rr(rt("Vec", rt("Cmd")), true))], rb([
-      assign(field("frame"), rf(rp("ready"), "frame")), assign(field("now_ms"), rf(rp("ready"), "now_ms")),
-      let_("predicates", { kind: "array", elements: predicates }, false, { kind: "array", element: { kind: "tuple", elements: [rt("u32"), rt("bool")] }, length: predicates.length }),
+      condition(bin("!=", field("prepared_frame"), rf(rp("ready"), "frame")), [re(rm(self, "prepare_resume", rp("ready")))]),
       let_("resumptions", { kind: "array", elements: readyItems }, true),
       re(rm(rp("resumptions"), "sort_by_key", { kind: "closure", params: [rn("entry")], body: rf(rp("entry"), 0) })),
-      { kind: "for", pattern: { kind: "tuple", elements: [{ kind: "wildcard" }, rn("function"), rn("completion")] }, iterable: rp("resumptions"), body: rb([re({ kind: "ifLet", pattern: { kind: "variant", path: ["Some"], tuple: [rn("completion")] }, value: rp("completion"), then: rb([assign(field("resumed"), rl(true)), re({ kind: "match", value: rp("function"), arms: branches })]) })]) },
-      re(rm(rp("cmds"), "append", ref(field("commands"), true))),
+      { kind: "for", pattern: { kind: "tuple", elements: [{ kind: "wildcard" }, rn("function"), rn("task_id"), rn("completion")] }, iterable: rp("resumptions"), body: rb([re({ kind: "ifLet", pattern: { kind: "variant", path: ["Some"], tuple: [rn("completion")] }, value: rp("completion"), then: rb([assign(field("resumed"), rl(true)), re({ kind: "match", value: rp("function"), arms: branches })]) })]) },
+      re(rm(field("commands"), "drain_to", rp("cmds"))),
     ])));
     traitMethods.push(fn("cancel_tasks", [receiver(true), param("cmds", rr(rt("Vec", rt("Cmd")), true))], rb([
-      ...module.tasks.map(task => re(rm(self, `cancel_${task.fn}`))), re(rm(rp("cmds"), "append", ref(field("commands"), true))),
+      ...module.tasks.map(task => re(rm(self, `cancel_reason_${task.fn}`, rl("unmount")))), re(rm(field("commands"), "drain_to", rp("cmds"))),
     ])));
   }
-  awaitable(wait: ModelAwaitable, task: ModelTask, sequence: { member: number }): RustExpr {
+  animation(op: "animate" | "jump", args: ModelExpr[], request: RustExpr = rp("None")): RustExpr {
+    const [node, property, target, options] = args;
+    if (!node || !property || !target) throw new Error(`${op} requires a node, property and target`);
+    const reference = node.kind === "literal" ? this.current.refs.find(ref => ref.name === node.value) : undefined;
+    if (!reference) throw new Error(`${op} requires a bound model node reference`);
+    const prop = property.kind === "literal" && typeof property.value === "string" ? property.value as PropName : undefined;
+    if (!prop || !ANIMATABLE.includes(prop)) throw new Error(`${op} requires a literal animatable property`);
+    const option = (name: string, fallback: RustExpr): RustExpr => {
+      if (!options) return fallback;
+      if (options.kind === "struct") { const entry = options.fields.find(field => field.name === name); return entry ? this.expr(entry.value) : fallback; }
+      if (options.type.kind === "named") {
+        const declaration = this.declarations.get(options.type.name);
+        const entry = declaration?.kind === "struct" ? declaration.fields.find(field => field.name === name) : undefined;
+        if (!entry) return fallback;
+        const expr = rf(this.expr(options), name);
+        return entry.type.kind === "option" ? rm(expr, "unwrap_or", fallback) : expr;
+      }
+      throw new Error(`${op} options require a contract struct`);
+    };
+    const numericTarget = target.type.kind === "string" ? rc(rp("pocket_vapor", "model", "animation_color"), ref(this.expr(target))) : cast(this.expr(target), rt("f64"));
+    const fields = [{ name: "node", value: rm(this.storage(reference.id), "get") }, { name: "prop", value: rl(PROP[prop], "u8") }];
+    if (op === "jump") return { kind: "struct", path: ["Cmd", "Jump"], fields: [...fields, { name: "value", value: numericTarget }] };
+    const easing = rc(rp("pocket_vapor", "model", "animation_easing_value"), ref(rm(option("easing", rl(2, "i32")), "model_value")));
+    return { kind: "struct", path: ["Cmd", "Animate"], fields: [...fields, { name: "to", value: numericTarget }, { name: "dur", value: cast(option("dur", rl(200)), rt("u32")) }, { name: "easing", value: easing }, { name: "delay", value: cast(option("delay", rl(0)), rt("u32")) }, { name: "request", value: request }] };
+  }
+  awaitables(wait: ModelAwaitable, task: ModelTask): RustExpr[] {
+    const nodes: RustExpr[] = [], sequence = { member: 0 };
+    const walk = (wait: ModelAwaitable) => {
+      const index = nodes.length;
+      nodes.push(rp("unreachable"));
+      if (wait.kind === "all" || wait.kind === "any") {
+        wait.members.forEach(walk);
+        nodes[index] = { kind: "struct", path: ["WaitNode", wait.kind === "all" ? "All" : "Any"], fields: [{ name: "end", value: rl(nodes.length) }, ...(wait.kind === "any" ? [{ name: "winner", value: rp("None") }] : [])] };
+      } else nodes[index] = this.awaitableLeaf(wait as Exclude<ModelAwaitable, { kind: "all" | "any" }>, task, sequence);
+    };
+    walk(wait); return nodes;
+  }
+  awaitableLeaf(wait: Exclude<ModelAwaitable, { kind: "all" | "any" }>, task: ModelTask, sequence: { member: number }): RustExpr {
     const taskField = field(`task_${task.id}`);
-    if (wait.kind === "all" || wait.kind === "any") return rc(rp("Wait", wait.kind === "all" ? "All" : "Any"), { kind: "macro", name: ["alloc", "vec"], args: wait.members.map(member => this.awaitable(member, task, sequence)) });
-    const request = rm(taskField, "request", rl(sequence.member++, "u32"));
-    const value = (variant: string, fields: { name: string; value: RustExpr }[]): RustExpr => ({ kind: "struct", path: ["Wait", variant], fields: [{ name: "request", value: request }, ...fields] });
-    if (wait.kind === "frames") return value("Frames", [{ name: "until", value: rm(field("frame"), "wrapping_add", cast(this.expr(wait.count), rt("u64"))) }]);
+    const request = rc(rp("pocket_vapor", "model", "trace_wait"), rm(taskField, "request", rl(sequence.member++, "u32")), rl(wait.kind));
+    const value = (variant: string, fields: { name: string; value: RustExpr }[]): RustExpr => ({ kind: "struct", path: ["WaitNode", variant], fields: [{ name: "request", value: request }, ...fields] });
+    if (wait.kind === "frames") return value("Frames", [{ name: "until", value: rm(field("frame"), "saturating_add", cast(rm(this.expr(wait.count), "max", rl(0)), rt("u64"))) }]);
     if (wait.kind === "after") return value("After", [{ name: "until", value: bin("+", field("now_ms"), cast(this.expr(wait.ms), rt("f64"))) }]);
     if (wait.kind === "until") return value("Until", [{ name: "predicate", value: rl(this.predicates.get(wait)!, "u32") }]);
     if (wait.kind === "join") {
       const target = this.current.tasks.find(candidate => candidate.id === wait.task || candidate.fn === wait.task);
       if (!target) throw new Error(`Unknown joined task ${wait.task}`);
-      return block([let_("joined", rm(self, `start_${target.fn}`, ...(wait.args ?? []).map(arg => this.expr(arg))))], value("Join", [{ name: "target", value: rp("joined") }, { name: "wrapped", value: rl(wait.wrapped) }]));
+      return block([let_("request", request), let_("joined", rm(self, `start_${target.fn}`, ...(wait.args ?? []).map(arg => this.expr(arg))))], { kind: "struct", path: ["WaitNode", "Join"], fields: [{ name: "request", value: rp("request") }, { name: "target", value: rp("joined") }, { name: "wrapped", value: rl(wait.wrapped) }] });
     }
-    if (wait.kind === "service") return block([let_("request", request), re(rm(field("commands"), "push", { kind: "struct", path: ["Cmd", "Request"], fields: [ { name: "service", value: rc(rp("String", "from"), rl(wait.module)) }, { name: "call", value: rc(rp("String", "from"), rl(wait.call)) }, { name: "args", value: { kind: "macro", name: ["alloc", "vec"], args: wait.args.map(arg => rm(this.expr(arg), "model_value")) } }, { name: "request", value: rp("request") } ] }))], { kind: "struct", path: ["Wait", "Delivery"], fields: [{ name: "request", value: rp("request") }] });
-    throw new Error(`Model Rust awaitable ${wait.kind} is not implemented`);
+    if (wait.kind === "service") {
+      const capacity = wait.capacity ?? (wait.module === "@pocketjs/framework/net/model" ? 4 : undefined);
+      if (capacity === undefined) throw new Error(`Service ${wait.module} does not declare a request capacity`);
+      return { kind: "method", object: field("requests"), method: "wait", typeArgs: [this.type(wait.result)], args: [ref(field("services")), rl(wait.module), rl(wait.call), { kind: "macro", name: ["alloc", "vec"], args: wait.args.map(arg => rm(this.expr(arg), "model_value")) }, request, rl(capacity), ref(field("commands"))] };
+    }
+    if (wait.kind === "animate") return block([let_("request", request), re(rm(field("commands"), "push", this.animation("animate", wait.args, rc(rp("Some"), rp("request")))))], { kind: "struct", path: ["WaitNode", "Delivery"], fields: [{ name: "request", value: rp("request") }] });
+    throw new Error(`Model Rust awaitable ${(wait as ModelAwaitable).kind} is not implemented`);
   }
   generate(): string {
-    this.items.push({ kind: "extern", name: "alloc" }, { kind: "use", path: ["alloc", "string"], names: ["String"] }, { kind: "use", path: ["alloc", "vec"], names: ["Vec"] }, { kind: "use", path: ["pocket_vapor", "model"], names: ["Cmd", "Ready", "Depth", "NodeSlot", "TaskId", "RequestId", "heapless", "Wait", "TaskState", "TaskOutcome", "Completion", "Value", "ModelValue"] });
+    this.items.push({ kind: "extern", name: "alloc" }, { kind: "use", path: ["alloc", "string"], names: ["String"] }, { kind: "use", path: ["alloc", "vec"], names: ["Vec"] }, { kind: "use", path: ["pocket_vapor", "model"], names: ["Cmd", "Ready", "Depth", "NodeSlot", "TaskId", "RequestId", "heapless", "Wait", "WaitNode", "ServiceRequests", "TaskState", "TaskOutcome", "Completion", "Value", "ModelValue"] });
     if (this.view) this.items.push({ kind: "use", path: ["super"], names: ["*"] }); else this.emitTypes();
+    this.codecs();
     for (const module of this.program.modules) this.module(module);
     return printRust({ items: this.items, attributes: [{ name: "allow", args: ["dead_code", "unused_imports", "unused_mut", "non_snake_case", "unused_variables"] }] });
   }

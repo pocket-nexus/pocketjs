@@ -1,6 +1,7 @@
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     string::String,
+    vec::Vec,
 };
 use pocketjs_core::{
     Ui as CoreUi,
@@ -89,6 +90,12 @@ pub struct Ui {
     debug_names: BTreeMap<NodeId, String>,
     previous_buttons: u32,
     active: NodeId,
+    model_frame: u64,
+    model_ticks: u64,
+    model_deliveries: Vec<crate::model::Delivery>,
+    model_services: Vec<String>,
+    model_animations: BTreeMap<i32, crate::RequestId>,
+    model_logs: Vec<String>,
 }
 
 impl Default for Ui {
@@ -109,6 +116,12 @@ impl Ui {
             debug_names: BTreeMap::new(),
             previous_buttons: 0,
             active: NodeId::NONE,
+            model_frame: 0,
+            model_ticks: 0,
+            model_deliveries: Vec::new(),
+            model_services: Vec::new(),
+            model_animations: BTreeMap::new(),
+            model_logs: Vec::new(),
         }
     }
     pub fn core(&self) -> &CoreUi {
@@ -194,7 +207,62 @@ impl Ui {
     }
     pub fn tick(&mut self) {
         self.core.tick();
+        self.model_ticks = self.model_ticks.checked_add(1).expect("model clock exhausted");
     }
+
+    /// Queue a typed service completion for the next model frame boundary.
+    pub fn queue_model_delivery(&mut self, delivery: crate::model::Delivery) {
+        self.model_deliveries.push(delivery);
+    }
+    /// Declare service modules implemented by the embedding host's command handler.
+    pub fn set_model_services(&mut self, services: impl IntoIterator<Item = String>) {
+        self.model_services = services.into_iter().collect();
+        self.model_services.sort();
+        self.model_services.dedup();
+    }
+    pub fn model_ready(&mut self) -> crate::Ready {
+        use crate::model::{AnimationResult, Completion, Delivery};
+        use pocketjs_core::anim::CompletionReason;
+        let animations = &mut self.model_animations;
+        let deliveries = &mut self.model_deliveries;
+        self.core.drain_animation_completions(|completion| {
+            if let Some(request) = animations.remove(&completion.id) {
+                let result = match completion.reason {
+                    CompletionReason::Ended => AnimationResult::Ended,
+                    CompletionReason::Replaced => AnimationResult::Replaced,
+                    CompletionReason::Dropped => AnimationResult::Dropped,
+                };
+                deliveries.push(Delivery { request, result: Completion::Animation(result) });
+            }
+        });
+        self.model_frame = self.model_frame.checked_add(1).expect("model frame identity exhausted");
+        crate::Ready { frame: self.model_frame, now_ms: self.model_ticks as f64 / self.core.tick_rate() as f64 * 1000.0, deliveries: core::mem::take(&mut self.model_deliveries), services: self.model_services.clone() }
+    }
+    pub fn model_command(&mut self, command: crate::Cmd) {
+        use crate::model::{AnimationResult, Cmd, Completion, Delivery, Value};
+        match command {
+            Cmd::Animate { node, prop, to, dur, easing, delay, request } => {
+                let id = node.map(|node| self.core.animate(node.0, prop, to as f64, dur, easing, delay)).unwrap_or(-1);
+                if let Some(request) = request {
+                    if id > 0 { self.model_animations.insert(id, request); }
+                    else { self.model_deliveries.push(Delivery { request, result: Completion::Animation(AnimationResult::Dropped) }); }
+                }
+            }
+            Cmd::Jump { node, prop, value } => if let Some(node) = node { self.core.set_prop(node.0, prop, value as f64); },
+            Cmd::Request { request, .. } => self.model_deliveries.push(Delivery {
+                request, result: Completion::Value(Value::Object(alloc::vec![(String::from("kind"), Value::String(String::from("unavailable")))])),
+            }),
+            Cmd::Cancel { request } => {
+                let animation = self.model_animations.iter().find_map(|(id, pending)| (*pending == request).then_some(*id));
+                if let Some(id) = animation { self.model_animations.remove(&id); self.core.cancel_anim(id); }
+                self.model_deliveries.retain(|delivery| delivery.request != request);
+            }
+            Cmd::Log(message) => { if cfg!(debug_assertions) { self.model_logs.push(message); } }
+        }
+    }
+    /// Development log messages delivered by model commands, consumed by the embedding host.
+    pub fn drain_model_logs(&mut self) -> impl Iterator<Item = String> + '_ { self.model_logs.drain(..) }
+
 
     fn next_node(&self, node: NodeId) -> NodeId {
         if let Some(&child) = self.core.node_children(node.0).first() {
@@ -362,5 +430,89 @@ impl Ui {
             buttons: input.buttons,
             axis_deltas: input.axis_deltas,
         }
+    }
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+    use crate::{Cmd, RequestId, TaskId};
+    use crate::model::{AnimationResult, Completion};
+    fn request(wait: u32) -> RequestId { RequestId { task: TaskId { region: 1, function: 1, call: 1 }, wait, member: 0 } }
+    fn animate(ui: &mut Ui, node: Option<NodeId>, wait: u32) {
+        ui.model_command(Cmd::Animate { node, prop: pocketjs_core::spec::prop::WIDTH, to: 50.0, dur: 1, easing: 0, delay: 0, request: Some(request(wait)) });
+    }
+    #[test]
+    fn animation_deliveries_retain_request_identity_and_completion_reason() {
+        let mut ui = Ui::new();
+        let node = ui.create_node(pocketjs_core::spec::NodeType::View as u8);
+        ui.set_prop(node, pocketjs_core::spec::prop::WIDTH, 10.0);
+        animate(&mut ui, Some(node), 1);
+        ui.tick();
+        assert_eq!(ui.model_ready().delivery(request(1)), Some(&Completion::Animation(AnimationResult::Ended)));
+        animate(&mut ui, Some(node), 2);
+        animate(&mut ui, Some(node), 3);
+        assert_eq!(ui.model_ready().delivery(request(2)), Some(&Completion::Animation(AnimationResult::Replaced)));
+        ui.destroy_node(node);
+        assert_eq!(ui.model_ready().delivery(request(3)), Some(&Completion::Animation(AnimationResult::Dropped)));
+        animate(&mut ui, None, 4);
+        assert_eq!(ui.model_ready().delivery(request(4)), Some(&Completion::Animation(AnimationResult::Dropped)));
+        assert!(ui.model_ready().deliveries.is_empty());
+    }
+    #[test]
+    fn cancellation_releases_the_track_without_resuming_its_wait() {
+        let mut ui = Ui::new();
+        let node = ui.create_node(pocketjs_core::spec::NodeType::View as u8);
+        ui.set_prop(node, pocketjs_core::spec::prop::WIDTH, 10.0);
+        animate(&mut ui, Some(node), 1);
+        ui.model_command(Cmd::Cancel { request: request(1) });
+        ui.tick();
+        assert!(ui.model_ready().deliveries.is_empty());
+    }
+    #[test]
+    fn model_time_uses_the_host_simulation_rate() {
+        let mut ui = Ui::new();
+        ui.core_mut().set_tick_rate(50);
+        let first = ui.model_ready();
+        ui.tick();
+        let second = ui.model_ready();
+        assert_eq!(second.frame, first.frame + 1);
+        assert_eq!(second.now_ms - first.now_ms, 20.0);
+    }
+    #[test]
+    fn model_time_has_no_accumulated_fractional_tick_drift() {
+        let mut ui = Ui::new();
+        for _ in 0..60 { ui.tick(); }
+        assert_eq!(ui.model_ready().now_ms, 1000.0);
+    }
+    #[test]
+    fn property_writes_replace_only_the_matching_live_track() {
+        let mut ui = Ui::new();
+        let node = ui.create_node(pocketjs_core::spec::NodeType::View as u8);
+        ui.set_prop(node, pocketjs_core::spec::prop::WIDTH, 10.0);
+        animate(&mut ui, Some(node), 1);
+        ui.model_command(Cmd::Jump { node: Some(node), prop: pocketjs_core::spec::prop::WIDTH, value: 20.0 });
+        animate(&mut ui, Some(node), 2);
+        let ready = ui.model_ready();
+        assert_eq!(ready.delivery(request(1)), Some(&Completion::Animation(AnimationResult::Replaced)));
+        assert_eq!(ready.delivery(request(2)), None);
+        ui.tick();
+        let ready = ui.model_ready();
+        assert_eq!(ready.delivery(request(1)), None);
+        assert_eq!(ready.delivery(request(2)), Some(&Completion::Animation(AnimationResult::Ended)));
+    }
+    #[test]
+    fn readiness_owns_one_boundarys_deliveries_and_declared_capabilities() {
+        use crate::model::{Delivery, Value};
+        let mut ui = Ui::new();
+        ui.set_model_services([String::from("net"), String::from("net")]);
+        ui.queue_model_delivery(Delivery { request: request(1), result: Completion::Value(Value::I32(3)) });
+        let first = ui.model_ready();
+        ui.queue_model_delivery(Delivery { request: request(2), result: Completion::Value(Value::I32(4)) });
+        assert_eq!(first.services, alloc::vec![String::from("net")]);
+        assert_eq!(first.deliveries.len(), 1);
+        assert!(first.delivery(request(2)).is_none());
+        assert_eq!(ui.model_ready().delivery(request(2)), Some(&Completion::Value(Value::I32(4))));
+        assert!(ui.model_ready().deliveries.is_empty());
     }
 }

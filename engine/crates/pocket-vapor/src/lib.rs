@@ -9,6 +9,7 @@ pub mod display;
 pub mod host;
 pub mod input;
 pub mod model;
+pub mod model_regions;
 pub mod spec;
 mod ui;
 
@@ -22,6 +23,7 @@ pub use display::{
 pub use host::{CoreHost, HasButton, HasButtons, HasRelativeAxis, HasTouch, Host};
 pub use input::{ButtonLatch, Dispatch, DispatchCursor, DispatchFn, EventSink, dispatch_fn};
 pub use model::{Cmd, NodeSlot, Ready, RequestId, TaskId};
+pub use model_regions::{CommandQueue, ModelPhase, ModelRegions, New};
 pub use pocketjs_core;
 pub use ui::{Input, NodeId, StyleId, Ui};
 

@@ -5,6 +5,11 @@ pub trait Host {
     fn ui(&self) -> &Ui;
     fn ui_mut(&mut self) -> &mut Ui;
     fn into_ui(self) -> Ui;
+    /// One immutable readiness snapshot before this frame's dispatch.
+    fn model_ready(&mut self) -> crate::Ready { self.ui_mut().model_ready() }
+    /// Drain model commands after reaction, settle and view updates.
+    /// Service-capable hosts override this to submit requests and queue deliveries.
+    fn model_command(&mut self, command: crate::Cmd) { self.ui_mut().model_command(command); }
 }
 impl Host for Ui {
     fn ui(&self) -> &Ui {

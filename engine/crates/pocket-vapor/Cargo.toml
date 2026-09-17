@@ -15,3 +15,4 @@ heapless = "0.8"
 [features]
 default = []
 std = ["pocketjs-core/std"]
+model-trace = ["std"]
