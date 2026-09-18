@@ -2224,6 +2224,10 @@ impl<'a> Walker<'a> {
         if sx1 <= sx0 || sy1 <= sy0 {
             return;
         }
+        // Reject covered primitives before mask lookup/allocation. Preserve
+        // a pixel for the rounded path's quantized antialiased fringe.
+        if sx1 + 1.0 <= clip.x0 || sx0 - 1.0 >= clip.x1 ||
+            sy1 + 1.0 <= clip.y0 || sy0 - 1.0 >= clip.y1 { return; }
         let w = sx1 - sx0;
         let h = sy1 - sy0;
         let scale_y = world.d.max(0.0);
@@ -2363,6 +2367,9 @@ impl<'a> Walker<'a> {
         if sx1 <= sx0 || sy1 <= sy0 {
             return;
         }
+        // Keep a one-pixel fringe for quantized rounded coverage.
+        if sx1 + 1.0 <= clip.x0 || sx0 - 1.0 >= clip.x1 ||
+            sy1 + 1.0 <= clip.y0 || sy0 - 1.0 >= clip.y1 { return; }
         let w = sx1 - sx0;
         let h = sy1 - sy0;
         let scale_y = world.d.max(0.0);

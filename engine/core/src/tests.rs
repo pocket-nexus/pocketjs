@@ -976,6 +976,30 @@ fn transparent_rounded_border_draws_an_outline_not_square_strips() {
 }
 
 #[test]
+fn clipped_rounded_shapes_do_not_allocate_masks_until_revealed() {
+    for border in [false, true] {
+        let mut ui = Ui::new();
+        let parent = ui.create_node(0);
+        for (p, v) in [(spec::prop::WIDTH, 10.0), (spec::prop::HEIGHT, 24.0),
+            (spec::prop::OVERFLOW, spec::Overflow::Hidden as u8 as f64)] { ui.set_prop(parent, p, v); }
+        let shape = ui.create_node(0);
+        for (p, v) in [(spec::prop::WIDTH, 24.0), (spec::prop::HEIGHT, 24.0),
+            (spec::prop::TRANSLATE_X, 12.0), (spec::prop::RADIUS, 8.0)] { ui.set_prop(shape, p, v); }
+        if border {
+            ui.set_prop(shape, spec::prop::BORDER_WIDTH, 1.0);
+            ui.set_prop(shape, spec::prop::BORDER_COLOR, 0xffffffffu32 as f64);
+        } else { ui.set_prop(shape, spec::prop::BG_COLOR, 0xffffffffu32 as f64); }
+        ui.insert_before(parent, shape, 0); ui.insert_before(spec::ROOT_ID, parent, 0); ui.tick();
+        ui.draw();
+        assert_eq!(ui.texture_slot_count(), 0, "covered shapes must not allocate masks");
+        ui.set_prop(parent, spec::prop::WIDTH, 40.0);
+        let words = ui.draw().words.clone();
+        assert!(ui.texture_slot_count() > 0, "reveal must still render the shape");
+        assert!(validate_drawlist(&words)[spec::draw_op::TEX_QUAD as usize] > 0);
+    }
+}
+
+#[test]
 fn border_masks_are_bounded_and_match_analytic_coverage_at_rest() {
     for border in [0.75, 1.0, 2.0] {
         let mut masked = Ui::new();
