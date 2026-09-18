@@ -6,6 +6,9 @@ license = "MIT"
 description = "PocketJS portable Rust renderer and worker-owned desktop runtime"
 
 [dependencies]
+pocket-desktop-native = { path = "../../engine/crates/pocket-desktop-native" }
+libloading = "0.8"
+sha2 = "0.10"
 pocketjs-core = { path = "../../engine/core", features = ["std"] }
 pocket-mod = { path = "../../engine/crates/pocket-mod" }
 pocket-ui-surface = { path = "../../engine/crates/pocket-ui-surface" }
@@ -23,3 +26,12 @@ env_logger = "0.11"
 
 [profile.release]
 debug = false
+
+[build-dependencies]
+sha2 = "0.10"
+serde_json = "1"
+
+[[example]]
+name = "native-fixture"
+path = "../../engine/crates/pocket-desktop-native/examples/native-fixture.rs"
+crate-type = ["cdylib"]

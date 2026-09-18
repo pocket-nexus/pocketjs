@@ -59,3 +59,5 @@ export {
 } from "./system.ts";
 export { vitaTitleId } from "./vita-package.ts";
 export { createHostExtension, isHostExtension, type HostExtension } from "./host-extension.ts";
+
+export { desktopNativeExtension, isDesktopNativeModule, type DesktopNativeModule } from "./desktop-native.ts";
