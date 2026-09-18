@@ -178,9 +178,10 @@ The portable path carries no runtime font files. At build time an
 horizontally-supersampled 8-bit coverage cell, plus proportional advances and a
 cmap. On device, drawing text means run-length-extracting the alpha coverage
 and batching it into GE sprites, with no glyph rasterization at runtime.
-Because only the used glyphs are baked, the compiler scans your source for text
-codepoints during the build — see [Styling](/docs/styling/) and
-[Build pipeline](/docs/build-pipeline/).
+The compiler scans source text codepoints and combines them with a **fixed
+`0`–`9` floor** and the app's declared runtime-text charset. See
+[Styling](/docs/styling/) and [Build pipeline](/docs/build-pipeline/) for the
+declaration and scan rules.
 
 The defaults in `framework/compiler/bake-font.ts` are **Inter** for regular and
 bold and **JetBrains Mono** for the `font-mono` slots, chosen per slot at bake

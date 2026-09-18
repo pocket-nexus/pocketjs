@@ -214,6 +214,7 @@ describe("private Nintendo 3DS build profile", () => {
 
     const needsRuntimeGlyphs = topScreenManifest();
     needsRuntimeGlyphs.engine.capabilities.requires.push("text.glyphs.runtime");
+    needsRuntimeGlyphs.app.runtimeText = { charset: "ascii" };
     expect(diagnosticCodes(needsRuntimeGlyphs)).toEqual([
       "capability.unavailable",
     ]);

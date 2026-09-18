@@ -179,6 +179,41 @@
           },
           "uniqueItems": true
         },
+        "runtimeText": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "charset"
+              ],
+              "properties": {
+                "charset": {
+                  "const": "ascii"
+                },
+                "extraChars": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "charset",
+                "extraChars"
+              ],
+              "properties": {
+                "charset": {
+                  "const": "custom"
+                },
+                "extraChars": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
         "viewport": {
           "anyOf": [
             {

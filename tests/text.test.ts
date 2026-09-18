@@ -114,7 +114,7 @@ for (const mode of ["load", "upload"] as const) for (const offline of [true, fal
 
 
 test("shipped baked coverage keeps non-ASCII symbols local before the first companion session", async () => {
-  const [atlas] = await bakeAtlases({ slots: [11], codepoints: Array.from("£¥€•你").map(c => c.codePointAt(0)!) });
+  const [atlas] = await bakeAtlases({ slots: [11], codepoints: Array.from("AB£¥€•你").map(c => c.codePointAt(0)!) });
   loadPack(pack([{ key: keyFont(11), dtype: PAK_DTYPE.u8, data: atlas!.bytes }]).buffer as ArrayBuffer);
   try {
     let requests = 0;

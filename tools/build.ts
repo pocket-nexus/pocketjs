@@ -13,7 +13,8 @@ import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 //         placeholder); pak.ts packs it all -> dist/<app>.pak.
 // pass 2  Bun.build (plugin serves the CACHED pass-1 transforms plus this
 //         build's in-memory generated styles, iife, target browser,
-//         minify false) -> dist/<app>.js.
+//         whitespace minification with identifier and syntax minification
+//         disabled) -> dist/<app>.js.
 //
 // Flags:
 //   --framework=solid|vue-vapor|octane  select the framework for this build
@@ -28,7 +29,7 @@ import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 //                                vendored PocketJS and keep outputs local)
 
 import { existsSync, statSync } from "node:fs";
-import { resolve as resolvePath, join, dirname } from "node:path";
+import { resolve as resolvePath, join, dirname, relative } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
 import {
@@ -39,13 +40,19 @@ import {
   parseFramework,
   transformFile,
   type PocketFramework,
+  type RuntimeTextSource,
 } from "../framework/compiler/jsx-plugin.ts";
 import type { PocketConfig } from "../framework/src/config.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
 import { compileClasses, generateStylesModule } from "../framework/compiler/tailwind.ts";
-import { bakeAtlases } from "../framework/compiler/bake-font.ts";
+import {
+  bakeAtlases,
+  PRINTABLE_ASCII,
+} from "../framework/compiler/bake-font.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
+import type { PocketManifestV2 } from "../contracts/spec/pocket-manifest.ts";
+import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import {
   assertDensityVariantDimensions,
@@ -173,6 +180,26 @@ const requestedEntry = resolveEntry(appArg);
 buildInputs.optional(configPath);
 buildInputs.optional(join(dirname(requestedEntry), "pocket.config.ts"));
 buildInputs.optional(join(projectRoot, "tsconfig.json"));
+
+async function loadEntryManifest(): Promise<PocketManifestV2 | undefined> {
+  if (buildPlan) return undefined;
+  const path = join(dirname(requestedEntry), "pocket.json");
+  buildInputs.optional(path);
+  if (!existsSync(path)) return undefined;
+  const result = validatePocketManifest(await Bun.file(path).json());
+  if (!result.ok) {
+    const details = result.diagnostics
+      .map((diagnostic) => `  ${diagnostic.path || "/"}: ${diagnostic.message}`)
+      .join("\n");
+    throw new Error(`PocketJS build: invalid ${path}:\n${details}`);
+  }
+  return result.value;
+}
+
+// Product builds carry this declaration in their hashed plan. The low-level
+// development path reads the app directory's existing manifest directly.
+const entryManifest = await loadEntryManifest();
+const runtimeText = buildPlan?.app.runtimeText ?? entryManifest?.app.runtimeText;
 // An app directory can carry its own pocket.config.ts (theme/keyframes local
 // to the app); it wins over the repo root config unless --config was given.
 if (!configFlagged && useConfig) {
@@ -269,6 +296,7 @@ const classStrings: string[] = [];
 const seenClass = new Set<string>();
 const codepoints = new Set<number>();
 const visited = new Set<string>();
+const runtimeTextSourceFiles = new Map<string, Set<RuntimeTextSource>>();
 
 async function walk(file: string): Promise<void> {
   if (visited.has(file)) return;
@@ -290,6 +318,9 @@ async function walk(file: string): Promise<void> {
     }
   }
   for (const cp of res.textCodepoints) codepoints.add(cp);
+  if (res.runtimeTextSources.size > 0) {
+    runtimeTextSourceFiles.set(file, res.runtimeTextSources);
+  }
   for (const spec of importSpecifiers(src)) {
     const dep = resolveImport(file, spec);
     if (dep) await walk(dep);
@@ -297,6 +328,44 @@ async function walk(file: string): Promise<void> {
 }
 
 await walk(entry);
+const runtimeTextCapabilities = [
+  "input.text",
+  "input.ime",
+  "host.clipboard",
+  "text.glyphs.runtime",
+].filter((capability) =>
+  entryManifest
+    ? [
+        ...entryManifest.engine.capabilities.requires,
+        ...(entryManifest.engine.capabilities.enhances ?? []),
+      ].includes(capability)
+    : buildPlan
+      ? Object.prototype.hasOwnProperty.call(buildPlan.features, capability)
+      : false,
+);
+if (!runtimeText && (runtimeTextSourceFiles.size > 0 || runtimeTextCapabilities.length > 0)) {
+  const signals = [
+    ...[...runtimeTextSourceFiles].flatMap(([file, sources]) => {
+      const displayFile = relative(ROOT, file).replace(/\\/g, "/");
+      return [...sources].map((source) =>
+        source === "host-ops-dynamic-key"
+          ? `dynamic HostOps key in ${displayFile} ` +
+            `(every non-literal key on getOps() or a same-file local variable initialized from it ` +
+            `is treated as runtime text)`
+          : `host service input in ${displayFile}`
+      );
+    }),
+    ...runtimeTextCapabilities.map((capability) => `capability ${capability}`),
+  ];
+  const extraCharsNote = extraChars
+    ? "; --extra-chars only adds baked glyphs and does not declare a runtime text source"
+    : "";
+  throw new Error(
+    `PocketJS build: runtime text source requires app.runtimeText in pocket.json ` +
+      `(for example { "app": { "runtimeText": { "charset": "ascii" } } })` +
+      `${extraCharsNote}; detected ${signals.join(", ")}`,
+  );
+}
 console.log(`  pass 1: ${visited.size} module(s), ${classStrings.length} candidate literal(s), ${codepoints.size} codepoint(s)`);
 
 // ---------------------------------------------------------------------------
@@ -330,10 +399,19 @@ const { fallbackTtfs } = fontConfig;
 if (fallbackTtfs.length || fontConfig.codepoints.length)
   console.log(`  fonts: ${fallbackTtfs.length} fallback face(s), ${fontConfig.codepoints.length} declared characters`);
 
+const declaredRuntimeChars =
+  (runtimeText?.charset === "ascii" ? PRINTABLE_ASCII : "") +
+  (runtimeText?.extraChars ?? "");
+if (runtimeText) {
+  console.log(
+    `  runtime text: ${runtimeText.charset}` +
+      `${runtimeText.extraChars ? ` + ${[...runtimeText.extraChars].length} extra character(s)` : ""}`,
+  );
+}
 const atlases = await bakeAtlases({
   codepoints: new Set([...codepoints, ...fontConfig.codepoints]),
   slots: styles.usedFontSlots,
-  extraChars,
+  extraChars: declaredRuntimeChars + extraChars,
   rasterDensity,
   regularTtf: regularFontPath,
   boldTtf: boldFontPath,
@@ -525,7 +603,14 @@ const result = await Bun.build({
       ? { document: "globalThis.__pocketDocument" }
       : {}),
   },
-  minify: false,
+  // Bun's whitespace mode removes comments/layout whitespace and can omit
+  // ASI-safe semicolons. Identifier renaming and syntax transforms stay off:
+  // fully-minified esbuild output nested expressions deeply enough to overflow
+  // an ESP32-P4 QuickJS task's 8 KB parse stack; another variant parsed for
+  // four minutes and hit its five-second watchdog. That device needed
+  // whitespace-only output plus a 64 KB task stack. For this guest matrix,
+  // Babel parsing found identical AST structure and nesting before/after.
+  minify: { whitespace: true, identifiers: false, syntax: false },
   metafile: true,
   sourcemap: "none",
   plugins: [jsxPlugin(framework, {

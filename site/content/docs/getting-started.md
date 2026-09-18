@@ -319,6 +319,10 @@ That density-1 development command writes the bundle and its packed assets to
 [Build pipeline](/docs/build-pipeline/#output-naming). The dev host and the sim
 are development paths rather than stock targets — see
 [Transitional dev targets](/docs/platform-contracts/#transitional-dev-targets).
+Pass 2 uses `minify: { whitespace: true, identifiers: false, syntax: false }`.
+Identifier and syntax minification stay disabled because one ESP32-P4 bundle
+overflowed QuickJS's 8 KB parse stack and another spent four minutes in the
+parser, crossing its five-second watchdog limit.
 
 A few notes on the low-level command:
 
@@ -327,11 +331,12 @@ A few notes on the low-level command:
   `bun tools/build.ts apps/hero/main.tsx` or the shorthand
   `bun tools/build.ts hero-main`, which emits `dist/hero-main.js`. The dev host
   runs the mounted `-main` bundle.
-- `--extra-chars=<string>` forces extra codepoints into every font atlas — useful
-  when text is data-driven and not present in the source:
+- `--extra-chars=<string>` adds codepoints to every font atlas in a low-level
+  build. Product builds declare data-driven text with `app.runtimeText` in
+  `pocket.json`:
 
   ```sh
-  bun tools/build.ts hero --extra-chars="0123456789€"
+  bun tools/build.ts hero --extra-chars="€←→"
   ```
 
 ## Run it

@@ -29,6 +29,9 @@
     "companions": [
       "note"
     ],
+    "runtimeText": {
+      "charset": "ascii"
+    },
     "viewport": {
       "dynamic": {
         "default": [

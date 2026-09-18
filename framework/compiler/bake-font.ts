@@ -3,9 +3,11 @@
 // One blob per font slot (a (weight, px) pair — slot table pinned in
 // framework/compiler/tailwind.ts, legacy sizes 12/14/16/18/20/24/36 in slots
 // 0..13 plus append-only 54px regular/bold slots 14..15 [R]).
-// Charset = codepoints collected from the AST scan + ASCII 32..126 ALWAYS +
-// an extraChars option [R]. Codepoints the font does not map are simply left
-// out — the core resolves cmap misses to gid 0 (tofu) at runtime.
+// Charset = decimal digits (the runtime-generated-text floor) + codepoints
+// collected from the AST scan + explicitly declared runtime/CLI characters
+// [R]. Codepoints the font does not map are left out. Every atlas still carries
+// gid 0 (also mapped from U+FFFD), and the core resolves every cmap miss to
+// that tofu glyph at runtime.
 //
 // Rasterization: opentype.js outlines, flattened to polylines, scanline
 // nonzero-winding fill (the TrueType/CFF rule — even-odd cancels the shared
@@ -46,6 +48,14 @@ export const DEFAULT_REGULAR = join(FONTS_DIR, "Inter-Regular.ttf");
 export const DEFAULT_BOLD = join(FONTS_DIR, "Inter-Bold.ttf");
 export const DEFAULT_MONO = join(FONTS_DIR, "JetBrainsMono-Regular.ttf");
 
+/** Runtime formatting commonly creates digits that never occur in source. */
+export const FONT_CHARSET_FLOOR = "0123456789";
+/** Printable ASCII, used by apps that declare unbounded host/user text. */
+export const PRINTABLE_ASCII = Array.from(
+  { length: 126 - 32 + 1 },
+  (_, index) => String.fromCharCode(32 + index),
+).join("");
+
 export interface BakedAtlas {
   slot: number;
   px: number;
@@ -63,7 +73,9 @@ export interface BakedAtlas {
 export interface BakeOptions {
   /** File read reporting for incremental package builds. */
   onRead?: (path: string) => void;
-  /** Codepoints collected by the pass-1 AST scan. */
+  /** Codepoints collected by the pass-1 AST scan. Runtime-only codepoints
+   *  outside the fixed floor intentionally miss the cmap and render gid 0
+   *  unless listed below. */
   codepoints: Iterable<number>;
   /** Slots to bake (indices per framework/compiler/tailwind.ts fontSlotFor). */
   slots: number[];
@@ -437,11 +449,11 @@ export function bakeSlot(
   };
 }
 
-/** Bake every requested slot. Charset = collected + ASCII 32..126 + extraChars. */
+/** Bake every requested slot. Charset = numeric floor + collected + declared. */
 export async function bakeAtlases(opts: BakeOptions): Promise<BakedAtlas[]> {
   const rasterDensity = checkedRasterDensity(opts.rasterDensity ?? 1);
   const cps = new Set<number>();
-  for (let c = 32; c <= 126; c++) cps.add(c); // ASCII always [R]
+  for (const ch of FONT_CHARSET_FLOOR) cps.add(ch.codePointAt(0)!);
   for (const cp of opts.codepoints) if (cp >= 32 && cp !== 127) cps.add(cp);
   for (const ch of opts.extraChars ?? "") {
     const cp = ch.codePointAt(0)!;

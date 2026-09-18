@@ -37,6 +37,13 @@ export type ResolutionResult =
   | { readonly ok: true; readonly plan: ResolvedBuildPlan }
   | { readonly ok: false; readonly diagnostics: readonly ContractDiagnostic[] };
 
+const RUNTIME_TEXT_CAPABILITIES = new Set([
+  "input.text",
+  "input.ime",
+  "host.clipboard",
+  "text.glyphs.runtime",
+]);
+
 function capabilityPath(kind: "enhances" | "requires", index: number): string {
   return `/engine/capabilities/${kind}/${index}`;
 }
@@ -447,6 +454,20 @@ export function resolveBuildPlan(
     });
   }
 
+  if (
+    manifest.app.runtimeText === undefined &&
+    [
+      ...manifest.engine.capabilities.requires,
+      ...(manifest.engine.capabilities.enhances ?? []),
+    ].some((capability) => RUNTIME_TEXT_CAPABILITIES.has(capability))
+  ) {
+    diagnostics.push({
+      code: "app.runtimeTextRequired",
+      path: "/app/runtimeText",
+      message: "text input, IME, clipboard, and runtime glyph capabilities require an explicit runtime text charset",
+    });
+  }
+
   // The device's modality selects the presentation; the first declared
   // presentation whose requirement the modality meets is the one this build
   // compiles. None matching means the baseline `app.entry`.
@@ -657,6 +678,7 @@ export function resolveBuildPlan(
       entry: presentation.entry,
       output,
       framework: manifest.app.framework,
+      ...(manifest.app.runtimeText === undefined ? {} : { runtimeText: manifest.app.runtimeText }),
     },
     presentation,
     target: {

@@ -1,7 +1,14 @@
 // Framework-aware pass-1 Babel transform + AST collection.
 
-import { transformAsync, type PluginObj } from "@babel/core";
+import { transformAsync, type NodePath, type PluginObj } from "@babel/core";
 import type { ParserOptions } from "@babel/parser";
+import type {
+  Expression,
+  MemberExpression,
+  Node,
+  ObjectProperty,
+  OptionalMemberExpression,
+} from "@babel/types";
 import solidPreset from "babel-preset-solid";
 import tsPreset from "@babel/preset-typescript"; // untyped - see framework/compiler/ambient.d.ts
 import { transformVueJsxVapor } from "vue-jsx-vapor/api";
@@ -203,11 +210,16 @@ export interface TransformResult {
   classStrings: string[];
   /** Every codepoint appearing in any collected literal. */
   textCodepoints: Set<number>;
+  /** Runtime text inputs observed in executable AST nodes. */
+  runtimeTextSources: Set<RuntimeTextSource>;
 }
+
+export type RuntimeTextSource = "host-service" | "host-ops-dynamic-key";
 
 interface Collected {
   classStrings: string[];
   textCodepoints: Set<number>;
+  runtimeTextSources: Set<RuntimeTextSource>;
 }
 
 export type BuildFeatures = Readonly<Record<string, boolean>>;
@@ -245,6 +257,102 @@ function makeFeatureFolder(features: BuildFeatures): PluginObj {
       },
     },
   };
+}
+
+function unwrapExpression(path: NodePath): NodePath<Expression> | null {
+  let current = path;
+  while (
+    current.isParenthesizedExpression() ||
+    current.isTSAsExpression() ||
+    current.isTSTypeAssertion() ||
+    current.isTSNonNullExpression() ||
+    current.isTSSatisfiesExpression() ||
+    current.isTSInstantiationExpression()
+  ) {
+    current = current.get("expression") as NodePath;
+  }
+  return current.isExpression() ? current as NodePath<Expression> : null;
+}
+
+function isFrameworkGetOpsCall(path: NodePath): boolean {
+  const expression = unwrapExpression(path);
+  if (!expression?.isCallExpression()) return false;
+  const callee = unwrapExpression(expression.get("callee") as NodePath);
+  if (!callee?.isIdentifier()) return false;
+  const binding = callee.scope.getBinding(callee.node.name);
+  if (!binding?.path.isImportSpecifier()) return false;
+  const imported = binding.path.node.imported;
+  const importedName = imported.type === "Identifier" ? imported.name : imported.value;
+  const declaration = binding.path.parentPath;
+  return (
+    importedName === "getOps" &&
+    declaration?.isImportDeclaration() === true &&
+    (declaration.node.source.value === PACKAGE_NAME ||
+      declaration.node.source.value.startsWith(PACKAGE_NAME + "/"))
+  );
+}
+
+/** Whether an expression is getOps() or a same-file local variable initialized
+ *  from it. Alias chains are followed by binding identity, not variable name. */
+function isHostOpsExpression(path: NodePath, seen = new Set<NodePath>()): boolean {
+  const expression = unwrapExpression(path);
+  if (!expression) return false;
+  if (isFrameworkGetOpsCall(expression)) return true;
+  if (!expression.isIdentifier()) return false;
+  const binding = expression.scope.getBinding(expression.node.name);
+  if (!binding || seen.has(binding.path)) return false;
+  seen.add(binding.path);
+  if (!binding.path.isVariableDeclarator()) return false;
+  const init = binding.path.get("init");
+  return init.node !== null && isHostOpsExpression(init as NodePath, seen);
+}
+
+function staticPropertyName(computed: boolean, property: Node): string | undefined {
+  if (!computed) return property.type === "Identifier" ? property.name : undefined;
+  if (property.type === "StringLiteral") return property.value;
+  if (property.type === "TemplateLiteral" && property.expressions.length === 0) {
+    return property.quasis[0]?.value.cooked ?? property.quasis[0]?.value.raw;
+  }
+  return undefined;
+}
+
+function isLiteralComputedKey(node: Node): boolean {
+  return (
+    node.type.endsWith("Literal") ||
+    (node.type === "TemplateLiteral" && node.expressions.length === 0)
+  );
+}
+
+function destructuresHostOps(path: NodePath<ObjectProperty>): boolean {
+  const pattern = path.parentPath;
+  if (!pattern?.isObjectPattern()) return false;
+  const parent = pattern.parentPath;
+  if (parent?.isVariableDeclarator() && parent.get("id").node === pattern.node) {
+    const init = parent.get("init");
+    return init.node !== null && isHostOpsExpression(init as NodePath);
+  }
+  if (parent?.isAssignmentExpression() && parent.get("left").node === pattern.node) {
+    return isHostOpsExpression(parent.get("right") as NodePath);
+  }
+  return false;
+}
+
+function collectMemberRuntimeTextSource(
+  path: NodePath<MemberExpression | OptionalMemberExpression>,
+  out: Collected,
+): void {
+  const name = staticPropertyName(path.node.computed, path.node.property);
+  if (name === "svcPoll") {
+    out.runtimeTextSources.add("host-service");
+    return;
+  }
+  if (
+    path.node.computed &&
+    !isLiteralComputedKey(path.node.property) &&
+    isHostOpsExpression(path.get("object") as NodePath)
+  ) {
+    out.runtimeTextSources.add("host-ops-dynamic-key");
+  }
 }
 
 function makeCollector(out: Collected, framework: PocketFramework): PluginObj {
@@ -304,6 +412,28 @@ function makeCollector(out: Collected, framework: PocketFramework): PluginObj {
                   );
                 }
               }
+            },
+            ObjectProperty(path) {
+              // ObjectPattern properties are executable destructuring, unlike
+              // TypeScript property signatures. Restricting this to the
+              // immediate parent avoids object literals in default values.
+              if (!path.parentPath?.isObjectPattern()) return;
+              const name = staticPropertyName(path.node.computed, path.node.key);
+              if (name === "svcPoll") {
+                out.runtimeTextSources.add("host-service");
+              } else if (
+                path.node.computed &&
+                !isLiteralComputedKey(path.node.key) &&
+                destructuresHostOps(path)
+              ) {
+                out.runtimeTextSources.add("host-ops-dynamic-key");
+              }
+            },
+            MemberExpression(path) {
+              collectMemberRuntimeTextSource(path, out);
+            },
+            OptionalMemberExpression(path) {
+              collectMemberRuntimeTextSource(path, out);
             },
             ImportDeclaration(path) {
               if (framework !== "solid") return;
@@ -376,6 +506,7 @@ interface CacheEntry {
   code: string;
   classStrings: string[];
   textCodepoints: number[];
+  runtimeTextSources?: RuntimeTextSource[];
 }
 
 function resolvePackageSubpath(spec: string): string | null {
@@ -452,12 +583,17 @@ export async function transformFile(
       code: cached.code,
       classStrings: cached.classStrings,
       textCodepoints: new Set(cached.textCodepoints),
+      runtimeTextSources: new Set(cached.runtimeTextSources ?? []),
     };
   }
 
   if (isVueSfc) {
     const result = compileVueSfc(src, path, { stripTypes: true });
-    const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+    const collected: Collected = {
+      classStrings: [],
+      textCodepoints: new Set(),
+      runtimeTextSources: new Set(),
+    };
     const transformed = await transformAsync(result.code, {
       filename: path,
       presets: [],
@@ -477,16 +613,22 @@ export async function transformFile(
       code: transformed.code!,
       classStrings: collected.classStrings,
       textCodepoints: [...collected.textCodepoints],
+      runtimeTextSources: [...collected.runtimeTextSources],
     };
     await Bun.write(cacheFile, JSON.stringify(entry));
     return {
       code: entry.code,
       classStrings: entry.classStrings,
       textCodepoints: new Set(entry.textCodepoints),
+      runtimeTextSources: new Set(entry.runtimeTextSources ?? []),
     };
   }
 
-  const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+  const collected: Collected = {
+    classStrings: [],
+    textCodepoints: new Set(),
+    runtimeTextSources: new Set(),
+  };
   const opts = transformOptions(framework);
   const plugins = [
     ...(options.features === undefined ? [] : [makeFeatureFolder(options.features)]),
@@ -562,9 +704,15 @@ export async function transformFile(
     code: res.code!,
     classStrings: collected.classStrings,
     textCodepoints: [...collected.textCodepoints],
+    runtimeTextSources: [...collected.runtimeTextSources],
   };
   await Bun.write(cacheFile, JSON.stringify(entry));
-  return { code: entry.code, classStrings: entry.classStrings, textCodepoints: collected.textCodepoints };
+  return {
+    code: entry.code,
+    classStrings: entry.classStrings,
+    textCodepoints: collected.textCodepoints,
+    runtimeTextSources: collected.runtimeTextSources,
+  };
 }
 
 export function jsxPlugin(

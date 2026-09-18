@@ -14,6 +14,9 @@
     "entry": "apps/nsengine/main.tsx",
     "output": "nsengine-main",
     "framework": "solid",
+    "runtimeText": {
+      "charset": "ascii"
+    },
     "viewport": {
       "fixed": {
         "logical": [480, 272],

@@ -38,6 +38,21 @@ export interface JsonSchemaObject {
 
 export type JsonSchema = boolean | JsonSchemaObject;
 
+/** Characters that can reach rendered text without appearing in source. */
+export type RuntimeTextDeclaration =
+  | {
+      /** Include every printable ASCII character. */
+      readonly charset: "ascii";
+      /** Additional non-ASCII or app-specific characters. */
+      readonly extraChars?: string;
+    }
+  | {
+      /** Include only the fixed numeric floor, source scan, and extraChars. */
+      readonly charset: "custom";
+      /** Complete app-owned supplement for runtime-generated text. */
+      readonly extraChars: string;
+    };
+
 export interface PocketManifestV2 {
   readonly $schema: typeof POCKET_MANIFEST_SCHEMA_ID;
   readonly pocket: typeof POCKET_MANIFEST_VERSION;
@@ -66,6 +81,7 @@ export interface PocketManifestV2 {
     readonly entry: string;
     readonly output?: string;
     readonly framework: "solid" | "vue-vapor" | "octane";
+    readonly runtimeText?: RuntimeTextDeclaration;
     readonly viewport: ManifestViewport;
     /** Additional UI output intent. Physical geometry remains target-owned. */
     readonly surfaces?: {
@@ -331,6 +347,28 @@ export const pocketManifestV2Schema = {
             pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
           },
           uniqueItems: true,
+        },
+        runtimeText: {
+          anyOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["charset"],
+              properties: {
+                charset: { const: "ascii" },
+                extraChars: { type: "string" },
+              },
+            },
+            {
+              type: "object",
+              additionalProperties: false,
+              required: ["charset", "extraChars"],
+              properties: {
+                charset: { const: "custom" },
+                extraChars: { type: "string" },
+              },
+            },
+          ],
         },
         viewport: manifestViewportSchema,
         presentations: {

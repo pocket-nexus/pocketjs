@@ -183,6 +183,29 @@ describe("pocket.json v2 schema", () => {
       message: "unknown property",
     });
   });
+
+  test("validates runtime text charset declarations", () => {
+    const ascii = structuredClone(portableInput) as Record<string, any>;
+    ascii.app.runtimeText = { charset: "ascii" };
+    expect(validatePocketManifest(ascii).ok).toBe(true);
+
+    const custom = structuredClone(portableInput) as Record<string, any>;
+    custom.app.runtimeText = { charset: "custom", extraChars: "€←→" };
+    expect(validatePocketManifest(custom).ok).toBe(true);
+    custom.app.runtimeText.extraChars = "";
+    expect(validatePocketManifest(custom).ok).toBe(true);
+
+    const incomplete = structuredClone(portableInput) as Record<string, any>;
+    incomplete.app.runtimeText = { charset: "custom" };
+    const result = validatePocketManifest(incomplete);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toContainEqual({
+      code: "schema.anyOf",
+      path: "/app/runtimeText",
+      message: "value does not match any allowed schema",
+    });
+  });
 });
 
 describe("Pocket System v1 schema", () => {
@@ -460,11 +483,25 @@ describe("semantic resolution", () => {
     // rejected at resolve time, not discovered broken at runtime.
     const widgetOnly = structuredClone(portableInput) as any;
     widgetOnly.engine.capabilities.requires = ["text.glyphs.baked", "input.text", "input.pointer"];
+    widgetOnly.app.runtimeText = { charset: "ascii" };
     const onPsp = validateAndResolveBuildPlan(widgetOnly, { target: "psp" });
     expect(onPsp.ok).toBe(false);
     if (onPsp.ok) return;
     const codes = onPsp.diagnostics.map((d) => d.code);
     expect(codes).toContain("capability.unavailable");
+  });
+
+  test("runtime text capabilities require an explicit charset before build", () => {
+    const missing = structuredClone(portableInput) as any;
+    missing.engine.capabilities.enhances = ["input.text"];
+    const result = validateAndResolveBuildPlan(missing, { target: "psp" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics).toContainEqual({
+      code: "app.runtimeTextRequired",
+      path: "/app/runtimeText",
+      message: "text input, IME, clipboard, and runtime glyph capabilities require an explicit runtime text charset",
+    });
   });
 
   test("resolves the note's dynamic manifest and an explicit fixed variant", async () => {
@@ -482,6 +519,8 @@ describe("semantic resolution", () => {
     expect(result.plan.features["host.clipboard"]).toBe(true);
     expect(result.plan.features["display.viewport.live"]).toBe(true);
     expect(result.plan.features["text.glyphs.runtime"]).toBe(true);
+    expect(result.plan.app.runtimeText).toEqual({ charset: "ascii" });
+    expect(verifyPlanHash(result.plan)).toBe(true);
 
     // The source has a read-only fallback, but its current dynamic-only
     // manifest does not admit on PSP. Adding an explicit fixed variant makes

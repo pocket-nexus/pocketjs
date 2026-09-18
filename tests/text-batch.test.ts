@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWasmUi } from "../hosts/web/wasm-ops.js";
-import { bakeAtlases } from "../framework/compiler/bake-font.ts";
+import { bakeAtlases, PRINTABLE_ASCII } from "../framework/compiler/bake-font.ts";
 import { bakeFontArchive } from "../framework/compiler/font-archive.ts";
 import { createFontArchive } from "../framework/src/fonts.ts";
 import { createOffloadClient } from "../framework/src/offload.ts";
@@ -14,7 +14,11 @@ import { NODE_TYPE, PROP } from "../contracts/spec/spec.ts";
 
 const bytes = await bakeFontArchive({ font: "assets/fonts/NotoSansCJK-Demo.otf", slots: [2],
   codepoints: Array.from("你好一二丁丂七丄丅丆万丈気迫", c => c.codePointAt(0)!) });
-const [baked] = await bakeAtlases({ slots: [2], codepoints: [65, 0xfffd] });
+// The embedded atlas carries printable ASCII by explicit declaration, mirroring
+// an app manifest with `"runtimeText": { "charset": "ascii" }`: metadata rows
+// (digits, punctuation, spaces) render from baked cells while CJK scalars are
+// served by the streamed PJFA archive.
+const [baked] = await bakeAtlases({ slots: [2], codepoints: [65, 0xfffd], extraChars: PRINTABLE_ASCII });
 async function harness(capacity: number, resident = "你好", maxBytes?: number,
   fixture = { bytes, slot: 2, baked: baked.bytes }) {
   const dir = mkdtempSync(join(tmpdir(), "pocket-font-"));
@@ -173,8 +177,8 @@ test("1000 runtime titles survive eviction beside a pinned player title at five 
   const glyphs = "你好気迫Ａ１𠮷" + Array.from({ length: 256 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
   const codepoints = Array.from(glyphs, c => c.codePointAt(0)!);
   const archiveBytes = await bakeFontArchive({ font: "assets/fonts/NotoSansCJK-Demo.otf", slots, codepoints });
-  const embedded = await bakeAtlases({ slots, codepoints: [65, 0xfffd] });
-  const references = await bakeAtlases({ slots, codepoints, fallbackTtfs: ["assets/fonts/NotoSansCJK-Demo.otf"] });
+  const embedded = await bakeAtlases({ slots, codepoints: [65, 0xfffd], extraChars: PRINTABLE_ASCII });
+  const references = await bakeAtlases({ slots, codepoints, fallbackTtfs: ["assets/fonts/NotoSansCJK-Demo.otf"], extraChars: PRINTABLE_ASCII });
   const hash = (pixels: Uint8Array) => createHash("sha256").update(pixels).digest("hex");
   function surface(wasm: Awaited<ReturnType<typeof createWasmUi>>, slot: number) {
     wasm.resizeViewport(480, 240);

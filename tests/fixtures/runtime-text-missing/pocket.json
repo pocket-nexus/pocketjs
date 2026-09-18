@@ -1,0 +1,23 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.runtime-text-missing",
+  "name": "runtime-text-missing",
+  "title": "Runtime Text Missing Declaration",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["text.glyphs.baked"],
+      "enhances": ["input.text"]
+    }
+  },
+  "app": {
+    "entry": "tests/fixtures/runtime-text-missing/main.tsx",
+    "output": "runtime-text-missing",
+    "framework": "solid",
+    "viewport": {
+      "logical": [480, 272],
+      "presentation": "integer-fit"
+    }
+  }
+}

@@ -17,6 +17,9 @@
     "entry": "apps/ipod-nano/main.tsx",
     "output": "ipod-nano-main",
     "framework": "solid",
+    "runtimeText": {
+      "charset": "ascii"
+    },
     "viewport": {
       "fixed": {
         "logical": [

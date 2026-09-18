@@ -46,10 +46,10 @@ bun tools/build.ts hero-main --framework=octane
 ```
 
 The build is **two passes over the same module graph**. Pass 1 transforms every
-reachable source file and, in the same traversal, *collects* the class strings
-and text codepoints the app uses — so styles and fonts compile for that set
-alone. Pass 2 bundles, reusing the cached pass‑1 output. This page walks
-through both.
+reachable source file and, in the same traversal, collects class strings and
+literal text codepoints. Font compilation combines those codepoints with the
+numeric floor and the app's declared runtime text. Pass 2 bundles, reusing the
+cached pass‑1 output. This page walks through both.
 
 ## Invoking the low-level compiler
 
@@ -82,7 +82,7 @@ parser in QuickJS. See [ESP-IDF](/docs/esp-idf/#build-an-application-package).
 | `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build, overriding `pocket.config.ts`. Manifest builds take it from `pocket.json`. |
 | `--config=<path>` | Load a different Pocket config file. |
 | `--no-config` | Ignore `pocket.config.ts`; defaults to Solid unless `--framework` is set. |
-| `--extra-chars=<string>` | Force these codepoints into **every** baked atlas, on top of the collected charset and ASCII. |
+| `--extra-chars=<string>` | Add these codepoints to **every** baked atlas for a low-level build. |
 | `--density=N` | Raster samples per logical pixel for this build — an integer 1 through 255, default 1. A resolved plan owns the density, so passing both is an error. |
 | `--hz=N` | Bake this virtual tick rate into the bundle — an integer 1 through 240, default 60. The host must drive the surface at the same rate; a bundle whose baked rate differs from the host's `ui.__tickHz` throws before it mounts. |
 | `--font-regular=<path>` | Use this TTF instead of Inter Regular for the regular slots. |
@@ -91,6 +91,31 @@ parser in QuickJS. See [ESP-IDF](/docs/esp-idf/#build-an-application-package).
 ```sh
 bun tools/build.ts settings --extra-chars="←→↑↓✓✕"
 ```
+
+Product builds declare text that can arrive or be formed at runtime in
+`pocket.json`. Use the printable ASCII range for unrestricted keyboard,
+clipboard, file, or host-service text:
+
+```json
+"runtimeText": { "charset": "ascii" }
+```
+
+For a bounded protocol, list its complete supplement instead:
+
+```json
+"runtimeText": { "charset": "custom", "extraChars": "€←→" }
+```
+
+The build detects reachable `svcPoll` member access and destructuring, including
+renamed, nested, and default-value patterns. A string-literal bracket such as
+`ops["svcPoll"]` is the same explicit access. **Every non-literal computed key
+used to access or destructure `getOps()` or a same-file local variable initialized
+from it is treated as runtime text**, without resolving identifiers that happen
+to hold a constant key. The compiler otherwise cannot determine which host
+operation the key selects. Other literal keys do not trigger that rule. The
+build also detects the `input.text`,
+`input.ime`, `host.clipboard`, and `text.glyphs.runtime` capabilities. **A
+detected runtime text source without `app.runtimeText` fails the build.**
 
 ### Output naming
 
@@ -269,9 +294,12 @@ faces for one build; the mono face has no flag.
 
 The charset baked into every slot is the union of:
 
-- **ASCII 32–126, always** — so basic text never depends on the scan;
+- **decimal digits `0`–`9`, always** — runtime number formatting does not
+  depend on source literals;
 - the **codepoints collected in pass 1** (printable, excluding DEL);
-- anything passed via **`--extra-chars`**.
+- the `app.runtimeText` declaration: printable ASCII for `charset: "ascii"`,
+  or `extraChars` for `charset: "custom"`;
+- anything passed via the low-level **`--extra-chars`** option.
 
 Codepoints the font does not map are left out of the atlas. **On a target whose
 profile carries only `text.glyphs.baked`, a codepoint missing from the atlas
@@ -370,7 +398,7 @@ Bun.build({
     __POCKET_TICK_HZ__: String(tickHz),
     ...(framework === "vue-vapor" ? { document: "globalThis.__pocketDocument" } : {}),
   },
-  minify: false,
+  minify: { whitespace: true, identifiers: false, syntax: false },
   metafile: true,
   sourcemap: "none",
   plugins: [jsxPlugin(framework, { entry, features: buildPlan?.features, generatedStyles })],
@@ -404,9 +432,14 @@ A few settings are deliberate:
   packages. For Solid, the `node` condition would pull the SSR build (where
   reactive updates no‑op); Bun's default `development` condition can also pull
   dev builds and duplicate runtimes.
-- **`minify: false`** — the bundle ships unminified but tree‑shaken; base64 blobs
-  in JS are the known QuickJS boot killer, which is why all binary assets live in
-  the pak instead.
+- **Whitespace minification is enabled; identifier and syntax minification are
+  disabled.** Bun removes comments and layout whitespace and may omit optional
+  semicolons. It does not rename identifiers or apply syntax transforms. An
+  ESP32-P4 bundle built with `minify: true` overflowed QuickJS's 8 KB parse
+  stack. A second syntax-minified variant spent four minutes in the parser and
+  crossed the five-second watchdog limit. The device used whitespace-only
+  output and a 64 KB task stack. Binary assets remain in the pak instead of
+  entering the QuickJS heap as base64 text.
 
 ```
   pass 2: /…/dist/hero.js (73814 bytes)
