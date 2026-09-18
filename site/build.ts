@@ -652,6 +652,10 @@ async function main() {
   if (existsSync(SITE + "assets/sponsors/")) {
     for (const f of readdirSync(SITE + "assets/sponsors/")) copy(SITE + "assets/sponsors/" + f, "assets/sponsors/" + f);
   }
+  // Community author avatars are local assets, with their sources recorded beside them.
+  for (const f of readdirSync(SITE + "assets/community/")) {
+    if (/\.(?:jpg|png|webp)$/.test(f)) copy(SITE + "assets/community/" + f, "assets/community/" + f);
+  }
 
   // 5. playground page
   write("playground/index.html", renderPage({

@@ -5,6 +5,7 @@ import {
   parseProbeOutput,
   resolveOutroTiming,
   resolveOutputSpec,
+  sourceOutroTransition,
   xCompatibilityArgs,
 } from "../skills/pocketjs-video-outro/scripts/make-outro.ts";
 
@@ -22,18 +23,18 @@ describe("branding defaults", () => {
 });
 
 describe("short outro timing", () => {
-  test("defaults to a complete card below three seconds with a readable hold", () => {
+  test("defaults to a 1.5-second card with a readable hold", () => {
     const args = parseArgs(["-i", import.meta.path]);
     const timing = resolveOutroTiming(args.outro, args.xfade);
     const settled = Math.max(...Object.values(timing).map(layer => layer.start + layer.duration));
-    expect(args.outro).toBeLessThan(3);
+    expect(args.outro).toBe(1.5);
     expect(args.xfade).toBeLessThan(0.5);
     expect(settled).toBeLessThan(1);
-    expect(args.outro - settled).toBeGreaterThan(1.5);
+    expect(args.outro - settled).toBeGreaterThan(0.7);
   });
 
   test("keeps ordered entrances after the transition and fits custom card lengths", () => {
-    for (const [outro, xfade] of [[2.8,0.35], [1,0.35], [5.5,0.8], [0.5,0.1], [2,0]]) {
+    for (const [outro, xfade] of [[1.5,0.35], [2.8,0.35], [1,0.35], [5.5,0.8], [0.5,0.1], [2,0]]) {
       const { logo, tagline, url } = resolveOutroTiming(outro, xfade);
       expect(logo.start).toBe(xfade);
       expect(tagline.start).toBeGreaterThan(logo.start);
@@ -51,6 +52,40 @@ describe("short outro timing", () => {
         .toThrow("--xfade must be shorter than --outro");
     }
   });
+});
+
+describe("source ending preservation", () => {
+  const ffmpeg = Bun.which("ffmpeg");
+  const render = (args: string[]) => {
+    const result = Bun.spawnSync([ffmpeg!, "-v", "error", ...args], { maxBuffer: 1024 * 1024 });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    return result.stdout;
+  };
+
+  for (const [videoDuration, duration, xfade] of [[1,1,.35], [.1,.1,.35], [1,1,0], [1,1.2,.35]]) {
+    test.skipIf(!ffmpeg)(`preserves every source frame (${videoDuration}s video, ${duration}s source, ${xfade}s fade)`, () => {
+      const fps = 20, frameBytes = 32 * 24 * 3 / 2;
+      const source = `testsrc2=size=32x24:rate=${fps}:duration=${videoDuration},format=yuv444p`;
+      const reference = render(["-f", "lavfi", "-i", source,
+        "-vf", "format=yuv420p", "-f", "rawvideo", "pipe:1"]);
+      const graph = ["[0:v]setpts=PTS-STARTPTS[main];", "[1:v]setpts=PTS-STARTPTS[outro];",
+        ...sourceOutroTransition(duration, xfade)].join("\n").replace(/;$/, "");
+      const output = render(["-f", "lavfi", "-i", source,
+        "-f", "lavfi", "-i", `color=black:size=32x24:rate=${fps}:duration=1.5,format=yuv444p`,
+        "-filter_complex", graph, "-map", "[v]", "-f", "rawvideo", "pipe:1"]);
+
+      // Compare decoded pixels, not filter strings: a pre-EOF fade changes
+      // these frames, even though it still retains the source timestamps.
+      expect(output.subarray(0, reference.length).equals(reference)).toBe(true);
+      expect(output.length / frameBytes).toBeCloseTo((duration + 1.5) * fps, 0);
+      const finalSource = reference.subarray(-frameBytes);
+      for (let frame = reference.length / frameBytes; frame < duration * fps; frame++) {
+        expect(output.subarray(frame * frameBytes, (frame + 1) * frameBytes).equals(finalSource)).toBe(true);
+      }
+      // The appended card must finish, rather than hanging on the last frame.
+      expect([...output.subarray(-frameBytes, -frameBytes + 32 * 24)].every(y => y === 16)).toBe(true);
+    });
+  }
 });
 
 describe("parseProbeOutput", () => {

@@ -1,0 +1,62 @@
+{
+  "retrieved": "2026-09-18",
+  "usage": "Author avatars for the homepage Community voices section. Profile image URLs resolved from the linked public posts through FxTwitter; image bytes downloaded from X.",
+  "avatars": [
+    {
+      "handle": "ObsoleteSony",
+      "profile": "https://x.com/ObsoleteSony",
+      "post": "https://x.com/ObsoleteSony/status/2100621582750085389",
+      "source": "https://pbs.twimg.com/profile_images/1984086942208688128/tX-CHHqs_200x200.jpg",
+      "file": "obsoletesony.jpg",
+      "sha256": "1d18d5d111ae09c84c89b564478f66a9d79e275574903b22ad74aa94691e6579"
+    },
+    {
+      "handle": "xleaps",
+      "profile": "https://x.com/xleaps",
+      "post": "https://x.com/xleaps/status/2085374820716335506",
+      "source": "https://pbs.twimg.com/profile_images/378800000484929316/504473ea3d2854766f29daf943fc42c1_200x200.jpeg",
+      "file": "xleaps.jpg",
+      "sha256": "7e3f5b68b68b8c2ded55dd6b671a250d88ff4aa3782ac2c99ee168f28a431d10"
+    },
+    {
+      "handle": "chardidathing",
+      "profile": "https://x.com/chardidathing",
+      "post": "https://x.com/chardidathing/status/2094057398210310257",
+      "source": "https://pbs.twimg.com/profile_images/2027446295099768832/nVOQxUsU_200x200.jpg",
+      "file": "chardidathing.jpg",
+      "sha256": "2af2e9524eaef716fa825f4227941c4613f35d2d5dfbb08535b9258e1ca7be97"
+    },
+    {
+      "handle": "ThaddeusJiang",
+      "profile": "https://x.com/ThaddeusJiang",
+      "post": "https://x.com/ThaddeusJiang/status/2085307957525590503",
+      "source": "https://pbs.twimg.com/profile_images/1831660665687207936/NI1QhPjH_200x200.jpg",
+      "file": "thaddeusjiang.jpg",
+      "sha256": "1efc028e77c1aa0732c7c96021a03df06b3656b42e00410009963f6ee45101c7"
+    },
+    {
+      "handle": "evanyou",
+      "profile": "https://x.com/evanyou",
+      "post": "https://x.com/evanyou/status/2096135718032855369",
+      "source": "https://pbs.twimg.com/profile_images/1856284397072478208/hSEXLkPN_200x200.jpg",
+      "file": "evanyou.jpg",
+      "sha256": "8289d89eb58303f3cad7105d175518d1c3f49aa93de749ce5855e738df3ff0d1"
+    },
+    {
+      "handle": "weareaudiofile",
+      "profile": "https://x.com/weareaudiofile",
+      "post": "https://x.com/weareaudiofile/status/2100649179768898004",
+      "source": "https://pbs.twimg.com/profile_images/892473302731546624/0byKAlCM_200x200.jpg",
+      "file": "weareaudiofile.jpg",
+      "sha256": "8b4f1af672ac85bc22ebc4f03943ce469c22b454135c5310bcc33ba48bce2201"
+    },
+    {
+      "handle": "NavyBarca",
+      "profile": "https://x.com/NavyBarca",
+      "post": "https://x.com/NavyBarca/status/2075477274946642275",
+      "source": "https://pbs.twimg.com/profile_images/2032867419090571264/-Pelssja_200x200.jpg",
+      "file": "navybarca.jpg",
+      "sha256": "3e6048a5261d2f9ec12c29b5b2623d86550e68b929b18cf7c0bceab30221dac7"
+    }
+  ]
+}
