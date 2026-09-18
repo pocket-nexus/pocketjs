@@ -37,7 +37,9 @@ process. An untrusted plugin system requires process isolation.
 The host owns the GPU, destination texture, compositor order, window geometry,
 visibility, focus and scheduling. Each create call owns separate application
 state, QuickJS realms and GPU resources. The application renders into an
-RGBA8Unorm texture; the compositor samples it without a CPU readback. Modules
+RGBA8Unorm texture; `Render::linear_target` is an sRGB view of the same image
+for linear-light 3D output (pipeline format `LINEAR_FORMAT`). The compositor
+samples the encoded image without a CPU readback. Modules
 may add commands to the borrowed encoder or submit earlier work to the shared
 queue. They must not retain borrowed objects after callbacks return.
 

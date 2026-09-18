@@ -220,12 +220,14 @@ impl Instance {
         gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
+        linear_target: &wgpu::TextureView,
         size: (u32, u32),
     ) -> Result<()> {
         let frame = Frame {
             gpu: (gpu as *const Gpu).cast(),
             encoder: (encoder as *mut wgpu::CommandEncoder).cast(),
             target: (target as *const wgpu::TextureView).cast(),
+            linear_target: (linear_target as *const wgpu::TextureView).cast(),
             width: size.0,
             height: size.1,
         };
@@ -303,6 +305,15 @@ mod tests {
                 .is_err()
         );
         let mut a = modules.open(&module, &root, id, &gpu, [32, 32], 1)?;
+        let mut incompatible = a.api;
+        incompatible.abi += 1;
+        assert!(checked_api(&incompatible, id).is_err());
+        incompatible = a.api;
+        incompatible.build[0] ^= 1;
+        assert!(checked_api(&incompatible, id).is_err());
+        incompatible = a.api;
+        incompatible.graph[0] ^= 1;
+        assert!(checked_api(&incompatible, id).is_err());
         let mut b = modules.open(&module, &root, id, &gpu, [32, 32], 1)?;
         a.event(Event::key("w", true))?;
         a.tick()?;
@@ -311,7 +322,7 @@ mod tests {
         let target = pocket3d::gpu::OffscreenTarget::new(&gpu, 32, 32);
         for (instance, pixel) in [(&mut a, [255, 0, 0, 255]), (&mut b, [0, 0, 255, 255])] {
             let mut encoder = gpu.device.create_command_encoder(&Default::default());
-            instance.render(&gpu, &mut encoder, &target.view, (32, 32))?;
+            instance.render(&gpu, &mut encoder, &target.view, &target.view, (32, 32))?;
             gpu.queue.submit([encoder.finish()]);
             assert_eq!(&target.read_rgba(&gpu)?[..4], &pixel);
         }

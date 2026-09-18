@@ -424,6 +424,14 @@ fn run_runtime(
             return Err(anyhow!("Host intent queue exceeded budget"));
         }
         let next = runtime.hash();
+        if runtime
+            .args
+            .snapshots
+            .iter()
+            .any(|(tick, _)| *tick <= runtime.ticks)
+        {
+            hash = None;
+        }
         if (hash != Some(next) || !intents.is_empty())
             && let Some(permit) = OutputPermit::acquire(&available)
         {

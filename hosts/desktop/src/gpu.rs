@@ -11,6 +11,7 @@ const FRAME_TARGETS: usize = 3;
 pub struct Target {
     pub _texture: wgpu::Texture,
     pub view: wgpu::TextureView,
+    pub linear_view: wgpu::TextureView,
     pub size: (u32, u32),
 }
 impl Target {
@@ -34,10 +35,15 @@ impl Target {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
+            view_formats: &[pocket_desktop_native::LINEAR_FORMAT],
         });
         let view = texture.create_view(&Default::default());
+        let linear_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(pocket_desktop_native::LINEAR_FORMAT),
+            ..Default::default()
+        });
         Ok(Self {
+            linear_view,
             _texture: texture,
             view,
             size,
@@ -148,9 +154,13 @@ impl Renderer {
             }
             let child = self.children.get_mut(&instance.surface_handle).unwrap();
             if let Some(native) = &mut instance.native {
-                if let Err(error) =
-                    native.render(&self.gpu, &mut encoder, &child.target.view, child_size)
-                {
+                if let Err(error) = native.render(
+                    &self.gpu,
+                    &mut encoder,
+                    &child.target.view,
+                    &child.target.linear_view,
+                    child_size,
+                ) {
                     instance.state = AppInstanceState::Failed;
                     runtime.surface.svc_push(json!({"t":"app-error","package":instance.package.package,"error":error.to_string()}).to_string());
                     log::error!("native render {}: {error}", instance.package.package);

@@ -12,6 +12,8 @@ pub use wgpu;
 pub const ABI: u32 = 1;
 pub const BUILD: &str = env!("POCKET_NATIVE_BUILD");
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// View that encodes linear-light 3D shader output into the compositor image.
+pub const LINEAR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 pub const POINTER_LOCK: u32 = 1;
 pub const KEY: u32 = 1;
 pub const POINTER: u32 = 2;
@@ -63,6 +65,7 @@ pub struct Frame {
     pub gpu: *const c_void,
     pub encoder: *mut c_void,
     pub target: *const c_void,
+    pub linear_target: *const c_void,
     pub width: u32,
     pub height: u32,
 }
@@ -93,6 +96,7 @@ pub struct Render<'a> {
     pub gpu: &'a Gpu,
     pub encoder: &'a mut wgpu::CommandEncoder,
     pub target: &'a wgpu::TextureView,
+    pub linear_target: &'a wgpu::TextureView,
     pub pixels: (u32, u32),
 }
 pub trait Application: Sized + 'static {
@@ -183,6 +187,7 @@ unsafe extern "C" fn render<A: Application>(
             gpu: &*frame.gpu.cast::<Gpu>(),
             encoder: &mut *frame.encoder.cast(),
             target: &*frame.target.cast(),
+            linear_target: &*frame.linear_target.cast(),
             pixels: (frame.width, frame.height),
         })
     })
