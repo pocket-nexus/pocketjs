@@ -244,6 +244,8 @@ export interface HostOps {
   /** Pocket System package id -> compositor surface handle. Separate from the
    *  texture namespace: compositor surfaces are not images. */
   __surfaces?: Record<string, number>;
+  /** Installed desktop System application presentation, published only to its System UI. */
+  __applications?: readonly { readonly package: string; readonly title: string; readonly viewport: readonly [number, number]; readonly native: boolean }[];
   /** Host-created auxiliary UI root and target-owned logical viewport. This
    * is separate from __surfaces, which names Pocket System app compositor
    * handles rather than outputs of the current AppInstance. */

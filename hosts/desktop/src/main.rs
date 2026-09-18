@@ -117,6 +117,18 @@ impl Runtime {
         supervisor.native_context = Some((gpu, args.native_root.clone()));
         let guest = Guest::new()?;
         surface.mount(&guest)?;
+        if let Some(system) = &args.system {
+            let applications: Vec<Value> = system.applications.iter().map(|p| json!({
+                "package":p.package,"title":p.plan.app.title,"viewport":p.plan.viewport.logical,"native":p.plan.host_extension.is_some()
+            })).collect();
+            guest.eval(
+                "system-catalog",
+                &format!(
+                    "ui.__applications = {};",
+                    serde_json::to_string(&applications)?
+                ),
+            )?;
+        }
         let offload = text_worker(pak);
         offload.mount(&guest)?;
         guest.eval(&args.app, &source)?;
