@@ -3,8 +3,9 @@
 //
 // Renders a dark brand card (logo glyph + wordmark + tagline + url) with headless
 // Chrome, then composites it onto the input with a crossfade and a staggered text
-// entrance (logo -> tagline -> url, each fades in and eases up). The input's primary
-// audio track is preserved and gently faded out under the card; the card itself is
+// entrance (logo -> tagline -> url, each fades in and eases up). The source plays
+// in full before its held final frame dissolves into the card. The input's primary
+// audio track is preserved and faded out by the source's end; the card itself is
 // silent (no voiceover). HLG/PQ sources are tone-mapped to BT.709 SDR so the SDR
 // browser card and source share one color space in the final H.264 file.
 //
@@ -14,7 +15,7 @@
 //        [--crf N] [--preset P] [--x]
 //
 // Defaults: brand "PocketJS", tagline "UI for / every kind of / computer",
-// url "pocketjs.dev", outro 2.8s, xfade 0.35s, crf 18, preset medium. Pass
+// url "pocketjs.dev", outro 1.5s, xfade 0.35s, crf 18, preset medium. Pass
 // --url "" to hide the url.
 
 import { $ } from "bun";
@@ -27,7 +28,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML = resolve(HERE, "..", "assets", "outro.html");
 const FONT = resolve(HERE, "..", "assets", "VT323-Regular.ttf");
 export const DEFAULT_TAGLINE = "UI for\nevery kind of\ncomputer";
-export const DEFAULT_OUTRO = 2.8;
+export const DEFAULT_OUTRO = 1.5;
 export const DEFAULT_XFADE = 0.35;
 
 /** Keep a readable hold after the stagger, including on shorter custom cards. */
@@ -41,6 +42,18 @@ export function resolveOutroTiming(outro: number, xfade: number) {
     tagline: { start: xfade + 0.12 * pace, duration: 0.25 * pace },
     url: { start: xfade + 0.24 * pace, duration: 0.20 * pace },
   };
+}
+
+/** Append the transition after the source, without dimming its final frames. */
+export function sourceOutroTransition(duration: number, xfade: number, outputColor = ""): string[] {
+  if (xfade === 0) return [`[main][outro]concat=n=2:v=1:a=0,format=yuv420p${outputColor}[v];`];
+  const heldUntil = (duration + xfade).toFixed(6);
+  return [
+    // Trim bounds the clone padding, including when the container's audio
+    // outlasts its video. No original frame participates in the dissolve.
+    `[main]tpad=stop_mode=clone:stop_duration=${heldUntil},trim=duration=${heldUntil}[held];`,
+    `[held][outro]xfade=transition=fade:duration=${xfade}:offset=${duration.toFixed(6)},format=yuv420p${outputColor}[v];`,
+  ];
 }
 
 type Args = {
@@ -67,7 +80,7 @@ function usage(): never {
       '  --tagline <str>       hero line (default: "UI for / every kind of / computer")',
       '  --brand <str>         wordmark (default: "PocketJS")',
       '  --url <str>           footer line (default: "pocketjs.dev"; "" hides it)',
-      `  --outro <secs>        end-card length including transition (default: ${DEFAULT_OUTRO})`,
+      `  --outro <secs>        appended end-card length including transition (default: ${DEFAULT_OUTRO})`,
       `  --xfade <secs>        crossfade length (default: ${DEFAULT_XFADE})`,
       "  --crf <n>             x264 quality (default: 18)",
       "  --preset <p>          x264 preset (default: medium)",
@@ -297,8 +310,8 @@ async function main() {
   const slideL = round(16 * scale);
   const slideT = round(20 * scale);
   const slideU = round(12 * scale);
-  const xfade = Math.min(a.xfade, dur);
-  const offset = dur - xfade;
+  const xfade = a.xfade;
+  const offset = dur;
   const timing = resolveOutroTiming(a.outro, xfade);
 
   // gentle audio fade fully completing at the original end
@@ -343,9 +356,7 @@ async function main() {
       `[o1][tg]overlay=x=0:y='${slideT}*pow(1-clip((t-${f(timing.tagline.start)})/${f(timing.tagline.duration)},0,1),3)'[o2];`,
       `[o2][ur]overlay=x=0:y='${slideU}*pow(1-clip((t-${f(timing.url.start)})/${f(timing.url.duration)},0,1),3)',format=yuv420p${outputColor},trim=duration=${a.outro},setpts=PTS-STARTPTS[outro];`,
       `[0:v]fps=${fpsRate},${mainColor},setpts=PTS-STARTPTS[main];`,
-      xfade > 0
-        ? `[main][outro]xfade=transition=fade:duration=${xfade}:offset=${offset.toFixed(6)},format=yuv420p${outputColor}[v];`
-        : `[main][outro]concat=n=2:v=1:a=0,format=yuv420p${outputColor}[v];`,
+      ...sourceOutroTransition(dur, xfade, outputColor),
     ];
 
     const maps: string[] = ["-map", "[v]"];
