@@ -43,8 +43,12 @@ test("approved hero strip exposes four setup routes without a second all-cases l
   expect([...shelf.matchAll(/data-open-app="([^"]+)"/g)].map((match) => match[1]))
     .toEqual(["pspman", "pocket-shell", "openstrike", "pocket-voxel"]);
   expect(shelf).not.toContain("All cases");
-  expect(shelf).toContain("Nintendo 3DS");
-  expect(shelf).toContain("PS Vita");
+  expect(shelf).toContain("Music player on PSP");
+  expect(shelf).toContain("Tiling desktop on 3DS");
+  expect(shelf).toContain("Handheld tactical FPS");
+  expect(shelf).toContain("Game Boy worlds in 3D");
+  expect(shelf).not.toContain('class="pe-arrow"');
+  expect(shelf).not.toContain("<small>");
 });
 
 test("homepage generation rejects missing or duplicate insertion slots", () => {

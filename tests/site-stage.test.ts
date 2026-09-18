@@ -167,7 +167,7 @@ test("homepage ships the four-chapter landing", () => {
   const gen = readFileSync(ROOT + "tools/sponsors.ts", "utf8");
   expect(gen).toContain("includePrivate: false");
 
-  // Closing band: project provenance plus the remaining external call to action.
+  // Project provenance stays in the footer; the hero carries the calls to action.
   expect(home).toContain("Pocket Lab");
   expect(home).toContain("Star on GitHub");
   expect(home).toContain("See use cases");

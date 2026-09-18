@@ -60,7 +60,7 @@
           <canvas class="pg-stage__canvas" data-stage-canvas aria-hidden="true"></canvas>
           <canvas class="pg-stage__screen" data-stage-screen width="400" height="240" aria-label="Contact details"></canvas>
           <canvas class="pg-stage__screen" data-stage-auxiliary width="320" height="240" aria-label="Contacts list"></canvas>
-          <div class="pg-stage__status" data-stage-status role="status">Loading Nintendo 3DS</div>
+          <div class="pg-stage__status" data-stage-status role="status"></div>
         </div>
         <p class="stage-hint">Drag the shell to rotate. Drag the lower screen to scroll, or use the arrow keys.</p>
       </figure>
@@ -69,7 +69,7 @@
         <div class="pg-stage__viewport" data-stage-viewport role="group" aria-label="Interactive PS Vita running PocketJS motion studies">
           <canvas class="pg-stage__canvas" data-stage-canvas aria-hidden="true"></canvas>
           <canvas class="pg-stage__screen" data-stage-screen width="960" height="544" aria-label="PocketJS motion studies"></canvas>
-          <div class="pg-stage__status" data-stage-status role="status">Loading PS Vita</div>
+          <div class="pg-stage__status" data-stage-status role="status"></div>
         </div>
         <p class="stage-hint">Drag to inspect the shell, rear touch pad, cameras and ports.</p>
       </figure>
@@ -82,7 +82,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Modern DX</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">solid · vue vapor · octane</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">Write components as you already do, in
       <a class="olink" href="https://www.solidjs.com" target="_blank" rel="noreferrer">Solid</a>,
@@ -213,7 +213,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Motion</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">compiled at build time</span>
+      <span class="fill"></span>
     </div>
     <div class="cols" style="grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)">
       <p class="slede" style="margin-bottom:0">Animation is compiled. Keyframe timelines and spring curves are
@@ -239,7 +239,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Performance</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">quickjs guest, rust core</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">Your app runs as a QuickJS guest on a Rust core that draws every pixel itself. With no
       browser engine in the middle, the cost of a screen is close to what the bare metal can do, whether the metal
@@ -375,7 +375,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Architecture</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">the frame contract</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">PocketJS makes <b>time the frame counter</b>: one <code>frame(buttons)</code> call is a
       transaction nothing outside it can interrupt.
@@ -499,7 +499,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Beyond 2D UI</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">mount what the content needs</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">PocketJS is an application runtime with a game engine's architecture, so <b>a game and an
       app are built the same way</b>.</p>
@@ -550,7 +550,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Compatibility</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">run on the metal, not emulated</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">PocketJS has booted on every operating system below, on the real machine, and
       <b>what changes between them is one native submission layer, never the application</b>. Each entry links
@@ -604,7 +604,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Ecosystem</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">shipped on the runtime</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">PocketJS carries complete applications on the machines this runtime was built for:
       music, video, maps, documents, shells, games, and developer tools. Each card
@@ -665,16 +665,6 @@
         </div>
       </article>
     </div>
-    <div class="labband">
-      <div>
-        <span class="lb">who builds this</span>
-        <p><strong>Pocket Lab</strong> is an independent, non-VC-backed organization built on this runtime, so
-          that <strong>the joy of creating belongs to everyone</strong>.</p>
-      </div>
-      <div class="labctas">
-        <a class="btn btn--sec" href="https://github.com/pocket-stack/pocketjs">Star on GitHub</a>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -684,12 +674,13 @@
   <div class="wrap">
     <div class="shead">
       <div class="vwrap"><h2 class="verb spectrum lit" id="community-title">Community voices</h2><span class="vrail"></span></div>
-      <span class="fill"></span><span class="hud">from around the internet</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">A few words from the people following, building with, and cheering on PocketJS.</p>
+    <!-- Rows read left to right; keep priority voices in the first row. -->
     <div class="community-wall">
-      <div class="community-column">
-        <figure class="quote-card quote-card--featured">
+      <div class="community-row">
+        <figure class="quote-card quote-card--long">
           <figcaption class="quote-author">
             <img class="quote-avatar" src="/assets/community/obsoletesony.jpg" alt="" width="48" height="48" loading="lazy">
             <span><strong>Obsolete Sony</strong><span class="quote-handle">@ObsoleteSony</span></span>
@@ -697,18 +688,7 @@
           </figcaption>
           <blockquote cite="https://x.com/ObsoleteSony/status/2100621582750085389"><a class="quote-link" href="https://x.com/ObsoleteSony/status/2100621582750085389" target="_blank" rel="noreferrer"><p>PSPMAN went from being built with PocketJS to helping uncover edge cases that make PocketJS better for everyone. Love to see it.</p></a></blockquote>
         </figure>
-        <figure class="quote-card">
-          <figcaption class="quote-author">
-            <img class="quote-avatar" src="/assets/community/xleaps.jpg" alt="" width="48" height="48" loading="lazy">
-            <span><strong>Eric Xu (e/Mettā)</strong><span class="quote-handle">@xleaps</span></span>
-            <span class="quote-mark" aria-hidden="true">“</span>
-          </figcaption>
-          <blockquote cite="https://x.com/xleaps/status/2085374820716335506"><a class="quote-link" href="https://x.com/xleaps/status/2085374820716335506" target="_blank" rel="noreferrer"><p>Yes, I could see the potential from the first glance. The combination of technologies makes a lot of sense, too.</p></a></blockquote>
-          <details class="quote-original"><summary>Original</summary><p lang="zh-CN">Yes, 从第一眼看到就感受到这是个很有潜力的项目，技术栈的组合也非常合理。</p></details>
-        </figure>
-      </div>
-      <div class="community-column">
-        <figure class="quote-card">
+        <figure class="quote-card quote-card--long">
           <figcaption class="quote-author">
             <img class="quote-avatar" src="/assets/community/chardidathing.jpg" alt="" width="48" height="48" loading="lazy">
             <span><strong>Charlie</strong><span class="quote-handle">@chardidathing</span></span>
@@ -716,7 +696,26 @@
           </figcaption>
           <blockquote cite="https://x.com/chardidathing/status/2094057398210310257"><a class="quote-link" href="https://x.com/chardidathing/status/2094057398210310257" target="_blank" rel="noreferrer"><p>love the work PocketJS are doing, I think lowering the bar of entry for development on these devices is sick!</p></a></blockquote>
         </figure>
+        <figure class="quote-card quote-card--compact">
+          <figcaption class="quote-author">
+            <img class="quote-avatar" src="/assets/community/evanyou.jpg" alt="" width="48" height="48" loading="lazy">
+            <span><strong>Evan You</strong><span class="quote-handle">@evanyou</span></span>
+            <span class="quote-mark" aria-hidden="true">“</span>
+          </figcaption>
+          <blockquote cite="https://x.com/evanyou/status/2096135718032855369"><a class="quote-link" href="https://x.com/evanyou/status/2096135718032855369" target="_blank" rel="noreferrer"><p>Full circle moment 🫡</p></a></blockquote>
+        </figure>
+      </div>
+      <div class="community-row">
         <figure class="quote-card">
+          <figcaption class="quote-author">
+            <img class="quote-avatar" src="/assets/community/pablowasserman.jpg" alt="" width="48" height="48" loading="lazy">
+            <span><strong>PabloW</strong><span class="quote-handle">@pablowasserman</span></span>
+            <span class="quote-mark" aria-hidden="true">“</span>
+          </figcaption>
+          <blockquote cite="https://x.com/pablowasserman/status/2100977991673119019"><a class="quote-link" href="https://x.com/pablowasserman/status/2100977991673119019" target="_blank" rel="noreferrer"><p>I love this. Old hardware, new software.</p></a></blockquote>
+          <details class="quote-original"><summary>Original</summary><p lang="es">Me encanta esto. Hardware viejo, software nuevo.</p></details>
+        </figure>
+        <figure class="quote-card quote-card--long">
           <figcaption class="quote-author">
             <img class="quote-avatar" src="/assets/community/thaddeusjiang.jpg" alt="" width="48" height="48" loading="lazy">
             <span><strong>TJ (thaddeus jiang)</strong><span class="quote-handle">@ThaddeusJiang</span></span>
@@ -725,16 +724,25 @@
           <blockquote cite="https://x.com/ThaddeusJiang/status/2085307957525590503"><a class="quote-link" href="https://x.com/ThaddeusJiang/status/2085307957525590503" target="_blank" rel="noreferrer"><p>I've been following it for a while, and I'm sure PocketJS is the JS project I've been most excited about since Bun.</p></a></blockquote>
           <details class="quote-original"><summary>Original</summary><p lang="zh-CN">看了有一段时间了，我确定 PocketJS 是近几年 bun 之后我最期待的 JS 项目。</p></details>
         </figure>
-      </div>
-      <div class="community-column">
-        <figure class="quote-card quote-card--short">
+        <figure class="quote-card quote-card--long">
           <figcaption class="quote-author">
-            <img class="quote-avatar" src="/assets/community/evanyou.jpg" alt="" width="48" height="48" loading="lazy">
-            <span><strong>Evan You</strong><span class="quote-handle">@evanyou</span></span>
+            <img class="quote-avatar" src="/assets/community/xleaps.jpg" alt="" width="48" height="48" loading="lazy">
+            <span><strong>Eric Xu (e/Mettā)</strong><span class="quote-handle">@xleaps</span></span>
             <span class="quote-mark" aria-hidden="true">“</span>
           </figcaption>
-          <blockquote cite="https://x.com/evanyou/status/2096135718032855369"><a class="quote-link" href="https://x.com/evanyou/status/2096135718032855369" target="_blank" rel="noreferrer"><p>Full circle moment 🫡</p></a></blockquote>
+          <blockquote cite="https://x.com/xleaps/status/2085374820716335506"><a class="quote-link" href="https://x.com/xleaps/status/2085374820716335506" target="_blank" rel="noreferrer"><p>Yes, I could see the potential from the first glance. The combination of technologies makes a lot of sense, too.</p></a></blockquote>
+          <details class="quote-original"><summary>Original</summary><p lang="zh-CN">Yes, 从第一眼看到就感受到这是个很有潜力的项目，技术栈的组合也非常合理。</p></details>
         </figure>
+        <figure class="quote-card quote-card--compact">
+          <figcaption class="quote-author">
+            <img class="quote-avatar" src="/assets/community/orexda.jpg" alt="" width="48" height="48" loading="lazy">
+            <span><strong>Connor/코너/コナー</strong><span class="quote-handle">@OreXda</span></span>
+            <span class="quote-mark" aria-hidden="true">“</span>
+          </figcaption>
+          <blockquote cite="https://x.com/OreXda/status/2100778150200545771"><a class="quote-link" href="https://x.com/OreXda/status/2100778150200545771" target="_blank" rel="noreferrer"><p>How so smooooth</p></a></blockquote>
+        </figure>
+      </div>
+      <div class="community-row">
         <figure class="quote-card">
           <figcaption class="quote-author">
             <img class="quote-avatar" src="/assets/community/weareaudiofile.jpg" alt="" width="48" height="48" loading="lazy">
@@ -751,6 +759,14 @@
           </figcaption>
           <blockquote cite="https://x.com/NavyBarca/status/2075477274946642275"><a class="quote-link" href="https://x.com/NavyBarca/status/2075477274946642275" target="_blank" rel="noreferrer"><p>Insane, people like you used to rule the gaming industry</p></a></blockquote>
         </figure>
+        <figure class="quote-card quote-card--long">
+          <figcaption class="quote-author">
+            <img class="quote-avatar" src="/assets/community/dakdevs.jpg" alt="" width="48" height="48" loading="lazy">
+            <span><strong>Dak</strong><span class="quote-handle">@dakdevs</span></span>
+            <span class="quote-mark" aria-hidden="true">“</span>
+          </figcaption>
+          <blockquote cite="https://x.com/dakdevs/status/2095358135645163642"><a class="quote-link" href="https://x.com/dakdevs/status/2095358135645163642" target="_blank" rel="noreferrer"><p>Just saw @ewind_dev present this at the SF meetup. Everyone in the room was floored. Then he brought out something even more fascinating 👀👀</p></a></blockquote>
+        </figure>
       </div>
     </div>
   </div>
@@ -760,7 +776,7 @@
   <div class="wrap">
     <div class="shead">
       <span class="vwrap"><span class="verb spectrum lit">Sponsors</span><span class="vrail"></span></span>
-      <span class="fill"></span><span class="hud">thank you</span>
+      <span class="fill"></span>
     </div>
     <p class="slede">We can only develop PocketJS full-time thanks to your support.</p>
     <div class="spon-gallery">{{SPONSOR_GALLERY}}</div>
