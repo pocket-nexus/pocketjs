@@ -94,12 +94,13 @@ const uint32_t kPixelStorage8888 = 3;
 
 #ifdef POCKETJS_PERF_TRACE
 QElapsedTimer perfGlClock;
-int perfGlStages[6] = { 0, 0, 0, 0, 0, 0 };
+int perfHitMs = 0;
+int perfGlStages[7] = { 0, 0, 0, 0, 0, 0, 0 };
 uint32_t perfGlBatches = 0;
 uint32_t perfGlVertices = 0;
 void recordGlStage(uint32_t stage, uint32_t batches, uint32_t vertices)
 {
-    if (stage >= 6) return;
+    if (stage >= 7) return;
     if (stage == 0) perfGlClock.start();
     perfGlStages[stage] = perfGlClock.elapsed();
     perfGlBatches = batches;
@@ -872,15 +873,21 @@ JSValue hostOperation(
         ui_set_active(a, b);
         return JS_UNDEFINED;
 
-    case HostHitTest:
+    case HostHitTest: {
         if (!floatArgument(context, argc, argv, 0, &da) ||
             !floatArgument(context, argc, argv, 1, &db)) {
             return JS_EXCEPTION;
         }
-        return JS_NewInt32(
-            context,
-            ui_hit_test(static_cast<float>(da), static_cast<float>(db))
-        );
+#ifdef POCKETJS_PERF_TRACE
+        QElapsedTimer hitClock;
+        hitClock.start();
+#endif
+        const int32_t hit = ui_hit_test(static_cast<float>(da), static_cast<float>(db));
+#ifdef POCKETJS_PERF_TRACE
+        perfHitMs += hitClock.elapsed();
+#endif
+        return JS_NewInt32(context, hit);
+    }
 
     case HostSetCursor:
         if (!intArgument(context, argc, argv, 0, &a) ||
@@ -1277,8 +1284,9 @@ private:
     struct PerfSample {
         int elapsed, delta, js, tick, draw, present, touches;
         int replay;
-        int scene, resources, geometry, upload, submit;
+        int scene, resources, geometry, upload, submit, error;
         uint32_t batches, vertices;
+        int hit;
     };
     struct PerfInput { int ms; uint32_t touch; };
     QVector<PerfSample> perfSamples_;
@@ -2294,6 +2302,7 @@ void PocketJsRuntime::runFrame()
     }
     QElapsedTimer perfTimer;
     perfTimer.start();
+    perfHitMs = 0;
 #endif
     // Preserve a quick press+release for one host frame. S60 can deliver both
     // events between two 30 Hz samples even though the core advances at 60 Hz.
@@ -2386,7 +2395,8 @@ void PocketJsRuntime::runFrame()
             touches_.size(), replayMs, perfGlStages[1] - perfGlStages[0],
             perfGlStages[2] - perfGlStages[1], perfGlStages[3] - perfGlStages[2],
             perfGlStages[4] - perfGlStages[3], perfGlStages[5] - perfGlStages[4],
-            perfGlBatches, perfGlVertices };
+            perfGlStages[6] - perfGlStages[5],
+            perfGlBatches, perfGlVertices, perfHitMs };
         perfSamples_.append(sample);
         // No per-frame formatting, filesystem I/O, readback or glFinish.
         // Write only after the bounded measurement window has ended.
@@ -2407,7 +2417,7 @@ void PocketJsRuntime::finishPerfTrace()
     buffer.append("# replay_points\t" + QByteArray::number(perfInputs_.size()) + "\n");
     buffer.append("# inactive_frames\t" + QByteArray::number(perfInactiveFrames_) + "\n");
     buffer.append("# warmup_frames\t" + QByteArray::number(perfWarmupFrames_) + "\n");
-    buffer.append("frame\telapsed_ms\tdelta_ms\tjs_ms\ttick_ms\tdraw_ms\tpresent_ms\ttouches\treplay_ms\tscene_ms\tresources_ms\tgeometry_ms\tupload_ms\tsubmit_ms\tbatches\tvertices\n");
+    buffer.append("frame\telapsed_ms\tdelta_ms\tjs_ms\ttick_ms\tdraw_ms\tpresent_ms\ttouches\treplay_ms\tscene_ms\tresources_ms\tgeometry_ms\tupload_ms\tsubmit_ms\terror_ms\tbatches\tvertices\thit_ms\n");
     for (int i = 0; i < perfSamples_.size(); ++i) {
         const PerfSample &s = perfSamples_.at(i);
         buffer.append(QByteArray::number(i) + "\t" + QByteArray::number(s.elapsed) + "\t" +
@@ -2416,8 +2426,8 @@ void PocketJsRuntime::finishPerfTrace()
             QByteArray::number(s.present) + "\t" + QByteArray::number(s.touches) + "\t" + QByteArray::number(s.replay) + "\t" +
             QByteArray::number(s.scene) + "\t" + QByteArray::number(s.resources) + "\t" +
             QByteArray::number(s.geometry) + "\t" + QByteArray::number(s.upload) + "\t" +
-            QByteArray::number(s.submit) + "\t" + QByteArray::number(s.batches) + "\t" +
-            QByteArray::number(s.vertices) + "\n");
+            QByteArray::number(s.submit) + "\t" + QByteArray::number(s.error) + "\t" + QByteArray::number(s.batches) + "\t" +
+            QByteArray::number(s.vertices) + "\t" + QByteArray::number(s.hit) + "\n");
     }
     QFile trace(perfPrefix_ + ".tsv");
     if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) trace.write(buffer);
@@ -2658,6 +2668,19 @@ void PocketJsRuntime::initializeGL()
 #endif
     QFile trace(perfPrefix_ + ".tsv");
     if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        const EGLDisplay display = eglGetCurrentDisplay();
+        const EGLSurface surface = eglGetCurrentSurface(EGL_DRAW);
+        EGLint swapBehavior = EGL_UNKNOWN;
+        eglQuerySurface(display, surface, EGL_SWAP_BEHAVIOR, &swapBehavior);
+        trace.write("# egl_swap_behavior\t");
+        trace.write(QByteArray::number(swapBehavior));
+        trace.write("\n# egl_version\t");
+        const char *eglVersion = eglQueryString(display, EGL_VERSION);
+        trace.write(eglVersion ? eglVersion : "unknown");
+        trace.write("\n# gl_extensions\t");
+        const char *glExtensions = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
+        trace.write(glExtensions ? glExtensions : "unknown");
+        trace.write("\n");
         trace.write("# gles_version\t");
         trace.write(version == 0 ? "unknown" : version);
         trace.write("\n# gles_vendor\t");

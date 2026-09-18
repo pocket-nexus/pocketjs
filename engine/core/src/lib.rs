@@ -1769,6 +1769,38 @@ impl Ui {
         self.font_revisions.get(slot as usize).copied().unwrap_or(0)
     }
 
+    /// Share a generation-checked coverage page between GLYPH_RUN consumers
+    /// and transformed TEX_QUAD text. Only requested pages become resident.
+    /// The returned descriptor must be revalidated after any resource mutation.
+    pub fn prepare_glyph_page(&mut self, slot: u8, gid: u16) -> Option<draw::GlyphSampler> {
+        let atlas = self.fonts.atlas(slot)?;
+        draw::glyph_page(&mut self.paint_cache, &mut self.textures, &mut self.tex_free,
+            atlas, self.font_revisions[slot as usize], gid)
+    }
+
+    /// Prepare single-page, baked fonts within a coverage-byte budget before
+    /// the first presentation. Streamed and multi-page fonts stay demand-loaded.
+    /// GLES uses two GPU bytes per coverage byte; other hosts need not opt in.
+    pub fn warm_static_glyph_pages(&mut self, byte_budget: usize) -> usize {
+        let mut used = 0;
+        for slot in 0..spec::MAX_FONT_SLOTS {
+            let Some(atlas) = self.fonts.atlas(slot as u8) else { continue; };
+            if atlas.stream.is_some() { continue; }
+            let sx = atlas.coverage_width() + 2;
+            let sy = atlas.coverage_height() + 2;
+            let cols = spec::TEX_MAX_DIM / sx;
+            let rows = spec::TEX_MAX_DIM / sy;
+            let count = atlas.glyph_count as u32;
+            if cols == 0 || rows == 0 || count > cols * rows { continue; }
+            let width = (cols.min(count) * sx).next_power_of_two();
+            let height = (count.div_ceil(cols) * sy).next_power_of_two();
+            let bytes = (width * height) as usize;
+            if bytes > byte_budget.saturating_sub(used) { continue; }
+            if self.prepare_glyph_page(slot as u8, 0).is_some() { used += bytes; }
+        }
+        used
+    }
+
     // ---- internals -----------------------------------------------------------
 
     /// The taffy leaf affected by a text-node content update. Text children

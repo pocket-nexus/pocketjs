@@ -438,6 +438,7 @@ pub struct PaintCache {
     /// a disc slot (JS misuse), which simply goes stale here and re-bakes.
     entries: Vec<(u32, i32)>,
     glyphs: Vec<GlyphPage>,
+    borders: Vec<([u32; 4], i32)>,
 }
 
 struct GlyphPage {
@@ -451,7 +452,37 @@ struct GlyphPage {
 
 impl PaintCache {
     pub const fn new() -> PaintCache {
-        PaintCache { entries: Vec::new(), glyphs: Vec::new() }
+        PaintCache { entries: Vec::new(), glyphs: Vec::new(), borders: Vec::new() }
+    }
+}
+
+// A run can reuse the resolved page while its glyph IDs remain inside it.
+// Font revisions and texture generations are checked again for every run;
+// this value never survives a draw or a font/resource mutation.
+#[derive(Clone, Copy)]
+pub struct GlyphSampler {
+    pub handle: u32,
+    first: u32,
+    end: u32,
+    columns: u32,
+    stride_x: u32,
+    stride_y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl GlyphSampler {
+    pub fn contains(&self, gid: u16) -> bool {
+        (gid as u32) >= self.first && (gid as u32) < self.end
+    }
+
+    pub fn uv(&self, gid: u16) -> [f32; 4] {
+        let n = gid as u32 - self.first;
+        let x = (n % self.columns) * self.stride_x + 1;
+        let y = (n / self.columns) * self.stride_y + 1;
+        [x as f32 / self.width as f32, y as f32 / self.height as f32,
+            (x + self.stride_x - 2) as f32 / self.width as f32,
+            (y + self.stride_y - 2) as f32 / self.height as f32]
     }
 }
 
@@ -460,14 +491,15 @@ impl PaintCache {
 /// coverage alpha, so text color remains a per-quad tint. Pages are shared by
 /// all runs at every scale, with one transparent texel around each cell to
 /// prevent bilinear sampling from bleeding a neighboring glyph.
-fn glyph_page(
+pub(crate) fn glyph_page(
     cache: &mut PaintCache,
     textures: &mut Vec<crate::TexSlot>,
     free: &mut Vec<u32>,
     atlas: &crate::text::Atlas,
     revision: u64,
     gid: u16,
-) -> Option<(u32, [f32; 4])> {
+) -> Option<GlyphSampler> {
+    if gid >= atlas.glyph_count { return None; }
     let cw = atlas.coverage_width();
     let ch = atlas.coverage_height();
     let stride_x = cw + 2;
@@ -512,6 +544,24 @@ fn glyph_page(
                 bytes[to..to + cw as usize].copy_from_slice(&source[from..from + cw as usize]);
             }
         }
+        // A guarded white block in unused page padding lets backends keep
+        // adjacent solid geometry in the glyph batch. Glyph UVs never include it.
+        let used_rows = count.div_ceil(columns) * stride_y;
+        if height >= used_rows + 6 && width >= 6 {
+            for y in used_rows + 2..used_rows + 6 {
+                let start = (y * width + 2) as usize;
+                bytes[start..start + 4].fill(255);
+            }
+        } else if count % columns != 0 && stride_x >= 8 && stride_y >= 8 {
+            let x = (count % columns) * stride_x + 2;
+            let y = (count / columns) * stride_y + 2;
+            if x + 4 <= width && y + 4 <= height {
+                for row in y..y + 4 {
+                    let start = (row * width + x) as usize;
+                    bytes[start..start + 4].fill(255);
+                }
+            }
+        }
         let mut palette = alloc::vec![0u128; 64];
         let colors = unsafe { core::slice::from_raw_parts_mut(palette.as_mut_ptr() as *mut u32, 256) };
         for (a, color) in colors.iter_mut().enumerate() { *color = 0x00ff_ffff | ((a as u32) << 24); }
@@ -523,11 +573,9 @@ fn glyph_page(
         cache.glyphs.push(GlyphPage { slot: atlas.slot, revision, page, handle, width, height });
         cache.glyphs.last()?
     };
-    let n = gid as u32 % capacity;
-    let x = (n % columns) * stride_x + 1;
-    let y = (n / columns) * stride_y + 1;
-    Some((entry.handle as u32, [x as f32 / entry.width as f32, y as f32 / entry.height as f32,
-        (x + cw) as f32 / entry.width as f32, (y + ch) as f32 / entry.height as f32]))
+    Some(GlyphSampler { handle: entry.handle as u32, first: page * capacity,
+        end: (page + 1) * capacity, columns, stride_x, stride_y,
+        width: entry.width, height: entry.height })
 }
 
 impl Default for PaintCache {
@@ -2049,6 +2097,21 @@ impl<'a> Walker<'a> {
         if coverage == 0 || h <= 0 || x1 <= x0 {
             return;
         }
+        // The straight middle of a vertical rounded gradient is one clipped
+        // gradient, not one solid rectangle per scanline. Keep the fractional
+        // side coverage and global stops; curved rows still use solid spans.
+        if h > 1 && vertical_gradient(fill) {
+            if let Fill::Grad { from, via, to, dir } = *fill {
+                let scaled = Fill::Grad {
+                    from: scale_alpha_coverage(from, coverage),
+                    via: via.map(|(color, position)| (scale_alpha_coverage(color, coverage), position)),
+                    to: scale_alpha_coverage(to, coverage), dir,
+                };
+                let clip = Clip { x0: x0 as f32, y0: py as f32, x1: x1 as f32, y1: (py + h) as f32 };
+                self.emit_screen_rect(dl, x0 as f32, sy0, x1 as f32, sy1, scaled, &clip);
+                return;
+            }
+        }
         let max_run = gradient_run_limit(fill);
         let mut x = x0;
         while x < x1 {
@@ -2062,6 +2125,53 @@ impl<'a> Walker<'a> {
             }
             x = next;
         }
+    }
+
+    fn border_texture(&mut self, width: f32, height: f32, radius: f32, border: f32) -> Option<(u32, u32, u32)> {
+        // Cache small, stable local shapes, so a parent scale reuses the same
+        // mask. Animated dimensions or stroke widths cannot grow residency
+        // past sixteen 128x128 masks (1 MiB); overflow uses analytic spans.
+        if width != roundf(width) || height != roundf(height) ||
+            width < 1.0 || height < 1.0 || width > 64.0 || height > 64.0 { return None; }
+        let density = self.raster_density;
+        let w = width as u32 * density;
+        let h = height as u32 * density;
+        let tw = pow2_at_least(w);
+        let th = pow2_at_least(h);
+        if tw > 128 || th > 128 { return None; }
+        let key = [width as u32, height as u32, radius.to_bits(), border.to_bits()];
+        if let Some(&(_, handle)) = self.paint_cache.borders.iter().find(|(k, _)| *k == key) {
+            if crate::tex_resolve(self.textures, handle).is_some() { return Some((handle as u32, tw, th)); }
+            self.paint_cache.borders.retain(|(k, _)| *k != key);
+        }
+        if self.paint_cache.borders.len() >= 16 { return None; }
+        let r = radius * density as f32;
+        let bw = border * density as f32;
+        let mut data = alloc::vec![0u128; ((tw * th * 4) as usize).div_ceil(16)];
+        let pixels = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u32, (tw * th) as usize) };
+        pixels.fill(0x00ff_ffff);
+        for y in 0..h {
+            let row = y as f32 + 0.5;
+            let Some((left, right)) = self.rounded_interval_at_row(0.0, 0.0, w as f32, h as f32, r, row) else { continue; };
+            let inner = if pixel_interval_coverage(y as i32, bw, h as f32 - bw) > 0 {
+                self.rounded_interval_at_row(bw, bw, w as f32 - bw, h as f32 - bw,
+                    (r - bw).max(0.0), clampf(row, bw, h as f32 - bw))
+            } else { None };
+            for x in 0..w {
+                let alpha = if let Some((il, ir)) = inner {
+                    pixel_interval_coverage(x as i32, left, il.min(right)) +
+                        pixel_interval_coverage(x as i32, ir.max(left), right)
+                } else { pixel_interval_coverage(x as i32, left, right) };
+                pixels[(y * tw + x) as usize] |= alpha.min(255) << 24;
+            }
+        }
+        let handle = crate::tex_alloc(self.textures, self.tex_free, crate::Texture {
+            data, byte_len: (tw * th * 4) as usize, w: tw, h: th,
+            psm: spec::psm::PSM_8888, palette: None, linear: true, revision: 0,
+        });
+        if handle < 0 { return None; }
+        self.paint_cache.borders.push((key, handle));
+        Some((handle as u32, tw, th))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2107,6 +2217,24 @@ impl<'a> Walker<'a> {
             self.emit_box(dl, world, x0, y0 + bwy, x0 + bwx, y1 - bwy, fill, clip);
             self.emit_box(dl, world, x1 - bwx, y0 + bwy, x1, y1 - bwy, fill, clip);
             return;
+        }
+
+        if world.a == world.d {
+            if let Fill::Flat(color) = fill {
+                let local_w = x1 - x0;
+                let local_h = y1 - y0;
+                let local_r = radius.min(local_w * 0.5).min(local_h * 0.5);
+                let local_bw = border_width.min(local_w * 0.5).min(local_h * 0.5);
+                if let Some((texture, tw, th)) = self.border_texture(local_w, local_h, local_r, local_bw) {
+                    let before = dl.words.len();
+                    self.emit_tex_quad(dl, &world.then(&Affine::translate(x0, y0)), local_w, local_h,
+                        texture, 1.0, clip, 0.0, 0.0,
+                        local_w * self.raster_density as f32 / tw as f32,
+                        local_h * self.raster_density as f32 / th as f32);
+                    if dl.words.len() > before { *dl.words.last_mut().unwrap() = color; }
+                    return;
+                }
+            }
         }
 
         let ix0 = floorf(sx0).max(floorf(clip.x0)).max(0.0) as i32;
@@ -2329,18 +2457,9 @@ impl<'a> Walker<'a> {
             return;
         }
         let rr = r * r;
-        let tall_middle = !vertical_gradient(&fill);
-        let mid_y0 = if tall_middle {
-            (ceilf(sy0 + r) as i32).max(iy0).min(iy1)
-        } else {
-            iy0
-        };
-        let mid_y1 = if tall_middle {
-            (floorf(sy1 - r) as i32).max(iy0).min(iy1)
-        } else {
-            iy0
-        };
-        if tall_middle && mid_y1 > mid_y0 {
+        let mid_y0 = (ceilf(sy0 + r) as i32).max(iy0).min(iy1);
+        let mid_y1 = (floorf(sy1 - r) as i32).max(iy0).min(iy1);
+        if mid_y1 > mid_y0 {
             let span_x0 = sx0.max(ix0 as f32);
             let span_x1 = sx1.min(ix1 as f32);
             if span_x1 > span_x0 {
@@ -2393,7 +2512,7 @@ impl<'a> Walker<'a> {
             }
         }
         for py in iy0..iy1 {
-            if tall_middle && py >= mid_y0 && py < mid_y1 {
+            if py >= mid_y0 && py < mid_y1 {
                 continue;
             }
             let y_coverage = pixel_interval_coverage(py, sy0, sy1);
@@ -2654,14 +2773,20 @@ impl<'a> Walker<'a> {
         self.fonts
             .layout_run(&run, slot, r.tracking, r.line_height, r.text_align, box_w, &mut scratch);
         if world.is_axis_aligned() && (world.a != 1.0 || world.d != 1.0) {
+            let mut page: Option<GlyphSampler> = None;
             for g in &scratch {
                 let (x, y) = world.apply(g.x, g.y);
                 if x + cell_w * world.a <= clip.x0 || x >= clip.x1 ||
                     y + cell_h * world.d <= clip.y0 || y >= clip.y1 || !atlas.stream_visible(g.codepoint, g.gid) {
                     continue;
                 }
-                let Some((texture, uv)) = glyph_page(self.paint_cache, self.textures, self.tex_free,
-                    atlas, self.font_revisions[slot as usize], g.gid) else { continue; };
+                if !page.as_ref().is_some_and(|page| page.contains(g.gid)) {
+                    page = glyph_page(self.paint_cache, self.textures, self.tex_free,
+                        atlas, self.font_revisions[slot as usize], g.gid);
+                }
+                let Some(page) = page.as_ref() else { continue; };
+                let texture = page.handle;
+                let uv = page.uv(g.gid);
                 let glyph_world = world.then(&Affine::translate(g.x, g.y));
                 let before = dl.words.len();
                 self.emit_tex_quad(dl, &glyph_world, cell_w, cell_h, texture, 1.0, clip, uv[0], uv[1], uv[2], uv[3]);

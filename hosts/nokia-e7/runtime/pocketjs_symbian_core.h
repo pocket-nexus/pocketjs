@@ -83,7 +83,8 @@ int32_t ui_gl_initialize(void);
 void ui_gl_reset_resources(void);
 void ui_gl_shutdown(void);
 /* Optional synchronous render-stage callback on the render thread. Stages:
- * 0 begin, 1 scene, 2 resources, 3 geometry, 4 upload, 5 submission complete.
+ * 0 begin, 1 scene, 2 resources, 3 geometry, 4 upload, 5 submission complete,
+ * 6 optional frame validation complete. Stage timings are CPU wall time, not GPU timers.
  * The final two arguments report batch and vertex counts. NULL disables it.
  * The callback must not re-enter the UI or issue GL commands. */
 void ui_gl_set_trace(void (*callback)(uint32_t, uint32_t, uint32_t));

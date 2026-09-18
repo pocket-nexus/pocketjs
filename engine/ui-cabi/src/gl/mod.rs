@@ -32,7 +32,6 @@ use core::ffi::c_void;
 use core::mem::size_of;
 
 use pocketjs_core::spec;
-use pocketjs_core::text::Atlas;
 use pocketjs_core::{TexView, Ui};
 
 pub type Trace = extern "C" fn(u32, u32, u32);
@@ -145,6 +144,7 @@ struct ImageTexture {
     handle: i32,
     revision: u64,
     name: GLuint,
+    white_uv: Option<[f32; 2]>,
     dirty: bool,
 }
 
@@ -155,47 +155,12 @@ impl ImageTexture {
     }
 }
 
-#[derive(Clone, Copy)]
 struct FontTexture {
-    name: GLuint,
-    source: usize,
-    coverage_w: u32,
-    coverage_h: u32,
+    revision: u64,
     logical_w: u32,
     logical_h: u32,
-    texture_w: u32,
-    texture_h: u32,
-    columns: u32,
     glyph_count: u16,
-    white_uv: Option<[f32; 2]>,
-    dirty: bool,
-}
-
-// Reuse unused atlas padding for solid fills between glyph runs. Keep two
-// clear pixels between the patch and any glyph cell to prevent linear-filter
-// bleed, and a 4x4 white area for mediump texture-coordinate precision.
-fn font_white_patch(
-    w: u32,
-    h: u32,
-    cw: u32,
-    ch: u32,
-    columns: u32,
-    count: u16,
-) -> Option<(u32, u32)> {
-    let rows = (count as u32).div_ceil(columns);
-    let candidate = if count as u32 % columns != 0 && cw >= 8 && ch >= 8 {
-        Some((
-            count as u32 % columns * cw + 2,
-            count as u32 / columns * ch + 2,
-        ))
-    } else if w >= columns * cw + 6 && h >= 6 {
-        Some((columns * cw + 2, 2))
-    } else if h >= rows * ch + 6 && w >= 6 {
-        Some((2, rows * ch + 2))
-    } else {
-        None
-    };
-    candidate.filter(|&(x, y)| x + 4 <= w && y + 4 <= h)
+    pages: Vec<pocketjs_core::draw::GlyphSampler>,
 }
 
 struct Renderer {
@@ -222,20 +187,6 @@ fn xy(word: u32) -> (f32, f32) {
 #[inline]
 fn wh(word: u32) -> (f32, f32) {
     ((word & 0xffff) as f32, ((word >> 16) & 0xffff) as f32)
-}
-
-#[inline]
-fn next_pow2(mut value: u32) -> u32 {
-    if value <= 1 {
-        return 1;
-    }
-    value -= 1;
-    value |= value >> 1;
-    value |= value >> 2;
-    value |= value >> 4;
-    value |= value >> 8;
-    value |= value >> 16;
-    value + 1
 }
 
 /// Drain stale context errors before an operation whose result we inspect.
@@ -345,12 +296,45 @@ fn texture_rgba(view: TexView<'_>) -> Option<Vec<u8>> {
     Some(rgba)
 }
 
-fn font_luminance_alpha(coverage: &[u8]) -> Vec<u8> {
-    let mut pixels = Vec::with_capacity(coverage.len().saturating_mul(2));
-    for &alpha in coverage {
-        pixels.extend_from_slice(&[255, alpha]);
+// Coverage-only indexed images (including shared glyph pages) need two
+// GPU bytes per pixel, not four. Preserve arbitrary palette alpha values;
+// colored palettes retain the RGBA upload path.
+fn coverage_luminance_alpha(view: TexView<'_>) -> Option<Vec<u8>> {
+    if view.psm != spec::psm::PSM_T8 { return None; }
+    let palette = view.palette?;
+    let count = (view.w as usize).checked_mul(view.h as usize)?;
+    if palette.len() < 1024 || view.pixels.len() < count ||
+        !palette[..1024].chunks_exact(4).all(|color| color[..3] == [255, 255, 255]) { return None; }
+    let mut pixels = Vec::with_capacity(count.checked_mul(2)?);
+    for &index in &view.pixels[..count] {
+        pixels.extend_from_slice(&[255, palette[index as usize * 4 + 3]]);
     }
-    pixels
+    Some(pixels)
+}
+
+// A constant UV in an existing opaque white block can draw solid fills
+// without switching away from an image or rounded-corner mask. Four texels
+// provide a guard for bilinear filtering and mediump UV interpolation.
+// Inspect once when uploading; never alter the source pixels.
+fn image_white_patch(rgba: &[u8], width: u32, height: u32) -> Option<[f32; 2]> {
+    white_patch(rgba, width, height, 4)
+}
+
+fn white_patch(pixels: &[u8], width: u32, height: u32, channels: usize) -> Option<[f32; 2]> {
+    if width < 4 || height < 4 || pixels.len() < width as usize * height as usize * channels {
+        return None;
+    }
+    let stride = width as usize * channels;
+    for y in 0..height - 3 {
+        for x in 0..width - 3 {
+            let offset = y as usize * stride + x as usize * channels;
+            if (0..4).all(|row| pixels[offset + row * stride..offset + row * stride + 4 * channels]
+                .iter().all(|&channel| channel == 255)) {
+                return Some([(x as f32 + 2.0) / width as f32, (y as f32 + 2.0) / height as f32]);
+            }
+        }
+    }
+    None
 }
 
 impl Renderer {
@@ -406,11 +390,6 @@ impl Renderer {
                 glDeleteTextures(1, &texture.name);
             }
         }
-        for font in &mut self.fonts {
-            if let Some(texture) = font.take() {
-                glDeleteTextures(1, &texture.name);
-            }
-        }
         self.images.clear();
         self.fonts.clear();
         self.vertices.clear();
@@ -424,118 +403,75 @@ impl Renderer {
         for texture in self.images.iter_mut().flatten() {
             texture.dirty = true;
         }
-        for texture in self.fonts.iter_mut().flatten() {
-            texture.dirty = true;
-        }
+        self.fonts.clear();
     }
 
     fn invalidate_font(&mut self, slot: u8) {
-        if let Some(Some(texture)) = self.fonts.get_mut(slot as usize) {
-            texture.dirty = true;
-        }
+        if let Some(font) = self.fonts.get_mut(slot as usize) { *font = None; }
     }
 
-    unsafe fn upload_image(&self, view: TexView<'_>) -> Option<GLuint> {
+    unsafe fn upload_image(&self, view: TexView<'_>) -> Option<(GLuint, Option<[f32; 2]>)> {
         if view.w > self.max_texture_size || view.h > self.max_texture_size {
             return None;
         }
+        if let Some(pixels) = coverage_luminance_alpha(view) {
+            let white_uv = white_patch(&pixels, view.w, view.h, 2);
+            return upload_texture(&pixels, view.w, view.h, GL_LUMINANCE_ALPHA, view.linear).map(|name| (name, white_uv));
+        }
         let rgba = texture_rgba(view)?;
-        upload_texture(&rgba, view.w, view.h, GL_RGBA, view.linear)
+        let white_uv = image_white_patch(&rgba, view.w, view.h);
+        upload_texture(&rgba, view.w, view.h, GL_RGBA, view.linear).map(|name| (name, white_uv))
     }
 
-    fn font_grid(&self, atlas: &Atlas) -> Option<(u32, u32, u32)> {
-        let coverage_w = atlas.coverage_width();
-        let coverage_h = atlas.coverage_height();
-        if coverage_w == 0
-            || coverage_h == 0
-            || coverage_w > self.max_texture_size
-            || coverage_h > self.max_texture_size
-        {
-            return None;
+    // Normal text and scaled text resolve the same core-owned coverage
+    // pages. Preparing visible runs at full size removes first-scale uploads;
+    // pages outside the bounded startup warmup are loaded on demand.
+    fn prepare_fonts(&mut self, ui: &mut Ui) -> bool {
+        if self.fonts.len() < spec::MAX_FONT_SLOTS {
+            self.fonts.resize_with(spec::MAX_FONT_SLOTS, || None);
         }
-        let max_columns = self.max_texture_size / coverage_w;
-        let mut columns = 1;
-        while columns < max_columns && columns.saturating_mul(columns) < atlas.glyph_count as u32 {
-            columns += 1;
+        let mut index = 0;
+        while index < ui.current_draw_list().words.len() {
+            let words = &ui.current_draw_list().words;
+            let len = match words[index] {
+                spec::draw_op::GLYPH_RUN if index + 3 <= words.len() => {
+                    let slot = (words[index + 1] & 0xff) as usize;
+                    let count = (words[index + 1] >> 16) as usize;
+                    let len = 3 + count * 2;
+                    if index + len > words.len() { break; }
+                    if slot >= self.fonts.len() { index += len; continue; }
+                    if let Some(atlas) = ui.font_atlas(slot as u8) {
+                        let revision = ui.font_atlas_revision(slot as u8);
+                        if !self.fonts[slot].as_ref().is_some_and(|font| font.revision == revision) {
+                            self.fonts[slot] = Some(FontTexture { revision, logical_w: atlas.cell_w,
+                                logical_h: atlas.cell_h, glyph_count: atlas.glyph_count, pages: Vec::new() });
+                        }
+                        let font = self.fonts[slot].as_mut().unwrap();
+                        // A caller may free a generated texture. Do not retain
+                        // an alias to a recycled slot or an old font generation.
+                        font.pages.retain(|page| ui.texture(page.handle as i32).is_some());
+                        for glyph in 0..count {
+                            let gid = (ui.current_draw_list().words[index + 4 + glyph * 2] & 0xffff) as u16;
+                            if gid >= font.glyph_count || font.pages.iter().any(|page| page.contains(gid)) { continue; }
+                            let Some(page) = ui.prepare_glyph_page(slot as u8, gid) else { return false; };
+                            font.pages.push(page);
+                        }
+                    } else { self.fonts[slot] = None; }
+                    len
+                }
+                spec::draw_op::RECT => 4,
+                spec::draw_op::GRAD_RECT => 6,
+                spec::draw_op::TRI => 7,
+                spec::draw_op::TEX_QUAD | spec::draw_op::SURFACE_QUAD => 9,
+                spec::draw_op::TEX_TRI => 12,
+                spec::draw_op::SCISSOR => 3,
+                spec::draw_op::SCISSOR_POP => 1,
+                _ => break,
+            };
+            if index + len > ui.current_draw_list().words.len() { break; }
+            index += len;
         }
-        let dimensions = |columns: u32| -> Option<(u32, u32)> {
-            let rows = (atlas.glyph_count as u32).div_ceil(columns);
-            Some((
-                next_pow2(columns.checked_mul(coverage_w)?),
-                next_pow2(rows.checked_mul(coverage_h)?),
-            ))
-        };
-        let (mut width, mut height) = dimensions(columns)?;
-        if width > self.max_texture_size || height > self.max_texture_size {
-            columns = max_columns;
-            (width, height) = dimensions(columns)?;
-        }
-        if width > self.max_texture_size || height > self.max_texture_size {
-            None
-        } else {
-            Some((columns, width, height))
-        }
-    }
-
-    unsafe fn upload_font(&self, atlas: &Atlas) -> Option<FontTexture> {
-        let (columns, texture_w, texture_h) = self.font_grid(atlas)?;
-        let coverage_w = atlas.coverage_width();
-        let coverage_h = atlas.coverage_height();
-        let mut alpha = vec![0u8; (texture_w as usize).checked_mul(texture_h as usize)?];
-        for glyph in 0..atlas.glyph_count {
-            let source = atlas.glyph_rows(glyph);
-            let x = (glyph as u32 % columns) * coverage_w;
-            let y = (glyph as u32 / columns) * coverage_h;
-            for row in 0..coverage_h as usize {
-                let source_start = row * coverage_w as usize;
-                let target_start = (y as usize + row) * texture_w as usize + x as usize;
-                alpha[target_start..target_start + coverage_w as usize]
-                    .copy_from_slice(&source[source_start..source_start + coverage_w as usize]);
-            }
-        }
-        let white_uv = font_white_patch(
-            texture_w,
-            texture_h,
-            coverage_w,
-            coverage_h,
-            columns,
-            atlas.glyph_count,
-        )
-        .map(|(x, y)| {
-            for row in y..y + 4 {
-                let start = (row * texture_w + x) as usize;
-                alpha[start..start + 4].fill(255);
-            }
-            [
-                (x + 2) as f32 / texture_w as f32,
-                (y + 2) as f32 / texture_h as f32,
-            ]
-        });
-        // GLES2 alpha-only textures sample as (0, 0, 0, A), which would
-        // multiply every DrawList text color to black in the shared shader.
-        // LUMINANCE_ALPHA preserves white RGB while coverage still scales A.
-        let pixels = font_luminance_alpha(&alpha);
-        let name = upload_texture(
-            &pixels,
-            texture_w,
-            texture_h,
-            GL_LUMINANCE_ALPHA,
-            true,
-        )?;
-        Some(FontTexture {
-            name,
-            source: atlas.bitmap.as_ptr() as usize,
-            coverage_w,
-            coverage_h,
-            logical_w: atlas.cell_w,
-            logical_h: atlas.cell_h,
-            texture_w,
-            texture_h,
-            columns,
-            glyph_count: atlas.glyph_count,
-            white_uv,
-            dirty: false,
-        })
+        true
     }
 
     unsafe fn sync_resources(&mut self, ui: &Ui) -> bool {
@@ -557,10 +493,11 @@ impl Renderer {
                         glDeleteTextures(1, &old.name);
                     }
                     self.images[slot] = match self.upload_image(view) {
-                        Some(name) => Some(ImageTexture {
+                        Some((name, white_uv)) => Some(ImageTexture {
                             handle,
                             revision,
                             name,
+                            white_uv,
                             dirty: false,
                         }),
                         None => {
@@ -577,38 +514,6 @@ impl Renderer {
             }
         }
 
-        if self.fonts.len() < spec::MAX_FONT_SLOTS {
-            self.fonts.resize_with(spec::MAX_FONT_SLOTS, || None);
-        }
-        for slot in 0..spec::MAX_FONT_SLOTS {
-            match ui.font_atlas(slot as u8) {
-                Some(atlas) => {
-                    let unchanged = self.fonts[slot].as_ref().is_some_and(|font| {
-                        !font.dirty
-                            && font.source == atlas.bitmap.as_ptr() as usize
-                            && font.glyph_count == atlas.glyph_count
-                    });
-                    if unchanged {
-                        continue;
-                    }
-                    if let Some(old) = self.fonts[slot].take() {
-                        glDeleteTextures(1, &old.name);
-                    }
-                    self.fonts[slot] = match self.upload_font(atlas) {
-                        Some(texture) => Some(texture),
-                        None => {
-                            ok = false;
-                            None
-                        }
-                    };
-                }
-                None => {
-                    if let Some(old) = self.fonts[slot].take() {
-                        glDeleteTextures(1, &old.name);
-                    }
-                }
-            }
-        }
         ok
     }
 
@@ -623,6 +528,13 @@ impl Renderer {
             .and_then(|entry| *entry)
             .filter(|entry| entry.handle == handle)
             .map(|entry| entry.name)
+    }
+
+    fn fill_source(&self, texture: GLuint) -> (GLuint, [f32; 2]) {
+        self.images.iter().flatten().find(|image| image.name == texture)
+            .and_then(|image| image.white_uv)
+            .map(|uv| (texture, uv))
+            .unwrap_or((self.white, [0.5, 0.5]))
     }
 
     fn quad(
@@ -710,13 +622,7 @@ impl Renderer {
             match words[index] {
                 spec::draw_op::RECT if index + 4 <= words.len() => {
                     if fill_source != texture {
-                        fill = self
-                            .fonts
-                            .iter()
-                            .flatten()
-                            .find(|font| font.name == texture)
-                            .and_then(|font| font.white_uv.map(|uv| (texture, uv)))
-                            .unwrap_or((self.white, [0.5, 0.5]));
+                        fill = self.fill_source(texture);
                         fill_source = fill.0;
                     }
                     if texture != fill.0 {
@@ -733,13 +639,7 @@ impl Renderer {
                 }
                 spec::draw_op::GRAD_RECT if index + 6 <= words.len() => {
                     if fill_source != texture {
-                        fill = self
-                            .fonts
-                            .iter()
-                            .flatten()
-                            .find(|font| font.name == texture)
-                            .and_then(|font| font.white_uv.map(|uv| (texture, uv)))
-                            .unwrap_or((self.white, [0.5, 0.5]));
+                        fill = self.fill_source(texture);
                         fill_source = fill.0;
                     }
                     if texture != fill.0 {
@@ -772,37 +672,30 @@ impl Renderer {
                     if next > words.len() {
                         break;
                     }
-                    let Some(font) = self.fonts.get(slot).and_then(|font| *font) else {
+                    let Some(font) = self.fonts.get(slot).and_then(|font| font.as_ref()) else {
                         index = next;
                         continue;
                     };
-                    if texture != font.name {
-                        self.flush(texture, clip, &mut start);
-                        texture = font.name;
-                    }
+                    let (logical_w, logical_h, glyph_count) = (font.logical_w, font.logical_h, font.glyph_count);
+                    let mut page: Option<pocketjs_core::draw::GlyphSampler> = None;
                     let color = words[index + 2];
                     for glyph in 0..count {
                         let body = index + 3 + glyph * 2;
                         let (x, y) = xy(words[body]);
-                        let glyph_id = (words[body + 1] & 0xffff) as u16;
-                        if glyph_id >= font.glyph_count {
-                            continue;
+                        let gid = (words[body + 1] & 0xffff) as u16;
+                        if gid >= glyph_count { continue; }
+                        if !page.as_ref().is_some_and(|page| page.contains(gid)) {
+                            page = self.fonts[slot].as_ref().unwrap().pages.iter().find(|page| page.contains(gid)).copied();
+                            let Some(name) = page.and_then(|page| self.image_name(page.handle as i32)) else { page = None; continue; };
+                            if texture != name {
+                                self.flush(texture, clip, &mut start);
+                                texture = name;
+                            }
                         }
-                        let column = glyph_id as u32 % font.columns;
-                        let row = glyph_id as u32 / font.columns;
-                        let u0 = column as f32 * font.coverage_w as f32 / font.texture_w as f32;
-                        let v0 = row as f32 * font.coverage_h as f32 / font.texture_h as f32;
-                        let u1 = (column * font.coverage_w + font.coverage_w) as f32
-                            / font.texture_w as f32;
-                        let v1 = (row * font.coverage_h + font.coverage_h) as f32
-                            / font.texture_h as f32;
-                        self.quad(
-                            [x, y],
-                            [x + font.logical_w as f32, y + font.logical_h as f32],
-                            [u0, v0],
-                            [u1, v1],
-                            [color; 4],
-                        );
+                        let Some(page) = page else { continue; };
+                        let [u0, v0, u1, v1] = page.uv(gid);
+                        self.quad([x, y], [x + logical_w as f32, y + logical_h as f32],
+                            [u0, v0], [u1, v1], [color; 4]);
                     }
                     index = next;
                 }
@@ -951,6 +844,7 @@ impl Renderer {
         window_height: i32,
         clear_color: bool,
     ) -> bool {
+        #[cfg(any(debug_assertions, feature = "gl-frame-validation"))]
         clear_errors();
         if window_width <= 0 || window_height <= 0 {
             return true;
@@ -966,14 +860,21 @@ impl Renderer {
         }
 
         trace(0, 0, 0);
-        let draw_list: *const pocketjs_core::DrawList = ui.draw();
+        if self.fonts.is_empty() {
+            // Small baked fonts were eager in the old GLES atlas path too.
+            // Keep first reveal off the interaction path, now sharing these
+            // pages with scaled text. Bound prefetch to 2 MiB CPU / 4 MiB GPU;
+            // streamed and multi-page fonts remain demand-loaded.
+            ui.warm_static_glyph_pages(2 * 1024 * 1024);
+        }
+        ui.draw();
         trace(1, 0, 0);
-        let ui_ref: &Ui = &*(ui as *const Ui);
-        let words = &(*draw_list).words;
-        let (logical_width, logical_height) = ui_ref.viewport();
+        if !self.prepare_fonts(ui) { return false; }
+        let words = &ui.current_draw_list().words;
+        let (logical_width, logical_height) = ui.viewport();
         let logical_width = logical_width.max(1.0) as u32;
         let logical_height = logical_height.max(1.0) as u32;
-        if !self.sync_resources(ui_ref) {
+        if !self.sync_resources(ui) {
             return false;
         }
         trace(2, 0, 0);
@@ -1036,8 +937,15 @@ impl Renderer {
         self.pipeline.unbind_vertices();
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindTexture(GL_TEXTURE_2D, 0);
-        let ok = glGetError() == GL_NO_ERROR;
         trace(5, self.commands.len(), self.vertices.len());
+        // Some mobile drivers serialize their command queue on glGetError.
+        // Resource creation checks errors where recovery is possible; a
+        // completed frame must stay queued so CPU work can overlap the GPU.
+        #[cfg(any(debug_assertions, feature = "gl-frame-validation"))]
+        let ok = glGetError() == GL_NO_ERROR;
+        #[cfg(not(any(debug_assertions, feature = "gl-frame-validation")))]
+        let ok = true;
+        trace(6, self.commands.len(), self.vertices.len());
         ok
     }
 }
@@ -1156,6 +1064,7 @@ mod tests {
             handle,
             revision: 0,
             name: texture_name,
+            white_uv: None,
             dirty: false,
         });
         Renderer {
@@ -1219,6 +1128,7 @@ mod tests {
             handle: 7,
             revision: 4,
             name: 9,
+            white_uv: None,
             dirty: false,
         };
         assert!(texture.matches(7, 4));
@@ -1311,104 +1221,107 @@ mod tests {
     }
 
     #[test]
-    fn luminance_alpha_font_pixels_preserve_text_rgb_and_coverage() {
-        assert_eq!(
-            font_luminance_alpha(&[0, 64, 255, 0]),
-            vec![255, 0, 255, 64, 255, 255, 255, 0],
-        );
-
-        let color = 0xffcc_bbaa;
+    fn shared_glyph_pages_survive_scale_and_revalidate_free_and_reload() {
+        let mut atlas = Vec::new();
+        atlas.extend_from_slice(&spec::font_atlas::MAGIC.to_le_bytes());
+        atlas.extend_from_slice(&spec::font_atlas::VERSION.to_le_bytes());
+        atlas.extend_from_slice(&50u16.to_le_bytes());
+        atlas.extend_from_slice(&[64, 64, 60, 64, 0, 0, 1, 0]);
+        for gid in 0..50u16 {
+            atlas.extend_from_slice(&(65 + gid as u32).to_le_bytes());
+            atlas.extend_from_slice(&gid.to_le_bytes());
+            atlas.extend_from_slice(&[64, 0]);
+        }
+        atlas.resize(atlas.len() + 50 * 64 * 64, 127);
+        let mut ui = Ui::new();
+        assert!(ui.load_font_atlas(&atlas));
+        let text = ui.create_node(spec::NodeType::Text as u8);
+        ui.set_text(text, "ArA");
+        ui.set_prop(text, spec::prop::WIDTH, 192.0);
+        ui.set_prop(text, spec::prop::HEIGHT, 64.0);
+        ui.insert_before(spec::ROOT_ID, text, 0);
+        ui.tick();
+        let words = ui.draw().words.clone();
         let mut renderer = planner(0, 9);
-        renderer.fonts.push(Some(FontTexture {
-            name: 7,
-            source: 0,
-            coverage_w: 8,
-            coverage_h: 8,
-            logical_w: 8,
-            logical_h: 8,
-            texture_w: 8,
-            texture_h: 8,
-            columns: 1,
-            glyph_count: 1,
-            white_uv: None,
-            dirty: false,
-        }));
-        renderer.build(
-            &[
-                spec::draw_op::GLYPH_RUN,
-                1 << 16,
-                color,
-                pack_xy(4, 5),
-                0,
-            ],
-            100,
-            50,
-        );
-
-        assert_eq!(renderer.vertices.len(), 6);
-        assert!(renderer.vertices.iter().all(|vertex| vertex.color == color));
-        assert_eq!(renderer.commands.len(), 1);
-        assert_eq!(renderer.commands[0].texture, 7);
-
-        let font = renderer.fonts[0].as_mut().unwrap();
-        font.texture_w = 16;
-        font.texture_h = 16;
-        let fill_color = 0x8040_3020;
-        let words = [
-            spec::draw_op::GLYPH_RUN,
-            1 << 16,
-            color,
-            pack_xy(4, 5),
-            0,
-            spec::draw_op::RECT,
-            pack_xy(12, 5),
-            pack_wh(6, 8),
-            fill_color,
-            spec::draw_op::GLYPH_RUN,
-            1 << 16,
-            color,
-            pack_xy(18, 5),
-            0,
-        ];
-        renderer.build(&words, 100, 50);
-        assert_eq!(renderer.commands.len(), 3); // full atlases retain the fallback
-        let positions: Vec<_> = renderer
-            .vertices
-            .iter()
-            .map(|v| (v.position, v.color))
-            .collect();
-        renderer.fonts[0].as_mut().unwrap().white_uv = Some([0.75, 0.25]);
-        renderer.build(&words, 100, 50);
-        assert_eq!(renderer.commands.len(), 1);
-        assert_eq!(renderer.commands[0].texture, 7);
-        assert_eq!(
-            renderer
-                .vertices
-                .iter()
-                .map(|v| (v.position, v.color))
-                .collect::<Vec<_>>(),
-            positions
-        );
-        assert!(renderer.vertices[6..12]
-            .iter()
-            .all(|v| v.uv == [0.75, 0.25]));
+        assert!(renderer.prepare_fonts(&mut ui));
+        let pages = renderer.fonts[0].as_ref().unwrap().pages.clone();
+        assert_eq!(pages.len(), 2, "a run may cross pages and return to its first page");
+        let slots = ui.texture_slot_count();
+        renderer.images.clear();
+        for page in &pages {
+            let view = ui.texture(page.handle as i32).unwrap();
+            let rgba = texture_rgba(view).unwrap();
+            let la = coverage_luminance_alpha(view).unwrap();
+            assert_eq!(la.len() * 2, rgba.len());
+            for (rgba, la) in rgba.chunks_exact(4).zip(la.chunks_exact(2)) {
+                assert_eq!([la[0], la[0], la[0], la[1]], rgba);
+            }
+            renderer.images.push(Some(ImageTexture { handle: page.handle as i32, revision: 0,
+                name: 7 + renderer.images.len() as u32, white_uv: white_patch(&la, view.w, view.h, 2), dirty: false }));
+        }
+        renderer.build(&words, 480, 272);
+        assert_eq!(renderer.vertices.len(), 18);
+        assert_eq!(renderer.commands.iter().map(|c| c.texture).collect::<Vec<_>>(), [7, 8, 7]);
+        assert_eq!(renderer.vertices[0].uv, renderer.vertices[12].uv);
+        ui.set_prop(text, spec::prop::SCALE, 0.5);
+        let scaled = ui.draw().words.clone();
+        assert!(renderer.prepare_fonts(&mut ui));
+        assert_eq!(ui.texture_slot_count(), slots, "first scale must not allocate a second atlas");
+        assert_eq!(scaled[1], pages[0].handle);
+        assert_eq!(scaled[10], pages[1].handle);
+        ui.set_prop(text, spec::prop::SCALE, 1.0);
+        ui.free_texture(pages[0].handle as i32);
+        ui.draw();
+        assert!(renderer.prepare_fonts(&mut ui));
+        assert!(ui.texture(pages[0].handle as i32).is_none());
+        assert!(renderer.fonts[0].as_ref().unwrap().pages.iter().all(|p| ui.texture(p.handle as i32).is_some()));
+        assert!(ui.load_font_atlas(&atlas));
+        assert!(renderer.prepare_fonts(&mut ui));
+        assert!(ui.texture(pages[1].handle as i32).is_none(), "font revision invalidates every old page");
+        assert_eq!(ui.texture_slot_count(), slots, "reload reuses storage");
+        renderer.invalidate_font(0);
+        assert!(renderer.prepare_fonts(&mut ui));
+        assert_eq!(ui.texture_slot_count(), slots, "backend invalidation does not duplicate core pages");
     }
 
     #[test]
-    fn font_fill_patch_stays_in_padding_with_a_filter_guard() {
-        assert_eq!(font_white_patch(64, 64, 16, 16, 4, 16), None);
-        for (w, h, cw, ch, columns, count) in (1..16)
-            .map(|n| (64, 64, 16, 16, 4, n))
-            .chain([(64, 32, 10, 10, 4, 8), (64, 64, 16, 10, 4, 20)])
-        {
-            let (x, y) = font_white_patch(w, h, cw, ch, columns, count).unwrap();
-            assert!(x + 4 <= w && y + 4 <= h);
-            for glyph in 0..count as u32 {
-                let gx = glyph % columns * cw;
-                let gy = glyph / columns * ch;
-                assert!(x >= gx + cw + 2 || y >= gy + ch + 2 || x + 6 <= gx || y + 6 <= gy);
-            }
+    fn indexed_coverage_optimization_rejects_colored_or_short_palettes() {
+        let mut palette = vec![255; 1024];
+        palette[3] = 0;
+        palette[7] = 73;
+        assert_eq!(coverage_luminance_alpha(view(&[0, 1], 2, 1, spec::psm::PSM_T8, Some(&palette))), Some(vec![255, 0, 255, 73]));
+        assert!(coverage_luminance_alpha(view(&[0], 2, 1, spec::psm::PSM_T8, Some(&palette))).is_none());
+        palette[0] = 0;
+        assert!(coverage_luminance_alpha(view(&[0, 1], 2, 1, spec::psm::PSM_T8, Some(&palette))).is_none());
+    }
+
+    #[test]
+    fn image_fill_patch_requires_guarded_opaque_white_pixels() {
+        let mut pixels = vec![0; 8 * 8 * 4];
+        for y in 2..6 {
+            for x in 3..7 { pixels[(y * 8 + x) * 4..(y * 8 + x + 1) * 4].fill(255); }
         }
+        assert_eq!(image_white_patch(&pixels, 8, 8), Some([5.0 / 8.0, 4.0 / 8.0]));
+        pixels[(3 * 8 + 4) * 4 + 3] = 254;
+        assert_eq!(image_white_patch(&pixels, 8, 8), None);
+        assert_eq!(image_white_patch(&[255; 3 * 4 * 4], 3, 4), None);
+    }
+
+    #[test]
+    fn image_and_fill_share_a_batch_without_changing_geometry_or_color() {
+        let mut renderer = planner(0, 9);
+        let words = [spec::draw_op::TEX_QUAD, 0, pack_xy(0, 0), pack_wh(8, 8),
+            0.0f32.to_bits(), 0.0f32.to_bits(), 1.0f32.to_bits(), 1.0f32.to_bits(), 0xffffffff,
+            spec::draw_op::RECT, pack_xy(8, 0), pack_wh(8, 8), 0x80765432];
+        renderer.build(&words, 100, 50);
+        assert_eq!(renderer.commands.len(), 2);
+        let before: Vec<_> = renderer.vertices.iter().map(|v| (v.position, v.color)).collect();
+        renderer.images[0].as_mut().unwrap().white_uv = Some([0.5, 0.5]);
+        renderer.build(&words, 100, 50);
+        assert_eq!(renderer.commands.len(), 1);
+        assert_eq!(renderer.commands[0].texture, 9);
+        assert_eq!(renderer.vertices.iter().map(|v| (v.position, v.color)).collect::<Vec<_>>(), before);
+        assert!(renderer.vertices[6..].iter().all(|v| v.uv == [0.5, 0.5]));
     }
 
     #[test]

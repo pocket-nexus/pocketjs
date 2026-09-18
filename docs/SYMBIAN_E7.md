@@ -289,10 +289,37 @@ The GLES backend joins adjacent ranges with matching textures and scissors,
 skips repeated scissor state, and uses direct coordinates for a native-sized
 viewport. **A 4 × 4 opaque patch in unused font-atlas padding** lets solid fills
 share a batch with surrounding glyphs. A two-pixel gap protects glyph filtering;
-atlases without room use the separate white texture.
+atlases without room use the separate white texture. An image containing an
+opaque white 4 × 4 block can also supply constant-color fills without changing
+its pixels. Scaled text resolves a font page once per run and page transition;
+font revisions and texture generations are checked before reuse.
+
+**Full-size and scaled glyphs share the same coverage pages.** Each glyph has
+a transparent texel gutter. GLES uploads white coverage palettes as
+`GL_LUMINANCE_ALPHA` (two bytes per texel), retaining the RGBA path for colored
+palettes. Before first presentation, it warms single-page baked fonts within
+a **2 MiB coverage / 4 MiB GPU upload budget**. Multi-page and streamed fonts
+remain demand-loaded. A font replacement invalidates its pages; texture
+generation checks reject handles freed by the application.
+
+The straight center of a vertical rounded gradient uses clipped gradient
+rectangles; curved rows retain coverage spans. Small flat borders reuse local
+coverage masks when a parent scales them. **The border cache holds at most
+16 masks of at most 128 × 128 texels (1 MiB RGBA).** Shapes outside that budget,
+nonuniform scales, and animated shapes that exhaust the cache use analytic
+spans. The cache never evicts a mask referenced by the current draw list.
+
+**Release frames do not query the GL error queue.** `glGetError` can wait for
+queued GPU work on mobile drivers, serializing CPU and GPU execution. Shader,
+texture and renderer initialization retain their error checks. Debug builds
+check each frame; the Rust `gl-frame-validation` feature enables the same
+checks in a release build for diagnosis. Its timing is reported as `error_ms`.
+The synchronization mechanism is described in Apple's
+[OpenGL ES design guidelines](https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/OpenGLES_ProgrammingGuide/OpenGLESApplicationDesign/OpenGLESApplicationDesign.html).
 
 **`build app --perf-trace` enables a bounded native trace.** It records the
-GLES version, vendor and renderer, then buffers a 30-second workload with
+GLES version, vendor, renderer and extensions, plus the EGL version and swap
+behavior, then buffers a 30-second workload with
 limits of 60 wall-clock seconds and 2,048 frames. After measurement, it writes
 `E:/Installs/pocketjs-perf.tsv`. Normal builds omit tracing and replay.
 Collection and replay begin after 120 warmup frames, allowing first-presentation
@@ -308,12 +335,16 @@ profiles. A caller-supplied `--core-library` retains its caller's compiler flags
 
 The frame rows contain elapsed time, frame interval, JavaScript execution,
 core ticks, GLES submission and presentation time in milliseconds.
+`hit_ms` measures native hit queries called by the guest and is included in
+`js_ms`; adding the two would double-count that work.
 **Replay uses the framework's virtual frame clock** (`replay_ms`), so a slow
 frame cannot skip a whole press/release sequence. Phase assignment uses this
 clock; FPS and CPU durations use wall time. Without replay, both clocks use
 wall time. This measures rendering throughput for a fixed input sequence.
 Drawing is split into scene generation, resource synchronization, vertex
-generation, buffer upload and GLES submission, with batch and vertex counts.
+generation, buffer upload, GLES submission and frame validation, with batch
+and vertex counts. `error_ms` is zero when frame validation is disabled, apart
+from the trace callback's clock quantization.
 The C ABI `ui_gl_set_trace` callback supplies these boundaries on the render
 thread; a null callback disables them. Callbacks must not re-enter the UI or
 issue GL commands.

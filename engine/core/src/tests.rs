@@ -959,41 +959,57 @@ fn transparent_rounded_border_draws_an_outline_not_square_strips() {
     ui.tick();
 
     let words = ui.draw().words.clone();
-    let counts = validate_drawlist(&words);
-    assert!(counts[spec::draw_op::RECT as usize] > 0);
+    assert_eq!(validate_drawlist(&words)[spec::draw_op::TEX_QUAD as usize], 1);
+    let mut pixels = alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
+    crate::raster::render(&ui, &words, &mut pixels);
+    let blue_at = |x: usize, y: usize| pixels[(y * spec::SCREEN_W as usize + x) * 4 + 2] > 0;
+    assert!(blue_at(20, 10), "top edge should be present");
+    assert!(blue_at(10, 16), "left edge should be present");
+    assert!(!blue_at(10, 10), "rounded transparent border must not draw square outer corners");
+    assert!(!blue_at(20, 16), "transparent border must not fill the center");
+    let handle = words[1] as i32;
+    ui.set_prop(n, spec::prop::SCALE, 0.8);
+    assert_eq!(ui.draw().words[1] as i32, handle, "scaling reuses the local mask");
+    ui.free_texture(handle);
+    assert_ne!(ui.draw().words[1] as i32, handle, "a freed texture must not be sampled");
 
-    let mut covers_top_mid = false;
-    let mut covers_left_mid = false;
-    let mut covers_outer_corner = false;
-    let mut covers_center = false;
-    let mut i = 0usize;
-    while i < words.len() {
-        match words[i] {
-            spec::draw_op::RECT => {
-                let (x, y) = decode_xy(words[i + 1]);
-                let (w, h) = decode_wh(words[i + 2]);
-                let c = words[i + 3];
-                let covers = |px: i32, py: i32| px >= x && px < x + w && py >= y && py < y + h;
-                if c & 0x00ff_ffff == blue & 0x00ff_ffff && c >> 24 > 0 {
-                    covers_top_mid |= covers(20, 10);
-                    covers_left_mid |= covers(10, 16);
-                    covers_outer_corner |= covers(10, 10);
-                    covers_center |= covers(20, 16);
-                }
-                i += 4;
-            }
-            spec::draw_op::GRAD_RECT => i += 6,
-            spec::draw_op::TRI => i += 7,
-            spec::draw_op::GLYPH_RUN => i += 3 + 2 * ((words[i + 1] >> 16) as usize),
-            spec::draw_op::TEX_QUAD => i += 9,
-            spec::draw_op::SCISSOR => i += 3,
-            _ => i += 1,
+}
+
+#[test]
+fn border_masks_are_bounded_and_match_analytic_coverage_at_rest() {
+    for border in [0.75, 1.0, 2.0] {
+        let mut masked = Ui::new();
+        let mut analytic = Ui::new();
+        fn shape(ui: &mut Ui, width: f64, border: f64) -> i32 {
+            let n = ui.create_node(0);
+            for (prop, value) in [(spec::prop::WIDTH, width), (spec::prop::HEIGHT, 24.0),
+                (spec::prop::RADIUS, 8.0), (spec::prop::BORDER_WIDTH, border),
+                (spec::prop::BORDER_COLOR, 0xffd08742u32 as f64)] { ui.set_prop(n, prop, value); }
+            ui.insert_before(spec::ROOT_ID, n, 0);
+            ui.tick();
+            n
         }
+        // Fill the bounded cache with other dimensions. The target must then
+        // use the independent analytic fallback, without freeing earlier masks.
+        for width in 25..41 {
+            let n = shape(&mut analytic, width as f64, border);
+            analytic.draw();
+            analytic.destroy_node(n);
+        }
+        assert_eq!(analytic.texture_slot_count(), 16);
+        shape(&mut masked, 24.0, border);
+        shape(&mut analytic, 24.0, border);
+        let a = masked.draw().words.clone();
+        let b = analytic.draw().words.clone();
+        assert_eq!(validate_drawlist(&a)[spec::draw_op::TEX_QUAD as usize], 1);
+        assert_eq!(validate_drawlist(&b)[spec::draw_op::TEX_QUAD as usize], 0);
+        assert_eq!(analytic.texture_slot_count(), 16, "cache overflow cannot grow residency");
+        let mut ap = alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
+        let mut bp = ap.clone();
+        crate::raster::render(&masked, &a, &mut ap);
+        crate::raster::render(&analytic, &b, &mut bp);
+        assert_eq!(ap, bp, "baked and analytic borders agree at rest");
     }
-    assert!(covers_top_mid, "top edge should be present");
-    assert!(covers_left_mid, "left edge should be present");
-    assert!(!covers_outer_corner, "rounded transparent border must not draw square outer corners");
-    assert!(!covers_center, "transparent border must not fill the center");
 }
 
 #[test]
@@ -1045,6 +1061,32 @@ fn rounded_gradients_emit_rect_coverage_spans() {
         }
     }
     assert!(via_segment, "the rounded span path must preserve the middle stop");
+}
+
+#[test]
+fn tall_rounded_gradients_bound_center_geometry_and_preserve_stops() {
+    for direction in [spec::GradDir::ToBottom, spec::GradDir::ToTop] {
+        let mut counts = Vec::new();
+        for height in [100.0, 240.0] {
+            let mut ui = Ui::new();
+            ui.set_viewport(360.0, 640.0);
+            let n = ui.create_node(0);
+            for (prop, value) in [(spec::prop::WIDTH, 100.0), (spec::prop::HEIGHT, height),
+                (spec::prop::RADIUS, 8.0), (spec::prop::GRAD_FROM, 0xff000000u32 as f64),
+                (spec::prop::GRAD_VIA, 0xff808080u32 as f64), (spec::prop::GRAD_VIA_POS, 0.5),
+                (spec::prop::GRAD_TO, 0xffffffffu32 as f64), (spec::prop::GRAD_DIR, direction as u32 as f64)] {
+                ui.set_prop(n, prop, value);
+            }
+            ui.insert_before(spec::ROOT_ID, n, 0);
+            ui.tick();
+            let words = ui.draw().words.clone();
+            let ops = validate_drawlist(&words);
+            assert_eq!(ops[spec::draw_op::GRAD_RECT as usize], 2, "split the center at the middle stop");
+            assert!(ops[spec::draw_op::RECT as usize] <= 48, "only curved rows need coverage spans");
+            counts.push(words.len());
+        }
+        assert_eq!(counts[0], counts[1], "height must not multiply geometry in the straight region");
+    }
 }
 
 #[test]
@@ -1682,9 +1724,61 @@ fn scaled_glyph_cells_follow_the_window_at_both_raster_densities() {
         let replaced = ui.draw().words.clone();
         assert_ne!(replaced[1] as i32, handle);
         assert!(ui.texture(handle).is_none());
-        assert!(ui.texture(replaced[1] as i32).unwrap().pixels.iter().all(|&b| b == 0));
+        let blank = ui.texture(replaced[1] as i32).unwrap();
+        // Padding may contain the guarded solid-fill patch. Glyph coverage
+        // and its one-texel gutter must be empty after this replacement.
+        for y in 0..8 * density + 2 {
+            let start = (y * blank.w) as usize;
+            assert!(blank.pixels[start..start + (8 * density + 2) as usize].iter().all(|&b| b == 0));
+        }
         assert_eq!(ui.texture_slot_count(), 1, "replacement reuses storage without stale handles");
     }
+}
+
+#[test]
+fn static_glyph_warmup_respects_budget_and_skips_multi_page_fonts() {
+    let mut ui = Ui::new();
+    for slot in [0, 1] {
+        assert!(ui.load_font_atlas(&encode_atlas(slot, 8, 8, 7, 8, 1, &[('A' as u32, 0, 8)])));
+    }
+    let glyphs: Vec<_> = (0..50u16).map(|gid| ('A' as u32 + gid as u32, gid, 64)).collect();
+    assert!(ui.load_font_atlas(&encode_atlas(2, 64, 64, 60, 64, 50, &glyphs)));
+    assert_eq!(ui.warm_static_glyph_pages(255), 0);
+    assert_eq!(ui.texture_slot_count(), 0);
+    assert_eq!(ui.warm_static_glyph_pages(256), 256);
+    assert_eq!(ui.texture_slot_count(), 1);
+    let first = ui.prepare_glyph_page(0, 0).unwrap().handle;
+    assert_eq!(ui.warm_static_glyph_pages(1024 * 1024), 512);
+    assert_eq!(ui.texture_slot_count(), 2, "multi-page fonts are not prefetched");
+    assert_eq!(ui.prepare_glyph_page(0, 0).unwrap().handle, first, "warming reuses existing pages");
+    assert!(ui.prepare_glyph_page(0, 1).is_none(), "invalid glyph ids cannot underflow page size");
+}
+
+#[test]
+fn scaled_glyph_run_crosses_pages_and_returns_to_the_first_page() {
+    let mut ui = Ui::new();
+    // 64 px cells plus the two-texel gutter fit 7 x 7 glyphs per page.
+    let glyphs: Vec<_> = (0..50u16).map(|gid| ('A' as u32 + gid as u32, gid, 64)).collect();
+    assert!(ui.load_font_atlas(&encode_atlas(0, 64, 64, 60, 64, 50, &glyphs)));
+    let text = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_text(text, "ArA");
+    for (p, v) in [(spec::prop::WIDTH, 192.0), (spec::prop::HEIGHT, 64.0),
+        (spec::prop::SCALE, 0.5), (spec::prop::ORIGIN_X, -0.5), (spec::prop::ORIGIN_Y, -0.5)] {
+        ui.set_prop(text, p, v);
+    }
+    ui.insert_before(spec::ROOT_ID, text, 0);
+    ui.tick();
+    let words = ui.draw().words.clone();
+    assert_eq!(validate_drawlist(&words)[spec::draw_op::TEX_QUAD as usize], 3);
+    assert_ne!(words[1], words[10]);
+    assert_eq!(words[1], words[19]);
+    assert_eq!(&words[4..8], &words[22..26]);
+    for at in [0, 9, 18] {
+        let texture = ui.texture(words[at + 1] as i32).unwrap();
+        assert_eq!(f32::from_bits(words[at + 4]) * texture.w as f32, 1.0);
+        assert_eq!(f32::from_bits(words[at + 6]) * texture.w as f32, 65.0);
+    }
+    assert_eq!(ui.texture_slot_count(), 2);
 }
 
 #[test]

@@ -32,6 +32,9 @@ bare-platform = []
 # Compile the fixed-function OpenGL ES 1.1 pipeline instead of the ES 2 one,
 # for GPUs that predate shaders (the original iPhone's PowerVR MBX Lite).
 gles1 = []
+# Validate the GL error queue around every frame. Debug builds do this already;
+# release builds opt in because mobile drivers can synchronize the GPU here.
+gl-frame-validation = []
 # Omit the GLES backend for framebuffer-only hosts such as Windows CE/GDI.
 # The C ABI keeps its GL entry points, but they return failure without pulling
 # graphics symbols into the native link.
