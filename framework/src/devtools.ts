@@ -54,6 +54,20 @@ export interface Tape {
 
 /** Flight-recorder capacity: 10 min at 60 fps ≈ 72 KB of u16 masks. */
 const TAPE_CAP = 36000;
+const TOUCH_CHUNK_BITS = 7;
+const TOUCH_CHUNK_SIZE = 1 << TOUCH_CHUNK_BITS;
+type TouchRing = ((number[] | null)[] | undefined)[];
+
+function writeTouch(ring: TouchRing, at: number, value: number[] | null): void {
+  const page = at >>> TOUCH_CHUNK_BITS;
+  let chunk = ring[page];
+  if (!chunk && value) chunk = ring[page] = new Array<number[] | null>(TOUCH_CHUNK_SIZE);
+  if (chunk) chunk[at & (TOUCH_CHUNK_SIZE - 1)] = value;
+}
+
+function readTouch(ring: TouchRing, at: number): number[] | null {
+  return ring[at >>> TOUCH_CHUNK_BITS]?.[at & (TOUCH_CHUNK_SIZE - 1)] ?? null;
+}
 const TREE_THROTTLE = 30; // min frames between tree snapshots
 const STATS_EVERY = 30;
 
@@ -66,10 +80,10 @@ interface DevtoolsState {
   tape: Uint16Array;
   tapeAnalog: Uint16Array;
   tapeRightAnalog: Uint16Array | null;
-  /** Touch ring — allocated lazily on the first frame that HAS contacts, so
-   *  touch-free sessions (every PSP session) never pay for it. */
-  tapeTouch: (number[] | null)[] | null;
-  tapeTouchSurfaces: (number[] | null)[] | null;
+  /** Allocate at most 128 slots at a contact edge, instead of initializing
+   *  all 36,000 slots on the first touch. Empty pages need no storage. */
+  tapeTouch: TouchRing | null;
+  tapeTouchSurfaces: TouchRing | null;
   tapeStart: number; // ring index of the oldest frame
   tapeLen: number;
   tapeFirstFrame: number; // absolute frame index of the oldest entry
@@ -293,30 +307,28 @@ function recordMask(
   // Defensive copy: hosts may reuse the packed-contact buffer across frames.
   const contacts = touch && touch.length > 0 ? touch.slice(0, 16) : null;
   if (contacts && !state.tapeTouch) {
-    // First contact of the session: allocate the ring (touch-free sessions
-    // never reach here). Frames recorded before this point had no contacts.
-    state.tapeTouch = new Array<number[] | null>(TAPE_CAP).fill(null);
+    state.tapeTouch = [];
   }
   const surfaces = contacts && touchSurfaces
     ? touchSurfaces.slice(0, contacts.length).map((surface) => surface === 1 ? 1 : 0)
     : null;
   if (surfaces?.some((surface) => surface === 1) && !state.tapeTouchSurfaces) {
-    state.tapeTouchSurfaces = new Array<number[] | null>(TAPE_CAP).fill(null);
+    state.tapeTouchSurfaces = [];
   }
   if (state.tapeLen < TAPE_CAP) {
     const at = (state.tapeStart + state.tapeLen) % TAPE_CAP;
     state.tape[at] = mask;
     state.tapeAnalog[at] = analog;
     if (state.tapeRightAnalog) state.tapeRightAnalog[at] = right;
-    if (state.tapeTouch) state.tapeTouch[at] = contacts;
-    if (state.tapeTouchSurfaces) state.tapeTouchSurfaces[at] = surfaces;
+    if (state.tapeTouch) writeTouch(state.tapeTouch, at, contacts);
+    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, at, surfaces);
     state.tapeLen++;
   } else {
     state.tape[state.tapeStart] = mask;
     state.tapeAnalog[state.tapeStart] = analog;
     if (state.tapeRightAnalog) state.tapeRightAnalog[state.tapeStart] = right;
-    if (state.tapeTouch) state.tapeTouch[state.tapeStart] = contacts;
-    if (state.tapeTouchSurfaces) state.tapeTouchSurfaces[state.tapeStart] = surfaces;
+    if (state.tapeTouch) writeTouch(state.tapeTouch, state.tapeStart, contacts);
+    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, state.tapeStart, surfaces);
     state.tapeStart = (state.tapeStart + 1) % TAPE_CAP;
     state.tapeFirstFrame++;
   }
@@ -356,7 +368,7 @@ function exportTape(): Tape {
   if (state.tapeTouch) {
     const touch: [number, number[]][] = [];
     for (let i = 0; i < state.tapeLen; i++) {
-      const contacts = state.tapeTouch[(state.tapeStart + i) % TAPE_CAP];
+      const contacts = readTouch(state.tapeTouch, (state.tapeStart + i) % TAPE_CAP);
       if (contacts) touch.push([i, contacts.slice()]);
     }
     if (touch.length > 0) {
@@ -367,7 +379,7 @@ function exportTape(): Tape {
   if (state.tapeTouchSurfaces) {
     const touchSurfaces: [number, number[]][] = [];
     for (let i = 0; i < state.tapeLen; i++) {
-      const surfaces = state.tapeTouchSurfaces[(state.tapeStart + i) % TAPE_CAP];
+      const surfaces = readTouch(state.tapeTouchSurfaces, (state.tapeStart + i) % TAPE_CAP);
       if (surfaces) touchSurfaces.push([i, surfaces.slice()]);
     }
     if (touchSurfaces.length > 0) {

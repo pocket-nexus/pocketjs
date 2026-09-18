@@ -302,6 +302,17 @@ a **2 MiB coverage / 4 MiB GPU upload budget**. Multi-page and streamed fonts
 remain demand-loaded. A font replacement invalidates its pages; texture
 generation checks reject handles freed by the application.
 
+Static text placements are cached by node slot, text, font revision, wrapping
+width, tracking, line height and alignment. **The placement cache holds at
+most 256 runs, 64 KiB of text and 256 KiB of glyph placements**, plus entry
+metadata. Streamed fonts and runs with missing glyphs bypass this cache.
+Transforms and colors are applied when drawing. Cached glyph bounds reject
+text outside the clip before emitting its glyphs.
+
+The framework touch recorder allocates **128 frame slots per chunk** as
+contacts arrive. This avoids initializing a 36,000-slot array on first touch;
+the ten-minute recording window, surface lanes and replay format are retained.
+
 The straight center of a vertical rounded gradient uses clipped gradient
 rectangles; curved rows retain coverage spans. Small flat borders reuse local
 coverage masks when a parent scales them. **The border cache holds at most

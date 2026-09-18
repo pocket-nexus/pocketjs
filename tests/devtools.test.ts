@@ -409,6 +409,41 @@ describe("tape v2 touch track", () => {
     );
   }
 
+  test("first touch does not initialize a session-sized array", () => {
+    mountApp(() => View({}));
+    const nativeArray = globalThis.Array;
+    const allocations: number[] = [];
+    globalThis.Array = new Proxy(nativeArray, {
+      construct(target, args, newTarget) {
+        if (args.length === 1 && typeof args[0] === "number") allocations.push(args[0]);
+        return Reflect.construct(target, args, newTarget);
+      },
+    });
+    try { frameTouch(0, [__packTouch(0, 100, 100)]); }
+    finally { globalThis.Array = nativeArray; }
+    expect(Math.max(0, ...allocations)).toBeLessThanOrEqual(512);
+    push({ t: "dumpTape" }); frame(0);
+    expect((sent("tape")[0].tape as Tape).touch).toEqual([[0, [__packTouch(0, 100, 100)]]]);
+  });
+
+  test("chunk boundaries and ring wrap preserve contacts and clear expired surface lanes", () => {
+    mountApp(() => View({}));
+    const packed = __packTouch(3, 120, 80);
+    const withSurface = (globalThis as { frame?: (...args: any[]) => void }).frame!;
+    const contacts = new Set([0, 127, 128, 35999, 36000, 36127]);
+    for (let i = 0; i < 36260; i++) {
+      withSurface(0, undefined, contacts.has(i) ? [packed] : [], undefined,
+        contacts.has(i) ? [i === 36000 ? 0 : 1] : undefined);
+    }
+    push({ t: "dumpTape" }); frame(0);
+    const tape = sent("tape")[0].tape as Tape;
+    expect(tape.frames).toBe(36000);
+    expect(tape.startFrame).toBe(260);
+    expect(tape.touch).toEqual([[35739, [packed]], [35740, [packed]], [35867, [packed]]]);
+    expect(tape.touchSurfaces).toEqual([[35739, [1]], [35740, [0]], [35867, [1]]]);
+    expect(expandTapeTouch(tape)!.filter(Boolean)).toHaveLength(3);
+  });
+
   test("a full snapshot retains all terminal cancellations in the recorded tape", () => {
     mountApp(() => View({}));
     const words = [...Array.from({ length: 8 }, (_, i) => __packTouch(i + 8, 10, 20)),

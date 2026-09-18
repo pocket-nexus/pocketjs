@@ -4379,3 +4379,86 @@ fn streamed_detach_reclaims_capacity_and_restores_baked_cells_across_slots() {
         }
     }
 }
+
+#[test]
+fn cached_text_layout_tracks_all_placement_inputs_and_nested_text() {
+    let mut ui = Ui::new();
+    for slot in [0, 1] {
+        assert!(ui.load_font_atlas(&encode_atlas(slot, 8, 8, 7, 10, 2,
+            &[('A' as u32, 0, 6 + slot), ('B' as u32, 1, 5)])));
+    }
+    let text = ui.create_node(spec::NodeType::Text as u8);
+    let child = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_text(text, "AB"); ui.set_text(child, "BA");
+    ui.insert_before(text, child, 0); ui.insert_before(spec::ROOT_ID, text, 0);
+    ui.set_prop(text, spec::prop::WIDTH, 100.0);
+    ui.set_prop(text, spec::prop::HEIGHT, 50.0);
+    ui.tick(); ui.draw();
+    fn compare(ui: &mut Ui) {
+        let cached = ui.draw().words.clone();
+        ui.paint_cache.clear_text_layouts();
+        assert_eq!(ui.draw().words, cached);
+        assert!(ui.paint_cache.text_layout_usage().0 > 0);
+    }
+    compare(&mut ui);
+    for (p, v) in [(spec::prop::TEXT_ALIGN, spec::TextAlign::Center as u8 as f64),
+        (spec::prop::WIDTH, 140.0), (spec::prop::TRACKING, 2.0),
+        (spec::prop::LINE_HEIGHT, 18.0), (spec::prop::FONT_SLOT, 1.0),
+        (spec::prop::SCALE, 0.7), (spec::prop::TRANSLATE_X, 22.0)] {
+        ui.set_prop(text, p, v); ui.tick(); compare(&mut ui);
+    }
+    ui.set_text(child, "A\nB"); ui.tick(); compare(&mut ui);
+    assert!(ui.load_font_atlas(&encode_atlas(1, 8, 8, 7, 10, 2,
+        &[('A' as u32, 0, 3), ('B' as u32, 1, 7)])));
+    ui.tick(); compare(&mut ui);
+}
+
+#[test]
+fn text_layout_cache_is_bounded_and_preserves_missing_glyph_counts() {
+    let mut ui = Ui::new();
+    assert!(ui.load_font_atlas(&encode_atlas(0, 8, 8, 7, 10, 1, &[('A' as u32, 0, 6)])));
+    let text = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(text, spec::prop::WIDTH, 480.0);
+    ui.insert_before(spec::ROOT_ID, text, 0);
+    for count in 1..200 {
+        ui.set_text(text, &"A".repeat(count)); ui.tick(); ui.draw();
+        let (entries, glyphs, bytes) = ui.paint_cache.text_layout_usage();
+        assert!(entries > 0 && entries <= 256 && glyphs <= 16384 && bytes <= 256 * 256);
+    }
+    ui.set_text(text, "AZ"); ui.tick();
+    let before = ui.glyph_misses(); ui.draw();
+    let after = ui.glyph_misses(); ui.draw();
+    assert_eq!(after - before, 1);
+    assert_eq!(ui.glyph_misses() - after, 1);
+}
+
+#[test]
+fn indexed_text_layout_cache_evicts_and_revalidates_recycled_nodes() {
+    let mut ui = Ui::new();
+    assert!(ui.load_font_atlas(&encode_atlas(0, 8, 8, 7, 10, 2,
+        &[('A' as u32, 0, 6), ('B' as u32, 1, 7)])));
+    let mut nodes = Vec::new();
+    for i in 0..300 {
+        let text = ui.create_node(spec::NodeType::Text as u8);
+        ui.set_text(text, &"A".repeat(40 + i % 100));
+        ui.set_prop(text, spec::prop::WIDTH, 480.0);
+        ui.set_prop(text, spec::prop::HEIGHT, 10.0);
+        ui.set_prop(text, spec::prop::POS_TYPE, spec::PosType::Absolute as u32 as f64);
+        ui.insert_before(spec::ROOT_ID, text, 0);
+        nodes.push(text);
+    }
+    ui.tick();
+    let before = ui.draw().words.clone();
+    let (entries, glyphs, bytes) = ui.paint_cache.text_layout_usage();
+    assert!(entries > 0 && entries <= 256);
+    assert!(glyphs <= 16_384 && bytes <= 256 * 256);
+    assert_eq!(ui.draw().words, before, "eviction does not change placements");
+    for node in nodes { ui.destroy_node(node); }
+    let replacement = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_text(replacement, "BABA");
+    ui.insert_before(spec::ROOT_ID, replacement, 0);
+    ui.tick();
+    let recycled = ui.draw().words.clone();
+    ui.paint_cache.clear_text_layouts();
+    assert_eq!(ui.draw().words, recycled, "recycled slots validate text and layout inputs");
+}

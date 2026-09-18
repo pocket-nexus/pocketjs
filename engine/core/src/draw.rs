@@ -20,7 +20,7 @@
 //!   - opacity multiplies vertex alpha down the subtree (wrong on overlap,
 //!     per docs/DESIGN.md punt list).
 
-use alloc::vec::Vec;
+use alloc::{collections::BTreeMap, vec::Vec};
 
 use crate::layout::{floorf, roundf};
 use crate::spec;
@@ -439,6 +439,18 @@ pub struct PaintCache {
     entries: Vec<(u32, i32)>,
     glyphs: Vec<GlyphPage>,
     borders: Vec<([u32; 4], i32)>,
+    layouts: BTreeMap<u32, CachedTextLayout>,
+}
+
+// Node-indexed placement cache. Transforms and tint do not affect placement;
+// text, font revision, width and all typographic inputs do. Bounds prevent
+// retained or churned trees from growing this cache without limit.
+struct CachedTextLayout {
+    key: [u64; 6],
+    text: alloc::string::String,
+    glyphs: Vec<crate::text::GlyphPos>,
+    bounds: [f32; 4],
+    used: u64,
 }
 
 struct GlyphPage {
@@ -452,7 +464,16 @@ struct GlyphPage {
 
 impl PaintCache {
     pub const fn new() -> PaintCache {
-        PaintCache { entries: Vec::new(), glyphs: Vec::new(), borders: Vec::new() }
+        PaintCache { entries: Vec::new(), glyphs: Vec::new(), borders: Vec::new(), layouts: BTreeMap::new() }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clear_text_layouts(&mut self) { self.layouts.clear(); }
+
+    #[cfg(test)]
+    pub(crate) fn text_layout_usage(&self) -> (usize, usize, usize) {
+        (self.layouts.len(), self.layouts.values().map(|e| e.glyphs.capacity()).sum(),
+            self.layouts.values().map(|e| e.text.capacity()).sum())
     }
 }
 
@@ -1293,7 +1314,7 @@ impl<'a> Walker<'a> {
 
         // -- text run ----------------------------------------------------------
         if node.node_type == spec::NodeType::Text as u8 {
-            self.emit_text(dl, node, &r, &world, op, &clip, l.w, in_transform);
+            self.emit_text(dl, slot, node, &r, &world, op, &clip, l.w, in_transform);
             // Text children are absorbed into the run — do not recurse.
             return;
         }
@@ -1443,7 +1464,7 @@ impl<'a> Walker<'a> {
                     let node = &self.tree.slots[slot as usize];
                     let r = style::resolve(node, self.styles, true);
                     let anchor = Affine::translate(origin.0, origin.1);
-                    self.emit_text(dl, node, &r, &anchor, opacity, clip, node.layout.w, true);
+                    self.emit_text(dl, slot, node, &r, &anchor, opacity, clip, node.layout.w, true);
                 }
             }
         }
@@ -2726,6 +2747,7 @@ impl<'a> Walker<'a> {
     fn emit_text(
         &mut self,
         dl: &mut DrawList,
+        node_slot: u32,
         node: &crate::tree::Node,
         r: &style::Resolved,
         world: &Affine,
@@ -2769,12 +2791,54 @@ impl<'a> Walker<'a> {
         let Some(atlas) = self.fonts.atlas(slot) else { return };
         let (cell_w, cell_h) = (atlas.cell_w as f32, atlas.cell_h as f32);
         let mut scratch = core::mem::take(&mut self.glyph_scratch);
-        scratch.clear();
-        self.fonts
-            .layout_run(&run, slot, r.tracking, r.line_height, r.text_align, box_w, &mut scratch);
+        // Keep the placement map separate while glyph pages may be allocated.
+        let mut layouts = core::mem::take(&mut self.paint_cache.layouts);
+        let key = [slot as u64, self.font_revisions[slot as usize], r.tracking.to_bits() as u64,
+            r.line_height.to_bits() as u64, r.text_align as u64, box_w.to_bits() as u64];
+        let mut cached = atlas.stream.is_none() && layouts.get(&node_slot)
+            .is_some_and(|entry| entry.key == key && entry.text == run);
+        if !cached {
+            layouts.remove(&node_slot);
+            scratch.clear();
+            let misses = self.fonts.misses.get();
+            self.fonts.layout_run(&run, slot, r.tracking, r.line_height, r.text_align, box_w, &mut scratch);
+            if scratch.len() <= 256 && scratch.capacity() > 256 { scratch.shrink_to_fit(); }
+            if atlas.stream.is_none() && self.fonts.misses.get() == misses &&
+                run.capacity() <= 256 && scratch.capacity() <= 256 {
+                // At most 256 strings (64 KiB) and 16,384 placements (256 KiB),
+                // plus entry metadata. Streamed/missing glyphs bypass caching.
+                while layouts.len() >= 256 || layouts.values().map(|e| e.glyphs.capacity()).sum::<usize>() + scratch.capacity() > 16_384 {
+                    let oldest = *layouts.iter().min_by_key(|(_, e)| e.used).unwrap().0;
+                    layouts.remove(&oldest);
+                }
+                let mut bounds = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+                for g in &scratch {
+                    bounds[0] = bounds[0].min(g.x); bounds[1] = bounds[1].min(g.y);
+                    bounds[2] = bounds[2].max(g.x + cell_w); bounds[3] = bounds[3].max(g.y + cell_h);
+                }
+                layouts.insert(node_slot, CachedTextLayout { key, text: run, bounds,
+                    glyphs: core::mem::take(&mut scratch), used: self.frame });
+                cached = true;
+            }
+        }
+        let glyphs = if cached {
+            let entry = layouts.get_mut(&node_slot).unwrap();
+            entry.used = self.frame;
+            if world.is_axis_aligned() && world.a > 0.0 && world.d > 0.0 {
+                let (x0, y0) = world.apply(entry.bounds[0], entry.bounds[1]);
+                let (x1, y1) = world.apply(entry.bounds[2], entry.bounds[3]);
+                // Include a pixel for the unscaled run's anchor rounding.
+                if x1 + 1.0 <= clip.x0 || x0 - 1.0 >= clip.x1 || y1 + 1.0 <= clip.y0 || y0 - 1.0 >= clip.y1 {
+                    self.glyph_scratch = scratch;
+                    self.paint_cache.layouts = layouts;
+                    return;
+                }
+            }
+            &entry.glyphs
+        } else { &scratch };
         if world.is_axis_aligned() && (world.a != 1.0 || world.d != 1.0) {
             let mut page: Option<GlyphSampler> = None;
-            for g in &scratch {
+            for g in glyphs {
                 let (x, y) = world.apply(g.x, g.y);
                 if x + cell_w * world.a <= clip.x0 || x >= clip.x1 ||
                     y + cell_h * world.d <= clip.y0 || y >= clip.y1 || !atlas.stream_visible(g.codepoint, g.gid) {
@@ -2793,6 +2857,7 @@ impl<'a> Walker<'a> {
                 if dl.words.len() > before { *dl.words.last_mut().unwrap() = color; }
             }
             self.glyph_scratch = scratch;
+            self.paint_cache.layouts = layouts;
             return;
         }
         let start = dl.words.len();
@@ -2800,7 +2865,7 @@ impl<'a> Walker<'a> {
         dl.words.push(0); // patched below: slot | count << 16
         dl.words.push(color);
         let mut n: u32 = 0;
-        for g in &scratch {
+        for g in glyphs {
             // Glyph cells stay axis-aligned; only the anchor transforms.
             let (sx, sy) = world.apply(g.x, g.y);
             let (rx, ry) = (roundf(sx), roundf(sy));
@@ -2830,6 +2895,7 @@ impl<'a> Walker<'a> {
             dl.words[start + 1] = (slot as u32) | (n << 16);
         }
         self.glyph_scratch = scratch;
+        self.paint_cache.layouts = layouts;
     }
 
     /// Emit one TEXT_RUN (native text path; format in spec.ts): header words
