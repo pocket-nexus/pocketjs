@@ -1786,15 +1786,9 @@ impl Ui {
         for slot in 0..spec::MAX_FONT_SLOTS {
             let Some(atlas) = self.fonts.atlas(slot as u8) else { continue; };
             if atlas.stream.is_some() { continue; }
-            let sx = atlas.coverage_width() + 2;
-            let sy = atlas.coverage_height() + 2;
-            let cols = spec::TEX_MAX_DIM / sx;
-            let rows = spec::TEX_MAX_DIM / sy;
-            let count = atlas.glyph_count as u32;
-            if cols == 0 || rows == 0 || count > cols * rows { continue; }
-            let width = (cols.min(count) * sx).next_power_of_two();
-            let height = (count.div_ceil(cols) * sy).next_power_of_two();
-            let bytes = (width * height) as usize;
+            let Some(page) = draw::GlyphPageLayout::new(atlas, 0) else { continue; };
+            if page.count != atlas.glyph_count as u32 { continue; }
+            let bytes = page.coverage_bytes();
             if bytes > byte_budget.saturating_sub(used) { continue; }
             if self.prepare_glyph_page(slot as u8, 0).is_some() { used += bytes; }
         }

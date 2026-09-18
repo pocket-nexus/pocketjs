@@ -492,6 +492,40 @@ pub struct GlyphSampler {
     height: u32,
 }
 
+/// One source for coverage-page allocation, sampling and warmup accounting.
+pub(crate) struct GlyphPageLayout {
+    page: u32,
+    first: u32,
+    pub count: u32,
+    columns: u32,
+    stride_x: u32,
+    stride_y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl GlyphPageLayout {
+    pub fn new(atlas: &crate::text::Atlas, gid: u16) -> Option<Self> {
+        if gid >= atlas.glyph_count { return None; }
+        let stride_x = atlas.coverage_width() + 2;
+        let stride_y = atlas.coverage_height() + 2;
+        let columns = spec::TEX_MAX_DIM / stride_x;
+        let rows = spec::TEX_MAX_DIM / stride_y;
+        if columns == 0 || rows == 0 { return None; }
+        let capacity = columns * rows;
+        let page = gid as u32 / capacity;
+        let first = page * capacity;
+        let count = (atlas.glyph_count as u32 - first).min(capacity);
+        Some(Self {
+            page, first, count, columns, stride_x, stride_y,
+            width: pow2_at_least(columns.min(count) * stride_x),
+            height: pow2_at_least(count.div_ceil(columns) * stride_y),
+        })
+    }
+
+    pub fn coverage_bytes(&self) -> usize { (self.width * self.height) as usize }
+}
+
 impl GlyphSampler {
     pub fn contains(&self, gid: u16) -> bool {
         (gid as u32) >= self.first && (gid as u32) < self.end
@@ -520,16 +554,10 @@ pub(crate) fn glyph_page(
     revision: u64,
     gid: u16,
 ) -> Option<GlyphSampler> {
-    if gid >= atlas.glyph_count { return None; }
+    let layout = GlyphPageLayout::new(atlas, gid)?;
+    let GlyphPageLayout { page, first, count, columns, stride_x, stride_y, width, height } = layout;
     let cw = atlas.coverage_width();
     let ch = atlas.coverage_height();
-    let stride_x = cw + 2;
-    let stride_y = ch + 2;
-    let columns = spec::TEX_MAX_DIM / stride_x;
-    let rows = spec::TEX_MAX_DIM / stride_y;
-    if columns == 0 || rows == 0 { return None; }
-    let capacity = columns * rows;
-    let page = gid as u32 / capacity;
     // A load/stream update invalidates every page of that font. Release the
     // old generation before allocating its replacement; stale handles cannot
     // alias a new texture even if the free-list reuses the same slot.
@@ -548,10 +576,6 @@ pub(crate) fn glyph_page(
         &cache.glyphs[i]
     } else {
         if let Some(i) = cached { cache.glyphs.swap_remove(i); }
-        let first = page * capacity;
-        let count = (atlas.glyph_count as u32 - first).min(capacity);
-        let width = pow2_at_least(columns.min(count) * stride_x);
-        let height = pow2_at_least(count.div_ceil(columns) * stride_y);
         let byte_len = (width * height) as usize;
         let mut data = alloc::vec![0u128; byte_len.div_ceil(16)];
         let bytes = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, byte_len) };
@@ -594,8 +618,8 @@ pub(crate) fn glyph_page(
         cache.glyphs.push(GlyphPage { slot: atlas.slot, revision, page, handle, width, height });
         cache.glyphs.last()?
     };
-    Some(GlyphSampler { handle: entry.handle as u32, first: page * capacity,
-        end: (page + 1) * capacity, columns, stride_x, stride_y,
+    Some(GlyphSampler { handle: entry.handle as u32, first,
+        end: first + count, columns, stride_x, stride_y,
         width: entry.width, height: entry.height })
 }
 

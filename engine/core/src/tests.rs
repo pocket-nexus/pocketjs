@@ -1803,6 +1803,12 @@ fn scaled_glyph_run_crosses_pages_and_returns_to_the_first_page() {
         assert_eq!(f32::from_bits(words[at + 6]) * texture.w as f32, 65.0);
     }
     assert_eq!(ui.texture_slot_count(), 2);
+    let first = ui.prepare_glyph_page(0, 0).unwrap();
+    let last = ui.prepare_glyph_page(0, 49).unwrap();
+    assert!(first.contains(0) && first.contains(48));
+    assert!(!first.contains(49));
+    assert!(last.contains(49));
+    assert!(!last.contains(48) && !last.contains(50), "partial pages must not advertise unallocated glyphs");
 }
 
 #[test]
