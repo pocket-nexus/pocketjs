@@ -378,9 +378,16 @@ impl AppSupervisor {
             return false;
         };
         let instance = &self.instances[index];
+        if value["package"]
+            .as_str()
+            .is_some_and(|id| id != instance.package.package)
+        {
+            return false;
+        }
         let x = value["x"].as_f64().unwrap_or(-1.0) as f32 - instance.rect[0];
         let y = value["y"].as_f64().unwrap_or(-1.0) as f32 - instance.rect[1];
         if self.captured.is_none()
+            && value["d"] != false
             && (x < 0.0 || y < 0.0 || x >= instance.rect[2] || y >= instance.rect[3])
         {
             return false;

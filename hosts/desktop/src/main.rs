@@ -199,8 +199,10 @@ impl Runtime {
                 }
             }
             Input::Service(v) | Input::Pointer(v) => {
-                if v["t"] == "mouse" && self.supervisor.native_pointer(&v) {
-                    self.svc(json!({"t":"mouse","x":v["x"],"y":v["y"],"d":false}));
+                if v["t"] == "mouse"
+                    && self.supervisor.captured.is_some()
+                    && self.supervisor.native_pointer(&v)
+                {
                     return Ok(true);
                 }
                 if self.supervisor.native_focus().is_some()
@@ -295,12 +297,17 @@ impl Runtime {
             log::error!("AppInstance {id}: {error}");
         }
         let mut intents = Vec::new();
-        let captured = self.supervisor.captured.is_some();
-        if captured != self.capture_sent {
-            self.capture_sent = captured;
-            intents.push(json!({"t":"pointer-lock", "locked":captured}));
-        }
         for line in self.surface.svc_drain() {
+            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+                if v["t"] == "native-pointer" {
+                    let was_captured = self.supervisor.captured.is_some();
+                    self.supervisor.native_pointer(&v);
+                    if !was_captured && self.supervisor.captured.is_some() {
+                        self.svc(json!({"t":"native-capture"}));
+                    }
+                    continue;
+                }
+            }
             if let Some(wire) = &self.wire {
                 wire.send(line);
                 continue;
@@ -316,6 +323,11 @@ impl Runtime {
                     intents.push(v);
                 }
             }
+        }
+        let captured = self.supervisor.captured.is_some();
+        if captured != self.capture_sent {
+            self.capture_sent = captured;
+            intents.push(json!({"t":"pointer-lock", "locked":captured}));
         }
         self.ticks += 1;
         Ok(intents)

@@ -45,7 +45,11 @@ queue. They must not retain borrowed objects after callbacks return.
 
 Raw key transitions, pointer buttons, scroll, relative motion and resize events
 reach the focused native application. `POINTER_LOCK` requests mouse capture
-on a click in its content area. Escape, loss of focus, minimization and closing
+on a content click claimed by the System UI. The Shell routes pointer events
+through `{t:"native-pointer", package, x, y, d, b}` after chrome/menu hit testing;
+the host consumes these intents before companion delivery and checks focused
+package identity. During capture, raw mouse events bypass Shell hit testing.
+The Shell marks the surface unfocused while a menu owns input. Escape, loss of focus, minimization and closing
 release capture and held inputs; command shortcuts remain with the Shell.
 Hidden applications follow the System's suspend/continue policy. Closing the
 surface destroys application state. A callback failure stops subsequent ticks,
