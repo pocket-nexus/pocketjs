@@ -298,15 +298,15 @@ impl Runtime {
         }
         let mut intents = Vec::new();
         for line in self.surface.svc_drain() {
-            if let Ok(v) = serde_json::from_str::<Value>(&line) {
-                if v["t"] == "native-pointer" {
-                    let was_captured = self.supervisor.captured.is_some();
-                    self.supervisor.native_pointer(&v);
-                    if !was_captured && self.supervisor.captured.is_some() {
-                        self.svc(json!({"t":"native-capture"}));
-                    }
-                    continue;
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v["t"] == "native-pointer"
+            {
+                let was_captured = self.supervisor.captured.is_some();
+                self.supervisor.native_pointer(&v);
+                if !was_captured && self.supervisor.captured.is_some() {
+                    self.svc(json!({"t":"native-capture"}));
                 }
+                continue;
             }
             if let Some(wire) = &self.wire {
                 wire.send(line);

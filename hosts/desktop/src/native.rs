@@ -81,11 +81,11 @@ fn checked_api(api: &Api, package: &str) -> Result<()> {
         "native module ABI mismatch"
     );
     ensure!(
-        &api.build == BUILD.as_bytes(),
+        api.build == BUILD.as_bytes(),
         "native module build mismatch; rebuild host and module from the same SDK, compiler and profile"
     );
     ensure!(
-        &api.graph == env!("POCKET_NATIVE_GRAPH").as_bytes(),
+        api.graph == env!("POCKET_NATIVE_GRAPH").as_bytes(),
         "native GPU dependency graph mismatch; rebuild with the host dependency versions and features"
     );
     let id = std::str::from_utf8(&api.package)?.trim_end_matches('\0');
@@ -280,7 +280,7 @@ mod tests {
         assert!(ext.module().is_err());
     }
     #[test]
-    #[ignore = "requires POCKET_NATIVE_FIXTURE, built in release with the same SDK"]
+    #[ignore = "requires POCKET_NATIVE_FIXTURE, built with the same SDK and profile"]
     fn dynamic_module_owns_independent_state_and_releases_it() -> Result<()> {
         let source = PathBuf::from(std::env::var("POCKET_NATIVE_FIXTURE")?);
         let root = std::env::temp_dir().join(format!("pocket-native-{}", std::process::id()));

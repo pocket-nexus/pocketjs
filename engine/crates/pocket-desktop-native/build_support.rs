@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Shared by the SDK, desktop host and a native application's build.rs.
+// Shared by the desktop host and a native application's build.rs.
 // A Rust GPU borrow requires identical dependency versions and features.
 pub fn emit_gpu_graph() {
     use sha2::{Digest, Sha256};

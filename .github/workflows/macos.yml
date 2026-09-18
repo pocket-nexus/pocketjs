@@ -26,6 +26,7 @@ on:
       - "apps/text-offload/**"
       - "engine/wasm/**"
       - "hosts/desktop/**"
+      - "engine/crates/pocket-desktop-native/**"
       - "engine/crates/pocket-ui-wgpu/**"
       - "engine/pocket3d/crates/pocket3d/**"
       - "tools/macos.ts"
@@ -70,6 +71,7 @@ on:
       - "apps/text-offload/**"
       - "engine/wasm/**"
       - "hosts/desktop/**"
+      - "engine/crates/pocket-desktop-native/**"
       - "engine/crates/pocket-ui-wgpu/**"
       - "engine/pocket3d/crates/pocket3d/**"
       - "tools/macos.ts"
@@ -160,7 +162,8 @@ jobs:
       - name: Test Metal DrawList rendering and frame leases
         run: |
           cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-wgpu
-          cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --include-ignored
+          cargo build --locked --manifest-path hosts/desktop/Cargo.toml --example native-fixture
+          POCKET_NATIVE_FIXTURE="$PWD/hosts/desktop/target/debug/examples/libnative_fixture.dylib" cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --include-ignored
 
       - name: Build macos-app host
         run: cargo build --locked --manifest-path hosts/desktop/Cargo.toml

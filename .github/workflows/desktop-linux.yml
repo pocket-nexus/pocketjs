@@ -22,6 +22,7 @@ on:
       - "tests/text-layout-client.test.ts"
       - "apps/text-offload/**"
       - "hosts/desktop/**"
+      - "engine/crates/pocket-desktop-native/**"
       - "engine/crates/pocket-ui-wgpu/**"
       - "engine/pocket3d/crates/pocket3d/**"
       - "hosts/web/app-instance.*"
@@ -53,6 +54,7 @@ on:
       - "tests/text-layout-client.test.ts"
       - "apps/text-offload/**"
       - "hosts/desktop/**"
+      - "engine/crates/pocket-desktop-native/**"
       - "engine/crates/pocket-ui-wgpu/**"
       - "engine/pocket3d/crates/pocket3d/**"
       - "hosts/web/app-instance.*"
@@ -118,7 +120,8 @@ jobs:
           cargo fmt --check --manifest-path hosts/desktop/Cargo.toml
           cargo clippy --locked --manifest-path hosts/desktop/Cargo.toml -- -D warnings
           cargo test --locked --manifest-path hosts/desktop/Cargo.toml
-          cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --ignored
+          cargo build --locked --manifest-path hosts/desktop/Cargo.toml --example native-fixture
+          POCKET_NATIVE_FIXTURE="$PWD/hosts/desktop/target/debug/examples/libnative_fixture.so" cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --ignored
           cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml
           cargo test --locked --manifest-path engine/wasm/Cargo.toml
           bun tools/text-wasm.ts

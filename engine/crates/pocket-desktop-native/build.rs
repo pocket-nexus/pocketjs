@@ -1,8 +1,7 @@
-include!("build_support.rs");
+// SPDX-License-Identifier: MIT
 use sha2::{Digest, Sha256};
 use std::{env, fs, path::Path, process::Command};
 fn main() {
-    emit_gpu_graph();
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut hash = Sha256::new();
     // GPU borrows are a co-built Rust ABI, not a cross-version Rust interface.
