@@ -2838,6 +2838,12 @@ impl<'a> Walker<'a> {
         } else { &scratch };
         if world.is_axis_aligned() && (world.a != 1.0 || world.d != 1.0) {
             let mut page: Option<GlyphSampler> = None;
+            // The 2D overflow stack already clips pixels with SCISSOR. Keep
+            // full glyph endpoints inside the viewport: reconstructing UVs
+            // at a moving inner clip changes the rounded quad's sampling,
+            // including ink that remains visible to the left of that clip.
+            let viewport = Clip::viewport(self.screen);
+            let glyph_clip = if self.in_3d { clip } else { &viewport };
             for g in glyphs {
                 let (x, y) = world.apply(g.x, g.y);
                 if x + cell_w * world.a <= clip.x0 || x >= clip.x1 ||
@@ -2853,7 +2859,7 @@ impl<'a> Walker<'a> {
                 let uv = page.uv(g.gid);
                 let glyph_world = world.then(&Affine::translate(g.x, g.y));
                 let before = dl.words.len();
-                self.emit_tex_quad(dl, &glyph_world, cell_w, cell_h, texture, 1.0, clip, uv[0], uv[1], uv[2], uv[3]);
+                self.emit_tex_quad(dl, &glyph_world, cell_w, cell_h, texture, 1.0, glyph_clip, uv[0], uv[1], uv[2], uv[3]);
                 if dl.words.len() > before { *dl.words.last_mut().unwrap() = color; }
             }
             self.glyph_scratch = scratch;

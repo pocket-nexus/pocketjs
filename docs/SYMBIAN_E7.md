@@ -308,6 +308,10 @@ most 256 runs, 64 KiB of text and 256 KiB of glyph placements**, plus entry
 metadata. Streamed fonts and runs with missing glyphs bypass this cache.
 Transforms and colors are applied when drawing. Cached glyph bounds reject
 text outside the clip before emitting its glyphs.
+Scaled 2D text retains each glyph's quad endpoints and uses the inherited
+scissor for inner clipping. Moving an occluding edge no longer changes the
+sampling of visible ink. Glyphs crossing the viewport still clip their UVs
+to keep draw coordinates within the viewport contract.
 
 The framework touch recorder allocates **128 frame slots per chunk** as
 contacts arrive. This avoids initializing a 36,000-slot array on first touch;

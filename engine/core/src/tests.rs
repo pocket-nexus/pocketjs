@@ -1782,6 +1782,42 @@ fn scaled_glyph_run_crosses_pages_and_returns_to_the_first_page() {
 }
 
 #[test]
+fn moving_inner_clip_does_not_resample_visible_scaled_glyph_ink() {
+    for density in [1, 2] { for scale in [0.585, 0.64, 0.75] {
+        let mut ui = Ui::new_with_raster_density(density);
+        let mut atlas = encode_atlas_version_density(spec::font_atlas::VERSION, density as u8,
+            0, 8, 8, 7, 8, 1, &[('A' as u32, 0, 8)]);
+        for (i, coverage) in atlas[24..].iter_mut().enumerate() { *coverage = (i % 8 * 31) as u8; }
+        assert!(ui.load_font_atlas(&atlas));
+        let parent = ui.create_node(0);
+        for (p, v) in [(spec::prop::WIDTH, 11.0), (spec::prop::HEIGHT, 8.0)] { ui.set_prop(parent, p, v); }
+        let text = ui.create_node(spec::NodeType::Text as u8);
+        ui.set_text(text, "AA");
+        for (p, v) in [(spec::prop::WIDTH, 16.0), (spec::prop::HEIGHT, 8.0),
+            (spec::prop::SCALE, scale), (spec::prop::ORIGIN_X, -0.5), (spec::prop::ORIGIN_Y, -0.5),
+            (spec::prop::TRANSLATE_X, 7.37)] { ui.set_prop(text, p, v); }
+        ui.insert_before(parent, text, 0); ui.insert_before(spec::ROOT_ID, parent, 0); ui.tick();
+        let mut reference = alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
+        let full = ui.draw().words.clone(); crate::raster::render(&ui, &full, &mut reference);
+        assert!(reference.chunks_exact(4).any(|pixel| pixel != &reference[..4]));
+        ui.set_prop(parent, spec::prop::OVERFLOW, spec::Overflow::Hidden as u8 as f64);
+        for width in [8, 9, 10, 11, 12] {
+            ui.set_prop(parent, spec::prop::WIDTH, width as f64);
+            let clipped = ui.draw().words.clone(); validate_drawlist(&clipped);
+            let mut pixels = alloc::vec![0; reference.len()]; crate::raster::render(&ui, &clipped, &mut pixels);
+            for y in 0..8 { for x in 0..width {
+                let at = (y * spec::SCREEN_W as usize + x) * 4;
+                assert_eq!(&pixels[at..at + 4], &reference[at..at + 4], "density={density} scale={scale} clip={width} pixel={x},{y}");
+            }}
+            for y in 0..8 { for x in width..24 {
+                let at = (y * spec::SCREEN_W as usize + x) * 4;
+                assert_eq!(&pixels[at..at + 4], &reference[..4]);
+            }}
+        }
+    }}
+}
+
+#[test]
 fn scaled_glyph_crossing_viewport_is_uv_clipped_instead_of_dropped() {
     let mut ui = Ui::new();
     ui.load_font_atlas(&encode_atlas(0, 8, 8, 7, 8, 1, &[('A' as u32, 0, 8)]));
