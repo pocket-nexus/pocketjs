@@ -371,6 +371,8 @@ console.log(`PocketJS psp: cargo psp (app=${outputApp})`);
 await $`${toolchain.rustup} run ${toolchain.manifest.rust.toolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
 
 const profile = outputProfile(cargoArgs);
+const { verifyPspPrx } = await import("./psp-prx.ts");
+verifyPspPrx(new Uint8Array(await Bun.file(`${nativeDir}target/mipsel-sony-psp/${profile}/pocketjs-psp.prx`).arrayBuffer()));
 const binEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/pocketjs-psp.EBOOT.PBP`;
 const conventionalEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/EBOOT.PBP`;
 if (existsSync(binEboot)) {
