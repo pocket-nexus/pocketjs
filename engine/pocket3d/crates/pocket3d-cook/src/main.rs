@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result, bail};
-use pocket3d_bsp::cook::{CookOptions, cook_map};
+use pocket3d_bsp::cook::{CookOptions, cook_map, verify_cooked_textures};
 
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -47,14 +47,15 @@ fn run() -> Result<()> {
                     .context("bad --subdivide value")?;
             }
             "--verify" => verify = true,
+            "--allow-missing-textures" => opts.allow_missing_textures = true,
             "--verify-cooked" => {
                 cooked = Some(args.next().context("--verify-cooked needs a path")?.into());
             }
             "-h" | "--help" => {
                 println!(
                     "usage: pocket3d-cook <map.bsp> [-o out.p3d] [--wads DIR]... \
-                     [--subdivide UNITS] [--verify]\n       \
-                     pocket3d-cook --verify-cooked <map.p3d>"
+                     [--subdivide UNITS] [--verify] [--allow-missing-textures]\n       \
+                     pocket3d-cook --verify-cooked <map.p3d> [--allow-missing-textures]"
                 );
                 return Ok(());
             }
@@ -66,9 +67,9 @@ fn run() -> Result<()> {
         if bsp.is_some() || out.is_some() || !wad_dirs.is_empty() || verify {
             bail!("--verify-cooked cannot be combined with BSP cooking options");
         }
-        let bytes = std::fs::read(&cooked)
-            .with_context(|| format!("reading {}", cooked.display()))?;
-        print_cooked_verification(&cooked, &bytes)?;
+        let bytes =
+            std::fs::read(&cooked).with_context(|| format!("reading {}", cooked.display()))?;
+        print_cooked_verification(&cooked, &bytes, opts.allow_missing_textures)?;
         return Ok(());
     }
     let bsp = bsp.context("no .bsp given (see --help)")?;
@@ -77,7 +78,7 @@ fn run() -> Result<()> {
     let (bytes, stats) = cook_map(&bsp, &wad_dirs, &opts)?;
 
     if verify {
-        print_cooked_verification(&out, &bytes)?;
+        print_cooked_verification(&out, &bytes, opts.allow_missing_textures)?;
     }
 
     std::fs::write(&out, &bytes).with_context(|| format!("writing {}", out.display()))?;
@@ -101,9 +102,16 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn print_cooked_verification(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+fn print_cooked_verification(
+    path: &std::path::Path,
+    bytes: &[u8],
+    allow_missing: bool,
+) -> Result<()> {
     let map = pocket3d_bsp::cooked::read(bytes)
         .map_err(|e| anyhow::anyhow!("verify failed for {}: {e}", path.display()))?;
+    if !allow_missing {
+        verify_cooked_textures(&map)?;
+    }
     println!(
         "verify: {} ({}) ok — {} leaves, {} visleaves, spawns {}/{}",
         map.name,
@@ -123,6 +131,6 @@ mod tests {
     #[test]
     fn cooked_verifier_rejects_a_truncated_section_table() {
         let bytes = b"P3D1\x01\0\0\0\x01\0\0\0\0\0\0\0";
-        assert!(print_cooked_verification(std::path::Path::new("bad.p3d"), bytes).is_err());
+        assert!(print_cooked_verification(std::path::Path::new("bad.p3d"), bytes, false).is_err());
     }
 }
