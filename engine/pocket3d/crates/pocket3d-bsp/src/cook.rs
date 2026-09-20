@@ -206,21 +206,21 @@ pub fn cook_parsed(
     w.section(TAG_WCLP, clp_section);
 
     w.section(TAG_WENT, cook_entities_section(bsp, &ents, name));
-    if let Some(world) = ents.iter().find(|e| e.classname() == "worldspawn") {
-        if let Some(sky) = crate::entities::parse_sky(world).map_err(anyhow::Error::msg)? {
-            let bytes = [
-                sky.zenith.x,
-                sky.zenith.y,
-                sky.zenith.z,
-                sky.horizon.x,
-                sky.horizon.y,
-                sky.horizon.z,
-            ]
-            .iter()
-            .flat_map(|v| v.to_le_bytes())
-            .collect();
-            w.section(cooked::TAG_WSKY, bytes);
-        }
+    if let Some(world) = ents.iter().find(|e| e.classname() == "worldspawn")
+        && let Some(sky) = crate::entities::parse_sky(world).map_err(anyhow::Error::msg)?
+    {
+        let bytes = [
+            sky.zenith.x,
+            sky.zenith.y,
+            sky.zenith.z,
+            sky.horizon.x,
+            sky.horizon.y,
+            sky.horizon.z,
+        ]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+        w.section(cooked::TAG_WSKY, bytes);
     }
 
     let out = w.finish();
@@ -919,11 +919,11 @@ fn transparent_filter_color(texture: &IndexedTexture) -> [u8; 3] {
             continue;
         }
         count += 1;
-        for channel in 0..3 {
-            sum[channel] += texture.palette[index as usize * 3 + channel] as u64;
+        for (channel, total) in sum.iter_mut().enumerate() {
+            *total += texture.palette[index as usize * 3 + channel] as u64;
         }
     }
-    sum.map(|v| if count == 0 { 0 } else { (v / count) as u8 })
+    sum.map(|v| v.checked_div(count).unwrap_or(0) as u8)
 }
 
 // ---- Vis / collision / entity sections --------------------------------------

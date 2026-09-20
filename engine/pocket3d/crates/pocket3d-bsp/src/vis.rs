@@ -189,11 +189,11 @@ impl VisSet {
             let first = leaf.first_marksurface as usize;
             let end = (first + leaf.num_marksurfaces as usize).min(vis.marksurfaces.len());
             for &face in vis.marksurfaces.get(first..end).unwrap_or(&[]) {
-                if let Some(stamp) = self.face_stamp.get_mut(face as usize) {
-                    if *stamp == 0 {
-                        self.pvs_faces.push(face);
-                        *stamp = 1;
-                    }
+                if let Some(stamp) = self.face_stamp.get_mut(face as usize)
+                    && *stamp == 0
+                {
+                    self.pvs_faces.push(face);
+                    *stamp = 1;
                 }
             }
         }

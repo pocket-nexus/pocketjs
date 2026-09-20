@@ -25,8 +25,8 @@ fn spatial_key(p: glam::Vec3) -> u64 {
     let xyz = [p.x, p.y, p.z].map(|v| (v as i32 + 32768).clamp(0, 65535) as u64);
     let mut key = 0;
     for bit in 0..16 {
-        for axis in 0..3 {
-            key |= ((xyz[axis] >> bit) & 1) << (bit * 3 + axis);
+        for (axis, coordinate) in xyz.iter().enumerate() {
+            key |= ((coordinate >> bit) & 1) << (bit * 3 + axis);
         }
     }
     key
