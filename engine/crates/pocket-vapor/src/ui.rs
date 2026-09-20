@@ -257,7 +257,8 @@ impl Ui {
             }),
             Cmd::Cancel { request } => {
                 let animation = self.model_animations.iter().find_map(|(id, pending)| (*pending == request).then_some(*id));
-                if let Some(id) = animation { self.model_animations.remove(&id); self.core.cancel_anim(id); }
+                // Cancelling a wait drops its listener, not the motion already submitted.
+                if let Some(id) = animation { self.model_animations.remove(&id); }
                 self.model_deliveries.retain(|delivery| delivery.request != request);
             }
             Cmd::Log(message) => { if cfg!(debug_assertions) { self.model_logs.push(message); } }
@@ -463,14 +464,23 @@ mod model_tests {
         assert!(ui.model_ready().deliveries.is_empty());
     }
     #[test]
-    fn cancellation_releases_the_track_without_resuming_its_wait() {
+    fn cancellation_detaches_the_wait_while_animation_keeps_running() {
         let mut ui = Ui::new();
         let node = ui.create_node(pocketjs_core::spec::NodeType::View as u8);
         ui.set_prop(node, pocketjs_core::spec::prop::WIDTH, 10.0);
-        animate(&mut ui, Some(node), 1);
-        ui.model_command(Cmd::Cancel { request: request(1) });
-        ui.tick();
+        ui.model_command(Cmd::Animate { node: Some(node), prop: pocketjs_core::spec::prop::WIDTH, to: 50.0, dur: 1000, easing: 0, delay: 0, request: Some(request(1)) });
+        for _ in 0..6 { ui.tick(); }
+        let before_cancel = ui.core().resolved_style(node.0).unwrap().width;
+        assert!(before_cancel > 10.0 && before_cancel < 50.0);
         assert!(ui.model_ready().deliveries.is_empty());
+        ui.model_command(Cmd::Cancel { request: request(1) });
+        for _ in 0..6 { ui.tick(); }
+        assert!(ui.core().resolved_style(node.0).unwrap().width > before_cancel);
+        for _ in 0..60 {
+            ui.tick();
+            assert!(ui.model_ready().deliveries.is_empty());
+        }
+        assert_eq!(ui.core().resolved_style(node.0).unwrap().width, 50.0);
     }
     #[test]
     fn model_time_uses_the_host_simulation_rate() {
