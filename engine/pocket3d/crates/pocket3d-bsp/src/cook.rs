@@ -206,6 +206,22 @@ pub fn cook_parsed(
     w.section(TAG_WCLP, clp_section);
 
     w.section(TAG_WENT, cook_entities_section(bsp, &ents, name));
+    if let Some(world) = ents.iter().find(|e| e.classname() == "worldspawn") {
+        if let Some(sky) = crate::entities::parse_sky(world).map_err(anyhow::Error::msg)? {
+            let bytes = [
+                sky.zenith.x,
+                sky.zenith.y,
+                sky.zenith.z,
+                sky.horizon.x,
+                sky.horizon.y,
+                sky.horizon.z,
+            ]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+            w.section(cooked::TAG_WSKY, bytes);
+        }
+    }
 
     let out = w.finish();
     stats.total_bytes = out.len();
@@ -683,15 +699,16 @@ fn cook_textures_section(textures: &[IndexedTexture]) -> Result<Vec<u8>> {
 
         // Palette: 256 x RGBA8 in GE CLUT order.
         let pal_off = blob.len() as u32;
+        let fringe = transparent_filter_color(tex);
         for i in 0..256 {
             let p = i * 3;
             let alpha = if tex.masked && i == 255 { 0u8 } else { 255 };
-            blob.extend_from_slice(&[
-                tex.palette[p],
-                tex.palette[p + 1],
-                tex.palette[p + 2],
-                alpha,
-            ]);
+            let rgb = if alpha == 0 {
+                fringe
+            } else {
+                [tex.palette[p], tex.palette[p + 1], tex.palette[p + 2]]
+            };
+            blob.extend_from_slice(&[rgb[0], rgb[1], rgb[2], alpha]);
         }
         blob[pal_off_pos..pal_off_pos + 4].copy_from_slice(&pal_off.to_le_bytes());
 
@@ -888,6 +905,27 @@ pub fn swizzle8(indices: &[u8], w: usize, h: usize) -> Vec<u8> {
     out
 }
 
+// A WAD's blue key is not a visible color. Bilinear filtering mixes RGB even
+// when index 255 has zero alpha; use the visible texels' mean at that palette
+// entry so cutout edges cannot acquire blue fringes. Alpha and indices stay intact.
+fn transparent_filter_color(texture: &IndexedTexture) -> [u8; 3] {
+    if !texture.masked {
+        return [0; 3];
+    }
+    let mut sum = [0u64; 3];
+    let mut count = 0u64;
+    for &index in &texture.mips[0] {
+        if index == 255 {
+            continue;
+        }
+        count += 1;
+        for channel in 0..3 {
+            sum[channel] += texture.palette[index as usize * 3 + channel] as u64;
+        }
+    }
+    sum.map(|v| if count == 0 { 0 } else { (v / count) as u8 })
+}
+
 // ---- Vis / collision / entity sections --------------------------------------
 
 fn cook_vis_section(bsp: &RawBsp) -> Vec<u8> {
@@ -1063,6 +1101,93 @@ mod tests {
             num_faces: 1,
         });
         bsp
+    }
+
+    #[test]
+    fn masked_filter_color_ignores_the_blue_transparency_key() {
+        let mut texture = placeholder_indexed("{leaves");
+        texture.masked = true;
+        texture.palette[0..3].copy_from_slice(&[40, 120, 20]);
+        texture.palette[3..6].copy_from_slice(&[80, 160, 60]);
+        texture.palette[765..768].copy_from_slice(&[0, 0, 255]);
+        texture.mips[0] = vec![0, 1, 255, 255];
+        assert_eq!(transparent_filter_color(&texture), [60, 140, 40]);
+        texture.mips[0].fill(255);
+        assert_eq!(transparent_filter_color(&texture), [0, 0, 0]);
+    }
+
+    #[test]
+    fn texture_relocation_respects_capacity_alignment_and_complete_chains() {
+        let bsp = texture_fixture("fixture");
+        let opts = CookOptions {
+            allow_missing_textures: true,
+            ..CookOptions::default()
+        };
+        let (bytes, _) = cook_parsed(&bsp, "cache", &WadSet::new(), &opts).unwrap();
+        let original = cooked::read(&bytes).unwrap();
+        let texture = &original.textures[0];
+        let needed = texture.palette.len() + texture.mips.iter().map(|m| m.len()).sum::<usize>();
+        let expected = cooked::expand_level0_rgba(texture).unwrap();
+        let mut short = vec![0x5a; needed - 1];
+        let mut short_map = cooked::read(&bytes).unwrap();
+        let source = short_map.textures[0].palette.as_ptr();
+        assert_eq!(
+            cooked::texture_cache::relocate(&mut short_map, &mut short).0,
+            0
+        );
+        assert_eq!(short_map.textures[0].palette.as_ptr(), source);
+        drop(short_map);
+        assert!(short.iter().all(|&b| b == 0x5a));
+        let mut storage = vec![0x5a; needed + 32];
+        let begin = storage.as_ptr() as usize;
+        let mut map = cooked::read(&bytes).unwrap();
+        let (used, _) = cooked::texture_cache::relocate(&mut map, &mut storage[1..needed + 16]);
+        assert!(used >= needed && used <= needed + 15);
+        let cached = &map.textures[0];
+        for data in core::iter::once(&cached.palette).chain(cached.mips.iter()) {
+            let ptr = data.as_ptr() as usize;
+            assert_eq!(ptr % 16, 0);
+            assert!(ptr > begin && ptr + data.len() <= begin + needed + 16);
+        }
+        assert_eq!(cooked::expand_level0_rgba(cached).unwrap(), expected);
+        drop(map);
+        assert_eq!(storage[0], 0x5a);
+        assert!(storage[needed + 16..].iter().all(|&b| b == 0x5a));
+    }
+
+    #[test]
+    fn sky_metadata_is_optional_and_roundtrips_with_validation() {
+        let mut bsp = texture_fixture("sky");
+        let build = |bsp: &RawBsp| cook_parsed(bsp, "sky", &WadSet::new(), &CookOptions::default());
+        assert!(cooked::read(&build(&bsp).unwrap().0).unwrap().sky.is_none());
+        bsp.entities_text = alloc::string::String::from(
+            r#"{
+            "classname" "worldspawn"
+            "pocket_sky_zenith" "0.3 0.5 0.8"
+            "pocket_sky_horizon" "0.8 0.9 1"
+        }"#,
+        );
+        let (bytes, _) = build(&bsp).unwrap();
+        let sky = cooked::read(&bytes).unwrap().sky.unwrap();
+        assert_eq!(sky.zenith, Vec3::new(0.3, 0.5, 0.8));
+        assert_eq!(sky.horizon, Vec3::new(0.8, 0.9, 1.0));
+        for invalid in ["NaN 0 0", "2 0 0", "0 1", "0 0 0 0"] {
+            bsp.entities_text = alloc::format!(
+                r#"{{
+                "classname" "worldspawn"
+                "pocket_sky_zenith" "{}"
+                "pocket_sky_horizon" "0.8 0.9 1"
+            }}"#,
+                invalid
+            );
+            assert!(build(&bsp).is_err(), "{invalid}");
+        }
+        bsp.entities_text = alloc::string::String::from(
+            r#"{
+            "classname" "worldspawn" "pocket_sky_zenith" "0 0 1"
+        }"#,
+        );
+        assert!(build(&bsp).is_err());
     }
 
     #[test]

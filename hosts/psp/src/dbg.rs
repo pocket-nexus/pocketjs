@@ -12,7 +12,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
-use psp::sys::{self, DisplayPixelFormat, DisplaySetBufSync, IoOpenFlags, IoWhence};
+use psp::sys::{self, IoOpenFlags, IoWhence};
 
 const H0_ENABLE: &[u8] = b"host0:/pocketjs-dbg/enable\0";
 const H0_IN: &[u8] = b"host0:/pocketjs-dbg/in.jsonl\0";
@@ -99,15 +99,6 @@ pub unsafe fn shot() -> bool {
     if !ACTIVE {
         return false;
     }
-    let mut top: *mut c_void = core::ptr::null_mut();
-    let mut bw: usize = 0;
-    let mut fmt = DisplayPixelFormat::Psm8888;
-    sys::sceDisplayGetFrameBuf(&mut top, &mut bw, &mut fmt, DisplaySetBufSync::Immediate);
-    let mut addr = top as u32;
-    if addr < 0x0400_0000 {
-        addr += 0x0400_0000;
-    }
-    addr |= 0x4000_0000;
     let path = if USE_MS0 { MS_SHOT } else { H0_SHOT };
     let fd = sys::sceIoOpen(
         path.as_ptr(),
@@ -126,11 +117,10 @@ pub unsafe fn shot() -> bool {
     while row < 272 {
         let rows = CHUNK_ROWS.min(272 - row);
         let n = ROW * rows;
-        core::ptr::copy_nonoverlapping(
-            (addr as usize + row * ROW) as *const u8,
-            buf.as_mut_ptr(),
-            n,
-        );
+        if !crate::host::read_display_rows_rgba(row, rows, &mut buf[..n]) {
+            ok = false;
+            break;
+        }
         if sys::sceIoWrite(fd, buf.as_ptr() as *const c_void, n) != n as i32 {
             ok = false;
             break;

@@ -19,3 +19,6 @@ psp = { git = "https://github.com/pocket-stack/rust-psp.git", rev = "2cbaf8c9bc7
 pocket3d-bsp = { path = "../pocket3d-bsp", default-features = false, features = ["libm"] }
 glam = { version = "0.33", default-features = false, features = ["libm"] }
 libm = "0.2"
+
+[features]
+profile = []

@@ -37,7 +37,9 @@ use crate::types::{Leaf, Node, Plane, SpawnPoint, SunLight, SurfaceKind};
 use crate::vis::VisData;
 
 pub mod bounds;
+pub mod cluster;
 pub mod strip;
+pub mod texture_cache;
 
 #[cfg(target_endian = "big")]
 compile_error!("the .p3d reader assumes a little-endian target");
@@ -58,6 +60,7 @@ pub const TAG_WTEX: u32 = tag(b"WTEX");
 pub const TAG_WVIS: u32 = tag(b"WVIS");
 pub const TAG_WCLP: u32 = tag(b"WCLP");
 pub const TAG_WENT: u32 = tag(b"WENT");
+pub const TAG_WSKY: u32 = tag(b"WSKY");
 
 pub const VERTEX_STRIDE: usize = 20;
 /// Batch record size in `WBAT` (after the count word).
@@ -199,6 +202,7 @@ pub struct CookedMap<'a> {
     pub ct_spawns: Vec<SpawnPoint>,
     pub t_spawns: Vec<SpawnPoint>,
     pub sun: Option<SunLight>,
+    pub sky: Option<crate::types::SkyColors>,
     pub bounds: (Vec3, Vec3),
 }
 
@@ -573,7 +577,26 @@ pub fn read(data: &[u8]) -> Result<CookedMap<'_>, ReadError> {
         }
     }
 
+    let sky = if let Some(bytes) = section(TAG_WSKY)? {
+        if bytes.len() != 24 {
+            return Err("invalid sky section length");
+        }
+        let mut r = Rd::new(bytes);
+        let zenith = r.vec3()?;
+        let horizon = r.vec3()?;
+        for value in [
+            zenith.x, zenith.y, zenith.z, horizon.x, horizon.y, horizon.z,
+        ] {
+            if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                return Err("invalid sky color");
+            }
+        }
+        Some(crate::types::SkyColors { zenith, horizon })
+    } else {
+        None
+    };
     Ok(CookedMap {
+        sky,
         name,
         verts,
         vert_count,

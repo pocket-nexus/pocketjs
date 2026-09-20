@@ -152,6 +152,7 @@ impl StripCache {
         Some(Self { indices, ranges })
     }
 
+    #[inline]
     pub fn get(&self, face: usize) -> Option<&[u16]> {
         let range = self.ranges.get(face)?;
         if range.count == 0 {
