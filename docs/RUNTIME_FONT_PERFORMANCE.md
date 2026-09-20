@@ -1,5 +1,7 @@
 # Runtime font performance and acceptance
 
+**The diagnostic PSP window below includes measurement overhead.** A later [optimization investigation](RUNTIME_FONT_OPTIMIZATION.md) separates diagnostic overhead, frame-delivery delay and resident rendering, with controlled scheduling and sampling prototypes.
+
 **These measurements use a real text worker and the shared WASM software renderer at a 60 Hz delivery rate.** The host was macOS arm64 on Apple M4, using Bun 1.3.14. Glyph caches start empty in each scenario. Worker startup is measured apart from first-visible latency. Build-time baking and core instantiation are outside the measured interval. The benchmark scripts retain raw results in ignored `.pocket-build/validation/runtime-ttf/benchmark/`.
 
 Run:
