@@ -4,17 +4,26 @@
 The Solid and Vue front ends produce the same View IR. The Rust generator,
 host input contract and `pocket_vapor` runtime consume that IR.
 
-The browser and guest execute the TypeScript model with Solid. Native AOT
-executes a Rust model implementing the generated trait. **Setting
-`app.model` to `"compiled"` translates the supported TypeScript model subset
-to Rust.** The default `"rust"` mode uses the application's Rust implementation.
+**The supported application source is TypeScript: `.tsx` views and `.ts`
+models.** Browser and QuickJS builds execute JavaScript emitted from these
+files. Native AOT executes a Rust model implementing the generated trait.
+Setting `app.model` to `"compiled"` translates the admitted TypeScript model
+subset into that implementation. The default `"rust"` mode uses the
+application's handwritten Rust model; its `.ts` module supplies browser and
+guest behavior, or `.d.ts` declarations supply preview defaults.
+
 See [TypeScript models to Rust](/docs/pocket-vapor-model/) for admission,
-reaction scheduling and tasks.
+reaction scheduling and tasks, and [TypeScript and native
+boundaries](/docs/pocket-vapor-boundaries/) for model ownership, generated
+values and host integration. JavaScript is a build output and execution-engine
+format, not an additional AOT source-language contract.
 
 ## Build a view
 
 The example in `apps/solid-aot-lab/` includes props, callbacks, named and scoped
-slots, generic components, keyed rows, context and instance state.
+slots, generic components, keyed rows, context and instance state. It sets
+`app.aot: true` and `app.model: "compiled"`: `app.ts` supplies model logic and
+`src/lib.rs` connects the generated app to the native host.
 
 ```sh
 bun vapor/compiler/cli.ts check solid-aot-lab --strict
@@ -23,7 +32,9 @@ cargo check --manifest-path apps/solid-aot-lab/Cargo.toml
 bun tools/build.ts solid-aot-lab-main --no-config
 ```
 
-`build` writes Rust modules and a style table under the app's `gen/` directory.
+`build` writes view modules, compiled model modules and a style table under
+the app's `gen/` directory. **Demo `gen/` directories are ignored by Git;
+generate them before running Cargo.**
 `check` accepts `--json` for the IR and `--board` for host capability admission.
 A TSX native build requires the `build` or `check` subcommand; the bare TSX
 command selects the retained cartridge compiler.
@@ -31,7 +42,9 @@ command selects the retained cartridge compiler.
 An app opts its browser and guest builds into admission with
 `"app": { "framework": "solid", "aot": true }` in `pocket.json`. The checker
 follows imports from the manifest entry before the transform cache is read.
-Ordinary Solid apps retain their existing source subset.
+Ordinary Solid apps retain their existing TypeScript source subset. Add
+`"model": "compiled"` to compile model bodies; without it, AOT checks the
+view contract and leaves the native model implementation to Rust.
 
 ## Files and ownership
 
@@ -62,8 +75,10 @@ export default function Counter() {
 }
 ```
 
-The native model implements `count(&self) -> i32` and
-`set_count(&mut self, value: i32)`. **An `Accessor<T>` becomes a model getter;
+The generated trait requires `count(&self) -> i32` and
+`set_count(&mut self, value: i32)`. Rust mode requires you to implement these
+methods; compiled mode generates them from `Counter.ts` and uses its `0` seed.
+**An `Accessor<T>` becomes a model getter;
 a setter is generated when a view writes the signal.** A `Setter<T>` pairs
 with the matching `Accessor<T>` by its `setName`/`name` naming convention and
 value type. A plain function remains a method.
@@ -72,7 +87,8 @@ The component file contains imports, type declarations and one default-exported
 function declaration. The body accepts prop defaults through `mergeProps`, a
 model factory with mount-time arguments, context reads, derived expressions, PocketJS
 lifecycle hooks and one JSX return. State creation and application logic belong
-to the basename module and the Rust model.
+to the basename TypeScript module. Rust mode also requires a native model
+implementation. Compiled mode rejects unsupported model bodies during admission.
 
 ## Components and expressions
 
@@ -81,6 +97,13 @@ from `solid-js`. Import host elements, keyed `For` and lifecycle hooks from
 `@pocketjs/framework/solid/*`. Numeric types and built-ins use
 `@pocketjs/framework/solid/std`; button constants use
 `@pocketjs/framework/input`.
+
+**A view-local `createMemo` and a model memo have different compilation rules.**
+A view-local memo from `solid-js` defines an expression expanded at each read.
+In a compiled `.ts` model, import `createMemo`, `createEffect` and `on` from
+`@pocketjs/framework/solid/reactive`; these participate in the compiled reaction
+schedule and memo cache. The model checker rejects those primitives imported
+from `solid-js`.
 
 | Form | Behavior |
 |---|---|
@@ -144,6 +167,15 @@ it can own its state or refer to static data.
 After a structural update, cleanup runs in reverse creation order and mount
 runs in creation order, in one batch. A round that ran hooks triggers another
 update. Root disposal runs outstanding cleanup hooks without another frame.
+
+With a compiled model, each frame first resumes ready tasks from the host's
+readiness snapshot, then dispatches input, runs reactions and settles memos.
+View updates and lifecycle rounds follow. Host commands drain after those
+rounds; asynchronous host results are delivered at a later frame boundary.
+Unmounting a factory cancels its tasks and clears its node references. A model
+reference created by `createNodeRef` from `@pocketjs/framework/animation` can
+bind to `<View ref={target} />`; it names a host node for animation and does
+not expose a DOM element or a device SDK handle.
 
 Native code generation consumes **View IR format 4**. Older IR is rejected.
 The shared format includes statement sequences, conditions, lifecycle hooks,

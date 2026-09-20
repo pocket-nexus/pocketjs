@@ -9,14 +9,24 @@ Rust entry point, and build commands. The examples below use the
 
 | State | Declare it in | Change it through |
 |---|---|---|
-| App data shared by rows | The root's basename module, such as `app.ts` | Root Rust methods and child events |
-| State belonging to one mounted child | A factory in the child's basename module | The child's Rust methods |
+| App data shared by rows | The root's basename module, such as `app.ts` | Root model methods and child events |
+| State belonging to one mounted child | A factory in the child's basename module | The child's model methods |
 | A value controlled by the parent | `defineProps` or `defineModel` in the child | An event or a model assignment |
 | Read access across several component levels | Root `provide` and child `inject` | The root model's methods |
 
-**TypeScript defines the component contract; Rust implements AOT state and
-behavior.** A `.ts` module implements browser and JavaScript guest
-behavior. A Rust-only app can use `.d.ts` declarations in its place.
+**TypeScript defines the component contract in both model modes.** With the
+default `app.model: "rust"`, you implement the generated trait in Rust; the
+`.ts` module supplies the browser and QuickJS model, or a `.d.ts` contract
+supplies preview defaults. With `app.model: "compiled"` and `app.aot: true`,
+Model AOT compiles the `.ts` bodies into the Rust implementation and emits
+JavaScript for browser and QuickJS execution. `.d.ts` cannot supply compiled
+model bodies. The source support contract remains TypeScript in both modes.
+
+The examples below show the Vue lab's handwritten Rust model. Component
+props, events, slots and context keep the same view contract with compiled
+models. See [TypeScript and native boundaries](/docs/pocket-vapor-boundaries/)
+for model ownership and [TypeScript models to Rust](/docs/pocket-vapor-model/)
+for the admitted model language.
 
 ## Pass props and emit events
 
@@ -55,7 +65,7 @@ listener can read parent state, as the keyed-list example below does.
 ## Give each child its own state
 
 Put the factory in `FeatureToggle.ts`, matching the component's basename.
-The factory takes no arguments and returns the bindings destructured by the
+This factory takes no arguments and returns the bindings destructured by the
 SFC:
 
 ```ts
@@ -73,8 +83,8 @@ export function createFeatureToggle() {
 }
 ```
 
-After generating the app, implement `FeatureToggleViewModel` in the app's
-Rust source:
+In the default Rust mode, generate the app and implement
+`FeatureToggleViewModel` in its Rust source:
 
 ```rust
 use crate::generated::FeatureToggleViewModel;
@@ -106,6 +116,19 @@ unmount.** Two toggles have two press counts. A keyed row keeps its state
 when its position changes. A `v-if` branch that disappears drops its state;
 its next mount starts from `Default`. Put the child in a `View` with
 `v-show` to retain the mounted subtree while hiding it.
+
+**Compiled mode generates the child model and its constructor from the
+factory.** The `presses` seed and `press` body above become Rust code. Each
+mounted child owns a region containing its state, cached memos and tasks.
+Unmount cancels that region's tasks and drops its state; a remount runs a new
+constructor. No handwritten `ToggleState` implementation is required.
+
+A factory can also take typed mount-time arguments, for example
+`createRow(props.seed)` with `seed: i32`. The child snapshots these arguments
+when it mounts. A later prop change does not reseed the same child; use the
+prop binding for values that must track the parent. In Rust mode, a
+parameterized child model implements `pocket_vapor::New<(i32,)>`; compiled mode
+generates that implementation from the TypeScript factory.
 
 Use either a factory or direct view-model imports in one component. Put
 `ref`, `computed`, and function bodies in the basename module; the SFC script
@@ -143,7 +166,8 @@ Import `ModelButton` and the root's `count` binding in `app.vue`, then use:
 ```
 
 The generated root trait requires `count(&self) -> i32` and
-`set_count(&mut self, value: i32)`. Implement both in the root model. The
+`set_count(&mut self, value: i32)`. Rust mode requires both implementations;
+compiled mode generates them from the root TypeScript state. The
 child receives a `modelValue` prop; assigning it emits
 `UpdateModelValue(i32)`, and the parent listener calls the setter.
 
@@ -262,9 +286,10 @@ import type { LabTheme } from "./app";
 const theme = inject<LabTheme>("theme")!;
 ```
 
-The child can render `<Text>{{ theme.enabledLabel }}</Text>`. Its root Rust
-model stores a generated `LabTheme` and implements
-`fn theme(&self) -> &LabTheme` to return it.
+The child can render `<Text>{{ theme.enabledLabel }}</Text>`. The native root
+model stores a generated `LabTheme` and exposes it through
+`fn theme(&self) -> &LabTheme`. Rust mode requires you to implement the getter;
+compiled mode generates it from `theme` in `app.ts`.
 
 **Providers belong to the root; every injection requires a matching literal
 key and type.** The compiler passes borrowed data through intermediate
@@ -272,6 +297,12 @@ components, with no runtime key lookup. The `!` records the required value
 for Vue's editor types; the AOT build checks the provider. Injection defaults,
 symbol keys, and child providers are unsupported. Change shared data through
 root methods; injection adds no child setter.
+
+In a compiled model, another model's mutable state must cross the component
+contract through props, events or context. Importing a sibling model's state
+into the `.ts` body is rejected. Pure helper modules may export functions and
+constants; their functions receive inputs as parameters and cannot read model
+state or access the host.
 
 For supported expressions, numeric types, input handlers, and diagnostics,
 continue to the [Pocket Vapor reference](/docs/pocket-vapor-reference/).

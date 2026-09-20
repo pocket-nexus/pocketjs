@@ -1,10 +1,14 @@
 # Pocket Vapor
 
-Pocket Vapor builds a native UI from a Vue single-file component and a Rust
-view model. Write the layout and bindings in Vue; implement state and actions
-in Rust. The template is compiled before the application runs: ahead-of-time
-(AOT) compilation. **The generated view calls the Rust UI core without a JavaScript
-engine.**
+Pocket Vapor compiles Vue single-file components or Solid TSX views into Rust.
+State and actions come from a handwritten Rust model or a TypeScript model
+compiled into Rust. **The native AOT application executes its view and model
+without a JavaScript engine.**
+
+**The application source-language contract is TypeScript.** Vue scripts use
+`lang="ts"`, Solid views use `.tsx`, and model modules use `.ts`. Browser and
+QuickJS builds execute JavaScript emitted from that source. The emitted
+language does not extend AOT admission to arbitrary JavaScript source.
 
 This guide uses a PocketJS source checkout. It takes you through an existing
 example, a counter you can build, and a browser preview of its Vue
@@ -13,11 +17,27 @@ implementation.
 | What you want to do | Where to start |
 |---|---|
 | Understand how a Vue template becomes native code | [How Vue becomes Rust](#how-vue-becomes-rust) |
+| Compile TypeScript state, reactions and tasks | [TypeScript models to Rust](/docs/pocket-vapor-model/) |
+| Understand which code runs in TypeScript builds, Rust and the host | [TypeScript and native boundaries](/docs/pocket-vapor-boundaries/) |
+| Use Solid TSX | [Solid TSX to Rust](/docs/pocket-vapor-solid/) |
 | Build an example or create an application | [Build the supplied example](#1-build-the-supplied-example) |
 | Pass props, add instance state, or use slots and context | [Components and state](/docs/pocket-vapor-components/) |
 | Look up template syntax, input, types, or compiler flags | [API and commands](/docs/pocket-vapor-reference/) |
 
 ## How Vue becomes Rust
+
+The `app.model` setting in `pocket.json` chooses the model implementation:
+
+| Setting | Native model | Browser and QuickJS model |
+|---|---|---|
+| `"rust"` (default) | Rust code implements the generated view-model trait | The `.ts` module is compiled for the engine; a `.d.ts` module supplies preview defaults |
+| `"compiled"`, with `app.aot: true` | Model AOT translates the admitted `.ts` model into a Rust trait implementation | Model AOT emits JavaScript with the same reaction and task protocol |
+
+**Compiled mode requires model bodies in `.ts` and rejects unsupported source
+with a diagnostic.** It does not fall back to the Rust mode or interpret the
+rejected body on a native target. The [model guide](/docs/pocket-vapor-model/)
+defines the admitted TypeScript subset. The counter below demonstrates the
+default Rust mode.
 
 A template describes nodes, the values they display, and the actions that
 change them. The compiler turns those declarations into Rust operations on
@@ -38,7 +58,9 @@ elements, bindings, conditions and loops. The TypeScript checker supplies
 their types: `ref<i32>(0)` exposes an `i32` value named `count`. The compiler
 checks the supported syntax and records a typed description of the view.
 It converts that description into a Rust syntax tree and prints Rust source.
-Cargo compiles the generated source together with your model and the runtime.
+Cargo compiles the generated source together with the selected model and the
+runtime. In compiled mode, a separate Model IR records state and function
+bodies; its Rust output implements the same view-model trait.
 
 ### Follow one binding
 
@@ -69,27 +91,29 @@ view uses those methods to read or change application data:
 | `@press="count++"` | On a matching press, call `vm.set_count(vm.count().wrapping_add(1i32))` |
 | `v-if` and `v-for` | Choose mounted branches and reconcile list rows by key |
 
-**Template expressions become Rust operations; application function bodies
-remain your Rust implementation.** For `@press="increment()"`, the
-compiler emits a call to `vm.increment()`. It does not translate the
-`increment` body from `Counter.ts`. The same rule applies to a Vue
-`computed` value: implement its calculation in the corresponding Rust getter.
-The `0` in `ref<i32>(0)` initializes the Vue implementation; the native
-initial value comes from the Rust model passed to `CounterApp::new`.
+**The generated view calls the selected model through a Rust trait.** For
+`@press="increment()"`, the view emits `vm.increment()`. In Rust mode, you
+implement that method and each `computed` getter; the native initial value
+comes from the model passed to `CounterApp::new`. In compiled mode, Model AOT
+translates `increment`, state seeds and computed values from `Counter.ts`.
+The view compiler does not need the model's function bodies to emit the call.
 
 ### What happens after a press
 
 **The native view stores node IDs and previous binding values.** It runs
 without Vue refs, effects or a JavaScript render function. When the host
 calls `frame(input)`, generated Rust dispatches input to the model, then
-updates the view if a handler ran or the app was invalidated. The first
-frame performs the initial binding updates. In this counter, changing `count` from `0` to
+updates the view if a handler ran or the app was invalidated. In the default
+Rust mode, the first frame performs the initial binding updates. Compiled mode
+finishes initial reactions and mount hooks during construction, before the
+first input dispatch. In this counter, changing `count` from `0` to
 `1` changes the existing text node to `Count: 1`; the button stays mounted.
 The Rust core handles layout and produces the draw list for the host.
 
 Generated files contain the node and block code for mounting, updating,
 input dispatch and unmounting, including child components. **You maintain
-the Vue source and the Rust model; the compiler maintains `gen/`.**
+the TypeScript source and any handwritten Rust model or host code; the compiler
+maintains `gen/`.**
 
 ## 1. Build the supplied example
 
@@ -120,9 +144,11 @@ Open
 Use the directional controls to focus a button and the confirm control to
 activate it.
 
-**The browser preview runs `app.ts`; the native application runs
-`src/lib.rs`.** The template and types are shared. An edit to Rust business
-logic needs a native build to exercise that behavior.
+**The Vue lab uses the default Rust model mode.** Its browser preview executes
+the output of `app.ts`; its native model lives in `src/lib.rs`. The template
+and types are shared. An edit to the Rust business logic needs a native build
+to exercise that behavior. The [Solid lab](/docs/pocket-vapor-solid/) uses
+compiled mode, with TypeScript model bodies shared across both build paths.
 
 ## 2. Create a counter
 
@@ -270,10 +296,11 @@ This executable creates the native UI, advances two frames and prints
 `count = 1`. It has no window or display backend. The next section opens a
 browser preview; a native host supplies the presentation described below.
 
-**Rust implements the generated trait; TypeScript functions are not
-translated into Rust.** Adding a state binding or action can add a required
-trait method. Cargo reports the missing method until the Rust implementation
-is updated.
+**This counter uses the default Rust model mode.** Adding a state binding or
+action can add a required trait method. Cargo reports the missing method
+until the Rust implementation is updated. To generate the implementation
+from `Counter.ts`, opt into compiled mode and follow the
+[model guide](/docs/pocket-vapor-model/).
 
 ## 3. Preview the counter in the browser
 
@@ -322,6 +349,13 @@ Start from the lab's
 [Rust application wrapper](https://github.com/pocket-stack/pocketjs/blob/main/apps/vue-sfc-lab/src/lib.rs)
 when your host needs button or relative-axis capability bounds.
 
+In compiled mode, the host also supplies a readiness snapshot at each frame
+boundary and handles emitted commands through `Host::model_ready` and
+`Host::model_command`. TypeScript model code uses typed service and animation
+APIs; Rust host code owns device SDK calls, service delivery and presentation.
+See [TypeScript and native boundaries](/docs/pocket-vapor-boundaries/) for
+the value, scheduling and service contracts.
+
 **The AOT build command generates source and styles.** Packaging a native
 application requires a host that builds `pocketjs-core` and `pocket_vapor`
 for its target. `--board` checks an input profile; it does not build or flash
@@ -334,4 +368,6 @@ has its own workflow for GB, NES and GBA.
   events, instance state, lists, slots, generics and context.
 - [API and commands](/docs/pocket-vapor-reference/): supported syntax,
   types, input handlers, compiler flags and error fixes.
+- [TypeScript and native boundaries](/docs/pocket-vapor-boundaries/): model
+  selection, generated traits, host commands and cross-backend guarantees.
 - [Styling](/docs/styling/): class utilities shared with PocketJS apps.

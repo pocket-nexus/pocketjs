@@ -38,7 +38,7 @@ pocketjs/
 ├─ framework/    Guest: @pocketjs/framework
 │  ├─ src/        the TS runtime (Solid + Vue Vapor renderers, components, input, osk…)
 │  └─ compiler/   the interpreted-path build pipeline (jsx-plugin, tailwind, pak)
-├─ vapor/        Pocket Vapor: Vue SFC / Solid TSX → shared View IR → Rust AOT
+├─ vapor/        Pocket Vapor: Solid/Vue views and TypeScript models → View IR / Model IR → Rust
 ├─ contracts/    single sources of truth binding the layers
 │  ├─ spec/       op contract, platform contracts, manifest + package spec, gen-rust + gen-c
 │  ├─ generated/  generated C contract headers consumed by native hosts

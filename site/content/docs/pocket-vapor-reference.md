@@ -8,6 +8,13 @@ Use [Getting started](/docs/pocket-vapor/) for the build workflow and
 slots, instance state, generics and shared context.
 For the connection between template bindings and generated Rust methods,
 read [How Vue becomes Rust](/docs/pocket-vapor/#how-vue-becomes-rust).
+The [model guide](/docs/pocket-vapor-model/) covers the TypeScript bodies
+admitted by `app.model: "compiled"`; [TypeScript and native
+boundaries](/docs/pocket-vapor-boundaries/) defines the model and host contracts.
+
+**The supported source language is TypeScript.** JavaScript mentioned in
+runtime or formatting rules is generated output or engine behavior. It does
+not imply an AOT support contract for `.js` models or untyped view scripts.
 
 ## Files and setup
 
@@ -19,13 +26,18 @@ custom SFC blocks are rejected.
 | File | What you write |
 |---|---|
 | `Dial.vue` | Template, imports and component declarations |
-| `Dial.ts` | Vue state and functions for browser or guest execution; exported types define the Rust contract |
-| `Dial.d.ts` | Declarations for a Rust application; use this instead of `Dial.ts` |
-| Rust source | Implement the generated view-model trait and connect the app to a host |
+| `Dial.ts` | TypeScript state and functions; compiled mode translates their bodies, while Rust mode uses their types as the native contract |
+| `Dial.d.ts` | Contract declarations for Rust mode; use this instead of `Dial.ts` |
+| Rust source | Connect the app to a native host; in Rust mode, also implement the generated view-model trait |
 
 **A component cannot have both basename module forms.** A `.d.ts` browser
 preview supplies default values, such as zero, empty strings and empty arrays;
 it does not execute the Rust application logic.
+
+`app.model` defaults to `"rust"`. Set `app.aot: true` and
+`app.model: "compiled"` to compile the `.ts` model. This selection applies to
+the root model and child factories. Unsupported compiled model source is an
+error; model selection does not change after admission fails.
 
 `<script setup>` accepts these declarations:
 
@@ -41,7 +53,9 @@ it does not execute the Rust application logic.
 | Shared context | `provide` and `inject`, imported from `vue` |
 
 Put `ref`, `computed`, functions and other application logic in the `.ts`
-view-model module. Import Vue APIs from `vue`. Setup does not accept local
+view-model module. Import `ref` and `computed` from `vue`. In compiled models,
+import `watch` and `watchEffect` from
+`@pocketjs/framework/vue-vapor/reactive`. Setup does not accept local
 runtime variables or statements beyond the factory, macros, context and PocketJS lifecycle forms.
 
 ## Host elements and input
@@ -50,7 +64,7 @@ Import these elements from `@pocketjs/framework/vue-vapor/components`.
 
 | Element | Accepted attributes | Event |
 |---|---|---|
-| `View` | `class`, `:class`, `:style`, bare `focusable`, static `debug-name` | `@press` requires `focusable` |
+| `View` | `class`, `:class`, `:style`, bare `focusable`, static `debug-name`, `:ref` to a model node slot | `@press` requires `focusable` |
 | `Text` | `class`, `:class` | — |
 | `Image` | `class`, `:class`, static `src` asset name | — |
 | `ActionHandler` | Static `:button="BTN.NAME"`, boolean `active`, static `latched` | `@press` |
@@ -137,8 +151,13 @@ a zero-argument model method. Cleanup runs in reverse creation order, then
 mount hooks run in creation order. Hook writes trigger another update before
 the frame renders.
 
+Model node references use `createNodeRef` from `@pocketjs/framework/animation`
+in the basename module and `<View :ref="target" />` in the template. The
+reference binds to a native UI node and is cleared on unmount. It supplies
+an animation target; it does not expose DOM methods or a device SDK handle.
+
 HTML elements, DOM events, directive modifiers, `v-html`, `v-once`, `v-memo`,
-object `v-bind`, dynamic event names, template refs, dynamic components,
+object `v-bind`, dynamic event names, arbitrary Vue template refs, dynamic components,
 `Teleport`, `Transition`, `KeepAlive` and `Suspense` are outside the accepted
 template language. Use `transition-*` classes for style transitions.
 
@@ -173,6 +192,8 @@ Import numeric types and units from `@pocketjs/framework/vue-vapor/std`.
 | `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `usize`, `f32`, `f64` | Same Rust type | Same Rust type |
 | `number` | `f64`; rejected with `--strict` | `f64` |
 | `Item[]`, `Array<Item>` | `&[Item]` | `Vec<Item>` |
+| `Cap<string, N>` | `&str` | `heapless::String<N>` |
+| `Cap<Item[], N>` | `&[Item]` | `heapless::Vec<Item, N>` |
 | Interface or object type | `&Item` | Generated `Item` struct |
 | `"idle" \| "ready"` | Generated enum | Same enum |
 | `[A, B]` | Tuple with the getter form of each field | Tuple |
@@ -183,7 +204,10 @@ Import numeric types and units from `@pocketjs/framework/vue-vapor/std`.
 
 `Ref<T>`, `ShallowRef<T>` and `ComputedRef<T>` expose `T` in the contract.
 Function arguments and returns, setter arguments and event payloads use owned values.
-**String and array storage use `alloc`: `String` and `Vec<T>`.**
+**Unbounded string and array storage use `alloc`: `String` and `Vec<T>`.**
+`Cap` bounds UTF-8 bytes for strings and elements for arrays. See the
+[model value rules](/docs/pocket-vapor-model/#values-and-bounds) for overflow
+behavior and ownership when a model reads, mutates or suspends with a value.
 
 | Template use | Generated view-model method |
 |---|---|
@@ -192,10 +216,15 @@ Function arguments and returns, setter arguments and event payloads use owned va
 | Assign to `count`, or bind it with `v-model` | Additional `fn set_count(&mut self, value: i32)` |
 | Call `label(): string` in a binding | `fn label(&self) -> String` |
 | Call `reset(): void` in handlers | `fn reset(&mut self)` |
+| Start compiled `async load(): Promise<T>` in a handler | `fn load(&mut self, cmds: &mut Vec<Cmd>)` |
 
 A function used in both a binding and a handler receives `&self`. Bindings
 can call a function on each view update. Expose a list through a value getter
 when the template iterates it, to borrow its storage during rendering.
+In compiled mode, a function used in a binding must be synchronous and cannot
+write state or emit host commands. Async calls start compiled tasks; their
+source results go to awaiting tasks, while the public Rust method returns
+`()`. A native Promise object does not cross the trait boundary.
 
 An exported literal declaration such as `export declare const LIMIT: 20`
 supplies a compile-time constant. A numeric constant adopts its use's expected
@@ -221,9 +250,11 @@ types determine the values passed to the parent template.
 
 ## Numeric rules and units
 
-**Use an explicit numeric type for each exported contract value and signature.**
+**Rust-mode contracts require explicit numeric types with `--strict`.**
 For example, `ref<i32>(0)` describes an integer counter and `ref<f32>(0)`
-describes a floating-point value.
+describes a floating-point value. Compiled models also infer types from model
+bodies: `0` infers `i32`, while `0.0` infers `f64`. The view uses those inferred
+model types before checking its expressions.
 
 Arithmetic and comparisons require matching numeric types. Literals adopt
 the expected type. For a host style property with `f32` storage, an integer
@@ -244,11 +275,14 @@ unit is rejected. `Color` accepts `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`.
 For example, `#f00` and `#ff0000` are equal when their contract type is `Color`.
 Color has no arithmetic or ordering operations.
 
-Rust `f32` uses single precision; browser and guest numbers use double
-precision. Values and displayed digits can differ. Browser and guest `i64`
-and `u64` lose integer precision above `2^53`. Avoid overflow when comparing
-execution results: Rust integer arithmetic wraps, while JavaScript arithmetic
-does not wrap at the declared integer width.
+Compiled mode inserts integer-width normalization for `i8` through `i32` and
+`u8` through `u32`, plus `f32` rounding, into its generated engine code. The
+view transform applies the corresponding arithmetic rules. Rust mode does
+not transform TypeScript model bodies with these rules: its browser preview
+and handwritten native model can differ in overflow or floating precision.
+Browser and QuickJS `i64` and `u64` remain subject to the engine's integer
+precision limit above `2^53`; compiled `i64` arithmetic receives a diagnostic
+and is rejected with `--strict`.
 
 ## Expressions and standard functions
 
@@ -264,7 +298,9 @@ concatenation; `+` is numeric.
 Text accepts scalars and optional scalars. An absent optional value in
 `{{ value }}` renders empty text. Objects and arrays need a scalar field or a
 view-model formatting function. Numbers use JavaScript's `String(n)` format.
-Object and array equality is unsupported; compare scalar fields or keys.
+Object and array equality is unsupported in view expressions; compare scalar
+fields or keys. Compiled model bodies can use the `equals` standard function
+for content equality.
 
 Import these functions by name from `@pocketjs/framework/vue-vapor/std`:
 
@@ -278,10 +314,12 @@ Import these functions by name from `@pocketjs/framework/vue-vapor/std`:
 | `fixed(x, digits)` | `string`; JavaScript `toFixed` formatting for a float |
 
 Float-to-`i32` conversions saturate at the `i32` limits; NaN becomes zero.
-Integer `/` and `%` are rejected; use `idiv` and `imod`. Template expressions
-cannot use `.length`, prototype methods, `Math.*`, global functions, closures,
-bitwise operators or general object and array literals. Move that work into
-the view model.
+Integer `/` and `%` are rejected in view expressions; use `idiv` and `imod`.
+Compiled model bodies have their own admitted expressions: `/` promotes
+integer operands to `f64`, while `idiv` retains an integer result. Template
+expressions cannot use `.length`, prototype methods, `Math.*`, global
+functions, closures, bitwise operators or general object and array literals.
+Move that work into the view model.
 
 ## Command-line reference
 
@@ -294,18 +332,25 @@ cargo check --manifest-path apps/vue-sfc-lab/Cargo.toml
 ```
 
 The input can be an app name under `apps/`, an app directory or a root `.vue`
-path. `check` analyzes the component tree without writing generated files.
-`build` writes Rust and `styles.bin` to `gen/` beside the root SFC.
+or `.tsx` path. `check` analyzes the component tree and any selected compiled
+models without writing generated code. `build` writes view Rust and
+`styles.bin` to `gen/` beside the root component; compiled mode adds model Rust
+modules. Demo `gen/` directories are ignored by Git. Run `build` before Cargo.
 
 | Option | Effect |
 |---|---|
 | `--strict` | Reject unannotated `number` in contracts |
 | `build --out <directory>` | Choose the generated output directory |
 | `build --no-format` | Skip `rustfmt`; the default uses it when installed |
-| `build --ir <file>` | Save the compiler's analyzed representation for debugging |
+| `build/check --ir <file>` | Save View IR; compiled mode also writes a sibling `.model.json` with Model IR |
 | `check --json` | Print analysis and requested board results as JSON |
 | `check --boards` | Report input coverage for all existing board profiles |
 | `--board <name>` | Require a board's input profile to cover the app; a build checks before writing output |
+
+`bun vapor/compiler/cli.ts run <app> --tape <file>` executes the compiled model
+with the reference tape player. It does not launch a native display host.
+See the [model guide](/docs/pocket-vapor-model/) for tape fields and explicit
+view targets.
 
 **Board reports cover input mappings.** They do not establish a target
 toolchain or display integration. Existing profiles have no relative-axis
@@ -327,3 +372,4 @@ compiles and packages the application.
 | Missing prop, slot parameter or context provider | Match the child's declarations; see [Components](/docs/pocket-vapor-components/) |
 | Board has no relative-axis adapter | Use a host that implements the required axis capability, or change the app's input requirement |
 | Rust view-model trait implementation is incomplete | Regenerate after contract changes, then implement the trait's required methods and associated child types |
+| Compiled model source is outside the supported subset | Change the TypeScript body according to the source diagnostic, or select Rust mode and provide its native implementation |

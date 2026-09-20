@@ -2,8 +2,13 @@
 
 **Model AOT compiles the basename TypeScript model into a Rust implementation
 of the generated view-model trait.** Solid TSX and Vue views retain their
-View IR boundary. Browser and QuickJS builds lower the same model to JavaScript
-with the framework reaction scheduler and task state machines.
+View IR boundary. **The supported application source is TypeScript.** Browser
+and QuickJS builds lower that source into an engine bundle with the framework
+reaction scheduler and task state machines. JavaScript is the bundle format.
+
+The [TypeScript and native code guide](/docs/pocket-vapor-boundaries/) explains
+which code the compiler generates, which code a native host must supply, and
+how values and service results pass between them.
 
 ## Select a model implementation
 
@@ -22,6 +27,9 @@ with the framework reaction scheduler and task state machines.
 `"compiled"` requires a `.ts` basename module containing function bodies.
 **A compiled model outside the supported subset fails with a
 `file:line:column` diagnostic.** A `.d.ts` contract uses the Rust model mode.
+There is no fallback to a guest interpreter or a handwritten Rust method when
+compiled admission fails. The manifest selects one native model implementation
+for the application.
 
 ```sh
 bun vapor/compiler/cli.ts check solid-aot-lab --strict
@@ -130,8 +138,9 @@ current unmodified view of that signal is unchanged. A local retained across
 
 Integer source tokens such as `1` infer `i32`; `1.0`, `1e3` and `.5` infer
 `f64`. A fractional token cannot adopt an integer annotation. A local retains
-one numeric type through assignments. Integer division uses `idiv` and remainder uses `imod`. `/` promotes integer
-operands to `f64`; floating operands retain their declared precision.
+one numeric type through assignments. Integer division uses `idiv` and
+remainder uses `imod`. `/` promotes integer operands to `f64`; floating operands
+retain their declared precision.
 
 `for` and `for ... of` have a bound evaluated before entering the loop.
 `while` and `do` are compile errors. Development builds count function call
@@ -186,5 +195,8 @@ hooks finish before the first input dispatch.
 `Ui::set_model_services` declares services implemented by a host command handler;
 `Ui::queue_model_delivery` queues results for the next boundary. The default
 `Ui` declares no services and reports `unavailable` for requests.
+The `net.get` TypeScript contract does not install a network implementation in
+a native AOT host. The host must advertise the service, handle its commands and
+queue typed results. A board's network capability does not perform that setup.
 Core animation reports retain the track's ID and an `ended`, `replaced` or
 `dropped` reason; node slots are cleared at unmount.
