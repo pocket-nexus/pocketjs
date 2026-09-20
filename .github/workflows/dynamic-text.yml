@@ -35,6 +35,10 @@ on:
       - 'tools/text-lab-*.ts'
       - 'tests/text-batch.test.ts'
       - 'framework/src/offload.ts'
+      - 'framework/src/services.ts'
+      - 'tests/offload.test.ts'
+      - 'tests/fixtures/offload-queue.c'
+      - 'tests/fixtures/service-client-entry.ts'
       - 'contracts/spec/font-archive.ts'
       - 'hosts/psp/src/offload_local.rs'
       - 'hosts/psp/src/local_text.rs'
@@ -96,6 +100,7 @@ jobs:
       - run: cargo test --locked --manifest-path engine/core/Cargo.toml
       - run: cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml --no-default-features --features runtime --lib
       - run: bun test tests/psp-freetype.test.ts tests/psp-load-image.test.ts tests/psp-worker-heap.test.ts
+      - run: bun test tests/offload.test.ts tests/service-client.test.ts tests/text-layout-client.test.ts
       - run: bun tools/wasm.ts
       - run: bun tools/test.ts --stage="runtime text"
         env:

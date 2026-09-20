@@ -1,8 +1,48 @@
 # Runtime font optimization investigation
 
-**Cold visibility, resident rendering and diagnostic overhead have different causes.** This investigation uses revision `e9e8fcc`, Apple M4/macOS, Bun 1.3.14 and Rust 1.93.0. It adds profiling tools and isolated prototypes. Production scheduling, filtering and memory budgets retain their current behavior.
+**Cold visibility, resident rendering and diagnostic overhead have different causes.** The initial investigation used revision `e9e8fcc`, Apple M4/macOS, Bun 1.3.14 and Rust 1.93.0. The follow-up below implements three of its candidates. Later sections retain the original baseline measurements and experiments.
 
 Raw reports, isolated sources, binaries and build identities remain under ignored `.pocket-build/validation/font-optimization/`. These measurements do not establish physical PSP performance.
+
+## Implemented optimizations
+
+**The production path now submits controller requests in the frame that creates them.** Service pumps run receive, work and submit phases. `flush()` shares the two-submission credit with `step()`; only `step()` receives a reply and advances the deadline clock. The one-reply, eight-ticket and 4,096-byte limits remain in force. Cancellation, reconnection, expired queued work and clients created during a work phase have regression coverage.
+
+Worker caches use ordered key and eviction indexes with maintained pinned-byte totals. Bitmap keys are numeric glyph IDs; shaping and layout entries share immutable string keys with their lookup index. Bitmap admission precedes allocation/copy and runs once. The software rasterizer returns the selected texel when both bilinear weights are zero; all other samples retain the four-neighbor filter.
+
+The following before/after comparison uses production baseline `7980f7b`, the same fonts, and the same M4 host. Pipeline scenarios run three times at a 60 Hz delivery gate. Cache timings use 60 samples with an 8 MiB configured bitmap budget. Draw timings use 100 groups of ten forced redraws with all resources resident.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| 256 new Han, first visible | 2,351 ms / 130 frames | 1,753 ms / 98 frames |
+| 256 Han, geometry available | 1,131 ms | 568 ms |
+| Four 128 px glyphs, first visible | 1,018 ms / 56 frames | 936 ms / 52 frames |
+| Resident edit median | 37.33 ms | 19.04 ms |
+| 256 resident Han, software redraw | 1.162 ms | 0.626 ms |
+| Latest 256 cache hits, 4,096 resident entries | 3.071 ms | 0.142 ms |
+| Latest 256 cache hits, 8,192 resident entries | 6.143 ms | 0.141 ms |
+
+**Final pixels match for every scene and edit in all three repeats.** The sampler also matches 24 baseline controls with fractional translation, clipping, tint/alpha, scaling and rotation. Han request count remains 82, client gray8 remains 59,936 B, and 256 uploads install 255,488 RGBA bytes. Shaping/layout counts remain one per cold scene and eleven across the editing scenario; bitmap residency does not trigger another layout.
+
+Frame work remains bounded in these runs. Median per-run p95 changes from 1.010 to 1.076 ms for Han, 0.936 to 1.406 ms for the 128 px case, and 1.493 to 1.352 ms for editing. Maximum work across all repeats is 6.889, 5.918 and 2.056 ms after the change. Combining receipt and submission can increase work in one frame even when total latency falls. These host measurements are not PSP frame-time guarantees.
+
+The complete scenario sweep also verifies cold mixed text (91 ms), 24/48 px text (92/340 ms), and insertion of a new glyph during editing (36 ms). A 4 KiB texture limit rejects the 256-Han batch in 579 ms with no GPU upload. Han worker cache peaks are 30,750/16,968/117,280 B for shaping/layout/bitmaps in the 32-bit WASM service. Cumulative process peak RSS across the sweep is 103,399,424–145,276,928 B, including Bun and worker heaps. It is not per-cache residency or a PSP estimate. The streamed bitmap comparison reveals Han in 1,181 ms and edits in 0.46–1.40 ms without worker requests; the runtime path retains a cold-transfer and edit-request cost.
+
+**Index memory counts toward the existing cache budgets.** On 64-bit workers, numeric/text entries charge 256/384 B of metadata plus a shared 2,048 B allowance per nonempty cache. On 32-bit workers, the charges are 192/256 B plus 1,024 B. These allowances cover tree storage and reference-count headers; allocator bookkeeping remains part of the worker heap limit. The 4,096-entry benchmark's accounted bitmap residency rises from 1,666,526 to 2,177,585 B, so this working set no longer fits the default 2 MiB budget. The benchmark uses 8 MiB on both sides. Under a 2 MiB limit, the same 4,096 admissions retain 3,941 glyphs and evict 155, with a 2,097,145 B accounted peak below the 2,097,152 B cap. Defaults and PSP caps are unchanged; pressure causes eviction or refusal. An 8 KiB pressure test cycles 256 Han and verifies stable glyph IDs, coverage and leased geometry.
+
+Native runtime-only tests pass 20 cases; default-feature tests pass 24; core tests pass 148. The native/WASM worker and editor stage passes 15 tests, with bitmap compatibility and transport tests passing in separate runs. Formatting, strict text Clippy, TypeScript and contract checks pass. Acceptance requires matching pixels, no stale ID or lease behavior, no budget overrun, and no UI-thread font fallback; timing comparisons remain reports rather than noisy CI thresholds.
+
+The rebuilt offline PSP EBOOT passes PPSSPP IR and JIT runs with the same final pixels as the baseline, 38 uploads and 54,656 RGBA bytes. Both modes verify package fonts, an `ms0:` font read, distinct worker/UI threads and progress after budget refusal. The worker heap peaks at 1,343,488 / 4,194,304 B with zero allocation failures, compared with 1,342,128 B before. EBOOT SHA256 is `3ded03c09f534a2f6f7dc07e676bffcfa98488261786993157fbe0d76117f113`; embedded JS/PAK identity is `94d926b2c5059277`. The temporary build override points to the verified pinned PSP dependency and is removed after building. Physical PSP timing remains unverified. The software sampling change does not execute on PSP GE or WGPU.
+
+Raw logs, binaries, source/font hashes and reports for this follow-up remain under ignored `.pocket-build/validation/font-optimization-implementation/`. Reproduce after building core/text WASM:
+
+```sh
+bun tools/runtime-pipeline-profile.ts --variant=production --repeats=3 --output=AFTER.json --reference=BEFORE.json
+bun tools/runtime-render-profile.ts --reference-wasm=BEFORE.wasm --output=RENDER.json
+cargo run --release --manifest-path engine/crates/pocket-text/Cargo.toml --example runtime_cost -- 60
+```
+
+The pipeline reference must be generated with the profiler's pixel-hash output enabled. **Gray-mask pages, fuller metadata records, additional reply credits and overlapping upload remain later work.** The remaining cold latency includes the unchanged glyph transfer and upload pacing.
 
 ## Processing time and delivery delay
 
@@ -120,4 +160,4 @@ bun tools/runtime-pipeline-profile.ts --repeats=3
 bun tools/runtime-render-profile.ts
 ```
 
-The pipeline tool is a profiling prototype and is not a replacement for `createOffloadClient`. The render tool accepts `--wasm=...` and `--reference=...` to compare isolated builds; its reports identify whether filtering controls match. Raw isolated C, PSP and sampling experiments are retained in the ignored investigation directory. Future before/after claims must use the same font bytes, coverage, size, positions, residency state, renderer and diagnostic settings.
+The pipeline tool includes the production client and experimental variants. The render tool accepts `--wasm=...` and `--reference-wasm=...` to compare isolated builds; its reports identify whether filtering controls match. Raw isolated C, PSP and sampling experiments are retained in the ignored investigation directory. Future before/after claims must use the same font bytes, coverage, size, positions, residency state, renderer and diagnostic settings.

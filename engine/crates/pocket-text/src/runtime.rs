@@ -4,8 +4,8 @@ use alloc::rc::Rc as FontSource;
 #[cfg(target_has_atomic = "ptr")]
 use alloc::sync::Arc as FontSource;
 use alloc::{
-    borrow::ToOwned,
-    collections::BTreeMap,
+    borrow::{Borrow, ToOwned},
+    collections::{BTreeMap, BTreeSet},
     format,
     rc::Rc,
     string::{String, ToString},
@@ -144,15 +144,37 @@ struct Bitmap {
     top: i32,
     bytes: Vec<u8>,
 }
-struct Entry<T> {
-    key: String,
+// Rust's B-trees hold up to 11 keys per node, with at least 5 in each
+// non-root node. Including all 12 child pointers, the three index nodes use
+// at most 1000 B / 744 B for numeric keys (64-bit / 32-bit), or 1312 B / 876 B
+// for Rc<str> keys. Divide by 5 and add the Rc allocation headers: the entry
+// allowances below round up those bounds. The root allowance covers three
+// sparse roots; zero-entry caches release retained root allocations.
+// Allocator bookkeeping is part of the worker heap limit, not these charges.
+const CACHE_ROOT_BYTES: usize = 256 * core::mem::size_of::<usize>();
+trait CacheKey: Ord + Clone {
+    const ENTRY_BYTES: usize;
+}
+impl CacheKey for u32 {
+    const ENTRY_BYTES: usize = 128 + 16 * core::mem::size_of::<usize>();
+}
+impl CacheKey for Rc<str> {
+    const ENTRY_BYTES: usize = 128 + 32 * core::mem::size_of::<usize>();
+}
+
+struct Entry<T, K> {
+    key: K,
     value: Rc<T>,
     bytes: usize,
     tick: u64,
     pins: u32,
 }
-struct Cache<T> {
-    entries: BTreeMap<u32, Entry<T>>,
+struct Cache<T, K = Rc<str>> {
+    entries: BTreeMap<u32, Entry<T, K>>,
+    keys: BTreeMap<K, u32>,
+    unpinned: BTreeSet<(u64, u32)>,
+    pinned_bytes: usize,
+    pinned_entries: usize,
     budget: usize,
     bytes: usize,
     peak: usize,
@@ -162,10 +184,14 @@ struct Cache<T> {
     next: u32,
     clock: u64,
 }
-impl<T> Cache<T> {
+impl<T, K: CacheKey> Cache<T, K> {
     fn new(budget: usize) -> Self {
         Self {
             entries: BTreeMap::new(),
+            keys: BTreeMap::new(),
+            unpinned: BTreeSet::new(),
+            pinned_bytes: 0,
+            pinned_entries: 0,
             budget,
             bytes: 0,
             peak: 0,
@@ -177,19 +203,20 @@ impl<T> Cache<T> {
         }
     }
     fn get(&mut self, id: u32) -> Option<Rc<T>> {
+        let e = self.entries.get_mut(&id)?;
         self.clock += 1;
-        self.entries.get_mut(&id).map(|e| {
-            e.tick = self.clock;
-            e.value.clone()
-        })
+        if e.pins == 0 {
+            self.unpinned.remove(&(e.tick, id));
+            self.unpinned.insert((self.clock, id));
+        }
+        e.tick = self.clock;
+        Some(e.value.clone())
     }
-    fn find(&mut self, key: &str) -> Option<(u32, Rc<T>)> {
-        let id = self
-            .entries
-            .iter()
-            .find(|(_, e)| e.key == key)
-            .map(|(id, _)| *id);
-        if let Some(id) = id {
+    fn find<Q: Ord + ?Sized>(&mut self, key: &Q) -> Option<(u32, Rc<T>)>
+    where
+        K: Borrow<Q>,
+    {
+        if let Some(id) = self.keys.get(key).copied() {
             self.hits += 1;
             Some((id, self.get(id).unwrap()))
         } else {
@@ -197,39 +224,71 @@ impl<T> Cache<T> {
             None
         }
     }
+    fn pinned_cost(&self) -> usize {
+        self.pinned_bytes
+            + if self.pinned_entries > 0 {
+                CACHE_ROOT_BYTES
+            } else {
+                0
+            }
+    }
+    // `bytes` includes per-entry metadata; the sparse-root allowance is shared.
     fn reserve(&mut self, bytes: usize) -> Result<(), String> {
-        if bytes > self.budget {
+        if bytes > 0 && bytes > self.budget.saturating_sub(CACHE_ROOT_BYTES) {
             return Err("Cache budget exceeded".into());
         }
-        let pinned: usize = self
-            .entries
-            .values()
-            .filter(|e| e.pins > 0)
-            .map(|e| e.bytes)
-            .sum();
-        if pinned + bytes > self.budget {
+        if bytes > self.budget.saturating_sub(self.pinned_cost()) {
             return Err("Pinned cache budget exceeded".into());
         }
-        while self.bytes + bytes > self.budget {
-            let id = self
-                .entries
-                .iter()
-                .filter(|(_, e)| e.pins == 0)
-                .min_by_key(|(_, e)| e.tick)
-                .map(|(id, _)| *id)
+        while bytes > self.budget.saturating_sub(self.bytes) || self.bytes > self.budget {
+            let (tick, id) = self
+                .unpinned
+                .first()
+                .copied()
                 .ok_or("Pinned cache budget exceeded")?;
-            self.bytes -= self.entries.remove(&id).unwrap().bytes;
+            self.unpinned.remove(&(tick, id));
+            let entry = self.entries.remove(&id).unwrap();
+            self.keys.remove(&entry.key);
+            self.bytes -= entry.bytes;
             self.evictions += 1;
+            if self.entries.is_empty() {
+                self.bytes -= CACHE_ROOT_BYTES;
+                // B-trees may retain an empty root allocation after removal.
+                self.entries = BTreeMap::new();
+                self.keys = BTreeMap::new();
+                self.unpinned = BTreeSet::new();
+            }
         }
         Ok(())
     }
-    fn insert(&mut self, key: String, value: T, bytes: usize) -> Result<u32, String> {
-        self.reserve(bytes)?;
+    fn insert(&mut self, key: K, value: T, bytes: usize) -> Result<u32, String> {
+        self.insert_with(key, bytes, || Ok(value))
+    }
+    fn insert_with(
+        &mut self,
+        key: K,
+        value_bytes: usize,
+        build: impl FnOnce() -> Result<T, String>,
+    ) -> Result<u32, String> {
         let id = self.next;
-        self.next = self.next.checked_add(1).ok_or("Cache identity exhausted")?;
+        let next = id.checked_add(1).ok_or("Cache identity exhausted")?;
+        if self.keys.contains_key(&key) {
+            return Err("Cache key already present".into());
+        }
+        let bytes = value_bytes
+            .checked_add(K::ENTRY_BYTES)
+            .ok_or("Cache budget exceeded")?;
+        self.reserve(bytes)?;
+        let value = build()?;
+        self.next = next;
         self.clock += 1;
+        if self.entries.is_empty() {
+            self.bytes += CACHE_ROOT_BYTES;
+        }
         self.bytes += bytes;
         self.peak = self.peak.max(self.bytes);
+        self.keys.insert(key.clone(), id);
+        self.unpinned.insert((self.clock, id));
         self.entries.insert(
             id,
             Entry {
@@ -244,28 +303,32 @@ impl<T> Cache<T> {
     }
     fn pin(&mut self, id: u32, add: bool) -> Result<(), String> {
         let e = self.entries.get_mut(&id).ok_or("Cache entry evicted")?;
-        e.pins = if add {
+        let pins = if add {
             e.pins.checked_add(1).ok_or("Lease budget exceeded")?
         } else {
             e.pins.checked_sub(1).ok_or("Lease is not held")?
         };
+        if e.pins == 0 {
+            self.unpinned.remove(&(e.tick, id));
+            self.pinned_bytes += e.bytes;
+            self.pinned_entries += 1;
+        } else if pins == 0 {
+            self.unpinned.insert((e.tick, id));
+            self.pinned_bytes -= e.bytes;
+            self.pinned_entries -= 1;
+        }
+        e.pins = pins;
         Ok(())
     }
     fn set_budget(&mut self, budget: usize) -> Result<(), String> {
-        let pinned: usize = self
-            .entries
-            .values()
-            .filter(|e| e.pins > 0)
-            .map(|e| e.bytes)
-            .sum();
-        if budget < pinned {
+        if budget < self.pinned_cost() {
             return Err("Pinned cache budget exceeded".into());
         }
         self.budget = budget;
         self.reserve(0)
     }
     fn stats(&self) -> Value {
-        json!({"bytes":self.bytes,"budget":self.budget,"peak":self.peak,"hits":self.hits,"misses":self.misses,"evictions":self.evictions,"entries":self.entries.len(),"pinned":self.entries.values().filter(|e|e.pins>0).count()})
+        json!({"bytes":self.bytes,"budget":self.budget,"peak":self.peak,"hits":self.hits,"misses":self.misses,"evictions":self.evictions,"entries":self.entries.len(),"pinned":self.pinned_entries})
     }
 }
 pub struct RuntimeText {
@@ -278,7 +341,7 @@ pub struct RuntimeText {
     glyph_keys: Vec<GlyphKey>,
     shapes: Cache<Shape>,
     layouts: Cache<Layout>,
-    bitmaps: Cache<Bitmap>,
+    bitmaps: Cache<Bitmap, u32>,
     rasterizations: u64,
     layout_count: u64,
     shape_count: u64,
@@ -524,25 +587,9 @@ impl RuntimeText {
             "runtime.budget" => {
                 let mut changes = vec![];
                 for (name, pinned) in [
-                    (
-                        "shaping",
-                        self.shapes
-                            .entries
-                            .values()
-                            .filter(|e| e.pins > 0)
-                            .map(|e| e.bytes)
-                            .sum::<usize>(),
-                    ),
-                    (
-                        "layout",
-                        self.layouts
-                            .entries
-                            .values()
-                            .filter(|e| e.pins > 0)
-                            .map(|e| e.bytes)
-                            .sum(),
-                    ),
-                    ("bitmap", 0),
+                    ("shaping", self.shapes.pinned_cost()),
+                    ("layout", self.layouts.pinned_cost()),
+                    ("bitmap", self.bitmaps.pinned_cost()),
                 ] {
                     if let Some(n) = v.get(name) {
                         let maximum = match name {
@@ -682,7 +729,7 @@ impl RuntimeText {
             return Err("Shaping text budget exceeded".into());
         }
         let key = format!("{font}:{text}");
-        if let Some(hit) = self.shapes.find(&key) {
+        if let Some(hit) = self.shapes.find(key.as_str()) {
             return Ok(hit);
         }
         // Reject before shaping if even the immutable source cannot fit.
@@ -823,8 +870,7 @@ impl RuntimeText {
             at = last;
         }
         let bytes = core::mem::size_of::<Shape>()
-            + 128
-            + key.capacity()
+            + key.len()
             + clusters.capacity() * core::mem::size_of::<Cluster>()
             + clusters
                 .iter()
@@ -840,7 +886,7 @@ impl RuntimeText {
             missing,
             glyphs: total_glyphs,
         };
-        let id = self.shapes.insert(key, shape, bytes)?;
+        let id = self.shapes.insert(key.into(), shape, bytes)?;
         self.shape_count += 1;
         Ok((id, self.shapes.get(id).unwrap()))
     }
@@ -933,7 +979,7 @@ impl RuntimeText {
             _ => return Err("Invalid overflow".into()),
         };
         let key = format!("{sid}:{width}:{max_lines}:{ellipsis}");
-        if let Some((id, l)) = self.layouts.find(&key) {
+        if let Some((id, l)) = self.layouts.find(key.as_str()) {
             return Ok(layout_info(id, &l));
         }
         let instance = self.instances[&shape.font].clone();
@@ -1087,8 +1133,7 @@ impl RuntimeText {
         carets.dedup();
         let height = round(rows.len() as f32 * instance.line_height);
         let bytes = core::mem::size_of::<Layout>()
-            + 128
-            + key.capacity()
+            + key.len()
             + glyphs.capacity() * core::mem::size_of::<LayoutGlyph>()
             + rows.capacity() * core::mem::size_of::<LayoutRow>()
             + carets.capacity() * core::mem::size_of::<Caret>();
@@ -1102,7 +1147,7 @@ impl RuntimeText {
             baseline: instance.ascent,
             truncated,
         };
-        let id = self.layouts.insert(key, value, bytes)?;
+        let id = self.layouts.insert(key.into(), value, bytes)?;
         self.layout_count += 1;
         Ok(layout_info(id, &self.layouts.get(id).unwrap()))
     }
@@ -1117,7 +1162,9 @@ impl RuntimeText {
         }
     }
     fn glyph(&mut self, v: &Value) -> Result<Value, String> {
-        if self.bitmaps.budget < core::mem::size_of::<Bitmap>() + 128 {
+        if self.bitmaps.budget
+            < core::mem::size_of::<Bitmap>() + <u32 as CacheKey>::ENTRY_BYTES + CACHE_ROOT_BYTES
+        {
             return Err("Cache budget exceeded".into());
         }
         let glyph = id(v, "glyph")?;
@@ -1125,8 +1172,7 @@ impl RuntimeText {
             .glyph_keys
             .get(glyph.checked_sub(1).ok_or("Invalid glyph")? as usize)
             .ok_or("Glyph unavailable")?;
-        let cache_key = glyph.to_string();
-        let bitmap = if let Some((_, b)) = self.bitmaps.find(&cache_key) {
+        let bitmap = if let Some((_, b)) = self.bitmaps.find(&glyph) {
             b
         } else {
             let handle = self.fonts[key.face].handle;
@@ -1147,21 +1193,22 @@ impl RuntimeText {
             {
                 return Err("Glyph bitmap budget exceeded".into());
             }
-            let cost =
-                length as usize + core::mem::size_of::<Bitmap>() + cache_key.capacity() + 128;
-            self.bitmaps.reserve(cost)?;
-            let mut bytes = vec![0; length as usize];
-            if unsafe { pocket_ft_copy(handle, bytes.as_mut_ptr(), bytes.len() as u32) } != length {
-                return Err("FreeType bitmap copy failed".into());
-            }
-            let b = Bitmap {
-                width,
-                height,
-                left,
-                top,
-                bytes,
-            };
-            let id = self.bitmaps.insert(cache_key, b, cost)?;
+            let cost = length as usize + core::mem::size_of::<Bitmap>();
+            let id = self.bitmaps.insert_with(glyph, cost, || {
+                let mut bytes = vec![0; length as usize];
+                if unsafe { pocket_ft_copy(handle, bytes.as_mut_ptr(), bytes.len() as u32) }
+                    != length
+                {
+                    return Err("FreeType bitmap copy failed".into());
+                }
+                Ok(Bitmap {
+                    width,
+                    height,
+                    left,
+                    top,
+                    bytes,
+                })
+            })?;
             self.rasterizations += 1;
             self.bitmaps.get(id).unwrap()
         };
@@ -1272,6 +1319,121 @@ mod tests {
         let v = s.layout(&json!({"shape":shape,"width":width})).unwrap();
         let id = v["layout"].as_u64().unwrap() as u32;
         (id, s.layouts.get(id).unwrap())
+    }
+    #[test]
+    fn indexed_cache_preserves_recency_leases_and_retained_values() {
+        let entry_bytes = <u32 as CacheKey>::ENTRY_BYTES + 4;
+        let mut cache = Cache::<u32, u32>::new(CACHE_ROOT_BYTES + 3 * entry_bytes);
+        let a = cache.insert(10, 100, 4).unwrap();
+        let b = cache.insert(20, 200, 4).unwrap();
+        let c = cache.insert(30, 300, 4).unwrap();
+        let retained = cache.get(a).unwrap();
+        cache.pin(a, true).unwrap();
+        cache.pin(a, true).unwrap();
+        cache.get(b).unwrap();
+        let d = cache.insert(40, 400, 4).unwrap();
+        assert!(cache.find(&30).is_none());
+        assert!(cache.get(c).is_none());
+        assert_eq!(cache.pinned_cost(), CACHE_ROOT_BYTES + entry_bytes);
+        cache.pin(a, false).unwrap();
+        assert_eq!(cache.pinned_cost(), CACHE_ROOT_BYTES + entry_bytes);
+        cache
+            .set_budget(CACHE_ROOT_BYTES + 2 * entry_bytes)
+            .unwrap();
+        assert!(cache.get(b).is_none());
+        assert!(cache.get(d).is_some());
+        let before = cache.stats();
+        assert!(cache
+            .set_budget(CACHE_ROOT_BYTES + entry_bytes - 1)
+            .is_err());
+        assert_eq!(cache.stats(), before);
+        cache.pin(a, false).unwrap();
+        assert_eq!(cache.pinned_cost(), 0);
+        // Releasing a pin preserves access recency; it is not a new cache hit.
+        cache.insert(50, 500, 4).unwrap();
+        assert!(cache.get(a).is_none());
+        assert!(cache.find(&10).is_none());
+        let replacement = cache.insert(10, 101, 4).unwrap();
+        assert!(replacement > d);
+        assert_eq!(*cache.find(&10).unwrap().1, 101);
+        assert_eq!(*retained, 100);
+        cache.set_budget(0).unwrap();
+        assert_eq!(cache.bytes, 0);
+        assert!(cache.entries.is_empty());
+        assert!(cache.keys.is_empty());
+        assert!(cache.unpinned.is_empty());
+    }
+    #[test]
+    fn cache_admission_counts_indexes_before_building_or_evicting() {
+        let entry_bytes = <u32 as CacheKey>::ENTRY_BYTES + 4;
+        let mut cache = Cache::<u32, u32>::new(CACHE_ROOT_BYTES + entry_bytes);
+        let id = cache.insert(1, 1, 4).unwrap();
+        assert_eq!(cache.bytes, CACHE_ROOT_BYTES + entry_bytes);
+        cache.pin(id, true).unwrap();
+        let before = cache.stats();
+        assert!(cache
+            .insert_with(2, 4, || panic!("rejected allocation"))
+            .is_err());
+        assert!(cache.insert(3, 3, usize::MAX).is_err());
+        assert!(cache.insert(1, 9, 4).is_err());
+        assert_eq!(cache.stats(), before);
+        cache.pin(id, false).unwrap();
+        assert!(cache.pin(id, false).is_err());
+        assert_eq!(cache.pinned_cost(), 0);
+        let replacement = cache.insert(2, 2, 4).unwrap();
+        assert_eq!(replacement, id + 1);
+        assert_eq!(cache.evictions, 1);
+        assert_eq!(cache.bytes, CACHE_ROOT_BYTES + entry_bytes);
+        assert_eq!(cache.keys.len(), 1);
+        let next = cache.next;
+        assert!(cache
+            .insert_with(3, 4, || Err("copy failed".into()))
+            .is_err());
+        assert_eq!(cache.next, next);
+        assert_eq!(cache.bytes, 0);
+        assert!(cache.entries.is_empty());
+        assert!(cache.keys.is_empty());
+        assert!(cache.unpinned.is_empty());
+        assert_eq!(cache.insert(3, 3, 4).unwrap(), next);
+        cache.next = u32::MAX;
+        let before = cache.stats();
+        assert!(cache.insert(3, 3, 4).is_err());
+        assert_eq!(cache.stats(), before);
+    }
+    #[test]
+    fn psp_bitmap_pressure_preserves_leased_geometry_and_glyph_identity() {
+        let mut s = RuntimeText::with_limits(RuntimeLimits::psp());
+        assert!(s.load_font(include_bytes!(
+            "../../../../tests/fixtures/runtime-font/NotoSansSC-Test.ttf"
+        )));
+        let f = s
+            .font(&json!({"family":"Pocket CJK Test","size":16,"fallback":[]}))
+            .unwrap()["font"]
+            .as_u64()
+            .unwrap();
+        let text: String = (0..256)
+            .map(|i| char::from_u32(0x4e00 + i).unwrap())
+            .collect();
+        let ready = s
+            .prepare(&json!({"font":f,"text":text,"width":460,"leaseKey":"pressure"}))
+            .unwrap();
+        let lid = ready["layout"].as_u64().unwrap() as u32;
+        let geometry = s.layouts.get(lid).unwrap();
+        let glyphs: Vec<u32> = geometry.glyphs.iter().map(|g| g.0).collect();
+        let first = s.glyph(&json!({"glyph":glyphs[0]})).unwrap();
+        s.dispatch("runtime.budget", &json!({"bitmap":8192}))
+            .unwrap();
+        for glyph in &glyphs {
+            assert_eq!(s.glyph(&json!({"glyph":glyph})).unwrap()["glyph"], *glyph);
+            assert!(s.bitmaps.bytes <= 8192);
+        }
+        assert!(s.bitmaps.evictions > 0);
+        assert_eq!(s.glyph(&json!({"glyph":glyphs[0]})).unwrap(), first);
+        let after = s.layouts.get(lid).unwrap();
+        assert!(Rc::ptr_eq(&geometry, &after));
+        assert_eq!((s.shape_count, s.layout_count), (1, 1));
+        assert_eq!(s.shapes.pinned_entries, 1);
+        assert_eq!(s.layouts.pinned_entries, 1);
     }
     #[test]
     fn constrained_worker_enforces_font_text_and_cache_caps() {

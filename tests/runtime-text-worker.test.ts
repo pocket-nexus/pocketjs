@@ -97,7 +97,7 @@ test("worker -> prepareText -> core Text paints one layout and preserves it acro
   let largeFont: ReturnType<typeof createRuntimeFont> | undefined, large: typeof original | undefined;
   const settle = async (batch: typeof original) => {
     for (let frame = 0; frame < 1000 && batch.state().status === "pending"; frame++) {
-      client.step(); runServicePumps(); wasm.tick(); await Bun.sleep(1);
+      client.step(); runServicePumps(); client.flush(); wasm.tick(); await Bun.sleep(1);
     }
     const state = batch.state();
     expect(state.status, state.status === "error" ? String(state.error) : "timed out").toBe("ready");

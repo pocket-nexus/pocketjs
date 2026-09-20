@@ -65,7 +65,7 @@ function harness(options: { bitmapBytes?: number; gpuBytes?: number; rejectUploa
           try { replies.push(JSON.stringify({ id: r.id, payload: JSON.stringify(reply(r.method, data)) })); }
           catch (error) { replies.push(JSON.stringify({ id: r.id, error: String(error) })); }
         }
-        client.step(); runServicePumps();
+        client.step(); runServicePumps(); client.flush();
       }
     },
     close() { font.dispose(); this.step(40); client.dispose(); },

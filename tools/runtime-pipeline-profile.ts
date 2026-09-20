@@ -1,4 +1,4 @@
-/** Controlled async text pipeline experiments. No production scheduling is changed.
+/** Controlled async text pipeline measurements and scheduling experiments.
  * Run after tools/wasm.ts and tools/text-wasm.ts; raw output stays ignored. */
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -69,6 +69,23 @@ const argument = (key: string) => Bun.argv.find(x => x.startsWith(key + "="))?.s
 const repeats = Number(argument("--repeats") ?? 3);
 const output = argument("--output") ?? ".pocket-build/validation/font-optimization/pipeline/result.json";
 const core = await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer();
+const referencePath = argument("--reference");
+const referenceHashes: Record<string, string> | undefined = referencePath
+  ? (await Bun.file(referencePath).json()).pixelHashes : undefined;
+if (referencePath && !referenceHashes) throw Error("Reference report has no pixel hashes");
+const digest = (bytes: ArrayBuffer) => createHash("sha256").update(new Uint8Array(bytes)).digest("hex");
+const identity = {
+  revision: Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim(),
+  bun: Bun.version,
+  platform: `${process.platform}/${process.arch}`,
+  sha256: Object.fromEntries(await Promise.all([
+    "hosts/web/pocketjs.wasm", "hosts/web/pocket_text.wasm", "hosts/web/pocket_freetype.wasm",
+    "framework/src/offload.ts", "framework/src/services.ts", "framework/src/runtime-fonts.ts",
+    "tools/runtime-pipeline-profile.ts", "tools/runtime-profile-worker.ts",
+    "assets/fonts/Inter-Regular.ttf", "assets/fonts/JetBrainsMono-Regular.ttf",
+    "tests/fixtures/runtime-font/NotoSansSC-Test.ttf", "tests/fixtures/runtime-font/NotoSans-Ligature.ttf",
+  ].map(async path => [path, digest(await Bun.file(path).arrayBuffer())]))),
+};
 const results: any[] = [], hashes = new Map<string, string>();
 for (const variant of variants.filter(v => !argument("--variant") || v.name === argument("--variant"))) {
   for (const scenario of cases.filter(c => !argument("--case") || c.name === argument("--case"))) for (let repeat = 0; repeat < repeats; repeat++) {
@@ -105,6 +122,8 @@ for (const variant of variants.filter(v => !argument("--variant") || v.name === 
       for (let n = 0; n < 1200; n++) {
         const before = performance.now(); frame++;
         client.step(); runServicePumps();
+        // Explicit clients use the same receive/work/submit order as the
+        // service pumps that offload() registers for applications.
         if ("flush" in client) client.flush();
         if (batch.layout() && geometryMs == null) geometryMs = performance.now() - start;
         const state = batch.state();
@@ -115,6 +134,7 @@ for (const variant of variants.filter(v => !argument("--variant") || v.name === 
           latencies.push(performance.now() - start);
           const hash = createHash("sha256").update(pixels).digest("hex"), key = `${scenario.name}:${latencies.length}`;
           if (hashes.has(key) && hashes.get(key) !== hash) throw Error(`Variant pixel mismatch: ${key}/${variant.name}`);
+          if (referenceHashes && referenceHashes[key] !== hash) throw Error(`Reference pixel mismatch: ${key}/${variant.name}`);
           hashes.set(key, hash); return;
         }
         await Bun.sleep(Math.max(0, 1000 / 60 - (performance.now() - before)));
@@ -135,4 +155,5 @@ for (const variant of variants.filter(v => !argument("--variant") || v.name === 
   }
 }
 await mkdir(dirname(output), { recursive: true });
-await Bun.write(output, JSON.stringify({ note: "Experimental phase client/page aggregation; same rendering hashes, bounded queues and no UI-thread font work. Two deliveries require matching host budgets; not a production change.", results }, null, 2));
+await Bun.write(output, JSON.stringify({ note: "Production client and experimental phase/page variants; same rendering hashes, bounded queues and no UI-thread font work. Two deliveries require matching host budgets.",
+  identity, pixelHashes: Object.fromEntries(hashes), reference: referencePath ?? null, results }, null, 2));

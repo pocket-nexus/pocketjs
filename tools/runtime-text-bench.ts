@@ -53,7 +53,7 @@ for (const scenario of cases.filter(c => !only || c.name === only)) {
     const start = performance.now();
     for (let frame = 0; frame < 3600; frame++) {
       const before = performance.now();
-      client.step(); runServicePumps();
+      client.step(); runServicePumps(); client.flush();
       const afterPump = performance.now();
       state = batch.state();
       if (state.status === "ready" && state.value !== visible) { state.value.paint!(node); visible = state.value; }
