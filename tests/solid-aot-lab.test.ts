@@ -29,10 +29,14 @@ test("Solid lab executes TSX props, control flow, slots and signal writes on the
   expect(treeHasText(world.getTree(), "parent value: 0")).toBe(true);
 }, 120_000);
 
-test("Solid lab committed Rust and styles match the compiler", async () => {
-  const result = await buildAot("solid-aot-lab", { strict: true, outDir: ".pocket-build/validation/solid-aot/drift/gen" });
+test.each(["solid-aot-lab", "vue-sfc-lab"])("%s regenerates deterministic Rust and styles from sources", async app => {
+  const result = await buildAot(app, { strict: true });
+  const repeated = await buildAot(app, { strict: true, outDir: resolve(".pocket-build/validation/aot-demo-generation", app, "gen") });
+  expect(result.files.map(file => file.slice(file.lastIndexOf("/") + 1))).toEqual(
+    repeated.files.map(file => file.slice(file.lastIndexOf("/") + 1)),
+  );
   for (const file of result.files) {
     const name = file.slice(file.lastIndexOf("/") + 1);
-    expect(readFileSync(file)).toEqual(readFileSync(resolve("apps/solid-aot-lab/gen", name)));
+    expect(readFileSync(file)).toEqual(readFileSync(resolve(repeated.outDir, name)));
   }
 }, 60_000);

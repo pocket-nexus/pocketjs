@@ -35,7 +35,8 @@ The build writes `gen/app_model.rs` beside the generated view modules.
 `AppModel` implements `AppViewModel` and `Default`. Factory modules produce
 one model type per factory, with constructor parameters for mount-time values.
 The application's Rust entry creates `AppApp<AppModel, Host>` and supplies host
-integration. Generated Rust modules are application source assets.
+integration. **The demos' `gen/` directories are ignored by Git.** Run the
+AOT build before compiling the demo with Cargo.
 
 **View IR format 4 and Model IR format 1 are separate files.** `--ir view.json`
 writes the view contract and protocol metadata to `view.json`, and model bodies

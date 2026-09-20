@@ -1,4 +1,4 @@
-/** Public Vue SFC -> committed Rust source build entry. */
+/** Public Vue SFC / Solid TSX -> generated Rust build entry. */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { analyzeSolidAot } from "./aot-solid-frontend.ts";

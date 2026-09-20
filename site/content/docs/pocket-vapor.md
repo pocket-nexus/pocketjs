@@ -199,8 +199,8 @@ This creates `gen/counter.rs`, `gen/mod.rs` and `gen/styles.bin`. The
 `count`, the view-model trait requires both `count()` and `set_count()`.
 
 **Every file in `gen/` is generated.** Make changes in the template or state
-contract and rerun the compiler. Keep the generated files in Git so native
-builds can consume them through Cargo without running Bun.
+contract and rerun the compiler. The demos' `gen/` directories are ignored by
+Git; run the AOT build before compiling them with Cargo.
 
 ### Implement the Rust state
 

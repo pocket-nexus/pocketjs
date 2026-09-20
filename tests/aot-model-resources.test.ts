@@ -2,8 +2,10 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { buildAot } from "../vapor/compiler/aot-build.ts";
 
 test("the compiled Solid lab model and view stay below the 24 MiB allocation cap", async () => {
+  await buildAot("solid-aot-lab", { strict: true });
   const run=resolve(".pocket-build/validation/model-aot/resources",String(Date.now()));await mkdir(resolve(run,"src"),{recursive:true});
   await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-resource-lab"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket-solid-aot-lab={path=${JSON.stringify(resolve("apps/solid-aot-lab"))},features=["std"]}\npocket_vapor={path=${JSON.stringify(resolve("engine/crates/pocket-vapor"))},features=["std"]}\nserde_json="1"\n`);
   await Bun.write(resolve(run,"src/main.rs"),`
