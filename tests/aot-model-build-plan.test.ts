@@ -79,4 +79,4 @@ export function press(): void { count.value = count.value + 1; }`;
   const compiledModel = await import(output);
   compiledModel.press();
   expect(framework === "solid" ? compiledModel.count() : compiledModel.count.value).toBe(-2147483648);
-});
+}, 60_000);

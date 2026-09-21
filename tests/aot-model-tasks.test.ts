@@ -1,8 +1,30 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { resetClock } from "../framework/src/clock.ts";
 import { ModelRegion } from "../framework/src/model-reactive.ts";
-import { ModelTasks, resumeModelTasks, registerModelService, deliverModelResult, drainModelCommands, disposeModelTasks, registerModelCommandHandler } from "../framework/src/model-tasks.ts";
+import { ModelTasks, resumeModelTasks, registerModelService as installModelService, deliverModelResult, drainModelCommands, disposeModelTasks, registerModelCommandHandler as installModelCommandHandler, resetModelTaskClock } from "../framework/src/model-tasks.ts";
 const storage = <T>(value: T): [() => T, (next: T) => void] => [() => value, next => { value = next; }];
-function setup() { const region = new ModelRegion(storage); region.signal(1,"n",0); region.finish([]); return { region, tasks: new ModelTasks(region) }; }
+const regions: ModelRegion[] = [];
+const registrations: (() => void)[] = [];
+function setup(development = true) { const region = new ModelRegion(storage, development); regions.push(region); region.signal(1,"n",0); region.finish([]); return { region, tasks: new ModelTasks(region) }; }
+function registerModelService(...args: Parameters<typeof installModelService>) {
+  const unregister = installModelService(...args); registrations.push(unregister); return unregister;
+}
+function registerModelCommandHandler(...args: Parameters<typeof installModelCommandHandler>) {
+  const unregister = installModelCommandHandler(...args); registrations.push(unregister); return unregister;
+}
+beforeEach(() => {
+  // Each test drives a fresh application from boundary 1, even after view tests.
+  resetClock();
+  resetModelTaskClock();
+});
+afterEach(() => {
+  for (const region of regions.splice(0)) { disposeModelTasks(region); region.dispose(); }
+  // Deliver queued cancellations while the owning test's host is installed.
+  drainModelCommands();
+  for (const unregister of registrations.splice(0).reverse()) unregister();
+  resetClock();
+  resetModelTaskClock();
+});
 
 test("JS all latches an until member before another member completes", () => {
   const { region, tasks } = setup(); let predicate = true;
@@ -83,7 +105,7 @@ test("JS awaited animation queues the command and cancellation removes only resu
 });
 
 test("JS release mode excludes logging commands", () => {
-  const region = new ModelRegion(storage, false), tasks = new ModelTasks(region); let calls = 0;
+  const { region, tasks } = setup(false); let calls = 0;
   registerModelCommandHandler(() => { calls++; }); tasks.command("log", [1]); drainModelCommands();
   expect(calls).toBe(0); expect(region.trace).toEqual([]); region.dispose(); disposeModelTasks(region);
 });

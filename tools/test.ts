@@ -203,7 +203,11 @@ const SUITE: readonly Stage[] = [
   {
     name: "Model AOT semantics and resources",
     // Generated-program fuzz checks remain opt-in through `bun run test:fuzz`.
-    prep: [["bun", "tools/wasm.ts"]],
+    prep: [
+      ["bun", "tools/wasm.ts"],
+      // The view oracles import the generated default styles on a clean checkout.
+      ["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"],
+    ],
     tests: [
       "tests/aot-model-animation.test.ts",
       "tests/aot-model-any.test.ts",
