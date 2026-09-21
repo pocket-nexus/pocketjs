@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use glam::{Mat4, Vec3};
+use glam::Vec3;
 use pocket3d_bsp::cook::{CookOptions, cook_map};
 use pocket3d_bsp::vis::{Frustum, VisSet};
 use pocket3d_bsp::{Hull, cooked, load_map};
@@ -142,8 +142,8 @@ fn dust2_cooks_and_reads_back() {
     vs.update(&map.vis, planes, eye);
     assert_ne!(vs.leaf(), 0, "spawn eye resolved to the outside leaf");
     // A generous frustum (everything in front of a straight-ahead camera).
-    let view = Mat4::look_to_rh(eye, Vec3::new(1.0, 0.0, 0.0), Vec3::Y);
-    let proj = Mat4::perspective_rh(2.0, 480.0 / 272.0, 4.0, 8192.0);
+    let view = glam::camera::rh::view::look_to_mat4(eye, Vec3::new(1.0, 0.0, 0.0), Vec3::Y);
+    let proj = glam::camera::rh::proj::directx::perspective(2.0, 480.0 / 272.0, 4.0, 8192.0);
     let f = Frustum::from_clip(proj * view, true);
     let mut visible = 0usize;
     let mut spliced_indices = 0usize;
@@ -160,7 +160,7 @@ fn dust2_cooks_and_reads_back() {
         "PVS+frustum culled nothing: {visible}/{}",
         stats.faces_drawn
     );
-    assert!(spliced_indices % 3 == 0 && spliced_indices > 0);
+    assert!(spliced_indices.is_multiple_of(3) && spliced_indices > 0);
 
     // All marksurface-referenced faces resolve to valid runs or none.
     for &m in &map.vis.marksurfaces {

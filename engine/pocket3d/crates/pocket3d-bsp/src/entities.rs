@@ -189,35 +189,6 @@ pub fn parse_entities(text: &str) -> Vec<Entity> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_blocks() {
-        let src = r#"
-{
-"classname" "worldspawn"
-"wad" "\half-life\cstrike\cs_dust.wad;\half-life\valve\halflife.wad"
-}
-{
-"classname" "info_player_start"
-"origin" "160 -96 64"
-"angle" "90"
-}
-"#;
-        let ents = parse_entities(src);
-        assert_eq!(ents.len(), 2);
-        assert_eq!(ents[0].classname(), "worldspawn");
-        let spawn = &ents[1];
-        // Quake (160, -96, 64) -> Y-up (160, 64, 96).
-        assert_eq!(spawn.origin(), Some(Vec3::new(160.0, 64.0, 96.0)));
-        // Quake yaw 90 deg = +Y north -> Y-up -Z, which is pocket yaw 0.
-        let yaw = spawn.yaw().unwrap();
-        assert!(yaw.abs() < 1e-5, "yaw was {yaw}");
-    }
-}
-
 /// Optional worldspawn colors; both must be present to avoid partial presets.
 pub fn parse_sky(entity: &Entity) -> Result<Option<crate::types::SkyColors>, &'static str> {
     let a = entity.get("pocket_sky_zenith");
@@ -245,4 +216,33 @@ pub fn parse_sky(entity: &Entity) -> Result<Option<crate::types::SkyColors>, &'s
         zenith: color(a)?,
         horizon: color(b)?,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_blocks() {
+        let src = r#"
+{
+"classname" "worldspawn"
+"wad" "\half-life\cstrike\cs_dust.wad;\half-life\valve\halflife.wad"
+}
+{
+"classname" "info_player_start"
+"origin" "160 -96 64"
+"angle" "90"
+}
+"#;
+        let ents = parse_entities(src);
+        assert_eq!(ents.len(), 2);
+        assert_eq!(ents[0].classname(), "worldspawn");
+        let spawn = &ents[1];
+        // Quake (160, -96, 64) -> Y-up (160, 64, 96).
+        assert_eq!(spawn.origin(), Some(Vec3::new(160.0, 64.0, 96.0)));
+        // Quake yaw 90 deg = +Y north -> Y-up -Z, which is pocket yaw 0.
+        let yaw = spawn.yaw().unwrap();
+        assert!(yaw.abs() < 1e-5, "yaw was {yaw}");
+    }
 }

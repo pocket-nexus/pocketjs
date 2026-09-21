@@ -136,7 +136,6 @@ impl RunBounds {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glam::Mat4;
 
     fn verts(points: &[[i16; 3]]) -> alloc::vec::Vec<u8> {
         let mut bytes = alloc::vec![0; points.len() * VERTEX_STRIDE];
@@ -161,7 +160,10 @@ mod tests {
     #[test]
     fn conservative_frustum_keeps_crossing_faces_and_rejects_outside_faces() {
         for fov in [0.7, 1.4] {
-            let frustum = Frustum::from_clip(Mat4::perspective_rh_gl(fov, 1.7, 1.0, 100.0), false);
+            let frustum = Frustum::from_clip(
+                glam::camera::rh::proj::opengl::perspective(fov, 1.7, 1.0, 100.0),
+                false,
+            );
             let inside = verts(&[[-1, -1, -10], [1, -1, -10], [0, 1, -10]]);
             let outside = verts(&[[200, -1, -10], [202, -1, -10], [201, 1, -10]]);
             let crossing = verts(&[[-300, -1, -10], [300, -1, -10], [0, 300, -10]]);

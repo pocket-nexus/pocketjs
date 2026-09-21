@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn frustum_aabb() {
         // Simple perspective looking down -Z from origin (GL convention).
-        let proj = Mat4::perspective_rh_gl(1.0, 1.0, 1.0, 100.0);
+        let proj = glam::camera::rh::proj::opengl::perspective(1.0, 1.0, 1.0, 100.0);
         let f = Frustum::from_clip(proj, false);
         assert!(f.intersects_aabb(Vec3::new(-1.0, -1.0, -10.0), Vec3::new(1.0, 1.0, -5.0)));
         assert!(!f.intersects_aabb(Vec3::new(-1.0, -1.0, 5.0), Vec3::new(1.0, 1.0, 10.0)));
