@@ -9,7 +9,7 @@ const prelude = 'import { createSignal, untrack, batch } from "solid-js";\nimpor
 const analyze = (source: string, extra: Record<string, string> = {}) => analyzeModel(entry, { sources: new Map([[entry, prelude + source], ...Object.entries(extra).map(([name, value]) => [resolve(entry, "..", name), value] as [string, string])]) });
 const names = (module: ReturnType<typeof analyze>["modules"][number], ids: number[]) => ids.map(id => [...module.signals, ...module.fields, ...module.memos, ...module.functions].find(x => x.id === id)?.name ?? `effect:${id}`);
 
-describe("Model AOT front end: MODEL_AOT §§2–5", () => {
+describe("Model AOT source admission and lowering", () => {
   test.each([
     ["1", "i32"], ["1.0", "f64"], ["1e3", "f64"], ["2.50", "f64"], ["0x10", "i32"], ["1_000", "i32"], [".5", "f64"], ["-0", "i32"],
   ] as const)("classifies source literal %s as %s", (literal, name) => {

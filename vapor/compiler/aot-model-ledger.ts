@@ -1,4 +1,4 @@
-/** Four independent ledgers and the stable causality schedule (MODEL_AOT §3). */
+/** Track reads, writes, subscriptions and host effects to derive a stable reaction schedule. */
 import { emptyLedger, type Ledger, type ModelExpr, type ModelBlock, type ModelStmt, type ModelProgram, type ModelAwaitable } from "./aot-model-ir.ts";
 import { fail, location } from "./aot-types.ts";
 const sorted = (values: number[]) => [...new Set(values)].sort((a, b) => a - b);

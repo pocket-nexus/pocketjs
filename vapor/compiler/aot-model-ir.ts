@@ -1,4 +1,4 @@
-/** Bound, typed model boundary. MODEL_AOT.md §§3–5 define its semantics. */
+/** Bound, typed model IR for state, expressions, reactions and task continuations. */
 import type { AotDiagnostic, AotType, AotTypeDeclaration, SourceLocation } from "./aot-ir.ts";
 
 export interface Ledger {

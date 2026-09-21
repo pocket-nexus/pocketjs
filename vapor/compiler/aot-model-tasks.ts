@@ -1,4 +1,4 @@
-/** Coroutine CFG construction and backwards liveness, MODEL_AOT.md §3.10. */
+/** Lower async bodies into states and retain locals needed by later states or waits. */
 import { checkModelVersion, emptyLedger, type ModelAwaitable, type ModelBinder, type ModelBlock, type ModelExpr, type ModelProgram, type ModelStmt, type ModelTaskState } from "./aot-model-ir.ts";
 import { AotCompileError, I32 } from "./aot-ir.ts";
 
