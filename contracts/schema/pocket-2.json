@@ -123,6 +123,20 @@
             "octane"
           ]
         },
+        "aot": {
+          "type": "boolean"
+        },
+        "model": {
+          "enum": [
+            "rust",
+            "compiled"
+          ]
+        },
+        "recursionLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 256
+        },
         "surfaces": {
           "type": "object",
           "additionalProperties": false,

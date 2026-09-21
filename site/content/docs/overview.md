@@ -1,13 +1,22 @@
 # Overview
 
-PocketJS is a portable application runtime that turns modern component code
-into native pixels across radically different hardware. You write **Solid**,
+PocketJS is a portable application runtime with **TypeScript application
+sources**. You write **Solid**,
 **Vue Vapor**, or **Octane** components; the build compiles class strings and
 font glyphs into binary tables, and a compact `no_std` Rust core renders
 flexbox layout, sub-pixel text, and native animation from them. One application
-manifest resolves into one target-specific artifact — a PSP EBOOT, a Vita VPK,
+manifest resolves into one target-specific guest artifact — a PSP EBOOT, a Vita VPK,
 a native window, a browser bundle — and each of them drives the same logical UI
 through the same HostOps op set.
+
+**MicroTS compiles Solid TSX and Vue SFC views into Rust.** A native build
+uses either a compiled TypeScript model or an application-provided Rust model
+and calls the UI core without a guest engine. Guest builds transform the
+TypeScript sources into JavaScript bundles for their engine. The
+[TypeScript and native code guide](/docs/microts-boundaries/) describes
+the two paths. [TypeScript support](/docs/typescript-support/) compares their
+source-language rules, including the separate view and compiled model
+subsets. The framework adapters below belong to the guest path.
 
 If you know Solid, Vue, or React, you know most of PocketJS. The primitives are
 `View`, `Text`, and `Image`; state comes from the native framework package

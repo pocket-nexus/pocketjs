@@ -28,6 +28,7 @@ export async function createWasmUi(wasm, options = {}) {
   const source = wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
   const instance = await WebAssembly.instantiate(source, {});
   const ex = instance.exports;
+  const decoder = new TextDecoder();
 
   function integerInRange(value, name, min, max) {
     if (!Number.isInteger(value) || value < min || value > max) {
@@ -113,6 +114,11 @@ export async function createWasmUi(wasm, options = {}) {
     animate: (id, propId, to, durMs, easing, delayMs) =>
       ex.ui_animate(id, propId, to, durMs, easing, delayMs),
     cancelAnim: (animId) => ex.ui_cancel_anim(animId),
+    takeAnimationCompletions: ex.ui_take_animation_completions ? () => {
+      const count = ex.ui_take_animation_completions();
+      const values = new Int32Array(ex.memory.buffer, ex.ui_animation_completions_ptr(), count * 2);
+      return JSON.stringify(Array.from({ length: count }, (_, i) => [values[i * 2], values[i * 2 + 1]]));
+    } : undefined,
     setFocus: (id) => ex.ui_set_focus(id),
     setActive: (id, active) => ex.ui_set_active(id, active ? 1 : 0),
     loadStyles: (buf) => {
@@ -189,6 +195,19 @@ export async function createWasmUi(wasm, options = {}) {
   return {
     ops,
     exports: ex,
+    focused: () => ex.ui_focused(),
+    /** Read the retained core tree and resolved colors, without advancing a frame. */
+    inspectNode(id) {
+      if (!ex.ui_node_type) throw new Error("Rebuild pocketjs.wasm for retained-tree inspection: bun tools/wasm.ts");
+      const type = ex.ui_node_type(id);
+      if (type < 0) return null;
+      const text = decoder.decode(new Uint8Array(ex.memory.buffer, ex.ui_node_text_ptr(id), ex.ui_node_text_len(id)));
+      const children = Array.from(new Int32Array(ex.memory.buffer, ex.ui_node_children_ptr(id), ex.ui_node_children_len(id)));
+      return { type, text, children, display: ex.ui_node_display(id), style: {
+        bgColor: ex.ui_node_bg_color(id) >>> 0,
+        textColor: ex.ui_node_text_color(id) >>> 0,
+      } };
+    },
     createAuxiliarySurface(width, height) {
       width = integerInRange(width, "auxiliary width", 1, 4096);
       height = integerInRange(height, "auxiliary height", 1, 4096);

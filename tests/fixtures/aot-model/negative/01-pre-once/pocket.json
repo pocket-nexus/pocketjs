@@ -1,0 +1,11 @@
+{
+  "pocket": 2,
+  "id": "test.model.pre-once",
+  "name": "pre-once",
+  "app": {
+    "entry": "App.tsx",
+    "framework": "solid",
+    "aot": true,
+    "model": "compiled"
+  }
+}

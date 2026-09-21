@@ -1,0 +1,11 @@
+{
+  "pocket": 2,
+  "id": "test.model.vue-watch",
+  "name": "vue-watch",
+  "app": {
+    "entry": "App.vue",
+    "framework": "vue-vapor",
+    "aot": true,
+    "model": "compiled"
+  }
+}

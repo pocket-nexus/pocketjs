@@ -1,0 +1,33 @@
+{
+  "state": {
+    "count": 9,
+    "result": 2
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 9,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 9,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ],
+  "designRow": 8
+}

@@ -8,16 +8,13 @@
 .pe-entry img{width:76px;height:50px;object-fit:cover;border:1px solid var(--line-2);border-radius:4px;flex:none}
 .pe-entry-copy{min-width:0;display:flex;flex-direction:column;gap:2px}
 .pe-entry-copy strong{font-size:13px;font-weight:600;line-height:1.3}
-.pe-entry-copy>span{font:9px/1.6 var(--mono);color:var(--ink-2)}
-.pe-entry-copy small{font-size:10px;line-height:1.5;color:var(--muted)}
-.pe-arrow{margin-left:auto;font-size:12px;color:var(--accent);flex:none}
+.pe-entry-copy>span{font:11px/1.6 var(--sans);color:var(--ink-2);white-space:nowrap}
 .pe-strip{margin-top:30px}
 .pe-strip .pe-entries{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
 .pe-strip .pe-entry+.pe-entry{border-left:1px solid var(--line)}
 .pe-strip .pe-entry{gap:10px;padding:13px 12px}
 .pe-strip .pe-entry img{width:60px;height:44px}
 .pe-strip .pe-entry-copy strong{font-size:12px}
-.pe-strip .pe-entry-copy>span{font-size:8px}
 .pe-filters{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 20px}
 .pe-filters button{font:12px/1.4 var(--sans);padding:10px 15px;min-height:40px;border:1px solid var(--line-2);border-radius:999px;background:transparent;color:var(--ink-2);cursor:pointer}
 .pe-filters button[aria-pressed=true]{color:var(--btn-ink);background:var(--accent);border-color:var(--accent)}
@@ -57,11 +54,9 @@ body:has(.sc-dialog[open]){overflow:hidden}
   .pe-strip .pe-entry:nth-child(3){border-left:0}
 }
 @media(max-width:620px){
-  .pe-strip .pe-entry{padding:10px 9px;gap:8px;min-height:80px}
-  .pe-strip .pe-entry img{width:43px;height:36px}
-  .pe-strip .pe-entry-copy strong{font-size:11px}
-  .pe-strip .pe-entry-copy>span{font-size:8px}
-  .pe-entry-copy small{font-size:9px}.pe-arrow{display:none}
+  .pe-strip .pe-entries{grid-template-columns:1fr}
+  .pe-strip .pe-entry{padding:10px 12px;gap:12px;min-height:70px}
+  .pe-strip .pe-entry+.pe-entry{border-left:0;border-top:1px solid var(--line)}
   .pe-shelf-heading{padding:10px 12px}.pe-shelf-heading .hud{font-size:10px}
   .pe-strip{margin-top:24px}
   .pe-filters{gap:6px}.pe-filters button{font-size:11px;padding:9px 11px;min-height:40px}.sc-count{font-size:10px}

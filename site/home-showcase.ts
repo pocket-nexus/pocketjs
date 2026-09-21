@@ -15,12 +15,18 @@ function once(html: string, marker: string, replacement: string): string {
   return html.replace(marker, () => replacement);
 }
 
-function appEntry(a: ShowcaseApp): string {
-  return `<a class="pe-entry" href="${esc(a.href)}" data-open-app="${a.id}"><img src="${a.image}" alt="${esc(a.imageAlt)}" width="80" height="50"><span class="pe-entry-copy"><strong>${a.name}</strong><span>${a.devices.map(d => DEVICES[d]).join(" · ")}${a.community ? " · Community" : ""}</span><small>${a.community ? "Public alpha · ObsoleteSony" : a.id === "pocket-voxel" ? "Web player + console export" : "Setup guide"}</small></span><span class="pe-arrow" aria-hidden="true">↗</span></a>`;
+function appEntry(a: ShowcaseApp, summary: string): string {
+  return `<a class="pe-entry" href="${esc(a.href)}" data-open-app="${a.id}"><img src="${a.image}" alt="${esc(a.imageAlt)}" width="80" height="50"><span class="pe-entry-copy"><strong>${a.name}</strong><span>${esc(summary)}</span></span></a>`;
 }
 
 function appShelf(): string {
-  return `<aside class="pe-shelf pe-strip" aria-label="Apps built with PocketJS"><div class="pe-shelf-heading"><span class="hud">Built with PocketJS</span></div><div class="pe-entries">${["pspman", "pocket-shell", "openstrike", "pocket-voxel"].map(id => appEntry(app(id))).join("")}</div></aside>`;
+  const entries = [
+    ["pspman", "Music player on PSP"],
+    ["pocket-shell", "Tiling desktop on 3DS"],
+    ["openstrike", "Handheld tactical FPS"],
+    ["pocket-voxel", "Game Boy worlds in 3D"],
+  ];
+  return `<aside class="pe-shelf pe-strip" aria-label="Apps built with PocketJS"><div class="pe-shelf-heading"><span class="hud">Built with PocketJS</span></div><div class="pe-entries">${entries.map(([id, summary]) => appEntry(app(id), summary)).join("")}</div></aside>`;
 }
 
 function ecosystemCard(a: ShowcaseApp): string {
@@ -49,9 +55,9 @@ function enhanceEcosystem(home: string): string {
   const rank = (name: string) => ecosystemOrder.includes(name) ? ecosystemOrder.indexOf(name) : ecosystemOrder.length;
   const ordered = [...cards].sort(([a], [b]) => rank(a) - rank(b)).map(([, card]) => card).join("\n");
   const filters = `<div class="pe-filters" role="group" aria-label="Filter ecosystem by device"><button type="button" data-filter="all" aria-pressed="true">All cases</button>${Object.entries(DEVICES).map(([id,label]) => `<button type="button" data-filter="${id}" aria-pressed="false">${label}</button>`).join("")}<span class="sc-count" role="status" aria-live="polite">${cards.size} cases</span></div>`;
-  const grid = original.match(/<div class="eco">[\s\S]*?<\/div>\s*<div class="labband">/);
+  const grid = original.match(/<div class="eco">[\s\S]*?<\/div>(?=\s*<\/div>\s*<\/section>)/);
   if (!grid) throw new Error("Missing original Ecosystem grid");
-  const content = once(original, grid[0], `${filters}<div class="eco">\n${ordered}\n</div>\n    <div class="labband">`);
+  const content = once(original, grid[0], `${filters}<div class="eco">\n${ordered}\n</div>`);
   return home.slice(0, start) + content + home.slice(end);
 }
 

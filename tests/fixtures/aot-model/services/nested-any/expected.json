@@ -1,0 +1,16 @@
+{
+  "states": [
+    "idle",
+    "idle",
+    "idle",
+    "idle",
+    "done"
+  ],
+  "cancelFrame": 2,
+  "dropFrame": 3,
+  "services": {
+    "@pocketjs/framework/net/model": {
+      "capacity": 4
+    }
+  }
+}

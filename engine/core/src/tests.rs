@@ -4528,3 +4528,18 @@ fn indexed_text_layout_cache_evicts_and_revalidates_recycled_nodes() {
     ui.paint_cache.clear_text_layouts();
     assert_eq!(ui.draw().words, recycled, "recycled slots validate text and layout inputs");
 }
+
+#[test]
+fn node_inspection_rejects_stale_generation_ids() {
+    let mut ui = Ui::new();
+    let text = ui.create_node(1);
+    ui.set_text(text, "retained");
+    assert_eq!(ui.node_type(text), Some(1));
+    assert_eq!(ui.node_text(text), Some("retained"));
+    ui.destroy_node(text);
+    let replacement = ui.create_node(0);
+    assert_ne!(text, replacement);
+    assert_eq!(ui.node_type(text), None);
+    assert_eq!(ui.node_text(text), None);
+    assert_eq!(ui.node_text(replacement), Some(""));
+}

@@ -27,16 +27,20 @@ function stageTestFiles(): Set<string> {
   );
 }
 
-// Files intentionally run by a dedicated workflow instead of any
-// tools/test.ts stage. Each entry must name the workflow that runs it; the
-// test below verifies the file exists and that the workflow references it,
-// so an exclusion cannot silently rot.
-const STAGE_EXCLUSIONS: Readonly<Record<string, { workflow: string }>> = {
+// Tests outside the default suite must name their dedicated workflow or an
+// explicit local command and reason. Neither kind is skipped by omission.
+const STAGE_EXCLUSIONS: Readonly<Record<string,
+  { workflow: string } | { localCommand: readonly string[]; reason: string }
+>> = {
   "tests/ui-cabi-allocator.test.ts": {
     workflow: ".github/workflows/native-c-harness.yml",
   },
   "tests/ui-cabi-psm-draw.test.ts": {
     workflow: ".github/workflows/native-c-harness.yml",
+  },
+  "tests/aot-model-fuzz.test.ts": {
+    localCommand: ["bun", "test", "tests/aot-model-fuzz.test.ts"],
+    reason: "Model AOT fuzz runs are opt-in local checks, excluded from CI.",
   },
 };
 
@@ -55,11 +59,16 @@ describe("declared test suite", () => {
     );
     expect(stray).toEqual([]);
 
-    for (const [file, { workflow }] of Object.entries(STAGE_EXCLUSIONS)) {
+    for (const [file, exclusion] of Object.entries(STAGE_EXCLUSIONS)) {
       expect(onDisk).toContain(file);
-      const workflowPath = join(repository, workflow);
-      expect(existsSync(workflowPath)).toBe(true);
-      expect(readFileSync(workflowPath, "utf8")).toContain(file);
+      if ("workflow" in exclusion) {
+        const workflowPath = join(repository, exclusion.workflow);
+        expect(existsSync(workflowPath)).toBe(true);
+        expect(readFileSync(workflowPath, "utf8")).toContain(file);
+      } else {
+        expect(exclusion.localCommand).toEqual(["bun", "test", file]);
+        expect(exclusion.reason.trim().length).toBeGreaterThan(0);
+      }
     }
   });
 

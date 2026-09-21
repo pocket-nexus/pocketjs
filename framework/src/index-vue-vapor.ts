@@ -28,8 +28,10 @@ import {
 import { setOverlayRoot } from "./overlay.ts";
 import { mountAuxiliarySurface, unmountAuxiliarySurface } from "./display.ts";
 import { registerStyles, resolveStyle } from "./styles.ts";
-import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot } from "./input.ts";
+import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferredPress } from "./input.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame-vue-vapor.ts";
+import { flushLifecycleHooks, flushUnmountedHooks, disposeRootModelRegions } from "./lifecycle-vue-aot.ts";
+import type { AxisDelta } from "./relative-axis.ts";
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
@@ -224,26 +226,33 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
       hits?: readonly number[],
       touchSurfaces?: readonly number[],
       rightAnalog?: number,
+      axisDeltas?: readonly AxisDelta[],
     ) => {
       __advanceClock();
       __setAnalog(analog, rightAnalog);
       __setTouches(touches, hits, touchSurfaces); // latch contacts + surface-specific hit facts
       runServicePumps();
       __drainEffects();
-      __runGestures(); // contact lifecycles resolve before app hooks read them
-      runFrameHooks(buttons);
-      handleFrame(buttons);
+      runFrameHooks(
+        buttons,
+        axisDeltas,
+        defer => handleFrame(buttons, defer),
+        defer => withDeferredPress(defer, __runGestures),
+      );
       runSweep();
     }),
   );
 
   const dispose = rendererRender(code, appRoot);
+  flushLifecycleHooks();
   const removeResizeViewportHook = installResizeViewportHook(resizeViewport);
   return () => {
     removeResizeViewportHook();
     __resetTouches();
     resetGestures();
     dispose();
+    disposeRootModelRegions();
+    flushUnmountedHooks();
     setInputRoot(null);
     setHitRoot(null);
     setAuxiliaryHitRoot(null);

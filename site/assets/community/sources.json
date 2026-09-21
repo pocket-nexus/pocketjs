@@ -57,6 +57,48 @@
       "source": "https://pbs.twimg.com/profile_images/2032867419090571264/-Pelssja_200x200.jpg",
       "file": "navybarca.jpg",
       "sha256": "3e6048a5261d2f9ec12c29b5b2623d86550e68b929b18cf7c0bceab30221dac7"
+    },
+    {
+      "handle": "pablowasserman",
+      "profile": "https://x.com/pablowasserman",
+      "post": "https://x.com/pablowasserman/status/2100977991673119019",
+      "source": "https://pbs.twimg.com/profile_images/1783742417759334400/0estOc95_200x200.jpg",
+      "file": "pablowasserman.jpg",
+      "sha256": "05c61352b3f74f2896abd25e4bfe4f51d3c571af7b7efa8b8464029a0cde6b1b",
+      "retrieved": "2026-09-19",
+      "quote": "I love this. Old hardware, new software.",
+      "original": "Me encanta esto. Hardware viejo, software nuevo.",
+      "language": "es",
+      "context": "Quotes the Pocket Shell demonstration on Nokia E7.",
+      "parent": "https://x.com/pocket_js/status/2100975711305842936"
+    },
+    {
+      "handle": "dakdevs",
+      "profile": "https://x.com/dakdevs",
+      "post": "https://x.com/dakdevs/status/2095358135645163642",
+      "source": "https://pbs.twimg.com/profile_images/2074275303598575616/b3UElSj-_200x200.jpg",
+      "file": "dakdevs.jpg",
+      "sha256": "8588ed7c7a574783ce8148a402b2c03993332e6f35ba20fda0f6a5235e064e10",
+      "retrieved": "2026-09-19",
+      "quote": "Just saw @ewind_dev present this at the SF meetup. Everyone in the room was floored. Then he brought out something even more fascinating 👀👀",
+      "original": "Just saw @ewind_dev present this at the SF meetup. Everyone in the room was floored. Then he brought out something even more fascinating 👀👀",
+      "language": "en",
+      "context": "Reaction after seeing the PocketJS Omarchy companion demonstration at the SF meetup.",
+      "parent": "https://x.com/ewind_dev/status/2094993740662493538"
+    },
+    {
+      "handle": "OreXda",
+      "profile": "https://x.com/OreXda",
+      "post": "https://x.com/OreXda/status/2100778150200545771",
+      "source": "https://pbs.twimg.com/profile_images/1774812609545732096/hIxlU8Xk_200x200.jpg",
+      "file": "orexda.jpg",
+      "sha256": "cbd9594950ab9eb6f2b0eb7c132bafd153e515f60b2817f436d32c0ee6adc12b",
+      "retrieved": "2026-09-19",
+      "quote": "How so smooooth",
+      "original": "@pocket_js How so smooooth",
+      "language": "en",
+      "context": "Reply to the Pocket Shell gesture and animation demonstration on iPod touch 4.",
+      "parent": "https://x.com/pocket_js/status/2100593534286115221"
     }
   ]
 }

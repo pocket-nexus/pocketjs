@@ -191,8 +191,8 @@ function devtoolsScreenshot() {
   dtSend(JSON.stringify({ t: "screenshot", frame, data: shot.toDataURL("image/png") }));
 }
 
-/** Replay a tape from boot at normal speed: fresh core + bundle, the shim
- *  overrides live input with the tape's masks. */
+/** Replay from boot: the guest shim expands every recorded input track,
+ * including v4 axes. For older tapes it supplies [] to suppress live motion. */
 async function devtoolsReplay(tape) {
   if (!currentName || !tape) return;
   await load(currentName, { tape });
@@ -397,7 +397,9 @@ export async function load(name, opts = {}) {
   currentName = name;
   hudMem = wasmMemoryBytes(wasm); // so MEM shows before the first 1s sample
   if (opts.tape) {
-    // Hand the tape to the shim: it overrides live input mask-for-mask.
+    // Keep one replay cursor in the guest shim. It expands sparse v4 axis
+    // deltas together with button/analog/touch input and substitutes [] for
+    // every axis-free frame, including tapes written before v4.
     dtInbox.push(JSON.stringify({ t: "replay", tape: opts.tape }));
     if (opts.pauseAt > 0) {
       // Deterministic fast-forward: frame+tick only, no render, yielding to

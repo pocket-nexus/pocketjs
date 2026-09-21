@@ -235,3 +235,11 @@ pairs as `analog`. **Absent right-stick samples replay as centered**, including
 when live hardware moves during replay. The recorder allocates this track only
 after the first noncenter sample. The sixth frame argument carries the raw right
 stick; the touch, hit and surface arguments keep their existing positions.
+
+**Relative-axis input uses a sparse `axes` track in v4 tapes.** Each entry is
+`[frameIndex, [{ axis, delta }]]`; `delta` is a signed i32 millidegree value.
+The seventh frame argument carries these samples. Recordings without axis
+motion retain their existing tape version and omit the track. Replay supplies
+an empty axis array for absent samples and older tapes, so queued live motion
+cannot enter the replay. `tools/tape.ts` reads the same track as the browser
+DevTools replay path.

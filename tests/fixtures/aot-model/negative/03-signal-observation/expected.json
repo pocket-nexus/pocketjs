@@ -1,0 +1,50 @@
+{
+  "state": {
+    "count": 1,
+    "end": 1,
+    "result": 0
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 0,
+      "changed": false
+    },
+    {
+      "name": "end",
+      "value": 1,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 0,
+      "changed": false
+    },
+    {
+      "kind": "effect",
+      "effect": 0,
+      "initial": false
+    },
+    {
+      "kind": "set",
+      "name": "end",
+      "value": 1,
+      "changed": true
+    }
+  ],
+  "designRow": 3
+}

@@ -21,10 +21,9 @@ export function renderExportsBlock(): string {
   return `"exports": {\n${lines.join("\n")}\n  }`;
 }
 
-/** package.json with the exports block replaced (values hold no braces, so
- *  the non-greedy match is exact). */
+/** Replace the generated block; nested conditional exports stay on their entry line. */
 export function withGeneratedExports(pkgText: string): string {
-  const block = /"exports": \{[^}]*\}/;
+  const block = /"exports": \{[\s\S]*?\n  \}/;
   if (!block.test(pkgText)) {
     throw new Error("gen-exports: package.json has no exports block");
   }

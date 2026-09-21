@@ -1,0 +1,17 @@
+menu "PocketJS guest"
+
+    config POCKETJS_GUEST_HEAP_LIMIT
+        int "Default JavaScript heap limit (bytes)"
+        range 1 2147483647
+        default 4194304
+        help
+            Default QuickJS heap limit for each guest, in bytes.
+            pocketjs_guest_config_defaults() uses this value. The caller can
+            override it through config.heap_limit before creating the guest.
+
+            Leave memory for native UI objects, display buffers, other firmware
+            components, and allocation overhead. This limits QuickJS memory
+            accounting, not total PSRAM usage, and does not change the GC
+            trigger threshold.
+
+endmenu

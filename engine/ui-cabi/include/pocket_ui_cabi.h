@@ -42,6 +42,8 @@ int32_t ui_animate(
   uint32_t delay_ms
 );
 void ui_cancel_anim(int32_t animation_id);
+/* JSON bytes are borrowed until the next drain on the UI thread. */
+const uint8_t *ui_take_animation_completions_json(size_t *length);
 void ui_set_focus(int32_t id);
 void ui_set_active(int32_t id, int32_t active);
 int32_t ui_hit_test(float x, float y);

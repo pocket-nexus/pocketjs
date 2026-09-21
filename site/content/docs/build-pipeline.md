@@ -1,10 +1,33 @@
 # Build pipeline
 
-This page describes the low-level JS/style/font/pak compiler. Product builds
+**The build accepts TypeScript application sources.** The pipeline below
+emits JavaScript bundles and asset packs for guest applications. For Solid TSX
+and Vue SFC generation into Rust, including compiled TypeScript models, see
+[TypeScript and native code](/docs/microts-boundaries/). The
+[TypeScript support reference](/docs/typescript-support/) compares ordinary
+application code, AOT views and compiled model bodies; the rules for one mode
+do not define the source subset for another.
+
+This page describes the low-level bundle/style/font/pak compiler. Product builds
 should first resolve `pocket.json` through `bun pocket check`, `compile`, or
 `build`; see [Platform contracts](/docs/platform-contracts/) for how one small,
 checksummed target plan becomes the authoritative input to this pipeline and
 native packaging.
+
+With `app.aot: true` and `app.model: "compiled"`, model admission and lowering
+run before JSX transformation and transform-cache lookup. The model's signals,
+memos, effects and tasks become calls into the framework model scheduler.
+The emitted bundle follows the same frame contract as the generated Rust
+model; native `async` execution and Promise microtasks do not schedule its
+task segments.
+
+The resolved build plan includes model selection and `recursionLimit`. A build
+using a frozen plan rejects a changed model configuration. `pocket compile`
+and the guest bundle command still produce guest artifacts; native AOT uses
+`bun microts/compiler/cli.ts build <app>` followed by Cargo and the target's
+host packaging. See [TypeScript models to Rust](/docs/microts-model/).
+Admission and generation commands for both paths are listed in
+[Checking an application](/docs/typescript-support/#checking-an-application).
 
 The manifest-first compiler resolves the target before producing its bundle:
 

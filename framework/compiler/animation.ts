@@ -125,6 +125,23 @@ export function resetAnimationBake(): void {
   resolved.clear();
 }
 
+/** Compile one style table without inheriting or changing another build's ids. */
+export function withIsolatedAnimationBake<T>(compile: () => T): T {
+  const previousBaked = baked;
+  const previousIds = new Map(bakedIds);
+  const previousResolved = new Map(resolved);
+  resetAnimationBake();
+  try {
+    return compile();
+  } finally {
+    baked = previousBaked;
+    bakedIds.clear();
+    for (const [key, value] of previousIds) bakedIds.set(key, value);
+    resolved.clear();
+    for (const [key, value] of previousResolved) resolved.set(key, value);
+  }
+}
+
 /** The ANIM TABLE for encodeStyleTable (snapshot; do not mutate). */
 export function bakedTimelines(): AnimTimeline[] {
   return baked;

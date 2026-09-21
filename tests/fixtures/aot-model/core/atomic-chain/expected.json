@@ -1,0 +1,54 @@
+{
+  "state": {
+    "trigger": 1,
+    "mid": 1,
+    "result": 1
+  },
+  "writes": [
+    {
+      "name": "trigger",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "mid",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 1,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "trigger",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "effect",
+      "effect": 0,
+      "initial": false
+    },
+    {
+      "kind": "set",
+      "name": "mid",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "effect",
+      "effect": 1,
+      "initial": false
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 1,
+      "changed": true
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 // babel-preset-solid {generate:"universal"} moduleName target.
 
 import { createRenderer } from "solid-js/universal";
+import { captureNodeRow } from "./solid-row.ts";
 import {
   createElement as createNativeElement,
   createTextNode,
@@ -64,7 +65,11 @@ function setProperty<T>(node: NodeMirror, name: string, value: T, prev?: T): voi
 }
 
 const renderer = createRenderer<NodeMirror>({
-  createElement: createNativeElement,
+  createElement(type) {
+    const node = createNativeElement(type);
+    captureNodeRow(node);
+    return node;
+  },
   createTextNode,
   replaceText,
   isTextNode,

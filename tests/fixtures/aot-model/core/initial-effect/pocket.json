@@ -1,0 +1,11 @@
+{
+  "pocket": 2,
+  "id": "test.model.initial-effect",
+  "name": "initial-effect",
+  "app": {
+    "entry": "App.tsx",
+    "framework": "solid",
+    "aot": true,
+    "model": "compiled"
+  }
+}

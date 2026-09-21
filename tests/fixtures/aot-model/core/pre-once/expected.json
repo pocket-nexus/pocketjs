@@ -1,0 +1,51 @@
+{
+  "state": {
+    "count": 2,
+    "result": 1
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "count",
+      "value": 2,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 1,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 2,
+      "changed": true
+    },
+    {
+      "kind": "effect",
+      "effect": 0,
+      "initial": false
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 1,
+      "changed": true
+    }
+  ],
+  "work": {
+    "effects": 1
+  }
+}

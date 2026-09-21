@@ -164,7 +164,7 @@ neither advertises a production capability from a build alone.
 
 ## 0.10.1 — August 16, 2026
 
-**Three more physical phones run PocketJS, Pocket Vapor compiles a smaller reactive graph, and Pocket3D gains a deterministic systemic world.**
+**Three more physical phones run PocketJS, the earlier C/cartridge compiler reduces its reactive graph, and Pocket3D gains a deterministic systemic world.**
 0.10.1 carries the connected-device work completed after 0.10.0 together with
 the compiler, renderer and tooling fixes those devices exposed. The new phone
 profiles remain private development targets: each one records an exact
@@ -201,7 +201,7 @@ a build or upload alone.
   requested tick rate before guest evaluation. This closes 0.10.0's known
   limitation: a 120 Hz bundle and host now establish the same mount invariant
   instead of refusing the unpublished 0.2.0 bridge.
-- **Pocket Vapor removes work that static analysis proves unreachable.** A
+- **The earlier C/cartridge compiler removes work that static analysis proves unreachable.** A
   sparse conditional constant-propagation pass folds constant ref reads,
   selects decidable branches, and removes their dead dependencies and ROM.
   Frame-local view and bounded-string temporaries now share statically colored
@@ -505,7 +505,7 @@ JavaScript where no browser fits.
   M5Stack Tab5 at 1280×720), built on new backend-independent damage
   rendering and transactional strip rendering with a strip-equals-full
   parity suite.
-- **Playdate, the fifth Pocket Vapor target.** The 400×240 1-bit panel
+- **Playdate, the fifth target of the earlier C/cartridge compiler.** The 400×240 1-bit panel
   as a 50×30 grid, `.pdx` packaging for device and Simulator, and the
   crank arriving through the hardware-neutral `RelativeAxis` contract:
   hosts preserve signed millidegrees, apps own their detents, and
@@ -524,11 +524,12 @@ JavaScript where no browser fits.
 
 ## 0.7.0 — July 23, 2026
 
-Pocket Vapor entries below describe the historical experiment, now maintained
-in [its own repository](https://github.com/pocket-stack/pocket-vapor). **Pocket
-Vapor is not a current PocketJS mainline feature.** Run its commands there.
+The C/cartridge compiler entries below describe an earlier experiment, now
+maintained in [its own repository](https://github.com/pocket-stack/pocket-vapor).
+Its target support and commands belong to that repository. The current
+[MicroTS compiler](/docs/microts/) generates Rust views and models.
 
-**Vue compiles all the way down.** Pocket Vapor takes a real Vue Vapor
+**Vue compiles all the way down.** The earlier C/cartridge compiler takes a real Vue Vapor
 component — actual `ref`/`computed`, actual JSX — and emits native code for
 machines that could never host a JavaScript engine: Game Boy Advance, Game
 Boy, NES cartridges, and now an ESP32 dev board, with the same file proven
@@ -536,7 +537,7 @@ cell-identical against real `vue@3.6` after every button press. [The film
 and the whole argument](https://github.com/pocket-stack/pocket-vapor/blob/experiment/standalone/site/content/blog/pocket-vapor.md). Around it, the platform grew
 a launcher, a package format, and a desktop widget runtime.
 
-- **[Pocket Vapor](https://github.com/pocket-stack/pocket-vapor)** (now an independent early experiment) — an AOT compiler for a strict TypeScript
+- **[The earlier C/cartridge compiler](https://github.com/pocket-stack/pocket-vapor)** — an AOT compiler for a strict TypeScript
   subset of Vue Vapor: reactivity lowered to dirty-bit dependency masks
   baked into ROM, template bindings to span-merged paint effects, every
   byte planned at compile time (no allocator, no GC). One TodoMVC component
@@ -547,12 +548,12 @@ a launcher, a package format, and a desktop widget runtime.
   `vue@3.6` `runtime-with-vapor`, and the parity suite replays one
   interaction tape through the oracle and every console emulator, comparing
   the full logical grid — characters *and* palettes — after each press.
-  `bun run vapor:dev` serves the oracle in a browser to make degradation
+  Its development command serves the oracle in a browser to make degradation
   visible before you burn a cart.
 - **A class DSL with per-target style contracts** — the same Tailwind
   names the big framework compiles, lowered per machine: GBA palette
   banks (rgb555), ESP32 RGB565 ink/paper pairs, GB/NES two glyph styles by
-  luminance. `vapor:check` prints the whole cross-target diagnostics
+  luminance. Its admission command prints the whole cross-target diagnostics
   matrix in one run; `--strict` turns lossy lowering into failure.
 - **ESP32 MeowBit, the fourth target** — an ST7735 RGB565 cell raster,
   release-latched button chords, and a USB verifier that replays the shared

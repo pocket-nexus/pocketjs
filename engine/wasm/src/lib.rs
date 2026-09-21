@@ -40,6 +40,7 @@ static mut COMPOSITOR_RASTERS: Vec<Option<CompositorRaster>> = Vec::new();
 /// Staged compositor frame records. Each record is ten u32 words:
 /// handle, full x/y/w/h f32 bits, clip x/y/w/h f32 bits, focused (0/1).
 static mut COMPOSITOR_FRAMES: Vec<u32> = Vec::new();
+static mut ANIMATION_COMPLETIONS: Vec<i32> = Vec::new();
 static mut DAMAGE_TRACKER: DamageTracker<DEFAULT_DAMAGE_REGIONS> = DamageTracker::new();
 /// wrapText result staging (same lifetime contract as FRAMEBUFFER: the
 /// pointer from `ui_wrap_text_ptr` stays valid until the next wrapText or
@@ -148,6 +149,53 @@ pub extern "C" fn ui_free(ptr: *mut u8, len: usize) {
 #[no_mangle]
 pub extern "C" fn ui_create_node(node_type: u32) -> i32 {
     ui().create_node(node_type as u8)
+}
+
+// Read-only retained-tree inspection for host tools and differential tests.
+// Borrowed pointers remain valid until the next mutation of this Ui instance.
+#[no_mangle]
+pub extern "C" fn ui_node_type(id: i32) -> i32 {
+    ui().node_type(id).map_or(-1, i32::from)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_focused() -> i32 {
+    ui().focused()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_text_ptr(id: i32) -> *const u8 {
+    ui().node_text(id).map_or(core::ptr::null(), str::as_ptr)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_text_len(id: i32) -> usize {
+    ui().node_text(id).map_or(0, str::len)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_children_ptr(id: i32) -> *const i32 {
+    ui().node_children(id).as_ptr()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_children_len(id: i32) -> usize {
+    ui().node_children(id).len()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_display(id: i32) -> i32 {
+    ui().resolved_style(id).map_or(-1, |style| i32::from(style.display))
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_bg_color(id: i32) -> u32 {
+    ui().resolved_style(id).map_or(0, |style| style.bg_color)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_node_text_color(id: i32) -> u32 {
+    ui().resolved_style(id).map_or(0, |style| style.text_color)
 }
 
 #[no_mangle]
@@ -312,6 +360,27 @@ pub extern "C" fn ui_animate(
 #[no_mangle]
 pub extern "C" fn ui_cancel_anim(anim_id: i32) {
     ui().cancel_anim(anim_id)
+}
+
+#[no_mangle]
+pub extern "C" fn ui_take_animation_completions() -> u32 {
+    unsafe {
+        ANIMATION_COMPLETIONS.clear();
+        ui().drain_animation_completions(|completion| {
+            let reason = match completion.reason {
+                pocketjs_core::anim::CompletionReason::Ended => 0,
+                pocketjs_core::anim::CompletionReason::Replaced => 1,
+                pocketjs_core::anim::CompletionReason::Dropped => 2,
+            };
+            ANIMATION_COMPLETIONS.extend_from_slice(&[completion.id, reason]);
+        });
+        (ANIMATION_COMPLETIONS.len() / 2) as u32
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ui_animation_completions_ptr() -> *const i32 {
+    unsafe { ANIMATION_COMPLETIONS.as_ptr() }
 }
 
 #[no_mangle]

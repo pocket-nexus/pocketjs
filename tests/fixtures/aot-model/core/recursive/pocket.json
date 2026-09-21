@@ -1,0 +1,11 @@
+{
+  "pocket": 2,
+  "id": "test.model.recursive",
+  "name": "recursive",
+  "app": {
+    "entry": "App.tsx",
+    "framework": "solid",
+    "aot": true,
+    "model": "compiled"
+  }
+}

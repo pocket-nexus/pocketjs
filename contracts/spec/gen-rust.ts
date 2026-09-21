@@ -142,6 +142,13 @@ import {
   VALUE_KIND,
   type PropName,
 } from "./spec.ts";
+import {
+  generateMicroTsRust,
+  generateMicroTsNumericTypes,
+  generateMicroTsStdDeclarations,
+  generateMicroTsComponentTypes,
+} from "./microts.ts";
+export { generateMicroTsRust, generateMicroTsNumericTypes, generateMicroTsStdDeclarations, generateMicroTsComponentTypes };
 
 /** camelCase -> SCREAMING_SNAKE_CASE (width -> WIDTH, paddingT -> PADDING_T). */
 function screaming(name: string): string {
@@ -585,4 +592,14 @@ if (import.meta.main) {
   const out = new URL("../../engine/core/src/spec.rs", import.meta.url).pathname;
   await Bun.write(out, generateRust());
   console.log(`wrote ${out}`);
+  for (const [path, source] of [
+    ["../../engine/crates/microts/src/spec.rs", generateMicroTsRust()],
+    ["../../framework/src/numeric-microts.ts", generateMicroTsNumericTypes()],
+    ["../../framework/src/std-microts.d.ts", generateMicroTsStdDeclarations()],
+    ["../../framework/src/component-types-microts.ts", generateMicroTsComponentTypes()],
+  ]) {
+    const target = new URL(path, import.meta.url).pathname;
+    await Bun.write(target, source);
+    console.log(`wrote ${target}`);
+  }
 }

@@ -144,7 +144,10 @@
     "tsconfig.json",
     "engine/crates/pocket-text/src",
     "engine/crates/pocket-text/Cargo.toml",
-    "engine/crates/pocket-text/Cargo.lock"
+    "engine/crates/pocket-text/Cargo.lock",
+    "microts/compiler",
+    "engine/crates/microts/src",
+    "engine/crates/microts/Cargo.toml"
   ],
   "publishConfig": {
     "access": "public"
@@ -206,6 +209,13 @@
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",
     "./virtual-list": "./framework/src/virtual-list.ts",
+    "./vue-vapor/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
+    "./solid/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
+    "./solid/reactive": "./framework/src/reactive-solid.ts",
+    "./vue-vapor/reactive": "./framework/src/reactive-vue-vapor.ts",
+    "./model/tasks": "./framework/src/model-tasks.ts",
+    "./model/animation": "./framework/src/model-animation.ts",
+    "./net/model": "./framework/src/net-model.ts",
     "./solid": "./framework/src/index.ts",
     "./solid/components": "./framework/src/components.ts",
     "./solid/lifecycle": "./framework/src/lifecycle.ts",
@@ -232,7 +242,7 @@
     "./vue-vapor/fs": "./framework/src/fs-api.ts",
     "./vue-vapor/gesture": "./framework/src/gesture.vue-vapor.ts",
     "./vue-vapor/lifecycle": "./framework/src/lifecycle-vue-vapor.ts",
-    "./vue-vapor/input": "./framework/src/input-api.ts",
+    "./vue-vapor/input": "./framework/src/input-api-vue-vapor.ts",
     "./vue-vapor/kinetics": "./framework/src/kinetics.vue-vapor.ts",
     "./vue-vapor/net": "./framework/src/net-api.ts",
     "./vue-vapor/renderer": "./framework/src/renderer-vue-vapor.ts",
@@ -323,13 +333,19 @@
     "android": "bun tools/android.ts",
     "moto-g-play": "bun tools/moto-g-play.ts",
     "ime:setup": "bun tools/ime/setup.ts",
-    "clear:companion": "bun tools/ime/device.ts"
+    "clear:companion": "bun tools/ime/device.ts",
+    "test:fuzz": "bun microts/compiler/model-fuzz.ts"
   },
   "dependencies": {
+    "@solid-primitives/keyed": "^1.5.3",
+    "@volar/typescript": "2.4.28",
+    "@vue/compiler-dom": "3.6.0-rc.1",
     "@vue/compiler-sfc": "3.6.0-rc.1",
     "@vue/compiler-vapor": "3.6.0-rc.1",
+    "@vue/language-core": "3.3.11",
     "octane": "0.1.26",
     "solid-js": "^1.9",
+    "typescript": "5.9.3",
     "vue": "3.6.0-rc.1",
     "vue-jsx-vapor": "3.2.19"
   },
@@ -354,7 +370,7 @@
     "shiki": "^4.3.1",
     "tailwindcss": "^4.3.2",
     "three": "^0.185.1",
-    "typescript": "^5"
+    "vue-tsc": "3.3.11"
   },
   "trustedDependencies": [
     "@parcel/watcher"

@@ -1,0 +1,20 @@
+{
+  "state": {
+    "result": "seedx"
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": "seedx",
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": "seedx",
+      "changed": true
+    }
+  ]
+}

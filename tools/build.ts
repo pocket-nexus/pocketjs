@@ -1,3 +1,5 @@
+import { resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
+import { modelConfiguration } from "../microts/compiler/aot-model-build.ts";
 import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 // tools/build.ts <app> — the TWO-PASS app build (docs/DESIGN.md "Build pipeline").
@@ -120,6 +122,16 @@ if (planPath) {
     throw new Error("PocketJS build: --framework cannot override a ResolvedBuildPlan");
   }
   appArg = resolvePath(projectRoot, buildPlan.app.entry);
+  // Model lowering reads the application's manifest before transform caching.
+  // A frozen plan must reject a later change to that compiler configuration.
+  const model = modelConfiguration(appArg);
+  const currentApp = model.directory ? (await Bun.file(join(model.directory, "pocket.json")).json()).app ?? {} : {};
+  if ((currentApp.aot === true) !== (buildPlan.app.aot === true)
+    || model.mode !== (buildPlan.app.model ?? "rust")
+    || model.recursionLimit !== (buildPlan.app.recursionLimit ?? 256)
+    || model.mode === "compiled" && currentApp.framework !== buildPlan.app.framework) {
+    throw new Error("PocketJS build: model settings differ from the ResolvedBuildPlan; resolve a new plan before building");
+  }
   if (!configFlagged) configPath = resolvePath(projectRoot, "pocket.config.ts");
 }
 
@@ -256,6 +268,8 @@ function resolveImport(fromFile: string, spec: string): string | null {
     return exported && /\.tsx?$/.test(exported) ? exported : null;
   }
   if (!spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/")) return null; // external bare
+  const model = framework === "solid" ? resolveSolidAotModel(fromFile, spec, entry) : undefined;
+  if (model) return model.endsWith(".d.ts") ? null : model;
   let resolved: string;
   try {
     resolved = Bun.resolveSync(spec, dirname(fromFile));
@@ -282,7 +296,7 @@ async function walk(file: string): Promise<void> {
   const src = await Bun.file(file).text();
   buildInputs.add(file);
   // Throws with a code frame on lint errors.
-  const res = await transformFile(file, src, framework, { features: buildPlan?.features });
+  const res = await transformFile(file, src, framework, { features: buildPlan?.features, entry });
   for (const s of res.classStrings) {
     if (!seenClass.has(s)) {
       seenClass.add(s);

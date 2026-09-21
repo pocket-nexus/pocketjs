@@ -1,11 +1,34 @@
 # Native contract
 
-The framework adapters, styling, animation, and input all drive one native,
-retained-mode UI tree through a single synchronous op surface: `ui.*`. This
-page documents that surface, the runtime model around it, and the constraints
-that let one application contract run on every host under `hosts/`.
+The guest build compiles TypeScript application sources into an engine bundle.
+Its framework adapters, styling, animation and input drive a native retained
+UI tree through the synchronous op surface `ui.*`. This page documents that
+guest-to-host surface and the host runtime around it. **TypeScript is the
+application source contract; JavaScript is an emitted execution format.**
+
+The [TypeScript support reference](/docs/typescript-support/) defines which
+source forms the build admits. This page describes the runtime boundary.
 
 If you only write app code you never call these ops directly — you write [`View` / `Text` / `Image`](/docs/components/) and the renderer emits ops for you. This page is for understanding *why* the surface looks the way it does, and for anyone writing a new host.
+
+## Native AOT and the guest op surface
+
+**Native AOT views call `microts::Ui` from generated Rust.** Their model
+boundary is the generated Rust view-model trait, implemented by a compiled
+TypeScript model or by application-owned Rust. This path has no guest mirror
+tree and does not call back into a TypeScript interpreter for model methods.
+The core's nodes, styles, layout and animation are reused.
+
+Compiled model tasks communicate through `Host::model_ready` and
+`Host::model_command`: the host supplies a frame-boundary `Ready` snapshot and
+executes queued `Cmd` values after the view and lifecycle updates. Service
+completion is deferred to a boundary even though individual UI ops are
+synchronous. A native service adapter must implement the request, cancellation
+and delivery contract; the `HostOps` UI table does not supply that adapter.
+
+See [TypeScript and native code](/docs/microts-boundaries/) for model
+selection, ownership and host responsibilities. The FFI, mirror and engine
+job-queue descriptions below concern guest execution.
 
 ## The shape of the contract
 

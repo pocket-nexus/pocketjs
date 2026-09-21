@@ -112,13 +112,13 @@ describe("Vue SFC Vapor compilation", () => {
     const appSource = await Bun.file(
       new URL("../apps/vue-sfc-lab/app.vue", import.meta.url),
     ).text();
-    const app = compileVueSfc(appSource, "/virtual/App.vue");
+    const app = compileVueSfc(appSource, new URL("../apps/vue-sfc-lab/app.vue", import.meta.url).pathname);
 
     expect(app.code).toContain('"onUpdate:modelValue"');
     expect(app.code).toContain("_createIf");
-    expect(app.code).toContain("count.value === 0");
-    expect(app.code).toContain("count.value < 4");
-    expect(app.code).toContain("count.value > 0");
+    expect(app.code).toContain("_unref(count) === 0");
+    expect(app.code).toContain("_unref(count) < 4");
+    expect(app.code).toContain("_unref(count) > 0");
     expect(app.code).toContain("Vue SFC Feature Lab");
   });
 
@@ -126,12 +126,14 @@ describe("Vue SFC Vapor compilation", () => {
     const appSource = await Bun.file(
       new URL("../apps/vue-sfc-lab/app.vue", import.meta.url),
     ).text();
-    const app = compileVueSfc(appSource, "/virtual/App.vue");
+    const app = compileVueSfc(appSource, new URL("../apps/vue-sfc-lab/app.vue", import.meta.url).pathname);
 
     expect(app.code).toContain("_createFor");
     expect(app.code).toContain("_for_item0.value.label");
     expect(app.code).toContain("_for_key0.value + 1");
-    expect(app.code).toMatch(/\(feature\)\s*=>\s*\(feature\.id\)/);
+    const listPath = new URL("../apps/vue-sfc-lab/FeatureList.vue", import.meta.url).pathname;
+    const list = compileVueSfc(await Bun.file(listPath).text(), listPath);
+    expect(list.code).toMatch(/\(item\)\s*=>\s*\(item\.id\)/);
     expect(app.code).toMatch(/\(feature, index\)\s*=>\s*\(`summary-\$\{feature\.id\}`\)/);
     expect(app.code).toContain("flex-row gap-2");
   });

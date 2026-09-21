@@ -3,6 +3,7 @@ import { BTN } from "../contracts/spec/spec.ts";
 import type { HostOps } from "../framework/src/host.ts";
 import type { NodeMirror } from "../framework/src/native-tree.ts";
 import { createVueVaporTestRuntime } from "./vue-vapor-test-runtime.ts";
+import { insertNode, resetRendererState, rootMirror } from "../framework/src/native-tree.ts";
 
 // Components are normally bundled with framework/compiler/jsx-plugin.ts, which aliases
 // `vue` to the Vapor runtime. This focused unit test only needs enough of that
@@ -38,6 +39,7 @@ function testHostOps(): HostOps {
 describe("Vue Vapor ActionHandler", () => {
   beforeEach(() => {
     resetFrameHooks();
+    resetRendererState();
     installHost({ ops: testHostOps(), kind: "injected", target: "injected", strict: true });
   });
 
@@ -69,16 +71,17 @@ describe("Vue Vapor ActionHandler", () => {
       context: { attrs: Record<string, unknown>; slots: { default: () => unknown } },
     ) => unknown;
 
-    setup({}, {
+    const block = setup({}, {
       attrs: {
         button: BTN.SELECT,
         latched: true,
         onPress: () => presses++,
       },
-      // A non-null block avoids constructing a native comment node; this test
-      // is only about the lifecycle options passed by the component wrapper.
+      // The marker must be attached: only connected declarative handlers take
+      // part in document-ordered input dispatch.
       slots: { default: () => ({ testBlock: true }) },
     });
+    insertNode(rootMirror, (block as NodeMirror[])[0]!);
 
     runFrameHooks(BTN.SELECT);
     expect(presses).toBe(0);

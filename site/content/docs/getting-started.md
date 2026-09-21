@@ -1,5 +1,9 @@
 # Getting started
 
+For Vue templates with Rust application logic, use the
+[MicroTS guide](/docs/microts/). This page covers the JavaScript
+application workflow.
+
 This is the fastest path from an empty checkout to JSX running on screen. You'll
 write a component, mount it, build it, and see it in the browser dev host — the
 same source and `pocket.json` can also be compiled into target-specific packages

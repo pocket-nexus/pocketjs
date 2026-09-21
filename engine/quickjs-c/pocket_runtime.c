@@ -58,6 +58,7 @@ typedef enum {
   HostSetSprite,
   HostAnimate,
   HostCancelAnim,
+  HostTakeAnimationCompletions,
   HostSetFocus,
   HostSetActive,
   HostHitTest,
@@ -361,6 +362,9 @@ static JSValue host_operation(
       if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
       ui_cancel_anim(a);
       return JS_UNDEFINED;
+    case HostTakeAnimationCompletions:
+      bytes = ui_take_animation_completions_json(&byte_length);
+      return JS_NewStringLen(ctx, (const char *)bytes, byte_length);
     case HostSetFocus:
       if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
       ui_set_focus(a);
@@ -510,6 +514,7 @@ static int install_host(int width, int height) {
       !add_host_operation(context, ui, "setSprite", 5, HostSetSprite) ||
       !add_host_operation(context, ui, "animate", 6, HostAnimate) ||
       !add_host_operation(context, ui, "cancelAnim", 1, HostCancelAnim) ||
+      !add_host_operation(context, ui, "takeAnimationCompletions", 0, HostTakeAnimationCompletions) ||
       !add_host_operation(context, ui, "setFocus", 1, HostSetFocus) ||
       !add_host_operation(context, ui, "setActive", 2, HostSetActive) ||
       !add_host_operation(context, ui, "hitTest", 2, HostHitTest) ||
