@@ -93,6 +93,103 @@ fn font(coverage: u8) -> Vec<u8> {
 }
 
 #[test]
+fn runtime_glyph_pages_keep_layout_and_in_flight_texture_identity() {
+    fn packet(op: u32, words: &[u32]) -> Vec<u8> {
+        [pocketjs_core::font_runtime::MAGIC, op]
+            .into_iter()
+            .chain(words.iter().copied())
+            .flat_map(u32::to_le_bytes)
+            .collect()
+    }
+    fn glyph(id: u32, alpha: u8) -> Vec<u8> {
+        let mut b = packet(2, &[1, id, 2, 2, 0, 2]);
+        b.extend([alpha; 4]);
+        b
+    }
+    let gpu = Gpu::new_headless().expect("GPU required for runtime text conformance");
+    let mut ui = Ui::new();
+    ui.set_viewport(16.0, 16.0);
+    let node = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_text(node, "fi");
+    ui.set_prop(node, spec::prop::TEXT_COLOR, 0xff80_c0ffu32 as f64);
+    ui.insert_before(spec::ROOT_ID, node, 0);
+    assert!(ui.runtime_text_commit(&packet(
+        1,
+        &[
+            node as u32,
+            1,
+            7f32.to_bits(),
+            6f32.to_bits(),
+            1,
+            7,
+            2f32.to_bits(),
+            4f32.to_bits()
+        ]
+    )));
+    let out = target(&gpu, 16, wgpu::TextureFormat::Rgba8Unorm);
+    let mut renderer = UiRenderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm);
+    let mut expected = vec![0; 16 * 16 * 4];
+    assert!(ui.runtime_text_commit(&glyph(7, 255)));
+    let words = ui.draw().words.clone();
+    let layout = ui.layout_of(node);
+    raster::render(&ui, &words, &mut expected);
+    close(
+        &draw(&gpu, &mut renderer, &ui, &words, &out, 1),
+        &expected,
+        1,
+    );
+
+    // Encode one frame, then reuse the CPU texture slot before submission.
+    // wgpu's recorded bind retains its original resource until GPU retirement.
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    renderer
+        .render_words_scaled(
+            &gpu,
+            &ui,
+            &words,
+            &mut encoder,
+            &out.view,
+            out.size,
+            1.0,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+        )
+        .unwrap();
+    assert!(ui.runtime_text_commit(&packet(3, &[1, 7])));
+    assert!(ui.runtime_text_commit(&glyph(8, 64)));
+    assert!(ui.texture(words[1] as i32).is_none());
+    let mut next = gpu.device.create_command_encoder(&Default::default());
+    renderer
+        .render_words_scaled(
+            &gpu,
+            &ui,
+            &[],
+            &mut next,
+            &out.view,
+            out.size,
+            1.0,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+        )
+        .unwrap();
+    drop(next); // cache replacement must not invalidate the first encoder
+    gpu.queue.submit([encoder.finish()]);
+    close(&out.read_rgba(&gpu).unwrap(), &expected, 1);
+
+    let absent = ui.draw().words.clone();
+    assert!(absent.is_empty());
+    assert_eq!(ui.layout_of(node), layout);
+    let black = draw(&gpu, &mut renderer, &ui, &absent, &out, 1);
+    assert_eq!(&black[(2 * 16 + 2) * 4..(2 * 16 + 3) * 4], &[0, 0, 0, 255]);
+    assert!(ui.runtime_text_commit(&glyph(7, 255)));
+    let restored = ui.draw().words.clone();
+    close(
+        &draw(&gpu, &mut renderer, &ui, &restored, &out, 1),
+        &expected,
+        1,
+    );
+    assert_eq!(ui.layout_of(node), layout);
+}
+
+#[test]
 fn gpu_drawlist_composition_and_resource_lifecycle() {
     let gpu = Gpu::new_headless().expect("GPU required for DrawList conformance");
     eprintln!("DrawList conformance: {:?}", gpu.adapter.get_info());

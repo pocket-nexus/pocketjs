@@ -63,6 +63,13 @@ serialize it. Providers return equally bounded strings. Pagination and resource
 chunking belong to the capability contract, not to an unbounded accumulator in
 the guest.
 
+**Frame service pumps receive replies, plan work, then submit new requests.**
+The final submit phase shares the frame's two-submission allowance with the
+receive phase. It does not take another reply or advance request deadlines.
+Tests and hosts that own an explicit `createOffloadClient()` call `step()` once
+per frame, run their planners, then call `flush()`. The realm client registers
+both phases itself.
+
 `work.session()` exposes the authenticated generation (nonpositive when
 offline). Applications can revalidate cached revisions when it changes, even
 if a reconnect happens between two UI frames without an observed offline frame.

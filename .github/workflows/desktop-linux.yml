@@ -78,9 +78,13 @@ jobs:
       - name: Install native window dependencies
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          clang cmake pkg-config libwayland-dev libx11-dev libx11-xcb-dev
+          clang cmake pkg-config libfreetype6-dev libwayland-dev libx11-dev libx11-xcb-dev
           libxkbcommon-dev libxkbcommon-x11-dev libudev-dev libdrm-dev libgbm-dev
           libxcb-shape0-dev libxcb-xfixes0-dev xvfb xauth libvulkan1 mesa-vulkan-drivers
+
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 5.0.5
 
       - uses: dtolnay/rust-toolchain@stable
         with:

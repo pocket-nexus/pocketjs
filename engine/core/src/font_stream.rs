@@ -456,6 +456,9 @@ impl Ui {
     }
     /// PFG1 batch: at most four glyphs; no filesystem or GPU calls.
     pub fn font_stream_commit(&mut self, b: &[u8]) -> usize {
+        if u32_at(b, 0) == Some(crate::font_runtime::MAGIC) {
+            return usize::from(self.runtime_text_commit(b));
+        }
         if b.len() < 12 || b.len() > 1250 || u32_at(b, 0) != Some(GLYPH_MAGIC) {
             return 0;
         }
@@ -490,6 +493,7 @@ impl Ui {
                 }
             }
         }
-        format!("{{\"resident\":{},\"bytes\":{},\"pending\":{},\"evictions\":{},\"rejected\":{},\"unsupported\":{}}}",resident,bytes,pending,evictions,rejected,absent)
+        let runtime = &self.fonts.runtime;
+        format!("{{\"resident\":{},\"bytes\":{},\"pending\":{},\"evictions\":{},\"rejected\":{},\"unsupported\":{},\"runtime\":{{\"resident\":{},\"bytes\":{},\"budget\":{},\"uploads\":{},\"uploadedBytes\":{},\"rejected\":{}}}}}",resident,bytes,pending,evictions,rejected,absent,runtime.resident(),runtime.bytes,runtime.budget,runtime.uploads,runtime.uploaded_bytes,runtime.rejected)
     }
 }

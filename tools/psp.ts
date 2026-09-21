@@ -33,6 +33,8 @@ import {
 } from "../framework/src/manifest/host-build-inputs.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
+import { ensurePspFreeType, pspCFlags } from "./psp-freetype.ts";
+import { validatePspLoadImage } from "./psp-load-image.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
 const nativeDir = pspUiDir + "hosts/psp/";
@@ -102,6 +104,7 @@ try {
   process.exit(1);
 }
 const sdk = toolchain.sdk.path;
+const freetype = await ensurePspFreeType(toolchain);
 
 // A bare component demo (apps/<app>/app.tsx exporting the component) needs
 // the mounting entry apps/<app>/main.tsx (imports mount() + STYLE_IDS).
@@ -320,8 +323,9 @@ const env = {
   // synthesized flags, including the -O from build.rs opt_level() — without
   // it every C dependency (QuickJS!) silently compiles at -O0.
   TARGET_CFLAGS:
-    `-target mipsel-sony-psp -mcpu=mips2 -msingle-float -mlittle-endian -mno-abicalls -fno-pic -G0 -mno-check-zero-division ` +
-    `-fno-stack-protector -O2 -I${sdk}/psp/include -I${sdk}/psp/sdk/include`,
+    pspCFlags(sdk).join(" "),
+  POCKETJS_FREETYPE_INCLUDE: freetype.includeDir,
+  POCKETJS_FREETYPE_LIB: freetype.libraryDir,
   // CRITICAL: archive MIPS objects with llvm-ar (Apple ar drops them -> undefined JS_*).
   AR_mipsel_sony_psp: `${toolchain.llvmBin}/llvm-ar`,
   RANLIB_mipsel_sony_psp: `${toolchain.llvmBin}/llvm-ranlib`,
@@ -371,6 +375,9 @@ console.log(`PocketJS psp: cargo psp (app=${outputApp})`);
 await $`${toolchain.rustup} run ${toolchain.manifest.rust.toolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
 
 const profile = outputProfile(cargoArgs);
+for (const name of ["pocketjs-psp", "pocketjs-psp.prx"]) {
+  validatePspLoadImage(new Uint8Array(await Bun.file(`${nativeDir}target/mipsel-sony-psp/${profile}/${name}`).arrayBuffer()));
+}
 const binEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/pocketjs-psp.EBOOT.PBP`;
 const conventionalEboot = `${nativeDir}target/mipsel-sony-psp/${profile}/EBOOT.PBP`;
 if (existsSync(binEboot)) {

@@ -19,14 +19,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use libquickjs_sys::*;
-extern "C" {
-    fn JS_ParseJSON(
-        ctx: *mut JSContext,
-        buf: *const core::ffi::c_char,
-        len: usize,
-        filename: *const core::ffi::c_char,
-    ) -> JSValue;
-}
 use pocketjs_core::Ui;
 
 static mut UI: Option<Ui> = None;
@@ -1006,111 +998,22 @@ unsafe extern "C" fn js_local_take(
         None => JS_UNDEFINED,
     }
 }
-unsafe fn local_number(ctx: *mut JSContext, obj: JSValue, key: &[u8]) -> u32 {
-    let v = JS_GetPropertyStr(ctx, obj, key.as_ptr() as *const _);
-    let mut n = 0;
-    JS_ToInt32(ctx, &mut n, v);
-    JS_FreeValue(ctx, v);
-    n as u32
-}
-unsafe fn local_string(ctx: *mut JSContext, obj: JSValue, key: &[u8]) -> String {
-    let v = JS_GetPropertyStr(ctx, obj, key.as_ptr() as *const _);
-    let mut n = 0;
-    let p = JS_ToCStringLen2(ctx, &mut n, v, 0);
-    let s = if !p.is_null() && n <= 4096 {
-        String::from_utf8_lossy(core::slice::from_raw_parts(p as *const u8, n)).into_owned()
-    } else {
-        String::new()
-    };
-    if !p.is_null() {
-        JS_FreeCString(ctx, p);
-    }
-    JS_FreeValue(ctx, v);
-    s
-}
 unsafe extern "C" fn js_local_submit(
     ctx: *mut JSContext,
     _: JSValue,
     n: i32,
     a: *mut JSValue,
 ) -> JSValue {
-    if n < 1 {
-        return JS_NewBool(ctx, false);
-    }
+    if n < 1 { return JS_NewBool(ctx, false); }
     let mut len = 0;
     let p = JS_ToCStringLen2(ctx, &mut len, *a, 0);
-    if p.is_null() {
-        return JS_NewBool(ctx, false);
-    }
-    if len > 4096 {
-        JS_FreeCString(ctx, p);
-        return JS_NewBool(ctx, false);
-    }
-    let obj = JS_ParseJSON(ctx, p, len, b"local request\0".as_ptr() as *const _);
+    if p.is_null() { return JS_NewBool(ctx, false); }
+    // Parsing and all capability work belong to the local worker. The UI
+    // performs one bounded byte copy into the fixed mailbox.
+    let accepted = len <= 4096 && crate::offload_local::submit(
+        core::slice::from_raw_parts(p as *const u8, len));
     JS_FreeCString(ctx, p);
-    if JS_IsException(obj) {
-        JS_FreeValue(ctx, JS_GetException(ctx));
-        return JS_NewBool(ctx, false);
-    }
-    let mut r = crate::offload_local::Request::empty();
-    r.id = local_number(ctx, obj, b"id\0");
-    let method = local_string(ctx, obj, b"method\0");
-    let payload = local_string(ctx, obj, b"payload\0");
-    let version = local_number(ctx, obj, b"v\0");
-    JS_FreeValue(ctx, obj);
-    if version != 1 || r.id == 0 {
-        return JS_NewBool(ctx, false);
-    }
-    r.op = match method.as_str() {
-        "font.open" => 1,
-        "font.glyphs" => 2,
-        "font.stats" => 3,
-        "fs.read-text" => 4,
-        "font.close" => 5,
-        _ => 0,
-    };
-    if r.op == 1 || r.op == 4 {
-        if payload.len() >= 128 {
-            return JS_NewBool(ctx, false);
-        }
-        r.path[..payload.len()].copy_from_slice(payload.as_bytes());
-    }
-    if r.op == 2 {
-        // QuickJS requires buf[buf_len] == 0 even when a length is supplied.
-        // A Rust String does not carry that terminator; allocator reuse after
-        // a UTF-8 file read otherwise makes valid glyph requests fail parsing.
-        let Ok(json) = alloc::ffi::CString::new(payload.as_bytes()) else {
-            return JS_NewBool(ctx, false);
-        };
-        let args = JS_ParseJSON(
-            ctx,
-            json.as_ptr(),
-            payload.len(),
-            b"font batch\0".as_ptr() as *const _,
-        );
-        if JS_IsException(args) {
-            JS_FreeValue(ctx, JS_GetException(ctx));
-            return JS_NewBool(ctx, false);
-        }
-        r.generation = local_number(ctx, args, b"generation\0");
-        let slot = local_number(ctx, args, b"slot\0");
-        let cps = JS_GetPropertyStr(ctx, args, b"scalars\0".as_ptr() as *const _);
-        let count = local_number(ctx, cps, b"length\0");
-        if count > 0 && count <= 4 && slot < 24 {
-            r.count = count as u8;
-            r.slot = slot as u8;
-            for i in 0..count {
-                let key = [b'0' + i as u8, 0];
-                r.cps[i as usize] = local_number(ctx, cps, &key);
-            }
-        }
-        JS_FreeValue(ctx, cps);
-        JS_FreeValue(ctx, args);
-        if r.count == 0 {
-            return JS_NewBool(ctx, false);
-        }
-    }
-    JS_NewBool(ctx, crate::offload_local::submit(r))
+    JS_NewBool(ctx, accepted)
 }
 unsafe extern "C" fn js_font_stream_configure(
     ctx: *mut JSContext,
@@ -1248,7 +1151,9 @@ pub unsafe fn register(
     textures: &[(String, i32)],
     sprites: &[crate::pak::SpriteReg],
 ) {
-    if crate::offload::enabled() {
+    // The local worker does not require a companion slot or pairing. Remote
+    // session/submit remain offline when no companion transport was configured.
+    {
         let io = JS_NewObject(ctx);
         add_fn(ctx, io, b"session\0", js_offload_session, 0);
         add_fn(ctx, io, b"submit\0", js_offload_submit, 1);

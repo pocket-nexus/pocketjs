@@ -39,5 +39,7 @@ pub mod vid;
 
 pub mod offload;
 pub mod offload_local;
+pub mod worker_heap;
+mod local_text;
 pub mod offload_image;
 pub mod offload_packet;

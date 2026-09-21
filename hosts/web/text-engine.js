@@ -1,6 +1,18 @@
 // This adapter is worker-only. Native providers call the same Rust Engine.
-export async function createTextEngine(wasmBytes, pak, fonts = []) {
-  const { instance } = await WebAssembly.instantiate(wasmBytes, {});
+import { createFreeTypeImports } from "./freetype-bridge.js";
+export async function createTextEngine(wasmBytes, pak, fonts = [], options = {}) {
+  const { default: createFreeType } = await import("./pocket_freetype.js");
+  const freetypeBytes = options.freetypeBytes ?? await (async () => {
+    const response = await fetch(new URL("./pocket_freetype.wasm", import.meta.url));
+    if (!response.ok) throw Error("FreeType WASM unavailable");
+    return response.arrayBuffer();
+  })();
+  const ft = await createFreeType({ wasmBinary: new Uint8Array(freetypeBytes) });
+  let rustMemory;
+  const { instance } = await WebAssembly.instantiate(wasmBytes, {
+    pocket_freetype: createFreeTypeImports(ft, () => rustMemory),
+  });
+  rustMemory = instance.exports.memory;
   const e = instance.exports,
     encoder = new TextEncoder(),
     decoder = new TextDecoder();

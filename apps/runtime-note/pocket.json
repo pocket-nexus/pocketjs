@@ -1,0 +1,21 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.runtime-note",
+  "name": "pocket-runtime-note",
+  "title": "Runtime Font Editor",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["text.glyphs.baked", "input.buttons", "io.offload", "text.layout.offload"],
+      "enhances": ["input.text", "input.pointer", "input.ime", "host.clipboard", "display.viewport.live"]
+    }
+  },
+  "app": {
+    "entry": "apps/runtime-note/main.tsx",
+    "output": "runtime-note-main",
+    "framework": "solid",
+    "companions": ["note"],
+    "viewport": { "fixed": { "logical": [480, 272], "presentation": "native" } }
+  }
+}

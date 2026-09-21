@@ -262,7 +262,7 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
     capabilities: [
       "input.analog.left",
       "input.buttons",
-      // USB companion transport only; text never executes on the device.
+      // Device-local text/file worker and optional USB companion transport.
       "io.offload",
       "text.layout.offload",
       "input.cursor",

@@ -43,6 +43,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 5.0.5
+
       - name: Build site (wasm + launcher stage + docs + playground)
         run: bun run site:build
 

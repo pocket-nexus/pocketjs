@@ -26,6 +26,8 @@ import {
   type NodeMirror,
 } from "./native-tree.ts";
 import { createRenderRoot, type RenderRoot } from "./renderer-vue-vapor.ts";
+import type { TextResource, PreparedText } from "./fonts.ts";
+import type { RuntimeFont, RuntimeLayoutOptions } from "./runtime-fonts.ts";
 
 export type { NodeMirror } from "./renderer-vue-vapor.ts";
 
@@ -58,6 +60,11 @@ export interface ViewProps {
 }
 
 export interface TextProps {
+  font?: RuntimeFont;
+  textLayout?: RuntimeLayoutOptions;
+  resource?: TextResource;
+  fallback?: () => VNodeChild;
+  errorFallback?: (error: unknown) => VNodeChild;
   class?: string;
   className?: string;
   style?: StyleObject;
@@ -284,7 +291,41 @@ function primitive(tag: "view" | "text" | "image" | "surface") {
 }
 
 export const View = primitive("view");
-export const Text = primitive("text");
+export const Text = definePocketVaporComponent((_props: TextProps, { attrs, slots }: VaporCtx) => {
+  if (!("font" in attrs) && !("resource" in attrs)) return createPrimitiveNode("text", attrs, slots);
+  const node = createPrimitiveNode("text", attrs, undefined, { omit: ["font", "textLayout", "resource", "fallback", "errorFallback"] });
+  const content = createRenderRoot(node);
+  let prepared: PreparedText | undefined;
+  const textOf = (value: unknown): string => {
+    if (Array.isArray(value)) return value.map(textOf).join("");
+    if (typeof value === "string" || typeof value === "number") return String(value);
+    if (value && typeof value === "object" && "text" in value) return String((value as NodeMirror).text ?? "");
+    if (value == null || typeof value === "boolean") return "";
+    throw Error("Runtime Text children must be text");
+  };
+  watchEffect(onCleanup => {
+    const font = valueOf(attrs.font) as RuntimeFont | undefined;
+    const owned = font?.prepareText(textOf(slotDefault(slots) ?? valueOf(attrs.children)), valueOf(attrs.textLayout) as RuntimeLayoutOptions | undefined);
+    const resource = owned ?? valueOf(attrs.resource) as TextResource | undefined;
+    const update = () => {
+      prepared?.clear?.(node.id); prepared = undefined;
+      const state = resource?.state();
+      if (state?.status === "ready") {
+        prepared = state.value;
+        content.update(prepared.layout ? null : createTextNode(prepared.text));
+        if (prepared.layout) setProp(node, "preparedText", prepared);
+        else setProp(node, "style", { ...(valueOf(attrs.style) as object), fontSlot: prepared.slot });
+      } else {
+        const fallback = state?.status === "error" ? callbackOf<TextProps["errorFallback"] & Function>(attrs.errorFallback)?.(state.error) : undefined;
+        content.update(fallback ?? callbackOf<() => VNodeChild>(attrs.fallback)?.() ?? null);
+      }
+    };
+    update(); const unsubscribe = resource?.subscribe(update);
+    onCleanup(() => { unsubscribe?.(); owned?.dispose(); prepared?.clear?.(node.id); prepared = undefined; });
+  });
+  onScopeDispose(() => content.dispose());
+  return node;
+}, NO_FALLTHROUGH);
 export const Image = primitive("image");
 export const Sprite = primitive("image");
 export const CompositorSurface = primitive("surface");

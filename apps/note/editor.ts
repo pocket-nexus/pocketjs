@@ -10,6 +10,7 @@
 // separates source lines and is owned by the line it terminates).
 
 export type Measure = (text: string) => number;
+import type { RuntimeTextLayout } from "@pocketjs/framework/fonts";
 
 export interface DLine {
   /** Global char offset of the first char on this display line. */
@@ -18,6 +19,33 @@ export interface DLine {
   end: number;
   /** True when this line ends with a soft (wrap) break, not a '\n'. */
   soft: boolean;
+  /** Worker caret stops in the geometry consumed by Text drawing. */
+  carets?: readonly (readonly [offset: number, x: number])[];
+}
+
+export function layoutFromText(layout: RuntimeTextLayout): DLine[] {
+  return layout.rows.map((row, i) => ({
+    start: row[0], end: row[1], soft: i + 1 < layout.rows.length && layout.rows[i + 1][0] === row[1],
+    carets: layout.carets.filter(c => c[3] === i).map(c => [c[0], c[1]] as const),
+  }));
+}
+
+/** Shared selection, composition and caret coordinate for one display line. */
+export function lineCaretX(doc: string, line: DLine, caret: number, measure: Measure): number {
+  if (line.carets) {
+    let best = line.carets[0];
+    for (const stop of line.carets) if (!best || Math.abs(stop[0] - caret) < Math.abs(best[0] - caret)) best = stop;
+    return best?.[1] ?? 0;
+  }
+  return measure(doc.slice(line.start, Math.max(line.start, Math.min(caret, line.end))));
+}
+
+export function moveCaret(doc: string, lines: DLine[], caret: number, direction: -1 | 1): number {
+  const stops = lines.flatMap(line => line.carets?.map(c => c[0]) ?? []);
+  if (stops.length) return direction < 0 ? Math.max(0, ...stops.filter(n => n < caret))
+    : Math.min(doc.length, ...stops.filter(n => n > caret));
+  if (direction < 0) return Math.max(0, caret - (caret >= 2 && /[\uDC00-\uDFFF]/.test(doc[caret - 1]) ? 2 : 1));
+  return Math.min(doc.length, caret + (/[\uD800-\uDBFF]/.test(doc[caret] ?? "") ? 2 : 1));
 }
 
 /**
@@ -79,7 +107,7 @@ export function caretLine(lines: DLine[], caret: number): number {
 /** Caret x in px on its display line. */
 export function caretX(doc: string, lines: DLine[], caret: number, measure: Measure): number {
   const line = lines[caretLine(lines, caret)];
-  return measure(doc.slice(line.start, Math.max(line.start, Math.min(caret, line.end))));
+  return lineCaretX(doc, line, caret, measure);
 }
 
 /**
@@ -94,6 +122,11 @@ export function caretFromX(
   measure: Measure,
 ): number {
   const line = lines[Math.max(0, Math.min(lineIndex, lines.length - 1))];
+  if (line.carets) {
+    let best = line.carets[0];
+    for (const stop of line.carets) if (!best || Math.abs(stop[1] - x) < Math.abs(best[1] - x)) best = stop;
+    return best?.[0] ?? line.start;
+  }
   let acc = 0;
   for (let i = line.start; i < line.end; i++) {
     const cw = measure(doc[i]);
@@ -196,6 +229,7 @@ export function lineStart(lines: DLine[], caret: number): number {
 
 export function lineEnd(lines: DLine[], caret: number): number {
   const line = lines[caretLine(lines, caret)];
+  if (line.carets && line.soft) return Math.max(line.start, ...line.carets.map(c => c[0]).filter(offset => offset < line.end));
   if (line.soft && line.end > line.start) return line.end - 1;
   return line.end;
 }
@@ -228,21 +262,18 @@ export function typeText(s: SelEdit, text: string): SelEdit {
 }
 
 /** Backspace: selection deletes it; a bare caret eats one char left. */
-export function backspaceSel(s: SelEdit): SelEdit {
+export function backspaceSel(s: SelEdit, lines: DLine[] = []): SelEdit {
   if (hasSelection(s)) return typeText(s, "");
   if (s.caret === 0) return s;
-  return {
-    doc: s.doc.slice(0, s.caret - 1) + s.doc.slice(s.caret),
-    caret: s.caret - 1,
-    anchor: s.caret - 1,
-  };
+  const previous = moveCaret(s.doc, lines, s.caret, -1);
+  return { doc: s.doc.slice(0, previous) + s.doc.slice(s.caret), caret: previous, anchor: previous };
 }
 
 /** Forward delete: selection deletes it; a bare caret eats one char right. */
-export function deleteSel(s: SelEdit): SelEdit {
+export function deleteSel(s: SelEdit, lines: DLine[] = []): SelEdit {
   if (hasSelection(s)) return typeText(s, "");
   if (s.caret >= s.doc.length) return s;
-  return { doc: s.doc.slice(0, s.caret) + s.doc.slice(s.caret + 1), caret: s.caret, anchor: s.caret };
+  return { doc: s.doc.slice(0, s.caret) + s.doc.slice(moveCaret(s.doc, lines, s.caret, 1)), caret: s.caret, anchor: s.caret };
 }
 
 // ---------------------------------------------------------------------------

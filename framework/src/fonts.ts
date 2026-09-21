@@ -3,9 +3,20 @@ import { offload, type createOffloadClient } from "./offload.ts";
 import { registerServicePump } from "./services.ts";
 import { pending, ready, failed, type ResourceState } from "./resource-state.ts";
 import { FONT_ARCHIVE as F, decodeArchiveFace, type ArchiveFace, type ArchiveStrike } from "../../contracts/spec/font-archive.ts";
+import type { RuntimeTextLayout } from "../../contracts/spec/runtime-text.ts";
+
+export { openRuntimeFont, createRuntimeFont, textCaret, textHitTest, textSelection, textMoveCaret,
+  type RuntimeFont, type RuntimeFontOptions, type RuntimeTextResource, type RuntimeLayoutOptions, type RuntimeTextLayout } from "./runtime-fonts.ts";
 
 type Client = ReturnType<typeof createOffloadClient>;
-export interface PreparedText { readonly text: string; readonly slot: number }
+export interface PreparedText {
+  readonly text: string;
+  readonly slot: number;
+  readonly layout?: RuntimeTextLayout;
+  /** Runtime values bind immutable geometry to a native Text node. */
+  paint?(node: number): boolean;
+  clear?(node: number): void;
+}
 /** A lease owns every glyph until dispose. Reads never initiate I/O. */
 export interface TextResource {
   state(): ResourceState<PreparedText>;

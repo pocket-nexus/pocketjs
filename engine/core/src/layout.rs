@@ -43,9 +43,19 @@ impl MeasureCtx {
         tracking: f32,
         line_height: f32,
         native: bool,
+        runtime: Option<&crate::font_runtime::RuntimeLayout>,
     ) -> MeasureCtx {
-        let size = fonts.measure_run_provider(native, &text, slot, tracking, line_height);
-        MeasureCtx { text, slot, tracking, line_height, size }
+        let size = runtime.map_or_else(
+            || fonts.measure_run_provider(native, &text, slot, tracking, line_height),
+            |layout| (layout.width, layout.height),
+        );
+        MeasureCtx {
+            text,
+            slot,
+            tracking,
+            line_height,
+            size,
+        }
     }
 }
 
@@ -256,12 +266,15 @@ fn build(
     if node_type == spec::NodeType::Text as u8 {
         let mut run = String::new();
         tree.collect_run(slot, &mut run);
-        if run.is_empty() {
+        if run.is_empty() && tree.slots[slot as usize].runtime_text.is_none() {
             tree.slots[slot as usize].taffy = None;
             tree.slots[slot as usize].text_native = false;
             return None; // empty text nodes never consume gap/flex space [R]
         }
-        let native = fonts.native_active() && resolved.tracking == 0.0 && !in_transform;
+        let native = tree.slots[slot as usize].runtime_text.is_none()
+            && fonts.native_active()
+            && resolved.tracking == 0.0
+            && !in_transform;
         tree.slots[slot as usize].text_native = native;
         let ctx = MeasureCtx::shaped(
             fonts,
@@ -270,6 +283,7 @@ fn build(
             resolved.tracking,
             resolved.line_height,
             native,
+            tree.slots[slot as usize].runtime_text.as_ref(),
         );
         let nid = taffy.new_leaf_with_context(to_taffy(&resolved), ctx).ok()?;
         tree.slots[slot as usize].taffy = Some(nid);
@@ -394,6 +408,7 @@ pub fn relayout_root(
                     resolved.tracking,
                     resolved.line_height,
                     native,
+                    tree.slots[slot as usize].runtime_text.as_ref(),
                 );
                 let _ = eng.taffy.set_node_context(nid, Some(ctx));
             }

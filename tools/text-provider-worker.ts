@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { createTextEngine } from "../hosts/web/text-engine.js";
+import { readTextWorkerFonts } from "./text-worker-assets.ts";
 let engine: Awaited<ReturnType<typeof createTextEngine>>;
 let ready: Promise<void>;
 self.onmessage = async ({ data }) => {
@@ -7,10 +9,9 @@ self.onmessage = async ({ data }) => {
     ready = (async () => {
       engine = await createTextEngine(
         await readFile(data.init.wasm),
-        await readFile(data.init.pak),
-        await Promise.all(
-          (data.init.fonts ?? []).map((path: string) => readFile(path)),
-        ),
+        data.init.pak ? await readFile(data.init.pak) : undefined,
+        await readTextWorkerFonts(data.init.fonts ?? []),
+        { freetypeBytes: await readFile(join(dirname(data.init.wasm), "pocket_freetype.wasm")) },
       );
     })();
     await ready;

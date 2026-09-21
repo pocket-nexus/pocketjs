@@ -179,6 +179,8 @@ describe("published npm artifacts", () => {
       "tsconfig.json",
       "engine/crates/pocket-text/src",
       "engine/crates/pocket-text/Cargo.toml",
+      "engine/crates/pocket-text/build.rs",
+      "engine/crates/pocket-text/FreeType-LICENSE.txt",
       "engine/crates/pocket-text/Cargo.lock",
     ]);
   });

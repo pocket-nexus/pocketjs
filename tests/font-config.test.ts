@@ -34,6 +34,19 @@ test("malformed or oversized character policies fail before baking", () => {
   expect(() => readFontConfig(path)).toThrow();
 });
 
+test("runtime fonts are explicit, tracked static TTF assets independent of baked coverage", () => {
+  const font = resolve("assets/fonts/Inter-Regular.ttf");
+  const { path } = config({ runtime: [font, font] });
+  const reads: string[] = [];
+  const settings = readFontConfig(path, p => reads.push(p));
+  expect(settings.runtimeTtfs).toEqual([font]);
+  expect(settings.fallbackTtfs).toEqual([]);
+  expect(settings.codepoints).toEqual([]);
+  expect(reads).toContain(font);
+  expect(() => readFontConfig(config({ runtime: [resolve("assets/fonts/NotoSansCJK-Demo.otf")] }).path)).toThrow("static TrueType");
+  expect(() => readFontConfig(config({ runtime: ["missing.ttf"] }).path)).toThrow("file not found");
+});
+
 test("declared ranges and dynamic CJK metadata have real baked glyphs", async () => {
   const text = "気迫你好世界" + Array.from({length:256},(_,i)=>String.fromCodePoint(0x4e00+i)).join("");
   const {path}=config({fallback:[resolve("assets/fonts/NotoSansCJK-Demo.otf")],characters:text});

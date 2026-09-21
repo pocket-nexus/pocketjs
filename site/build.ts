@@ -14,6 +14,7 @@
 //   /docs/*, /index.html  rendered from site/content (added below)
 
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { TEXT_WORKER_ASSETS } from "../tools/text-assets.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -553,7 +554,7 @@ async function main() {
   copy(ROOT + "hosts/web/app-instance.html", "pg/app-instance.html");
   copy(ROOT + "hosts/web/app-instance.js", "pg/app-instance.js");
   copy(ROOT + "hosts/web/wasm-ops.js", "pg/wasm-ops.js");
-  for (const name of ["offload-worker.js", "text-worker.js", "text-engine.js", "pocket_text.wasm"]) {
+  for (const name of TEXT_WORKER_ASSETS) {
     copy(ROOT + "hosts/web/" + name, "pg/" + name);
   }
   copy(ROOT + "assets/fonts/Inter-Regular.ttf", "pg/fonts/Inter-Regular.ttf");

@@ -10,12 +10,32 @@ description = "Experimental portable worker-owned text layout for PocketJS io.of
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+[features]
+default = ["legacy"]
+# Existing document/bitmap service stays on std; runtime-only hosts need alloc.
+legacy = ["runtime", "dep:pocketjs-core", "dep:cosmic-text", "serde/std", "serde_json/std", "base64/std", "harfrust/std", "ttf-parser/std", "unicode-bidi/std"]
+runtime = []
+
 [dependencies]
-pocketjs-core = { path = "../../core", features = ["std"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-cosmic-text = { version = "=0.19.0", default-features = false, features = ["std", "swash"] }
-base64 = "0.22"
+pocketjs-core = { path = "../../core", features = ["std"], optional = true }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+cosmic-text = { version = "=0.19.0", default-features = false, features = ["std", "swash"], optional = true }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+harfrust = { version = "=0.5.2", default-features = false }
+ttf-parser = { version = "0.25", default-features = false, features = ["no-std-float", "opentype-layout", "apple-layout", "variable-fonts", "glyph-names"] }
+unicode-segmentation = "1"
+unicode-bidi = { version = "0.3", default-features = false, features = ["hardcoded-data"] }
+unicode-script = "0.5"
+libm = "0.2"
+
+[[example]]
+name = "runtime_probe"
+required-features = ["legacy"]
+
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"
 
 [profile.release]
 opt-level = "s"

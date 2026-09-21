@@ -34,6 +34,82 @@ describe("offload budgets and failure delivery", () => {
     r.client.step(); expect(delivered).toBe(1); expect(r.sent.length).toBe(4);
     r.client.step(); expect(delivered).toBe(2);
   });
+  test("same-frame flush shares submission credits and never receives a second reply", () => {
+    const r = rig(); let delivered = 0;
+    const first = r.client.request("db.page", "first", () => delivered++);
+    r.client.step(); expect(r.sent).toHaveLength(1);
+    const second = r.client.request("db.page", "late", () => delivered++);
+    r.client.request("db.page", "next-frame", () => delivered++);
+    r.replies.push(JSON.stringify({ id: first, payload: "[]" }), JSON.stringify({ id: second, payload: "[]" }));
+    r.client.flush(); r.client.flush();
+    expect(r.sent).toHaveLength(2); expect(delivered).toBe(0);
+    r.client.step(); r.client.flush(); r.client.flush();
+    expect(r.sent).toHaveLength(3); expect(delivered).toBe(1);
+    expect(r.replies).toHaveLength(1);
+  });
+  test("flush does not advance deadlines or dispatch expired queued requests", () => {
+    const r = rig(); const results: unknown[] = [];
+    r.disconnect();
+    for (let i = 0; i < 3; i++) r.client.request("db.page", "{}", p => results.push(p));
+    for (let i = 0; i < OFFLOAD.timeoutFrames - 1; i++) {
+      r.client.step(); r.client.flush(); r.client.flush();
+    }
+    expect(results).toHaveLength(0);
+    r.reconnect(); r.client.step(); r.client.flush();
+    expect(results).toEqual([{ ok: false, error: "Provider unavailable" }]);
+    expect(r.sent).toHaveLength(0);
+    r.client.step(); r.client.flush(); expect(results).toHaveLength(2);
+    r.client.step(); expect(results).toHaveLength(3); expect(r.client.pending()).toBe(0);
+  });
+  test("flush retains session guards until bounded error delivery", () => {
+    const r = rig(); const results: unknown[] = [];
+    r.client.step();
+    for (let i = 0; i < 3; i++) r.client.request("file.save", "edit", p => results.push(p), { session: 1 });
+    r.reconnect(); r.client.flush(); r.client.flush();
+    expect(r.sent).toHaveLength(0); expect(results).toHaveLength(0);
+    for (let i = 1; i <= 3; i++) {
+      r.client.step(); r.client.flush();
+      expect(results).toHaveLength(i); expect(r.sent).toHaveLength(0);
+    }
+  });
+  test("realm pumps receive before planning and submit late-created clients in the same frame", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pocket-offload-phases-"));
+    const previous = (globalThis as any).offload;
+    const sent: any[] = [], replies: string[] = [];
+    let takes = 0, delivered = 0, plannedAfterDelivery = 0, frame = 0;
+    const ops = { session: () => 1, take: () => { takes++; return replies.shift(); },
+      submit: (raw: string) => { sent.push(JSON.parse(raw)); return true; } };
+    (globalThis as any).offload = Object.assign(ops, { local: ops });
+    let client: ReturnType<typeof createOffloadClient> | undefined, unregister: (() => void) | undefined;
+    try {
+      const build = await Bun.build({ entrypoints: [join(import.meta.dir, "fixtures/service-client-entry.ts")], outdir: directory, target: "bun" });
+      expect(build.success).toBe(true);
+      const { offload, registerServicePump, runServicePumps } = await import(build.outputs[0].path);
+      // The planner predates its transport registration, and creates the client
+      // after this frame's receive phase has already finished.
+      unregister = registerServicePump(() => {
+        if (frame === 0) {
+          client = offload(); expect(offload("local")).toBe(client);
+          for (let i = 0; i < 3; i++) client!.request("db.page", "{}", () => delivered++);
+        } else if (frame === 1) {
+          plannedAfterDelivery = delivered;
+          client!.request("db.page", "planned-after-reply", () => delivered++);
+        }
+        frame++;
+      });
+      runServicePumps(); expect(sent).toHaveLength(2); expect(takes).toBe(0);
+      for (const request of sent) replies.push(JSON.stringify({ id: request.id, payload: "[]" }));
+      runServicePumps();
+      expect(plannedAfterDelivery).toBe(1); expect(takes).toBe(1);
+      expect(sent).toHaveLength(4); expect(delivered).toBe(1);
+      client!.flush(); expect(sent).toHaveLength(4); expect(takes).toBe(1);
+      runServicePumps(); expect(takes).toBe(2); expect(delivered).toBe(2);
+    } finally {
+      unregister?.(); client?.dispose();
+      if (previous === undefined) delete (globalThis as any).offload; else (globalThis as any).offload = previous;
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   test("does not replay sent mutations or deliver old connection results", () => {
     const r = rig(); const results: unknown[] = [];
     const id = r.client.request("file.save", "edit", p => results.push(p));

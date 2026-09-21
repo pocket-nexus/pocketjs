@@ -1149,6 +1149,11 @@ fn sample_linear(view: &TexView, u: f32, v: f32) -> Option<(u32, u32, u32, u32)>
     let sample = linear_sample_coordinates(view.w, view.h, u, v)?;
     let w = view.w as usize;
     let c00 = texel(view, sample.y0 as usize * w + sample.x0 as usize)?;
+    // Pixel-aligned glyphs land on texel centers. Zero weights select c00
+    // exactly; fractional and transformed samples retain the four-tap filter.
+    if sample.fx == 0 && sample.fy == 0 {
+        return Some(c00);
+    }
     let c01 = texel(view, sample.y0 as usize * w + sample.x1 as usize)?;
     let c10 = texel(view, sample.y1 as usize * w + sample.x0 as usize)?;
     let c11 = texel(view, sample.y1 as usize * w + sample.x1 as usize)?;
@@ -1394,6 +1399,60 @@ mod tests {
             })
         );
         assert_eq!(linear_sample_coordinates(0, 1, 0.5, 0.5), None);
+    }
+
+    #[test]
+    fn linear_sampling_preserves_centers_fractional_weights_and_edges() {
+        let rgba = [
+            255, 0, 0, 0, 0, 255, 0, 85, 0, 0, 255, 170, 255, 255, 255, 255,
+        ];
+        let rgba4444 = [0x0f, 0x00, 0xf0, 0x50, 0x00, 0xaf, 0xff, 0xff];
+        let rgb565 = [0x1f, 0x00, 0xe0, 0x07, 0x00, 0xf8, 0xff, 0xff];
+        let indices = [0, 1, 2, 3];
+        let mut palette = [0; 1024];
+        palette[..rgba.len()].copy_from_slice(&rgba);
+        for (psm, pixels, palette, opaque) in [
+            (spec::psm::PSM_8888, rgba.as_slice(), None, false),
+            (spec::psm::PSM_4444, rgba4444.as_slice(), None, false),
+            (spec::psm::PSM_5650, rgb565.as_slice(), None, true),
+            (
+                spec::psm::PSM_T8,
+                indices.as_slice(),
+                Some(palette.as_slice()),
+                false,
+            ),
+        ] {
+            let view = TexView {
+                pixels,
+                w: 2,
+                h: 2,
+                psm,
+                palette,
+                linear: true,
+            };
+            for (u, v, expected) in [
+                (0.25, 0.25, (255, 0, 0, 0)),
+                (0.75, 0.25, (0, 255, 0, 85)),
+                (0.25, 0.75, (0, 0, 255, 170)),
+                (0.75, 0.75, (255, 255, 255, 255)),
+                (0.5, 0.25, (127, 127, 0, 42)),
+                (0.25, 0.5, (127, 0, 127, 85)),
+                (0.5, 0.5, (127, 127, 127, 127)),
+                (0.125, 0.25, (63, 191, 0, 63)),
+                (1.25, 1.25, (255, 255, 255, 255)),
+            ] {
+                let expected = if opaque {
+                    (expected.0, expected.1, expected.2, 255)
+                } else {
+                    expected
+                };
+                assert_eq!(
+                    sample_linear(&view, u, v),
+                    Some(expected),
+                    "psm={psm} uv=({u},{v})"
+                );
+            }
+        }
     }
 
     #[test]

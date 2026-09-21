@@ -50,6 +50,13 @@ void ui_set_cursor(int32_t texture, float hot_x, float hot_y, float width, float
 void ui_set_cursor_pos(float x, float y);
 int32_t ui_load_styles(const uint8_t *bytes, size_t length);
 int32_t ui_load_font_atlas(const uint8_t *bytes, size_t length);
+int32_t ui_font_stream_configure(const uint8_t *bytes, size_t length);
+uint32_t ui_font_stream_commit(const uint8_t *bytes, size_t length);
+int32_t ui_font_stream_batch(const uint8_t *bytes, size_t length);
+/* Query returns UTF-8 byte length; pointer is valid until the next query. */
+size_t ui_font_stream_requests(void);
+size_t ui_font_stream_stats(void);
+const uint8_t *ui_font_stream_json_ptr(void);
 float ui_measure_text(const uint8_t *text, size_t length, uint32_t font_slot);
 void ui_tick(void);
 void ui_debug_inspect(int32_t id);

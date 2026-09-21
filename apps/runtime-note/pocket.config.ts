@@ -1,0 +1,1 @@
+../note/pocket.config.ts

@@ -40,7 +40,7 @@ async function harness(capacity: number, resident = "你好", maxBytes?: number,
             replies.push(JSON.stringify({ id: q.id, payload }));
           } catch (e) { replies.push(JSON.stringify({ id: q.id, error: String(e) })); }
         }
-        client.step(); runServicePumps(); wasm.tick();
+        client.step(); runServicePumps(); client.flush(); wasm.tick();
       }
     },
     close() { archive.dispose(); client.dispose(); provider.close(); rmSync(dir, { recursive: true, force: true }); },

@@ -7,6 +7,26 @@ on:
       - 'framework/compiler/**'
       - 'framework/src/pak.ts'
       - 'framework/src/fonts.ts'
+      - 'framework/src/runtime-fonts.ts'
+      - 'framework/src/text-geometry.ts'
+      - 'framework/src/native-tree.ts'
+      - 'contracts/spec/runtime-text.ts'
+      - 'engine/crates/pocket-text/**'
+      - 'hosts/web/*freetype*'
+      - 'hosts/web/text-*'
+      - 'hosts/web/engine.js'
+      - 'hosts/web/offload-worker.js'
+      - 'tools/text-wasm.ts'
+      - 'tools/text-provider-worker.ts'
+      - 'tools/text-worker-assets.ts'
+      - 'tools/text-assets.ts'
+      - 'tests/runtime-text*.test.ts'
+      - 'tests/runtime-fonts.test.ts'
+      - 'tests/runtime-font-ui.test.ts'
+      - 'tests/runtime-note.test.ts'
+      - 'apps/runtime-note/**'
+      - 'tests/helpers/runtime-text-worker.ts'
+      - 'tests/fixtures/runtime-font/**'
       - 'framework/src/primitives.ts'
       - 'framework/src/host.ts'
       - 'framework/src/resource.ts'
@@ -15,8 +35,23 @@ on:
       - 'tools/text-lab-*.ts'
       - 'tests/text-batch.test.ts'
       - 'framework/src/offload.ts'
+      - 'framework/src/services.ts'
+      - 'tests/offload.test.ts'
+      - 'tests/fixtures/offload-queue.c'
+      - 'tests/fixtures/service-client-entry.ts'
       - 'contracts/spec/font-archive.ts'
       - 'hosts/psp/src/offload_local.rs'
+      - 'hosts/psp/src/local_text.rs'
+      - 'hosts/psp/src/worker_heap.rs'
+      - 'hosts/psp/src/alloc.rs'
+      - 'hosts/psp/src/c_heap.rs'
+      - 'hosts/psp/targets/**'
+      - 'hosts/psp/tests/local-text/**'
+      - 'tools/psp-freetype.ts'
+      - 'tools/psp-load-image.ts'
+      - 'tests/psp-freetype.test.ts'
+      - 'tests/psp-load-image.test.ts'
+      - 'tests/psp-worker-heap.test.ts'
       - 'hosts/psp/src/ffi.rs'
       - 'hosts/web/wasm-ops.js'
       - 'tests/helpers/font-archive-provider.ts'
@@ -42,13 +77,17 @@ permissions:
 jobs:
   text:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y libfreetype6-dev pkg-config
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 5.0.5
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
           targets: wasm32-unknown-unknown
@@ -57,7 +96,21 @@ jobs:
           workspaces: |
             engine/core
             engine/wasm
+            engine/crates/pocket-text
       - run: cargo test --locked --manifest-path engine/core/Cargo.toml
+      - run: cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml --no-default-features --features runtime --lib
+      - run: bun test tests/psp-freetype.test.ts tests/psp-load-image.test.ts tests/psp-worker-heap.test.ts
+      - run: bun test tests/offload.test.ts tests/service-client.test.ts tests/text-layout-client.test.ts
       - run: bun tools/wasm.ts
+      - run: bun tools/test.ts --stage="runtime text"
+        env:
+          POCKET_RUNTIME_FONT_SHOT: .pocket-build/validation/runtime-ttf/preview/runtime-note.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-font-preview
+          path: .pocket-build/validation/runtime-ttf/preview/runtime-note.png
+          if-no-files-found: ignore
+          include-hidden-files: true
       - run: bun test tests/font-bake.test.ts tests/font-config.test.ts tests/font-archive.test.ts tests/text-batch.test.ts tests/text-cjk.test.ts
       - run: bun test --conditions=browser tests/renderer.test.ts

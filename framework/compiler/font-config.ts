@@ -3,18 +3,20 @@ import { dirname, resolve } from "node:path";
 
 export interface FontConfig {
   fallbackTtfs: string[];
+  /** Immutable static TTF bytes supplied to the text worker through the PAK. */
+  runtimeTtfs: string[];
   codepoints: number[];
 }
 
 /** Character coverage is independent of the JS source graph. Runtime file
  * names and metadata can use any scalar admitted by this build policy. */
 export function readFontConfig(path: string, onRead: (path: string) => void = () => {}): FontConfig {
-  if (!existsSync(path)) return { fallbackTtfs: [], codepoints: [] };
+  if (!existsSync(path)) return { fallbackTtfs: [], runtimeTtfs: [], codepoints: [] };
   onRead(path);
   const value = JSON.parse(readFileSync(path, "utf8"));
   const fail = (message: string): never => { throw new Error(`PocketJS fonts.json: ${message}`); };
   if (!value || typeof value !== "object" || Array.isArray(value)) fail("expected an object");
-  for (const key of Object.keys(value)) if (!["fallback", "characters", "characterFiles", "ranges"].includes(key)) fail(`unknown field ${key}`);
+  for (const key of Object.keys(value)) if (!["fallback", "runtime", "characters", "characterFiles", "ranges"].includes(key)) fail(`unknown field ${key}`);
   const strings = (key: string): string[] => {
     const list = value[key] ?? [];
     if (!Array.isArray(list) || list.some(x => typeof x !== "string" || !x)) fail(`${key} must be an array of nonempty strings`);
@@ -46,5 +48,24 @@ export function readFontConfig(path: string, onRead: (path: string) => void = ()
     if (from > to || to > 0x10ffff || to - from >= 65534) fail(`invalid or oversized Unicode range: ${range}`);
     for (let cp = from; cp <= to; cp++) add(cp);
   }
-  return { fallbackTtfs: strings("fallback").map(file), codepoints: [...points].sort((a, b) => a - b) };
+  const runtimeTtfs = [...new Set(strings("runtime").map(file))];
+  if (runtimeTtfs.length > 8) fail("runtime font count exceeds 8");
+  let runtimeBytes = 0;
+  for (const path of runtimeTtfs) {
+    const bytes = readFileSync(path);
+    runtimeBytes += bytes.length;
+    if (runtimeBytes > 32 * 1024 * 1024) fail("runtime fonts exceed the 32 MiB source budget");
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (bytes.length < 12 || view.getUint32(0) !== 0x00010000) fail("runtime fonts must be static TrueType faces");
+    const count = view.getUint16(4);
+    if (bytes.length < 12 + count * 16) fail("truncated runtime font directory");
+    const tags = new Set<string>();
+    for (let i = 0; i < count; i++) {
+      const offset = 12 + i * 16;
+      tags.add(bytes.toString("ascii", offset, offset + 4));
+      if (view.getUint32(offset + 8) + view.getUint32(offset + 12) > bytes.length) fail("truncated runtime font table");
+    }
+    if (!tags.has("glyf") || !tags.has("loca") || tags.has("fvar")) fail("runtime fonts require static TrueType outlines");
+  }
+  return { fallbackTtfs: strings("fallback").map(file), runtimeTtfs, codepoints: [...points].sort((a, b) => a - b) };
 }
