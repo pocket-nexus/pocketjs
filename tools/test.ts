@@ -122,6 +122,7 @@ const SUITE: readonly Stage[] = [
       "tests/web-system-host.test.ts",
       "tests/wasm-auxiliary.test.ts",
       "tests/vita-package.test.ts",
+      "tests/vita-dev.test.ts",
       "tests/psp-toolchain.test.ts",
       "tests/psp-arena.test.ts",
       "tests/psp-qjs-allocator.test.ts",

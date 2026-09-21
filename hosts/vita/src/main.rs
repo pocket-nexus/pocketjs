@@ -1,5 +1,11 @@
 use pocketjs_core::spec;
-use pocketjs_vita::{graphics, input, switch, vita_log, Runtime};
+use pocketjs_vita::{
+    dev,
+    dev_protocol::{Bundle, Op},
+    devmenu::Action,
+    graphics, input, switch, vita_log, Runtime,
+};
+use std::sync::Arc;
 
 #[cfg(feature = "bench")]
 mod bench;
@@ -101,34 +107,52 @@ fn fail(message: &str) -> ! {
     }
 }
 
-/// A broken embedded app returns to app 0. A broken launcher (or any
-/// single-app VPK) retains the existing visible halt behavior.
-unsafe fn guest_fail(app_index: usize, message: &str) -> usize {
-    switch::cancel_pending();
-    if switch::multi() && app_index != 0 {
-        vita_log(format_args!("[PocketJS Vita guest error] {message}"));
-        0
-    } else {
-        fail(message)
-    }
-}
-
 /// Boot one embedded guest, drive it until an app switch is requested, then
 /// retire it at a closed-scene boundary and return the next table index.
-unsafe fn run_guest(app_index: usize) -> usize {
-    switch::set_current(app_index);
-    let Some(guest) = switch::guest_bytes(app_index) else {
-        return guest_fail(app_index, "embedded package unreadable for Vita");
+unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<Runtime, String> {
+    let mut runtime = if let Some(bundle) = active {
+        Runtime::with_owned_pak(bundle.pak.clone())?
+    } else {
+        Runtime::new(
+            switch::guest_bytes(app_index)
+                .ok_or("embedded package unreadable")?
+                .pak,
+        )?
     };
-
-    let mut runtime = match Runtime::new(guest.pak) {
-        Ok(runtime) => runtime,
-        Err(error) => return guest_fail(app_index, &error),
-    };
-    if let Err(error) = runtime.eval(guest.js) {
+    let js = active
+        .as_ref()
+        .map(|b| b.js.as_str())
+        .unwrap_or_else(|| switch::guest_bytes(app_index).unwrap().js);
+    if let Err(error) = runtime.eval(js) {
         runtime.shutdown();
-        return guest_fail(app_index, &error);
+        return Err(error);
     }
+    Ok(runtime)
+}
+
+fn embedded_hash(app_index: usize) -> String {
+    switch::guest_bytes(app_index)
+        .map(|guest| {
+            let js = guest.js.as_bytes();
+            let js = js.strip_suffix(&[0]).unwrap_or(js);
+            format!("{:016x}", pocketjs_core::package::fnv1a64(&[js, guest.pak]))
+        })
+        .unwrap_or_else(|| "unavailable".into())
+}
+
+unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
+    switch::set_current(app_index);
+    dev.active_hash = embedded_hash(app_index);
+    dev.error.clear();
+    let mut active: Option<Arc<Bundle>> = None;
+    let mut runtime = boot_guest(app_index, &active)
+        .map_err(|e| {
+            dev.error = e;
+            dev.menu.visible = true;
+        })
+        .ok();
+    // Retain the last admitted bundle until the candidate produces its first frame.
+    let mut pending: Option<(Option<dev::Request>, Option<Arc<Bundle>>, String)> = None;
 
     // A newly booted guest starts latched. If SELECT is still held from the
     // launcher action that booted it, require a release before it can summon.
@@ -141,6 +165,7 @@ unsafe fn run_guest(app_index: usize) -> usize {
     let last_capture = wanted.iter().copied().max().unwrap_or(0);
 
     loop {
+        let current_frame = GLOBAL_FRAME;
         #[cfg(feature = "bench")]
         benchmark.begin();
         #[cfg(feature = "capture")]
@@ -154,6 +179,13 @@ unsafe fn run_guest(app_index: usize) -> usize {
             let pad = input::read();
             (pad.buttons as i32, pad.left_analog(), input::read_touches())
         };
+        let (filtered, action) = dev.menu.input(buttons as u32);
+        buttons = filtered as i32;
+        let touches = if dev.menu.visible {
+            input::TouchSnapshot::EMPTY
+        } else {
+            touches
+        };
 
         // SELECT is a host-owned summon chord only in non-launcher guests.
         // Strip it from their guest ABI and schedule the swap on its press edge.
@@ -166,13 +198,51 @@ unsafe fn run_guest(app_index: usize) -> usize {
             buttons &= !(spec::btn::SELECT as i32);
         }
 
-        if let Err(error) = runtime.frame_with_input(buttons, analog, &touches) {
-            runtime.shutdown();
-            return guest_fail(app_index, &error);
+        if let Some(guest) = runtime.as_mut() {
+            if let Err(error) = guest.frame_with_input(
+                buttons,
+                if dev.menu.visible {
+                    spec::ANALOG_CENTER as i32
+                } else {
+                    analog
+                },
+                &touches,
+            ) {
+                runtime.take().unwrap().shutdown();
+                switch::cancel_pending();
+                if let Some((request, previous, hash)) = pending.take() {
+                    active = previous;
+                    dev.active_hash = hash;
+                    runtime = boot_guest(app_index, &active).ok();
+                    if let Some(request) = request {
+                        request.finish(Err(format!(
+                            "candidate frame failed; previous guest restored: {error}"
+                        )));
+                    }
+                }
+                dev.error = error;
+                dev.menu.visible = true;
+            }
         }
-        runtime.tick();
-        runtime.render();
+        if let Some(guest) = runtime.as_mut() {
+            guest.tick();
+            guest.render();
+        } else {
+            graphics::begin_frame(0xff1c_1410);
+        }
+        dev.overlay();
         graphics::present();
+        if pending.is_some() {
+            vita2d_sys::vita2d_wait_rendering_done();
+        }
+        if let Some((request, _, _)) = pending.take() {
+            dev.generation += 1;
+            dev.error.clear();
+            if let Some(request) = request {
+                request.finish(Ok(serde_json::json!({"generation":dev.generation,"bundle":dev.active_hash,"frame":current_frame,"nativeBuild":dev::NATIVE_BUILD})));
+            }
+        }
+        dev.publish(GLOBAL_FRAME, switch::APPS[app_index].output);
         #[cfg(feature = "bench")]
         if let Err(error) = benchmark.end(GLOBAL_FRAME) {
             vita_log(format_args!("Vita benchmark: {error}"));
@@ -182,6 +252,8 @@ unsafe fn run_guest(app_index: usize) -> usize {
         if wanted.contains(&GLOBAL_FRAME) {
             let stem = format!("{CAPTURE_DIR}/f{:04}", GLOBAL_FRAME);
             runtime
+                .as_mut()
+                .unwrap()
                 .capture_golden(&format!("{stem}.rgba"))
                 .unwrap_or_else(|error| fail(&error.to_string()));
             std::fs::write(format!("{stem}.json"), switch::frame_json(app_index))
@@ -204,11 +276,97 @@ unsafe fn run_guest(app_index: usize) -> usize {
         // DrawList before the outgoing core is dropped.
         if let Some((next, summon)) = switch::take_pending() {
             if summon {
-                runtime.capture_switch_shot();
+                if let Some(guest) = runtime.as_mut() {
+                    guest.capture_switch_shot();
+                }
             }
             GLOBAL_FRAME = GLOBAL_FRAME.wrapping_add(1);
-            runtime.shutdown();
+            if let Some(guest) = runtime.take() {
+                guest.shutdown();
+            }
             return next;
+        }
+
+        let mut request = dev.poll();
+        let op = request.as_ref().map(|r| r.command.op).or(match action {
+            Action::Reload => Some(Op::Reload),
+            Action::Reset => Some(Op::Reset),
+            Action::Capture => Some(Op::Capture),
+            Action::None => None,
+        });
+        match op {
+            Some(Op::Status) => {
+                request
+                    .take()
+                    .unwrap()
+                    .finish(Ok(dev.status(current_frame, switch::APPS[app_index].output)));
+            }
+            Some(Op::Menu) => {
+                dev.menu.visible = !dev.menu.visible;
+                request
+                    .take()
+                    .unwrap()
+                    .finish(Ok(serde_json::json!({"menu":dev.menu.visible})));
+            }
+            Some(Op::Capture) => {
+                if let Some(request) = request.take() {
+                    let _ = request.reply.try_send(dev.capture(GLOBAL_FRAME));
+                } else {
+                    dev.capture_from_menu(GLOBAL_FRAME);
+                }
+            }
+            Some(Op::Push | Op::Reload | Op::Reset) => {
+                if app_index != 0 && op == Some(Op::Push) {
+                    request
+                        .take()
+                        .unwrap()
+                        .finish(Err("return to the VPK's main guest before updating".into()));
+                } else {
+                    let previous = active.clone();
+                    let hash = dev.active_hash.clone();
+                    if op == Some(Op::Push) {
+                        active = request.as_mut().unwrap().bundle.take().map(Arc::new);
+                    }
+                    if op == Some(Op::Reset) {
+                        active = None;
+                    }
+                    if let Some(guest) = runtime.take() {
+                        guest.shutdown();
+                    }
+                    switch::cancel_pending();
+                    match boot_guest(app_index, &active) {
+                        Ok(guest) => {
+                            runtime = Some(guest);
+                            dev.active_hash = active
+                                .as_ref()
+                                .map(|b| b.hash.clone())
+                                .unwrap_or_else(|| embedded_hash(app_index));
+                            pending = Some((request.take(), previous, hash));
+                        }
+                        Err(error) => {
+                            active = previous;
+                            runtime = boot_guest(app_index, &active).ok();
+                            dev.error = error.clone();
+                            dev.menu.visible = true;
+                            if let Some(request) = request.take() {
+                                request.finish(Err(format!(
+                                    "candidate boot failed; previous guest restored: {error}"
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+            Some(Op::Native) => {
+                let request = request.take().unwrap();
+                if let Some(guest) = runtime.take() {
+                    guest.shutdown();
+                }
+                let result = dev::exec_native(request.native_path.as_ref().unwrap());
+                runtime = boot_guest(app_index, &active).ok();
+                request.finish(result.map(|_| serde_json::json!({})));
+            }
+            None => {}
         }
 
         GLOBAL_FRAME = GLOBAL_FRAME.wrapping_add(1);
@@ -217,9 +375,12 @@ unsafe fn run_guest(app_index: usize) -> usize {
 
 fn main() {
     unsafe {
+        graphics::init().unwrap_or_else(|error| fail(error));
+        input::init();
+        let mut dev = dev::Host::new();
         let mut next = 0usize;
         loop {
-            next = run_guest(next);
+            next = run_guest(next, &mut dev);
         }
     }
 }

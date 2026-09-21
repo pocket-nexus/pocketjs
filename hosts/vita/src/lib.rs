@@ -11,6 +11,9 @@ use pocketjs_core::Ui;
 
 pub mod audio;
 pub mod dbg;
+pub mod dev;
+pub mod dev_protocol;
+pub mod devmenu;
 pub mod ffi;
 pub mod graphics;
 pub mod input;
@@ -28,6 +31,11 @@ static mut INPUT_INITIALIZED: bool = false;
 static mut GUEST_NATIVE_ACTIVE: bool = false;
 
 extern "C" {
+    fn JS_SetInterruptHandler(
+        rt: *mut JSRuntime,
+        callback: Option<unsafe extern "C" fn(*mut JSRuntime, *mut c_void) -> i32>,
+        opaque: *mut c_void,
+    );
     fn JS_NewArray(ctx: *mut JSContext) -> JSValue;
     fn JS_SetPropertyUint32(
         ctx: *mut JSContext,
@@ -80,6 +88,8 @@ pub struct Runtime {
     ctx: *mut JSContext,
     global: JSValue,
     frame_fn: JSValue,
+    owned_pak: Option<std::sync::Arc<[u8]>>,
+    deadline: Box<std::time::Instant>,
 }
 
 impl Runtime {
@@ -123,6 +133,14 @@ impl Runtime {
             return Err(String::from("JS_NewContext failed"));
         }
         let global = JS_GetGlobalObject(ctx);
+        let mut deadline = Box::new(std::time::Instant::now() + std::time::Duration::from_secs(5));
+        if cfg!(feature = "usb-debug") {
+            JS_SetInterruptHandler(
+                rt,
+                Some(guest_interrupt),
+                (&mut *deadline as *mut std::time::Instant).cast(),
+            );
+        }
         ffi::register(ctx, global, &textures, &sprites);
         if !app_pak.is_empty() {
             let ptr = app_pak.as_ptr() as *mut u8;
@@ -134,7 +152,21 @@ impl Runtime {
             ctx,
             global,
             frame_fn: JS_UNDEFINED,
+            owned_pak: None,
+            deadline,
         })
+    }
+
+    /// Own a hot-updated PAK until QuickJS and native resources are retired.
+    /// The render-thread and closed-scene requirements of `new` still apply.
+    pub unsafe fn with_owned_pak(pak: std::sync::Arc<[u8]>) -> Result<Self, String> {
+        // The Arc is retained in Runtime; shutdown clears every borrower before
+        // releasing it. Drop without shutdown retains it, as it cannot retire
+        // native resources inside an external host's open scene.
+        let bytes = core::slice::from_raw_parts(pak.as_ptr(), pak.len());
+        let mut runtime = Self::new(bytes)?;
+        runtime.owned_pak = Some(pak);
+        Ok(runtime)
     }
 
     #[inline]
@@ -165,6 +197,7 @@ impl Runtime {
     /// Call on the runtime's owning thread. The bundle must obey PocketJS's
     /// single-realm host contract.
     pub unsafe fn eval(&mut self, app_js: &str) -> Result<(), String> {
+        *self.deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let Some(len) = app_js
             .len()
             .checked_sub(1)
@@ -196,6 +229,7 @@ impl Runtime {
     }
 
     unsafe fn call_frame(&mut self, values: &mut [JSValue]) -> Result<(), String> {
+        *self.deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
         let result = JS_Call(
             self.ctx,
             self.frame_fn,
@@ -290,6 +324,9 @@ impl Runtime {
     /// Call only on the runtime's owning thread.
     pub unsafe fn drain_jobs(&mut self) -> Result<(), String> {
         loop {
+            if cfg!(feature = "usb-debug") && std::time::Instant::now() > *self.deadline {
+                return Err("guest JavaScript time budget exceeded".into());
+            }
             let mut pending_ctx: *mut JSContext = core::ptr::null_mut();
             let result = JS_ExecutePendingJob(self.rt, &mut pending_ctx);
             if result > 0 {
@@ -381,6 +418,7 @@ impl Runtime {
         svc::reset();
         self.release_quickjs();
         reset_guest_state();
+        self.owned_pak = None;
     }
 
     /// Write a deterministic native-density 960x544 golden for the current UI
@@ -396,6 +434,10 @@ impl Runtime {
     }
 }
 
+unsafe extern "C" fn guest_interrupt(_rt: *mut JSRuntime, opaque: *mut c_void) -> i32 {
+    (std::time::Instant::now() > *opaque.cast::<std::time::Instant>()) as i32
+}
+
 impl Drop for Runtime {
     fn drop(&mut self) {
         unsafe {
@@ -403,6 +445,9 @@ impl Drop for Runtime {
             // external host drops Runtime while composing an open scene. Full
             // guest replacement requires the explicit shutdown boundary above.
             self.release_quickjs();
+            if let Some(pak) = self.owned_pak.take() {
+                std::mem::forget(pak);
+            }
         }
     }
 }

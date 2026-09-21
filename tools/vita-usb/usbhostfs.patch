@@ -1,0 +1,766 @@
+diff --git a/usbhostfs/CMakeLists.txt b/usbhostfs/CMakeLists.txt
+index 964110f..99ec3f0 100755
+--- a/usbhostfs/CMakeLists.txt
++++ b/usbhostfs/CMakeLists.txt
+@@ -41,17 +41,18 @@ target_include_directories(${PROJECT_NAME} PRIVATE
+ 
+ target_link_libraries(${PROJECT_NAME}
+         taihenForKernel_stub
+-        SceSysmemForKernel_stub
++        taihenModuleUtils_stub
+         SceSysmemForDriver_stub
+         SceThreadmgrForDriver_stub
+         SceIofilemgrForDriver_stub
+         SceUdcdForDriver_stub
+         SceCpuForDriver_stub
+         SceDebugForDriver_stub
+-        k
++        SceSysclibForDriver_stub
+         gcc
+         -nostdlib
+         )
+ 
+ vita_create_self(${PROJECT_NAME}.skprx ${PROJECT_NAME}
++        UNSAFE
+         CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}.yml)
+diff --git a/usbhostfs/hooks_io.c b/usbhostfs/hooks_io.c
+index d5edeb4..1ea262c 100755
+--- a/usbhostfs/hooks_io.c
++++ b/usbhostfs/hooks_io.c
+@@ -8,6 +8,26 @@
+ static SceClass p2sIoClass;
+ static int host_fds[MAX_HOST_FD];
+ 
++/* SceSysmemForKernel changed NIDs in 3.63. A static 3.60 import prevents
++ * the module from loading at all (0x8002d003) on later firmware. Resolve
++ * this one private entry through taiHEN before installing any hooks. */
++extern int module_get_export_func(SceUID pid, const char *module,
++                                 uint32_t library, uint32_t function, uintptr_t *address);
++static SceUID (*create_uid)(SceClass *, const char *, SceGUIDKernelCreateOpt *, SceObjectBase **);
++
++int prepare_hooks_io(void) {
++    uintptr_t address = 0;
++    int result = module_get_export_func(KERNEL_PID, "SceSysmem",
++                                       0x63A519E5, 0xDF0288D7, &address);
++    if (result < 0 || address == 0) {
++        result = module_get_export_func(KERNEL_PID, "SceSysmem",
++                                       0x02451F0F, 0xFB6390CE, &address);
++    }
++    if (result < 0 || address == 0) return result < 0 ? result : (int)0x8002D00B;
++    create_uid = (void *)address;
++    return 0;
++}
++
+ // kernel hooks
+ static Hook hooks[HOOK_END] = {
+         // io/fcntl.h
+@@ -118,8 +138,10 @@ SceUID _ksceIoOpen(const char *file, int flags, SceMode mode) {
+     }
+ 
+     fid = open_host_fd(file, flags, mode);
+-    ret = ksceKernelCreateUidObj(&p2sIoClass, "io_hook", NULL, (SceObjectBase **) &ffd);
++    if (fid < 0) return fid;
++    ret = create_uid(&p2sIoClass, "io_hook", NULL, (SceObjectBase **) &ffd);
+     if (ret < 0) {
++        close_host_fd(fid);
+         printf("_ksceIoOpen: ksceKernelCreateUidObj failed (0x%08X)\n", ret);
+         return ret;
+     }
+@@ -142,17 +164,19 @@ SceUID _ksceIoOpen2(SceUID pid, const char *file, int flags, SceMode mode) {
+     }
+ 
+     fid = open_host_fd(file, flags, mode);
++    if (fid < 0) return fid;
+     if (pid == KERNEL_PID) {
+-        ret = ksceKernelCreateUidObj(&p2sIoClass, "io_hook", NULL, (SceObjectBase **) &ffd);
++        ret = create_uid(&p2sIoClass, "io_hook", NULL, (SceObjectBase **) &ffd);
+     } else {
+         SceCreateUidObjOpt opt;
+         memset(&opt, 0, sizeof(opt));
+         opt.flags = 8;
+         opt.pid = (SceUInt32) pid;
+-        ret = ksceKernelCreateUidObj(&p2sIoClass, "io_hook_user", &opt, (SceObjectBase **) &ffd);
++        ret = create_uid(&p2sIoClass, "io_hook_user", &opt, (SceObjectBase **) &ffd);
+     }
+ 
+     if (ret < 0) {
++        close_host_fd(fid);
+         printf("_ksceIoOpen2: ksceKernelCreateUidObj failed (0x%08X)\n", ret);
+         return ret;
+     }
+@@ -178,8 +202,9 @@ int _ksceIoClose(SceUID uid) {
+ 
+     res = close_host_fd(ffd->fd);
+     printf("_ksceIoClose(0x%08X) = 0x%08X\n", ffd->fd, res);
++    SceUID owned_uid = ffd->uid;
+     ksceKernelUidRelease(uid);
+-    ksceKernelDeleteUid(ffd->uid);
++    ksceKernelDeleteUid(owned_uid);
+ 
+     return res;
+ }
+@@ -197,6 +222,8 @@ int _ksceIoRead(SceUID uid, void *data, SceSize size) {
+ 
+     res = io_read(ffd->fd, data, size);
+     printf("_ksceIoRead(0x%08X, data, %i) = 0x%08X\n", ffd->fd, size, res);
++    /* GetObjForUid retains the object even when host I/O fails. */
++    ksceKernelUidRelease(uid);
+ 
+     return res;
+ }
+@@ -214,6 +241,7 @@ int _ksceIoWrite(SceUID uid, const void *data, SceSize size) {
+ 
+     res = io_write(ffd->fd, data, size);
+     printf("_ksceIoWrite(0x%08X, data, %i) = 0x%08X\n", ffd->fd, size, res);
++    ksceKernelUidRelease(uid);
+ 
+     return res;
+ }
+@@ -231,6 +259,7 @@ SceOff _ksceIoLseek(SceUID uid, SceOff offset, int whence) {
+ 
+     res = io_lseek(ffd->fd, offset, whence);
+     printf("_ksceIoLseek(0x%08X, %lld, %i) == %lld\n", ffd->fd, offset, whence, res);
++    ksceKernelUidRelease(uid);
+ 
+     return res;
+ }
+@@ -388,10 +417,12 @@ static int free_class(void *ffd) {
+     return 0;
+ }
+ 
+-void set_hooks_io() {
++int set_hooks_io(void) {
+ 
+-    ksceKernelCreateClass(&p2sIoClass, "p2sIoClass", ksceKernelGetUidClass(),
+-                          sizeof(fopen_fd), init_class, free_class);
++    if (!create_uid) return (int)0x8002D00B;
++    int result = ksceKernelCreateClass(&p2sIoClass, "p2sIoClass", ksceKernelGetUidClass(),
++                                     sizeof(fopen_fd), init_class, free_class);
++    if (result < 0) return result;
+     //printf("ksceKernelCreateClass(p2sIoClass): 0x%08X\n", ret);
+ 
+     for (int i = 0; i < MAX_HOST_FD; i++) {
+@@ -406,7 +437,13 @@ void set_hooks_io() {
+                 hooks[i].lib,
+                 hooks[i].nid,
+                 hooks[i].func);
++        if (hooks[i].uid < 0) {
++            int error = hooks[i].uid;
++            delete_hooks_io();
++            return error;
++        }
+     }
++    return 0;
+ }
+ 
+ void delete_hooks_io() {
+diff --git a/usbhostfs/hooks_io.h b/usbhostfs/hooks_io.h
+index 9e0bf2b..09d2659 100755
+--- a/usbhostfs/hooks_io.h
++++ b/usbhostfs/hooks_io.h
+@@ -8,9 +8,9 @@
+ #include <psp2kern/kernel/sysmem.h>
+ #include <psp2kern/io/dirent.h>
+ #include <psp2kern/io/stat.h>
+-#include <libk/stdlib.h>
+-#include <libk/string.h>
+-#include <libk/stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
+ #include <taihen.h>
+ 
+ #define MAX_HOST_FD 128
+@@ -94,7 +94,9 @@ int _ksceIoChstat(const char *file, SceIoStat *stat, int bits);
+ int _ksceIoDevctl(const char *dev, unsigned int cmd, void *indata, int inlen, void *outdata, int outlen);
+ // io/devctl.h
+ 
+-void set_hooks_io();
++int prepare_hooks_io(void);
++
++int set_hooks_io(void);
+ 
+ void delete_hooks_io();
+ 
+diff --git a/usbhostfs/host_driver.c b/usbhostfs/host_driver.c
+index 1c30637..368f45f 100755
+--- a/usbhostfs/host_driver.c
++++ b/usbhostfs/host_driver.c
+@@ -12,9 +12,9 @@
+  */
+ 
+ #include <psp2kern/io/dirent.h>
+-#include <libk/stdlib.h>
+-#include <libk/string.h>
+-#include <libk/stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
+ 
+ #include "usbhostfs.h"
+ 
+diff --git a/usbhostfs/psp2.h b/usbhostfs/psp2.h
+index 54a334a..3c76e33 100755
+--- a/usbhostfs/psp2.h
++++ b/usbhostfs/psp2.h
+@@ -1,9 +1,9 @@
+ #ifndef _PSP2_H_
+ #define _PSP2_H_
+ 
+-#include <libk/stdio.h>
+-#include <libk/string.h>
+-#include <libk/stdarg.h>
++#include <stdio.h>
++#include <string.h>
++#include <stdarg.h>
+ #include <psp2kern/udcd.h>
+ #include <psp2kern/types.h>
+ #include <psp2kern/kernel/threadmgr.h>
+@@ -19,38 +19,6 @@ typedef unsigned int u32;
+ #define PSP_EVENT_WAITOR SCE_EVENT_WAITOR
+ #define PSP_EVENT_WAITCLEAR SCE_EVENT_WAITCLEAR
+ 
+-struct UsbData {
+-    unsigned char devdesc[20];
+-
+-    struct Config {
+-        void *pconfdesc;
+-        void *pinterfaces;
+-        void *pinterdesc;
+-        void *pendp;
+-    } config;
+-
+-    struct ConfDesc {
+-        unsigned char desc[12];
+-        void *pinterfaces;
+-    } confdesc;
+-
+-    unsigned char pad1[8];
+-    struct Interfaces {
+-        void *pinterdesc[2];
+-        unsigned int intcount;
+-    } interfaces;
+-
+-    struct InterDesc {
+-        unsigned char desc[12];
+-        void *pendp;
+-        unsigned char pad[32];
+-    } interdesc;
+-
+-    struct Endp {
+-        unsigned char desc[16];
+-    } endp[4];
+-} __attribute__((packed));
+-
+ #define UsbDriver SceUdcdDriver
+ #define UsbdDeviceReq SceUdcdDeviceRequest
+ #define DeviceDescriptor SceUdcdDeviceDescriptor
+@@ -80,9 +48,9 @@ struct UsbData {
+ #define sceKernelDelayThread ksceKernelDelayThread
+ #define sceKernelExitDeleteThread ksceKernelExitDeleteThread
+ #define sceKernelTerminateDeleteThread ksceKernelExitDeleteThread
+-#define sceKernelDcacheInvalidateRange ksceKernelCpuDcacheAndL2InvalidateRange
+-#define sceKernelDcacheWritebackRange ksceKernelCpuDcacheAndL2WritebackRange
+-#define pspSdkEnableInterrupts ksceKernelCpuEnableInterrupts
+-#define pspSdkDisableInterrupts ksceKernelCpuDisableInterrupts
++#define sceKernelDcacheInvalidateRange ksceKernelDcacheInvalidateRange
++#define sceKernelDcacheWritebackRange ksceKernelDcacheCleanRange
++#define pspSdkEnableInterrupts ksceKernelCpuResumeIntr
++#define pspSdkDisableInterrupts ksceKernelCpuSuspendIntr
+ 
+ #endif // _PSP2_H_
+diff --git a/usbhostfs/usbhostfs.c b/usbhostfs/usbhostfs.c
+index bb94e59..8415e0c 100755
+--- a/usbhostfs/usbhostfs.c
++++ b/usbhostfs/usbhostfs.c
+@@ -35,6 +35,8 @@ enum UsbTransEvents {
+ 
+ /* Main USB thread id */
+ static SceUID g_thid = -1;
++static int g_thread_started = 0;
++static const char *g_start_callback = "not-entered";
+ /* Main USB event flag */
+ static SceUID g_mainevent = -1;
+ /* Main USB transfer event flag */
+@@ -87,8 +89,9 @@ struct ConfigDescriptor confdesc_hi =
+         };
+ 
+ /* Hi-Speed interface descriptor */
+-struct InterfaceDescriptor interdesc_hi =
+-        {
++/* UDCD walks descriptor arrays through a zero-length terminator. */
++struct InterfaceDescriptor interdesc_hi[2] =
++        {{
+                 .bLength = 9,
+                 .bDescriptorType = 4,
+                 .bInterfaceNumber = 0,
+@@ -98,10 +101,10 @@ struct InterfaceDescriptor interdesc_hi =
+                 .bInterfaceSubClass = 0x1,
+                 .bInterfaceProtocol = 0xFF,
+                 .iInterface = 1
+-        };
++        }, {0}};
+ 
+ /* Hi-Speed endpoint descriptors */
+-struct EndpointDescriptor endpdesc_hi[3] =
++struct EndpointDescriptor endpdesc_hi[4] =
+         {
+                 {
+                         .bLength = 7,
+@@ -162,8 +165,8 @@ struct ConfigDescriptor confdesc_full =
+         };
+ 
+ /* Full-Speed interface descriptor */
+-struct InterfaceDescriptor interdesc_full =
+-        {
++struct InterfaceDescriptor interdesc_full[2] =
++        {{
+                 .bLength = 9,
+                 .bDescriptorType = 4,
+                 .bInterfaceNumber = 0,
+@@ -173,10 +176,10 @@ struct InterfaceDescriptor interdesc_full =
+                 .bInterfaceSubClass = 0x1,
+                 .bInterfaceProtocol = 0xFF,
+                 .iInterface = 1
+-        };
++        }, {0}};
+ 
+ /* Full-Speed endpoint descriptors */
+-struct EndpointDescriptor endpdesc_full[3] =
++struct EndpointDescriptor endpdesc_full[4] =
+         {
+                 {
+                         .bLength = 7,
+@@ -225,7 +228,7 @@ struct UsbInterface intp = {
+ };
+ 
+ /* Device request */
+-int usb_request(int arg1, int arg2, struct DeviceRequest *req) {
++int usb_request(int arg1, int arg2, struct DeviceRequest *req, void *user_data) {
+     DEBUG_PRINTF("func24 a1 %08X, a2 %08X, a3 %p\n", arg1, arg2, req);
+     DEBUG_PRINTF("ReqType %d, Request %d, Value %x, Index %x, Length %x\n",
+                  req->bmRequestType, req->bRequest, req->wValue, req->wIndex,
+@@ -233,21 +236,26 @@ int usb_request(int arg1, int arg2, struct DeviceRequest *req) {
+     return 0;
+ }
+ 
+-int usb_change_setting(int interfaceNumber, int alternateSetting) {
++int usb_change_setting(int interfaceNumber, int alternateSetting, int bus) {
+     DEBUG_PRINTF("usb_change_setting %d %d\n", interfaceNumber, alternateSetting);
+     return 0;
+ }
+ 
+ /* Attach callback, speed 1=full, 2=hi  */
+-int usb_attach(int version) {
++int usb_attach(int version, void *user_data) {
+     DEBUG_PRINTF("usb_attach: version %d\n", version);
+     sceKernelSetEventFlag(g_mainevent, USB_EVENT_ATTACH);
+     return 0;
+ }
+ 
+ /* Detach callback */
+-void usb_detach(void) {
++void usb_detach(void *user_data) {
+     DEBUG_PRINTF("usb_detach\n");
++    g_connected = 0;
++    /* Wake pending bulk transfers before the connection thread handles detach. */
++    ksceUdcdReqCancelAll(&endp[1]);
++    ksceUdcdReqCancelAll(&endp[2]);
++    ksceUdcdReqCancelAll(&endp[3]);
+     sceKernelSetEventFlag(g_mainevent, USB_EVENT_DETACH);
+ }
+ 
+@@ -255,7 +263,8 @@ void usb_detach(void) {
+ extern struct UsbDriver g_driver;
+ 
+ /* USB data structures for hi and full speed endpoints */
+-struct UsbData usbdata[2];
++static SceUdcdInterfaceSettings settings_hi, settings_full;
++static SceUdcdConfiguration config_hi, config_full;
+ 
+ /* Callback for when a bulkin request is done */
+ void bulkin_req_done(struct UsbdDeviceReq *req) {
+@@ -336,7 +345,7 @@ int read_data(void *data, int size) {
+         ret = sceKernelWaitEventFlag(g_transevent, USB_TRANSEVENT_BULKOUT_DONE, PSP_EVENT_WAITOR | PSP_EVENT_WAITCLEAR,
+                                      &result, NULL);
+         if (ret == 0) {
+-            if ((g_bulkout_req.returnCode == 0) && (g_bulkout_req.transmitted > 0)) {
++            if ((g_bulkout_req.returnCode == 0) && (g_bulkout_req.transmitted > 0) && (g_bulkout_req.transmitted <= nextsize)) {
+                 readlen += g_bulkout_req.transmitted;
+                 memcpy(data, tx_buf, (size_t) g_bulkout_req.transmitted);
+                 data += g_bulkout_req.transmitted;
+@@ -368,7 +377,7 @@ int write_data(const void *data, int size) {
+             ret = sceKernelWaitEventFlag(g_transevent, USB_TRANSEVENT_BULKIN_DONE,
+                                          PSP_EVENT_WAITOR | PSP_EVENT_WAITCLEAR, &result, NULL);
+             if (ret == 0) {
+-                if ((g_bulkin_req.returnCode == 0) && (g_bulkin_req.transmitted > 0)) {
++                if ((g_bulkin_req.returnCode == 0) && (g_bulkin_req.transmitted > 0) && (g_bulkin_req.transmitted <= nextsize)) {
+                     writelen += g_bulkin_req.transmitted;
+                     data += g_bulkin_req.transmitted;
+                 } else {
+@@ -388,7 +397,7 @@ int write_data(const void *data, int size) {
+             ret = sceKernelWaitEventFlag(g_transevent, USB_TRANSEVENT_BULKIN_DONE,
+                                          PSP_EVENT_WAITOR | PSP_EVENT_WAITCLEAR, &result, NULL);
+             if (ret == 0) {
+-                if ((g_bulkin_req.returnCode == 0) && (g_bulkin_req.transmitted > 0)) {
++                if ((g_bulkin_req.returnCode == 0) && (g_bulkin_req.transmitted > 0) && (g_bulkin_req.transmitted <= nextsize)) {
+                     writelen += g_bulkin_req.transmitted;
+                     data += g_bulkin_req.transmitted;
+                 } else {
+@@ -417,7 +426,7 @@ int write_data_large(const void *data, int size) {
+     ret = sceKernelWaitEventFlag(g_transevent, USB_TRANSEVENT_BULKIN_DONE, PSP_EVENT_WAITOR | PSP_EVENT_WAITCLEAR,
+                                  &result, NULL);
+     if (ret == 0) {
+-        if ((g_bulkin_req.returnCode == 0) && (g_bulkin_req.transmitted > 0)) {
++        if ((g_bulkin_req.returnCode == 0) && (g_bulkin_req.transmitted > 0) && (g_bulkin_req.transmitted <= size)) {
+         } else {
+             MODPRINTF("Error in BULKIN request %d\n", g_bulkin_req.returnCode);
+             return -1;
+@@ -472,7 +481,7 @@ int command_xchg(void *outcmd, int outcmdlen, void *incmd, int incmdlen, const v
+                 break;
+             }
+ 
+-            if ((resp->magic != HOSTFS_MAGIC) && (resp->command != cmd->command)) {
++            if ((resp->magic != HOSTFS_MAGIC) || (resp->command != cmd->command)) {
+                 MODPRINTF("Invalid response packet magic: %08X, command: %08X\n", resp->magic, resp->command);
+                 break;
+             }
+@@ -480,7 +489,10 @@ int command_xchg(void *outcmd, int outcmdlen, void *incmd, int incmdlen, const v
+             DEBUG_PRINTF("resp->magic %08X, resp->command %08X, resp->extralen %d\n",
+                          resp->magic, resp->command, resp->extralen);
+ 
+-            /* TODO: Should add checks for inlen being less that extra len */
++            if (resp->extralen > (unsigned int)inlen || (resp->extralen && !indata)) {
++                g_connected = 0;
++                break;
++            }
+             if ((resp->extralen > 0) && (inlen > 0)) {
+                 err = read_data(indata, (int) resp->extralen);
+                 if (err != resp->extralen) {
+@@ -924,98 +936,102 @@ int usb_thread(SceSize size, void *argp) {
+     return 0;
+ }
+ 
+-/* USB start function */
+-int start_func(int size, void *p) {
++static void init_descriptors(void) {
++    /* Use the SDK layouts: the 2017 packed replicas overrun modern descriptors. */
++    interdesc_hi[0].endpoints = endpdesc_hi;
++    interdesc_full[0].endpoints = endpdesc_full;
++    settings_hi = (SceUdcdInterfaceSettings){ interdesc_hi, 0, 1 };
++    settings_full = (SceUdcdInterfaceSettings){ interdesc_full, 0, 1 };
++    confdesc_hi.settings = &settings_hi;
++    confdesc_full.settings = &settings_full;
++    config_hi = (SceUdcdConfiguration){ &confdesc_hi, &settings_hi, interdesc_hi, endpdesc_hi };
++    config_full = (SceUdcdConfiguration){ &confdesc_full, &settings_full, interdesc_full, endpdesc_full };
++    g_driver.descriptor_hi = &devdesc_hi;
++    g_driver.configuration_hi = &config_hi;
++    g_driver.descriptor = &devdesc_full;
++    g_driver.configuration = &config_full;
++}
+ 
+-    DEBUG_PRINTF("usb: start_func\n");
++int stop_func(int size, void *p, void *user_data);
+ 
+-    /* Fill in the descriptor tables */
+-    memset(usbdata, 0, sizeof(usbdata));
+-
+-    memcpy(usbdata[0].devdesc, &devdesc_hi, sizeof(devdesc_hi));
+-    usbdata[0].config.pconfdesc = &usbdata[0].confdesc;
+-    usbdata[0].config.pinterfaces = &usbdata[0].interfaces;
+-    usbdata[0].config.pinterdesc = &usbdata[0].interdesc;
+-    usbdata[0].config.pendp = usbdata[0].endp;
+-    memcpy(usbdata[0].confdesc.desc, &confdesc_hi, sizeof(confdesc_hi));
+-    usbdata[0].confdesc.pinterfaces = &usbdata[0].interfaces;
+-    usbdata[0].interfaces.pinterdesc[0] = &usbdata[0].interdesc;
+-    usbdata[0].interfaces.intcount = 1;
+-    memcpy(usbdata[0].interdesc.desc, &interdesc_hi, sizeof(interdesc_hi));
+-    usbdata[0].interdesc.pendp = usbdata[0].endp;
+-    memcpy(usbdata[0].endp[0].desc, &endpdesc_hi[0], sizeof(endpdesc_hi[0]));
+-    memcpy(usbdata[0].endp[1].desc, &endpdesc_hi[1], sizeof(endpdesc_hi[1]));
+-    memcpy(usbdata[0].endp[2].desc, &endpdesc_hi[2], sizeof(endpdesc_hi[2]));
+-
+-    memcpy(usbdata[1].devdesc, &devdesc_full, sizeof(devdesc_full));
+-    usbdata[1].config.pconfdesc = &usbdata[1].confdesc;
+-    usbdata[1].config.pinterfaces = &usbdata[1].interfaces;
+-    usbdata[1].config.pinterdesc = &usbdata[1].interdesc;
+-    usbdata[1].config.pendp = usbdata[1].endp;
+-    memcpy(usbdata[1].confdesc.desc, &confdesc_full, sizeof(confdesc_full));
+-    usbdata[1].confdesc.pinterfaces = &usbdata[1].interfaces;
+-    usbdata[1].interfaces.pinterdesc[0] = &usbdata[1].interdesc;
+-    usbdata[1].interfaces.intcount = 1;
+-    memcpy(usbdata[1].interdesc.desc, &interdesc_full, sizeof(interdesc_full));
+-    usbdata[1].interdesc.pendp = usbdata[1].endp;
+-    memcpy(usbdata[1].endp[0].desc, &endpdesc_full[0], sizeof(endpdesc_full[0]));
+-    memcpy(usbdata[1].endp[1].desc, &endpdesc_full[1], sizeof(endpdesc_full[1]));
+-    memcpy(usbdata[1].endp[2].desc, &endpdesc_full[2], sizeof(endpdesc_full[2]));
+-
+-    g_driver.descriptor_hi = (SceUdcdDeviceDescriptor *) usbdata[0].devdesc;
+-    g_driver.configuration_hi = (SceUdcdConfiguration *) &usbdata[0].config;
+-    g_driver.descriptor = (SceUdcdDeviceDescriptor *) usbdata[1].devdesc;
+-    g_driver.configuration = (SceUdcdConfiguration *) &usbdata[1].config;
++/* USB start function */
++int start_func(int size, void *p, void *user_data) {
++    int ret;
++    DEBUG_PRINTF("usb: start_func\n");
+ 
+     memset(g_async_chan, 0, sizeof(g_async_chan));
+ 
++    g_start_callback = "main-event";
+     g_mainevent = sceKernelCreateEventFlag("USBEvent", 0x1000, 0, NULL);
+     if (g_mainevent < 0) {
+         MODPRINTF("Couldn't create event USBEvent flag %08X\n", g_mainevent);
+-        return -1;
++        ret = g_mainevent;
++        goto failed;
+     }
+ 
++    g_start_callback = "transfer-event";
+     g_transevent = sceKernelCreateEventFlag("USBEventTrans", 0x1000, 0, NULL);
+     if (g_transevent < 0) {
+         MODPRINTF("Couldn't create USBEventTrans event flag %08X\n", g_transevent);
+-        return -1;
++        ret = g_transevent;
++        goto failed;
+     }
+ 
++    g_start_callback = "async-event";
+     g_asyncevent = sceKernelCreateEventFlag("USBEventAsync", 0x1000, 0, NULL);
+     if (g_asyncevent < 0) {
+         MODPRINTF("Couldn't create USBEventAsync event flag %08X\n", g_asyncevent);
+-        return -1;
++        ret = g_asyncevent;
++        goto failed;
+     }
+ 
++    g_start_callback = "semaphore";
+     g_mainsema = sceKernelCreateSema("USBSemaphore", 0, 1, 1, NULL);
+     if (g_mainsema < 0) {
+         MODPRINTF("Couldn't create semaphore %08X\n", g_mainsema);
+-        return -1;
++        ret = g_mainsema;
++        goto failed;
+     }
+ 
++    g_start_callback = "thread-create";
+     g_thid = sceKernelCreateThread("USBThread", usb_thread, 0x64, 0x10000, 0, NULL);
+     if (g_thid < 0) {
+         MODPRINTF("Couldn't create usb thread %08X\n", g_thid);
+-        return -1;
++        ret = g_thid;
++        goto failed;
+     }
+ 
+-    if (sceKernelStartThread(g_thid, 0, NULL)) {
++    g_start_callback = "thread-start";
++    ret = sceKernelStartThread(g_thid, 0, NULL);
++    if (ret < 0) {
+         MODPRINTF("Couldn't start usb thread\n");
+-        return -1;
++        goto failed;
+     }
+-
++    g_thread_started = 1;
++    g_start_callback = "ready";
+     return 0;
++
++failed:
++    stop_func(0, NULL, NULL);
++    return ret;
+ }
+ 
+ /* USB stop function */
+-int stop_func(int size, void *p) {
++int stop_func(int size, void *p, void *user_data) {
+ 
+     DEBUG_PRINTF("usb: stop_func\n");
+ 
+     if (g_thid >= 0) {
+-        DEBUG_PRINTF("sceKernelSetEventFlag(g_mainevent, USB_EVENT_QUIT)\n");
+-        sceKernelSetEventFlag(g_mainevent, USB_EVENT_QUIT);
++        if (g_thread_started) {
++            sceKernelSetEventFlag(g_mainevent, USB_EVENT_QUIT);
++            ksceUdcdReqCancelAll(&endp[1]);
++            ksceUdcdReqCancelAll(&endp[2]);
++            ksceUdcdReqCancelAll(&endp[3]);
++            ksceKernelWaitThreadEnd(g_thid, NULL, NULL);
++        }
++        ksceKernelDeleteThread(g_thid);
+         g_thid = -1;
++        g_thread_started = 0;
+     }
+ 
+     if (g_mainevent >= 0) {
+@@ -1027,7 +1043,7 @@ int stop_func(int size, void *p) {
+     if (g_transevent >= 0) {
+         DEBUG_PRINTF("sceKernelDeleteEventFlag(g_transevent)\n");
+         sceKernelDeleteEventFlag(g_transevent);
+-        g_mainevent = -1;
++        g_transevent = -1;
+     }
+ 
+     if (g_asyncevent >= 0) {
+@@ -1066,17 +1082,60 @@ struct UsbDriver g_driver =
+                 NULL
+         };
+ 
++/* Startup diagnostics survive a failed USB activation. Only thread context
++ * writes them; USB interrupt callbacks must never perform filesystem I/O. */
++static char startup_path[128] = "ux0:/data/pocketjs-dev/usb-driver.json";
++static int recovery_attempted, recovery_controller, recovery_mtp, recovery_activate;
++static void startup_status(const char *stage, int code) {
++    char data[384];
++    int size = snprintf(data, sizeof(data),
++                        "{\"stage\":\"%s\",\"code\":%d,\"hex\":\"%08x\","
++                        "\"startCallback\":\"%s\","
++                        "\"recovery\":{\"attempted\":%s,\"controller\":%d,\"mtp\":%d,\"activate\":%d}}\n",
++                        stage, code, (unsigned int) code, g_start_callback,
++                        recovery_attempted ? "true" : "false",
++                        recovery_controller, recovery_mtp, recovery_activate);
++    if (size <= 0 || size >= sizeof(data)) return;
++    SceUID fd = ksceIoOpen(startup_path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
++    if (fd >= 0) {
++        ksceIoWrite(fd, data, size);
++        ksceIoClose(fd);
++    }
++}
++
++/* A failed takeover must not leave the system controller stopped. Restore the
++ * system MTP stack so VitaShell can switch it to mass storage again. Preserve
++ * the original failure alongside the result of each recovery operation. */
++static int startup_failed(const char *stage, int code) {
++    ksceUdcdDeactivate();
++    ksceUdcdStop(HOSTFSDRIVER_NAME, 0, NULL);
++    ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
++    sceUsbbdUnregister(&g_driver);
++    recovery_attempted = 1;
++    recovery_controller = ksceUdcdStart("USBDeviceControllerDriver", 0, NULL);
++    recovery_mtp = ksceUdcdStart("USB_MTP_Driver", 0, NULL);
++    recovery_activate = ksceUdcdActivate(0x4E4);
++    startup_status(stage, code);
++    return code;
++}
++
+ int usbhostfs_start() {
+ 
+     memset(g_async_chan, 0, sizeof(g_async_chan));
++    /* Registration/start may inspect descriptors before calling start_func. */
++    init_descriptors();
+ 
+     int ret = sceUsbbdRegister(&g_driver);
++    startup_status("register", ret);
++    if (ret < 0) return ret;
+     DEBUG_PRINTF("sceUsbbdRegister %08X\n", ret);
+ 
+     ret = ksceUdcdDeactivate();
++    startup_status("deactivate", ret);
+     if (ret < 0 && ret != SCE_UDCD_ERROR_INVALID_ARGUMENT) {
+         DEBUG_PRINTF("Error deactivating UDCD (0x%08X)\n", ret);
+-        return -1;
++        sceUsbbdUnregister(&g_driver);
++        return ret;
+     }
+ 
+     ksceUdcdStop("USB_MTP_Driver", 0, NULL);
+@@ -1085,28 +1144,28 @@ int usbhostfs_start() {
+     ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
+ 
+     ret = ksceUdcdStart("USBDeviceControllerDriver", 0, NULL);
++    startup_status("controller-start", ret);
+     if (ret < 0) {
+         DEBUG_PRINTF("Error starting the USBDeviceControllerDriver driver (0x%08X)\n", ret);
+-        return -1;
++        return startup_failed("controller-start", ret);
+     }
+ 
+     ret = ksceUdcdStart(HOSTFSDRIVER_NAME, 0, NULL);
++    startup_status("hostfs-start", ret);
+     if (ret < 0) {
+         DEBUG_PRINTF("Error starting the "
+                              HOSTFSDRIVER_NAME
+                              " driver (0x%08X)\n", ret);
+-        ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
+-        return -1;
++        return startup_failed("hostfs-start", ret);
+     }
+ 
+     ret = ksceUdcdActivate(HOSTFSDRIVER_PID);
++    startup_status("activate", ret);
+     if (ret < 0) {
+         DEBUG_PRINTF("Error activating the "
+                              HOSTFSDRIVER_NAME
+                              " driver (0x%08X)\n", ret);
+-        ksceUdcdStop(HOSTFSDRIVER_NAME, 0, NULL);
+-        ksceUdcdStop("USBDeviceControllerDriver", 0, NULL);
+-        return -1;
++        return startup_failed("activate", ret);
+     } else {
+         DEBUG_PRINTF("usbhostfs activated\n");
+     }
+@@ -1153,16 +1212,25 @@ static SceUID thid = -1;
+ static int start_thread(SceSize args, void *argp) {
+ 
+     // the module crash the device if started too early
+-    ksceKernelDelayThread(1000 * 1000 * 8);
++    ksceKernelDelayThread(1000 * 100);
++
++    int res = prepare_hooks_io();
++    startup_status("resolve-sysmem", res);
++    if (res < 0) return ksceKernelExitDeleteThread(res);
+ 
+-    int res = usbhostfs_start();
++    res = usbhostfs_start();
+     if (res != 0) {
+-        return -1;
++        return ksceKernelExitDeleteThread(res);
+     }
+ 
+-    usbWaitForConnect();
++    startup_status("await-host", 0);
++    res = usbWaitForConnect();
++    if (res != 0) return ksceKernelExitDeleteThread(startup_failed("await-host", res));
+ 
+-    set_hooks_io();
++    res = set_hooks_io();
++    startup_status("io-hooks", res);
++    if (res < 0) return ksceKernelExitDeleteThread(startup_failed("io-hooks", res));
++    startup_status("connected", 0);
+ 
+     return ksceKernelExitDeleteThread(0);
+ }
+@@ -1171,10 +1239,21 @@ void _start() __attribute__ ((weak, alias ("module_start")));
+ 
+ int module_start(SceSize argc, const void *args) {
+ 
++    if (args && argc > 1 && argc < sizeof(startup_path)
++        && ((const char *)args)[argc - 1] == 0
++        && strncmp(args, "ux0:/data/pocketjs-dev/", sizeof("ux0:/data/pocketjs-dev/") - 1) == 0) {
++        memcpy(startup_path, args, argc);
++    }
++    startup_status("module-start", 0);
+     thid = ksceKernelCreateThread("usbhostfs", start_thread, 64, 0x1000, 0, 0x10000, 0);
+     if (thid >= 0) {
+-        ksceKernelStartThread(thid, 0, NULL);
++        int result = ksceKernelStartThread(thid, 0, NULL);
++        if (result < 0) {
++            startup_status("thread-start", result);
++            return SCE_KERNEL_START_FAILED;
++        }
+     } else {
++        startup_status("thread-create", thid);
+         return SCE_KERNEL_START_FAILED;
+     }
+ 
+diff --git a/usbhostfs/usbhostfs.h b/usbhostfs/usbhostfs.h
+index 7d874ea..3b37b09 100755
+--- a/usbhostfs/usbhostfs.h
++++ b/usbhostfs/usbhostfs.h
+@@ -15,7 +15,7 @@
+ 
+ #define MODULE_NAME "USBHostFS"
+ #define HOSTFSDRIVER_NAME "USBHostFSDriver"
+-#define HOSTFSDRIVER_PID  (0x1C9)
++#define HOSTFSDRIVER_PID  (0x0F01)
+ #define SONY_VID (0x54C)
+ 
+ #define HOSTFS_MAGIC 0x782F0812

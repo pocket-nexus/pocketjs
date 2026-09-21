@@ -23,7 +23,7 @@ import { encodePNG } from "../png.ts";
 import { encodeThresholdInput, encodeTouchInput, GOLDEN_SPECS } from "../golden-specs.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const OUT = `${ROOT}dist/e2e-vita3k`;
+const OUT = process.env.E2E_VITA3K_OUTDIR ?? `${ROOT}dist/e2e-vita3k`;
 const VITAFS = `${OUT}/vitafs`;
 const CONFIG = `${OUT}/config/config.yml`;
 const CAPTURE_DIR = `${VITAFS}/ux0/data/pocketjs-captures`;
@@ -305,7 +305,7 @@ for (const spec of specs) {
       const expected = readFileSync(vitaGoldenPath);
       if (!actual.equals(expected)) {
         writeFileSync(`${OUT}/${label}.actual.png`, actual);
-        throw new Error(`${label}: PNG bytes differ (see dist/e2e-vita3k/${label}.actual.png)`);
+        throw new Error(`${label}: PNG bytes differ (see ${OUT}/${label}.actual.png)`);
       }
       console.log(`PASS ${label} (960x544 native density, GXM textures/fonts resident, byte-exact)`);
       passed++;

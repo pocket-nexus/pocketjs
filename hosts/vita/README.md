@@ -10,7 +10,9 @@ their following frame intervals from timing statistics. `cpu_frame_us` ends at
 swap submission; it does not measure GPU execution or input-to-panel latency.
 This feature keeps physical input and does not use the CPU golden rasterizer.
 An emulator run still requires separate evidence from physical hardware.
-Normal builds do not enable these captures or file writes.
+Normal builds do not enable benchmark captures. They include the
+[USB developer runtime](../../docs/VITA-USB.md): L+R+SELECT opens its native
+menu, and `bun run vita:dev` sends guest/native updates and captures over USB.
 
 `pocketjs-vita` is the native PS Vita host for PocketJS. It embeds QuickJS,
 feeds the normal PocketJS pak, renders the standard DrawList with vita2d/GXM,
@@ -81,8 +83,8 @@ modules only so it cannot mutate a developer's normal VitaFS.
 Build the release VPK with the command above, then install it directly with
 VitaShell; Vita Toolbox is not required:
 
-1. Open VitaShell and press `SELECT` to start its configured USB or FTP
-   connection.
+1. Open VitaShell, configure the `SELECT` action as USB, and press `SELECT`
+   to start USB storage mode.
 2. Copy the named artifact, such as `dist/vita/hero-main.vpk`, to a writable
    location such as `ux0:/data/hero-main.vpk`.
 3. Stop the transfer, select the VPK in VitaShell, press `X`, and confirm the

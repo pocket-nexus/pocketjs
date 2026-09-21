@@ -27,6 +27,16 @@ relaunch, `q` quit. Also available from the CLI as `pocket devtools`.
 Browser-host debugging needs nothing extra — any demo loaded from the dev
 server connects to the panel on load.
 
+## PS Vita USB runtime
+
+**Vita builds include a USB debug worker and a native L+R+SELECT menu.**
+`bun run vita:dev serve --app hero` connects the wired host;
+`push` rebuilds and reloads JS/resources, `native` replaces the compiled SELF,
+and `capture` retrieves a **960 × 544 GXM framebuffer** with its build and
+frame identity. The native menu remains available after a guest exception.
+See [Vita USB setup and recovery](https://github.com/pocket-stack/pocketjs/blob/main/docs/VITA-USB.md)
+for the initial VitaShell installation, transport requirements, and commands.
+
 ## The component tree
 
 The left panel is the live component tree. Hover a node and the region lights

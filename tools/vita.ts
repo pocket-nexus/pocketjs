@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { createHash, randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,6 +22,7 @@ import {
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { demoIdentity, demoManifestFor } from "./demo-identity.ts";
 import { packageVitaVpk } from "./vita-package.ts";
+import { prepareVitaUsb } from "./vita-usb.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
 const nativeDir = pspUiDir + "hosts/vita/";
@@ -42,6 +44,7 @@ let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
 let packageOutputDir: string | undefined;
 let skipBuild = false;
+let usbDebug = true;
 let launcherRegistry = "";
 let launcherPackages = "";
 const cargoArgs: string[] = [];
@@ -50,6 +53,8 @@ const buildFlags: string[] = [];
 for (const a of argv) {
   if (a === "--capture") {
     capture = true;
+  } else if (a === "--no-usb-debug") {
+    usbDebug = false;
   } else if (a.startsWith("--framework=")) {
     frameworkFlag = a.slice("--framework=".length);
     buildFlags.push(a);
@@ -222,6 +227,8 @@ const applicationId =
 const packageTitle =
   buildPlan?.app.title ?? stockDemo?.title ?? `PocketJS ${outputApp}`;
 const titleId = vitaTitleId(applicationId);
+const nativeBuild = randomBytes(16).toString("hex");
+const usb = usbDebug ? await prepareVitaUsb() : undefined;
 
 // ---------------------------------------------------------------------------
 // 1. Build the app bundle + pak -> dist/<app>.js + dist/<app>.pak
@@ -263,6 +270,9 @@ const env = {
   // omits a static title_id. Pocket's stable manifest id owns installation
   // identity; every demo therefore gets its own LiveArea application.
   VITA_DEFAULT_TITLE_ID: titleId,
+  POCKETJS_VITA_TITLE_ID: titleId,
+  POCKETJS_VITA_PLAN: planPath ?? "",
+  POCKETJS_NATIVE_BUILD: nativeBuild,
   ...hostBuildEnvironment(nativeInputs, {
     outputDirectory: outputDir,
     embedApp: true,
@@ -284,6 +294,7 @@ const env = {
 };
 
 if (capture) cargoArgs.push("--features", "capture");
+if (!usbDebug) cargoArgs.push("--no-default-features");
 
 console.log(
   `PocketJS vita: cargo vita build vpk (app=${outputApp}${capture ? ", capture" : ""})`,
@@ -307,17 +318,31 @@ const vpk = `${targetDirectory}/pocketjs-vita.vpk`;
 if (!existsSync(eboot))
   throw new Error(`PocketJS vita: eboot not found at ${eboot}`);
 
+// cargo-vita defaults to a safe SELF. Kernel driver loading and writing the
+// inactive native slot require the standard unsafe-homebrew SELF permissions.
+if (usbDebug) {
+  await $`${vitasdk}/bin/vita-make-fself ${targetDirectory}/pocketjs-vita.velf ${eboot}`;
+}
+
 await $`${vitasdk}/bin/vita-mksfoex -d ATTRIBUTE2=12 -s TITLE_ID=${titleId} ${packageTitle} ${sfo}`;
 await packageVitaVpk({
   tool: `${vitasdk}/bin/vita-pack-vpk`,
   sfo,
   eboot,
   output: vpk,
+  usbDriver: usb?.driver,
 });
 
 const packagedDirectory = packageOutputDir ?? resolvePath(outputDir, "vita");
 const packaged = resolvePath(packagedDirectory, `${outputApp}.vpk`);
 mkdirSync(packagedDirectory, { recursive: true });
 cpSync(vpk, packaged);
+const packagedSelf = resolvePath(packagedDirectory, `${outputApp}.self`);
+cpSync(eboot, packagedSelf);
+await Bun.write(resolvePath(packagedDirectory, `${outputApp}.runtime.json`), JSON.stringify({
+  version: 1, titleId, applicationId, output: outputApp, nativeBuild, plan: buildPlan ?? null,
+  self: `${outputApp}.self`, usbDebug, usbDriver: usb?.fingerprint,
+  selfSha256: createHash("sha256").update(Buffer.from(await Bun.file(packagedSelf).arrayBuffer())).digest("hex"),
+}, null, 2) + "\n");
 console.log(`PocketJS vita: package ${titleId} (${applicationId})`);
 console.log(`output: ${packaged}`);

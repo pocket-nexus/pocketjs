@@ -1,1 +1,2 @@
 tools/symbian/container/patches/*.patch whitespace=-trailing-space,-space-before-tab
+tools/vita-usb/*.patch whitespace=-trailing-space,-space-before-tab
