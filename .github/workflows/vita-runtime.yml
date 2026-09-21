@@ -1,0 +1,54 @@
+name: Vita runtime contracts
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/vita-runtime.yml"
+      - "hosts/vita/**"
+      - "tools/vita*.ts"
+      - "tools/vita-usb/**"
+      - "tests/vita*.test.ts"
+      - "tests/fixtures/vita-dev/**"
+      - "tests/npm-package.test.ts"
+      - "tests/png.ts"
+      - "contracts/**"
+      - "engine/core/**"
+      - "package.json"
+      - "bun.lock"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/vita-runtime.yml"
+      - "hosts/vita/**"
+      - "tools/vita*.ts"
+      - "tools/vita-usb/**"
+      - "tests/vita*.test.ts"
+      - "tests/fixtures/vita-dev/**"
+      - "tests/npm-package.test.ts"
+      - "tests/png.ts"
+      - "contracts/**"
+      - "engine/core/**"
+      - "package.json"
+      - "bun.lock"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vita-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      # Pure host tests: this validates protocol/package behavior, not Vita
+      # hardware, GXM rendering, or kernel-driver loading.
+      - run: bun test tests/vita-dev.test.ts tests/vita-package.test.ts tests/npm-package.test.ts
