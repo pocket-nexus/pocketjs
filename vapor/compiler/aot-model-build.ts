@@ -1,17 +1,41 @@
 /** Manifest selection is explicit: compiled admission never falls back to a Rust model. */
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import ts from "typescript";
 import { attachAotModel, type AotProgram } from "./aot-ir.ts";
 import { analyzeModel } from "./aot-model-frontend.ts";
 import { generateModelJavaScript } from "./aot-model-js.ts";
-import { analyzeSolidAot } from "./aot-solid-frontend.ts";
 import { analyzeVueAot } from "./aot-frontend.ts";
 import { checkSolidAotGraph } from "./aot-solid-browser.ts";
 import { validateViewModelBindings } from "./aot-model-view.ts";
 
 import { modelConfiguration } from "./aot-model-config.ts";
 export { modelConfiguration } from "./aot-model-config.ts";
+
+/** Find SFC roots imported by the selected Vue mount module. */
+function vueEntries(entry: string, sources: ReadonlyMap<string, string>): string[] {
+  const visited = new Set<string>(), roots: string[] = [];
+  function visit(file: string): void {
+    if (visited.has(file)) return;
+    visited.add(file);
+    if (file.endsWith(".vue")) { roots.push(file); return; }
+    const source = sources.get(file) ?? readFileSync(file, "utf8");
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    for (const statement of ast.statements) {
+      if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) continue;
+      if (ts.isImportDeclaration(statement) ? statement.importClause?.isTypeOnly : statement.isTypeOnly) continue;
+      const module = statement.moduleSpecifier;
+      if (!module || !ts.isStringLiteral(module) || !module.text.startsWith(".")) continue;
+      const path = resolve(dirname(file), module.text);
+      const child = [path, path + ".ts", path + ".tsx", path + ".vue", resolve(path, "index.ts")]
+        .find(candidate => /\.(?:tsx?|vue)$/.test(candidate) && (sources.has(candidate) || existsSync(candidate)));
+      if (child) visit(existsSync(child) ? realpathSync(child) : child);
+    }
+  }
+  visit(entry);
+  if (!roots.length) throw new Error(`Model AOT: no SFC is reachable from ${entry}`);
+  return roots;
+}
 
 export function attachCompiledModel(program: AotProgram, entry: string, strict = false, sources?: ReadonlyMap<string, string>): AotProgram {
   const config = modelConfiguration(entry);
@@ -43,7 +67,7 @@ export function attachCompiledModel(program: AotProgram, entry: string, strict =
 }
 
 /** Called before the JSX/cache pass for every TS model in a compiled application. */
-export function transformCompiledModel(source: string, filename: string): string | undefined {
+export function transformCompiledModel(source: string, filename: string, buildEntry?: string): string | undefined {
   if (!filename.endsWith(".ts") || filename.endsWith(".d.ts") || filename.includes("/node_modules/")) return;
   if (existsSync(filename)) filename = realpathSync(filename);
   const config = modelConfiguration(filename);
@@ -53,10 +77,14 @@ export function transformCompiledModel(source: string, filename: string): string
   const extension = config.framework === "vue-vapor" ? ".vue" : ".tsx";
   const conventional = ["app", "App", basename(config.directory!)].map(name => resolve(config.directory!, name + extension)).find(existsSync);
   const configured = config.entry && [resolve(config.directory!, config.entry), resolve(import.meta.dir, "../..", config.entry)].find(existsSync);
-  const selected = conventional ?? configured;
+  // A resolved presentation selects the mount graph. Calls without a build
+  // entry retain the conventional root used by standalone transform harnesses.
+  const selected = buildEntry ? resolve(buildEntry) : conventional ?? configured;
   const entry = selected && realpathSync(selected);
   if (!entry) throw new Error(`Model AOT: cannot find a view entry under ${config.directory}`);
-  const views = extension === ".vue" ? [analyzeVueAot(entry, { sources })] : conventional ? [analyzeSolidAot(entry, { sources })] : checkSolidAotGraph(entry, { sources });
+  const views = extension === ".vue"
+    ? vueEntries(entry, sources).map(root => analyzeVueAot(root, { sources }))
+    : checkSolidAotGraph(entry, { sources });
   const programs = views.map(view => attachCompiledModel(view, view.components.find(component => component.root)!.file, false, sources).model!);
   const program = programs.find(program => program.modules.some(module => module.file === resolve(filename)));
   const module = program?.modules.find(module => module.file === resolve(filename));

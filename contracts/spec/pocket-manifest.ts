@@ -18,6 +18,8 @@ export interface JsonSchemaObject {
   readonly $id?: string;
   readonly title?: string;
   readonly description?: string;
+  /** Schema annotation; model/build resolution supplies runtime defaults. */
+  readonly default?: JsonValue;
   readonly type?: "array" | "boolean" | "integer" | "number" | "object" | "string";
   readonly const?: JsonValue;
   readonly enum?: readonly JsonValue[];

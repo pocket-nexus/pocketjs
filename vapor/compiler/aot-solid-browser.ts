@@ -71,7 +71,7 @@ export function checkSolidAotGraph(entry: string, options: { sources?: ReadonlyM
 }
 
 /** Basename imports alone never opt ordinary Solid applications into AOT. */
-export function getSolidAotProgram(filename: string, source?: string): AotProgram | undefined {
+export function getSolidAotProgram(filename: string, source?: string, buildEntry?: string): AotProgram | undefined {
   filename = resolve(filename);
   let directory = dirname(filename);
   while (true) {
@@ -81,7 +81,7 @@ export function getSolidAotProgram(filename: string, source?: string): AotProgra
       if (app?.framework !== "solid" || app.aot !== true) return;
       if (typeof app.entry !== "string") throw new Error(`Solid AOT: ${manifest} requires app.entry`);
       const projectRoot = resolve(import.meta.dir, "../..");
-      const entry = [resolve(directory, app.entry), resolve(projectRoot, app.entry)].find(path => existsSync(path));
+      const entry = buildEntry ? resolve(buildEntry) : [resolve(directory, app.entry), resolve(projectRoot, app.entry)].find(path => existsSync(path));
       if (!entry) throw new Error(`Solid AOT: cannot resolve manifest entry ${app.entry}`);
       const override = source !== undefined && source !== readFileSync(filename, "utf8") ? new Map([[filename, source]]) : undefined;
       const programs = checkSolidAotGraph(entry, { sources: override });
@@ -112,9 +112,9 @@ export function generateSolidAotMock(program: AotProgram, component: AotComponen
   return lines.join("\n") + "\n";
 }
 
-export function resolveSolidAotMock(importer: string, specifier: string): string | undefined {
+export function resolveSolidAotMock(importer: string, specifier: string, entry?: string): string | undefined {
   if (!importer.endsWith(".tsx")) return;
-  const program = getSolidAotProgram(importer);
+  const program = getSolidAotProgram(importer, undefined, entry);
   if (!program) return;
   const module = resolve(dirname(importer), specifier);
   if (!existsSync(module + ".d.ts") || existsSync(module + ".ts")) return;
@@ -123,9 +123,9 @@ export function resolveSolidAotMock(importer: string, specifier: string): string
 }
 
 /** Prefer the model module over the homonymous TSX view in both build passes. */
-export function resolveSolidAotModel(importer: string, specifier: string): string | undefined {
+export function resolveSolidAotModel(importer: string, specifier: string, entry?: string): string | undefined {
   if (!importer.endsWith(".tsx") || !specifier.startsWith(".") || /\.[^/]+$/.test(specifier)) return;
-  const program = getSolidAotProgram(importer);
+  const program = getSolidAotProgram(importer, undefined, entry);
   if (!program) return;
   const base = resolve(dirname(importer), specifier);
   if (!program.components.some(component => component.file.slice(0, -4).toLowerCase() === base.toLowerCase())) return;

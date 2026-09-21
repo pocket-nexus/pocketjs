@@ -268,7 +268,7 @@ function resolveImport(fromFile: string, spec: string): string | null {
     return exported && /\.tsx?$/.test(exported) ? exported : null;
   }
   if (!spec.startsWith("./") && !spec.startsWith("../") && !spec.startsWith("/")) return null; // external bare
-  const model = framework === "solid" ? resolveSolidAotModel(fromFile, spec) : undefined;
+  const model = framework === "solid" ? resolveSolidAotModel(fromFile, spec, entry) : undefined;
   if (model) return model.endsWith(".d.ts") ? null : model;
   let resolved: string;
   try {
@@ -296,7 +296,7 @@ async function walk(file: string): Promise<void> {
   const src = await Bun.file(file).text();
   buildInputs.add(file);
   // Throws with a code frame on lint errors.
-  const res = await transformFile(file, src, framework, { features: buildPlan?.features });
+  const res = await transformFile(file, src, framework, { features: buildPlan?.features, entry });
   for (const s of res.classStrings) {
     if (!seenClass.has(s)) {
       seenClass.add(s);
