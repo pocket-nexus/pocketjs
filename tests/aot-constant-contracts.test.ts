@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeSolidAot } from "../vapor/compiler/aot-solid-frontend.ts";
-import { analyzeVueAot } from "../vapor/compiler/aot-frontend.ts";
-import { emitVueAot } from "../vapor/compiler/aot-codegen.ts";
+import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
+import { analyzeVueAot } from "../microts/compiler/aot-frontend.ts";
+import { emitAot } from "../microts/compiler/aot-codegen.ts";
 
 function analyze(kind: "solid" | "vue", contract: string, expression: string, type = "i64") {
   const entry = resolve(`tests/fixtures/aot/constants/App.${kind === "solid" ? "tsx" : "vue"}`);
@@ -22,7 +22,7 @@ test.each(["solid", "vue"] as const)("%s literal u64 tables retain exact source 
   const table = root.constants.find(constant => constant.name === "TABLE")!;
   expect(table.type).toEqual({ kind: "array", element: { kind: "number", name: "u64" }, length: 2 });
   expect(table.rawNumbers).toEqual(["18446744073709551615", "9007199254740993"]);
-  const output = emitVueAot(program).files["app.rs"]!;
+  const output = emitAot(program).files["app.rs"]!;
   expect(output).toContain("18446744073709551615u64");
   expect(output).toContain("9007199254740993u64");
   expect(root.values.some(value => value.name === "TABLE")).toBe(false);
@@ -30,7 +30,7 @@ test.each(["solid", "vue"] as const)("%s literal u64 tables retain exact source 
 
 test.each(["solid", "vue"] as const)("%s literal i64 table negative values retain exact source spelling", kind => {
   const program = analyze(kind, 'export declare const TABLE: readonly [-9223372036854775808, 9223372036854775807];', `TABLE[${kind === "solid" ? "index()" : "index"}] ?? 0`);
-  const output = emitVueAot(program).files["app.rs"]!;
+  const output = emitAot(program).files["app.rs"]!;
   expect(output).toContain("-9223372036854775808i64");
   expect(output).toContain("9223372036854775807i64");
 });
@@ -47,5 +47,5 @@ test.each(["solid", "vue"] as const)("%s reactive literal values remain writable
   const root = result.components.find(component => component.root)!;
   expect(root.constants).toEqual([]);
   expect(root.values).toEqual([{ name: "state", sourceName: "state", type: { kind: "string" }, writable: true }]);
-  expect(emitVueAot(result).files["app.rs"]).toContain("fn set_state(&mut self, value: String)");
+  expect(emitAot(result).files["app.rs"]).toContain("fn set_state(&mut self, value: String)");
 });

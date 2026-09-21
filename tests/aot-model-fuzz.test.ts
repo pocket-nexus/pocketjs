@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { generateModelCase, MODEL_FUZZ_DIAGNOSTICS, MODEL_FUZZ_COVERAGE, MODEL_FUZZ_PROBES, MODEL_FUZZ_SEEDS, runModelFuzz, shrinkModelFailure } from "../vapor/compiler/model-fuzz.ts";
+import { generateModelCase, MODEL_FUZZ_DIAGNOSTICS, MODEL_FUZZ_COVERAGE, MODEL_FUZZ_PROBES, MODEL_FUZZ_SEEDS, runModelFuzz, shrinkModelFailure } from "../microts/compiler/model-fuzz.ts";
 
 test("grammar generation is deterministic and honors disabled construct weights", () => {
   expect(generateModelCase(431)).toEqual(generateModelCase(431));
@@ -20,8 +20,8 @@ test("invalid grammar mode rejects each of its seven semantic violations", async
   expect(result.programs).toBe(7);
 }, 60_000);
 
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { interpretModel } from "../vapor/compiler/model-interp.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { interpretModel } from "../microts/compiler/model-interp.ts";
 test("failure reduction reaches a fixed point over irrelevant statements and tape entries", async () => {
   const generated = generateModelCase(1, { weights: { array: 0, memo: 0, task: 0 } });
   const source = `import { createSignal } from "solid-js"; export const [n,setN]=createSignal(0); export function press(){setN(1);setN(2);setN(3);}`;
@@ -40,7 +40,7 @@ test("deterministic grammar probes cover every required generated row",()=>{
  expect([...coverage].sort()).toEqual([...MODEL_FUZZ_COVERAGE]);
 });
 
-import { generateModelViewCase, runModelViewFuzz } from "../vapor/compiler/model-view-fuzz.ts";
+import { generateModelViewCase, runModelViewFuzz } from "../microts/compiler/model-view-fuzz.ts";
 test("generated view probes exercise atomic Show and independent factory mounts on three classes",async()=>{
  expect(generateModelViewCase(431)).toEqual(generateModelViewCase(431));
  const result=await runModelViewFuzz([431]);expect(result.coverage).toContain("atomic-show");

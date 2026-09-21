@@ -1,5 +1,5 @@
-import { resolveSolidAotModel } from "../vapor/compiler/aot-solid-browser.ts";
-import { modelConfiguration } from "../vapor/compiler/aot-model-build.ts";
+import { resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
+import { modelConfiguration } from "../microts/compiler/aot-model-build.ts";
 import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 // tools/build.ts <app> — the TWO-PASS app build (docs/DESIGN.md "Build pipeline").

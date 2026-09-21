@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { executeModelView } from "../vapor/compiler/model-view-harness.ts";
-import { emitVueAot } from "../vapor/compiler/aot-codegen.ts";
+import { executeModelView } from "../microts/compiler/model-view-harness.ts";
+import { emitAot } from "../microts/compiler/aot-codegen.ts";
 
 test("async Promise<T> view handlers and hooks use explicit command sinks with ordered child callbacks",async()=>{
   const directory=resolve(".pocket-build/validation/model-aot/async-view",String(Date.now()));mkdirSync(directory,{recursive:true});
@@ -21,5 +21,5 @@ test("async Promise<T> view handlers and hooks use explicit command sinks with o
     {text:["8","1"],commands:["root:mount","child:mount","root:mounted","child:mounted","root:start7","child:start","root:start8"]},
     {text:["16","2"],commands:["root:end8","child:end"]},
   ]);
-  expect(emitVueAot(result.program).files["app.rs"]).toContain("cmds: &mut Vec<pocket_vapor::Cmd>");
+  expect(emitAot(result.program).files["app.rs"]).toContain("cmds: &mut Vec<microts::Cmd>");
 },120_000);

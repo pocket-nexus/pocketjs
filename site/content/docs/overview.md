@@ -9,11 +9,11 @@ manifest resolves into one target-specific guest artifact — a PSP EBOOT, a Vit
 a native window, a browser bundle — and each of them drives the same logical UI
 through the same HostOps op set.
 
-**Pocket Vapor compiles Solid TSX and Vue SFC views into Rust.** A native build
+**MicroTS compiles Solid TSX and Vue SFC views into Rust.** A native build
 uses either a compiled TypeScript model or an application-provided Rust model
 and calls the UI core without a guest engine. Guest builds transform the
 TypeScript sources into JavaScript bundles for their engine. The
-[TypeScript and native code guide](/docs/pocket-vapor-boundaries/) describes
+[TypeScript and native code guide](/docs/microts-boundaries/) describes
 the two paths. [TypeScript support](/docs/typescript-support/) compares their
 source-language rules, including the separate view and compiled model
 subsets. The framework adapters below belong to the guest path.

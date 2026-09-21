@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { buildVueAot } from "../vapor/compiler/aot-build.ts";
+import { buildAot } from "../microts/compiler/aot-build.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
-import { normalizeSolidAotSemantics } from "../vapor/compiler/aot-solid-semantics.ts";
-import { normalizeVueAotSemantics } from "../vapor/compiler/aot-browser-semantics.ts";
+import { normalizeSolidAotSemantics } from "../microts/compiler/aot-solid-semantics.ts";
+import { normalizeVueAotSemantics } from "../microts/compiler/aot-browser-semantics.ts";
 
 test.each(["solid", "vue-vapor"] as const)("compiled %s view arithmetic agrees with native integer wrapping and f32 rounding", async framework => {
   const run = resolve(".pocket-build/validation/model-aot/view-numbers", `${framework}-${Date.now()}`), fixture = resolve(run, "app");
@@ -18,7 +18,7 @@ test.each(["solid", "vue-vapor"] as const)("compiled %s view arithmetic agrees w
     : '<script setup lang="ts">import {View,Text,ActionHandler} from "@pocketjs/framework/vue-vapor/components";import {idiv} from "@pocketjs/framework/vue-vapor/std";import {BTN} from "@pocketjs/framework/vue-vapor/input";import {count,minimum,floating,count as Math,count as __pocketAotNumber} from "./App";</script><template><View><ActionHandler :button="BTN.CROSS" @press="count=count*count"/><Text>{{count+1}}|{{count*count}}|{{-count}}|{{idiv(minimum,-1)}}|{{floating+16777217}}|{{(floating+16777217)-16777216}}</Text></View></template>';
   await Bun.write(resolve(fixture, "pocket.json"), JSON.stringify({ app: { framework, aot: true, model: "compiled", entry: `App.${extension}` } }));
   await Bun.write(resolve(fixture, "App.ts"), model); await Bun.write(resolve(fixture, `App.${extension}`), source);
-  const result = await buildVueAot(resolve(fixture, `App.${extension}`), { outDir: resolve(run, "src/gen"), format: false });
+  const result = await buildAot(resolve(fixture, `App.${extension}`), { outDir: resolve(run, "src/gen"), format: false });
   const normalize = framework === "solid" ? normalizeSolidAotSemantics : normalizeVueAotSemantics;
   const normalized = normalize(source, resolve(fixture, `App.${extension}`), result.program);
   expect(normalized).toContain("__modelMultiply as __pocketAotMultiply");
@@ -43,8 +43,8 @@ export function check(){const frames=[text(root)];globalThis.frame(16384,0,[],[]
   const bundle = resolve(run, "oracle.mjs"); await Bun.write(bundle, build.outputs[0]!);
   const javascript = (await import(bundle)).check();
   expect(javascript).toEqual(["-2147483648|1|-2147483647|-2147483648|16777216|0", "2|1|-1|-2147483648|16777216|0"]);
-  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="model-view-numbers"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket_vapor={path=${JSON.stringify(resolve("engine/crates/pocket-vapor"))},features=["std"]}\nserde_json="1"\n`);
-  await Bun.write(resolve(run, "src/main.rs"), `mod gen;use gen::*;use pocket_vapor::{Host,Ui,Input};struct Native(Ui);impl Host for Native{fn ui(&self)->&Ui{&self.0}fn ui_mut(&mut self)->&mut Ui{&mut self.0}fn into_ui(self)->Ui{self.0}}impl<const B:u32>pocket_vapor::HasButton<B> for Native{}fn text(ui:&Ui,id:i32)->String{let mut s=ui.core().node_text(id).unwrap_or("").to_owned();for child in ui.core().node_children(id){s.push_str(&text(ui,*child));}s}fn main(){let mut ui=Ui::new();ui.load_styles(include_bytes!("gen/styles.bin"));let mut app=AppApp::new(Native(ui),AppProps{},AppModel::default());let mut frames=vec![text(app.ui(),1)];app.frame(&Input::buttons(16384));frames.push(text(app.ui(),1));app.unmount();println!("{}",serde_json::json!(frames));}`);
+  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="model-view-numbers"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\nserde_json="1"\n`);
+  await Bun.write(resolve(run, "src/main.rs"), `mod gen;use gen::*;use microts::{Host,Ui,Input};struct Native(Ui);impl Host for Native{fn ui(&self)->&Ui{&self.0}fn ui_mut(&mut self)->&mut Ui{&mut self.0}fn into_ui(self)->Ui{self.0}}impl<const B:u32>microts::HasButton<B> for Native{}fn text(ui:&Ui,id:i32)->String{let mut s=ui.core().node_text(id).unwrap_or("").to_owned();for child in ui.core().node_children(id){s.push_str(&text(ui,*child));}s}fn main(){let mut ui=Ui::new();ui.load_styles(include_bytes!("gen/styles.bin"));let mut app=AppApp::new(Native(ui),AppProps{},AppModel::default());let mut frames=vec![text(app.ui(),1)];app.frame(&Input::buttons(16384));frames.push(text(app.ui(),1));app.unmount();println!("{}",serde_json::json!(frames));}`);
   const child = Bun.spawn(["cargo", "run", "--quiet", "--manifest-path", resolve(run, "Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: resolve(".pocket-build/validation/model-aot/view-numbers/target") } });
   const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
   await Bun.write(resolve(run, "native.log"), stderr); expect(status, stderr).toBe(0); expect(JSON.parse(stdout)).toEqual(javascript);

@@ -3,7 +3,7 @@ import { __requestNet, netHost } from "./net-api.ts";
 import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { utf8ToString } from "./bytes.ts";
 import { registerModelService, type Wait } from "./model-tasks.ts";
-import type { i32 } from "./numeric-vue-vapor.ts";
+import type { i32 } from "./numeric-microts.ts";
 
 export type NetResult =
   | { kind: "ok"; status: i32; body: string }

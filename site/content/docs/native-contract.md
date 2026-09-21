@@ -13,7 +13,7 @@ If you only write app code you never call these ops directly — you write [`Vie
 
 ## Native AOT and the guest op surface
 
-**Native AOT views call `pocket_vapor::Ui` from generated Rust.** Their model
+**Native AOT views call `microts::Ui` from generated Rust.** Their model
 boundary is the generated Rust view-model trait, implemented by a compiled
 TypeScript model or by application-owned Rust. This path has no guest mirror
 tree and does not call back into a TypeScript interpreter for model methods.
@@ -26,7 +26,7 @@ completion is deferred to a boundary even though individual UI ops are
 synchronous. A native service adapter must implement the request, cancellation
 and delivery contract; the `HostOps` UI table does not supply that adapter.
 
-See [TypeScript and native code](/docs/pocket-vapor-boundaries/) for model
+See [TypeScript and native code](/docs/microts-boundaries/) for model
 selection, ownership and host responsibilities. The FFI, mirror and engine
 job-queue descriptions below concern guest execution.
 

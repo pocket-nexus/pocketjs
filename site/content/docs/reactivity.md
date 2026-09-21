@@ -162,7 +162,7 @@ useEffect(() => {
 
 Host result deliveries enter at frame boundaries. Reactive effects use the
 selected framework's scheduler; compiled model effects use the separate
-[model schedule](/docs/pocket-vapor-model/#reactions-and-cached-values).
+[model schedule](/docs/microts-model/#reactions-and-cached-values).
 [Native contract](/docs/native-contract/) describes guest frame order.
 
 ## Mount and cleanup

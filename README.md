@@ -344,7 +344,7 @@ The [TypeScript support reference](./site/content/docs/typescript-support.md)
 compares ordinary application code, AOT views and compiled model bodies,
 including their restrictions and current implementation limits.
 
-[Pocket Vapor](https://pocketjs.dev/docs/pocket-vapor-boundaries/) compiles
+[MicroTS](https://pocketjs.dev/docs/microts-boundaries/) compiles
 Solid TSX and Vue SFC views to Rust through a shared typed View IR.
 **`app.model: "compiled"` also compiles the supported TypeScript model subset
 to Rust.** The default `"rust"` mode uses an application-provided Rust model
@@ -352,7 +352,7 @@ implementing the same generated trait. Native AOT calls the retained UI core
 without a guest engine; the host still owns input, services and presentation.
 
 ```sh
-bun vapor/compiler/cli.ts build solid-aot-lab --strict
+bun microts/compiler/cli.ts build solid-aot-lab --strict
 cargo check --locked --manifest-path apps/solid-aot-lab/Cargo.toml
 ```
 
@@ -362,7 +362,7 @@ execution format; the application source contract remains TypeScript. Rust
 AOT uses `alloc`, with capacity tags for bounded strings and arrays. Demo
 `gen/` directories are ignored and must be regenerated before Cargo builds.
 
-The earlier [Pocket Vapor C/cartridge experiment](https://github.com/pocket-stack/pocket-vapor)
+The earlier [C/cartridge experiment](https://github.com/pocket-stack/pocket-vapor)
 lives in a separate repository with its own TypeScript subset, target profiles,
 examples and toolchains. Those sources and scripts are not part of this
 repository or the Rust AOT build.

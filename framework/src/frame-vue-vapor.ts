@@ -3,7 +3,7 @@
 import { computed, onScopeDispose, shallowRef, type ComputedRef } from "vue";
 import { __resetAnalog } from "./analog.ts";
 import { __beginAxisFrame, __endAxisFrame, __resetAxisInput, __axisDelta, RelativeAxis, type RelativeAxisId, type AxisDelta } from "./relative-axis.ts";
-import type { i32 } from "./numeric-vue-vapor.ts";
+import type { i32 } from "./numeric-microts.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
 import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-vue-aot.ts";

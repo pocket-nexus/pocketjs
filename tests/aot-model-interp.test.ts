@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { ModelInterpreter } from "../vapor/compiler/model-interp.ts";
-import { assertModelProgram, lowerModelTasks } from "../vapor/compiler/aot-model-tasks.ts";
-import type { ModelProgram, ModelModule, ModelExpr, ModelStmt } from "../vapor/compiler/aot-model-ir.ts";
+import { ModelInterpreter } from "../microts/compiler/model-interp.ts";
+import { assertModelProgram, lowerModelTasks } from "../microts/compiler/aot-model-tasks.ts";
+import type { ModelProgram, ModelModule, ModelExpr, ModelStmt } from "../microts/compiler/aot-model-ir.ts";
 
 // Hand-written expectations specify reaction, ownership and task behavior independently of compiler output.
 const I = { kind: "number", name: "i32" } as const;

@@ -1,10 +1,10 @@
 import { beforeAll, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { AotCompileError } from "../vapor/compiler/aot-ir.ts";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { interpretModel } from "../vapor/compiler/model-interp.ts";
-import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames, type ModelObservation } from "../vapor/compiler/model-harness.ts";
+import { AotCompileError } from "../microts/compiler/aot-ir.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { interpretModel } from "../microts/compiler/model-interp.ts";
+import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames, type ModelObservation } from "../microts/compiler/model-harness.ts";
 
 const cases = ["core", "negative"].flatMap(group => {
   const root = resolve("tests/fixtures/aot-model", group);

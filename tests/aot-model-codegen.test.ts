@@ -24,10 +24,10 @@ test.each([
   expect(check.stderr.toString()).toContain(code);
 });
 
-import type { ModelExpr, ModelModule, ModelProgram } from "../vapor/compiler/aot-model-ir.ts";
-import { emptyLedger } from "../vapor/compiler/aot-model-ir.ts";
-import { generateModelRust } from "../vapor/compiler/aot-model-codegen.ts";
-import { I32, STRING, type AotType } from "../vapor/compiler/aot-ir.ts";
+import type { ModelExpr, ModelModule, ModelProgram } from "../microts/compiler/aot-model-ir.ts";
+import { emptyLedger } from "../microts/compiler/aot-model-ir.ts";
+import { generateModelRust } from "../microts/compiler/aot-model-codegen.ts";
+import { I32, STRING, type AotType } from "../microts/compiler/aot-ir.ts";
 const loc = { file: "counter.ts", line: 1, column: 1, offset: 0 };
 const lit = (value: number | string, type: AotType = typeof value === "string" ? STRING : I32): ModelExpr => ({ kind: "literal", value, type, ledger: emptyLedger(), loc });
 const access = (kind: "signal" | "memo" | "local", id: number, type: AotType = I32): ModelExpr => ({ kind, id, type, ledger: { ...emptyLedger(), reads: [id] }, loc });
@@ -54,9 +54,9 @@ function counter(): ModelProgram {
 export function checkModelRust(name: string, source: string, harness: string) {
   const directory = `${output}/${name}`;
   mkdirSync(`${directory}/src`, { recursive: true });
-  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "model-aot-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\npocket_vapor = { path = ${JSON.stringify(resolve("engine/crates/pocket-vapor"))}, features = ["std"] }\n`);
+  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "model-aot-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/crates/microts"))}, features = ["std"] }\n`);
   writeFileSync(`${directory}/src/model.rs`, source);
-  writeFileSync(`${directory}/src/lib.rs`, `mod model;\nuse model::*;\nuse pocket_vapor::{Cmd, Ready};\n${harness}`);
+  writeFileSync(`${directory}/src/lib.rs`, `mod model;\nuse model::*;\nuse microts::{Cmd, Ready};\n${harness}`);
   const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: `${output}/target` } });
   expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
 }
@@ -111,7 +111,7 @@ test("generated task resumes after the boundary, restarts and keeps earlier writ
 `);
 }, 120_000);
 
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
 const virtualEntry = resolve("tests/fixtures/aot-model/generated/app.ts");
 const standardImports = `import { createSignal } from "solid-js";\nimport { createMemo, createEffect, on } from "@pocketjs/framework/solid/reactive";\nimport { copy, equals, len, map, filter, some, find, frames, after, until, all, any, join, cancel, type i32, type Cap } from "@pocketjs/framework/solid/std";\n`;
 function compileSource(source: string) { return generateModelRust(analyzeModel(virtualEntry, { sources: new Map([[virtualEntry, standardImports + source]]) })); }
@@ -195,7 +195,7 @@ export async function load(): Promise<void> { const r = await net.get("/resource
 export async function crowded(): Promise<void> { const r = await all([net.get("/1"), net.get("/2"), net.get("/3"), net.get("/4"), net.get("/5")]); }
 export async function nested(): Promise<void> { const r = await all([any([net.get("/first"), net.get("/loser")]), net.get("/last")]); }
 `), `
-use pocket_vapor::model::{Value, Completion, Delivery};
+use microts::model::{Value, Completion, Delivery};
 fn ready(frame: u64) -> Ready { Ready { frame, services: vec!["@pocketjs/framework/net/model".into()], ..Default::default() } }
 #[test] fn services() {
  let mut m = AppModel::default(); let mut cmds = Vec::new(); m.load(&mut cmds); assert_eq!(m.result(), "idle"); m.resume(&Ready { frame: 1, ..Default::default() }, &mut cmds); assert_eq!(m.result(), "unavailable"); assert!(cmds.is_empty());
@@ -220,7 +220,7 @@ export const [result, setResult] = createSignal("idle");
 export async function run(): Promise<void> { const property: "width" | "height" = "width"; const end = await animate(bar, property, 200, { dur: 15_000, easing: "out" }); setResult(end); }
 export function move() { jump(bar, "bgColor", "#010203"); }
 `), `
-use pocket_vapor::model::{Completion, Delivery, AnimationResult};
+use microts::model::{Completion, Delivery, AnimationResult};
 #[test] fn animation() { let mut m = AppModel::default(); let mut cmds = Vec::new(); m.run(&mut cmds); m.react(false, &mut cmds); let request = match cmds.pop().unwrap() { Cmd::Animate { node, prop, to, dur, easing, request: Some(request), .. } => { assert_eq!(node, None); assert_eq!(prop, 1); assert_eq!(to, 200.0); assert_eq!(dur, 15000); assert_eq!(easing, 2); request }, _ => panic!() }; m.resume(&Ready { frame: 1, deliveries: vec![Delivery { request, result: Completion::Animation(AnimationResult::Dropped) }], ..Default::default() }, &mut cmds); assert_eq!(m.result(), "dropped"); m.r#move(); m.react(false, &mut cmds); assert!(matches!(cmds.pop(), Some(Cmd::Jump { value, .. }) if value == 0xff030201_u32 as f64)); }
 `);
 }, 120_000);

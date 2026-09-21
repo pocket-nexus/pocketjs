@@ -145,9 +145,9 @@
     "engine/crates/pocket-text/src",
     "engine/crates/pocket-text/Cargo.toml",
     "engine/crates/pocket-text/Cargo.lock",
-    "vapor/compiler",
-    "engine/crates/pocket-vapor/src",
-    "engine/crates/pocket-vapor/Cargo.toml"
+    "microts/compiler",
+    "engine/crates/microts/src",
+    "engine/crates/microts/Cargo.toml"
   ],
   "publishConfig": {
     "access": "public"
@@ -209,8 +209,8 @@
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",
     "./virtual-list": "./framework/src/virtual-list.ts",
-    "./vue-vapor/std": {"types":"./framework/src/std-vue-vapor.d.ts","default":"./framework/src/std-vue-vapor.ts"},
-    "./solid/std": {"types":"./framework/src/std-vue-vapor.d.ts","default":"./framework/src/std-vue-vapor.ts"},
+    "./vue-vapor/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
+    "./solid/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
     "./solid/reactive": "./framework/src/reactive-solid.ts",
     "./vue-vapor/reactive": "./framework/src/reactive-vue-vapor.ts",
     "./model/tasks": "./framework/src/model-tasks.ts",
@@ -334,7 +334,7 @@
     "moto-g-play": "bun tools/moto-g-play.ts",
     "ime:setup": "bun tools/ime/setup.ts",
     "clear:companion": "bun tools/ime/device.ts",
-    "test:fuzz": "bun vapor/compiler/model-fuzz.ts"
+    "test:fuzz": "bun microts/compiler/model-fuzz.ts"
   },
   "dependencies": {
     "@solid-primitives/keyed": "^1.5.3",

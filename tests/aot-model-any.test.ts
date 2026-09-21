@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { interpretModel, type ModelFrameInput } from "../vapor/compiler/model-interp.ts";
-import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames } from "../vapor/compiler/model-harness.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { interpretModel, type ModelFrameInput } from "../microts/compiler/model-interp.ts";
+import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames } from "../microts/compiler/model-harness.ts";
 
 const service = "@pocketjs/framework/net/model";
 function fixture(timeoutFirst: boolean, deliveryClock?: number) {

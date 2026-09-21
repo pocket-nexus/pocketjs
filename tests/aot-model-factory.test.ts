@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeSolidAot } from "../vapor/compiler/aot-solid-frontend.ts";
-import { analyzeVueAot } from "../vapor/compiler/aot-frontend.ts";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { generateModelRust } from "../vapor/compiler/aot-model-codegen.ts";
-import { emitVueAot } from "../vapor/compiler/aot-codegen.ts";
-import { analyzeAot } from "../vapor/compiler/aot-build.ts";
+import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
+import { analyzeVueAot } from "../microts/compiler/aot-frontend.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { generateModelRust } from "../microts/compiler/aot-model-codegen.ts";
+import { emitAot } from "../microts/compiler/aot-codegen.ts";
+import { analyzeAot } from "../microts/compiler/aot-build.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const folder = resolve(import.meta.dir, "fixtures/aot-model/factory-virtual");
@@ -18,9 +18,9 @@ interface Hidden { n:i32; label:string }const[hidden,setHidden]=createSignal<Hid
 export function press():void {const old=copy(hidden());if(equals(old,hidden()))setCount(old.n);setHidden({n:old.n+1,label:old.label+"!"});}`);
   writeFileSync(resolve(directory, "App.tsx"), 'import {View,Text} from "@pocketjs/framework/solid/components";import {count,press} from "./App";export default function App(){return <View focusable onPress={press}><Text>{count()}</Text></View>}');
   const program = analyzeAot(resolve(directory, "App.tsx"), { strict: true });
-  writeFileSync(resolve(directory, "src/view.rs"), emitVueAot(program).files["app.rs"]!);
+  writeFileSync(resolve(directory, "src/view.rs"), emitAot(program).files["app.rs"]!);
   writeFileSync(resolve(directory, "src/model.rs"), generateModelRust(program.model!, program));
-  writeFileSync(resolve(directory, "Cargo.toml"), `[package]\nname="model-private-types"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket_vapor={path=${JSON.stringify(resolve("engine/crates/pocket-vapor"))},features=["std"]}\n`);
+  writeFileSync(resolve(directory, "Cargo.toml"), `[package]\nname="model-private-types"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\n`);
   writeFileSync(resolve(directory, "src/lib.rs"), 'mod view;use view::*;mod model;use model::*;#[test]fn values(){let mut m=AppModel::default();m.press();assert_eq!(m.count(),1);m.press();assert_eq!(m.count(),2);}');
   const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", resolve(directory, "Cargo.toml")], { env: { ...process.env, CARGO_TARGET_DIR: resolve(".pocket-build/validation/model-aot/factory/target") } });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
@@ -39,7 +39,7 @@ test.each(["solid","vue-vapor"])("%s view contracts use model inference before e
   const serialized = JSON.parse(JSON.stringify(p));
   expect(serialized.model).toBeUndefined();
   expect(serialized.modelProtocol).toBe(true);
-  expect(emitVueAot(serialized).files).toEqual(emitVueAot(p).files);
+  expect(emitAot(serialized).files).toEqual(emitAot(p).files);
 });
 test("compiled views inline explicitly typed model constants",()=>{
   const directory=resolve(".pocket-build/validation/model-aot/inference/constants");mkdirSync(directory,{recursive:true});
@@ -98,13 +98,13 @@ test("compiled factories seed two instances once, reset at remount, and clear re
   program.model=analyzeModel(root,{sources,factories:[row],name:"App"});
   const directory=resolve(".pocket-build/validation/model-aot/factory");
   mkdirSync(resolve(directory,"src"),{recursive:true});
-  writeFileSync(resolve(directory,"src/view.rs"),emitVueAot(program).files["app.rs"]!);
+  writeFileSync(resolve(directory,"src/view.rs"),emitAot(program).files["app.rs"]!);
   writeFileSync(resolve(directory,"src/model.rs"),generateModelRust(program.model,program));
-  writeFileSync(resolve(directory,"Cargo.toml"),`[package]\nname="model-aot-factory"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket_vapor={path=${JSON.stringify(resolve("engine/crates/pocket-vapor"))},features=["std"]}\n`);
+  writeFileSync(resolve(directory,"Cargo.toml"),`[package]\nname="model-aot-factory"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\n`);
   writeFileSync(resolve(directory,"src/lib.rs"),`mod view; use view::*; mod model; use model::*;
-fn text(ui:&pocket_vapor::Ui,node:i32)->String {let mut s=ui.core().node_text(node).unwrap_or("").to_owned();for c in ui.core().node_children(node){s.push_str(&text(ui,*c));}s}
+fn text(ui:&microts::Ui,node:i32)->String {let mut s=ui.core().node_text(node).unwrap_or("").to_owned();for c in ui.core().node_children(node){s.push_str(&text(ui,*c));}s}
 #[test] fn lifecycle(){
-let mut app=AppApp::new(pocket_vapor::Ui::new(),AppProps{},AppModel::default());
+let mut app=AppApp::new(microts::Ui::new(),AppProps{},AppModel::default());
 app.frame(&Default::default()); assert_eq!(text(app.ui(),1),"39");
 let slot=app.model.bar().clone(); let first=slot.get().expect("mounted ref");
 app.model.set_seed(7);app.invalidate();app.frame(&Default::default());assert_eq!(text(app.ui(),1),"103109");
@@ -127,18 +127,18 @@ test("compiled Cap values retain fixed storage through view getters and setter h
   ]);
   const program=analyzeSolidAot(entry,{sources,strict:true});program.model=analyzeModel(root,{sources,name:"App"});
   mkdirSync(resolve(directory,"src"),{recursive:true});
-  writeFileSync(resolve(directory,"src/view.rs"),emitVueAot(program).files["app.rs"]!);
+  writeFileSync(resolve(directory,"src/view.rs"),emitAot(program).files["app.rs"]!);
   writeFileSync(resolve(directory,"src/model.rs"),generateModelRust(program.model,program));
-  writeFileSync(resolve(directory,"Cargo.toml"),`[package]\nname="model-aot-cap-view"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket_vapor={path=${JSON.stringify(resolve("engine/crates/pocket-vapor"))},features=["std"]}\n`);
+  writeFileSync(resolve(directory,"Cargo.toml"),`[package]\nname="model-aot-cap-view"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\n`);
   writeFileSync(resolve(directory,"src/lib.rs"),`mod view;use view::*;mod model;use model::*;
 use std::alloc::{GlobalAlloc,Layout,System};use std::sync::atomic::{AtomicBool,AtomicUsize,Ordering};
 static ACTIVE:AtomicBool=AtomicBool::new(false);static ALLOCS:AtomicUsize=AtomicUsize::new(0);struct Counter;
 unsafe impl GlobalAlloc for Counter {unsafe fn alloc(&self,l:Layout)->*mut u8{if ACTIVE.load(Ordering::Relaxed){ALLOCS.fetch_add(1,Ordering::Relaxed);}System.alloc(l)}unsafe fn dealloc(&self,p:*mut u8,l:Layout){System.dealloc(p,l)}}
 #[global_allocator]static ALLOC:Counter=Counter;
-fn text(ui:&pocket_vapor::Ui,node:i32)->String {let mut s=ui.core().node_text(node).unwrap_or("").to_owned();for c in ui.core().node_children(node){s.push_str(&text(ui,*c));}s}
-#[test]fn cap_storage(){let mut app=AppApp::new(pocket_vapor::Ui::new(),AppProps{},AppModel::default());app.frame(&Default::default());assert_eq!(text(app.ui(),1),"abc12");
-let parent=app.ui().core().node_children(1)[0];let target=app.ui().core().node_children(parent)[0];app.frame(&pocket_vapor::Input::press(pocket_vapor::NodeId(target)));assert_eq!(text(app.ui(),1),"xyz12");
-let mut cmds=Vec::new();ACTIVE.store(true,Ordering::Relaxed);for _ in 0..100{app.model.set_name(pocket_vapor::model::bounded_string::<8>("abc","name"));app.model.set_rows(pocket_vapor::model::bounded_array::<i32,4>([1,2],"rows"));app.model.react(false,&mut cmds);app.model.settle();}ACTIVE.store(false,Ordering::Relaxed);assert_eq!(ALLOCS.load(Ordering::Relaxed),0);}
+fn text(ui:&microts::Ui,node:i32)->String {let mut s=ui.core().node_text(node).unwrap_or("").to_owned();for c in ui.core().node_children(node){s.push_str(&text(ui,*c));}s}
+#[test]fn cap_storage(){let mut app=AppApp::new(microts::Ui::new(),AppProps{},AppModel::default());app.frame(&Default::default());assert_eq!(text(app.ui(),1),"abc12");
+let parent=app.ui().core().node_children(1)[0];let target=app.ui().core().node_children(parent)[0];app.frame(&microts::Input::press(microts::NodeId(target)));assert_eq!(text(app.ui(),1),"xyz12");
+let mut cmds=Vec::new();ACTIVE.store(true,Ordering::Relaxed);for _ in 0..100{app.model.set_name(microts::model::bounded_string::<8>("abc","name"));app.model.set_rows(microts::model::bounded_array::<i32,4>([1,2],"rows"));app.model.react(false,&mut cmds);app.model.settle();}ACTIVE.store(false,Ordering::Relaxed);assert_eq!(ALLOCS.load(Ordering::Relaxed),0);}
 `);
   const run=Bun.spawnSync(["cargo","test","--quiet","--manifest-path",resolve(directory,"Cargo.toml")],{stdout:"pipe",stderr:"pipe",env:{...process.env,CARGO_TARGET_DIR:resolve(".pocket-build/validation/model-aot/factory-target")}});
   expect(run.exitCode,run.stdout.toString()+run.stderr.toString()).toBe(0);

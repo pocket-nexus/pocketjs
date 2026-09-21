@@ -2,11 +2,11 @@ import { expect,test } from "bun:test";
 import ts from "typescript";
 import { readdirSync,readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { emptyLedger,type ModelProgram,type ModelExpr } from "../vapor/compiler/aot-model-ir.ts";
-import { interpretModel } from "../vapor/compiler/model-interp.ts";
-import { assertModelObservations,executeModelJavaScript,executeModelRust,observeModelFrames,type ModelObservation } from "../vapor/compiler/model-harness.ts";
-import { generateModelCase,MODEL_FUZZ_SEEDS } from "../vapor/compiler/model-fuzz.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { emptyLedger,type ModelProgram,type ModelExpr } from "../microts/compiler/aot-model-ir.ts";
+import { interpretModel } from "../microts/compiler/model-interp.ts";
+import { assertModelObservations,executeModelJavaScript,executeModelRust,observeModelFrames,type ModelObservation } from "../microts/compiler/model-harness.ts";
+import { generateModelCase,MODEL_FUZZ_SEEDS } from "../microts/compiler/model-fuzz.ts";
 
 function walk(value:any,visit:(node:any)=>void):void{
   if(!value||typeof value!=="object")return;visit(value);

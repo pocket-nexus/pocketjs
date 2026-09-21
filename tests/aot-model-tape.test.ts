@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { BTN } from "../contracts/spec/spec.ts";
-import { analyzeSolidAot } from "../vapor/compiler/aot-solid-frontend.ts";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { ModelTapeInterpreter, replayModelTape } from "../vapor/compiler/aot-model-tape.ts";
+import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { ModelTapeInterpreter, replayModelTape } from "../microts/compiler/aot-model-tape.ts";
 
 const directory = resolve("tests/fixtures/aot-model/tape-virtual");
 function program(files: Record<string, string>) {

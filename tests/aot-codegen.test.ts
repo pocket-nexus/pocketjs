@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { buildAot } from "../vapor/compiler/aot-build.ts";
-import { emitVueAot } from "../vapor/compiler/aot-codegen.ts";
+import { buildAot } from "../microts/compiler/aot-build.ts";
+import { emitAot } from "../microts/compiler/aot-codegen.ts";
 
 test("Vue lab generated Rust compiles against its handwritten model", async () => {
   await buildAot("vue-sfc-lab", { strict: true });
@@ -14,7 +14,7 @@ test("Vue lab generated Rust compiles against its handwritten model", async () =
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { AotComponent, AotExpr, AotHandler, AotNode, AotProgram, AotType } from "../vapor/compiler/aot-ir.ts";
+import type { AotComponent, AotExpr, AotHandler, AotNode, AotProgram, AotType } from "../microts/compiler/aot-ir.ts";
 
 const loc = { file: "backend-fixture.tsx", line: 1, column: 1, offset: 0 };
 const boolean: AotType = { kind: "boolean" }, string: AotType = { kind: "string" }, integer: AotType = { kind: "number", name: "i32" };
@@ -28,7 +28,7 @@ function branch(name: string, binding: string): AotNode { return { kind: "if", i
 function cargoFixture(name: string, generated: string, rust: string) {
   const directory = resolve(".pocket-build/validation/solid-aot/backend", name);
   mkdirSync(`${directory}/src`, { recursive: true });
-  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "aot-backend-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\npocket_vapor = { path = ${JSON.stringify(resolve("engine/crates/pocket-vapor"))}, features = ["std"] }\n`);
+  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "aot-backend-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/crates/microts"))}, features = ["std"] }\n`);
   writeFileSync(`${directory}/src/generated.rs`, generated);
   writeFileSync(`${directory}/src/lib.rs`, `mod generated;\nuse generated::*;\n${rust}`);
   const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: resolve(".pocket-build/validation/solid-aot/backend/target") } });
@@ -37,7 +37,7 @@ function cargoFixture(name: string, generated: string, rust: string) {
 }
 
 test("IR consumers reject old versions", () => {
-  expect(() => emitVueAot({ ...program([component("App")]), version: 2 } as unknown as AotProgram)).toThrow("Unsupported AOT IR version 2");
+  expect(() => emitAot({ ...program([component("App")]), version: 2 } as unknown as AotProgram)).toThrow("Unsupported AOT IR version 2");
 });
 
 test("lifecycle hooks settle structural updates and unmount immediately", () => {
@@ -46,7 +46,7 @@ test("lifecycle hooks settle structural updates and unmount immediately", () => 
   const app = component("App", [{ kind: "element", id: 0, tag: "Text", style: 0, props: [], focusable: false, children: [], events: [], text: { memo: 0, parts: [read("count", integer)] }, loc }, branch("Child", "visible")]); app.children = ["Child"];
   app.values = [{ name: "visible", sourceName: "visible", type: boolean, writable: false }, { name: "count", sourceName: "count", type: integer, writable: false }];
   app.functions = [method("load"), method("release")]; app.hooks = { mount: call("load"), unmount: call("release") };
-  const output = emitVueAot(program([child, app])).files["app.rs"]!;
+  const output = emitAot(program([child, app])).files["app.rs"]!;
   cargoFixture("lifecycle", output, `
 use std::{cell::{Cell, RefCell}, rc::Rc};
 thread_local! { static TRACE: RefCell<Vec<&'static str>> = RefCell::new(Vec::new()); static COUNT: Cell<i32> = const { Cell::new(1) }; }
@@ -64,10 +64,10 @@ impl AppViewModel for Model {
 }
 #[test] fn settles_and_destroys() {
   TRACE.with(|trace| trace.borrow_mut().clear());
-  let mut app = AppApp::new(pocket_vapor::CoreHost::new(), AppProps {}, Model { visible: true });
-  app.frame(&pocket_vapor::Input::default());
+  let mut app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model { visible: true });
+  app.frame(&microts::Input::default());
   TRACE.with(|trace| assert_eq!(*trace.borrow(), ["child created", "parent mount", "child mount", "child unmount"]));
-  let text = app.ui().core().node_children(pocket_vapor::NodeId::ROOT.0)[0];
+  let text = app.ui().core().node_children(microts::NodeId::ROOT.0)[0];
   assert_eq!(app.ui().core().node_text(text), Some("0"));
   app.unmount();
   TRACE.with(|trace| assert_eq!(trace.borrow().last(), Some(&"parent unmount")));
@@ -85,7 +85,7 @@ test("optional callbacks skip argument effects and owned event arguments can be 
   child.nodes = [button({ kind: "emit", name: "saved", optional: true, arguments: [(call("press", [], string) as Extract<AotHandler, { kind: "call" }>).expression, { kind: "literal", value: 7, type: integer, loc }], id: 0, loc })];
   const app = component("App", [childNode("Child"), { ...childNode("Child"), events: [{ name: "saved", handler: { kind: "sequence", steps: [twice(), call("recordIndex", [{ kind: "binding", scope: "event", name: "$event1", type: integer, loc }])], id: 0, loc } }] } as AotNode]);
   app.children = ["Child"]; app.functions = [method("record", [{ name: "value", type: string }]), method("recordIndex", [{ name: "value", type: integer }])];
-  cargoFixture("callbacks", emitVueAot(program([child, app])).files["app.rs"]!, `
+  cargoFixture("callbacks", emitAot(program([child, app])).files["app.rs"]!, `
 use std::cell::Cell;
 thread_local! { static PRESSES: Cell<usize> = const { Cell::new(0) }; }
 #[derive(Default)] struct ChildModel;
@@ -93,9 +93,9 @@ impl ChildViewModel for ChildModel { fn press(&mut self) -> String { PRESSES.wit
 #[derive(Default)] struct Model { received: Vec<String> }
 impl AppViewModel for Model { type Child = ChildModel; fn record(&mut self, value: String) { self.received.push(value); } fn recordIndex(&mut self, value: i32) { assert_eq!(value, 7); } }
 #[test] fn optional_and_owned() {
-  let mut app = AppApp::new(pocket_vapor::CoreHost::new(), AppProps {}, Model::default());
-  app.frame(&pocket_vapor::Input::default());
-  app.frame(&pocket_vapor::Input { buttons: 1, ..Default::default() });
+  let mut app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model::default());
+  app.frame(&microts::Input::default());
+  app.frame(&microts::Input { buttons: 1, ..Default::default() });
   assert_eq!(app.model.received, ["payload", "payload"]);
   PRESSES.with(|value| assert_eq!(value.get(), 1));
 }
@@ -108,13 +108,13 @@ test("inlined listeners bind payloads once and clone before their final consumin
   child.nodes = [button({ kind: "emit", name: "saved", arguments: [{ kind: "binding", scope: "prop", name: "value", type: string, loc }], id: 0, loc })];
   const app = component("App", [{ ...childNode("Child"), props: [{ name: "value", value: { kind: "literal", value: "payload", type: string, loc } }], events: [{ name: "saved", handler: twice() }] } as AotNode]);
   app.children = ["Child"]; app.functions = [method("record", [{ name: "value", type: string }])];
-  cargoFixture("inline-callback", emitVueAot(program([child, app])).files["app.rs"]!, `
+  cargoFixture("inline-callback", emitAot(program([child, app])).files["app.rs"]!, `
 #[derive(Default)] struct Model { received: Vec<String> }
 impl AppViewModel for Model { fn record(&mut self, value: String) { self.received.push(value); } }
 #[test] fn inline_owned() {
-  let mut app = AppApp::new(pocket_vapor::CoreHost::new(), AppProps {}, Model::default());
-  app.frame(&pocket_vapor::Input::default());
-  app.frame(&pocket_vapor::Input { buttons: 1, ..Default::default() });
+  let mut app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model::default());
+  app.frame(&microts::Input::default());
+  app.frame(&microts::Input { buttons: 1, ..Default::default() });
   assert_eq!(app.model.received, ["payload", "payload"]);
 }
 `);
@@ -134,7 +134,7 @@ test("StyleId props and scalar array constants compile without a model binding",
   const app = component("App", [{ ...childNode("Child"), props: [{ name: "tone", value: { kind: "literal", value: 7, type: { kind: "style" }, loc } }, { name: "labels", value: table }, { name: "numbers", value: { kind: "constant", name: "BIG_TABLE", type: child.props.find(prop => prop.name === "numbers")!.type, loc } }] } as AotNode, button(call("record", [selection])), list]);
   app.children = ["Child"]; app.constants = [{ name: "FILTERS", type: table.type, value: ["ALL", "ACTIVE", "DONE"] }, { name: "BIG_TABLE", type: { kind: "array", element: { kind: "number", name: "u64" }, length: 1 }, value: [Number("18446744073709551615")], rawNumbers: ["18446744073709551615"] }];
   app.functions = [method("record", [{ name: "value", type: string }])]; app.values = [{ name: "filter", sourceName: "filter", type: integer, writable: false }];
-  cargoFixture("styles-constants", emitVueAot(program([child, app])).files["app.rs"]!, `
+  cargoFixture("styles-constants", emitAot(program([child, app])).files["app.rs"]!, `
 #[derive(Default)] struct ChildModel; impl ChildViewModel for ChildModel {}
 #[derive(Default)] struct Model { received: Vec<String> }
 impl AppViewModel for Model { type Child = ChildModel; fn filter(&self) -> i32 { 1 } fn record(&mut self, value: String) { self.received.push(value); } }
@@ -142,13 +142,13 @@ impl AppViewModel for Model { type Child = ChildModel; fn filter(&self) -> i32 {
   assert_eq!(FILTERS, ["ALL", "ACTIVE", "DONE"]);
   assert_eq!(BIG_TABLE[0], u64::MAX);
   assert_eq!(Child_FILTERS, ["CHILD"]);
-  let mut app = AppApp::new(pocket_vapor::CoreHost::new(), AppProps {}, Model::default());
-  app.frame(&pocket_vapor::Input::default());
-  app.frame(&pocket_vapor::Input { buttons: 1, ..Default::default() });
+  let mut app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model::default());
+  app.frame(&microts::Input::default());
+  app.frame(&microts::Input { buttons: 1, ..Default::default() });
   assert_eq!(app.model.received, ["ACTIVE"]);
-  let labels: Vec<_> = app.ui().core().node_children(pocket_vapor::NodeId::ROOT.0).iter().filter_map(|node| app.ui().core().node_text(*node)).filter(|text| !text.is_empty()).collect();
+  let labels: Vec<_> = app.ui().core().node_children(microts::NodeId::ROOT.0).iter().filter_map(|node| app.ui().core().node_text(*node)).filter(|text| !text.is_empty()).collect();
   assert_eq!(labels, ["ALL", "ACTIVE", "DONE"]);
-  let child_view = app.ui().core().node_children(pocket_vapor::NodeId::ROOT.0)[0];
+  let child_view = app.ui().core().node_children(microts::NodeId::ROOT.0)[0];
   let child_text = app.ui().core().node_children(child_view)[0];
   assert_eq!(app.ui().core().node_text(child_text), Some("CHILD"));
 }
@@ -163,7 +163,7 @@ test("hook queues preserve ownership through slots and descending destruction", 
   page.functions = [method("load"), method("release")]; page.hooks = { mount: call("load"), unmount: call("release") };
   const app = component("App", [{ ...childNode("Page"), slots: [{ name: "default", children: [childNode("Child")] }] } as AotNode]); app.children = ["Page", "Child"];
   app.functions = [method("load"), method("release")]; app.hooks = { mount: call("load"), unmount: call("release") };
-  cargoFixture("lifecycle-slots", emitVueAot(program([child, page, app])).files["app.rs"]!, `
+  cargoFixture("lifecycle-slots", emitAot(program([child, page, app])).files["app.rs"]!, `
 use std::cell::RefCell;
 thread_local! { static TRACE: RefCell<Vec<&'static str>> = RefCell::new(Vec::new()); }
 fn log(value: &'static str) { TRACE.with(|trace| trace.borrow_mut().push(value)); }
@@ -174,14 +174,14 @@ impl PageViewModel for PageModel { fn load(&mut self) { log("page mount"); } fn 
 struct Model;
 impl AppViewModel for Model { type Page = PageModel; type Child = ChildModel; fn load(&mut self) { log("root mount"); } fn release(&mut self) { log("root unmount"); } }
 #[test] fn slots_and_destruction() {
-  let mut app = AppApp::new(pocket_vapor::CoreHost::new(), AppProps {}, Model);
-  app.frame(&pocket_vapor::Input::default());
+  let mut app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model);
+  app.frame(&microts::Input::default());
   TRACE.with(|trace| assert_eq!(*trace.borrow(), ["page created", "child created", "root mount", "page mount", "child mount"]));
   app.unmount();
   TRACE.with(|trace| assert_eq!(&trace.borrow()[5..], ["child unmount", "page unmount", "root unmount"]));
 }
 #[test] fn unmount_without_frame_runs_cleanup_without_mounts() {
-  let app = AppApp::new(pocket_vapor::CoreHost::new(), AppProps {}, Model);
+  let app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model);
   app.unmount();
   TRACE.with(|trace| assert_eq!(*trace.borrow(), ["page created", "child created", "child unmount", "page unmount", "root unmount"]));
 }
@@ -198,20 +198,20 @@ test("keyed hook instances are created in source order, retained on moves and re
   const app = component("App", [list]); app.children = ["Child"];
   app.values = [{ name: "rows", sourceName: "rows", type: { kind: "array", element: integer }, writable: false }, { name: "visible", sourceName: "visible", type: boolean, writable: false }];
   app.functions = [method("load")]; app.hooks = { mount: call("load") };
-  cargoFixture("lifecycle-keyed", emitVueAot(program([child, app])).files["app.rs"]!, `
+  cargoFixture("lifecycle-keyed", emitAot(program([child, app])).files["app.rs"]!, `
 use std::cell::{Cell, RefCell};
 thread_local! { static NEXT: Cell<i32> = const { Cell::new(0) }; static TRACE: RefCell<Vec<String>> = RefCell::new(Vec::new()); }
 struct ChildModel(i32); impl Default for ChildModel { fn default() -> Self { Self(NEXT.with(|next| { next.set(next.get() + 1); next.get() })) } }
 impl ChildViewModel for ChildModel { fn token(&self) -> i32 { self.0 } fn load(&mut self) { TRACE.with(|trace| trace.borrow_mut().push(format!("mount {}", self.0))); } fn release(&mut self) { TRACE.with(|trace| trace.borrow_mut().push(format!("unmount {}", self.0))); } }
 struct Model { rows: Vec<i32>, visible: bool }
 impl AppViewModel for Model { type Child = ChildModel; fn rows(&self) -> &[i32] { &self.rows } fn visible(&self) -> bool { self.visible } fn load(&mut self) { self.visible = true; } }
-fn texts(ui: &pocket_vapor::Ui) -> Vec<String> { ui.core().node_children(pocket_vapor::NodeId::ROOT.0).iter().filter_map(|id| ui.core().node_text(*id).map(str::to_owned)).collect() }
+fn texts(ui: &microts::Ui) -> Vec<String> { ui.core().node_children(microts::NodeId::ROOT.0).iter().filter_map(|id| ui.core().node_text(*id).map(str::to_owned)).collect() }
 #[test] fn retained_keyed_models() {
-  let mut app = AppApp::new(pocket_vapor::CoreHost::new(), AppProps {}, Model { rows: vec![10,20], visible: false });
-  app.frame(&pocket_vapor::Input::default()); assert_eq!(texts(app.ui()), ["10:1", "20:2"]);
-  app.model.rows = vec![20,10]; app.invalidate(); app.frame(&pocket_vapor::Input::default()); assert_eq!(texts(app.ui()), ["20:2", "10:1"]);
-  app.model.rows = vec![10]; app.invalidate(); app.frame(&pocket_vapor::Input::default()); assert_eq!(texts(app.ui()), ["10:1"]);
-  app.model.rows = vec![10,20]; app.invalidate(); app.frame(&pocket_vapor::Input::default()); assert_eq!(texts(app.ui()), ["10:1", "20:3"]);
+  let mut app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model { rows: vec![10,20], visible: false });
+  app.frame(&microts::Input::default()); assert_eq!(texts(app.ui()), ["10:1", "20:2"]);
+  app.model.rows = vec![20,10]; app.invalidate(); app.frame(&microts::Input::default()); assert_eq!(texts(app.ui()), ["20:2", "10:1"]);
+  app.model.rows = vec![10]; app.invalidate(); app.frame(&microts::Input::default()); assert_eq!(texts(app.ui()), ["10:1"]);
+  app.model.rows = vec![10,20]; app.invalidate(); app.frame(&microts::Input::default()); assert_eq!(texts(app.ui()), ["10:1", "20:3"]);
   app.unmount(); TRACE.with(|trace| assert_eq!(*trace.borrow(), ["mount 1", "mount 2", "unmount 2", "mount 3", "unmount 3", "unmount 1"]));
 }
 `);

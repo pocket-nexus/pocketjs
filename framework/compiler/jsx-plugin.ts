@@ -8,11 +8,11 @@ import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
-import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../vapor/compiler/aot-solid-browser.ts";
-import { normalizeSolidAotSemantics } from "../../vapor/compiler/aot-solid-semantics.ts";
-import { transformCompiledModel } from "../../vapor/compiler/aot-model-build.ts";
+import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../microts/compiler/aot-solid-browser.ts";
+import { normalizeSolidAotSemantics } from "../../microts/compiler/aot-solid-semantics.ts";
+import { transformCompiledModel } from "../../microts/compiler/aot-model-build.ts";
 import { exposeVaporFrameFlush } from "./vue-vapor-frame-flush.ts";
-import { checkVueAotSource, hasVueAotContract, resolveVueAotMock } from "../../vapor/compiler/aot-browser.ts";
+import { checkVueAotSource, hasVueAotContract, resolveVueAotMock } from "../../microts/compiler/aot-browser.ts";
 import {
   propsHelperCode,
   propsHelperId,

@@ -1,6 +1,6 @@
 // Hardware-neutral relative input latched once per frame; deltas are millidegrees.
-import { RelativeAxis, RelativeAxisUnits, type RelativeAxisId } from "../../contracts/spec/vapor.ts";
-import type { i32 } from "./numeric-vue-vapor.ts";
+import { RelativeAxis, RelativeAxisUnits, type RelativeAxisId } from "../../contracts/spec/microts.ts";
+import type { i32 } from "./numeric-microts.ts";
 export { RelativeAxis, RelativeAxisUnits, type RelativeAxisId };
 export interface AxisDelta { axis: RelativeAxisId; delta: i32 }
 

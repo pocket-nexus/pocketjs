@@ -38,7 +38,7 @@ const insertVaporBlock = vaporInsert as unknown as (
   anchor?: NodeMirror | null,
 ) => void;
 const removeVaporBlock = vaporRemove as unknown as (block: unknown, parent: NodeMirror) => void;
-const createPocketVaporApp = createVaporApp as unknown as (component: VaporComponent) => {
+const createPocketVueApp = createVaporApp as unknown as (component: VaporComponent) => {
   mount(root: NodeMirror): void;
   unmount(): void;
 };
@@ -114,7 +114,7 @@ export function render(code: VaporRenderRoot, root: NodeMirror): () => void {
   const component = (
     typeof code === "function" ? { setup: code as () => unknown } : code
   ) as VaporComponent;
-  const app = createPocketVaporApp(component);
+  const app = createPocketVueApp(component);
   app.mount(root as never);
   return () => app.unmount();
 }

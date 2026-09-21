@@ -7,11 +7,11 @@ publish = false
 [workspace]
 
 [dependencies]
-pocket_vapor = { path = "../../engine/crates/pocket-vapor" }
+microts = { path = "../../engine/crates/microts" }
 
 [features]
 default = []
-std = ["pocket_vapor/std"]
+std = ["microts/std"]
 
 [profile.dev]
 overflow-checks = false

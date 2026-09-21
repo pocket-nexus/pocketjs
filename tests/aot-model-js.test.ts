@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { generateModelJavaScript } from "../vapor/compiler/aot-model-js.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { generateModelJavaScript } from "../microts/compiler/aot-model-js.ts";
 import { ModelRegion, capacity } from "../framework/src/model-reactive.ts";
 import { ModelTasks, resumeModelTasks, resetModelTaskClock } from "../framework/src/model-tasks.ts";
 
@@ -15,7 +15,7 @@ async function compile(source: string) {
   const entry = resolve("tests/fixtures/aot-model/js/app.ts");
   const program = analyzeModel(entry, { source: prelude + source });
   const output = generateModelJavaScript(program, program.modules[0], {
-    runtimeImport: resolve("framework/src/reactive-solid.ts"), stdImport: resolve("framework/src/std-vue-vapor.ts"), tasksImport: resolve("framework/src/model-tasks.ts"),
+    runtimeImport: resolve("framework/src/reactive-solid.ts"), stdImport: resolve("framework/src/std-microts.ts"), tasksImport: resolve("framework/src/model-tasks.ts"),
   });
   const path = resolve(`.pocket-build/validation/model-aot/js/${process.pid}-${sequence++}.mjs`);
   await Bun.write(path, output);

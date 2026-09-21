@@ -222,7 +222,7 @@ test("every compatibility entry cites a receipt that resolves", () => {
     }
   }
 
-  // Vapor cartridge targets are a separate story and stay out of this chapter.
+  // The earlier cartridge experiment's targets stay out of this chapter.
   for (const absent of ["Playdate", "MeowBit", "Game Boy", "GBA", "NES"]) {
     expect(compat).not.toContain(absent);
   }

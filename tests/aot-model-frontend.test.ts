@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { AotCompileError } from "../vapor/compiler/aot-ir.ts";
-import { ModelInterpreter } from "../vapor/compiler/model-interp.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { AotCompileError } from "../microts/compiler/aot-ir.ts";
+import { ModelInterpreter } from "../microts/compiler/model-interp.ts";
 
 const entry = resolve(import.meta.dir, "fixtures/aot-model/virtual/app.ts");
 const prelude = 'import { createSignal, untrack, batch } from "solid-js";\nimport { createMemo, createEffect, on } from "@pocketjs/framework/solid/reactive";\nimport { copy, equals, type i32 } from "@pocketjs/framework/solid/std";\n';

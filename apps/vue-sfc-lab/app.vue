@@ -21,7 +21,7 @@ provide("theme", theme);
     <View class="flex-row items-center justify-between">
       <View class="flex-col">
         <Text class="text-lg text-slate-950 font-bold">Vue SFC Feature Lab</Text>
-        <Text class="text-xs text-slate-500">official template syntax · PocketJS Vapor</Text>
+        <Text class="text-xs text-slate-500">official template syntax · MicroTS</Text>
       </View>
       <Text class="text-xs text-blue-600 font-bold">{{ enabledCount }}/3 ON</Text>
     </View>

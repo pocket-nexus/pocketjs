@@ -33,14 +33,14 @@ export const DOC_NAV: DocSection[] = [
     ],
   },
   {
-    title: "Pocket Vapor",
+    title: "MicroTS",
     items: [
-      { slug: "pocket-vapor", title: "Build a native Vue app" },
-      { slug: "pocket-vapor-components", title: "Components and state" },
-      { slug: "pocket-vapor-reference", title: "API and commands" },
-      { slug: "pocket-vapor-solid", title: "Solid TSX to Rust" },
-      { slug: "pocket-vapor-model", title: "TypeScript models to Rust" },
-      { slug: "pocket-vapor-boundaries", title: "TypeScript and native code" },
+      { slug: "microts", title: "Build a native Vue app" },
+      { slug: "microts-components", title: "Components and state" },
+      { slug: "microts-reference", title: "API and commands" },
+      { slug: "microts-solid", title: "Solid TSX to Rust" },
+      { slug: "microts-model", title: "TypeScript models to Rust" },
+      { slug: "microts-boundaries", title: "TypeScript and native code" },
     ],
   },
   {

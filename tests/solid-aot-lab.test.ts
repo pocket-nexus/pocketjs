@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { bootWorld, type SimWorld } from "../hosts/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
-import { buildAot } from "../vapor/compiler/aot-build.ts";
+import { buildAot } from "../microts/compiler/aot-build.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

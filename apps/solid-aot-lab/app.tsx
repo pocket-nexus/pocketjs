@@ -16,7 +16,7 @@ export default function App() {
         <View class="flex-row items-center justify-between">
           <View class="flex-col">
             <Text class="text-lg text-slate-950 font-bold">Solid AOT Feature Lab</Text>
-            <Text class="text-xs text-slate-500">typed TSX views · PocketJS Vapor</Text>
+            <Text class="text-xs text-slate-500">typed TSX views · MicroTS</Text>
           </View>
           <Text class="text-xs text-blue-600 font-bold">{enabledCount()}/3 ON</Text>
         </View>

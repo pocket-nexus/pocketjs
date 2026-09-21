@@ -7,8 +7,8 @@ The output language does not add another application source-language promise.
 
 This page defines the source-language differences between ordinary framework
 applications, AOT views and compiled models. The framework guides describe
-view authoring; the [model guide](/docs/pocket-vapor-model/) describes frame
-execution; [TypeScript and native code](/docs/pocket-vapor-boundaries/) describes
+view authoring; the [model guide](/docs/microts-model/) describes frame
+execution; [TypeScript and native code](/docs/microts-boundaries/) describes
 ownership and host integration.
 
 - [Execution modes](#execution-modes)
@@ -149,8 +149,8 @@ listed [below](#current-implementation-limits).
 
 The view column covers template/JSX binding expressions. View setup, event
 handlers, `:style`/`style` objects and slot syntax have designated forms in the
-[Vue reference](/docs/pocket-vapor-reference/) and
-[Solid guide](/docs/pocket-vapor-solid/).
+[Vue reference](/docs/microts-reference/) and
+[Solid guide](/docs/microts-solid/).
 
 | Form | AOT view binding | Compiled model body |
 |---|---|---|
@@ -327,7 +327,7 @@ export function increment(): void {
 The copy is required because a non-primitive signal read is an immutable
 view. A local that owns the copy can mutate its fields or elements. Values
 that survive an `await` become owned snapshots. See
-[model value rules](/docs/pocket-vapor-model/#values-and-bounds).
+[model value rules](/docs/microts-model/#values-and-bounds).
 
 ## Reactive state and regions
 
@@ -336,7 +336,7 @@ come from `@pocketjs/framework/solid/reactive`. Vue models use `ref` and
 `computed` from `vue`, with `watch` and `watchEffect` from the framework's
 Vue reactive module. Importing stock Solid `createMemo`/`createEffect` into a
 compiled model is rejected. A view-local Solid `createMemo` remains a view
-expression expansion and follows the [view rules](/docs/pocket-vapor-solid/#components-and-expressions).
+expression expansion and follows the [view rules](/docs/microts-solid/#components-and-expressions).
 
 Signal seeds use admitted constant expressions, or factory parameters for a
 child region. A memo reads signals, memos, constants and pure computations;
@@ -351,7 +351,7 @@ scheduling does not define compiled model behavior.
 The root module owns one region. Each factory mount owns another, with fresh
 state on remount and task cancellation on unmount. Mount-time arguments seed
 the factory once; prop updates do not reseed it. The
-[model guide](/docs/pocket-vapor-model/#reactions-and-cached-values) defines
+[model guide](/docs/microts-model/#reactions-and-cached-values) defines
 dispatch reads, changed flags and lifecycle rounds.
 
 ## Async tasks and host services
@@ -383,7 +383,7 @@ Arbitrary promises, `.then`, native `fetch` and timers such as `setTimeout`
 are not model APIs. The current shipped model service adapter is `net.get`;
 a TypeScript declaration for another SDK is not enough to admit a service.
 A native host must provide its transport and typed deliveries. See
-[the host boundary](/docs/pocket-vapor-boundaries/#a-task-requests-work-the-host-performs-it).
+[the host boundary](/docs/microts-boundaries/#a-task-requests-work-the-host-performs-it).
 
 ## Current implementation limits
 
@@ -406,8 +406,8 @@ frontend but fail native generation/type checking or reference replay.
 Run admission and then compile the generated native source:
 
 ```sh
-bun vapor/compiler/cli.ts check solid-aot-lab --strict
-bun vapor/compiler/cli.ts build solid-aot-lab --strict
+bun microts/compiler/cli.ts check solid-aot-lab --strict
+bun microts/compiler/cli.ts build solid-aot-lab --strict
 cargo check --locked --manifest-path apps/solid-aot-lab/Cargo.toml
 ```
 

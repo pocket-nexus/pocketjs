@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { analyzeSolidAot } from "../vapor/compiler/aot-solid-frontend.ts";
-import { checkSolidAotGraph, generateSolidAotMock, getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../vapor/compiler/aot-solid-browser.ts";
-import { normalizeSolidAotSemantics } from "../vapor/compiler/aot-solid-semantics.ts";
+import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
+import { checkSolidAotGraph, generateSolidAotMock, getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
+import { normalizeSolidAotSemantics } from "../microts/compiler/aot-solid-semantics.ts";
 import { jsxPlugin, transformFile } from "../framework/compiler/jsx-plugin.ts";
 
 let sequence = 0;

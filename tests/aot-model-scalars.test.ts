@@ -1,8 +1,8 @@
 import { expect,test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { interpretModel } from "../vapor/compiler/model-interp.ts";
-import { assertModelObservations,executeModelJavaScript,executeModelRust,observeModelFrames } from "../vapor/compiler/model-harness.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { interpretModel } from "../microts/compiler/model-interp.ts";
+import { assertModelObservations,executeModelJavaScript,executeModelRust,observeModelFrames } from "../microts/compiler/model-harness.ts";
 
 const prelude=`import{createSignal}from"solid-js";import{createMemo,createEffect,on}from"@pocketjs/framework/solid/reactive";import type{i32,Px,Ms,Deg,Color}from"@pocketjs/framework/solid/std";`;
 const cases=[

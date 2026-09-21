@@ -5,8 +5,8 @@ extern crate alloc;
 
 use alloc::{vec, vec::Vec};
 use core::ops::{Deref, DerefMut};
-use pocket_vapor::spec::btn;
-use pocket_vapor::{HasButton, HasRelativeAxis, Host, Input, Ui};
+use microts::spec::btn;
+use microts::{HasButton, HasRelativeAxis, Host, Input, Ui};
 
 #[path = "../gen/mod.rs"]
 pub mod generated;

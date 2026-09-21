@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { interpretModel } from "../vapor/compiler/model-interp.ts";
-import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames } from "../vapor/compiler/model-harness.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { interpretModel } from "../microts/compiler/model-interp.ts";
+import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames } from "../microts/compiler/model-harness.ts";
 
 test("nested any cancels a losing service at its own boundary and drops its late result", async () => {
   const folder = resolve("tests/fixtures/aot-model/services/nested-any");

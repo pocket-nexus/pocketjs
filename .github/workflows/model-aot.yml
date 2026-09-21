@@ -2,10 +2,10 @@ name: Model AOT semantics
 on:
   pull_request:
     paths:
-      - 'vapor/compiler/**'
+      - 'microts/compiler/**'
       - 'framework/**'
       - 'engine/core/**'
-      - 'engine/crates/pocket-vapor/**'
+      - 'engine/crates/microts/**'
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/wasm/**'
       - 'engine/ui-cabi/**'

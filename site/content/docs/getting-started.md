@@ -1,7 +1,7 @@
 # Getting started
 
 For Vue templates with Rust application logic, use the
-[Pocket Vapor guide](/docs/pocket-vapor/). This page covers the JavaScript
+[MicroTS guide](/docs/microts/). This page covers the JavaScript
 application workflow.
 
 This is the fastest path from an empty checkout to JSX running on screen. You'll

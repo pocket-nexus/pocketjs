@@ -3,7 +3,7 @@
 **The build accepts TypeScript application sources.** The pipeline below
 emits JavaScript bundles and asset packs for guest applications. For Solid TSX
 and Vue SFC generation into Rust, including compiled TypeScript models, see
-[TypeScript and native code](/docs/pocket-vapor-boundaries/). The
+[TypeScript and native code](/docs/microts-boundaries/). The
 [TypeScript support reference](/docs/typescript-support/) compares ordinary
 application code, AOT views and compiled model bodies; the rules for one mode
 do not define the source subset for another.
@@ -24,8 +24,8 @@ task segments.
 The resolved build plan includes model selection and `recursionLimit`. A build
 using a frozen plan rejects a changed model configuration. `pocket compile`
 and the guest bundle command still produce guest artifacts; native AOT uses
-`bun vapor/compiler/cli.ts build <app>` followed by Cargo and the target's
-host packaging. See [TypeScript models to Rust](/docs/pocket-vapor-model/).
+`bun microts/compiler/cli.ts build <app>` followed by Cargo and the target's
+host packaging. See [TypeScript models to Rust](/docs/microts-model/).
 Admission and generation commands for both paths are listed in
 [Checking an application](/docs/typescript-support/#checking-an-application).
 

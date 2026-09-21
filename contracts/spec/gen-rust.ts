@@ -143,12 +143,12 @@ import {
   type PropName,
 } from "./spec.ts";
 import {
-  generateVaporRust,
-  generateVaporNumericTypes,
-  generateVaporStdDeclarations,
-  generateVaporComponentTypes,
-} from "./vapor.ts";
-export { generateVaporRust, generateVaporNumericTypes, generateVaporStdDeclarations, generateVaporComponentTypes };
+  generateMicroTsRust,
+  generateMicroTsNumericTypes,
+  generateMicroTsStdDeclarations,
+  generateMicroTsComponentTypes,
+} from "./microts.ts";
+export { generateMicroTsRust, generateMicroTsNumericTypes, generateMicroTsStdDeclarations, generateMicroTsComponentTypes };
 
 /** camelCase -> SCREAMING_SNAKE_CASE (width -> WIDTH, paddingT -> PADDING_T). */
 function screaming(name: string): string {
@@ -593,10 +593,10 @@ if (import.meta.main) {
   await Bun.write(out, generateRust());
   console.log(`wrote ${out}`);
   for (const [path, source] of [
-    ["../../engine/crates/pocket-vapor/src/spec.rs", generateVaporRust()],
-    ["../../framework/src/numeric-vue-vapor.ts", generateVaporNumericTypes()],
-    ["../../framework/src/std-vue-vapor.d.ts", generateVaporStdDeclarations()],
-    ["../../framework/src/component-types-vue-vapor.ts", generateVaporComponentTypes()],
+    ["../../engine/crates/microts/src/spec.rs", generateMicroTsRust()],
+    ["../../framework/src/numeric-microts.ts", generateMicroTsNumericTypes()],
+    ["../../framework/src/std-microts.d.ts", generateMicroTsStdDeclarations()],
+    ["../../framework/src/component-types-microts.ts", generateMicroTsComponentTypes()],
   ]) {
     const target = new URL(path, import.meta.url).pathname;
     await Bun.write(target, source);

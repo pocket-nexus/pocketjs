@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import ts from "typescript";
 import { resolve } from "node:path";
-import { createTypeEnvironment, location, TypeMapper, solidTypeAlias } from "../vapor/compiler/aot-types.ts";
+import { createTypeEnvironment, location, TypeMapper, solidTypeAlias } from "../microts/compiler/aot-types.ts";
 
 function fixture(source: string) {
   const file = resolve(import.meta.dir, "fixtures/aot/type-probe.tsx");

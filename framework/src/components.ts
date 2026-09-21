@@ -19,7 +19,7 @@ import { BTN, ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./anim.ts";
 import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onFrame, type ButtonPressOptions } from "./frame.ts";
 import { RelativeAxis } from "./relative-axis.ts";
-import type { i32 } from "./numeric-vue-vapor.ts";
+import type { i32 } from "./numeric-microts.ts";
 import { RowContext, captureNodeRow, type RowContextValue } from "./solid-row.ts";
 import { getOps, hostViewport } from "./host.ts";
 import { pushFocusGrid, pushFocusScope, type FocusGridOptions, type FocusScopeOptions } from "./input.ts";

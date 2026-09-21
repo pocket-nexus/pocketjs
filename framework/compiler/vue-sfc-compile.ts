@@ -1,8 +1,8 @@
 /** Compile a Vue SFC with Vue's production Vapor pipeline. */
 
 import { compileScript, parse } from "@vue/compiler-sfc";
-import { checkVueAotSource, getVueAotProgram, hasVueAotContract, normalizeVueAotClasses } from "../../vapor/compiler/aot-browser.ts";
-import { normalizeVueAotSemantics } from "../../vapor/compiler/aot-browser-semantics.ts";
+import { checkVueAotSource, getVueAotProgram, hasVueAotContract, normalizeVueAotClasses } from "../../microts/compiler/aot-browser.ts";
+import { normalizeVueAotSemantics } from "../../microts/compiler/aot-browser-semantics.ts";
 import { resolve } from "node:path";
 
 function compilerError(error: unknown): string {

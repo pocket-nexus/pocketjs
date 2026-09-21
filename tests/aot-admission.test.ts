@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { BTN } from "../contracts/spec/spec.ts";
-import { RelativeAxis } from "../contracts/spec/vapor.ts";
-import { admitVueAotBoard, requireVueAotBoard, vueAotBoardAdmission } from "../vapor/compiler/aot-admission.ts";
-import { listAotInputProfiles, loadAotInputProfile } from "../vapor/compiler/aot-input-profiles.ts";
+import { RelativeAxis } from "../contracts/spec/microts.ts";
+import { admitAotBoard, requireAotBoard, aotBoardAdmission } from "../microts/compiler/aot-admission.ts";
+import { listAotInputProfiles, loadAotInputProfile } from "../microts/compiler/aot-input-profiles.ts";
 
 const meowbit = loadAotInputProfile("meowbit");
 const demand = (buttons: number[] = [], axes: number[] = [], capabilities: string[] = []) => ({
@@ -13,13 +13,13 @@ test("native board admission retains direct button coverage and profile selectio
   const program = demand([BTN.UP, BTN.DOWN, BTN.LEFT, BTN.RIGHT, BTN.CIRCLE, BTN.CROSS]);
   const expected = { board: "meowbit", chip: "esp32", ok: true, issues: [] };
   expect(listAotInputProfiles()).toEqual(["meowbit"]);
-  expect(requireVueAotBoard(program, "meowbit")).toEqual(expected);
-  expect(vueAotBoardAdmission(program, undefined, true)).toEqual([expected]);
-  expect(vueAotBoardAdmission(program)).toEqual([]);
+  expect(requireAotBoard(program, "meowbit")).toEqual(expected);
+  expect(aotBoardAdmission(program, undefined, true)).toEqual([expected]);
+  expect(aotBoardAdmission(program)).toEqual([]);
 });
 
 test("chorded buttons remain admitted with the existing warning diagnostics", () => {
-  const result = requireVueAotBoard(demand([BTN.START, BTN.SELECT, BTN.RTRIGGER]), "meowbit");
+  const result = requireAotBoard(demand([BTN.START, BTN.SELECT, BTN.RTRIGGER]), "meowbit");
   expect(result.ok).toBe(true);
   expect(result.issues).toEqual([
     { code: "VB103", severity: "warning", message: "BTN.START uses the a+b chord on meowbit" },
@@ -30,7 +30,7 @@ test("chorded buttons remain admitted with the existing warning diagnostics", ()
 
 test("missing buttons, relative axes and touch reject the board", () => {
   const program = demand([BTN.LTRIGGER, BTN.TRIANGLE], [RelativeAxis.Primary], ["touch"]);
-  expect(admitVueAotBoard(program, meowbit)).toEqual({
+  expect(admitAotBoard(program, meowbit)).toEqual({
     board: "meowbit", chip: "esp32", ok: false,
     issues: [
       { code: "VB102", severity: "error", message: "meowbit has no mapping for BTN.LTRIGGER" },
@@ -39,10 +39,10 @@ test("missing buttons, relative axes and touch reject the board", () => {
       { code: "VB105", severity: "error", message: "meowbit has no touch adapter" },
     ],
   });
-  expect(() => requireVueAotBoard(program, "meowbit")).toThrow("VB104");
+  expect(() => requireAotBoard(program, "meowbit")).toThrow("VB104");
 });
 
 test("unknown profiles fail with the available names", () => {
   expect(() => loadAotInputProfile("missing")).toThrow("unknown input profile (known: meowbit)");
-  expect(() => vueAotBoardAdmission(demand(), "missing")).toThrow("board missing");
+  expect(() => aotBoardAdmission(demand(), "missing")).toThrow("board missing");
 });

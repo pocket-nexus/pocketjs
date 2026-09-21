@@ -4,7 +4,7 @@
 guest build: the compiler emits a JavaScript bundle for the host's execution
 engine. Solid TSX and Vue SFC views can also compile to Rust, with either a
 compiled TypeScript model or a handwritten Rust model. See
-[TypeScript and native code](/docs/pocket-vapor-boundaries/) for those
+[TypeScript and native code](/docs/microts-boundaries/) for those
 execution paths and their host contracts.
 
 The [TypeScript support reference](/docs/typescript-support/) compares the

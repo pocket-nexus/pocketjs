@@ -1,0 +1,18 @@
+[package]
+name = "microts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MicroTS AOT models and views over the PocketJS retained UI"
+
+[dependencies]
+pocketjs-core = { path = "../../core", default-features = false }
+ryu-js = { version = "1.0.3", default-features = false }
+libm = "0.2"
+heapless = "0.8"
+
+[features]
+default = []
+std = ["pocketjs-core/std"]
+model-trace = ["std"]

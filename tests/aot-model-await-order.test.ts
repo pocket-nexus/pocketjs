@@ -1,8 +1,8 @@
 import { expect,test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeModel } from "../vapor/compiler/aot-model-frontend.ts";
-import { interpretModel } from "../vapor/compiler/model-interp.ts";
-import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames } from "../vapor/compiler/model-harness.ts";
+import { analyzeModel } from "../microts/compiler/aot-model-frontend.ts";
+import { interpretModel } from "../microts/compiler/model-interp.ts";
+import { assertModelObservations, executeModelJavaScript, executeModelRust, observeModelFrames } from "../microts/compiler/model-harness.ts";
 
 test("aggregate wait arguments observe an earlier child segment's writes in source order",async()=>{
   const fixtures=["count()","read()"].map((argument,index)=>{

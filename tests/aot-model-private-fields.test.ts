@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { analyzeAot } from "../vapor/compiler/aot-build.ts";
-import { AotCompileError } from "../vapor/compiler/aot-ir.ts";
-import { executeModelView } from "../vapor/compiler/model-view-harness.ts";
+import { analyzeAot } from "../microts/compiler/aot-build.ts";
+import { AotCompileError } from "../microts/compiler/aot-ir.ts";
+import { executeModelView } from "../microts/compiler/model-view-harness.ts";
 
 function fixture(name:string,framework:"solid"|"vue-vapor",body:string){
   const directory=resolve(".pocket-build/validation/model-aot/private-fields",`${process.pid}-${name}-${framework}`);mkdirSync(directory,{recursive:true});

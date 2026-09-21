@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyzeVueAot } from "../vapor/compiler/aot-frontend.ts";
+import { analyzeVueAot } from "../microts/compiler/aot-frontend.ts";
 const root = resolve(import.meta.dir, "..");
 test("Vue lab preserves typed model, factory, slot and input contracts deterministically", () => {
   const labEntry = resolve(root, "apps/vue-sfc-lab/app.vue");

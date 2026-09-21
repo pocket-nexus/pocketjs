@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { analyzeSolidAot } from "../vapor/compiler/aot-solid-frontend.ts";
-import { emitVueAot } from "../vapor/compiler/aot-codegen.ts";
+import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
+import { emitAot } from "../microts/compiler/aot-codegen.ts";
 import { jsxPlugin } from "../framework/compiler/jsx-plugin.ts";
 
 // One source graph, initial fixture, and input tape drive stock Solid and native
@@ -13,10 +13,10 @@ test("Solid and Rust agree frame by frame on keyed dispatch, owned events and li
   const run = resolve(".pocket-build/validation/solid-aot/differential", String(Date.now()));
   await mkdir(resolve(run, "src"), { recursive: true });
   const program = analyzeSolidAot(resolve(fixture, "App.tsx"), { strict: true });
-  await Bun.write(resolve(run, "src/generated.rs"), emitVueAot(program).files["app.rs"]!);
+  await Bun.write(resolve(run, "src/generated.rs"), emitAot(program).files["app.rs"]!);
   await Bun.write(resolve(run, "src/main.rs"), Bun.file(resolve(fixture, "native.rs")));
   await Bun.write(resolve(run, "styles.bin"), new Uint8Array(program.styles.bytes));
-  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="aot-differential"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket_vapor={path=${JSON.stringify(resolve("engine/crates/pocket-vapor"))},features=["std"]}\nserde_json="1"\n`);
+  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="aot-differential"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\nserde_json="1"\n`);
   const wasmBuild = Bun.spawnSync([process.execPath, "tools/wasm.ts"], { stdout: "pipe", stderr: "pipe" });
   await Bun.write(resolve(run, "wasm-build.log"), wasmBuild.stdout.toString() + wasmBuild.stderr.toString());
   expect(wasmBuild.exitCode, wasmBuild.stderr.toString()).toBe(0);

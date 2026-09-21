@@ -1,6 +1,6 @@
 mod generated;
 use generated::*;
-use pocket_vapor::{Host, Input, NodeId, Ui};
+use microts::{Host, Input, NodeId, Ui};
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 
@@ -176,13 +176,13 @@ impl Host for NativeHost {
         self.0
     }
 }
-impl<const BUTTON: u32> pocket_vapor::HasButton<BUTTON> for NativeHost {}
-impl pocket_vapor::HasRelativeAxis<0> for NativeHost {}
+impl<const BUTTON: u32> microts::HasButton<BUTTON> for NativeHost {}
+impl microts::HasRelativeAxis<0> for NativeHost {}
 
 fn tree(ui: &Ui, id: i32) -> Option<Value> {
     let style = ui.core().resolved_style(id)?;
     // The generated fragment/input anchors are hidden empty nodes.
-    if style.display == pocket_vapor::spec::Display::None as u8 {
+    if style.display == microts::spec::Display::None as u8 {
         return None;
     }
     let kind = ui.core().node_type(id).unwrap();

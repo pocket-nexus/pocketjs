@@ -1,8 +1,8 @@
 import{expect,test}from"bun:test";
 import{resolve}from"node:path";
-import{analyzeModel}from"../vapor/compiler/aot-model-frontend.ts";
-import{interpretModel}from"../vapor/compiler/model-interp.ts";
-import{assertModelObservations,executeModelJavaScript,executeModelRust,observeModelFrames}from"../vapor/compiler/model-harness.ts";
+import{analyzeModel}from"../microts/compiler/aot-model-frontend.ts";
+import{interpretModel}from"../microts/compiler/model-interp.ts";
+import{assertModelObservations,executeModelJavaScript,executeModelRust,observeModelFrames}from"../microts/compiler/model-harness.ts";
 
 test("Vue watch previous values start at seeds, while immediate watch starts with None",async()=>{
  const fixtures=[false,true].map(immediate=>({name:immediate?"immediate":"deferred",program:analyzeModel(resolve("tests/fixtures/aot-model/watch/App.ts"),{source:`import{ref}from"vue";import{watch}from"@pocketjs/framework/vue-vapor/reactive";import type{i32}from"@pocketjs/framework/vue-vapor/std";
