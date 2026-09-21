@@ -1,10 +1,35 @@
 import { expect, test } from "bun:test";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { analyzeVueAot } from "../vapor/compiler/aot-frontend.ts";
 const root = resolve(import.meta.dir, "..");
-export const portableAot = (program: unknown) => JSON.parse(JSON.stringify(program, (key, value) => key === "file" && typeof value === "string" ? relative(root, value) : value));
-test("Vue feature lab View IR", () => {
-  expect(portableAot(analyzeVueAot(resolve(root, "apps/vue-sfc-lab/app.vue"), { strict: true }))).toMatchSnapshot();
+test("Vue lab preserves typed model, factory, slot and input contracts deterministically", () => {
+  const labEntry = resolve(root, "apps/vue-sfc-lab/app.vue");
+  const program = analyzeVueAot(labEntry, { strict: true });
+  expect(JSON.stringify(analyzeVueAot(labEntry, { strict: true }))).toBe(JSON.stringify(program));
+  expect(program.version).toBe(4);
+  const app = program.components.find(c => c.root)!;
+  expect(app.name).toBe(program.root);
+  expect(app.values.find(v => v.name === "count")).toMatchObject({ type: { kind: "number", name: "i32" }, writable: true });
+  expect(app.functions.find(f => f.name === "adjustCount")).toMatchObject({
+    parameters: [{ name: "delta", type: { kind: "number", name: "i32" } }], returns: { kind: "void" }, handler: true, binding: false,
+  });
+  expect(app.provides).toMatchObject([{ key: "theme", value: { kind: "binding", name: "theme", scope: "vm" } }]);
+
+  const toggle = program.components.find(c => c.name === "FeatureToggle")!;
+  expect(toggle.factory).toMatchObject({ name: "createFeatureToggle", module: "./FeatureToggle" });
+  expect(toggle.values.find(v => v.name === "presses")?.type).toEqual({ kind: "number", name: "i32" });
+  expect(toggle.functions.find(f => f.name === "press")).toMatchObject({ returns: { kind: "number", name: "i32" }, handler: true });
+  expect(toggle.injections).toMatchObject([{ key: "theme", type: { kind: "named", name: "LabTheme" } }]);
+
+  const list = program.components.find(c => c.name === "FeatureListInstance1")!;
+  expect(list.props.find(p => p.name === "items")?.type).toEqual({ kind: "array", element: { kind: "named", name: "Feature" } });
+  expect(list.slotProps).toEqual([{ name: "row", parameters: [{ name: "item", type: { kind: "named", name: "Feature" } }] }]);
+  expect(program.components.find(c => c.name === "FeatureCard")?.slots).toEqual(["badge", "default", "footer"]);
+
+  const button = program.components.find(c => c.name === "ModelButton")!;
+  expect(button.props.find(p => p.name === "modelValue")).toMatchObject({ model: "modelValue", type: { kind: "number", name: "i32" } });
+  expect(button.events).toEqual([{ name: "update:modelValue", parameters: [{ name: "value", type: { kind: "number", name: "i32" } }] }]);
+  expect(program.demands).toEqual({ buttons: [16384], axes: [0], capabilities: ["relative-axis"] });
 });
 
 function vue(source: string, contract: string) {

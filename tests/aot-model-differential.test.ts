@@ -22,10 +22,7 @@ let native: Map<string, ModelObservation[]>;
 beforeAll(async () => { native = await executeModelRust(fixtures); }, 120_000);
 
 test.each(fixtures)("model core $name agrees on hand-written expectations and three executable classes", async fixture => {
-  if (fixture.name.startsWith("core/")) {
-    const snapshot = JSON.stringify(fixture.program, (key, value) => key === "file" && typeof value === "string" ? relative(process.cwd(), value) : value, 2) + "\n";
-    expect(snapshot).toBe(readFileSync(resolve(fixture.entry, "..", "model.ir.json"), "utf8"));
-  }
+  // Regenerate IR from TypeScript; the maintained baseline is the hand-written behavior.
   const reference = interpretModel(fixture.program, fixture.tape);
   expect(reference.at(-1)!.state).toMatchObject(fixture.expected.state);
   if(fixture.expected.work){expect(reference[0]!.counts).toMatchObject(fixture.expected.work);expect(native.get(fixture.name)![0]!.counts).toMatchObject(fixture.expected.work);}

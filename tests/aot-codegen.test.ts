@@ -1,11 +1,16 @@
 import { expect, test } from "bun:test";
-import { analyzeVueAot } from "../vapor/compiler/aot-frontend.ts";
+import { buildAot } from "../vapor/compiler/aot-build.ts";
 import { emitVueAot } from "../vapor/compiler/aot-codegen.ts";
 
-test("Vue lab generated Rust", () => {
-  const program = analyzeVueAot("apps/vue-sfc-lab/app.vue", { strict: true });
-  expect(emitVueAot(program).files).toMatchSnapshot();
-});
+test("Vue lab generated Rust compiles against its handwritten model", async () => {
+  await buildAot("vue-sfc-lab", { strict: true });
+  const child = Bun.spawn(["cargo", "check", "--locked", "--quiet", "--manifest-path", resolve("apps/vue-sfc-lab/Cargo.toml")], { stdout: "pipe", stderr: "pipe" });
+  const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  const output = resolve(".pocket-build/validation/model-aot/snapshot-cleanup");
+  mkdirSync(output, { recursive: true });
+  writeFileSync(resolve(output, "vue-lab-cargo.log"), stdout + stderr);
+  expect(status, stdout + stderr).toBe(0);
+}, 120_000);
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";

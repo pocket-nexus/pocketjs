@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { transformSync } from "@babel/core";
 import solid from "babel-preset-solid";
 import { analyzeSolidAot } from "../vapor/compiler/aot-solid-frontend.ts";
@@ -33,15 +33,39 @@ function analyze(body: string, extra = "", children: Record<string, string> = {}
   const sources = new Map([[entry, `${imports}${extra}\nexport default function App() { ${body} }`], [modulePath, contract], ...Object.entries(children).map(([name, content]) => [resolve(entry, "../" + name), content] as [string, string])]);
   return analyzeSolidAot(entry, { sources, strict: true });
 }
-const portable = (value: unknown) => JSON.parse(JSON.stringify(value, (key, value) => key === "file" ? relative(root, value) : value));
 function flatten(nodes: AotNode[]): AotNode[] { return nodes.flatMap(node => [node, ...(node.kind === "if" ? node.branches.flatMap(b => flatten(b.children)) : node.kind === "component" ? node.slots.flatMap(s => flatten(s.children)) : node.kind === "slot" ? flatten(node.fallback) : flatten(node.children))]); }
 
-test("Solid lab View IR is deterministic", () => {
-  const program = analyzeSolidAot(resolve(root, "apps/solid-aot-lab/app.tsx"), { strict: true });
-  expect(portable(program)).toMatchSnapshot();
+test("Solid lab preserves typed model, factory, slot and input contracts deterministically", () => {
+  const labEntry = resolve(root, "apps/solid-aot-lab/app.tsx");
+  const program = analyzeSolidAot(labEntry, { strict: true });
+  expect(JSON.stringify(analyzeSolidAot(labEntry, { strict: true }))).toBe(JSON.stringify(program));
   expect(program.version).toBe(4);
-  expect(program.components.some(c => c.factory)).toBe(true);
-  expect(program.components.some(c => c.name === "FeatureListInstance1")).toBe(true);
+  const app = program.components.find(c => c.root)!;
+  expect(app.name).toBe(program.root);
+  expect(app.values.find(v => v.name === "count")).toMatchObject({ type: { kind: "number", name: "i32" }, writable: true });
+  expect(app.values.find(v => v.name === "enabledCount")).toMatchObject({ writable: false, memo: true });
+  expect(app.functions.find(f => f.name === "adjustCount")).toMatchObject({
+    parameters: [{ name: "delta", type: { kind: "number", name: "i32" } }], returns: { kind: "void" }, handler: true, binding: false,
+  });
+  expect(app.provides).toMatchObject([{ key: "ThemeContext", value: { kind: "binding", name: "theme", scope: "vm" } }]);
+
+  const toggle = program.components.find(c => c.name === "FeatureToggle")!;
+  expect(toggle.factory).toMatchObject({ name: "createFeatureToggle", module: "./FeatureToggle" });
+  expect(toggle.values.find(v => v.name === "presses")?.type).toEqual({ kind: "number", name: "i32" });
+  expect(toggle.functions.find(f => f.name === "press")).toMatchObject({ returns: { kind: "number", name: "i32" }, handler: true });
+  expect(toggle.injections).toMatchObject([{ key: "ThemeContext", type: { kind: "named", name: "LabTheme" } }]);
+
+  const list = program.components.find(c => c.name === "FeatureListInstance1")!;
+  expect(list.props.find(p => p.name === "items")?.type).toEqual({ kind: "array", element: { kind: "named", name: "Feature" } });
+  expect(list.slotProps).toEqual([{ name: "row", parameters: [{ name: "item", type: { kind: "named", name: "Feature" } }] }]);
+  expect(program.components.find(c => c.name === "FeatureCard")?.slots).toEqual(["badge", "default", "footer"]);
+
+  const button = flatten(app.nodes).find(n => n.kind === "component" && n.component === "ModelButton")!;
+  expect(button).toMatchObject({
+    props: expect.arrayContaining([{ name: "value", value: expect.objectContaining({ kind: "binding", name: "count", scope: "vm" }) }]),
+    events: [{ name: "change", handler: { kind: "assign", name: "count" } }],
+  });
+  expect(program.demands).toEqual({ buttons: [16384], axes: [0], capabilities: ["relative-axis"] });
 });
 
 test("signals, derived values, keyed lists and input lower directly to shared nodes", () => {
