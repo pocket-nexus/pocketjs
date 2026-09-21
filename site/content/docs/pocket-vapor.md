@@ -17,26 +17,27 @@ implementation.
 | What you want to do | Where to start |
 |---|---|
 | Understand how a Vue template becomes native code | [How Vue becomes Rust](#how-vue-becomes-rust) |
+| Compare ordinary TypeScript apps, AOT views and compiled models | [TypeScript support](/docs/typescript-support/) |
 | Compile TypeScript state, reactions and tasks | [TypeScript models to Rust](/docs/pocket-vapor-model/) |
 | Understand which code runs in TypeScript builds, Rust and the host | [TypeScript and native boundaries](/docs/pocket-vapor-boundaries/) |
 | Use Solid TSX | [Solid TSX to Rust](/docs/pocket-vapor-solid/) |
 | Build an example or create an application | [Build the supplied example](#1-build-the-supplied-example) |
 | Pass props, add instance state, or use slots and context | [Components and state](/docs/pocket-vapor-components/) |
-| Look up template syntax, input, types, or compiler flags | [API and commands](/docs/pocket-vapor-reference/) |
+| Look up template syntax, input or compiler flags | [API and commands](/docs/pocket-vapor-reference/) |
 
 ## How Vue becomes Rust
 
-The `app.model` setting in `pocket.json` chooses the model implementation:
+The `app.model` setting in `pocket.json` chooses the model implementation.
+The default `"rust"` mode uses a handwritten Rust model. With `app.aot: true`,
+`"compiled"` generates that model from its `.ts` implementation. The
+[execution-mode comparison](/docs/typescript-support/#execution-modes) describes
+the source checks and browser, QuickJS and native behavior for each setting.
 
-| Setting | Native model | Browser and QuickJS model |
-|---|---|---|
-| `"rust"` (default) | Rust code implements the generated view-model trait | The `.ts` module is compiled for the engine; a `.d.ts` module supplies preview defaults |
-| `"compiled"`, with `app.aot: true` | Model AOT translates the admitted `.ts` model into a Rust trait implementation | Model AOT emits JavaScript with the same reaction and task protocol |
-
-**Compiled mode requires model bodies in `.ts` and rejects unsupported source
-with a diagnostic.** It does not fall back to the Rust mode or interpret the
-rejected body on a native target. The [model guide](/docs/pocket-vapor-model/)
-defines the admitted TypeScript subset. The counter below demonstrates the
+**Compiled mode requires model bodies in `.ts`.** Admission failures do not
+fall back to the Rust mode or interpret the rejected body on a native target.
+[TypeScript support](/docs/typescript-support/)
+defines the view and model subsets; the [model guide](/docs/pocket-vapor-model/)
+describes state, reactions and tasks. The counter below demonstrates the
 default Rust mode.
 
 A template describes nodes, the values they display, and the actions that
@@ -367,8 +368,10 @@ own repository and workflow for GB, NES and GBA.
 
 - [Components and state](/docs/pocket-vapor-components/): child props,
   events, instance state, lists, slots, generics and context.
-- [API and commands](/docs/pocket-vapor-reference/): supported syntax,
-  types, input handlers, compiler flags and error fixes.
+- [TypeScript support](/docs/typescript-support/): execution modes, types,
+  expressions, functions and the differences between view and model code.
+- [API and commands](/docs/pocket-vapor-reference/): Vue template syntax,
+  input handlers, compiler flags and error fixes.
 - [TypeScript and native boundaries](/docs/pocket-vapor-boundaries/): model
   selection, generated traits, host commands and cross-backend guarantees.
 - [Styling](/docs/styling/): class utilities shared with PocketJS apps.

@@ -12,8 +12,10 @@ subset into that implementation. The default `"rust"` mode uses the
 application's handwritten Rust model; its `.ts` module supplies browser and
 guest behavior, or `.d.ts` declarations supply preview defaults.
 
-See [TypeScript models to Rust](/docs/pocket-vapor-model/) for admission,
-reaction scheduling and tasks, and [TypeScript and native
+See [TypeScript support](/docs/typescript-support/) for the differences between
+ordinary apps, view expressions and compiled model bodies,
+[TypeScript models to Rust](/docs/pocket-vapor-model/) for reaction scheduling
+and tasks, and [TypeScript and native
 boundaries](/docs/pocket-vapor-boundaries/) for model ownership, generated
 values and host integration. JavaScript is a build output and execution-engine
 format, not an additional AOT source-language contract.
@@ -43,7 +45,8 @@ generating Rust. The earlier cartridge compiler is maintained in the
 An app opts its browser and guest builds into admission with
 `"app": { "framework": "solid", "aot": true }` in `pocket.json`. The checker
 follows imports from the manifest entry before the transform cache is read.
-Ordinary Solid apps retain their existing TypeScript source subset. Add
+Ordinary Solid apps use their framework and host contracts without the AOT
+view and model checks; see [execution modes](/docs/typescript-support/#execution-modes). Add
 `"model": "compiled"` to compile model bodies; without it, AOT checks the
 view contract and leaves the native model implementation to Rust.
 
@@ -84,12 +87,15 @@ a setter is generated when a view writes the signal.** A `Setter<T>` pairs
 with the matching `Accessor<T>` by its `setName`/`name` naming convention and
 value type. A plain function remains a method.
 
-The component file contains imports, type declarations and one default-exported
+**These component-body rules apply to the `.tsx` view.** The component file
+contains imports, type declarations and one default-exported
 function declaration. The body accepts prop defaults through `mergeProps`, a
 model factory with mount-time arguments, context reads, derived expressions, PocketJS
 lifecycle hooks and one JSX return. State creation and application logic belong
 to the basename TypeScript module. Rust mode also requires a native model
-implementation. Compiled mode rejects unsupported model bodies during admission.
+implementation. Compiled models must pass admission and native compilation;
+the [current limits](/docs/typescript-support/#current-implementation-limits)
+identify forms for which a frontend check alone is insufficient.
 
 ## Components and expressions
 
@@ -119,8 +125,10 @@ from `solid-js`.
 | `<Show when={count() > 0}>` | Boolean branch; false unmounts its children |
 | `<Switch><Match when={...}>` | Ordered boolean branches |
 
-Derived expressions read signals, props and built-ins. They cannot call model
-methods. JSX text uses Solid's line whitespace rules. Text expressions accept
+View-local derived expressions read signals, props and built-ins. They cannot
+call model methods. Compiled model functions and memos have the separate
+[model expression rules](/docs/typescript-support/#view-and-model-expressions).
+JSX text uses Solid's line whitespace rules. Text expressions accept
 numbers, strings, enums and their optional forms; render booleans through a
 string ternary. Write literal Unicode characters instead of HTML entities.
 
@@ -140,9 +148,10 @@ The provider wraps the complete root view; nested overrides are rejected.
 
 Static `class` strings and ternaries with full class literal leaves become
 style IDs. A `StyleClass` prop forwards a compiled class selection to a child.
-`style` accepts an object of numeric host properties. The
-[shared reference](/docs/pocket-vapor-reference/) defines numeric types,
-units, built-ins and optional array indexing.
+`style` accepts an object of numeric host properties. See
+[TypeScript support](/docs/typescript-support/#numbers) for numeric types,
+units and arithmetic, and the [expression comparison](/docs/typescript-support/#view-and-model-expressions)
+for built-ins and optional array indexing.
 
 ## Input and lifecycle
 
@@ -151,10 +160,11 @@ units, built-ins and optional array indexing.
 `axis="secondary"`; `onDelta` receives signed `i32` millidegrees through the
 hardware-neutral relative-axis contract.
 
-Handlers admit model calls, signal writes, callback emissions and blocks of
+View handlers admit model calls, signal writes, callback emissions and blocks of
 expression statements or `if` statements. An emission ends its handler or a
 branch of its final `if`. Optional callback arguments run only when a listener
-is present.
+is present. These handler-body rules do not restrict the
+[statements in compiled model functions](/docs/typescript-support/#model-statements).
 
 **One frame's input dispatch is one batch.** Handlers run in document order;
 structural updates follow the dispatch. Before each row handler, the bridge

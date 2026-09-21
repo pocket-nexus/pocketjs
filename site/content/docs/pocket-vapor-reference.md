@@ -8,9 +8,10 @@ Use [Getting started](/docs/pocket-vapor/) for the build workflow and
 slots, instance state, generics and shared context.
 For the connection between template bindings and generated Rust methods,
 read [How Vue becomes Rust](/docs/pocket-vapor/#how-vue-becomes-rust).
-The [model guide](/docs/pocket-vapor-model/) covers the TypeScript bodies
-admitted by `app.model: "compiled"`; [TypeScript and native
-boundaries](/docs/pocket-vapor-boundaries/) defines the model and host contracts.
+The [TypeScript support reference](/docs/typescript-support/) defines the
+source subsets. The [model guide](/docs/pocket-vapor-model/) explains execution
+of compiled model bodies, and [TypeScript and native code](/docs/pocket-vapor-boundaries/)
+defines the model and host contracts.
 
 **The supported source language is TypeScript.** JavaScript mentioned in
 runtime or formatting rules is generated output or engine behavior. It does
@@ -183,31 +184,14 @@ Values must match the property's numeric type or unit below.
 
 ## Types and Rust methods
 
-Import numeric types and units from `@pocketjs/framework/vue-vapor/std`.
+The shared [TypeScript support reference](/docs/typescript-support/#data-types-and-rust-values)
+contains the type-to-Rust table, rejected data shapes, tuple restrictions,
+generic component rules and capacity semantics. The same data mapping is used
+by Solid and Vue contracts.
 
-| TypeScript contract | Rust getter or prop | Rust owned value |
-|---|---|---|
-| `string` | `&str` | `String` |
-| `boolean` | `bool` | `bool` |
-| `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `usize`, `f32`, `f64` | Same Rust type | Same Rust type |
-| `number` | `f64`; rejected with `--strict` | `f64` |
-| `Item[]`, `Array<Item>` | `&[Item]` | `Vec<Item>` |
-| `Cap<string, N>` | `&str` | `heapless::String<N>` |
-| `Cap<Item[], N>` | `&[Item]` | `heapless::Vec<Item, N>` |
-| Interface or object type | `&Item` | Generated `Item` struct |
-| `"idle" \| "ready"` | Generated enum | Same enum |
-| `[A, B]` | Tuple with the getter form of each field | Tuple |
-| `[T, T, T]` | `&[T; 3]` | `[T; 3]` |
-| Optional property or `T \| undefined` | Optional form of the getter or prop | `Option<T>` |
-| Discriminated object union | Reference to the generated enum | Enum variants with fields |
-| `i32 & { readonly __newtype?: "ItemId" }` | Generated `ItemId` value | `ItemId(pub i32)` |
-
-`Ref<T>`, `ShallowRef<T>` and `ComputedRef<T>` expose `T` in the contract.
-Function arguments and returns, setter arguments and event payloads use owned values.
-**Unbounded string and array storage use `alloc`: `String` and `Vec<T>`.**
-`Cap` bounds UTF-8 bytes for strings and elements for arrays. See the
-[model value rules](/docs/pocket-vapor-model/#values-and-bounds) for overflow
-behavior and ownership when a model reads, mutates or suspends with a value.
+This section describes how a view's use of a binding determines its Rust
+method. Function arguments, results, setters and event payloads use owned
+values; rendering getters can borrow storage.
 
 | Template use | Generated view-model method |
 |---|---|
@@ -240,86 +224,39 @@ An optional function such as `export declare const refresh: (() => void) |
 undefined` has an empty default Rust method. A browser call does nothing
 when the function is absent. Optional functions must return `void`.
 
-Unsupported data and view-model contract types include `null`, `any`, `unknown`, classes,
-function-valued data, `Record`, `Map`, `Set`, index signatures and unresolved
-type parameters. Use named object types, arrays, optional values and string
-or discriminated unions. [Generic components](/docs/pocket-vapor-components/)
-resolve their parameters from props or type defaults.
-The `any` return placeholder in `defineSlots` is accepted; slot parameter
-types determine the values passed to the parent template.
+Function-valued callbacks and slots are designated view contracts, not general
+model data. See [functions and callbacks](/docs/typescript-support/#functions-and-callbacks)
+for the distinction and the rules for model function signatures.
 
 ## Numeric rules and units
 
-**Rust-mode contracts require explicit numeric types with `--strict`.**
-For example, `ref<i32>(0)` describes an integer counter and `ref<f32>(0)`
-describes a floating-point value. Compiled models also infer types from model
-bodies: `0` infers `i32`, while `0.0` infers `f64`. The view uses those inferred
-model types before checking its expressions.
+The [numeric rules](/docs/typescript-support/#numbers) define annotations,
+literal inference, integer widths, floating precision, units, division and
+formatting for each execution path. **View and model arithmetic have different
+admission rules.** For example, integer `/` is rejected in a view binding;
+model `/` promotes integer operands to `f64`. Use `idiv` for integer division.
 
-Arithmetic and comparisons require matching numeric types. Literals adopt
-the expected type. For a host style property with `f32` storage, an integer
-expression can widen to the property's type, as in the width example above.
-Use `trunc`, `round`, `floor` or `ceil` to convert a float to `i32`.
-
-| Unit | Use |
-|---|---|
-| `Px` | Dimensions, spacing, insets, radii, border widths and translations |
-| `Deg` | Rotation and arc angles |
-| `Color` | Color properties, such as `bgColor` and `textColor` |
-| `Ms` | Duration values in application signatures |
-| `f32` | Dimensionless values, such as opacity, scale, grow and shrink |
-
-Literals adopt units: `width: 80` supplies pixels. A value with a different
-unit is rejected. `Color` accepts `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`.
-**Color text uses lowercase `#rrggbbaa`, and equality compares color values.**
-For example, `#f00` and `#ff0000` are equal when their contract type is `Color`.
-Color has no arithmetic or ordering operations.
-
-Compiled mode inserts integer-width normalization for `i8` through `i32` and
-`u8` through `u32`, plus `f32` rounding, into its generated engine code. The
-view transform applies the corresponding arithmetic rules. Rust mode does
-not transform TypeScript model bodies with these rules: its browser preview
-and handwritten native model can differ in overflow or floating precision.
-Browser and QuickJS `i64` and `u64` remain subject to the engine's integer
-precision limit above `2^53`; compiled `i64` arithmetic receives a diagnostic
-and is rejected with `--strict`.
+A host style property can supply an expected unit or width. A numeric width
+binding may widen to the property's `f32` storage type. A dimensionless `f32`
+value cannot substitute for a different declared unit.
 
 ## Expressions and standard functions
 
-Expressions support numeric arithmetic, `===`, `!==`, ordered numeric or
-string comparisons, boolean `&&`, `||`, `!`, ternaries, field access, `??`
-and optional object access. Conditions require booleans; there is no truthiness.
+The [view/model expression table](/docs/typescript-support/#view-and-model-expressions)
+is the source-language reference. A Vue template binding uses the view column;
+its basename `.ts` model uses the model column when `app.model` is `"compiled"`.
+The [collection rules](/docs/typescript-support/#collections-and-indexing)
+list the standard functions and explain the different array-index results.
 
-`items[index]` returns an optional value. Guard it or provide a fallback.
-`value !== undefined` and discriminant checks such as `state.kind === 'ready'`
-narrow values inside `v-if` branches. Use template strings for string
-concatenation; `+` is numeric.
+In Vue bindings, `value !== undefined` and string discriminant checks narrow
+values inside `v-if`. Text accepts scalars and optional scalars, with empty
+text for an absent optional value. Read a scalar field or call a read-only
+model method to format an object or array.
 
-Text accepts scalars and optional scalars. An absent optional value in
-`{{ value }}` renders empty text. Objects and arrays need a scalar field or a
-view-model formatting function. Numbers use JavaScript's `String(n)` format.
-Object and array equality is unsupported in view expressions; compare scalar
-fields or keys. Compiled model bodies can use the `equals` standard function
-for content equality.
-
-Import these functions by name from `@pocketjs/framework/vue-vapor/std`:
-
-| Function | Result and behavior |
-|---|---|
-| `len(value)` | `i32`; array elements or Unicode scalar values in a string |
-| `trunc(x)`, `floor(x)`, `ceil(x)` | `i32`; truncate, round down or round up |
-| `round(x)` | `i32`; halves round toward positive infinity, so `round(-2.5)` is `-2` |
-| `idiv(a, b)`, `imod(a, b)` | Matching integer type; division truncates toward zero; a zero divisor yields zero |
-| `min(a, b)`, `max(a, b)`, `abs(x)`, `clamp(x, lo, hi)` | Matching numeric type |
-| `fixed(x, digits)` | `string`; JavaScript `toFixed` formatting for a float |
-
-Float-to-`i32` conversions saturate at the `i32` limits; NaN becomes zero.
-Integer `/` and `%` are rejected in view expressions; use `idiv` and `imod`.
-Compiled model bodies have their own admitted expressions: `/` promotes
-integer operands to `f64`, while `idiv` retains an integer result. Template
-expressions cannot use `.length`, prototype methods, `Math.*`, global
-functions, closures, bitwise operators or general object and array literals.
-Move that work into the view model.
+Object/array literals in model bodies do not make them general template
+expressions. `:style`, prop values and other designated template forms retain
+their own rules above. Move admitted business computation into the model;
+that does not remove the model's own restrictions.
 
 ## Command-line reference
 

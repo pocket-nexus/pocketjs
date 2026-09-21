@@ -7,6 +7,9 @@ compiled TypeScript model or a handwritten Rust model. See
 [TypeScript and native code](/docs/pocket-vapor-boundaries/) for those
 execution paths and their host contracts.
 
+The [TypeScript support reference](/docs/typescript-support/) compares the
+ordinary application, AOT view and compiled model source rules.
+
 PocketJS turns component code into native pixels through
 **one Rust core, framework-specific JS adapters, and one layout engine on every
 host.**

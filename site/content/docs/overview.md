@@ -14,7 +14,9 @@ uses either a compiled TypeScript model or an application-provided Rust model
 and calls the UI core without a guest engine. Guest builds transform the
 TypeScript sources into JavaScript bundles for their engine. The
 [TypeScript and native code guide](/docs/pocket-vapor-boundaries/) describes
-the two paths; the framework adapters below belong to the guest path.
+the two paths. [TypeScript support](/docs/typescript-support/) compares their
+source-language rules, including the separate view and compiled model
+subsets. The framework adapters below belong to the guest path.
 
 If you know Solid, Vue, or React, you know most of PocketJS. The primitives are
 `View`, `Text`, and `Image`; state comes from the native framework package

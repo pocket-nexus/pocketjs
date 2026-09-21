@@ -15,18 +15,17 @@ Rust entry point, and build commands. The examples below use the
 | Read access across several component levels | Root `provide` and child `inject` | The root model's methods |
 
 **TypeScript defines the component contract in both model modes.** With the
-default `app.model: "rust"`, you implement the generated trait in Rust; the
-`.ts` module supplies the browser and QuickJS model, or a `.d.ts` contract
-supplies preview defaults. With `app.model: "compiled"` and `app.aot: true`,
-Model AOT compiles the `.ts` bodies into the Rust implementation and emits
-JavaScript for browser and QuickJS execution. `.d.ts` cannot supply compiled
-model bodies. The source support contract remains TypeScript in both modes.
+default `app.model: "rust"`, you implement the generated trait in Rust.
+With `app.model: "compiled"` and `app.aot: true`, Model AOT generates the
+implementation from `.ts` bodies. See the
+[execution-mode comparison](/docs/typescript-support/#execution-modes) for
+source admission and browser, QuickJS and native behavior.
 
 The examples below show the Vue lab's handwritten Rust model. Component
 props, events, slots and context keep the same view contract with compiled
 models. See [TypeScript and native boundaries](/docs/pocket-vapor-boundaries/)
-for model ownership and [TypeScript models to Rust](/docs/pocket-vapor-model/)
-for the admitted model language.
+for model ownership and [TypeScript support](/docs/typescript-support/)
+for the view and model language rules.
 
 ## Pass props and emit events
 
@@ -304,5 +303,6 @@ into the `.ts` body is rejected. Pure helper modules may export functions and
 constants; their functions receive inputs as parameters and cannot read model
 state or access the host.
 
-For supported expressions, numeric types, input handlers, and diagnostics,
-continue to the [Pocket Vapor reference](/docs/pocket-vapor-reference/).
+See [TypeScript support](/docs/typescript-support/) for expression, type and
+module rules, and the [Pocket Vapor reference](/docs/pocket-vapor-reference/)
+for Vue template syntax, input handlers and diagnostics.

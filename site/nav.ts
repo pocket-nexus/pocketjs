@@ -46,6 +46,7 @@ export const DOC_NAV: DocSection[] = [
   {
     title: "Reference",
     items: [
+      { slug: "typescript-support", title: "TypeScript support" },
       { slug: "api", title: "API reference" },
       { slug: "build-pipeline", title: "Build pipeline" },
       { slug: "native-contract", title: "Native contract" },

@@ -6,6 +6,10 @@ View IR boundary. **The supported application source is TypeScript.** Browser
 and QuickJS builds lower that source into an engine bundle with the framework
 reaction scheduler and task state machines. JavaScript is the bundle format.
 
+The [TypeScript support reference](/docs/typescript-support/) defines the
+compiled model syntax, its differences from view expressions, and current
+implementation limits. This page describes the model execution rules.
+
 The [TypeScript and native code guide](/docs/pocket-vapor-boundaries/) explains
 which code the compiler generates, which code a native host must supply, and
 how values and service results pass between them.
@@ -25,8 +29,10 @@ how values and service results pass between them.
 
 `model` defaults to `"rust"`, which keeps the application's Rust model.
 `"compiled"` requires a `.ts` basename module containing function bodies.
-**A compiled model outside the supported subset fails with a
-`file:line:column` diagnostic.** A `.d.ts` contract uses the Rust model mode.
+**Model admission errors include a `file:line:column` location.** Follow the
+frontend check with native compilation as described in the
+[support reference](/docs/typescript-support/#checking-an-application).
+A `.d.ts` contract uses the Rust model mode.
 There is no fallback to a guest interpreter or a handwritten Rust method when
 compiled admission fails. The manifest selects one native model implementation
 for the application.
@@ -83,11 +89,10 @@ export async function blink(): Promise<void> {
 }
 ```
 
-Import Solid signal primitives from `solid-js`; import compiled-model memos,
-effects and `on` from `@pocketjs/framework/solid/reactive`. A compiled module
-cannot import `createMemo` or `createEffect` from `solid-js`.
-Vue models use `ref` and `computed` from `vue`, with `watch` and `watchEffect`
-from `@pocketjs/framework/vue-vapor/reactive`.
+Use the [model import table](/docs/typescript-support/#model-modules-and-imports)
+for API ownership and the [function rules](/docs/typescript-support/#functions-and-callbacks)
+for signatures and admitted callbacks. Vue models use the same Model IR and
+frame contract with their documented reactive forms.
 
 The root module owns the app's state. Each mounted factory instance owns its
 signals, fields, memos and tasks. **Unmounting a factory cancels its tasks and
@@ -136,22 +141,11 @@ as a change, including two writes of the same owned local. Writing back the
 current unmodified view of that signal is unchanged. A local retained across
 `await` becomes an owned snapshot at suspension.
 
-Integer source tokens such as `1` infer `i32`; `1.0`, `1e3` and `.5` infer
-`f64`. A fractional token cannot adopt an integer annotation. A local retains
-one numeric type through assignments. Integer division uses `idiv` and
-remainder uses `imod`. `/` promotes integer operands to `f64`; floating operands
-retain their declared precision.
-
-`for` and `for ... of` have a bound evaluated before entering the loop.
-`while` and `do` are compile errors. Development builds count function call
-depth and stop at `recursionLimit`, default 256, reporting the function name.
-Release builds omit that check.
-
-`Cap<string, N>` maps to `heapless::String<N>` in UTF-8 bytes.
-`Cap<T[], N>` maps to `heapless::Vec<T, N>` in elements. Overflow reports the
-field name in development builds; release builds truncate at the capacity,
-preserving a UTF-8 character boundary. A tagged collection can contain values
-that allocate, such as untagged strings.
+The shared [numeric rules](/docs/typescript-support/#numbers) define literal
+inference, fixed-width arithmetic and conversions. [Model statements](/docs/typescript-support/#model-statements)
+define the admitted loops and assignments; [data types](/docs/typescript-support/#data-types-and-rust-values)
+define capacity storage and overflow behavior. These source rules apply before
+the model's reaction schedule is generated.
 
 ## Tasks and host services
 
@@ -164,22 +158,9 @@ user cleanup code.
 The generated public method takes a `&mut Vec<Cmd>` command sink and returns
 `()`. A source `Promise<T>` result is delivered to a task awaiting that call.
 
-| Awaitable | Boundary condition |
-|---|---|
-| `frames(n)` | Target frame reached |
-| `after(ms)` | Virtual clock deadline reached |
-| `until(() => condition)` | Predicate true in the boundary snapshot |
-| `net.get(url)` | Typed service result delivered |
-| `load()` | Started child task completed; cancellation cancels the awaiter |
-| `join(load())` | Result is `done` with a value, or `cancelled` |
-| `all([a, b])` | Every member completed; results retain member order |
-| `any([a, b])` | First ready member; a boundary tie chooses the lower member |
-| `animate(ref, property, value, options)` | Track ended, was replaced, or was dropped |
-
-Import the task primitives from `@pocketjs/framework/solid/std` or
-`@pocketjs/framework/vue-vapor/std`; import `net` from
-`@pocketjs/framework/net/model`. Native `fetch`, `.then`, `try`, `catch` and
-`setTimeout` are outside the subset.
+The [task source reference](/docs/typescript-support/#async-tasks-and-host-services)
+lists every admitted awaitable and its result, argument restrictions and API
+imports. Native promises and arbitrary host calls do not become model tasks.
 
 Every wait has a `RequestId` containing the region instance, function, call
 generation, wait generation and member number. Late deliveries cannot resume

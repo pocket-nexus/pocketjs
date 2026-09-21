@@ -340,6 +340,10 @@ be packaged as inspectable, target-thinnable
 
 ## Ahead-of-time compilation
 
+The [TypeScript support reference](./site/content/docs/typescript-support.md)
+compares ordinary application code, AOT views and compiled model bodies,
+including their restrictions and current implementation limits.
+
 [Pocket Vapor](https://pocketjs.dev/docs/pocket-vapor-boundaries/) compiles
 Solid TSX and Vue SFC views to Rust through a shared typed View IR.
 **`app.model: "compiled"` also compiles the supported TypeScript model subset

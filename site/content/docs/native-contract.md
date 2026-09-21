@@ -6,6 +6,9 @@ UI tree through the synchronous op surface `ui.*`. This page documents that
 guest-to-host surface and the host runtime around it. **TypeScript is the
 application source contract; JavaScript is an emitted execution format.**
 
+The [TypeScript support reference](/docs/typescript-support/) defines which
+source forms the build admits. This page describes the runtime boundary.
+
 If you only write app code you never call these ops directly — you write [`View` / `Text` / `Image`](/docs/components/) and the renderer emits ops for you. This page is for understanding *why* the surface looks the way it does, and for anyone writing a new host.
 
 ## Native AOT and the guest op surface

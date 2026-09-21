@@ -12,17 +12,23 @@ host supplies input, clocks, service adapters and presentation; the Rust UI
 core owns layout, text and animation. The compiler checks the boundary between
 these parts before generating code.
 
+The [TypeScript support reference](/docs/typescript-support/) compares ordinary
+applications, AOT views and compiled model bodies, with the supported types,
+expressions, statements and APIs. This page describes ownership and execution
+across the application, generated Rust and host.
+
 ## Choose where the model executes
 
-| Application configuration | Browser or QuickJS guest | Native AOT build |
-|---|---|---|
-| Ordinary framework app | TypeScript is transformed into an engine bundle | No generated Rust model is selected |
-| `app.aot: true`, `app.model: "rust"` or omitted | The TypeScript model runs with its framework; a `.d.ts` supplies preview defaults | The view and trait are generated; the application implements the model in Rust |
-| `app.aot: true`, `app.model: "compiled"` | The TypeScript model is lowered to the framework reaction scheduler and task state machines | The same admitted model is compiled into a Rust trait implementation |
+The [execution-mode comparison](/docs/typescript-support/#execution-modes)
+defines what each manifest setting checks and emits. Ordinary applications
+execute an engine bundle. A native AOT application uses the generated view
+with either a handwritten Rust model or a compiled TypeScript model.
 
 **`"compiled"` requires a `.ts` implementation and has no fallback to a
-handwritten model.** A construct outside the supported subset produces a
-source diagnostic. `"rust"` keeps the implementation decision with the
+handwritten model.** Admission errors identify the source location; the
+[support reference](/docs/typescript-support/#current-implementation-limits)
+also records combinations that require native compilation or cannot be replayed.
+`"rust"` keeps the implementation decision with the
 application: native code implements the generated trait, and guest behavior
 comes from the TypeScript module. Declaration-only previews contain no
 business implementation.
@@ -181,8 +187,8 @@ completion listener and leaves the native track's motion intact.
 
 | Area | Contract |
 |---|---|
-| Source admission | The documented TypeScript subset is checked across reachable modules; classes, arbitrary promises, timers, dynamic imports and unrestricted package code are not model constructs |
-| Arithmetic | The transforms normalize 8/16/32-bit integer operations and `f32` values; 64-bit integers retain the [guest precision limits](/docs/pocket-vapor-reference/#numeric-rules-and-units) |
+| Source admission | The [TypeScript support rules](/docs/typescript-support/) apply to each AOT view and reachable compiled model module; ordinary applications have separate framework and host constraints |
+| Arithmetic | The transforms normalize 8/16/32-bit integer operations and `f32` values; 64-bit integers retain the [guest precision limits](/docs/typescript-support/#numbers) |
 | Memory | Rust AOT uses `no_std` with `alloc`; it does not promise an allocation-free application |
 | Capacities | `Cap<string, N>` bounds UTF-8 bytes and `Cap<T[], N>` bounds elements; contained untagged values can still allocate |
 | Recursion | Development builds enforce `app.recursionLimit`; that guard is omitted in release builds |
@@ -197,7 +203,8 @@ those fixtures. The Solid lab also runs under a 24 MiB allocation cap.
 ESP32 compile/link validation establishes a build result; it does not establish
 on-device latency, pixels or input behavior. Fuzz runs remain a local command.
 
-See [TypeScript models to Rust](/docs/pocket-vapor-model/) for the admitted model
-forms, [Solid TSX](/docs/pocket-vapor-solid/) and [Vue views](/docs/pocket-vapor/)
-for view authoring, and [API and commands](/docs/pocket-vapor-reference/) for
-the shared types and compiler options.
+See [TypeScript support](/docs/typescript-support/) for the language comparison,
+[TypeScript models to Rust](/docs/pocket-vapor-model/) for the model runtime,
+[Solid TSX](/docs/pocket-vapor-solid/) and [Vue views](/docs/pocket-vapor/) for
+view authoring, and [API and commands](/docs/pocket-vapor-reference/) for
+template syntax and compiler options.
