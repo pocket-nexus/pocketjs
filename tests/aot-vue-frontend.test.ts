@@ -6,7 +6,7 @@ test("Vue lab preserves typed model, factory, slot and input contracts determini
   const labEntry = resolve(root, "apps/vue-sfc-lab/app.vue");
   const program = analyzeVueAot(labEntry, { strict: true });
   expect(JSON.stringify(analyzeVueAot(labEntry, { strict: true }))).toBe(JSON.stringify(program));
-  expect(program.version).toBe(4);
+  expect(program.version).toBe(1);
   const app = program.components.find(c => c.root)!;
   expect(app.name).toBe(program.root);
   expect(app.values.find(v => v.name === "count")).toMatchObject({ type: { kind: "number", name: "i32" }, writable: true });

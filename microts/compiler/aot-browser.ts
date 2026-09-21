@@ -5,7 +5,7 @@ import { parse } from "@vue/compiler-sfc";
 import { parse as parseTemplate, NodeTypes, type ElementNode } from "@vue/compiler-dom";
 import ts from "typescript";
 import { analyzeVueAot, getAotDependencyVersions } from "./aot-frontend.ts";
-import type { AotComponent, AotProgram, AotType } from "./aot-ir.ts";
+import { checkAotVersion, type AotComponent, type AotProgram, type AotType } from "./aot-ir.ts";
 
 const analyzedComponents = new Map<string, { source: string; program: AotProgram }>();
 export function getVueAotProgram(filename: string, source: string): AotProgram | undefined {
@@ -147,7 +147,7 @@ export function defaultValue(type: AotType, program: AotProgram, seen = new Set<
 
 /** A declaration-only app receives Vue refs with contract-shaped defaults. */
 export function generateVueAotMock(program: AotProgram, component: AotComponent): string {
-  if (program.version !== 4) throw new Error(`Unsupported AOT IR version ${program.version}; model protocol fields require 4`);
+  checkAotVersion(program);
   const exportedName = (name: string) => /^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name);
   if (component.factory) {
     const members = new Map<string, string>();

@@ -52,7 +52,7 @@ its storage rules do not describe the Rust AOT runtime.
 | Application | `App.tsx` or `App.vue`, child views | Nodes, bindings, events, props, slots, context and mounting |
 | Application | `App.ts` and factory `.ts` modules | Region state, derived values, effects, methods and tasks |
 | Application | Pure `.ts` modules | Computation over parameters, with no model state or host access |
-| Compiler | View IR format 4 | Typed view contract, structure, expressions and dispatch |
+| Compiler | View IR format 1 | Typed view contract, structure, expressions and dispatch |
 | Compiler | Model IR format 1 | Bound model bodies, dependencies, schedules and task states |
 | Compiler | `gen/app.rs`, `gen/app_model.rs`, `gen/mod.rs`, `gen/styles.bin` | Rust view, compiled model and style output |
 | Native integration | Rust entry and `Host` implementation | Core construction, input delivery, service execution and drawing |

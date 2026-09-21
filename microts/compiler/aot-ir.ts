@@ -72,7 +72,7 @@ export interface AotComponent {
   children: string[]; nodes: AotNode[]; nodeCount: number; memoCount: number; handlerCount: number;
 }
 export interface AotProgram {
-  version: 4; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
+  version: 1; root: string; components: AotComponent[]; types: AotTypeDeclaration[];
   styles: { records: StyleRecord[]; anims: AnimTimeline[]; ids: Record<string, number>; bytes: number[]; usedFontSlots: number[] };
   diagnostics: AotDiagnostic[];
   model?: import("./aot-model-ir.ts").ModelProgram;
@@ -98,5 +98,5 @@ export function sameType(a: AotType, b: AotType): boolean { return JSON.stringif
 
 /** All IR consumers reject unsupported versions before inspecting the payload. */
 export function checkAotVersion(program: Pick<AotProgram, "version">): void {
-  if (program.version !== 4) throw new Error(`Unsupported AOT IR version ${program.version}; model protocol fields require 4`);
+  if (program.version !== 1) throw new Error(`Unsupported AOT IR version ${program.version}; expected 1`);
 }

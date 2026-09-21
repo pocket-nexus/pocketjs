@@ -39,7 +39,7 @@ test("Solid lab preserves typed model, factory, slot and input contracts determi
   const labEntry = resolve(root, "apps/solid-aot-lab/app.tsx");
   const program = analyzeSolidAot(labEntry, { strict: true });
   expect(JSON.stringify(analyzeSolidAot(labEntry, { strict: true }))).toBe(JSON.stringify(program));
-  expect(program.version).toBe(4);
+  expect(program.version).toBe(1);
   const app = program.components.find(c => c.root)!;
   expect(app.name).toBe(program.root);
   expect(app.values.find(v => v.name === "count")).toMatchObject({ type: { kind: "number", name: "i32" }, writable: true });

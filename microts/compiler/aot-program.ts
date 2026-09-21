@@ -68,5 +68,5 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
     }
   }
   demands(components.find(c => c.name === root)!.nodes);
-  return { version: 4, root: root, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  return { version: 1, root: root, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
 }

@@ -52,7 +52,7 @@ The application's Rust entry creates `AppApp<AppModel, Host>` and supplies host
 integration. **The demos' `gen/` directories are ignored by Git.** Run the
 AOT build before compiling the demo with Cargo.
 
-**View IR format 4 and Model IR format 1 are separate files.** `--ir view.json`
+**View IR format 1 and Model IR format 1 are separate files.** `--ir view.json`
 writes the view contract and protocol metadata to `view.json`, and model bodies
 to `view.model.json`. A serialized view produces the same Rust view without
 loading model bodies. The default model trait methods keep handwritten models

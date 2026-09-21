@@ -188,6 +188,6 @@ reference created by `createNodeRef` from `@pocketjs/framework/animation` can
 bind to `<View ref={target} />`; it names a host node for animation and does
 not expose a DOM element or a device SDK handle.
 
-Native code generation consumes **View IR format 4**. Older IR is rejected.
+Native code generation consumes **View IR format 1**. Other versions are rejected.
 The shared format includes statement sequences, conditions, lifecycle hooks,
 style props, optional callback emissions and literal array constants.

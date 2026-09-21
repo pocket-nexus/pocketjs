@@ -14,7 +14,7 @@ const receiver = (): RustParam => parameter("self", rr(rt("Self"), true));
  * update method. Its anonymous lifetime becomes the application's lifetime:
  * stored props borrow application-owned data without copying strings or lists.
  */
-export function generateAotApp(root: AotComponent, propsType: RustType, demands?: AotProgram["demands"], stateful = false, lifecycle = false, version: AotProgram["version"] = 4, modelProtocol = false, asyncDispatch = false): RustItem[] {
+export function generateAotApp(root: AotComponent, propsType: RustType, demands?: AotProgram["demands"], stateful = false, lifecycle = false, version: AotProgram["version"] = 1, modelProtocol = false, asyncDispatch = false): RustItem[] {
   checkAotVersion({ version });
   let borrowsProps = false;
   function storedType(type: RustType): RustType {

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { buildAot } from "../microts/compiler/aot-build.ts";
 import { emitAot } from "../microts/compiler/aot-codegen.ts";
+import { generateVueAotMock } from "../microts/compiler/aot-browser.ts";
 
 test("Vue lab generated Rust compiles against its handwritten model", async () => {
   await buildAot("vue-sfc-lab", { strict: true });
@@ -21,7 +22,7 @@ const boolean: AotType = { kind: "boolean" }, string: AotType = { kind: "string"
 const read = (name: string, type: AotType): AotExpr => ({ kind: "binding", scope: "vm", name, type, loc });
 const call = (name: string, args: AotExpr[] = [], returns: AotType = { kind: "void" }): AotHandler => ({ kind: "call", expression: { kind: "call", target: "vm", name, arguments: args, type: returns, loc }, id: 0, loc });
 const component = (name: string, nodes: AotNode[] = []): AotComponent => ({ name, file: `${name}.tsx`, root: name === "App", props: [], events: [], slots: [], values: [], functions: [], constants: [], children: [], nodes, nodeCount: 0, memoCount: 0, handlerCount: 0 });
-function program(components: AotComponent[]): AotProgram { return { version: 4, root: "App", components, types: [], styles: { records: [], anims: [], ids: {}, bytes: [], usedFontSlots: [] }, diagnostics: [] }; }
+function program(components: AotComponent[]): AotProgram { return { version: 1, root: "App", components, types: [], styles: { records: [], anims: [], ids: {}, bytes: [], usedFontSlots: [] }, diagnostics: [] }; }
 function method(name: string, parameters: { name: string; type: AotType }[] = [], returns: AotType = { kind: "void" }) { return { name, sourceName: name, parameters, returns, binding: false, handler: true }; }
 function childNode(name: string): AotNode { return { kind: "component", id: 0, component: name, props: [], events: [], slots: [], loc }; }
 function branch(name: string, binding: string): AotNode { return { kind: "if", id: 0, branches: [{ condition: read(binding, boolean), children: [childNode(name)] }], loc }; }
@@ -36,8 +37,12 @@ function cargoFixture(name: string, generated: string, rust: string) {
   expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
 }
 
-test("IR consumers reject old versions", () => {
-  expect(() => emitAot({ ...program([component("App")]), version: 2 } as unknown as AotProgram)).toThrow("Unsupported AOT IR version 2");
+test.each([0, 2, 3, 4])("IR consumers reject unsupported version %i", version => {
+  const app = component("App");
+  const unsupported = { ...program([app]), version } as unknown as AotProgram;
+  const message = `Unsupported AOT IR version ${version}; expected 1`;
+  expect(() => emitAot(unsupported)).toThrow(message);
+  expect(() => generateVueAotMock(unsupported, app)).toThrow(message);
 });
 
 test("lifecycle hooks settle structural updates and unmount immediately", () => {
