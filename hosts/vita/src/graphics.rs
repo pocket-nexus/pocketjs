@@ -39,6 +39,13 @@ struct Texture {
     h: u32,
 }
 
+struct RetiredTexture {
+    texture: Texture,
+    // Set only after the GPU wait at the next scene boundary. A texture
+    // retired during the current scene may still be sampled by that scene.
+    reusable_in_scene: bool,
+}
+
 #[derive(Clone, Copy)]
 struct FontTexture {
     texture: Texture,
@@ -55,7 +62,7 @@ struct FontTexture {
 
 static mut INITIALIZED: bool = false;
 static mut TEXTURES: Option<HashMap<i32, Texture>> = None;
-static mut RECYCLED_TEXTURES: Option<Vec<Texture>> = None;
+static mut RECYCLED_TEXTURES: Option<Vec<RetiredTexture>> = None;
 static mut FONTS: Option<HashMap<u8, FontTexture>> = None;
 static mut CLIP_STACK: Option<Vec<(i32, i32, i32, i32)>> = None;
 
@@ -67,7 +74,12 @@ unsafe fn textures() -> &'static mut HashMap<i32, Texture> {
 }
 
 unsafe fn recycle_texture(texture: Texture) {
-    RECYCLED_TEXTURES.get_or_insert_with(Vec::new).push(texture);
+    RECYCLED_TEXTURES
+        .get_or_insert_with(Vec::new)
+        .push(RetiredTexture {
+            texture,
+            reusable_in_scene: false,
+        });
 }
 
 /// Whether the GPU is known idle since the last `present`. Reusing a recycled
@@ -76,8 +88,7 @@ unsafe fn recycle_texture(texture: Texture) {
 /// never blocks on the GPU.
 static mut GPU_IDLE: bool = true;
 /// True only while callers may record vita2d commands for the current scene.
-/// Recycled textures are not reused in this interval because an earlier draw
-/// in the same scene may still reference one that was just freed by the host.
+/// Only textures retired before this scene's GPU wait can be reused here.
 static mut SCENE_OPEN: bool = false;
 
 unsafe fn ensure_rendering_done() {
@@ -88,20 +99,20 @@ unsafe fn ensure_rendering_done() {
 }
 
 unsafe fn take_recycled_texture(w: u32, h: u32) -> Option<Texture> {
-    if SCENE_OPEN {
-        return None;
-    }
     let recycled = RECYCLED_TEXTURES.as_mut()?;
-    let index = recycled
-        .iter()
-        .position(|texture| texture.w == w && texture.h == h)?;
+    let index = recycled.iter().position(|entry| {
+        entry.texture.w == w && entry.texture.h == h && (!SCENE_OPEN || entry.reusable_in_scene)
+    })?;
     ensure_rendering_done();
-    Some(recycled.swap_remove(index))
+    Some(recycled.swap_remove(index).texture)
 }
 
 #[inline]
 fn texture_bytes(texture: Texture) -> usize {
-    texture.w as usize * texture.h as usize * 4
+    // libvita2d aligns RGBA row widths to 8 pixels and CDRAM allocations to
+    // 256 KiB. Counting only logical pixels let tiny textures evade the cap.
+    let bytes = (texture.w as usize).div_ceil(8) * 8 * texture.h as usize * 4;
+    bytes.div_ceil(256 * 1024) * (256 * 1024)
 }
 
 /// Retire every GPU handle belonging to the outgoing guest. vita2d itself is
@@ -131,9 +142,12 @@ pub unsafe fn reset_guest() {
     CLIP_STACK = None;
 
     let recycled = RECYCLED_TEXTURES.get_or_insert_with(Vec::new);
-    let mut bytes: usize = recycled.iter().copied().map(texture_bytes).sum();
+    let mut bytes: usize = recycled
+        .iter()
+        .map(|entry| texture_bytes(entry.texture))
+        .sum();
     while bytes > RECYCLED_TEXTURE_BUDGET && !recycled.is_empty() {
-        let texture = recycled.remove(0);
+        let texture = recycled.remove(0).texture;
         bytes = bytes.saturating_sub(texture_bytes(texture));
         vita2d_free_texture(texture.ptr);
     }
@@ -184,6 +198,11 @@ pub unsafe fn begin_frame(clear: u32) {
     // can run simulation/JS for frame N+1 while frame N is on the GPU without
     // overwriting vertices that are still in flight.
     ensure_rendering_done();
+    if let Some(recycled) = RECYCLED_TEXTURES.as_mut() {
+        for entry in recycled {
+            entry.reusable_in_scene = true;
+        }
+    }
     vita2d_set_clear_color(clear);
     vita2d_start_drawing();
     SCENE_OPEN = true;

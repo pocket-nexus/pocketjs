@@ -57,6 +57,8 @@ describe("published npm artifacts", () => {
       "contracts/spec",
       "contracts/generated",
       "tools",
+      // The shipped Vita USB client encodes physical framebuffer captures.
+      "tests/png.ts",
       // The desktop benchmark's Electron/Tauri comparison apps are git-only
       // fixtures under the wholesale tools entry: their cargo target/ would
       // otherwise pack (the v0.8.0 E415 failure mode) and nothing in the
@@ -87,6 +89,7 @@ describe("published npm artifacts", () => {
       "docs/IPODTOUCH.md",
       "docs/MEIZU_M8.md",
       "docs/BLACKBERRY_CLASSIC.md",
+      "docs/VITA-USB.md",
       "assets/brand",
       "assets/fonts",
       "assets/images/logo.png",
@@ -196,6 +199,12 @@ describe("published npm artifacts", () => {
       "engine/pocket3d/crates/pocket3d-mesh/src/colored.rs",
       "engine/pocket3d/crates/pocket3d-mesh/src/rigid.rs",
       "tools/3ds-toolchain.ts",
+      "tools/vita-dev.ts",
+      "tools/vita-dev-client.ts",
+      "tools/vita-usb.ts",
+      "tools/vita-usb/usbhostfs.patch",
+      "tests/png.ts",
+      "docs/VITA-USB.md",
       "tools/native-source.ts",
       "assets/brand/pocketjs-avatar-white-minimal.png",
       "apps/hero/app.tsx",
