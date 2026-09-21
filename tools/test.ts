@@ -187,6 +187,7 @@ const SUITE: readonly Stage[] = [
     prep: [["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"]],
     browser: true,
     tests: [
+      "tests/aot-admission.test.ts",
       "tests/aot-types.test.ts",
       "tests/aot-vue-frontend.test.ts",
       "tests/aot-solid-frontend.test.ts",

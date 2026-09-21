@@ -359,8 +359,9 @@ the value, scheduling and service contracts.
 **The AOT build command generates source and styles.** Packaging a native
 application requires a host that builds `pocketjs-core` and `pocket_vapor`
 for its target. `--board` checks an input profile; it does not build or flash
-firmware. Runtime storage uses `alloc`. The retained C cartridge compiler
-has its own workflow for GB, NES and GBA.
+firmware. Runtime storage uses `alloc`. The earlier
+[C cartridge compiler](https://github.com/pocket-stack/pocket-vapor) has its
+own repository and workflow for GB, NES and GBA.
 
 ## Where to go next
 

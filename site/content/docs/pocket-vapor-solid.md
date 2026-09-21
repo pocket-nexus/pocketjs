@@ -36,8 +36,9 @@ bun tools/build.ts solid-aot-lab-main --no-config
 the app's `gen/` directory. **Demo `gen/` directories are ignored by Git;
 generate them before running Cargo.**
 `check` accepts `--json` for the IR and `--board` for host capability admission.
-A TSX native build requires the `build` or `check` subcommand; the bare TSX
-command selects the retained cartridge compiler.
+A TSX native build uses the `build` subcommand; `check` runs admission without
+generating Rust. The earlier cartridge compiler is maintained in the
+[separate Pocket Vapor repository](https://github.com/pocket-stack/pocket-vapor).
 
 An app opts its browser and guest builds into admission with
 `"app": { "framework": "solid", "aot": true }` in `pocket.json`. The checker
