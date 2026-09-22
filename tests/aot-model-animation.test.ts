@@ -16,7 +16,7 @@ test("JS awaited animations use core track identity and completion reasons", asy
   wasm.ops.insertBefore(1, id, 0); wasm.ops.setProp(id, PROP.width, 10);
   const node = { id, type: 0, parent: {} as NodeMirror, children: [] } as NodeMirror;
   const slot = createNodeRef(); slot(node);
-  const region = new ModelRegion(<T>(value: T) => [() => value, next => { value = next; }]);
+  const region = new ModelRegion(<T>(value: T): [() => T, (next: T) => void] => [() => value, next => { value = next; }]);
   region.refs.set("bar", slot); region.finish([]);
   const tasks = new ModelTasks(region), results: unknown[] = [];
   const start = (fn: number, duration: number) => tasks.start(fn, [], (state, locals) => state === 0
@@ -44,7 +44,7 @@ test("cancelling a model animation wait preserves motion without resuming the ta
   wasm.ops.setProp(id, PROP.width, 10); wasm.ops.setProp(id, PROP.height, 20);
   const node = { id, type: 0, parent: {} as NodeMirror, children: [] } as NodeMirror;
   const slot = createNodeRef(); slot(node);
-  const region = new ModelRegion(<T>(value: T) => [() => value, next => { value = next; }]);
+  const region = new ModelRegion(<T>(value: T): [() => T, (next: T) => void] => [() => value, next => { value = next; }]);
   region.refs.set("bar", slot); region.finish([]);
   const tasks = new ModelTasks(region), results: unknown[] = [];
   tasks.start(1, [], (state, locals) => state === 0
