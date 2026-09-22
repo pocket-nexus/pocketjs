@@ -18,6 +18,8 @@ export interface JsonSchemaObject {
   readonly $id?: string;
   readonly title?: string;
   readonly description?: string;
+  /** Schema annotation; model/build resolution supplies runtime defaults. */
+  readonly default?: JsonValue;
   readonly type?: "array" | "boolean" | "integer" | "number" | "object" | "string";
   readonly const?: JsonValue;
   readonly enum?: readonly JsonValue[];
@@ -66,6 +68,10 @@ export interface PocketManifestV2 {
     readonly entry: string;
     readonly output?: string;
     readonly framework: "solid" | "vue-vapor" | "octane";
+    /** Admit the complete Solid component graph to the AOT view subset. */
+    readonly aot?: boolean;
+    readonly model?: "rust" | "compiled";
+    readonly recursionLimit?: number;
     readonly viewport: ManifestViewport;
     /** Additional UI output intent. Physical geometry remains target-owned. */
     readonly surfaces?: {
@@ -321,6 +327,9 @@ export const pocketManifestV2Schema = {
         entry: entrySchema,
         output: outputSchema,
         framework: { enum: ["solid", "vue-vapor", "octane"] },
+        aot: { type: "boolean" },
+        model: { enum: ["rust", "compiled"] },
+        recursionLimit: { type: "integer", minimum: 1, default: 256 },
         surfaces: surfacesSchema,
         companions: {
           type: "array",

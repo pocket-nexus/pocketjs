@@ -9,8 +9,8 @@ use pocket3d_bsp::cooked::CookedMap;
 use pocket3d_bsp::cooked::VERTEX_STRIDE;
 use pocket3d_bsp::vis::VisSet;
 
-use crate::texture::TextureDecodeError;
 use crate::Camera3d;
+use crate::texture::TextureDecodeError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Viewport {
@@ -513,7 +513,7 @@ mod tests {
     use glam::{Vec2, Vec3};
     use pocket3d_bsp::cooked::{BatchDesc, CookedTexture, FaceRun};
     use pocket3d_bsp::trace::MapCollision;
-    use pocket3d_bsp::types::{Leaf, Node, Plane, SurfaceKind, CONTENTS_EMPTY, CONTENTS_SOLID};
+    use pocket3d_bsp::types::{CONTENTS_EMPTY, CONTENTS_SOLID, Leaf, Node, Plane, SurfaceKind};
     use pocket3d_bsp::vis::VisData;
 
     fn packed_vertex(uv: Vec2, color: u32, position: [i16; 3]) -> Vec<u8> {
@@ -539,6 +539,7 @@ mod tests {
             dist: 0.0,
         }];
         CookedMap {
+            sky: None,
             name: String::from("fixture"),
             verts,
             vert_count: (verts.len() / VERTEX_STRIDE) as u32,

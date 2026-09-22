@@ -5,6 +5,9 @@ on:
     paths:
       - ".github/workflows/psp-allocator.yml"
       - "hosts/psp/**"
+      - "tools/psp-prx.ts"
+      - "tests/psp-prx.test.ts"
+      - "tests/fixtures/psp-prx/**"
       - "tests/psp-arena.test.ts"
       - "tests/psp-qjs-allocator.test.ts"
       - "tests/helpers/psp-allocator-harness.ts"
@@ -14,6 +17,9 @@ on:
     paths:
       - ".github/workflows/psp-allocator.yml"
       - "hosts/psp/**"
+      - "tools/psp-prx.ts"
+      - "tests/psp-prx.test.ts"
+      - "tests/fixtures/psp-prx/**"
       - "tests/psp-arena.test.ts"
       - "tests/psp-qjs-allocator.test.ts"
       - "tests/helpers/psp-allocator-harness.ts"
@@ -34,4 +40,4 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: bun test tests/psp-arena.test.ts tests/psp-qjs-allocator.test.ts
+      - run: bun test tests/psp-arena.test.ts tests/psp-qjs-allocator.test.ts tests/psp-prx.test.ts

@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "App",
+      "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+      "kind": "root",
+      "params": [],
+      "signals": [],
+      "fields": [],
+      "memos": [],
+      "effects": [],
+      "functions": [
+        {
+          "id": 1,
+          "name": "child",
+          "exported": false,
+          "async": true,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "return",
+                "loc": {
+                  "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+                  "line": 1,
+                  "column": 38,
+                  "offset": 37
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": false,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [],
+            "subscriptions": [],
+            "external": false,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+            "line": 1,
+            "column": 1,
+            "offset": 0
+          }
+        },
+        {
+          "id": 2,
+          "name": "parent",
+          "exported": false,
+          "async": true,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "await",
+                "source": {
+                  "kind": "join",
+                  "task": 1,
+                  "wrapped": false,
+                  "args": []
+                },
+                "loc": {
+                  "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+                  "line": 2,
+                  "column": 39,
+                  "offset": 84
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": true,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": true,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [],
+            "subscriptions": [],
+            "external": true,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+            "line": 2,
+            "column": 1,
+            "offset": 46
+          }
+        },
+        {
+          "id": 3,
+          "name": "press",
+          "exported": true,
+          "async": false,
+          "params": [],
+          "returns": {
+            "kind": "void"
+          },
+          "body": {
+            "stmts": [
+              {
+                "kind": "start",
+                "task": 2,
+                "args": [],
+                "loc": {
+                  "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+                  "line": 3,
+                  "column": 30,
+                  "offset": 129
+                },
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": true,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            ],
+            "ledger": {
+              "reads": [],
+              "writes": [],
+              "subscriptions": [],
+              "external": true,
+              "maySubscribe": [],
+              "mustSubscribe": []
+            }
+          },
+          "ledger": {
+            "reads": [],
+            "writes": [],
+            "subscriptions": [],
+            "external": true,
+            "maySubscribe": [],
+            "mustSubscribe": []
+          },
+          "loc": {
+            "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+            "line": 3,
+            "column": 1,
+            "offset": 100
+          }
+        }
+      ],
+      "schedule": [],
+      "refs": [],
+      "tasks": [
+        {
+          "id": 1,
+          "fn": 1,
+          "fields": [],
+          "states": [
+            {
+              "id": 0,
+              "body": {
+                "stmts": [
+                  {
+                    "kind": "return",
+                    "loc": {
+                      "file": "tests/fixtures/aot-model/found/c8969b42f36b604d/App.ts",
+                      "line": 1,
+                      "column": 38,
+                      "offset": 37
+                    },
+                    "ledger": {
+                      "reads": [],
+                      "writes": [],
+                      "subscriptions": [],
+                      "external": false
+                    }
+                  }
+                ],
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "fn": 2,
+          "fields": [],
+          "states": [
+            {
+              "id": 0,
+              "body": {
+                "stmts": [],
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": true,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              },
+              "suspend": {
+                "kind": "join",
+                "task": 1,
+                "wrapped": false,
+                "args": []
+              },
+              "next": 1
+            },
+            {
+              "id": 1,
+              "body": {
+                "stmts": [],
+                "ledger": {
+                  "reads": [],
+                  "writes": [],
+                  "subscriptions": [],
+                  "external": false,
+                  "maySubscribe": [],
+                  "mustSubscribe": []
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "constants": []
+    }
+  ],
+  "types": [],
+  "diagnostics": [],
+  "recursionLimit": 256
+}

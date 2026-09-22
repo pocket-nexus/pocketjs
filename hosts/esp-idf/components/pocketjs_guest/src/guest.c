@@ -10,6 +10,12 @@
 #include "esp_log.h"
 #include "quickjs-libc.h"
 
+#ifdef ESP_PLATFORM
+#include "sdkconfig.h"
+#elif !defined(CONFIG_POCKETJS_GUEST_HEAP_LIMIT)
+#define CONFIG_POCKETJS_GUEST_HEAP_LIMIT (4U * 1024U * 1024U)
+#endif
+
 static const char *TAG = "pocketjs_guest";
 
 typedef union {
@@ -200,7 +206,7 @@ void pocketjs_guest_config_defaults(pocketjs_guest_config_t *config) {
   }
   *config = (pocketjs_guest_config_t){
       .struct_size = sizeof(*config),
-      .heap_limit = 4U * 1024U * 1024U,
+      .heap_limit = CONFIG_POCKETJS_GUEST_HEAP_LIMIT,
       .stack_limit = 256U * 1024U,
       .prefer_psram = true,
   };

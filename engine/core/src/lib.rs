@@ -517,6 +517,32 @@ impl Ui {
         }
     }
 
+    /// Parent id of a live node, or 0 for the root, a detached node or a stale id.
+    /// Native renderers use this retained tree directly instead of keeping a mirror.
+    pub fn node_parent(&self, id: i32) -> i32 {
+        self.tree.get(id).map_or(0, |node| node.parent)
+    }
+
+    /// Child ids in document order. Stale ids have no children.
+    pub fn node_children(&self, id: i32) -> &[i32] {
+        self.tree.get(id).map_or(&[], |node| node.children.as_slice())
+    }
+
+    /// Whether a generation-tagged node id still resolves to a live node.
+    pub fn node_exists(&self, id: i32) -> bool {
+        self.tree.resolve(id).is_some()
+    }
+
+    /// Retained node kind for inspection. Stale generation-tagged ids return None.
+    pub fn node_type(&self, id: i32) -> Option<u8> {
+        self.tree.get(id).map(|node| node.node_type)
+    }
+
+    /// Retained text for inspection. Stale ids return None; non-text nodes are empty.
+    pub fn node_text(&self, id: i32) -> Option<&str> {
+        self.tree.get(id).map(|node| node.text.as_str())
+    }
+
     // ---- styling ----------------------------------------------------------
 
     /// Apply style-table record `style_id` (spec::STYLE_ID_NONE clears).
@@ -1045,6 +1071,13 @@ impl Ui {
         anim_id
     }
 
+    /// Stable ids and reasons of tracks that completed in the latest tick.
+    pub fn animation_completions(&self) -> &[anim::TrackCompletion] { self.anims.completions() }
+    /// Drain completed tracks, including replacements or removals between ticks.
+    pub fn drain_animation_completions(&mut self, receive: impl FnMut(anim::TrackCompletion)) {
+        self.anims.drain_completions(receive);
+    }
+
     /// Cancel a running animation (leaves the prop at its current value, as a
     /// dynamic override).
     pub fn cancel_anim(&mut self, anim_id: i32) {
@@ -1274,7 +1307,7 @@ impl Ui {
                 (t.node, t.prop, t.kind, t.to)
             };
             let Some(slot) = self.tree.resolve(node_id) else {
-                self.anims.kill(tslot);
+                self.anims.finish(tslot, anim::CompletionReason::Dropped);
                 continue;
             };
             let node = &mut self.tree.slots[slot as usize];
@@ -1292,7 +1325,7 @@ impl Ui {
                         tree::Node::put_entry(&mut node.overrides, prop, to);
                     }
                 }
-                self.anims.kill(tslot);
+                self.anims.finish(tslot, anim::CompletionReason::Ended);
             } else {
                 tree::Node::put_entry(&mut node.anim_values, prop, value);
             }
@@ -1300,6 +1333,7 @@ impl Ui {
                 self.mark_layout_style(slot);
             }
         }
+        self.anims.publish_completions();
         self.tick_timelines();
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);

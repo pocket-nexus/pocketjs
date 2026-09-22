@@ -11,9 +11,9 @@
 [Blog](https://pocketjs.dev/blog/) ·
 [Changelog](https://pocketjs.dev/changelog/)
 
-PocketJS is a portable application runtime that turns modern component code into
-native pixels across radically different hardware. Solid, Vue Vapor and Octane
-components compile to one native tree, and a QuickJS guest drives a Rust core
+PocketJS is a portable application runtime with **TypeScript application
+sources**. Solid, Vue Vapor and Octane components target one native tree.
+The guest build emits an engine bundle, and a QuickJS guest drives a Rust core
 that performs flexbox layout and draws every pixel **in one thread inside one
 process**. There is **no DOM, no CSS engine and no WebView**.
 
@@ -39,14 +39,14 @@ process**. There is **no DOM, no CSS engine and no WebView**.
 
 ### Frameworks
 
-Three frameworks compile to the same native tree and run on the same QuickJS
-guest. The choice changes application code and nothing below it.
+Three TypeScript framework adapters target the same native tree and run on
+the same QuickJS guest. The choice changes application code and nothing below it.
 
-| Framework | State and lifecycle | Source forms |
+| Framework | State primitives | Source forms |
 | --- | --- | --- |
-| **Solid** | `solid-js` | JSX |
-| **Vue Vapor** | `vue` | JSX and `<script setup>` single-file components |
-| **Octane** | `octane` | Compiled hooks and JSX, with no virtual DOM |
+| **Solid** | `solid-js` | TSX |
+| **Vue Vapor** | `vue` | TSX and `<script setup lang="ts">` single-file components |
+| **Octane** | `octane` | Compiled hooks and TSX, with no virtual DOM |
 
 Framework primitives are imported directly from `solid-js`, `vue`, or `octane`.
 PocketJS owns the runtime, host components, lifecycle wiring, input, animation,
@@ -238,7 +238,7 @@ rest never enters the build. Mounting a module widens what the program may ask
 for; it does not change how the program is written.
 
 ```text
-guest program · JavaScript, one frame at a time
+TypeScript application → guest bundle, one frame at a time
   ui       tree, layout, draw, input, focus
   net      poll batches
   audio    pcm mixer
@@ -338,12 +338,34 @@ documented in [`hosts/vita/README.md`](./hosts/vita/README.md). Guest builds can
 be packaged as inspectable, target-thinnable
 [`.pocket` files](./docs/PLATFORM.md) instead of per-port directories.
 
-## Independent experiment
+## Ahead-of-time compilation
 
-[Pocket Vapor](https://github.com/pocket-stack/pocket-vapor) is an early
-TypeScript-to-native compiler experiment in a separate repository. **It is not
-a PocketJS mainline feature.** Its source, examples, toolchains and tests live
-in that repository.
+The [TypeScript support reference](./site/content/docs/typescript-support.md)
+compares ordinary application code, AOT views and compiled model bodies,
+including their restrictions and current implementation limits.
+
+[MicroTS](https://pocketjs.dev/docs/microts-boundaries/) compiles
+Solid TSX and Vue SFC views to Rust through a shared typed View IR.
+**`app.model: "compiled"` also compiles the supported TypeScript model subset
+to Rust.** The default `"rust"` mode uses an application-provided Rust model
+implementing the same generated trait. Native AOT calls the retained UI core
+without a guest engine; the host still owns input, services and presentation.
+
+```sh
+bun microts/compiler/cli.ts build solid-aot-lab --strict
+cargo check --locked --manifest-path apps/solid-aot-lab/Cargo.toml
+```
+
+The guest build lowers that compiled model's TypeScript source to a bundle
+with the same frame-synchronous reaction and task semantics. JavaScript is an
+execution format; the application source contract remains TypeScript. Rust
+AOT uses `alloc`, with capacity tags for bounded strings and arrays. Demo
+`gen/` directories are ignored and must be regenerated before Cargo builds.
+
+The earlier [C/cartridge experiment](https://github.com/pocket-stack/pocket-vapor)
+lives in a separate repository with its own TypeScript subset, target profiles,
+examples and toolchains. Those sources and scripts are not part of this
+repository or the Rust AOT build.
 
 ## Repository layout
 

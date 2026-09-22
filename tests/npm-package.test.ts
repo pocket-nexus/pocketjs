@@ -183,6 +183,11 @@ describe("published npm artifacts", () => {
       "engine/crates/pocket-text/src",
       "engine/crates/pocket-text/Cargo.toml",
       "engine/crates/pocket-text/Cargo.lock",
+      // tools/build.ts imports the AOT compiler; microts is both its
+      // generated Rust runtime and a member of the shipped engine workspace.
+      "microts/compiler",
+      "engine/crates/microts/src",
+      "engine/crates/microts/Cargo.toml",
     ]);
   });
 
@@ -193,6 +198,14 @@ describe("published npm artifacts", () => {
       "engine/pocket3d/crates/pocket3d-anim/src/lib.rs",
       "engine/crates/pocket-sim/src/lib.rs",
       "tools/companion-session.ts",
+      "microts/compiler/aot-solid-browser.ts",
+      "microts/compiler/aot-model-build.ts",
+      "microts/compiler/aot-model-codegen.ts",
+      "microts/compiler/vendor/vue-vapor-ir.ts",
+      "engine/crates/microts/Cargo.toml",
+      "engine/crates/microts/src/lib.rs",
+      "engine/crates/microts/src/model.rs",
+      "engine/crates/microts/src/model_regions.rs",
       "engine/pocket3d/crates/pocket3d-mesh/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-mesh/src/lib.rs",
       "engine/pocket3d/crates/pocket3d-mesh/src/p3m.rs",
@@ -341,6 +354,7 @@ describe("published npm artifacts", () => {
       expect(packages).toContain("pocket-apple");
       expect(packages).toContain("pocket-mod");
       expect(packages).toContain("pocket-ui-surface");
+      expect(packages).toContain("microts");
       expect(packages).toContain("pocket3d-world");
       expect(packages).toContain("pocket3d-anim");
       expect(packages).toContain("pocket3d-mesh");

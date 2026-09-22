@@ -4,6 +4,7 @@
 import { NODE_TYPE, PROP, ROOT_ID, STYLE_ID_NONE, type PropName } from "../../contracts/spec/spec.ts";
 import { encodePropValue, getHost, getOps } from "./host.ts";
 import { __notifyTreeMutation, notifyDetached, registerFocusable, registerPress } from "./input.ts";
+import { clearNodeReferences } from "./model-node-ref.ts";
 
 export interface NodeMirror {
   /** Native generation-tagged node id. */
@@ -396,6 +397,7 @@ export function runSweep(): void {
       keep.push(node);
       continue;
     }
+    clearNodeReferences(node);
     ops.destroyNode(node.id);
   }
   sweepSet.clear();
@@ -457,6 +459,8 @@ export function createElement(tag: string): NodeMirror {
 }
 
 export function createTextNode(value: string): NodeMirror {
+  // Solid universal also passes primitive numbers to the host text boundary.
+  value = String(value);
   const ops = getOps();
   const id = ops.createNode(NODE_TYPE.text);
   ops.setText(id, value);
@@ -480,6 +484,7 @@ export function createCommentNode(data = ""): NodeMirror {
 }
 
 export function replaceText(node: NodeMirror, value: string): void {
+  value = String(value);
   getOps().replaceText(node.id, value);
   node.text = value;
   treeMutated();

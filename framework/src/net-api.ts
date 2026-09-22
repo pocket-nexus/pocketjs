@@ -125,7 +125,7 @@ type NetEvent = DoneEvent | ErrorEvent;
 
 interface Pending {
   readonly ops: NetOps;
-  readonly resolve: (response: PocketResponse) => void;
+  readonly resolve: (status:number, url:string, headers:Record<string,string>, body:ArrayBuffer) => void;
   readonly reject: (error: NetError) => void;
 }
 
@@ -181,7 +181,7 @@ function settle(ev: NetEvent): void {
         p.ops.cancel(ev.h);
         p.reject(new NetError(NET_ERROR.protocol, "net: response body transfer failed"));
       } else {
-        p.resolve(new PocketResponse(ev.status, ev.url, ev.headers, body));
+        p.resolve(ev.status, ev.url, ev.headers, body);
       }
     }
   }
@@ -228,10 +228,6 @@ export function __pumpNet(): void {
   }
 }
 
-function reject(code: NetErrorCode, message: string): Promise<never> {
-  return Promise.reject(new NetError(code, message));
-}
-
 function integerInRange(value: number, min: number, max: number, label: string): number {
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new NetError(NET_ERROR.invalidRequest, `net: ${label} must be ${min}..${max}`);
@@ -271,8 +267,20 @@ function requestBody(body: FetchOptions["body"]): Uint8Array {
  * complete browser Fetch API: no streams, cookies, cache, Request, Signal or
  * implicit ambient authority. */
 export function fetch(url: string, options: FetchOptions = {}): Promise<PocketResponse> {
+  return new Promise((resolve,reject) => {
+    __requestNet(url,options,(status,url,headers,body)=>resolve(new PocketResponse(status,url,headers,body)),reject);
+  });
+}
+
+/** Internal callback transport: completion runs inside the existing service pump.
+ * Model awaitables enqueue their typed result before the same boundary's resume phase. */
+export function __requestNet(url:string, options:FetchOptions,
+  complete:(status:number,url:string,headers:Record<string,string>,body:ArrayBuffer)=>void,
+  failure:(error:NetError)=>void):()=>void {
+  const idle=()=>{if(pending.size===0&&stopPump){stopPump();stopPump=null;activeOps=null;}};
+  const refuse=(error:NetError)=>{failure(error);return ()=>{};};
   const ops = netHost();
-  if (!ops) return reject(NET_ERROR.unavailable, "net: host did not mount the net module");
+  if (!ops) return refuse(new NetError(NET_ERROR.unavailable, "net: host did not mount the net module"));
 
   try {
     if (typeof url !== "string" || !/^https?:\/\/[^\s/]+(?:\/|$)/.test(url)) {
@@ -317,16 +325,17 @@ export function fetch(url: string, options: FetchOptions = {}): Promise<PocketRe
       const split = detail.indexOf(":");
       const code = errorCode(split < 0 ? NET_ERROR.other : detail.slice(0, split));
       const message = split < 0 ? detail : detail.slice(split + 1).trim();
-      return reject(code, message);
+      return refuse(new NetError(code, message));
     }
-    return new Promise<PocketResponse>((resolve, rejectPending) => {
-      pending.set(handle, { ops, resolve, reject: rejectPending });
-      activeOps = ops;
-      if (!stopPump) stopPump = registerServicePump(__pumpNet);
-    });
+    const request:Pending={ops,resolve:complete,reject:failure};
+    pending.set(handle,request);
+    activeOps=ops;
+    if(!stopPump)stopPump=registerServicePump(__pumpNet);
+    return ()=>{
+      if(pending.get(handle)!==request)return;
+      pending.delete(handle);ops.cancel(handle);idle();
+    };
   } catch (error) {
-    return error instanceof NetError
-      ? Promise.reject(error)
-      : reject(NET_ERROR.invalidRequest, String(error));
+    return refuse(error instanceof NetError?error:new NetError(NET_ERROR.invalidRequest,String(error)));
   }
 }

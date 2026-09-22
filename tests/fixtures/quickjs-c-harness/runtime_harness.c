@@ -42,6 +42,9 @@ static int stages[32];
 static size_t stage_count;
 #endif
 static uint8_t framebuffer[4];
+static JSCFunctionMagic *animation_completions;
+static int animation_completions_magic;
+static int animation_completions_delivered;
 
 static void reset_stubs(enum Scenario next) {
   scenario = next;
@@ -202,6 +205,10 @@ static int test_dispatcher_contract(void) {
 #endif
 
 int main(void) {
+  if (!boot(SCENARIO_SUCCESS) || !animation_completions) return 1;
+  animation_completions(&stub_context, JS_UNDEFINED, 0, NULL, animation_completions_magic);
+  if (!animation_completions_delivered) return 1;
+  pocket_runtime_shutdown();
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
   if (!test_boot_sequences() || !test_frame_sequences())
     return 1;
@@ -276,6 +283,10 @@ JSValue JS_NewBool(JSContext *context, int value) { return value; }
 JSValue JS_NewString(JSContext *context, const char *value) {
   return VALUE_OBJECT;
 }
+JSValue JS_NewStringLen(JSContext *context, const char *value, size_t length) {
+  if (length == 8 && memcmp(value, "[[42,1]]", length) == 0) animation_completions_delivered = 1;
+  return VALUE_OBJECT;
+}
 JSValue JS_NewObject(JSContext *context) { return VALUE_OBJECT; }
 JSValue JS_NewArray(JSContext *context) { return VALUE_OBJECT; }
 
@@ -304,6 +315,10 @@ JSValue JS_GetTypedArrayBuffer(JSContext *context, JSValueConst value,
 JSValue JS_NewCFunctionMagic(JSContext *context, JSCFunctionMagic *function,
                              const char *name, int length, JSCFunctionEnum kind,
                              int magic) {
+  if (strcmp(name, "takeAnimationCompletions") == 0) {
+    animation_completions = function;
+    animation_completions_magic = magic;
+  }
   return VALUE_FRAME_FUNCTION;
 }
 
@@ -399,6 +414,10 @@ int32_t ui_animate(int32_t id, uint32_t prop, double to, uint32_t duration_ms,
   return 1;
 }
 void ui_cancel_anim(int32_t animation_id) {}
+const uint8_t *ui_take_animation_completions_json(size_t *length) {
+  *length = 8;
+  return (const uint8_t *)"[[42,1]]";
+}
 void ui_set_focus(int32_t id) {}
 void ui_set_active(int32_t id, int32_t active) {}
 int32_t ui_hit_test(float x, float y) { return 0; }

@@ -1,10 +1,15 @@
 # Reactivity
 
-**There is no PocketJS reactivity layer.** Solid apps import signals, effects,
-and lifecycle from `solid-js`; Vue Vapor apps import refs, computeds, watchers,
-and lifecycle from `vue`; Octane apps import hooks from `octane`. A state write
-reaches the native tree through whichever system you picked, and PocketJS adds
-four rules on top of it.
+**Ordinary guest applications use their framework's reactive primitives.**
+Solid state, memos and effects come from `solid-js`; Vue refs, computeds and
+watchers come from `vue`; Octane hooks come from `octane`. PocketJS lifecycle
+and host APIs come from `@pocketjs/framework/*`.
+
+The examples on this page describe that ordinary application path. Compiled
+TypeScript models use the framework-owned reaction schedule and the
+[Model AOT import rules](/docs/typescript-support/#reactive-state-and-regions).
+The [support reference](/docs/typescript-support/) defines their source subset
+and the differences from AOT view expressions.
 
 If you know the framework, you know the API. This page puts the three side by
 side so you can read one column and skip the rest, then states what the runtime
@@ -19,7 +24,7 @@ adds. Which framework a build uses is set once in `pocket.json` — see
 | Derived, cached | `createMemo` | `computed` | `useMemo` |
 | Side effect on change | `createEffect` | `watchEffect` | `useEffect` |
 | After first render | `onMount` | `onMounted` | `useEffect` with no deps |
-| On teardown | `onCleanup` | `onScopeDispose` | `useEffect` cleanup return |
+| On teardown | `onCleanup` | `onUnmounted` | `useEffect` cleanup return |
 | Escape tracking | `untrack` | — | dependency arrays |
 
 Solid and Vue Vapor are fine-grained reactive systems: a write updates the
@@ -155,25 +160,26 @@ useEffect(() => {
 ```
 :::
 
-Effects deliver at a frame boundary, before app frame hooks run, so app code
-reads a settled tree. [Native contract](/docs/native-contract/) has the frame
-order.
+Host result deliveries enter at frame boundaries. Reactive effects use the
+selected framework's scheduler; compiled model effects use the separate
+[model schedule](/docs/microts-model/#reactions-and-cached-values).
+[Native contract](/docs/native-contract/) describes guest frame order.
 
 ## Mount and cleanup
 
 :::framework-code
 ```ts solid
-import { onMount, onCleanup } from "solid-js";
+import { onMount, onCleanup } from "@pocketjs/framework/solid/lifecycle";
 
 onMount(() => list.scrollToIndex(0));
 onCleanup(() => handle.dispose());
 ```
 
 ```ts vue-vapor
-import { onMounted, onScopeDispose } from "vue";
+import { onMounted, onUnmounted } from "@pocketjs/framework/vue-vapor/lifecycle";
 
 onMounted(() => list.scrollToIndex(0));
-onScopeDispose(() => handle.dispose());
+onUnmounted(() => handle.dispose());
 ```
 
 ```ts octane
@@ -193,8 +199,8 @@ recognizer unregisters with the component that created it.
 
 ## What the runtime adds
 
-**A state write in a handler commits in the frame that handled it.** Solid and
-Vue Vapor mutate the native tree during the write. Octane queues re-renders as
+**A state write in a handler commits in the frame that handled it.** The input
+bridge batches handlers and flushes updates before node reclamation. Octane queues re-renders as
 microtasks, and the frame handler in `framework/src/index-octane.ts` drains that
 queue inside `flushUniversalSync()` before the sweep that ships the frame's
 mutations to the core.

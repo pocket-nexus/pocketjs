@@ -21,7 +21,7 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 #[cfg(any(target_os = "none", feature = "bare-platform"))]
 use core::alloc::{GlobalAlloc, Layout};
 #[cfg(any(target_os = "none", feature = "bare-platform"))]
@@ -431,6 +431,31 @@ pub extern "C" fn ui_animate(
 #[no_mangle]
 pub extern "C" fn ui_cancel_anim(animation_id: i32) {
     ui().cancel_anim(animation_id);
+}
+
+/// JSON storage belongs to the UI thread and lasts until the next drain.
+static mut ANIMATION_COMPLETIONS: String = String::new();
+
+/// Consume track completions once, including replacements between core ticks.
+#[no_mangle]
+pub extern "C" fn ui_take_animation_completions_json(length: *mut usize) -> *const u8 {
+    use core::fmt::Write;
+    use pocketjs_core::anim::CompletionReason;
+    let output = unsafe { &mut ANIMATION_COMPLETIONS };
+    output.clear();
+    output.push('[');
+    ui().drain_animation_completions(|completion| {
+        if output.len() > 1 { output.push(','); }
+        let reason = match completion.reason {
+            CompletionReason::Ended => 0,
+            CompletionReason::Replaced => 1,
+            CompletionReason::Dropped => 2,
+        };
+        let _ = write!(output, "[{},{}]", completion.id, reason);
+    });
+    output.push(']');
+    if !length.is_null() { unsafe { *length = output.len(); } }
+    output.as_ptr()
 }
 
 #[no_mangle]
@@ -929,6 +954,16 @@ mod tests {
         assert_eq!(ui_framebuffer_len(), 8);
         let pixels = unsafe { core::slice::from_raw_parts(framebuffer, 8) };
         assert_eq!(pixels, &[0x11, 0x22, 0x33, 0xff, 0x11, 0x22, 0x33, 0xff]);
+        ui_set_prop(spec::ROOT_ID, spec::prop::WIDTH as u32, 10.0);
+        let animation = ui_animate(spec::ROOT_ID, spec::prop::WIDTH as u32, 20.0, 1, 0, 0);
+        assert!(animation > 0);
+        ui_tick();
+        let mut length = 0;
+        let json = ui_take_animation_completions_json(&mut length);
+        let text = core::str::from_utf8(unsafe { core::slice::from_raw_parts(json, length) }).unwrap();
+        assert_eq!(text, alloc::format!("[[{},0]]", animation));
+        let json = ui_take_animation_completions_json(&mut length);
+        assert_eq!(unsafe { core::slice::from_raw_parts(json, length) }, b"[]");
         ui_shutdown();
         #[cfg(feature = "harness-access")]
         assert!(unsafe { with_initialized_ui_unchecked(|_| ()) }.is_none());

@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use glam::Vec3;
 
 use crate::cooked::{
@@ -33,11 +33,16 @@ use crate::wad::{IndexedTexture, WadSet, decode_miptex_indexed};
 pub struct CookOptions {
     /// Maximum face extent before grid subdivision, in world units.
     pub subdivide: f32,
+    /// Diagnostic builds may keep the missing-texture checkerboard.
+    pub allow_missing_textures: bool,
 }
 
 impl Default for CookOptions {
     fn default() -> Self {
-        Self { subdivide: 96.0 }
+        Self {
+            subdivide: 96.0,
+            allow_missing_textures: false,
+        }
     }
 }
 
@@ -98,6 +103,7 @@ pub fn cook_parsed(
 
     // ---- Textures --------------------------------------------------------
     let mut textures = Vec::with_capacity(bsp.textures.len());
+    let mut unresolved = Vec::with_capacity(bsp.textures.len());
     for entry in &bsp.textures {
         let tex = match &entry.embedded {
             Some(block) => decode_miptex_indexed(block).ok(),
@@ -105,6 +111,7 @@ pub fn cook_parsed(
                 .find_block(&entry.name)
                 .and_then(|b| decode_miptex_indexed(b).ok()),
         };
+        unresolved.push(tex.is_none());
         let tex = tex.unwrap_or_else(|| {
             log::warn!(
                 "{name}: texture {} unresolved, cooking placeholder",
@@ -118,6 +125,25 @@ pub fn cook_parsed(
 
     // ---- Geometry --------------------------------------------------------
     let geo = cook_geometry(bsp, &textures, &include_models, opts, &mut stats)?;
+    // Sky/tool/unused texture entries do not require pixel data. Only batches
+    // that the renderer will draw can make a package incomplete.
+    if !opts.allow_missing_textures {
+        let mut missing: Vec<_> = geo
+            .batches
+            .iter()
+            .filter(|batch| unresolved[batch.texture as usize])
+            .map(|batch| textures[batch.texture as usize].name.as_str())
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        if !missing.is_empty() {
+            bail!(
+                "{name}: {} visible textures unresolved: {}. Supply the map's WAD files with --wads DIR; --allow-missing-textures is for diagnostic builds",
+                missing.len(),
+                missing.join(", ")
+            );
+        }
+    }
 
     // ---- Assemble sections ------------------------------------------------
     let mut w = P3dWriter::new();
@@ -180,6 +206,22 @@ pub fn cook_parsed(
     w.section(TAG_WCLP, clp_section);
 
     w.section(TAG_WENT, cook_entities_section(bsp, &ents, name));
+    if let Some(world) = ents.iter().find(|e| e.classname() == "worldspawn")
+        && let Some(sky) = crate::entities::parse_sky(world).map_err(anyhow::Error::msg)?
+    {
+        let bytes = [
+            sky.zenith.x,
+            sky.zenith.y,
+            sky.zenith.z,
+            sky.horizon.x,
+            sky.horizon.y,
+            sky.horizon.z,
+        ]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+        w.section(cooked::TAG_WSKY, bytes);
+    }
 
     let out = w.finish();
     stats.total_bytes = out.len();
@@ -548,6 +590,45 @@ fn placeholder_indexed(name: &str) -> IndexedTexture {
     }
 }
 
+/// Reject the cooker's exact legacy checkerboard in a pre-cooked package.
+/// Comparing the entire mip and palette avoids treating arbitrary magenta
+/// artwork as a missing texture. Unreferenced texture entries are allowed.
+pub fn verify_cooked_textures(map: &cooked::CookedMap<'_>) -> Result<()> {
+    let placeholder = placeholder_indexed("");
+    let palette: Vec<u8> = placeholder
+        .palette
+        .chunks_exact(3)
+        .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
+        .collect();
+    let mips: Vec<_> = placeholder
+        .mips
+        .iter()
+        .enumerate()
+        .map(|(level, mip)| swizzle8(mip, 16 >> level, 16 >> level))
+        .collect();
+    for batch in &map.batches {
+        let tex = &map.textures[batch.texture as usize];
+        if tex.width == 16
+            && tex.height == 16
+            && !tex.masked
+            && tex.palette == palette
+            && tex.mips.len() == mips.len()
+            && tex
+                .mips
+                .iter()
+                .zip(&mips)
+                .all(|(actual, expected)| *actual == expected)
+        {
+            bail!(
+                "{}: cooked map contains a missing-texture placeholder ({}). Re-cook with complete WAD inputs",
+                map.name,
+                tex.name
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Extend the 4 stored mips down to 8x8 (box filter in RGB, requantized to
 /// the texture's own palette), swizzle every level, and serialize `WTEX`.
 ///
@@ -618,15 +699,16 @@ fn cook_textures_section(textures: &[IndexedTexture]) -> Result<Vec<u8>> {
 
         // Palette: 256 x RGBA8 in GE CLUT order.
         let pal_off = blob.len() as u32;
+        let fringe = transparent_filter_color(tex);
         for i in 0..256 {
             let p = i * 3;
             let alpha = if tex.masked && i == 255 { 0u8 } else { 255 };
-            blob.extend_from_slice(&[
-                tex.palette[p],
-                tex.palette[p + 1],
-                tex.palette[p + 2],
-                alpha,
-            ]);
+            let rgb = if alpha == 0 {
+                fringe
+            } else {
+                [tex.palette[p], tex.palette[p + 1], tex.palette[p + 2]]
+            };
+            blob.extend_from_slice(&[rgb[0], rgb[1], rgb[2], alpha]);
         }
         blob[pal_off_pos..pal_off_pos + 4].copy_from_slice(&pal_off.to_le_bytes());
 
@@ -823,6 +905,27 @@ pub fn swizzle8(indices: &[u8], w: usize, h: usize) -> Vec<u8> {
     out
 }
 
+// A WAD's blue key is not a visible color. Bilinear filtering mixes RGB even
+// when index 255 has zero alpha; use the visible texels' mean at that palette
+// entry so cutout edges cannot acquire blue fringes. Alpha and indices stay intact.
+fn transparent_filter_color(texture: &IndexedTexture) -> [u8; 3] {
+    if !texture.masked {
+        return [0; 3];
+    }
+    let mut sum = [0u64; 3];
+    let mut count = 0u64;
+    for &index in &texture.mips[0] {
+        if index == 255 {
+            continue;
+        }
+        count += 1;
+        for (channel, total) in sum.iter_mut().enumerate() {
+            *total += texture.palette[index as usize * 3 + channel] as u64;
+        }
+    }
+    sum.map(|v| v.checked_div(count).unwrap_or(0) as u8)
+}
+
 // ---- Vis / collision / entity sections --------------------------------------
 
 fn cook_vis_section(bsp: &RawBsp) -> Vec<u8> {
@@ -945,6 +1048,181 @@ fn cook_entities_section(bsp: &RawBsp, ents: &[crate::entities::Entity], name: &
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn texture_fixture(name: &str) -> RawBsp {
+        let mut header = vec![0; 4 + 15 * 8];
+        header[..4].copy_from_slice(&30i32.to_le_bytes());
+        let mut bsp = raw::parse(&header).unwrap();
+        bsp.planes.push(crate::types::Plane {
+            normal: Vec3::Y,
+            dist: 0.0,
+        });
+        bsp.textures.push(raw::MipTexEntry {
+            name: name.into(),
+            width: 16,
+            height: 16,
+            embedded: None,
+        });
+        bsp.vertices = vec![Vec3::ZERO, Vec3::X * 16.0, Vec3::Z * 16.0];
+        bsp.edges = vec![[0, 1], [1, 2], [2, 0]];
+        bsp.surfedges = vec![0, 1, 2];
+        bsp.texinfos.push(raw::TexInfo {
+            s: Vec3::X,
+            s_shift: 0.0,
+            t: Vec3::Z,
+            t_shift: 0.0,
+            miptex: 0,
+            flags: 0,
+        });
+        bsp.faces.push(raw::Face {
+            plane: 0,
+            plane_side: 0,
+            first_edge: 0,
+            num_edges: 3,
+            texinfo: 0,
+            styles: [255; 4],
+            lightmap_offset: -1,
+        });
+        bsp.leaves.push(crate::types::Leaf {
+            contents: -1,
+            vis_offset: -1,
+            mins: Vec3::ZERO,
+            maxs: Vec3::splat(16.0),
+            first_marksurface: 0,
+            num_marksurfaces: 0,
+        });
+        bsp.models.push(crate::types::Model {
+            mins: Vec3::ZERO,
+            maxs: Vec3::splat(16.0),
+            origin: Vec3::ZERO,
+            headnodes: [-1; 4],
+            visleafs: 0,
+            first_face: 0,
+            num_faces: 1,
+        });
+        bsp
+    }
+
+    #[test]
+    fn masked_filter_color_ignores_the_blue_transparency_key() {
+        let mut texture = placeholder_indexed("{leaves");
+        texture.masked = true;
+        texture.palette[0..3].copy_from_slice(&[40, 120, 20]);
+        texture.palette[3..6].copy_from_slice(&[80, 160, 60]);
+        texture.palette[765..768].copy_from_slice(&[0, 0, 255]);
+        texture.mips[0] = vec![0, 1, 255, 255];
+        assert_eq!(transparent_filter_color(&texture), [60, 140, 40]);
+        texture.mips[0].fill(255);
+        assert_eq!(transparent_filter_color(&texture), [0, 0, 0]);
+    }
+
+    #[test]
+    fn texture_relocation_respects_capacity_alignment_and_complete_chains() {
+        let bsp = texture_fixture("fixture");
+        let opts = CookOptions {
+            allow_missing_textures: true,
+            ..CookOptions::default()
+        };
+        let (bytes, _) = cook_parsed(&bsp, "cache", &WadSet::new(), &opts).unwrap();
+        let original = cooked::read(&bytes).unwrap();
+        let texture = &original.textures[0];
+        let needed = texture.palette.len() + texture.mips.iter().map(|m| m.len()).sum::<usize>();
+        let expected = cooked::expand_level0_rgba(texture).unwrap();
+        let mut short = vec![0x5a; needed - 1];
+        let mut short_map = cooked::read(&bytes).unwrap();
+        let source = short_map.textures[0].palette.as_ptr();
+        assert_eq!(
+            cooked::texture_cache::relocate(&mut short_map, &mut short).0,
+            0
+        );
+        assert_eq!(short_map.textures[0].palette.as_ptr(), source);
+        drop(short_map);
+        assert!(short.iter().all(|&b| b == 0x5a));
+        let mut storage = vec![0x5a; needed + 32];
+        let begin = storage.as_ptr() as usize;
+        let mut map = cooked::read(&bytes).unwrap();
+        let (used, _) = cooked::texture_cache::relocate(&mut map, &mut storage[1..needed + 16]);
+        assert!(used >= needed && used <= needed + 15);
+        let cached = &map.textures[0];
+        for data in core::iter::once(&cached.palette).chain(cached.mips.iter()) {
+            let ptr = data.as_ptr() as usize;
+            assert_eq!(ptr % 16, 0);
+            assert!(ptr > begin && ptr + data.len() <= begin + needed + 16);
+        }
+        assert_eq!(cooked::expand_level0_rgba(cached).unwrap(), expected);
+        drop(map);
+        assert_eq!(storage[0], 0x5a);
+        assert!(storage[needed + 16..].iter().all(|&b| b == 0x5a));
+    }
+
+    #[test]
+    fn sky_metadata_is_optional_and_roundtrips_with_validation() {
+        let mut bsp = texture_fixture("sky");
+        let build = |bsp: &RawBsp| cook_parsed(bsp, "sky", &WadSet::new(), &CookOptions::default());
+        assert!(cooked::read(&build(&bsp).unwrap().0).unwrap().sky.is_none());
+        bsp.entities_text = alloc::string::String::from(
+            r#"{
+            "classname" "worldspawn"
+            "pocket_sky_zenith" "0.3 0.5 0.8"
+            "pocket_sky_horizon" "0.8 0.9 1"
+        }"#,
+        );
+        let (bytes, _) = build(&bsp).unwrap();
+        let sky = cooked::read(&bytes).unwrap().sky.unwrap();
+        assert_eq!(sky.zenith, Vec3::new(0.3, 0.5, 0.8));
+        assert_eq!(sky.horizon, Vec3::new(0.8, 0.9, 1.0));
+        for invalid in ["NaN 0 0", "2 0 0", "0 1", "0 0 0 0"] {
+            bsp.entities_text = alloc::format!(
+                r#"{{
+                "classname" "worldspawn"
+                "pocket_sky_zenith" "{}"
+                "pocket_sky_horizon" "0.8 0.9 1"
+            }}"#,
+                invalid
+            );
+            assert!(build(&bsp).is_err(), "{invalid}");
+        }
+        bsp.entities_text = alloc::string::String::from(
+            r#"{
+            "classname" "worldspawn" "pocket_sky_zenith" "0 0 1"
+        }"#,
+        );
+        assert!(build(&bsp).is_err());
+    }
+
+    #[test]
+    fn missing_visible_texture_fails_cooking_and_legacy_package_verification() {
+        let bsp = texture_fixture("warehouse");
+        let err =
+            cook_parsed(&bsp, "fixture", &WadSet::new(), &CookOptions::default()).unwrap_err();
+        assert!(err.to_string().contains("warehouse"));
+        assert!(err.to_string().contains("--wads"));
+        let opts = CookOptions {
+            allow_missing_textures: true,
+            ..CookOptions::default()
+        };
+        let (bytes, _) = cook_parsed(&bsp, "fixture", &WadSet::new(), &opts).unwrap();
+        let mut map = cooked::read(&bytes).unwrap();
+        assert!(verify_cooked_textures(&map).is_err());
+        // A real magenta texture is not rejected just because of its color.
+        let mut palette = map.textures[0].palette.to_vec();
+        palette[8] = 42;
+        map.textures[0].palette = &palette;
+        assert!(verify_cooked_textures(&map).is_ok());
+    }
+
+    #[test]
+    fn tool_sky_and_unused_textures_do_not_require_wads() {
+        for name in ["sky", "clip", "aaatrigger"] {
+            let bsp = texture_fixture(name);
+            let (bytes, _) =
+                cook_parsed(&bsp, "fixture", &WadSet::new(), &CookOptions::default()).unwrap();
+            assert!(verify_cooked_textures(&cooked::read(&bytes).unwrap()).is_ok());
+        }
+        let mut bsp = texture_fixture("unused");
+        bsp.models[0].num_faces = 0;
+        assert!(cook_parsed(&bsp, "fixture", &WadSet::new(), &CookOptions::default()).is_ok());
+    }
 
     #[test]
     fn swizzle_roundtrip_block_layout() {

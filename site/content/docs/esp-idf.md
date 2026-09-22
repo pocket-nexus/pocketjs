@@ -170,12 +170,22 @@ no UI until a surface is mounted.
 ```c
 pocketjs_guest_config_t config;
 pocketjs_guest_config_defaults(&config);
-config.heap_limit = 4 * 1024 * 1024;
 config.prefer_psram = true;
 
 pocketjs_guest_t *guest = NULL;
 ESP_ERROR_CHECK(pocketjs_guest_create(&config, &guest));
 ```
+
+Set `CONFIG_POCKETJS_GUEST_HEAP_LIMIT` in `menuconfig` under
+`Component config → PocketJS guest → Default JavaScript heap limit (bytes)`.
+**The default is 4194304 bytes (4 MiB) per guest.**
+`pocketjs_guest_config_defaults()` copies this value into `config.heap_limit`.
+Assign `config.heap_limit` before `pocketjs_guest_create()` to override the
+default for that guest.
+
+**The limit is a QuickJS allocation budget.** Reserve memory for native
+allocations, display buffers, and allocator overhead. It does not represent
+total PSRAM usage or set the garbage collector's trigger threshold.
 
 `pocketjs/guest_quickjs.h` exposes a version-pinned `JSContext *` only for
 native surface and extension code. Application hosts that do not install raw

@@ -189,6 +189,35 @@ pub fn parse_entities(text: &str) -> Vec<Entity> {
     out
 }
 
+/// Optional worldspawn colors; both must be present to avoid partial presets.
+pub fn parse_sky(entity: &Entity) -> Result<Option<crate::types::SkyColors>, &'static str> {
+    let a = entity.get("pocket_sky_zenith");
+    let b = entity.get("pocket_sky_horizon");
+    if a.is_none() && b.is_none() {
+        return Ok(None);
+    }
+    let color = |text: Option<&str>| -> Result<Vec3, &'static str> {
+        let values = text
+            .ok_or("both sky colors required")?
+            .split_whitespace()
+            .map(str::parse::<f32>)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "invalid sky color")?;
+        if values.len() != 3
+            || values
+                .iter()
+                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+        {
+            return Err("sky colors require three finite channels in [0,1]");
+        }
+        Ok(Vec3::new(values[0], values[1], values[2]))
+    };
+    Ok(Some(crate::types::SkyColors {
+        zenith: color(a)?,
+        horizon: color(b)?,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

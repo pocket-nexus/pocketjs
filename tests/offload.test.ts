@@ -19,12 +19,12 @@ describe("offload budgets and failure delivery", () => {
     try {
       const binary = join(scratch, "queue");
       const compile = Bun.spawnSync(["cc", "-std=c11", "-O2", "-pthread", "-fsanitize=address,undefined", resolve(import.meta.dir, "fixtures/offload-queue.c"), "-o", binary]);
-      if (compile.exitCode) throw new Error(compile.stderr.toString());
+      if (compile.exitCode !== 0) throw new Error(`Native offload compile failed (exit ${compile.exitCode}, signal ${compile.signalCode}): ${compile.stderr.toString()}`);
       const run = Bun.spawnSync([binary]);
-      if (run.exitCode) throw new Error(run.stderr.toString());
+      if (run.exitCode !== 0) throw new Error(`Native offload harness failed (exit ${run.exitCode}, signal ${run.signalCode}): ${run.stderr.toString()}`);
       expect(run.stdout.toString()).toContain("100000 SPSC records verified");
     } finally { rmSync(scratch, { recursive: true }); }
-  });
+  }, 30_000); // Includes sanitizer compilation on shared CI runners.
   test("limits tickets, submissions and deliveries independently", () => {
     const r = rig(); let delivered = 0;
     for (let i = 0; i < 8; i++) expect(r.client.request("db.page", "{}", () => delivered++)).toBeGreaterThan(0);

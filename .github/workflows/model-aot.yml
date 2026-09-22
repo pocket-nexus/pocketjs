@@ -1,0 +1,50 @@
+name: Model AOT semantics
+on:
+  pull_request:
+    paths:
+      - 'microts/compiler/**'
+      - 'framework/**'
+      - 'engine/core/**'
+      - 'engine/crates/microts/**'
+      - 'engine/crates/pocket-ui-surface/**'
+      - 'engine/wasm/**'
+      - 'engine/ui-cabi/**'
+      - 'engine/quickjs-c/**'
+      - 'hosts/web/**'
+      - 'apps/solid-aot-lab/**'
+      - 'contracts/**'
+      - 'tests/aot-*.test.ts'
+      - 'tests/fixtures/aot-model/**'
+      - 'tools/build.ts'
+      - 'tools/test.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/model-aot.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: model-aot-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  semantics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt
+          targets: wasm32-unknown-unknown
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun tools/test.ts --stage="Model AOT"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: model-aot-reproduction
+          path: |
+            .pocket-build/validation/model-aot/
+            tests/fixtures/aot-model/found/

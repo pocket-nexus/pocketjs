@@ -33,8 +33,20 @@ export const DOC_NAV: DocSection[] = [
     ],
   },
   {
+    title: "MicroTS",
+    items: [
+      { slug: "microts", title: "Build a native Vue app" },
+      { slug: "microts-components", title: "Components and state" },
+      { slug: "microts-reference", title: "API and commands" },
+      { slug: "microts-solid", title: "Solid TSX to Rust" },
+      { slug: "microts-model", title: "TypeScript models to Rust" },
+      { slug: "microts-boundaries", title: "TypeScript and native code" },
+    ],
+  },
+  {
     title: "Reference",
     items: [
+      { slug: "typescript-support", title: "TypeScript support" },
       { slug: "api", title: "API reference" },
       { slug: "build-pipeline", title: "Build pipeline" },
       { slug: "native-contract", title: "Native contract" },

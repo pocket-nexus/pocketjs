@@ -118,3 +118,10 @@ pub struct SunLight {
     pub dir: Vec3,
     pub color: Vec3,
 }
+
+/// Authored procedural sky colors, stored as linear channels in [0,1].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SkyColors {
+    pub zenith: glam::Vec3,
+    pub horizon: glam::Vec3,
+}

@@ -657,6 +657,9 @@ export function resolveBuildPlan(
       entry: presentation.entry,
       output,
       framework: manifest.app.framework,
+      ...(manifest.app.aot !== undefined ? { aot: manifest.app.aot } : {}),
+      ...(manifest.app.model !== undefined ? { model: manifest.app.model } : {}),
+      ...(manifest.app.recursionLimit !== undefined ? { recursionLimit: manifest.app.recursionLimit } : {}),
     },
     presentation,
     target: {

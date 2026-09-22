@@ -547,6 +547,7 @@ describe("semantic resolution", () => {
       note: [false, false, true, true],
       notifications: [true, true, false, true],
       settings: [true, true, false, true],
+      "solid-aot-lab": [true, true, false, true],
       stats: [true, true, false, true],
       "text-offload": [true, false, false, true], // requires a supported companion transport
       "vue-sfc-lab": [true, true, false, true],

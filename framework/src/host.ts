@@ -17,6 +17,7 @@ import {
   VALUE_KIND,
   type PropName,
 } from "../../contracts/spec/spec.ts";
+import type { AxisDelta } from "./relative-axis.ts";
 
 // Replaced by tools/build.ts for manifest-driven builds. `typeof` keeps
 // legacy/test bundles valid until they opt into a ResolvedBuildPlan.
@@ -89,6 +90,8 @@ export interface HostOps {
     delayMs: number,
   ): number;
   cancelAnim(animId: number): void;
+  /** Drain [[trackId, reason]] from core; reasons: ended=0, replaced=1, dropped=2. */
+  takeAnimationCompletions?(): string;
   /** 0 clears focus. Applies the `focus:` style variant natively. */
   setFocus(idOr0: number): void;
   /** Set/clear the `active:` pressed variant natively (0/1 int; stale ids
@@ -414,7 +417,7 @@ export function reportAppAction(name: string, value: number): void {
 // Frame hookup
 // ---------------------------------------------------------------------------
 // Every host drives frames the same way: once per vblank/rAF tick it calls
-// `globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?)` with the
+// `globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?)` with the
 // PSP button bitmask (spec BTN)
 // and, when the host has an analog stick, the packed nub value
 // (x << 8 | y, each axis 0..255, 128 = center — spec ANALOG_CENTER). Hosts
@@ -431,6 +434,7 @@ export function installFrameHandler(
     hits?: readonly number[],
     touchSurfaces?: readonly number[],
     rightAnalog?: number,
+    axisDeltas?: readonly AxisDelta[],
   ) => void,
 ): void {
   (
@@ -442,6 +446,7 @@ export function installFrameHandler(
         hits?: readonly number[],
         touchSurfaces?: readonly number[],
         rightAnalog?: number,
+        axisDeltas?: readonly AxisDelta[],
       ) => void;
     }
   ).frame = fn;
@@ -475,15 +480,15 @@ export function installResizeViewportHook(
 // Prop value encoding
 // ---------------------------------------------------------------------------
 
-/** Parse '#rgb' | '#rrggbb' | '#rrggbbaa' (web RGB order) into u32 ABGR. */
+/** Parse '#rgb' | '#rgba' | '#rrggbb' | '#rrggbbaa' into u32 ABGR. */
 export function parseHexColor(s: string): number {
   let hex = s.slice(1);
-  if (hex.length === 3) {
-    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+  if (hex.length === 3 || hex.length === 4) {
+    hex = [...hex].map(character => character + character).join("");
   }
   if (hex.length !== 6 && hex.length !== 8) {
     throw new Error(
-      `PocketJS: bad color '${s}' (expected #rgb/#rrggbb/#rrggbbaa)`,
+      `PocketJS: bad color '${s}' (expected #rgb/#rgba/#rrggbb/#rrggbbaa)`,
     );
   }
   // Full-string validation: parseInt would silently accept a valid PREFIX

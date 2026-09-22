@@ -8,6 +8,11 @@ import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
+import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../microts/compiler/aot-solid-browser.ts";
+import { normalizeSolidAotSemantics } from "../../microts/compiler/aot-solid-semantics.ts";
+import { transformCompiledModel } from "../../microts/compiler/aot-model-build.ts";
+import { exposeVaporFrameFlush } from "./vue-vapor-frame-flush.ts";
+import { checkVueAotSource, hasVueAotContract, resolveVueAotMock } from "../../microts/compiler/aot-browser.ts";
 import {
   propsHelperCode,
   propsHelperId,
@@ -397,7 +402,7 @@ export function packagePath(spec: string, framework: PocketFramework): string | 
   for (const fw of POCKET_FRAMEWORKS) {
     if (subpath === fw) return RESOLVED[fw][""] ?? null;
     if (subpath.startsWith(fw + "/")) {
-      return RESOLVED[fw][subpath.slice(fw.length + 1)] ?? null;
+      return RESOLVED[fw][subpath] ?? RESOLVED[fw][subpath.slice(fw.length + 1)] ?? null;
     }
   }
   return RESOLVED[framework][subpath] ?? null;
@@ -435,7 +440,7 @@ export async function transformFile(
   path: string,
   src: string,
   framework: PocketFramework,
-  options: { features?: BuildFeatures } = {},
+  options: { features?: BuildFeatures; entry?: string } = {},
 ): Promise<TransformResult> {
   const isVueSfc = path.endsWith(".vue");
   if (isVueSfc && framework !== "vue-vapor") {
@@ -444,10 +449,18 @@ export async function transformFile(
         `(set app.framework in pocket.json or pass --framework=vue-vapor)`,
     );
   }
+  // Contract dependencies can change without changing the SFC's transform
+  // hash, so admission precedes the cache lookup on browser and guest builds.
+  if (isVueSfc && hasVueAotContract(src, path)) checkVueAotSource(src, path);
+  const solidAot = framework === "solid" && path.endsWith(".tsx") ? getSolidAotProgram(path, src, options.entry) : undefined;
+  if (solidAot) src = normalizeSolidAotSemantics(src, path, solidAot);
+  src = transformCompiledModel(src, path, options.entry) ?? src;
   const key = await hashKey(path, src, framework, options.features);
   const cacheFile = CACHE_DIR + key + ".json";
   const cached = (await Bun.file(cacheFile).json().catch(() => null)) as CacheEntry | null;
-  if (cached && typeof cached.code === "string") {
+  // SFC output also depends on imported props and declaration modules. Their
+  // contents are outside this per-file hash, including on pure child views.
+  if (!isVueSfc && !solidAot && cached && typeof cached.code === "string") {
     return {
       code: cached.code,
       classStrings: cached.classStrings,
@@ -456,8 +469,8 @@ export async function transformFile(
   }
 
   if (isVueSfc) {
-    const result = compileVueSfc(src, path, { stripTypes: true });
-    const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+    const result = compileVueSfc(src, path, { stripTypes: true, checkedAot: true });
+    const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set() };
     const transformed = await transformAsync(result.code, {
       filename: path,
       presets: [],
@@ -486,7 +499,7 @@ export async function transformFile(
     };
   }
 
-  const collected: Collected = { classStrings: [], textCodepoints: new Set() };
+  const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set() };
   const opts = transformOptions(framework);
   const plugins = [
     ...(options.features === undefined ? [] : [makeFeatureFolder(options.features)]),
@@ -578,6 +591,7 @@ export function jsxPlugin(
   return {
     name: `pocketjs-${framework}-jsx`,
     setup(build) {
+      const declarationMocks = new Map<string, string>();
       // External applications may have their own node_modules. Resolve both
       // sides of the renderer boundary to PocketJS's browser-mode Solid copy,
       // otherwise identical packages at different paths form two reactive
@@ -592,8 +606,28 @@ export function jsxPlugin(
         const path = packagePath(args.path, framework);
         return path ? { path } : undefined;
       });
+      if (framework === "solid") {
+        build.onResolve({ filter: /^\.{1,2}\// }, args => {
+          const mock = resolveSolidAotMock(args.importer, args.path, opts.entry);
+          if (mock === undefined) {
+            const path = resolveSolidAotModel(args.importer, args.path, opts.entry);
+            return path ? { path } : undefined;
+          }
+          const path = resolveSolidAotModel(args.importer, args.path, opts.entry)!;
+          declarationMocks.set(path, mock);
+          return { path, namespace: "solid-aot-declarations" };
+        });
+        build.onLoad({ filter: /.*/, namespace: "solid-aot-declarations" }, args => ({ contents: declarationMocks.get(args.path)!, loader: "js", resolveDir: new URL(".", import.meta.url).pathname }));
+      }
       if (framework !== "solid") {
         build.onResolve({ filter: /^\.{1,2}\// }, (args) => {
+          if (framework === "vue-vapor") {
+            const mock = resolveVueAotMock(args.importer, args.path);
+            if (mock !== undefined) {
+              declarationMocks.set(args.importer, mock);
+              return { path: args.importer, namespace: "vue-aot-declarations" };
+            }
+          }
           let resolved: string;
           try {
             resolved = Bun.resolveSync(args.path, args.resolveDir);
@@ -619,7 +653,13 @@ export function jsxPlugin(
         );
       }
       if (framework === "vue-vapor") {
+        build.onLoad({ filter: /.*/, namespace: "vue-aot-declarations" }, (args) => ({
+          contents: declarationMocks.get(args.path)!,
+          loader: "js",
+          resolveDir: new URL(".", import.meta.url).pathname,
+        }));
         build.onResolve({ filter: /^vue$/ }, () => ({ path: VUE_VAPOR_RUNTIME_PATH }));
+        build.onLoad({ filter: /vue\.runtime-with-vapor\.esm-browser\.prod\.js$/ }, async args => ({ contents: exposeVaporFrameFlush(await Bun.file(args.path).text()), loader: "js" }));
         build.onResolve({ filter: /^\/vue-jsx-vapor\/(?:props|vdom|vapor|ssr)$/ }, (args) => ({
           path: args.path,
           namespace: "vue-vapor-helper",
@@ -639,12 +679,12 @@ export function jsxPlugin(
         if (framework === "vue-vapor" && args.path === opts.entry) {
           src = `import "@pocketjs/framework/prelude";\n${src}`;
         }
-        const { code } = await transformFile(args.path, src, framework, { features: opts.features });
+        const { code } = await transformFile(args.path, src, framework, { features: opts.features, entry: opts.entry });
         return { contents: code, loader: "js" };
       });
       build.onLoad({ filter: /\.vue$/ }, async (args) => {
         const src = await Bun.file(args.path).text();
-        const { code } = await transformFile(args.path, src, framework, { features: opts.features });
+        const { code } = await transformFile(args.path, src, framework, { features: opts.features, entry: opts.entry });
         return { contents: code, loader: "js" };
       });
     },

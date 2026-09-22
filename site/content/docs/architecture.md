@@ -1,5 +1,15 @@
 # Architecture
 
+**PocketJS application sources are TypeScript.** This page describes their
+guest build: the compiler emits a JavaScript bundle for the host's execution
+engine. Solid TSX and Vue SFC views can also compile to Rust, with either a
+compiled TypeScript model or a handwritten Rust model. See
+[TypeScript and native code](/docs/microts-boundaries/) for those
+execution paths and their host contracts.
+
+The [TypeScript support reference](/docs/typescript-support/) compares the
+ordinary application, AOT view and compiled model source rules.
+
 PocketJS turns component code into native pixels through
 **one Rust core, framework-specific JS adapters, and one layout engine on every
 host.**
@@ -12,7 +22,7 @@ their own profile module or a supplied build plan. That registry is the only
 record of what a target implements, so read it rather than any list
 on this page — see [Platform contracts](/docs/platform-contracts/).
 
-The JavaScript side can be Solid, Vue Vapor, or Octane. Solid uses its
+The application's framework can be Solid, Vue Vapor, or Octane. Solid uses its
 universal renderer; Vue Vapor uses a Vapor renderer adapter and a DOM-shaped
 facade for Vue's helpers; Octane compiles JSX and hooks to static host plans
 plus dynamic slots whose driver (`renderer-octane.ts`) targets the native tree
@@ -52,9 +62,10 @@ baked into atlases at build time.
 
 Reading it top to bottom:
 
-1. **`app.tsx`** is ordinary framework JSX: PocketJS components from
-   [`@pocketjs/framework/components`](/docs/components/), state/lifecycle from
-   `solid-js`, `vue`, or `octane`, and `class` strings from the Tailwind subset.
+1. **`app.tsx`** contains TypeScript and framework JSX: PocketJS components
+   and lifecycle APIs come from `@pocketjs/framework/*`, framework primitives
+   come from `solid-js`, `vue`, or `octane`, and `class` strings use the
+   Tailwind subset.
 2. A product **build** resolves `pocket.json` for one target, then runs the
    selected JSX transform, compiles class strings to a binary style table
    (`styles.bin`), bakes target-density glyph atlases/assets, and packs them
@@ -162,7 +173,7 @@ is refused once the first `tick()` has run, so the rate is fixed for the whole
 run. A bundle bakes its rate at build time (`--hz=N`, 1 through 240) and
 refuses to mount on a host whose `ui.__tickHz` disagrees. One core tick per
 virtual frame is the common case; a slower simulation rate advances several.
-JavaScript only *declares* motion (through
+TypeScript application code declares motion (through
 [`@pocketjs/framework/animation`](/docs/animation/) or `transition-*` classes);
 it never drives it frame by frame.
 
@@ -195,8 +206,9 @@ chain covers.
 
 PocketJS is three layers with narrow contracts between them.
 
-**1. The app + framework runtime (JavaScript).** Your components and reactive
-state. The Solid/Vue/Octane adapters keep a lightweight JS *mirror* of the tree —
+**1. The TypeScript app and framework runtime.** The guest build emits an
+engine bundle containing the components and reactive state. The
+Solid/Vue/Octane adapters keep a JS *mirror* of the tree —
 `{ id, parent, children[], … }` — so the reconciler can *read* tree structure
 without crossing the FFI boundary.
 Only *mutations* cross into native. `setProperty` runs through a dispatch table:

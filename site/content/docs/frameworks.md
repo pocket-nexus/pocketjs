@@ -1,13 +1,20 @@
 # Frameworks
 
-PocketJS supports three app frameworks over the same native tree and Rust
-core:
+PocketJS supports TypeScript applications using three framework adapters over
+the same native tree and Rust core:
 
 | Framework | Build id | JSX transform | Runtime renderer | Output suffix |
 |---|---|---|---|---|
 | Solid | `solid` | `babel-preset-solid` universal mode | `renderer-solid.ts` | none |
 | Vue Vapor | `vue-vapor` | `vue-jsx-vapor` | `renderer-vue-vapor.ts` | `.vue-vapor` |
 | Octane | `octane` | Octane universal compiler (host plans + slots) | `renderer-octane.ts` (pocket universal driver over the native tree) | `.octane` |
+
+**Solid TSX and Vue SFC views can also compile to Rust.** A native application
+uses a compiled TypeScript model or a handwritten Rust model. The
+[TypeScript support reference](/docs/typescript-support/#execution-modes)
+compares those modes with the ordinary guest applications described below.
+Selecting `framework: "vue-vapor"` chooses the Vue adapter; model compilation
+requires its own manifest settings.
 
 Solid is the default so existing apps keep building to `dist/<app>.js` and
 `dist/<app>.pak`. Vue Vapor and Octane build next to it:
@@ -75,16 +82,19 @@ bun tools/psp.ts hero-vue-vapor --framework=vue-vapor --release
 
 ## Framework app imports
 
-Apps import state and component lifecycle from the selected framework directly.
-PocketJS does not wrap `createSignal`, `ref`, `useState`, `onMount`,
-`onMounted`, or `useEffect`.
+Ordinary apps import state and control-flow primitives from their framework.
+PocketJS runtime, host components and lifecycle APIs come from
+`@pocketjs/framework/*`. Solid/Vue component hooks use the framework's PocketJS
+lifecycle subpath. Compiled models have a separate
+[reactive import contract](/docs/typescript-support/#reactive-state-and-regions).
 
 A Solid app:
 
 ```tsx
 import { mount, frameworkName } from "@pocketjs/framework/solid";
 import { View, Text, type NodeMirror } from "@pocketjs/framework/solid/components";
-import { createSignal, onMount, Show } from "solid-js";
+import { onMount } from "@pocketjs/framework/solid/lifecycle";
+import { createSignal, Show } from "solid-js";
 
 export default function App() {
   const [count, setCount] = createSignal(0);

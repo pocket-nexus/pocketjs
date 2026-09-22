@@ -27,6 +27,7 @@ pub mod audio_mod;
 pub mod c_heap;
 pub mod dbg;
 pub mod ffi;
+mod framebuffer;
 pub mod ge;
 pub mod host;
 pub mod pak;
@@ -38,6 +39,6 @@ pub mod veil;
 pub mod vid;
 
 pub mod offload;
-pub mod offload_local;
 pub mod offload_image;
+pub mod offload_local;
 pub mod offload_packet;

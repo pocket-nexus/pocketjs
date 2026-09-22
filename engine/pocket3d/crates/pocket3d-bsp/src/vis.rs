@@ -125,6 +125,7 @@ impl Frustum {
 
     /// True when the AABB is at least partially inside the frustum
     /// (conservative: may return true for near-miss corners).
+    #[inline]
     pub fn intersects_aabb(&self, mins: Vec3, maxs: Vec3) -> bool {
         for plane in &self.planes[..self.count] {
             // Most-positive vertex for this plane's normal.
@@ -150,6 +151,7 @@ pub struct VisSet {
     all_visible: bool,
     face_stamp: Vec<u32>,
     stamp: u32,
+    pvs_faces: Vec<u16>,
 }
 
 impl VisSet {
@@ -160,6 +162,7 @@ impl VisSet {
             all_visible: true,
             face_stamp: vec![0; face_count],
             stamp: 0,
+            pvs_faces: Vec::with_capacity(face_count),
         }
     }
 
@@ -175,7 +178,35 @@ impl VisSet {
             self.row = vec![0; vis.row_bytes()];
         }
         self.all_visible = !vis.decode_row(leaf, &mut self.row);
+        self.pvs_faces.clear();
+        self.face_stamp.fill(0);
+        let last = vis.num_visleaves.min(vis.leaves.len().saturating_sub(1));
+        for i in 1..=last {
+            if !self.leaf_visible(i) || vis.leaves[i].contents == CONTENTS_SOLID {
+                continue;
+            }
+            let leaf = &vis.leaves[i];
+            let first = leaf.first_marksurface as usize;
+            let end = (first + leaf.num_marksurfaces as usize).min(vis.marksurfaces.len());
+            for &face in vis.marksurfaces.get(first..end).unwrap_or(&[]) {
+                if let Some(stamp) = self.face_stamp.get_mut(face as usize)
+                    && *stamp == 0
+                {
+                    self.pvs_faces.push(face);
+                    *stamp = 1;
+                }
+            }
+        }
+        self.face_stamp.fill(0);
         true
+    }
+
+    /// Unique world faces in the current PVS. Call `update` first, then apply
+    /// per-face frustum bounds. Shared leaf lists are traversed only on a
+    /// camera-leaf change; rotating in one leaf does not repeat that work.
+    #[inline]
+    pub fn pvs_faces(&self) -> &[u16] {
+        &self.pvs_faces
     }
 
     pub fn leaf(&self) -> usize {
@@ -270,10 +301,49 @@ mod tests {
     #[test]
     fn frustum_aabb() {
         // Simple perspective looking down -Z from origin (GL convention).
-        let proj = Mat4::perspective_rh_gl(1.0, 1.0, 1.0, 100.0);
+        let proj = glam::camera::rh::proj::opengl::perspective(1.0, 1.0, 1.0, 100.0);
         let f = Frustum::from_clip(proj, false);
         assert!(f.intersects_aabb(Vec3::new(-1.0, -1.0, -10.0), Vec3::new(1.0, 1.0, -5.0)));
         assert!(!f.intersects_aabb(Vec3::new(-1.0, -1.0, 5.0), Vec3::new(1.0, 1.0, 10.0)));
         assert!(!f.intersects_aabb(Vec3::new(200.0, 0.0, -10.0), Vec3::new(210.0, 1.0, -5.0)));
+    }
+    #[test]
+    fn pvs_cache_deduplicates_and_replaces_faces_on_leaf_changes() {
+        let leaf = |contents, vis_offset, first_marksurface, num_marksurfaces| Leaf {
+            contents,
+            vis_offset,
+            first_marksurface,
+            num_marksurfaces,
+            mins: Vec3::splat(-100.0),
+            maxs: Vec3::splat(100.0),
+        };
+        let mut data = VisData {
+            nodes: vec![Node {
+                plane: 0,
+                children: [-2, -3],
+            }],
+            leaves: vec![
+                leaf(CONTENTS_SOLID, -1, 0, 0),
+                leaf(-1, 0, 0, 3),
+                leaf(-1, 1, 3, 2),
+            ],
+            marksurfaces: vec![0, 1, 1, 1, 2],
+            visibility: vec![1, 2],
+            num_visleaves: 2,
+        };
+        let planes = [Plane {
+            normal: Vec3::X,
+            dist: 0.0,
+        }];
+        let mut set = VisSet::new(3);
+        assert!(set.update(&data, &planes, Vec3::X));
+        assert_eq!(set.pvs_faces(), [0, 1]);
+        assert!(!set.update(&data, &planes, Vec3::X * 20.0));
+        assert_eq!(set.pvs_faces(), [0, 1]);
+        assert!(set.update(&data, &planes, -Vec3::X));
+        assert_eq!(set.pvs_faces(), [1, 2]);
+        data.nodes[0].children[0] = -1;
+        assert!(set.update(&data, &planes, Vec3::X));
+        assert_eq!(set.pvs_faces(), [0, 1, 2]);
     }
 }
