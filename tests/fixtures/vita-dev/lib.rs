@@ -1,3 +1,5 @@
+#[path = "../../../hosts/vita/src/dev_delivery.rs"]
+mod delivery;
 #[path = "../../../hosts/vita/src/devmenu/input.rs"]
 mod menu_input;
 #[path = "../../../hosts/vita/src/dev_protocol.rs"]
@@ -13,6 +15,46 @@ mod tests {
     }
     fn plan() -> Value {
         serde_json::from_slice(&fixture("plan.json")).unwrap()
+    }
+
+    #[test]
+    fn interrupted_capture_and_receipt_writes_recover_without_reexecution() {
+        use super::delivery::PendingReply;
+        use std::collections::HashMap;
+        let mut reply = PendingReply {
+            id: "capture-id".into(),
+            receipt: br#"{"ok":true,"frame":42}"#.to_vec(),
+            pixels: vec![1, 2, 3, 255].into(),
+        };
+        let mut files = HashMap::new();
+        // Cable loss during pixels must not publish the success receipt.
+        assert!(reply
+            .deliver("host0:/test", |_, _| Err("disconnected".into()))
+            .is_err());
+        assert!(reply.pixels.is_some());
+        // Pixels arrive after reconnect, but the receipt write is interrupted.
+        assert!(reply
+            .deliver("host0:/test", |path, bytes| {
+                if path.ends_with(".json") {
+                    return Err("disconnected".into());
+                }
+                files.insert(path.to_string(), bytes.to_vec());
+                Ok(())
+            })
+            .is_err());
+        assert!(!files.contains_key("host0:/test/capture-id.json"));
+        reply
+            .deliver("host0:/test", |path, bytes| {
+                files.insert(path.to_string(), bytes.to_vec());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(files["host0:/test/capture-id.rgba"], vec![1, 2, 3, 255]);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&files["host0:/test/capture-id.json"]).unwrap()
+                ["frame"],
+            42
+        );
     }
 
     #[test]

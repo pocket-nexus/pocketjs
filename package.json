@@ -26,7 +26,6 @@
     "contracts/spec",
     "contracts/generated",
     "tools",
-    "tests/png.ts",
     "!tools/bench-desktop",
     "apps/hero/app.tsx",
     "apps/iphone2g-demo",

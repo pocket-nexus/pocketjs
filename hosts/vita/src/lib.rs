@@ -12,6 +12,8 @@ use pocketjs_core::Ui;
 pub mod audio;
 pub mod dbg;
 pub mod dev;
+#[cfg(feature = "usb-debug")]
+mod dev_delivery;
 pub mod dev_protocol;
 pub mod devmenu;
 pub mod ffi;

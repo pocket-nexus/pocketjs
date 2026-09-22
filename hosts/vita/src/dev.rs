@@ -429,6 +429,7 @@ fn worker(
         .and_then(|b| serde_json::from_slice::<Command>(&b).ok())
         .map(|c| (c.session, c.id));
     let mut pending_capture: Option<Reply> = None;
+    let mut pending_reply = None;
     let mut last_sample: Option<Instant> = None;
     let mut last_snapshot: Option<Instant> = None;
     loop {
@@ -467,7 +468,17 @@ fn worker(
                 }
             }
         }
-        let _ = exchange(&root, &local, driver, &plan, &tx, &shared, &mut last, &link);
+        let _ = exchange(
+            &root,
+            &local,
+            driver,
+            &plan,
+            &tx,
+            &shared,
+            &mut last,
+            &link,
+            &mut pending_reply,
+        );
         if pending_capture.is_none() {
             pending_capture = captures.try_recv().ok();
         }
@@ -502,6 +513,7 @@ fn exchange(
     shared: &Mutex<Value>,
     last: &mut Option<(String, String)>,
     link: &Link,
+    pending: &mut Option<crate::dev_delivery::PendingReply>,
 ) -> Result<(), String> {
     let session: Session = serde_json::from_slice(&read_bounded(
         &format!("{root}/session.json"),
@@ -527,6 +539,10 @@ fn exchange(
             fn sceKernelPowerTick(kind: u32) -> i32;
         }
         sceKernelPowerTick(0);
+    }
+    if let Some(reply) = pending.as_mut() {
+        reply.deliver(root, atomic_write)?;
+        *pending = None;
     }
     let bytes = read_bounded(&format!("{root}/request.json"), wire::MAX_CONTROL)?;
     let command: Command = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
@@ -560,21 +576,26 @@ fn exchange(
         let reply = rx
             .recv_timeout(Duration::from_secs(30))
             .map_err(|_| "runtime did not reach a frame boundary")?;
-        let value = reply.result?;
-        if let Some(pixels) = reply.pixels {
-            atomic_write(&format!("{root}/{}.rgba", command.id), &pixels)?;
-        }
-        Ok::<_, String>(value)
+        Ok::<_, String>((reply.result?, reply.pixels))
     })();
-    let response = match result {
-        Ok(data) => {
-            json!({"id":command.id,"session":session.session,"phase":"complete","ok":true,"data":data})
-        }
-        Err(error) => {
-            json!({"id":command.id,"session":session.session,"phase":"complete","ok":false,"error":error})
-        }
+    let (response, pixels) = match result {
+        Ok((data, pixels)) => (
+            json!({"id":command.id,"session":session.session,"phase":"complete","ok":true,"data":data}),
+            pixels,
+        ),
+        Err(error) => (
+            json!({"id":command.id,"session":session.session,"phase":"complete","ok":false,"error":error}),
+            None,
+        ),
     };
-    atomic_write(&path, &serde_json::to_vec(&response).unwrap())
+    *pending = Some(crate::dev_delivery::PendingReply {
+        id: command.id,
+        receipt: serde_json::to_vec(&response).unwrap(),
+        pixels,
+    });
+    pending.as_mut().unwrap().deliver(root, atomic_write)?;
+    *pending = None;
+    Ok(())
 }
 
 pub unsafe fn exec_native(path: &str) -> Result<(), String> {

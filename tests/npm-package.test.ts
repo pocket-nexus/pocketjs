@@ -57,8 +57,6 @@ describe("published npm artifacts", () => {
       "contracts/spec",
       "contracts/generated",
       "tools",
-      // The shipped Vita USB client encodes physical framebuffer captures.
-      "tests/png.ts",
       // The desktop benchmark's Electron/Tauri comparison apps are git-only
       // fixtures under the wholesale tools entry: their cargo target/ would
       // otherwise pack (the v0.8.0 E415 failure mode) and nothing in the
@@ -216,7 +214,7 @@ describe("published npm artifacts", () => {
       "tools/vita-dev-client.ts",
       "tools/vita-usb.ts",
       "tools/vita-usb/usbhostfs.patch",
-      "tests/png.ts",
+      "tools/png.ts",
       "docs/VITA-USB.md",
       "tools/native-source.ts",
       "assets/brand/pocketjs-avatar-white-minimal.png",

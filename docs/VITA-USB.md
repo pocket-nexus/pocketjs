@@ -99,6 +99,8 @@ bun run vita:dev push --app hero --package dist/hero-main.pocket
 different source root. It rebuilds after a changed file timestamp and sends
 the package after the build succeeds. For an external project, pass
 `--runtime path/to/app.runtime.json` and `--project-root path/to/project`.
+Failed builds or uploads remain pending in the watcher and are retried after
+two seconds, including when USB reconnects without another source edit.
 
 **An update succeeds after the candidate produces its first frame.** The
 worker verifies the package checksum, Vita target, host ABI, app ID/output,
@@ -165,6 +167,12 @@ The client rejects stale status, session mismatches, concurrent commands,
 and incomplete response identities. USB upload failures retain the active
 guest. If a command times out, its payload remains in the share for the
 in-flight reader; a timeout does not prove that the device applied it.
+**A pending request blocks later commands until its completion arrives.**
+The device retains completed replies across interrupted writes and sends them
+after USB reconnects, without executing the command again. The next command
+retires a completed request and its upload. Restarting the host starts a new
+session; the client waits for live status from that session before retiring
+the previous session's request.
 
 Physical acceptance requires a live status receipt, a changed guest hash
 after JS push, a changed native build after SELF replacement, and a decoded

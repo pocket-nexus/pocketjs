@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
-import { encodePNG } from "../tests/png.ts";
+import { encodePNG } from "./png.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
 import { atomicWrite, VitaUsbClient } from "./vita-dev-client.ts";
 
@@ -62,6 +62,7 @@ requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
   if (!title) throw new Error("build the Vita app first, or supply --title");
   const client = new VitaUsbClient(share, title, 60_000);
   if (command === "install") {
+    if (!info?.output) throw new Error("install needs the runtime metadata from a Vita build");
     const mount = value("--mount");
     if (!mount || !existsSync(join(mount, "VitaShell"))) throw new Error("--mount must identify the VitaShell USB volume");
     const source = join(dirname(metadataPath), `${info.output}.vpk`);
@@ -103,11 +104,10 @@ requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
   }
   if (command === "status") { console.log(JSON.stringify(await client.command("status"), null, 2)); return; }
   if (command === "capture") { console.log(capture(client, await client.command("capture"))); return; }
-  if (["reload", "reset", "menu"].includes(command)) { console.log(JSON.stringify(await client.command(command), null, 2)); return; }
+  if (command === "reload" || command === "reset" || command === "menu") { console.log(JSON.stringify(await client.command(command), null, 2)); return; }
   if (command === "native") {
     if (!info?.usbDebug || info.titleId !== title) throw new Error("replacement must enable USB debugging and match the installed title");
     if (!/^[0-9a-f]{32}$/.test(info.nativeBuild) || !/^[\w.-]+\.self$/.test(info.self)) throw new Error("invalid native build metadata");
-    if (client.status().nativeBuild === info.nativeBuild) throw new Error("this native build is already running");
     const payload = readFileSync(join(dirname(metadataPath), info.self));
     if (createHash("sha256").update(payload).digest("hex") !== info.selfSha256) throw new Error("SELF does not match its build metadata");
     const result = await client.command("native", { payload, build: info.nativeBuild });
@@ -119,6 +119,7 @@ requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
     if (packagePath) payload = readFileSync(packagePath);
     else {
       if (!info?.plan) throw new Error("push needs a build plan or --package");
+      mkdirSync(client.directory, { recursive: true });
       const planPath = join(client.directory, "build.plan.json");
       atomicWrite(planPath, JSON.stringify(info.plan));
       await run(["bun", "tools/build.ts", `--plan=${planPath}`, `--project-root=${value("--project-root") ?? ROOT}`]);
@@ -145,8 +146,8 @@ requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
     for (;;) {
       const next = stamp(directory);
       if (next !== previous) {
-        previous = next;
-        try { await push(); } catch (e) { console.error(String(e)); }
+        try { await push(); previous = next; }
+        catch (e) { console.error(String(e)); await Bun.sleep(2000); }
       }
       await Bun.sleep(500);
     }

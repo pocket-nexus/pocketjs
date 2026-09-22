@@ -38,10 +38,11 @@ test("USB command waits for the matching completed receipt", async () => {
   expect(existsSync(join(c.directory, `${request.id}.json`))).toBe(true);
 });
 
-test("a status replacement gap delays command publication until the live status returns", async () => {
+for (const gap of ["missing", "stale"] as const) test(`a ${gap} status delays publication until the live status returns`, async () => {
   const { client: c, status } = client();
   const path = join(c.directory, "status.json");
-  rmSync(path);
+  if (gap === "missing") rmSync(path);
+  else utimesSync(path, new Date(0), new Date(0));
   const operation = c.command("status");
   await Bun.sleep(50);
   expect(existsSync(join(c.directory, "request.json"))).toBe(false);
@@ -94,6 +95,78 @@ test("concurrent commands cannot overwrite the mailbox request", async () => {
   await expect(operation).rejects.toThrow("no completion receipt");
 });
 
+test("timed-out uploads fence later commands until a late completion retires them", async () => {
+  for (const ok of [true, false]) {
+    const { client: c } = client(120);
+    await expect(c.command("push", { payload: Buffer.from("candidate") })).rejects.toThrow("no completion receipt");
+    const path = join(c.directory, "request.json");
+    const previous = readFileSync(path, "utf8");
+    const request = JSON.parse(previous);
+    await expect(c.command("reset")).rejects.toThrow("still pending");
+    expect(readFileSync(path, "utf8")).toBe(previous);
+    expect(readFileSync(join(c.directory, `${request.id}.payload`), "utf8")).toBe("candidate");
+    atomicWrite(join(c.directory, `${request.id}.json`), JSON.stringify({ ...request, phase: "complete", ok, data: {}, error: "rejected" }));
+    const next = c.command("reset");
+    const reset = JSON.parse(readFileSync(path, "utf8"));
+    expect(reset.id).not.toBe(request.id);
+    expect(existsSync(join(c.directory, `${request.id}.payload`))).toBe(false);
+    atomicWrite(join(c.directory, `${reset.id}.json`), JSON.stringify({ ...reset, phase: "complete", ok: true, data: { generation: 3 } }));
+    expect((await next).generation).toBe(3);
+  }
+});
+
+test("a new host session cannot retire old uploads before the worker joins it", async () => {
+  const { client: c, status } = client(120);
+  await expect(c.command("push", { payload: Buffer.from("candidate") })).rejects.toThrow("no completion receipt");
+  const path = join(c.directory, "request.json");
+  const previous = readFileSync(path, "utf8");
+  const request = JSON.parse(previous);
+  const session = c.startSession();
+  await expect(c.command("status")).rejects.toThrow("stale");
+  expect(readFileSync(path, "utf8")).toBe(previous);
+  atomicWrite(join(c.directory, "status.json"), JSON.stringify({ ...status, session }));
+  const next = c.command("status");
+  const current = JSON.parse(readFileSync(path, "utf8"));
+  expect(existsSync(join(c.directory, `${request.id}.payload`))).toBe(false);
+  atomicWrite(join(c.directory, `${current.id}.json`), JSON.stringify({ ...current, phase: "complete", ok: true, data: { frame: 45 } }));
+  expect((await next).frame).toBe(45);
+});
+
+test("native replacement rejects the running build before publishing or writing payloads", async () => {
+  const { client: c, status } = client();
+  await expect(c.command("native", { payload: Buffer.from("SELF"), build: status.nativeBuild })).rejects.toThrow("already running");
+  expect(existsSync(join(c.directory, "request.json"))).toBe(false);
+  expect(existsSync(join(c.directory, "command.lock"))).toBe(false);
+});
+
+test("a native success response cannot substitute for replacement-process frames", async () => {
+  const { client: c, status } = client(120);
+  const build = "b".repeat(32);
+  const operation = c.command("native", { payload: Buffer.from("SELF"), build });
+  const request = JSON.parse(readFileSync(join(c.directory, "request.json"), "utf8"));
+  atomicWrite(join(c.directory, `${request.id}.json`), JSON.stringify({ ...request, phase: "complete", ok: true, data: {} }));
+  atomicWrite(join(c.directory, "status.json"), JSON.stringify({ ...status, nativeBuild: build, frame: 0 }));
+  await expect(operation).rejects.toThrow("no completion receipt");
+  await expect(c.command("reset")).rejects.toThrow("still pending");
+  atomicWrite(join(c.directory, "status.json"), JSON.stringify({ ...status, nativeBuild: build, frame: 3 }));
+  const next = c.command("status");
+  const current = JSON.parse(readFileSync(join(c.directory, "request.json"), "utf8"));
+  atomicWrite(join(c.directory, `${current.id}.json`), JSON.stringify({ ...current, phase: "complete", ok: true, data: { nativeBuild: build } }));
+  expect((await next).nativeBuild).toBe(build);
+});
+
+test("a replacement guest error reports failure and leaves recovery commands available", async () => {
+  const { client: c, status } = client();
+  const build = "b".repeat(32);
+  const operation = c.command("native", { payload: Buffer.from("SELF"), build });
+  atomicWrite(join(c.directory, "status.json"), JSON.stringify({ ...status, nativeBuild: build, frame: 3, error: "guest failed" }));
+  await expect(operation).rejects.toThrow("replacement guest failed");
+  const next = c.command("reset");
+  const request = JSON.parse(readFileSync(join(c.directory, "request.json"), "utf8"));
+  atomicWrite(join(c.directory, `${request.id}.json`), JSON.stringify({ ...request, phase: "complete", ok: true, data: { generation: 1 } }));
+  expect((await next).generation).toBe(1);
+});
+
 test("device Rust admission consumes the TypeScript package format", async () => {
   const directory = resolve(".pocket-build/validation/vita-usb-contract/fixtures");
   mkdirSync(directory, { recursive: true });
@@ -118,5 +191,5 @@ test("device Rust admission consumes the TypeScript package format", async () =>
     { env: { ...process.env, VITA_DEV_FIXTURES: directory }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) throw new Error(stdout + stderr);
-  expect(stdout).toContain("7 passed");
+  expect(stdout).toContain("8 passed");
 }, 120_000);
