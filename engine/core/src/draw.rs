@@ -1691,7 +1691,9 @@ impl<'a> Walker<'a> {
 
     /// Rasterize an annular sector ("stroke arc" with round caps) as
     /// alpha-covered RECT runs — deterministic 2x2 supersampled coverage.
-    /// Axis-aligned worlds only; rotation belongs in arcStart.
+    /// Rotation and uniform scale are welcome: a rotated circle is a
+    /// circle, so only the centre, the radius scale and the end directions
+    /// move. A mirrored world would flip the sweep and is not drawn.
     fn emit_arc(
         &self,
         dl: &mut DrawList,
@@ -1702,11 +1704,14 @@ impl<'a> Walker<'a> {
         color: u32,
         clip: &Clip,
     ) {
-        if !world.is_axis_aligned() {
+        // The axis-aligned path keeps its exact arithmetic (goldens); a
+        // rotated world takes its scale from the column length.
+        let axis = world.is_axis_aligned();
+        if !axis && world.a * world.d - world.b * world.c <= 0.0 {
             return;
         }
         let (cx, cy) = world.apply(w * 0.5, h * 0.5);
-        let s = world.d.max(0.0);
+        let s = if axis { world.d.max(0.0) } else { sqrtf(world.a * world.a + world.b * world.b) };
         let outer = (w.min(h) * 0.5) * s;
         let width = (r.arc_width * s).min(outer);
         if outer <= 0.0 || width <= 0.0 {
@@ -1723,10 +1728,16 @@ impl<'a> Walker<'a> {
         let (a0, asweep) = if sweep < 0.0 { (r.arc_start + sweep, -sweep) } else { (r.arc_start, sweep) };
         let full = asweep >= 360.0;
         let major = asweep > 180.0;
-        // 0 deg = 12 o'clock, clockwise positive.
+        // 0 deg = 12 o'clock, clockwise positive; under a rotated world the
+        // direction turns with the world's linear part, normalized.
         let dir = |deg: f32| {
             let rad = deg * (PI / 180.0);
-            (sinf(rad), -cosf(rad))
+            let (lx, ly) = (sinf(rad), -cosf(rad));
+            if axis {
+                (lx, ly)
+            } else {
+                ((world.a * lx + world.c * ly) / s, (world.b * lx + world.d * ly) / s)
+            }
         };
         let (svx, svy) = dir(a0);
         let (evx, evy) = dir(a0 + asweep);
@@ -2382,6 +2393,13 @@ impl<'a> Walker<'a> {
         fill: Fill,
         clip: &Clip,
     ) {
+        if radius > 0.0 && !world.is_axis_aligned() {
+            if let Fill::Flat(color) = fill {
+                if self.emit_rotated_rounded_box(dl, world, x0, y0, x1, y1, radius, color, clip) {
+                    return;
+                }
+            }
+        }
         if radius <= 0.0 || !world.is_axis_aligned() {
             self.emit_box(dl, world, x0, y0, x1, y1, fill, clip);
             return;
@@ -2632,6 +2650,132 @@ impl<'a> Walker<'a> {
                     coverage_mul(x_coverage, y_coverage),
                 );
             }
+        }
+    }
+
+    /// A flat rounded box under a rotated (non-mirrored) world — a card
+    /// wobbling in an edit mode. The three straight pieces go through the
+    /// rotated box path as TRIs; each corner is a quarter disc rasterized
+    /// per pixel in LOCAL space through the inverse transform, as coverage
+    /// runs like the arc's. False when the world is mirrored or the radius
+    /// is nothing, and the caller draws a plain box.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_rotated_rounded_box(
+        &self,
+        dl: &mut DrawList,
+        world: &Affine,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        radius: f32,
+        color: u32,
+        clip: &Clip,
+    ) -> bool {
+        let det = world.a * world.d - world.b * world.c;
+        if det <= 0.0 || x1 <= x0 || y1 <= y0 {
+            return false;
+        }
+        let r = radius.min((x1 - x0) * 0.5).min((y1 - y0) * 0.5);
+        if r <= 0.5 {
+            return false;
+        }
+        let fill = Fill::Flat(color);
+        self.emit_box(dl, world, x0, y0 + r, x1, y1 - r, fill, clip);
+        self.emit_box(dl, world, x0 + r, y0, x1 - r, y0 + r, fill, clip);
+        self.emit_box(dl, world, x0 + r, y1 - r, x1 - r, y1, fill, clip);
+        // (square origin, disc centre) per corner; the square is exactly the
+        // quadrant, so the disc test alone carves the corner.
+        let corners = [
+            (x0, y0, x0 + r, y0 + r),
+            (x1 - r, y0, x1 - r, y0 + r),
+            (x0, y1 - r, x0 + r, y1 - r),
+            (x1 - r, y1 - r, x1 - r, y1 - r),
+        ];
+        let rr = r * r;
+        for &(sx, sy, ccx, ccy) in corners.iter() {
+            self.emit_rotated_coverage(dl, world, sx, sy, sx + r, sy + r, color, clip, |lx, ly| {
+                let dx = lx - ccx;
+                let dy = ly - ccy;
+                dx * dx + dy * dy <= rr
+            });
+        }
+        true
+    }
+
+    /// Rasterize `inside`, a predicate in LOCAL space, over the local rect
+    /// [lx0, lx1] x [ly0, ly1] under any invertible world: each screen
+    /// pixel of the rect's AABB samples 2x2 points mapped back through the
+    /// inverse transform, and a row goes out as coverage-scaled 1 px RECT
+    /// runs, neighbours of equal coverage sharing one op (the arc's scheme).
+    #[allow(clippy::too_many_arguments)]
+    fn emit_rotated_coverage<F: Fn(f32, f32) -> bool>(
+        &self,
+        dl: &mut DrawList,
+        world: &Affine,
+        lx0: f32,
+        ly0: f32,
+        lx1: f32,
+        ly1: f32,
+        color: u32,
+        clip: &Clip,
+        inside: F,
+    ) {
+        let det = world.a * world.d - world.b * world.c;
+        if det == 0.0 || lx1 <= lx0 || ly1 <= ly0 {
+            return;
+        }
+        let local = world.then(&Affine::translate(lx0, ly0));
+        let aabb = world_aabb_of(self.screen, &local, lx1 - lx0, ly1 - ly0);
+        let x0 = floorf(aabb.x0.max(clip.x0)) as i32;
+        let x1 = ceilf(aabb.x1.min(clip.x1)) as i32;
+        let y0 = floorf(aabb.y0.max(clip.y0)) as i32;
+        let y1 = ceilf(aabb.y1.min(clip.y1)) as i32;
+        if x1 <= x0 || y1 <= y0 {
+            return;
+        }
+        // Inverse of the linear part: [a c; b d]^-1 = [d -c; -b a] / det.
+        let ia = world.d / det;
+        let ib = -world.b / det;
+        let ic = -world.c / det;
+        let id = world.a / det;
+        let covered = |px: f32, py: f32| -> bool {
+            let dx = px - world.tx;
+            let dy = py - world.ty;
+            let lx = ia * dx + ic * dy;
+            let ly = ib * dx + id * dy;
+            lx >= lx0 && lx < lx1 && ly >= ly0 && ly < ly1 && inside(lx, ly)
+        };
+        let flush = |dl: &mut DrawList, row: i32, start: i32, end: i32, cov: u32| {
+            if cov == 0 || end <= start {
+                return;
+            }
+            let c = scale_alpha(color, cov as f32 / 4.0);
+            if alpha(c) == 0 {
+                return;
+            }
+            dl.words.push(spec::draw_op::RECT);
+            dl.words.push(xy_word(start as f32, row as f32));
+            dl.words.push(wh_word((end - start) as f32, 1.0));
+            dl.words.push(c);
+        };
+        for row in y0..y1 {
+            let mut run_start = x0;
+            let mut run_cov = 0u32;
+            for col in x0..x1 {
+                let mut cov = 0u32;
+                for (ox, oy) in [(0.25f32, 0.25f32), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                    if covered(col as f32 + ox, row as f32 + oy) {
+                        cov += 1;
+                    }
+                }
+                if cov != run_cov {
+                    flush(dl, row, run_start, col, run_cov);
+                    run_start = col;
+                    run_cov = cov;
+                }
+            }
+            flush(dl, row, run_start, x1, run_cov);
         }
     }
 
