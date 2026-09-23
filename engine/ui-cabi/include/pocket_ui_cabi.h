@@ -85,6 +85,9 @@ int32_t ui_damage_bounds(int32_t *out);
  * the software rasterizer above.
  */
 int32_t ui_gl_initialize(void);
+/* Composite retained UI over an application-owned color/depth scene. */
+int32_t ui_gl_render_over(int32_t target_x, int32_t target_y, int32_t target_width,
+    int32_t target_height, int32_t window_width, int32_t window_height);
 void ui_gl_reset_resources(void);
 void ui_gl_shutdown(void);
 int32_t ui_gl_render(

@@ -4,11 +4,14 @@ import {
   chmodSync,
   cpSync,
   existsSync,
+  statSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { ipodBundleFiles, stageIPodAssets } from "./ipodtouch4-resources.ts";
 import { createServer } from "node:net";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,6 +92,11 @@ export interface IPodTouch4App {
   readonly svcWire: boolean;
   /** Disable iOS's idle timer while the app runs (a remote must not auto-lock). */
   readonly keepAwake: boolean;
+  /** Application core includes the UI C ABI and exports its native extension. */
+  readonly nativeCore?: { manifest: string; library: string; features: string[]; sources: string[] };
+  /** Bundle-relative resources; every file participates in installation readback. */
+  readonly assets?: string;
+  readonly icon?: string;
 }
 
 /** The fields an external app's descriptor file must carry. */
@@ -144,6 +152,19 @@ export function readExternalIPodTouch4App(descriptorPath: string): IPodTouch4App
   if (!existsSync(join(root, manifest))) {
     throw new Error(`pocket ipodtouch4: ${file} names a manifest that is not there: ${join(root, manifest)}`);
   }
+  let nativeCore: IPodTouch4App["nativeCore"];
+  if (parsed.nativeCore !== undefined) {
+    const core = parsed.nativeCore as Record<string, unknown>;
+    if (!core || typeof core.manifest !== "string" || !existsSync(resolvePath(root, core.manifest)) || !statSync(resolvePath(root, core.manifest)).isFile() ||
+        typeof core.library !== "string" || !/^lib[a-z0-9_]+\.a$/.test(core.library) ||
+        !Array.isArray(core.features) || core.features.some(f => typeof f !== "string" || !/^[a-z0-9_-]+$/.test(f)) ||
+        !Array.isArray(core.sources) || core.sources.some(s => typeof s !== "string" || !existsSync(resolvePath(root, s)) || !statSync(resolvePath(root, s)).isFile()))
+      throw new Error(`pocket ipodtouch4: invalid nativeCore in ${file}`);
+    nativeCore = core as unknown as IPodTouch4App["nativeCore"];
+  }
+  for (const key of ["assets", "icon"] as const)
+    if (parsed[key] !== undefined && (typeof parsed[key] !== "string" || !existsSync(resolvePath(root, parsed[key] as string))))
+      throw new Error(`pocket ipodtouch4: invalid ${key} in ${file}`);
   return {
     id: parsed.id as string,
     root,
@@ -157,6 +178,9 @@ export function readExternalIPodTouch4App(descriptorPath: string): IPodTouch4App
     actionName: parsed.actionName as string,
     svcWire: parsed.svcWire === true,
     keepAwake: parsed.keepAwake === true,
+    nativeCore,
+    assets: parsed.assets as string | undefined,
+    icon: parsed.icon as string | undefined,
   };
 }
 
@@ -670,7 +694,8 @@ async function build(): Promise<void> {
   const rustc = mustRun(rustup, ["which", "--toolchain", IPODTOUCH4_TOOLCHAIN.compiler.rustToolchain, "rustc"]);
   mustRun(
     cargo,
-    ["build", "--release", "--locked", "--features", "bare-platform,gles1", "--target",
+    ["build", "--release", "--locked", "--manifest-path", resolvePath(APP_ROOT, APP.nativeCore?.manifest ?? join(REPOSITORY, "engine/ui-cabi/Cargo.toml")),
+      "--features", APP.nativeCore?.features.join(",") ?? "bare-platform,gles1", "--target",
       join(REPOSITORY, "hosts/ipodtouch4/armv7-apple-ios.json"), "-Z", "json-target-spec",
       "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
     {
@@ -678,7 +703,7 @@ async function build(): Promise<void> {
       env: { ...process.env, RUSTC: rustc, CARGO_HOME: cargoHome, CARGO_TARGET_DIR: rustTarget, IPHONEOS_DEPLOYMENT_TARGET: DEPLOYMENT_TARGET },
     },
   );
-  const rustLibrary = join(rustTarget, "armv7-apple-ios/release/libpocketjs_symbian_core.a");
+  const rustLibrary = join(rustTarget, "armv7-apple-ios/release", APP.nativeCore?.library ?? "libpocketjs_symbian_core.a");
   if (!existsSync(rustLibrary)) {
     throw new Error(`pocket ipodtouch4: missing Rust static library at ${rustLibrary}`);
   }
@@ -689,9 +714,21 @@ async function build(): Promise<void> {
   writeFileSync(join(bundle, "Info.plist"), renderInfoPlist());
   cpSync(join(REPOSITORY, "hosts/ipodtouch4/PkgInfo"), join(bundle, "PkgInfo"));
   await bakeClassicIPhoneArtwork(bundle, "User");
+  if (APP.assets) stageIPodAssets(resolvePath(APP_ROOT, APP.assets), bundle, EXECUTABLE);
+  if (APP.icon) {
+    const { loadImage } = await import("@napi-rs/canvas");
+    const source = await loadImage(readFileSync(resolvePath(APP_ROOT, APP.icon)));
+    for (const [name, size] of [[IPHONE_USER_ICON_FILE, 57], [IPHONE_USER_RETINA_ICON_FILE, 114]] as const) {
+      const icon = createCanvas(size, size), ctx = icon.getContext("2d");
+      ctx.fillStyle = "#05080c"; ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(source, 0, 0, size, size);
+      writeFileSync(join(bundle, name), icon.toBuffer("image/png"));
+    }
+  }
 
   const firstParty = [
     ...warnings,
+    ...(APP.nativeCore ? ["-DPOCKET_FRAME_TICKS=1"] : []),
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -720,6 +757,7 @@ async function build(): Promise<void> {
     ...warnings,
     ...svcWireDefines,
     ...offloadDefines,
+    ...(APP.nativeCore ? ["-DPOCKET_RUNTIME_EXTENSION", "-I", join(REPOSITORY, "hosts/nokia-e7/runtime")] : []),
     `-DPOCKETJS_TARGET_ID=\"${inputs.target}\"`,
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -732,8 +770,15 @@ async function build(): Promise<void> {
     compile(join(REPOSITORY, "hosts/ios-legacy/svcwire.c"), svcWireObject, [...warnings, ...svcWireDefines]);
   }
   compile(join(REPOSITORY, "hosts/ios-legacy/compat.c"), compatObject, warnings);
+  const nativeObjects = (APP.nativeCore?.sources ?? []).map((source, index) => {
+    const object = join(nativeBuild, `application-${index}.o`);
+    compile(resolvePath(APP_ROOT, source), object, [...warnings, "-isystem", quickjs, "-Wno-cast-function-type-mismatch"]);
+    return object;
+  });
 
   const buildId = hashInputs([
+    ...ipodBundleFiles(bundle).map(name => ({ label: `bundle/${name}`, path: join(bundle, name) })),
+    ...nativeObjects.map((path, index) => ({ label: `native/application-${index}.o`, path })),
     planPath(),
     guestJavaScript,
     guestPak,
@@ -788,7 +833,7 @@ async function build(): Promise<void> {
     "-e", "start", "-o", executable, join(nativeBuild, "csu-start.o"),
     join(nativeBuild, "csu-dyld-glue.o"), crtGlobalsObject,
     runtimeObject, pocketRuntimeObject, offloadObject, ...(APP.svcWire ? [svcWireObject] : []), compatObject,
-    "-force_load", rustLibrary, ...quickJsObjects,
+    "-force_load", rustLibrary, ...nativeObjects, ...quickJsObjects,
     "-sectcreate", "__DATA", "__pocket_js", embeddedJavaScript,
     "-sectcreate", "__DATA", "__pocket_pak", guestPak,
     "-framework", "UIKit", "-framework", "Foundation", "-framework", "CoreGraphics",
@@ -804,15 +849,7 @@ async function build(): Promise<void> {
     if (!loads.includes(marker)) throw new Error(`pocket ipodtouch4: binary is missing ${marker}`);
   }
 
-  const fileNames = [
-    EXECUTABLE,
-    "Info.plist",
-    "PkgInfo",
-    IPHONE_USER_ICON_FILE,
-    IPHONE_USER_RETINA_ICON_FILE,
-    "Default@2x.png",
-    "Default-568h@2x.png",
-  ];
+  const fileNames = ipodBundleFiles(bundle);
   const files = Object.fromEntries(fileNames.map((name) => [name, sha256(join(bundle, name))]));
   const receipt: BuildReceipt = {
     schema: 1,

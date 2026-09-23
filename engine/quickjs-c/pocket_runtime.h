@@ -144,6 +144,8 @@ int pocket_runtime_damage_bounds(int *bounds);
  * framebuffer; the CPU never rasterizes a pixel on this path.
  */
 int pocket_runtime_gl_initialize(void);
+/* Native extension flags: bit 0 requests a depth attachment. */
+uint32_t pocket_runtime_native_flags(void);
 void pocket_runtime_gl_reset(void);
 int pocket_runtime_gl_render(int width, int height);
 void pocket_runtime_gl_shutdown(void);

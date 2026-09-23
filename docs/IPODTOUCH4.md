@@ -132,3 +132,48 @@ action — a receipt that a gesture interaction completed on the hardware.
 `dist/ipodtouch4/device-frame.png`.
 
 User application icons use **opaque 57×57 and 114×114 artwork**. SpringBoard applies the rounded mask and shadow; `UIPrerenderedIcon` suppresses the stock gloss. The System application path uses a precomposed transparent mask instead. Baking that mask into a User icon adds an inset rim under the native mask. Icon filenames include the artwork revision so an update selects a fresh SpringBoard cache entry.
+
+## Native application extensions
+
+External app descriptors may supply `nativeCore`, `assets`, and `icon`, resolved
+against `projectRoot`:
+
+```json
+{
+  "nativeCore": {
+    "manifest": "crates/game/Cargo.toml",
+    "library": "libgame.a",
+    "features": ["native"],
+    "sources": ["hosts/ipod/bridge.c"]
+  },
+  "assets": ".pocket/ipod/assets",
+  "icon": "assets/app-icon.png"
+}
+```
+
+**The application archive includes the UI C ABI and exports the existing
+`pocketjs_symbian_extension_v1` provider.** That symbol retains its name for
+ABI compatibility; the portable QuickJS C runtime uses the same V1 table.
+`boot` registers application APIs before evaluating the guest. `before_guest`
+advances native state; `after_guest` drains commands after the guest and its
+pending jobs. The host keeps every callback on its UI/render thread.
+
+A depth flag requests a 16-bit GLES1 depth attachment. `render` draws the
+application world before `ui_gl_render_over` composites the retained UI.
+The optional graphics tail releases GPU resources when the context shuts
+down; it must retain guest and simulation state and recreate GPU resources
+on the next render. Final shutdown runs before QuickJS context destruction.
+The supplied `gl_context_current` flag determines whether the extension may
+issue GL deletion calls or must abandon handles. Native application builds
+advance one UI tick per display-link callback; stock Clear retains its two
+UI ticks per callback.
+
+**Nested asset files participate in both build identity and installed-byte
+verification.** Symlinks, unsupported filenames and replacements for generated
+bundle content are rejected. The icon is baked into opaque 57- and 114-point
+User artwork. Keep the app's bundle identifier, executable, bundle name and
+URL scheme distinct from installed applications.
+
+UIKit touch callbacks carry up to eight contacts. Host receipts include
+`touch_max_contacts`, `uikit_touch_events` and `legacy_touch_events` to
+distinguish multi-contact delivery from a completed single-contact gesture.

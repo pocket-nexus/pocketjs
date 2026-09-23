@@ -3,6 +3,12 @@
 #include "pocket_ui_cabi.h"
 #include "pocket_spec.h"
 #include "quickjs.h"
+#ifdef POCKET_RUNTIME_EXTENSION
+#include "pocketjs_symbian_extension.h"
+/* Reuse the existing native core ABI, including its compatibility name. */
+static const PocketJsSymbianExtensionV1 *native_extension;
+static int native_gl_current;
+#endif
 #ifdef POCKET_SVC_WIRE
 #include "svcwire.h"
 #endif
@@ -586,6 +592,11 @@ static int drain_jobs(void) {
 }
 
 void pocket_runtime_shutdown(void) {
+#ifdef POCKET_RUNTIME_EXTENSION
+  if (native_extension && native_extension->shutdown) native_extension->shutdown(native_gl_current);
+  native_extension = NULL;
+  native_gl_current = 0;
+#endif
 #ifdef POCKET_OFFLOAD_POSIX
   pocket_offload_stop();
 #endif
@@ -650,6 +661,22 @@ int pocket_runtime_boot(
     return 0;
   }
   REPORT_BOOT_STAGE(6);
+
+#ifdef POCKET_RUNTIME_EXTENSION
+  const PocketJsSymbianExtensionV1 *candidate = pocketjs_symbian_extension_v1();
+  if (candidate == NULL || candidate->abi_version != 1 ||
+      candidate->struct_size < sizeof(PocketJsSymbianExtensionV1)) {
+    set_error("Native extension ABI mismatch");
+    pocket_runtime_shutdown();
+    return 0;
+  }
+  native_extension = candidate;
+  if (native_extension->boot && !native_extension->boot(context, pack, pack_length, width, height)) {
+    set_error("Native extension boot failed");
+    pocket_runtime_shutdown();
+    return 0;
+  }
+#endif
 
   JSValue pack_value = JS_NewArrayBuffer(
     context,
@@ -727,6 +754,12 @@ static int run_frame(
    * guest turn, before the guest polls. */
   svcwire_pump();
 #endif
+#ifdef POCKET_RUNTIME_EXTENSION
+  if (native_extension && native_extension->before_guest &&
+      !native_extension->before_guest(context, buttons, POCKET_ANALOG_CENTER, 0)) {
+    set_error("Native extension frame failed"); runtime_failed = 1; return 0;
+  }
+#endif
   JSValue touch_array = JS_NewArray(context);
   JSValue hit_array = JS_NewArray(context);
   if (JS_IsException(touch_array) || JS_IsException(hit_array)) {
@@ -792,6 +825,11 @@ static int run_frame(
     return 0;
   }
   BENCH_STAGE(POCKET_BENCH_STAGE_TICK);
+#ifdef POCKET_RUNTIME_EXTENSION
+  if (native_extension && native_extension->after_guest && !native_extension->after_guest(context)) {
+    set_error("Native extension commands failed"); runtime_failed = 1; return 0;
+  }
+#endif
   for (tick = 0; tick < tick_count; ++tick) ui_tick();
   BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
   return 1;
@@ -963,6 +1001,9 @@ int pocket_runtime_damage_bounds(int *bounds) {
 
 int pocket_runtime_gl_initialize(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
+#ifdef POCKET_RUNTIME_EXTENSION
+  native_gl_current = 1;
+#endif
   return ui_gl_initialize() != 0;
 }
 
@@ -978,12 +1019,33 @@ int pocket_runtime_gl_render(int width, int height) {
    * The drawable is exactly the app's logical viewport, so the target
    * rectangle is the whole window and no letterboxing arithmetic applies.
    */
+#ifdef POCKET_RUNTIME_EXTENSION
+  if (native_extension && native_extension->render) {
+    if (!native_extension->render(0, 0, width, height, width, height)) return 0;
+    return ui_gl_render_over(0, 0, width, height, width, height) != 0;
+  }
+#endif
   return ui_gl_render(0, 0, width, height, width, height) != 0;
 }
 
 void pocket_runtime_gl_shutdown(void) {
   if (runtime == 0 || context == 0) return;
+#ifdef POCKET_RUNTIME_EXTENSION
+  if (native_extension && native_extension->struct_size >= sizeof(PocketJsSymbianGraphicsExtensionV1)) {
+    const PocketJsSymbianGraphicsExtensionV1 *graphics = (const PocketJsSymbianGraphicsExtensionV1 *)native_extension;
+    if (graphics->release_graphics) graphics->release_graphics(native_gl_current);
+  }
+  native_gl_current = 0;
+#endif
   ui_gl_shutdown();
+}
+
+uint32_t pocket_runtime_native_flags(void) {
+#ifdef POCKET_RUNTIME_EXTENSION
+  return native_extension ? native_extension->flags : 0;
+#else
+  return 0;
+#endif
 }
 
 uint32_t pocket_runtime_width(void) {
