@@ -8,11 +8,8 @@
     "buildToolsVersion": "35.0.0",
     "ndkVersion": "27.1.12297006",
     "abi": "arm64-v8a",
-    "clangTarget": "aarch64-linux-android23",
-    "repository": "https://dl.google.com/android/repository/",
-    "packages": []
+    "clangTarget": "aarch64-linux-android23"
   },
-  "javaImage": "eclipse-temurin:17-jdk-jammy@sha256:29467857e8bde40ab1f7befecbda0ea764b95afec1cc7f89aa90f7a766577e19",
   "quickjs": {
     "version": "2026-06-04",
     "repository": "https://github.com/pocket-stack/quickjs-rs.git",

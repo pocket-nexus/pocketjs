@@ -268,8 +268,7 @@ hardware bootable is its own work, tracked in Pocket Museum.
 | macOS | Metal window and widget | [#293](https://github.com/pocket-stack/pocketjs/pull/293) |
 | Symbian Belle | Qt, GLES2 | [Symbian wanted a frame function](https://pocketjs.dev/blog/pocketjs-on-symbian/) |
 | Windows CE 6 | GDI framebuffer | [From message pump to multitouch](https://pocketjs.dev/blog/pocketjs-on-windows-ce/) |
-| BlackBerry 10.3 | QNX, native ELF | [One square screen, two native stacks](https://pocketjs.dev/blog/blackberry-classic/) |
-| Android 4.3 | BlackBerry runtime, JNI | [#298](https://github.com/pocket-stack/pocketjs/pull/298) |
+| BlackBerry 10.3 | QNX, native ELF | [A Square Screen and a Dead Signing Server](https://pocketjs.dev/blog/blackberry-classic/) |
 | PocketBook e-ink | inkview, partial refresh | [#172](https://github.com/pocket-stack/pocketjs/pull/172) |
 | ESP-IDF 6.0/6.1 | P4 PPA or S3 software RGB565 | [ESP-IDF components](https://pocketjs.dev/docs/esp-idf/) |
 | The browser | WebAssembly core | [Playground](https://pocketjs.dev/playground/) |

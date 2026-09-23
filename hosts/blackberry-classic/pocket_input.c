@@ -1,4 +1,4 @@
-/* Input sampling policy shared by the QNX and Android BlackBerry Classic hosts. */
+/* Input sampling policy shared by the BlackBerry QNX and Android hosts. */
 #include "pocket_input.h"
 
 #include "pocket_spec.h"

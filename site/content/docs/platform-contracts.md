@@ -338,7 +338,6 @@ under `tools/`, builds through its own command, and stays out of
 | `symbian-e7-dev`         | `bun run symbian`            | the E7 host has not passed the hardware acceptance suite |
 | `meizu-m8-dev`           | `bun run meizu-m8`           | the Windows CE 6 acceptance receipt has not passed |
 | `blackberry-qnx-dev`     | `bun run blackberry-qnx`     | a private exact-device profile (Classic SQC100, Core Native) |
-| `blackberry-android-dev` | `bun run blackberry-android` | the same Classic profile through the BlackBerry 10 Android Runtime |
 
 Each module builds its own `definePlatformContractRegistry` and passes it to
 `validateAndResolveBuildPlan`, so the resolver, compiler, and plan format are

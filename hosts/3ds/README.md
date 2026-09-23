@@ -454,7 +454,7 @@ centered values. IRRST scanning stays in the host input adapter.
 ## Native QuickJS sources
 
 `tools/3ds-toolchain.ts` prepares a verified QuickJS checkout through
-`tools/native-source.ts`, shared with the BlackBerry native hosts. The 3DS pin
+`tools/native-source.ts`, shared with the BlackBerry native host. The 3DS pin
 specifies a repository, full commit and source version. **Source preparation
 does not resolve the PSP Cargo dependency graph.** `ensureQuickJs` calls this
 preparation step before checking its compiler/source/image cache stamp.

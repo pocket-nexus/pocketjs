@@ -11,16 +11,16 @@
 #include "pocket_runtime.h"
 #include "pocket_spec.h"
 
-#define LOG_TAG "PocketJSClassic"
+#define LOG_TAG "PocketJSAndroid"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-/* The logical viewport comes from the resolved build plan (blackberry-android.ts);
- * the defaults match the private blackberry-android-dev profile. */
+/* The logical viewport comes from the resolved build plan (tools/android.ts);
+ * the defaults match the private moto-g-play-dev profile. */
 #ifndef POCKET_LOGICAL_WIDTH
 #define POCKET_LOGICAL_WIDTH 360
 #endif
 #ifndef POCKET_LOGICAL_HEIGHT
-#define POCKET_LOGICAL_HEIGHT 360
+#define POCKET_LOGICAL_HEIGHT 800
 #endif
 
 #define KEYCODE_BACK 4
@@ -42,8 +42,7 @@
 #define BUTTON_PRIMARY 1
 
 /* Trackball and scroll-axis deltas are fractional; this much accumulated
- * motion is one focus pulse (provisional until a device run records the
- * Android Runtime's actual trackpad events). */
+ * motion is one focus pulse. */
 #define RELATIVE_PULSE_THRESHOLD 0.35f
 
 static pthread_mutex_t input_mutex = PTHREAD_MUTEX_INITIALIZER;
