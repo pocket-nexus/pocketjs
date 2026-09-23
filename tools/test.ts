@@ -185,6 +185,21 @@ const SUITE: readonly Stage[] = [
     ],
   },
   {
+    // Byte-exact pixel goldens for the wasm rasterizer across every demo in
+    // tests/golden-specs.ts. CI runs tests/golden.ts from
+    // .github/workflows/native-c-harness.yml and `bun run golden` does
+    // standalone, but the local suite had no stage for it, and CI does not run
+    // tools/test.ts on pull requests (issue #182). The hash tape above covers
+    // only the hero session, so without this stage a renderer regression in
+    // any other demo had no local pixel gate. golden.ts rebuilds its bundles
+    // into dist/golden/ and never reads dist/; the prep guarantees the wasm
+    // host artifact exists (tools/wasm.ts skips when it does) and also makes
+    // `bun tools/test.ts --stage=golden` self-contained.
+    name: "golden",
+    prep: [["bun", "tools/wasm.ts"]],
+    script: ["bun", "tests/golden.ts"],
+  },
+  {
     name: "AOT frontends and execution parity",
     prep: [["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"]],
     browser: true,
