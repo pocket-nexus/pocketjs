@@ -170,7 +170,7 @@ UI ticks per callback.
 
 **Nested asset files participate in both build identity and installed-byte
 verification.** Symlinks, unsupported filenames and replacements for generated
-bundle content are rejected. The icon is baked into opaque 57- and 114-point
+bundle content are rejected. The icon is baked into opaque 57- and 114-pixel
 User artwork. Keep the app's bundle identifier, executable, bundle name and
 URL scheme distinct from installed applications.
 
