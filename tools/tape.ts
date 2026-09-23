@@ -35,9 +35,11 @@ import {
   expandTapeTouch,
   expandTapeTouchSurfaces,
   expandTapeAxes,
+  expandTapeMotion,
   type Tape,
 } from "../framework/src/devtools.ts";
 import { EMPTY_AXIS_DELTAS, type AxisDelta } from "../framework/src/relative-axis.ts";
+import type { MotionState } from "../framework/src/motion.ts";
 import { __packTouch } from "../framework/src/touch.ts";
 import { encodePNG } from "./png.ts";
 import { SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
@@ -187,6 +189,7 @@ interface BootResult {
     touchSurfaces?: readonly number[],
     rightAnalog?: number,
     axisDeltas?: readonly AxisDelta[],
+    motion?: MotionState | null,
   ) => void;
   tick: () => void;
   render: () => Uint8Array;
@@ -373,6 +376,7 @@ async function cmdReplay(app: string, tapePathArg: string): Promise<void> {
   const touches = expandTapeTouch(tape);
   const touchSurfaces = expandTapeTouchSurfaces(tape);
   const axes = expandTapeAxes(tape);
+  const motion = expandTapeMotion(tape);
   const hashesOut = argValue("--hashes");
   const pngFrames = new Set(
     (argValue("--png") ?? "").split(",").filter(Boolean).map((s) => Number(s)),
@@ -388,7 +392,7 @@ async function cmdReplay(app: string, tapePathArg: string): Promise<void> {
   if (pngFrames.size) mkdirSync(outdir, { recursive: true });
   const hashes: string[] = [];
   for (let f = 0; f < masks.length; f++) {
-    b.frame(masks[f], analogs[f], touches[f], undefined, touchSurfaces[f], rightAnalogs[f], axes[f] ?? EMPTY_AXIS_DELTAS);
+    b.frame(masks[f], analogs[f], touches[f], undefined, touchSurfaces[f], rightAnalogs[f], axes[f] ?? EMPTY_AXIS_DELTAS, motion[f] ?? null);
     b.tick();
     const fb = b.render();
     const h = fnv1a(fb);
@@ -426,16 +430,17 @@ async function cmdTree(app: string, tapePathArg: string): Promise<void> {
   const touches = expandTapeTouch(tape);
   const touchSurfaces = expandTapeTouchSurfaces(tape);
   const axes = expandTapeAxes(tape);
+  const motion = expandTapeMotion(tape);
   const at = Number(argValue("--at") ?? masks.length);
   const upTo = Math.min(at, masks.length);
   const b = await boot(app);
   for (let f = 0; f < upTo; f++) {
-    b.frame(masks[f], analogs[f], touches[f], undefined, touchSurfaces[f], rightAnalogs[f], axes[f] ?? EMPTY_AXIS_DELTAS);
+    b.frame(masks[f], analogs[f], touches[f], undefined, touchSurfaces[f], rightAnalogs[f], axes[f] ?? EMPTY_AXIS_DELTAS, motion[f] ?? null);
     b.tick();
   }
   b.outbox.length = 0;
   b.pushCommand(JSON.stringify({ t: "getTree" }));
-  b.frame(0, undefined, undefined, undefined, undefined, undefined, EMPTY_AXIS_DELTAS); // poll runs at wrapper start: tree reflects state after frame `at`
+  b.frame(0, undefined, undefined, undefined, undefined, undefined, EMPTY_AXIS_DELTAS, null); // poll runs at wrapper start: tree reflects state after frame `at`
   for (const line of b.outbox) {
     const msg = JSON.parse(line);
     if (msg.t === "tree") {

@@ -46,6 +46,7 @@ import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame.ts";
 import type { AxisDelta } from "./relative-axis.ts";
+import type { MotionState } from "./motion.ts";
 import { flushLifecycleHooks, flushUnmountedHooks, disposeRootModelRegions } from "./lifecycle-solid-aot.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
 import { __advanceClock, resetClock } from "./clock.ts";
@@ -280,6 +281,7 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       touchSurfaces?: readonly number[],
       rightAnalog?: number,
       axisDeltas?: readonly AxisDelta[],
+      motion?: MotionState | null,
     ) => {
       __advanceClock(); // virtual frame++, fire due after() timers
       __setAnalog(analog, rightAnalog); // latch the nub before any app code reads it
@@ -288,7 +290,7 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       __drainEffects(); // frame-boundary deliveries enter the world first
       runFrameHooks(buttons, axisDeltas,
         defer => handleFrame(buttons, defer),
-        defer => withDeferredPress(defer, __runGestures));
+        defer => withDeferredPress(defer, __runGestures), motion);
       runSweep(); // then destroy subtrees still detached [R]
     }),
   );

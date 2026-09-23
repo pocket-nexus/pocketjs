@@ -1541,6 +1541,9 @@ export const BTN = {
 
 // Optional sixth frame argument carries the right stick with identical packing.
 // Omission reads as center; touch/hit/surface arguments retain their positions.
+// The seventh carries relative-axis deltas; the eighth carries the newest fused
+// MotionState (contracts/spec/motion.ts) since the previous frame, null or
+// omitted when the motion driver published none.
 export const ANALOG_CENTER = 0x8080;
 
 // ---------------------------------------------------------------------------
