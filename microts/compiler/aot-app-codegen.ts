@@ -3,6 +3,10 @@ import { checkAotVersion, type AotHandler } from "./aot-ir.ts";
 import type { AotComponent, AotProgram } from "./aot-ir.ts";
 import type { RustExpr, RustFunction, RustGeneric, RustItem, RustParam, RustStatement, RustType } from "./rust-ast.ts";
 import { rb, rc, re, ref, rf, rm, rn, rp, rr, rt } from "./rust-ast.ts";
+import { MOTION_LEVELS, MOTION_VALUES } from "../../contracts/spec/motion.ts";
+
+/** Distinct fusion levels required by the subscribed motion values, ascending. */
+const motionLevels = (values: number[]) => [...new Set(values.map(id => MOTION_LEVELS[Object.values(MOTION_VALUES).find(spec => spec.id === id)!.level]))].sort((a, b) => a - b);
 
 const self = rp("self");
 const field = (name: string): RustExpr => rf(self, name);
@@ -50,11 +54,11 @@ export function generateAotApp(root: AotComponent, propsType: RustType, demands?
   const slotNames = root.slots.map(slot => `slot_${slot}`);
   const slotType = rt("Option", rt("microts::SlotHandle"));
   const slots = slotNames.map(name => rm(field(name), "as_ref"));
-  const hostBounds = [rt("microts::Host"), ...(demands?.buttons ?? []).map(mask => rt("microts::HasButton", { kind: "const", value: mask })), ...(demands?.axes ?? []).map(axis => rt("microts::HasRelativeAxis", { kind: "const", value: axis })), ...(demands?.capabilities.includes("touch") ? [rt("microts::HasTouch")] : [])];
+  const hostBounds = [rt("microts::Host"), ...(demands?.buttons ?? []).map(mask => rt("microts::HasButton", { kind: "const", value: mask })), ...(demands?.axes ?? []).map(axis => rt("microts::HasRelativeAxis", { kind: "const", value: axis })), ...motionLevels(demands?.motion ?? []).map(level => rt("microts::HasMotion", { kind: "const", value: level })), ...(demands?.capabilities.includes("touch") ? [rt("microts::HasTouch")] : [])];
   const generics: RustGeneric[] = [
     ...(borrowsProps ? [{ name: "a", lifetime: true }] : []),
     { name: "M", bounds: [rt(`${root.name}ViewModel`)] },
-    { name: "H", bounds: hostBounds, ...(!demands?.axes.length && !demands?.capabilities.includes("touch") ? { default: rt("microts::CoreHost") } : {}) },
+    { name: "H", bounds: hostBounds, ...(!demands?.axes.length && !demands?.motion?.length && !demands?.capabilities.includes("touch") ? { default: rt("microts::CoreHost") } : {}) },
   ];
   const type = rt(name, ...(borrowsProps ? [{ kind: "lifetime", name: "a" } as RustType] : []), rt("M"), rt("H"));
   const updateView = () => re(rm(field("view"), "update", rm(field("host"), "ui_mut"), ref(field("props")), ref(field("model")), ...slots,

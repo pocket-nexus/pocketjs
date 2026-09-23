@@ -65,7 +65,7 @@ test("Solid lab preserves typed model, factory, slot and input contracts determi
     props: expect.arrayContaining([{ name: "value", value: expect.objectContaining({ kind: "binding", name: "count", scope: "vm" }) }]),
     events: [{ name: "change", handler: { kind: "assign", name: "count" } }],
   });
-  expect(program.demands).toEqual({ buttons: [16384], axes: [0], capabilities: ["relative-axis"] });
+  expect(program.demands).toEqual({ buttons: [16384], axes: [0], motion: [], capabilities: ["relative-axis"] });
 });
 
 test("signals, derived values, keyed lists and input lower directly to shared nodes", () => {
@@ -80,7 +80,25 @@ test("signals, derived values, keyed lists and input lower directly to shared no
   expect(app.values.find(v => v.name === "count")?.writable).toBe(true);
   expect(app.values.some(v => ["zero", "width", "setCount"].includes(v.name))).toBe(false);
   expect(flatten(app.nodes).map(n => n.kind)).toEqual(["element", "if", "element", "element", "for", "element", "input", "input"]);
-  expect(program.demands).toEqual({ buttons: [16384], axes: [0], capabilities: ["relative-axis"] });
+  expect(program.demands).toEqual({ buttons: [16384], axes: [0], motion: [], capabilities: ["relative-axis"] });
+});
+
+test("motion handlers bind typed fused values with trailing metadata and demand their level", () => {
+  const extra = 'import { MotionHandler } from "@pocketjs/framework/solid/components"; import { upright, spin } from "./App";';
+  const contract = model + 'import type { f32, u8, u64 } from "@pocketjs/framework/solid/std";\nexport declare function upright(degrees: f32, quality: u8, timestamp: u64): void;\nexport declare function spin(x: f32, y: f32): void;\n';
+  const program = analyze(`return <View>
+      <MotionHandler value="screenRotation" active={enabled()} onUpdate={(degrees, quality, timestamp) => upright(degrees, quality, timestamp)} />
+      <MotionHandler value="rotationRate" minQuality="high" onUpdate={spin} />
+    </View>;`, extra, {}, contract);
+  const inputs = flatten(program.components.at(-1)!.nodes).filter(n => n.kind === "input");
+  expect(inputs.map(n => n.kind === "input" && n.input)).toEqual([
+    { kind: "motion", name: "screenRotation", value: 6, minQuality: 2 },
+    { kind: "motion", name: "rotationRate", value: 3, minQuality: 4 },
+  ]);
+  expect(program.demands).toEqual({ buttons: [], axes: [], motion: [3, 6], capabilities: ["motion"] });
+  expect(() => analyze(`return <MotionHandler value="compass" onUpdate={spin} />;`, extra, {}, contract)).toThrow("value must be a static motion value");
+  expect(() => analyze(`return <MotionHandler value="tilt" minQuality="perfect" onUpdate={spin} />;`, extra, {}, contract)).toThrow("minQuality must be a static literal");
+  expect(() => analyze(`return <MotionHandler value="inclination" onUpdate={spin} />;`, extra, {}, contract)).toThrow("matching its event payload");
 });
 
 test("blocks, conditions, lifecycle and optional callbacks preserve effects in IR", () => {

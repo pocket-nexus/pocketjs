@@ -29,7 +29,7 @@ test("Vue lab preserves typed model, factory, slot and input contracts determini
   const button = program.components.find(c => c.name === "ModelButton")!;
   expect(button.props.find(p => p.name === "modelValue")).toMatchObject({ model: "modelValue", type: { kind: "number", name: "i32" } });
   expect(button.events).toEqual([{ name: "update:modelValue", parameters: [{ name: "value", type: { kind: "number", name: "i32" } }] }]);
-  expect(program.demands).toEqual({ buttons: [16384], axes: [0], capabilities: ["relative-axis"] });
+  expect(program.demands).toEqual({ buttons: [16384], axes: [0], motion: [], capabilities: ["relative-axis"] });
 });
 
 function vue(source: string, contract: string) {
@@ -61,4 +61,17 @@ test("Vue literal tables are compile-time constants", () => {
   const app = program.components.find(c => c.root)!;
   expect(app.constants[0]!.value).toEqual(["ALL", "ACTIVE", "DONE"]);
   expect(app.values.map(v => v.name)).toEqual(["index"]);
+});
+test("Vue motion method handlers receive the payload values they declare", () => {
+  const contract = 'import type { f32, u8 } from "@pocketjs/framework/vue-vapor/std"; export declare function lean(beta: f32, gamma: f32): void; export declare let trust: u8;';
+  const program = vue(`<script setup lang="ts">import { MotionHandler, View } from "@pocketjs/framework/vue-vapor/components"; import { lean, trust } from "./App";</script><template><View><MotionHandler @update="lean" value="tilt" /><MotionHandler value="orientation" minQuality="medium" @update="trust = $event4" /></View></template>`, contract);
+  const view = program.components.find(c => c.root)!.nodes[0]!;
+  const inputs = view.kind === "element" ? view.children : [];
+  expect(inputs.map(node => node.kind === "input" && node.input)).toEqual([
+    { kind: "motion", name: "tilt", value: 7, minQuality: 2 },
+    { kind: "motion", name: "orientation", value: 4, minQuality: 3 },
+  ]);
+  const first = inputs[0]!;
+  expect(first.kind === "input" && first.handler.kind === "call" && first.handler.expression.kind === "call" && first.handler.expression.arguments.map(a => a.kind === "binding" && a.name)).toEqual(["$event", "$event1"]);
+  expect(program.demands).toEqual({ buttons: [], axes: [], motion: [4, 7], capabilities: ["motion"] });
 });

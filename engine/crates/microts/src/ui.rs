@@ -34,7 +34,9 @@ impl Default for StyleId {
     }
 }
 
-/// A hardware-neutral button sample. `target` is a resolved press node.
+/// A hardware-neutral input sample. `target` is a resolved press node.
+/// `motion` is the fused estimate the host's motion driver published since the
+/// previous frame; `None` means no new estimate.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Input {
     pub buttons: u32,
@@ -42,6 +44,7 @@ pub struct Input {
     pub released: u32,
     pub target: NodeId,
     pub axis_deltas: [i32; 2],
+    pub motion: Option<crate::motion::MotionState>,
 }
 
 impl Input {
@@ -73,12 +76,30 @@ impl Input {
         *value = value.saturating_add(delta);
         self
     }
+    pub fn with_motion(mut self, state: crate::motion::MotionState) -> Self {
+        self.motion = Some(state);
+        self
+    }
+    /// Whether this frame carries `value` (a `spec::motion` id) at `min_quality` or better.
+    pub fn has_motion(&self, value: u8, min_quality: u8) -> bool {
+        self.motion.is_some_and(|state| {
+            let quality = state.quality(value);
+            quality != crate::spec::motion::quality::UNAVAILABLE && quality >= min_quality
+        })
+    }
+    /// `value` as a handler receives it; not present when `has_motion` is false.
+    pub fn motion_sample(&self, value: u8, min_quality: u8) -> crate::motion::MotionSample {
+        self.motion
+            .map(|state| state.sample(value, min_quality))
+            .unwrap_or_default()
+    }
     pub fn has_activity(&self) -> bool {
         self.buttons != 0
             || self.pressed != 0
             || self.released != 0
             || self.target != NodeId::NONE
             || self.axis_deltas.iter().any(|delta| *delta != 0)
+            || self.motion.is_some()
     }
 }
 
@@ -433,7 +454,33 @@ impl Ui {
             released,
             buttons: input.buttons,
             axis_deltas: input.axis_deltas,
+            motion: input.motion,
         }
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+    use crate::motion::{MotionState, MotionVector};
+    use crate::spec::motion::{self, quality};
+
+    #[test]
+    fn motion_state_survives_resolution_and_gates_on_quality() {
+        let state = MotionState {
+            timestamp: 1_000,
+            gravity_direction: MotionVector { value: [0.0, -1.0, 0.0], quality: quality::MEDIUM },
+            ..MotionState::default()
+        };
+        let input = Input::default().with_motion(state);
+        assert!(input.has_activity() && !Input::default().has_activity());
+        assert!(input.has_motion(motion::GRAVITY_DIRECTION, quality::MEDIUM));
+        assert!(!input.has_motion(motion::GRAVITY_DIRECTION, quality::HIGH));
+        assert!(!input.has_motion(motion::ROTATION_RATE, quality::UNRELIABLE));
+        let resolved = Ui::new().resolve_input(&input);
+        let sample = resolved.motion_sample(motion::GRAVITY_DIRECTION, quality::LOW);
+        assert_eq!((sample.component(1), sample.quality(), sample.timestamp()), (-1.0, quality::MEDIUM, 1_000));
+        assert!(!Input::default().motion_sample(motion::GRAVITY_DIRECTION, quality::LOW).is_present());
     }
 }
 

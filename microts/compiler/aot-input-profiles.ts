@@ -1,4 +1,6 @@
 /** Input coverage for native AOT admission; no display, GPIO or build settings. */
+import { MotionLevel } from "../../contracts/spec/motion.ts";
+
 export type PocketButtonName = "a" | "b" | "select" | "start" | "right" | "left" | "up" | "down" | "r" | "l";
 
 export interface AotInputProfile {
@@ -8,6 +10,8 @@ export interface AotInputProfile {
   readonly chorded: Readonly<Partial<Record<PocketButtonName, readonly [PocketButtonName, PocketButtonName]>>>;
   readonly axes: readonly number[];
   readonly touch: boolean;
+  /** Fusion level of the board's motion driver (`MotionLevel`); 0 without one. */
+  readonly motion: number;
 }
 
 // Preserve the MeowBit input contract independently of the retired cartridge
@@ -20,6 +24,17 @@ const profiles = new Map<string, AotInputProfile>([
     chorded: { start: ["a", "b"], select: ["left", "right"], r: ["up", "down"] },
     axes: [],
     touch: false,
+    motion: 0,
+  }],
+  // M5Stack AtomS3R: the display is one push button; BMI270 fused to the inertial level.
+  ["atoms3r", {
+    board: "atoms3r",
+    chip: "esp32s3",
+    direct: ["a"],
+    chorded: {},
+    axes: [],
+    touch: false,
+    motion: MotionLevel.Inertial,
   }],
 ]);
 
