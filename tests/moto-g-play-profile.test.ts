@@ -10,3 +10,14 @@ test("Moto Clear resolves full-panel logical geometry and requires the implement
   manifest.app.viewport.fixed.logical = [320, 480];
   expect(() => resolveMotoGPlayBuildPlan(manifest)).toThrow();
 });
+
+test("the Android CLI rejects removed or unknown profiles before invoking tools", () => {
+  for (const profile of ["blackberry-android", "unknown"]) {
+    const result = Bun.spawnSync([
+      process.execPath, "tools/android.ts", `--profile=${profile}`, "doctor",
+    ], { stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain(`Unsupported Android profile: ${profile}`);
+    expect(result.stdout.toString()).toBe("");
+  }
+});

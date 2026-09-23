@@ -2,9 +2,8 @@ import Hero from "../hero/app.tsx";
 import { reportAppAction } from "@pocketjs/framework/host";
 
 /**
- * The same guest bundle mounts under both Classic hosts (the native QNX
- * runtime and the Android Runtime shell); nothing here may depend on which
- * one is running it.
+ * Hero guest for the BlackBerry Classic native QNX host. Device events reach
+ * this component through the portable PocketJS input contracts.
  */
 export default function BlackBerryClassicHero() {
   return (

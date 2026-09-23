@@ -98,15 +98,13 @@ neither advertises a production capability from a build alone.
   hash. The pairing key authenticates but does not encrypt the LAN connection,
   and the channel updates guests only: a new `.3dsx` or CIA still requires
   deployment and a restart.
-- **The BlackBerry Classic runs two hosts over one shared contract.**
+- **The BlackBerry Classic runs a native QNX host.**
   `hosts/blackberry-classic-qnx` is a BB10 Core Native host (libscreen, BPS,
   EGL/GLES2) built and packaged as an unsigned development BAR inside the
-  digest-pinned BBNDK image and installed on a rooted Classic;
-  `hosts/blackberry-classic-android` is an Android Runtime (API 18) host whose
-  v1-signed APK drives the same QuickJS bridge and Rust core through a JNI
-  `armeabi-v7a` library. Both register at 720×720 physical, 360×360 logical at
-  density 2, host ABI 9. First device run recorded on an SQC100-4 at
-  10.3.3.3216; the [port write-up](/blog/blackberry-classic/) walks the QNX
+  digest-pinned BBNDK image and installed on a rooted Classic. It registers
+  at 720×720 physical, 360×360 logical at density 2, host ABI 9.
+  The earlier Android compatibility host has been removed. First device run
+  recorded on an SQC100-4 at 10.3.3.3216; the [port write-up](/blog/blackberry-classic/) walks the QNX
   route onto the square screen.
 - **A second backend class paints through gpui and measures text on the
   host.** The portable family (wgpu, software raster, PPA, GLES2) keeps

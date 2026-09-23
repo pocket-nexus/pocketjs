@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Template: package identity is rendered from the resolved build plan by
-     tools/blackberry-android.ts (packageIdentity); this file is not the source
+     tools/android.ts (packageIdentity); this file is not the source
      of the app id or version. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="@POCKET_PACKAGE@"

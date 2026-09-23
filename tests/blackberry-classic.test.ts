@@ -7,7 +7,6 @@ import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
 import { packageIdentity, renderTemplate } from "../tools/native-host-build.ts";
 import {
-  BLACKBERRY_ANDROID_DEV_TARGET_ID,
   BLACKBERRY_CLASSIC_DEV_CONTRACTS,
   BLACKBERRY_CLASSIC_HOST_ABI,
   BLACKBERRY_CLASSIC_LOGICAL_VIEWPORT,
@@ -19,21 +18,20 @@ import {
 
 const repository = join(import.meta.dir, "..");
 const manifestPath = join(repository, "apps/blackberry-classic-demo/pocket.json");
-const targets = [BLACKBERRY_QNX_DEV_TARGET_ID, BLACKBERRY_ANDROID_DEV_TARGET_ID] as const;
+const targets = [BLACKBERRY_QNX_DEV_TARGET_ID] as const;
 
 function manifest(): Record<string, any> {
   return JSON.parse(readFileSync(manifestPath, "utf8"));
 }
 
-describe("private BlackBerry Classic profiles", () => {
-  test("register both hosts privately with one square density-2 contract", () => {
+describe("private BlackBerry Classic profile", () => {
+  test("register only the QNX host with its square density-2 contract", () => {
+    expect(Object.keys(BLACKBERRY_CLASSIC_DEV_CONTRACTS.targets)).toEqual([...targets]);
     for (const target of targets) {
       expect(POCKET_TARGETS).not.toHaveProperty(target);
       expect(BLACKBERRY_CLASSIC_DEV_CONTRACTS.targets[target]).toEqual({
         hostAbi: BLACKBERRY_CLASSIC_HOST_ABI,
-        platform: target === BLACKBERRY_QNX_DEV_TARGET_ID
-          ? "blackberry10-qnx"
-          : "blackberry10-android",
+        platform: "blackberry10-qnx",
         form: "takeover",
         display: {
           physicalViewport: BLACKBERRY_CLASSIC_PHYSICAL_VIEWPORT,
@@ -46,7 +44,7 @@ describe("private BlackBerry Classic profiles", () => {
     }
   });
 
-  test("resolve the Hero demo to the exact device plan for each host", () => {
+  test("resolve the Hero demo to the exact QNX device plan", () => {
     for (const target of targets) {
       const plan = resolveBlackBerryClassicBuildPlan(manifest(), target);
       expect(plan.target).toEqual({ id: target, hostAbi: BLACKBERRY_CLASSIC_HOST_ABI });
@@ -89,7 +87,7 @@ describe("private BlackBerry Classic profiles", () => {
     expect(() => renderTemplate("<id>@POCKET_ID@</id>", {})).toThrow("@POCKET_ID@");
   });
 
-  test("reject capabilities and viewports the Classic hosts do not implement", () => {
+  test("reject capabilities and viewports the Classic host does not implement", () => {
     const needsIme = manifest();
     needsIme.engine.capabilities.requires.push("input.ime");
     expect(() => resolveBlackBerryClassicBuildPlan(needsIme, BLACKBERRY_QNX_DEV_TARGET_ID))
@@ -97,7 +95,7 @@ describe("private BlackBerry Classic profiles", () => {
 
     const stretched = manifest();
     stretched.app.viewport.fixed.logical = [320, 480];
-    expect(() => resolveBlackBerryClassicBuildPlan(stretched, BLACKBERRY_ANDROID_DEV_TARGET_ID))
+    expect(() => resolveBlackBerryClassicBuildPlan(stretched, BLACKBERRY_QNX_DEV_TARGET_ID))
       .toThrow("320x480");
   });
 
@@ -120,15 +118,9 @@ describe("BlackBerry Classic toolchain pins", () => {
   const qnx = JSON.parse(
     readFileSync(join(repository, "tools/cli/blackberry-qnx-toolchain.json"), "utf8"),
   );
-  const android = JSON.parse(
-    readFileSync(join(repository, "tools/cli/blackberry-android-toolchain.json"), "utf8"),
-  );
-
-  test("both hosts build against the same QuickJS revision and Rust nightly", () => {
+  test("the QNX host pins QuickJS, Rust, and the Hero manifest", () => {
     expect(qnx.quickjs.revision).toMatch(/^[0-9a-f]{40}$/);
-    expect(android.quickjs).toEqual(qnx.quickjs);
-    expect(android.rust.toolchain).toBe(qnx.rust.toolchain);
-    expect(android.app.manifest).toBe("apps/blackberry-classic-demo/pocket.json");
+    expect(qnx.rust.toolchain).toBe("nightly-2026-07-02");
     expect(qnx.app.manifest).toBe("apps/blackberry-classic-demo/pocket.json");
   });
 
@@ -137,27 +129,5 @@ describe("BlackBerry Classic toolchain pins", () => {
     expect(qnx.image.platform).toBe("linux/amd64");
     expect(qnx.qnx.architecture).toBe("armle-v7");
     expect(existsSync(join(repository, qnx.rust.target))).toBe(true);
-  });
-
-  test("the Android host pins API 18, the last Jelly Bean NDK, and the v1-only ABI", () => {
-    expect(android.android).toMatchObject({
-      apiLevel: 18,
-      ndkVersion: "23.2.8568313",
-      abi: "armeabi-v7a",
-      clangTarget: "armv7a-linux-androideabi18",
-    });
-    expect(android.android.packages.map((pkg: { id: string }) => pkg.id)).toEqual([
-      "platforms;android-18",
-      "build-tools;35.0.0",
-      "ndk;23.2.8568313",
-    ]);
-    for (const pkg of android.android.packages) {
-      for (const archive of Object.values(pkg.archives) as { asset: string; sha1: string }[]) {
-        expect(archive.asset).toMatch(/\.zip$/);
-        expect(archive.sha1).toMatch(/^[0-9a-f]{40}$/);
-      }
-    }
-    expect(android.javaImage).toMatch(/@sha256:[0-9a-f]{64}$/);
-    expect(android.rust.target).toBe("armv7-linux-androideabi");
   });
 });

@@ -4,13 +4,12 @@
 #include <stdint.h>
 
 /*
- * Host-side input state shared by the QNX and Android BlackBerry Classic
- * hosts. Platform event callbacks feed it through the functions below; the
+ * Host-side input state shared by the BlackBerry QNX and Android hosts. Platform event callbacks feed it through the functions below; the
  * frame loop samples it exactly once per guest turn. The module is plain C
  * with no platform headers, so the unit test in
  * tests/fixtures/pocket-input-test.c compiles with the host compiler.
  *
- * Semantics the two BlackBerry Classic hosts share:
+ * Input sampling semantics:
  *  - a key down produces one press edge (platform key repeats do not) and
  *    holds the button until the key goes up;
  *  - relative motion accumulates per axis; crossing the threshold emits one

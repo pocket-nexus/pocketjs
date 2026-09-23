@@ -29,11 +29,14 @@ const retiredRoots = [
   ["framework", "native"],
   ["hosts", "apple", "ns-shell"],
   ["hosts", "blackberry-android"],
+  ["hosts", "blackberry-classic-android"],
   ["hosts", "blackberry-qnx"],
   ["hosts", "symbian"],
 ].map((segments) => segments.join("/"));
 
 const retiredFiles = [
+  ["tools", "blackberry-android.ts"],
+  ["tools", "cli", "blackberry-android-toolchain.json"],
   ["hosts", "iphone2g", "compat.c"],
   ["hosts", "iphone2g", "crt_globals.c"],
   ["hosts", "iphone2g", "pocket_core.h"],

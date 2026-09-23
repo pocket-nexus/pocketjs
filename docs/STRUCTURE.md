@@ -29,9 +29,8 @@ pocketjs/
 │  ├─ nokia-e7/   Nokia E7 Qt/QuickJS host + visible toolchain probe
 │  ├─ ios-legacy/ UIKit host shared by the iPhone 2G and iPhone 4S ports
 │  ├─ ios-nativescript/ NativeScript iOS shell over engine/ios + @nativescript/pocketjs
-│  ├─ blackberry-classic/ input sampling shared by both BlackBerry Classic hosts
+│  ├─ blackberry-classic/ input sampling shared by BlackBerry QNX and Android
 │  ├─ blackberry-classic-qnx/ BlackBerry 10 Core Native embedding
-│  ├─ blackberry-classic-android/ BlackBerry 10 Android Runtime embedding
 │  ├─ desktop/    gpui window host — macos-app + linux-app (standalone lone-bin crate)
 │  ├─ web/        browser dev + Pocket System host (wasm core, isolated iframe Realms)
 │  └─ sim/        deterministic headless simulation host (docs/DETERMINISM.md)
