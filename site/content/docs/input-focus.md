@@ -265,6 +265,33 @@ the surrounding tree. It searches, in order:
 This keeps a sensible node focused as content churns, without any bookkeeping in your
 components.
 
+## Motion state
+
+Apps read device attitude as **fused motion state**, not accelerometer or
+gyroscope samples. The host's native driver fuses its sensors and delivers
+its newest `MotionState` as the eighth `frame` argument, or queues it between
+frames with `feedMotionState(state)` from `@pocketjs/framework/input`.
+`contracts/spec/motion.ts` defines the values, units, quality grades and
+reference frames; the [MicroTS reference](/docs/microts-reference/#motion-state)
+lists them.
+
+`MotionHandler` and `onMotion` fire once per frame whose state carries the
+subscribed value at `minQuality` or better, in document order with the other
+input handlers:
+
+```tsx
+import { MotionHandler } from "@pocketjs/framework/components";
+import { onMotion } from "@pocketjs/framework/lifecycle";
+
+<MotionHandler value="screenRotation" onUpdate={(degrees) => setAngle(degrees)} />;
+
+onMotion("rotationRate", (x, y, z) => spin(x, y, z), { minQuality: "high" });
+```
+
+Derived values (`screenRotation`, `tilt`, `angles`) are computed from the
+state with the same f64 arithmetic and single f32 rounding as native MicroTS
+builds. A fed state is validated and its numbers are rounded to f32.
+
 ## Per-frame hooks
 
 `onFrame` registers a callback that runs once per frame with the current button

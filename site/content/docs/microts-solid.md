@@ -158,7 +158,10 @@ for built-ins and optional array indexing.
 `ActionHandler` takes a static `button={BTN.CROSS}`, an optional boolean
 `active` and bare `latched`. `AxisHandler` takes `axis="primary"` or
 `axis="secondary"`; `onDelta` receives signed `i32` millidegrees through the
-hardware-neutral relative-axis contract.
+hardware-neutral relative-axis contract. `MotionHandler` takes a static
+`value` and optional `minQuality`; `onUpdate` receives the fused motion
+payload described in the [reference](/docs/microts-reference/#motion-state).
+A bare model function may declare a prefix of the payload parameters.
 
 View handlers admit model calls, signal writes, callback emissions and blocks of
 expression statements or `if` statements. An emission ends its handler or a

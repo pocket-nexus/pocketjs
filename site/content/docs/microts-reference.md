@@ -70,6 +70,7 @@ Import these elements from `@pocketjs/framework/vue-vapor/components`.
 | `Image` | `class`, `:class`, static `src` asset name | — |
 | `ActionHandler` | Static `:button="BTN.NAME"`, boolean `active`, static `latched` | `@press` |
 | `AxisHandler` | Static `axis="primary"` or `"secondary"`, boolean `active` | `@delta` |
+| `MotionHandler` | Static `value` motion value, static `minQuality`, boolean `active` | `@update` |
 
 Put text and interpolation inside `Text`. `Image` has no children. Register
 image names with the Rust host's `Ui::register_image` before mounting views
@@ -119,6 +120,57 @@ Rust hosts provide motion through `Input::default().with_axis(0, delta)`;
 axis `0` is primary and axis `1` is secondary. A host needs
 the generated app's `HasButton<MASK>` and `HasRelativeAxis<ID>` implementations
 for the inputs the template uses.
+
+### Motion state
+
+**A `MotionHandler` receives fused device attitude, never sensor readings.**
+The host's native motion driver owns sampling, calibration and fusion, and
+publishes one `MotionState` per estimate. Vectors use the W3C DeviceMotion
+device frame: +x toward the right edge, +y toward the top edge, +z out of the
+screen. `contracts/spec/motion.ts` defines the state and its derived values.
+
+| `value` | Payload after the components | Components | Driver level |
+|---|---|---|---|
+| `gravityDirection` | `quality`, `timestamp` | unit vector toward the ground: `x`, `y`, `z` | gravity |
+| `inclination` | `quality`, `timestamp` | `degrees` between the screen normal and up: 0 face up, 90 upright | gravity |
+| `linearAcceleration` | `quality`, `timestamp` | m/s² with gravity removed: `x`, `y`, `z` | inertial |
+| `rotationRate` | `quality`, `timestamp` | bias-corrected degrees per second: `x`, `y`, `z` | inertial |
+| `orientation` | `quality`, `referenceFrame`, `epoch`, `timestamp` | unit quaternion `w`, `x`, `y`, `z` from the device frame to the reference frame | inertial |
+| `heading` | `quality`, `referenceFrame`, `timestamp` | `degrees` clockwise from north, `accuracy` in degrees | geomagnetic |
+| `screenRotation` | `quality`, `timestamp` | clockwise `degrees` that keep content upright | gravity |
+| `tilt` | `quality`, `timestamp` | W3C `beta`, `gamma` degrees | gravity |
+| `angles` | `quality`, `referenceFrame`, `epoch`, `timestamp` | W3C `alpha`, `beta`, `gamma` degrees | inertial |
+
+Components are `f32`; `quality` and `referenceFrame` are `u8`, `epoch` is
+`u32` and `timestamp` is `u64` microseconds on the driver's clock. A handler
+declares the leading parameters it uses. `screenRotation`, `tilt` and
+`angles` are derived by the runtime from `gravityDirection` and
+`orientation` and carry their source's metadata.
+
+**Quality gates delivery.** `MotionQuality` is `unavailable`, `unreliable`,
+`low`, `medium` or `high`; the handler fires on each frame whose state carries
+the value at `minQuality` or better, default `low`. `screenRotation` is
+`unreliable` while the screen lies within 10 degrees of horizontal.
+`referenceFrame` is `local` for an inertial driver, whose horizontal origin is
+arbitrary, and `magneticNorth` or `trueNorth` for a geomagnetic one. `epoch`
+increments whenever the driver re-establishes its reference frame.
+
+```vue
+<MotionHandler value="screenRotation" @update="upright" />
+<MotionHandler value="rotationRate" minQuality="high" @update="spin($event2)" />
+```
+
+A method handler receives the payload values its parameters name; an inline
+statement reads them as `$event`, `$event1` and later indexes.
+
+Rust hosts pass the driver's estimate with
+`Input::default().with_motion(state)`, where `state` is a
+`microts::MotionState`. A driver at the gravity level supplies
+`gravityDirection` and `inclination`; the inertial level adds linear
+acceleration, rotation rate and local orientation; the geomagnetic level adds
+north-referenced orientation and heading. The generated app requires
+`HasMotion<LEVEL>` for each level its values need, with levels from
+`spec::motion::level`.
 
 ## Template lookup
 
@@ -292,6 +344,8 @@ view targets.
 **Board reports cover input mappings.** They do not establish a target
 toolchain or display integration. Existing profiles have no relative-axis
 adapter; an `AxisHandler` produces a missing-adapter error for those profiles.
+Each profile declares the level of its motion driver: `atoms3r` fuses its
+BMI270 to the inertial level, and `meowbit` has none.
 An AOT build generates application source assets; a device host's build
 compiles and packages the application.
 
@@ -308,5 +362,6 @@ compiles and packages the application.
 | Text interpolation requires a scalar | Select a field, call `len`, or expose a formatting method |
 | Missing prop, slot parameter or context provider | Match the child's declarations; see [Components](/docs/microts-components/) |
 | Board has no relative-axis adapter | Use a host that implements the required axis capability, or change the app's input requirement |
+| Board has no motion driver at a value's level (VB106) | Subscribe to values of the board's level, or use a board whose driver fuses the required sensors |
 | Rust view-model trait implementation is incomplete | Regenerate after contract changes, then implement the trait's required methods and associated child types |
 | Compiled model source is outside the supported subset | Change the TypeScript body according to the source diagnostic, or select Rust mode and provide its native implementation |
