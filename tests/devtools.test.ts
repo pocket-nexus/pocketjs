@@ -684,4 +684,19 @@ describe("tape v5 motion track", () => {
     expect(seen.splice(0).join("")).toBe("|");
     expect(() => expandTapeMotion({ v: 5, frames: 1, masks: [[0, 1]], motion: [[0, { timestamp: -5 }]] })).toThrow("timestamp");
   });
+
+  test("zeros reach handlers unsigned, so a JSON replay matches the live session", () => {
+    const seen: number[][] = [];
+    mountApp(() => {
+      onMotion("angles", (...payload) => seen.push(payload));
+      return View({});
+    });
+    frameMotion({ timestamp: -0, angles: { value: [-0, 0, -0], quality: MotionQuality.High, referenceFrame: -0 as 0, epoch: -0 } });
+    const live = seen.splice(0);
+    expect(live).toEqual([[0, 0, 0, MotionQuality.High, 0, 0, 0]]);
+    const api = (globalThis as any).__pocketDevtools;
+    api.replay(JSON.parse(JSON.stringify(api.dumpTape())) as Tape);
+    frameMotion();
+    expect(seen.splice(0)).toEqual(live);
+  });
 });

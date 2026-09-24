@@ -290,7 +290,9 @@ onMotion("rotationRate", (x, y, z) => spin(x, y, z), { minQuality: "high" });
 
 The driver also publishes the derived conveniences (`screenRotation`,
 `tilt`, `angles`) as members of the state; the runtime does not compute them.
-A fed state is validated and its numbers are rounded to f32.
+A fed state is validated, its numbers are rounded to f32 and zeros lose
+their sign, so a DevTools tape, which is JSON, replays exactly what the
+handlers received.
 
 ## Per-frame hooks
 

@@ -15,19 +15,22 @@ let current: MotionState | null = null;
 const QUALITIES: readonly number[] = Object.values(MotionQuality);
 const FRAMES: readonly number[] = Object.values(MotionReferenceFrame);
 
+// Stored numbers carry no zero sign (`+ 0` turns -0 into +0): DevTools tapes
+// are JSON, which cannot represent -0, and a recorded estimate must replay as
+// the live handlers received it.
 function fail(member: string, rule: string): never { throw new Error(`Motion state ${member} must be ${rule}`); }
 function f32(value: unknown, member: string): number {
-  const rounded = typeof value === "number" ? Math.fround(value) : NaN;
+  const rounded = typeof value === "number" ? Math.fround(value) + 0 : NaN;
   return Number.isFinite(rounded) ? rounded : fail(member, "a finite f32");
 }
 function quality(value: unknown, member: string): MotionQualityId {
-  return QUALITIES.includes(value as number) ? value as MotionQualityId : fail(`${member}.quality`, `a MotionQuality id (${QUALITIES.join(", ")})`);
+  return QUALITIES.includes(value as number) ? (value as number) + 0 as MotionQualityId : fail(`${member}.quality`, `a MotionQuality id (${QUALITIES.join(", ")})`);
 }
 function referenceFrame(value: unknown, member: string): MotionReferenceFrameId {
-  return FRAMES.includes(value as number) ? value as MotionReferenceFrameId : fail(`${member}.referenceFrame`, `a MotionReferenceFrame id (${FRAMES.join(", ")})`);
+  return FRAMES.includes(value as number) ? (value as number) + 0 as MotionReferenceFrameId : fail(`${member}.referenceFrame`, `a MotionReferenceFrame id (${FRAMES.join(", ")})`);
 }
 function epoch(value: unknown, member: string): number {
-  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 0xffffffff ? value as number : fail(`${member}.epoch`, "a u32");
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 0xffffffff ? (value as number) + 0 : fail(`${member}.epoch`, "a u32");
 }
 function components<N extends number>(value: unknown, member: string, length: N): number[] {
   if (!Array.isArray(value) || value.length !== length) fail(`${member}.value`, `${length} numbers`);
@@ -42,12 +45,12 @@ function estimate(state: MotionState, member: keyof MotionState): Record<string,
 
 /**
  * A validated deep copy with every f32 member rounded to f32, as a native
- * driver stores it. Unknown members are dropped.
+ * driver stores it, and every zero unsigned. Unknown members are dropped.
  */
 export function __copyMotionState(state: MotionState): MotionState {
   if (state === null || typeof state !== "object") throw new Error("A motion state must be an object");
   if (!Number.isSafeInteger(state.timestamp) || state.timestamp < 0) fail("timestamp", "non-negative integer microseconds");
-  const out: MotionState = { timestamp: state.timestamp };
+  const out: MotionState = { timestamp: state.timestamp + 0 };
   for (const member of ["gravityDirection", "linearAcceleration", "rotationRate"] as const) {
     const value = estimate(state, member);
     if (value) out[member] = { value: components(value.value, member, 3) as [number, number, number], quality: quality(value.quality, member) };

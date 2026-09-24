@@ -208,10 +208,10 @@ test("MotionHandler delivers driver values at its minimum quality with metadata,
     angles: { value: [90, 0.1, 0], quality: MotionQuality.Medium, referenceFrame: MotionReferenceFrame.Local, epoch: 3 } });
   expect(calls).toEqual([["upright", 90, MotionQuality.Medium, 2_000], ["angles", 90, Math.fround(0.1), 0, MotionQuality.Medium, MotionReferenceFrame.Local, 3, 2_000]]);
   calls.length = 0;
-  // An unreliable value stays below the default minimum quality; high-quality values pass.
+  // An unreliable value stays below the default minimum quality; high-quality values pass, zeros unsigned.
   motion({ timestamp: 3_000, screenRotation: { value: 0, quality: MotionQuality.Unreliable }, tilt: { value: [0, -0], quality: MotionQuality.High },
     rotationRate: { value: [1.5, -2, 0.1], quality: MotionQuality.High } });
-  expect(calls).toEqual([["tilt", 0, -0, MotionQuality.High], ["spin", 1.5, -2, Math.fround(0.1), MotionQuality.High, 3_000]]);
+  expect(calls).toEqual([["tilt", 0, 0, MotionQuality.High], ["spin", 1.5, -2, Math.fround(0.1), MotionQuality.High, 3_000]]);
   calls.length = 0;
   setActive(false);
   motion({ timestamp: 4_000, screenRotation: { value: 0, quality: MotionQuality.High }, tilt: { value: [90, 0], quality: MotionQuality.High } });
