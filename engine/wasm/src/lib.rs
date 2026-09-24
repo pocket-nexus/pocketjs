@@ -111,6 +111,9 @@ impl pocketjs_core::resources::RenderResources for AuxiliaryResources<'_> {
     fn font_atlas(&self, slot: u8) -> Option<pocketjs_core::resources::FontView<'_>> {
         pocketjs_core::resources::RenderResources::font_atlas(self.0, slot)
     }
+    fn glyph_span_index(&self, slot: u8) -> Option<&[u8]> {
+        pocketjs_core::resources::RenderResources::glyph_span_index(self.0, slot)
+    }
 }
 
 /// Auxiliary pixels share textures and frame time, with their own viewport.

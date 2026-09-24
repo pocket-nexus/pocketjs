@@ -24,9 +24,23 @@ taffy = { version = "0.11", default-features = false, features = [
 [dev-dependencies]
 # Self-dependency with `std` so `cargo test` builds the test harness against
 # the std-enabled crate while normal builds stay no_std (default features off).
-pocketjs-core = { path = ".", features = ["std"] }
+pocketjs-core = { path = ".", default-features = false, features = ["std"] }
 
 [features]
-default = []
+default = ["glyph-skip-zero"]
 # Host-test convenience: links std (and taffy's std) instead of no_std+alloc.
 std = ["taffy/std"]
+# Rasterize glyph cells by walking parse-time nonzero coverage spans instead
+# of scanning their transparent pixels. Disable default features to retain the
+# dense reference path for A/B comparisons. PSP and Nintendo 3DS use independent
+# GPU glyph paths, while ESP-IDF passes resources across an ABI without the span
+# index, so the core compiles span storage out on those target OSes.
+glyph-skip-zero = []
+# Deliberately wrong verification variant (treats coverage < 64 as
+# transparent) used to prove the counterexample matrix and end-to-end hashes
+# detect lost antialiasing coverage.
+glyph-skip-zero-mutant = ["glyph-skip-zero"]
+
+[[example]]
+name = "glyph_span_stats"
+required-features = ["std"]

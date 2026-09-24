@@ -138,6 +138,38 @@ trait RenderTarget {
     fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32);
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32);
 
+    /// Fill a clipped destination block with one constant source-over
+    /// coverage. Used by the transparent-pixel glyph path.
+    #[cfg(any(
+        test,
+        all(
+            feature = "glyph-skip-zero",
+            not(any(
+                target_os = "psp",
+                target_os = "horizon",
+                target_os = "espidf"
+            ))
+        )
+    ))]
+    fn blend_block(
+        &mut self,
+        stride: i32,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+    ) {
+        for py in y0..y1 {
+            for px in x0..x1 {
+                self.blend((py * stride + px) as usize, r, g, b, a);
+            }
+        }
+    }
+
     #[inline]
     fn clear_black(&mut self) {
         let len = self.pixel_len();
@@ -342,6 +374,148 @@ fn lerp_color(from: u32, to: u32, f: f32) -> u32 {
 /// The stock viewport remains 480x272, preserving the legacy golden output.
 pub fn render(ui: &impl RenderResources, words: &[u32], fb: &mut [u8]) {
     render_scaled(ui, words, fb, 1);
+}
+
+/// Direct entry points for the byte-exactness matrix: they run one GLYPH_RUN
+/// through either the dense reference scanner or the nonzero-span scanner
+/// into a caller-supplied (nonzero-preset) framebuffer.
+#[cfg(test)]
+#[doc(hidden)]
+pub mod glyph_verify {
+    use super::*;
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    // Production defaults to spans; tests can flip the real GLYPH_RUN
+    // dispatch to compare it with the dense reference in one process.
+    static SPARSE: AtomicBool = AtomicBool::new(cfg!(feature = "glyph-skip-zero"));
+
+    pub fn set_sparse(enabled: bool) {
+        SPARSE.store(enabled, Ordering::Relaxed);
+    }
+
+    pub(super) fn sparse_enabled() -> bool {
+        SPARSE.load(Ordering::Relaxed)
+    }
+
+    fn full_clip(width: i32, height: i32) -> Clip {
+        // Production clips always carry the screen intersection (x0/y0 >= 0);
+        // the sparse path relies on that invariant exactly like the dense
+        // one, so the matrix models it.
+        Clip {
+            x0: 0,
+            y0: 0,
+            x1: width,
+            y1: height,
+        }
+    }
+
+    pub fn glyph_dense_rgba(
+        ui: &Ui,
+        fb: &mut [u8],
+        width: i32,
+        height: i32,
+        argb: bool,
+        scale: i32,
+        clip: Option<(i32, i32, i32, i32)>,
+        slot: u8,
+        color: u32,
+        glyphs: &[u32],
+    ) {
+        let c = clip.map_or(full_clip(width, height), |(x0, y0, x1, y1)| Clip {
+            x0, y0, x1, y1,
+        });
+        if argb {
+            let mut target = RgbaTarget::<true> { bytes: fb };
+            glyph_run(ui, &mut target, width, scale, c, slot, color, glyphs);
+        } else {
+            let mut target = RgbaTarget::<false> { bytes: fb };
+            glyph_run(ui, &mut target, width, scale, c, slot, color, glyphs);
+        }
+    }
+
+    pub fn glyph_sparse_rgba(
+        ui: &Ui,
+        fb: &mut [u8],
+        width: i32,
+        height: i32,
+        argb: bool,
+        scale: i32,
+        clip: Option<(i32, i32, i32, i32)>,
+        slot: u8,
+        color: u32,
+        glyphs: &[u32],
+    ) {
+        let c = clip.map_or(full_clip(width, height), |(x0, y0, x1, y1)| Clip {
+            x0, y0, x1, y1,
+        });
+        if argb {
+            let mut target = RgbaTarget::<true> { bytes: fb };
+            glyph_run_sparse(ui, &mut target, width, scale, c, slot, color, glyphs);
+        } else {
+            let mut target = RgbaTarget::<false> { bytes: fb };
+            glyph_run_sparse(ui, &mut target, width, scale, c, slot, color, glyphs);
+        }
+    }
+
+    pub fn glyph_dense_rgb565(
+        ui: &Ui,
+        fb: &mut [u16],
+        width: i32,
+        height: i32,
+        scale: i32,
+        clip: Option<(i32, i32, i32, i32)>,
+        slot: u8,
+        color: u32,
+        glyphs: &[u32],
+    ) {
+        let c = clip.map_or(full_clip(width, height), |(x0, y0, x1, y1)| Clip {
+            x0, y0, x1, y1,
+        });
+        let mut target = Rgb565Target { pixels: fb };
+        glyph_run(ui, &mut target, width, scale, c, slot, color, glyphs);
+    }
+
+    pub fn glyph_sparse_rgb565(
+        ui: &Ui,
+        fb: &mut [u16],
+        width: i32,
+        height: i32,
+        scale: i32,
+        clip: Option<(i32, i32, i32, i32)>,
+        slot: u8,
+        color: u32,
+        glyphs: &[u32],
+    ) {
+        let c = clip.map_or(full_clip(width, height), |(x0, y0, x1, y1)| Clip {
+            x0, y0, x1, y1,
+        });
+        let mut target = Rgb565Target { pixels: fb };
+        glyph_run_sparse(ui, &mut target, width, scale, c, slot, color, glyphs);
+    }
+
+    /// Full DrawList replay over a nonzero-preset framebuffer (no clear),
+    /// exercising the GLYPH_RUN dispatch, the scissor stack and painter
+    /// order against the same entry point production uses.
+    pub fn render_words_rgba_no_clear(
+        ui: &Ui,
+        words: &[u32],
+        fb: &mut [u8],
+        scale: u32,
+        argb: bool,
+    ) {
+        if argb {
+            let mut target = RgbaTarget::<true> { bytes: fb };
+            render_scaled_impl(ui, words, &mut target, scale, false);
+        } else {
+            let mut target = RgbaTarget::<false> { bytes: fb };
+            render_scaled_impl(ui, words, &mut target, scale, false);
+        }
+    }
+
+    pub fn render_words_rgb565_no_clear(ui: &Ui, words: &[u32], fb: &mut [u16], scale: u32) {
+        let mut target = Rgb565Target { pixels: fb };
+        render_scaled_impl(ui, words, &mut target, scale, false);
+    }
 }
 
 /// Execute `words` (a full DrawList) directly into an integer-scaled physical
@@ -750,6 +924,58 @@ fn render_scaled_clipped<T: RenderTarget>(
                 if i + 3 + 2 * n > words.len() {
                     return;
                 }
+                #[cfg(test)]
+                if glyph_verify::sparse_enabled() {
+                    glyph_run_sparse(
+                        ui,
+                        target,
+                        width,
+                        scale,
+                        clip,
+                        slot,
+                        color,
+                        &words[i + 3..i + 3 + 2 * n],
+                    );
+                } else {
+                    glyph_run(
+                        ui,
+                        target,
+                        width,
+                        scale,
+                        clip,
+                        slot,
+                        color,
+                        &words[i + 3..i + 3 + 2 * n],
+                    );
+                }
+                #[cfg(all(
+                    not(test),
+                    feature = "glyph-skip-zero",
+                    not(any(
+                        target_os = "psp",
+                        target_os = "horizon",
+                        target_os = "espidf"
+                    ))
+                ))]
+                glyph_run_sparse(
+                    ui,
+                    target,
+                    width,
+                    scale,
+                    clip,
+                    slot,
+                    color,
+                    &words[i + 3..i + 3 + 2 * n],
+                );
+                #[cfg(all(
+                    not(test),
+                    any(
+                        not(feature = "glyph-skip-zero"),
+                        target_os = "psp",
+                        target_os = "horizon",
+                        target_os = "espidf"
+                    )
+                ))]
                 glyph_run(
                     ui,
                     target,
@@ -995,6 +1221,17 @@ pub fn coverage_index(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    ),
+    allow(dead_code)
+)]
 fn glyph_run<T: RenderTarget>(
     ui: &impl RenderResources,
     target: &mut T,
@@ -1044,6 +1281,165 @@ fn glyph_run<T: RenderTarget>(
                 }
             }
         }
+    }
+}
+
+/// Rasterize only source coverage spans that contain ink. Span metadata is
+/// derived once at atlas parse; coverage bytes still come from the canonical
+/// bitmap. [`destination_run`] is the exact inverse of [`coverage_index`],
+/// and per-pixel alpha math is unchanged, so output is byte-identical to
+/// [`glyph_run`], including over a prefilled framebuffer.
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+#[allow(clippy::too_many_arguments)]
+fn glyph_run_sparse<T: RenderTarget>(
+    ui: &impl RenderResources,
+    target: &mut T,
+    stride: i32,
+    output_scale: i32,
+    clip: Clip,
+    slot: u8,
+    color: u32,
+    glyphs: &[u32],
+) {
+    let Some(atlas) = ui.font_atlas(slot) else {
+        return;
+    };
+    let (r, g, b, a) = channels(color);
+    if a == 0 {
+        return;
+    }
+    let cell_w = atlas.cell_w as i32 * output_scale;
+    let cell_h = atlas.cell_h as i32 * output_scale;
+    // A dense or adversarial atlas can make RLE larger than its bitmap. Such
+    // atlases store no table and retain the dense reference path.
+    let Some(span_index) = ui.glyph_span_index(slot) else {
+        glyph_run(ui, target, stride, output_scale, clip, slot, color, glyphs);
+        return;
+    };
+    let atlas_density = atlas.raster_density as i32;
+    let integer_scale = (output_scale % atlas_density == 0)
+        .then_some(output_scale / atlas_density);
+    let bpr = atlas.bytes_per_row();
+    for pair in glyphs.chunks_exact(2) {
+        let (gx, gy) = xy(pair[0], output_scale);
+        let gid = (pair[1] & 0xffff) as u16;
+        if gid >= atlas.glyph_count {
+            continue;
+        }
+        // Cell-vs-clip pixel window (partial glyphs at scissor edges clip here).
+        let x0 = gx.max(clip.x0);
+        let x1 = (gx + cell_w).min(clip.x1);
+        let y0 = gy.max(clip.y0);
+        let y1 = (gy + cell_h).min(clip.y1);
+        if x0 >= x1 || y0 >= y1 {
+            continue;
+        }
+        let rows = atlas.glyph_rows(gid);
+        let Some(span_rows) = crate::text::glyph_span_rows_from_index(
+            span_index,
+            gid,
+            atlas.glyph_count,
+            atlas.coverage_width(),
+            atlas.coverage_height(),
+        ) else {
+            glyph_run(ui, target, stride, output_scale, clip, slot, color, pair);
+            continue;
+        };
+        for (sy, span_row) in span_rows.enumerate() {
+            let (row_d0, row_d1) = source_destination_run(
+                sy as i32,
+                output_scale,
+                atlas_density,
+                integer_scale,
+            );
+            let py0 = (gy + row_d0).max(y0);
+            let py1 = (gy + row_d1).min(y1);
+            if py0 >= py1 {
+                continue;
+            }
+            let bitmap_row = &rows[sy * bpr..(sy + 1) * bpr];
+            for (span_start, span_len) in span_row.spans() {
+                for sx in span_start..span_start + span_len {
+                    let (col_d0, col_d1) = source_destination_run(
+                        sx as i32,
+                        output_scale,
+                        atlas_density,
+                        integer_scale,
+                    );
+                    let px0 = (gx + col_d0).max(x0);
+                    let px1 = (gx + col_d1).min(x1);
+                    if px0 >= px1 {
+                        continue;
+                    }
+                    let cov = bitmap_row[sx] as u32;
+                    let alpha = (a * cov + 127) / 255;
+                    if alpha == 0 {
+                        continue;
+                    }
+                    target.blend_block(stride, px0, py0, px1, py1, r, g, b, alpha);
+                }
+            }
+        }
+    }
+}
+
+/// Half-open destination interval whose nearest-neighbour sample is one
+/// source coverage index. This algebraically inverts [`coverage_index`]'s
+/// pixel-center mapping; an empty interval means downsampling skipped the
+/// source index.
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+#[inline]
+fn destination_run(source: i32, output_scale: i32, atlas_density: i32) -> (i32, i32) {
+    let boundary = |source_boundary: i32| {
+        let numerator = 2 * source_boundary * output_scale;
+        let quotient_ceil = (numerator + atlas_density - 1) / atlas_density;
+        quotient_ceil / 2
+    };
+    (boundary(source), boundary(source + 1))
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+#[inline]
+fn source_destination_run(
+    source: i32,
+    output_scale: i32,
+    atlas_density: i32,
+    integer_scale: Option<i32>,
+) -> (i32, i32) {
+    if let Some(scale) = integer_scale {
+        (source * scale, (source + 1) * scale)
+    } else {
+        destination_run(source, output_scale, atlas_density)
     }
 }
 
@@ -1935,6 +2331,48 @@ mod tests {
         assert_eq!(rgba(&fb, 2, 17, 2), [0, 255, 0, 255]);
     }
 
+    #[test]
+    fn destination_runs_exactly_invert_coverage_indices() {
+        const LOGICAL_LEN: i32 = 7;
+        for density in 1..=u8::MAX as i32 {
+            let source_len = LOGICAL_LEN * density;
+            for output_scale in 1..=MAX_RENDER_SCALE as i32 {
+                let integer_scale =
+                    (output_scale % density == 0).then_some(output_scale / density);
+                let destination_len = LOGICAL_LEN * output_scale;
+                for destination in 0..destination_len {
+                    let source =
+                        coverage_index(destination, output_scale, density, source_len) as i32;
+                    let (start, end) = source_destination_run(
+                        source,
+                        output_scale,
+                        density,
+                        integer_scale,
+                    );
+                    assert!(
+                        (start..end).contains(&destination),
+                        "density={density} scale={output_scale} src={source} dst={destination} run={start}..{end}"
+                    );
+                }
+                for source in 0..source_len {
+                    let (start, end) = source_destination_run(
+                        source,
+                        output_scale,
+                        density,
+                        integer_scale,
+                    );
+                    for destination in start..end {
+                        assert_eq!(
+                            coverage_index(destination, output_scale, density, source_len),
+                            source as usize,
+                            "density={density} scale={output_scale} src={source} dst={destination}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     fn density_two_font() -> Vec<u8> {
         let coverage = [
             0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 255,
@@ -1991,6 +2429,285 @@ mod tests {
             for x in 0..4 {
                 assert_eq!(rgba(&fb, 2, 6 + x, y)[0], coverage[y * 4 + x]);
             }
+        }
+    }
+
+    // Transparent-pixel span regressions use deterministic nonzero preset
+    // buffers so a missed write cannot be hidden by a black framebuffer.
+    fn skip_zero_font() -> Vec<u8> {
+        let coverage: [u8; 32] = [
+            0, 1, 0, 2,
+            0, 128, 0, 255,
+            0, 0, 0, 0,
+            255, 0, 1, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        ];
+        let mut atlas = Vec::new();
+        atlas.extend_from_slice(&spec::font_atlas::MAGIC.to_le_bytes());
+        atlas.extend_from_slice(&spec::font_atlas::VERSION.to_le_bytes());
+        atlas.extend_from_slice(&2u16.to_le_bytes());
+        atlas.extend_from_slice(&[4, 4, 4, 4, 0, 0, 1, 0]);
+        while atlas.len() < spec::font_atlas::HEADER_SIZE {
+            atlas.push(0);
+        }
+        for (codepoint, gid) in [(65u32, 0u16), (66, 1)] {
+            atlas.extend_from_slice(&codepoint.to_le_bytes());
+            atlas.extend_from_slice(&gid.to_le_bytes());
+            atlas.extend_from_slice(&[4, 0]);
+        }
+        atlas.extend_from_slice(&coverage);
+        atlas
+    }
+
+    fn preset_rgba(width: usize, height: usize) -> Vec<u8> {
+        (0..width * height * 4)
+            .map(|index| ((index as u32).wrapping_mul(73).wrapping_add(41) & 0xff) as u8)
+            .collect()
+    }
+
+    fn preset_565(pixels: usize) -> Vec<u16> {
+        (0..pixels)
+            .map(|index| ((index as u32).wrapping_mul(40_503).wrapping_add(7) & 0xffff) as u16)
+            .collect()
+    }
+
+    fn ui_for(font: &[u8]) -> Ui {
+        let mut ui = Ui::new();
+        assert!(ui.load_font_atlas(font));
+        ui
+    }
+
+    fn ui_for_at(font: &[u8], width: f32, height: f32) -> Ui {
+        let mut ui = ui_for(font);
+        ui.set_viewport(width, height);
+        ui
+    }
+
+    fn assert_direct_glyph_paths_equal(
+        ui: &Ui,
+        width: i32,
+        height: i32,
+        scale: i32,
+        clip: Option<(i32, i32, i32, i32)>,
+        color: u32,
+        glyphs: &[u32],
+    ) {
+        for argb in [false, true] {
+            let mut dense = preset_rgba(width as usize, height as usize);
+            let mut sparse = dense.clone();
+            glyph_verify::glyph_dense_rgba(
+                ui, &mut dense, width, height, argb, scale, clip, 0, color, glyphs,
+            );
+            glyph_verify::glyph_sparse_rgba(
+                ui, &mut sparse, width, height, argb, scale, clip, 0, color, glyphs,
+            );
+            assert_eq!(dense, sparse, "RGBA argb={argb} scale={scale} clip={clip:?}");
+        }
+
+        let mut dense = preset_565((width * height) as usize);
+        let mut sparse = dense.clone();
+        glyph_verify::glyph_dense_rgb565(
+            ui, &mut dense, width, height, scale, clip, 0, color, glyphs,
+        );
+        glyph_verify::glyph_sparse_rgb565(
+            ui, &mut sparse, width, height, scale, clip, 0, color, glyphs,
+        );
+        assert_eq!(dense, sparse, "RGB565 scale={scale} clip={clip:?}");
+    }
+
+    #[test]
+    fn glyph_skip_zero_matrix_matches_dense_rgba_argb_565() {
+        let font = skip_zero_font();
+        let ui = ui_for(&font);
+        const W: i32 = 24;
+        const H: i32 = 16;
+        let glyphs = |x: i16, y: i16| {
+            [
+                xy_word(x, y),
+                0,
+                xy_word(x + 5, y),
+                1,
+                xy_word(x + 10, y),
+                9,
+            ]
+        };
+
+        for scale in 1..=4 {
+            let width = W * scale;
+            let height = H * scale;
+            let clips = [
+                None,
+                Some((0, 0, 3 * scale + 2, height)),
+                Some((3 * scale + 2, 0, width, height)),
+                Some((0, 0, width, 2 * scale + 2)),
+                Some((0, 2 * scale + 2, width, height)),
+                Some((width - 2, height - 2, width, height)),
+            ];
+            for clip in clips {
+                for color in [0xffff_ffff, 0x80ff_ffff, 0x01ff_ffff] {
+                    assert_direct_glyph_paths_equal(
+                        &ui,
+                        width,
+                        height,
+                        scale,
+                        clip,
+                        color,
+                        &glyphs(2, 1),
+                    );
+                }
+            }
+            assert_direct_glyph_paths_equal(
+                &ui,
+                width,
+                height,
+                scale,
+                None,
+                0xffff_ffff,
+                &glyphs(-2, -2),
+            );
+        }
+    }
+
+    #[test]
+    fn glyph_skip_zero_stacks_over_translucent_content_and_alpha_zero_is_noop() {
+        let font = skip_zero_font();
+        let ui = ui_for(&font);
+        const W: i32 = 24;
+        const H: i32 = 16;
+        let run = |x: i16| [xy_word(x, 2), 0u32];
+
+        for scale in 1..=4 {
+            let width = W * scale;
+            let height = H * scale;
+            let mut dense = preset_rgba(width as usize, height as usize);
+            let mut sparse = dense.clone();
+            glyph_verify::glyph_dense_rgba(
+                &ui, &mut dense, width, height, false, scale, None, 0, 0xc033_2211, &run(2),
+            );
+            glyph_verify::glyph_dense_rgba(
+                &ui, &mut sparse, width, height, false, scale, None, 0, 0xc033_2211, &run(2),
+            );
+            glyph_verify::glyph_dense_rgba(
+                &ui, &mut dense, width, height, false, scale, None, 0, 0x8010_80ff, &run(3),
+            );
+            glyph_verify::glyph_sparse_rgba(
+                &ui, &mut sparse, width, height, false, scale, None, 0, 0x8010_80ff, &run(3),
+            );
+            assert_eq!(dense, sparse);
+
+            let before = preset_rgba(width as usize, height as usize);
+            let mut transparent = before.clone();
+            glyph_verify::glyph_sparse_rgba(
+                &ui,
+                &mut transparent,
+                width,
+                height,
+                false,
+                scale,
+                None,
+                0,
+                0x00ff_ffff,
+                &run(0),
+            );
+            assert_eq!(transparent, before);
+        }
+    }
+
+    #[test]
+    fn glyph_skip_zero_full_drawlist_stream_matches_over_preset_buffer() {
+        let font = skip_zero_font();
+        const W: i32 = 24;
+        const H: i32 = 16;
+        let words = [
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(12, 8),
+            0x8020_4060,
+            draw_op::SCISSOR,
+            xy_word(0, 0),
+            wh_word(5, 5),
+            draw_op::GLYPH_RUN,
+            2 << 16,
+            0xc0ff_ffff,
+            xy_word(3, 3),
+            0,
+            xy_word(10, 2),
+            9,
+            draw_op::SCISSOR_POP,
+            draw_op::GLYPH_RUN,
+            2 << 16,
+            0x8000_00ff,
+            xy_word(4, 4),
+            0,
+            xy_word(0, 0),
+            1,
+        ];
+
+        for scale in 1..=4u32 {
+            let width = W * scale as i32;
+            let height = H * scale as i32;
+            for argb in [false, true] {
+                let mut dense = preset_rgba(width as usize, height as usize);
+                let mut sparse = dense.clone();
+                glyph_verify::set_sparse(false);
+                glyph_verify::render_words_rgba_no_clear(
+                    &ui_for_at(&font, W as f32, H as f32),
+                    &words,
+                    &mut dense,
+                    scale,
+                    argb,
+                );
+                glyph_verify::set_sparse(true);
+                glyph_verify::render_words_rgba_no_clear(
+                    &ui_for_at(&font, W as f32, H as f32),
+                    &words,
+                    &mut sparse,
+                    scale,
+                    argb,
+                );
+                glyph_verify::set_sparse(cfg!(feature = "glyph-skip-zero"));
+                assert_eq!(dense, sparse);
+            }
+
+            let mut dense = preset_565((width * height) as usize);
+            let mut sparse = dense.clone();
+            glyph_verify::set_sparse(false);
+            glyph_verify::render_words_rgb565_no_clear(
+                &ui_for_at(&font, W as f32, H as f32),
+                &words,
+                &mut dense,
+                scale,
+            );
+            glyph_verify::set_sparse(true);
+            glyph_verify::render_words_rgb565_no_clear(
+                &ui_for_at(&font, W as f32, H as f32),
+                &words,
+                &mut sparse,
+                scale,
+            );
+            glyph_verify::set_sparse(cfg!(feature = "glyph-skip-zero"));
+            assert_eq!(dense, sparse);
+        }
+    }
+
+    #[test]
+    fn glyph_skip_zero_matches_dense_at_density_two_scales() {
+        let font = density_two_font();
+        let mut ui = Ui::new_with_raster_density(2);
+        assert!(ui.load_font_atlas(&font));
+        for scale in 1..=4 {
+            assert_direct_glyph_paths_equal(
+                &ui,
+                16 * scale,
+                8 * scale,
+                scale,
+                None,
+                0xffff_ffff,
+                &[xy_word(1, 1), 0],
+            );
         }
     }
 }
