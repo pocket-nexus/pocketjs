@@ -63,8 +63,9 @@ test("Vue literal tables are compile-time constants", () => {
   expect(app.values.map(v => v.name)).toEqual(["index"]);
 });
 test("Vue motion method handlers receive the payload values they declare", () => {
-  const contract = 'import type { f32, u8 } from "@pocketjs/framework/vue-vapor/std"; export declare function lean(beta: f32, gamma: f32): void; export declare let trust: u8;';
-  const program = vue(`<script setup lang="ts">import { MotionHandler, View } from "@pocketjs/framework/vue-vapor/components"; import { lean, trust } from "./App";</script><template><View><MotionHandler @update="lean" value="tilt" /><MotionHandler value="orientation" minQuality="medium" @update="trust = $event4" /></View></template>`, contract);
+  const contract = 'import type { f32, u8 } from "@pocketjs/framework/vue-vapor/std"; export declare function lean(beta: f32, gamma: f32): void; export declare let w: f32;';
+  const source = (update: string) => `<script setup lang="ts">import { MotionHandler, View } from "@pocketjs/framework/vue-vapor/components"; import { lean, w } from "./App";</script><template><View><MotionHandler @update="lean" value="tilt" /><MotionHandler value="orientation" minQuality="medium" @update="${update}" /></View></template>`;
+  const program = vue(source("w = $event"), contract);
   const view = program.components.find(c => c.root)!.nodes[0]!;
   const inputs = view.kind === "element" ? view.children : [];
   expect(inputs.map(node => node.kind === "input" && node.input)).toEqual([
@@ -74,4 +75,6 @@ test("Vue motion method handlers receive the payload values they declare", () =>
   const first = inputs[0]!;
   expect(first.kind === "input" && first.handler.kind === "call" && first.handler.expression.kind === "call" && first.handler.expression.arguments.map(a => a.kind === "binding" && a.name)).toEqual(["$event", "$event1"]);
   expect(program.demands).toEqual({ buttons: [], axes: [], motion: [4, 7], capabilities: ["motion"] });
+  // Vue has no names for later payload values in an inline statement; Vapor guests would leave them undefined.
+  expect(() => vue(source("w = $event1"), contract)).toThrow("$event1");
 });

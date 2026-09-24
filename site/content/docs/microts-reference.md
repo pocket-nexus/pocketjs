@@ -160,11 +160,12 @@ increments whenever the driver re-establishes its reference frame.
 
 ```vue
 <MotionHandler value="screenRotation" @update="upright" />
-<MotionHandler value="rotationRate" minQuality="high" @update="spin($event2)" />
+<MotionHandler value="rotationRate" minQuality="high" @update="spin" />
 ```
 
-A method handler receives the payload values its parameters name; an inline
-statement reads them as `$event`, `$event1` and later indexes.
+As in Vue, a method handler receives the payload values its parameters name
+(`spin(x, y, z)` above), and an inline statement reads only the first value,
+as `$event`.
 
 Rust hosts pass the driver's estimate with
 `Input::default().with_motion(state)`, where `state` is a

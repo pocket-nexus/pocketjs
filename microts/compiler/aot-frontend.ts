@@ -284,10 +284,15 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
     };
     function handler(content: string, at: SourceLocation, context: ExpressionContext, event?: AotEvent): AotHandler {
       const hctx = { ...context, bindings: new Map(context.bindings), handler: true };
-      event?.parameters.forEach((parameter, index) => hctx.bindings.set(index ? `$event${index}` : "$event", { type: parameter.type, scope: "event" }));
-      // A Vue method handler receives the payload values its parameters name, as with a component emit.
+      if (event?.parameters.length) hctx.bindings.set("$event", { type: event.parameters[0]!.type, scope: "event" });
+      // As in Vue, an inline statement reads the first payload value as $event
+      // and a method handler receives every value its parameters name. The
+      // later values bind only for that generated call, never for source text.
       const method = event && event.parameters.length > 1 && /^[A-Za-z_$][\w$]*$/.test(content.trim()) ? context.functions.get(content.trim()) : undefined;
-      if (method) content = `${content.trim()}(${method.parameters.map((_, index) => index ? `$event${index}` : "$event").join(", ")})`;
+      if (method) {
+        event!.parameters.forEach((parameter, index) => { if (index) hctx.bindings.set(`$event${index}`, { type: parameter.type, scope: "event" }); });
+        content = `${content.trim()}(${method.parameters.map((_, index) => index ? `$event${index}` : "$event").join(", ")})`;
+      }
       const sourceFile = ts.createSourceFile("handler.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
       const statement = sourceFile.statements[0];
       const parseErrors = (sourceFile as ts.SourceFile & { parseDiagnostics: ts.Diagnostic[] }).parseDiagnostics;
