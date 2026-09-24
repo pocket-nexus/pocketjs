@@ -77,4 +77,7 @@ test("Vue motion method handlers receive the payload values they declare", () =>
   expect(program.demands).toEqual({ buttons: [], axes: [], motion: [4, 7], capabilities: ["motion"] });
   // Vue has no names for later payload values in an inline statement; Vapor guests would leave them undefined.
   expect(() => vue(source("w = $event1"), contract)).toThrow("$event1");
+  // Only the whole attribute is a method handler: inside a statement, Vue evaluates the reference without calling it.
+  expect(() => vue(source("if (w > 0) { lean; }"), contract)).toThrow("A reference to lean does nothing");
+  expect(() => vue(source("lean; w = $event"), contract)).toThrow("A reference to lean does nothing");
 });

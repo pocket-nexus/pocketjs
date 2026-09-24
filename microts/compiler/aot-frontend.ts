@@ -282,13 +282,15 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       if (!d.arg || d.arg.type !== NodeTypes.SIMPLE_EXPRESSION || !d.arg.isStatic) fail(tplLoc(d), "Directive arguments must be static names");
       return d.arg.content;
     };
-    function handler(content: string, at: SourceLocation, context: ExpressionContext, event?: AotEvent): AotHandler {
+    function handler(content: string, at: SourceLocation, context: ExpressionContext, event?: AotEvent, attribute = true): AotHandler {
       const hctx = { ...context, bindings: new Map(context.bindings), handler: true };
       if (event?.parameters.length) hctx.bindings.set("$event", { type: event.parameters[0]!.type, scope: "event" });
       // As in Vue, an inline statement reads the first payload value as $event
       // and a method handler receives every value its parameters name. The
       // later values bind only for that generated call, never for source text.
-      const method = event && event.parameters.length > 1 && /^[A-Za-z_$][\w$]*$/.test(content.trim()) ? context.functions.get(content.trim()) : undefined;
+      // Only a whole attribute is a method handler; a name inside a statement
+      // block stays a reference.
+      const method = attribute && event && event.parameters.length > 1 && /^[A-Za-z_$][\w$]*$/.test(content.trim()) ? context.functions.get(content.trim()) : undefined;
       if (method) {
         event!.parameters.forEach((parameter, index) => { if (index) hctx.bindings.set(`$event${index}`, { type: parameter.type, scope: "event" }); });
         content = `${content.trim()}(${method.parameters.map((_, index) => index ? `$event${index}` : "$event").join(", ")})`;
@@ -302,7 +304,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         const atNode = (node: ts.Node) => locAt(item, at.offset + node.getStart(sourceFile));
         const list = (statements: readonly ts.Statement[], scope: ExpressionContext): AotHandler[] => {
           const steps = statements.map(stmt => {
-            if (ts.isExpressionStatement(stmt)) return handler(stmt.expression.getText(sourceFile), atNode(stmt.expression), scope, event);
+            if (ts.isExpressionStatement(stmt)) return handler(stmt.expression.getText(sourceFile), atNode(stmt.expression), scope, event, false);
             if (ts.isIfStatement(stmt)) {
               const condition = expression(stmt.expression.getText(sourceFile), atNode(stmt.expression), { ...scope, bindings: hctx.bindings, handler: true }, BOOL);
               requireType(condition, BOOL, scope);
@@ -329,6 +331,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         if (value.kind !== "call" || value.target !== "vm") fail(at, "A handler call must name a view-model function");
         return { kind: "call", id, expression: value, loc: at };
       }
+      // Vue evaluates a bare function reference in a statement without calling it.
+      if (!attribute && ts.isIdentifier(node) && context.functions.has(node.text)) fail(at, `A reference to ${node.text} does nothing in a handler statement; call it`);
       let target: ts.Expression | undefined, valueSource: string | undefined, valueLoc = at;
       if (ts.isPostfixUnaryExpression(node) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) {
         target = node.operand; valueLoc = handlerLoc(target);
