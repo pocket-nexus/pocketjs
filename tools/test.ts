@@ -67,6 +67,7 @@ const SUITE: readonly Stage[] = [
       "tests/media-service.test.ts",
       "tests/media.test.ts",
       "tests/service-client.test.ts",
+      "tests/overlay-host.test.ts",
       "tests/modality.test.ts",
       "tests/actions.test.ts",
       "tests/3ds-runtime-state.test.ts",
@@ -144,6 +145,7 @@ const SUITE: readonly Stage[] = [
   },
   {
     name: "unit (wasm host)",
+    prep: [["bun", "tools/wasm.ts"]],
     browser: true,
     tests: [
       "tests/tailwind.test.ts",
@@ -162,6 +164,7 @@ const SUITE: readonly Stage[] = [
       "tests/hot.test.ts",
       "tests/clock.test.ts",
       "tests/tiles.test.ts",
+      "tests/web-system-surface-gate.test.ts",
     ],
   },
   {

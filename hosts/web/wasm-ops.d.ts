@@ -19,6 +19,8 @@ export interface WasmUi {
   tick(): void;
   /** Hash the current DrawList without rasterizing it; null for an older wasm. */
   drawHash: (() => bigint) | null;
+  /** Raster-asset generation token; null for an older wasm (per-frame fallback). */
+  rasterRevision: (() => bigint) | null;
   compositorBindings(): Array<{ handle: number; focused: boolean }>;
   compositorFrames(): Array<{
     handle: number;

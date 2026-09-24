@@ -467,6 +467,18 @@ pub extern "C" fn ui_draw_hash() -> u64 {
     draw_hash(&ui().draw().words)
 }
 
+/// Monotonic token of the raster assets (textures, font atlases, styles)
+/// behind the DrawList. The draw hash covers the words only: replacing a
+/// font atlas or a texture in place keeps every word identical while the
+/// pixels change, so a browser System host gating child-surface uploads on
+/// `ui_draw_hash` must also compare this value. Hosts feature-detect it the
+/// same way as `ui_draw_hash`; a wasm binary predating the export forces
+/// every-frame uploads.
+#[no_mangle]
+pub extern "C" fn ui_raster_revision() -> u64 {
+    ui().raster_revision()
+}
+
 fn draw_hash(words: &[u32]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for word in words {
@@ -685,6 +697,29 @@ mod tests {
         assert_eq!(draw_hash(&words), draw_hash(&words));
         assert_ne!(draw_hash(&words), draw_hash(&[0x0102_0304, 0x0506_0709]));
         assert_ne!(draw_hash(&[]), draw_hash(&words));
+    }
+
+    #[test]
+    fn raster_revision_bumps_on_texture_lifecycle() {
+        // The export is a thin wrapper; pin the core monotonicity the
+        // browser upload gate relies on: every upload and every free moves
+        // the token so equal draw words can never hide replaced pixels.
+        let mut ui = Ui::new();
+        let before = ui.raster_revision();
+        let tex_a = ui.upload_texture(&[0u8, 0, 0, 255], 1, 1, 3);
+        assert!(tex_a >= 0);
+        let after_upload = ui.raster_revision();
+        assert_ne!(before, after_upload);
+        let tex_b = ui.upload_texture(&[255u8, 255, 255, 255], 1, 1, 3);
+        assert!(tex_b >= 0);
+        assert_ne!(after_upload, ui.raster_revision());
+        let before_free = ui.raster_revision();
+        ui.free_texture(tex_a);
+        assert_ne!(before_free, ui.raster_revision());
+        // Non-asset ops (a layout tick) leave the token untouched.
+        let settled = ui.raster_revision();
+        ui.tick();
+        assert_eq!(settled, ui.raster_revision());
     }
 
     #[test]

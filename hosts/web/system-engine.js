@@ -118,6 +118,77 @@ export function validateSystemPlan(plan) {
   }
 }
 
+// Per-AppInstance invalidation record for child-surface render+upload. The
+// shell reconcile used to rasterize and re-upload every visible child every
+// rAF; a settled app produces identical DrawList words, so the frame can be
+// skipped. Equal words alone are not sufficient: the key below also covers
+// every state that changes pixels while leaving words equal.
+//
+// The record lives on the AppInstance object and dies with closeChild. It is
+// never keyed by numeric surface handle in a map that survives instances:
+// a fresh wasm instance reopened on a reused handle can emit its first frame
+// with the same draw hash the dead instance last uploaded.
+export function createSurfaceGate() {
+  return {
+    hash: null,        // draw hash of the last successfully uploaded frame
+    revision: null,    // raster-asset token of that frame
+    width: -1,         // child viewport at that frame
+    height: -1,
+    clean: false,      // false: never uploaded, or the last upload failed
+  };
+}
+
+/**
+ * Whether the visible child must render and upload this frame.
+ *
+ * @param {ReturnType<typeof createSurfaceGate>} gate record owned by the
+ *   live AppInstance
+ * @param {bigint | null} hash child.api.drawHash() after step(); null on a
+ *   wasm predating ui_draw_hash
+ * @param {bigint | null} revision child.api.rasterRevision(); null on a
+ *   wasm predating ui_raster_revision
+ *
+ * Upload (never skip) when:
+ *  - the wasm exposes neither dirty signal (old binary: per-frame fallback);
+ *  - this instance has no successful upload yet (first frame after
+ *    open/reopen — instance identity is the record itself);
+ *  - the previous upload failed and must be retried;
+ *  - the DrawList words changed (content animation, hide->show with the
+ *    background instance still stepping);
+ *  - a texture/font/style was replaced in place (words keep the stale handle
+ *    but pixels change);
+ *  - the child viewport changed dimensions.
+ *
+ * The 64-bit word hash is treated as collision-free (FNV over every word);
+ * the revision and viewport components cover the systematic hash-equal
+ * failure modes instead of relying on that.
+ */
+export function surfaceNeedsUpload(gate, hash, revision, width, height) {
+  if (hash === null || revision === null) return true;
+  if (!gate.clean) return true;
+  if (gate.hash !== hash) return true;
+  if (gate.revision !== revision) return true;
+  if (gate.width !== width || gate.height !== height) return true;
+  return false;
+}
+
+/**
+ * Commit the gate after an upload attempt. A failed upload must not update
+ * the stored key: the record stays dirty so the next frame re-renders and
+ * retries even though hash, revision and viewport are unchanged.
+ */
+export function noteSurfaceUpload(gate, hash, revision, width, height, ok) {
+  if (!ok) {
+    gate.clean = false;
+    return;
+  }
+  gate.hash = hash;
+  gate.revision = revision;
+  gate.width = width;
+  gate.height = height;
+  gate.clean = true;
+}
+
 async function createRealm(instanceUrl, options) {
   const iframe = document.createElement("iframe");
   iframe.hidden = true;
@@ -201,7 +272,7 @@ export async function mountPocketSystem(canvas, options = {}) {
       viewport: entry.plan.viewport.logical,
       rasterDensity: entry.plan.viewport.rasterDensity,
       companions: [],
-    }).then((realm) => ({ ...realm, entry, composited: false }));
+    }).then((realm) => ({ ...realm, entry, composited: false, gate: createSurfaceGate() }));
     children.set(handle, pending);
     try {
       const child = await pending;
@@ -262,12 +333,25 @@ export async function mountPocketSystem(canvas, options = {}) {
       if (!child || child instanceof Promise) continue;
       child.api.step(fact.handle === focusedHandle ? heldButtons : 0);
       if (visible.has(fact.handle)) {
-        const pixels = child.api.render();
         const [width, height] = child.api.viewport;
+        // Gate decision runs after the child's step(), matching the point at
+        // which the DrawList words are final for this frame. Hidden children
+        // are neither checked nor uploaded; the shell retains their surface
+        // until closeChild frees it, so the record can stay parked.
+        const hash = child.api.drawHash();
+        const revision = child.api.rasterRevision();
+        if (!surfaceNeedsUpload(child.gate, hash, revision, width, height)) continue;
+        const pixels = child.api.render();
         const texture = shell.uploadSurface(fact.handle, pixels, width, height);
         if (texture < 0) {
-          throw new Error(`failed to upload compositor surface ${fact.handle}`);
+          // Keep the previously retained surface (or nothing on the first
+          // frame); leave the record dirty so the unchanged next frame still
+          // re-renders and retries the upload.
+          noteSurfaceUpload(child.gate, hash, revision, width, height, false);
+          log(`failed to upload compositor surface ${fact.handle}; will retry next frame`);
+          continue;
         }
+        noteSurfaceUpload(child.gate, hash, revision, width, height, true);
         if (!child.composited) {
           child.composited = true;
           log(

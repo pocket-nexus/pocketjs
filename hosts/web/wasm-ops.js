@@ -17,7 +17,7 @@ const encoder = new TextEncoder();
 
 /**
  * Instantiate pocketjs.wasm and return
- * { ops, init, tick, drawHash, render, renderScaled,
+ * { ops, init, tick, drawHash, rasterRevision, render, renderScaled,
  *   renderIncremental, renderScaledIncremental, exports }.
  * `ops` is a complete HostOps (framework/src/host.ts) — hand it to the app bundle as
  * globalThis.ui before eval'ing it.
@@ -244,6 +244,13 @@ export async function createWasmUi(wasm, options = {}) {
     tick: () => ex.ui_tick(),
     /** Hash the current DrawList without rasterizing it (BigInt, wasm i64). */
     drawHash: ex.ui_draw_hash ? () => ex.ui_draw_hash() : null,
+    /**
+     * Monotonic token of the textures/font atlases/styles behind the
+     * DrawList. Equal draw hashes can hide an in-place asset replacement;
+     * the System child-surface upload gate compares both. Null on a wasm
+     * predating the export, and a null forces every-frame uploads.
+     */
+    rasterRevision: ex.ui_raster_revision ? () => ex.ui_raster_revision() : null,
     /** Every live shell binding, including hidden/minimized surface nodes. */
     compositorBindings() {
       return Array.from(compositorBindings.values(), (entry) => ({ ...entry }));
