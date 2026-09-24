@@ -68,6 +68,14 @@ export interface BlogPost {
 
 export const BLOG_POSTS: BlogPost[] = [
   {
+    slug: "pocket-live",
+    title: "Pocket Live: The Livestreaming Chain as a Native Runtime",
+    date: "2026-08-25",
+    description:
+      "Pocket Character learned to go live: webcam-driven blendshape tracking through a quarantined MediaPipe sidecar, stages and performers as data-only plugins composed by one vibe file, six compositor background modes including green-screen-free clean-plate matting, the show promoted from a window to a fixed-size program texture, and a CoreMediaIO camera-extension design that delivers it to Zoom without ever being able to leak the performer's real face. Plus role-tagged process-tree measurement — because a live chain that honestly needs three processes should say so.",
+    author: { name: "dozycat", url: "https://github.com/dozycat" },
+  },
+  {
     slug: "blackberry-classic",
     title:
       "A Square Screen and a Dead Signing Server: PocketJS on the BlackBerry Classic",
