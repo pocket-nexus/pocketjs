@@ -31,7 +31,8 @@ function epoch(value: unknown, member: string): number {
 }
 function components<N extends number>(value: unknown, member: string, length: N): number[] {
   if (!Array.isArray(value) || value.length !== length) fail(`${member}.value`, `${length} numbers`);
-  return value.map((component, index) => f32(component, `${member}.value[${index}]`));
+  // Array.from visits holes, which map would skip, so a sparse array fails as undefined components.
+  return Array.from(value, (component, index) => f32(component, `${member}.value[${index}]`));
 }
 function estimate(state: MotionState, member: keyof MotionState): Record<string, unknown> | undefined {
   const value = state[member] as unknown;

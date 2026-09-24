@@ -246,6 +246,7 @@ test("fed motion states: the newest replaces the queue, a frame argument (includ
   expect(() => feedMotionState({ timestamp: 1, inclination: { value: NaN, quality: MotionQuality.Low } })).toThrow("inclination.value");
   expect(() => feedMotionState({ timestamp: 1, gravityDirection: { value: [0, 1e39, 0], quality: MotionQuality.Low } })).toThrow("gravityDirection.value[1]");
   expect(() => feedMotionState({ timestamp: 1, rotationRate: { value: [0, 0] as never, quality: MotionQuality.Low } })).toThrow("rotationRate.value");
+  expect(() => feedMotionState({ timestamp: 1, rotationRate: { value: new Array(3) as never, quality: MotionQuality.High } })).toThrow("rotationRate.value[0]");
   expect(() => feedMotionState({ timestamp: 1, inclination: { value: 1, quality: 5 as never } })).toThrow("inclination.quality");
   expect(() => feedMotionState({ timestamp: 1, heading: { value: 1, accuracy: -1, quality: MotionQuality.Low, referenceFrame: 4 as never } })).toThrow("heading.referenceFrame");
   expect(() => feedMotionState({ timestamp: 1, orientation: { value: [1, 0, 0, 0], quality: MotionQuality.Low, referenceFrame: MotionReferenceFrame.Local, epoch: -1 } })).toThrow("orientation.epoch");
