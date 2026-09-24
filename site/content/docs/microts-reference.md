@@ -348,8 +348,9 @@ view targets.
 **Board reports cover input mappings.** They do not establish a target
 toolchain or display integration. Existing profiles have no relative-axis
 adapter; an `AxisHandler` produces a missing-adapter error for those profiles.
-Each profile declares the level of its motion driver: `atoms3r` fuses its
-BMI270 to the inertial level, and `meowbit` has none.
+Each profile declares the level of its motion driver; `meowbit` has none.
+A native host states its own motion level by implementing the
+`HasMotion<LEVEL>` bounds the generated app requires.
 An AOT build generates application source assets; a device host's build
 compiles and packages the application.
 
