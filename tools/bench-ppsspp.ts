@@ -13,40 +13,13 @@ import { $ } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { parseFramework, type PocketFramework } from "../framework/compiler/jsx-plugin.ts";
+import { parseBenchOutput, type BenchLine } from "./bench-ppsspp-parser.ts";
 
 interface Spec {
   app: string;
   inputScript: string;
   capStart: number;
   capN: number;
-}
-
-interface BenchLine {
-  app: string;
-  sim_hz: number;
-  frames: number;
-  window_start: number;
-  window_n: number;
-  eval_us: number;
-  boot_to_eval_begin_us: number;
-  boot_to_frame0_us: number;
-  avg_frame_interval_us: number;
-  max_frame_interval_us: number;
-  avg_js_us: number;
-  avg_jobs_us: number;
-  avg_tick_us: number;
-  avg_draw_us: number;
-  avg_render_us: number;
-  avg_work_us: number;
-  max_work_us: number;
-  stack_free_bytes: number;
-  bundle_bytes: number;
-  pak_bytes: number;
-  arena_capacity_bytes: number;
-  arena_bump_bytes: number;
-  arena_tail_free_bytes: number;
-  arena_init_free_bytes: number;
-  arena_configured_bytes: number;
 }
 
 interface Sample extends BenchLine {
@@ -303,6 +276,7 @@ const report = {
     ]),
   ),
   comparison: frameworks.length > 1 ? buildComparison(samplesOut, selectedSpecs) : undefined,
+  drawlist_checksums: summarizeChecksums(samplesOut, selectedSpecs),
   memory_scan: memoryScanReport,
 };
 writeFileSync(summaryPath, JSON.stringify(report, null, 2));
@@ -360,10 +334,7 @@ async function runBenchSample(
     throw new Error(`${spec.app} sample ${sample}: ${benchFile} missing`);
   }
   const lines = readFileSync(benchFile, "utf8").trim().split("\n").filter(Boolean);
-  if (lines.length !== 1) {
-    throw new Error(`${spec.app} sample ${sample}: expected 1 bench line, got ${lines.length}`);
-  }
-  const parsed = JSON.parse(lines[0]) as BenchLine;
+  const parsed = parseBenchOutput(lines.join("\n"), spec.app, sample);
   if (parsed.frames !== spec.capN || parsed.window_n !== spec.capN) {
     throw new Error(`${spec.app} sample ${sample}: bench window mismatch (${parsed.frames}/${parsed.window_n}, expected ${spec.capN})`);
   }
@@ -559,6 +530,20 @@ function summarizeApp(
   >;
 }
 
+function summarizeChecksums(rows: Sample[], specs: Spec[]) {
+  return Object.fromEntries(
+    specs.map((spec) => [
+      spec.app,
+      Object.fromEntries(
+        frameworks.map((fw) => [
+          fw,
+          [...new Set(rows.filter((r) => isAppRow(r, spec.app, fw)).map((r) => r.drawlist_checksum).filter(Boolean))],
+        ]),
+      ),
+    ]),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Cross-framework comparison (PR #6 methodology): per metric, the geometric
 // mean over apps of ratio(framework mean / baseline mean), baseline = the
@@ -642,6 +627,7 @@ function renderMarkdown(report: {
   frame_budget_us: number;
   apps: Record<string, Record<string, Record<Metric, ReturnType<typeof summarize>>>>;
   comparison?: ReturnType<typeof buildComparison>;
+  drawlist_checksums: Record<string, Record<string, string[]>>;
   memory_scan?: ReturnType<typeof renderMemoryScanReport>;
 }) {
   const lines = [
@@ -693,6 +679,8 @@ function renderMarkdown(report: {
         );
       }
       lines.push("");
+      const checksums = report.drawlist_checksums[app]?.[fw] ?? [];
+      lines.push(`Drawlist checksums: ${checksums.length ? checksums.join(", ") : "unavailable"}`, "");
     }
   }
 

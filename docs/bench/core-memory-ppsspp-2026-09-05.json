@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "selected_app": "stats",
+  "workload_role": "representative workload for the shared workload profile; not a byte-identical event sequence",
+  "framework": "solid",
+  "samples": 3,
+  "report_path": "dist/bench/ppsspp-bench-2026-09-05T05-07-18-714Z.json",
+  "checksum": "c88e7bcedc5d42a5",
+  "commands": {
+    "baseline": {
+      "command": "PSP_SDK=\"$PSP_SDK\" BENCH_PPSSPP_TIMEOUT=60 bun tools/bench-ppsspp.ts --apps=stats --samples=3",
+      "status": "PASS",
+      "exit_status": 0
+    },
+    "memory_scan": {
+      "command": "PSP_SDK=\"$PSP_SDK\" BENCH_PPSSPP_TIMEOUT=60 bun tools/bench-ppsspp.ts --apps=stats --samples=3 --memory-scan",
+      "status": "PASS",
+      "exit_status": 0
+    }
+  },
+  "execution_context": {
+    "checkout": "bench/core-memory-receipt",
+    "git_revision_used_for_both_attempts": "3e0b772",
+    "later_metadata_commits_benchmarked": false
+  },
+  "revisions": {
+    "git_revision": "3e0b772",
+    "ppsspp_revision": "f929a74"
+  },
+  "metrics": {
+    "arena_bump_bytes": 2654944,
+    "arena_tail_free_bytes": 15232288,
+    "avg_tick_us": 516,
+    "avg_work_us": 4686,
+    "max_work_us": 62816,
+    "uncapped_arena_bump_bytes": 2654944,
+    "min_pass_arena_bytes": 2883584,
+    "safe_arena_bytes": 3670016
+  },
+  "field_definitions": {
+    "report_path": "Expected generated JSON report path under dist/bench/ (ppsspp-bench-<timestamp>.json); null means no report was generated.",
+    "checksum": "Checksum of the representative workload drawlist used by the run; null means no benchmark ran. Compare with the Rust profile and report differences explicitly."
+  },
+  "caveat": "PPSSPP measurements are emulator evidence, not real PSP hardware proof. Arena high-water is a practical allocator capacity requirement, not a precise live-object heap profile. PSP checksum c88e7bcedc5d42a5 differs from the Rust baseline checksum cc6a0b00efdba151 because the PSP journey is not byte-identical to the synthetic Rust workload."
+}

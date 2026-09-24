@@ -25,6 +25,7 @@ Read this reference when explaining `tools/bench-ppsspp.ts` output.
 - `arena_tail_free_bytes`: unused tail capacity in the arena at report time. It does not include blocks held on free lists.
 - `arena_init_free_bytes`: PSP user partition max-free value observed when the arena initialized.
 - `arena_configured_bytes`: requested `POCKETJS_ARENA_BYTES`; `0` means the production default of max free memory minus margin.
+- `drawlist_checksum`: deterministic FNV-1a-style checksum over the `u32` draw-list words returned by `ui.draw()` across the measured window. It uses seed `0xcbf29ce484222325` and prime `0x100000001b3`; use it to report rendered-workload differences, not to claim identical input event sequences.
 
 ## Memory Scan Fields
 
@@ -37,3 +38,5 @@ Read this reference when explaining `tools/bench-ppsspp.ts` output.
 ## Caveats
 
 PPSSPP measurements are deterministic and useful for regression tracking, but they are not real PSP hardware proof. The arena high-water is a practical capacity requirement for this allocator, not a precise live-object heap profile, because freed blocks remain reserved in size-class free lists.
+
+The core Rust harness is a deterministic synthetic workload profile. PSP uses the existing `stats` app as a representative workload with corresponding phases. The two journeys are not byte-identical event sequences; reports must state any drawlist checksum difference explicitly.

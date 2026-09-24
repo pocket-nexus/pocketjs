@@ -83,6 +83,10 @@ pub unsafe fn set_current(index: usize) {
     CURRENT = index;
 }
 
+pub unsafe fn current_output() -> &'static str {
+    APPS[CURRENT].output
+}
+
 pub unsafe fn resume() -> Option<usize> {
     usize::try_from(RESUME).ok()
 }
