@@ -15,8 +15,8 @@
 //!     use clipped, tinted atlas TEX_QUADs. Unscaled cells whose top-left leaves the
 //!     screen range or whose cell leaves the clip rect are dropped;
 //!   - rounded corners and shadows are emitted for axis-aligned boxes as
-//!     deterministic alpha-covered RECT spans; rotated rounded boxes degrade
-//!     to square fills;
+//!     deterministic alpha-covered RECT spans; rotated rounded boxes use a
+//!     screen-space RECT-span approximation (corners stay visible);
 //!   - opacity multiplies vertex alpha down the subtree (wrong on overlap,
 //!     per docs/DESIGN.md punt list).
 
@@ -2369,6 +2369,127 @@ impl<'a> Walker<'a> {
         }
     }
 
+    /// Scanline-fill a convex screen-space polygon as AA RECT spans.
+    /// Used for rotated rounded boxes (the GPU/software backends both render
+    /// RECTs; this keeps corners visible instead of degrading to a square).
+    fn emit_rotated_flat_polygon(
+        &self,
+        dl: &mut DrawList,
+        pts: &[(f32, f32)],
+        color: u32,
+        clip: &Clip,
+    ) {
+        if pts.len() < 3 {
+            return;
+        }
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        for &(x, y) in pts {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        if max_x <= min_x || max_y <= min_y {
+            return;
+        }
+        let clip_x0 = floorf(clip.x0) as i32;
+        let clip_x1 = ceilf(clip.x1) as i32;
+        let iy0 = floorf(min_y).max(floorf(clip.y0)).max(0.0) as i32;
+        let iy1 = ceilf(max_y).min(ceilf(clip.y1)).min(self.screen.1) as i32;
+        if iy1 <= iy0 {
+            return;
+        }
+        for py in iy0..iy1 {
+            let y = py as f32 + 0.5;
+            let mut xs = [0.0f32; 32];
+            let mut n = 0usize;
+            for i in 0..pts.len() {
+                let (ax, ay) = pts[i];
+                let (bx, by) = pts[(i + 1) % pts.len()];
+                if (ay <= y && y < by) || (by <= y && y < ay) {
+                    if n < xs.len() {
+                        xs[n] = ax + (y - ay) * (bx - ax) / (by - ay);
+                        n += 1;
+                    }
+                }
+            }
+            if n >= 2 {
+                let mut lo = xs[0];
+                let mut hi = xs[0];
+                for &x in &xs[1..n] {
+                    lo = lo.min(x);
+                    hi = hi.max(x);
+                }
+                let y_coverage = pixel_interval_coverage(py, min_y, max_y);
+                self.emit_fractional_span(
+                    dl,
+                    &Fill::Flat(color),
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y,
+                    py,
+                    1,
+                    lo,
+                    hi,
+                    clip_x0,
+                    clip_x1,
+                    y_coverage,
+                );
+            }
+        }
+    }
+
+    fn emit_rotated_rounded_box(
+        &self,
+        dl: &mut DrawList,
+        world: &Affine,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        radius: f32,
+        color: u32,
+        clip: &Clip,
+    ) {
+        let w = x1 - x0;
+        let h = y1 - y0;
+        if w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        let r = radius.min(w * 0.5).min(h * 0.5);
+        if r <= 0.0 {
+            self.emit_box(dl, world, x0, y0, x1, y1, Fill::Flat(color), clip);
+            return;
+        }
+
+        let mut pts = Vec::with_capacity(24);
+        let steps = 4usize;
+        let arc = |cx: f32, cy: f32, a0: f32, a1: f32, pts: &mut Vec<(f32, f32)>| {
+            for i in 1..steps {
+                let t = i as f32 / steps as f32;
+                let a = (a0 + (a1 - a0) * t) * (PI / 180.0);
+                pts.push((cx + r * cosf(a), cy + r * sinf(a)));
+            }
+        };
+
+        pts.push((x0 + r, y0));
+        pts.push((x1 - r, y0));
+        arc(x1 - r, y0 + r, -90.0, 0.0, &mut pts);
+        pts.push((x1, y0 + r));
+        pts.push((x1, y1 - r));
+        arc(x1 - r, y1 - r, 0.0, 90.0, &mut pts);
+        pts.push((x1 - r, y1));
+        pts.push((x0 + r, y1));
+        arc(x0 + r, y1 - r, 90.0, 180.0, &mut pts);
+        pts.push((x0, y1 - r));
+        pts.push((x0, y0 + r));
+        arc(x0 + r, y0 + r, 180.0, 270.0, &mut pts);
+
+        let screen: Vec<(f32, f32)> = pts.iter().map(|&(x, y)| world.apply(x, y)).collect();
+        self.emit_rotated_flat_polygon(dl, &screen, color, clip);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn emit_rounded_box(
         &mut self,
@@ -2382,7 +2503,15 @@ impl<'a> Walker<'a> {
         fill: Fill,
         clip: &Clip,
     ) {
-        if radius <= 0.0 || !world.is_axis_aligned() {
+        if radius <= 0.0 {
+            self.emit_box(dl, world, x0, y0, x1, y1, fill, clip);
+            return;
+        }
+        if !world.is_axis_aligned() {
+            if let Fill::Flat(color) = fill {
+                self.emit_rotated_rounded_box(dl, world, x0, y0, x1, y1, radius, color, clip);
+                return;
+            }
             self.emit_box(dl, world, x0, y0, x1, y1, fill, clip);
             return;
         }
