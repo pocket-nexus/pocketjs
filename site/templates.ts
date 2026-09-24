@@ -7,12 +7,12 @@ const GH = "https://github.com/pocket-stack/pocketjs";
 const DISCORD = "https://discord.gg/cTce4eXzSK";
 const X_URL = "https://x.com/pocket_js";
 export const SITE_URL = "https://pocketjs.dev";
-export const SITE_TITLE = "PocketJS · JavaScript UI runtime";
+export const SITE_TITLE = "PocketJS · Create on every screen you love";
 export const SITE_DESC =
-  "PocketJS is a portable application runtime that turns modern component code into native pixels across radically different hardware. Solid, Vue Vapor and Octane components compile to one native tree that a Rust core lays out and draws, with no DOM, CSS engine or WebView underneath.";
+  "Create on every screen you love. Build apps and games with familiar JavaScript components, from handhelds and desktops to embedded screens.";
 // Shared by the standalone homepage and every page rendered through renderPage().
 export const SITE_FOOTER_DESC =
-  "A portable application runtime that turns modern component code into native pixels, carried to radically different hardware by a compact native core.";
+  "Create on every screen you love. A small runtime for apps and games on handhelds, desktops, and embedded devices.";
 export const SITE_FOOTER_DESC_SLOT = "{{SITE_FOOTER_DESC}}";
 export const OG_IMAGE_URL = `${SITE_URL}/og-image.png`;
 
