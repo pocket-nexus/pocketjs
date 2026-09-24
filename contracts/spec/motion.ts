@@ -1,8 +1,10 @@
 // Fused motion state: the contract between a native motion driver and an app.
 //
 // The native driver owns sampling, calibration and sensor fusion and publishes
-// one MotionState per estimate. Applications receive fused state only, never
-// accelerometer, gyroscope or magnetometer readings.
+// one MotionState per estimate, including the angle conveniences it derives
+// from its core members. Applications receive fused state only, never
+// accelerometer, gyroscope or magnetometer readings, and the runtime reads the
+// state without computing on it.
 //
 // Vectors use the device frame of W3C DeviceMotionEvent and Android: +x toward
 // the right edge, +y toward the top edge, +z out of the screen. World frames
@@ -40,6 +42,13 @@ export interface MotionOrientationEstimate {
   /** Increments whenever the driver re-establishes the reference frame. */
   epoch: number;
 }
+export interface MotionPairEstimate { value: readonly [number, number]; quality: MotionQualityId }
+export interface MotionAnglesEstimate {
+  value: readonly [number, number, number];
+  quality: MotionQualityId;
+  referenceFrame: MotionReferenceFrameId;
+  epoch: number;
+}
 export interface MotionHeadingEstimate {
   /** Degrees clockwise from north, [0, 360). */
   value: number;
@@ -71,21 +80,34 @@ export interface MotionState {
    * lies closer to the horizontal plane, projected onto it. Geomagnetic level.
    */
   heading?: MotionHeadingEstimate;
+  /**
+   * Derived from gravityDirection: the clockwise rotation in degrees,
+   * (-180, 180], that keeps content upright. The driver marks it unreliable
+   * while the screen lies near horizontal, where the direction is undefined.
+   */
+  screenRotation?: MotionScalarEstimate;
+  /** Derived from gravityDirection: W3C DeviceOrientation beta and gamma in degrees. */
+  tilt?: MotionPairEstimate;
+  /**
+   * Derived from orientation: W3C DeviceOrientation alpha, beta and gamma
+   * (intrinsic Z-X'-Y'') in degrees, in the orientation's frame and epoch.
+   */
+  angles?: MotionAnglesEstimate;
 }
 
 type Metadata = "quality" | "referenceFrame" | "epoch" | "timestamp";
 interface MotionValueSpec {
   readonly id: number;
   readonly level: MotionLevelName;
-  /** Derived values are computed by the runtime from a core member. */
-  readonly source?: "gravityDirection" | "orientation";
+  /** The core member a driver derives this convenience value from. */
+  readonly derivedFrom?: "gravityDirection" | "orientation";
   readonly components: readonly string[];
   readonly metadata: readonly Metadata[];
 }
 
 /**
- * Values an app can subscribe to. Core values mirror MotionState members;
- * derived values are conveniences the runtime computes from them.
+ * Values an app can subscribe to, one per MotionState member. Derived values
+ * are conveniences the driver computes from a core member.
  */
 export const MOTION_VALUES = {
   gravityDirection: { id: 0, level: "gravity", components: ["x", "y", "z"], metadata: ["quality", "timestamp"] },
@@ -95,11 +117,11 @@ export const MOTION_VALUES = {
   orientation: { id: 4, level: "inertial", components: ["w", "x", "y", "z"], metadata: ["quality", "referenceFrame", "epoch", "timestamp"] },
   heading: { id: 5, level: "geomagnetic", components: ["degrees", "accuracy"], metadata: ["quality", "referenceFrame", "timestamp"] },
   /** CSS rotation (clockwise, degrees in (-180, 180]) that keeps content upright. */
-  screenRotation: { id: 6, level: "gravity", source: "gravityDirection", components: ["degrees"], metadata: ["quality", "timestamp"] },
+  screenRotation: { id: 6, level: "gravity", derivedFrom: "gravityDirection", components: ["degrees"], metadata: ["quality", "timestamp"] },
   /** W3C DeviceOrientation beta and gamma, in degrees. */
-  tilt: { id: 7, level: "gravity", source: "gravityDirection", components: ["beta", "gamma"], metadata: ["quality", "timestamp"] },
+  tilt: { id: 7, level: "gravity", derivedFrom: "gravityDirection", components: ["beta", "gamma"], metadata: ["quality", "timestamp"] },
   /** W3C DeviceOrientation alpha, beta and gamma (intrinsic Z-X'-Y''), in degrees. */
-  angles: { id: 8, level: "inertial", source: "orientation", components: ["alpha", "beta", "gamma"], metadata: ["quality", "referenceFrame", "epoch", "timestamp"] },
+  angles: { id: 8, level: "inertial", derivedFrom: "orientation", components: ["alpha", "beta", "gamma"], metadata: ["quality", "referenceFrame", "epoch", "timestamp"] },
 } as const satisfies Record<string, MotionValueSpec>;
 export type MotionValueName = keyof typeof MOTION_VALUES;
 export const MOTION_METADATA_TYPES = { quality: "u8", referenceFrame: "u8", epoch: "u32", timestamp: "u64" } as const;
@@ -113,9 +135,6 @@ export function motionValueParameters(name: MotionValueName): { name: string; ty
   ];
 }
 
-/** Below this screen-plane gravity component (sin 10 degrees) screenRotation is unreliable. */
-export const SCREEN_ROTATION_MIN_PLANAR = 0.17364817766693033;
-
 export interface MotionSample {
   components: number[];
   quality: MotionQualityId;
@@ -124,60 +143,23 @@ export interface MotionSample {
   timestamp: number;
 }
 
-const f32 = Math.fround;
-const DEGREES = 180 / Math.PI;
-const lower = (quality: MotionQualityId, bound: MotionQualityId) => Math.min(quality, bound) as MotionQualityId;
-
-function screenRotation(g: readonly number[]): number {
-  return f32(Math.atan2(-g[0]!, -g[1]!) * DEGREES);
-}
-
-function tilt(g: readonly number[]): [number, number] {
-  const [ux, uy, uz] = [-g[0]!, -g[1]!, -g[2]!];
-  const facing = uz >= 0 ? 1 : -1;
-  return [f32(Math.atan2(uy, facing * Math.sqrt(ux * ux + uz * uz)) * DEGREES), f32(Math.atan2(-facing * ux, facing * uz) * DEGREES)];
-}
-
-/** The W3C DeviceOrientation worked example over the device-to-world matrix. */
-function angles(q: readonly number[]): [number, number, number] {
-  const [w, x, y, z] = q as [number, number, number, number];
-  const r12 = 2 * (x * y - w * z), r22 = 1 - 2 * (x * x + z * z), r32 = 2 * (y * z + w * x);
-  const r31 = 2 * (x * z - w * y), r33 = 1 - 2 * (x * x + y * y), r11 = 1 - 2 * (y * y + z * z), r21 = 2 * (x * y + w * z);
-  const asin = (value: number) => Math.asin(Math.min(1, Math.max(-1, value)));
-  const flip = (beta: number) => beta + (beta >= 0 ? -Math.PI : Math.PI);
-  let alpha: number, beta: number, gamma: number;
-  if (r33 > 0) { alpha = Math.atan2(-r12, r22); beta = asin(r32); gamma = Math.atan2(-r31, r33); }
-  else if (r33 < 0) { alpha = Math.atan2(r12, -r22); beta = flip(-asin(r32)); gamma = Math.atan2(r31, -r33); }
-  else if (r31 > 0) { alpha = Math.atan2(-r12, r22); beta = asin(r32); gamma = -Math.PI / 2; }
-  else if (r31 < 0) { alpha = Math.atan2(r12, -r22); beta = flip(-asin(r32)); gamma = -Math.PI / 2; }
-  else { alpha = Math.atan2(r21, r11); beta = r32 > 0 ? Math.PI / 2 : -Math.PI / 2; gamma = 0; }
-  if (alpha < 0) alpha += 2 * Math.PI;
-  return [f32(alpha * DEGREES), f32(beta * DEGREES), f32(gamma * DEGREES)];
-}
-
-/**
- * One value of a state as a handler sees it, or undefined when it is
- * unavailable or below `minQuality`. Derived values inherit their source's
- * metadata; engines compute them in f64 and round once to f32.
- */
+/** One value as a handler sees it, or undefined when it is absent or below `minQuality`. */
 export function sampleMotion(state: MotionState, name: MotionValueName, minQuality: number = MotionQuality.Unreliable): MotionSample | undefined {
   const at = (components: number[], quality: MotionQualityId, referenceFrame: MotionReferenceFrameId = MotionReferenceFrame.Device, epoch = 0): MotionSample | undefined =>
     quality === MotionQuality.Unavailable || quality < minQuality ? undefined : { components, quality, referenceFrame, epoch, timestamp: state.timestamp };
-  const gravity = state.gravityDirection, orientation = state.orientation;
   switch (name) {
-    case "gravityDirection": case "linearAcceleration": case "rotationRate": {
+    case "gravityDirection": case "linearAcceleration": case "rotationRate": case "tilt": {
       const estimate = state[name];
       return estimate && at([...estimate.value], estimate.quality);
     }
-    case "inclination": return state.inclination && at([state.inclination.value], state.inclination.quality);
-    case "orientation": return orientation && at([...orientation.value], orientation.quality, orientation.referenceFrame, orientation.epoch);
-    case "heading": return state.heading && at([state.heading.value, state.heading.accuracy], state.heading.quality, state.heading.referenceFrame);
-    case "screenRotation": {
-      if (!gravity) return undefined;
-      const [gx, gy] = gravity.value, planar = Math.sqrt(gx * gx + gy * gy);
-      return at([screenRotation(gravity.value)], planar < SCREEN_ROTATION_MIN_PLANAR ? lower(gravity.quality, MotionQuality.Unreliable) : gravity.quality);
+    case "inclination": case "screenRotation": {
+      const estimate = state[name];
+      return estimate && at([estimate.value], estimate.quality);
     }
-    case "tilt": return gravity && at(tilt(gravity.value), gravity.quality);
-    case "angles": return orientation && at(angles(orientation.value), orientation.quality, orientation.referenceFrame, orientation.epoch);
+    case "orientation": case "angles": {
+      const estimate = state[name];
+      return estimate && at([...estimate.value], estimate.quality, estimate.referenceFrame, estimate.epoch);
+    }
+    case "heading": return state.heading && at([state.heading.value, state.heading.accuracy], state.heading.quality, state.heading.referenceFrame);
   }
 }

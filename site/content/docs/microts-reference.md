@@ -127,7 +127,7 @@ for the inputs the template uses.
 The host's native motion driver owns sampling, calibration and fusion, and
 publishes one `MotionState` per estimate. Vectors use the W3C DeviceMotion
 device frame: +x toward the right edge, +y toward the top edge, +z out of the
-screen. `contracts/spec/motion.ts` defines the state and its derived values.
+screen. `contracts/spec/motion.ts` defines the state.
 
 | `value` | Payload after the components | Components | Driver level |
 |---|---|---|---|
@@ -144,13 +144,16 @@ screen. `contracts/spec/motion.ts` defines the state and its derived values.
 Components are `f32`; `quality` and `referenceFrame` are `u8`, `epoch` is
 `u32` and `timestamp` is `u64` microseconds on the driver's clock. A handler
 declares the leading parameters it uses. `screenRotation`, `tilt` and
-`angles` are derived by the runtime from `gravityDirection` and
-`orientation` and carry their source's metadata.
+`angles` are conveniences the driver derives from `gravityDirection` and
+`orientation` and publishes with its own quality; `angles` carries the
+orientation's `referenceFrame` and `epoch`. The runtime passes every value
+through unchanged.
 
 **Quality gates delivery.** `MotionQuality` is `unavailable`, `unreliable`,
 `low`, `medium` or `high`; the handler fires on each frame whose state carries
-the value at `minQuality` or better, default `low`. `screenRotation` is
-`unreliable` while the screen lies within 10 degrees of horizontal.
+the value at `minQuality` or better, default `low`. A driver marks
+`screenRotation` `unreliable` while the screen lies near horizontal, where
+the upright direction is undefined.
 `referenceFrame` is `local` for an inertial driver, whose horizontal origin is
 arbitrary, and `magneticNorth` or `trueNorth` for a geomagnetic one. `epoch`
 increments whenever the driver re-establishes its reference frame.

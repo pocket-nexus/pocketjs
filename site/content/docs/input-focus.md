@@ -288,9 +288,9 @@ import { onMotion } from "@pocketjs/framework/lifecycle";
 onMotion("rotationRate", (x, y, z) => spin(x, y, z), { minQuality: "high" });
 ```
 
-Derived values (`screenRotation`, `tilt`, `angles`) are computed from the
-state with the same f64 arithmetic and single f32 rounding as native MicroTS
-builds. A fed state is validated and its numbers are rounded to f32.
+The driver also publishes the derived conveniences (`screenRotation`,
+`tilt`, `angles`) as members of the state; the runtime does not compute them.
+A fed state is validated and its numbers are rounded to f32.
 
 ## Per-frame hooks
 

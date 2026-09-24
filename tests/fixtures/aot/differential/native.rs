@@ -1,6 +1,6 @@
 mod generated;
 use generated::*;
-use microts::{Host, Input, MotionState, MotionVector, NodeId, Ui};
+use microts::{Host, Input, MotionPair, MotionScalar, MotionState, MotionVector, NodeId, Ui};
 use serde_json::{json, Value};
 use std::cell::{Cell, RefCell};
 
@@ -194,16 +194,18 @@ impl microts::HasMotion<2> for NativeHost {}
 /// A tape frame's motion estimate, as the host's driver would publish it.
 fn motion(value: &Value) -> Option<MotionState> {
     let state = value.as_object()?;
-    let vector = |name: &str| {
-        state.get(name).map_or(MotionVector::default(), |estimate| MotionVector {
-            value: [0, 1, 2].map(|index| estimate["value"][index].as_f64().unwrap() as f32),
-            quality: estimate["quality"].as_u64().unwrap() as u8,
-        })
-    };
+    let quality = |name: &str| state.get(name).map_or(0, |estimate| estimate["quality"].as_u64().unwrap() as u8);
+    let components = |name: &str, index: usize| state.get(name).map_or(0.0, |estimate| estimate["value"][index].as_f64().unwrap() as f32);
+    let vector = |name: &str| MotionVector { value: [0, 1, 2].map(|index| components(name, index)), quality: quality(name) };
     Some(MotionState {
         timestamp: state["timestamp"].as_u64().unwrap(),
         gravity_direction: vector("gravityDirection"),
         rotation_rate: vector("rotationRate"),
+        screen_rotation: MotionScalar {
+            value: state.get("screenRotation").map_or(0.0, |estimate| estimate["value"].as_f64().unwrap() as f32),
+            quality: quality("screenRotation"),
+        },
+        tilt: MotionPair { value: [0, 1].map(|index| components("tilt", index)), quality: quality("tilt") },
         ..MotionState::default()
     })
 }

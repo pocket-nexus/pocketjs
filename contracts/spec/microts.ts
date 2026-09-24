@@ -1,6 +1,6 @@
 // MicroTS's admitted vocabulary, shared by the compiler and both runtimes.
 import { NODE_TYPE, PROP, PROP_VALUE_KIND, VALUE_KIND } from "./spec.ts";
-import { MOTION_LEVELS, MOTION_MIN_QUALITIES, MOTION_VALUES, MotionLevel, MotionQuality, MotionReferenceFrame, SCREEN_ROTATION_MIN_PLANAR, motionValueParameters, type MotionValueName } from "./motion.ts";
+import { MOTION_LEVELS, MOTION_MIN_QUALITIES, MOTION_VALUES, MotionLevel, MotionQuality, MotionReferenceFrame, motionValueParameters, type MotionValueName } from "./motion.ts";
 
 export const MICROTS_NUMERIC_TYPES = [
   "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64",
@@ -150,7 +150,6 @@ export function generateMicroTsRust(): string {
   const constant = (name: string) => name.replace(/[A-Z]/g, c => "_" + c).toUpperCase();
   for (const [name, spec] of Object.entries(MOTION_VALUES)) lines.push(`    pub const ${constant(name)}: u8 = ${spec.id};`);
   lines.push(`    pub const VALUES: usize = ${Object.keys(MOTION_VALUES).length};`, `    pub const VALUE_LEVELS: [u8; VALUES] = [${Object.values(MOTION_VALUES).map(spec => MOTION_LEVELS[spec.level]).join(", ")}];`);
-  lines.push(`    pub const SCREEN_ROTATION_MIN_PLANAR: f64 = ${SCREEN_ROTATION_MIN_PLANAR};`);
   for (const [module, table] of [["level", MotionLevel], ["quality", MotionQuality], ["reference_frame", MotionReferenceFrame]] as const) {
     lines.push(`    pub mod ${module} {`);
     for (const [name, id] of Object.entries(table)) lines.push(`        pub const ${constant(name).replace(/^_/, "")}: u8 = ${id};`);

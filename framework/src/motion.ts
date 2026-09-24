@@ -26,6 +26,9 @@ function quality(value: unknown, member: string): MotionQualityId {
 function referenceFrame(value: unknown, member: string): MotionReferenceFrameId {
   return FRAMES.includes(value as number) ? value as MotionReferenceFrameId : fail(`${member}.referenceFrame`, `a MotionReferenceFrame id (${FRAMES.join(", ")})`);
 }
+function epoch(value: unknown, member: string): number {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 0xffffffff ? value as number : fail(`${member}.epoch`, "a u32");
+}
 function components<N extends number>(value: unknown, member: string, length: N): number[] {
   if (!Array.isArray(value) || value.length !== length) fail(`${member}.value`, `${length} numbers`);
   return value.map((component, index) => f32(component, `${member}.value[${index}]`));
@@ -48,14 +51,21 @@ export function __copyMotionState(state: MotionState): MotionState {
     const value = estimate(state, member);
     if (value) out[member] = { value: components(value.value, member, 3) as [number, number, number], quality: quality(value.quality, member) };
   }
-  const inclination = estimate(state, "inclination");
-  if (inclination) out.inclination = { value: f32(inclination.value, "inclination.value"), quality: quality(inclination.quality, "inclination") };
+  for (const member of ["inclination", "screenRotation"] as const) {
+    const value = estimate(state, member);
+    if (value) out[member] = { value: f32(value.value, `${member}.value`), quality: quality(value.quality, member) };
+  }
+  const tilt = estimate(state, "tilt");
+  if (tilt) out.tilt = { value: components(tilt.value, "tilt", 2) as [number, number], quality: quality(tilt.quality, "tilt") };
   const orientation = estimate(state, "orientation");
   if (orientation) {
-    const epoch = orientation.epoch as number;
-    if (!Number.isInteger(epoch) || epoch < 0 || epoch > 0xffffffff) fail("orientation.epoch", "a u32");
     out.orientation = { value: components(orientation.value, "orientation", 4) as [number, number, number, number], quality: quality(orientation.quality, "orientation"),
-      referenceFrame: referenceFrame(orientation.referenceFrame, "orientation"), epoch };
+      referenceFrame: referenceFrame(orientation.referenceFrame, "orientation"), epoch: epoch(orientation.epoch, "orientation") };
+  }
+  const angles = estimate(state, "angles");
+  if (angles) {
+    out.angles = { value: components(angles.value, "angles", 3) as [number, number, number], quality: quality(angles.quality, "angles"),
+      referenceFrame: referenceFrame(angles.referenceFrame, "angles"), epoch: epoch(angles.epoch, "angles") };
   }
   const heading = estimate(state, "heading");
   if (heading) out.heading = { value: f32(heading.value, "heading.value"), accuracy: f32(heading.accuracy, "heading.accuracy"),

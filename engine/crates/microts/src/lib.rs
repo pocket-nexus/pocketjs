@@ -26,7 +26,8 @@ pub use input::{ButtonLatch, Dispatch, DispatchCursor, DispatchFn, EventSink, di
 pub use model::{Cmd, NodeSlot, Ready, RequestId, TaskId};
 pub use model_regions::{CommandQueue, ModelPhase, ModelRegions, New};
 pub use motion::{
-    MotionHeading, MotionOrientation, MotionSample, MotionScalar, MotionState, MotionVector,
+    MotionAngles, MotionHeading, MotionOrientation, MotionPair, MotionSample, MotionScalar,
+    MotionState, MotionVector,
 };
 pub use pocketjs_core;
 pub use ui::{Input, NodeId, StyleId, Ui};

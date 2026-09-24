@@ -119,7 +119,6 @@ pub mod motion {
     pub const ANGLES: u8 = 8;
     pub const VALUES: usize = 9;
     pub const VALUE_LEVELS: [u8; VALUES] = [1, 1, 2, 2, 2, 3, 1, 1, 2];
-    pub const SCREEN_ROTATION_MIN_PLANAR: f64 = 0.17364817766693033;
     pub mod level {
         pub const GRAVITY: u8 = 1;
         pub const INERTIAL: u8 = 2;

@@ -99,7 +99,7 @@ describe("Vue Vapor ActionHandler", () => {
     ) => unknown;
     const marker = setup({}, { attrs: { value: "screenRotation", "min-quality": "medium", onUpdate: () => (...payload: number[]) => calls.push(payload) }, slots: {} });
     insertNode(rootMirror, marker as NodeMirror);
-    const at = (timestamp: number, quality: 2 | 3): MotionState => ({ timestamp, gravityDirection: { value: [-1, 0, 0], quality } });
+    const at = (timestamp: number, quality: 2 | 3): MotionState => ({ timestamp, screenRotation: { value: 90, quality } });
     runFrameHooks(0, undefined, undefined, undefined, at(1, 2));
     runFrameHooks(0, undefined, undefined, undefined, at(2, 3));
     runFrameHooks(0);
