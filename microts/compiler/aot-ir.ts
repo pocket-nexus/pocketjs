@@ -52,7 +52,7 @@ export type AotHandler = (
 export interface AotMemo { id: number; expression: AotExpr }
 export interface AotStyleBinding { prop: number; name: string; value: AotExpr; memo: number }
 export type AotNode =
-  | { kind: "input"; id: number; input: { kind: "button"; name: string; button: number; latched: boolean } | { kind: "axis"; name: string; axis: number }; active: AotExpr; handler: AotHandler; children: AotNode[]; loc: SourceLocation }
+  | { kind: "input"; id: number; input: { kind: "button"; name: string; button: number; latched: boolean } | { kind: "axis"; name: string; axis: number } | { kind: "motion"; name: string; value: number; minQuality: number }; active: AotExpr; handler: AotHandler; children: AotNode[]; loc: SourceLocation }
   | { kind: "element"; id: number; tag: "View" | "Text" | "Image"; style: number; dynamicStyle?: AotMemo; props: AotStyleBinding[]; text?: { parts: (string | AotExpr)[]; memo: number }; focusable: boolean; debugName?: string; src?: string; ref?: string; events: { name: string; handler: AotHandler }[]; children: AotNode[]; loc: SourceLocation }
   | { kind: "if"; id: number; branches: { condition?: AotExpr; children: AotNode[] }[]; loc: SourceLocation }
   | { kind: "for"; id: number; source: AotExpr; item: string; index?: string; itemType: AotType; key: AotExpr; children: AotNode[]; loc: SourceLocation }
@@ -77,7 +77,7 @@ export interface AotProgram {
   diagnostics: AotDiagnostic[];
   model?: import("./aot-model-ir.ts").ModelProgram;
   modelProtocol?: true;
-  demands?: { buttons: number[]; axes: number[]; capabilities: string[] };
+  demands?: { buttons: number[]; axes: number[]; motion?: number[]; capabilities: string[] };
 }
 /** Keep model bodies off the serializable view boundary. */
 export function attachAotModel(program: AotProgram, model: import("./aot-model-ir.ts").ModelProgram): void {

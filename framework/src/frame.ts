@@ -7,6 +7,7 @@
 import { batch, createSignal, onCleanup, useContext, type Accessor } from "solid-js";
 import { __resetAnalog } from "./analog.ts";
 import { __beginAxisFrame, __endAxisFrame, __resetAxisInput, __axisDelta, RelativeAxis, type RelativeAxisId, type AxisDelta } from "./relative-axis.ts";
+import { __beginMotionFrame, __endMotionFrame, __motionReader, __resetMotionInput, type MotionMinQualityName, type MotionPayload, type MotionState, type MotionValueName } from "./motion.ts";
 import type { i32 } from "./numeric-microts.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
@@ -31,12 +32,14 @@ export function resetFrameHooks(): void {
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
   __resetAxisInput();
+  __resetMotionInput();
   resetLifecycleHooks();
 }
 
-export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void): void {
+export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void, motion?: MotionState | null): void {
   __beginAxisFrame(axisDeltas);
   try {
+    __beginMotionFrame(motion);
     // Freeze registration before any callback can mount another handler.
     const frameCallbacks = [...callbacks];
     const placed = [...placedCallbacks];
@@ -69,7 +72,7 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
       reactModelRegions();
     });
     flushLifecycleHooks();
-  } finally { __endAxisFrame(); }
+  } finally { __endAxisFrame(); __endMotionFrame(); }
 }
 
 function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => void {
@@ -93,6 +96,19 @@ export function onAxisDelta(axis: RelativeAxisId, callback: (delta: i32) => void
     if (delta === 0) return;
     const active = typeof options.active === "function" ? options.active() : options.active ?? true;
     if (active) callback(delta);
+  }, placement);
+}
+
+export interface MotionOptions { active?: boolean | (() => boolean); minQuality?: MotionMinQualityName }
+
+/** Fires once per frame whose motion state carries `value` at `minQuality` or better. */
+export function onMotion<V extends MotionValueName>(value: V, callback: (...payload: MotionPayload<V>) => void, options: MotionOptions = {}, placement?: NodeMirror): () => void {
+  const read = __motionReader(value, options.minQuality);
+  return registerFrame(() => {
+    const payload = read();
+    if (!payload) return;
+    const active = typeof options.active === "function" ? options.active() : options.active ?? true;
+    if (active) (callback as (...payload: number[]) => void)(...payload);
   }, placement);
 }
 export interface ButtonPressOptions {

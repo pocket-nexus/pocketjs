@@ -55,10 +55,10 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
     finalize(c.nodes);
     for (const prop of c.props) if (prop.type.kind === "style" && typeof prop.default === "string") prop.default = prop.default === "" ? -1 : styles.ids[prop.default]!;
   });
-  const buttons = new Set<number>(), axes = new Set<number>(), visitedComponents = new Set<string>();
+  const buttons = new Set<number>(), axes = new Set<number>(), motion = new Set<number>(), visitedComponents = new Set<string>();
   function demands(nodes: AotNode[]): void {
     for (const node of nodes) {
-      if (node.kind === "input") { if (node.input.kind === "button") buttons.add(node.input.button); else axes.add(node.input.axis); demands(node.children); }
+      if (node.kind === "input") { if (node.input.kind === "button") buttons.add(node.input.button); else if (node.input.kind === "axis") axes.add(node.input.axis); else motion.add(node.input.value); demands(node.children); }
       else if (node.kind === "component") {
         node.slots.forEach(slot => demands(slot.children));
         if (!visitedComponents.has(node.component)) { visitedComponents.add(node.component); demands(components.find(c => c.name === node.component)!.nodes); }
@@ -68,5 +68,5 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
     }
   }
   demands(components.find(c => c.name === root)!.nodes);
-  return { version: 1, root: root, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), capabilities: axes.size ? ["relative-axis"] : [] } };
+  return { version: 1, root: root, components, types: mapper.declarations, styles: { records: styles.records, anims: styles.anims, ids: styles.ids, bytes: [...styles.bin], usedFontSlots: styles.usedFontSlots }, diagnostics: mapper.diagnostics, demands: { buttons: [...buttons].sort((a, b) => a - b), axes: [...axes].sort((a, b) => a - b), motion: [...motion].sort((a, b) => a - b), capabilities: [...(axes.size ? ["relative-axis"] : []), ...(motion.size ? ["motion"] : [])] } };
 }

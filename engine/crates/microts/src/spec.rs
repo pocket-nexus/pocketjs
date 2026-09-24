@@ -107,6 +107,37 @@ pub mod relative_axis {
     pub const PER_DEGREE: i32 = 1000;
     pub const PER_TURN: i32 = 360000;
 }
+pub mod motion {
+    pub const GRAVITY_DIRECTION: u8 = 0;
+    pub const INCLINATION: u8 = 1;
+    pub const LINEAR_ACCELERATION: u8 = 2;
+    pub const ROTATION_RATE: u8 = 3;
+    pub const ORIENTATION: u8 = 4;
+    pub const HEADING: u8 = 5;
+    pub const SCREEN_ROTATION: u8 = 6;
+    pub const TILT: u8 = 7;
+    pub const ANGLES: u8 = 8;
+    pub const VALUES: usize = 9;
+    pub const VALUE_LEVELS: [u8; VALUES] = [1, 1, 2, 2, 2, 3, 1, 1, 2];
+    pub mod level {
+        pub const GRAVITY: u8 = 1;
+        pub const INERTIAL: u8 = 2;
+        pub const GEOMAGNETIC: u8 = 3;
+    }
+    pub mod quality {
+        pub const UNAVAILABLE: u8 = 0;
+        pub const UNRELIABLE: u8 = 1;
+        pub const LOW: u8 = 2;
+        pub const MEDIUM: u8 = 3;
+        pub const HIGH: u8 = 4;
+    }
+    pub mod reference_frame {
+        pub const DEVICE: u8 = 0;
+        pub const LOCAL: u8 = 1;
+        pub const MAGNETIC_NORTH: u8 = 2;
+        pub const TRUE_NORTH: u8 = 3;
+    }
+}
 pub const UNIT_TYPES: &[(&str, &str)] = &[
     ("Px", "f32"),
     ("Ms", "f32"),
@@ -163,4 +194,5 @@ pub const STYLE_UNITS: &[(&str, &str)] = &[
 pub const INPUT_ELEMENTS: &[(&str, &[&str], &[&str])] = &[
     ("ActionHandler", &["button", "active", "latched"], &["press"]),
     ("AxisHandler", &["axis", "active"], &["delta"]),
+    ("MotionHandler", &["value", "minQuality", "active"], &["update"]),
 ];

@@ -1,10 +1,11 @@
 /** Native AOT demand diagnostics over declared board input profiles. */
 import { BTN } from "../../contracts/spec/spec.ts";
 import { MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
+import { MOTION_LEVELS, MOTION_VALUES } from "../../contracts/spec/motion.ts";
 import { listAotInputProfiles, loadAotInputProfile, type PocketButtonName, type AotInputProfile } from "./aot-input-profiles.ts";
 import type { AotProgram } from "./aot-ir.ts";
 
-export interface NativeBoardIssue { code: "VB102" | "VB103" | "VB104" | "VB105"; severity: "error" | "warning"; message: string }
+export interface NativeBoardIssue { code: "VB102" | "VB103" | "VB104" | "VB105" | "VB106"; severity: "error" | "warning"; message: string }
 export interface NativeBoardAdmission { board: string; chip: string; ok: boolean; issues: NativeBoardIssue[] }
 const pocketButtons = new Map<number, PocketButtonName>([
   [BTN.CIRCLE, "a"], [BTN.CROSS, "b"], [BTN.SELECT, "select"], [BTN.START, "start"],
@@ -13,6 +14,7 @@ const pocketButtons = new Map<number, PocketButtonName>([
 ]);
 const buttonName = (mask: number) => Object.entries(BTN).find(([, value]) => value === mask)?.[0] ?? `0x${mask.toString(16)}`;
 const axisName = (id: number) => Object.entries(MICROTS_RELATIVE_AXES).find(([, value]) => value === id)?.[0] ?? String(id);
+const motionValue = (id: number) => Object.entries(MOTION_VALUES).find(([, spec]) => spec.id === id);
 
 export function admitAotBoard(program: Pick<AotProgram, "demands">, board: AotInputProfile): NativeBoardAdmission {
   const issues: NativeBoardIssue[] = [];
@@ -26,6 +28,11 @@ export function admitAotBoard(program: Pick<AotProgram, "demands">, board: AotIn
   for (const axis of program.demands?.axes ?? []) {
     if (board.axes.includes(axis)) continue;
     issues.push({ code: "VB104", severity: "error", message: `${board.board} has no relative-axis adapter for ${axisName(axis)}` });
+  }
+  for (const id of program.demands?.motion ?? []) {
+    const [name, spec] = motionValue(id) ?? [String(id), undefined];
+    if (spec && board.motion >= MOTION_LEVELS[spec.level]) continue;
+    issues.push({ code: "VB106", severity: "error", message: `${board.board} has no ${spec?.level ?? "known"} motion driver for ${name}` });
   }
   if (program.demands?.capabilities.includes("touch") && !board.touch) {
     issues.push({ code: "VB105", severity: "error", message: `${board.board} has no touch adapter` });

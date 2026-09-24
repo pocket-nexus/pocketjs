@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { BTN } from "../../contracts/spec/spec.ts";
 import { MICROTS_BUILTINS, MICROTS_RELATIVE_AXES, MICROTS_STYLE_PROPS } from "../../contracts/spec/microts.ts";
+import { MOTION_DEFAULT_MIN_QUALITY, MOTION_MIN_QUALITIES, MOTION_VALUES, motionEvent } from "./aot-motion.ts";
 import { BOOL, I32, STRING, sameType, type AotComponent, type AotEvent, type AotExpr, type AotHandler, type AotNode, type AotProgram, type AotType, type SourceLocation } from "./aot-ir.ts";
 import { createTypeEnvironment, fail, location, typeName, TypeMapper } from "./aot-types.ts";
 import { displayable, expression, narrowed, numeric, requireType, type ExpressionContext } from "./aot-expressions.ts";
@@ -16,7 +17,7 @@ import { hasJsxEntity, JSX_ENTITY_DIAGNOSTIC, normalizeJsxText } from "./aot-jsx
 
 const COMPONENTS = "@pocketjs/framework/solid/components", STD = "@pocketjs/framework/solid/std", INPUT = "@pocketjs/framework/input", LIFECYCLE = "@pocketjs/framework/solid/lifecycle";
 const SOLID = new Set(["Show", "Switch", "Match", "useContext", "mergeProps", "createMemo"]);
-const HOSTS = new Set(["View", "Text", "Image", "ActionHandler", "AxisHandler", "For"]);
+const HOSTS = new Set(["View", "Text", "Image", "ActionHandler", "AxisHandler", "MotionHandler", "For"]);
 const outside = "Only the factory call, context reads, derived expressions and the JSX return are allowed";
 type Jsx = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment;
 interface Import { name: string; sourceName: string; module: string; node: ts.ImportSpecifier }
@@ -341,7 +342,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
           return { kind: "assign", id: component.handlerCount++, name: target, value: { kind: "binding", name: "$event", scope: "event", type: binding.type, loc: loc(source) }, loc: loc(source) };
         }
         const fn = hctx.functions.get(source.text);
-        if (!fn || fn.parameters.length && (fn.parameters.length !== event?.parameters.length || fn.parameters.some((p, i) => !sameType(p.type, event.parameters[i]!.type)))) fail(loc(source), "A bare handler names a view-model function matching its event payload");
+        if (!fn || fn.parameters.length && (fn.parameters.length > (event?.parameters.length ?? 0) || fn.parameters.some((p, i) => !sameType(p.type, event!.parameters[i]!.type)))) fail(loc(source), "A bare handler names a view-model function matching its event payload");
         fn.handler = true;
         return { kind: "call", id: component.handlerCount++, expression: { kind: "call", name: source.text, target: "vm", type: fn.returns, arguments: fn.parameters.map((p, i) => ({ kind: "binding", name: i === 0 ? "$event" : `$event${i}`, scope: "event", type: p.type, loc: loc(source) })), loc: loc(source) }, loc: loc(source) };
       }
@@ -512,11 +513,21 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
           if (render.parameters.length === 2 && (render.parameters[0]!.name as ts.Identifier).text === (render.parameters[1]!.name as ts.Identifier).text) fail(loc(render), "For item and index names must differ");
           return [{ kind: "for", id, source, item: itemName, ...(render.parameters.length === 2 ? { index: indexName } : {}), itemType: source.type.element, key, children: content(unwrap(render.body), row), loc: loc(node) }];
         }
-        if (imp?.module === COMPONENTS && (kind === "ActionHandler" || kind === "AxisHandler")) {
-          only(attributes, kind === "ActionHandler" ? ["button", "active", "latched", "onPress"] : ["axis", "active", "onDelta"], kind);
+        if (imp?.module === COMPONENTS && (kind === "ActionHandler" || kind === "AxisHandler" || kind === "MotionHandler")) {
+          only(attributes, kind === "ActionHandler" ? ["button", "active", "latched", "onPress"] : kind === "AxisHandler" ? ["axis", "active", "onDelta"] : ["value", "minQuality", "active", "onUpdate"], kind);
           const id = component.nodeCount++, activeAttribute = attributes.get("active"), active = activeAttribute ? attrValue(activeAttribute, ctx, BOOL) : { kind: "literal" as const, value: true, type: BOOL, loc: loc(node) }; requireType(active, BOOL, ctx);
-          const event = attributes.get(kind === "ActionHandler" ? "onPress" : "onDelta"); if (!event) fail(loc(node), `${kind} requires its event handler`);
-          const action = handler(attrExpr(event), ctx, kind === "AxisHandler" ? { name: "delta", parameters: [{ name: "delta", type: I32 }] } : undefined);
+          const event = attributes.get(kind === "ActionHandler" ? "onPress" : kind === "AxisHandler" ? "onDelta" : "onUpdate"); if (!event) fail(loc(node), `${kind} requires its event handler`);
+          let motion: { name: keyof typeof MOTION_VALUES; minQuality: keyof typeof MOTION_MIN_QUALITIES } | undefined;
+          if (kind === "MotionHandler") {
+            const staticName = (name: string, table: object, message: string) => {
+              const attribute = attributes.get(name); if (!attribute) return undefined; const value = attrValue(attribute, ctx, STRING);
+              if (value.kind !== "literal" || typeof value.value !== "string" || !(value.value in table)) fail(loc(attribute), message);
+              return value.value;
+            };
+            const value = staticName("value", MOTION_VALUES, `value must be a static motion value: ${Object.keys(MOTION_VALUES).join(", ")}`); if (!value) fail(loc(node), "MotionHandler requires a static value");
+            motion = { name: value as keyof typeof MOTION_VALUES, minQuality: (staticName("minQuality", MOTION_MIN_QUALITIES, `minQuality must be a static literal: ${Object.keys(MOTION_MIN_QUALITIES).join(", ")}`) ?? MOTION_DEFAULT_MIN_QUALITY) as keyof typeof MOTION_MIN_QUALITIES };
+          }
+          const action = handler(attrExpr(event), ctx, kind === "AxisHandler" ? { name: "delta", parameters: [{ name: "delta", type: I32 }] } : motion ? motionEvent(motion.name) : undefined);
           let input: Extract<AotNode,{kind:"input"}>["input"];
           if (kind === "ActionHandler") {
             const attribute = attributes.get("button"); if (!attribute) fail(loc(node), "ActionHandler requires button={BTN.NAME}"); const button = attrExpr(attribute);
@@ -524,6 +535,8 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
             const value = BTN[button.name.text as keyof typeof BTN]; if (value === undefined) fail(loc(button), `Unknown BTN member ${button.name.text}`);
             if (attributes.get("latched")?.initializer) fail(loc(attributes.get("latched")!), "latched accepts only the bare attribute");
             input = { kind: "button", name: button.name.text, button: value, latched: attributes.has("latched") };
+          } else if (motion) {
+            input = { kind: "motion", name: motion.name, value: MOTION_VALUES[motion.name].id, minQuality: MOTION_MIN_QUALITIES[motion.minQuality] };
           } else {
             const attribute = attributes.get("axis"); if (!attribute) fail(loc(node), "AxisHandler requires a static axis"); const axis = attrValue(attribute, ctx, STRING);
             if (axis.kind !== "literal" || typeof axis.value !== "string" || !(axis.value in MICROTS_RELATIVE_AXES)) fail(loc(attribute), "axis must be the static literal primary or secondary");

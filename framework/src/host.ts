@@ -18,6 +18,7 @@ import {
   type PropName,
 } from "../../contracts/spec/spec.ts";
 import type { AxisDelta } from "./relative-axis.ts";
+import type { MotionState } from "./motion.ts";
 
 // Replaced by tools/build.ts for manifest-driven builds. `typeof` keeps
 // legacy/test bundles valid until they opt into a ResolvedBuildPlan.
@@ -417,14 +418,16 @@ export function reportAppAction(name: string, value: number): void {
 // Frame hookup
 // ---------------------------------------------------------------------------
 // Every host drives frames the same way: once per vblank/rAF tick it calls
-// `globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?)` with the
+// `globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?, motion?)` with the
 // PSP button bitmask (spec BTN)
 // and, when the host has an analog stick, the packed nub value
 // (x << 8 | y, each axis 0..255, 128 = center — spec ANALOG_CENTER). Hosts
 // without a stick pass one argument; the runtime defaults to center, so every
 // pre-analog host, tape and golden is unchanged. index.ts composes input
 // edge-detection + the renderer's end-of-frame sweep into that entry point
-// via installFrameHandler.
+// via installFrameHandler. `motion` is the newest fused estimate the host's
+// motion driver published since the previous frame (contracts/spec/motion.ts);
+// null or absent means none, and a frame argument replaces a queued estimate.
 
 export function installFrameHandler(
   fn: (
@@ -435,6 +438,7 @@ export function installFrameHandler(
     touchSurfaces?: readonly number[],
     rightAnalog?: number,
     axisDeltas?: readonly AxisDelta[],
+    motion?: MotionState | null,
   ) => void,
 ): void {
   (
@@ -447,6 +451,7 @@ export function installFrameHandler(
         touchSurfaces?: readonly number[],
         rightAnalog?: number,
         axisDeltas?: readonly AxisDelta[],
+        motion?: MotionState | null,
       ) => void;
     }
   ).frame = fn;

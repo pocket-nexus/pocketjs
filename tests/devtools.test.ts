@@ -17,13 +17,15 @@ import { installHost, type Host, type HostOps } from "../framework/src/host.ts";
 import { render as publicRender } from "../framework/src/index.ts";
 import {
   expandTape,
+  expandTapeMotion,
   expandTapeTouch,
   expandTapeTouchSurfaces,
   fmt,
   type Tape,
 } from "../framework/src/devtools.ts";
 import { touches, __packTouch, __packTouchCancel } from "../framework/src/touch.ts";
-import { onFrame, rightAnalogRaw, rightAnalogX, rightAnalogY } from "../framework/src/lifecycle.ts";
+import { onFrame, onMotion, rightAnalogRaw, rightAnalogX, rightAnalogY } from "../framework/src/lifecycle.ts";
+import { feedMotionState, MotionQuality, type MotionState } from "../framework/src/input-api.ts";
 import {
   createComponent,
   createTextNode,
@@ -637,4 +639,64 @@ test("right stick records, replays independently, and centers absent legacy samp
   expect(samples).toEqual([[0, 0, 0x8080], [1, 0, 0xff80], [0, -1, 0x8000], [0, 0, 0x8181]]);
   api.replay({ v: 1, frames: 1, masks: [[0, 1]] }); run(0xff80);
   expect(samples.at(-1)).toEqual([0, 0, 0x8080]);
+});
+
+describe("tape v5 motion track", () => {
+  const frameMotion = (motion?: MotionState | null) =>
+    (globalThis as { frame?: (...args: unknown[]) => void }).frame!(0, undefined, undefined, undefined, undefined, undefined, undefined, motion);
+  const at = (timestamp: number, x: number): MotionState => ({ timestamp, gravityDirection: { value: [x, -0.8, 0], quality: MotionQuality.High } });
+
+  test("a motion-free session keeps its version and omits the track", () => {
+    mountApp(() => View({}));
+    frameMotion(); frameMotion(null);
+    const tape = (globalThis as any).__pocketDevtools.dumpTape() as Tape;
+    expect(tape.v).toBe(1);
+    expect("motion" in tape).toBe(false);
+  });
+
+  test("delivered estimates record sparsely, round-trip through JSON, and replay without live leaks", () => {
+    const seen: string[] = [];
+    mountApp(() => {
+      onFrame(() => seen.push("|"));
+      onMotion("gravityDirection", (x, y, z, quality, timestamp) => seen.push(`${x}@${timestamp}`));
+      return View({});
+    });
+    frameMotion();
+    frameMotion(at(10, 0.6)); // f32-rounded before it is recorded
+    feedMotionState(at(20, 0.5)); frameMotion(); // a queued estimate is recorded like a frame argument
+    feedMotionState(at(25, 0.25)); frameMotion(null); // an explicit null drops the queue
+    const live = seen.splice(0);
+    expect(live.join("")).toBe(`||${Math.fround(0.6)}@10|0.5@20|`);
+    const api = (globalThis as any).__pocketDevtools;
+    const tape = JSON.parse(JSON.stringify(api.dumpTape())) as Tape;
+    expect(tape.v).toBe(5);
+    expect(tape.motion).toEqual([[1, { timestamp: 10, gravityDirection: { value: [Math.fround(0.6), Math.fround(-0.8), 0], quality: MotionQuality.High } }],
+      [2, { timestamp: 20, gravityDirection: { value: [0.5, Math.fround(-0.8), 0], quality: MotionQuality.High } }]]);
+    expect(expandTapeMotion(tape).map(state => state?.timestamp)).toEqual([undefined, 10, 20, undefined]);
+    api.replay(tape);
+    feedMotionState(at(99, 0.1));
+    for (let i = 0; i < 4; i++) frameMotion(at(98, 0.2));
+    expect(seen.splice(0).join("")).toBe(live.join(""));
+    frameMotion(at(97, 0.5)); // exhausted: live again
+    expect(seen.splice(0).join("")).toBe("|0.5@97");
+    api.replay({ v: 4, frames: 1, masks: [[0, 1]], axes: [] } satisfies Tape);
+    feedMotionState(at(96, 0.5)); frameMotion(at(95, 0.5));
+    expect(seen.splice(0).join("")).toBe("|");
+    expect(() => expandTapeMotion({ v: 5, frames: 1, masks: [[0, 1]], motion: [[0, { timestamp: -5 }]] })).toThrow("timestamp");
+  });
+
+  test("zeros reach handlers unsigned, so a JSON replay matches the live session", () => {
+    const seen: number[][] = [];
+    mountApp(() => {
+      onMotion("angles", (...payload) => seen.push(payload));
+      return View({});
+    });
+    frameMotion({ timestamp: -0, angles: { value: [-0, 0, -0], quality: MotionQuality.High, referenceFrame: -0 as 0, epoch: -0 } });
+    const live = seen.splice(0);
+    expect(live).toEqual([[0, 0, 0, MotionQuality.High, 0, 0, 0]]);
+    const api = (globalThis as any).__pocketDevtools;
+    api.replay(JSON.parse(JSON.stringify(api.dumpTape())) as Tape);
+    frameMotion();
+    expect(seen.splice(0)).toEqual(live);
+  });
 });

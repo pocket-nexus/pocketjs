@@ -43,7 +43,7 @@ const snapshot = () => {
 };
 export function check() {
   const frames = [];
-  for (const sample of tape) { globalThis.frame(sample.buttons, 0, [], [], [], 0, [{ axis: 0, delta: sample.axis ?? 0 }]); wasm.tick(); frames.push(snapshot()); }
+  for (const sample of tape) { globalThis.frame(sample.buttons, 0, [], [], [], 0, [{ axis: 0, delta: sample.axis ?? 0 }], sample.motion ?? null); wasm.tick(); frames.push(snapshot()); }
   dispose(); frames.push(snapshot());
   return frames;
 }

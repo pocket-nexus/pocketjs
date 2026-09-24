@@ -10,6 +10,7 @@ pub mod host;
 pub mod input;
 pub mod model;
 pub mod model_regions;
+pub mod motion;
 pub mod spec;
 mod ui;
 
@@ -20,10 +21,14 @@ pub use display::{
     DisplayValue, TemplateOptionDisplay, TextMemo, MicroTsDisplay, display, formatted_eq,
     template_option_display,
 };
-pub use host::{CoreHost, HasButton, HasButtons, HasRelativeAxis, HasTouch, Host};
+pub use host::{CoreHost, HasButton, HasButtons, HasMotion, HasRelativeAxis, HasTouch, Host};
 pub use input::{ButtonLatch, Dispatch, DispatchCursor, DispatchFn, EventSink, dispatch_fn};
 pub use model::{Cmd, NodeSlot, Ready, RequestId, TaskId};
 pub use model_regions::{CommandQueue, ModelPhase, ModelRegions, New};
+pub use motion::{
+    MotionAngles, MotionHeading, MotionOrientation, MotionPair, MotionSample, MotionScalar,
+    MotionState, MotionVector,
+};
 pub use pocketjs_core;
 pub use ui::{Input, NodeId, StyleId, Ui};
 

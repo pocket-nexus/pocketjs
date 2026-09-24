@@ -1,5 +1,6 @@
 // MicroTS's admitted vocabulary, shared by the compiler and both runtimes.
 import { NODE_TYPE, PROP, PROP_VALUE_KIND, VALUE_KIND } from "./spec.ts";
+import { MOTION_LEVELS, MOTION_MIN_QUALITIES, MOTION_VALUES, MotionLevel, MotionQuality, MotionReferenceFrame, motionValueParameters, type MotionValueName } from "./motion.ts";
 
 export const MICROTS_NUMERIC_TYPES = [
   "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "usize", "f32", "f64",
@@ -15,6 +16,7 @@ export type MicroTsUnitType = keyof typeof MICROTS_UNIT_TYPES;
 export const MICROTS_INPUT_ELEMENTS = {
   ActionHandler: { attributes: ["button", "active", "latched"], events: ["press"] },
   AxisHandler: { attributes: ["axis", "active"], events: ["delta"] },
+  MotionHandler: { attributes: ["value", "minQuality", "active"], events: ["update"] },
 } as const;
 
 /** CSS hexadecimal RGB(A) syntax converted to core's ABGR bits. */
@@ -122,7 +124,8 @@ export function generateMicroTsComponentTypes(): string {
     if (element === "View") lines.push('export type MicroTsViewProps = MicroTsViewBaseProps & ({ focusable: true; onPress?: () => void } | { focusable?: false; onPress?: never });');
   }
   lines.push('export interface MicroTsActionHandlerProps { button: number; active?: MicroTsValue<boolean>; latched?: boolean; onPress?: (pressed: number, buttons: number) => void }',
-    'export interface MicroTsAxisHandlerProps { axis: "primary" | "secondary"; active?: MicroTsValue<boolean>; onDelta?: (delta: i32) => void }');
+    'export interface MicroTsAxisHandlerProps { axis: "primary" | "secondary"; active?: MicroTsValue<boolean>; onDelta?: (delta: i32) => void }',
+    `export type MicroTsMotionHandlerProps = { active?: MicroTsValue<boolean>; minQuality?: ${Object.keys(MOTION_MIN_QUALITIES).map(name => JSON.stringify(name)).join(" | ")} } & (${(Object.keys(MOTION_VALUES) as MotionValueName[]).map(name => `\n  | { value: ${JSON.stringify(name)}; onUpdate?: (${motionValueParameters(name).map(p => `${p.name}: ${p.type}`).join(", ")}) => void }`).join("")});`);
   return lines.join("\n") + "\n";
 }
 
@@ -143,7 +146,16 @@ export function generateMicroTsRust(): string {
   lines.push("];");
   lines.push("pub mod relative_axis {");
   for (const [name, id] of Object.entries(MICROTS_RELATIVE_AXES)) lines.push(`    pub const ${name.toUpperCase()}: u8 = ${id};`);
-  lines.push(`    pub const PER_DEGREE: i32 = ${RelativeAxisUnits.PerDegree};`, `    pub const PER_TURN: i32 = ${RelativeAxisUnits.PerTurn};`, "}", "pub const UNIT_TYPES: &[(&str, &str)] = &[");
+  lines.push(`    pub const PER_DEGREE: i32 = ${RelativeAxisUnits.PerDegree};`, `    pub const PER_TURN: i32 = ${RelativeAxisUnits.PerTurn};`, "}", "pub mod motion {");
+  const constant = (name: string) => name.replace(/[A-Z]/g, c => "_" + c).toUpperCase();
+  for (const [name, spec] of Object.entries(MOTION_VALUES)) lines.push(`    pub const ${constant(name)}: u8 = ${spec.id};`);
+  lines.push(`    pub const VALUES: usize = ${Object.keys(MOTION_VALUES).length};`, `    pub const VALUE_LEVELS: [u8; VALUES] = [${Object.values(MOTION_VALUES).map(spec => MOTION_LEVELS[spec.level]).join(", ")}];`);
+  for (const [module, table] of [["level", MotionLevel], ["quality", MotionQuality], ["reference_frame", MotionReferenceFrame]] as const) {
+    lines.push(`    pub mod ${module} {`);
+    for (const [name, id] of Object.entries(table)) lines.push(`        pub const ${constant(name).replace(/^_/, "")}: u8 = ${id};`);
+    lines.push("    }");
+  }
+  lines.push("}", "pub const UNIT_TYPES: &[(&str, &str)] = &[");
   for (const [name, unit] of Object.entries(MICROTS_UNIT_TYPES)) lines.push(`    (${JSON.stringify(name)}, ${JSON.stringify(unit.base)}),`);
   lines.push("];", "pub const STYLE_UNITS: &[(&str, &str)] = &[");
   for (const [name, prop] of Object.entries(MICROTS_STYLE_PROPS)) if (prop.unit) lines.push(`    (${JSON.stringify(name)}, ${JSON.stringify(prop.unit)}),`);

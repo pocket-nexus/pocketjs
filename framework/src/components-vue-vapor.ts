@@ -10,8 +10,9 @@ import {
 import type { JSX as SolidJSX } from "solid-js";
 import { ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./animation.ts";
-import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onFrame, type ButtonPressOptions } from "./frame-vue-vapor.ts";
+import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame-vue-vapor.ts";
 import { MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
+import { MOTION_DEFAULT_MIN_QUALITY, type MotionMinQualityName, type MotionValueName } from "./motion.ts";
 import { BTN } from "./input-api.ts";
 import { pushFocusGrid, pushFocusScope, type FocusGridOptions, type FocusScopeOptions } from "./input.ts";
 import { getOverlayRoot } from "./overlay.ts";
@@ -27,8 +28,8 @@ import {
   type NodeMirror,
 } from "./native-tree.ts";
 import { createRenderRoot, type RenderRoot } from "./renderer-vue-vapor.ts";
-import type { MicroTsViewProps, MicroTsTextProps, MicroTsImageProps, MicroTsAxisHandlerProps } from "./component-types-microts.ts";
-export type { MicroTsViewProps, MicroTsTextProps, MicroTsImageProps, MicroTsStyleProps, MicroTsFloatInput, MicroTsAxisHandlerProps, MicroTsActionHandlerProps, MicroTsIntegerInput, MicroTsValue } from "./component-types-microts.ts";
+import type { MicroTsViewProps, MicroTsTextProps, MicroTsImageProps, MicroTsAxisHandlerProps, MicroTsMotionHandlerProps } from "./component-types-microts.ts";
+export type { MicroTsViewProps, MicroTsTextProps, MicroTsImageProps, MicroTsStyleProps, MicroTsFloatInput, MicroTsAxisHandlerProps, MicroTsActionHandlerProps, MicroTsMotionHandlerProps, MicroTsIntegerInput, MicroTsValue } from "./component-types-microts.ts";
 
 export type { NodeMirror } from "./renderer-vue-vapor.ts";
 
@@ -404,6 +405,17 @@ export const AxisHandler = definePocketVueComponent((_props: AxisHandlerProps, {
   if (!(name in MICROTS_RELATIVE_AXES)) throw new Error(`Unknown relative axis ${String(name)}`);
   onAxisDelta(MICROTS_RELATIVE_AXES[name], delta => callbackOf<(delta: number) => void>(attrs.onDelta)?.(delta), {
     active: () => resolveActive(attrs.active),
+  }, marker);
+  return inputBlock(marker, slots);
+}, NO_FALLTHROUGH);
+
+export type MotionHandlerProps = MicroTsMotionHandlerProps & { children?: VNodeChild };
+export const MotionHandler = definePocketVueComponent((_props: MotionHandlerProps, { attrs, slots }: VaporCtx) => {
+  const marker = inputPlacement("motion");
+  const minQuality = valueOf(attrs.minQuality ?? attrs["min-quality"]) as MotionMinQualityName | undefined;
+  onMotion(valueOf(attrs.value) as MotionValueName, (...payload: number[]) => callbackOf<(...payload: number[]) => void>(attrs.onUpdate)?.(...payload), {
+    active: () => resolveActive(attrs.active),
+    minQuality: minQuality ?? MOTION_DEFAULT_MIN_QUALITY,
   }, marker);
   return inputBlock(marker, slots);
 }, NO_FALLTHROUGH);

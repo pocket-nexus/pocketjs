@@ -1,5 +1,5 @@
 import { createSignal, type Setter } from "solid-js";
-import type { i32 } from "@pocketjs/framework/solid/std";
+import type { f32, i32, u8, u64 } from "@pocketjs/framework/solid/std";
 import fixture from "./fixture.json";
 export interface Nested { id: string }
 export interface Item { id: string; label: string; children: Nested[] }
@@ -22,3 +22,5 @@ export function remove(): void { trace.push("remove:a"); setRows(rows().filter(r
 export function armRemoval(): void { trace.push("arm"); setRemoveNext(true); }
 export function restore(): void { trace.push("restore:a"); setRows([...rows(), structuredClone(fixture.rows[0]!)]); }
 export function adjust(delta: i32): void { trace.push("axis:" + delta); setAngle(angle() + delta); }
+export function upright(degrees: f32, quality: u8, timestamp: u64): void { trace.push("upright:" + degrees + ":" + quality + ":" + timestamp); }
+export function spin(x: f32, y: f32, z: f32): void { trace.push("spin:" + x + ":" + y + ":" + z); }
