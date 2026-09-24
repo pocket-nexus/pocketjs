@@ -493,8 +493,9 @@ pub const ANALOG_CENTER: u32 = 0x8080;
 
 /// AUDIO module boundary (contracts/spec/audio.ts — `globalThis.audio`).
 /// Credit-based PCM streaming; events batch to tick boundaries via poll().
-/// Frames consumed on virtual tick n at 60 ticks/s (the determinism
-/// contract): floor((n+1)*rate/60) - floor(n*rate/60).
+/// Frames consumed on virtual tick n at the realm's declared ticks/s hz
+/// (60 default — the determinism contract):
+/// floor((n+1)*rate/hz) - floor(n*rate/hz).
 pub mod audio {
     pub const OP_CREATE_STREAM: u8 = 1;
     pub const OP_DESTROY_STREAM: u8 = 2;

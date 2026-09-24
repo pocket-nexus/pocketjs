@@ -34,6 +34,26 @@ describe("audioFramesForTick", () => {
       }
     }
   });
+
+  test("zero drift holds at any declared realm rate", () => {
+    for (const ticksPerSecond of [90, 120, 240]) {
+      for (const rate of AUDIO_RATES) {
+        for (const start of [0, 1, 59, 600]) {
+          let sum = 0;
+          for (let t = start; t < start + ticksPerSecond; t++) {
+            sum += audioFramesForTick(rate, t, ticksPerSecond);
+          }
+          expect(sum).toBe(rate);
+        }
+        const ideal = rate / ticksPerSecond;
+        for (let t = 0; t < 2 * ticksPerSecond; t++) {
+          expect(
+            Math.abs(audioFramesForTick(rate, t, ticksPerSecond) - ideal),
+          ).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
 });
 
 // --- decodeWav (the audio:wav.* data-contract reference decoder) -----------
@@ -169,6 +189,38 @@ describe("WavPlayer x sim sink", () => {
       player2.pump();
       expect(sink2.pcmHash()).toBe(sink.pcmHash());
       expect(sink2.log).toEqual(sink.log);
+    } finally {
+      delete (globalThis as Record<string, unknown>).audio;
+    }
+  });
+
+  test("a declared-rate sink consumes the same PCM bytes, retimed", () => {
+    const run = (ticksPerSecond: number, ticks: number) => {
+      const sink = createSimAudioSink(ticksPerSecond);
+      (globalThis as Record<string, unknown>).audio = sink.ns;
+      const player = createWavPlayer();
+      const frames = 22050;
+      const data = new Int16Array(frames);
+      for (let i = 0; i < frames; i++) data[i] = (i % 2000) - 1000;
+      player.loadPcm({ sampleRate: 22050, channels: 1, frames, data });
+      player.play();
+      for (let t = 0; t < ticks; t++) {
+        player.pump();
+        sink.tick();
+      }
+      player.pump();
+      return { sink, player };
+    };
+    try {
+      // 1.5 virtual seconds at each rate: the whole 1 s track plus drain.
+      const at60 = run(60, 90);
+      const at120 = run(120, 180);
+      expect(at60.sink.consumedFrames()).toBe(22050);
+      expect(at120.sink.consumedFrames()).toBe(22050);
+      // The declared rate changes per-tick chunking, never the byte-stream.
+      expect(at120.sink.pcmHash()).toBe(at60.sink.pcmHash());
+      expect(at120.player.stats().underruns).toBe(0);
+      expect(at120.player.playing()).toBe(false);
     } finally {
       delete (globalThis as Record<string, unknown>).audio;
     }

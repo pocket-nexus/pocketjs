@@ -486,10 +486,14 @@ export function generateRust(): string {
   if (audioFramesForTick(22050, 0) !== 367 || audioFramesForTick(22050, 1) !== 368) {
     throw new Error("audioFramesForTick drifted from the pinned Bresenham formula");
   }
+  if (audioFramesForTick(22050, 0, 120) !== 183 || audioFramesForTick(22050, 1, 120) !== 184) {
+    throw new Error("audioFramesForTick drifted from the pinned Bresenham formula (declared rate)");
+  }
   put("/// AUDIO module boundary (contracts/spec/audio.ts — `globalThis.audio`).");
   put("/// Credit-based PCM streaming; events batch to tick boundaries via poll().");
-  put("/// Frames consumed on virtual tick n at 60 ticks/s (the determinism");
-  put("/// contract): floor((n+1)*rate/60) - floor(n*rate/60).");
+  put("/// Frames consumed on virtual tick n at the realm's declared ticks/s hz");
+  put("/// (60 default — the determinism contract):");
+  put("/// floor((n+1)*rate/hz) - floor(n*rate/hz).");
   put("pub mod audio {");
   for (const [name, v] of Object.entries(AUDIO_OP)) {
     put(`    pub const OP_${screaming(name)}: u8 = ${v};`);
