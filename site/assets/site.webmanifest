@@ -1,5 +1,5 @@
 {
-  "name": "PocketJS \u00b7 JavaScript UI runtime",
+  "name": "PocketJS \u00b7 Create on every screen you love",
   "short_name": "PocketJS",
   "description": "A UI runtime that keeps JSX, Tailwind and reactive state, then removes every layer below them.",
   "start_url": "/",

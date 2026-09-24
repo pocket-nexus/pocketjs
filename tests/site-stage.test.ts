@@ -83,9 +83,9 @@ test("homepage ships the four-chapter landing", () => {
   expect(home).toContain('class="hero-bg"');
   expect(home).toContain("/assets/pocketjs-demo-wall.mp4");
   expect(home).toContain("/assets/pocketjs-demo-wall.jpg");
-  expect(home).toContain("UI runtime for<br>every kind of<br>computer");
+  expect(home).toContain("Create on<br>every screen<br>you love");
   expect(home).toContain(
-    "PocketJS is a portable application runtime that turns modern component code into",
+    "Build apps and games for your favorite devices, from a PSP to your desktop.",
   );
   for (const file of ["site/home.html", "site/bake-demo-wall.ts", "site/content/blog/pocket-figma.md"]) {
     expect(readFileSync(ROOT + file, "utf8")).not.toContain("figma-psp-cover-zoom");
@@ -99,7 +99,7 @@ test("homepage ships the four-chapter landing", () => {
     expect(next).toBeGreaterThan(at);
     at = next;
   }
-  for (const verb of ["Modern DX", "Performance", "Architecture", "Ecosystem"]) {
+  for (const verb of ["Familiar tools", "Small footprint", "Replay every frame", "Made with PocketJS"]) {
     expect(home).toContain(`<span class="verb spectrum lit">${verb}</span>`);
   }
 
@@ -119,13 +119,13 @@ test("homepage ships the four-chapter landing", () => {
   // the orders-of-magnitude panel, revealed on scroll
   expect(home).toContain("data-scale");
   expect(home).toContain("iPhone 17 Pro Max");
-  expect(home).toContain("one part in 1536");
+  expect(home).toContain("1/1536");
   expect(home).toContain("magnified 384 times");
   expect(home).toContain('class="hist"');
   // The histogram carries the published run: 22 outcomes, 9/60, frame 144.
   expect(home).toContain("22 outcomes");
   expect(home).toContain("assertion 9/60");
-  expect(home).toContain("frame 144, every run, forever");
+  expect(home).toContain("frame 144 in all 60 runs");
 
   // Framework code tabs: Solid, Vue Vapor, Octane. No plain-Vue SFC tab.
   for (const label of ['data-sub="c1">Solid<', "Vue Vapor", "Octane"]) {
@@ -170,7 +170,7 @@ test("homepage ships the four-chapter landing", () => {
   // Project provenance stays in the footer; the hero carries the calls to action.
   expect(home).toContain("Pocket Lab");
   expect(home).toContain("Star on GitHub");
-  expect(home).toContain("See use cases");
+  expect(home).toContain("See what people make");
 
   // The /for/ pages are rendered with the shared landing chrome.
   const build0 = readFileSync(ROOT + "site/build.ts", "utf8");
@@ -231,7 +231,7 @@ test("every compatibility entry cites a receipt that resolves", () => {
   expect(readFileSync(ROOT + "site/assets/landing.js", "utf8")).toContain('[data-refs] a, .cgrid a');
 
   // Keeping the hardware bootable is its own project, without linking away.
-  expect(compat).toContain("Pocket Museum project repairs these machines");
+  expect(compat).toContain("Pocket Museum repairs and maintains the older machines");
 });
 
 test("Pocket Lab and Pocket Museum are not linked from the README or website", () => {
@@ -504,8 +504,8 @@ test("the icon family is rendered from one drawing and linked from every head", 
   }
   // Nothing links it, but iOS fetches this path from the root on its own.
   expect(build).toContain('"apple-touch-icon-precomposed.png"');
-  // The tab title says what this is.
-  expect(SITE_TITLE).toBe("PocketJS · JavaScript UI runtime");
+  // The tab title carries the homepage tagline.
+  expect(SITE_TITLE).toBe("PocketJS · Create on every screen you love");
 
   // The generator reads the one drawing and nothing else.
   const gen = readFileSync(ROOT + "tools/icons.ts", "utf8");
