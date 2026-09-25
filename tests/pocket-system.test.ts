@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  desktopNativeExtension,
   validateAndResolveBuildPlan,
   validateAndResolveSystemPlan,
 } from "@pocketjs/framework/manifest";
@@ -215,4 +216,21 @@ describe("Pocket System resolution", () => {
       );
     }
   });
+});
+
+
+test("native extensions survive System resolution and are rejected for web and system UI", async () => {
+  const packages = await packageInputs();
+  const app = packages.find(p => p.source === "apps/hero/pocket.json")!;
+  const hostExtension = desktopNativeExtension({ library: "apps/hero/libhero.dylib", sha256: "a".repeat(64), config: { level: 1 } });
+  const inputs = packages.map(p => p === app ? { ...p, hostExtension } : p);
+  const result = validateAndResolveSystemPlan(systemInput, { target: "macos-app", packages: inputs });
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.plan.applications.find(p => p.package === HERO)?.plan.hostExtension).toEqual(hostExtension);
+  expect(validateAndResolveSystemPlan(systemInput, { target: "web-app", packages: inputs }).ok).toBe(false);
+  expect(validateAndResolveBuildPlan(app.manifest, { target: "macos-app", role: "systemUI", hostExtension }).ok).toBe(false);
+  expect(() => desktopNativeExtension({ library: "../outside.so", sha256: "a".repeat(64) })).toThrow();
+  expect(() => desktopNativeExtension({ library: "apps/a.so", sha256: "a".repeat(64), config: "x".repeat(16385) })).toThrow();
+  const plain = validateAndResolveSystemPlan(systemInput, { target: "macos-app", packages });
+  if (result.ok && plain.ok) expect(result.plan.planHash).not.toBe(plain.plan.planHash);
 });

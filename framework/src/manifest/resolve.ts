@@ -1,3 +1,4 @@
+import { isDesktopNativeModule } from "./desktop-native.ts";
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
 import { deriveModality, modalityMisses } from "../../../contracts/spec/modality.ts";
@@ -424,6 +425,12 @@ export function resolveBuildPlan(
   if (request.hostExtension !== undefined && !isHostExtension(request.hostExtension)) {
     diagnostics.push({ code: "hostExtension.invalid", path: "/hostExtension",
       message: "host extension must carry a versioned, content-verified JSON payload" });
+  }
+  if (request.hostExtension?.kind === "desktop-native" &&
+      (request.hostExtension.version !== 1 || !["macos-app", "linux-app"].includes(request.target) ||
+       request.role === "systemUI" || !isDesktopNativeModule(request.hostExtension.payload))) {
+    diagnostics.push({ code: "hostExtension.desktopNative", path: "/hostExtension",
+      message: "desktop-native v1 requires a macOS/Linux application and a bounded package-relative module descriptor" });
   }
   const profile = registry.targets[request.target];
   if (!profile) {

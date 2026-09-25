@@ -8,9 +8,13 @@ struct AppInstance {
     generation: u64,
     package: SystemPackagePlan,
     surface_handle: u32,
-    surface: UiSurface,
-    guest: Guest,
-    offload: OffloadWorker,
+    surface: Option<UiSurface>,
+    guest: Option<Guest>,
+    offload: Option<OffloadWorker>,
+    native: Option<native::Instance>,
+    viewport: [u32; 2],
+    rect: [f32; 4],
+    input_active: bool,
     buttons: u32,
     visible: bool,
     focused: bool,
@@ -24,6 +28,10 @@ struct AppSupervisor {
     instances: Vec<AppInstance>,
     suppressed: HashSet<u32>,
     background_execution: String,
+    modules: native::Modules,
+    native_context: Option<(Arc<pocket3d::gpu::Gpu>, PathBuf)>,
+    captured: Option<u32>,
+    failures: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +81,10 @@ impl AppSupervisor {
                 instances: Vec::new(),
                 suppressed: HashSet::new(),
                 background_execution: "suspend".into(),
+                modules: native::Modules::default(),
+                native_context: None,
+                captured: None,
+                failures: Vec::new(),
             });
         };
         system.validate_for_host()?;
@@ -97,6 +109,10 @@ impl AppSupervisor {
             instances: Vec::new(),
             suppressed: HashSet::new(),
             background_execution: system.lifecycle.background_execution.clone(),
+            modules: native::Modules::default(),
+            native_context: None,
+            captured: None,
+            failures: Vec::new(),
         })
     }
 
@@ -115,31 +131,49 @@ impl AppSupervisor {
             .ok_or_else(|| anyhow!("unknown compositor surface handle {surface_handle}"))?;
         let plan = &entry.package.plan;
         let output = &plan.app.output;
-        let js_path = resolve_asset(None, output, "js")?;
-        let pak_path = resolve_asset(None, output, "pak")?;
-        let bundle = std::fs::read_to_string(&js_path)
-            .with_context(|| format!("reading {}", js_path.display()))?;
-        let pak =
-            std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
+        let (surface, guest, offload, native) = if let Some(extension) = &plan.host_extension {
+            let (gpu, root) = self
+                .native_context
+                .as_ref()
+                .context("native GPU context unavailable")?;
+            let instance = self.modules.open(
+                &extension.module()?,
+                root,
+                &entry.package.package,
+                gpu,
+                plan.viewport.logical,
+                plan.viewport.raster_density,
+            )?;
+            (None, None, None, Some(instance))
+        } else {
+            let js_path = resolve_asset(None, output, "js")?;
+            let pak_path = resolve_asset(None, output, "pak")?;
+            let bundle = std::fs::read_to_string(&js_path)
+                .with_context(|| format!("reading {}", js_path.display()))?;
+            let pak = std::fs::read(&pak_path)
+                .with_context(|| format!("reading {}", pak_path.display()))?;
 
-        let surface = UiSurface::new_with_density(
-            (
-                plan.viewport.logical[0] as f32,
-                plan.viewport.logical[1] as f32,
-            ),
-            plan.viewport.raster_density,
-        );
-        surface.set_identity(&plan.target.id, plan.target.host_abi);
-        surface.set_tick_rate(TICK_HZ as u32);
-        surface.feed_pak(&pak);
-        let guest = Guest::new()?;
-        surface.mount(&guest)?;
-        let offload = text_worker(pak);
-        offload.mount(&guest)?;
-        guest.eval(output, &bundle)?;
-        if !guest.has_frame() {
-            return Err(anyhow!("{output} evaluated but installed no frame()"));
-        }
+            let surface = UiSurface::new_with_density(
+                (
+                    plan.viewport.logical[0] as f32,
+                    plan.viewport.logical[1] as f32,
+                ),
+                plan.viewport.raster_density,
+            );
+            surface.set_identity(&plan.target.id, plan.target.host_abi);
+            surface.set_tick_rate(TICK_HZ as u32);
+            surface.feed_pak(&pak);
+            let guest = Guest::new()?;
+            surface.mount(&guest)?;
+            let offload = text_worker(pak);
+            offload.mount(&guest)?;
+            guest.eval(output, &bundle)?;
+            if !guest.has_frame() {
+                return Err(anyhow!("{output} evaluated but installed no frame()"));
+            }
+
+            (Some(surface), Some(guest), Some(offload), None)
+        };
 
         self.next_generation += 1;
         self.instances.push(AppInstance {
@@ -149,6 +183,10 @@ impl AppSupervisor {
             surface,
             guest,
             offload,
+            native,
+            viewport: plan.viewport.logical,
+            rect: [0.0; 4],
+            input_active: false,
             buttons: 0,
             visible: false,
             focused: false,
@@ -227,6 +265,27 @@ impl AppSupervisor {
                 .find(|instance| instance.surface_handle == frame.handle)
             {
                 instance.visible = true;
+                instance.rect = frame.full;
+                if instance.state != AppInstanceState::Failed
+                    && let Some(native) = &mut instance.native
+                {
+                    let size = [
+                        frame.full[2].round().clamp(1.0, 4096.0) as u32,
+                        frame.full[3].round().clamp(1.0, 4096.0) as u32,
+                    ];
+                    if size != instance.viewport {
+                        instance.viewport = size;
+                        if let Err(error) = native.event(pocket_desktop_native::Event {
+                            kind: pocket_desktop_native::RESIZE,
+                            x: size[0] as f32,
+                            y: size[1] as f32,
+                            ..Default::default()
+                        }) {
+                            instance.state = AppInstanceState::Failed;
+                            failures.push((instance.package.package.clone(), error.to_string()));
+                        }
+                    }
+                }
                 instance.focused = frame.focused;
                 instance.order = frame.order;
                 if !frame.focused {
@@ -249,7 +308,105 @@ impl AppSupervisor {
                 };
             }
         }
+        // Release held native input when focus or visibility is lost.
+        for instance in &mut self.instances {
+            if instance.input_active
+                && !instance.focused
+                && instance.state != AppInstanceState::Failed
+                && let Some(native) = &mut instance.native
+            {
+                let _ = native.event(pocket_desktop_native::Event {
+                    kind: pocket_desktop_native::RESET,
+                    ..Default::default()
+                });
+            }
+        }
+        for instance in &mut self.instances {
+            instance.input_active = instance.focused;
+        }
+        if self.captured.is_some_and(|handle| {
+            !self.instances.iter().any(|i| {
+                i.surface_handle == handle
+                    && i.focused
+                    && i.visible
+                    && i.state == AppInstanceState::Running
+            })
+        }) {
+            self.captured = None;
+        }
+        failures.append(&mut self.failures);
         failures
+    }
+
+    fn native_focus(&self) -> Option<usize> {
+        self.instances
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| {
+                i.focused && i.visible && i.native.is_some() && i.state == AppInstanceState::Running
+            })
+            .max_by_key(|(_, i)| i.order)
+            .map(|(index, _)| index)
+    }
+    fn native_event(&mut self, event: pocket_desktop_native::Event) -> bool {
+        let Some(index) = self.native_focus() else {
+            return false;
+        };
+        let instance = &mut self.instances[index];
+        if let Err(error) = instance.native.as_mut().unwrap().event(event) {
+            instance.state = AppInstanceState::Failed;
+            self.failures
+                .push((instance.package.package.clone(), error.to_string()));
+        }
+        true
+    }
+    fn reset_native(&mut self) {
+        self.captured = None;
+        for i in &mut self.instances {
+            if i.state != AppInstanceState::Failed
+                && let Some(native) = &mut i.native
+            {
+                let _ = native.event(pocket_desktop_native::Event {
+                    kind: pocket_desktop_native::RESET,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    fn native_pointer(&mut self, value: &Value) -> bool {
+        let Some(index) = self.native_focus() else {
+            return false;
+        };
+        let instance = &self.instances[index];
+        if value["package"]
+            .as_str()
+            .is_some_and(|id| id != instance.package.package)
+        {
+            return false;
+        }
+        let x = value["x"].as_f64().unwrap_or(-1.0) as f32 - instance.rect[0];
+        let y = value["y"].as_f64().unwrap_or(-1.0) as f32 - instance.rect[1];
+        if self.captured.is_none()
+            && value["d"] != false
+            && (x < 0.0 || y < 0.0 || x >= instance.rect[2] || y >= instance.rect[3])
+        {
+            return false;
+        }
+        if self.captured.is_none() && !value["b"].is_number() {
+            return false;
+        }
+        let down = value["d"].as_bool().unwrap_or(false);
+        if down && value["b"].is_number() && instance.native.as_ref().unwrap().pointer_lock() {
+            self.captured = Some(instance.surface_handle);
+        }
+        self.native_event(pocket_desktop_native::Event {
+            kind: pocket_desktop_native::POINTER,
+            x,
+            y,
+            down: u32::from(down),
+            button: value["b"].as_u64().unwrap_or(0) as u32,
+            ..Default::default()
+        })
     }
 
     /// Focus is a compositor fact. Route hardware-neutral buttons to the
@@ -295,13 +452,20 @@ impl AppSupervisor {
         let schedule = scheduled_app_instances(&facts);
         for index in schedule {
             let instance = &mut self.instances[index];
-            instance.offload.begin_frame();
-            if let Err(error) = instance.guest.frame(instance.buttons) {
+            let result = if let Some(native) = &mut instance.native {
+                native.tick()
+            } else {
+                instance.offload.as_mut().unwrap().begin_frame();
+                instance.guest.as_ref().unwrap().frame(instance.buttons)
+            };
+            if let Err(error) = result {
                 instance.state = AppInstanceState::Failed;
                 failures.push((instance.package.package.clone(), error.to_string()));
                 continue;
             }
-            instance.surface.tick();
+            if let Some(surface) = &instance.surface {
+                surface.tick();
+            }
         }
         failures
     }
@@ -312,7 +476,16 @@ impl AppSupervisor {
             if !instance.visible || instance.state == AppInstanceState::Failed {
                 continue;
             }
-            instance.surface.with_ui(|ui| {
+            if let Some(native) = &instance.native {
+                mix_app_instance_repaint_hash(
+                    &mut hash,
+                    instance.surface_handle,
+                    native.revision,
+                    instance.generation,
+                );
+                continue;
+            }
+            instance.surface.as_ref().unwrap().with_ui(|ui| {
                 let draw_hash = fnv1a64(&ui.draw().words) ^ instance.generation.rotate_left(23);
                 let raster_revision = ui.raster_revision();
                 mix_app_instance_repaint_hash(

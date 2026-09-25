@@ -1,3 +1,4 @@
+import type { HostExtension } from "./host-extension.ts";
 import {
   pocketSystemV1Schema,
   type BackgroundExecutionPolicy,
@@ -24,6 +25,7 @@ export interface SystemPackageInput {
   /** Must exactly match an applications.catalog[].manifest value. */
   readonly source: string;
   readonly manifest: unknown;
+  readonly hostExtension?: HostExtension;
 }
 
 export interface ResolveSystemRequest {
@@ -230,6 +232,7 @@ export function resolveSystemPlan(
       {
         target: request.target,
         role: isSystemUI ? "systemUI" : "application",
+        hostExtension: request.packages.find(item => item.source === entry.manifest)?.hostExtension,
       },
       registry,
     );

@@ -28,6 +28,7 @@ use winit::{
     window::{CursorIcon, Window, WindowId},
 };
 mod gpu;
+mod native;
 mod net;
 include!("plan.rs");
 include!("supervisor.rs");
@@ -46,6 +47,8 @@ enum Input {
     Pointer(Value),
     Resize(u32, u32),
     Button(u32, bool),
+    NativeKey(String, bool),
+    Relative(f32, f32),
     Reset,
     Quit,
 }
@@ -90,10 +93,11 @@ struct Runtime {
     script_mouse: bool,
     click_edge: bool,
     mouse_down: bool,
+    capture_sent: bool,
     wire: Option<net::SvcWire>,
 }
 impl Runtime {
-    fn boot(args: Args) -> Result<Self> {
+    fn boot(args: Args, gpu: Arc<pocket3d::gpu::Gpu>) -> Result<Self> {
         if args.native_text {
             return Err(anyhow!(
                 "text.layout.native is unavailable; use the portable text offload capability"
@@ -109,9 +113,22 @@ impl Runtime {
         surface.set_tick_rate(60);
         surface.set_svc_allowlist(args.companions.clone());
         surface.feed_pak(&pak);
-        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface)?;
+        let mut supervisor = AppSupervisor::new(args.system.as_ref(), &surface)?;
+        supervisor.native_context = Some((gpu, args.native_root.clone()));
         let guest = Guest::new()?;
         surface.mount(&guest)?;
+        if let Some(system) = &args.system {
+            let applications: Vec<Value> = system.applications.iter().map(|p| json!({
+                "package":p.package,"title":p.plan.app.title,"viewport":p.plan.viewport.logical,"native":p.plan.host_extension.is_some()
+            })).collect();
+            guest.eval(
+                "system-catalog",
+                &format!(
+                    "ui.__applications = {};",
+                    serde_json::to_string(&applications)?
+                ),
+            )?;
+        }
         let offload = text_worker(pak);
         offload.mount(&guest)?;
         guest.eval(&args.app, &source)?;
@@ -145,6 +162,7 @@ impl Runtime {
             script_mouse: false,
             click_edge: false,
             mouse_down: false,
+            capture_sent: false,
             wire,
         })
     }
@@ -155,13 +173,56 @@ impl Runtime {
         match input {
             Input::Quit => return Ok(false),
             Input::Reset => {
+                self.supervisor.reset_native();
                 self.buttons = 0;
                 for child in &mut self.supervisor.instances {
                     child.buttons = 0;
                 }
                 self.svc(json!({"t":"mouse","d":false}));
             }
+            Input::NativeKey(name, down) => {
+                if name == "escape" && down && self.supervisor.captured.is_some() {
+                    self.supervisor.reset_native();
+                } else {
+                    self.supervisor
+                        .native_event(pocket_desktop_native::Event::key(&name, down));
+                }
+            }
+            Input::Relative(x, y) => {
+                if self.supervisor.captured.is_some() {
+                    self.supervisor.native_event(pocket_desktop_native::Event {
+                        kind: pocket_desktop_native::MOTION,
+                        x,
+                        y,
+                        ..Default::default()
+                    });
+                }
+            }
             Input::Service(v) | Input::Pointer(v) => {
+                if v["t"] == "mouse"
+                    && self.supervisor.captured.is_some()
+                    && self.supervisor.native_pointer(&v)
+                {
+                    return Ok(true);
+                }
+                if self.supervisor.native_focus().is_some()
+                    && ((v["t"] == "key"
+                        && v["cmd"] != true
+                        && v["ctl"] != true
+                        && v["alt"] != true)
+                        || v["t"] == "ch")
+                {
+                    return Ok(true);
+                }
+                if v["t"] == "scroll"
+                    && self.supervisor.native_event(pocket_desktop_native::Event {
+                        kind: pocket_desktop_native::SCROLL,
+                        y: v["dy"].as_f64().unwrap_or(0.0) as f32,
+                        ..Default::default()
+                    })
+                {
+                    return Ok(true);
+                }
                 if self.args.editor && v["t"] == "mouse" {
                     if v["b"] == 2 {
                         return Ok(true);
@@ -202,7 +263,7 @@ impl Runtime {
                 self.surface.svc_push(line);
             }
         }
-        self.run_script();
+        self.run_script()?;
         if let Some((cps, start, dur)) = self.args.storm
             && self.ticks >= start
             && self.ticks < start + dur
@@ -232,10 +293,21 @@ impl Runtime {
             .into_iter()
             .chain(self.supervisor.tick())
         {
+            self.svc(json!({"t":"app-error","package":id,"error":error}));
             log::error!("AppInstance {id}: {error}");
         }
         let mut intents = Vec::new();
         for line in self.surface.svc_drain() {
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v["t"] == "native-pointer"
+            {
+                let was_captured = self.supervisor.captured.is_some();
+                self.supervisor.native_pointer(&v);
+                if !was_captured && self.supervisor.captured.is_some() {
+                    self.svc(json!({"t":"native-capture"}));
+                }
+                continue;
+            }
             if let Some(wire) = &self.wire {
                 wire.send(line);
                 continue;
@@ -252,6 +324,11 @@ impl Runtime {
                 }
             }
         }
+        let captured = self.supervisor.captured.is_some();
+        if captured != self.capture_sent {
+            self.capture_sent = captured;
+            intents.push(json!({"t":"pointer-lock", "locked":captured}));
+        }
         self.ticks += 1;
         Ok(intents)
     }
@@ -261,16 +338,29 @@ impl Runtime {
             ^ self.supervisor.visible_hash().rotate_left(17)
             ^ ((self.viewport.0 as u64) << 32 | self.viewport.1 as u64)
     }
-    fn run_script(&mut self) {
+    fn script_event(&mut self, value: Value) {
+        let _ = self.input(Input::Service(value));
+    }
+    fn run_script(&mut self) -> Result<()> {
         let tick = self.ticks;
         for ev in self.script.clone() {
             match ev {
+                ScriptEvent::NativeKey(t, name, down) if t == tick => {
+                    self.input(Input::NativeKey(name, down))?;
+                }
+                ScriptEvent::Motion(t, x, y) if t == tick => {
+                    self.input(Input::Relative(x, y))?;
+                }
                 ScriptEvent::Type(t, s) if t == tick => {
-                    self.svc(serde_json::json!({"t": "ch", "s": s}))
+                    self.script_event(serde_json::json!({"t": "ch", "s": s}))
                 }
                 ScriptEvent::Click(t, x, y) if t == tick => {
-                    self.svc(serde_json::json!({"t": "mouse", "x": x, "y": y, "d": true}));
-                    self.svc(serde_json::json!({"t": "mouse", "x": x, "y": y, "d": false}));
+                    self.script_event(
+                        serde_json::json!({"t": "mouse", "x": x, "y": y, "d": true, "b":0}),
+                    );
+                    self.script_event(
+                        serde_json::json!({"t": "mouse", "x": x, "y": y, "d": false, "b":0}),
+                    );
                     self.click_edge = true;
                 }
                 // Held for 6 ticks so edge-detected button handlers latch.
@@ -283,10 +373,10 @@ impl Runtime {
                 ScriptEvent::Mouse(t, x, y, kind) if t == tick => {
                     if kind == 'r' {
                         // Right click: press + release in one tick (b:2 lines).
-                        self.svc(serde_json::json!(
+                        self.script_event(serde_json::json!(
                             {"t": "mouse", "x": x, "y": y, "d": true, "b": 2, "sh": false}
                         ));
-                        self.svc(serde_json::json!(
+                        self.script_event(serde_json::json!(
                             {"t": "mouse", "x": x, "y": y, "d": false, "b": 2, "sh": false}
                         ));
                     } else {
@@ -301,19 +391,20 @@ impl Runtime {
                             }
                             _ => self.script_mouse,
                         };
-                        self.svc(serde_json::json!(
-                            {"t": "mouse", "x": x, "y": y, "d": down, "sh": false}
+                        self.script_event(serde_json::json!(
+                            {"t": "mouse", "x": x, "y": y, "d": down, "b": if kind == 'm' { Value::Null } else { json!(0) }, "sh": false}
                         ));
                     }
                 }
                 ScriptEvent::Key(t, ref k, cmd, alt, ctl, sh) if t == tick => {
-                    self.svc(serde_json::json!(
+                    self.script_event(serde_json::json!(
                         {"t": "key", "k": k, "cmd": cmd, "sh": sh, "alt": alt, "ctl": ctl}
                     ));
                 }
                 _ => {}
             }
         }
+        Ok(())
     }
 }
 fn run_runtime(
@@ -324,8 +415,8 @@ fn run_runtime(
     gpu: Arc<pocket3d::gpu::Gpu>,
 ) -> Result<()> {
     let available = Arc::new(AtomicBool::new(true));
-    let mut renderer = gpu::Renderer::new(gpu);
-    let mut runtime = Runtime::boot(args)?;
+    let mut renderer = gpu::Renderer::new(gpu.clone());
+    let mut runtime = Runtime::boot(args, gpu)?;
     let mut hash = None;
     let mut intents = Vec::new();
     let mut deadline = Instant::now();
@@ -345,6 +436,14 @@ fn run_runtime(
             return Err(anyhow!("Host intent queue exceeded budget"));
         }
         let next = runtime.hash();
+        if runtime
+            .args
+            .snapshots
+            .iter()
+            .any(|(tick, _)| *tick <= runtime.ticks)
+        {
+            hash = None;
+        }
         if (hash != Some(next) || !intents.is_empty())
             && let Some(permit) = OutputPermit::acquire(&available)
         {
@@ -361,6 +460,21 @@ fn run_runtime(
             } else {
                 None
             };
+            if let Some(target) = &target {
+                for (_, path) in runtime
+                    .args
+                    .snapshots
+                    .iter()
+                    .filter(|(tick, _)| *tick <= runtime.ticks)
+                {
+                    renderer.snapshot(target, path)?;
+                    log::info!("snapshot {} at tick {}", path.display(), runtime.ticks);
+                }
+                runtime
+                    .args
+                    .snapshots
+                    .retain(|(tick, _)| *tick > runtime.ticks);
+            }
             let rendered = target.is_some();
             let output = Output {
                 _permit: permit,
@@ -414,6 +528,7 @@ struct Host {
     fixed: bool,
     modifiers: ModifiersState,
     pointer: (f64, f64),
+    pointer_locked: bool,
     down: bool,
     ime: bool,
     clipboard: Option<arboard::Clipboard>,
@@ -462,6 +577,8 @@ impl Host {
                 NamedKey::ArrowRight => "right",
                 NamedKey::Enter => "enter",
                 NamedKey::Escape => "escape",
+                NamedKey::Shift => "shift",
+                NamedKey::F3 => "f3",
                 NamedKey::Backspace => "backspace",
                 NamedKey::Delete => "delete",
                 NamedKey::Tab => "tab",
@@ -498,6 +615,19 @@ impl Host {
     }
 }
 impl ApplicationHandler<Wake> for Host {
+    fn device_event(
+        &mut self,
+        _: &ActiveEventLoop,
+        _: winit::event::DeviceId,
+        event: winit::event::DeviceEvent,
+    ) {
+        if self.pointer_locked
+            && let winit::event::DeviceEvent::MouseMotion { delta } = event
+        {
+            self.send(Input::Relative(delta.0 as f32, delta.1 as f32));
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -557,6 +687,26 @@ impl ApplicationHandler<Wake> for Host {
                 while let Ok(mut output) = self.rx.try_recv() {
                     for v in std::mem::take(&mut output.intents) {
                         match v["t"].as_str() {
+                            Some("pointer-lock") => {
+                                let lock = v["locked"] == true;
+                                if self.pointer_locked != lock
+                                    && let Some(window) = &self.window
+                                {
+                                    if window
+                                        .set_cursor_grab(if lock {
+                                            winit::window::CursorGrabMode::Locked
+                                        } else {
+                                            winit::window::CursorGrabMode::None
+                                        })
+                                        .is_ok()
+                                    {
+                                        self.pointer_locked = lock;
+                                        window.set_cursor_visible(!lock);
+                                    } else {
+                                        self.send(Input::Reset);
+                                    }
+                                }
+                            }
                             Some("copy") => {
                                 if let (Some(clipboard), Some(text)) =
                                     (&mut self.clipboard, v["text"].as_str())
@@ -686,6 +836,9 @@ impl ApplicationHandler<Wake> for Host {
                 } else {
                     self.modifiers.control_key()
                 };
+                if !down || (!cmd && !self.modifiers.control_key() && !self.modifiers.alt_key()) {
+                    self.send(Input::NativeKey(name.clone(), down));
+                }
                 if let Some(bit) = button_for(&name) {
                     self.send(Input::Button(bit, down));
                 }
@@ -735,6 +888,7 @@ fn main() -> Result<()> {
         fixed: args.fixed,
         modifiers: ModifiersState::empty(),
         pointer: (0.0, 0.0),
+        pointer_locked: false,
         down: false,
         ime: false,
         clipboard: arboard::Clipboard::new().ok(),
