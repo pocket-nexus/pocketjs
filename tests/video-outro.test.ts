@@ -13,7 +13,7 @@ describe("branding defaults", () => {
   test("uses the current three-line PocketJS positioning", () => {
     const result = parseArgs(["-i", import.meta.path]);
     expect(result.tagline).toBe(DEFAULT_TAGLINE);
-    expect(result.tagline.split("\n")).toEqual(["UI for", "every kind of", "computer"]);
+    expect(result.tagline.split("\n")).toEqual(["Create on", "every screen", "you love."]);
   });
 
   test("keeps an explicitly supplied tagline unchanged", () => {
@@ -23,14 +23,14 @@ describe("branding defaults", () => {
 });
 
 describe("short outro timing", () => {
-  test("defaults to a 1.5-second card with a readable hold", () => {
+  test("defaults to a 2-second card with a readable hold", () => {
     const args = parseArgs(["-i", import.meta.path]);
     const timing = resolveOutroTiming(args.outro, args.xfade);
     const settled = Math.max(...Object.values(timing).map(layer => layer.start + layer.duration));
-    expect(args.outro).toBe(1.5);
+    expect(args.outro).toBe(2);
     expect(args.xfade).toBeLessThan(0.5);
     expect(settled).toBeLessThan(1);
-    expect(args.outro - settled).toBeGreaterThan(0.7);
+    expect(args.outro - settled).toBeGreaterThan(1.2);
   });
 
   test("keeps ordered entrances after the transition and fits custom card lengths", () => {
