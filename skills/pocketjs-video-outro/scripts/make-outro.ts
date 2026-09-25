@@ -14,8 +14,8 @@
 //        [--tagline STR] [--brand STR] [--url STR] [--outro SECS] [--xfade SECS]
 //        [--crf N] [--preset P] [--x]
 //
-// Defaults: brand "PocketJS", tagline "UI for / every kind of / computer",
-// url "pocketjs.dev", outro 1.5s, xfade 0.35s, crf 18, preset medium. Pass
+// Defaults: brand "PocketJS", tagline "Create on / every screen / you love.",
+// url "pocketjs.dev", outro 2s, xfade 0.35s, crf 18, preset medium. Pass
 // --url "" to hide the url.
 
 import { $ } from "bun";
@@ -27,8 +27,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML = resolve(HERE, "..", "assets", "outro.html");
 const FONT = resolve(HERE, "..", "assets", "VT323-Regular.ttf");
-export const DEFAULT_TAGLINE = "UI for\nevery kind of\ncomputer";
-export const DEFAULT_OUTRO = 1.5;
+export const DEFAULT_TAGLINE = "Create on\nevery screen\nyou love.";
+export const DEFAULT_OUTRO = 2;
 export const DEFAULT_XFADE = 0.35;
 
 /** Keep a readable hold after the stagger, including on shorter custom cards. */
@@ -77,7 +77,7 @@ function usage(): never {
       "",
       "options:",
       "  -o, --output <path>   output file (default: <input>_outro[_x].mp4 next to input)",
-      '  --tagline <str>       hero line (default: "UI for / every kind of / computer")',
+      '  --tagline <str>       hero line (default: "Create on / every screen / you love.")',
       '  --brand <str>         wordmark (default: "PocketJS")',
       '  --url <str>           footer line (default: "pocketjs.dev"; "" hides it)',
       `  --outro <secs>        appended end-card length including transition (default: ${DEFAULT_OUTRO})`,
