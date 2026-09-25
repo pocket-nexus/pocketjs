@@ -119,6 +119,38 @@ test("frame expiry revalidates only desired entries and keeps the old value visi
   cache.reconcile([]); for (let i = 0; i < 5; i++) x.scheduler.step(); expect(loads).toBe(2);
 });
 
+test("a revalidated refresh keeps the resident value: no materialize, no dispose, refreshed age", () => {
+  const x = setup(); let loads = 0; const decoded: string[] = []; const freed: string[] = [];
+  const cache = x.scheduler.createCache({ key: (s: string) => s, maxEntries: 1, maxCost: 4, maxResponseBytes: 4, cost: () => 4, maxAgeFrames: 2,
+    load(_, done) { loads++; done(loads === 1 ? { ok: true, value: "V" } : { ok: true, revalidated: true }); return { cancel() {} }; },
+    materialize: (s: string) => { decoded.push(s); return s; }, dispose: (v) => freed.push(v) });
+  cache.reconcile([{ input: "live", priority: 0 }]);
+  x.scheduler.step(); // frame 1: start the initial load
+  x.scheduler.step(); // frame 2: complete -> ready "V", loadedAt=2
+  expect(cache.state("live")).toEqual({ status: "ready", value: "V" });
+  x.scheduler.step(); // frame 3: age 1 < 2, no revalidation
+  expect(loads).toBe(1);
+  x.scheduler.step(); // frame 4: age 2, start the conditional revalidation
+  expect(loads).toBe(2);
+  x.scheduler.step(); // frame 5: revalidated completes; resident value kept
+  expect(cache.state("live")).toEqual({ status: "ready", value: "V" });
+  expect(decoded).toEqual(["V"]); // materialized once, never again
+  expect(freed).toEqual([]); // the resident value is not disposed
+  x.scheduler.step(); // frame 6: refreshed age (6-5=1 < 2), no new load
+  expect(loads).toBe(2);
+});
+
+test("a revalidated result with no resident value fails the entry", () => {
+  const scheduler = createResourceScheduler({ maxConcurrent: 1, startsPerFrame: 1, completionsPerFrame: 1, maxCollections: 1 });
+  const cache = scheduler.createCache({ key: (s: string) => s, maxEntries: 1, maxCost: 4, maxResponseBytes: 4, cost: () => 4,
+    load(_, done) { done({ ok: true, revalidated: true }); return { cancel() {} }; }, materialize: (s: string) => s });
+  cache.reconcile([{ input: "live", priority: 0 }]);
+  scheduler.step(); scheduler.step();
+  const state = cache.state("live");
+  expect(state.status).toBe("error");
+  scheduler.dispose();
+});
+
 
 test("invalid demand costs leave the previous working set and request intact", () => {
   const scheduler = createResourceScheduler({ maxConcurrent: 1, startsPerFrame: 1, completionsPerFrame: 1, maxCollections: 1 });

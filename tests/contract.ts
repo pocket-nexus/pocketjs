@@ -1,8 +1,9 @@
 // Spec drift guard — run with `bun run contract` (exit 0 = green).
 //
-//  (a) Regenerates engine/core/src/spec.rs IN-MEMORY from contracts/spec/spec.ts and
-//      byte-compares against the committed file: TS and Rust constants can
-//      never drift. Fix = `bun contracts/spec/gen-rust.ts` + commit.
+//  (a) Regenerates engine/core/src/spec.rs and
+//      engine/crates/pocket-relay/src/generated.rs IN-MEMORY from
+//      contracts/spec/spec.ts and byte-compares against the committed files:
+//      TS and Rust constants can never drift. Fix = `bun contracts/spec/gen-rust.ts` + commit.
 //  (b) Round-trips the styles.bin encoder/decoder over a table exercising
 //      every feature (variants, transition, all three value kinds).
 //  (c) Regenerates package.json's exports block from the subpath registry
@@ -12,8 +13,9 @@
 //      hosts include) from spec.ts and byte-compares. Fix = `bun contracts/spec/gen-c.ts`.
 
 import { generateC } from "../contracts/spec/gen-c.ts";
-import { generateRust } from "../contracts/spec/gen-rust.ts";
+import { generateRelayRust, generateRust } from "../contracts/spec/gen-rust.ts";
 import { withGeneratedExports } from "../tools/gen-exports.ts";
+import { relayConstantsSnapshot } from "../contracts/spec/relay.ts";
 import {
   abgr,
   animBit,
@@ -58,6 +60,33 @@ check(
   committedHeader !== null && committedHeader === generateC(),
   "contracts/generated/pocket_spec.h matches spec.ts",
   "run `bun contracts/spec/gen-c.ts` and commit the result",
+);
+
+// ---- (e) relay constants: spec.ts, constants.json and generated spec.rs -----
+//
+// The TS/C/Rust frame layers share one byte-level vector set. The committed
+// tests/fixtures/relay/constants.json is the snapshot C and Rust compare
+// against; regenerate it together with the vectors via
+// `bun tests/fixtures/relay/generate.ts`.
+
+const relayJsonPath = new URL("../tests/fixtures/relay/constants.json", import.meta.url).pathname;
+const relayJsonText = await Bun.file(relayJsonPath).text().catch(() => null);
+check(
+  relayJsonText !== null && relayJsonText === JSON.stringify(relayConstantsSnapshot(), null, 2) + "\n",
+  "tests/fixtures/relay/constants.json matches contracts/spec/relay.ts",
+  "run `bun tests/fixtures/relay/generate.ts` and commit the result",
+);
+// The relay constants reach Rust twice from the same emitter: the desktop
+// core's spec.rs (byte-guarded by check (a) above) and the no_std frame crate
+// engine/crates/pocket-relay, which hosts/psp builds without pulling in
+// pocketjs-core. Guard the second file the same way.
+
+const relayRsPath = new URL("../engine/crates/pocket-relay/src/generated.rs", import.meta.url).pathname;
+const committedRelayRs = await Bun.file(relayRsPath).text().catch(() => null);
+check(
+  committedRelayRs !== null && committedRelayRs === generateRelayRust(),
+  "engine/crates/pocket-relay/src/generated.rs matches contracts/spec/relay.ts",
+  "run `bun contracts/spec/gen-rust.ts` and commit the result",
 );
 
 // ---- (c) package.json exports match the subpath registry ---------------------

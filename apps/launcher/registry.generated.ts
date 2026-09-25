@@ -33,6 +33,7 @@ export const REGISTRY: readonly RegistryApp[] = [
   { output: "notifications-main", id: "dev.pocket-stack.notifications", title: "PocketJS: Notifications", cover: "covers/cover-notifications-main.png", refl: "covers/refl-notifications-main.png" },
   { output: "music-main", id: "dev.pocket-stack.music", title: "PocketJS: Now Playing", cover: "covers/cover-music-main.png", refl: "covers/refl-music-main.png" },
   { output: "settings-main", id: "dev.pocket-stack.settings", title: "PocketJS: Settings", cover: "covers/cover-settings-main.png", refl: "covers/refl-settings-main.png" },
+  { output: "solid-aot-lab-main", id: "dev.pocket-stack.solid.aot.lab", title: "PocketJS: Solid AOT Feature Lab", cover: "covers/cover-solid-aot-lab-main.png", refl: "covers/refl-solid-aot-lab-main.png" },
   { output: "im-main", id: "dev.pocket-stack.im", title: "PocketJS: Talk", cover: "covers/cover-im-main.png", refl: "covers/refl-im-main.png" },
   { output: "text-cjk-main", id: "dev.pocket-stack.text-cjk", title: "PocketJS: Text Lab", cover: "covers/cover-text-cjk-main.png", refl: "covers/refl-text-cjk-main.png" },
   { output: "vue-sfc-lab-main", id: "dev.pocket-stack.vue.sfc.lab", title: "PocketJS: Vue SFC Feature Lab", cover: "covers/cover-vue-sfc-lab-main.png", refl: "covers/refl-vue-sfc-lab-main.png" },

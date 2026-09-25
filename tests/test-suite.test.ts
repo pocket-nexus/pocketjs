@@ -45,6 +45,15 @@ const STAGE_EXCLUSIONS: Readonly<Record<string,
 };
 
 describe("declared test suite", () => {
+  test("isolates Model AOT files that import generated bundles", () => {
+    expect(suiteSource).toMatch(
+      /name: "Model AOT semantics and resources",[\s\S]*?isolateFiles: true,[\s\S]*?tests: \[/,
+    );
+    expect(suiteSource).toMatch(
+      /stage\.isolateFiles[\s\S]*?stage\.tests\.map\(\(test\) => \[test\]\)/,
+    );
+  });
+
   test("runs every tests/*.test.ts file in some stage or registers its exclusion", () => {
     const declared = stageTestFiles();
     const onDisk = readdirSync(join(repository, "tests"))

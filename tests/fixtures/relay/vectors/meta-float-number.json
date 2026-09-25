@@ -1,0 +1,11 @@
+{
+  "name": "meta-float-number",
+  "kind": "invalid",
+  "file": "vectors/meta-float-number.bin",
+  "wireBytes": 617,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_METADATA"
+}

@@ -1,0 +1,56 @@
+{
+  "name": "example-map.chunk3",
+  "kind": "valid",
+  "file": "vectors/example-map.chunk3.bin",
+  "wireBytes": 8636,
+  "options": {
+    "maxWireBytes": 65536,
+    "maxMetaBytes": 2048,
+    "codecs": [
+      0,
+      1,
+      257,
+      258,
+      259,
+      260
+    ]
+  },
+  "expect": {
+    "type": 2,
+    "codec": 257,
+    "session": "0102030405060708",
+    "seq": 3,
+    "stream": 1,
+    "correlation": 1,
+    "metaBytes": 396,
+    "dataBytes": 8192,
+    "metadata": {
+      "op": "resource.get",
+      "resource": {
+        "kind": 1,
+        "ns": "map/demo",
+        "key": "webmercator/demo-raster/z14/x2621/y6332",
+        "revision": "tile-v1",
+        "rendition": "r5g6b5le-256-v1"
+      },
+      "status": "ok",
+      "final": true,
+      "value": {
+        "width": 256,
+        "height": 256,
+        "logicalSize": 256
+      },
+      "transfer": {
+        "id": 1,
+        "offset": "000000000001e000",
+        "total": "0000000000020000"
+      },
+      "digest": "sha256:fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471"
+    },
+    "dataFillHex": "00"
+  },
+  "draft": {
+    "headerHex": "b8 21 00 00 50 52 4c 59 01 00 02 00 30 00 01 01 08 07 06 05 04 03 02 01 03 00 00 00 01 00 00 00 01 00 00 00 8c 01 00 00 00 20 00 00 00 00 00 00",
+    "wireBytes": 8636
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "response-final",
+  "kind": "valid",
+  "file": "vectors/response-final.bin",
+  "wireBytes": 251,
+  "options": {
+    "maxWireBytes": 65536,
+    "maxMetaBytes": 2048,
+    "codecs": [
+      0,
+      1,
+      257,
+      258,
+      259,
+      260
+    ]
+  },
+  "expect": {
+    "type": 2,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 1,
+    "stream": 1,
+    "correlation": 1,
+    "metaBytes": 203,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "resource.get",
+      "resource": {
+        "kind": 2,
+        "ns": "app/demo",
+        "key": "icons/gear",
+        "revision": "r3",
+        "rendition": "indexed8-32-v1"
+      },
+      "status": "ok",
+      "final": true,
+      "value": {
+        "notModified": false,
+        "width": 32,
+        "height": 32
+      }
+    }
+  }
+}

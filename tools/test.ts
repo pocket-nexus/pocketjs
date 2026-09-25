@@ -23,6 +23,8 @@ interface Stage {
   readonly tests?: readonly string[];
   /** Run `tests` under --conditions=browser (wasm-host module resolution). */
   readonly browser?: boolean;
+  /** Run each test file in a separate process, in declaration order. */
+  readonly isolateFiles?: boolean;
 }
 
 const SUITE: readonly Stage[] = [
@@ -106,6 +108,23 @@ const SUITE: readonly Stage[] = [
       "tests/net.test.ts",
       "tests/offload.test.ts",
       "tests/offload-posix.test.ts",
+      "tests/relay-frame.test.ts",
+      "tests/relay-session.test.ts",
+      "tests/relay-wire.test.ts",
+      "tests/relay-credit.test.ts",
+      "tests/relay-resource.test.ts",
+      "tests/relay-endpoint.test.ts",
+      "tests/relay-private-op.test.ts",
+      "tests/relay-resource-forms.test.ts",
+      "tests/relay-notmodified-marker.test.ts",
+      "tests/relay-resource-semantics.test.ts",
+      "tests/relay-fail-closed-cases.test.ts",
+      "tests/relay-operation.test.ts",
+      "tests/relay-channel.test.ts",
+      "tests/relay-frame-c.test.ts",
+      "tests/relay-tape.test.ts",
+      "tests/relay-sim-tape.test.ts",
+      "tests/relay-docs.test.ts",
       "tests/ime.test.ts",
       "tests/ime-supervisor.test.ts",
       "tests/ime-text-tile.test.ts",
@@ -204,6 +223,9 @@ const SUITE: readonly Stage[] = [
   },
   {
     name: "Model AOT semantics and resources",
+    // Generated bundles retain framework module state when imported in one
+    // Bun test global. Keep each source file's bundle oracle independent.
+    isolateFiles: true,
     // Generated-program fuzz checks remain opt-in through `bun run test:fuzz`.
     prep: [
       ["bun", "tools/wasm.ts"],
@@ -356,18 +378,23 @@ for (const stage of selected) {
     if (p.exitCode !== 0) fail(stage.name, stage.script);
   }
   if (stage.tests) {
-    const cmd = [
-      "bun",
-      "test",
-      ...(stage.browser ? ["--conditions=browser"] : []),
-      ...stage.tests,
-    ];
-    const p = Bun.spawnSync(cmd, {
-      cwd: ROOT,
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    if (p.exitCode !== 0) fail(stage.name, cmd);
+    const batches = stage.isolateFiles
+      ? stage.tests.map((test) => [test])
+      : [stage.tests];
+    for (const tests of batches) {
+      const cmd = [
+        "bun",
+        "test",
+        ...(stage.browser ? ["--conditions=browser"] : []),
+        ...tests,
+      ];
+      const p = Bun.spawnSync(cmd, {
+        cwd: ROOT,
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      if (p.exitCode !== 0) fail(stage.name, cmd);
+    }
   }
   console.log(
     `   ${stage.name}: ok (${((Date.now() - started) / 1000).toFixed(1)}s)`,

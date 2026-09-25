@@ -1,0 +1,67 @@
+{
+  "name": "example-term.grid",
+  "kind": "valid",
+  "file": "vectors/example-term.grid.bin",
+  "wireBytes": 431,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 3,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 2,
+    "stream": 2,
+    "correlation": 0,
+    "metaBytes": 383,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "term.grid",
+      "resource": {
+        "kind": 6,
+        "ns": "term/demo",
+        "key": "sid-7/grid",
+        "revision": "g2-s10",
+        "rendition": "cells-80x24-v1"
+      },
+      "subscription": 7,
+      "final": true,
+      "value": {
+        "sid": 7,
+        "gen": 2,
+        "gridSeq": 10,
+        "mode": "snapshot",
+        "cols": 80,
+        "rows": 24,
+        "defaultCell": [
+          32,
+          -1,
+          -1
+        ],
+        "rowUpdates": [
+          [
+            0,
+            [
+              0,
+              "relay ready",
+              -1,
+              -1
+            ]
+          ]
+        ],
+        "cursor": [
+          11,
+          0,
+          1
+        ],
+        "inputEpoch": "0000000000000002",
+        "ackInputSeq": "0000000000000016"
+      }
+    }
+  },
+  "draft": {
+    "headerHex": "ab 01 00 00 50 52 4c 59 01 00 03 00 30 00 00 00 08 07 06 05 04 03 02 01 02 00 00 00 02 00 00 00 00 00 00 00 7f 01 00 00 00 00 00 00 00 00 00 00",
+    "wireBytes": 431
+  }
+}

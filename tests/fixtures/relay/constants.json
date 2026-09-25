@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "magic": [
+    80,
+    82,
+    76,
+    89
+  ],
+  "magicText": "PRLY",
+  "frame": {
+    "major": 1,
+    "minor": 0,
+    "headerBytes": 48,
+    "lengthPrefixBytes": 4,
+    "headerBodyBytes": 44
+  },
+  "header": {
+    "frameBytes": {
+      "offset": 0,
+      "width": 4
+    },
+    "magic": {
+      "offset": 4,
+      "width": 4
+    },
+    "major": {
+      "offset": 8,
+      "width": 1
+    },
+    "minor": {
+      "offset": 9,
+      "width": 1
+    },
+    "type": {
+      "offset": 10,
+      "width": 1
+    },
+    "flags": {
+      "offset": 11,
+      "width": 1
+    },
+    "headerBytes": {
+      "offset": 12,
+      "width": 2
+    },
+    "codec": {
+      "offset": 14,
+      "width": 2
+    },
+    "session": {
+      "offset": 16,
+      "width": 8
+    },
+    "seq": {
+      "offset": 24,
+      "width": 4
+    },
+    "stream": {
+      "offset": 28,
+      "width": 4
+    },
+    "correlation": {
+      "offset": 32,
+      "width": 4
+    },
+    "metaBytes": {
+      "offset": 36,
+      "width": 4
+    },
+    "dataBytes": {
+      "offset": 40,
+      "width": 4
+    },
+    "reserved": {
+      "offset": 44,
+      "width": 4
+    }
+  },
+  "types": {
+    "REQUEST": 1,
+    "RESPONSE": 2,
+    "PUSH": 3,
+    "CANCEL": 4,
+    "INVALIDATE": 5
+  },
+  "frameErrors": {
+    "SHORT_HEADER": "SHORT_HEADER",
+    "BAD_PREFIX": "BAD_PREFIX",
+    "BAD_MAGIC": "BAD_MAGIC",
+    "BAD_VERSION": "BAD_VERSION",
+    "BAD_TYPE": "BAD_TYPE",
+    "BAD_FLAGS": "BAD_FLAGS",
+    "BAD_HEADER_SIZE": "BAD_HEADER_SIZE",
+    "BAD_RESERVED": "BAD_RESERVED",
+    "BAD_LENGTH": "BAD_LENGTH",
+    "TRUNCATED": "TRUNCATED",
+    "WIRE_TOO_LARGE": "WIRE_TOO_LARGE",
+    "META_TOO_LARGE": "META_TOO_LARGE",
+    "BAD_CODEC": "BAD_CODEC",
+    "BAD_SESSION": "BAD_SESSION",
+    "BAD_SEQ": "BAD_SEQ",
+    "BAD_CORRELATION": "BAD_CORRELATION",
+    "BAD_METADATA": "BAD_METADATA",
+    "BAD_ENVELOPE": "BAD_ENVELOPE"
+  },
+  "errors": {
+    "UNSUPPORTED": "UNSUPPORTED",
+    "INVALID": "INVALID",
+    "UNAUTHORIZED": "UNAUTHORIZED",
+    "BUSY": "BUSY",
+    "TOO_LARGE": "TOO_LARGE",
+    "STALE_BASE": "STALE_BASE",
+    "NOT_FOUND": "NOT_FOUND",
+    "CANCELLED": "CANCELLED",
+    "DEADLINE": "DEADLINE",
+    "OUTCOME_UNKNOWN": "OUTCOME_UNKNOWN",
+    "RESYNC_REQUIRED": "RESYNC_REQUIRED"
+  },
+  "status": {
+    "OK": "ok",
+    "ACCEPTED": "accepted",
+    "ERROR": "error"
+  },
+  "effect": {
+    "NONE": "none",
+    "COMMITTED": "committed",
+    "UNKNOWN": "unknown"
+  },
+  "ops": {
+    "HELLO": "relay.hello",
+    "READY": "relay.ready",
+    "OPEN": "relay.open",
+    "CLOSE": "relay.close",
+    "PING": "relay.ping",
+    "CREDIT": "relay.credit",
+    "RESET": "relay.reset",
+    "RESOURCE_GET": "resource.get",
+    "RESOURCE_SUBSCRIBE": "resource.subscribe",
+    "RESOURCE_RELEASE": "resource.release",
+    "RESOURCE_UNSUBSCRIBE": "resource.unsubscribe",
+    "REQUEST_CANCEL": "request.cancel",
+    "RESOURCE_INVALIDATE": "resource.invalidate",
+    "CACHE_EVICT": "cache.evict",
+    "OPERATION_STATUS": "operation.status",
+    "OPERATION_EPOCH": "operation.epoch"
+  },
+  "codecs": {
+    "NONE": 0,
+    "JSON": 1,
+    "R5G6B5LE": 257,
+    "PMH1": 258,
+    "COVERAGE2_LSB": 259,
+    "INDEXED8_ABGR": 260,
+    "FONT3": 513,
+    "OPAQUE_BYTES": 769,
+    "EXTENSION_MIN": 32768,
+    "EXTENSION_MAX": 65535
+  },
+  "kinds": {
+    "TILE": 1,
+    "TEXTURE": 2,
+    "GLYPH_RUN": 3,
+    "TEXT_LAYOUT": 4,
+    "MEDIA_CHUNK": 5,
+    "TERMINAL_CELLS": 6,
+    "FILE": 7,
+    "EVENT": 8
+  },
+  "delivery": {
+    "RELIABLE_DELTA": "reliable-delta",
+    "LATEST_SNAPSHOT": "latest-snapshot"
+  },
+  "invalidateScope": {
+    "REVISION": "revision",
+    "KEY": "key",
+    "NAMESPACE": "namespace"
+  },
+  "evictReason": {
+    "BUDGET": "budget",
+    "VIEW_CLOSE": "view-close"
+  },
+  "resource": {
+    "nsMaxBytes": 128,
+    "keyMaxBytes": 256,
+    "revisionMaxBytes": 128,
+    "renditionMaxBytes": 128
+  },
+  "handshake": {
+    "nonceBytes": 16,
+    "sessionHexLength": 16,
+    "appMaxBytes": 64,
+    "namespaceMaxBytes": 128,
+    "versionsMax": 8,
+    "profilesMax": 16,
+    "profileNameMaxBytes": 64,
+    "transportMaxBytes": 64
+  },
+  "limits": {
+    "bootstrapMaxWireBytes": 4096,
+    "controlMaxWireBytes": 4096,
+    "controlWindowFrames": 8,
+    "controlWindowBytes": 32768,
+    "sidebandSlots": 2,
+    "sidebandSlotBytes": 256,
+    "sidebandCreditTable": 9,
+    "maxPending": 8,
+    "bulkMaxWireBytes": 65536,
+    "bulkMaxMetaBytes": 2048,
+    "bulkWindowFrames": 2,
+    "bulkWindowBytes": 131072,
+    "bulkMaxAssemblies": 2,
+    "defaultMaxWireBytes": 65536,
+    "defaultMaxMetaBytes": 2048,
+    "maxBulkAttachments": 1,
+    "maxStreams": 8,
+    "pingIntervalMs": 2000,
+    "stallMs": 15000,
+    "retryMs": 1500,
+    "jsonMaxDepth": 16,
+    "opMaxLength": 64,
+    "errorMessageMaxBytes": 160,
+    "cancelReasonMaxBytes": 64,
+    "dependsMax": 8
+  },
+  "opPattern": "^[a-z][a-z0-9_.-]{0,63}$"
+}

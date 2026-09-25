@@ -17,7 +17,9 @@ pocketjs/
 │  ├─ quickjs-c/  portable QuickJS guest driver used by native C hosts
 │  ├─ ios/        iOS C ABI and UIKit PocketSurfaceView
 │  ├─ pocket3d/   the 3D core family (bsp, cook, gu, vita, GLES2) + desktop examples
-│  ├─ crates/     non-3D engine crates: pocket-mod, pocket-ui-surface, pocket-ui-wgpu, pocket-vrm, pocket-widget
+│  ├─ crates/     non-3D engine crates: pocket-db, pocket-fs, pocket-mod, pocket-net,
+│  │              pocket-relay (no_std Relay frame layer), pocket-sim, pocket-text,
+│  │              pocket-ui-surface, pocket-ui-wgpu, pocket-vrm, pocket-widget
 │  └─ Cargo.toml  the desktop workspace root (core/, wasm/, ui-cabi/, and
 │                 console-toolchain crates are deliberately excluded and
 │                 standalone; see each crate's Cargo.toml for its toolchain)

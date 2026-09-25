@@ -1,0 +1,11 @@
+{
+  "name": "cancel-nonzero-stream",
+  "kind": "invalid",
+  "file": "vectors/cancel-nonzero-stream.bin",
+  "wireBytes": 114,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_CORRELATION"
+}

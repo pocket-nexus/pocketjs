@@ -1,0 +1,12 @@
+{
+  "name": "bad-session-pin",
+  "kind": "invalid",
+  "file": "vectors/bad-session-pin.bin",
+  "wireBytes": 270,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048,
+    "session": "0000000000000099"
+  },
+  "errorCode": "BAD_SESSION"
+}

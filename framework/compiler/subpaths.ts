@@ -59,6 +59,16 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   animation: { file: "framework/src/animation.ts", aliases: TWINS },
   classic: { file: { solid: "framework/src/classic.ts" } },
   "offload/provider": { file: "tools/offload-provider.ts" },
+  // Relay (docs/RELAY.md): the L2 contract + composed endpoint a guest
+  // imports through the package boundary, and the provider-side wire
+  // adapter for companions (the offload/provider precedent).
+  "relay/spec": { file: "contracts/spec/relay.ts", aliases: TWINS },
+  "relay/endpoint": { file: "framework/src/relay/endpoint.ts", aliases: TWINS },
+  "relay/resource": { file: "framework/src/relay/resource.ts", aliases: TWINS },
+  "relay/frame": { file: "framework/src/relay/frame.ts", aliases: TWINS },
+  "relay/session": { file: "framework/src/relay/session.ts", aliases: TWINS },
+  "relay/channel": { file: "framework/src/relay/channel.ts", aliases: TWINS },
+  "relay/wire": { file: "tools/relay-wire.ts" },
   "offload/usb-provider": { file: "tools/offload-usb-provider.ts" },
   "offload/capabilities": { file: "tools/offload-capabilities.ts" },
   ime: { file: "framework/src/ime.ts", aliases: TWINS },

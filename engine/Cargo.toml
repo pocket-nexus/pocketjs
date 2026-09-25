@@ -16,6 +16,7 @@ members = [
     "crates/pocket-fs",
     "crates/pocket-mod",
     "crates/pocket-net",
+    "crates/pocket-relay",
     "crates/pocket-sim",
     "crates/pocket-ui-surface",
     "crates/pocket-ui-wgpu",
@@ -59,6 +60,7 @@ pocket-db = { path = "crates/pocket-db" }
 pocket-fs = { path = "crates/pocket-fs" }
 pocket-mod = { path = "crates/pocket-mod" }
 pocket-net = { path = "crates/pocket-net" }
+pocket-relay = { path = "crates/pocket-relay" }
 pocket-sim = { path = "crates/pocket-sim" }
 pocket-ui-surface = { path = "crates/pocket-ui-surface" }
 pocket-ui-wgpu = { path = "crates/pocket-ui-wgpu" }

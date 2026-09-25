@@ -113,6 +113,11 @@ describe("published npm artifacts", () => {
       "engine/crates/pocket-mod/Cargo.toml",
       "engine/crates/pocket-net/src",
       "engine/crates/pocket-net/Cargo.toml",
+      // The Relay frame layer is a member of the shipped engine workspace, so
+      // its manifest has to travel with engine/Cargo.toml for `cargo metadata`
+      // to resolve. Its tests read tests/fixtures/relay/, which is git-only.
+      "engine/crates/pocket-relay/src",
+      "engine/crates/pocket-relay/Cargo.toml",
       "engine/crates/pocket-sim/src",
       "engine/crates/pocket-sim/Cargo.toml",
       "engine/crates/pocket-ui-surface/src",

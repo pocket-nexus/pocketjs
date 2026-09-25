@@ -1,0 +1,29 @@
+# pocket-relay — the Relay L1 frame layer for Rust hosts.
+#
+# The core is `#![no_std]` and allocation-free: every entry point either reads
+# a caller-owned `&[u8]` or writes a caller-owned `&mut [u8]`, so the PSP host
+# (hosts/psp, no_std, single-arena allocator) can link it without pulling in a
+# heap. `--no-default-features` is the configuration those hosts build; the
+# default `std` feature exists for the desktop surfaces
+# (engine/crates/pocket-ui-surface, hosts/web via wasm32).
+#
+# Constants come from contracts/spec/relay.ts through gen-rust.ts
+# (src/generated.rs); tests/contract.ts byte-guards that file. There is no JSON
+# here — frame metadata crosses this layer as an unparsed byte slice, checked
+# to be valid UTF-8 and nothing more.
+
+[package]
+name = "pocket-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Relay L1 48-byte frame codec, limits and flow-control counters (no_std, no alloc)"
+
+[features]
+default = ["std"]
+# `std` adds only the std::error::Error impl for FrameError. Nothing in the
+# frame path changes; a no_std build sees the identical parser and encoder.
+std = []
+
+[dependencies]

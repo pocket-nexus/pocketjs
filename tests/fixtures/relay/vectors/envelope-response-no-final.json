@@ -1,0 +1,11 @@
+{
+  "name": "envelope-response-no-final",
+  "kind": "invalid",
+  "file": "vectors/envelope-response-no-final.bin",
+  "wireBytes": 617,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_ENVELOPE"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "bad-magic",
+  "kind": "invalid",
+  "file": "vectors/bad-magic.bin",
+  "wireBytes": 270,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_MAGIC"
+}

@@ -102,8 +102,8 @@ describe("launcher registry admission", () => {
     }
     expect(pspOutputs.has("text-cjk-main")).toBe(true);
     expect(vitaOutputs.has("text-cjk-main")).toBe(false);
-    expect(registry.apps).toHaveLength(19);
-    expect(vitaRegistry.apps).toHaveLength(19);
+    expect(registry.apps).toHaveLength(20);
+    expect(vitaRegistry.apps).toHaveLength(20);
   });
 
   test("committed registry.generated.ts is fresh (re-run tools/launcher.ts scan)", async () => {

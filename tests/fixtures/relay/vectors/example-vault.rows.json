@@ -1,0 +1,39 @@
+{
+  "name": "example-vault.rows",
+  "kind": "valid",
+  "file": "vectors/example-vault.rows.bin",
+  "wireBytes": 258,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 1,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 1,
+    "stream": 3,
+    "correlation": 1,
+    "metaBytes": 210,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "resource.get",
+      "resource": {
+        "kind": 4,
+        "ns": "vault/demo",
+        "key": "note-42/rows/0/count/1",
+        "revision": "content7-layout12",
+        "rendition": "runs-w376-fontset1-v1"
+      },
+      "args": {
+        "first": 0,
+        "count": 1,
+        "maxObjectBytes": 4096
+      }
+    }
+  },
+  "draft": {
+    "headerHex": "fe 00 00 00 50 52 4c 59 01 00 01 00 30 00 00 00 08 07 06 05 04 03 02 01 01 00 00 00 03 00 00 00 01 00 00 00 d2 00 00 00 00 00 00 00 00 00 00 00",
+    "wireBytes": 258
+  }
+}

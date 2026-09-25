@@ -1,0 +1,26 @@
+{
+  "name": "credit",
+  "kind": "valid",
+  "file": "vectors/credit.bin",
+  "wireBytes": 157,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 3,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 4,
+    "stream": 0,
+    "correlation": 0,
+    "metaBytes": 109,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "relay.credit",
+      "targetStream": 1,
+      "framesReleased": "0000000000000003",
+      "bytesReleased": "000000000000a000"
+    }
+  }
+}

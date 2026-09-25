@@ -1,0 +1,25 @@
+{
+  "name": "cancel",
+  "kind": "valid",
+  "file": "vectors/cancel.bin",
+  "wireBytes": 114,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 4,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 5,
+    "stream": 0,
+    "correlation": 1,
+    "metaBytes": 66,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "request.cancel",
+      "targetStream": 2,
+      "reason": "user-dismissed"
+    }
+  }
+}

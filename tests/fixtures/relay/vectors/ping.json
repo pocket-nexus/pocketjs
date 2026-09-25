@@ -1,0 +1,24 @@
+{
+  "name": "ping",
+  "kind": "valid",
+  "file": "vectors/ping.bin",
+  "wireBytes": 81,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "expect": {
+    "type": 1,
+    "codec": 0,
+    "session": "0102030405060708",
+    "seq": 3,
+    "stream": 0,
+    "correlation": 3,
+    "metaBytes": 33,
+    "dataBytes": 0,
+    "metadata": {
+      "op": "relay.ping",
+      "token": 12345
+    }
+  }
+}

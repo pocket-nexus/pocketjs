@@ -1,0 +1,11 @@
+{
+  "name": "codec0-with-data",
+  "kind": "invalid",
+  "file": "vectors/codec0-with-data.bin",
+  "wireBytes": 271,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_CODEC"
+}

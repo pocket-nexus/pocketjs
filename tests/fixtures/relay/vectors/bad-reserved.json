@@ -1,0 +1,11 @@
+{
+  "name": "bad-reserved",
+  "kind": "invalid",
+  "file": "vectors/bad-reserved.bin",
+  "wireBytes": 270,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_RESERVED"
+}

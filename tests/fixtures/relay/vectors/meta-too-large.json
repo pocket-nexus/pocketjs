@@ -1,0 +1,11 @@
+{
+  "name": "meta-too-large",
+  "kind": "invalid",
+  "file": "vectors/meta-too-large.bin",
+  "wireBytes": 270,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 10
+  },
+  "errorCode": "META_TOO_LARGE"
+}

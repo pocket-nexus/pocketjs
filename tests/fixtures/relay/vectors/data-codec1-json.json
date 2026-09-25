@@ -1,0 +1,41 @@
+{
+  "name": "data-codec1-json",
+  "kind": "valid",
+  "file": "vectors/data-codec1-json.bin",
+  "wireBytes": 255,
+  "options": {
+    "maxWireBytes": 65536,
+    "maxMetaBytes": 2048,
+    "codecs": [
+      0,
+      1,
+      257,
+      258,
+      259,
+      260
+    ]
+  },
+  "expect": {
+    "type": 2,
+    "codec": 1,
+    "session": "0102030405060708",
+    "seq": 2,
+    "stream": 4,
+    "correlation": 1,
+    "metaBytes": 164,
+    "dataBytes": 43,
+    "metadata": {
+      "op": "vault.rows",
+      "resource": {
+        "kind": 4,
+        "ns": "vault/demo",
+        "key": "note-9/rows",
+        "revision": "content1",
+        "rendition": "runs-w376-fontset1-v1"
+      },
+      "status": "ok",
+      "final": true
+    },
+    "dataHex": "7b22726f7773223a5b5b302c2252656c6179222c305d5d2c226e657874223a312c22746f74616c223a337d"
+  }
+}

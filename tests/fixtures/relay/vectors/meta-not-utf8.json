@@ -1,0 +1,11 @@
+{
+  "name": "meta-not-utf8",
+  "kind": "invalid",
+  "file": "vectors/meta-not-utf8.bin",
+  "wireBytes": 617,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_METADATA"
+}

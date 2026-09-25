@@ -1,7 +1,15 @@
 import { failed, pending, ready, type ResourceState } from "./resource-state.ts";
 
 export type ResourceBytes = string | Uint8Array;
-export type ResourceResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
+/** A loader result. `revalidated` means a conditional refresh confirmed the
+ * resident value is current (e.g. HTTP-style 304 / relay notModified): the
+ * cache keeps the existing materialized value and must not materialize the
+ * empty confirmation or dispose the held bytes. Valid only while an entry is
+ * already `ready`. */
+export type ResourceResult<T> =
+  | { ok: true; value: T }
+  | { ok: true; revalidated: true }
+  | { ok: false; error: unknown };
 export type ResourceLoad<I, R> = (input: I, complete: (result: ResourceResult<R>) => void) => { cancel(): void } | false;
 export interface ResourceDemand<I> { input: I; /** Lower runs first. */ priority: number; /** Cannot be evicted while desired. */ pin?: boolean }
 export interface ResourceSnapshot<T> { state: ResourceState<T>; stale: boolean; refreshing: boolean; error?: unknown }
@@ -87,8 +95,14 @@ export function createResourceScheduler(options: ResourceSchedulerOptions) {
         const task = config.load(entry.input, result => {
           // Raw bounded data only. No decoding, texture allocation or UI publication here.
           if (!dead && entry.busy && entry.generation === generation && !entry.result) {
-            const bytes = result.ok ? typeof result.value === "string" ? result.value.length * 2
-              : result.value instanceof Uint8Array ? result.value.byteLength : Infinity : 0;
+            // A revalidation confirmation carries no new bytes; the resident
+            // value is kept and re-confirmed.
+            let bytes: number;
+            if (!result.ok) bytes = 0;
+            else if ("value" in result) {
+              const v = result.value;
+              bytes = typeof v === "string" ? v.length * 2 : v instanceof Uint8Array ? v.byteLength : Infinity;
+            } else bytes = 0;
             entry.result = bytes <= config.maxResponseBytes ? result : { ok: false, error: "Resource response exceeds budget" };
             entry.resultOrder = completionOrder++;
           }
@@ -129,17 +143,29 @@ export function createResourceScheduler(options: ResourceSchedulerOptions) {
         const entry = chosen;
         return { order: entry.resultOrder, run() {
           const result = entry.result!; entry.result = undefined; entry.cancel = undefined; entry.busy = false; entry.charged = false; active--;
-          let next: ResourceState<T>;
-          try { if (!result.ok) throw result.error; next = ready(config.materialize(result.value, entry.input)); }
+          try {
+            if (!result.ok) throw result.error;
+            if ("value" in result) {
+              const next = ready(config.materialize(result.value, entry.input));
+              const previous = entry.state; entry.state = next; entry.stale = false; entry.error = undefined;
+              entry.attempts = 0; entry.loadedAt = frame; notify(entry);
+              if (previous.status === "ready" && next.status === "ready" && previous.value !== next.value) config.dispose?.(previous.value);
+            } else {
+              // Conditional refresh confirmed the resident value is current.
+              // Keep it without materializing the empty confirmation or
+              // disposing the held bytes (§3.8 TTL revalidate). A revalidated
+              // result with no resident value is a loader protocol violation.
+              if (entry.state.status !== "ready") throw new Error("revalidated result with no resident value");
+              entry.stale = false; entry.error = undefined;
+              entry.attempts = 0; entry.loadedAt = frame; notify(entry);
+            }
+          }
           catch (error) {
             entry.error = error; entry.stale = true;
             entry.retryAt = frame + Math.min(retry.maxDelayFrames, retry.delayFrames * 2 ** Math.min(20, entry.attempts - 1));
             if (entry.state.status !== "ready") entry.state = failed(error);
             notify(entry); return;
           }
-          const previous = entry.state; entry.state = next; entry.stale = false; entry.error = undefined;
-          entry.attempts = 0; entry.loadedAt = frame; notify(entry);
-          if (previous.status === "ready" && next.status === "ready" && previous.value !== next.value) config.dispose?.(previous.value);
         } };
       },
       cancel,

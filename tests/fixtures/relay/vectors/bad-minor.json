@@ -1,0 +1,11 @@
+{
+  "name": "bad-minor",
+  "kind": "invalid",
+  "file": "vectors/bad-minor.bin",
+  "wireBytes": 270,
+  "options": {
+    "maxWireBytes": 4096,
+    "maxMetaBytes": 2048
+  },
+  "errorCode": "BAD_VERSION"
+}
