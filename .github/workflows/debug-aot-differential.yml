@@ -1,0 +1,31 @@
+name: debug aot-differential (temporary)
+on:
+  push:
+    branches: ["debug/aot-differential-linux"]
+permissions:
+  contents: read
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: bun install --frozen-lockfile
+      - run: bun tools/wasm.ts
+      - run: bun tools/build.ts solid-aot-lab-main --no-config
+      - name: standalone
+        continue-on-error: true
+        run: bun test --conditions=browser tests/aot-differential.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aot-differential
+          path: |
+            .pocket-build/validation/solid-aot/differential/
+            !.pocket-build/validation/solid-aot/differential/target/
