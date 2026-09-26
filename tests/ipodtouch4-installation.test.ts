@@ -37,6 +37,9 @@ describe("iPod User application installation", () => {
     for (const value of invalid) {
       expect(() => userDeploymentScript(value)).toThrow();
     }
+    expect(userDeploymentScript({ ...base, files: { "maps/de_dust2.p3d": hash("map") } })).toContain("maps/de_dust2.p3d");
+    for (const name of ["/maps/data", "maps//data", "maps/../data", "maps/./data", "maps/data/", "maps/$(id)"])
+      expect(() => userDeploymentScript({ ...base, files: { [name]: hash("map") } })).toThrow();
   });
 
   // A stub digest command lets a test control both stdout and the exit status.

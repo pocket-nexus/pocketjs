@@ -6,6 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
+#ifdef POCKET_RUNTIME_EXTENSION
+#include "pocketjs_symbian_extension.h"
+#endif
 
 struct JSRuntime {
   int alive;
@@ -45,6 +49,52 @@ static uint8_t framebuffer[4];
 static JSCFunctionMagic *animation_completions;
 static int animation_completions_magic;
 static int animation_completions_delivered;
+
+#ifdef POCKET_RUNTIME_EXTENSION
+static char extension_trace[128];
+static size_t extension_events;
+static int extension_watching, extension_fail;
+static void trace(char event) {
+  if (!extension_watching) return;
+  assert(extension_events + 1 < sizeof extension_trace);
+  extension_trace[extension_events++] = event;
+  extension_trace[extension_events] = 0;
+}
+static int32_t extension_boot(JSContext *context, const uint8_t *pak, size_t length, int32_t w, int32_t h) {
+  assert(context->alive && pak && length == 1 && w == 480 && h == 272);
+  trace('E'); return extension_fail != 'E';
+}
+static void extension_shutdown(int32_t current) {
+  assert(stub_context.alive); trace(current ? 'S' : 's');
+}
+static int32_t extension_before(JSContext *context, uint32_t buttons, uint32_t analog, uint32_t keys) {
+  assert(context->alive); trace('B'); return extension_fail != 'B';
+}
+static int32_t extension_after(JSContext *context) {
+  assert(context->alive); trace('A'); return extension_fail != 'A';
+}
+static int32_t extension_render(int32_t x, int32_t y, int32_t w, int32_t h, int32_t ww, int32_t wh) {
+  assert(x == 0 && y == 0 && w == 960 && h == 544 && ww == w && wh == h);
+  trace('N'); return extension_fail != 'N';
+}
+static void extension_release(int32_t current) {
+  assert(stub_context.alive); trace(current ? 'R' : 'r');
+}
+static PocketJsSymbianGraphicsExtensionV1 extension = {
+  {1, sizeof(PocketJsSymbianGraphicsExtensionV1), POCKETJS_SYMBIAN_EXTENSION_DEPTH_BUFFER,
+    extension_boot, extension_shutdown, extension_before, extension_after, NULL, extension_render}, extension_release
+};
+const PocketJsSymbianExtensionV1 *pocketjs_symbian_extension_v1(void) { return &extension.base; }
+static void expect_trace(const char *expected) {
+  if (strcmp(extension_trace, expected)) {
+    fprintf(stderr, "native extension: got %s, expected %s\n", extension_trace, expected);
+    abort();
+  }
+  extension_events = 0; extension_trace[0] = 0;
+}
+#else
+static void trace(char event) { (void)event; }
+#endif
 
 static void reset_stubs(enum Scenario next) {
   scenario = next;
@@ -204,6 +254,47 @@ static int test_dispatcher_contract(void) {
 }
 #endif
 
+#ifdef POCKET_RUNTIME_EXTENSION
+static void test_extension(void) {
+  PocketRuntimeInput input = {0};
+  extension_watching = 1;
+  assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
+  assert(pocket_runtime_native_flags() == POCKETJS_SYMBIAN_EXTENSION_DEPTH_BUFFER);
+  assert(pocket_runtime_gl_initialize());
+  assert(pocket_runtime_tick(&input)); expect_trace("BJAT");
+  assert(pocket_runtime_gl_render(960,544)); expect_trace("NU");
+  pocket_runtime_gl_shutdown(); expect_trace("R");
+  assert(stub_context.alive);
+  assert(pocket_runtime_gl_initialize());
+  assert(pocket_runtime_tick(&input)); expect_trace("BJAT");
+  assert(pocket_runtime_gl_render(960,544)); expect_trace("NU");
+  pocket_runtime_shutdown(); expect_trace("S");
+  assert(!stub_context.alive && !pocket_runtime_native_flags());
+  pocket_runtime_shutdown(); expect_trace("");
+
+  extension.base.abi_version = 2;
+  assert(!boot(SCENARIO_SUCCESS)); expect_trace("");
+  extension.base.abi_version = 1;
+  extension.base.struct_size = sizeof(PocketJsSymbianExtensionV1) - 1;
+  assert(!boot(SCENARIO_SUCCESS)); expect_trace("");
+  extension.base.struct_size = sizeof extension;
+  extension_fail = 'E'; assert(!boot(SCENARIO_SUCCESS)); expect_trace("Es");
+  extension_fail = 0;
+  assert(!boot(SCENARIO_BOOT_EVAL_FAILURE)); expect_trace("EVs");
+  assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
+  extension_fail = 'B'; assert(!pocket_runtime_tick(&input)); expect_trace("B");
+  pocket_runtime_shutdown(); expect_trace("s");
+  extension_fail = 0; assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
+  extension_fail = 'A'; assert(!pocket_runtime_tick(&input)); expect_trace("BJA");
+  pocket_runtime_shutdown(); expect_trace("s");
+  extension_fail = 0; assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
+  assert(pocket_runtime_gl_initialize());
+  extension_fail = 'N'; assert(!pocket_runtime_gl_render(960,544)); expect_trace("N");
+  pocket_runtime_gl_shutdown(); expect_trace("R");
+  pocket_runtime_shutdown(); expect_trace("s");
+  extension_fail = 0; extension_watching = 0;
+}
+#endif
 int main(void) {
   if (!boot(SCENARIO_SUCCESS) || !animation_completions) return 1;
   animation_completions(&stub_context, JS_UNDEFINED, 0, NULL, animation_completions_magic);
@@ -223,6 +314,9 @@ int main(void) {
     return 1;
 #endif
   puts("quickjs-c harness: ok");
+#ifdef POCKET_RUNTIME_EXTENSION
+  test_extension();
+#endif
   return 0;
 }
 
@@ -345,6 +439,7 @@ JSValue JS_GetPropertyStr(JSContext *context, JSValueConst object,
 
 JSValue JS_Eval(JSContext *context, const char *source, size_t length,
                 const char *filename, int flags) {
+  if (strcmp(filename, "app.js") == 0) trace('V');
   if (strcmp(filename, "app.js") == 0 &&
       scenario == SCENARIO_BOOT_EVAL_FAILURE) {
     return JS_EXCEPTION;
@@ -359,6 +454,7 @@ JSValue JS_Call(JSContext *context, JSValueConst function,
     return argv[0] + argv[1];
   }
   frame_started = 1;
+  trace('J');
   return scenario == SCENARIO_FRAME_JS_FAILURE ? JS_EXCEPTION : VALUE_OBJECT;
 }
 
@@ -430,7 +526,7 @@ int32_t ui_load_font_atlas(const uint8_t *bytes, size_t length) { return 1; }
 float ui_measure_text(const uint8_t *text, size_t length, uint32_t font_slot) {
   return 0.0f;
 }
-void ui_tick(void) {}
+void ui_tick(void) { trace('T'); }
 void ui_debug_inspect(int32_t id) {}
 int32_t ui_debug_rect_xy(void) { return 0; }
 int32_t ui_debug_rect_wh(void) { return 0; }
@@ -454,4 +550,7 @@ int32_t ui_gl_render(int32_t target_x, int32_t target_y, int32_t target_width,
                      int32_t target_height, int32_t window_width,
                      int32_t window_height) {
   return 1;
+}
+int32_t ui_gl_render_over(int32_t x, int32_t y, int32_t w, int32_t h, int32_t ww, int32_t wh) {
+  trace('U'); return 1;
 }

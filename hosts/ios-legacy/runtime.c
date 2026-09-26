@@ -78,6 +78,9 @@ typedef enum {
 #ifndef POCKET_RASTER_DENSITY
 #define POCKET_RASTER_DENSITY 1
 #endif
+#ifndef POCKET_FRAME_TICKS
+#define POCKET_FRAME_TICKS 2
+#endif
 #ifndef POCKET_GL_DEFAULT
 #define POCKET_GL_DEFAULT 0
 #endif
@@ -243,6 +246,8 @@ typedef struct {
 
 static PocketTouchSlot g_touch_slots[POCKET_TOUCH_SLOT_COUNT];
 static PocketContactLatch g_contacts;
+static int g_touch_max_contacts;
+static unsigned long g_uikit_touch_events, g_legacy_touch_events;
 /* Most recent contact position and hit, kept for the acceptance record. */
 static int g_touch_x;
 static int g_touch_y;
@@ -362,6 +367,7 @@ static void write_acceptance_record(void) {
     sizeof(record),
     "schema=2\nbuild_id=%s\nstate=%s\npid=%ld\nwritten_at=%ld\nheartbeat=%lu\n"
     "guest_frames=%lu\ntouch_sequences=%lu\ncompleted_touch_sequences=%lu\n"
+    "touch_max_contacts=%d\nuikit_touch_events=%lu\nlegacy_touch_events=%lu\n"
     "touch_down=%d\nlast_touch_x=%d\nlast_touch_y=%d\nlast_touch_hit=%d\n"
     "action_name=%s\naction_value=%d\naction_sequence=%lu\n"
     "renderer=%s\nclock=%s\nraster_density=%d\ndrawable_width=%ld\ndrawable_height=%ld\n"
@@ -377,6 +383,7 @@ static void write_acceptance_record(void) {
     g_guest_frames,
     g_touch_sequences,
     g_completed_touch_sequences,
+    g_touch_max_contacts, g_uikit_touch_events, g_legacy_touch_events,
     touch_live_count(),
     g_touch_x,
     g_touch_y,
@@ -883,6 +890,7 @@ typedef void (*GlDeleteObjects)(int32_t count, const uint32_t *names);
 static id g_gl_context;
 static uint32_t g_gl_framebuffer;
 static uint32_t g_gl_renderbuffer;
+static uint32_t g_gl_depthbuffer;
 static int g_gl_ready;
 static int32_t g_gl_width;
 static int32_t g_gl_height;
@@ -896,6 +904,7 @@ static GlGetRenderbufferParameteriv gl_get_renderbuffer_parameteriv;
 static GlCheckFramebufferStatus gl_check_framebuffer_status;
 static GlDeleteObjects gl_delete_framebuffers;
 static GlDeleteObjects gl_delete_renderbuffers;
+static void (*gl_renderbuffer_storage)(uint32_t, uint32_t, int32_t, int32_t);
 
 static BOOL send_bool_uint_object(
   id receiver,
@@ -984,6 +993,7 @@ static int resolve_gl_extension(void) {
     (GlCheckFramebufferStatus)dlsym(handle, "glCheckFramebufferStatusOES");
   gl_delete_framebuffers = (GlDeleteObjects)dlsym(handle, "glDeleteFramebuffersOES");
   gl_delete_renderbuffers = (GlDeleteObjects)dlsym(handle, "glDeleteRenderbuffersOES");
+  gl_renderbuffer_storage = (void (*)(uint32_t,uint32_t,int32_t,int32_t))dlsym(handle, "glRenderbufferStorageOES");
   return gl_gen_framebuffers != NULL && gl_bind_framebuffer != NULL &&
     gl_gen_renderbuffers != NULL && gl_bind_renderbuffer != NULL &&
     gl_framebuffer_renderbuffer != NULL && gl_get_renderbuffer_parameteriv != NULL &&
@@ -1010,6 +1020,10 @@ static void teardown_gl(void) {
   if (g_gl_renderbuffer != 0 && gl_delete_renderbuffers != NULL) {
     gl_delete_renderbuffers(1, &g_gl_renderbuffer);
     g_gl_renderbuffer = 0;
+  }
+  if (g_gl_depthbuffer != 0 && gl_delete_renderbuffers != NULL) {
+    gl_delete_renderbuffers(1, &g_gl_depthbuffer);
+    g_gl_depthbuffer = 0;
   }
   g_gl_ready = 0;
   g_gl_context = NULL;
@@ -1094,6 +1108,18 @@ static int setup_gl(id view) {
   ) {
     teardown_gl();
     return 0;
+  }
+  if (pocket_runtime_native_flags() & 1U) {
+    if (!gl_renderbuffer_storage) { teardown_gl(); return 0; }
+    gl_gen_renderbuffers(1, &g_gl_depthbuffer);
+    gl_bind_renderbuffer(POCKET_GL_RENDERBUFFER_OES, g_gl_depthbuffer);
+    gl_renderbuffer_storage(POCKET_GL_RENDERBUFFER_OES, 0x81a5U, g_gl_width, g_gl_height);
+    gl_framebuffer_renderbuffer(POCKET_GL_FRAMEBUFFER_OES, 0x8d00U,
+      POCKET_GL_RENDERBUFFER_OES, g_gl_depthbuffer);
+    gl_bind_renderbuffer(POCKET_GL_RENDERBUFFER_OES, g_gl_renderbuffer);
+    if (gl_check_framebuffer_status(POCKET_GL_FRAMEBUFFER_OES) != POCKET_GL_FRAMEBUFFER_COMPLETE_OES) {
+      teardown_gl(); return 0;
+    }
   }
   g_drawable_width = g_gl_width;
   g_drawable_height = g_gl_height;
@@ -1301,7 +1327,7 @@ static void pocket_tick(id self, SEL command, id timer) {
   if (frame_input.contact_count) g_last_touch_hit = frame_input.contacts[frame_input.contact_count - 1].hit;
   delivered_touch = frame_input.contact_count > 0;
   frame_started_us = now_us();
-  if (!pocket_runtime_frame_contacts(&frame_input, 2)) {
+  if (!pocket_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)) {
     fail_runtime(pocket_runtime_error());
     return;
   }
@@ -1448,6 +1474,7 @@ static void touch_slot_begin(PocketTouchSlot *slot, id touch, int x, int y) {
         (float)x, (float)y, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT)) return;
   slot->touch = touch;
   slot->live = 1;
+  if (touch_live_count() > g_touch_max_contacts) g_touch_max_contacts = touch_live_count();
   slot->ending = 0;
   slot->was_sent = 0;
   slot->x = x;
@@ -1500,6 +1527,7 @@ static void touch_slot_end(PocketTouchSlot *slot, int x, int y) {
 
 /* The GSEvent fallback has one implicit finger; it owns slot 0 alone. */
 static void pocket_mouse_down(id self, SEL command, id event) {
+  g_legacy_touch_events += 1;
   int x;
   int y;
   (void)self;
@@ -1547,6 +1575,7 @@ static void visit_touches(id self, id touches, PocketTouchVisitor visitor) {
   array = send_id(touches, "allObjects");
   if (array == NULL) return;
   count = send_ulong(array, "count");
+  g_uikit_touch_events += count;
   for (index = 0; index < count; index += 1) {
     id touch = send_id_ulong(array, "objectAtIndex:", index);
     int x;

@@ -14,6 +14,11 @@ on:
       - "tests/idf-package-corpus.test.ts"
       - "tests/ipodtouch4-installation.test.ts"
       - "tools/ipodtouch4-installation.ts"
+      - "tools/ipodtouch4-resources.ts"
+      - "tests/ipodtouch4-resources.test.ts"
+      - "tools/ipodtouch4.ts"
+      - "tests/ipodtouch4-profile.test.ts"
+      - "hosts/nokia-e7/runtime/pocketjs_symbian_extension.h"
       - "tests/clear-text.test.ts"
       - "tests/clear-ime-loading.test.ts"
       - "apps/**"
@@ -60,6 +65,11 @@ on:
       - "tests/idf-package-corpus.test.ts"
       - "tests/ipodtouch4-installation.test.ts"
       - "tools/ipodtouch4-installation.ts"
+      - "tools/ipodtouch4-resources.ts"
+      - "tests/ipodtouch4-resources.test.ts"
+      - "tools/ipodtouch4.ts"
+      - "tests/ipodtouch4-profile.test.ts"
+      - "hosts/nokia-e7/runtime/pocketjs_symbian_extension.h"
       - "tests/clear-text.test.ts"
       - "tests/clear-ime-loading.test.ts"
       - "apps/**"
@@ -125,7 +135,7 @@ jobs:
       - name: Renderer and runtime stage/dispatcher contracts
         run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - name: Native contacts, package corpus and device installation contracts
-        run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts
+        run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts tests/ipodtouch4-profile.test.ts tests/ipodtouch4-resources.test.ts
       - name: Build Clear simulator inputs
         run: bun tools/wasm.ts && bun tools/build.ts clear-main --framework=vue-vapor
       - name: Clear input and text chain

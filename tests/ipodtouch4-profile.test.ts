@@ -118,6 +118,27 @@ describe("private iPod touch 4 profile", () => {
     expect(guest).toContain("svcwire_pump();");
   });
 
+  test("validates external native archives and source files before building", () => {
+    const root = mkdtempSync(join(tmpdir(), "pocket-native-ipod-"));
+    try {
+      const file = join(root, "app.json");
+      for (const name of ["pocket.json", "Cargo.toml", "bridge.c"]) writeFileSync(join(root, name), "");
+      const descriptor = {
+        id: "game", manifest: "pocket.json", bundleId: "dev.pocket.game", bundleName: "Game.app",
+        executable: "Game", title: "Game", scheme: "pocket-game", receiptSlug: "game", actionName: "game_touch",
+        nativeCore: { manifest: "Cargo.toml", library: "libgame.a", features: ["native"], sources: ["bridge.c"] },
+      };
+      writeFileSync(file, JSON.stringify(descriptor));
+      expect(selectIPodTouch4App(undefined, file).nativeCore).toEqual(descriptor.nativeCore);
+      for (const nativeCore of [null, { ...descriptor.nativeCore, library: "../other.a" },
+        { ...descriptor.nativeCore, features: ["native,other"] }, { ...descriptor.nativeCore, sources: ["missing.c"] },
+        { ...descriptor.nativeCore, manifest: "." }]) {
+        writeFileSync(file, JSON.stringify({ ...descriptor, nativeCore }));
+        expect(() => selectIPodTouch4App(undefined, file)).toThrow("invalid nativeCore");
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test("pins the device tuple and shares the validated 4S toolchain", () => {
     expect(IPODTOUCH4_DEVICE).toEqual({
       productType: "iPod4,1",
@@ -156,7 +177,8 @@ describe("private iPod touch 4 profile", () => {
     // slots, release-latched delivery, per-contact down-edge hit facts.
     expect(runtime).toContain("#define POCKET_TOUCH_SLOT_COUNT 8");
     expect(runtime).toContain('send_void_bool(g_view, "setMultipleTouchEnabled:", YES)');
-    expect(runtime).toContain("pocket_runtime_frame_contacts(&frame_input, 2)");
+    expect(runtime).toContain("pocket_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)");
+    expect(runtime).toContain("#define POCKET_FRAME_TICKS 2");
     expect(runtime).toContain("pocket_runtime_hit_test_bounds");
     expect(guest).toContain("POCKET_RUNTIME_MAX_CONTACTS");
     expect(guest).toContain("pocket_runtime_pack_contact(contact)");

@@ -50,6 +50,8 @@ describe("portable QuickJS C harness contract", () => {
       join(repository, "engine/ui-cabi/include"),
       "-I",
       join(repository, "contracts/generated"),
+      "-I",
+      join(repository, "hosts/nokia-e7/runtime"),
     ];
     const runVariant = (name: string, defines: readonly string[]) => {
       const binary = join(build, name);
@@ -58,6 +60,7 @@ describe("portable QuickJS C harness contract", () => {
     };
 
     runVariant("production", []);
+    runVariant("native-extension", ["-std=c11", "-DPOCKET_RUNTIME_EXTENSION"]);
     runVariant("stages", ["-DPOCKET_RUNTIME_STAGE_HOOKS"]);
     runVariant("harness", ["-DPOCKET_RUNTIME_HARNESS"]);
     runVariant("stages-and-harness", [
