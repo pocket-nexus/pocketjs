@@ -27,8 +27,10 @@ members = [
     "pocket3d/crates/pocket3d-mesh",
     "pocket3d/crates/pocket3d-bsp",
     "pocket3d/crates/pocket3d-cook",
+    "pocket3d/crates/pocket3d-scene",
     "pocket3d/crates/pocket3d-world",
     "pocket3d/examples/handheld",
+    "pocket3d/examples/valley",
     "pocket3d/examples/note-widget",
     "pocket3d/examples/uihost",
 ]
@@ -54,6 +56,7 @@ pocket3d = { path = "pocket3d/crates/pocket3d" }
 pocket3d-anim = { path = "pocket3d/crates/pocket3d-anim" }
 pocket3d-mesh = { path = "pocket3d/crates/pocket3d-mesh" }
 pocket3d-bsp = { path = "pocket3d/crates/pocket3d-bsp" }
+pocket3d-scene = { path = "pocket3d/crates/pocket3d-scene" }
 pocket3d-world = { path = "pocket3d/crates/pocket3d-world" }
 pocket-db = { path = "crates/pocket-db" }
 pocket-fs = { path = "crates/pocket-fs" }

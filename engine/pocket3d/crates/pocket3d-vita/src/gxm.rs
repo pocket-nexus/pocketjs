@@ -44,12 +44,24 @@ const WORLD_POSITION_OFFSET: u16 = 12;
 /// Dynamic vertex layout (`mesh::ColorVert`: u32 color then f32 xyz).
 const DYN_COLOR_STRIDE: u16 = 16;
 
+/// Authored-scene vertex layout (`pocket3d_scene::format::VERTEX_STRIDE`):
+/// `[u, v: f32][lit: u32][fog: u32][x, y, z: i16][pad]`. One resident stream
+/// feeds three passes; only the attribute offsets differ.
+const SCENE_STRIDE: u16 = 24;
+const SCENE_UV_OFFSET: u16 = 0;
+const SCENE_LIT_OFFSET: u16 = 8;
+const SCENE_FOG_OFFSET: u16 = 12;
+const SCENE_POSITION_OFFSET: u16 = 16;
+
 pub struct Pipeline {
     patcher: *mut v2d::SceGxmShaderPatcher,
     registered_ids: [v2d::SceGxmShaderPatcherId; 5],
     world_tex_vp: *mut v2d::SceGxmVertexProgram,
     world_col_vp: *mut v2d::SceGxmVertexProgram,
     dyn_col_vp: *mut v2d::SceGxmVertexProgram,
+    scene_tex_vp: *mut v2d::SceGxmVertexProgram,
+    scene_lit_vp: *mut v2d::SceGxmVertexProgram,
+    scene_fog_vp: *mut v2d::SceGxmVertexProgram,
     tex_opaque_fp: *mut v2d::SceGxmFragmentProgram,
     tex_tint_blend_fp: *mut v2d::SceGxmFragmentProgram,
     col_opaque_fp: *mut v2d::SceGxmFragmentProgram,
@@ -251,7 +263,7 @@ impl BuildGuard {
         Self {
             patcher,
             ids: Vec::with_capacity(5),
-            vertex_programs: Vec::with_capacity(3),
+            vertex_programs: Vec::with_capacity(6),
             fragment_programs: Vec::with_capacity(6),
             armed: true,
         }
@@ -379,6 +391,31 @@ unsafe fn build() -> Result<Pipeline, &'static str> {
         ],
         DYN_COLOR_STRIDE,
     )?;
+    let scene_tex_vp = guard.vertex(
+        texture_v_id,
+        &[
+            attribute(SCENE_POSITION_OFFSET, s16, 3, tex_position),
+            attribute(SCENE_UV_OFFSET, f32a, 2, tex_texcoord),
+        ],
+        SCENE_STRIDE,
+    )?;
+    let scene_lit_vp = guard.vertex(
+        color_v_id,
+        &[
+            attribute(SCENE_POSITION_OFFSET, s16, 3, col_position),
+            attribute(SCENE_LIT_OFFSET, u8n, 4, col_color),
+        ],
+        SCENE_STRIDE,
+    )?;
+    let scene_fog_vp = guard.vertex(
+        color_v_id,
+        &[
+            attribute(SCENE_POSITION_OFFSET, s16, 3, col_position),
+            attribute(SCENE_FOG_OFFSET, u8n, 4, col_color),
+        ],
+        SCENE_STRIDE,
+    )?;
+
     let src_alpha = v2d::SceGxmBlendFactor_SCE_GXM_BLEND_FACTOR_SRC_ALPHA;
     let inv_src_alpha = v2d::SceGxmBlendFactor_SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     let one = v2d::SceGxmBlendFactor_SCE_GXM_BLEND_FACTOR_ONE;
@@ -408,6 +445,9 @@ unsafe fn build() -> Result<Pipeline, &'static str> {
         world_tex_vp,
         world_col_vp,
         dyn_col_vp,
+        scene_tex_vp,
+        scene_lit_vp,
+        scene_fog_vp,
         tex_opaque_fp,
         tex_tint_blend_fp,
         col_opaque_fp,
@@ -523,7 +563,14 @@ impl Pipeline {
         ] {
             v2d::sceGxmShaderPatcherReleaseFragmentProgram(self.patcher, program);
         }
-        for program in [self.dyn_col_vp, self.world_col_vp, self.world_tex_vp] {
+        for program in [
+            self.scene_fog_vp,
+            self.scene_lit_vp,
+            self.scene_tex_vp,
+            self.dyn_col_vp,
+            self.world_col_vp,
+            self.world_tex_vp,
+        ] {
             v2d::sceGxmShaderPatcherReleaseVertexProgram(self.patcher, program);
         }
         for id in self.registered_ids.into_iter().rev() {
@@ -632,5 +679,203 @@ impl Pipeline {
     pub unsafe fn draw_sequential(&self, count: u32) -> bool {
         debug_assert!(count as usize <= SEQUENTIAL_INDEX_COUNT);
         self.draw_indexed(self.sequential_indices.as_ptr().cast(), count)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Authored-scene pipeline
+// ---------------------------------------------------------------------------
+
+/// Which of the three scene passes a bind or uniform update addresses.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ScenePass {
+    /// Texture only, depth-written. The first pass over opaque geometry.
+    Albedo,
+    /// Multiplies the baked `lit` colour over the albedo already in the tile.
+    Light,
+    /// Adds the baked fog colour scaled by its coverage.
+    Fog,
+    /// One-pass alpha-blended cutout: texture times a flat per-chunk tint.
+    Cutout,
+}
+
+/// Face culling for the scene passes. Foliage cards are drawn from both sides.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CullMode {
+    Back,
+    None,
+}
+
+/// Apply a face-culling mode.
+///
+/// # Safety
+///
+/// Render-thread only, inside an open vita2d scene.
+pub unsafe fn set_cull(mode: CullMode) {
+    let context = v2d::vita2d_get_context();
+    let value = match mode {
+        CullMode::Back => v2d::SceGxmCullMode_SCE_GXM_CULL_CCW,
+        CullMode::None => v2d::SceGxmCullMode_SCE_GXM_CULL_NONE,
+    };
+    v2d::sceGxmSetCullMode(context, value);
+}
+
+/// A GPU-resident texture with its own mip chain.
+///
+/// vita2d's texture helper allocates one linear level; a forest at 960x544
+/// needs the chain, so this owns its memory and builds a swizzled GXM texture
+/// over it. The embedded `vita2d_texture` exists so the value can be handed to
+/// [`Pipeline::set_texture`] like any other; it is never freed by vita2d.
+pub struct MipTexture {
+    slab: GpuSlab,
+    handle: v2d::vita2d_texture,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureError {
+    NotPowerOfTwoSquare,
+    TooManyLevels,
+    TruncatedLevels,
+    OutOfMemory,
+    InitFailed,
+}
+
+/// Interleave `x` into the even bits and `y` into the odd bits.
+fn morton(x: u32, y: u32) -> u32 {
+    fn spread(mut value: u32) -> u32 {
+        value &= 0x0000_ffff;
+        value = (value | (value << 8)) & 0x00ff_00ff;
+        value = (value | (value << 4)) & 0x0f0f_0f0f;
+        value = (value | (value << 2)) & 0x3333_3333;
+        (value | (value << 1)) & 0x5555_5555
+    }
+    spread(x) | (spread(y) << 1)
+}
+
+impl MipTexture {
+    /// Upload a square power-of-two RGBA8 mip chain, level 0 first.
+    ///
+    /// # Safety
+    ///
+    /// Render-thread only, after vita2d initialization.
+    pub unsafe fn upload(size: u32, levels: u8, chain: &[u8]) -> Result<Self, TextureError> {
+        if size == 0 || !size.is_power_of_two() {
+            return Err(TextureError::NotPowerOfTwoSquare);
+        }
+        if levels == 0 || levels as u32 > size.trailing_zeros() + 1 {
+            return Err(TextureError::TooManyLevels);
+        }
+        let mut total = 0usize;
+        for level in 0..levels as u32 {
+            let extent = (size >> level).max(1) as usize;
+            total += extent * extent * 4;
+        }
+        if chain.len() < total {
+            return Err(TextureError::TruncatedLevels);
+        }
+
+        let slab = GpuSlab::alloc(total).map_err(|_| TextureError::OutOfMemory)?;
+        let base = slab.as_ptr();
+        let mut offset = 0usize;
+        for level in 0..levels as u32 {
+            let extent = (size >> level).max(1) as usize;
+            let source = &chain[offset..offset + extent * extent * 4];
+            let destination = base.add(offset).cast::<u32>();
+            for y in 0..extent {
+                for x in 0..extent {
+                    let texel = u32::from_le_bytes([
+                        source[(y * extent + x) * 4],
+                        source[(y * extent + x) * 4 + 1],
+                        source[(y * extent + x) * 4 + 2],
+                        source[(y * extent + x) * 4 + 3],
+                    ]);
+                    destination
+                        .add(morton(x as u32, y as u32) as usize)
+                        .write(texel);
+                }
+            }
+            offset += extent * extent * 4;
+        }
+
+        let mut handle: v2d::vita2d_texture = core::mem::zeroed();
+        if v2d::sceGxmTextureInitSwizzled(
+            &mut handle.gxm_tex,
+            base.cast(),
+            v2d::SceGxmTextureFormat_SCE_GXM_TEXTURE_FORMAT_A8B8G8R8,
+            size,
+            size,
+            levels as u32,
+        ) < 0
+        {
+            slab.free();
+            return Err(TextureError::InitFailed);
+        }
+        handle.data_UID = -1;
+        handle.palette_UID = -1;
+        v2d::sceGxmTextureSetMinFilter(
+            &mut handle.gxm_tex,
+            v2d::SceGxmTextureFilter_SCE_GXM_TEXTURE_FILTER_LINEAR,
+        );
+        v2d::sceGxmTextureSetMagFilter(
+            &mut handle.gxm_tex,
+            v2d::SceGxmTextureFilter_SCE_GXM_TEXTURE_FILTER_LINEAR,
+        );
+        v2d::sceGxmTextureSetMipFilter(
+            &mut handle.gxm_tex,
+            v2d::SceGxmTextureMipFilter_SCE_GXM_TEXTURE_MIP_FILTER_ENABLED,
+        );
+        v2d::sceGxmTextureSetMipmapCount(&mut handle.gxm_tex, levels as u32);
+        Ok(Self { slab, handle })
+    }
+
+    pub fn set_repeat(&mut self, repeat: bool) {
+        let mode = if repeat {
+            v2d::SceGxmTextureAddrMode_SCE_GXM_TEXTURE_ADDR_REPEAT
+        } else {
+            v2d::SceGxmTextureAddrMode_SCE_GXM_TEXTURE_ADDR_CLAMP
+        };
+        unsafe {
+            v2d::sceGxmTextureSetUAddrMode(&mut self.handle.gxm_tex, mode);
+            v2d::sceGxmTextureSetVAddrMode(&mut self.handle.gxm_tex, mode);
+        }
+    }
+
+    pub fn handle(&self) -> *const v2d::vita2d_texture {
+        &self.handle
+    }
+
+    /// Release the GPU allocation.
+    ///
+    /// # Safety
+    ///
+    /// No queued or in-flight GXM work may sample this texture.
+    pub unsafe fn free(self) {
+        self.slab.free();
+    }
+}
+
+impl Pipeline {
+    /// Bind the programs for one scene pass. `set_scene_transform` then
+    /// supplies each chunk's own matrix without rebinding.
+    pub unsafe fn bind_scene(&self, pass: ScenePass) -> bool {
+        let context = v2d::vita2d_get_context();
+        let (vertex, fragment) = match pass {
+            ScenePass::Albedo => (self.scene_tex_vp, self.tex_opaque_fp),
+            ScenePass::Light => (self.scene_lit_vp, self.col_multiply_fp),
+            ScenePass::Fog => (self.scene_fog_vp, self.col_additive_fp),
+            ScenePass::Cutout => (self.scene_tex_vp, self.tex_tint_blend_fp),
+        };
+        v2d::sceGxmSetVertexProgram(context, vertex);
+        v2d::sceGxmSetFragmentProgram(context, fragment);
+        true
+    }
+
+    /// Upload one chunk's `view_proj * dequantize` matrix.
+    pub unsafe fn set_scene_transform(&self, pass: ScenePass, wvp: &[f32; 16]) -> bool {
+        let parameter = match pass {
+            ScenePass::Albedo | ScenePass::Cutout => self.tex_wvp,
+            ScenePass::Light | ScenePass::Fog => self.col_wvp,
+        };
+        self.set_wvp(parameter, wvp)
     }
 }

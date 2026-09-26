@@ -1954,6 +1954,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket3d-scene"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "libm",
+]
+
+[[package]]
+name = "pocket3d-valley"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "png",
+ "pocket3d-scene",
+]
+
+[[package]]
 name = "pocket3d-world"
 version = "0.1.0"
 dependencies = [

@@ -18,6 +18,7 @@ resolver = "2"
 
 [dependencies]
 pocket3d-bsp = { path = "../pocket3d-bsp", default-features = false, features = ["libm"] }
+pocket3d-scene = { path = "../pocket3d-scene", default-features = false, features = ["libm"] }
 glam = { version = "0.33", default-features = false, features = ["libm"] }
 libm = "0.2"
 

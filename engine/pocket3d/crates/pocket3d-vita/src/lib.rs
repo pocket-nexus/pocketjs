@@ -33,12 +33,14 @@ pub mod camera;
 pub mod gxm;
 pub mod mesh;
 pub mod pool;
+pub mod scene;
 pub mod sky;
 pub mod texture;
 pub mod world;
 
 pub use camera::Camera3d;
 pub use pool::FramePool;
+pub use scene::{SceneRenderer, SceneStats, SceneUploadError};
 pub use world::WorldRenderer;
 
 pub const SCREEN_WIDTH: f32 = 960.0;

@@ -1,0 +1,15 @@
+[package]
+name = "pocket3d-valley"
+description = "River Valley: a procedural Pocket3D scene cooked for handheld hardware, with a CPU reference rasterizer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket3d-scene = { workspace = true }
+glam = { workspace = true, features = ["std"] }
+png = { workspace = true }
+
+[[bin]]
+name = "valley-cook"
+path = "src/bin/valley-cook.rs"

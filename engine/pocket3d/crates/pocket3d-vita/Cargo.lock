@@ -25,12 +25,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket3d-scene"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "libm",
+]
+
+[[package]]
 name = "pocket3d-vita"
 version = "0.1.0"
 dependencies = [
  "glam",
  "libm",
  "pocket3d-bsp",
+ "pocket3d-scene",
  "vita2d-sys",
  "vitasdk-sys",
 ]

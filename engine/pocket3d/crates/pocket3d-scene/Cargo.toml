@@ -1,0 +1,17 @@
+[package]
+name = "pocket3d-scene"
+description = "The .p3sn authored-scene container: chunked static geometry with baked light and fog, materials, mipmapped textures, water and scatter, plus culling and the shared bake model"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[features]
+default = ["std"]
+# The builder and writer (`build`), used by cookers on a desktop host.
+std = ["glam/std"]
+# Math backend for no_std runtimes (PSP, Vita, Symbian).
+libm = ["glam/libm", "dep:libm"]
+
+[dependencies]
+glam = { version = "0.33", default-features = false }
+libm = { version = "0.2", optional = true }
