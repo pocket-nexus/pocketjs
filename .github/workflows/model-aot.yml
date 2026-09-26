@@ -35,8 +35,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@nightly-2026-07-01
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-07-01
           components: rust-src
       - name: Test native atomics without a critical-section provider
         run: |
