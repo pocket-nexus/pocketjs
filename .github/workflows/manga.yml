@@ -1,0 +1,46 @@
+name: Pocket Manga companion
+on:
+  pull_request:
+    paths:
+      - 'apps/manga/**'
+      - 'tests/manga-*.test.ts'
+      - 'framework/src/resource*.ts'
+      - 'framework/src/offload.ts'
+      - 'framework/src/relay/**'
+      - 'tools/relay-wire.ts'
+      - 'tools/companion-session.ts'
+      - 'tools/offload-*.ts'
+      - 'tools/3ds*.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/manga.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/manga/**'
+      - 'tests/manga-*.test.ts'
+      - 'framework/src/resource*.ts'
+      - 'framework/src/offload.ts'
+      - 'framework/src/relay/**'
+      - 'tools/relay-wire.ts'
+      - 'tools/companion-session.ts'
+      - 'tools/offload-*.ts'
+      - 'tools/3ds*.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/manga.yml'
+permissions:
+  contents: read
+jobs:
+  companion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: bun run manga:test
+      - run: bunx tsc --noEmit
