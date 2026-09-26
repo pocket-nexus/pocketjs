@@ -37,6 +37,7 @@ pub mod format;
 pub mod light;
 mod math;
 pub mod particles;
+pub mod ride;
 pub mod runtime;
 pub mod sky;
 pub mod water;
@@ -47,4 +48,5 @@ pub use format::{
     SceneError, SceneHeader, Texture, VERTEX_STRIDE, WaterParams,
 };
 pub use light::{BakeInputs, FogTerms, Lighting, pack_abgr};
+pub use ride::{DriftSettings, Ride, ride};
 pub use runtime::{DynamicMesh, DynamicVertex, ViewPoint};

@@ -1,0 +1,38 @@
+[package]
+name = "valley-vita"
+description = "River Valley on PS Vita: the .p3sn scene drawn through pocket3d-vita"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[package.metadata.vita]
+title_id = "PKVL30001"
+title_name = "Pocket3D River Valley"
+build_std = "std,panic_abort"
+
+# Target-specific and standalone, like pocket3d-vita and pocket3d-gu: cargo-vita
+# wants a lone bin, and workspace membership would break desktop `cargo check`
+# on a tier-3 target.
+[workspace]
+resolver = "2"
+
+[dependencies]
+pocket3d-vita = { path = "../../crates/pocket3d-vita" }
+pocket3d-scene = { path = "../../crates/pocket3d-scene", default-features = false, features = ["libm"] }
+glam = { version = "0.33", default-features = false, features = ["libm"] }
+libm = "0.2"
+
+[target.'cfg(target_os = "vita")'.dependencies]
+vita2d-sys = "0.1.1"
+vitasdk-sys = { version = "0.3.3", features = ["SceGxm_stub", "SceCtrl_stub"] }
+
+# The scene is cooked at build time and embedded, so the VPK is self-contained
+# and the checkout carries no binary blob.
+[build-dependencies]
+pocket3d-valley = { path = "../valley" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

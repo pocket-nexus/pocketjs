@@ -87,3 +87,27 @@ pub fn floorf(value: f32) -> f32 {
 pub fn wrap01(value: f32) -> f32 {
     value - floorf(value)
 }
+
+#[cfg(feature = "std")]
+#[inline]
+pub fn atan2f(y: f32, x: f32) -> f32 {
+    y.atan2(x)
+}
+
+#[cfg(feature = "std")]
+#[inline]
+pub fn sqrtf(value: f32) -> f32 {
+    value.sqrt()
+}
+
+#[cfg(all(not(feature = "std"), feature = "libm"))]
+#[inline]
+pub fn atan2f(y: f32, x: f32) -> f32 {
+    libm::atan2f(y, x)
+}
+
+#[cfg(all(not(feature = "std"), feature = "libm"))]
+#[inline]
+pub fn sqrtf(value: f32) -> f32 {
+    libm::sqrtf(value)
+}

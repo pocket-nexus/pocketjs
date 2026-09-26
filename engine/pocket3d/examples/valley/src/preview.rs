@@ -23,43 +23,9 @@ use pocket3d_scene::runtime::{DynamicMesh, DynamicVertex, ViewPoint};
 use pocket3d_scene::sky::{self, SkySettings};
 use pocket3d_scene::water::{self, WaterSettings};
 
-use crate::scene::{ValleyOptions, boat_transform};
+use pocket3d_scene::ride;
 
-/// Where the camera sits at a given point of the drift.
-pub struct Shot {
-    pub eye: Vec3,
-    pub target: Vec3,
-    pub boat: Mat4,
-    pub boat_position: Vec3,
-    pub boat_heading: f32,
-}
-
-/// The camera rides the stern of the boat, a little above and behind it.
-pub fn shot(scene: &Scene<'_>, options: &ValleyOptions, time: f32) -> Shot {
-    // A slow drift down the cooked stretch, looping over its length.
-    let span = options.drift_near - options.drift_far;
-    let progress = (time * 0.012).rem_euclid(1.0);
-    let z = options.drift_near - span * progress;
-    let (boat_position, heading, boat) = boat_transform(&scene.river, z, time);
-
-    let back = Vec3::new(heading.sin(), 0.0, heading.cos());
-    let side = Vec3::new(back.z, 0.0, -back.x);
-    // Over the stern and off to one side, so the hull sits in the lower third
-    // and leaves the channel open down the middle of the frame.
-    let eye = boat_position + back * 6.2 + side * 1.9 + Vec3::Y * 3.5;
-    // Look past the bow, down the valley, with a slow sway.
-    let sway = (time * 0.08).sin() * 3.0;
-    let ahead_z = z - 95.0;
-    let (ahead_x, _) = scene.river_at(ahead_z);
-    let target = Vec3::new(ahead_x + sway, 1.4, ahead_z);
-    Shot {
-        eye,
-        target,
-        boat,
-        boat_position,
-        boat_heading: heading,
-    }
-}
+use crate::scene::{ValleyOptions, drift};
 
 struct Target {
     width: usize,
@@ -392,7 +358,7 @@ pub fn render(
     height: u32,
 ) -> Vec<u8> {
     let mut target = Target::new(width as usize, height as usize);
-    let shot = shot(scene, options, time);
+    let shot = ride::ride(scene, &drift(options), time);
     let header = scene.header;
     let projection = glam::camera::rh::proj::opengl::perspective(
         header.camera_fov,
@@ -700,7 +666,7 @@ mod tests {
         let scene = Scene::parse(&bytes).unwrap();
         for step in 0..8 {
             let time = step as f32 * 7.0;
-            let shot = shot(&scene, &options, time);
+            let shot = ride::ride(&scene, &drift(&options), time);
             let (center, half_width) = scene.river_at(shot.boat_position.z);
             assert!(
                 (shot.boat_position.x - center).abs() < half_width,

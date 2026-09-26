@@ -29,6 +29,7 @@ use core::cell::UnsafeCell;
 use glam::{Mat4, Vec3};
 
 pub mod camera;
+pub mod dynamic;
 #[cfg(target_os = "vita")]
 pub mod gxm;
 pub mod mesh;
@@ -40,6 +41,7 @@ pub mod world;
 
 pub use camera::Camera3d;
 pub use pool::FramePool;
+pub use dynamic::{DynamicSurface, SurfaceKind};
 pub use scene::{SceneRenderer, SceneStats, SceneUploadError};
 pub use world::WorldRenderer;
 

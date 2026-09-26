@@ -124,8 +124,8 @@ pub fn build_petals(
         let fall = scatter.rate * (0.6 + 0.8 * unit(index, 0x22));
         // One cycle from the top of the volume to the bottom, wrapped.
         let cycle = wrap01(time * fall / span.y.max(1.0) + phase);
-        let sway = sinf((time * (0.7 + unit(index, 0x33)) + phase * 6.28));
-        let swirl = cosf((time * (0.5 + unit(index, 0x44)) + phase * 4.1));
+        let sway = sinf(time * (0.7 + unit(index, 0x33)) + phase * 6.28);
+        let swirl = cosf(time * (0.5 + unit(index, 0x44)) + phase * 4.1);
         let position = base
             + Vec3::new(
                 unit(index, 0x55) * span.x + sway * 1.4,

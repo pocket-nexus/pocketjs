@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use glam::{Mat4, Quat, Vec3};
+use glam::Vec3;
 use pocket3d_scene::build::{BuildError, Mesh, SceneBuilder};
 use pocket3d_scene::cull::LOD_ALWAYS;
 use pocket3d_scene::format::{
@@ -19,6 +19,7 @@ use pocket3d_scene::format::{
     material_flags,
 };
 use pocket3d_scene::light::{BakeInputs, FogModel, Lighting};
+use pocket3d_scene::ride::DriftSettings;
 
 use crate::flora;
 use crate::geometry::Baker;
@@ -26,6 +27,15 @@ use crate::noise::{Rng, fbm};
 use crate::structures::{self, StructureMeshes};
 use crate::terrain::{Pad, Valley, WATER_LEVEL, smoothstep};
 use crate::textures;
+
+/// The drift these options cook for, which the runtime must ride.
+pub fn drift(options: &ValleyOptions) -> DriftSettings {
+    DriftSettings {
+        near: options.drift_near,
+        far: options.drift_far,
+        ..DriftSettings::default()
+    }
+}
 
 /// How the valley is cooked.
 #[derive(Clone, Copy, Debug)]
@@ -916,55 +926,6 @@ fn cook_boat(
     Ok(chunks)
 }
 
-/// Where the boat sits at a given moment of the drift, and how it is turned.
-///
-/// The runtime and the preview renderer share this so a still frame and the
-/// device agree about the shot.
-pub fn boat_transform(
-    river: &[RiverSample],
-    z: f32,
-    time: f32,
-) -> (Vec3, f32, Mat4) {
-    let sample = |z: f32| -> (f32, f32) {
-        if river.is_empty() {
-            return (0.0, 10.0);
-        }
-        let mut previous = river[0];
-        for current in river {
-            if current.z >= z {
-                let span = current.z - previous.z;
-                let t = if span > 1e-4 {
-                    ((z - previous.z) / span).clamp(0.0, 1.0)
-                } else {
-                    0.0
-                };
-                return (
-                    previous.x + (current.x - previous.x) * t,
-                    previous.half_width + (current.half_width - previous.half_width) * t,
-                );
-            }
-            previous = *current;
-        }
-        (previous.x, previous.half_width)
-    };
-    let (x, _) = sample(z);
-    let (ahead, _) = sample(z - 8.0);
-    // The hull points down-current; the centre line's own slope gives heading.
-    let heading = (x - ahead).atan2(8.0);
-    let bob = (time * 1.15).sin() * 0.045 + (time * 0.63 + 1.9).sin() * 0.03;
-    let roll = (time * 0.83 + 0.4).sin() * 0.018;
-    let pitch = (time * 1.31).sin() * 0.012;
-    let position = Vec3::new(x, WATER_LEVEL + bob, z);
-    let rotation = Quat::from_rotation_y(heading)
-        * Quat::from_rotation_z(roll)
-        * Quat::from_rotation_x(pitch);
-    (
-        position,
-        heading,
-        Mat4::from_rotation_translation(rotation, position),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1093,17 +1054,10 @@ mod tests {
     }
 
     #[test]
-    fn the_boat_follows_the_centre_line_as_it_drifts() {
-        let (bytes, _) = build(&small()).unwrap();
-        let scene = Scene::parse(&bytes).unwrap();
-        for z in [-50.0f32, -20.0, 0.0, 30.0] {
-            let (position, _, _) = boat_transform(&scene.river, z, 0.0);
-            let (center, half_width) = scene.river_at(z);
-            assert!(
-                (position.x - center).abs() < half_width,
-                "boat at {z} strayed to {}",
-                position.x
-            );
-        }
+    fn the_cooked_drift_matches_the_stretch_the_fog_was_baked_for() {
+        let options = small();
+        let settings = drift(&options);
+        assert_eq!(settings.near, options.drift_near);
+        assert_eq!(settings.far, options.drift_far);
     }
 }

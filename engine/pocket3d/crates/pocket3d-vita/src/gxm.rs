@@ -53,6 +53,11 @@ const SCENE_LIT_OFFSET: u16 = 8;
 const SCENE_FOG_OFFSET: u16 = 12;
 const SCENE_POSITION_OFFSET: u16 = 16;
 
+/// Runtime-built surfaces (`pocket3d_scene::runtime::DYNAMIC_VERTEX_STRIDE`):
+/// the same attribute order with full-precision positions, because water, sky
+/// and particles are rebuilt every frame instead of quantized once.
+const DYNAMIC_SCENE_STRIDE: u16 = 28;
+
 pub struct Pipeline {
     patcher: *mut v2d::SceGxmShaderPatcher,
     registered_ids: [v2d::SceGxmShaderPatcherId; 5],
@@ -62,8 +67,12 @@ pub struct Pipeline {
     scene_tex_vp: *mut v2d::SceGxmVertexProgram,
     scene_lit_vp: *mut v2d::SceGxmVertexProgram,
     scene_fog_vp: *mut v2d::SceGxmVertexProgram,
+    dynamic_tex_vp: *mut v2d::SceGxmVertexProgram,
+    dynamic_lit_vp: *mut v2d::SceGxmVertexProgram,
+    dynamic_fog_vp: *mut v2d::SceGxmVertexProgram,
     tex_opaque_fp: *mut v2d::SceGxmFragmentProgram,
     tex_tint_blend_fp: *mut v2d::SceGxmFragmentProgram,
+    tex_tint_additive_fp: *mut v2d::SceGxmFragmentProgram,
     col_opaque_fp: *mut v2d::SceGxmFragmentProgram,
     col_multiply_fp: *mut v2d::SceGxmFragmentProgram,
     col_alpha_fp: *mut v2d::SceGxmFragmentProgram,
@@ -263,8 +272,8 @@ impl BuildGuard {
         Self {
             patcher,
             ids: Vec::with_capacity(5),
-            vertex_programs: Vec::with_capacity(6),
-            fragment_programs: Vec::with_capacity(6),
+            vertex_programs: Vec::with_capacity(9),
+            fragment_programs: Vec::with_capacity(8),
             armed: true,
         }
     }
@@ -416,6 +425,31 @@ unsafe fn build() -> Result<Pipeline, &'static str> {
         SCENE_STRIDE,
     )?;
 
+    let dynamic_tex_vp = guard.vertex(
+        texture_v_id,
+        &[
+            attribute(SCENE_POSITION_OFFSET, f32a, 3, tex_position),
+            attribute(SCENE_UV_OFFSET, f32a, 2, tex_texcoord),
+        ],
+        DYNAMIC_SCENE_STRIDE,
+    )?;
+    let dynamic_lit_vp = guard.vertex(
+        color_v_id,
+        &[
+            attribute(SCENE_POSITION_OFFSET, f32a, 3, col_position),
+            attribute(SCENE_LIT_OFFSET, u8n, 4, col_color),
+        ],
+        DYNAMIC_SCENE_STRIDE,
+    )?;
+    let dynamic_fog_vp = guard.vertex(
+        color_v_id,
+        &[
+            attribute(SCENE_POSITION_OFFSET, f32a, 3, col_position),
+            attribute(SCENE_FOG_OFFSET, u8n, 4, col_color),
+        ],
+        DYNAMIC_SCENE_STRIDE,
+    )?;
+
     let src_alpha = v2d::SceGxmBlendFactor_SCE_GXM_BLEND_FACTOR_SRC_ALPHA;
     let inv_src_alpha = v2d::SceGxmBlendFactor_SCE_GXM_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     let one = v2d::SceGxmBlendFactor_SCE_GXM_BLEND_FACTOR_ONE;
@@ -427,6 +461,7 @@ unsafe fn build() -> Result<Pipeline, &'static str> {
 
     let tex_opaque_fp = guard.fragment(texture_f_id, None, texture_v)?;
     let tex_tint_blend_fp = guard.fragment(texture_tint_f_id, Some(&alpha), texture_v)?;
+    let tex_tint_additive_fp = guard.fragment(texture_tint_f_id, Some(&additive), texture_v)?;
     let col_opaque_fp = guard.fragment(color_f_id, None, color_v)?;
     let col_multiply_fp = guard.fragment(color_f_id, Some(&multiply), color_v)?;
     let col_alpha_fp = guard.fragment(color_f_id, Some(&alpha), color_v)?;
@@ -448,8 +483,12 @@ unsafe fn build() -> Result<Pipeline, &'static str> {
         scene_tex_vp,
         scene_lit_vp,
         scene_fog_vp,
+        dynamic_tex_vp,
+        dynamic_lit_vp,
+        dynamic_fog_vp,
         tex_opaque_fp,
         tex_tint_blend_fp,
+        tex_tint_additive_fp,
         col_opaque_fp,
         col_multiply_fp,
         col_alpha_fp,
@@ -558,12 +597,16 @@ impl Pipeline {
             self.col_alpha_fp,
             self.col_multiply_fp,
             self.col_opaque_fp,
+            self.tex_tint_additive_fp,
             self.tex_tint_blend_fp,
             self.tex_opaque_fp,
         ] {
             v2d::sceGxmShaderPatcherReleaseFragmentProgram(self.patcher, program);
         }
         for program in [
+            self.dynamic_fog_vp,
+            self.dynamic_lit_vp,
+            self.dynamic_tex_vp,
             self.scene_fog_vp,
             self.scene_lit_vp,
             self.scene_tex_vp,
@@ -697,6 +740,11 @@ pub enum ScenePass {
     Fog,
     /// One-pass alpha-blended cutout: texture times a flat per-chunk tint.
     Cutout,
+    /// One-pass additive: texture times a flat tint, added to the tile.
+    Glow,
+    /// The baked colour drawn straight, with no texture and no blending. The
+    /// sky dome, which is its own light source.
+    Emissive,
 }
 
 /// Face culling for the scene passes. Foliage cards are drawn from both sides.
@@ -864,6 +912,25 @@ impl Pipeline {
             ScenePass::Light => (self.scene_lit_vp, self.col_multiply_fp),
             ScenePass::Fog => (self.scene_fog_vp, self.col_additive_fp),
             ScenePass::Cutout => (self.scene_tex_vp, self.tex_tint_blend_fp),
+            ScenePass::Glow => (self.scene_tex_vp, self.tex_tint_additive_fp),
+            ScenePass::Emissive => (self.scene_lit_vp, self.col_opaque_fp),
+        };
+        v2d::sceGxmSetVertexProgram(context, vertex);
+        v2d::sceGxmSetFragmentProgram(context, fragment);
+        true
+    }
+
+    /// Bind the programs for a runtime surface's pass. Same passes as
+    /// [`Self::bind_scene`], over the full-precision vertex layout.
+    pub unsafe fn bind_dynamic_scene(&self, pass: ScenePass) -> bool {
+        let context = v2d::vita2d_get_context();
+        let (vertex, fragment) = match pass {
+            ScenePass::Albedo => (self.dynamic_tex_vp, self.tex_opaque_fp),
+            ScenePass::Light => (self.dynamic_lit_vp, self.col_multiply_fp),
+            ScenePass::Fog => (self.dynamic_fog_vp, self.col_additive_fp),
+            ScenePass::Cutout => (self.dynamic_tex_vp, self.tex_tint_blend_fp),
+            ScenePass::Glow => (self.dynamic_tex_vp, self.tex_tint_additive_fp),
+            ScenePass::Emissive => (self.dynamic_lit_vp, self.col_opaque_fp),
         };
         v2d::sceGxmSetVertexProgram(context, vertex);
         v2d::sceGxmSetFragmentProgram(context, fragment);
@@ -873,8 +940,8 @@ impl Pipeline {
     /// Upload one chunk's `view_proj * dequantize` matrix.
     pub unsafe fn set_scene_transform(&self, pass: ScenePass, wvp: &[f32; 16]) -> bool {
         let parameter = match pass {
-            ScenePass::Albedo | ScenePass::Cutout => self.tex_wvp,
-            ScenePass::Light | ScenePass::Fog => self.col_wvp,
+            ScenePass::Albedo | ScenePass::Cutout | ScenePass::Glow => self.tex_wvp,
+            ScenePass::Light | ScenePass::Fog | ScenePass::Emissive => self.col_wvp,
         };
         self.set_wvp(parameter, wvp)
     }

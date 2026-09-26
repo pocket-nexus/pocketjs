@@ -39,6 +39,8 @@ pub struct SceneStats {
     pub submissions: u32,
     pub draw_calls: u32,
     pub textures_resident: u32,
+    /// Triangles a failed upload or bind kept off the GPU this frame.
+    pub dropped_triangles: u32,
     pub submission_errors: u32,
 }
 
@@ -162,6 +164,31 @@ impl<'a> SceneRenderer<'a> {
         self.visible.gather(&self.scene, &frustum, camera.pos);
         self.stats.chunks_drawn = self.visible.stats.chunks_drawn;
         self.stats.triangles = self.visible.stats.triangles;
+    }
+
+    /// The resident texture a material samples, for surfaces the runtime
+    /// builds itself and draws outside [`Self::draw`].
+    #[cfg(target_os = "vita")]
+    pub fn material_texture(&self, material: u16) -> *const vita2d_sys::vita2d_texture {
+        let Some(material) = self.scene.materials.get(material as usize) else {
+            return core::ptr::null();
+        };
+        self.textures
+            .get(material.texture as usize)
+            .and_then(|slot| slot.as_ref())
+            .map_or(core::ptr::null(), |texture| texture.handle())
+    }
+
+    /// The resident texture for a role, or null when it is not resident.
+    #[cfg(target_os = "vita")]
+    pub fn role_texture(
+        &self,
+        role: pocket3d_scene::format::MaterialRole,
+    ) -> *const vita2d_sys::vita2d_texture {
+        match self.scene.role_material(role) {
+            Some(material) => self.material_texture(material),
+            None => core::ptr::null(),
+        }
     }
 
     pub fn visible_stats(&self) -> pocket3d_scene::cull::CullStats {

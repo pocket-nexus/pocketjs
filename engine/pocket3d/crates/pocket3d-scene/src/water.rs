@@ -15,7 +15,7 @@ use glam::Vec3;
 
 use crate::format::Scene;
 use crate::light::{FogModel, gamma_encode, pack_abgr, tonemap};
-use crate::math::{cosf, powf, sinf, wrap01};
+use crate::math::{cosf, powf, sinf};
 use crate::runtime::{DynamicMesh, DynamicVertex, ViewPoint};
 
 /// How much river to build, and how finely.
@@ -222,7 +222,7 @@ pub fn build_wake(
         let centre = origin + back * distance;
         // The wake spreads behind the hull and fades as it spreads.
         let width = beam * (0.55 + 1.5 * t);
-        let fade = (1.0 - t).powf(1.6);
+        let fade = powf(1.0 - t, 1.6);
         let ripple = 0.65 + 0.35 * (sinf(distance * 0.9 - time * 3.1));
         let alpha = fade * ripple * 0.7;
         let terms = fog.terms(view.eye, centre, header.sun_dir);
