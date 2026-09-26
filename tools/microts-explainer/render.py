@@ -27,7 +27,7 @@ from storyboard import SCENES, Ctx  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "dist" / "microts-explainer"
-GAP = 0.30
+GAP = 0.22
 
 
 def estimate(text: str) -> float:
@@ -231,7 +231,7 @@ def main() -> None:
     parser.add_argument("--crf", type=int, default=22)
     parser.add_argument("--preset", default="slow")
     parser.add_argument("--voice", default="af_heart", help="Kokoro voice id")
-    parser.add_argument("--speed", type=float, default=1.06, help="Kokoro speaking rate")
+    parser.add_argument("--speed", type=float, default=1.17, help="Kokoro speaking rate")
     parser.add_argument("--no-audio", action="store_true")
     parser.add_argument("--scene", help="comma separated scene keys")
     parser.add_argument("--stills", action="store_true", help="write one PNG per scene instead of video")

@@ -1,7 +1,7 @@
 # MicroTS explainer video
 
 A hand-drawn cartoon explainer, in English, of how MicroTS compiles TypeScript
-to native code. **Every outline is a wobbled path redrawn from a per-frame
+to native code, in ten chapters over two and a half minutes. **Every outline is a wobbled path redrawn from a per-frame
 seed**, so the ink boils the way hand-inked animation does, and marker fills
 sit a pixel or two off their outlines. Frames are drawn with Pillow at 2x and
 downsampled on export, so a render needs no browser, no Blender and no
@@ -24,7 +24,7 @@ the duration, resolution, SHA-256 and every spoken line.
 | `--still-at 0.62` | fraction into each chapter the stills are taken at |
 | `--scene pipeline,trait` | render the named chapters only |
 | `--no-audio` | estimate line lengths instead of speaking them |
-| `--voice am_michael --speed 1.0` | another Kokoro voice and rate |
+| `--voice am_michael --speed 1.0` | another Kokoro voice and rate; the default is `af_heart` at 1.17x |
 | `--width 1280 --preset veryfast` | draft render |
 | `--jobs 8` | frame workers; the default is CPU count minus four |
 
@@ -71,7 +71,7 @@ the model. Without that environment, `--no-audio` renders silent frames.
 | 6 | `frame(input)` dispatches input, updates changed bindings, then the core lays out and emits a DrawList | [microts.md](../../site/content/docs/microts.md) |
 | 7 | The admitted subset, the `file:line:column` error and the absence of a fallback | [typescript-support.md](../../site/content/docs/typescript-support.md) |
 | 8 | The differential test compares the JavaScript run against the Rust run frame by frame | [tests/aot-differential.test.ts](../../tests/aot-differential.test.ts) |
-| 9 | `apps/gba-hero` becomes a GBA ROM; about 11 FPS measured in mGBA against a 30 FPS target, hardware untested | [hosts/gba/README.md](../../hosts/gba/README.md) |
+| 9 | `apps/gba-hero` becomes a GBA ROM; the LCD composes a Mode 0 background and sprites, with DMA uploading changed artwork in VBlank and no per-frame framebuffer | [hosts/gba/README.md](../../hosts/gba/README.md) |
 
 The screen in chapter 9 redraws the layout of
 [`apps/gba-hero/app.tsx`](../../apps/gba-hero/app.tsx) at 240x160. The console

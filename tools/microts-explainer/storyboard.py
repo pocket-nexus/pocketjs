@@ -53,8 +53,8 @@ class Scene:
     chapter: str
     lines: list
     draw: Callable
-    tail: float = 0.75
-    lead: float = 0.18
+    tail: float = 0.5
+    lead: float = 0.15
 
 
 def pop(t: float, dur: float = 0.42, overshoot: float = 2.0) -> float:
@@ -515,7 +515,7 @@ def scene_admission(c, x: Ctx) -> None:
         plate(c, box, 18, fill=PANEL, outline=RED, width=4, shadow=10)
         c.text((box[0] + 28, box[1] + 50), "Counter.ts:12:8", 30, RED, "mono", anchor="lm", jitter=0.3)
         c.text((box[0] + 28, box[1] + 108), "unsupported type: any", 28, INK2, "mono", anchor="lm", jitter=0.3)
-    k3 = x.since(3)
+    k3 = x.since(2) - 1.6
     if k3 > -0.3:
         fade = clamp(1.0 - (k3 - 0.9) / 0.7) if k3 > 0.9 else clamp(k3 + 0.3)
         gx = lerp(1620, 1330, clamp(k3 + 0.3))
@@ -609,8 +609,8 @@ def scene_gba(c, x: Ctx) -> None:
     k2 = pop(x.since(2) - 0.2, 0.55)
     if k2 > 0:
         fact_plate(
-            c, (lerp(2100, 1240, k2), 510, lerp(2900, 1850, k2), 780), "the numbers in the repo",
-            ["~11 FPS measured in mGBA", "30 FPS is the target, not a result", "hardware untested"], PINK,
+            c, (lerp(2100, 1240, k2), 510, lerp(2900, 1850, k2), 780), "how a frame reaches the LCD",
+            ["a Mode 0 background plus sprites", "DMA uploads what changed in VBlank", "no per-frame framebuffer"], PINK,
         )
     if x.since(1) > 1.6:
         cast.ts_buddy(c, (170, 560), 0.68, x.t, arm=0.9, mood="cheer")
@@ -648,12 +648,12 @@ def scene_end(c, x: Ctx) -> None:
         c.rrect((box[0] + 10, box[1] + 8, box[0] + 20, box[3] - 8), 5, fill=color)
         c.text((box[0] + 34, y), tag, 26, INK, anchor="lm")
         c.text((box[0] + 116, y + 1), value, 24, INK2, "mono", anchor="lm", jitter=0.3)
-    if x.since(2) > 0.2:
+    if x.since(1) > 1.6:
         r = sg.random.Random(99)
         for i in range(22):
             a = r.uniform(0, math.tau)
             speed = r.uniform(90, 260)
-            age = (x.since(2) - 0.2) + r.uniform(0, 1.2)
+            age = (x.since(1) - 1.6) + r.uniform(0, 1.2)
             px = MID + math.cos(a) * speed * age
             py = 420 + math.sin(a) * speed * age * 0.7 + 60 * age * age
             if -40 < px < 1960 and -40 < py < 1000:
@@ -666,10 +666,10 @@ SCENES = [
         chapter="What MicroTS is",
         draw=scene_open,
         lines=[
-            ("The PocketJS repo ships a compiler called MicroTS.",
-             "The PocketJS repo ships a compiler called MicroTS."),
-            ("It turns the TypeScript you write into native code that runs straight on a handheld.",
-             "It turns the TypeScript you write into native code that runs straight on a handheld."),
+            ("PocketJS ships a compiler called MicroTS.",
+             "PocketJS ships a compiler called MicroTS."),
+            ("It turns your TypeScript into native code that runs straight on a handheld.",
+             "It turns your TypeScript into native code that runs straight on a handheld."),
             ("At runtime, there is no JavaScript engine.",
              "At runtime, there is no JavaScript engine."),
         ],
@@ -679,12 +679,12 @@ SCENES = [
         chapter="Why no engine",
         draw=scene_why,
         lines=[
-            ("Here is why. Handhelds and microcontrollers count memory in megabytes, and run at tens of megahertz.",
-             "Handhelds and microcontrollers count memory in megabytes; their CPUs run at tens of MHz."),
-            ("Ship a script engine and the device has to parse your source, interpret it, and collect garbage.",
-             "Ship a script engine and the device must parse the source, interpret it, and collect garbage."),
-            ("MicroTS moves all of that work to build time.",
-             "MicroTS moves all of that work to build time."),
+            ("Handhelds count memory in megabytes, and run at tens of megahertz.",
+             "Handhelds count memory in megabytes, and run at tens of megahertz."),
+            ("A script engine would parse, interpret, and collect garbage on the device.",
+             "A script engine would parse, interpret, and collect garbage on the device."),
+            ("MicroTS moves all of that to build time.",
+             "MicroTS moves all of that to build time."),
         ],
     ),
     Scene(
@@ -692,10 +692,10 @@ SCENES = [
         chapter="What you write",
         draw=scene_source,
         lines=[
-            ("You write the two files you would write anyway: a view, and a model.",
-             "You write the two files you would write anyway: a view and a model."),
-            ("TSX describes the screen. The model file beside it holds signals, derived values and methods.",
-             "TSX describes the screen; the model file beside it holds signals, derived values and methods."),
+            ("You write two files: a view, and a model.",
+             "You write two files: a view, and a model."),
+            ("TSX describes the screen. The model beside it holds signals and methods.",
+             "TSX describes the screen; the model beside it holds signals and methods."),
             ("Types have to land in native storage, so the counter is an i32, not a number.",
              "Types have to land in native storage, so the counter is an i32, not a number."),
         ],
@@ -705,14 +705,14 @@ SCENES = [
         chapter="The compile pipeline",
         draw=scene_pipeline,
         lines=[
-            ("At build time the compiler borrows the TypeScript checker to learn the real type of every value.",
-             "The compiler borrows the TypeScript checker to learn the real type of every value."),
-            ("It emits two intermediate representations: View IR for nodes, bindings and dispatch, Model IR for state, dependencies and tasks.",
-             "Two IRs: View IR carries nodes, bindings and dispatch; Model IR carries state, dependencies and tasks."),
-            ("Those get printed as Rust source, next to a compiled style table, styles dot bin.",
-             "Those are printed as Rust source, next to a compiled style table, styles.bin."),
-            ("Then Cargo builds the generated code together with the microts runtime into one native program.",
-             "Then Cargo builds that code with the microts runtime into one native program."),
+            ("The compiler borrows the TypeScript checker to learn every value's real type.",
+             "The compiler borrows the TypeScript checker to learn every value's real type."),
+            ("It emits two IRs: View IR for nodes, bindings and dispatch, Model IR for state and tasks.",
+             "Two IRs: View IR for nodes, bindings and dispatch; Model IR for state and tasks."),
+            ("Both get printed as Rust source, next to a compiled style table.",
+             "Both are printed as Rust source, next to a compiled style table."),
+            ("Cargo builds that with the microts runtime into one native program.",
+             "Cargo builds that with the microts runtime into one native program."),
         ],
     ),
     Scene(
@@ -720,12 +720,12 @@ SCENES = [
         chapter="The trait in between",
         draw=scene_trait,
         lines=[
-            ("The generated view and the model meet at a Rust trait.",
-             "The generated view and the model meet at a Rust trait."),
-            ("Read count in the template, and the view calls vm dot count. Assign to it, and the trait grows a set underscore count.",
-             "Read count and the view calls vm.count(). Assign to it and the trait grows set_count."),
-            ("In compiled mode the compiler writes those methods from your TypeScript. In rust mode you write them yourself.",
-             "In compiled mode the compiler writes those methods from your .ts; in rust mode you write them."),
+            ("View and model meet at a Rust trait.",
+             "View and model meet at a Rust trait."),
+            ("Read count, and the view calls vm dot count. Write to it, and the trait grows set underscore count.",
+             "Read count and the view calls vm.count(); write to it and the trait grows set_count."),
+            ("Compiled mode writes those methods from your TypeScript. Rust mode leaves them to you.",
+             "Compiled mode writes those methods from your .ts; rust mode leaves them to you."),
         ],
     ),
     Scene(
@@ -733,14 +733,14 @@ SCENES = [
         chapter="Inside one frame",
         draw=scene_frame,
         lines=[
-            ("At runtime there are no refs, no effects, and no render function.",
-             "At runtime there are no refs, no effects, and no render function."),
-            ("The host calls frame once per tick, and the input goes to the model first.",
+            ("At runtime there are no refs, no effects, no render function.",
+             "At runtime there are no refs, no effects, no render function."),
+            ("The host calls frame once per tick, and input goes to the model first.",
              "The host calls frame(input) once per tick, and input goes to the model first."),
-            ("If the model changed a value, the view updates only the bindings that depend on it. Zero becomes one, one text node is rewritten, the button stays put.",
-             "The view updates only the bindings that depend on it: zero becomes one, one text node is rewritten."),
-            ("Then the Rust core lays out the tree and hands the host a draw list.",
-             "Then the Rust core lays out the tree and hands the host a draw list."),
+            ("The view updates only the bindings that changed: one text node, the button stays put.",
+             "The view updates only the bindings that changed: one text node, the button stays put."),
+            ("The Rust core lays out the tree and hands back a draw list.",
+             "The Rust core lays out the tree and hands back a draw list."),
         ],
     ),
     Scene(
@@ -748,14 +748,12 @@ SCENES = [
         chapter="Admission",
         draw=scene_admission,
         lines=[
-            ("The price is that your source has to stay inside a subset.",
-             "The price: your source has to stay inside a subset."),
-            ("Any, Map, classes, and functions used as data do not get in.",
-             "any, Map, classes, and functions used as data do not get in."),
-            ("The compiler fails at a file, a line and a column. It never quietly falls back to interpreting.",
-             "The compiler fails at file:line:column. It never quietly falls back to interpreting."),
-            ("There is no interpreter in the native program to fall back to.",
-             "There is no interpreter in the native program to fall back to."),
+            ("The price: your source stays inside a subset.",
+             "The price: your source stays inside a subset."),
+            ("Any, Map, classes, functions used as data: none of those get in.",
+             "any, Map, classes, functions used as data: none of those get in."),
+            ("It fails at a file, line and column, and never falls back to interpreting: there is no interpreter in the binary.",
+             "It fails at file:line:column, and never falls back to interpreting: there is no interpreter."),
         ],
     ),
     Scene(
@@ -763,9 +761,9 @@ SCENES = [
         chapter="Keeping both paths honest",
         draw=scene_differential,
         lines=[
-            ("So how do we know both paths compute the same thing?",
-             "So how do we know both paths compute the same thing?"),
-            ("A differential test runs the same TypeScript twice: once as the JavaScript implementation, once as the generated Rust.",
+            ("So how do we know both paths agree?",
+             "So how do we know both paths agree?"),
+            ("A differential test runs the same TypeScript twice: as JavaScript, and as the generated Rust.",
              "A differential test runs the same TypeScript twice: as JavaScript, and as the generated Rust."),
             ("Same recorded input, compared frame by frame. A mismatch is a bug.",
              "Same recorded input, compared frame by frame. A mismatch is a bug."),
@@ -776,26 +774,24 @@ SCENES = [
         chapter="Onto a Game Boy Advance",
         draw=scene_gba,
         lines=[
-            ("The clearest example in the repo is apps slash gba hero.",
-             "The clearest example in the repo is apps/gba-hero."),
-            ("Its TSX view and TypeScript model compile into a Game Boy Advance cartridge ROM, with no JavaScript VM and no operating system.",
+            ("The clearest example is apps slash gba hero.",
+             "The clearest example is apps/gba-hero."),
+            ("Its TSX view and TypeScript model compile into a Game Boy Advance cartridge: no JavaScript VM, no operating system.",
              "Its TSX view and TypeScript model compile into a GBA cartridge ROM: no JS VM, no operating system."),
-            ("The repo keeps the honest numbers: about eleven frames per second in mGBA, thirty is the target, hardware untested.",
-             "The honest numbers: ~11 FPS measured in mGBA, 30 FPS is the target, hardware untested."),
+            ("The LCD composes a background and sprites, and DMA uploads only what changed during the vertical blank.",
+             "The LCD composes a background and sprites; DMA uploads only what changed during VBlank."),
         ],
     ),
     Scene(
         key="end",
         chapter="Start here",
         draw=scene_end,
-        tail=1.6,
+        tail=1.2,
         lines=[
-            ("So: MicroTS keeps the expressiveness in your TypeScript, and hands the runtime to Rust.",
-             "MicroTS keeps the expressiveness in your TypeScript and hands the runtime to Rust."),
+            ("MicroTS keeps the expressiveness in your TypeScript, and hands the runtime to Rust.",
+             "MicroTS keeps the expressiveness in your TypeScript, and hands the runtime to Rust."),
             ("Start with one build command, with strict turned on.",
              "Start with one build command, with --strict turned on."),
-            ("The guide is in docs slash microts, and the compiler lives in the microts folder.",
-             "The guide is docs/microts; the compiler lives in microts/."),
         ],
     ),
 ]
