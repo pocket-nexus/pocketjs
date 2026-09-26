@@ -260,3 +260,8 @@ scan of file labels and editor text. Framework subscriptions notify consumers by
 key. Deduplication, generation checks, retries, admission, eviction and texture
 release share the same scheduler implementation. Documents, SQLite drafts, Markdown layout and rasterization remain in
 the Mac provider. No renderer ABI or companion protocol changes are required.
+
+The optional **`releaseResponse(raw)` hook releases transport staging** after
+materialization or when cancellation, a size limit, or late delivery prevents
+materialization. `dispose(value)` releases an adopted resource. Both hooks
+must finish within the frame budget and must not throw.

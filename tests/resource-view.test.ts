@@ -139,3 +139,15 @@ test("a reusable disposer does not erase the decoded value's type", () => {
     expect(tile?.row).toBe(42); dispose(); expect(freed).toEqual([7]);
   });
 });
+
+test("unchanged demand survives clear, invalidation and mutation of reused arrays",()=>{
+ createRoot(dispose=>{
+  const x=setup(),wanted=demand("a");const v=createResourceView(x.collection,{demand:()=>wanted});
+  x.runtime.step();x.requests[0].done({ok:true,value:"A"});x.runtime.step();
+  for(let i=0;i<10;i++)x.runtime.step();expect(x.requests.length).toBe(1);expect(v.value("a")).toBe("A");
+  x.collection.invalidate();x.runtime.step();expect(x.requests.length).toBe(2);
+  x.collection.clear();x.runtime.step();expect(x.requests.length).toBe(3);
+  wanted[0].input="b";x.runtime.step();expect(x.requests.at(-1)?.key).toBe("b");expect(v.state("a").status).toBe("pending");
+  dispose();
+ });
+});

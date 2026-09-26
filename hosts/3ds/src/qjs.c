@@ -21,6 +21,8 @@
 #include "qjs.h"
 #include "offload.h"
 #include "media.h"
+#include "asset_pack.h"
+#include "state.h"
 #include "offload_coverage.h"
 
 #include <stdlib.h>
@@ -52,7 +54,9 @@
 
 typedef enum {
   HostMediaOpen, HostMediaClose, HostMediaPaused, HostMediaVolume, HostMediaTexture, HostMediaStatus,
-  HostOffloadSession, HostOffloadSubmit, HostOffloadTake, HostOffloadCoverage,
+  HostPackSession, HostPackSubmit, HostPackCacheText, HostPackCacheImage, HostPackCachePixels, HostPackRemove, HostPackTake, HostPackUpload, HostPackRelease, HostPackStats,
+  HostStateRead, HostStateWrite,
+  HostOffloadSession, HostOffloadSubmit, HostOffloadTake, HostOffloadCoverage, HostOffloadImage, HostOffloadReleaseImage,
   HostCreateNode,
   HostDestroyNode,
   HostInsertBefore,
@@ -109,6 +113,7 @@ static char debug_poll_buffer[32 * 1024];
 static char svc_poll_buffer[8192 + 1];
 static uint8_t coverage_pixels[16384 * 4];
 static bool coverage_used;
+static bool image_used;
 
 static void set_error(const char *message) {
   size_t length = message == NULL ? 0 : strlen(message);
@@ -515,6 +520,158 @@ static JSValue host_operation(
       unsigned padded_height = coverage_height((unsigned)height);
       return JS_NewInt32(ctx, ui_upload_texture(coverage_pixels, envelope * padded_height * 4, envelope, padded_height, 3));
     }
+#ifdef POCKETJS_ASSET_PACK
+    case HostPackSession:
+      return JS_NewInt32(ctx, asset_pack_session());
+    case HostPackSubmit: {
+      if (argc < 3 || !JS_IsString(argv[1]))
+        return JS_FALSE;
+      JSValue length = JS_GetPropertyStr(ctx, argv[1], "length");
+      int32_t chars = 0;
+      JS_ToInt32(ctx, &chars, length);
+      JS_FreeValue(ctx, length);
+      if (chars < 1 || chars > 48)
+        return JS_FALSE;
+      text = JS_ToCStringLen2(ctx, &text_length, argv[1], 0);
+      bool ok =
+          text && asset_pack_submit((uint32_t)argument_int(ctx, argc, argv, 0),
+                                    text, text_length,
+                                    (uint32_t)argument_int(ctx, argc, argv, 2));
+      if (text)
+        JS_FreeCString(ctx, text);
+      return JS_NewBool(ctx, ok);
+    }
+    case HostPackRemove: {
+      if (argc < 2 || !JS_IsString(argv[1])) return JS_FALSE;
+      text = JS_ToCStringLen2(ctx, &text_length, argv[1], 0);
+      bool ok = text && asset_pack_remove((uint32_t)argument_int(ctx, argc, argv, 0), text, text_length);
+      if (text) JS_FreeCString(ctx, text);
+      return JS_NewBool(ctx, ok);
+    }
+    case HostPackCacheText:
+    case HostPackCacheImage:
+    case HostPackCachePixels: {
+      if (argc < 4 || !JS_IsString(argv[1])) return JS_FALSE;
+      size_t pack_length = 0;
+      const char *pack = JS_ToCStringLen2(ctx, &pack_length, argv[1], 0);
+      bool ok = false;
+      if (pack && pack_length >= 1 && pack_length <= 48) {
+        uint32_t id = (uint32_t)argument_int(ctx, argc, argv, 0);
+        uint32_t entry = (uint32_t)argument_int(ctx, argc, argv, 2);
+        if (magic == HostPackCacheText && JS_IsString(argv[3])) {
+          size_t size = 0;
+          const char *bytes = JS_ToCStringLen2(ctx, &size, argv[3], 0);
+          if (bytes && size <= 2500) ok = asset_pack_cache(id, pack, pack_length, entry, (const uint8_t *)bytes, size, 0, 0);
+          if (bytes) JS_FreeCString(ctx, bytes);
+        } else if (magic == HostPackCacheImage) {
+          unsigned width = 0, height = 0;
+          const uint8_t *bytes = offload_image((uint32_t)argument_int(ctx, argc, argv, 3), &width, &height);
+          if (bytes) ok = asset_pack_cache(id, pack, pack_length, entry, bytes, width * height * 2, width, height);
+        } else if (magic == HostPackCachePixels && argc >= 6) {
+          unsigned width = (unsigned)argument_int(ctx, argc, argv, 4);
+          unsigned height = (unsigned)argument_int(ctx, argc, argv, 5);
+          const uint8_t *bytes = NULL;
+          size_t size = 0;
+          if (width >= 16 && height >= 16 && argument_bytes(ctx, argc, argv, 3, &bytes, &size) && size <= 256 * 256 * 2)
+            ok = asset_pack_cache(id, pack, pack_length, entry, bytes, size, width, height);
+        }
+      }
+      if (pack) JS_FreeCString(ctx, pack);
+      return JS_NewBool(ctx, ok);
+    }
+    case HostPackTake: {
+      AssetPackResult result;
+      if (!asset_pack_take(&result))
+        return JS_UNDEFINED;
+      JSValue reply = JS_NewObject(ctx);
+      JS_SetPropertyStr(ctx, reply, "id", JS_NewUint32(ctx, result.id));
+      if (result.error || (result.kind != 2 && result.length > 2500))
+        JS_SetPropertyStr(
+            ctx, reply, "error",
+            JS_NewString(ctx, result.error
+                                  ? result.error
+                                  : "Pack data exceeds response budget"));
+      else if (result.kind == 2) {
+        JSValue image = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, image, "token", JS_NewUint32(ctx, result.token));
+        JS_SetPropertyStr(ctx, image, "width", JS_NewUint32(ctx, result.width));
+        JS_SetPropertyStr(ctx, image, "height",
+                          JS_NewUint32(ctx, result.height));
+        JS_SetPropertyStr(ctx, reply, "image", image);
+      } else
+        JS_SetPropertyStr(
+            ctx, reply, "payload",
+            JS_NewStringLen(ctx, (const char *)result.bytes, result.length));
+      JSValue encoded =
+          JS_JSONStringify(ctx, reply, JS_UNDEFINED, JS_UNDEFINED);
+      JS_FreeValue(ctx, reply);
+      if (result.error || result.kind != 2 || JS_IsException(encoded))
+        asset_pack_release(result.token);
+      if (!JS_IsException(encoded)) {
+        size_t bytes = 0;
+        const char *json = JS_ToCStringLen2(ctx, &bytes, encoded, 0);
+        bool oversized = json && bytes > 4096;
+        if (json)
+          JS_FreeCString(ctx, json);
+        if (!json || oversized) {
+          if (result.kind == 2 && !result.error)
+            asset_pack_release(result.token);
+          JS_FreeValue(ctx, encoded);
+          if (!json)
+            return JS_EXCEPTION;
+          char error[128];
+          snprintf(
+              error, sizeof error,
+              "{\"id\":%u,\"error\":\"Pack data exceeds response budget\"}",
+              (unsigned)result.id);
+          return JS_NewString(ctx, error);
+        }
+      }
+      return encoded;
+    }
+    case HostPackUpload:
+      if (image_used)
+        return JS_NewInt32(ctx, -1);
+      image_used = true;
+      return JS_NewInt32(
+          ctx, asset_pack_upload((uint32_t)argument_int(ctx, argc, argv, 0)));
+    case HostPackRelease:
+      asset_pack_release((uint32_t)argument_int(ctx, argc, argv, 0));
+      return JS_UNDEFINED;
+    case HostPackStats:
+      asset_pack_stats(debug_poll_buffer, 256);
+      return JS_NewString(ctx, debug_poll_buffer);
+#endif
+#ifdef POCKETJS_STATE
+    case HostStateRead: {
+      /* One 64 KiB buffer on the QuickJS thread; state.c never writes past
+       * `capacity`, and the spec caps a save at the same size. */
+      static uint8_t state_bytes[64 * 1024];
+      size_t state_length = state_read(state_bytes, sizeof state_bytes);
+      return JS_NewStringLen(ctx, (const char *)state_bytes, state_length);
+    }
+    case HostStateWrite:
+      if (argc < 1) return JS_NewInt32(ctx, -1);
+      text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
+      if (text == NULL) return JS_NewInt32(ctx, -1);
+      {
+        bool ok = text_length <= 64 * 1024 &&
+                  state_write((const uint8_t *)text, text_length);
+        JS_FreeCString(ctx, text);
+        return JS_NewInt32(ctx, ok ? 0 : -1);
+      }
+#endif
+    case HostOffloadImage: {
+      if (image_used)
+        return JS_NewInt32(ctx, -1);
+      unsigned width, height;
+      const uint8_t *pixels = offload_image((uint32_t)argument_int(ctx, argc, argv, 0), &width, &height);
+      if (!pixels) return JS_NewInt32(ctx, -1);
+      image_used = true;
+      return JS_NewInt32(ctx, ui_upload_img_entry(pixels - 8, width * height * 2 + 8));
+    }
+    case HostOffloadReleaseImage:
+      offload_release_image((uint32_t)argument_int(ctx, argc, argv, 0)); return JS_UNDEFINED;
     case HostOffloadSession: return JS_NewInt32(ctx, offload_session());
     case HostOffloadSubmit: {
       if (argc < 1 || !JS_IsString(argv[0])) return JS_FALSE;
@@ -603,9 +760,31 @@ static void install_host(void) {
   add_operation(media,"status",0,HostMediaStatus);
   JS_SetPropertyStr(context,global,"media",media);
 #endif
+#ifdef POCKETJS_ASSET_PACK
+  JSValue packs=JS_NewObject(context);
+  add_operation(packs,"session",0,HostPackSession);
+  add_operation(packs,"enqueue",3,HostPackSubmit);
+  add_operation(packs,"removeCache",2,HostPackRemove);
+  add_operation(packs,"cacheText",4,HostPackCacheText);
+  add_operation(packs,"cacheImage",4,HostPackCacheImage);
+  add_operation(packs,"cachePixels",6,HostPackCachePixels);
+  add_operation(packs,"take",0,HostPackTake);
+  add_operation(packs,"uploadImage",1,HostPackUpload);
+  add_operation(packs,"releaseImage",1,HostPackRelease);
+  add_operation(packs,"stats",0,HostPackStats);
+  JS_SetPropertyStr(context,global,"resourcePacks",packs);
+#endif
+#ifdef POCKETJS_STATE
+  JSValue state = JS_NewObject(context);
+  add_operation(state, "read", 0, HostStateRead);
+  add_operation(state, "write", 1, HostStateWrite);
+  JS_SetPropertyStr(context, global, "state", state);
+#endif
 #ifdef POCKETJS_OFFLOAD
   JSValue offload = JS_NewObject(context);
   add_operation(offload, "uploadCoverage", 6, HostOffloadCoverage);
+  add_operation(offload, "uploadImage", 1, HostOffloadImage);
+  add_operation(offload, "releaseImage", 1, HostOffloadReleaseImage);
   add_operation(offload, "session", 0, HostOffloadSession);
   add_operation(offload, "submit", 1, HostOffloadSubmit);
   add_operation(offload, "take", 0, HostOffloadTake);
@@ -824,7 +1003,11 @@ bool qjs_frame(
 ) {
   if (context == NULL) return false;
   offload_frame();
+#ifdef POCKETJS_ASSET_PACK
+  asset_pack_frame();
+#endif
   coverage_used = false;
+  image_used = false;
   JSValue arguments[6] = {
     JS_NewInt32(context, buttons),
     JS_NewInt32(context, analog),
@@ -868,6 +1051,10 @@ const char *qjs_last_error(void) {
 void qjs_shutdown(void) {
 #ifdef POCKETJS_MEDIA
   media_forget_guest();
+#endif
+  offload_reset();
+#ifdef POCKETJS_ASSET_PACK
+  asset_pack_reset();
 #endif
   if (context != NULL) {
     JS_FreeValue(context, frame_function);

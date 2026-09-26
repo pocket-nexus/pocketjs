@@ -104,6 +104,8 @@ describe("private Nintendo 3DS build profile", () => {
       capabilities: [
         "io.offload",
         "media.playback",
+        "io.resource-pack",
+        "data.state",
         "input.analog.left",
         "input.analog.right",
         "input.buttons",
