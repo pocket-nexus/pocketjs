@@ -68,6 +68,14 @@ export interface BlogPost {
 
 export const BLOG_POSTS: BlogPost[] = [
   {
+    slug: "one-relay-for-every-companion",
+    title: "One Relay for Every Companion: Sessions, Resources, and Backpressure",
+    date: "2026-09-22",
+    description:
+      "Pocket Map and Pocket Term each grew private machinery for sessions, frames, resource identity and backpressure. Pocket Relay extracts those repeated layers without merging their product schemas, with measured results from both migrations and explicit physical-hardware limits.",
+    author: { name: "liufengkai", url: "https://github.com/lfkdsk" },
+  },
+  {
     slug: "blackberry-classic",
     title:
       "A Square Screen and a Dead Signing Server: PocketJS on the BlackBerry Classic",

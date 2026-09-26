@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 860" width="1200" height="860" role="img" aria-labelledby="title desc">
+  <title id="title">Pocket Relay separates transport, session and frame, resource delivery, and product profiles</title>
+  <desc id="desc">A dark architecture diagram. A PocketJS guest on the left and a companion provider on the right communicate through stacked Relay layers. The transport is bounded and authenticated. The session and frame layer supplies negotiation, a fixed header, a closed message vocabulary, and credit. Resource delivery supplies identity, chunks, invalidation, and atomic publication. Map tile and terminal cell schemas stay in product profiles. Local image, mesh, font atlas, and surface handles remain below the wire.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#020617" flood-opacity="0.55"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#67e8f9"/>
+    </marker>
+    <style>
+      .title { fill: #f8fafc; font: 700 30px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .subtitle { fill: #94a3b8; font: 16px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .side { fill: #f8fafc; font: 700 19px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .layer { fill: #e2e8f0; font: 700 16px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .copy { fill: #cbd5e1; font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .small { fill: #94a3b8; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .chip { fill: #08111f; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="860" rx="28" fill="url(#bg)"/>
+  <text x="600" y="54" text-anchor="middle" class="title">Pocket Relay</text>
+  <text x="600" y="82" text-anchor="middle" class="subtitle">one delivery contract, product-owned meaning</text>
+
+  <g filter="url(#shadow)">
+    <rect x="54" y="112" width="210" height="622" rx="18" fill="#0b1324" stroke="#38bdf8" stroke-width="2"/>
+    <rect x="936" y="112" width="210" height="622" rx="18" fill="#0b1324" stroke="#a78bfa" stroke-width="2"/>
+  </g>
+  <text x="159" y="150" text-anchor="middle" class="side">PocketJS guest</text>
+  <text x="1041" y="143" text-anchor="middle" class="side">companion</text>
+  <text x="1041" y="167" text-anchor="middle" class="side">provider</text>
+
+  <g>
+    <rect x="82" y="178" width="154" height="74" rx="10" class="chip" stroke="#38bdf8"/>
+    <text x="159" y="208" text-anchor="middle" class="copy">demand + input</text>
+    <text x="159" y="231" text-anchor="middle" class="small">frame-boundary pump</text>
+    <rect x="82" y="588" width="154" height="112" rx="10" class="chip" stroke="#38bdf8"/>
+    <text x="159" y="619" text-anchor="middle" class="copy">local handles</text>
+    <text x="159" y="645" text-anchor="middle" class="small">setImage · setMesh</text>
+    <text x="159" y="668" text-anchor="middle" class="small">loadFontAtlas</text>
+
+    <rect x="964" y="178" width="154" height="74" rx="10" class="chip" stroke="#a78bfa"/>
+    <text x="1041" y="208" text-anchor="middle" class="copy">authority + work</text>
+    <text x="1041" y="231" text-anchor="middle" class="small">files · PTY · network</text>
+    <rect x="964" y="588" width="154" height="112" rx="10" class="chip" stroke="#a78bfa"/>
+    <text x="1041" y="619" text-anchor="middle" class="copy">domain engines</text>
+    <text x="1041" y="645" text-anchor="middle" class="small">tile preparation</text>
+    <text x="1041" y="668" text-anchor="middle" class="small">terminal parsing</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="294" y="112" width="612" height="128" rx="14" fill="#111a2e" stroke="#f472b6" stroke-width="2"/>
+    <text x="322" y="146" class="layer">Domain profile</text>
+    <rect x="328" y="164" width="254" height="50" rx="8" class="chip" stroke="#f472b6"/>
+    <text x="455" y="194" text-anchor="middle" class="small">map.tiles · coordinates · style</text>
+    <rect x="618" y="164" width="254" height="50" rx="8" class="chip" stroke="#f472b6"/>
+    <text x="745" y="194" text-anchor="middle" class="copy">term.cells · PTY · input</text>
+
+    <rect x="294" y="260" width="612" height="146" rx="14" fill="#101a2b" stroke="#22d3ee" stroke-width="2"/>
+    <text x="322" y="296" class="layer">Resource + delivery</text>
+    <text x="322" y="329" class="copy">ResourceRef = kind / ns / key / revision / rendition</text>
+    <text x="322" y="357" class="copy">chunk · digest · invalidate · atomic publish</text>
+    <text x="322" y="383" class="small">wire identity never contains a texture or surface handle</text>
+
+    <rect x="294" y="426" width="612" height="160" rx="14" fill="#111a2e" stroke="#a78bfa" stroke-width="2"/>
+    <text x="322" y="462" class="layer">Session + frame</text>
+    <text x="322" y="496" class="copy">HELLO / READY · fixed header · stream order</text>
+    <text x="322" y="526" class="copy">REQUEST · RESPONSE · PUSH · CANCEL · INVALIDATE</text>
+    <text x="322" y="556" class="copy">bounded frame + byte credit · terminal response accounting</text>
+
+    <rect x="294" y="606" width="612" height="128" rx="14" fill="#101a2b" stroke="#38bdf8" stroke-width="2"/>
+    <text x="322" y="642" class="layer">Transport adapter</text>
+    <text x="322" y="676" class="copy">TCP · USB · shared file · worker</text>
+    <text x="322" y="706" class="copy">authenticated peer · ordered receive · bounded trySend</text>
+  </g>
+
+  <path d="M264 666 H286" stroke="#67e8f9" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M906 666 H928" stroke="#67e8f9" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M286 528 H267" stroke="#c4b5fd" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M928 528 H909" stroke="#c4b5fd" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M264 328 H286" stroke="#67e8f9" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M906 328 H928" stroke="#67e8f9" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M286 192 H267" stroke="#f9a8d4" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M928 192 H909" stroke="#f9a8d4" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <path d="M460 764 H740" stroke="#67e8f9" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M740 798 H460" stroke="#c4b5fd" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="600" y="755" text-anchor="middle" class="small">requests, input, released capacity</text>
+  <text x="600" y="826" text-anchor="middle" class="small">responses, resources, invalidations</text>
+</svg>
