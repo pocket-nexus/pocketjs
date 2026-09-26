@@ -14,6 +14,7 @@ on:
       - 'engine/quickjs-c/**'
       - 'hosts/web/**'
       - 'apps/solid-aot-lab/**'
+      - 'apps/vue-sfc-lab/**'
       - 'contracts/**'
       - 'tests/aot-*.test.ts'
       - 'tests/fixtures/aot-model/**'
@@ -43,6 +44,10 @@ jobs:
         run: |
           cargo test --locked --manifest-path engine/Cargo.toml -p microts --lib
           cargo test --locked --manifest-path engine/Cargo.toml -p microts --lib --all-features
+      - name: Validate standalone example lockfiles
+        run: |
+          cargo metadata --locked --format-version=1 --manifest-path apps/solid-aot-lab/Cargo.toml > /dev/null
+          cargo metadata --locked --format-version=1 --manifest-path apps/vue-sfc-lab/Cargo.toml > /dev/null
       - name: Link ARMv4T with host-selected atomic backends
         run: bash tests/fixtures/microts-no-atomics/check.sh
       - uses: actions/upload-artifact@v4
