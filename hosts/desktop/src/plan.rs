@@ -2,8 +2,10 @@
 const HOST_ID: &str = "macos-app";
 #[cfg(target_os = "linux")]
 const HOST_ID: &str = "linux-app";
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-compile_error!("pocket-desktop-host supports macOS and Linux");
+#[cfg(target_os = "windows")]
+const HOST_ID: &str = "windows-app";
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+compile_error!("pocket-desktop-host supports macOS, Linux, and Windows");
 const HOST_ABI: u32 = 4;
 const TICK_HZ: f64 = 60.0;
 

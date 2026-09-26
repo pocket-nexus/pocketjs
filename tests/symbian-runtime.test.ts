@@ -191,6 +191,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       "macos-widget",
       "macos-app",
       "linux-app",
+      "windows-app",
       "web-app",
     ]);
     expect(POCKET_TARGETS).not.toHaveProperty(SYMBIAN_E7_DEV_TARGET_ID);

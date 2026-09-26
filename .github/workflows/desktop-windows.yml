@@ -1,0 +1,165 @@
+name: Windows portable renderer
+
+# windows-app is the third stock target of the hosts/desktop portable host.
+# This workflow validates the Windows execution path advertised by that target;
+# it does not claim Windows support for unrelated device or site tooling.
+# Real native window/presentation acceptance is supplied by physical Windows evidence.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-windows.yml"
+      - "package.json"
+      - "bun.lock"
+      - "pocket.config.ts"
+      - "contracts/spec/**"
+      - "contracts/schema/**"
+      - "engine/Cargo.toml"
+      - "engine/Cargo.lock"
+      - "engine/core/**"
+      - "engine/crates/pocket-mod/**"
+      - "engine/crates/pocket-ui-surface/**"
+      - "engine/crates/pocket-text/**"
+      - "framework/compiler/**"
+      - "framework/src/config.ts"
+      - "framework/src/text-layout.ts"
+      - "framework/src/offload.ts"
+      - "framework/src/manifest/**"
+      - "tools/build.ts"
+      - "hosts/web/*offload*.js"
+      - "hosts/web/text-*"
+      - "tools/*offload*"
+      - "tools/companion-session.ts"
+      - "tests/offload-provider.test.ts"
+      - "tests/companion-session.test.ts"
+      - "tests/fixtures/offload-ready-worker.ts"
+      - "tools/text-*"
+      - "tests/text-layout-client.test.ts"
+      - "apps/note/**"
+      - "apps/text-offload/**"
+      - "hosts/desktop/**"
+      - "engine/crates/pocket-ui-wgpu/**"
+      - "engine/pocket3d/crates/pocket3d/**"
+      - "hosts/web/app-instance.*"
+      - "hosts/web/system-engine.js"
+      - "hosts/web/wasm-ops.js"
+      - "tests/platform-contracts.test.ts"
+      - "tests/symbian-runtime.test.ts"
+      - "tests/pocket-system.test.ts"
+      - "tests/web-system-host.test.ts"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/desktop-windows.yml"
+      - "package.json"
+      - "bun.lock"
+      - "pocket.config.ts"
+      - "contracts/spec/**"
+      - "contracts/schema/**"
+      - "engine/Cargo.toml"
+      - "engine/Cargo.lock"
+      - "engine/core/**"
+      - "engine/crates/pocket-mod/**"
+      - "engine/crates/pocket-ui-surface/**"
+      - "engine/crates/pocket-text/**"
+      - "framework/compiler/**"
+      - "framework/src/config.ts"
+      - "framework/src/text-layout.ts"
+      - "framework/src/offload.ts"
+      - "framework/src/manifest/**"
+      - "tools/build.ts"
+      - "hosts/web/*offload*.js"
+      - "hosts/web/text-*"
+      - "tools/*offload*"
+      - "tools/companion-session.ts"
+      - "tests/offload-provider.test.ts"
+      - "tests/companion-session.test.ts"
+      - "tests/fixtures/offload-ready-worker.ts"
+      - "tools/text-*"
+      - "tests/text-layout-client.test.ts"
+      - "apps/note/**"
+      - "apps/text-offload/**"
+      - "hosts/desktop/**"
+      - "engine/crates/pocket-ui-wgpu/**"
+      - "engine/pocket3d/crates/pocket3d/**"
+      - "hosts/web/app-instance.*"
+      - "hosts/web/system-engine.js"
+      - "hosts/web/wasm-ops.js"
+      - "tests/platform-contracts.test.ts"
+      - "tests/symbian-runtime.test.ts"
+      - "tests/pocket-system.test.ts"
+      - "tests/web-system-host.test.ts"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: windows-app build + contract tests
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            engine/crates/pocket-text
+            hosts/desktop
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: windows-app contracts and portable service tests
+        # The lane runs the target-invariant blocks this PR changes plus the
+        # portable services windows-app advertises. The remaining blocks of
+        # tests/platform-contracts.test.ts and tests/symbian-runtime.test.ts
+        # exercise device tooling outside the windows-app boundary (POSIX cc
+        # harnesses, E7 pathname assumptions, byte-exact CRLF fixtures), and
+        # tests/offload.test.ts compiles its SPSC fixture with a POSIX cc +
+        # sanitizers; the Windows offload implementation is covered by the
+        # cargo tests of hosts/desktop and pocket-ui-surface below.
+        run: |
+          bun test tests/platform-contracts.test.ts -t "platform registry"
+          bun test tests/symbian-runtime.test.ts -t "keeps the experimental E7 target out of the production registry"
+          bun test tests/pocket-system.test.ts tests/text-layout-client.test.ts tests/offload-provider.test.ts tests/companion-session.test.ts
+
+      - name: Resolve and build windows-app guests
+        run: |
+          bun -e '
+          import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
+          import { mkdirSync } from "node:fs";
+          const apps = [
+            ["apps/note/pocket.json", "note-main"],
+            ["apps/text-offload/pocket.json", "text-offload-main"],
+          ];
+          mkdirSync(".pocket/windows-app", { recursive: true });
+          for (const [manifestPath, output] of apps) {
+            const manifest = await Bun.file(manifestPath).json();
+            const result = validateAndResolveBuildPlan(manifest, { target: "windows-app" });
+            if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+            await Bun.write(`.pocket/windows-app/${output}.plan.json`, JSON.stringify(result.plan, null, 2) + "\n");
+          }'
+          bun tools/build.ts --plan=.pocket/windows-app/note-main.plan.json
+          bun tools/build.ts --plan=.pocket/windows-app/text-offload-main.plan.json
+
+      - name: Rust format, lint and tests
+        run: |
+          cargo fmt --check --manifest-path hosts/desktop/Cargo.toml
+          cargo clippy --locked --manifest-path hosts/desktop/Cargo.toml -- -D warnings
+          cargo test --locked --manifest-path hosts/desktop/Cargo.toml
+          cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --ignored
+          cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-surface
+          cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml
+
+      - name: Build windows-app release host
+        run: cargo build --release --locked --manifest-path hosts/desktop/Cargo.toml

@@ -245,6 +245,7 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
   readonly "macos-widget": TargetProfile<PocketCapabilityId>;
   readonly "macos-app": TargetProfile<PocketCapabilityId>;
   readonly "linux-app": TargetProfile<PocketCapabilityId>;
+  readonly "windows-app": TargetProfile<PocketCapabilityId>;
   readonly "web-app": TargetProfile<PocketCapabilityId>;
 }>({
   psp: {
@@ -340,8 +341,9 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
       "text.glyphs.runtime",
     ],
   },
-  // Portable desktop host: winit presentation, Rust software rendering and
-  // AppSupervisor on a runtime worker, text in independent offload workers.
+  // Portable desktop host: winit window/input, shared pocket-ui-wgpu
+  // rendering/presentation, AppSupervisor on a runtime worker, and text in
+  // independent offload workers.
   "macos-app": {
     hostAbi: 4,
     platform: "macos",
@@ -375,6 +377,29 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
       dynamicViewport: { min: [240, 180], max: [4096, 4096], acceptsFixed: true },
       presentations: ["native"],
       rasterDensity: 1,
+    },
+    capabilities: [
+      "input.buttons",
+      "display.viewport.live",
+      "text.glyphs.baked",
+      "io.offload",
+      "text.layout.offload",
+    ],
+    roleCapabilities: {
+      systemUI: ["ui.compositor-surfaces"],
+    },
+  },
+  // The same portable host on Windows, at two raster samples per logical pixel.
+  "windows-app": {
+    hostAbi: 4,
+    platform: "windows",
+    form: "window",
+    display: {
+      physicalViewport: [1440, 960],
+      logicalViewports: [[720, 480]],
+      dynamicViewport: { min: [240, 180], max: [4096, 4096], acceptsFixed: true },
+      presentations: ["native"],
+      rasterDensity: 2,
     },
     capabilities: [
       "input.buttons",

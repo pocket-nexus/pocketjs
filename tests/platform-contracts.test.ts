@@ -213,6 +213,7 @@ describe("platform registry", () => {
       "macos-widget",
       "macos-app",
       "linux-app",
+      "windows-app",
       "web-app",
     ]);
     expect(validatePlatformContractRegistry(POCKET_PLATFORM_CONTRACTS)).toEqual([]);
@@ -313,6 +314,30 @@ describe("platform registry", () => {
         "text.glyphs.baked",
         "io.offload",
       "text.layout.offload",
+      ],
+      roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
+    });
+    expect(POCKET_TARGETS["windows-app"]).toEqual({
+      hostAbi: 4,
+      platform: "windows",
+      form: "window",
+      display: {
+        physicalViewport: [1440, 960],
+        logicalViewports: [[720, 480]],
+        dynamicViewport: {
+          min: [240, 180],
+          max: [4096, 4096],
+          acceptsFixed: true,
+        },
+        presentations: ["native"],
+        rasterDensity: 2,
+      },
+      capabilities: [
+        "input.buttons",
+        "display.viewport.live",
+        "text.glyphs.baked",
+        "io.offload",
+        "text.layout.offload",
       ],
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
     });
