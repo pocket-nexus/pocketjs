@@ -21,8 +21,8 @@ Solid is the default so existing apps keep building to `dist/<app>.js` and
 
 ```sh
 bun tools/build.ts hero-main                    # dist/hero-main.js
-bun tools/build.ts hero-vue-vapor-main --framework=vue-vapor
-# dist/hero-vue-vapor-main.vue-vapor.js
+bun tools/build.ts hero-main --framework=vue-vapor
+# dist/hero-main.vue-vapor.js
 bun tools/build.ts hero-main --framework=octane
 # dist/hero-main.octane.js
 ```
@@ -75,9 +75,9 @@ file, and `--no-config` ignores config entirely.
 The same flag works through the dev and PSP entry points:
 
 ```sh
-bun tools/dev.ts --framework=vue-vapor hero-vue-vapor-main
+bun tools/dev.ts --framework=vue-vapor hero-main
 bun tools/dev.ts --framework=octane hero-main
-bun tools/psp.ts hero-vue-vapor --framework=vue-vapor --release
+bun tools/psp.ts hero --framework=vue-vapor --release
 ```
 
 ## Framework app imports

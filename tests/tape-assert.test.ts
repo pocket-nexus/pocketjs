@@ -33,7 +33,7 @@ describe("tape --assert schema (pure validator)", () => {
     expect(hashes).toHaveLength(180);
     expect(hashes).toEqual(golden.hashes);
     expect(hashes[0]).toBe("78bb9ae7");
-    expect(hashes[179]).toBe("68ddb0f3");
+    expect(hashes[179]).toBe("71fa48cd");
   });
 
   test("a small well-formed document validates", () => {

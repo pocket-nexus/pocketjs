@@ -77,9 +77,9 @@ export function transformCompiledModel(source: string, filename: string, buildEn
   const extension = config.framework === "vue-vapor" ? ".vue" : ".tsx";
   const conventional = ["app", "App", basename(config.directory!)].map(name => resolve(config.directory!, name + extension)).find(existsSync);
   const configured = config.entry && [resolve(config.directory!, config.entry), resolve(import.meta.dir, "../..", config.entry)].find(existsSync);
-  // A resolved presentation selects the mount graph. Calls without a build
-  // entry retain the conventional root used by standalone transform harnesses.
-  const selected = buildEntry ? resolve(buildEntry) : conventional ?? configured;
+  // An AOT presentation selects the mount graph. An ordinary guest can import
+  // a compiled component without admitting its own host callbacks as AOT.
+  const selected = buildEntry && modelConfiguration(buildEntry).aot ? resolve(buildEntry) : conventional ?? configured;
   const entry = selected && realpathSync(selected);
   if (!entry) throw new Error(`Model AOT: cannot find a view entry under ${config.directory}`);
   const views = extension === ".vue"

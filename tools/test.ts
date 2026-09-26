@@ -241,7 +241,6 @@ const SUITE: readonly Stage[] = [
   {
     name: "vue-sfc journeys",
     prep: [
-      ["bun", "tools/build.ts", "hero-vue-sfc-main", "--framework=vue-vapor"],
       ["bun", "tools/build.ts", "vue-sfc-lab-main", "--framework=vue-vapor"],
     ],
     browser: true,

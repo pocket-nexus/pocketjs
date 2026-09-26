@@ -529,8 +529,6 @@ describe("semantic resolution", () => {
       cursor: [true, true, false, true],
       gallery: [true, true, false, true],
       hero: [true, true, true, true],
-      "hero-vue-sfc": [true, true, false, true],
-      "hero-vue-vapor": [true, true, false, true],
       im: [true, true, false, true],
       "iphone16-demo": [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
       "iphone2g-demo": [false, false, false, false], // admitted only by the private iphone2g-dev profile
@@ -643,7 +641,7 @@ describe("semantic resolution", () => {
     expect(im.engine.capabilities.enhances).toEqual(["input.analog.left"]);
     // A real manifest owns its framework — the override only applies to
     // the synthesized fallback path.
-    const vue = demoManifestFor(root, "hero-vue-vapor", "solid") as any;
+    const vue = demoManifestFor(root, "vue-sfc-lab", "solid") as any;
     expect(vue.app.framework).toBe("vue-vapor");
   });
 

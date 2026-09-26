@@ -56,18 +56,6 @@
   "covers/refl-hero-main.png": {
     "linear": true
   },
-  "covers/cover-hero-vue-sfc-main.png": {
-    "linear": true
-  },
-  "covers/refl-hero-vue-sfc-main.png": {
-    "linear": true
-  },
-  "covers/cover-hero-vue-vapor-main.png": {
-    "linear": true
-  },
-  "covers/refl-hero-vue-vapor-main.png": {
-    "linear": true
-  },
   "covers/cover-stats-main.png": {
     "linear": true
   },
@@ -96,6 +84,12 @@
     "linear": true
   },
   "covers/refl-settings-main.png": {
+    "linear": true
+  },
+  "covers/cover-solid-aot-lab-main.png": {
+    "linear": true
+  },
+  "covers/refl-solid-aot-lab-main.png": {
     "linear": true
   },
   "covers/cover-im-main.png": {
