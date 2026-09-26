@@ -12,7 +12,7 @@ transport. Pocket Doc is a separate application using the capability.
 
 | Boundary | Enforced limit |
 | --- | --- |
-| Wire record | 4,096 UTF-8 bytes, 4-byte big-endian length prefix |
+| JSON wire record | 4,096 UTF-8 bytes, 4-byte big-endian length prefix |
 | Request/result payload | 2,500 UTF-16 code units, serialized string |
 | Outstanding guest requests | 8 |
 | Native outgoing/incoming queues | 8 records each |
@@ -20,6 +20,9 @@ transport. Pocket Doc is a separate application using the capability.
 | Native result copies | 1 per host frame |
 | JS completion callbacks | 1 per service-pump tick, including failures |
 | Coverage resource | At most 512×16 pixels, one upload per host frame |
+| Binary image response | At most 256×256 R5G6B5 pixels; 16-byte header |
+| Native image staging | 8 slots, 131,088 bytes per slot plus metadata |
+| Binary image uploads | 1 per host frame; bilinear filtering |
 | Request deadline | 600 guest frames; provider worker deadline 9 seconds |
 
 `submit` and `take` only copy fixed-size memory slots. **They do not call socket
@@ -102,6 +105,35 @@ versioned requests. An over-budget response or malformed frame closes the
 connection. A stalled worker is terminated instead of retaining its requests
 indefinitely.
 
+### Binary image resources
+
+`requestImage` opts a read into the image response extension. A provider method
+returns `{ width, height, format: "r5g6b5", pixels: Uint8Array }` after decoding
+or rasterizing on its worker. Dimensions are powers of two from 16 through 256.
+Pixels are row-major little-endian words with red in the low five bits, green
+in the next six, and blue in the high five. Alpha is not carried by this format.
+
+The wire length's high bit distinguishes an image from a JSON record. The
+16-byte little-endian header contains `PIMG`, request ID, width, height and
+format zero. **The 3DS network worker receives pixels into fixed native slots;
+the JS heap receives only a token and dimensions.** Socket backpressure applies
+when no staging slot is free. The UI copies no pixel array and runs no image
+codec. It can upload one slot per frame through the core's IMG entry path.
+
+Manga connects these tickets to the existing resource scheduler in
+`apps/manga/pack-client.ts`. The collection
+reserves staging and old-plus-new texture cost before starting a read. After
+materialization, cancellation, a rejected envelope or late delivery, the
+framework returns staging credit. Eviction frees the uploaded texture. A stale
+token cannot free a newer allocation. A realm reset closes the connection
+before new request IDs become eligible for submission.
+
+JSON-only requests and the coverage path retain their existing bounds. The
+image extension is optional in `OffloadOps`; a host without `uploadImage` and
+`releaseImage` reports an unsupported operation. It does not decode PNG/JPEG
+in guest JavaScript. Other hosts can implement the same bounded staging
+contract without changing application resource definitions.
+
 `@pocketjs/framework/offload/capabilities` exports two provider-side helpers:
 
 - `sqliteQueries(db, queries)`: named, provider-owned SQL with device-supplied
@@ -149,6 +181,13 @@ counter wrap and coverage decoding. Tests also exercise fragmented UTF-8,
 timeouts, cancellation, stale sessions, no mutation replay, provider grants,
 SQLite result budgets, HTTP redirects and oversized bodies. These checks are
 separate from device performance and interaction acceptance.
+
+`bun test --conditions=browser tests/offload-images.test.ts` exercises binary
+envelopes, staging cleanup and 4,000 concurrent native images under address and
+undefined-behavior sanitizers. A socket test compiles the production 3DS worker
+with POSIX thread shims, connects the real provider, compares every image byte,
+and verifies connection replacement after a realm reset. It does not emulate
+libctru, GPU upload cost or device presentation cadence.
 
 Reusable reads can use the [shared resource scheduler](RESOURCES.md#shared-read-scheduling)
 for admission, priority, caching and bounded materialization. Commands retain

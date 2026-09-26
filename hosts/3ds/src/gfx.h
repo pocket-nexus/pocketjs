@@ -15,6 +15,8 @@
  * target and before C3D_FrameEnd.
  */
 bool gfx_init(uint32_t logical_width, uint32_t logical_height);
+/* Pre-tiled RGB565 storage for a GPU-owned image descriptor. */
+bool gfx_stage_image(int32_t handle, const uint8_t *bytes, unsigned width, unsigned height);
 void gfx_begin_frame(void);
 bool gfx_prepare_surface(
   uint32_t surface,

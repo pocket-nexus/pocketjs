@@ -224,7 +224,7 @@ export interface RelaySessionOptions {
 
 // --- small helpers -----------------------------------------------------------
 
-const toHex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
+const toHex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
 
 function randomHex(random: RelayRandomBytes, n: number): string {
   for (let i = 0; i < 8; i++) {

@@ -1,3 +1,4 @@
+import { utf8Length } from "./utf8.ts";
 /** Locally registered resource forms: the product schemas that constrain
  * the public `resource.get` / `resource.subscribe` args and a resource
  * success value.
@@ -65,7 +66,7 @@ export class RelayResourceForms {
         }
       }
       const profile = form.profile;
-      const nameBytes = profile ? new TextEncoder().encode(profile.name).length : 0;
+      const nameBytes = profile ? utf8Length(profile.name) : 0;
       if (!profile || typeof profile.name !== "string" || !nameBytes
           || nameBytes > RELAY_HANDSHAKE.profileNameMaxBytes
           || !Number.isSafeInteger(profile.version) || profile.version < 0 || profile.version > 0xffff
@@ -115,7 +116,7 @@ export class RelayResourceForms {
       if (seenIdentities.has(identity)) throw new Error("duplicate resource form for profile and kind");
       seenIdentities.add(identity);
     }
-    if (new TextEncoder().encode(JSON.stringify(definitions)).length > MAX_SCHEMA_BYTES) {
+    if (utf8Length(JSON.stringify(definitions)) > MAX_SCHEMA_BYTES) {
       throw new Error("resource form schemas too large");
     }
     this.forms = freezeRelayCopy(definitions);

@@ -760,6 +760,8 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
     POCKETJS_OUT_3DSX: containerPathFor(output, mounts),
     POCKETJS_OFFLOAD: plan.features["io.offload"] ? "1" : "",
     POCKETJS_MEDIA: plan.features["media.playback"] ? "1" : "",
+    POCKETJS_ASSET_PACK: plan.features["io.resource-pack"] ? "1" : "",
+    POCKETJS_STATE: plan.features["data.state"] ? "1" : "",
     POCKETJS_OFFLOAD_SLOT: createHash("sha256").update(plan.app.id).digest("hex").slice(0, 16),
     POCKETJS_SMDH_TITLE: plan.app.title,
     POCKETJS_SMDH_AUTHOR: plan.app.id,

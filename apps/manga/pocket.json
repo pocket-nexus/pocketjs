@@ -1,0 +1,48 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.manga",
+  "name": "pocketjs-manga",
+  "title": "PocketJS: Manga",
+  "version": "0.2.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "display.auxiliary"
+      ],
+      "enhances": [
+        "io.resource-pack",
+        "data.state",
+        "data.fs",
+        "io.offload"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/manga/main.tsx",
+    "output": "manga-main",
+    "framework": "solid",
+    "surfaces": {
+      "auxiliary": {
+        "fixed": {
+          "logical": [
+            320,
+            240
+          ],
+          "presentation": "native"
+        }
+      }
+    },
+    "viewport": {
+      "fixed": {
+        "logical": [
+          400,
+          240
+        ],
+        "presentation": "native"
+      }
+    }
+  }
+}

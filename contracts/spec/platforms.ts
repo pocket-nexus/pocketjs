@@ -179,6 +179,7 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // remain host-owned; the browser dev host, deterministic sim and reference
   // core exercise the contract without granting network access to every host.
   "io.offload",
+  "io.resource-pack",
   "net.http",
   // SQLite behind the db module's own namespace (`globalThis.db`,
   // contracts/spec/db.ts): five synchronous ops, rows as one JSON line per
@@ -199,6 +200,12 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // target appends the id to its profile only when its native host ships
   // the module.
   "data.fs",
+  // One bounded UTF-8 text blob per app behind the state module's own
+  // namespace (`globalThis.state`): two synchronous
+  // ops, read and write, and the host confines the blob to the app. state is
+  // an ENHANCEMENT — an app without it reads empty and drops writes instead of
+  // failing, so a host ships it by adding the id to its profile.
+  "data.state",
   // Copy/cut/paste round-trips with the OS clipboard.
   "host.clipboard",
   // The logical viewport is runtime-mutable: the app is told about live
