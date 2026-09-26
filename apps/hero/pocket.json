@@ -42,6 +42,8 @@
           640
         ]
       }
-    }
+    },
+    "aot": true,
+    "model": "compiled"
   }
 }

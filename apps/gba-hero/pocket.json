@@ -1,0 +1,26 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.gba.hero",
+  "name": "pocketjs-gba-hero",
+  "title": "PocketJS: GBA MicroTS Hero",
+  "version": "0.6.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["text.glyphs.baked", "input.buttons"]
+    }
+  },
+  "app": {
+    "entry": "apps/gba-hero/main.tsx",
+    "output": "gba-hero-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [240, 160],
+        "presentation": "integer-fit"
+      }
+    },
+    "aot": true,
+    "model": "compiled"
+  }
+}

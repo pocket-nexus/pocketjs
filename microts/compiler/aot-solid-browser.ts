@@ -5,6 +5,7 @@ import { basename, dirname, resolve } from "node:path";
 import { analyzeSolidAot, getSolidAotDependencyVersions } from "./aot-solid-frontend.ts";
 import { checkAotVersion, type AotProgram, type AotComponent } from "./aot-ir.ts";
 import { defaultValue } from "./aot-browser.ts";
+import { modelConfiguration } from "./aot-model-config.ts";
 
 const graphs = new Map<string, { versions: [string, number, number][]; programs: AotProgram[] }>();
 const read = (file: string, sources?: ReadonlyMap<string, string>) => sources?.get(file) ?? readFileSync(file, "utf8");
@@ -81,7 +82,9 @@ export function getSolidAotProgram(filename: string, source?: string, buildEntry
       if (app?.framework !== "solid" || app.aot !== true) return;
       if (typeof app.entry !== "string") throw new Error(`Solid AOT: ${manifest} requires app.entry`);
       const projectRoot = resolve(import.meta.dir, "../..");
-      const entry = buildEntry ? resolve(buildEntry) : [resolve(directory, app.entry), resolve(projectRoot, app.entry)].find(path => existsSync(path));
+      const entry = buildEntry && modelConfiguration(buildEntry).aot
+        ? resolve(buildEntry)
+        : [resolve(directory, app.entry), resolve(projectRoot, app.entry)].find(path => existsSync(path));
       if (!entry) throw new Error(`Solid AOT: cannot resolve manifest entry ${app.entry}`);
       const override = source !== undefined && source !== readFileSync(filename, "utf8") ? new Map([[filename, source]]) : undefined;
       const programs = checkSolidAotGraph(entry, { sources: override });

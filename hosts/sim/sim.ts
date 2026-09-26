@@ -30,6 +30,7 @@ import { createWasmUi } from "../web/wasm-ops.js";
 import { normalizeHz, TICKS_PER_SECOND } from "../../framework/src/clock.ts";
 import { createTouchHitFacts, __packTouch } from "../../framework/src/touch.ts";
 import type { AxisDelta } from "../../framework/src/relative-axis.ts";
+import type { MotionState } from "../../framework/src/motion.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url))); // PocketJS/
 const DIST = join(ROOT, "dist/");
@@ -194,7 +195,7 @@ let wasmBytes: ArrayBuffer | null = null;
 export interface SimWorld {
   /** One host frame: buttons bitmask, analog byte, packed touch contacts
    *  (framework/src/touch.ts __packTouch format) — exactly the native frame() shape. */
-  frame: (buttons: number, analog?: number, touches?: readonly number[], axes?: readonly AxisDelta[]) => void;
+  frame: (buttons: number, analog?: number, touches?: readonly number[], axes?: readonly AxisDelta[], motion?: MotionState | null) => void;
   tick: () => void;
   render: () => Uint8Array;
   ticksPerFrame: number;
@@ -259,7 +260,7 @@ export async function bootWorld(
   const src = await Bun.file(DIST + app + ".js").text();
   (0, eval)(src);
   const appFrame = g.frame as
-    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[]) => void)
+    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[], motion?: MotionState | null) => void)
     | undefined;
   if (typeof appFrame !== "function") {
     throw new Error("sim: bundle did not install globalThis.frame (entry must call render()/mount())");
@@ -270,8 +271,8 @@ export async function bootWorld(
   const hitTestBounds = (wasm.ops as { hitTestBounds?: (x: number, y: number) => number })
     .hitTestBounds;
   const hitFacts = hitTestBounds ? createTouchHitFacts(hitTestBounds) : undefined;
-  const frame = (buttons: number, analog?: number, touches?: readonly number[], axes?: readonly AxisDelta[]): void =>
-    appFrame(buttons, analog, touches, hitFacts?.(touches), undefined, undefined, axes);
+  const frame = (buttons: number, analog?: number, touches?: readonly number[], axes?: readonly AxisDelta[], motion?: MotionState | null): void =>
+    appFrame(buttons, analog, touches, hitFacts?.(touches), undefined, undefined, axes, motion);
   return {
     frame,
     tick: wasm.tick,

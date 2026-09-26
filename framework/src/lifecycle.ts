@@ -5,6 +5,7 @@ export {
   onFrame,
   onButtonPress,
   onAxisDelta,
+  onMotion,
   createSpriteAnimation,
   analogX,
   analogY,
@@ -14,6 +15,7 @@ export {
   rightAnalogY,
   type ButtonPressOptions,
   type AxisDeltaOptions,
+  type MotionOptions,
   type SpriteAnimationOptions,
 } from "./frame.ts";
 export { onMount, onCleanup } from "./lifecycle-solid-aot.ts";

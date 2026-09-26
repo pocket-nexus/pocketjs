@@ -59,13 +59,13 @@ operable without an on-screen controller.
 
 ## Admission
 
-The embedded set is COMPUTED, not curated: every `apps/*/pocket.json` whose
-manifest resolves against the selected `psp` or `vita` target profile via
-`validateAndResolveBuildPlan` (the same admission gate `pocket build` runs —
-capability superset + viewport fit). Today both console profiles admit the
-same 17 apps and exclude `ipod-nano` (176×132 panel) and `note` (dynamic
-viewport). The registry tool prints per-app bundle sizes and takes
-`--exclude <output>` for RAM budgeting; nothing is silently dropped.
+The launcher scans `apps/*/pocket.json` and includes manifests admitted by
+`validateAndResolveBuildPlan` for the selected target. Admission checks
+capabilities and viewport fit, using the same resolver as `pocket build`.
+**PSP and Vita select separate app sets from their target profiles.** The
+registry tool prints each skipped app's diagnostics and each admitted app's
+bundle size. `--exclude <output>` removes an app from the selected set for
+RAM budgeting.
 
 ## Memory math (PSP-1000 floor)
 

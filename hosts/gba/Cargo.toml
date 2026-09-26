@@ -1,0 +1,27 @@
+[package]
+name = "pocketjs-gba"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+microts = { path = "../../engine/crates/microts", features = ["critical-section"] }
+pocketjs-core = { path = "../../engine/core" }
+linked_list_allocator = { version = "0.10.5", default-features = false }
+critical-section = { version = "1.2", features = ["restore-state-bool"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+overflow-checks = false
+debug = 1
+
+[[bin]]
+name = "gba-hero"
+path = "src/main.rs"
+test = false
+bench = false

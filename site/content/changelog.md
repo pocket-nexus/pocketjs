@@ -3,6 +3,68 @@
 Engine and site milestones, newest first. Versions track the
 `@pocketjs/framework` npm package.
 
+## 0.13.0 — September 26, 2026
+
+**MicroTS compiles Solid and Vue TypeScript apps to native Rust, and the PS Vita gains a wired development runtime.**
+MicroTS turns an admitted TypeScript view and model into a `no_std` Rust
+application that runs without a guest engine, down to a Game Boy Advance
+cartridge. The PS Vita reloads JavaScript and native code over USB. Nokia E7
+rendering reaches 60 fps in Pocket Shell, and Pocket3D and the PSP arena
+carry larger worlds.
+
+- **MicroTS compiles Solid TSX and Vue SFC views, plus a TypeScript model, to
+  Rust.** With `app.aot: true` and `app.model: "compiled"`, state seeds,
+  methods, memos, effects and async tasks are generated from the TypeScript
+  implementation; the default `"rust"` mode keeps an application-provided
+  Rust model behind the same generated trait. Solid and Vue share typed View
+  IR format 1; Model IR format 1 records model bodies, dependencies, schedules
+  and coroutine states. Admission errors report source locations and there is
+  no fallback to another implementation. The package exports new
+  `solid/std`, `vue-vapor/std`, `solid/reactive`, `vue-vapor/reactive`,
+  `model/tasks`, `model/animation` and `net/model` entries. See the
+  [MicroTS guide](/docs/microts/).
+- **MicroTS reaches motion sensors and targets without atomic CAS.** A native
+  motion driver publishes one fused `MotionState` per estimate at gravity,
+  inertial or geomagnetic level; `<MotionHandler>` in Solid and `@update` in
+  Vue receive it, and board admission rejects a board below the level a value
+  requires. On targets such as ARMv4T, MicroTS and heapless select
+  `portable-atomic`. `bun hosts/gba/build.ts` builds a 656,316-byte Hero ROM
+  that boots in mGBA with a 60,268-byte peak heap.
+- **The shared Hero runs one view and model in JavaScript guests and
+  generated Rust.** The standalone `hero-vue-sfc` and `hero-vue-vapor` apps
+  are removed; Vue Vapor and Octane variants remain inside `apps/hero`, and
+  the npm package ships the Solid Hero sources.
+- **PS Vita builds include a wired development runtime.** L + R + SELECT
+  opens a native menu; `bun run vita:dev` reloads JS and resources over USB,
+  replaces the native SELF through A/B slots with checksum readback, and
+  captures the 960 × 544 GXM framebuffer. A failed reload restores the previous
+  bundle in a fresh realm. `--no-usb-debug` omits the USB driver. See
+  [docs/VITA-USB.md](https://github.com/pocket-nexus/pocketjs/blob/v0.13.0/docs/VITA-USB.md).
+- **Nokia E7 rendering reaches 60 fps in Pocket Shell.** QuickJS builds at
+  `-O2` and the Rust core at `opt-level=3`, both with VFPv2. The GLES backend
+  drops per-frame error queries, merges adjacent draws, shares glyph coverage
+  pages between full-size and scaled text, and bounds border masks and text
+  placement caches. The portrait switcher went from 31.70 to 60.31 fps.
+  Installed apps stay resident behind a shared return gesture and release
+  their EGL resources while in the background.
+- **Pocket3D and the PSP carry larger worlds.** BSP maps build spatial draw
+  groups once per map, cache PVS membership, cull cooked faces and collision
+  hulls, and submit bounded triangle strips; a 28,243-triangle map holds
+  59.9 fps on a physical PSP. `arena::alloc_permanent` reserves process-lifetime
+  buffers without power-of-two rounding, and the PSP host exposes QuickJS
+  allocator counters and an arena free-space snapshot.
+- **ESP-IDF sets the guest heap limit through Kconfig.**
+  `CONFIG_POCKETJS_GUEST_HEAP_LIMIT` defaults to 4 MiB; an explicit
+  `config.heap_limit` takes precedence.
+- **Breaking:** the BlackBerry Classic Android Runtime host and the
+  `blackberry-android` script are removed; the native QNX host remains. The
+  early `vapor/` compiler experiment moved to a standalone repository, taking
+  its `vapor:*` scripts with it.
+- Tape assertions reject malformed, partial and repeated entries, and the
+  suite covers previously omitted tests. The iPod touch 4 installer rejects
+  failed digest checks. The site is also served at
+  [pocket.nexus](https://pocket.nexus).
+
 ## 0.12.0 — September 17, 2026
 
 **Whole-text CJK loading, background resources, and device-aware presentations.**

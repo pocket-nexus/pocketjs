@@ -1,6 +1,6 @@
 {
   "name": "@pocketjs/cli",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "The PocketJS CLI — manifest-first handheld builds, app scaffolding, and pinned native toolchain setup.",
   "license": "MIT",
   "type": "module",
@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pocket-stack/pocketjs.git",
+    "url": "git+https://github.com/pocket-nexus/pocketjs.git",
     "directory": "cli"
   },
   "homepage": "https://pocketjs.dev",

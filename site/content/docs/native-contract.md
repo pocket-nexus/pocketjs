@@ -184,13 +184,15 @@ guest and forwards each op to a caller-owned core; see
 [ESP-IDF](/docs/esp-idf/).
 
 Every host drives frames through
-`globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?)`. Buttons use the shared PSP
-bitmask, analog is `(x << 8) | y` with centered bytes on stickless hosts, and
-touch contacts are packed snapshots in logical coordinates. `hits` carries
-parallel down-edge hit facts; `touchSurfaces` uses `0` for primary and `1` for
-auxiliary, with omitted entries defaulting to primary. The runtime latches
-these inputs before app hooks, then performs input edge detection and the
-end-of-frame sweep. See [Input & focus](/docs/input-focus/) and
+`globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?, motion?)`.
+Buttons use the shared PSP bitmask, analog is `(x << 8) | y` with centered
+bytes on stickless hosts, and touch contacts are packed snapshots in logical
+coordinates. `hits` carries parallel down-edge hit facts; `touchSurfaces` uses
+`0` for primary and `1` for auxiliary, with omitted entries defaulting to
+primary. `rightAnalog` packs the right stick like `analog`, `axisDeltas` lists
+relative-axis millidegrees, and `motion` is the motion driver's newest fused
+`MotionState`. The runtime latches these inputs before app hooks, then performs
+input edge detection and the end-of-frame sweep. See [Input & focus](/docs/input-focus/) and
 [Platform contracts](/docs/platform-contracts/).
 
 ## Frame order

@@ -1,11 +1,11 @@
 {
   "name": "@pocketjs/framework",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pocket-stack/pocketjs.git"
+    "url": "git+https://github.com/pocket-nexus/pocketjs.git"
   },
   "homepage": "https://pocketjs.dev",
   "keywords": [
@@ -28,6 +28,11 @@
     "tools",
     "!tools/bench-desktop",
     "apps/hero/app.tsx",
+    "apps/hero/app.ts",
+    "apps/hero/Hero.tsx",
+    "apps/hero/Hero.ts",
+    "apps/hero/main.tsx",
+    "apps/hero/pocket.json",
     "apps/iphone2g-demo",
     "apps/iphone4s-demo",
     "apps/ipodtouch-demo",

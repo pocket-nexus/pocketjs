@@ -62,8 +62,8 @@ Solid is the default framework. Vue Vapor and Octane build beside the Solid
 artifacts by adding a suffix:
 
 ```sh
-bun tools/build.ts hero-vue-vapor-main --framework=vue-vapor
-# -> dist/hero-vue-vapor-main.vue-vapor.js + dist/hero-vue-vapor-main.vue-vapor.pak
+bun tools/build.ts hero-main --framework=vue-vapor
+# -> dist/hero-main.vue-vapor.js + dist/hero-main.vue-vapor.pak
 bun tools/build.ts hero-main --framework=octane
 # -> dist/hero-main.octane.js + dist/hero-main.octane.pak
 ```

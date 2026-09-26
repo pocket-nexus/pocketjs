@@ -1,6 +1,10 @@
 //! Frame-boundary protocol shared by compiled models and native hosts.
 use alloc::{string::String, vec::Vec};
-use core::{cell::Cell, sync::atomic::{AtomicU32, Ordering}};
+use core::cell::Cell;
+#[cfg(target_has_atomic = "32")]
+use core::sync::atomic::{AtomicU32, Ordering};
+#[cfg(not(target_has_atomic = "32"))]
+use portable_atomic::{AtomicU32, Ordering};
 use crate::NodeId;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -8,6 +12,7 @@ pub struct TaskId { pub region: u32, pub function: u32, pub call: u32 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RequestId { pub task: TaskId, pub wait: u32, pub member: u32 }
 
+// Targets without native CAS use the atomic backend selected by the host.
 static NEXT_REGION: AtomicU32 = AtomicU32::new(1);
 /// Identity belongs to a mount, rather than the factory's source name.
 pub fn next_region() -> u32 {

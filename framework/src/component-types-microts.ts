@@ -87,3 +87,13 @@ export interface MicroTsImageProps {
 }
 export interface MicroTsActionHandlerProps { button: number; active?: MicroTsValue<boolean>; latched?: boolean; onPress?: (pressed: number, buttons: number) => void }
 export interface MicroTsAxisHandlerProps { axis: "primary" | "secondary"; active?: MicroTsValue<boolean>; onDelta?: (delta: i32) => void }
+export type MicroTsMotionHandlerProps = { active?: MicroTsValue<boolean>; minQuality?: "unreliable" | "low" | "medium" | "high" } & (
+  | { value: "gravityDirection"; onUpdate?: (x: f32, y: f32, z: f32, quality: u8, timestamp: u64) => void }
+  | { value: "inclination"; onUpdate?: (degrees: f32, quality: u8, timestamp: u64) => void }
+  | { value: "linearAcceleration"; onUpdate?: (x: f32, y: f32, z: f32, quality: u8, timestamp: u64) => void }
+  | { value: "rotationRate"; onUpdate?: (x: f32, y: f32, z: f32, quality: u8, timestamp: u64) => void }
+  | { value: "orientation"; onUpdate?: (w: f32, x: f32, y: f32, z: f32, quality: u8, referenceFrame: u8, epoch: u32, timestamp: u64) => void }
+  | { value: "heading"; onUpdate?: (degrees: f32, accuracy: f32, quality: u8, referenceFrame: u8, timestamp: u64) => void }
+  | { value: "screenRotation"; onUpdate?: (degrees: f32, quality: u8, timestamp: u64) => void }
+  | { value: "tilt"; onUpdate?: (beta: f32, gamma: f32, quality: u8, timestamp: u64) => void }
+  | { value: "angles"; onUpdate?: (alpha: f32, beta: f32, gamma: f32, quality: u8, referenceFrame: u8, epoch: u32, timestamp: u64) => void });

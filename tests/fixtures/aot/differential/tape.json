@@ -22,5 +22,10 @@
   { "buttons": 0 },
   { "buttons": 32 },
   { "buttons": 0 },
-  { "buttons": 8192 }
+  { "buttons": 8192 },
+  { "buttons": 0, "motion": { "timestamp": 1000, "gravityDirection": { "value": [-1, 0, 0], "quality": 3 }, "screenRotation": { "value": 90, "quality": 3 }, "tilt": { "value": [0, -90], "quality": 3 }, "rotationRate": { "value": [0.5, -1.25, 90], "quality": 3 } } },
+  { "buttons": 0, "motion": { "timestamp": 2000, "gravityDirection": { "value": [0.6, -0.8, 0], "quality": 4 }, "screenRotation": { "value": -36.87, "quality": 4 }, "tilt": { "value": [53.13, 90], "quality": 4 }, "rotationRate": { "value": [1.5, -2, 0.1], "quality": 4 } } },
+  { "buttons": 0 },
+  { "buttons": 0, "motion": { "timestamp": 3000, "gravityDirection": { "value": [0.05, -0.05, -0.997], "quality": 4 }, "screenRotation": { "value": -45, "quality": 1 }, "tilt": { "value": [2.87, 2.87], "quality": 4 } } },
+  { "buttons": 1, "motion": { "timestamp": 4000, "rotationRate": { "value": [0, 0, -45], "quality": 4 } } }
 ]

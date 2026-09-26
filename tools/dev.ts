@@ -3,7 +3,7 @@
 //
 //   bun tools/dev.ts                 # wasm + hero-main + serve
 //   bun tools/dev.ts hero-main cards # build specific demos instead
-//   bun tools/dev.ts --framework=vue-vapor hero-vue-vapor-main
+//   bun tools/dev.ts --framework=vue-vapor hero-main
 //   PORT=9000 bun tools/dev.ts
 //
 // Rebuild-on-change is deliberately manual (dev-tool simplicity): re-run

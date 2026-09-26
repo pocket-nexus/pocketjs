@@ -243,3 +243,10 @@ motion retain their existing tape version and omit the track. Replay supplies
 an empty axis array for absent samples and older tapes, so queued live motion
 cannot enter the replay. `tools/tape.ts` reads the same track as the browser
 DevTools replay path.
+
+**Fused motion state uses a sparse `motion` track in v5 tapes.** Each entry is
+`[frameIndex, MotionState]`, with the state's numbers rounded to f32 and
+unsigned (JSON has no -0) as the eighth frame argument delivered them. Recordings without motion retain their
+existing tape version and omit the track. Replay owns the track: frames
+without a recorded state receive none, so live driver estimates cannot enter
+the replay.

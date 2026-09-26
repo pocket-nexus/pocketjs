@@ -43,16 +43,22 @@ const snapshot = () => {
 };
 export function check() {
   const frames = [];
-  for (const sample of tape) { globalThis.frame(sample.buttons, 0, [], [], [], 0, [{ axis: 0, delta: sample.axis ?? 0 }]); wasm.tick(); frames.push(snapshot()); }
+  for (const sample of tape) { globalThis.frame(sample.buttons, 0, [], [], [], 0, [{ axis: 0, delta: sample.axis ?? 0 }], sample.motion ?? null); wasm.tick(); frames.push(snapshot()); }
   dispose(); frames.push(snapshot());
   return frames;
 }
+console.log(JSON.stringify(check()));
 `);
   const build = await Bun.build({ entrypoints: [oracle], target: "bun", format: "esm", conditions: ["browser"], plugins: [jsxPlugin("solid")] });
   expect(build.success, build.logs.join("\n")).toBe(true);
   const bundle = resolve(run, "oracle.mjs");
   await Bun.write(bundle, build.outputs[0]!);
-  const solid = (await import(bundle)).check();
+  // Simulator tests install host globals such as __pak. Run both oracles in
+  // fresh processes so an earlier app cannot replace this fixture's styles.
+  const oracleRun = Bun.spawnSync([process.execPath, bundle], { stdout: "pipe", stderr: "pipe" });
+  await Bun.write(resolve(run, "solid.log"), oracleRun.stderr);
+  expect(oracleRun.exitCode, oracleRun.stderr.toString()).toBe(0);
+  const solid = JSON.parse(oracleRun.stdout.toString());
   const native = Bun.spawnSync(["cargo", "run", "--quiet", "--manifest-path", resolve(run, "Cargo.toml"), "--", resolve(fixture, "fixture.json"), resolve(fixture, "tape.json"), resolve(run, "styles.bin")], {
     stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: resolve(".pocket-build/validation/solid-aot/differential/target") },
   });

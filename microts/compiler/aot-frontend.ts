@@ -10,6 +10,7 @@ import { attachAotModel } from "./aot-ir.ts";
 import { finalizeAotProgram } from "./aot-program.ts";
 import { PROP, BTN } from "../../contracts/spec/spec.ts";
 import { MICROTS_BUILTINS, MICROTS_ELEMENTS, MICROTS_STYLE_PROPS, MICROTS_INPUT_ELEMENTS, MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
+import { MOTION_DEFAULT_MIN_QUALITY, MOTION_MIN_QUALITIES, MOTION_VALUES, motionEvent } from "./aot-motion.ts";
 import { BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
 import { TypeMapper, createTypeEnvironment, location, fail, typeName } from "./aot-types.ts";
 import { expression, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
@@ -22,7 +23,7 @@ import type { VaporRootIR, VaporIfIR, VaporForIR, VaporCreateIR, VaporBlockIR, V
 const LIFECYCLE = "@pocketjs/framework/vue-vapor/lifecycle";
 const camelize = (name: string) => name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
 const COMPONENTS = "@pocketjs/framework/vue-vapor/components", STD = "@pocketjs/framework/vue-vapor/std", INPUT = "@pocketjs/framework/vue-vapor/input";
-interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; contextImports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; inputHosts: Map<string, "ActionHandler" | "AxisHandler">; buttonNames: Set<string>; name: string }
+interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; contextImports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; inputHosts: Map<string, keyof typeof MICROTS_INPUT_ELEMENTS>; buttonNames: Set<string>; name: string }
 export interface AnalyzeVueAotOptions { strict?: boolean; source?: string; sources?: ReadonlyMap<string, string>; root?: boolean }
 export interface AotDependencyVersion { file: string; mtimeMs: number; size: number }
 const dependencyVersions = new WeakMap<AotProgram, readonly AotDependencyVersion[]>();
@@ -60,7 +61,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           if (binding.isTypeOnly) continue;
           const original = binding.propertyName?.text ?? binding.name.text;
           if (module === COMPONENTS) {
-            if (original in MICROTS_INPUT_ELEMENTS) item.inputHosts.set(binding.name.text, original as "ActionHandler" | "AxisHandler");
+            if (original in MICROTS_INPUT_ELEMENTS) item.inputHosts.set(binding.name.text, original as keyof typeof MICROTS_INPUT_ELEMENTS);
             else if (original in MICROTS_ELEMENTS) item.hosts.set(binding.name.text, original as "View" | "Text" | "Image");
             else fail(loc, `Host component ${original} is outside the AOT subset`);
           } else if (module === "vue") {
@@ -72,7 +73,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           } else if (module === STD) {
             if (!(original in MICROTS_BUILTINS)) fail(loc, `Unknown std built-in ${original}`);
           } else if (module === INPUT) {
-            if (original !== "BTN") fail(loc, "AOT input imports accept BTN; input is handled by ActionHandler and AxisHandler");
+            if (original !== "BTN") fail(loc, "AOT input imports accept BTN; input is handled by ActionHandler, AxisHandler and MotionHandler");
             item.buttonNames.add(binding.name.text);
           } else {
             if (!module.startsWith("./") || module.slice(2).toLowerCase() !== basename(file, ".vue").toLowerCase()) fail(loc, "The view-model import must use the SFC basename without an extension");
@@ -281,9 +282,19 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       if (!d.arg || d.arg.type !== NodeTypes.SIMPLE_EXPRESSION || !d.arg.isStatic) fail(tplLoc(d), "Directive arguments must be static names");
       return d.arg.content;
     };
-    function handler(content: string, at: SourceLocation, context: ExpressionContext, event?: AotEvent): AotHandler {
+    function handler(content: string, at: SourceLocation, context: ExpressionContext, event?: AotEvent, attribute = true): AotHandler {
       const hctx = { ...context, bindings: new Map(context.bindings), handler: true };
       if (event?.parameters.length) hctx.bindings.set("$event", { type: event.parameters[0]!.type, scope: "event" });
+      // As in Vue, an inline statement reads the first payload value as $event
+      // and a method handler receives every value its parameters name. The
+      // later values bind only for that generated call, never for source text.
+      // Only a whole attribute is a method handler; a name inside a statement
+      // block stays a reference.
+      const method = attribute && event && event.parameters.length > 1 && /^[A-Za-z_$][\w$]*$/.test(content.trim()) ? context.functions.get(content.trim()) : undefined;
+      if (method) {
+        event!.parameters.forEach((parameter, index) => { if (index) hctx.bindings.set(`$event${index}`, { type: parameter.type, scope: "event" }); });
+        content = `${content.trim()}(${method.parameters.map((_, index) => index ? `$event${index}` : "$event").join(", ")})`;
+      }
       const sourceFile = ts.createSourceFile("handler.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
       const statement = sourceFile.statements[0];
       const parseErrors = (sourceFile as ts.SourceFile & { parseDiagnostics: ts.Diagnostic[] }).parseDiagnostics;
@@ -293,7 +304,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         const atNode = (node: ts.Node) => locAt(item, at.offset + node.getStart(sourceFile));
         const list = (statements: readonly ts.Statement[], scope: ExpressionContext): AotHandler[] => {
           const steps = statements.map(stmt => {
-            if (ts.isExpressionStatement(stmt)) return handler(stmt.expression.getText(sourceFile), atNode(stmt.expression), scope, event);
+            if (ts.isExpressionStatement(stmt)) return handler(stmt.expression.getText(sourceFile), atNode(stmt.expression), scope, event, false);
             if (ts.isIfStatement(stmt)) {
               const condition = expression(stmt.expression.getText(sourceFile), atNode(stmt.expression), { ...scope, bindings: hctx.bindings, handler: true }, BOOL);
               requireType(condition, BOOL, scope);
@@ -320,6 +331,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         if (value.kind !== "call" || value.target !== "vm") fail(at, "A handler call must name a view-model function");
         return { kind: "call", id, expression: value, loc: at };
       }
+      // Vue evaluates a bare function reference in a statement without calling it.
+      if (!attribute && ts.isIdentifier(node) && context.functions.has(node.text)) fail(at, `A reference to ${node.text} does nothing in a handler statement; call it`);
       let target: ts.Expression | undefined, valueSource: string | undefined, valueLoc = at;
       if (ts.isPostfixUnaryExpression(node) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator)) {
         target = node.operand; valueLoc = handlerLoc(target);
@@ -519,8 +532,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       const inputTag = item.inputHosts.get(node.tag);
       if (inputTag) {
         let active: AotExpr = { kind: "literal", value: true, type: BOOL, loc: at }, latched = false;
-        let button: { name: string; value: number } | undefined, axis: { name: string; value: number } | undefined;
-        let action: AotHandler | undefined;
+        let button: { name: string; value: number } | undefined, axis: { name: string; value: number } | undefined, motion: keyof typeof MOTION_VALUES | undefined, minQuality: keyof typeof MOTION_MIN_QUALITIES = MOTION_DEFAULT_MIN_QUALITY;
+        let action: AotHandler | undefined, pendingMotion: { content: string; at: SourceLocation } | undefined;
         const seen = new Set<string>();
         for (const attribute of node.props) {
           if (attribute.type === NodeTypes.DIRECTIVE && ignored.has(attribute.name)) continue;
@@ -530,9 +543,11 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           if (attribute.type === NodeTypes.DIRECTIVE) {
             if (attribute.modifiers.length) fail(tplLoc(attribute), "Input directive modifiers are unsupported");
             if (attribute.name === "on") {
-              const eventName = inputTag === "ActionHandler" ? "press" : "delta";
+              const eventName = MICROTS_INPUT_ELEMENTS[inputTag].events[0];
               if (name !== eventName || !attribute.exp || attribute.exp.type !== NodeTypes.SIMPLE_EXPRESSION) fail(tplLoc(attribute), `${inputTag} requires @${eventName} with one handler`);
-              action = handler(attribute.exp.content, tplLoc(attribute.exp), context, inputTag === "AxisHandler" ? { name: "delta", parameters: [{ name: "delta", type: I32 }] } : undefined);
+              // A motion payload depends on :value, which may follow the handler.
+              if (inputTag === "MotionHandler") pendingMotion = { content: attribute.exp.content, at: tplLoc(attribute.exp) };
+              else action = handler(attribute.exp.content, tplLoc(attribute.exp), context, inputTag === "AxisHandler" ? { name: "delta", parameters: [{ name: "delta", type: I32 }] } : undefined);
             } else if (name === "active") {
               active = expr(attribute.exp as SimpleExpressionNode, context, BOOL); requireType(active, BOOL, context);
             } else if (name === "latched" && inputTag === "ActionHandler") {
@@ -553,16 +568,25 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
               const value = expr(attribute.exp as SimpleExpressionNode, context, STRING);
               if (value.kind !== "literal" || typeof value.value !== "string" || !(value.value in MICROTS_RELATIVE_AXES)) fail(tplLoc(attribute), "axis must be the static literal primary or secondary");
               axis = { name: value.value, value: MICROTS_RELATIVE_AXES[value.value as keyof typeof MICROTS_RELATIVE_AXES] };
+            } else if ((name === "value" || name === "minQuality") && inputTag === "MotionHandler") {
+              const value = expr(attribute.exp as SimpleExpressionNode, context, STRING), table = name === "value" ? MOTION_VALUES : MOTION_MIN_QUALITIES;
+              if (value.kind !== "literal" || typeof value.value !== "string" || !(value.value in table)) fail(tplLoc(attribute), `${name} must be a static literal: ${Object.keys(table).join(", ")}`);
+              if (name === "value") motion = value.value as keyof typeof MOTION_VALUES; else minQuality = value.value as keyof typeof MOTION_MIN_QUALITIES;
             } else fail(tplLoc(attribute), `${inputTag} does not accept :${name}`);
           } else if (name === "active" && !attribute.value) active = { kind: "literal", value: true, type: BOOL, loc: tplLoc(attribute) };
           else if (name === "latched" && inputTag === "ActionHandler" && !attribute.value) latched = true;
           else if (name === "axis" && inputTag === "AxisHandler" && attribute.value && attribute.value.content in MICROTS_RELATIVE_AXES) axis = { name: attribute.value.content, value: MICROTS_RELATIVE_AXES[attribute.value.content as keyof typeof MICROTS_RELATIVE_AXES] };
+          else if (name === "value" && inputTag === "MotionHandler" && attribute.value && attribute.value.content in MOTION_VALUES) motion = attribute.value.content as keyof typeof MOTION_VALUES;
+          else if (name === "minQuality" && inputTag === "MotionHandler" && attribute.value && attribute.value.content in MOTION_MIN_QUALITIES) minQuality = attribute.value.content as keyof typeof MOTION_MIN_QUALITIES;
           else fail(tplLoc(attribute), `${inputTag} requires typed bindings for ${name}`);
         }
+        if (inputTag === "MotionHandler" && !motion) fail(at, "MotionHandler requires a static value");
+        if (motion && pendingMotion) action = handler(pendingMotion.content, pendingMotion.at, context, motionEvent(motion));
         if (!action) fail(at, `${inputTag} requires its event handler`);
         if (inputTag === "ActionHandler" && !button) fail(at, "ActionHandler requires :button=BTN.NAME");
         if (inputTag === "AxisHandler" && !axis) fail(at, "AxisHandler requires a static axis");
-        return [{ kind: "input", id: component.nodeCount++, input: button ? { kind: "button", name: button.name, button: button.value, latched } : { kind: "axis", name: axis!.name, axis: axis!.value }, active, handler: action, children: nodes(node.children, context), loc: at }];
+        const input: Extract<AotNode, { kind: "input" }>["input"] = button ? { kind: "button", name: button.name, button: button.value, latched } : axis ? { kind: "axis", name: axis.name, axis: axis.value } : { kind: "motion", name: motion!, value: MOTION_VALUES[motion!].id, minQuality: MOTION_MIN_QUALITIES[minQuality] };
+        return [{ kind: "input", id: component.nodeCount++, input, active, handler: action, children: nodes(node.children, context), loc: at }];
       }
       const creation = vaporElements.get(node.loc.start.offset);
       if (tag && (!creation || !creation.useCreateElement || creation.tag !== node.tag)) fail(at, "Vapor must lower each host primitive to an explicit create-element operation");

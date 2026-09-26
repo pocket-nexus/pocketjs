@@ -29,5 +29,7 @@ pub trait HasButtons: Host {}
 pub trait HasButton<const MASK: u32>: Host {}
 pub trait HasTouch: Host {}
 pub trait HasRelativeAxis<const AXIS: u8>: Host {}
+/// The host's motion driver publishes fused state at `spec::motion::level` LEVEL.
+pub trait HasMotion<const LEVEL: u8>: Host {}
 impl HasButtons for Ui {}
 impl<const MASK: u32> HasButton<MASK> for Ui {}

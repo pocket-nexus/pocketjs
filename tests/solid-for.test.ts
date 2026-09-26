@@ -2,14 +2,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createRoot, createSignal, Show, type JSX } from "solid-js";
 import { BTN } from "../contracts/spec/spec.ts";
-import { ActionHandler, AxisHandler, For, Text, View } from "../framework/src/components.ts";
+import { ActionHandler, AxisHandler, For, MotionHandler, Text, View } from "../framework/src/components.ts";
 import { render } from "../framework/src/index.ts";
 import { resetRendererState, rootMirror, type NodeMirror } from "../framework/src/renderer-solid.ts";
 import { focusNode, resetInput } from "../framework/src/input.ts";
 import { runFrameHooks, resetFrameHooks } from "../framework/src/frame.ts";
-import { onCleanup, onMount } from "../framework/src/lifecycle.ts";
+import { onCleanup, onMotion, onMount } from "../framework/src/lifecycle.ts";
 import { flushLifecycleHooks } from "../framework/src/lifecycle-solid-aot.ts";
 import { feedAxisDelta, RelativeAxis } from "../framework/src/relative-axis.ts";
+import { feedMotionState, MotionQuality, MotionReferenceFrame, type MotionState } from "../framework/src/input-api.ts";
 import type { HostOps } from "../framework/src/host.ts";
 
 if (Bun.resolveSync("solid-js", import.meta.dir).endsWith("server.js")) throw new Error("Run Solid oracle tests with --conditions=browser");
@@ -182,6 +183,78 @@ test("ActionHandler active remains reactive and axis delivery uses frame millide
   runFrameHooks(0);
   expect(presses).toBe(1);
   expect(deltas).toEqual([-15_000]);
+});
+
+function motion(state: MotionState | null): void { runFrameHooks(0, undefined, undefined, undefined, state); }
+
+test("MotionHandler delivers driver values at its minimum quality with metadata, gated by active", () => {
+  const [active, setActive] = createSignal(true);
+  const calls: (string | number)[][] = [];
+  mount(() => {
+    onMotion("tilt", (beta, gamma, quality) => calls.push(["tilt", beta, gamma, quality]), { minQuality: "high" });
+    return View({ get children() { return [
+      MotionHandler({ value: "rotationRate", minQuality: "high", onUpdate: (...payload) => calls.push(["spin", ...payload]) }),
+      MotionHandler({ value: "screenRotation", get active() { return active(); }, onUpdate: (...payload) => calls.push(["upright", ...payload]) }),
+      MotionHandler({ value: "angles", onUpdate: (...payload) => calls.push(["angles", ...payload]) }),
+    ]; } });
+  });
+  motion(null);
+  runFrameHooks(0);
+  expect(calls).toEqual([]);
+  // Derived values arrive from the driver as fed; the runtime does not recompute them from gravity.
+  motion({ timestamp: 2_000, gravityDirection: { value: [0, -1, 0], quality: MotionQuality.Medium },
+    rotationRate: { value: [0, 0, 90], quality: MotionQuality.Medium },
+    screenRotation: { value: 90, quality: MotionQuality.Medium },
+    angles: { value: [90, 0.1, 0], quality: MotionQuality.Medium, referenceFrame: MotionReferenceFrame.Local, epoch: 3 } });
+  expect(calls).toEqual([["upright", 90, MotionQuality.Medium, 2_000], ["angles", 90, Math.fround(0.1), 0, MotionQuality.Medium, MotionReferenceFrame.Local, 3, 2_000]]);
+  calls.length = 0;
+  // An unreliable value stays below the default minimum quality; high-quality values pass, zeros unsigned.
+  motion({ timestamp: 3_000, screenRotation: { value: 0, quality: MotionQuality.Unreliable }, tilt: { value: [0, -0], quality: MotionQuality.High },
+    rotationRate: { value: [1.5, -2, 0.1], quality: MotionQuality.High } });
+  expect(calls).toEqual([["tilt", 0, 0, MotionQuality.High], ["spin", 1.5, -2, Math.fround(0.1), MotionQuality.High, 3_000]]);
+  calls.length = 0;
+  setActive(false);
+  motion({ timestamp: 4_000, screenRotation: { value: 0, quality: MotionQuality.High }, tilt: { value: [90, 0], quality: MotionQuality.High } });
+  expect(calls.map(call => call.slice(0, 2))).toEqual([["tilt", 90]]);
+});
+
+test("MotionHandler dispatch follows document order, not mount order", () => {
+  const [early, setEarly] = createSignal(false);
+  const order: string[] = [];
+  mount(() => View({ get children() { return [
+    Conditional({ get when() { return early(); }, get children() { return MotionHandler({ value: "inclination", onUpdate: () => order.push("first") }); } }),
+    ActionHandler({ button: BTN.SELECT, onPress: () => order.push("press") }),
+    MotionHandler({ value: "gravityDirection", onUpdate: () => order.push("last") }),
+  ]; } }));
+  setEarly(true);
+  runFrameHooks(BTN.SELECT, undefined, undefined, undefined,
+    { timestamp: 1, gravityDirection: { value: [0, -1, 0], quality: MotionQuality.Low }, inclination: { value: 90, quality: MotionQuality.Low } });
+  expect(order).toEqual(["first", "press", "last"]);
+});
+
+test("fed motion states: the newest replaces the queue, a frame argument (including null) overrides it, validation throws", () => {
+  const seen: number[] = [];
+  mount(() => View({ get children() { return MotionHandler({ value: "inclination", onUpdate: (degrees, quality, timestamp) => seen.push(timestamp) }); } }));
+  const at = (timestamp: number): MotionState => ({ timestamp, inclination: { value: 45, quality: MotionQuality.Low } });
+  feedMotionState(at(1)); feedMotionState(at(2));
+  runFrameHooks(0); runFrameHooks(0);
+  feedMotionState(at(3)); motion(null); runFrameHooks(0);
+  feedMotionState(at(4)); motion(at(5)); runFrameHooks(0);
+  expect(seen).toEqual([2, 5]);
+  expect(() => feedMotionState({ timestamp: -1 })).toThrow("timestamp");
+  expect(() => feedMotionState({ timestamp: 1.5 })).toThrow("timestamp");
+  expect(() => feedMotionState({ timestamp: 1, inclination: { value: NaN, quality: MotionQuality.Low } })).toThrow("inclination.value");
+  expect(() => feedMotionState({ timestamp: 1, gravityDirection: { value: [0, 1e39, 0], quality: MotionQuality.Low } })).toThrow("gravityDirection.value[1]");
+  expect(() => feedMotionState({ timestamp: 1, rotationRate: { value: [0, 0] as never, quality: MotionQuality.Low } })).toThrow("rotationRate.value");
+  expect(() => feedMotionState({ timestamp: 1, rotationRate: { value: new Array(3) as never, quality: MotionQuality.High } })).toThrow("rotationRate.value[0]");
+  expect(() => feedMotionState({ timestamp: 1, inclination: { value: 1, quality: 5 as never } })).toThrow("inclination.quality");
+  expect(() => feedMotionState({ timestamp: 1, heading: { value: 1, accuracy: -1, quality: MotionQuality.Low, referenceFrame: 4 as never } })).toThrow("heading.referenceFrame");
+  expect(() => feedMotionState({ timestamp: 1, orientation: { value: [1, 0, 0, 0], quality: MotionQuality.Low, referenceFrame: MotionReferenceFrame.Local, epoch: -1 } })).toThrow("orientation.epoch");
+  expect(() => feedMotionState({ timestamp: 1, tilt: { value: [0, 0, 0] as never, quality: MotionQuality.Low } })).toThrow("tilt.value");
+  expect(() => feedMotionState({ timestamp: 1, angles: { value: [0, 0, 0], quality: MotionQuality.Low, referenceFrame: MotionReferenceFrame.Local, epoch: 1.5 } })).toThrow("angles.epoch");
+  expect(() => MotionHandler({ value: "gravity" as never })).toThrow("Unknown motion value gravity");
+  runFrameHooks(0);
+  expect(seen).toEqual([2, 5]);
 });
 
 test("a parent hook closing a child still mounts then unmounts that child", () => {

@@ -32,6 +32,7 @@ import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferre
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame-vue-vapor.ts";
 import { flushLifecycleHooks, flushUnmountedHooks, disposeRootModelRegions } from "./lifecycle-vue-aot.ts";
 import type { AxisDelta } from "./relative-axis.ts";
+import type { MotionState } from "./motion.ts";
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __resetTouches, __setTouches } from "./touch.ts";
@@ -227,6 +228,7 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
       touchSurfaces?: readonly number[],
       rightAnalog?: number,
       axisDeltas?: readonly AxisDelta[],
+      motion?: MotionState | null,
     ) => {
       __advanceClock();
       __setAnalog(analog, rightAnalog);
@@ -238,6 +240,7 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
         axisDeltas,
         defer => handleFrame(buttons, defer),
         defer => withDeferredPress(defer, __runGestures),
+        motion,
       );
       runSweep();
     }),

@@ -13,10 +13,12 @@
     // unknown paths -> the branded /404.html
     "not_found_handling": "404-page"
   },
-  // Custom domains (apex + www). The pocketjs.dev zone is active in this
-  // account; wrangler provisions the custom domain + edge cert on deploy.
+  // Serve the same site on both domains (apex + www). Wrangler provisions
+  // each custom domain and edge certificate on deploy.
   "routes": [
     { "pattern": "pocketjs.dev", "custom_domain": true },
-    { "pattern": "www.pocketjs.dev", "custom_domain": true }
+    { "pattern": "www.pocketjs.dev", "custom_domain": true },
+    { "pattern": "pocket.nexus", "custom_domain": true },
+    { "pattern": "www.pocket.nexus", "custom_domain": true }
   ]
 }
