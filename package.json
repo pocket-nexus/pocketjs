@@ -289,6 +289,7 @@
     "psp": "bun tools/psp.ts",
     "psp:all": "bun tools/psp-all.ts",
     "psp:switch": "bun psplink",
+    "valley": "bun tools/valley.ts",
     "vita": "bun tools/vita.ts",
     "vita:dev": "bun tools/vita-dev.ts",
     "symbian": "bun tools/symbian.ts",

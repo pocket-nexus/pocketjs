@@ -48,6 +48,9 @@ engine/pocket3d/
 │   ├── pocket3d-mesh/     # skin bindings, colored assets, P3M1 and native packing
 │   ├── pocket3d-bsp/      # GoldSrc BSP v30 + WAD3: geometry, lightmaps,
 │   │                      # entities, clipnode hull tracing (no GPU deps)
+│   ├── pocket3d-scene/    # the .p3sn authored-scene container: chunked
+│   │                      # geometry with baked light and fog, culling,
+│   │                      # and the runtime surfaces (water/sky/particles)
 │   ├── pocket3d-world/    # renderer-free fixed-step bodies, structures,
 │   │                      # attachments, heat, moisture, and combustion
 │   ├── pocket-mod/        # guest hosting: one QuickJS realm, mounted surfaces,
@@ -59,6 +62,9 @@ engine/pocket3d/
 └── examples/
     ├── uihost/            # PocketJS UI demos in a native macOS window
     ├── handheld/          # first pocket-stage package + transitional 3D host
+    ├── valley/            # River Valley: the procedural .p3sn scene and a
+    │                      # CPU reference rasterizer for it
+    ├── valley-vita/       # that scene on PS Vita (docs/POCKET3D-SCENE.md)
     └── note-widget/       # a markdown sticky note — the flat pocket-widget form
 ```
 
@@ -66,6 +72,7 @@ engine/pocket3d/
 
 | Component | Owns | Does not own |
 | --- | --- | --- |
+| `pocket3d-scene` | The `.p3sn` container, the bake model, culling, and the water/sky/particle surfaces | Map formats, GPU lifecycle, scene content |
 | `pocket3d-anim` | TRS channels, hierarchy evaluation, pose interpolation | Meshes, rendering, movement policy |
 | `pocket3d-mesh` | Shared `Skin`, palette evaluation, colored assets and packing | Window/GPU lifecycle, clip selection |
 | `pocket3d` | Desktop glTF loading, wgpu resources, rendering and window loop | A second animation or skin-binding implementation |
