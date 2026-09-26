@@ -39,7 +39,7 @@ carry larger worlds.
   replaces the native SELF through A/B slots with checksum readback, and
   captures the 960 × 544 GXM framebuffer. A failed reload restores the previous
   bundle in a fresh realm. `--no-usb-debug` omits the USB driver. See
-  [docs/VITA-USB.md](https://github.com/pocket-stack/pocketjs/blob/v0.13.0/docs/VITA-USB.md).
+  [docs/VITA-USB.md](https://github.com/pocket-nexus/pocketjs/blob/v0.13.0/docs/VITA-USB.md).
 - **Nokia E7 rendering reaches 60 fps in Pocket Shell.** QuickJS builds at
   `-O2` and the Rust core at `opt-level=3`, both with VFPv2. The GLES backend
   drops per-frame error queries, merges adjacent draws, shares glyph coverage
