@@ -37,8 +37,8 @@ pub struct WaterSettings {
 impl Default for WaterSettings {
     fn default() -> Self {
         Self {
-            rows: 40,
-            columns: 15,
+            rows: 64,
+            columns: 23,
             behind: 45.0,
             ahead: 620.0,
             bank_overlap: 4.5,
@@ -67,8 +67,20 @@ pub fn wave(point: Vec3, time: f32, amplitude: f32, length: f32, speed: f32) -> 
     const CHOP: f32 = 0.13;
     let height = amplitude * (sin_a * LONG + sin_b * CROSS + sin_c * CHOP);
     // Analytic slope, so the glitter tracks the crests exactly.
-    let slope_x = amplitude * k * (cos_b * CROSS * 0.63 + cos_c * CHOP * 1.9);
-    let slope_z = amplitude * k * (cos_a * LONG + cos_c * CHOP * 1.9);
+    let mut slope_x = amplitude * k * (cos_b * CROSS * 0.63 + cos_c * CHOP * 1.9);
+    let mut slope_z = amplitude * k * (cos_a * LONG + cos_c * CHOP * 1.9);
+
+    // Ripple detail that tilts the surface without lifting it. Displacement
+    // this fine would be lost between vertices, but the slope is what the
+    // reflection and the glitter read, and a sheet whose normal barely varies
+    // mirrors the sky uniformly and lands as flat grey.
+    let ripple_k = k * 5.3;
+    let first = point.x * ripple_k * 0.77 + point.z * ripple_k * 0.64 + time * speed * 11.0;
+    let second = point.x * ripple_k * -0.61 + point.z * ripple_k * 0.79 + time * speed * 7.0;
+    let detail = amplitude * ripple_k * 0.85;
+    slope_x += detail * (cosf(first) * 0.77 - cosf(second) * 0.61);
+    slope_z += detail * (cosf(first) * 0.64 + cosf(second) * 0.79);
+
     (height, Vec3::new(-slope_x, 1.0, -slope_z).normalize())
 }
 
@@ -112,7 +124,7 @@ pub fn build(
     for row in 0..rows {
         // Rows stretch with distance: near water is dense, far water is not.
         let t = row as f32 / (rows - 1) as f32;
-        let z = start + (end - start) * powf(t, 1.9);
+        let z = start + (end - start) * powf(t, 2.6);
         let (center, half_width) = scene.river_at(z);
         row_vertices.clear();
         for column in 0..columns {
@@ -137,13 +149,16 @@ pub fn build(
             let to_eye = (view.eye - position).normalize_or(Vec3::Y);
             // A grazing view mirrors the sky; a steep one looks into the water.
             let facing = to_eye.dot(normal).clamp(0.0, 1.0);
-            let fresnel = powf(1.0 - facing, 4.0) * 0.92 + 0.06;
+            let fresnel = powf(1.0 - facing, 5.0) * 0.86 + 0.04;
             color = color.lerp(sky, fresnel);
 
             // Sun glitter from the wave slope, not from a flat plane, so it
             // breaks into the moving specks the crests actually produce.
             let half = (sun + to_eye).normalize_or(Vec3::Y);
-            let glitter = powf(normal.dot(half).clamp(0.0, 1.0), 110.0);
+            // A tight core inside a broad sheen: the core is the sparkle on
+            // individual crests, the sheen is the path the sun lays down.
+            let specular = normal.dot(half).clamp(0.0, 1.0);
+            let glitter = powf(specular, 220.0) * 1.6 + powf(specular, 16.0) * 0.22;
             color += water.specular * glitter;
 
             // Foam where the sheet meets the bank.

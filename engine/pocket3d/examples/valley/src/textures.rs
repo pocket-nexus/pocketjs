@@ -292,14 +292,16 @@ pub fn thatch(size: u32, seed: u32) -> Canvas {
 /// fragment maths of its own.
 pub fn ripples(size: u32, seed: u32) -> Canvas {
     let mut canvas = Canvas::new(size);
-    let deep = rgb(96, 112, 124);
-    let crest = rgb(196, 206, 214);
+    let deep = rgb(58, 72, 86);
+    let crest = rgb(228, 236, 242);
     canvas.fill(|u, v| {
         let broad = fbm_tiled(u * 5.0, v * 9.0, 5, 3, seed);
         let fine = fbm_tiled(u * 21.0, v * 33.0, 21, 3, seed ^ 0x4d);
+        let glint = fbm_tiled(u * 47.0, v * 61.0, 47, 2, seed ^ 0x8e);
         // Stretched along x so the pattern reads as travelling downstream.
-        let front = smoothstep(0.45, 0.72, broad * 0.65 + fine * 0.45);
-        (mix(deep, crest, front * 0.8 + 0.12), 1.0)
+        let front = smoothstep(0.42, 0.70, broad * 0.6 + fine * 0.5);
+        let sparkle = smoothstep(0.72, 0.94, glint);
+        (mix(deep, crest, front * 0.9 + sparkle * 0.5 + 0.06), 1.0)
     });
     canvas
 }

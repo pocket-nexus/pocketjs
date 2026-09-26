@@ -169,14 +169,14 @@ pub fn build(options: &ValleyOptions) -> Result<(Vec<u8>, CookReport), BuildErro
     let lighting = Lighting {
         sun_dir,
         sun_color: Vec3::new(2.35, 1.52, 0.86),
-        sky_zenith: Vec3::new(0.15, 0.23, 0.42),
-        sky_horizon: Vec3::new(0.46, 0.47, 0.50),
+        sky_zenith: Vec3::new(0.14, 0.22, 0.46),
+        sky_horizon: Vec3::new(0.50, 0.47, 0.46),
         bounce: Vec3::new(0.15, 0.14, 0.11),
         exposure: 0.92,
     };
     let fog = FogModel {
-        cool: Vec3::new(0.40, 0.49, 0.58),
-        warm: Vec3::new(1.25, 0.86, 0.54),
+        cool: Vec3::new(0.30, 0.44, 0.66),
+        warm: Vec3::new(1.55, 0.88, 0.40),
         density: 0.0020,
         base_height: WATER_LEVEL,
         falloff: 0.026,
@@ -222,9 +222,9 @@ pub fn build(options: &ValleyOptions) -> Result<(Vec<u8>, CookReport), BuildErro
     // The header carries everything the runtime needs to match the bake.
     builder.header.sun_dir = sun_dir;
     builder.header.sun_color = lighting.sun_color;
-    builder.header.sky_zenith = lighting.sky_zenith;
-    builder.header.sky_horizon = Vec3::new(0.86, 0.72, 0.58);
-    builder.header.sky_sun_glow = Vec3::new(1.45, 0.92, 0.55);
+    builder.header.sky_zenith = Vec3::new(0.10, 0.20, 0.46);
+    builder.header.sky_horizon = Vec3::new(0.92, 0.74, 0.54);
+    builder.header.sky_sun_glow = Vec3::new(1.85, 1.02, 0.50);
     builder.header.fog_cool = fog.cool;
     builder.header.fog_warm = fog.warm;
     builder.header.fog_density = fog.density;
@@ -243,9 +243,9 @@ pub fn build(options: &ValleyOptions) -> Result<(Vec<u8>, CookReport), BuildErro
 
     builder.water = pocket3d_scene::format::WaterParams {
         level: WATER_LEVEL,
-        deep: Vec3::new(0.055, 0.085, 0.105),
-        shallow: Vec3::new(0.20, 0.235, 0.225),
-        specular: Vec3::new(2.4, 1.62, 0.95),
+        deep: Vec3::new(0.022, 0.038, 0.052),
+        shallow: Vec3::new(0.115, 0.145, 0.135),
+        specular: Vec3::new(3.1, 2.05, 1.12),
         wave_amplitude: 0.055,
         wave_length: 7.5,
         wave_speed: 0.9,

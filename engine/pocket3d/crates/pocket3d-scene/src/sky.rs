@@ -54,13 +54,16 @@ pub fn sample(scene: &Scene<'_>, direction: Vec3) -> Vec3 {
     // Blend the authored horizon tint in above the haze line.
     let horizon = horizon.lerp(header.sky_horizon, 0.35);
 
-    let up = powf(elevation.max(0.0), 0.62);
+    // The gradient climbs fast off the horizon, so the band of haze stays
+    // shallow and the dome above it keeps its colour instead of washing out.
+    let up = powf(elevation.max(0.0), 0.42);
     let mut color = horizon.lerp(header.sky_zenith, up);
 
-    // A broad glow around the sun, and a tighter core inside it.
+    // A broad glow around the sun, a tighter halo, then the disc itself.
     let angle = direction.normalize_or(Vec3::NEG_Z).dot(sun).clamp(-1.0, 1.0);
-    color += header.sky_sun_glow * powf(angle.max(0.0), 14.0) * 0.55;
-    color += header.sky_sun_glow * powf(angle.max(0.0), 900.0) * 3.5;
+    color += header.sky_sun_glow * powf(angle.max(0.0), 6.0) * 0.40;
+    color += header.sky_sun_glow * powf(angle.max(0.0), 90.0) * 1.30;
+    color += header.sky_sun_glow * powf(angle.max(0.0), 2600.0) * 9.0;
     color
 }
 
@@ -139,10 +142,12 @@ pub fn build_clouds(
         let flat = Vec3::new(cosf(azimuth), 0.0, sinf(azimuth));
         // Clouds lit from the side the sun is on.
         let towards = (flat.dot(sun) * 0.5 + 0.5).clamp(0.0, 1.0);
+        // Cloud undersides take the sun from whichever side it is on, which
+        // is most of what makes a flat band read as lit volume.
         let tint = header
             .sky_zenith
-            .lerp(header.sky_sun_glow, powf(towards, 2.0) * 0.85)
-            * 1.15;
+            .lerp(header.sky_sun_glow, powf(towards, 1.5) * 0.95)
+            * 1.45;
         let color = gamma_encode(tonemap(tint));
         for (elevation, row, store) in [
             (settings.cloud_low, 1.0f32, &mut low),
