@@ -401,7 +401,8 @@ class Parser {
       while (digit()) { /* */ }
     }
     if (!sawDigit) throw RELAY_FRAME_ERROR.BAD_METADATA;
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(this.bytes.subarray(start, this.pos));
+    let text = "";
+    for (let i = start; i < this.pos; i++) text += String.fromCharCode(this.bytes[i]);
     // Draft v1: ordinary JSON numbers are safe integers — fractions and
     // exponent notation are rejected. Leading-zero forms were rejected above.
     if (sawDot || sawExp) throw RELAY_FRAME_ERROR.BAD_METADATA;

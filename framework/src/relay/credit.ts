@@ -1,3 +1,5 @@
+import { parseRelayJson } from "./frame.ts";
+import { utf8Length } from "./utf8.ts";
 /** Relay P3 — bounded queues, cumulative credit, priority selection, reset
  * and CANCEL (R5 draft §3.3 seq rule, §3.6, §3.9).
  *
@@ -99,7 +101,7 @@ export function clipUtf8Bytes(s: string, maxBytes: number): string {
   let bytes = 0;
   let out = "";
   for (const ch of s) {
-    const n = new TextEncoder().encode(ch).length;
+    const n = utf8Length(ch);
     if (bytes + n > maxBytes) break;
     bytes += n;
     out += ch;
@@ -364,7 +366,7 @@ export class RelaySideband {
   }
 
   private opOf(body: RelayPreparedBody): string {
-    return (JSON.parse(new TextDecoder().decode(body.meta)) as { op?: unknown }).op as string ?? "";
+    return (parseRelayJson(body.meta) as { op?: unknown }).op as string ?? "";
   }
 
   /** Drains pending items in FIFO order. The caller supplies stream-0 seq
