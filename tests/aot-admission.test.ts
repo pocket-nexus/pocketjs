@@ -13,10 +13,10 @@ const demand = (buttons: number[] = [], axes: number[] = [], capabilities: strin
 test("native board admission retains direct button coverage and profile selection", () => {
   const program = demand([BTN.UP, BTN.DOWN, BTN.LEFT, BTN.RIGHT, BTN.CIRCLE, BTN.CROSS]);
   const expected = { board: "meowbit", chip: "esp32", ok: true, issues: [] };
-  expect(listAotInputProfiles()).toEqual(["meowbit"]);
+  expect(listAotInputProfiles()).toEqual(["meowbit", "nds"]);
   expect(requireAotBoard(program, "meowbit")).toEqual(expected);
   const all = aotBoardAdmission(program, undefined, true);
-  expect(all).toEqual([expected]);
+  expect(all).toEqual([expected, { board: "nds", chip: "arm946e-s", ok: true, issues: [] }]);
   expect(aotBoardAdmission(program)).toEqual([]);
 });
 
@@ -28,6 +28,16 @@ test("chorded buttons remain admitted with the existing warning diagnostics", ()
     { code: "VB103", severity: "warning", message: "BTN.SELECT uses the left+right chord on meowbit" },
     { code: "VB103", severity: "warning", message: "BTN.RTRIGGER uses the up+down chord on meowbit" },
   ]);
+});
+
+test("Nintendo DS admits its direct buttons and touch without chord adapters", () => {
+  const program = demand([
+    BTN.UP, BTN.DOWN, BTN.LEFT, BTN.RIGHT, BTN.CIRCLE, BTN.CROSS,
+    BTN.TRIANGLE, BTN.SQUARE, BTN.START, BTN.SELECT, BTN.LTRIGGER, BTN.RTRIGGER,
+  ], [], ["touch"]);
+  expect(requireAotBoard(program, "nds")).toEqual({ board: "nds", chip: "arm946e-s", ok: true, issues: [] });
+  expect(() => requireAotBoard(demand([], [RelativeAxis.Primary]), "nds")).toThrow("VB104");
+  expect(() => requireAotBoard(demand([], [], ["motion"], [MOTION_VALUES.screenRotation.id]), "nds")).toThrow("VB106");
 });
 
 test("missing buttons, relative axes and touch reject the board", () => {
@@ -59,6 +69,6 @@ test("motion values require a board driver at their fusion level", () => {
 });
 
 test("unknown profiles fail with the available names", () => {
-  expect(() => loadAotInputProfile("missing")).toThrow("unknown input profile (known: meowbit)");
+  expect(() => loadAotInputProfile("missing")).toThrow("unknown input profile (known: meowbit, nds)");
   expect(() => aotBoardAdmission(demand(), "missing")).toThrow("board missing");
 });

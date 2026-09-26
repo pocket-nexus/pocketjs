@@ -190,6 +190,7 @@ const SUITE: readonly Stage[] = [
     browser: true,
     tests: [
       "tests/aot-admission.test.ts",
+      "tests/nds-present.test.ts",
       "tests/aot-types.test.ts",
       "tests/aot-vue-frontend.test.ts",
       "tests/aot-solid-frontend.test.ts",
