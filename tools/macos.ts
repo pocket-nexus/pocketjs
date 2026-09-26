@@ -148,6 +148,10 @@ const flags: string[] = systemPlanPath
   : [
       "--app",
       plan.app.output,
+      // The per-app data.fs root keys off the reverse-DNS app id, not the
+      // bundle output basename (hosts/desktop/src/fs.rs).
+      "--app-id",
+      plan.app.id,
       "--title",
       plan.app.title,
       "--viewport",

@@ -225,6 +225,15 @@ struct Args {
     pak: Option<PathBuf>,
     /// Editor-protocol document file (note-widget's --file).
     file: Option<PathBuf>,
+    /// Override for the host data base (`<base>/<app>/data` is the fs
+    /// module's bound root). Tests and portable runs point this at a temp
+    /// dir; unset uses the platform default (XDG / Application Support).
+    data_root: Option<PathBuf>,
+    /// Reverse-DNS app id for the primary guest's data directory. Launch
+    /// scripts pass the resolved plan's app id; falls back to `app` (the
+    /// package output basename) for bare `--js`/`--pak` runs. System
+    /// instances always use their plan package id.
+    app_id: Option<String>,
     title: String,
     /// Logical viewport at boot (the plan's resolved size).
     viewport: (u32, u32),
@@ -260,6 +269,8 @@ fn parse_args() -> Result<Args> {
         js: None,
         pak: None,
         file: None,
+        data_root: None,
+        app_id: None,
         title: "PocketJS".into(),
         viewport: (720, 480),
         fixed: false,
@@ -283,9 +294,13 @@ fn parse_args() -> Result<Args> {
         };
         match a.as_str() {
             "--app" => args.app = val("--app")?,
+            "--app-id" => args.app_id = Some(val("--app-id")?),
             "--js" => args.js = Some(PathBuf::from(val("--js")?)),
             "--pak" => args.pak = Some(PathBuf::from(val("--pak")?)),
             "--file" => args.file = Some(PathBuf::from(val("--file")?)),
+            "--data-root" => {
+                args.data_root = Some(PathBuf::from(val("--data-root")?))
+            }
             "--title" => args.title = val("--title")?,
             "--viewport" => {
                 let v = val("--viewport")?;
@@ -417,6 +432,7 @@ fn parse_args() -> Result<Args> {
             .with_context(|| format!("decoding Pocket System plan {}", path.display()))?;
         let shell = system.validate_for_host()?;
         args.app = shell.plan.app.output.clone();
+        args.app_id = Some(shell.plan.app.id.clone());
         args.title = system.system.title.clone();
         args.viewport = (
             shell.plan.viewport.logical[0],

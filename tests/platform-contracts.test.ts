@@ -283,6 +283,7 @@ describe("platform registry", () => {
       "text.glyphs.baked",
       "io.offload",
       "text.layout.offload",
+      "data.fs",
     ]);
     expect(POCKET_TARGETS["macos-app"].roleCapabilities).toEqual({
       systemUI: ["ui.compositor-surfaces"],
@@ -312,7 +313,8 @@ describe("platform registry", () => {
         "display.viewport.live",
         "text.glyphs.baked",
         "io.offload",
-      "text.layout.offload",
+        "text.layout.offload",
+        "data.fs",
       ],
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
     });
@@ -705,6 +707,33 @@ describe("semantic resolution", () => {
     expect(unavailable.ok).toBe(false);
     if (!unavailable.ok) {
       expect(unavailable.diagnostics.some((item) => item.code === "capability.unavailable")).toBe(true);
+    }
+  });
+
+  test("data.fs admits on the desktop hosts and nowhere else yet", () => {
+    // hosts/desktop mounts the pocket-fs core at the per-app data root, so
+    // the desktop target profiles advertise data.fs. An app that requires
+    // it must admit on linux-app/macos-app and be refused at resolve time on
+    // psp/web-app (which do not mount the module).
+    const needsFs = structuredClone(portableInput) as Record<string, any>;
+    needsFs.engine.capabilities.requires = [
+      "input.buttons",
+      "text.glyphs.baked",
+      "data.fs",
+    ];
+
+    for (const target of ["linux-app", "macos-app"] as const) {
+      const admitted = validateAndResolveBuildPlan(needsFs, { target });
+      expect(admitted.ok).toBe(true);
+      if (!admitted.ok) continue;
+      expect(admitted.plan.features["data.fs"]).toBe(true);
+    }
+
+    for (const target of ["psp", "web-app"] as const) {
+      const refused = validateAndResolveBuildPlan(needsFs, { target });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) continue;
+      expect(refused.diagnostics.some((item) => item.code === "capability.unavailable")).toBe(true);
     }
   });
 

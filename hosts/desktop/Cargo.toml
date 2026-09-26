@@ -8,6 +8,7 @@ description = "PocketJS portable Rust renderer and worker-owned desktop runtime"
 [dependencies]
 pocketjs-core = { path = "../../engine/core", features = ["std"] }
 pocket-mod = { path = "../../engine/crates/pocket-mod" }
+pocket-fs = { path = "../../engine/crates/pocket-fs" }
 pocket-ui-surface = { path = "../../engine/crates/pocket-ui-surface" }
 pocket-text = { path = "../../engine/crates/pocket-text" }
 pocket-ui-wgpu = { path = "../../engine/crates/pocket-ui-wgpu" }

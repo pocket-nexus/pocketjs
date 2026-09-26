@@ -359,6 +359,10 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
       "text.glyphs.baked",
       "io.offload",
       "text.layout.offload",
+      // hosts/desktop/src/fs.rs: the pocket-fs reference core bound to the
+      // app's own data root (~/Library/Application Support/pocketjs/<app>/
+      // data on macOS), mounted as globalThis.fs.
+      "data.fs",
     ],
     roleCapabilities: {
       systemUI: ["ui.compositor-surfaces"],
@@ -382,6 +386,11 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
       "text.glyphs.baked",
       "io.offload",
       "text.layout.offload",
+      // hosts/desktop/src/fs.rs: the pocket-fs reference core bound to the
+      // app's own data root ($XDG_DATA_HOME/pocketjs/<app>/data on Linux;
+      // ~/Library/Application Support/pocketjs/<app>/data on macOS),
+      // mounted as globalThis.fs.
+      "data.fs",
     ],
     roleCapabilities: {
       systemUI: ["ui.compositor-surfaces"],
