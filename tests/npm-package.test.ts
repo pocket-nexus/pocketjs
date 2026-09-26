@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -43,7 +43,7 @@ describe("published npm artifacts", () => {
   // entry ships ONLY when the framework runtime, the compiler, the shipped
   // tools, or a `pocket` CLI target consumes it from the tarball. Rust
   // sources ride along solely as build inputs for CLI-buildable targets
-  // (psp, vita, symbian, the web/sim wasm) plus the deliberately standalone
+  // (psp, vita, nds, symbian, the web/sim wasm) plus the deliberately standalone
   // Pocket3D Vita/GLES2 crates for out-of-tree native 3D apps. Platform source
   // integrations without a CLI target (e.g. the ESP32-P4 PPA backend, whose
   // ESP-IDF C component cannot ship in npm anyway) stay git-only. Adding an
@@ -68,6 +68,15 @@ describe("published npm artifacts", () => {
       "apps/hero/Hero.ts",
       "apps/hero/main.tsx",
       "apps/hero/pocket.json",
+      "apps/hero-nds",
+      "hosts/nds/src",
+      "hosts/nds/include",
+      "hosts/nds/core/src",
+      "hosts/nds/core/Cargo.toml",
+      "hosts/nds/core/Cargo.lock",
+      "hosts/nds/core/build.rs",
+      "hosts/nds/Makefile",
+      "hosts/nds/README.md",
       "apps/iphone2g-demo",
       "apps/iphone4s-demo",
       "apps/ipodtouch-demo",
@@ -228,6 +237,20 @@ describe("published npm artifacts", () => {
       "apps/hero/Hero.ts",
       "apps/hero/main.tsx",
       "apps/hero/pocket.json",
+      "tools/build-nds.ts",
+      "apps/hero-nds/app.tsx",
+      "apps/hero-nds/app.ts",
+      "apps/hero-nds/main.tsx",
+      "apps/hero-nds/pocket.json",
+      "hosts/nds/src/main.c",
+      "hosts/nds/include/pocket_nds.h",
+      "hosts/nds/core/src/lib.rs",
+      "hosts/nds/core/src/allocator.rs",
+      "hosts/nds/core/Cargo.toml",
+      "hosts/nds/core/Cargo.lock",
+      "hosts/nds/core/build.rs",
+      "hosts/nds/Makefile",
+      "hosts/nds/README.md",
       "apps/iphone2g-demo/pocket.json",
       "apps/iphone4s-demo/pocket.json",
       "apps/blackberry-classic-demo/pocket.json",
@@ -304,6 +327,7 @@ describe("published npm artifacts", () => {
     expect(
       files.some((file) => /(^|\/)target\//.test(file) || file.includes(".fingerprint")),
     ).toBe(false);
+    expect(files.some((file) => file.startsWith(".pocket-build/") || file.startsWith("apps/hero-nds/gen/"))).toBe(false);
     // Git-only platform integrations must not leak into the tarball.
     expect(files).not.toContain("engine/backends/rgb565/src/lib.rs");
     expect(files.some((file) => file.startsWith("engine/backends/"))).toBe(false);
@@ -329,7 +353,7 @@ describe("published npm artifacts", () => {
     ]);
   });
 
-  test("framework tarball resolves the iOS native workspace", () => {
+  test("framework tarball resolves the iOS and NDS native workspaces and generates the NDS guest", () => {
     const scratch = mkdtempSync(join(tmpdir(), "pocketjs-npm-apple-"));
     try {
       const archive = packArchive(root, scratch);
@@ -363,6 +387,27 @@ describe("published npm artifacts", () => {
       expect(packages).toContain("pocket3d-anim");
       expect(packages).toContain("pocket3d-mesh");
       expect(existsSync(join(scratch, "package/engine/core/Cargo.toml"))).toBe(true);
+
+      const ndsMetadata = Bun.spawnSync({
+        cmd: ["cargo", "metadata", "--format-version=1", "--no-deps", "--locked",
+          "--manifest-path", join(scratch, "package/hosts/nds/core/Cargo.toml")],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(ndsMetadata.exitCode, ndsMetadata.stderr.toString()).toBe(0);
+      const ndsPackages = JSON.parse(ndsMetadata.stdout.toString()).packages as Array<{ name: string }>;
+      expect(ndsPackages.map(entry => entry.name)).toContain("pocketjs-nds-core");
+      // Use the installed JS dependencies with the extracted package's own
+      // compiler, app, fonts and images. Assets-only never invokes the SDK.
+      symlinkSync(join(root, "node_modules"), join(scratch, "package/node_modules"), "dir");
+      const ndsGuest = Bun.spawnSync({
+        cmd: [process.execPath, "tools/build-nds.ts", "--assets-only"],
+        cwd: join(scratch, "package"),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(ndsGuest.exitCode, ndsGuest.stderr.toString()).toBe(0);
+      expect(ndsGuest.stdout.toString()).toContain("NDS: App2, 3 components");
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
