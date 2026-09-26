@@ -22,6 +22,15 @@ jobs:
       - name: standalone
         continue-on-error: true
         run: bun test --conditions=browser tests/aot-differential.test.ts
+      - name: stage
+        continue-on-error: true
+        run: bun tools/test.ts --stage="AOT frontends" 2>&1 | grep -E "\((pass|fail)\) Solid and Rust|^ *[0-9]+ fail"
+      - name: pairwise
+        continue-on-error: true
+        run: |
+          for f in aot-types aot-solid-frontend aot-vue-frontend solid-for solid-aot-lab vue-vapor-frame-flush aot-admission aot-solid-browser aot-constant-contracts aot-codegen; do
+            echo "== $f"; bun test --conditions=browser tests/$f.test.ts tests/aot-differential.test.ts 2>&1 | grep -E "\((pass|fail)\) Solid and Rust|group\]tests" || true
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
