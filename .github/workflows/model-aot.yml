@@ -6,6 +6,8 @@ on:
       - 'framework/**'
       - 'engine/core/**'
       - 'engine/crates/microts/**'
+      - 'engine/Cargo.toml'
+      - 'engine/Cargo.lock'
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/wasm/**'
       - 'engine/ui-cabi/**'
@@ -15,6 +17,7 @@ on:
       - 'contracts/**'
       - 'tests/aot-*.test.ts'
       - 'tests/fixtures/aot-model/**'
+      - 'tests/fixtures/microts-no-atomics/**'
       - 'tools/build.ts'
       - 'tools/test.ts'
       - 'package.json'
@@ -27,6 +30,25 @@ concurrency:
   group: model-aot-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  atomic-backends:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly-2026-07-01
+        with:
+          components: rust-src
+      - name: Test native atomics without a critical-section provider
+        run: |
+          cargo test --locked --manifest-path engine/Cargo.toml -p microts --lib
+          cargo test --locked --manifest-path engine/Cargo.toml -p microts --lib --all-features
+      - name: Link ARMv4T with host-selected atomic backends
+        run: bash tests/fixtures/microts-no-atomics/check.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: microts-atomic-backends
+          path: .pocket-build/validation/microts-no-atomics/
   semantics:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

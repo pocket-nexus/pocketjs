@@ -1,4 +1,25 @@
 //! Runtime for Vue SFCs compiled to native Rust. The retained tree belongs to core.
+//!
+//! # Targets without native 32-bit atomic CAS
+//!
+//! Model mount identities use `core::sync::atomic::AtomicU32` when the target
+//! supports it. Other targets use `portable-atomic`, including the atomics in
+//! the re-exported `heapless` containers. **The host selects the fallback.**
+//!
+//! Hosts with a `critical-section` implementation can enable MicroTS's
+//! `critical-section` feature. The final binary must provide an implementation
+//! that excludes every context accessing these atomics and restores the prior
+//! interrupt state on exit. The feature does not install an implementation.
+//!
+//! Hosts can instead select another backend supported by `portable-atomic`,
+//! such as its `portable_atomic_unsafe_assume_single_core` cfg on supported
+//! single-core targets. That cfg must apply to dependencies through rustflags;
+//! the host must meet the backend's safety requirements. Do not combine it
+//! with the `critical-section` feature. See the
+//! [portable-atomic safety requirements](https://docs.rs/portable-atomic/latest/portable_atomic/#optional-featurescfgs).
+//!
+//! **Targets with native 32-bit atomics keep the native implementation** and
+//! do not need a fallback or a critical-section provider.
 #![no_std]
 
 extern crate alloc;

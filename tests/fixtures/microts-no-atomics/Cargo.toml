@@ -1,0 +1,28 @@
+[package]
+name = "microts-no-atomics-link"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+microts = { path = "../../../engine/crates/microts" }
+portable-atomic = { version = "1.3", default-features = false }
+critical-section = { version = "1.2", optional = true, features = ["restore-state-u32"] }
+
+[features]
+default = []
+critical-section = ["microts/critical-section", "dep:critical-section"]
+critical-section-impl = ["critical-section"]
+single-core = ["portable-atomic/unsafe-assume-single-core", "portable-atomic/disable-fiq"]
+
+[[bin]]
+name = "microts-no-atomics-link"
+path = "main.rs"
+test = false
+bench = false
+
+[profile.release]
+panic = "abort"
