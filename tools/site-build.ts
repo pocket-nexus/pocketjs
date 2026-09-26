@@ -2,6 +2,7 @@
 // main deploys, and tag releases on the same prerequisite chain.
 import { existsSync, writeFileSync } from "node:fs";
 import { docDemoAppsIn, resolveDocDemo } from "../site/doc-demos.ts";
+import { DESK_APPS } from "../site/desk-apps.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const generatedStyles = ROOT + "framework/src/styles.generated.ts";
@@ -50,6 +51,9 @@ for (const app of docDemoAppsIn(ROOT + "site/content/docs/")) {
 // Independent display sizes for the two authored handheld models.
 await run("tools/build.ts", "3ds-demo-main", "--outdir=dist/handheld-apps");
 await run("tools/build.ts", "motions-main", "--density=2", "--outdir=dist/handheld-apps");
+for (const app of DESK_APPS) {
+  await run("tools/build.ts", app.output, `--density=${app.density}`, `--framework=${app.framework}`, "--outdir=dist/desk-apps");
+}
 // Restore the site's canonical hero table for the generic browser runtime.
 await run("tools/build.ts", "hero");
 await run("site/build.ts");

@@ -9,7 +9,7 @@ if (!process.argv.includes("--no-build")) {
   const build = Bun.spawn(["bun", "tools/site-build.ts"], { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   if (await build.exited !== 0) process.exit(1);
 }
-if (!await Bun.file(resolve(OUT, "index.html")).exists()) throw new Error("Missing site build; run bun run site:preview without --no-build");
+if (!await Bun.file(resolve(OUT, "index.html")).exists() && !await Bun.file(resolve(OUT, "desk/index.html")).exists()) throw new Error("Missing site build; run bun run site:preview without --no-build or bun tools/desk-scene/web.ts");
 const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
   let path: string;
@@ -27,3 +27,4 @@ const server = Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
 } });
 console.log(`Homepage:             http://127.0.0.1:${server.port}/`);
 console.log(`Mobile docs:          http://127.0.0.1:${server.port}/docs/overview/`);
+console.log(`Interactive desk:     http://127.0.0.1:${server.port}/desk/`);

@@ -19,6 +19,7 @@ import { onButtonPress, onFrame } from "@pocketjs/framework/lifecycle";
 import { BTN, focusNode, hitFocusable } from "@pocketjs/framework/input";
 import { resizeViewport, type NodeMirror } from "@pocketjs/framework";
 import { platform } from "@pocketjs/framework/platform";
+import { getOps, hostViewport } from "@pocketjs/framework/host";
 import { parseMarkdown } from "./markdown.ts";
 import {
   BODY_LINE_H,
@@ -158,7 +159,7 @@ export default function Note(): ReturnType<typeof View> {
   // to the frameless always-on-top shell; on a real window (macos-app) the
   // OS provides corners, resizing and closing.
   const widgetChrome = platform.target === "macos-widget";
-  const [vp, setVp] = createSignal({ w: 480, h: 272 });
+  const [vp, setVp] = createSignal(hostViewport(getOps()) ?? { w: 480, h: 272 });
   const [doc, setDoc] = createSignal(SAMPLE_DOC);
   const [editing, setEditing] = createSignal(false);
   const [dark, setDark] = createSignal(true);

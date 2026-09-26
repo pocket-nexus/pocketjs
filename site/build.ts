@@ -46,6 +46,7 @@ import {
   type DocDemo,
 } from "./doc-demos.ts";
 import { emitSingleLodStagePackage } from "./stage-package.ts";
+import { emitDeskPackage } from "./desk-package.ts";
 import { renderHomeShowcase } from "./home-showcase.ts";
 import { SHOWCASE_APPS } from "./showcase.ts";
 
@@ -602,6 +603,7 @@ async function main() {
   }
 
   // 3. demos manifest
+  await emitDeskPackage(OUT);
   const demos = demoManifest();
   write("pg/demos.json", JSON.stringify(demos));
   console.log(`  pg/demos.json  (${demos.length} demos: ${demos.map((d) => d.name).join(", ")})`);

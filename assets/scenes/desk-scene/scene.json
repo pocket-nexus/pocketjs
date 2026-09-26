@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "units": "metres",
+  "blender": "5.1.2",
+  "generator_sha256": "94aab5e93e14062c8208a9ef4504dcb749a278d94f0169e76efddf3760b9b767",
+  "render": {
+    "width": 2560,
+    "height": 1920,
+    "samples": 128,
+    "seed": 11,
+    "view_transform": "AgX",
+    "look": "AgX - Medium High Contrast",
+    "exposure": -0.30000001192092896
+  },
+  "camera": "Camera__hero",
+  "devices": [
+    {
+      "id": "desktop-monitor",
+      "node": "Device__desktop-monitor"
+    },
+    {
+      "id": "3ds",
+      "node": "Device__3ds"
+    },
+    {
+      "id": "vita",
+      "node": "Device__vita"
+    },
+    {
+      "id": "psp",
+      "node": "Device__psp"
+    },
+    {
+      "id": "ipod-touch-4",
+      "node": "Device__ipod-touch-4"
+    },
+    {
+      "id": "android-budget",
+      "node": "Device__android-budget"
+    }
+  ],
+  "screens": [
+    {
+      "node": "Screen__desktop-monitor__primary",
+      "material": "Screen__desktop-monitor__primary",
+      "device": "desktop-monitor",
+      "surface": "primary",
+      "framebuffer_size": [
+        1920,
+        1080
+      ],
+      "uv_origin": "bottom-left",
+      "bake_exclude": true
+    },
+    {
+      "node": "Screen__3ds__primary",
+      "material": "Screen__3ds__primary",
+      "device": "3ds",
+      "surface": "primary",
+      "framebuffer_size": [
+        400,
+        240
+      ],
+      "uv_origin": "bottom-left",
+      "bake_exclude": true
+    },
+    {
+      "node": "Screen__3ds__auxiliary",
+      "material": "Screen__3ds__auxiliary",
+      "device": "3ds",
+      "surface": "auxiliary",
+      "framebuffer_size": [
+        320,
+        240
+      ],
+      "uv_origin": "bottom-left",
+      "bake_exclude": true
+    },
+    {
+      "node": "Screen__vita__primary",
+      "material": "Screen__vita__primary",
+      "device": "vita",
+      "surface": "primary",
+      "framebuffer_size": [
+        960,
+        544
+      ],
+      "uv_origin": "bottom-left",
+      "bake_exclude": true
+    },
+    {
+      "node": "Screen__psp__primary",
+      "material": "Screen__psp__primary",
+      "device": "psp",
+      "surface": "primary",
+      "framebuffer_size": [
+        480,
+        272
+      ],
+      "uv_origin": "bottom-left",
+      "bake_exclude": true
+    },
+    {
+      "node": "Screen__ipod-touch-4__primary",
+      "material": "Screen__ipod-touch-4__primary",
+      "device": "ipod-touch-4",
+      "surface": "primary",
+      "framebuffer_size": [
+        640,
+        960
+      ],
+      "uv_origin": "bottom-left",
+      "bake_exclude": true
+    },
+    {
+      "node": "Screen__android-budget__primary",
+      "material": "Screen__android-budget__primary",
+      "device": "android-budget",
+      "surface": "primary",
+      "framebuffer_size": [
+        480,
+        800
+      ],
+      "uv_origin": "bottom-left",
+      "bake_exclude": true
+    }
+  ],
+  "sources": [
+    {
+      "path": "engine/pocket3d/examples/handheld/assets/new-nintendo-3ds/new-nintendo-3ds.blend",
+      "sha256": "fd8413400956069ee79d696490fd79bb7f47135e6e7a383f065009cb8b1e6af2"
+    },
+    {
+      "path": "engine/pocket3d/examples/handheld/assets/ps-vita-2000/ps-vita-2000.blend",
+      "sha256": "87e1e061bb076a8372cf447a78a8c7f6f307d37b8a938f8a7e354cb670b573b8"
+    },
+    {
+      "path": "engine/pocket3d/examples/handheld/assets/dibad-psp/psp_lod2_interactive.glb",
+      "sha256": "44043163d9c286b4513ba9aa9cb4ffb5f5cf228534ab6a33307fa123cae47048"
+    }
+  ],
+  "lighting": {
+    "baked": false,
+    "renderer": "Cycles",
+    "note": "Area lights and procedural textures remain in the blend. GLB needs web lighting and texture baking."
+  },
+  "ipod_reference": "https://support.apple.com/en-us/112431",
+  "android_reference": "Authored generic 4.3-inch budget Android handset; not a manufacturer replica."
+}

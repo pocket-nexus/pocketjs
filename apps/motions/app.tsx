@@ -499,7 +499,7 @@ function SlideIn30() {
 // PAGE 4 — motions/64 (3D transforms)
 // ---------------------------------------------------------------------------
 
-/** Door (扉): swings 110° open about its right edge inside a framed wall. */
+/** Door: swings 110° open about its right edge inside a framed wall. */
 function Door64() {
   return (
     <>
@@ -534,7 +534,7 @@ function CubeFaces() {
   );
 }
 
-/** Spin (まわる): one cube turns forever; the other somersaults and back. */
+/** Spin: one cube turns forever; the other somersaults and back. */
 function Spin64() {
   return (
     <>
@@ -551,7 +551,7 @@ function Spin64() {
   );
 }
 
-/** Pop-out (飛び出す・引っ込む): a slab rises out of a tilted floor plane. */
+/** Pop-out: a slab rises out of a tilted floor plane. */
 function PopOut64() {
   return (
     <>
@@ -567,7 +567,7 @@ function PopOut64() {
   );
 }
 
-/** Stretch (伸び縮み): the cube's width stretches while it yaws 30°. */
+/** Stretch: the cube's width stretches while it yaws 30°. */
 function Stretch64() {
   return (
     <>
@@ -586,7 +586,7 @@ function Stretch64() {
   );
 }
 
-/** Page flip (パラパラ): three cards swing in about their right hinges. */
+/** Page flip: three cards swing in about their right hinges. */
 function Flip64() {
   return (
     <>
@@ -600,7 +600,7 @@ function Flip64() {
   );
 }
 
-/** Room (トランジション): the camera sits inside a box that turns A -> B -> A.
+/** Room: the camera sits inside a box that turns A -> B -> A.
  *  The letters are baked path textures riding the walls (TEX_TRI projection). */
 function Room64() {
   return (
