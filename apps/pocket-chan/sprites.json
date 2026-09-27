@@ -1,0 +1,65 @@
+{
+  "chan-smile.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 8,
+    "psm": 2
+  },
+  "chan-happy.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 5,
+    "psm": 2
+  },
+  "chan-think.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 7,
+    "psm": 2
+  },
+  "chan-nap.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 9,
+    "psm": 2
+  },
+  "chan-code.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 5,
+    "psm": 2
+  },
+  "chan-hug.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 7,
+    "psm": 2
+  },
+  "chan-proud.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 6,
+    "psm": 2
+  },
+  "chan-go.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 4,
+    "psm": 2
+  },
+  "chan-spin.png": {
+    "cols": 4,
+    "rows": 2,
+    "frames": 8,
+    "step": 7,
+    "psm": 2
+  }
+}

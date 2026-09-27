@@ -10,6 +10,11 @@
 // --chars. The result is written through opentype.js, so it is a CFF-flavoured
 // OpenType face; framework/compiler/bake-font.ts reads it like any other and
 // tools/build.ts picks it up from an app's fonts.json.
+//
+// --metrics=ink (default) normalises every advance to the glyph's own ink, so
+// a single-glyph icon run measures exactly its ink and centres exactly.
+// --metrics=font keeps the source advance and side bearings, which is what a
+// TEXT face needs: strip the side bearings off CJK and the characters collide.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Font, Glyph, parse as parseFont, Path } from "opentype.js";
@@ -30,6 +35,11 @@ if (!existsSync(source)) {
 }
 
 const family = flag("name")[0] ?? "Subset";
+const metrics = flag("metrics")[0] ?? "ink";
+if (metrics !== "ink" && metrics !== "font") {
+  console.error(`font-subset: --metrics must be "ink" or "font" (got ${metrics})`);
+  process.exit(2);
+}
 const ranges: [number, number][] = (flag("range")[0] ?? "E000-F8FF,F0000-FFFFD").split(",").map((r) => {
   const [lo, hi] = r.split("-");
   return [parseInt(lo!, 16), parseInt(hi ?? lo!, 16)];
@@ -69,6 +79,17 @@ for (const cp of [...wanted].sort((a, b) => a - b)) {
     continue;
   }
   const glyph = font.glyphs.get(index);
+  if (metrics === "font") {
+    glyphs.push(
+      new Glyph({
+        name: `uni${cp.toString(16).toUpperCase().padStart(4, "0")}`,
+        unicode: cp,
+        advanceWidth: glyph.advanceWidth ?? font.unitsPerEm,
+        path: glyph.path,
+      }),
+    );
+    continue;
+  }
   // Advances are normalised to the ink: a MONOSPACED Nerd Font patch gives
   // every glyph one cell of advance, but draws the double-width icons across
   // two, so the ink overflows to the right of the box a text layout measures
