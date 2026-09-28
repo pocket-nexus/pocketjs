@@ -13,6 +13,7 @@ resolver = "2"
 members = [
     "ios",
     "crates/pocket-db",
+    "crates/pocket-desktop-native",
     "crates/pocket-fs",
     "crates/pocket-mod",
     "crates/pocket-net",

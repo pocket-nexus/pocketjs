@@ -29,6 +29,8 @@ const BTN_SQUARE: u32 = 0x8000;
 enum ScriptEvent {
     /// Push typed characters at a tick (svc `ch` line).
     Type(u64, String),
+    NativeKey(u64, String, bool),
+    Motion(u64, f32, f32),
     /// Press-and-release the pointer at logical (x, y) at a tick.
     Click(u64, f32, f32),
     /// Hold a console button for ~6 ticks starting at a tick.
@@ -79,6 +81,8 @@ struct ResolvedPackagePlan {
     features: HashMap<String, bool>,
     companions: Vec<String>,
     plan_hash: String,
+    #[serde(default)]
+    host_extension: Option<native::Extension>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -154,6 +158,14 @@ impl ResolvedSystemPlan {
                 self.system_ui.package
             ));
         }
+        anyhow::ensure!(
+            self.applications.len() <= 64,
+            "System application budget exceeded"
+        );
+        anyhow::ensure!(
+            self.system_ui.plan.host_extension.is_none(),
+            "System UI must be a JS package"
+        );
         let mut packages = HashSet::new();
         let mut outputs = HashSet::new();
         for package in std::iter::once(&self.system_ui).chain(self.applications.iter()) {
@@ -165,6 +177,9 @@ impl ResolvedSystemPlan {
                     "duplicate System artifact output {}",
                     package.plan.app.output
                 ));
+            }
+            if let Some(extension) = &package.plan.host_extension {
+                extension.module()?;
             }
             if package.plan.app.id != package.package {
                 return Err(anyhow!(
@@ -238,6 +253,7 @@ struct Args {
     companions: Vec<String>,
     /// Complete Pocket System resolution. None runs one ordinary package.
     system: Option<ResolvedSystemPlan>,
+    native_root: PathBuf,
     /// `host:port` of a companion that speaks the SVC WIRE (PKNT) protocol.
     /// Set by a companion that opens this window itself.
     svc_connect: Option<String>,
@@ -252,6 +268,7 @@ struct Args {
     announce_ready: bool,
     /// Emit CPU stage timestamps for native frame profiling.
     trace_frames: bool,
+    snapshots: Vec<(u64, PathBuf)>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -267,6 +284,7 @@ fn parse_args() -> Result<Args> {
         editor: false,
         companions: Vec::new(),
         system: None,
+        native_root: std::env::current_dir()?,
         svc_connect: None,
         density: 2,
         script: Vec::new(),
@@ -274,6 +292,7 @@ fn parse_args() -> Result<Args> {
         storm: None,
         announce_ready: false,
         trace_frames: false,
+        snapshots: Vec::new(),
     };
     let mut system_plan_path = None;
     let mut it = std::env::args().skip(1);
@@ -307,6 +326,34 @@ fn parse_args() -> Result<Args> {
             }
             "--svc-connect" => args.svc_connect = Some(val("--svc-connect")?),
             "--density" => args.density = val("--density")?.parse::<u32>()?.clamp(1, 4),
+            "--snapshot" => {
+                let value = val("--snapshot")?;
+                let (path, tick) = value.rsplit_once('@').context("--snapshot PATH@TICK")?;
+                args.snapshots.push((tick.parse()?, PathBuf::from(path)));
+            }
+            "--native-key" => {
+                let value = val("--native-key")?;
+                let (spec, tick) = value
+                    .rsplit_once('@')
+                    .context("--native-key NAME,d|u@TICK")?;
+                let (name, state) = spec.split_once(',').context("--native-key NAME,d|u@TICK")?;
+                anyhow::ensure!(
+                    state == "d" || state == "u",
+                    "native key state must be d or u"
+                );
+                args.script.push(ScriptEvent::NativeKey(
+                    tick.parse()?,
+                    name.into(),
+                    state == "d",
+                ));
+            }
+            "--motion" => {
+                let value = val("--motion")?;
+                let (xy, tick) = value.rsplit_once('@').context("--motion DX,DY@TICK")?;
+                let (x, y) = xy.split_once(',').context("--motion DX,DY@TICK")?;
+                args.script
+                    .push(ScriptEvent::Motion(tick.parse()?, x.parse()?, y.parse()?));
+            }
             "--type" => {
                 // --type TEXT@TICK
                 let v = val("--type")?;
@@ -411,6 +458,7 @@ fn parse_args() -> Result<Args> {
         }
     }
     if let Some(path) = system_plan_path {
+        args.native_root = path.canonicalize()?.parent().unwrap().to_path_buf();
         let bytes = std::fs::read(&path)
             .with_context(|| format!("reading Pocket System plan {}", path.display()))?;
         let system: ResolvedSystemPlan = serde_json::from_slice(&bytes)

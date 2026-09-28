@@ -11,6 +11,7 @@ const FRAME_TARGETS: usize = 3;
 pub struct Target {
     pub _texture: wgpu::Texture,
     pub view: wgpu::TextureView,
+    pub linear_view: wgpu::TextureView,
     pub size: (u32, u32),
 }
 impl Target {
@@ -34,10 +35,15 @@ impl Target {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
+            view_formats: &[pocket_desktop_native::LINEAR_FORMAT],
         });
         let view = texture.create_view(&Default::default());
+        let linear_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(pocket_desktop_native::LINEAR_FORMAT),
+            ..Default::default()
+        });
         Ok(Self {
+            linear_view,
             _texture: texture,
             view,
             size,
@@ -64,6 +70,14 @@ impl Renderer {
             children: HashMap::new(),
             frames: Vec::new(),
         }
+    }
+    pub fn snapshot(&self, target: &Target, path: &std::path::Path) -> Result<()> {
+        pocket3d::gpu::OffscreenTarget {
+            texture: target._texture.clone(),
+            view: target.view.clone(),
+            size: target.size,
+        }
+        .save_png(&self.gpu, path)
     }
     fn acquire_target(&mut self, size: (u32, u32)) -> Result<Option<Arc<Target>>> {
         if self.frames.first().is_some_and(|frame| frame.size != size) {
@@ -108,11 +122,11 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Pocket runtime frame"),
             });
-        for instance in &runtime.supervisor.instances {
+        for instance in &mut runtime.supervisor.instances {
             if !instance.visible || instance.state == AppInstanceState::Failed {
                 continue;
             }
-            let logical = instance.package.plan.viewport.logical;
+            let logical = instance.viewport;
             let child_size = (logical[0] * density, logical[1] * density);
             if !self
                 .children
@@ -139,24 +153,42 @@ impl Renderer {
                 );
             }
             let child = self.children.get_mut(&instance.surface_handle).unwrap();
-            instance.surface.with_ui(|ui| -> Result<()> {
-                let words = ui.draw().words.clone();
-                let hash = fnv1a64(&words) ^ ui.raster_revision().rotate_left(7);
-                if child.hash != Some(hash) {
-                    child.renderer.render_words_scaled(
-                        &self.gpu,
-                        ui,
-                        &words,
-                        &mut encoder,
-                        &child.target.view,
-                        child_size,
-                        density as f32,
-                        wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    )?;
-                    child.hash = Some(hash);
+            if let Some(native) = &mut instance.native {
+                if let Err(error) = native.render(
+                    &self.gpu,
+                    &mut encoder,
+                    &child.target.view,
+                    &child.target.linear_view,
+                    child_size,
+                ) {
+                    instance.state = AppInstanceState::Failed;
+                    runtime.surface.svc_push(json!({"t":"app-error","package":instance.package.package,"error":error.to_string()}).to_string());
+                    log::error!("native render {}: {error}", instance.package.package);
                 }
-                Ok(())
-            })?;
+                continue;
+            }
+            instance
+                .surface
+                .as_ref()
+                .unwrap()
+                .with_ui(|ui| -> Result<()> {
+                    let words = ui.draw().words.clone();
+                    let hash = fnv1a64(&words) ^ ui.raster_revision().rotate_left(7);
+                    if child.hash != Some(hash) {
+                        child.renderer.render_words_scaled(
+                            &self.gpu,
+                            ui,
+                            &words,
+                            &mut encoder,
+                            &child.target.view,
+                            child_size,
+                            density as f32,
+                            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        )?;
+                        child.hash = Some(hash);
+                    }
+                    Ok(())
+                })?;
         }
         runtime.surface.with_ui(|ui| -> Result<()> {
             let words = ui.draw().words.clone();
