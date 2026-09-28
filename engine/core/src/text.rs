@@ -9,10 +9,49 @@
 //! breaks only on explicit '\n'. Measurement is the max line width (sum of
 //! advances + tracking per glyph) by lines x line height.
 
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::Cell;
 
 use crate::spec;
+
+/// Inline bytes added to every font-registry slot by the optional span
+/// index. This is `2 * size_of::<usize>()` where enabled and zero on PSP,
+/// Nintendo 3DS, ESP-IDF, or in a dense-reference build. Heap payload is
+/// reported per [`Atlas`].
+pub const fn glyph_span_inline_bytes_per_slot() -> usize {
+    #[cfg(all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    ))]
+    {
+        core::mem::size_of::<Box<[u8]>>()
+    }
+    #[cfg(any(
+        not(feature = "glyph-skip-zero"),
+        target_os = "psp",
+        target_os = "horizon",
+        target_os = "espidf"
+    ))]
+    {
+        0
+    }
+}
 
 #[inline]
 fn rd_u16(b: &[u8], off: usize) -> Option<u16> {
@@ -63,6 +102,28 @@ pub struct Atlas {
     /// Coverage cells: glyphCount x (cellH*density) x (cellW*density)
     /// alpha bytes, left-to-right.
     pub bitmap: Vec<u8>,
+    /// One allocation containing per-glyph, per-row nonzero `(start, len)`
+    /// coverage spans. The first `glyph_count + 1` u32 values are byte
+    /// offsets; rows then hold a span count followed by pairs. Coordinates
+    /// use u8 when coverage width fits and u16 otherwise. Coverage values
+    /// remain in `bitmap`, so this table stores no duplicate alpha bytes.
+    ///
+    /// PSP and Nintendo 3DS compile this field out because their GPU renderers
+    /// consume `bitmap` as a texture. ESP-IDF compiles it out because its
+    /// renderer receives font resources through an ABI that does not expose the
+    /// index. Tests retain it with default features off for the dense/sparse matrix.
+    #[cfg(any(
+        test,
+        all(
+            feature = "glyph-skip-zero",
+            not(any(
+                target_os = "psp",
+                target_os = "horizon",
+                target_os = "espidf"
+            ))
+        )
+    ))]
+    spans: Box<[u8]>,
 }
 
 impl Atlas {
@@ -124,8 +185,27 @@ impl Atlas {
                 xoff: *bytes.get(o + 7)?,
             });
         }
+        let bitmap_src = &bytes[bitmap_off..bitmap_end];
+        #[cfg(any(
+            test,
+            all(
+                feature = "glyph-skip-zero",
+                not(any(
+                    target_os = "psp",
+                    target_os = "horizon",
+                    target_os = "espidf"
+                ))
+            )
+        ))]
+        let spans = build_glyph_spans(
+            bitmap_src,
+            glyph_count,
+            coverage_w,
+            coverage_h,
+            !cfg!(test),
+        )?;
         let mut bitmap = Vec::with_capacity(bitmap_len);
-        bitmap.extend_from_slice(&bytes[bitmap_off..bitmap_end]);
+        bitmap.extend_from_slice(bitmap_src);
         Some(Atlas {
             cell_w,
             cell_h,
@@ -139,6 +219,18 @@ impl Atlas {
             stream: None,
             texture_cell_w: cell_w,
             bitmap,
+            #[cfg(any(
+                test,
+                all(
+                    feature = "glyph-skip-zero",
+                    not(any(
+                        target_os = "psp",
+                        target_os = "horizon",
+                        target_os = "espidf"
+                    ))
+                )
+            ))]
+            spans,
         })
     }
 
@@ -184,6 +276,146 @@ impl Atlas {
         &self.bitmap[start..start + per_glyph]
     }
 
+    /// Resident heap bytes requested for the transparent-pixel span table.
+    /// This is zero for atlases where compact encoding would not beat the
+    /// bitmap, when the feature is disabled, and on PSP, Nintendo 3DS, or
+    /// ESP-IDF. Allocator metadata or size-class rounding is deliberately not
+    /// included.
+    pub fn glyph_span_storage_bytes(&self) -> usize {
+        #[cfg(any(
+            test,
+            all(
+                feature = "glyph-skip-zero",
+                not(any(
+                    target_os = "psp",
+                    target_os = "horizon",
+                    target_os = "espidf"
+                ))
+            )
+        ))]
+        {
+            self.spans.len()
+        }
+        #[cfg(not(any(
+            test,
+            all(
+                feature = "glyph-skip-zero",
+                not(any(
+                    target_os = "psp",
+                    target_os = "horizon",
+                    target_os = "espidf"
+                ))
+            )
+        )))]
+        {
+            0
+        }
+    }
+
+    /// Borrow the compact span index for software raster resources. `None`
+    /// selects the dense scanner for disabled, hardware-only, or per-atlas
+    /// fallback cases.
+    pub(crate) fn glyph_span_index(&self) -> Option<&[u8]> {
+        #[cfg(any(
+            test,
+            all(
+                feature = "glyph-skip-zero",
+                not(any(
+                    target_os = "psp",
+                    target_os = "horizon",
+                    target_os = "espidf"
+                ))
+            )
+        ))]
+        {
+            (!self.spans.is_empty()).then_some(&self.spans)
+        }
+        #[cfg(not(any(
+            test,
+            all(
+                feature = "glyph-skip-zero",
+                not(any(
+                    target_os = "psp",
+                    target_os = "horizon",
+                    target_os = "espidf"
+                ))
+            )
+        )))]
+        {
+            None
+        }
+    }
+
+    /// Number of persistent allocations owned by the span index. The compact
+    /// encoding is one boxed slice; a dense fallback, disabled build, PSP build,
+    /// Nintendo 3DS build, or ESP-IDF build owns none. Rendering never mutates
+    /// or allocates it.
+    pub fn glyph_span_allocation_count(&self) -> usize {
+        usize::from(self.glyph_span_storage_bytes() != 0)
+    }
+
+    /// Number of encoded nonzero spans. Intended for deterministic memory
+    /// accounting and diagnostics; rasterization uses the row iterator.
+    pub fn glyph_span_count(&self) -> usize {
+        #[cfg(any(
+            test,
+            all(
+                feature = "glyph-skip-zero",
+                not(any(
+                    target_os = "psp",
+                    target_os = "horizon",
+                    target_os = "espidf"
+                ))
+            )
+        ))]
+        {
+            let mut count = 0;
+            for gid in 0..self.glyph_count {
+                if let Some(rows) = self.glyph_span_rows(gid) {
+                    for row in rows {
+                        count += row.spans().count();
+                    }
+                }
+            }
+            count
+        }
+        #[cfg(not(any(
+            test,
+            all(
+                feature = "glyph-skip-zero",
+                not(any(
+                    target_os = "psp",
+                    target_os = "horizon",
+                    target_os = "espidf"
+                ))
+            )
+        )))]
+        {
+            0
+        }
+    }
+
+    #[cfg(any(
+        test,
+        all(
+            feature = "glyph-skip-zero",
+            not(any(
+                target_os = "psp",
+                target_os = "horizon",
+                target_os = "espidf"
+            ))
+        )
+    ))]
+    pub(crate) fn glyph_span_rows(&self, gid: u16) -> Option<GlyphSpanRows<'_>> {
+        glyph_span_rows_from_index(
+            &self.spans,
+            gid,
+            self.glyph_count,
+            self.coverage_width(),
+            self.coverage_height(),
+        )
+    }
+
     /// Average one logical pixel's density×density coverage samples. This is
     /// the reference reduction for logical-resolution software/CPU fallback
     /// renderers; density 1 returns the original byte exactly.
@@ -205,6 +437,385 @@ impl Atlas {
         }
         let samples = (density * density) as u32;
         ((sum + samples / 2) / samples) as u8
+    }
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+#[inline]
+fn span_keeps_coverage(coverage: u8) -> bool {
+    // Deliberate mutation for the byte-exact matrix: baked hero/note atlases
+    // have no bytes 1..8 (their minimum nonzero byte is 9), so a <=1 mutant
+    // would be invisible end to end. The 64 threshold changes real frames.
+    #[cfg(feature = "glyph-skip-zero-mutant")]
+    {
+        coverage >= 64
+    }
+    #[cfg(not(feature = "glyph-skip-zero-mutant"))]
+    {
+        coverage != 0
+    }
+}
+
+/// Build one compact allocation: u32 glyph offsets, then row span counts and
+/// `(start, len)` pairs. Width-derived coordinates are u8 where possible and
+/// u16 otherwise. A production atlas falls back to the dense scanner when
+/// the encoded table would be no smaller than its bitmap; tests always build
+/// the table so their synthetic counterexamples exercise the sparse code.
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+fn build_glyph_spans(
+    bitmap: &[u8],
+    glyph_count: u16,
+    coverage_w: usize,
+    coverage_h: usize,
+    dense_fallback: bool,
+) -> Option<Box<[u8]>> {
+    let glyphs = glyph_count as usize;
+    let coord_bytes = if coverage_w <= u8::MAX as usize { 1 } else { 2 };
+    let offsets_bytes = glyphs.checked_add(1)?.checked_mul(core::mem::size_of::<u32>())?;
+    let rows = glyphs.checked_mul(coverage_h)?;
+    let mut span_count = 0usize;
+    for row in bitmap.chunks_exact(coverage_w) {
+        let mut in_span = false;
+        for &coverage in row {
+            let ink = span_keeps_coverage(coverage);
+            if ink && !in_span {
+                span_count = span_count.checked_add(1)?;
+            }
+            in_span = ink;
+        }
+    }
+    let encoded_bytes = rows
+        .checked_add(span_count.checked_mul(2)?)?
+        .checked_mul(coord_bytes)?
+        .checked_add(offsets_bytes)?;
+    if dense_fallback && encoded_bytes >= bitmap.len() {
+        return Some(Vec::new().into_boxed_slice());
+    }
+
+    let mut encoded = Vec::with_capacity(encoded_bytes);
+    encoded.resize(offsets_bytes, 0);
+    let write_u32 = |bytes: &mut [u8], at: usize, value: usize| -> Option<()> {
+        let value = u32::try_from(value).ok()?.to_le_bytes();
+        bytes.get_mut(at..at + 4)?.copy_from_slice(&value);
+        Some(())
+    };
+    let push_coord = |bytes: &mut Vec<u8>, value: usize| -> Option<()> {
+        if coord_bytes == 1 {
+            bytes.push(u8::try_from(value).ok()?);
+        } else {
+            bytes.extend_from_slice(&u16::try_from(value).ok()?.to_le_bytes());
+        }
+        Some(())
+    };
+    let write_coord = |bytes: &mut [u8], at: usize, value: usize| -> Option<()> {
+        if coord_bytes == 1 {
+            *bytes.get_mut(at)? = u8::try_from(value).ok()?;
+        } else {
+            bytes
+                .get_mut(at..at + 2)?
+                .copy_from_slice(&u16::try_from(value).ok()?.to_le_bytes());
+        }
+        Some(())
+    };
+
+    for gid in 0..glyphs {
+        let glyph_offset = encoded.len();
+        write_u32(&mut encoded, gid * 4, glyph_offset)?;
+        let glyph_start = gid.checked_mul(coverage_h)?.checked_mul(coverage_w)?;
+        for sy in 0..coverage_h {
+            let row_start = glyph_start.checked_add(sy.checked_mul(coverage_w)?)?;
+            let row = bitmap.get(row_start..row_start + coverage_w)?;
+            let count_at = encoded.len();
+            push_coord(&mut encoded, 0)?;
+            let mut count = 0usize;
+            let mut sx = 0usize;
+            while sx < coverage_w {
+                if !span_keeps_coverage(row[sx]) {
+                    sx += 1;
+                    continue;
+                }
+                let start = sx;
+                sx += 1;
+                while sx < coverage_w && span_keeps_coverage(row[sx]) {
+                    sx += 1;
+                }
+                push_coord(&mut encoded, start)?;
+                push_coord(&mut encoded, sx - start)?;
+                count += 1;
+            }
+            write_coord(&mut encoded, count_at, count)?;
+        }
+    }
+    let end_offset = encoded.len();
+    write_u32(&mut encoded, glyphs * 4, end_offset)?;
+    debug_assert_eq!(encoded.len(), encoded_bytes);
+    Some(encoded.into_boxed_slice())
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+pub(crate) struct GlyphSpanRows<'a> {
+    bytes: &'a [u8],
+    coord_bytes: usize,
+    rows_left: u32,
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+pub(crate) fn glyph_span_rows_from_index(
+    index: &[u8],
+    gid: u16,
+    glyph_count: u16,
+    coverage_width: u32,
+    coverage_height: u32,
+) -> Option<GlyphSpanRows<'_>> {
+    if index.is_empty() || gid >= glyph_count {
+        return None;
+    }
+    let offset_at = |glyph: usize| {
+        let at = glyph * core::mem::size_of::<u32>();
+        rd_u32(index, at).map(|offset| offset as usize)
+    };
+    let start = offset_at(gid as usize)?;
+    let end = offset_at(gid as usize + 1)?;
+    Some(GlyphSpanRows {
+        bytes: index.get(start..end)?,
+        coord_bytes: if coverage_width <= u8::MAX as u32 {
+            1
+        } else {
+            2
+        },
+        rows_left: coverage_height,
+    })
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+impl<'a> Iterator for GlyphSpanRows<'a> {
+    type Item = GlyphSpanRow<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.rows_left == 0 {
+            return None;
+        }
+        let count = read_span_coord(self.bytes, self.coord_bytes)?;
+        self.bytes = self.bytes.get(self.coord_bytes..)?;
+        let byte_len = count.checked_mul(2)?.checked_mul(self.coord_bytes)?;
+        let row = self.bytes.get(..byte_len)?;
+        self.bytes = self.bytes.get(byte_len..)?;
+        self.rows_left -= 1;
+        Some(GlyphSpanRow {
+            bytes: row,
+            coord_bytes: self.coord_bytes,
+        })
+    }
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+pub(crate) struct GlyphSpanRow<'a> {
+    bytes: &'a [u8],
+    coord_bytes: usize,
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+impl<'a> GlyphSpanRow<'a> {
+    pub(crate) fn spans(self) -> GlyphSpans<'a> {
+        GlyphSpans {
+            bytes: self.bytes,
+            coord_bytes: self.coord_bytes,
+        }
+    }
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+pub(crate) struct GlyphSpans<'a> {
+    bytes: &'a [u8],
+    coord_bytes: usize,
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+impl Iterator for GlyphSpans<'_> {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bytes.is_empty() {
+            return None;
+        }
+        let start = read_span_coord(self.bytes, self.coord_bytes)?;
+        self.bytes = self.bytes.get(self.coord_bytes..)?;
+        let len = read_span_coord(self.bytes, self.coord_bytes)?;
+        self.bytes = self.bytes.get(self.coord_bytes..)?;
+        Some((start, len))
+    }
+}
+
+#[cfg(any(
+    test,
+    all(
+        feature = "glyph-skip-zero",
+        not(any(
+            target_os = "psp",
+            target_os = "horizon",
+            target_os = "espidf"
+        ))
+    )
+))]
+#[inline]
+fn read_span_coord(bytes: &[u8], coord_bytes: usize) -> Option<usize> {
+    if coord_bytes == 1 {
+        Some(*bytes.first()? as usize)
+    } else {
+        Some(rd_u16(bytes, 0)? as usize)
+    }
+}
+
+#[cfg(test)]
+mod span_tests {
+    use super::*;
+
+    fn atlas_blob(cell_w: u8, cell_h: u8, density: u8, bitmap: &[u8]) -> Vec<u8> {
+        let mut atlas = Vec::new();
+        atlas.extend_from_slice(&spec::font_atlas::MAGIC.to_le_bytes());
+        atlas.extend_from_slice(&spec::font_atlas::VERSION.to_le_bytes());
+        atlas.extend_from_slice(&1u16.to_le_bytes());
+        atlas.extend_from_slice(&[cell_w, cell_h, cell_h, cell_h, 0, 0, density, 0]);
+        while atlas.len() < spec::font_atlas::HEADER_SIZE {
+            atlas.push(0);
+        }
+        atlas.extend_from_slice(&65u32.to_le_bytes());
+        atlas.extend_from_slice(&0u16.to_le_bytes());
+        atlas.extend_from_slice(&[cell_w, 0]);
+        atlas.extend_from_slice(bitmap);
+        atlas
+    }
+
+    #[test]
+    fn glyph_spans_use_one_exact_allocation_and_preserve_row_boundaries() {
+        let atlas = Atlas::parse(&atlas_blob(8, 3, 1, &[
+            0, 7, 8, 0, 9, 10, 11, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            1, 0, 2, 0, 3, 0, 4, 0,
+        ]))
+        .unwrap();
+        let rows: Vec<Vec<(usize, usize)>> = atlas
+            .glyph_span_rows(0)
+            .unwrap()
+            .map(|row| row.spans().collect())
+            .collect();
+        assert_eq!(rows, vec![vec![(1, 2), (4, 3)], vec![], vec![(0, 1), (2, 1), (4, 1), (6, 1)]]);
+        // 2 u32 offsets + 3 u8 row counts + 6 (u8,u8) span pairs.
+        assert_eq!(atlas.glyph_span_storage_bytes(), 23);
+        assert_eq!(atlas.glyph_span_allocation_count(), 1);
+        assert_eq!(atlas.glyph_span_count(), 6);
+    }
+
+    #[test]
+    fn glyph_spans_support_u16_coordinates() {
+        let mut bitmap = vec![0; 256 * 2];
+        bitmap[255] = 99;
+        let atlas = Atlas::parse(&atlas_blob(128, 1, 2, &bitmap)).unwrap();
+        let rows: Vec<Vec<(usize, usize)>> = atlas
+            .glyph_span_rows(0)
+            .unwrap()
+            .map(|row| row.spans().collect())
+            .collect();
+        assert_eq!(rows, vec![vec![(255, 1)], vec![]]);
+        // 2 u32 offsets + 2 u16 row counts + one (u16,u16) pair.
+        assert_eq!(atlas.glyph_span_storage_bytes(), 16);
+    }
+
+    #[test]
+    fn glyph_spans_fall_back_when_encoding_is_not_smaller() {
+        let alternating = [1, 0, 1, 0, 1, 0, 1, 0];
+        let encoded = build_glyph_spans(&alternating, 1, 8, 1, true).unwrap();
+        assert!(encoded.is_empty());
     }
 }
 

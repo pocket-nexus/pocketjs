@@ -16,7 +16,15 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-pocketjs-core = { path = "../core" }
+pocketjs-core = { path = "../core", default-features = false }
+
+[features]
+default = ["glyph-skip-zero"]
+glyph-skip-zero = ["pocketjs-core/glyph-skip-zero"]
+glyph-skip-zero-mutant = [
+    "glyph-skip-zero",
+    "pocketjs-core/glyph-skip-zero-mutant",
+]
 
 [profile.release]
 opt-level = "s"

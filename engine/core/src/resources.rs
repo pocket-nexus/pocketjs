@@ -33,6 +33,11 @@ pub trait RenderResources {
     fn raster_revision(&self) -> u64;
     fn texture(&self, handle: i32) -> Option<TexView<'_>>;
     fn font_atlas(&self, slot: u8) -> Option<FontView<'_>>;
+    /// Optional parse-time index of nonzero glyph coverage spans. Resource
+    /// adapters that do not own the index retain the dense reference path.
+    fn glyph_span_index(&self, _slot: u8) -> Option<&[u8]> {
+        None
+    }
 }
 
 impl RenderResources for Ui {
@@ -53,5 +58,8 @@ impl RenderResources for Ui {
             raster_density: atlas.raster_density,
             glyph_count: atlas.glyph_count,
         })
+    }
+    fn glyph_span_index(&self, slot: u8) -> Option<&[u8]> {
+        Ui::font_atlas(self, slot).and_then(|atlas| atlas.glyph_span_index())
     }
 }
