@@ -28,6 +28,7 @@ things that have to be kept in agreement.
 
 ```sh
 bun run site:verify-film                            # drive the page and check it plays
+bun site/verify-mv.ts --serve                       # serve /mv/ alone, to watch it
 bun run site:film                                   # 1920x1080, 30 fps -> .pocket-build/validation/promo-mv/<run>/
 bun tools/render-mv.ts --width 1280 --height 720    # a smaller share copy
 bun tools/render-mv.ts --stills 13,45.7             # single frames, for reviewing a shot

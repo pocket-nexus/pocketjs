@@ -1,6 +1,10 @@
 // site/verify-mv.ts — drive the real /mv/ page in a browser and check it plays.
 //
-//   bun site/verify-mv.ts
+//   bun site/verify-mv.ts            # check it
+//   bun site/verify-mv.ts --serve    # just serve it, to watch it in a browser
+//
+// The full site build needs the wasm core; this needs nothing, so it is also
+// the quickest way to open /mv/ locally.
 //
 // Serves the page site/film.ts renders plus site/mv/'s modules, opens it in
 // isolated Chrome and checks the four things that can break without anyone
@@ -35,6 +39,14 @@ const server = Bun.serve({
     return new Response("not found", { status: 404 });
   },
 });
+
+// --serve keeps the page up instead of driving it, for watching the film in a
+// real browser without building the rest of the site.
+if (process.argv.includes("--serve")) {
+  console.log(`The film: http://127.0.0.1:${server.port}/mv/`);
+  console.log("Ctrl-C to stop.");
+  await new Promise(() => {});
+}
 
 const logs: string[] = [];
 
