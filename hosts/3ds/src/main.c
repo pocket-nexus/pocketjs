@@ -33,7 +33,9 @@
 #include "pocket_core.h"
 #include "qjs.h"
 #include "offload.h"
+#include "relay.h"
 #include "media.h"
+#include "asset_pack.h"
 #include "devserver.h"
 #include "devmenu.h"
 #include "runtime.h"
@@ -732,6 +734,12 @@ int main(void) {
 #ifdef POCKETJS_MEDIA
   if (!media_start()) { media_stop(); fail("Media worker allocation failed"); }
 #endif
+#ifdef POCKETJS_ASSET_PACK
+  asset_pack_start();
+#endif
+#ifdef POCKETJS_RELAY
+  relay_start();
+#endif
 #ifdef POCKETJS_OFFLOAD
   GuestChoice guest = package_choice(embedded, 0, &runtime_state);
   guest.commit_on_accept = false;
@@ -1048,6 +1056,12 @@ int main(void) {
 #endif
   );
   offload_stop();
+#ifdef POCKETJS_RELAY
+  relay_stop();
+#endif
+#ifdef POCKETJS_ASSET_PACK
+  asset_pack_stop();
+#endif
 #ifdef POCKETJS_MEDIA
   media_stop();
 #endif

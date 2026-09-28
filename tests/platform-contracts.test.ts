@@ -541,6 +541,7 @@ describe("semantic resolution", () => {
       "ipod-nano": [false, false, false, false], // admitted by the package-shaped macos-embedded target
       launcher: [true, true, false, true], // the Cover Flow deck (docs/LAUNCHER.md) is an ordinary console app
       library: [true, true, false, true],
+      manga: [false, false, false, false], // reader uses the private 3ds-dev auxiliary display contract
       motions: [true, true, false, true],
       music: [true, true, false, true],
       "text-cjk": [true, false, false, false],

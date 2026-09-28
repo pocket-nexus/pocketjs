@@ -1,3 +1,5 @@
+import { parseRelayJson } from "./frame.ts";
+import { utf8Length } from "./utf8.ts";
 /** Operation receipts above the byte-only frame layer. [R5-P06/P10] */
 import {
   RELAY_CODEC, RELAY_EFFECT, RELAY_ERROR, RELAY_METADATA_SCHEMAS, RELAY_OP, RELAY_STATUS, RELAY_TYPE,
@@ -46,7 +48,7 @@ export class RelayOperationStoreError extends Error {
 const keyOf = (scope: RelayOperationScope): string => JSON.stringify([scope.authority, scope.writer, scope.ns]);
 const identityKey = (id: RelayOperationIdentity): string => JSON.stringify([keyOf(id), id.opEpoch, id.opId]);
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-const bytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
+const bytes = (value: unknown): number => utf8Length(JSON.stringify(value));
 const INITIAL_EPOCH = "0000000000000001";
 const scopeValid = (scope: RelayOperationScope): boolean => [scope.authority, scope.writer, scope.ns]
   .every(value => typeof value === "string" && value.length > 0);
@@ -92,7 +94,7 @@ export class RelayOperationAuthority {
     this.durable = options.store.durable;
     this.maxOperations = options.maxOperations ?? 64;
     this.maxRecordBytes = options.maxRecordBytes ?? 65536;
-    if (!this.id || new TextEncoder().encode(this.id).length > 128
+    if (!this.id || utf8Length(this.id) > 128
         || !Number.isSafeInteger(this.maxOperations) || this.maxOperations < 1
         || !Number.isSafeInteger(this.maxRecordBytes) || this.maxRecordBytes < 256) {
       throw new Error("invalid operation authority bounds");
@@ -281,7 +283,7 @@ export function prepareOperation(
   const prepared = prepareFrameBody(input, { maxWireBytes: limits.maxWireBytes, maxMetaBytes: limits.maxMetaBytes, codecs: [RELAY_CODEC.NONE] });
   if (!prepared.ok) return { ok: false, code: prepared.code === "WIRE_TOO_LARGE" || prepared.code === "META_TOO_LARGE"
     ? RELAY_ERROR.TOO_LARGE : RELAY_ERROR.INVALID };
-  const metadata = JSON.parse(new TextDecoder().decode(prepared.body.meta)) as Record<string, unknown>;
+  const metadata = parseRelayJson(prepared.body.meta) as Record<string, unknown>;
   const suffix = input.type === RELAY_TYPE.REQUEST ? "request" : metadata.status === RELAY_STATUS.ERROR ? "error" : "response";
   if ((input.type !== RELAY_TYPE.REQUEST && input.type !== RELAY_TYPE.RESPONSE)
       || validateRelaySchema(RELAY_METADATA_SCHEMAS[`${op}.${suffix}`], metadata)) return { ok: false, code: RELAY_ERROR.INVALID };

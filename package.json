@@ -355,7 +355,10 @@
     "moto-g-play": "bun tools/moto-g-play.ts",
     "ime:setup": "bun tools/ime/setup.ts",
     "clear:companion": "bun tools/ime/device.ts",
-    "test:fuzz": "bun microts/compiler/model-fuzz.ts"
+    "test:fuzz": "bun microts/compiler/model-fuzz.ts",
+    "manga:companion": "bun apps/manga/companion.ts",
+    "manga:relay": "bun apps/manga/relay.ts",
+    "manga:test": "bun test tests/manga-*.test.ts"
   },
   "dependencies": {
     "@solid-primitives/keyed": "^1.5.3",

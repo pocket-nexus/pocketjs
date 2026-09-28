@@ -43,7 +43,10 @@ export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
       },
       capabilities: [
         "io.offload",
+        "io.relay",
         "media.playback",
+        "io.resource-pack",
+        "data.state",
         "input.analog.left",
         "input.analog.right",
         "input.buttons",

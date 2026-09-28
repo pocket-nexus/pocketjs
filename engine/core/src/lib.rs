@@ -80,7 +80,7 @@ pub struct Texture {
     byte_len: usize,
     pub w: u32,
     pub h: u32,
-    /// spec::psm::* pixel format.
+    /// spec::psm::* pixel format, or u32::MAX for backend-owned storage.
     pub psm: u32,
     /// CLUT (PSM_T8 only): exactly TEX_PALETTE_BYTES bytes (256 x u32 ABGR)
     /// in a 16-byte-aligned backing like `data`, so the PSP GE can point
@@ -666,6 +666,31 @@ impl Ui {
     /// w*h index bytes.
     pub fn upload_texture(&mut self, data: &[u8], w: u32, h: u32, psm: u32) -> i32 {
         self.upload_texture_flags(data, w, h, psm, 0)
+    }
+
+    /// Register an image whose pixels are owned by the native GPU backend.
+    /// The backend must attach storage before drawing this handle and retire
+    /// it after its final GPU use. No CPU pixel buffer is allocated or sampled.
+    pub fn register_external_texture(&mut self, w: u32, h: u32) -> i32 {
+        let valid = |n: u32| n > 0 && n <= spec::TEX_MAX_DIM && n.is_power_of_two();
+        if !valid(w) || !valid(h) {
+            return -1;
+        }
+        let texture = Texture {
+            data: alloc::vec::Vec::new(),
+            byte_len: 0,
+            w,
+            h,
+            psm: u32::MAX,
+            palette: None,
+            linear: true,
+            revision: 0,
+        };
+        let handle = tex_alloc(&mut self.textures, &mut self.tex_free, texture);
+        if handle >= 0 {
+            self.bump_raster_revision();
+        }
+        handle
     }
 
     /// `upload_texture` honoring spec::img flags: FLAG_RLE marks the pixel

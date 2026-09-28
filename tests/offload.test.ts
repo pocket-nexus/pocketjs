@@ -18,13 +18,16 @@ describe("offload budgets and failure delivery", () => {
     const scratch = mkdtempSync(join(tmpdir(), "pocket-offload-"));
     try {
       const binary = join(scratch, "queue");
-      const compile = Bun.spawnSync(["cc", "-std=c11", "-O2", "-pthread", "-fsanitize=address,undefined", resolve(import.meta.dir, "fixtures/offload-queue.c"), "-o", binary]);
-      if (compile.exitCode !== 0) throw new Error(`Native offload compile failed (exit ${compile.exitCode}, signal ${compile.signalCode}): ${compile.stderr.toString()}`);
-      const run = Bun.spawnSync([binary]);
-      if (run.exitCode !== 0) throw new Error(`Native offload harness failed (exit ${run.exitCode}, signal ${run.signalCode}): ${run.stderr.toString()}`);
+      // Sanitizer compilation can exceed the runner's default five-second
+      // test budget. Bound compilation separately; keep the executable's
+      // run limit at five seconds and reject interrupted compiler output.
+      const compile = Bun.spawnSync(["cc", "-std=c11", "-O2", "-pthread", "-fsanitize=address,undefined", resolve(import.meta.dir, "fixtures/offload-queue.c"), "-o", binary], { timeout: 20_000, killSignal: "SIGKILL" });
+      if (compile.exitCode !== 0) throw new Error(`Compiler exited ${compile.exitCode} (${compile.signalCode}): ${compile.stderr.toString()}`);
+      const run = Bun.spawnSync([binary], { timeout: 5_000, killSignal: "SIGKILL" });
+      if (run.exitCode !== 0) throw new Error(`Native test exited ${run.exitCode} (${run.signalCode}): ${run.stderr.toString()}`);
       expect(run.stdout.toString()).toContain("100000 SPSC records verified");
     } finally { rmSync(scratch, { recursive: true }); }
-  }, 30_000); // Includes sanitizer compilation on shared CI runners.
+  }, 30_000);
   test("limits tickets, submissions and deliveries independently", () => {
     const r = rig(); let delivered = 0;
     for (let i = 0; i < 8; i++) expect(r.client.request("db.page", "{}", () => delivered++)).toBeGreaterThan(0);
@@ -50,7 +53,8 @@ describe("offload budgets and failure delivery", () => {
     r.client.request("slow.query", "{}", () => delivered++);
     r.replies.push("{bad");
     for (let i = 0; i <= OFFLOAD.timeoutFrames; i++) r.client.step();
-    expect(delivered).toBe(1); expect(r.client.pending()).toBe(0);
+    expect(delivered).toBe(1); expect(r.client.pending()).toBe(1);
+    r.disconnect(); r.client.step(); expect(r.client.pending()).toBe(0);
     expect(() => r.client.request("db.page", "中".repeat(2500), () => {})).toThrow();
   });
   test("UTF-8 records survive every split and reject oversized length immediately", () => {
@@ -61,6 +65,35 @@ describe("offload budgets and failure delivery", () => {
       expect(out).toEqual([record]);
     }
     expect(() => new OffloadDecoder().push(Buffer.from([0, 0, 16, 1]), () => {})).toThrow();
+  });
+  test("cancelled sent reads retain transport credit until replies arrive", () => {
+    const r = rig(); let delivered = 0;
+    for (let n = 0; n < 8; n++) {
+      const id = r.client.request("tile", "{}", () => delivered++); r.client.step(); r.client.cancel(id);
+    }
+    expect(r.client.pending()).toBe(8); expect(r.sent).toHaveLength(8);
+    expect(r.client.request("tile", "{}", () => {})).toBe(0);
+    for (let n = 0; n < 700; n++) r.client.step();
+    expect(r.client.pending()).toBe(8); expect(r.sent).toHaveLength(8);
+    r.replies.push(JSON.stringify({ id: JSON.parse(r.sent[0]).id, payload: "late" })); r.client.step();
+    expect(delivered).toBe(0); expect(r.client.pending()).toBe(7);
+    expect(r.client.request("tile", "{}", () => {})).toBeGreaterThan(0);
+    r.disconnect(); r.client.step(); expect(r.client.pending()).toBe(1);
+  });
+  test("timed-out sent work notifies once without opening more wire credit", () => {
+    const r = rig(); let delivered = 0;
+    const id = r.client.request("slow", "{}", () => delivered++); r.client.step();
+    for (let n = 0; n < 700; n++) r.client.step();
+    expect(delivered).toBe(1); expect(r.client.pending()).toBe(1);
+    r.replies.push(JSON.stringify({ id, payload: "late" })); r.client.step();
+    expect(delivered).toBe(1); expect(r.client.pending()).toBe(0);
+  });
+  test("frame decoder can pause mid-chunk at a record boundary without losing the suffix", () => {
+    const bytes = Buffer.concat([encodeOffloadRecord("one"), encodeOffloadRecord("two"), encodeOffloadRecord("three")]);
+    const decoder = new OffloadDecoder(), rows: string[] = [];
+    const first = decoder.push(bytes, value => { rows.push(value); }, () => false);
+    expect(rows).toEqual(["one"]); expect(first).toBe(7);
+    decoder.push(bytes.subarray(first), value => { rows.push(value); }); expect(rows).toEqual(["one", "two", "three"]);
   });
   test("provider enforces grants and reply budgets", async () => {
     expect(await dispatchOffload({}, { v: 1, id: 1, method: "constructor", payload: "" })).toHaveProperty("error");

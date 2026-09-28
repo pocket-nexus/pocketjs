@@ -70,6 +70,7 @@ int32_t ui_upload_texture(
 int32_t ui_upload_img_entry(const uint8_t *bytes, size_t length);
 int32_t ui_upload_tileset_tile(const uint8_t *bytes, size_t length, uint32_t index);
 void ui_free_texture(int32_t handle);
+int32_t ui_register_external_texture(uint32_t width, uint32_t height);
 void ui_set_image(int32_t id, int32_t texture);
 void ui_set_sprite(
   int32_t id,

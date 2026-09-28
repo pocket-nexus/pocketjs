@@ -142,6 +142,7 @@ static SurfaceBatch surfaces[MAX_SURFACES];
 static C3D_Tex white;
 static ImageTexture *images;
 static size_t image_capacity;
+static ImageTexture prepared_image;
 static FontTexture *fonts;
 static size_t font_capacity;
 
@@ -427,6 +428,31 @@ static void release_image(ImageTexture *entry) {
   }
 }
 
+static bool reserve_image_slots(size_t slots) {
+  if (slots <= image_capacity) return true;
+  ImageTexture *grown = realloc(images, slots * sizeof *images);
+  if (grown == NULL) return false;
+  memset(grown + image_capacity, 0, (slots - image_capacity) * sizeof *grown);
+  images = grown;
+  image_capacity = slots;
+  return true;
+}
+
+bool gfx_stage_image(int32_t handle, const uint8_t *bytes, unsigned width, unsigned height) {
+  if (prepared_image.live || handle < 0 || !bytes) return false;
+  if (!reserve_image_slots(ui_texture_slot_count())) return false;
+  if (!C3D_TexInit(&prepared_image.texture, (u16)width, (u16)height, GPU_RGB565)) return false;
+  C3D_TexUpload(&prepared_image.texture, bytes);
+  GSPGPU_FlushDataCache(prepared_image.texture.data, prepared_image.texture.size);
+  C3D_TexSetFilter(&prepared_image.texture, GPU_LINEAR, GPU_LINEAR);
+  C3D_TexSetWrap(&prepared_image.texture, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
+  prepared_image.handle = handle;
+  prepared_image.revision = 0;
+  prepared_image.u_scale = prepared_image.v_scale = 1.0f;
+  prepared_image.live = true;
+  return true;
+}
+
 static void release_font(FontTexture *entry) {
   if (entry->live) {
     C3D_TexDelete(&entry->texture);
@@ -436,16 +462,7 @@ static void release_font(FontTexture *entry) {
 
 static void sync_resources(void) {
   size_t slots = ui_texture_slot_count();
-  if (slots > image_capacity) {
-    ImageTexture *grown = realloc(images, slots * sizeof *images);
-    if (grown != NULL) {
-      memset(grown + image_capacity, 0, (slots - image_capacity) * sizeof *grown);
-      images = grown;
-      image_capacity = slots;
-    } else {
-      slots = image_capacity;
-    }
-  }
+  if (!reserve_image_slots(slots)) slots = image_capacity;
   for (size_t slot = 0; slot < image_capacity; slot += 1) {
     ImageTexture *entry = &images[slot];
     PocketTexture source;
@@ -457,7 +474,12 @@ static void sync_resources(void) {
         continue;
       }
       release_image(entry);
-      if (upload_image(entry, &source)) {
+      if (source.pixel_storage == UINT32_MAX) {
+        if (prepared_image.live && prepared_image.handle == source.handle) {
+          *entry = prepared_image;
+          prepared_image.live = false;
+        }
+      } else if (upload_image(entry, &source)) {
         entry->handle = source.handle;
         entry->revision = source.revision;
         entry->live = true;
@@ -467,6 +489,8 @@ static void sync_resources(void) {
     }
   }
 
+  /* Staged images not drawn in this frame never entered the GPU queue. */
+  release_image(&prepared_image);
   size_t font_slots = ui_font_slot_count();
   if (font_slots > font_capacity) {
     FontTexture *grown = realloc(fonts, font_slots * sizeof *fonts);
@@ -996,6 +1020,7 @@ bool gfx_init(uint32_t logical_width, uint32_t logical_height) {
 
 void gfx_reset_resources(void) {
   if (!initialized) return;
+  release_image(&prepared_image);
   for (size_t slot = 0; slot < image_capacity; slot += 1) release_image(&images[slot]);
   for (size_t slot = 0; slot < font_capacity; slot += 1) release_font(&fonts[slot]);
   free(images);

@@ -1,3 +1,4 @@
+import { utf8Length } from "./utf8.ts";
 /** Relay composed endpoint — the L1 session, the P3 queue/credit machines
  * and the L2 resource layer as one object over one transport.
  *
@@ -531,7 +532,7 @@ export class RelayEndpoint {
     code: string, message = code, effect?: string): RelayResourceEnvelope {
     let clipped = "", length = 0;
     for (const char of message) {
-      length += new TextEncoder().encode(char).length;
+      length += utf8Length(char);
       if (length > RELAY_LIMITS.errorMessageMaxBytes) break;
       clipped += char;
     }

@@ -375,6 +375,11 @@ pub extern "C" fn ui_free_texture(handle: i32) {
 }
 
 #[no_mangle]
+pub extern "C" fn ui_register_external_texture(width: u32, height: u32) -> i32 {
+    ui().register_external_texture(width, height)
+}
+
+#[no_mangle]
 pub extern "C" fn ui_set_image(id: i32, texture: i32) {
     ui().set_image(id, texture);
 }

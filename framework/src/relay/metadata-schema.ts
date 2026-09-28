@@ -1,14 +1,14 @@
+import { utf8Length } from "./utf8.ts";
 /** Validator for the strict JSON Schemas attached to relay control metadata.
  *
  * `RELAY_METADATA_SCHEMAS` in contracts/spec/relay.ts uses a small fixed
  * subset of JSON Schema; this file implements exactly that subset, so the
  * session layer never pulls in a generic schema dependency. The custom
- * `maxBytes` keyword counts UTF-8 bytes (TextEncoder), not UTF-16 code
+ * `maxBytes` keyword counts UTF-8 bytes, not UTF-16 code
  * units — every relay string bound is a wire-byte bound. */
 
 type Schema = Record<string, unknown>;
 
-const utf8Length = (s: string): number => new TextEncoder().encode(s).length;
 
 function typeOf(value: unknown): string {
   if (value === null) return "null";

@@ -271,6 +271,7 @@ export function serveRelayTcp(options: {
   privateOps?: RelayEndpointOptions["privateOps"];
   resourceForms?: RelayEndpointOptions["resourceForms"];
   operations?: RelayEndpointOptions["operations"];
+  stallMs?: RelayEndpointOptions["stallMs"];
   authenticate: (socket: Socket) => RelayPeerContext | null | Promise<RelayPeerContext | null>;
   hooks?: RelayProviderHooks | ((peer: RelayPeerContext) => RelayProviderHooks);
   onConnection?: (connection: RelayProviderConnection) => void;
@@ -288,7 +289,7 @@ export function serveRelayTcp(options: {
       const channel = relaySocketChannel(socket, peer);
       const connection = attachRelayProvider({ channel, local: options.local, hooks,
         endpoint: { privateOps: options.privateOps, resourceForms: options.resourceForms,
-          operations: options.operations } });
+          operations: options.operations, stallMs: options.stallMs } });
       options.onConnection?.(connection);
     })();
   });

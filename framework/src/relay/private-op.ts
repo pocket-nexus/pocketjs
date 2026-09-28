@@ -1,3 +1,5 @@
+import { parseRelayJson } from "./frame.ts";
+import { utf8Length } from "./utf8.ts";
 /** Profile-owned REQUEST definitions. Schemas never cross the transport. */
 import {
   RELAY_CODEC, RELAY_EFFECT, RELAY_ERROR, RELAY_LIMITS, RELAY_OP, RELAY_PRIVATE_OP,
@@ -114,7 +116,7 @@ export function installPrivateOps(
   }
   // Serialization rejects cycles; installation is bounded independently of wire metadata.
   const source = JSON.stringify(definitions);
-  if (new TextEncoder().encode(source).length > RELAY_PRIVATE_OP.maxSchemaBytes) throw new Error("private op schemas too large");
+  if (utf8Length(source) > RELAY_PRIVATE_OP.maxSchemaBytes) throw new Error("private op schemas too large");
   const installed = freezeRelayCopy(definitions);
   const descriptors = installed.map(({ args, value, ...descriptor }) => {
     checkSchema(args);
@@ -183,7 +185,7 @@ export function preparePrivateOp(
   const prepared = prepareFrameBody(input, { maxWireBytes, maxMetaBytes: limits.maxMetaBytes, codecs: [RELAY_CODEC.NONE] });
   if (!prepared.ok) return { ok: false, code: prepared.code === "WIRE_TOO_LARGE" || prepared.code === "META_TOO_LARGE"
     ? RELAY_ERROR.TOO_LARGE : RELAY_ERROR.INVALID };
-  const metadata = JSON.parse(new TextDecoder().decode(prepared.body.meta)) as Record<string, unknown>;
+  const metadata = parseRelayJson(prepared.body.meta) as Record<string, unknown>;
   const invalid = validateRelaySchema(envelopeSchema(op, { ...input, metadata }), metadata);
   if (invalid) return { ok: false, code: RELAY_ERROR.INVALID };
   if (input.type === RELAY_TYPE.RESPONSE && op?.recovery !== "idempotent" && op) {
@@ -194,7 +196,7 @@ export function preparePrivateOp(
     }
   }
   const value = input.type === RELAY_TYPE.REQUEST ? metadata.args : metadata.value;
-  if (value !== undefined && new TextEncoder().encode(JSON.stringify(value)).length
+  if (value !== undefined && utf8Length(JSON.stringify(value))
       > Math.min(op!.maxObjectBytes, limits.maxObjectBytes)) return { ok: false, code: RELAY_ERROR.TOO_LARGE };
   return { ok: true, metadata };
 }

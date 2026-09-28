@@ -110,6 +110,30 @@ test("visible demand preempts speculative requests without consuming retry attem
   x.requests[1].done({ ok: true, value: "V" }); x.scheduler.step(); expect(x.requests[2].key).toBe("prefetch");
 });
 
+test("transport saturation preserves desired prefetch work until replacement can start", () => {
+  let raw: string | undefined;
+  const sent: { id: number; payload: string }[] = [];
+  const io = createOffloadClient({ session: () => 1,
+    submit(record) { sent.push(JSON.parse(record)); return true; },
+    take() { const result = raw; raw = undefined; return result; } });
+  const scheduler = createResourceScheduler({ maxConcurrent: 1, startsPerFrame: 1,
+    completionsPerFrame: 1, maxCollections: 1, available: () => io.pending() < 1 });
+  const cache = scheduler.createCache({ key: (s: string) => s, maxEntries: 2,
+    maxResponseBytes: 100, maxCost: 2, cost: () => 1,
+    load: offloadResource<string>(io, "test.read", s => s), materialize: (s: string) => s });
+  cache.reconcile([{ input: "edge", priority: 1000 }]); scheduler.step(); io.step();
+  cache.reconcile([{ input: "visible", priority: 0, pin: true }, { input: "edge", priority: 1000 }]);
+  for (let n = 0; n < 30; n++) { scheduler.step(); io.step(); }
+  raw = JSON.stringify({ id: sent[0].id, payload: "EDGE" }); io.step(); scheduler.step(); io.step();
+  expect(cache.state("edge")).toEqual({ status: "ready", value: "EDGE" });
+  expect(sent.map(r => r.payload)).toEqual(["edge", "visible"]);
+  raw = JSON.stringify({ id: sent[1].id, payload: "VISIBLE" }); io.step(); scheduler.step();
+  cache.reconcile([{ input: "edge", priority: 0, pin: true }]);
+  scheduler.step(); io.step();
+  expect(sent).toHaveLength(2); // Re-entering the edge needs no duplicate wire image.
+  scheduler.dispose(); io.dispose();
+});
+
 test("frame expiry revalidates only desired entries and keeps the old value visible", () => {
   const x = setup(); let loads = 0;
   const cache = x.scheduler.createCache({ key: (s: string) => s, maxEntries: 1, maxCost: 4, maxResponseBytes: 4, cost: () => 4, maxAgeFrames: 2,

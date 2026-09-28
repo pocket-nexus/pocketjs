@@ -33,6 +33,7 @@ src/dev_protocol.c    byte-order-safe development wire encoding and admission
 src/devmenu.c         Runtime-owned bottom-screen development menu
 src/gfx.c             the DrawList -> citro3d walker
 src/qjs.c             QuickJS embedding: globalThis.ui -> ui_* calls
+src/relay.c           Paired Pocket Relay TCP worker and bounded record rings
 src/input.c           3DS keys and circle pad -> the PSP BTN bitmask
 src/vshader.v.pica    the PICA200 vertex shader
 Makefile              run INSIDE the container by tools/3ds.ts
@@ -244,13 +245,13 @@ discovery), connects to the datagram's source address at its advertised TCP
 port, and exchanges `ctrl` JSON-line frames. `ping` is answered with `pong`;
 `file`/`stream` frame types are skipped by length and left unimplemented.
 
-**The dev transport, companion transport and offload worker share one SOC
+**The dev transport, companion transport, offload worker and Relay worker share one SOC
 instance** through `src/soc.c`. An atomic state selects one initializer; a
 competing caller returns without waiting. Failed initialization retries after
-a three-second cooldown. Offload initializes and retries on its worker. The
-process releases SOC after every transport stops and the worker is joined.
-The companion channel works with or without a `dev.key`. Capture builds compile the whole
-transport to inert stubs (`svcOpen` reports false forever), which keeps
+a three-second cooldown. Offload and Relay initialize and retry on their workers. The
+process releases SOC after every transport stops and both workers are joined.
+The SVC WIRE companion channel works with or without a `dev.key`. Capture builds compile that
+channel to inert stubs (`svcOpen` reports false forever), which keeps
 golden runs deterministic — the Vita3K contract. A guest switch clears the
 guest-visible queues but keeps the TCP connection; a different app id in
 `svcOpen` restarts discovery.

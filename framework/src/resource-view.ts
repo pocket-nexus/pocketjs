@@ -47,11 +47,12 @@ export function createResourceRuntime(options: ResourceSchedulerOptions) {
     positive(config.maxViews, "maxViews");
     const maxDemands = positive(config.maxDemandsPerView ?? config.maxEntries, "maxDemandsPerView");
     type Demand = ResourceDemand<I> & { reserved: number };
-    type View = { wanted: Map<string, Demand>; plan: ResourceViewOptions<I>["demand"]; notify(): void; dispose(): void };
+    type Snapshot = { key: string; input: I; priority: number; pin: boolean; reserved: number };
+    type View = { snapshot: Snapshot[]; wanted: Map<string, Demand>; plan: ResourceViewOptions<I>["demand"]; notify(): void; dispose(): void };
     const views = new Set<View>();
     const lanes = new Map<string, { read: Accessor<number>; notify(): void }>();
     const dirty = new Set<string>();
-    let disposed = false;
+    let disposed = false, replan = true;
     const cache = scheduler.createCache({ ...config, changed(input) { dirty.add(config.key(input)); } });
 
     function flush() {
@@ -97,14 +98,38 @@ export function createResourceRuntime(options: ResourceSchedulerOptions) {
     }
     const collection = {
       plan() {
-        // Validate every view before replacing any of this collection's demand.
-        const planned = [...views].map(view => ({ view, wanted: validate(untrack(view.plan)) }));
-        for (const { view, wanted } of planned) {
-          const changed = wanted.size !== view.wanted.size || [...wanted.keys()].some(key => !view.wanted.has(key));
+        // A frame samples all accessors, including non-reactive planners.
+        // Unchanged demand does not rebuild the union or touch the cache.
+        // Snapshot scalars also detect callers mutating a reused demand array.
+        const planned: { view: View; wanted: Map<string, Demand>; snapshot: Snapshot[] }[] = [];
+        for (const view of views) {
+          const demands = untrack(view.plan);
+          if (demands.length > maxDemands) throw new Error("Resource view demand exceeds budget");
+          const same = demands.length === view.snapshot.length && demands.every((d, i) => {
+            const old = view.snapshot[i];
+            return config.key(d.input) === old.key && d.input === old.input
+              && d.priority === old.priority && !!d.pin === old.pin
+              && config.cost(d.input) === old.reserved;
+          });
+          if (same) continue;
+          const wanted = validate(demands);
+          planned.push({ view, wanted, snapshot: demands.map(d => ({
+            key: config.key(d.input), input: d.input, priority: d.priority,
+            pin: !!d.pin, reserved: config.cost(d.input),
+          })) });
+        }
+        // Validate all views before publishing any changed membership.
+        for (const { view, wanted, snapshot } of planned) {
+          const changed = wanted.size !== view.wanted.size
+            || [...wanted.keys()].some(key => !view.wanted.has(key));
           view.wanted = wanted;
+          view.snapshot = snapshot;
           if (changed) view.notify();
         }
-        reconcile();
+        if (replan || planned.length) {
+          reconcile();
+          replan = false;
+        }
       },
       flush,
       dispose() {
@@ -123,7 +148,7 @@ export function createResourceRuntime(options: ResourceSchedulerOptions) {
         const [membership, notify] = createSignal(0);
         let closed = false;
         const view: View = {
-          wanted: new Map(), plan: options.demand, notify: () => notify(n => n + 1),
+          snapshot: [], wanted: new Map(), plan: options.demand, notify: () => notify(n => n + 1),
           dispose() {
             if (closed) return;
             closed = true;
@@ -146,7 +171,7 @@ export function createResourceRuntime(options: ResourceSchedulerOptions) {
         return { state, value(input) { const current = state(input); return current.status === "ready" ? current.value : undefined; }, dispose: view.dispose };
       },
       invalidate: (matches, dropValue) => update(() => cache.invalidate(matches, dropValue)),
-      clear: () => update(cache.clear), cancel: () => update(cache.cancel),
+      clear: () => update(() => { cache.clear(); replan = true; }), cancel: () => update(cache.cancel),
       dispose: () => update(collection.dispose),
       stats: () => ({ ...cache.stats(), views: views.size, demands: lanes.size }),
     };
