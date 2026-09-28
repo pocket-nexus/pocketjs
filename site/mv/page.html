@@ -1,0 +1,66 @@
+<header class="film-nav">
+  <a class="film-mark" href="/">
+    <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="2" y="6" width="28" height="20" rx="6" fill="none" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/>
+      <circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/>
+      <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/>
+      <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/>
+    </svg>
+    <span>PocketJS</span>
+  </a>
+  <nav class="film-links">
+    <a href="/docs/overview/">Docs</a>
+    <a href="/playground/">Playground</a>
+    <a href="https://github.com/pocket-stack/pocketjs">GitHub</a>
+  </nav>
+</header>
+
+<main class="film-main">
+  <div class="film-stage" data-stage>
+    <canvas id="film" width="1920" height="1080" aria-label="A Sky in Your Pocket — the PocketJS film"></canvas>
+
+    <button class="film-start" data-start type="button">
+      <span class="film-start-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="34" height="34"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+      </span>
+      <span class="film-start-text">
+        <b>ポケットに空を</b>
+        <i>A Sky in Your Pocket · 1:19</i>
+      </span>
+    </button>
+
+    <p class="film-status" data-status hidden>Writing the song…</p>
+
+    <div class="film-bar" data-controls hidden>
+      <button data-toggle type="button" aria-label="Play or pause">
+        <svg data-icon-play viewBox="0 0 24 24" width="20" height="20"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>
+        <svg data-icon-pause viewBox="0 0 24 24" width="20" height="20" hidden><path d="M7 5h3.4v14H7zm6.6 0H17v14h-3.4z" fill="currentColor"/></svg>
+      </button>
+      <input data-seek type="range" min="0" max="1000" value="0" step="1" aria-label="Seek">
+      <output data-time>0:00</output>
+      <button data-mute type="button" aria-label="Mute">
+        <svg data-icon-loud viewBox="0 0 24 24" width="20" height="20"><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4zM15 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <svg data-icon-muted viewBox="0 0 24 24" width="20" height="20" hidden><path d="M4 9.5h3.5L12 5.5v13L7.5 14.5H4zM15.5 10l4 4m0-4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <section class="film-notes">
+    <h1>ポケットに空を <span>A Sky in Your Pocket</span></h1>
+    <p class="film-lede">
+      Every frame of this film is drawn on a canvas while it plays, and every sample of the
+      music is synthesized in the browser from note data. There is no video file and no audio
+      file behind it: two source modules, <code>film.js</code> and <code>score.js</code>, run
+      against the clock.
+    </p>
+    <dl class="film-facts">
+      <div><dt>Song</dt><dd>176 BPM, 4/4, 56 bars. Original, written for this film.</dd></div>
+      <div><dt>Picture</dt><dd>Rough strokes redrawn 8 times a second, cut on the bar.</dd></div>
+      <div><dt>Source</dt><dd><a href="https://github.com/pocket-stack/pocketjs/tree/main/site/mv">site/mv/</a> · render with <code>bun tools/render-mv.ts</code></dd></div>
+    </dl>
+    <p class="film-foot">
+      PocketJS runs TypeScript applications on handhelds: a QuickJS guest over a Rust core that
+      lays out and draws every pixel in one thread. <a href="/docs/getting-started/">Start here</a>.
+    </p>
+  </section>
+</main>

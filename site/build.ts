@@ -47,6 +47,7 @@ import {
 } from "./doc-demos.ts";
 import { emitSingleLodStagePackage } from "./stage-package.ts";
 import { renderHomeShowcase } from "./home-showcase.ts";
+import { FILM_MODULES, renderFilmPage } from "./film.ts";
 import { SHOWCASE_APPS } from "./showcase.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname; // repo root
@@ -691,6 +692,14 @@ async function main() {
   for (const page of FOR_PAGES) {
     write(`for/${page.slug}/index.html`, renderForPage(page));
   }
+
+  // 6c. /mv/ — the film. Its modules ship as source: film.js and score.js are
+  //     the only description of the picture and the song, and the page runs
+  //     exactly what tools/render-mv.ts renders the video from. capture.html
+  //     is the renderer's harness and stays out of the build.
+  write("mv/index.html", renderFilmPage(readFileSync(SITE + "mv/page.html", "utf8")));
+  copy(SITE + "mv/mv.css", "mv/mv.css");
+  for (const module of FILM_MODULES) copy(SITE + "mv/" + module, "mv/" + module);
 
   // 7. docs + blog (setupMarkdown installs the shared marked/shiki renderer)
   const highlight = await setupMarkdown();

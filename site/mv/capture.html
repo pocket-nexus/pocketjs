@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- site/mv/capture.html — the film with nothing around it.
+     tools/render-mv.ts serves site/mv/ and drives this page: it calls
+     __mv.render(t) for each frame and screenshots the canvas, so the video is
+     rendered by the same film.js the page plays. Not copied into the site
+     build; the public page is /mv/. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PocketJS film — capture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@700;900&family=IBM+Plex+Sans:wght@500;600&family=IBM+Plex+Mono:wght@500&family=VT323&display=swap">
+<style>html,body{margin:0;background:#0a1440;overflow:hidden}canvas{display:block}</style>
+</head>
+<body>
+<canvas id="film"></canvas>
+<script type="module">
+import { drawFrame, W, H, DURATION } from "./film.js";
+
+const canvas = document.getElementById("film");
+canvas.width = W;
+canvas.height = H;
+canvas.style.width = W + "px";
+canvas.style.height = H + "px";
+const ctx = canvas.getContext("2d", { alpha: false });
+const make = (w, h) => {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return c;
+};
+
+window.__mv = {
+  duration: DURATION,
+  width: W,
+  height: H,
+  render(t) {
+    drawFrame(ctx, t, make);
+    return t;
+  },
+};
+
+// A face that has not loaded falls back to a different one mid-render, so wait
+// for every weight the film asks for before reporting ready.
+const faces = [
+  '900 100px "Zen Kaku Gothic New"',
+  '700 100px "Zen Kaku Gothic New"',
+  '500 40px "IBM Plex Sans"',
+  '500 40px "IBM Plex Mono"',
+  '400 40px "VT323"',
+];
+await Promise.all(faces.map((f) => document.fonts.load(f, "あ0Aポケット")));
+await document.fonts.ready;
+window.__mv.render(0);
+window.__mvReady = true;
+</script>
+</body>
+</html>

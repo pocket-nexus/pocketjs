@@ -313,6 +313,8 @@
     "site:build": "bun tools/site-build.ts",
     "site:preview": "bun site/preview.ts",
     "site:icons": "bun tools/icons.ts",
+    "site:film": "bun tools/render-mv.ts",
+    "site:verify-film": "bun site/verify-mv.ts",
     "site:verify-playground": "bun run site:build && bun site/verify-playground.ts",
     "site:verify-doc-demos": "bun run site:build && bun site/verify-doc-demos.ts",
     "serve": "bun hosts/web/serve.ts",

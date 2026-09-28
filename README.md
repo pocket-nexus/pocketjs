@@ -7,6 +7,7 @@
 
 [Website](https://pocketjs.dev) ·
 [Playground](https://pocketjs.dev/playground/) ·
+[Film](https://pocketjs.dev/mv/) ·
 [Documentation](https://pocketjs.dev/docs/overview/) ·
 [Blog](https://pocketjs.dev/blog/) ·
 [Changelog](https://pocketjs.dev/changelog/)
@@ -390,6 +391,8 @@ bun run golden                # deterministic WASM/web frame goldens
 bun run e2e                   # PPSSPP journey
 bun run e2e:vita              # Vita3K native-density journey
 bun run site:build            # docs, playground, Stage, and landing build
+bun run site:verify-film      # drive /mv/ in a browser and check it plays
+bun run site:film             # render the /mv/ film to an mp4 in .pocket-build/
 ```
 
 ## Documentation
