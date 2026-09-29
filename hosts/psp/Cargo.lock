@@ -54,7 +54,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libquickjs-sys"
 version = "0.9.0"
-source = "git+https://github.com/pocket-stack/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b#ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
+source = "git+https://github.com/pocket-nexus/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b#ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
 dependencies = [
  "cc",
  "copy_dir",
@@ -116,7 +116,7 @@ dependencies = [
 [[package]]
 name = "psp"
 version = "0.3.12"
-source = "git+https://github.com/pocket-stack/rust-psp.git?rev=2cbaf8c9bc72569c76240a1d9743de10731e5f6b#2cbaf8c9bc72569c76240a1d9743de10731e5f6b"
+source = "git+https://github.com/pocket-nexus/rust-psp.git?rev=2cbaf8c9bc72569c76240a1d9743de10731e5f6b#2cbaf8c9bc72569c76240a1d9743de10731e5f6b"
 dependencies = [
  "bitflags",
  "libm",

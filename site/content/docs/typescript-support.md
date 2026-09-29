@@ -40,7 +40,7 @@ support by using TypeScript. Its dependencies still need APIs that the target
 provides; TypeScript support does not supply browser DOM or Node.js APIs.
 
 The AOT view frontends support Solid TSX and Vue SFCs. Octane remains a guest
-framework. The earlier [C cartridge compiler](https://github.com/pocket-stack/pocket-vapor)
+framework. The earlier [C cartridge compiler](https://github.com/pocket-nexus/pocket-vapor)
 has its own repository, subset and targets.
 
 A view imports its contract from a basename module: `Counter.tsx` or

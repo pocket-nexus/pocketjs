@@ -14,7 +14,7 @@
 // tile kind — '.' background, lettered solids, textured '#', multi-level
 // pyramids, two-page doc switching — in a few dozen KB of committed bytes.
 // (The real-world consumer, the Figma viewer, lives at
-// github.com/pocket-stack/pocket-figma and vendors this repo.)
+// github.com/pocket-nexus/pocket-figma and vendors this repo.)
 //
 // Outputs are COMMITTED (the bake is deterministic; a re-run is byte-identical):
 //   apps/zoomlab/tiles/<page>.<level>.bin  TILESET blobs

@@ -7,7 +7,7 @@ becoming a general-purpose engine.*
 This document is normative for every runtime in the Pocket stack: the existing
 2D UI runtime (`engine/core/` + PSP/wasm/wgpu hosts), the 3D substrate (`engine/pocket3d/`),
 and every game runtime built on them (the first one is
-[OpenStrike](https://github.com/pocket-stack/open-strike)).
+[OpenStrike](https://github.com/pocket-nexus/open-strike)).
 
 ## 1. The thesis
 
@@ -175,7 +175,7 @@ The PSP UI runtime, in the same notation: a QuickJS guest + the `ui` surface
 + the sceGu backend. It was the first instance of the pattern all along; the
 architecture names it and makes it repeatable.
 
-[Pocket Voxel](https://github.com/pocket-stack/pocket-voxel) inverts the
+[Pocket Voxel](https://github.com/pocket-nexus/pocket-voxel) inverts the
 ownership split the other instances share: the GAME STATE lives in the
 QuickJS guest (a TypeScript port of a Game Boy RPG engine) and the Rust core
 owns only the retained diorama scene — cooked voxel chunks, billboards,

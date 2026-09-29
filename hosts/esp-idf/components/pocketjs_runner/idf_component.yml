@@ -1,7 +1,7 @@
 version: "0.1.0"
 description: Optional exact-cadence owner task for a PocketJS UI guest
 license: MIT
-repository: https://github.com/pocket-stack/pocketjs
+repository: https://github.com/pocket-nexus/pocketjs
 documentation: https://pocketjs.dev/docs/esp-idf/#optional-runner
 targets:
   - esp32p4

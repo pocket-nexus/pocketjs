@@ -37,7 +37,7 @@
       "dyldGlueSha256": "9efab347c6ed3c66780991f0dfd24bed80e81ed101ad5f7dbecf598afde8e685"
     },
     "rustToolchain": "nightly-2026-07-02",
-    "quickJsRepository": "https://github.com/pocket-stack/quickjs-rs.git",
+    "quickJsRepository": "https://github.com/pocket-nexus/quickjs-rs.git",
     "quickJsRevision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
     "quickJsVersion": "2026-06-04"
   },

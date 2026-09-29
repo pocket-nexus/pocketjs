@@ -23,7 +23,7 @@ the shared Pocket Stack cache:
 - GCCE 4.6.3 for Linux/i686
 - Qt 4.7.4 source, used to build a native Linux `qmake`
 - GnuPoc's native EKA2 resource, executable, and SIS tools
-- `pocket-stack/quickjs-rs` at revision
+- `pocket-nexus/quickjs-rs` at revision
   `0fc946fb670c0c29bc0135f510bcb0f595415a61` (QuickJS `2026-06-04`)
 
 Setup also uses `rustup` to install `nightly-2026-07-02` with the `rust-src`

@@ -3403,7 +3403,7 @@ fn update_texture_t8_overwrites_in_place() {
 }
 
 /// Cross-language contract: the committed .pkst golden is WRITTEN by the TS
-/// stream writer (now in pocket-stack/pocket-youtube, host/ring.ts;
+/// stream writer (now in pocket-nexus/pocket-youtube, host/ring.ts;
 /// regenerated there by UPDATE=1 bun test tests/host.test.ts and copied here)
 /// and PARSED by this crate — if either side's byte layout drifts, one of
 /// the two suites breaks. The fixture is frozen alongside the spec.

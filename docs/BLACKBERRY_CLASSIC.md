@@ -79,7 +79,7 @@ rustup toolchain install nightly-2026-07-02 --profile minimal --component rust-s
 ```
 
 `rust-src` feeds the QNX `build-std` link.
-**QuickJS is `pocket-stack/quickjs-rs` at `ba5bdd0dc013518768e76cd9e05cd30ed53dd35b`
+**QuickJS is `pocket-nexus/quickjs-rs` at `ba5bdd0dc013518768e76cd9e05cd30ed53dd35b`
 (version 2026-06-04)**. `setup` clones it under the tool's cache with
 `--filter=blob:none`; builds reject a checkout at another revision or with
 local changes.

@@ -43,7 +43,7 @@ Host-development commands run inside a PocketJS checkout (the CLI finds it by
 walking up from the current directory):
 
 ```sh
-git clone https://github.com/pocket-stack/pocketjs
+git clone https://github.com/pocket-nexus/pocketjs
 cd pocketjs && bun install
 pocket doctor
 ```
@@ -61,7 +61,7 @@ Manifest commands also run from an external application project that installs
 
 Only Node ≥ 18 is required for the CLI itself; everything it diagnoses or
 installs is for building PocketJS apps. See the
-[repository](https://github.com/pocket-stack/pocketjs) and
+[repository](https://github.com/pocket-nexus/pocketjs) and
 [pocketjs.dev](https://pocketjs.dev) for the framework docs.
 
 `pocket setup` installs the exact toolchain described by the CLI's bundled

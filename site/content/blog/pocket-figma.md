@@ -13,7 +13,7 @@ So that became the challenge: open a real Figma Community file, as published. No
 
 <p class="text-sm text-slate-500 -mt-4">Native 480×272 output of the shipping build at 24% zoom, walking the nub up the kit's component artboards. This frame — like every PSP screenshot in this post — is the executable's own framebuffer, captured in the deterministic emulator our byte-exact tests run on.</p>
 
-Pocket Figma is open source at [pocket-stack/pocket-figma](https://github.com/pocket-stack/pocket-figma). And like OpenStrike before it, it exists to make a point about architecture: **the device never parses, it only consumes.** A design file is just the most literal possible test of that law, because a design file is nothing *but* things to parse.
+Pocket Figma is open source at [pocket-nexus/pocket-figma](https://github.com/pocket-nexus/pocket-figma). And like OpenStrike before it, it exists to make a point about architecture: **the device never parses, it only consumes.** A design file is just the most literal possible test of that law, because a design file is nothing *but* things to parse.
 
 This post is the full story: what is actually inside a `.fig` file — down to individual bytes — how you turn a 26,000-pixel-wide canvas into something a fixed-function GPU can stream, and why the whole thing is a pure function of the button mask.
 
@@ -106,7 +106,7 @@ Here is the discovery that made this project feasible in a weekend rather than a
 
 If you build on the web this pattern should feel familiar from the other direction: it is a *lockfile for rendering*. Figma's editor spent real CPU deciding exactly what those shapes look like; the file pins the result; any consumer — including, it turns out, a handheld from 2004 — just replays the answer.
 
-The one thing the file does not hand you is component instances: an `INSTANCE` node is a pointer to its `SYMBOL` plus a list of overrides, and grafting those trees together correctly — a component copied between files keeps its *original* identity in a field called `overrideKey` — was the only real archaeology of the project. With that in place, the whole renderer (decode, expand, rasterize any region at any scale) comes to about 600 lines of TypeScript ([`tools/fig.ts`](https://github.com/pocket-stack/pocket-figma/blob/main/tools/fig.ts)) plus a canvas library, and it reproduces every page of the kit pixel-close to Figma's own thumbnails. That was the checkpoint where this stopped being archaeology and became a build pipeline.
+The one thing the file does not hand you is component instances: an `INSTANCE` node is a pointer to its `SYMBOL` plus a list of overrides, and grafting those trees together correctly — a component copied between files keeps its *original* identity in a field called `overrideKey` — was the only real archaeology of the project. With that in place, the whole renderer (decode, expand, rasterize any region at any scale) comes to about 600 lines of TypeScript ([`tools/fig.ts`](https://github.com/pocket-nexus/pocket-figma/blob/main/tools/fig.ts)) plus a canvas library, and it reproduces every page of the kit pixel-close to Figma's own thumbnails. That was the checkpoint where this stopped being archaeology and became a build pipeline.
 
 <img class="w-full rounded-xl border border-line" src="/assets/blog/figma-welcome-page.png" alt="The Paper Kit Welcome page rendered by tools/fig.ts: the Wireframe PAPER KIT cover with dozens of wireframe components, and six white document cards with illustrations, text and forms" />
 
@@ -484,7 +484,7 @@ A closing note, from me personally. Nearly everything this project decoded — t
 
 ## Open it
 
-- **[pocket-stack/pocket-figma](https://github.com/pocket-stack/pocket-figma)** — MIT. `bun run build` for the bundle, `bun run psp` for the EBOOT (XMB art included — the backdrop is rendered from the .fig itself), `bun run desktop` for a windowed build. The engine layer — TILESET format, streaming ops, `<DeepZoom>` — lives in [PocketJS](https://github.com/pocket-stack/pocketjs).
+- **[pocket-nexus/pocket-figma](https://github.com/pocket-nexus/pocket-figma)** — MIT. `bun run build` for the bundle, `bun run psp` for the EBOOT (XMB art included — the backdrop is rendered from the .fig itself), `bun run desktop` for a windowed build. The engine layer — TILESET format, streaming ops, `<DeepZoom>` — lives in [PocketJS](https://github.com/pocket-nexus/pocketjs).
 - The kit is the [Paper Wireframe Kit by Method](https://www.figma.com/community/file/1075811850250564922) (CC BY 4.0) — the baked tiles are committed; re-baking from the .fig is one command.
 - No PSP? PPSSPP runs the EBOOT as-is. Real hardware wants custom firmware and a Memory Stick with 10 MB to spare.
 

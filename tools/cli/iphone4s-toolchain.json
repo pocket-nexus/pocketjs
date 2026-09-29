@@ -34,7 +34,7 @@
       "startSha256": "369cc46f111d096262348579bd854e7a27dfbf4ed94585384cf9ab744100fd21",
       "dyldGlueSha256": "9efab347c6ed3c66780991f0dfd24bed80e81ed101ad5f7dbecf598afde8e685"
     },
-    "quickJsRepository": "https://github.com/pocket-stack/quickjs-rs.git",
+    "quickJsRepository": "https://github.com/pocket-nexus/quickjs-rs.git",
     "quickJsRevision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
     "quickJsVersion": "2026-06-04"
   },

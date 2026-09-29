@@ -15,7 +15,7 @@
     "prefix": "arm-mingw32ce",
     "cpu": "arm1136jf-s",
     "rustToolchain": "nightly-2026-07-02",
-    "quickJsRepository": "https://github.com/pocket-stack/quickjs-rs.git",
+    "quickJsRepository": "https://github.com/pocket-nexus/quickjs-rs.git",
     "quickJsRevision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
     "quickJsVersion": "2026-06-04"
   },

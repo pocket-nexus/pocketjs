@@ -11,7 +11,7 @@ import { ensureQuickJsCheckout, quickJsCheckout, type QuickJsPin } from "./nativ
 
 // Pin native C sources without resolving another device's Rust dependencies.
 export const THREE_DS_QUICKJS_PIN: QuickJsPin = {
-  repository: "https://github.com/pocket-stack/quickjs-rs.git",
+  repository: "https://github.com/pocket-nexus/quickjs-rs.git",
   revision: "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
   version: "2026-06-04",
 };

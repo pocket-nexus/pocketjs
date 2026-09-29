@@ -1,7 +1,7 @@
 # Modern iOS via NativeScript
 
 `pocket ios` runs PocketJS guests on the iOS simulator inside a NativeScript
-shell app. The native core is `engine/ios` ([PR #255](https://github.com/pocket-stack/pocketjs/pull/255)):
+shell app. The native core is `engine/ios` ([PR #255](https://github.com/pocket-nexus/pocketjs/pull/255)):
 the `pocket-apple` crate behind a C ABI, and `PocketSurfaceView`, a UIKit view
 driving one guest realm and one software-rastered surface per instance. The
 NativeScript side is the published

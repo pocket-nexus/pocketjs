@@ -255,7 +255,7 @@ golden runs deterministic — the Vita3K contract. A guest switch clears the
 guest-visible queues but keeps the TCP connection; a different app id in
 `svcOpen` restarts discovery.
 
-[Pocket Term](https://github.com/pocket-stack/pocket-term) is the reference
+[Pocket Term](https://github.com/pocket-nexus/pocket-term) is the reference
 consumer, in its own repository: a terminal multiplexer whose Mac companion
 owns the PTYs and one authoritative libghostty core per session and streams
 cell-grid snapshots + ordered row diffs to the device replica.

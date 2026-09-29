@@ -8,7 +8,7 @@
 // Everything on screen is a baked tile: the poster's rings, cards, numbered
 // cells and gradient bar are rasterized offline — no runtime drawing, no
 // fonts, no network. (The real-world cousin of this demo, the Figma viewer,
-// lives at github.com/pocket-stack/pocket-figma.)
+// lives at github.com/pocket-nexus/pocket-figma.)
 
 import { createSignal } from "solid-js";
 import { DeepZoom, Text, View, type DeepZoomView, type TileDoc } from "@pocketjs/framework/components";

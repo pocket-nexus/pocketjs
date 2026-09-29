@@ -204,7 +204,7 @@ But until this week the fold had a famous asymmetry. Buttons were on the tape. *
 
 "Fine for a game HUD," says the app developer, correctly, "but my app talks to servers." This is where UI determinism usually goes to die: a `fetch` resolves *whenever*, a promise's `.then` runs at the scheduler's discretion, and the fold's purity is broken by the first spinner.
 
-The fix is to stop letting the outside world *push* into the program, and make it *queue* instead. PocketJS now ships an **effect shell** ([docs/DETERMINISM.md](https://github.com/pocket-stack/pocketjs/blob/main/DETERMINISM.md)): an app never awaits a promise and never registers a native callback. It emits a **command**, and the result comes back as a **delivery** — applied at the start of a later frame's transaction, as part of that frame's `input[n]`:
+The fix is to stop letting the outside world *push* into the program, and make it *queue* instead. PocketJS now ships an **effect shell** ([docs/DETERMINISM.md](https://github.com/pocket-nexus/pocketjs/blob/main/DETERMINISM.md)): an app never awaits a promise and never registers a native callback. It emits a **command**, and the result comes back as a **delivery** — applied at the start of a later frame's transaction, as part of that frame's `input[n]`:
 
 ```tsx
 import { runEffect } from "@pocketjs/framework/effects";
@@ -388,4 +388,4 @@ Time is an input. Record it, and it will testify. Refuse, and it will flake — 
 
 ---
 
-*The receipts, runnable from the [PocketJS repo](https://github.com/pocket-stack/pocketjs): `bun test tests/sim.test.ts` (byte-identity, chaos immunity, the subsampling theorem), `bun tools/flake-lab.ts` (the two-clock histogram on your own machine), `?hz=2` on the web host (the 2 FPS world, on a real screen), and [docs/DETERMINISM.md](https://github.com/pocket-stack/pocketjs/blob/main/DETERMINISM.md) (the contract). The café demo is `apps/cafe` — an ordinary PocketJS bundle; every host, including the PSP one, drives it through the same frame transaction.*
+*The receipts, runnable from the [PocketJS repo](https://github.com/pocket-nexus/pocketjs): `bun test tests/sim.test.ts` (byte-identity, chaos immunity, the subsampling theorem), `bun tools/flake-lab.ts` (the two-clock histogram on your own machine), `?hz=2` on the web host (the 2 FPS world, on a real screen), and [docs/DETERMINISM.md](https://github.com/pocket-nexus/pocketjs/blob/main/DETERMINISM.md) (the contract). The café demo is `apps/cafe` — an ordinary PocketJS bundle; every host, including the PSP one, drives it through the same frame transaction.*

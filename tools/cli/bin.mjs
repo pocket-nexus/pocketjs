@@ -185,7 +185,7 @@ function checks() {
       {
         name: "PocketJS checkout",
         ok: !!root,
-        hint: "git clone https://github.com/pocket-stack/pocketjs && cd pocketjs",
+        hint: "git clone https://github.com/pocket-nexus/pocketjs && cd pocketjs",
         detail: root ?? undefined,
       },
     ],
@@ -281,7 +281,7 @@ async function setup() {
   const root = findCheckout();
   if (!root) {
     console.error(C.bad("`pocket setup` must run inside a PocketJS checkout"));
-    console.error(C.dim("git clone https://github.com/pocket-stack/pocketjs && cd pocketjs"));
+    console.error(C.dim("git clone https://github.com/pocket-nexus/pocketjs && cd pocketjs"));
     process.exitCode = 1;
     return;
   }
@@ -360,7 +360,7 @@ function create(name) {
   }
   const root = findCheckout();
   if (!root) {
-    console.error(C.bad("not inside a PocketJS checkout — clone https://github.com/pocket-stack/pocketjs first"));
+    console.error(C.bad("not inside a PocketJS checkout — clone https://github.com/pocket-nexus/pocketjs first"));
     process.exit(1);
   }
   const dir = join(root, "apps", name);

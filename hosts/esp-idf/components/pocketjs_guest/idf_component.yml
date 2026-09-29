@@ -1,7 +1,7 @@
 version: "0.1.0"
 description: Caller-driven QuickJS guest for PocketJS on ESP-IDF
 license: MIT
-repository: https://github.com/pocket-stack/pocketjs
+repository: https://github.com/pocket-nexus/pocketjs
 documentation: https://pocketjs.dev/docs/esp-idf/#guest
 targets:
   - esp32p4

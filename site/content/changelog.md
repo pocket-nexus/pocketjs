@@ -97,7 +97,7 @@ without characters arriving a few at a time.
   formats, including PSPMAN's PJPF, must regenerate archives and adopt the
   prepared-text lifecycle. This release supplies that framework path; it does
   not migrate PSPMAN itself. See the
-  [dynamic text guide](https://github.com/pocket-stack/pocketjs/blob/v0.12.0/docs/DYNAMIC_TEXT.md).
+  [dynamic text guide](https://github.com/pocket-nexus/pocketjs/blob/v0.12.0/docs/DYNAMIC_TEXT.md).
 - **Shared resources and offload queues separate I/O from frame work.**
   Scoped demand, reactive reads and cache ownership connect visibility to
   resource lifetime. Bounded worker mailboxes carry provider requests and
@@ -358,7 +358,7 @@ byte-for-byte unchanged.
 A guest whose boot parses a megabyte of JSON could exhaust the heap while
 megabytes sat free, because the arena's power-of-two size classes never hand a
 block to a different class. 0.9.3 closes that, and
-[Pocket Voxel](https://github.com/pocket-stack/pocket-voxel) boots on a real
+[Pocket Voxel](https://github.com/pocket-nexus/pocket-voxel) boots on a real
 PSP-2000 at the default arena size again.
 
 - **`realloc` keeps the pointer when the new size stays inside the block's
@@ -585,7 +585,7 @@ JavaScript where no browser fits.
 ## 0.7.0 — July 23, 2026
 
 The C/cartridge compiler entries below describe an earlier experiment, now
-maintained in [its own repository](https://github.com/pocket-stack/pocket-vapor).
+maintained in [its own repository](https://github.com/pocket-nexus/pocket-vapor).
 Its target support and commands belong to that repository. The current
 [MicroTS compiler](/docs/microts/) generates Rust views and models.
 
@@ -594,10 +594,10 @@ component — actual `ref`/`computed`, actual JSX — and emits native code for
 machines that could never host a JavaScript engine: Game Boy Advance, Game
 Boy, NES cartridges, and now an ESP32 dev board, with the same file proven
 cell-identical against real `vue@3.6` after every button press. [The film
-and the whole argument](https://github.com/pocket-stack/pocket-vapor/blob/experiment/standalone/site/content/blog/pocket-vapor.md). Around it, the platform grew
+and the whole argument](https://github.com/pocket-nexus/pocket-vapor/blob/experiment/standalone/site/content/blog/pocket-vapor.md). Around it, the platform grew
 a launcher, a package format, and a desktop widget runtime.
 
-- **[The earlier C/cartridge compiler](https://github.com/pocket-stack/pocket-vapor)** — an AOT compiler for a strict TypeScript
+- **[The earlier C/cartridge compiler](https://github.com/pocket-nexus/pocket-vapor)** — an AOT compiler for a strict TypeScript
   subset of Vue Vapor: reactivity lowered to dirty-bit dependency masks
   baked into ROM, template bindings to span-merged paint effects, every
   byte planned at compile time (no allocator, no GC). One TodoMVC component
@@ -625,7 +625,7 @@ a launcher, a package format, and a desktop widget runtime.
   runtime; the compiler derives what an app demands (buttons statically
   used, style pairs, grid) and `check --json` judges every registered
   board. pocket.json v2 names the guest/aot split (`execution.classes`) —
-  [board contracts](https://github.com/pocket-stack/pocket-vapor/blob/experiment/standalone/vapor/BOARDS.md)
+  [board contracts](https://github.com/pocket-nexus/pocket-vapor/blob/experiment/standalone/vapor/BOARDS.md)
   is the scaling argument.
 - **Cover Flow launcher + whole-guest app switching** — the launcher is
   Home: scrub a cover deck with real momentum, boot any installed app, and
@@ -686,7 +686,7 @@ behaviors.
   references and caps authoring-resolution textures
   (`max_texture_dim`) — 413 MB of GPU memory back on the reference
   character.
-- [pocket-character](https://github.com/pocket-stack/pocket-character):
+- [pocket-character](https://github.com/pocket-nexus/pocket-character):
   the airi-parity widget itself — character surface + QuickJS policy
   bundle, blink/saccade schedulers with airi's exact constants, headless
   render harness, and the [measured report](/blog/pocket-character/).
@@ -705,7 +705,7 @@ proven by [streaming YouTube to a PSP over USB](/blog/pocket-youtube/).
   files for bulk bytes), the same file-transport model DevTools proved,
   hardened against host restarts. Pocket YouTube — search, host-rendered CJK
   result rows, and full-motion playback on real hardware — ships as its own
-  app repo (`pocket-stack/pocket-youtube`) built entirely on these APIs.
+  app repo (`pocket-nexus/pocket-youtube`) built entirely on these APIs.
 - **A streaming video plane** — `.pkst` ring files carry palettized frames
   and PCM audio from the host; the native side pumps them under a per-frame
   IO budget, commits texture updates only in the GE-idle window (tear-free
@@ -757,7 +757,7 @@ target-specific golden tests.
   fold away at build time. A PSP-baseline app resolves unchanged for Vita,
   while Vita-only touch code can retain a controller fallback.
 - **A self-contained PSP toolchain** — `bun run bootstrap` and `pocket setup`
-  install exact `pocket-stack` revisions plus a SHA-256-verified SDK into one
+  install exact `pocket-nexus` revisions plus a SHA-256-verified SDK into one
   shared cache. `PSP_SDK` and `PSPDEV` remain explicit overrides, but builds no
   longer inspect DreamCart or sibling source checkouts. Cache receipts, staged
   publication, and host-revision checks make setup repeatable across PocketJS,
@@ -792,7 +792,7 @@ target-specific golden tests.
 
 **Pocket DevTools.** Time travel + inspection as framework primitives —
 [read the deep-dive](/blog/time-travel-devtools/), design in
-[docs/DEVTOOLS.md](https://github.com/pocket-stack/pocketjs/blob/main/DEVTOOLS.md).
+[docs/DEVTOOLS.md](https://github.com/pocket-nexus/pocketjs/blob/main/DEVTOOLS.md).
 
 - **Component inspector with on-device highlight** — a desktop panel
   (`/devtools`) shows the component tree with semantic names (`debugName`

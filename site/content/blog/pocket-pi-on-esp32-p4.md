@@ -2,7 +2,7 @@
 
 [Pi](https://github.com/badlogic/pi-mono) is a coding agent harness people actually build on: a deliberately minimal TypeScript loop with schema'd tools, streaming providers, and a clean extension seam. It runs wherever Node ≥ 22 runs — which is to say, nowhere near a microcontroller. We wanted the complete Pi to be usable on embedded devices: an agent that lives on the hardware, with its loop, files, schedules, and behavior on board, rather than a screen paired to a server that runs the real agent somewhere else. And we wanted it in TypeScript specifically, because an agent whose behavior is code-as-data can eventually revise itself — something an agent harness compiled into firmware can never offer.
 
-So we ported it to an ESP32-P4 ([PR #9](https://github.com/pocket-stack/pocket-pi/pull/9)). This is the story of how, layer by layer — starting with the part that didn't exist: embedded JavaScript has always meant an *engine*, never a *runtime*. [Pocket Pi](https://github.com/pocket-stack/pocket-pi) is the runtime we built so that Pi would have something to stand on. (If you are new here: [PocketJS](/blog/introducing-pocketjs/) runs real web-framework components on 2004 handhelds; QuickJS, its engine, is about to get a very different tenant.)
+So we ported it to an ESP32-P4 ([PR #9](https://github.com/pocket-nexus/pocket-pi/pull/9)). This is the story of how, layer by layer — starting with the part that didn't exist: embedded JavaScript has always meant an *engine*, never a *runtime*. [Pocket Pi](https://github.com/pocket-nexus/pocket-pi) is the runtime we built so that Pi would have something to stand on. (If you are new here: [PocketJS](/blog/introducing-pocketjs/) runs real web-framework components on 2004 handhelds; QuickJS, its engine, is about to get a very different tenant.)
 
 ## What Pi stands on
 
@@ -169,7 +169,7 @@ Each step closes a specific skeptic's loophole: real tool calls instead of scrip
 
 ## Try it
 
-The repo is [pocket-stack/pocket-pi](https://github.com/pocket-stack/pocket-pi). The simulator runs the same embedded agent, tool registry, and UI crate as the firmware:
+The repo is [pocket-nexus/pocket-pi](https://github.com/pocket-nexus/pocket-pi). The simulator runs the same embedded agent, tool registry, and UI crate as the firmware:
 
 ```sh
 cargo xtask run esp32-p4-sim --backend codex --workspace target/esp32-workspace

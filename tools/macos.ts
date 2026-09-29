@@ -30,7 +30,7 @@ const root = new URL("..", import.meta.url).pathname;
 // too) — fail with directions instead of a cargo error mid-build.
 if (!existsSync(`${root}hosts/desktop/Cargo.toml`)) {
   console.error(
-    "bun run macos needs a git checkout: hosts/desktop is not part of the npm package (github.com/pocket-stack/pocketjs).",
+    "bun run macos needs a git checkout: hosts/desktop is not part of the npm package (github.com/pocket-nexus/pocketjs).",
   );
   process.exit(1);
 }

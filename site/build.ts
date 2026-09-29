@@ -755,7 +755,7 @@ function renderHome(): string {
     name: "PocketJS",
     description: SITE_DESC,
     url: SITE_URL,
-    codeRepository: "https://github.com/pocket-stack/pocketjs",
+    codeRepository: "https://github.com/pocket-nexus/pocketjs",
     programmingLanguage: ["TypeScript", "JavaScript", "Rust"],
     runtimePlatform: [
       "Sony PSP",

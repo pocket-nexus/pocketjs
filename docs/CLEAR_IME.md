@@ -11,7 +11,7 @@ Clear supports **application text composition** on the iPod touch 4 and Moto G P
 | Pocket Term | Terminal view, input, bounded coverage uploads | A supervisor and authenticated daemon own PTYs; transport workers can reconnect |
 | Clear IME | Keyboard, composition transcript, editor revision, committed text, textures | Rime process, dictionaries, conversion, CJK rasterization |
 
-The inspected source revisions are [Pocket Doc `host/serve.ts`](https://github.com/pocket-stack/pocket-doc/blob/b3a0d72a377226ef01ed95c3162eb83c91024805/host/serve.ts), [Pocket Map `host/serve.ts`](https://github.com/pocket-stack/pocket-map/blob/457a33568a96bc44c24c4f7a7cc55cd2d2cba592/host/serve.ts), and [Pocket Term `host/serve.ts`](https://github.com/pocket-stack/pocket-term/blob/34f27c816ac1903ed3d53b08f8f81f5ec2ec43b4/host/serve.ts), alongside PocketJS `tools/companion-session.ts`, `tools/offload-provider.ts`, and `framework/src/offload.ts`.
+The inspected source revisions are [Pocket Doc `host/serve.ts`](https://github.com/pocket-nexus/pocket-doc/blob/b3a0d72a377226ef01ed95c3162eb83c91024805/host/serve.ts), [Pocket Map `host/serve.ts`](https://github.com/pocket-nexus/pocket-map/blob/457a33568a96bc44c24c4f7a7cc55cd2d2cba592/host/serve.ts), and [Pocket Term `host/serve.ts`](https://github.com/pocket-nexus/pocket-term/blob/34f27c816ac1903ed3d53b08f8f81f5ec2ec43b4/host/serve.ts), alongside PocketJS `tools/companion-session.ts`, `tools/offload-provider.ts`, and `framework/src/offload.ts`.
 
 **The render thread never opens the companion socket or reads a dictionary.** `hosts/shared/offload_posix.c` owns a pthread, loopback listener, key-file reads, socket authentication and transfers. The guest submits and drains fixed-capacity queues. Each record has a connection generation; a later connection cannot consume a previous connection's response. The 3DS and POSIX hosts share the queue and coverage decoder.
 
@@ -147,7 +147,7 @@ Keyboard icons are authored filled SVG contours in `apps/clear/`. The globe uses
 
 `bun run test` includes shared queue/authentication/generation tests, IME revision/reconnect tests, text cache and pixel continuity tests, candidate scroll/selection tests and the Moto viewport plan test. `bun tools/ime/verify.ts` requires the built native Rime data and checks Chinese phrases, candidate selection, deterministic replay, paging, read windows, absolute selection, backspace, caret movement, raw commit and space selection.
 
-**Native validation covered composition, candidate scrolling and selection, caret bounds, offline deletion and reconnect on both devices.** Deployment included byte readback on iPod and APK hash readback on Moto. The implementation's test results, measured performance and selected screenshots are recorded in [PR #396](https://github.com/pocket-stack/pocketjs/pull/396).
+**Native validation covered composition, candidate scrolling and selection, caret bounds, offline deletion and reconnect on both devices.** Deployment included byte readback on iPod and APK hash readback on Moto. The implementation's test results, measured performance and selected screenshots are recorded in [PR #396](https://github.com/pocket-nexus/pocketjs/pull/396).
 
 To repeat device acceptance after building, installing and starting the companion:
 

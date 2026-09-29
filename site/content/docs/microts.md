@@ -350,7 +350,7 @@ To embed the generated application:
    root props, and `unmount()` to release the view and recover the `Ui`.
 
 Start from the lab's
-[Rust application wrapper](https://github.com/pocket-stack/pocketjs/blob/main/apps/vue-sfc-lab/src/lib.rs)
+[Rust application wrapper](https://github.com/pocket-nexus/pocketjs/blob/main/apps/vue-sfc-lab/src/lib.rs)
 when your host needs button or relative-axis capability bounds.
 
 In compiled mode, the host also supplies a readiness snapshot at each frame
@@ -364,7 +364,7 @@ the value, scheduling and service contracts.
 application requires a host that builds `pocketjs-core` and `microts`
 for its target. `--board` checks an input profile; it does not build or flash
 firmware. Runtime storage uses `alloc`. The earlier
-[C cartridge compiler](https://github.com/pocket-stack/pocket-vapor) has its
+[C cartridge compiler](https://github.com/pocket-nexus/pocket-vapor) has its
 own repository and workflow for GB, NES and GBA.
 
 ## Where to go next

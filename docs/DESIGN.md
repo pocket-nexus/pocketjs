@@ -47,7 +47,7 @@ artifacts: `$JOB_TMP/map-*.json`).
   `window`/`document`/`setTimeout`/`WeakRef`; needs Proxy, WeakMap, Promise.
   Prior art: Lightning TV, `@opentui/solid`. Preact+DOM-shim is the fallback.
 - **QuickJS reality [R]**: the linked engine (exact-revision
-  `pocket-stack/quickjs-rs` Cargo dependency) is
+  `pocket-nexus/quickjs-rs` Cargo dependency) is
   **Bellard 2025 (VERSION 2026-06-04), ~ES2023** — logical assignment, WeakRef
   and **FinalizationRegistry are available**. Still absent: `queueMicrotask`
   (polyfill via `Promise.resolve().then`), `setTimeout`, `MessageChannel`,
@@ -114,7 +114,7 @@ PocketJS/
     framework/src/raster.rs      shared deterministic software rasterizer used by WASM
                        goldens and Vita guest-side capture
   hosts/psp/              Rust bin `pocketjs-psp` — the EBOOT (standalone dir, lone bin)
-    Cargo.toml         exact-revision pocket-stack psp + libquickjs-sys deps;
+    Cargo.toml         exact-revision pocket-nexus psp + libquickjs-sys deps;
                        pocketjs-core (local path)
     build.rs           embeds $POCKETJS_APP_OUTPUT js + app.pak when the stock backend owns packaging;
                        [features] capture = [] for the E2E frame-dump
@@ -287,7 +287,7 @@ allocation** (cap ≈4096 → crash). The QuickJS-side arena trio only hooks
 QuickJS + newlib malloc — it does NOT cover pocketjs-core's Rust allocations
 (taffy slotmaps, children Vecs, per-pass `.collect()`s, DrawList). Therefore:
 
-1. The pinned `pocket-stack/rust-psp` fork exposes an
+1. The pinned `pocket-nexus/rust-psp` fork exposes an
    **`external-global-alloc`** feature:
    cfg-gate `psp/src/alloc_impl.rs`'s `#[global_allocator]` out.
 2. `hosts/psp/src/alloc.rs` installs the PocketJS global allocator backed by

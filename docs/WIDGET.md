@@ -5,7 +5,7 @@ presences on the desktop — and the first runtime built on it: Pocket Stage,
 which mounts real Pocket apps into authored 3D devices and rooms.*
 
 This document names and generalizes what
-[pocket-character](https://github.com/pocket-stack/pocket-character) proved,
+[pocket-character](https://github.com/pocket-nexus/pocket-character) proved,
 and specifies the next runtime that needs the generalization. It follows the
 [RUNTIMES.md](RUNTIMES.md) ontology: a widget runtime is still
 ⟨Cores, Surfaces, Guest⟩; **pocket-widget** is the mechanism layer that makes

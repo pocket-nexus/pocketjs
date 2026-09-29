@@ -188,7 +188,7 @@ companion carries shell UI input, clipboard requests and cursor intents. It
 does not carry package lifecycle, focus, per-frame visibility or button
 routing.**
 
-The themeable [Pocket Desktop](https://github.com/pocket-stack/pocket-desktop)
+The themeable [Pocket Desktop](https://github.com/pocket-nexus/pocket-desktop)
 product is maintained separately and consumes these contracts as an external
 Pocket System. Its manifest owns the app catalog, installation snapshot,
 System UI role and background-execution policy. **Every installed entry
@@ -232,7 +232,7 @@ X,Y[,d|u|r]@TICK` (drags, right clicks), `--key
 | rotated/3D content | native                                                           | portable rasterizer as a local sub-backend  |
 
 The desktop benchmark against Tauri and Electron (harness, comparison
-apps, results) lives in its own stacked PR — pocket-stack/pocketjs#294.
+apps, results) lives in its own stacked PR — pocket-nexus/pocketjs#294.
 
 
 `hosts/desktop --trace-frames` emits CPU tick, render-submission, worker-total

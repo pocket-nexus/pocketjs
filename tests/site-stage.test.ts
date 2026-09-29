@@ -219,7 +219,7 @@ test("every compatibility entry cites a receipt that resolves", () => {
       expect(existsSync(ROOT + href.split("/tree/main/")[1])).toBe(true);
     } else {
       // otherwise it is a pull request on this repo
-      expect(href).toMatch(/^https:\/\/github\.com\/pocket-stack\/pocketjs\/pull\/\d+$/);
+      expect(href).toMatch(/^https:\/\/github\.com\/pocket-nexus\/pocketjs\/pull\/\d+$/);
     }
   }
 

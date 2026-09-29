@@ -11,7 +11,7 @@ name = "pocket-ui-gpui"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/pocket-stack/pocketjs"
+repository = "https://github.com/pocket-nexus/pocketjs"
 
 [dependencies]
 gpui = "0.2.2"

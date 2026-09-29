@@ -1,7 +1,7 @@
 version: "0.1.0"
 description: Transactional RGB565 renderer and software fallback for PocketJS
 license: MIT
-repository: https://github.com/pocket-stack/pocketjs
+repository: https://github.com/pocket-nexus/pocketjs
 documentation: https://pocketjs.dev/docs/esp-idf/#rgb565-renderer
 targets:
   - esp32p4

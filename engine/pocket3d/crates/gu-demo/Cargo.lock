@@ -89,7 +89,7 @@ dependencies = [
 [[package]]
 name = "psp"
 version = "0.3.12"
-source = "git+https://github.com/pocket-stack/rust-psp.git?rev=2cbaf8c9bc72569c76240a1d9743de10731e5f6b#2cbaf8c9bc72569c76240a1d9743de10731e5f6b"
+source = "git+https://github.com/pocket-nexus/rust-psp.git?rev=2cbaf8c9bc72569c76240a1d9743de10731e5f6b#2cbaf8c9bc72569c76240a1d9743de10731e5f6b"
 dependencies = [
  "bitflags",
  "libm",

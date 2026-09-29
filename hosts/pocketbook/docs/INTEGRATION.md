@@ -1354,7 +1354,7 @@ feature-detects optional HostOps methods.
 | Resource | URL |
 | ---------- | ----- |
 | inkview-rs | <https://github.com/simmsb/inkview-rs> |
-| pocketjs | <https://github.com/pocket-stack/pocketjs> |
+| pocketjs | <https://github.com/pocket-nexus/pocketjs> |
 | PocketBook SDK header | <https://github.com/blchinezu/pocketbook-sdk/blob/master/PBSDK/include/inkview.h> |
 | pb-cheatsheet (real-world inkview usage) | <https://blog.flxzt.net/posts/pb-cheatsheet/> |
 | inkview Go SDK (additional API docs) | <https://pkg.go.dev/github.com/dennwc/inkview> |
@@ -1396,4 +1396,4 @@ feature-detects optional HostOps methods.
   - [ ] Build backend in dispatch registry
   - [ ] Golden tests via sim host
   - [ ] Documentation in `docs/`
-  - [ ] PR to pocket-stack/pocketjs
+  - [ ] PR to pocket-nexus/pocketjs

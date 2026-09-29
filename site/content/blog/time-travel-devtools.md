@@ -82,4 +82,4 @@ There is a second audience for all of this. A meaningful share of PocketJS is wr
 
 The determinism that makes the PSP build reproducible is the same determinism that makes a bug report executable, a session a test, and an agent a competent debugger. One property, compounding.
 
-The design doc — including what's next: memory-snapshot I-frames for O(1) scrubbing, tapes in playground URLs, a causality index from pixel back to input edge — lives in [`docs/DEVTOOLS.md`](https://github.com/pocket-stack/pocketjs/blob/main/docs/DEVTOOLS.md). The code is on [GitHub](https://github.com/pocket-stack/pocketjs), MIT, and `npm install -g @pocketjs/cli` gets you `pocket devtools`.
+The design doc — including what's next: memory-snapshot I-frames for O(1) scrubbing, tapes in playground URLs, a causality index from pixel back to input edge — lives in [`docs/DEVTOOLS.md`](https://github.com/pocket-nexus/pocketjs/blob/main/docs/DEVTOOLS.md). The code is on [GitHub](https://github.com/pocket-nexus/pocketjs), MIT, and `npm install -g @pocketjs/cli` gets you `pocket devtools`.

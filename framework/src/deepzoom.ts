@@ -2,7 +2,7 @@
 //
 // Renders a baked TILESET pyramid (spec.ts; produced by a cooker like
 // apps/zoomlab/gen-assets.ts, or the Figma cooker in the
-// github.com/pocket-stack/pocket-figma repo) with smooth analog-nub panning
+// github.com/pocket-nexus/pocket-figma repo) with smooth analog-nub panning
 // and trigger zooming, streaming tiles on demand and freeing them on the way
 // out.
 //

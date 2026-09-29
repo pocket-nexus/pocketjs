@@ -54,7 +54,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 [[package]]
 name = "libquickjs-sys"
 version = "0.9.0"
-source = "git+https://github.com/pocket-stack/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b#ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
+source = "git+https://github.com/pocket-nexus/quickjs-rs.git?rev=ba5bdd0dc013518768e76cd9e05cd30ed53dd35b#ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
 dependencies = [
  "cc",
  "copy_dir",

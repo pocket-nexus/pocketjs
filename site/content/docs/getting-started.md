@@ -27,7 +27,7 @@ the targets that compile the core natively — you don't need them to write UI.
 | ------------------------------------- | --------------------------------------------------------------- |
 | Write components, build bundles       | [Bun](https://bun.sh) (drives the build, tests, and dev host)   |
 | Run the local **browser** dev host    | Bun + Rust with the wasm target (`rustup target add wasm32-unknown-unknown`) |
-| Ship a **PSP EBOOT** | `bun run bootstrap` (pinned Rust, [`cargo-psp`](https://github.com/pocket-stack/rust-psp), LLVM, and verified SDK) |
+| Ship a **PSP EBOOT** | `bun run bootstrap` (pinned Rust, [`cargo-psp`](https://github.com/pocket-nexus/rust-psp), LLVM, and verified SDK) |
 | Ship a **PS Vita VPK** | [VitaSDK](https://vitasdk.org/), `cargo-vita` 0.2.2, and Rust nightly `2026-05-28` with `rust-src` |
 | Embed PocketJS in **ESP-IDF** | ESP-IDF 6.0 or 6.1; Registry releases include the P4/S3 native core archives |
 | Hot-reload on **real PSP hardware** | The build toolchain above + optional [PSPLINK](https://github.com/pspdev/psplinkusb) host tools |
@@ -40,7 +40,7 @@ Existing P4 and S3 firmware projects use the independent workflow in the
 ## Install
 
 ```sh
-git clone https://github.com/pocket-stack/pocketjs
+git clone https://github.com/pocket-nexus/pocketjs
 cd pocketjs
 bun install
 bun run bootstrap   # one-time PSP setup; omit for browser-only development
@@ -388,7 +388,7 @@ pocket play vita gallery --fullscreen
 
 Vita3K is interactive here; `--fullscreen` controls the emulator window. The
 application still uses the profile's 480×272 logical viewport rendered at
-960×544 density 2. See the [Vita host guide](https://github.com/pocket-stack/pocketjs/blob/main/hosts/vita/README.md)
+960×544 density 2. See the [Vita host guide](https://github.com/pocket-nexus/pocketjs/blob/main/hosts/vita/README.md)
 for toolchain setup, key mappings, real-device installation, and the golden E2E.
 
 ## Next steps

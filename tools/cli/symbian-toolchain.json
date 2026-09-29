@@ -40,10 +40,10 @@
   },
   "quickjs": {
     "version": "2026-06-04",
-    "repository": "https://github.com/pocket-stack/quickjs-rs",
+    "repository": "https://github.com/pocket-nexus/quickjs-rs",
     "rev": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
     "asset": "quickjs-rs-ba5bdd0dc013518768e76cd9e05cd30ed53dd35b.tar.gz",
-    "url": "https://codeload.github.com/pocket-stack/quickjs-rs/tar.gz/ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
+    "url": "https://codeload.github.com/pocket-nexus/quickjs-rs/tar.gz/ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
     "sha256": "c721a3645e4c8df526482c544450fe2bb6351e820471727511ac054c35f44fc3"
   },
   "downloadsCachePath": "symbian/downloads",

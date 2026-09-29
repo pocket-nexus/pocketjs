@@ -237,7 +237,7 @@ measurer installed before the guest mounts, so taffy leaf sizes, `measureText`
 and painted glyphs all come from the host text system — layout changes with the
 backend in that one case, and only for apps that asked for it. The rest are
 byte-identical, which is what the PNG goldens pin. See
-[Render backends](https://github.com/pocket-stack/pocketjs/blob/main/docs/BACKENDS.md).
+[Render backends](https://github.com/pocket-nexus/pocketjs/blob/main/docs/BACKENDS.md).
 
 The exact op signatures, node lifecycle, and per-frame ordering live on the
 [Native contract](/docs/native-contract/) page.
@@ -267,7 +267,7 @@ so a two-clock module keeps a byte-reproducible headless test path.
 ## Repository layout
 
 One axis per top-level directory. The tree and the rule that governs it live in
-[`docs/STRUCTURE.md`](https://github.com/pocket-stack/pocketjs/blob/main/docs/STRUCTURE.md).
+[`docs/STRUCTURE.md`](https://github.com/pocket-nexus/pocketjs/blob/main/docs/STRUCTURE.md).
 
 ## Memory (PSP)
 

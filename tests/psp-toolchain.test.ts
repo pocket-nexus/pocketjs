@@ -37,15 +37,15 @@ describe("canonical PSP toolchain", () => {
       schemaVersion: 1,
       rust: { toolchain: "nightly-2026-05-28", components: ["rust-src"] },
       rustPsp: {
-        repository: "https://github.com/pocket-stack/rust-psp.git",
+        repository: "https://github.com/pocket-nexus/rust-psp.git",
         rev: "2cbaf8c9bc72569c76240a1d9743de10731e5f6b",
       },
       quickJsRs: {
-        repository: "https://github.com/pocket-stack/quickjs-rs.git",
+        repository: "https://github.com/pocket-nexus/quickjs-rs.git",
         rev: "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
       },
       sdk: {
-        repository: "https://github.com/pocket-stack/pspdev",
+        repository: "https://github.com/pocket-nexus/pspdev",
         tag: "sdk-noabicalls-normalized-2026-06-19",
         sha256: "fc7d7d502d53987f356871bc8c58396fb0f2a6eb6f5828b16c3bc3f22991a273",
       },

@@ -11,7 +11,7 @@ controller driven by collision traces, skeletal animation, and a headless
 verification story that makes every feature screenshot- and script-testable
 without opening a window. Specialized runtimes compose it with the guest
 infrastructure below; the first one is
-**[OpenStrike](https://github.com/pocket-stack/open-strike)**, a CS-like FPS
+**[OpenStrike](https://github.com/pocket-nexus/open-strike)**, a CS-like FPS
 whose gameplay rules are QuickJS mods and whose HUD is a PocketJS app.
 
 ![status](https://img.shields.io/badge/status-v0.1_experiment-orange)
@@ -25,7 +25,7 @@ provides resident indexed GPU skinning on Nintendo 3DS, with caller-owned lights
 poses, targets and frame boundaries. Its folding-prop example is independent of
 any application runtime.
 
-[**Pocket Island**](https://github.com/pocket-stack/pocket-island) is a separate
+[**Pocket Island**](https://github.com/pocket-nexus/pocket-island) is a separate
 application repository. Movement and gait policy, expressions, chat, camera,
 scene resources, QuickJS commands and performance scenarios belong to its
 specialized runtime. It pins PocketJS as a submodule instead of carrying a copy

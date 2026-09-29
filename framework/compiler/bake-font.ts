@@ -25,7 +25,7 @@
 // opentype.js ships CJS on `main` and ESM only on the bundler-only `module`
 // field, so Node's ESM loader sees no named exports. The default import is
 // the module object under both runtimes, and companions bake glyphs from
-// Node (pocket-stack/pocket-term's daemon does).
+// Node (pocket-nexus/pocket-term's daemon does).
 import opentype, { type Font, type Path } from "opentype.js";
 
 const parseFont = opentype.parse;

@@ -41,7 +41,7 @@ the model: all execution paths follow the Model AOT frame semantics.
 
 View AOT and Model AOT support the documented Solid and Vue forms. Octane's
 guest adapter remains part of the ordinary framework build; it is not a Model
-AOT frontend. The earlier [C cartridge compiler](https://github.com/pocket-stack/pocket-vapor)
+AOT frontend. The earlier [C cartridge compiler](https://github.com/pocket-nexus/pocket-vapor)
 lives in a separate repository with its own subset and target contracts;
 its storage rules do not describe the Rust AOT runtime.
 

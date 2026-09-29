@@ -3,7 +3,7 @@
 Use components to pass data, handle actions, and keep state for each mounted
 instance. Start with [MicroTS](/docs/microts/) for the app files,
 Rust entry point, and build commands. The examples below use the
-[`vue-sfc-lab` app](https://github.com/pocket-stack/pocketjs/tree/main/apps/vue-sfc-lab).
+[`vue-sfc-lab` app](https://github.com/pocket-nexus/pocketjs/tree/main/apps/vue-sfc-lab).
 
 ## Choose who owns the state
 
@@ -108,7 +108,7 @@ impl FeatureToggleViewModel for ToggleState {
 Add `type FeatureToggle = ToggleState;` inside the parent's existing
 `impl AppViewModel for LabViewModel`. The generated trait names the
 associated type after the child component. See the
-[complete Rust implementation](https://github.com/pocket-stack/pocketjs/blob/main/apps/vue-sfc-lab/src/lib.rs).
+[complete Rust implementation](https://github.com/pocket-nexus/pocketjs/blob/main/apps/vue-sfc-lab/src/lib.rs).
 
 **Each child mount calls `ToggleState::default()` and owns that state until
 unmount.** Two toggles have two press counts. A keyed row keeps its state
@@ -244,7 +244,7 @@ parameters.** Here `feature` comes from the outlet and `toggleFeature`
 comes from the parent. Use `<slot />` for default content and
 `<slot name="footer" />` with `<template #footer>` for named content that
 needs no parameters. See
-[`FeatureCard.vue`](https://github.com/pocket-stack/pocketjs/blob/main/apps/vue-sfc-lab/FeatureCard.vue).
+[`FeatureCard.vue`](https://github.com/pocket-nexus/pocketjs/blob/main/apps/vue-sfc-lab/FeatureCard.vue).
 
 The compiler infers `T` from `items`, checks its `id` field, and generates a
 Rust component for each distinct type argument list. Type parameter defaults

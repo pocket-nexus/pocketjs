@@ -40,7 +40,7 @@ generate them before running Cargo.**
 `check` accepts `--json` for the IR and `--board` for host capability admission.
 A TSX native build uses the `build` subcommand; `check` runs admission without
 generating Rust. The earlier cartridge compiler is maintained in a
-[separate repository](https://github.com/pocket-stack/pocket-vapor).
+[separate repository](https://github.com/pocket-nexus/pocket-vapor).
 
 An app opts its browser and guest builds into admission with
 `"app": { "framework": "solid", "aot": true }` in `pocket.json`. The checker

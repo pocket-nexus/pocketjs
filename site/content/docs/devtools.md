@@ -9,7 +9,7 @@ rate the bundle was built for, and the recorder captures every input track it
 has — buttons, analog, touch — so a recorded input tape replays any session
 byte-for-byte. Architecture deep-dive:
 [the blog post](/blog/time-travel-devtools/) and
-[`docs/DEVTOOLS.md`](https://github.com/pocket-stack/pocketjs/blob/main/docs/DEVTOOLS.md).
+[`docs/DEVTOOLS.md`](https://github.com/pocket-nexus/pocketjs/blob/main/docs/DEVTOOLS.md).
 
 ## One command
 
@@ -34,7 +34,7 @@ server connects to the panel on load.
 `push` rebuilds and reloads JS/resources, `native` replaces the compiled SELF,
 and `capture` retrieves a **960 × 544 GXM framebuffer** with its build and
 frame identity. The native menu remains available after a guest exception.
-See [Vita USB setup and recovery](https://github.com/pocket-stack/pocketjs/blob/main/docs/VITA-USB.md)
+See [Vita USB setup and recovery](https://github.com/pocket-nexus/pocketjs/blob/main/docs/VITA-USB.md)
 for the initial VitaShell installation, transport requirements, and commands.
 
 ## The component tree
