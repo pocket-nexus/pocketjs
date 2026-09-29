@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -17,7 +17,9 @@ describe("ESP-IDF incremental package build", () => {
   });
 
   test("Ninja learns new imports, assets, and compiler receipts without reconfigure", () => {
-    const temporary = mkdtempSync(join(tmpdir(), "pocketjs incremental "));
+    // Ninja reports resolved paths; on macOS the temporary directory is a
+    // symlink (/var/folders -> /private/var/folders).
+    const temporary = realpathSync(mkdtempSync(join(tmpdir(), "pocketjs incremental ")));
     try {
       const app = join(temporary, "app"), build = join(temporary, "build"), bin = join(temporary, "bin");
       mkdirSync(app); mkdirSync(bin);
