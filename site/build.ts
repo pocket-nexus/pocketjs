@@ -32,6 +32,7 @@ import {
 import {
   ICON_LINKS,
   OG_IMAGE_URL,
+  PIXEL_FONT_PRELOAD,
   SITE_DESC,
   SITE_TITLE,
   SITE_URL,
@@ -39,6 +40,7 @@ import {
   renderPage,
 } from "./templates.ts";
 import { BLOG_POSTS, DOC_NAV, type DocSection } from "./nav.ts";
+import { candyHeadings } from "./candy.ts";
 import {
   assertDocDemoBuilt,
   findDocDemoDirectives,
@@ -630,6 +632,9 @@ async function main() {
   ]) {
     if (existsSync(SITE + "assets/" + asset)) copy(SITE + "assets/" + asset, asset);
   }
+  // The Arcade look for pages outside the homepage, and its self-hosted pixel font.
+  copy(SITE + "assets/arcade.css", "assets/arcade.css");
+  copy(SITE + "assets/fonts/", "assets/fonts/");
   // OpenStrike desktop screenshot (referenced by the shipping-openstrike post).
   copy(SITE + "assets/os-dust2.jpg", "assets/os-dust2.jpg");
   // The original hardware capture (embedded by the introducing-pocketjs post).
@@ -672,8 +677,9 @@ async function main() {
   //    header/footer (those stay for docs + playground).
   write("index.html", renderHome());
   // The homepage ships one stylesheet: the same tokens and chrome the Tailwind
-  // build imports, plus the landing sections, concatenated in layer order.
-  write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css", "showcase.css"]
+  // build imports, plus the landing sections, concatenated in layer order and
+  // closed by the Arcade look. Other pages link arcade.css after their own CSS.
+  write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css", "showcase.css", "arcade.css"]
     .map((f) => readFileSync(SITE + "assets/" + f, "utf8"))
     .join("\n"));
   await bundle("assets/landing.js", "assets/landing.js", {
@@ -774,7 +780,7 @@ function renderHome(): string {
       "Bun",
     ],
   });
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -800,7 +806,8 @@ function renderHome(): string {
 ${ICON_LINKS}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/landing.css">
 <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -808,7 +815,7 @@ ${ICON_LINKS}
 ${body}
 <script type="module" src="/assets/landing.js"></script>
 </body>
-</html>`;
+</html>`);
 }
 
 // The /for/ pages share the homepage's bespoke chrome (home.css, no shared
@@ -843,7 +850,7 @@ function renderForPage(page: { slug: string; title: string; desc: string }): str
   if (!shell.includes("{{FOR_MAIN}}")) throw new Error("for/shell.html must contain {{FOR_MAIN}}");
   const body = shell.replace("{{FOR_MAIN}}", main);
   const url = `${SITE_URL}/for/${page.slug}/`;
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -867,12 +874,17 @@ function renderForPage(page: { slug: string; title: string; desc: string }): str
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
 <meta name="theme-color" content="#171226">
 ${ICON_LINKS}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/home.css">
+<link rel="stylesheet" href="/assets/arcade.css">
 </head>
 <body>
 ${body}
 </body>
-</html>`;
+</html>`);
 }
 
 async function compileCss() {

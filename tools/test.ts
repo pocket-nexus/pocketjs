@@ -58,6 +58,7 @@ const SUITE: readonly Stage[] = [
       "tests/pocket-system.test.ts",
       "tests/site-stage.test.ts",
       "tests/site-nexus.test.ts",
+      "tests/site-arcade.test.ts",
       "tests/site-showcase.test.ts",
       "tests/motions-attribution.test.ts",
       "tests/host-build-inputs.test.ts",

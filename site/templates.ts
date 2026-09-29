@@ -2,6 +2,8 @@
 // page is renderPage(...)'d so nav/branding/theme stay in one place. Styling is
 // Tailwind (utilities inline + a few component classes in assets/tailwind.css).
 
+import { candyHeadings } from "./candy.ts";
+
 const YEAR = 2026;
 const GH = "https://github.com/pocket-nexus/pocketjs";
 const DISCORD = "https://discord.gg/cTce4eXzSK";
@@ -52,6 +54,12 @@ export const ICON_LINKS = [
   '<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#ffd23f">',
   '<link rel="manifest" href="/site.webmanifest">',
 ].join("\n");
+
+// The Arcade look (site/assets/arcade.css) sets headlines in Press Start 2P.
+// The file is self-hosted and preloaded, and its @font-face blocks rendering
+// until it arrives, so a headline never paints in a fallback face and jumps.
+export const PIXEL_FONT_PRELOAD =
+  '<link rel="preload" href="/assets/fonts/press-start-2p-latin.woff2" as="font" type="font/woff2" crossorigin>';
 
 export function injectSiteFooterDescription(template: string): string {
   const slots = template.split(SITE_FOOTER_DESC_SLOT).length - 1;
@@ -153,7 +161,7 @@ export function renderPage(o: PageOpts): string {
     programmingLanguage: ["TypeScript", "JavaScript", "Rust"],
     runtimePlatform: ["Sony PSP", "PPSSPP", "WebAssembly", "Bun"],
   });
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -179,8 +187,10 @@ export function renderPage(o: PageOpts): string {
 ${ICON_LINKS}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/arcade.css">
 <script type="application/ld+json">${jsonLd}</script>
 ${o.head ?? ""}
 </head>
@@ -190,5 +200,5 @@ ${header(o.active)}
 ${footer}
 ${(o.scripts ?? []).join("\n")}
 </body>
-</html>`;
+</html>`);
 }
