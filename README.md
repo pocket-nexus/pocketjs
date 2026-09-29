@@ -285,6 +285,11 @@ records what has been verified and how. See
 [Platform contracts](https://pocketjs.dev/docs/platform-contracts/) and the
 [Native contract](https://pocketjs.dev/docs/native-contract/).
 
+The experimental [Nintendo DS MicroTS Hero host](./hosts/nds/README.md) builds
+a standalone `.nds` ROM with `bun nds` and targets 30 application updates per
+second. This Hero-only host has emulator validation; physical DS hardware
+validation is pending.
+
 ## Applications
 
 PocketJS carries complete applications on the hardware listed above. Each row

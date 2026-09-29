@@ -1,0 +1,23 @@
+[package]
+name = "pocketjs-nds-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+microts = { path = "../../../engine/crates/microts", features = ["critical-section"] }
+pocketjs-core = { path = "../../../engine/core" }
+
+[target.'cfg(not(target_has_atomic = "32"))'.dependencies]
+critical-section = { version = "1", features = ["restore-state-u32"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace]

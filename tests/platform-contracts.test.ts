@@ -530,6 +530,7 @@ describe("semantic resolution", () => {
       gallery: [true, true, false, true],
       "gba-hero": [false, false, false, false], // built by hosts/gba/build.ts; no public profile hosts its fixed 240x160 viewport
       hero: [true, true, true, true],
+      "hero-nds": [false, false, false, true], // macos-app admits its fixed 256x192 buttons and baked-glyphs contract
       im: [true, true, false, true],
       "iphone16-demo": [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
       "iphone2g-demo": [false, false, false, false], // admitted only by the private iphone2g-dev profile

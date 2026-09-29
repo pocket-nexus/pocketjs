@@ -416,6 +416,22 @@ impl Ui {
         self.set_focus(target);
     }
 
+    /// Resolve a touch on a child (such as a button label) to its nearest
+    /// visible, focusable ancestor. A hit outside a control returns NONE.
+    pub fn touch_target(&mut self, x: f32, y: f32) -> NodeId {
+        if !x.is_finite() || !y.is_finite() {
+            return NodeId::NONE;
+        }
+        let mut node = NodeId(self.core.hit_test_bounds(x, y));
+        while node != NodeId::NONE {
+            if self.focusable.contains(&node) && self.visible(node) {
+                return node;
+            }
+            node = NodeId(self.core.node_parent(node.0));
+        }
+        NodeId::NONE
+    }
+
     /// Resolve edges and focus against core's current document order.
     /// Calling this with an unchanged input does not evaluate view bindings.
     pub fn resolve_input(&mut self, input: &Input) -> Input {
@@ -464,6 +480,32 @@ mod input_tests {
     use super::*;
     use crate::motion::{MotionState, MotionVector};
     use crate::spec::motion::{self, quality};
+
+    #[test]
+    fn touch_resolves_nested_content_and_rejects_hidden_detached_controls() {
+        use pocketjs_core::spec::{NodeType, prop};
+        let mut ui = Ui::new();
+        ui.core_mut().set_viewport(256.0, 192.0);
+        let button = ui.create_node(NodeType::View as u8);
+        let label = ui.create_node(NodeType::View as u8);
+        for node in [button, label] {
+            ui.set_prop(node, prop::WIDTH, 80.0);
+            ui.set_prop(node, prop::HEIGHT, 30.0);
+        }
+        ui.insert_before(NodeId::ROOT, button, NodeId::NONE);
+        ui.insert_before(button, label, NodeId::NONE);
+        ui.set_focusable(button, true);
+        assert_eq!(ui.touch_target(10.0, 10.0), button);
+        assert_eq!(ui.touch_target(100.0, 100.0), NodeId::NONE);
+        assert_eq!(ui.touch_target(f32::NAN, 10.0), NodeId::NONE);
+        ui.set_focusable(label, true);
+        assert_eq!(ui.touch_target(10.0, 10.0), label);
+        ui.set_prop(button, prop::DISPLAY, Display::None as u8 as f64);
+        assert_eq!(ui.touch_target(10.0, 10.0), NodeId::NONE);
+        ui.set_prop(button, prop::DISPLAY, Display::Flex as u8 as f64);
+        ui.remove_child(NodeId::ROOT, button);
+        assert_eq!(ui.touch_target(10.0, 10.0), NodeId::NONE);
+    }
 
     #[test]
     fn motion_state_survives_resolution_and_gates_on_quality() {

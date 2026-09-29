@@ -8,7 +8,7 @@ import type { AotProgram } from "./aot-ir.ts";
 export interface NativeBoardIssue { code: "VB102" | "VB103" | "VB104" | "VB105" | "VB106"; severity: "error" | "warning"; message: string }
 export interface NativeBoardAdmission { board: string; chip: string; ok: boolean; issues: NativeBoardIssue[] }
 const pocketButtons = new Map<number, PocketButtonName>([
-  [BTN.CIRCLE, "a"], [BTN.CROSS, "b"], [BTN.SELECT, "select"], [BTN.START, "start"],
+  [BTN.CIRCLE, "a"], [BTN.CROSS, "b"], [BTN.TRIANGLE, "x"], [BTN.SQUARE, "y"], [BTN.SELECT, "select"], [BTN.START, "start"],
   [BTN.RIGHT, "right"], [BTN.LEFT, "left"], [BTN.UP, "up"], [BTN.DOWN, "down"],
   [BTN.LTRIGGER, "l"], [BTN.RTRIGGER, "r"],
 ]);

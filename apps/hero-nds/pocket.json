@@ -1,0 +1,26 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.hero.nds",
+  "name": "pocketjs-hero-nds",
+  "title": "PocketJS: MicroTS Hero for Nintendo DS",
+  "version": "0.6.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["text.glyphs.baked", "input.buttons"]
+    }
+  },
+  "app": {
+    "entry": "apps/hero-nds/main.tsx",
+    "output": "hero-nds-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [256, 192],
+        "presentation": "integer-fit"
+      }
+    },
+    "aot": true,
+    "model": "compiled"
+  }
+}

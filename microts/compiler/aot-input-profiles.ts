@@ -1,5 +1,5 @@
 /** Input coverage for native AOT admission; no display, GPIO or build settings. */
-export type PocketButtonName = "a" | "b" | "select" | "start" | "right" | "left" | "up" | "down" | "r" | "l";
+export type PocketButtonName = "a" | "b" | "x" | "y" | "select" | "start" | "right" | "left" | "up" | "down" | "r" | "l";
 
 export interface AotInputProfile {
   readonly board: string;
@@ -22,6 +22,15 @@ const profiles = new Map<string, AotInputProfile>([
     chorded: { start: ["a", "b"], select: ["left", "right"], r: ["up", "down"] },
     axes: [],
     touch: false,
+    motion: 0,
+  }],
+  ["nds", {
+    board: "nds",
+    chip: "arm946e-s",
+    direct: ["a", "b", "x", "y", "select", "start", "right", "left", "up", "down", "r", "l"],
+    chorded: {},
+    axes: [],
+    touch: true,
     motion: 0,
   }],
 ]);
