@@ -7,8 +7,9 @@
 //   spring    edge bounce-back — semi-implicit Euler with the engine's
 //             Spring constants (K=170, C=26), CARRYING the incoming velocity
 //             (a fling that crosses an edge keeps its momentum into the
-//             rubber band; this is the one place "spring with initial
-//             velocity" is needed, and it lives here, not in the core)
+//             rubber band). The spring stays in JS because the offset is a
+//             reactive cell the app binds, not a node pose; ui.physics
+//             anchors are the core's velocity-carrying springs for nodes
 //   chase     per-frame ease toward a target — byte-for-byte the apps/im
 //             pump (0.3 of the remaining distance, snap under 0.6 px); the
 //             d-pad / stick-to-bottom mode

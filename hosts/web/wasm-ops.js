@@ -149,7 +149,8 @@ export async function createWasmUi(wasm, options = {}) {
   // 2D bodies (spec ops 52..56, ui.physics) — feature-detected so a stale
   // pocketjs.wasm still boots; @pocketjs/framework/physics reports the gap.
   if (ex.ui_physics_create) {
-    const f64Bytes = (records) => new Uint8Array(records instanceof ArrayBuffer ? records : records.buffer, records.byteOffset ?? 0, records.byteLength);
+    const f64Bytes = (records) =>
+      ArrayBuffer.isView(records) ? new Uint8Array(records.buffer, records.byteOffset, records.byteLength) : new Uint8Array(records);
     ops.physicsCreate = (kind, params) => withBytes(f64Bytes(params), (p, l) => ex.ui_physics_create(kind, p, l));
     ops.physicsApply = (records) => withBytes(f64Bytes(records), (p, l) => ex.ui_physics_apply(p, l));
     ops.physicsDestroy = (handle) => ex.ui_physics_destroy(handle);

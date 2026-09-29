@@ -226,6 +226,7 @@ pub extern "C" fn ui_shutdown() {
         UI = None;
         PAK_TEXTURES = Vec::new();
         PAK_SPRITES = Vec::new();
+        PHYSICS_EVENTS = Vec::new();
     }
     clear_draw_snapshot();
 }
@@ -339,10 +340,10 @@ pub extern "C" fn ui_set_prop_batch(ptr: *const u8, len: usize) {
 
 // ---- physics (spec ops 52..56, ui.physics; contracts/spec/physics.ts) ------
 
-/// Drained physics events as little-endian f64 bytes; valid until the next
-/// drain.
-static mut PHYSICS_EVENT_BYTES: Vec<u8> = Vec::new();
-static mut PHYSICS_SCRATCH: Vec<f64> = Vec::new();
+/// Drained physics events; valid until the next drain. The ARM11 runs
+/// little-endian, so the f64 storage is the wire's byte layout.
+static mut PHYSICS_EVENTS: Vec<f64> = Vec::new();
+const _: () = assert!(cfg!(target_endian = "little"));
 
 fn f64_records(ptr: *const u8, len: usize) -> Vec<f64> {
     let (records, _) = unsafe { bytes(ptr, len) }.as_chunks::<8>();
@@ -369,17 +370,11 @@ pub extern "C" fn ui_physics_destroy(handle: i32) {
 #[no_mangle]
 pub extern "C" fn ui_physics_take_events(length: *mut usize) -> *const u8 {
     unsafe {
-        PHYSICS_EVENT_BYTES.clear();
-        if ui().physics_has_events() {
-            ui().physics_take_events(&mut PHYSICS_SCRATCH);
-            for value in PHYSICS_SCRATCH.iter() {
-                PHYSICS_EVENT_BYTES.extend_from_slice(&value.to_le_bytes());
-            }
-        }
+        ui().physics_take_events(&mut PHYSICS_EVENTS);
         if !length.is_null() {
-            *length = PHYSICS_EVENT_BYTES.len();
+            *length = PHYSICS_EVENTS.len() * 8;
         }
-        PHYSICS_EVENT_BYTES.as_ptr()
+        PHYSICS_EVENTS.as_ptr() as *const u8
     }
 }
 

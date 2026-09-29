@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createWasmUi } from "../hosts/web/wasm-ops.js";
-import { PROP, ENUMS, abgr } from "../contracts/spec/spec.ts";
+import { PROP, ENUMS, ROOT_ID, abgr } from "../contracts/spec/spec.ts";
 import { PHYSICS_EVENT_WORDS, PHYSICS_KEY, PHYSICS_KIND } from "../contracts/spec/physics.ts";
 import { installHost } from "../framework/src/host.ts";
 import { createWorld, hasPhysics } from "../framework/src/physics.ts";
@@ -32,7 +32,7 @@ test("the wasm host exposes the physics ops and a body crosses from the bottom s
   const { wasm, ops, auxiliary, box } = await dualScreen();
   expect(typeof ops.physicsCreate).toBe("function");
   const red = abgr(255, 0, 0);
-  const top = box(1, 0, 0, 20, 20, red);
+  const top = box(ROOT_ID, 0, 0, 20, 20, red);
   const bottom = box(auxiliary, 0, 0, 20, 20, red);
   const kv = (...pairs: number[]) => new Float64Array(pairs).buffer;
   const world = ops.physicsCreate!(PHYSICS_KIND.world, kv(PHYSICS_KEY.gravityY, 0, PHYSICS_KEY.auxiliaryX, 40, PHYSICS_KEY.auxiliaryY, 296));
@@ -56,7 +56,7 @@ test("the wasm host exposes the physics ops and a body crosses from the bottom s
 
 test("a skewed box renders as a parallelogram", async () => {
   const { wasm, ops, box } = await dualScreen();
-  const node = box(1, 100, 100, 40, 40, abgr(0, 0, 255));
+  const node = box(ROOT_ID, 100, 100, 40, 40, abgr(0, 0, 255));
   ops.setProp(node, PROP.skewX, 30);
   wasm.tick();
   const rgba = wasm.render().slice();
@@ -70,30 +70,99 @@ test("@pocketjs/framework/physics delivers landings through the service pump", a
   const { wasm, ops, box } = await dualScreen();
   installHost({ ops, kind: "injected", target: "injected", strict: true });
   expect(hasPhysics()).toBe(true);
-  const slot = box(1, 100, 40, 64, 64, abgr(0, 255, 0));
+  const slot = box(ROOT_ID, 100, 40, 64, 64, abgr(0, 255, 0));
   const world = createWorld({ gravity: [0, 2500] });
-  const letter = world.body({
-    views: [slot],
-    shape: { box: [20, 24], corner: 6 },
-    asleep: true,
-    position: [132, 400],
-    anchor: { to: "layout", spring: { stiffness: 190, damping: 13 }, spin: { stiffness: 230, damping: 13 } },
-    jelly: { squash: { stiffness: 540, damping: 12 }, land: { gain: 0.02, min: 1.4, max: 6.4, spin: 9 }, pivot: 21 },
-  });
-  const landings: number[] = [];
-  letter.onLand((speed) => landings.push(speed));
-  wasm.tick();
-  letter.launch({ from: [132, 400], duration: 0.5, turn: 360, endOffset: 8, arrive: 300, grow: 0.3 });
-  for (let frame = 0; frame < 40; frame++) {
-    runServicePumps();
+  try {
+    const letter = world.body({
+      views: [slot],
+      shape: { box: [20, 24], corner: 6 },
+      asleep: true,
+      position: [132, 400],
+      anchor: { to: "layout", spring: { stiffness: 190, damping: 13 }, spin: { stiffness: 230, damping: 13 } },
+      jelly: { squash: { stiffness: 540, damping: 12 }, land: { gain: 0.02, min: 1.4, max: 6.4, spin: 9 }, pivot: 21 },
+    });
+    const landings: number[] = [];
+    letter.onLand((speed) => landings.push(speed));
     wasm.tick();
+    letter.launch({ from: [132, 400], duration: 0.5, turn: 360, endOffset: 8, arrive: 300, grow: 0.3 });
+    for (let frame = 0; frame < 40; frame++) {
+      runServicePumps();
+      wasm.tick();
+    }
+    runServicePumps();
+    // the landing speed is 85% of `arrive`
+    expect(landings.length).toBe(1);
+    expect(landings[0]).toBeCloseTo(255, 3);
+    expect(letter.mode).toBe("anchored");
+    expect(letter.home).toEqual([132, 72]); // the slot's layout centre
+    expect(Math.abs(letter.y - 72)).toBeLessThan(4); // settling on the slot spring after the drop-in
+    const raw = ops.physicsEvents!();
+    expect(raw === undefined || new Float64Array(raw).length % PHYSICS_EVENT_WORDS === 0).toBe(true);
+  } finally {
+    world.destroy();
   }
-  runServicePumps();
-  expect(landings).toEqual([300]);
-  expect(letter.mode).toBe("anchored");
-  expect(letter.home).toEqual([132, 72]); // the slot's layout centre
-  expect(Math.abs(letter.y - 72)).toBeLessThan(4); // settling on the slot spring after the drop-in
-  const raw = ops.physicsEvents!();
-  expect(raw === undefined || new Float64Array(raw).length % PHYSICS_EVENT_WORDS === 0).toBe(true);
-  world.destroy();
+});
+
+test("a world records and drains events only while it has handlers", async () => {
+  const { wasm, ops } = await dualScreen();
+  let drains = 0;
+  const physicsEvents = ops.physicsEvents!;
+  const counted = { ...ops, physicsEvents: () => (drains++, physicsEvents()) };
+  installHost({ ops: counted, kind: "injected", target: "injected", strict: true });
+  const world = createWorld({ gravity: [0, 0] });
+  try {
+    const ball = world.body({ shape: { circle: 4 }, position: [0, 0] });
+    const drop = () => ball.launch({ from: [0, 0], to: [0, 40], duration: 0.1 });
+    const frames = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        runServicePumps();
+        wasm.tick();
+      }
+      runServicePumps();
+    };
+    // no handler: no pump, and the core keeps nothing for a later handler
+    drop();
+    frames(12);
+    expect(drains).toBe(0);
+    expect(physicsEvents()).toBeUndefined();
+
+    const landings: number[] = [];
+    const off = ball.onLand((speed) => landings.push(speed));
+    drop();
+    frames(12);
+    expect(landings.length).toBe(1);
+    expect(drains).toBeGreaterThan(0);
+
+    off();
+    const before = drains;
+    drop();
+    frames(12);
+    expect(drains).toBe(before);
+    expect(landings.length).toBe(1);
+  } finally {
+    world.destroy();
+  }
+});
+
+test("a throwing handler does not cost the frame's other events", async () => {
+  const { wasm, ops } = await dualScreen();
+  installHost({ ops, kind: "injected", target: "injected", strict: true });
+  const world = createWorld({ gravity: [0, 0] });
+  try {
+    const a = world.body({ shape: { circle: 4 }, position: [0, 0] });
+    const b = world.body({ shape: { circle: 4 }, position: [100, 0] });
+    const landed: string[] = [];
+    a.onLand(() => {
+      landed.push("a");
+      throw new Error("handler failed");
+    });
+    b.onLand(() => landed.push("b"));
+    a.launch({ from: [0, 0], to: [0, 40], duration: 0.1 });
+    b.launch({ from: [100, 0], to: [100, 40], duration: 0.1 });
+    for (let i = 0; i < 12; i++) wasm.tick();
+    expect(() => runServicePumps()).toThrow("handler failed");
+    expect(landed).toEqual(["a", "b"]);
+  } finally {
+    world.destroy();
+  }
 });

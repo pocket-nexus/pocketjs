@@ -26,7 +26,7 @@ The application's framework can be Solid, Vue Vapor, or Octane. Solid uses its
 universal renderer; Vue Vapor uses a Vapor renderer adapter and a DOM-shaped
 facade for Vue's helpers; Octane compiles JSX and hooks to static host plans
 plus dynamic slots whose driver (`renderer-octane.ts`) targets the native tree
-with no DOM shim. The rendering, layout, styling, animation, and text engine is
+with no DOM shim. The rendering, layout, styling, animation, 2D physics, and text engine is
 one `no_std` Rust crate (`pocketjs-core`) compiled for each host's target
 triple. Styling is a build-time [Tailwind subset](/docs/styling/); fonts are
 baked into atlases at build time.
@@ -76,7 +76,7 @@ Reading it top to bottom:
    engine the host provides — QuickJS on the device hosts, the host engine in
    the browser or Bun — and emits mutation ops (`ui.*`) into `pocketjs-core`.
 4. **`pocketjs-core`** owns the retained UI tree: it runs flexbox layout,
-   ticks animations, measures and lays out text, and produces a flat
+   ticks animations, steps 2D physics worlds, measures and lays out text, and produces a flat
    **DrawList** each frame.
 5. A thin **backend** turns the DrawList into pixels: sceGu/GE on PSP,
    vita2d/GXM on Vita, gpui on `hosts/desktop`, wgpu in the debug uihosts, and
@@ -154,8 +154,8 @@ subset — is why layout is identical on every host.
 ### One Rust core, compiled per host
 
 `engine/core/` is a platform-agnostic `#![no_std]` + `alloc` library,
-**`pocketjs-core`**. It contains no I/O, no graphics API, and no timing — just
-the tree, layout, styling, animation, text, and DrawList generation. Each
+**`pocketjs-core`**. It contains no I/O, no graphics API, and no timing: the
+tree, layout, styling, animation, 2D physics, text, and DrawList generation. Each
 directory under `hosts/` gives it a body: it compiles the same crate for its
 target triple and supplies I/O, a JS engine, and a backend. `hosts/psp` embeds
 QuickJS and renders through `sceGu`; `engine/wasm` wraps the identical core
@@ -221,7 +221,7 @@ no-op.
 (`Vec<Node>` + free list) with a **generation counter**, so a stale handle is a
 safe no-op rather than a dangling reference. Core parses the style table,
 resolves `base` / `focus` / `active` variants, syncs nodes into taffy, measures
-text, ticks animation tracks, and walks the tree into a DrawList. A CPU **clip
+text, ticks animation tracks, steps physics worlds, and walks the tree into a DrawList. A CPU **clip
 stage** in `draw.rs` guarantees no negative or oversized coordinates ever reach
 a backend — axis-aligned quads are clipped with UV/color re-interpolation,
 rotated quads are Sutherland–Hodgman-clipped or culled.
@@ -250,7 +250,7 @@ same string as the spec namespace and the pak prefix: `audio.pcm` means
 `globalThis.audio` is mounted and `audio:wav.` pak entries have meaning, so one
 name covers the manifest, the runtime namespace, and the asset key.
 `contracts/spec/` holds the shipped specs — `audio`, `db`, `fs`, `net`,
-`platforms`, `spec`, plus the manifest, package, system and runtime-wire files.
+`physics`, `platforms`, `spec`, plus the manifest, package, system and runtime-wire files.
 They are plain TypeScript data: `gen-rust.ts` generates
 `engine/core/src/spec.rs`, `gen-c.ts` generates
 `contracts/generated/pocket_spec.h`, and `tests/contract.ts` regenerates both

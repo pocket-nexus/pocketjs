@@ -115,7 +115,9 @@ async function capturePage(chrome: HeadlessChrome, url: string, width: number, h
   await chrome.viewport(width, height);
   await chrome.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await chrome.navigate(url);
-  const ready = await chrome.evaluate(prepare);
+  const ready = await chrome.evaluate(prepare).catch((error: Error) => {
+    throw new Error(`${url}: prepare threw: ${error.message}`);
+  });
   if (ready !== true) throw new Error(`${url}: prepare did not resolve true: ${JSON.stringify(ready)}`);
   const png = await chrome.screenshot();
   await chrome.send("Emulation.setEmulatedMedia", { features: [] });

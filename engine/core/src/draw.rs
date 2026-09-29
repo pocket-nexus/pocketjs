@@ -22,6 +22,7 @@
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
+use crate::fmath::{cosf, sinf, sqrtf, tanf};
 use crate::layout::{floorf, roundf};
 use crate::spec;
 use crate::style::{self, StyleTable, NO_GRADIENT};
@@ -63,26 +64,6 @@ fn clampf(x: f32, lo: f32, hi: f32) -> f32 {
     } else {
         x
     }
-}
-
-/// sin for rotate: range-reduce to [-pi/2, pi/2], 5-term Taylor (max error
-/// well under a hundredth of a pixel at screen scale). Deterministic f32.
-pub(crate) fn sinf(x: f32) -> f32 {
-    // reduce to [-pi, pi]
-    let mut r = x - (2.0 * PI) * floorf((x + PI) / (2.0 * PI));
-    // fold into [-pi/2, pi/2]
-    if r > PI / 2.0 {
-        r = PI - r;
-    } else if r < -PI / 2.0 {
-        r = -PI - r;
-    }
-    let x2 = r * r;
-    r * (1.0 + x2 * (-1.0 / 6.0 + x2 * (1.0 / 120.0 + x2 * (-1.0 / 5040.0 + x2 * (1.0 / 362880.0)))))
-}
-
-#[inline]
-pub(crate) fn cosf(x: f32) -> f32 {
-    sinf(x + PI / 2.0)
 }
 
 /// Row-major 2D affine: p' = (a*x + c*y + tx, b*x + d*y + ty).
@@ -206,7 +187,7 @@ impl Mat34 {
 
     fn skew_x(deg: f32) -> Mat34 {
         let r = deg * (PI / 180.0);
-        let t = sinf(r) / cosf(r);
+        let t = tanf(r);
         Mat34 { m: [1.0, t, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0] }
     }
 }
@@ -362,18 +343,6 @@ fn corner_color(fill: &Fill, corner: usize) -> u32 {
 
 fn lerp_color(a: u32, b: u32, f: f32) -> u32 {
     crate::anim::interp(a, b, f, true)
-}
-
-#[inline]
-pub(crate) fn sqrtf(x: f32) -> f32 {
-    if x <= 0.0 {
-        return 0.0;
-    }
-    let mut y = f32::from_bits((x.to_bits() >> 1) + 0x1fc0_0000);
-    y = 0.5 * (y + x / y);
-    y = 0.5 * (y + x / y);
-    y = 0.5 * (y + x / y);
-    y
 }
 
 #[inline]
@@ -753,8 +722,7 @@ fn local_affine(l: &crate::tree::LayoutRect, r: &style::Resolved) -> Affine {
         let t = if r.skew_x == 0.0 {
             0.0
         } else {
-            let k = r.skew_x * (PI / 180.0);
-            sinf(k) / cosf(k)
+            tanf(r.skew_x * (PI / 180.0))
         };
         let sx = r.scale * r.scale_x;
         let sy = r.scale * r.scale_y;
@@ -1539,8 +1507,8 @@ impl<'a> Walker<'a> {
         let l = node.layout;
         // Local matrix, canonical function order (matches the CSS transform
         // lists this models: translate/translateZ leftmost, then rotate,
-        // rotateX, rotateY, with 2D scale innermost), conjugated around the
-        // transform origin.
+        // rotateX, rotateY, skewX, with 2D scale innermost), conjugated
+        // around the transform origin.
         let (ox, oy) = (l.w * (0.5 + r.origin_x), l.h * (0.5 + r.origin_y));
         let mut local = Mat34::translate(l.x + r.translate_x, l.y + r.translate_y, r.translate_z)
             .then(&Mat34::translate(ox, oy, 0.0));

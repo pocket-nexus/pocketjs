@@ -1,7 +1,7 @@
 //! pocketjs-core — the platform-agnostic retained UI core.
 //!
 //! One `Ui` instance owns the node tree, style table, taffy layout, font
-//! atlases, animation tracks and the per-frame `DrawList`. Hosts (PSP QuickJS
+//! atlases, animation tracks, physics worlds and the per-frame `DrawList`. Hosts (PSP QuickJS
 //! FFI, wasm extern "C" mirror) call the op surface below; nothing here knows
 //! about sceGu, canvas or QuickJS.
 //!
@@ -25,6 +25,13 @@
 //! the target); an EXPLICIT `animate()` track persists its final value as a
 //! dynamic override. `cancel_anim` freezes the current value as a dynamic
 //! override.
+//!
+//! Physics plumbing (ui.physics): `tick()` steps every world after the
+//! animation tracks, against current layout, and each body writes its pose
+//! into its views' `physics_values`. `style::resolve` applies that layer after
+//! `anim_values`; animation and transition start values read
+//! `style::resolve_animated`, which stops before it, so `animate()` and
+//! `cancel_anim` never capture a physics pose.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -40,6 +47,7 @@ pub mod anim;
 pub mod codec;
 pub mod damage;
 pub mod draw;
+mod fmath;
 pub mod layout;
 pub mod package;
 pub mod pak;
@@ -556,7 +564,7 @@ impl Ui {
         let Some(slot) = self.tree.resolve(id) else {
             return;
         };
-        let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+        let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
         let was_initialized = self.tree.slots[slot as usize].style_initialized;
         {
             let node = &mut self.tree.slots[slot as usize];
@@ -1032,7 +1040,7 @@ impl Ui {
         let kind = spec::PROP_VALUE_KIND[prop as usize];
         let is_color = kind == spec::value_kind::COLOR;
         let from =
-            style::resolve(&self.tree.slots[slot as usize], &self.styles, true).get_bits(prop);
+            style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true).get_bits(prop);
         let to_bits = prop_bits(kind, to);
         let nid = self.tree.slots[slot as usize].id(slot);
         if !is_color {
@@ -1121,13 +1129,13 @@ impl Ui {
         let old_focused = self.focused;
         self.focused = target;
         if let Some(slot) = self.tree.resolve(old_focused) {
-            let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+            let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
             self.tree.slots[slot as usize].focused = false;
             self.retarget(slot, &old, true);
             self.mark_layout_style(slot);
         }
         if let Some(slot) = self.tree.resolve(target) {
-            let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+            let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
             self.tree.slots[slot as usize].focused = true;
             self.retarget(slot, &old, true);
             self.mark_layout_style(slot);
@@ -1155,7 +1163,7 @@ impl Ui {
             self.tree.slots[slot as usize].active = active;
             return;
         }
-        let old = style::resolve(&self.tree.slots[slot as usize], &self.styles, true);
+        let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
         self.tree.slots[slot as usize].active = active;
         self.retarget(slot, &old, true);
         self.mark_layout_style(slot);
@@ -1289,8 +1297,8 @@ impl Ui {
     // ---- frame -------------------------------------------------------------
 
     /// Advance one frame: tick animations by exactly one `set_tick_rate`
-    /// step, then re-run layout if dirty. Call once per vblank, BEFORE
-    /// `draw()`.
+    /// step, step physics worlds against current layout, then re-run layout
+    /// if dirty. Call once per vblank, BEFORE `draw()`.
     pub fn tick(&mut self) {
         self.ticked = true;
         if self.paused {

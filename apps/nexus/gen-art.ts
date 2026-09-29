@@ -76,21 +76,29 @@ function bleed(rgba: Uint8Array, w: number, h: number): void {
   }
 }
 
-const written: string[] = [];
+/** Encoded PNGs by file name, written only after every check has passed. */
+const staged = new Map<string, Uint8Array>();
 
 /** A canvas's PNG data URL, as bytes. */
 const dataUrlBytes = (url: string) => Uint8Array.from(atob(url.split(",")[1]), (c) => c.charCodeAt(0));
 
-async function writePng(name: string, bytes: Uint8Array, expectW: number, expectH: number): Promise<string> {
+/** Check, bleed and stage one sprite; returns its image key. */
+function stage(name: string, bytes: Uint8Array, expectW: number, expectH: number): string {
   const image = decodePng(bytes);
   if (image.width !== expectW || image.height !== expectH) throw new Error(`${name}: ${image.width}x${image.height}, expected ${expectW}x${expectH}`);
   if (!isPow2(image.width) || !isPow2(image.height)) throw new Error(`${name}: not a power-of-two texture`);
   const rgba = new Uint8Array(image.rgba);
   bleed(rgba, image.width, image.height);
-  await Bun.write(ART + name, encodePNG(rgba, image.width, image.height));
-  const key = `art/${name}`;
-  written.push(key);
-  return key;
+  staged.set(name, encodePNG(rgba, image.width, image.height));
+  return `art/${name}`;
+}
+
+/** A text block's ink box must be measured and fit its sprite. */
+function checkInk(name: string, box: { l: number; t: number; r: number; b: number }, w: number, h: number): void {
+  const finite = [box.l, box.t, box.r, box.b].every(Number.isFinite) && box.r > box.l && box.b > box.t;
+  if (!finite || box.l < 0 || box.t < 0 || box.r > w || box.b > h) {
+    throw new Error(`${name}: ink box ${JSON.stringify(box)} does not fit ${w}x${h}`);
+  }
 }
 
 async function main() {
@@ -105,8 +113,11 @@ async function main() {
       for (let i = 0; i < 150; i++) {
         await Promise.all(faces.map((f) => document.fonts.load(f, "POCKETNXUSabc©")));
         await document.fonts.ready;
-        const loaded = [...document.fonts].filter((f) => f.status === "loaded").map((f) => f.family.replace(/"/g, ""));
-        if (["Titan One", "Fredoka", "IBM Plex Sans", "IBM Plex Mono"].every((family) => loaded.includes(family))) return true;
+        if (faces.every((f) => document.fonts.check(f, "POCKETNXUSabc©"))) {
+          const loaded = [...document.fonts].filter((f) => f.status === "loaded").map((f) => f.family.replace(/"/g, "") + " " + f.weight);
+          const want = ["Titan One 400", "Fredoka 600", "IBM Plex Sans 400", "IBM Plex Sans 600", "IBM Plex Mono 500"];
+          if (want.every((face) => loaded.includes(face))) return true;
+        }
         await new Promise((r) => setTimeout(r, 100));
       }
       return false;
@@ -117,25 +128,25 @@ async function main() {
 
     // -- letters --------------------------------------------------------------
     const s = FS / 100;
-    const letters = [];
+    const letters: { ch: string; src: string; shadow: string; w: number; ih: number; rcK: number }[] = [];
     for (const [i, l] of WORD.entries()) {
       const face = "face" in l && l.face;
       const g = await evaluate(`NX.glyph(${JSON.stringify(l.ch)}, ${face})`);
-      const src = face ? "" : await writePng(`letter-${i}.png`, await png(`NX.letter(${JSON.stringify(l.ch)}, "${l.color}", false, null, ${FS}, ${LETTER_SPRITE})`), LETTER_SPRITE, LETTER_SPRITE);
-      const shadow = await writePng(`shadow-${i}.png`, await png(`NX.shadow(${JSON.stringify(l.ch)}, "${l.color}", ${face}, ${FS}, ${LETTER_SPRITE})`), LETTER_SPRITE, LETTER_SPRITE);
+      const src = face ? "" : stage(`letter-${i}.png`, await png(`NX.letter(${JSON.stringify(l.ch)}, "${l.color}", false, null, ${FS}, ${LETTER_SPRITE})`), LETTER_SPRITE, LETTER_SPRITE);
+      const shadow = stage(`shadow-${i}.png`, await png(`NX.shadow(${JSON.stringify(l.ch)}, "${l.color}", ${face}, ${FS}, ${LETTER_SPRITE})`), LETTER_SPRITE, LETTER_SPRITE);
       letters.push({ ch: l.ch, src, shadow, w: round(g.w * s), ih: round(g.ih * s), rcK: g.rcK });
     }
     const faces: Record<string, string> = {};
     const o = WORD.findIndex((l) => "face" in l && l.face);
     for (const state of ["open", "shut", "left", "right", "blink", "happy", "wince"]) {
-      faces[state] = await writePng(`o-${state}.png`, await png(`NX.letter("O", "${WORD[o].color}", true, "${state}", ${FS}, ${LETTER_SPRITE})`), LETTER_SPRITE, LETTER_SPRITE);
+      faces[state] = stage(`o-${state}.png`, await png(`NX.letter("O", "${WORD[o].color}", true, "${state}", ${FS}, ${LETTER_SPRITE})`), LETTER_SPRITE, LETTER_SPRITE);
     }
     letters[o].src = faces.open;
 
     // -- toys -----------------------------------------------------------------
     const toys: Record<string, string> = {};
     for (const type of await evaluate("NX.toys")) {
-      toys[type] = await writePng(`toy-${type}.png`, await png(`NX.toy("${type}", ${TOY_R}, ${TOY_SPRITE})`), TOY_SPRITE, TOY_SPRITE);
+      toys[type] = stage(`toy-${type}.png`, await png(`NX.toy("${type}", ${TOY_R}, ${TOY_SPRITE})`), TOY_SPRITE, TOY_SPRITE);
     }
 
     // -- particles --------------------------------------------------------------
@@ -144,16 +155,16 @@ async function main() {
     for (const kind of Object.keys(particles)) {
       for (const [key, color] of Object.entries(COLORS)) {
         if ((kind === "star" || kind === "dot") && key === "o") continue;
-        particles[kind].push(await writePng(`p-${kind}-${key}.png`, await png(`NX.particle("${kind}", "${color}", ${PARTICLE_SPRITE})`), PARTICLE_SPRITE, PARTICLE_SPRITE));
+        particles[kind].push(stage(`p-${kind}-${key}.png`, await png(`NX.particle("${kind}", "${color}", ${PARTICLE_SPRITE})`), PARTICLE_SPRITE, PARTICLE_SPRITE));
       }
     }
 
     // -- the pocket -------------------------------------------------------------
     const pocket = {
-      front: await writePng("pocket-front.png", await png(`NX.pocketFront(${POCKET_K}, ${POCKET_LW}, ${POCKET_SPRITE}, ${POCKET_TIP_IN_SPRITE})`), POCKET_SPRITE, POCKET_SPRITE),
-      mouth: await writePng("pocket-mouth.png", await png(`NX.pocketMouth(${POCKET_K}, ${POCKET_LW}, 128, 32)`), 128, 32),
-      eyes: await writePng("pocket-eyes.png", await png(`NX.pocketEyes(${POCKET_K}, "open", 64, 32)`), 64, 32),
-      happy: await writePng("pocket-eyes-happy.png", await png(`NX.pocketEyes(${POCKET_K}, "happy", 64, 32)`), 64, 32),
+      front: stage("pocket-front.png", await png(`NX.pocketFront(${POCKET_K}, ${POCKET_LW}, ${POCKET_SPRITE}, ${POCKET_TIP_IN_SPRITE})`), POCKET_SPRITE, POCKET_SPRITE),
+      mouth: stage("pocket-mouth.png", await png(`NX.pocketMouth(${POCKET_K}, ${POCKET_LW}, 128, 32)`), 128, 32),
+      eyes: stage("pocket-eyes.png", await png(`NX.pocketEyes(${POCKET_K}, "open", 64, 32)`), 64, 32),
+      happy: stage("pocket-eyes-happy.png", await png(`NX.pocketEyes(${POCKET_K}, "happy", 64, 32)`), 64, 32),
     };
 
     // -- the wordmark block, for the backdrop's rays and haze -------------------------
@@ -162,28 +173,31 @@ async function main() {
     const rowH = Math.max(...letters.map((l) => l.ih));
     const wordH = rowH * 2 + ROW_GAP;
     const backdrop = {
-      top: await writePng("top.png", await png(`NX.topBackdrop(${JSON.stringify({
+      top: stage("top.png", await png(`NX.topBackdrop(${JSON.stringify({
         w: TOP_W, h: TOP_H, texW: 512, texH: 256, rayX: TOP_W / 2, rayY: BOTTOM_Y + POCKET_TOP_Y, wordY: WORD_TOP + wordH / 2, wordW,
       })})`), 512, 256),
-      haze: await writePng("haze.png", await png(`NX.haze(${JSON.stringify({ texW: 512, texH: 256, wordW, wordH })})`), 512, 256),
-      bottom: await writePng("bottom.png", await png(`NX.bottomBackdrop(${JSON.stringify({
+      haze: stage("haze.png", await png(`NX.haze(${JSON.stringify({ texW: 512, texH: 256, wordW, wordH })})`), 512, 256),
+      bottom: stage("bottom.png", await png(`NX.bottomBackdrop(${JSON.stringify({
         w: BOTTOM_W, h: BOTTOM_H, texW: 512, texH: 256, cx: POCKET_CX, topY: POCKET_TOP_Y, pw: POCKET_PW, floorY: FLOOR_Y,
       })})`), 512, 256),
-      glow: await writePng("glow.png", await png(`NX.glow(${JSON.stringify({ texW: 256, texH: 128, pw: POCKET_PW })})`), 256, 128),
+      glow: stage("glow.png", await png(`NX.glow(${JSON.stringify({ texW: 256, texH: 128, pw: POCKET_PW })})`), 256, 128),
     };
-    const hint = await writePng("hint.png", await png(`NX.hint(128, 64)`), 128, 64);
+    const hint = stage("hint.png", await png(`NX.hint(128, 64)`), 128, 64);
 
     // -- typography from the homepage's CSS ------------------------------------------------
-    const ledeBox = await evaluate(`(() => {
-      const r = document.createRange(); r.selectNodeContents(document.querySelector("#lede p"));
-      let l = 1e9, t = 1e9, rr = -1e9, b = -1e9;
+    const ink = (selector: string) => evaluate(`(() => {
+      const r = document.createRange(); r.selectNodeContents(document.querySelector(${JSON.stringify(selector)}));
+      let l = Infinity, t = Infinity, rr = -Infinity, b = -Infinity;
       for (const q of r.getClientRects()) { if (q.width < 1) continue; l = Math.min(l, q.left); t = Math.min(t, q.top); rr = Math.max(rr, q.right); b = Math.max(b, q.bottom); }
       return { l, t, r: rr, b };
     })()`);
+    const ledeBox = await ink("#lede p");
+    checkInk("lede.png", ledeBox, 512, 64);
+    const copyBox = await ink("#copy");
+    checkInk("copy.png", { ...copyBox, t: copyBox.t - 100, b: copyBox.b - 100 }, 128, 16);
     const shot = (x: number, y: number, width: number, height: number) => chrome.screenshot({ x, y, width, height });
-    const lede = await writePng("lede.png", await shot(0, 0, 512, 64), 512, 64);
-    if (ledeBox.b > 64) throw new Error(`the lede needs ${ledeBox.b}px; it must fit 64`);
-    const copy = await writePng("copy.png", await shot(0, 100, 128, 16), 128, 16);
+    const lede = stage("lede.png", await shot(0, 0, 512, 64), 512, 64);
+    const copy = stage("copy.png", await shot(0, 100, 128, 16), 128, 16);
 
     const manifest = `// AUTO-GENERATED by apps/nexus/gen-art.ts — do not edit; run \`bun apps/nexus/gen-art.ts\`.
 //
@@ -213,11 +227,13 @@ export const LEDE_BOX = ${JSON.stringify({ l: round(ledeBox.l), t: round(ledeBox
 /** The wordmark block measured from the metrics above. */
 export const WORD_BOX = ${JSON.stringify({ w: round(wordW), h: round(wordH), rowH: round(rowH) })};
 `;
+    // every sprite rendered and checked: write the art, its manifest and filters together
+    for (const [name, png] of staged) await Bun.write(ART + name, png);
     await Bun.write(HERE + "art.ts", manifest);
     const images: Record<string, { linear: boolean }> = {};
-    for (const key of written) images[key] = { linear: true };
+    for (const name of staged.keys()) images[`art/${name}`] = { linear: true };
     await Bun.write(HERE + "images.json", JSON.stringify(images, null, 2) + "\n");
-    console.log(`nexus: baked ${written.length} images into apps/nexus/art/ (hinge ${HINGE}px, bottom origin ${BOTTOM_X},${BOTTOM_Y})`);
+    console.log(`nexus: baked ${staged.size} images into apps/nexus/art/ (hinge ${HINGE}px, bottom origin ${BOTTOM_X},${BOTTOM_Y})`);
   } finally {
     chrome.stop();
   }

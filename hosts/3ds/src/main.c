@@ -570,6 +570,14 @@ static void accept_guest(
   devserver_report_install("accepted", accepted_hash, "first PICA command list retired");
 }
 
+#if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
+/* System ticks to microseconds, saturated to 32 bits. */
+static uint32_t ticks_to_us(u64 ticks) {
+  u64 us = ticks * 1000000 / SYSCLOCK_ARM11;
+  return us > UINT32_MAX ? UINT32_MAX : (uint32_t)us;
+}
+#endif
+
 static void begin_frame_wait(uint32_t run_frame) {
 #ifdef POCKETJS_CAPTURE
   (void)run_frame;
@@ -980,17 +988,23 @@ int main(void) {
     offload_measure((unsigned)((offload_ui_ticks + svcGetSystemTick() - offload_cpu_start) * 1000000 / SYSCLOCK_ARM11));
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
     {
+      /* A frame interval is measured only between consecutive presented
+       * frames: a recovery or a reload advances run_frame by more than one,
+       * and the frame after it starts a fresh interval. */
       static u64 previous_js;
-      const u64 us = SYSCLOCK_ARM11 / 1000000;
+      static uint32_t previous_frame = UINT32_MAX;
       u64 phase_end = svcGetSystemTick();
-      devserver_set_frame_timing(
-        (uint32_t)((phase_tick - phase_js) / us),
-        (uint32_t)((phase_draw - phase_tick) / us),
-        (uint32_t)((phase_draw_end - phase_draw) / us),
-        (uint32_t)((phase_end - phase_gpu) / us),
-        previous_js == 0 ? 0 : (uint32_t)((phase_js - previous_js) / us)
-      );
+      if (previous_frame != UINT32_MAX && run_frame == previous_frame + 1) {
+        devserver_set_frame_timing(
+          ticks_to_us(phase_tick - phase_js),
+          ticks_to_us(phase_draw - phase_tick),
+          ticks_to_us(phase_draw_end - phase_draw),
+          ticks_to_us(phase_end - phase_gpu),
+          ticks_to_us(phase_js - previous_js)
+        );
+      }
       previous_js = phase_js;
+      previous_frame = run_frame;
     }
     guest.submitted_frames += 1;
     devserver_set_frame_stats(

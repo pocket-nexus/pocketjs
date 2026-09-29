@@ -182,6 +182,12 @@ static double argument_float(JSContext *ctx, int argc, JSValueConst *argv, int i
   return value;
 }
 
+/* An optional number: missing or undefined reads as 0, as in the wasm host. */
+static double argument_optional_float(JSContext *ctx, int argc, JSValueConst *argv, int index) {
+  if (index >= argc || JS_IsUndefined(argv[index])) return 0.0;
+  return argument_float(ctx, argc, argv, index);
+}
+
 /*
  * Borrow the bytes behind an ArrayBuffer OR a typed-array view (host.ts passes
  * Uint8Arrays). The pointer is only valid until the next JS allocation, so
@@ -298,9 +304,12 @@ static JSValue host_operation(
         ui_set_prop_batch(bytes, byte_length);
       }
       return JS_UNDEFINED;
-    case HostPhysicsCreate:
+    case HostPhysicsCreate: {
+      /* convert first: a conversion may allocate and move the borrowed bytes */
+      uint32_t kind = (uint32_t)argument_int(ctx, argc, argv, 0);
       if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length)) return JS_NewInt32(ctx, 0);
-      return JS_NewInt32(ctx, ui_physics_create((uint32_t)argument_int(ctx, argc, argv, 0), bytes, byte_length));
+      return JS_NewInt32(ctx, ui_physics_create(kind, bytes, byte_length));
+    }
     case HostPhysicsApply:
       if (argument_bytes(ctx, argc, argv, 0, &bytes, &byte_length)) {
         ui_physics_apply(bytes, byte_length);
@@ -321,10 +330,10 @@ static JSValue host_operation(
         ui_physics_query(
           (uint32_t)argument_int(ctx, argc, argv, 0),
           argument_int(ctx, argc, argv, 1),
-          argument_float(ctx, argc, argv, 2),
-          argument_float(ctx, argc, argv, 3),
-          argument_float(ctx, argc, argv, 4),
-          argument_float(ctx, argc, argv, 5)
+          argument_optional_float(ctx, argc, argv, 2),
+          argument_optional_float(ctx, argc, argv, 3),
+          argument_optional_float(ctx, argc, argv, 4),
+          argument_optional_float(ctx, argc, argv, 5)
         )
       );
     case HostSetText:

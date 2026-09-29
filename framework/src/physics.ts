@@ -7,6 +7,9 @@
 // Application code issues commands at interaction edges — a launch, a hop, a
 // stylus grab — and receives landings, hits and zone crossings as
 // frame-boundary events through the service pump, before its frame hooks run.
+// A world asks the core to record events only while it has handlers, and the
+// pump is registered only while some world listens: a world without handlers
+// costs no per-frame crossing.
 //
 // Framework-neutral: no reactive primitive is used. Pair `createWorld` with
 // the framework's cleanup (`onCleanup(() => world.destroy())` in Solid).
@@ -21,18 +24,24 @@ import {
   PHYSICS_GRAB,
   PHYSICS_KEY,
   PHYSICS_KIND,
+  PHYSICS_MAX_POINTS,
+  PHYSICS_MAX_POOL,
+  PHYSICS_MAX_TEXTURES,
+  PHYSICS_MAX_VIEWS,
+  PHYSICS_MODE,
   PHYSICS_QUERY,
   PHYSICS_SCALE_CURVE,
   PHYSICS_SHAPE,
   PHYSICS_SQUASH_AXIS,
+  PHYSICS_SURFACE,
 } from "../../contracts/spec/physics.ts";
+import type { SurfaceId } from "./display.ts";
 import { getOps, type HostOps } from "./host.ts";
-import { textureHandle, type NodeMirror } from "./native-tree.ts";
+import { resolveTexture, type NodeMirror } from "./native-tree.ts";
 import { registerServicePump } from "./services.ts";
 
 export type NodeLike = NodeMirror | number;
 export type Vec = readonly [number, number];
-export type Surface = "primary" | "auxiliary";
 
 type PhysicsOps = Required<Pick<HostOps, "physicsCreate" | "physicsApply" | "physicsDestroy" | "physicsEvents" | "physicsQuery">>;
 
@@ -43,12 +52,17 @@ export function hasPhysics(): boolean {
 }
 
 function physicsOps(): PhysicsOps {
-  if (!hasPhysics()) throw new Error("Host does not implement ui.physics; declare it in pocket.json engine.capabilities.requires");
+  if (!hasPhysics()) throw new Error("PocketJS: host does not implement ui.physics; declare it in pocket.json engine.capabilities.requires");
   return getOps() as PhysicsOps;
 }
 
 const nodeId = (node: NodeLike): number => (typeof node === "number" ? node : node.id);
-const surfaceIndex = (surface: Surface | undefined): number => (surface === "auxiliary" ? 1 : 0);
+const surfaceIndex = (surface: SurfaceId | undefined): number => PHYSICS_SURFACE[surface ?? "primary"];
+const MODES = ["free", "anchored", "flight", "grabbed"] as const;
+
+function limit(what: string, count: number, max: number): void {
+  if (count > max) throw new Error(`PocketJS: ${what} takes at most ${max}, got ${count}`);
+}
 
 /** [key, value] parameter builder. */
 class Params {
@@ -101,6 +115,9 @@ export interface AnchorOptions {
   spin?: Spring;
   /** Downward px/s² while a hop is airborne. */
   airGravity?: number;
+  /** Springs act only while the body is free: not grabbed, and no floor
+   *  contact for 0.15 s. A resting body stays where it landed. */
+  free?: boolean;
 }
 
 export interface JellyOptions {
@@ -128,6 +145,8 @@ export interface JellyOptions {
   stretch?: { gain: number; limit?: number };
   /** px below the centre that rotation and squash pivot about. */
   pivot?: number;
+  /** Contacts slower than this (px/s) leave the jelly alone: impact, lean impact, dent. */
+  minSpeed?: number;
 }
 
 export interface BodyOptions {
@@ -177,7 +196,7 @@ export interface ColliderOptions {
   layer?: number;
   mask?: number;
   /** A body whose jelly absorbs impacts: squash per px/s, spin °/s per px/s. */
-  owner?: { body: Body; squash?: number; squashLimit?: number; spin?: number; spinLimit?: number };
+  owner?: { body: Body; squash?: number; squashLimit?: number; spin?: number; spinLimit?: number; minSpeed?: number };
 }
 
 export interface ZoneOptions {
@@ -218,8 +237,10 @@ export interface LaunchOptions {
   arrive?: number;
   /** View scale at take-off, grown to 1 over 0.2 s. */
   grow?: number;
-  /** View scale at arrival. */
+  /** View scale at arrival, kept afterwards. */
   endScale?: number;
+  /** Keep obstructing free bodies during the flight (default: pass through). */
+  solid?: boolean;
 }
 
 export interface Hit {
@@ -238,18 +259,37 @@ export interface Hit {
 const worlds = new Map<number, World>();
 let stopPump: (() => void) | null = null;
 
+/** Register the pump while any world listens, and only then. */
+function syncPump(): void {
+  let listening = false;
+  for (const world of worlds.values()) listening ||= world.listening;
+  if (listening && !stopPump) stopPump = registerServicePump(pump);
+  if (!listening && stopPump) {
+    stopPump();
+    stopPump = null;
+  }
+}
+
+/** Drain and dispatch. A throwing handler does not cost the rest of the
+ *  frame's events: the first error is rethrown after dispatch. */
 function pump(): void {
   const raw = physicsOps().physicsEvents();
   if (!raw) return;
   const records = new Float64Array(raw);
+  let failure: unknown;
+  let failed = false;
   for (let i = 0; i + PHYSICS_EVENT_WORDS <= records.length; i += PHYSICS_EVENT_WORDS) {
-    const kind = records[i];
-    const a = records[i + 1];
-    const b = records[i + 2];
     for (const world of worlds.values()) {
-      if (world.deliver(kind, a, b, records[i + 3], records[i + 4], records[i + 5], records[i + 6], records[i + 7])) break;
+      try {
+        if (world.deliver(records[i], records[i + 1], records[i + 2], records[i + 3], records[i + 4], records[i + 5], records[i + 6], records[i + 7])) break;
+      } catch (error) {
+        if (!failed) failure = error;
+        failed = true;
+        break;
+      }
     }
   }
+  if (failed) throw failure;
 }
 
 export class World {
@@ -260,6 +300,10 @@ export class World {
   readonly emitters = new Set<Emitter>();
   private hitHandlers = new Set<(hit: Hit) => void>();
   private landHandlers = new Set<(body: Body, speed: number) => void>();
+  private overflowHandlers = new Set<(dropped: number) => void>();
+  private origins: readonly [Vec, Vec];
+  #listeners = 0;
+  #dropped = 0;
 
   constructor(options: WorldOptions = {}) {
     const p = new Params()
@@ -274,8 +318,36 @@ export class World {
       .set(PHYSICS_KEY.maxSpeed, options.maxSpeed);
     this.handle = physicsOps().physicsCreate(PHYSICS_KIND.world, p.buffer());
     if (!this.handle) throw new Error("PocketJS: physicsCreate refused the world");
+    this.origins = [options.surfaces?.primary ?? [0, 0], options.surfaces?.auxiliary ?? [0, 0]];
     worlds.set(this.handle, this);
-    stopPump ??= registerServicePump(pump);
+    // silent until a handler is attached
+    apply(this.handle, PHYSICS_CMD.listen, 0);
+  }
+
+  get listening(): boolean {
+    return this.#listeners > 0;
+  }
+
+  /** Event records the core dropped past its per-tick limits. */
+  get droppedEvents(): number {
+    return this.#dropped;
+  }
+
+  /** @internal Count handlers; the core records events while there are any. */
+  listen(delta: number): void {
+    const was = this.#listeners > 0;
+    this.#listeners = Math.max(0, this.#listeners + delta);
+    const now = this.#listeners > 0;
+    if (was !== now && worlds.has(this.handle)) {
+      apply(this.handle, PHYSICS_CMD.listen, now ? 1 : 0);
+      syncPump();
+    }
+  }
+
+  /** A surface point in world coordinates. */
+  toWorld(x: number, y: number, surface: SurfaceId = "primary"): Vec {
+    const [ox, oy] = this.origins[PHYSICS_SURFACE[surface]];
+    return [ox + x, oy + y];
   }
 
   private create(kind: number, p: Params): number {
@@ -286,6 +358,7 @@ export class World {
   }
 
   body(options: BodyOptions): Body {
+    limit("a body's views", options.views?.length ?? 0, PHYSICS_MAX_VIEWS);
     const p = new Params();
     for (const view of options.views ?? []) {
       const spec = typeof view === "object" && "node" in view ? view : { node: view as NodeLike };
@@ -336,7 +409,8 @@ export class World {
         .set(PHYSICS_KEY.damping, anchor.spring?.damping)
         .set(PHYSICS_KEY.spinStiffness, anchor.spin?.stiffness)
         .set(PHYSICS_KEY.spinDamping, anchor.spin?.damping)
-        .set(PHYSICS_KEY.airGravity, anchor.airGravity);
+        .set(PHYSICS_KEY.airGravity, anchor.airGravity)
+        .set(PHYSICS_KEY.anchorFree, anchor.free);
     }
     const jelly = options.jelly;
     if (jelly) {
@@ -365,7 +439,8 @@ export class World {
         .set(PHYSICS_KEY.pulseDamping, jelly.pulse?.damping)
         .set(PHYSICS_KEY.stretchGain, jelly.stretch?.gain)
         .set(PHYSICS_KEY.stretchLimit, jelly.stretch?.limit)
-        .set(PHYSICS_KEY.pivot, jelly.pivot);
+        .set(PHYSICS_KEY.pivot, jelly.pivot)
+        .set(PHYSICS_KEY.jellySpeed, jelly.minSpeed);
     }
     const body = new Body(this, this.create(PHYSICS_KIND.body, p));
     this.bodies.set(body.handle, body);
@@ -383,7 +458,8 @@ export class World {
         .set(PHYSICS_KEY.ownerSquash, options.owner.squash)
         .set(PHYSICS_KEY.ownerSquashLimit, options.owner.squashLimit)
         .set(PHYSICS_KEY.ownerSpin, options.owner.spin)
-        .set(PHYSICS_KEY.ownerSpinLimit, options.owner.spinLimit);
+        .set(PHYSICS_KEY.ownerSpinLimit, options.owner.spinLimit)
+        .set(PHYSICS_KEY.ownerSpeed, options.owner.minSpeed);
     }
     const collider = new Collider(this, this.create(PHYSICS_KIND.collider, p));
     this.colliders.set(collider.handle, collider);
@@ -398,6 +474,8 @@ export class World {
   }
 
   emitter(options: EmitterOptions): Emitter {
+    limit("an emitter's views", options.views.length, PHYSICS_MAX_POOL);
+    limit("an emitter's textures", options.textures?.length ?? 0, PHYSICS_MAX_TEXTURES);
     const p = new Params();
     for (const view of options.views) {
       const spec = typeof view === "object" && "node" in view ? view : { node: view as NodeLike };
@@ -405,8 +483,8 @@ export class World {
       if (spec.offset) p.set(PHYSICS_KEY.viewOffsetX, spec.offset[0]).set(PHYSICS_KEY.viewOffsetY, spec.offset[1]);
     }
     for (const key of options.textures ?? []) {
-      const handle = textureHandle(key);
-      if (handle >= 0) p.set(PHYSICS_KEY.texture, handle);
+      const handle = resolveTexture(key);
+      if (handle !== undefined) p.set(PHYSICS_KEY.texture, handle);
     }
     p.set(PHYSICS_KEY.lifeMin, options.life?.[0])
       .set(PHYSICS_KEY.lifeMax, options.life?.[1])
@@ -429,7 +507,7 @@ export class World {
   }
 
   /** Topmost pickable body under a surface point. */
-  pick(x: number, y: number, surface: Surface = "primary", slop = 0): Body | undefined {
+  pick(x: number, y: number, surface: SurfaceId = "primary", slop = 0): Body | undefined {
     const handle = physicsOps().physicsQuery(PHYSICS_QUERY.pick, this.handle, x, y, surfaceIndex(surface), slop);
     return this.bodies.get(handle);
   }
@@ -440,14 +518,17 @@ export class World {
 
   /** Every hit in the world, after the body's own handlers. */
   onHit(handler: (hit: Hit) => void): () => void {
-    this.hitHandlers.add(handler);
-    return () => this.hitHandlers.delete(handler);
+    return subscribe(this, this.hitHandlers, handler);
   }
 
   /** Every landing in the world, after the body's own handlers. */
   onLand(handler: (body: Body, speed: number) => void): () => void {
-    this.landHandlers.add(handler);
-    return () => this.landHandlers.delete(handler);
+    return subscribe(this, this.landHandlers, handler);
+  }
+
+  /** Ticks that dropped event records past the core's limits. */
+  onOverflow(handler: (dropped: number) => void): () => void {
+    return subscribe(this, this.overflowHandlers, handler);
   }
 
   /** @internal Route one event record; false when it is not this world's. */
@@ -482,6 +563,12 @@ export class World {
         body.clearHandlers.forEach((handler) => handler());
         return true;
       }
+      case PHYSICS_EVENT.overflow: {
+        if (a !== this.handle) return false;
+        this.#dropped += speed;
+        this.overflowHandlers.forEach((handler) => handler(speed));
+        return true;
+      }
     }
     return false;
   }
@@ -494,15 +581,23 @@ export class World {
     this.colliders.clear();
     this.zones.clear();
     this.emitters.clear();
-    if (worlds.size === 0 && stopPump) {
-      stopPump();
-      stopPump = null;
-    }
+    this.#listeners = 0;
+    syncPump();
   }
 }
 
 function apply(handle: number, cmd: number, ...args: number[]): void {
   physicsOps().physicsApply(new Float64Array([handle, cmd, args.length, ...args]).buffer);
+}
+
+/** Add a handler to a set, counting it as a listener of `world`. */
+function subscribe<H>(world: World, set: Set<H>, handler: H): () => void {
+  if (set.has(handler)) return () => {};
+  set.add(handler);
+  world.listen(1);
+  return () => {
+    if (set.delete(handler)) world.listen(-1);
+  };
 }
 
 function geometry(shape: GeometrySpec): Params {
@@ -517,6 +612,7 @@ function geometry(shape: GeometrySpec): Params {
       .set(PHYSICS_KEY.y, shape.at[1])
       .set(PHYSICS_KEY.corner, shape.corner);
   } else if ("chain" in shape) {
+    limit("a chain's points", shape.chain.length, PHYSICS_MAX_POINTS);
     p.set(PHYSICS_KEY.shape, PHYSICS_SHAPE.chain).set(PHYSICS_KEY.radius, shape.radius).set(PHYSICS_KEY.closed, shape.closed);
     for (const [x, y] of shape.chain) p.set(PHYSICS_KEY.pointX, x).set(PHYSICS_KEY.pointY, y);
   } else {
@@ -538,8 +634,9 @@ export class Body {
   setVelocity(vx: number, vy: number, spin = 0): void {
     apply(this.handle, PHYSICS_CMD.velocity, vx, vy, spin);
   }
-  teleport(x: number, y: number, angle = 0): void {
-    apply(this.handle, PHYSICS_CMD.teleport, x, y, angle);
+  /** Move without sweeping; the angle stays unless one is given. */
+  teleport(x: number, y: number, angle?: number): void {
+    apply(this.handle, PHYSICS_CMD.teleport, x, y, angle ?? NaN);
   }
   /** Ballistic flight that arrives on time; ends with a `land` event. */
   launch(o: LaunchOptions): void {
@@ -556,6 +653,7 @@ export class Body {
       o.arrive ?? 0,
       o.grow ?? 0,
       o.endScale ?? 0,
+      o.solid ? 1 : 0,
     );
   }
   /** Jump off the anchor line; `stretch` squash velocity, `spin` °/s back toward rest. */
@@ -565,10 +663,10 @@ export class Body {
   kick(k: { squash?: number; lean?: number; spin?: number; pulse?: number }): void {
     apply(this.handle, PHYSICS_CMD.kick, k.squash ?? 0, k.lean ?? 0, k.spin ?? 0, k.pulse ?? 0);
   }
-  grab(x: number, y: number, o: { surface?: Surface; mode?: "tether" | "carry"; strength?: number } = {}): void {
+  grab(x: number, y: number, o: { surface?: SurfaceId; mode?: "tether" | "carry"; strength?: number } = {}): void {
     apply(this.handle, PHYSICS_CMD.grab, x, y, surfaceIndex(o.surface), PHYSICS_GRAB[o.mode ?? "tether"], o.strength ?? 0);
   }
-  drag(x: number, y: number, surface: Surface = "primary"): void {
+  drag(x: number, y: number, surface: SurfaceId = "primary"): void {
     apply(this.handle, PHYSICS_CMD.drag, x, y, surfaceIndex(surface));
   }
   release(): void {
@@ -582,8 +680,9 @@ export class Body {
   settle(vxScale: number, spinScale: number): void {
     apply(this.handle, PHYSICS_CMD.settle, vxScale, spinScale);
   }
-  setAnchor(x: number, y: number, angle = 0): void {
-    apply(this.handle, PHYSICS_CMD.anchor, x, y, angle);
+  /** Rest at a world point from now on; the rest angle stays unless given. */
+  setAnchor(x: number, y: number, angle?: number): void {
+    apply(this.handle, PHYSICS_CMD.anchor, x, y, angle ?? NaN);
   }
   wake(): void {
     apply(this.handle, PHYSICS_CMD.wake);
@@ -627,27 +726,29 @@ export class Body {
     const x = this.q(PHYSICS_QUERY.anchorX);
     return Number.isNaN(x) ? undefined : [x, this.q(PHYSICS_QUERY.anchorY)];
   }
-  get mode(): "free" | "anchored" | "flight" | "grabbed" {
-    return (["free", "anchored", "flight", "grabbed"] as const)[this.q(PHYSICS_QUERY.mode)] ?? "free";
+  get mode(): (typeof MODES)[number] {
+    const mode = this.q(PHYSICS_QUERY.mode);
+    return MODES.find((name) => PHYSICS_MODE[name] === mode) ?? "free";
   }
 
   onLand(handler: (speed: number) => void): () => void {
-    this.landHandlers.add(handler);
-    return () => this.landHandlers.delete(handler);
+    return subscribe(this.world, this.landHandlers, handler);
   }
   onHit(handler: (hit: Hit) => void): () => void {
-    this.hitHandlers.add(handler);
-    return () => this.hitHandlers.delete(handler);
+    return subscribe(this.world, this.hitHandlers, handler);
   }
   /** The body left its ghost collider. */
   onClear(handler: () => void): () => void {
-    this.clearHandlers.add(handler);
-    return () => this.clearHandlers.delete(handler);
+    return subscribe(this.world, this.clearHandlers, handler);
   }
 
   destroy(): void {
     if (!this.world.bodies.delete(this.handle)) return;
     physicsOps().physicsDestroy(this.handle);
+    this.world.listen(-(this.landHandlers.size + this.hitHandlers.size + this.clearHandlers.size));
+    this.landHandlers.clear();
+    this.hitHandlers.clear();
+    this.clearHandlers.clear();
   }
 }
 
@@ -664,16 +765,17 @@ export class Zone {
   /** @internal */ readonly leaveHandlers = new Set<(body: Body) => void>();
   constructor(readonly world: World, readonly handle: number) {}
   onEnter(handler: (body: Body) => void): () => void {
-    this.enterHandlers.add(handler);
-    return () => this.enterHandlers.delete(handler);
+    return subscribe(this.world, this.enterHandlers, handler);
   }
   onLeave(handler: (body: Body) => void): () => void {
-    this.leaveHandlers.add(handler);
-    return () => this.leaveHandlers.delete(handler);
+    return subscribe(this.world, this.leaveHandlers, handler);
   }
   destroy(): void {
     if (!this.world.zones.delete(this.handle)) return;
     physicsOps().physicsDestroy(this.handle);
+    this.world.listen(-(this.enterHandlers.size + this.leaveHandlers.size));
+    this.enterHandlers.clear();
+    this.leaveHandlers.clear();
   }
 }
 

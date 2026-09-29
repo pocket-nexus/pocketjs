@@ -204,10 +204,11 @@ message, and a combined top/bottom PNG. `dev` keeps the DevTools panel attached;
 `r` rebuilds and pushes, `s` captures both screens, and `o` opens the panel.
 
 **`devStats` carries `timingUs`: the mean and maximum microseconds of each
-frame phase over the last 60 frames** — guest JS, core tick (animation and
-physics), the two DrawList builds, PICA200 preparation and submission, and the
-frame interval — plus `slowFrames`, the count of intervals above 25 ms since
-boot.
+frame phase over the last complete 60-frame window** — guest JS, core tick
+(animation and physics), the two DrawList builds, PICA200 preparation and
+submission, and the frame interval — plus `slowFrames`, the count of intervals
+above 25 ms since boot. A frame after a recovery or a package reload starts a
+new interval and is not sampled.
 
 **One authenticated, ordered TCP connection carries every development
 message.** JSON frames contain only Pocket DevTools control and logs. Package

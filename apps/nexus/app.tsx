@@ -11,7 +11,7 @@
 // (@pocketjs/framework/physics). Per-frame JS is the event drain, the stylus
 // drag target while a toy is held, and the d-pad tilt.
 
-import { createSignal, For, onCleanup } from "solid-js";
+import { createSignal, For, onCleanup, onMount } from "solid-js";
 import { AuxiliarySurface, Image, View, type NodeMirror } from "@pocketjs/framework/components";
 import { animate } from "@pocketjs/framework/animation";
 import { after, virtualNow } from "@pocketjs/framework/clock";
@@ -28,6 +28,7 @@ import {
 
 const U = 0.58;
 const G = 2500 * U;
+const DEG = 180 / Math.PI;
 const FS = S.FS;
 const SIZE = FS / 100;
 const ROW_H = WORD_BOX.rowH;
@@ -37,10 +38,14 @@ const SPIT_AT = [0, 0.25, 0.47, 0.66, 0.83, 0.98, 1.16, 1.28, 1.39, 1.49, 1.58];
 const SPIT_TF = [0.66, 0.64, 0.62, 0.6, 0.58, 0.56, 0.56, 0.54, 0.52, 0.5, 0.5];
 const BOB = ["animate-bob-0", "animate-bob-1", "animate-bob-2", "animate-bob-3", "animate-bob-4", "animate-bob-5",
   "animate-bob-6", "animate-bob-7", "animate-bob-8", "animate-bob-9", "animate-bob-10"];
+/** Toy node slots, and the live toys kept before the oldest fades out. */
 const TOY_CAP = 12;
+const LIVE_TOYS = 10;
+/** A letter's landing squash: velocity per px/s, clamped, with a spin kick (°/s per unit). */
+const LAND = { gain: 1.55 / FS, min: 1.4, max: 6.4, spin: 9 };
 const O_INDEX = LETTER_ART.findIndex((l) => l.ch === "O");
 
-/** Pocket landmarks in world px. */
+/** Pocket landmarks in world px (scene.ts places the bottom screen in the world). */
 const PX = S.BOTTOM_X + S.POCKET_CX;
 const PTOP = S.BOTTOM_Y + S.POCKET_TOP_Y;
 const FLOOR = S.BOTTOM_Y + S.FLOOR_Y;
@@ -88,6 +93,15 @@ const rand = (a: number, b: number) => a + random() * (b - a);
 const pick = <T,>(list: readonly T[]): T => list[Math.floor(random() * list.length)];
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+/** Degrees wrapped to [-180, 180). */
+const wrapDeg = (a: number) => ((((a + 180) % 360) + 360) % 360) - 180;
+
+/** Runs `run` once the nodes before it exist; the last child of the auxiliary
+ *  surface mounts after every ref on both surfaces is set. */
+function AfterMount(props: { run: () => void }) {
+  onMount(() => props.run());
+  return null;
+}
 
 /** Style object for an absolutely placed box. */
 function box(x: number, y: number, w: number, h: number, extra: Record<string, number> = {}) {
@@ -131,15 +145,30 @@ export default function Nexus() {
   let pocketWall: Collider;
   const letters: Body[] = [];
   let burstsTop: Emitter, burstsBottom: Emitter, ambient: Emitter;
-  interface Toy { slot: number; type: ToyType; body: Body; r: number; born: number; touched: boolean; cleared: boolean; gone: boolean }
+  interface Toy {
+    slot: number; type: ToyType; body: Body; r: number; born: number;
+    touched: boolean; cleared: boolean; gone: boolean;
+    /** The side a special was aimed at; spitOut sends it back there. */
+    side: number;
+    /** Seconds a special has rested tilted. */
+    tilted: number;
+  }
   const toys: (Toy | undefined)[] = Array.from({ length: TOY_CAP }, () => undefined);
   let phase: "sleep" | "spill" | "play" = "sleep";
-  let lastPop = -1, lastInteract = 0, landed = 0, userPopped = false, spawnCount = 0, sideFlip = 1;
+  let lastPop = -1, lastInteract = 0, landed = 0, userPopped = false, spawnCount = 0, sideFlip = 1, mysteryHopAt = 0;
   let bag: ToyType[] = [];
-  const cancels: (() => void)[] = [];
-  const later = (seconds: number, fn: () => void) => cancels.push(after(seconds, fn));
+  // pending timers; each removes itself when it fires
+  const timers = new Set<() => void>();
+  function later(seconds: number, fn: () => void) {
+    const cancel = after(seconds, () => {
+      timers.delete(cancel);
+      fn();
+    });
+    timers.add(cancel);
+  }
   onCleanup(() => {
-    for (const cancel of cancels) cancel();
+    for (const cancel of timers) cancel();
+    timers.clear();
     world?.destroy();
   });
 
@@ -153,27 +182,25 @@ export default function Nexus() {
     });
     world = w;
     // the room: the top screen's walls funnel through the hinge into the
-    // bottom screen and its floor; the sky above stays open
-    const bx = S.BOTTOM_X, by = S.BOTTOM_Y, right = bx + S.BOTTOM_W;
+    // bottom screen and its floor; the top edge is a ceiling, as on the homepage
+    const [bx, by] = w.toWorld(0, 0, "auxiliary");
+    const right = bx + S.BOTTOM_W;
     w.collider({
-      shape: { chain: [[0, -900], [0, S.TOP_H], [bx, by], [bx, FLOOR], [right, FLOOR], [right, by], [S.TOP_W, S.TOP_H], [S.TOP_W, -900]], radius: 4 },
+      shape: { chain: [[0, 0], [0, S.TOP_H], [bx, by], [bx, FLOOR], [right, FLOOR], [right, by], [S.TOP_W, S.TOP_H], [S.TOP_W, 0]], radius: 4, closed: true },
       layer: 4, restitution: 1, friction: 0.75,
     });
     pocket = w.body({
       views: [backWrap!, eyesWrap!, frontWrap!],
       mass: 0,
-      position: [PX, S.BOTTOM_Y + POCKET_TOP + S.POCKET_SPRITE / 2],
-      anchor: { to: [PX, S.BOTTOM_Y + POCKET_TOP + S.POCKET_SPRITE / 2], spin: { stiffness: 170, damping: 5 } },
+      anchor: { to: "layout", spin: { stiffness: 170, damping: 5 } },
       jelly: { squash: { stiffness: 560, damping: 15, limit: 2, across: 0.12, along: 0.15 }, pivot: POCKET_PIVOT },
     });
-    const outline = S.POCKET_OUTLINE.map(([x, y]) => {
-      const [sx, sy] = S.pocketPoint(x, y);
-      return [S.BOTTOM_X + sx, S.BOTTOM_Y + sy] as const;
-    });
+    const outline = S.POCKET_OUTLINE.map(([x, y]) => w.toWorld(...S.pocketPoint(x, y), "auxiliary"));
+    // toys that strike the pocket faster than 420·U px/s rock and squash it
     pocketWall = w.collider({
       shape: { chain: outline, radius: PAD },
       layer: 4, restitution: 1, friction: 0.75,
-      owner: { body: pocket, squash: 1 / (900 * U), squashLimit: 3, spin: 57.3 / (2600 * U), spinLimit: 52 },
+      owner: { body: pocket, squash: 1 / (900 * U), squashLimit: 3, spin: DEG / (2600 * U), spinLimit: 0.9 * DEG, minSpeed: 420 * U },
     });
     const inside = w.zone({ shape: { chain: outline, closed: true }, mask: 1 });
     inside.onEnter((body) => {
@@ -193,7 +220,7 @@ export default function Nexus() {
     w.collider({
       shape: { box: [(LEDE_BOX.r - LEDE_BOX.l) / 2 + 4, (LEDE_BOX.b - LEDE_BOX.t) / 2 + 1], at: [LEDE_LEFT + (LEDE_BOX.l + LEDE_BOX.r) / 2, LEDE_TOP + (LEDE_BOX.t + LEDE_BOX.b) / 2], corner: 4 },
       layer: 4, restitution: 1, friction: 0.75,
-      owner: { body: ledeBody, squash: 1 / 1400, squashLimit: 1, spin: 0.03, spinLimit: 40 },
+      owner: { body: ledeBody, squash: 1 / 1400, squashLimit: 1, spin: 0.03, spinLimit: 40, minSpeed: 260 * U },
     });
 
     // letters: parked in the pocket until the spill
@@ -212,8 +239,8 @@ export default function Nexus() {
         jelly: {
           squash: { stiffness: 540, damping: 12, limit: 0.42, across: 0.6, along: 1 },
           impact: 8 / FS,
-          land: { gain: 1.55 / FS, min: 1.4, max: 6.4, spin: 9 },
-          lean: { stiffness: 320, damping: 11, gain: 3.2 / FS, limit: 14, impact: 2.2 / FS },
+          land: LAND,
+          lean: { stiffness: 320, damping: 11, gain: 3.2 / FS, limit: 14, impact: (2.2 / FS) * DEG },
           pulse: { stiffness: 340, damping: 20 },
           stretch: { gain: 0.055 / FS, limit: 0.16 },
           pivot: l.ih * 0.44,
@@ -223,7 +250,7 @@ export default function Nexus() {
       body.onHit((hit) => {
         if (hit.speed > 520 * U) {
           // sparks fly off the letter, back toward the toy
-          burstsTop.burst(hit.x, hit.y, 4, { angle: Math.atan2(-hit.ny, -hit.nx) * 57.3, spread: 120, speed: 0.6 });
+          burstsTop.burst(hit.x, hit.y, 4, { angle: Math.atan2(-hit.ny, -hit.nx) * DEG, spread: 120, speed: 0.6 });
           if (i === O_INDEX && hit.speed > 850 * U) faceFor("wince", 0.6);
         }
       });
@@ -252,6 +279,7 @@ export default function Nexus() {
     scheduleIdle();
     scheduleBlink();
     peekSoon(1.2);
+    tendSpecials();
   }
 
   // -- the pocket ------------------------------------------------------------------------
@@ -337,16 +365,17 @@ export default function Nexus() {
     flash();
     pocketBurst(9);
   }
+  // every landing nudges the row neighbours; the spill's arrivals also throw sparks
   function letterLanded(i: number, speed: number) {
-    const [x, y] = letters[i].home ?? [letters[i].x, letters[i].y];
-    const kick = clamp((speed / FS) * 1.55, 1.4, 6.4);
+    const kick = clamp(speed * LAND.gain, LAND.min, LAND.max);
     for (const n of [i - 1, i + 1]) {
       if (n < 0 || n >= letters.length || (i < S.ROW_SPLIT) !== (n < S.ROW_SPLIT) || !shown()[n]) continue;
       letters[n].kick({ squash: kick * 0.38 });
       letters[n].impulse(0, FS * kick * 0.09);
     }
-    burstsTop.burst(x, y + LETTER_ART[i].ih * 0.4, 5, { angle: -90, spread: 150, speed: 0.45 });
     if (phase === "spill") {
+      const [x, y] = letters[i].home ?? [letters[i].x, letters[i].y];
+      burstsTop.burst(x, y + LETTER_ART[i].ih * 0.4, 5, { angle: -90, spread: 150, speed: 0.45 });
       landed++;
       if (haze) animate(haze, "opacity", landed / LETTER_ART.length, { dur: 400, easing: "out" });
       if (i === O_INDEX) wake();
@@ -383,9 +412,13 @@ export default function Nexus() {
   function wave() {
     if (phase !== "play") return;
     lastInteract = virtualNow();
+    // a ripple along the word, spins alternating letter to letter
     letters.forEach((body, j) => {
       later(j * 0.055, () => body.kick({ squash: 3 }));
-      later(j * 0.055 + 0.09, () => body.hop(FS * 2.5, 5, 70));
+      later(j * 0.055 + 0.09, () => {
+        body.hop(FS * 2.5, 5);
+        body.kick({ spin: (j % 2 ? 1 : -1) * 70 });
+      });
     });
     faceFor("happy", 0.9);
   }
@@ -416,36 +449,40 @@ export default function Nexus() {
     }
     return bag.pop()!;
   }
+  /** A free node slot; else the oldest leaving toy's, else the oldest ordinary toy's. */
   function freeSlot(): number {
     const free = toys.findIndex((t) => !t);
     if (free >= 0) return free;
-    // recycle the oldest ordinary toy
-    let oldest = -1;
-    for (let i = 0; i < TOY_CAP; i++) {
-      const t = toys[i]!;
-      if (!TOYS[t.type].special && !t.gone && (oldest < 0 || t.born < toys[oldest]!.born)) oldest = i;
-    }
-    if (oldest < 0) oldest = 0;
-    remove(toys[oldest]!);
-    return oldest;
+    const oldest = (ok: (t: Toy) => boolean) =>
+      toys.reduce<Toy | undefined>((best, t) => (t && ok(t) && (!best || t.born < best.born) ? t : best), undefined);
+    const toy = oldest((t) => t.gone) ?? oldest((t) => !TOYS[t.type].special) ?? toys[0]!;
+    discard(toy);
+    return toy.slot;
   }
-  function remove(toy: Toy) {
+  function discard(toy: Toy) {
     toy.gone = true;
-    setAt(toyOn, setToyOn, toy.slot, false);
     toy.body.destroy();
-    if (toys[toy.slot] === toy) toys[toy.slot] = undefined;
     if (grabbed === toy) grabbed = undefined;
+    if (toys[toy.slot] !== toy) return;
+    toys[toy.slot] = undefined;
+    setAt(toyOn, setToyOn, toy.slot, false);
   }
   function fadeOut(toy: Toy) {
-    if (toy.gone) return;
     toy.gone = true;
     animate(toyBottom[toy.slot], "opacity", 0, { dur: 600 });
     animate(toyTop[toy.slot], "opacity", 0, { dur: 600 });
-    later(0.62, () => {
-      toy.body.destroy();
-      if (toys[toy.slot] === toy) toys[toy.slot] = undefined;
-      setAt(toyOn, setToyOn, toy.slot, false);
-    });
+    later(0.6, () => discard(toy));
+  }
+  /** Past LIVE_TOYS, the oldest ordinary toy that is not held fades out. */
+  function enforceCap() {
+    const live = toys.filter((t): t is Toy => !!t && !t.gone).sort((a, b) => a.born - b.born);
+    let excess = live.length - LIVE_TOYS;
+    for (const toy of live) {
+      if (excess <= 0) break;
+      if (TOYS[toy.type].special || toy === grabbed) continue;
+      fadeOut(toy);
+      excess--;
+    }
   }
   function makeToy(type: ToyType, x: number, y: number, vx: number, vy: number, spin: number): Toy {
     const def = TOYS[type];
@@ -465,22 +502,27 @@ export default function Nexus() {
       pickable: true, ghost: pocketWall, layer: 1, mask: 7,
       position: [x, y], velocity: [vx, vy], spin, angle: rand(-20, 20),
       maxSpin: 1600,
-      anchor: def.special ? { to: [0, 0], axes: ["angle"], spin: { stiffness: 16, damping: 1.4 } } : undefined,
+      // specials turn upright in the air; resting, tendSpecials hops them upright
+      anchor: def.special ? { to: [0, 0], axes: ["angle"], spin: { stiffness: 16, damping: 1.4 }, free: true } : undefined,
       jelly: {
         squash: { stiffness: 900, damping: 20, limit: 0.35, across: 0.65, along: 1, axis: "impact" },
         dent: { gain: 1 / (5200 * U), limit: 0.3 },
+        minSpeed: 260 * U,
       },
     });
-    const toy: Toy = { slot, type, body, r, born: virtualNow(), touched: false, cleared: false, gone: false };
+    const toy: Toy = { slot, type, body, r, born: virtualNow(), touched: false, cleared: false, gone: false, side: 0, tilted: 0 };
+    if (type === "mystery") mysteryHopAt = virtualNow() + rand(4, 8);
     body.onClear(() => { toy.cleared = true; });
     body.onHit((hit) => {
       if (hit.speed > 1100 * U && hit.ny < -0.7) burstsBottom.burst(hit.x, hit.y, 3, { angle: -90, spread: 90, speed: 0.35 });
     });
     toys[slot] = toy;
+    enforceCap();
     return toy;
   }
-  /** Out of the mouth on an arc that lands beside the pocket; now and then high enough to reach the top screen. */
-  function spawn(type: ToyType, aim = 0, flat = false): Toy {
+  /** Out of the mouth on an arc that lands beside the pocket; now and then high
+   *  enough to reach the top screen. `aim` in [-1, 1] picks the side and distance. */
+  function spawn(type: ToyType, aim = 0, flat = false, spinScale = 1): Toy {
     const def = TOYS[type];
     const r = S.TOY_R * def.size;
     const x = PX + rand(-0.1, 0.1) * PW, y = PTOP + r * 0.25;
@@ -496,39 +538,66 @@ export default function Nexus() {
     let vx = dist / tf;
     const need = (PW / 2 + r + 12) / ((2 * -vy) / G);
     if (Math.abs(vx) < need) vx = side * need;
-    const spin = side * (def.special ? rand(0.5, 2) : rand(2, 9)) * 57.3;
+    const spin = side * (def.special ? rand(0.5, 2) : rand(2, 9)) * DEG * spinScale;
     return makeToy(type, x, y, vx, vy, spin);
   }
+  // the spill's specials plop down beside the pocket and stay near where they land
   function popSpecial(type: ToyType, aim: number) {
     pocket.kick({ squash: -11 });
     flash();
-    const toy = spawn(type, aim, true);
+    const toy = spawn(type, aim, true, 0.4);
+    toy.side = Math.sign(aim);
     toy.body.settle(0.22, 0.15);
     pocketBurst(8);
   }
   function spitOut(toy: Toy) {
     const vy = rand(700, 860) * U;
-    const side = Math.abs(toy.body.x - PX) > 4 ? Math.sign(toy.body.x - PX) : pick([-1, 1]);
+    const side = toy.side || (Math.abs(toy.body.x - PX) > 4 ? Math.sign(toy.body.x - PX) : pick([-1, 1]));
     const need = (PW / 2 + toy.r + 16) / ((2 * vy) / G);
-    toy.body.teleport(toy.body.x, Math.min(toy.body.y, PTOP - PAD - toy.r * 0.6), toy.body.angle);
-    toy.body.setVelocity(side * Math.max(need, rand(180, 320) * U), -vy, side * rand(4, 9) * 57.3);
+    toy.body.teleport(toy.body.x, Math.min(toy.body.y, PTOP - PAD - toy.r * 0.6));
+    toy.body.setVelocity(side * Math.max(need, rand(180, 320) * U), -vy, side * rand(4, 9) * DEG);
     toy.body.kick({ squash: 8 });
     pocket.kick({ squash: 7 });
     flash();
   }
+  // into the mouth over 0.38 s: x eases in, y falls as t², the toy turns 6 rad/s and shrinks to half
   function swallow(toy: Toy) {
     if (grabbed === toy) release();
     toy.gone = true;
     const x = toy.body.x, y = toy.body.y;
-    toy.body.launch({ from: [x, y], to: [PX + (x - PX) * 0.3, PTOP + toy.r * 1.4], duration: 0.38, turn: 300, arrive: 0, endScale: 0.5 });
-    toy.body.onLand(() => {
-      setAt(toyOn, setToyOn, toy.slot, false);
-      toy.body.destroy();
-      if (toys[toy.slot] === toy) toys[toy.slot] = undefined;
-    });
+    const to: [number, number] = [PX + (x - PX) * 0.3, PTOP + toy.r * 1.4];
+    toy.body.launch({ from: [x, y], to, duration: 0.38, turn: 6 * 0.38 * DEG, arrive: (2 * (to[1] - y)) / 0.38, endScale: 0.5 });
+    toy.body.onLand(() => discard(toy));
     pocket.kick({ squash: 5 });
     peek(1.2, true);
     for (let i = 0; i < 5; i++) ambient.burst(PX + rand(-0.2, 0.2) * PW, PTOP - 6, 1, { angle: -90, spread: 50, speed: rand(3, 5) });
+  }
+  // a special resting tilted past 0.45 rad for 0.8 s hops and turns upright
+  // over its flight; the mystery box also hops now and then
+  function tendSpecials() {
+    const step = 0.2;
+    later(step, () => {
+      for (const toy of toys) {
+        if (!toy || toy.gone || toy === grabbed || !TOYS[toy.type].special) continue;
+        const b = toy.body;
+        const off = wrapDeg(b.angle);
+        if (b.speed < 45 * U && Math.abs(b.spin) < 1.5 * DEG && Math.abs(off) > 0.45 * DEG) {
+          toy.tilted += step;
+          if (toy.tilted > 0.8) {
+            const vy = 560 * U;
+            b.setVelocity(b.vx, -vy, -off / ((2 * vy) / G));
+            b.kick({ squash: 3 });
+            toy.tilted = 0;
+          }
+        } else toy.tilted = 0;
+        if (toy.type === "mystery" && virtualNow() > mysteryHopAt) {
+          mysteryHopAt = virtualNow() + rand(4, 8);
+          const g = b.grounded;
+          if (g >= 0 && g < 0.1 && Math.abs(b.vy) < 40) b.setVelocity(b.vx, -rand(280, 420) * U, b.spin + rand(-3, 3) * DEG);
+        }
+      }
+      tendSpecials();
+    });
   }
   function tapToy(toy: Toy) {
     const b = toy.body;
@@ -574,7 +643,7 @@ export default function Nexus() {
         pocket.press(0.75);
         return;
       }
-      burstsBottom.burst(S.BOTTOM_X + c.x, S.BOTTOM_Y + c.y, 6, { angle: 0, spread: 360, speed: 0.28 });
+      burstsBottom.burst(...world.toWorld(c.x, c.y, "auxiliary"), 6, { angle: 0, spread: 360, speed: 0.28 });
       if (downAt - lastTap.t < 0.34 && Math.hypot(c.x - lastTap.x, c.y - lastTap.y) < 40) {
         wave();
         lastTap = { t: -1, x: 0, y: 0 };
@@ -615,12 +684,7 @@ export default function Nexus() {
   onButtonPress(BTN.CROSS, () => { if (phase === "play") { lastInteract = virtualNow(); hop(Math.floor(random() * letters.length), 1); } });
   let tilt = 0;
   onFrame((buttons) => {
-    if (!world) {
-      const ready = sticker.length === LETTER_ART.length && ghost.length === LETTER_ART.length && burstBottom.length > 0 &&
-        toyBottom.length === TOY_CAP && toyTop.length === TOY_CAP && backWrap && eyesWrap && frontWrap && lede;
-      if (ready) setup();
-      return;
-    }
+    if (!world) return;
     // d-pad or shoulders tilt the world
     const left = buttons & (BTN.LEFT | BTN.LTRIGGER), right = buttons & (BTN.RIGHT | BTN.RTRIGGER);
     const next = (right ? 1 : 0) - (left ? 1 : 0);
@@ -705,6 +769,7 @@ export default function Nexus() {
           <View style={box(S.POCKET_CX - 34, S.POCKET_TOP_Y - 70, 128, 64)}>
             <Image ref={(el) => (hint = el)} class="animate-nudge" src={HINT_ART} style={box(0, 0, 128, 64)} />
           </View>
+          <AfterMount run={setup} />
         </View>
       </AuxiliarySurface>
     </View>

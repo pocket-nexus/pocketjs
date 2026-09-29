@@ -384,6 +384,7 @@ impl Resolved {
     /// don't count: TEXT_RUN places its box exactly under them.
     pub fn declares_transform(&self) -> bool {
         self.rotate != 0.0
+            || self.skew_x != 0.0
             || self.scale != 1.0
             || self.scale_x != 1.0
             || self.scale_y != 1.0
@@ -582,9 +583,24 @@ pub fn resolve_z(node: &Node, table: &StyleTable) -> i32 {
 }
 
 /// Resolve a node's effective style. `with_anim` controls whether live
-/// animation values participate (they do for painting/"from = current"; they
-/// don't when computing a transition's target).
+/// animation values and the physics layer participate (they do for layout,
+/// painting and hit testing; they don't when computing a transition's
+/// target). Animation start values use `resolve_animated`, which leaves the
+/// physics layer out.
 pub fn resolve(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
+    let mut r = resolve_animated(node, table, with_anim);
+    if with_anim {
+        for &(p, v) in &node.physics_values {
+            r.apply(p, v);
+        }
+    }
+    r
+}
+
+/// Style, overrides and (with `with_anim`) animation tracks, without the
+/// physics layer: the values animations and transitions start from, so a
+/// body's pose never leaks into a view's own animation state.
+pub fn resolve_animated(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
     let mut r = Resolved::default();
     if let Some(rec) = table.record(node.style_id) {
         for &(p, v) in &rec.base {

@@ -91,7 +91,9 @@ runEffect<Receipt>("order", { items }, (receipt) => setReceipt(receipt));
 
 A command goes out; the result comes back as a **frame-boundary delivery** —
 queued whenever the driver produces it, applied at the start of the next
-virtual frame, before app hooks, FIFO. Deliveries are data in the frame
+virtual frame, before app hooks, FIFO. Physics events (`ui.physics`) enter
+the same way: the core records them during the ticks of frame N, and the
+service pump drains and dispatches them at the start of frame N+1. Deliveries are data in the frame
 transaction, not scheduler weather. The API is callback-based on purpose:
 promise resolution is timed by the microtask queue, which is a hidden input
 owned by the JS scheduler — exactly what the shell exists to exclude.

@@ -104,7 +104,7 @@ static uint32_t frame_dropped_vertices;
 static char stats_json[1024];
 
 /* Frame phase timing: the last complete 60-frame window's means and maxima,
- * plus a running count of frames longer than two vblanks' worth of budget. */
+ * plus a running count of frame intervals above 25 ms (1.5 vblanks at 60 Hz). */
 enum { TIMING_PHASES = 5, TIMING_WINDOW = 60 };
 static uint32_t timing_sum[TIMING_PHASES];
 static uint32_t timing_max[TIMING_PHASES];

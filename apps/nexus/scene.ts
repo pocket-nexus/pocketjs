@@ -61,8 +61,8 @@ export const POCKET_TOP_Y = POCKET_TIP_Y - POCKET_PH;
 export const POCKET_SPRITE = 128;
 export const POCKET_TIP_IN_SPRITE = 108;
 
-/** Base toy radius in px; a toy type scales it. */
-export const TOY_R = 20;
+/** Base toy radius in px (the homepage's 36 at its 0.58 phone scale); a toy type scales it. */
+export const TOY_R = 21;
 export const TOY_SPRITE = 64;
 export const PARTICLE_SPRITE = 16;
 

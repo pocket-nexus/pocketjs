@@ -56,9 +56,11 @@ import {
   PHYSICS_AXIS,
   PHYSICS_CMD,
   PHYSICS_EVENT,
+  PHYSICS_EVENT_BACKLOG,
   PHYSICS_EVENT_MAX,
   PHYSICS_EVENT_WORDS,
   PHYSICS_GRAB,
+  PHYSICS_HANDLE_GEN_MASK,
   PHYSICS_HANDLE_GEN_SHIFT,
   PHYSICS_HANDLE_KIND_SHIFT,
   PHYSICS_HANDLE_SLOT_MASK,
@@ -68,6 +70,7 @@ import {
   PHYSICS_MAX_POOL,
   PHYSICS_MAX_TEXTURES,
   PHYSICS_MAX_VIEWS,
+  PHYSICS_MODE,
   PHYSICS_QUERY,
   PHYSICS_SCALE_CURVE,
   PHYSICS_SHAPE,
@@ -621,8 +624,10 @@ export function generateRust(): string {
   group("KIND_", PHYSICS_KIND, "u32");
   put(`    pub const HANDLE_KIND_SHIFT: u32 = ${PHYSICS_HANDLE_KIND_SHIFT};`);
   put(`    pub const HANDLE_GEN_SHIFT: u32 = ${PHYSICS_HANDLE_GEN_SHIFT};`);
-  put(`    pub const HANDLE_SLOT_MASK: u32 = ${hex(PHYSICS_HANDLE_SLOT_MASK, 5)};`);
-  group("SURFACE_", PHYSICS_SURFACE, "u32");
+  put(`    pub const HANDLE_GEN_MASK: u32 = ${hex(PHYSICS_HANDLE_GEN_MASK, 3)};`);
+  put(`    pub const HANDLE_SLOT_MASK: u32 = ${hex(PHYSICS_HANDLE_SLOT_MASK, 4)};`);
+  group("SURFACE_", PHYSICS_SURFACE, "usize");
+  group("MODE_", PHYSICS_MODE, "u32");
   group("SHAPE_", PHYSICS_SHAPE, "u32");
   group("ANCHOR_", PHYSICS_ANCHOR, "u32");
   group("AXIS_", PHYSICS_AXIS, "u32");
@@ -635,6 +640,7 @@ export function generateRust(): string {
   group("EVENT_", PHYSICS_EVENT, "u32");
   put(`    pub const EVENT_WORDS: usize = ${PHYSICS_EVENT_WORDS};`);
   put(`    pub const EVENT_MAX: usize = ${PHYSICS_EVENT_MAX};`);
+  put(`    pub const EVENT_BACKLOG: usize = ${PHYSICS_EVENT_BACKLOG};`);
   group("QUERY_", PHYSICS_QUERY, "u32");
   put(`    pub const MAX_VIEWS: usize = ${PHYSICS_MAX_VIEWS};`);
   put(`    pub const MAX_POOL: usize = ${PHYSICS_MAX_POOL};`);

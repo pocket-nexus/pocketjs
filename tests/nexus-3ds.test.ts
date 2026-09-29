@@ -1,7 +1,17 @@
-import { beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createWasmUi } from "../hosts/web/wasm-ops.js";
-import { PHYSICS_KIND, PHYSICS_QUERY as Q } from "../contracts/spec/physics.ts";
-import { LETTER_ART } from "../apps/nexus/art.ts";
+import {
+  PHYSICS_HANDLE_GEN_SHIFT,
+  PHYSICS_HANDLE_KIND_SHIFT,
+  PHYSICS_KIND,
+  PHYSICS_MODE,
+  PHYSICS_QUERY as Q,
+} from "../contracts/spec/physics.ts";
+import { WORD_BOX } from "../apps/nexus/art.ts";
+import { WORD, WORD_TOP } from "../apps/nexus/scene.ts";
 
 // apps/nexus on the wasm core with the 3DS geometry: a 400x240 primary and a
 // 320x240 auxiliary surface, the guest the 3ds-dev build ships, and a stylus
@@ -9,12 +19,26 @@ import { LETTER_ART } from "../apps/nexus/art.ts";
 // the whole run must be a pure function of the tape.
 
 const ROOT = new URL("..", import.meta.url).pathname;
-const GUEST = `${ROOT}dist/3ds/guest/pocket-nexus`;
+const OUT = mkdtempSync(join(tmpdir(), "pocketjs-nexus-"));
+const GUEST = join(OUT, "guest", "nexus-main");
+const GLOBALS = ["ui", "__pak", "__simHz", "frame"] as const;
+const saved = new Map(GLOBALS.map((key) => [key, (globalThis as any)[key]]));
 
 beforeAll(() => {
-  const build = Bun.spawnSync([process.execPath, "tools/3ds.ts", "nexus", "--pocket-only"], { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawnSync(
+    [process.execPath, "tools/3ds.ts", "nexus", "--pocket-only", `--outdir=${join(OUT, "guest")}`, `--package-outdir=${OUT}`],
+    { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
+  );
   if (build.exitCode !== 0) throw new Error(`nexus guest build failed\n${build.stdout}${build.stderr}`);
 }, 120_000);
+
+afterAll(() => {
+  for (const [key, value] of saved) (globalThis as any)[key] = value;
+  rmSync(OUT, { recursive: true, force: true });
+});
+
+/** A handle the core issued for the object in `slot`, first generation. */
+const handle = (kind: number, slot: number) => (kind << PHYSICS_HANDLE_KIND_SHIFT) | (0 << PHYSICS_HANDLE_GEN_SHIFT) | slot;
 
 async function run(frames: number, tape: Record<number, [number, number] | null>, probe: (frame: number, ops: any, wasm: any) => void) {
   const wasm = await createWasmUi(await Bun.file(`${ROOT}hosts/web/pocketjs.wasm`).arrayBuffer(), { width: 400, height: 240, auxiliary: [320, 240] });
@@ -55,18 +79,17 @@ test("tapping the pocket spills POCKET NEXUS into its slots on the top screen", 
     if (frame === 299) after = w.render().slice();
   });
   expect(before).not.toBe(hash(after!));
-  // the letters' bodies: kind-tagged handles, generation 0, slots in creation order
-  const world = (PHYSICS_KIND.world << 28) | 1;
-  const q = (query: number, handle: number) => wasm.ops.physicsQuery!(query, handle);
-  const anchored: number[] = [];
+  // the app's world is the first one created; its letters are the anchored
+  // bodies whose rest positions lie in the wordmark block
+  const world = handle(PHYSICS_KIND.world, 1);
+  const q = (query: number, h: number) => wasm.ops.physicsQuery!(query, h);
+  const letters: number[] = [];
   for (let slot = 1; slot < 64; slot++) {
-    const handle = (PHYSICS_KIND.body << 28) | slot;
-    if (q(Q.mode, handle) === 1) anchored.push(handle);
+    const body = handle(PHYSICS_KIND.body, slot);
+    const y = q(Q.anchorY, body);
+    if (q(Q.mode, body) === PHYSICS_MODE.anchored && y > WORD_TOP && y < WORD_TOP + WORD_BOX.h) letters.push(body);
   }
-  // the pocket rests below the hinge and the lede under the wordmark; the
-  // letters are the anchored bodies in the top screen's upper half
-  const letters = anchored.filter((b) => q(Q.y, b) < 140);
-  expect(letters.length).toBe(LETTER_ART.length);
+  expect(letters.length).toBe(WORD.length);
   for (const b of letters) {
     expect(q(Q.speed, b)).toBeLessThan(40); // settled, not flying
     expect(q(Q.airborne, b)).toBe(0);

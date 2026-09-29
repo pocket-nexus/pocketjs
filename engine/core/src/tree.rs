@@ -62,6 +62,9 @@ pub struct Node {
     /// only while a track runs on (node, prop); completion/cancel migrates or
     /// removes them (see lib.rs).
     pub anim_values: Vec<(u8, u32)>,
+    /// Poses a physics body or emitter writes (ui.physics), applied after
+    /// `anim_values`. Only the physics module writes or clears this layer.
+    pub physics_values: Vec<(u8, u32)>,
     /// UTF-8 content (text nodes only).
     pub text: String,
     /// Uploaded texture handle (image nodes only; -1 = none). For an animated
@@ -107,6 +110,7 @@ impl Node {
             style_initialized: false,
             overrides: Vec::new(),
             anim_values: Vec::new(),
+            physics_values: Vec::new(),
             text: String::new(),
             tex: -1,
             compositor_surface: -1,
