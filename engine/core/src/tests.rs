@@ -342,6 +342,23 @@ fn tex_tri_runs(words: &[u32]) -> Vec<(u32, usize)> {
 // ---- tests ---------------------------------------------------------------------
 
 #[test]
+fn layout_rounds_like_the_no_std_device_build() {
+    // Taffy's std build rounds 0.49999997 as floor(0.49999997 + 0.5) = 1; its
+    // no_std build, used on every device, rounds it to 0. Host tests must
+    // observe the device result.
+    let mut ui = Ui::new();
+    let parent = ui.create_node(spec::NodeType::View as u8);
+    ui.set_prop(parent, spec::prop::PADDING_L, 0.49999997);
+    ui.insert_before(spec::ROOT_ID, parent, 0);
+    let child = ui.create_node(spec::NodeType::View as u8);
+    ui.set_prop(child, spec::prop::WIDTH, 10.0);
+    ui.set_prop(child, spec::prop::HEIGHT, 10.0);
+    ui.insert_before(parent, child, 0);
+    ui.draw();
+    assert_eq!(ui.layout_of(child).unwrap().0, 0.0);
+}
+
+#[test]
 fn arena_id_reuse_and_stale_id_noop() {
     let mut ui = Ui::new();
     let a = ui.create_node(spec::NodeType::View as u8);

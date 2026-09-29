@@ -17,7 +17,7 @@ pocketjs-render-rgb565 = { path = "../../../../engine/backends/rgb565" }
 
 [features]
 default = ["std"]
-std = ["pocketjs-core/std", "pocketjs-idf-runtime/std", "pocketjs-render-rgb565/std"]
+std = ["pocketjs-idf-runtime/std"]
 
 [profile.release]
 codegen-units = 16

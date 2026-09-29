@@ -6,7 +6,7 @@
 //! plane batches glyphs and alpha-only quads, so antialiasing never requires
 //! a 32-bit color framebuffer.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 

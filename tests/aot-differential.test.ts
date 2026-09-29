@@ -16,7 +16,7 @@ test("Solid and Rust agree frame by frame on keyed dispatch, owned events and li
   await Bun.write(resolve(run, "src/generated.rs"), emitAot(program).files["app.rs"]!);
   await Bun.write(resolve(run, "src/main.rs"), Bun.file(resolve(fixture, "native.rs")));
   await Bun.write(resolve(run, "styles.bin"), new Uint8Array(program.styles.bytes));
-  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="aot-differential"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\nserde_json="1"\n`);
+  await Bun.write(resolve(run, "Cargo.toml"), `[package]\nname="aot-differential"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))}}\nserde_json="1"\n`);
   const wasmBuild = Bun.spawnSync([process.execPath, "tools/wasm.ts"], { stdout: "pipe", stderr: "pipe" });
   await Bun.write(resolve(run, "wasm-build.log"), wasmBuild.stdout.toString() + wasmBuild.stderr.toString());
   expect(wasmBuild.exitCode, wasmBuild.stderr.toString()).toBe(0);

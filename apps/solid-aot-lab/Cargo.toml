@@ -9,10 +9,6 @@ publish = false
 [dependencies]
 microts = { path = "../../engine/crates/microts" }
 
-[features]
-default = []
-std = ["microts/std"]
-
 [profile.dev]
 overflow-checks = false
 

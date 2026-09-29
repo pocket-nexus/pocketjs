@@ -8,11 +8,7 @@ publish = false
 [dependencies]
 pocketjs-core = { path = "../../core" }
 
-[dev-dependencies]
-pocketjs-core = { path = "../../core", features = ["std"] }
-
 [features]
 default = []
-std = ["pocketjs-core/std"]
 
 [workspace]

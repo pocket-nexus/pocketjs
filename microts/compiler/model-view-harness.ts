@@ -32,7 +32,7 @@ export function check(){try{const frames=[];for(const sample of tape){globalThis
   if(!build.success)throw new Error(build.logs.join("\n"));const bundle=resolve(run,"oracle.mjs");await Bun.write(bundle,build.outputs[0]!);
   const javascript=(await import(bundle)).check();
   await Bun.write(resolve(run,"javascript.json"),JSON.stringify(javascript,null,2));
-  await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-view-frame"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\nserde_json="1"\n`);
+  await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-view-frame"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))}}\nserde_json="1"\n`);
   await Bun.write(resolve(run,"src/main.rs"),`
 mod gen; use gen::*; use microts::{Host,Ui,Input,NodeId,Cmd}; use serde_json::{json,Value}; use std::cell::RefCell;
 thread_local!{static COMMANDS:RefCell<Vec<String>>=const{RefCell::new(Vec::new())};}

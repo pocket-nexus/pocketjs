@@ -105,7 +105,7 @@ export async function executeModelRust(fixtures: readonly ModelHarnessCase[], op
   mkdirSync(resolve(directory, "src"), { recursive: true });
   // Cargo releases the build lock before launching the binary. Give concurrent
   // runs separate executables while sharing their compiled dependencies.
-  writeFileSync(resolve(directory, "Cargo.toml"), `[package]\nname="model-aot-differential-${identity}"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std","model-trace"]}\nserde_json="1"\n`);
+  writeFileSync(resolve(directory, "Cargo.toml"), `[package]\nname="model-aot-differential-${identity}"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["model-trace"]}\nserde_json="1"\n`);
   const modules: string[] = [], invocations: string[] = [];
   fixtures.forEach((fixture, index) => {
     const root = fixture.program.modules.find(module => module.kind === "root")!;

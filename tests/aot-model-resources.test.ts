@@ -7,7 +7,7 @@ import { buildAot } from "../microts/compiler/aot-build.ts";
 test("the compiled Solid lab model and view stay below the 24 MiB allocation cap", async () => {
   await buildAot("solid-aot-lab", { strict: true });
   const run=resolve(".pocket-build/validation/model-aot/resources",String(Date.now()));await mkdir(resolve(run,"src"),{recursive:true});
-  await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-resource-lab"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket-solid-aot-lab={path=${JSON.stringify(resolve("apps/solid-aot-lab"))},features=["std"]}\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))},features=["std"]}\nserde_json="1"\n`);
+  await Bun.write(resolve(run,"Cargo.toml"),`[package]\nname="model-resource-lab"\nversion="0.0.0"\nedition="2021"\n[workspace]\n[dependencies]\npocket-solid-aot-lab={path=${JSON.stringify(resolve("apps/solid-aot-lab"))}}\nmicrots={path=${JSON.stringify(resolve("engine/crates/microts"))}}\nserde_json="1"\n`);
   await Bun.write(resolve(run,"src/main.rs"),`
 use std::alloc::{GlobalAlloc,Layout,System};use std::sync::atomic::{AtomicUsize,Ordering};use std::time::Instant;
 use pocket_solid_aot_lab::{LabApp,AppModel,AppViewModel};use microts::{Ui,Input,NodeId};

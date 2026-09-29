@@ -26,7 +26,7 @@
 //! dynamic override. `cancel_anim` freezes the current value as a dynamic
 //! override.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 

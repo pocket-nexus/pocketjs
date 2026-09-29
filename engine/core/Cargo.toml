@@ -21,12 +21,5 @@ taffy = { version = "0.11", default-features = false, features = [
     "content_size",
 ] }
 
-[dev-dependencies]
-# Self-dependency with `std` so `cargo test` builds the test harness against
-# the std-enabled crate while normal builds stay no_std (default features off).
-pocketjs-core = { path = ".", features = ["std"] }
-
 [features]
 default = []
-# Host-test convenience: links std (and taffy's std) instead of no_std+alloc.
-std = ["taffy/std"]

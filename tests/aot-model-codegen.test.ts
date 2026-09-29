@@ -54,7 +54,7 @@ function counter(): ModelProgram {
 export function checkModelRust(name: string, source: string, harness: string) {
   const directory = `${output}/${name}`;
   mkdirSync(`${directory}/src`, { recursive: true });
-  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "model-aot-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/crates/microts"))}, features = ["std"] }\n`);
+  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "model-aot-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/crates/microts"))} }\n`);
   writeFileSync(`${directory}/src/model.rs`, source);
   writeFileSync(`${directory}/src/lib.rs`, `mod model;\nuse model::*;\nuse microts::{Cmd, Ready};\n${harness}`);
   const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, CARGO_TARGET_DIR: `${output}/target` } });

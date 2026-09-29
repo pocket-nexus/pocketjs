@@ -65,7 +65,7 @@ pocket-ui-wgpu = { path = "crates/pocket-ui-wgpu" }
 pocket-vrm = { path = "crates/pocket-vrm" }
 pocket-widget = { path = "crates/pocket-widget" }
 microts = { path = "crates/microts" }
-pocketjs-core = { path = "core", features = ["std"] }
+pocketjs-core = { path = "core" }
 rquickjs = "0.12"
 
 wgpu = "25"

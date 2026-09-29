@@ -17,4 +17,4 @@ repository = "https://github.com/pocket-nexus/pocketjs"
 gpui = "0.2.2"
 image = "0.25"
 smallvec = "1"
-pocketjs-core = { path = "../../core", features = ["std"] }
+pocketjs-core = { path = "../../core" }

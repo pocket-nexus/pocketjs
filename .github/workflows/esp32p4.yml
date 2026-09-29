@@ -31,4 +31,4 @@ jobs:
         run: cargo test --locked --manifest-path engine/core/Cargo.toml
 
       - name: Test ESP32-P4 DrawList backend
-        run: cargo test --locked --manifest-path engine/backends/rgb565/Cargo.toml --features std
+        run: cargo test --locked --manifest-path engine/backends/rgb565/Cargo.toml
