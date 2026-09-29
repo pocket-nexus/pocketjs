@@ -423,3 +423,5 @@ capture-maintenance rules are recorded in
 
 PocketJS is [MIT licensed](./LICENSE). Inter is vendored under the OFL in
 [`assets/fonts/`](./assets/fonts/).
+
+Hello, world!
