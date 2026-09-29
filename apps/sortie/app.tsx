@@ -5,9 +5,10 @@
 // The cut list (CUTS below) is 100 beats at 150 BPM — 40.000 s at 60 Hz, the
 // same grid ./gen-score.ts writes the soundtrack on. Cuts are scheduled on the
 // virtual clock (`after`, framework/src/clock.ts), so the picture is a pure
-// function of the frame index on every host: 22 timer callbacks in 2400 frames
-// and not one line of per-frame layout code. Everything between two cuts is a
-// baked keyframe timeline sampled in the Rust core (./pocket.config.ts).
+// function of the frame index on every host: 33 cuts, 32 timer callbacks in
+// 2400 frames, and not one line of per-frame layout code. Everything between
+// two cuts is a baked keyframe timeline sampled in the Rust core
+// (./pocket.config.ts).
 //
 // Type above 54 px cannot come from the font atlas, so the Japanese title cards
 // are artwork baked by ./gen-assets.ts; every Latin readout on screen is live
