@@ -326,6 +326,7 @@
     "e2e:launcher:vita": "bun tests/e2e/launcher-vita3k.ts",
     "pocket:pack": "bun tools/pocket-pack.ts",
     "test": "bun tools/test.ts",
+    "sortie": "bun tools/sortie.ts",
     "tape": "bun tools/tape.ts",
     "tape:check": "bun tools/tape.ts replay hero-main tests/tapes/hero-main.tape.json --assert tests/tapes/hero-main.hashes.json",
     "devtools": "bun tools/devtools.ts",

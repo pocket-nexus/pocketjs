@@ -419,6 +419,12 @@ separate permission before it is ported. The accepted scope and
 capture-maintenance rules are recorded in
 [`apps/motions/ATTRIBUTION.md`](./apps/motions/ATTRIBUTION.md).
 
+Pocket Sortie's title cards are glyph outlines cut from Zen Old Mincho Black
+under the SIL Open Font License 1.1. The font binary is not vendored: the
+generator downloads it, checks it against a pinned SHA-256, and commits only the
+outlines the video spells. Source, digest and the regeneration command are in
+[`apps/sortie/ATTRIBUTION.md`](./apps/sortie/ATTRIBUTION.md).
+
 ## License
 
 PocketJS is [MIT licensed](./LICENSE). Inter is vendored under the OFL in

@@ -292,6 +292,12 @@ const SUITE: readonly Stage[] = [
     browser: true,
     tests: ["tests/launcher-sim.test.ts"],
   },
+  {
+    name: "sortie sim",
+    prep: [["bun", "tools/build.ts", "sortie-main"]],
+    browser: true,
+    tests: ["tests/sortie.test.ts"],
+  },
 ];
 
 // ---------------------------------------------------------------------------
