@@ -105,6 +105,11 @@ pub mod op {
     pub const FONT_STREAM_COMMIT: u8 = 49;
     pub const FONT_STREAM_STATS: u8 = 50;
     pub const APP_CLOSE: u8 = 51;
+    pub const PHYSICS_CREATE: u8 = 52;
+    pub const PHYSICS_APPLY: u8 = 53;
+    pub const PHYSICS_DESTROY: u8 = 54;
+    pub const PHYSICS_EVENTS: u8 = 55;
+    pub const PHYSICS_QUERY: u8 = 56;
 }
 
 /// Property ids (u8, stable, append-only). Groups:
@@ -177,6 +182,7 @@ pub mod prop {
     pub const ARC_START: u8 = 140;
     pub const ARC_SWEEP: u8 = 141;
     pub const ARC_WIDTH: u8 = 142;
+    pub const SKEW_X: u8 = 143;
 }
 
 /// How a prop's u32 payload is interpreted (see spec.ts VALUE_KIND).
@@ -196,7 +202,7 @@ pub const PROP_VALUE_KIND: [u8; 256] = [
     0x01, 0x00, 0x01, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x01, 0x02, 0x02, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -217,7 +223,7 @@ pub const ANIM_BIT: [u8; 256] = [
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x17, 0xff, 0xff, 0x18, 0x19, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xff, 0xff, 0x20, 0x21, 0x22, 0xff, 0x23, 0x24, 0x25, 0xff,
+    0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0xff, 0xff, 0x20, 0x21, 0x22, 0xff, 0x23, 0x24, 0x25, 0x26,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -228,7 +234,7 @@ pub const ANIM_BIT: [u8; 256] = [
 ];
 
 /// Bitset over prop ids: animatable props (tween/spring/transition targets).
-pub const ANIMATABLE_BITS: [u64; 4] = [0x000000001e41ff06, 0x00000019000000f7, 0x000000000000773f, 0x0000000000000000];
+pub const ANIMATABLE_BITS: [u64; 4] = [0x000000001e41ff06, 0x00000019000000f7, 0x000000000000f73f, 0x0000000000000000];
 /// Bitset over prop ids: props whose change invalidates layout.
 pub const LAYOUT_DIRTY_BITS: [u64; 4] = [0x000000007fffff7e, 0x0000001e00000000, 0x0000000000000000, 0x0000000000000000];
 
@@ -598,4 +604,177 @@ pub mod net {
     pub const ERROR_PROTOCOL: &str = "protocol";
     pub const ERROR_CANCELLED: &str = "cancelled";
     pub const ERROR_OTHER: &str = "other";
+}
+
+/// 2D bodies stepped by the UI core (contracts/spec/physics.ts).
+pub mod physics {
+    pub const KIND_WORLD: u32 = 1;
+    pub const KIND_BODY: u32 = 2;
+    pub const KIND_COLLIDER: u32 = 3;
+    pub const KIND_ZONE: u32 = 4;
+    pub const KIND_EMITTER: u32 = 5;
+    pub const HANDLE_KIND_SHIFT: u32 = 28;
+    pub const HANDLE_GEN_SHIFT: u32 = 20;
+    pub const HANDLE_SLOT_MASK: u32 = 0xfffff;
+    pub const SURFACE_PRIMARY: u32 = 0;
+    pub const SURFACE_AUXILIARY: u32 = 1;
+    pub const SHAPE_NONE: u32 = 0;
+    pub const SHAPE_CIRCLE: u32 = 1;
+    pub const SHAPE_BOX: u32 = 2;
+    pub const SHAPE_CHAIN: u32 = 3;
+    pub const SHAPE_NODE: u32 = 4;
+    pub const ANCHOR_NONE: u32 = 0;
+    pub const ANCHOR_LAYOUT: u32 = 1;
+    pub const ANCHOR_POINT: u32 = 2;
+    pub const AXIS_X: u32 = 1;
+    pub const AXIS_Y: u32 = 2;
+    pub const AXIS_ANGLE: u32 = 4;
+    pub const SQUASH_AXIS_BODY: u32 = 0;
+    pub const SQUASH_AXIS_IMPACT: u32 = 1;
+    pub const GRAB_TETHER: u32 = 0;
+    pub const GRAB_CARRY: u32 = 1;
+    pub const SCALE_CURVE_CONSTANT: u32 = 0;
+    pub const SCALE_CURVE_POP: u32 = 1;
+    pub const SCALE_CURVE_SHRINK: u32 = 2;
+    pub const ALPHA_CURVE_CONSTANT: u32 = 0;
+    pub const ALPHA_CURVE_FADE: u32 = 1;
+    pub const ALPHA_CURVE_TWINKLE: u32 = 2;
+    pub const KEY_WORLD: u32 = 1;
+    pub const KEY_LAYER: u32 = 2;
+    pub const KEY_MASK: u32 = 3;
+    pub const KEY_VIEW: u32 = 4;
+    pub const KEY_VIEW_OFFSET_X: u32 = 5;
+    pub const KEY_VIEW_OFFSET_Y: u32 = 6;
+    pub const KEY_X: u32 = 7;
+    pub const KEY_Y: u32 = 8;
+    pub const KEY_ANGLE: u32 = 9;
+    pub const KEY_SHAPE: u32 = 10;
+    pub const KEY_RADIUS: u32 = 11;
+    pub const KEY_HALF_WIDTH: u32 = 12;
+    pub const KEY_HALF_HEIGHT: u32 = 13;
+    pub const KEY_CORNER: u32 = 14;
+    pub const KEY_POINT_X: u32 = 15;
+    pub const KEY_POINT_Y: u32 = 16;
+    pub const KEY_CLOSED: u32 = 17;
+    pub const KEY_NODE: u32 = 18;
+    pub const KEY_PAD: u32 = 19;
+    pub const KEY_RESTITUTION: u32 = 20;
+    pub const KEY_FRICTION: u32 = 21;
+    pub const KEY_GRAVITY_X: u32 = 22;
+    pub const KEY_GRAVITY_Y: u32 = 23;
+    pub const KEY_SUBSTEPS: u32 = 24;
+    pub const KEY_SEED: u32 = 25;
+    pub const KEY_PRIMARY_X: u32 = 26;
+    pub const KEY_PRIMARY_Y: u32 = 27;
+    pub const KEY_AUXILIARY_X: u32 = 28;
+    pub const KEY_AUXILIARY_Y: u32 = 29;
+    pub const KEY_MAX_SPEED: u32 = 30;
+    pub const KEY_DENSITY: u32 = 31;
+    pub const KEY_MASS: u32 = 32;
+    pub const KEY_INERTIA: u32 = 33;
+    pub const KEY_GRAVITY_SCALE: u32 = 34;
+    pub const KEY_LINEAR_DAMPING: u32 = 35;
+    pub const KEY_ANGULAR_DAMPING: u32 = 36;
+    pub const KEY_MAX_SPIN: u32 = 37;
+    pub const KEY_BOUNCE_SPEED: u32 = 38;
+    pub const KEY_HIT_SPEED: u32 = 39;
+    pub const KEY_VX: u32 = 40;
+    pub const KEY_VY: u32 = 41;
+    pub const KEY_SPIN: u32 = 42;
+    pub const KEY_PICKABLE: u32 = 43;
+    pub const KEY_GHOST: u32 = 44;
+    pub const KEY_ANCHOR: u32 = 45;
+    pub const KEY_ANCHOR_X: u32 = 46;
+    pub const KEY_ANCHOR_Y: u32 = 47;
+    pub const KEY_ANCHOR_ANGLE: u32 = 48;
+    pub const KEY_ANCHOR_AXES: u32 = 49;
+    pub const KEY_STIFFNESS: u32 = 50;
+    pub const KEY_DAMPING: u32 = 51;
+    pub const KEY_SPIN_STIFFNESS: u32 = 52;
+    pub const KEY_SPIN_DAMPING: u32 = 53;
+    pub const KEY_AIR_GRAVITY: u32 = 54;
+    pub const KEY_SQUASH_STIFFNESS: u32 = 55;
+    pub const KEY_SQUASH_DAMPING: u32 = 56;
+    pub const KEY_SQUASH_LIMIT: u32 = 57;
+    pub const KEY_SQUASH_X: u32 = 58;
+    pub const KEY_SQUASH_Y: u32 = 59;
+    pub const KEY_SQUASH_AXIS: u32 = 60;
+    pub const KEY_SQUASH_IMPACT: u32 = 61;
+    pub const KEY_DENT: u32 = 62;
+    pub const KEY_DENT_LIMIT: u32 = 63;
+    pub const KEY_LAND_GAIN: u32 = 64;
+    pub const KEY_LAND_MIN: u32 = 65;
+    pub const KEY_LAND_MAX: u32 = 66;
+    pub const KEY_LAND_SPIN: u32 = 67;
+    pub const KEY_LEAN_STIFFNESS: u32 = 68;
+    pub const KEY_LEAN_DAMPING: u32 = 69;
+    pub const KEY_LEAN_GAIN: u32 = 70;
+    pub const KEY_LEAN_LIMIT: u32 = 71;
+    pub const KEY_LEAN_IMPACT: u32 = 72;
+    pub const KEY_PULSE_STIFFNESS: u32 = 73;
+    pub const KEY_PULSE_DAMPING: u32 = 74;
+    pub const KEY_STRETCH_GAIN: u32 = 75;
+    pub const KEY_STRETCH_LIMIT: u32 = 76;
+    pub const KEY_PIVOT: u32 = 77;
+    pub const KEY_OWNER: u32 = 78;
+    pub const KEY_OWNER_SQUASH: u32 = 79;
+    pub const KEY_OWNER_SQUASH_LIMIT: u32 = 80;
+    pub const KEY_OWNER_SPIN: u32 = 81;
+    pub const KEY_OWNER_SPIN_LIMIT: u32 = 82;
+    pub const KEY_TEXTURE: u32 = 83;
+    pub const KEY_LIFE_MIN: u32 = 84;
+    pub const KEY_LIFE_MAX: u32 = 85;
+    pub const KEY_SPEED_MIN: u32 = 86;
+    pub const KEY_SPEED_MAX: u32 = 87;
+    pub const KEY_SIZE_MIN: u32 = 88;
+    pub const KEY_SIZE_MAX: u32 = 89;
+    pub const KEY_SPIN_MIN: u32 = 90;
+    pub const KEY_SPIN_MAX: u32 = 91;
+    pub const KEY_DRAG: u32 = 92;
+    pub const KEY_SCALE_CURVE: u32 = 93;
+    pub const KEY_ALPHA_CURVE: u32 = 94;
+    pub const KEY_STREAM_ANGLE: u32 = 95;
+    pub const KEY_STREAM_SPREAD: u32 = 96;
+    pub const KEY_ASLEEP: u32 = 97;
+    pub const CMD_IMPULSE: u32 = 1;
+    pub const CMD_VELOCITY: u32 = 2;
+    pub const CMD_TELEPORT: u32 = 3;
+    pub const CMD_LAUNCH: u32 = 4;
+    pub const CMD_HOP: u32 = 5;
+    pub const CMD_KICK: u32 = 6;
+    pub const CMD_GRAB: u32 = 7;
+    pub const CMD_DRAG: u32 = 8;
+    pub const CMD_RELEASE: u32 = 9;
+    pub const CMD_PRESS: u32 = 10;
+    pub const CMD_SETTLE: u32 = 11;
+    pub const CMD_GRAVITY: u32 = 12;
+    pub const CMD_BURST: u32 = 13;
+    pub const CMD_STREAM: u32 = 14;
+    pub const CMD_ANCHOR: u32 = 15;
+    pub const CMD_WAKE: u32 = 16;
+    pub const EVENT_LAND: u32 = 1;
+    pub const EVENT_HIT: u32 = 2;
+    pub const EVENT_ENTER: u32 = 3;
+    pub const EVENT_LEAVE: u32 = 4;
+    pub const EVENT_CLEAR: u32 = 5;
+    pub const EVENT_WORDS: usize = 8;
+    pub const EVENT_MAX: usize = 128;
+    pub const QUERY_PICK: u32 = 1;
+    pub const QUERY_X: u32 = 2;
+    pub const QUERY_Y: u32 = 3;
+    pub const QUERY_ANGLE: u32 = 4;
+    pub const QUERY_VX: u32 = 5;
+    pub const QUERY_VY: u32 = 6;
+    pub const QUERY_SPIN: u32 = 7;
+    pub const QUERY_SPEED: u32 = 8;
+    pub const QUERY_GROUNDED: u32 = 9;
+    pub const QUERY_AIRBORNE: u32 = 10;
+    pub const QUERY_MODE: u32 = 11;
+    pub const QUERY_PARTICLES: u32 = 12;
+    pub const QUERY_ANCHOR_X: u32 = 13;
+    pub const QUERY_ANCHOR_Y: u32 = 14;
+    pub const MAX_VIEWS: usize = 4;
+    pub const MAX_POOL: usize = 64;
+    pub const MAX_POINTS: usize = 32;
+    pub const MAX_TEXTURES: usize = 16;
 }

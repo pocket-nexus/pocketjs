@@ -98,6 +98,7 @@ export const SIZE_FULL = -1;
 //   measureText(str, fontSlot) -> width:f32
 //   setCompositorSurface(id, handle, focusedInt) [surface nodes only; handle
 //                                                  < 0 clears]
+//   physicsCreate/Apply/Destroy/Events/Query      [ui.physics; see physics.ts]
 
 export const OP = {
   createNode: 1,
@@ -285,6 +286,20 @@ export const OP = {
   appClose: 51, // (output: string) -> 0|1. Native navigation only: request
   //                graceful closure of a configured child app. Never closes
   //                the shell or caller. Embedded hosts omit this operation.
+  // -- 2D bodies (ui.physics capability; contracts/spec/physics.ts holds the
+  //    kinds, parameter keys, commands, events and queries). Hosts omit all
+  //    five ops without the capability. ------------------------------------
+  physicsCreate: 52, // (kind: i32, params: f64[] [key, value]*) -> handle | 0.
+  //                    Create a world, body, collider, zone or emitter.
+  physicsApply: 53, //  (records: f64[] [handle, cmd, argc, arg*]*) — apply
+  //                    commands in order; stale handles no-op.
+  physicsDestroy: 54, // (handle) — a world takes its objects with it; a body
+  //                    or emitter clears the props it wrote on its views.
+  physicsEvents: 55, // () -> f64 records | undefined. Drain the events the ticks
+  //                    since the last drain produced, PHYSICS_EVENT_WORDS per
+  //                    record, at most PHYSICS_EVENT_MAX.
+  physicsQuery: 56, //  (query, handle, a, b, c, d) -> f64. Picks and body
+  //                    state reads (PHYSICS_QUERY).
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -400,6 +415,11 @@ export const PROP = {
   //                    center = node center, outer radius = min(w,h)/2, color
   //                    = bgColor. Axis-aligned worlds only (rotation belongs
   //                    in arcStart).
+  skewX: 143, //        f32 degrees of horizontal shear about the transform
+  //                    origin, composed between rotate and scale (CSS
+  //                    `rotate() skewX() scale()`): with it, rotate + skewX +
+  //                    scaleX/scaleY reach every 2D linear map with a
+  //                    positive determinant.
 } as const;
 
 export type PropName = keyof typeof PROP;
@@ -458,6 +478,7 @@ export const ANIMATABLE: readonly PropName[] = [
   "arcStart", //    35
   "arcSweep", //    36
   "arcWidth", //    37
+  "skewX", //       38
 ];
 
 /** Anim bit index for a prop, or -1 if not animatable. */
@@ -532,6 +553,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   rotateX: VALUE_KIND.f32, rotateY: VALUE_KIND.f32,
   translateZ: VALUE_KIND.f32, perspective: VALUE_KIND.f32,
   arcStart: VALUE_KIND.f32, arcSweep: VALUE_KIND.f32, arcWidth: VALUE_KIND.f32,
+  skewX: VALUE_KIND.f32,
 };
 
 // ---------------------------------------------------------------------------

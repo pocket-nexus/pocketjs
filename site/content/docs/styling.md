@@ -290,6 +290,7 @@ Transforms are animatable and do not trigger relayout — prefer them for motion
 | `rotate-N` | 2D rotation in degrees |
 | `origin-center` \| `-top` \| `-bottom` \| `-left` \| `-right` \| `-top-left` \| `-top-right` \| `-bottom-left` \| `-bottom-right` | transform origin, as a fraction from the node center |
 | `rotate-x-[N]`, `rotate-y-[N]` | 3D rotation, degrees (bracket-only) |
+| `skew-x-[N]` | horizontal shear about the transform origin, degrees (bracket-only) |
 | `translate-z-[N]` | 3D depth, px (bracket-only) |
 | `perspective-[N]` | 3D context root; distance in px (bracket-only, > 0) |
 

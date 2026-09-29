@@ -175,6 +175,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "model/tasks": { file: "framework/src/model-tasks.ts" },
   "model/animation": { file: "framework/src/model-animation.ts" },
   "net/model": { file: "framework/src/net-model.ts" },
+  physics: { file: "framework/src/physics.ts", aliases: TWINS },
 };
 
 /** The bare npm export target for a row (npmFile > invariant file > solid). */

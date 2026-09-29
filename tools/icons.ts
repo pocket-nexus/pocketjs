@@ -32,11 +32,11 @@
 // hand rather than shelling out to ImageMagick, which keeps this runnable
 // anywhere Bun and Chrome exist.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { HeadlessChrome } from "./headless-chrome.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const BACKING = "#171226"; // the backing the mark is drawn on, matching favicon.svg
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 type Job = { file: string; size: number; bleed: boolean };
 /**
@@ -102,109 +102,24 @@ const familyName = process.argv[2] ?? "pocketjs";
 const family = FAMILIES[familyName];
 if (!family) throw new Error(`Unknown icon family "${familyName}"; expected ${Object.keys(FAMILIES).join(" or ")}`);
 
-class Chrome {
-  #ws!: WebSocket;
-  #proc!: Bun.Subprocess;
-  #id = 0;
-  #waiting = new Map<number, (v: any) => void>();
+/** Render an in-memory HTML page at a fixed viewport. */
+async function shot(chrome: HeadlessChrome, html: string, width: number, height = width): Promise<Uint8Array> {
+  await chrome.viewport(width, height);
+  await chrome.html(html);
+  await Bun.sleep(60); // let the SVG paint before the capture
+  return chrome.screenshot();
+}
 
-  async start() {
-    if (!existsSync(CHROME)) throw new Error(`Chrome not found at ${CHROME}`);
-    const port = 9411;
-    this.#proc = Bun.spawn(
-      [
-        CHROME,
-        `--remote-debugging-port=${port}`,
-        "--headless=new",
-        "--hide-scrollbars",
-        "--no-first-run",
-        "--force-device-scale-factor=1",
-        `--user-data-dir=${process.env.TMPDIR ?? "/tmp/"}pocketjs-icons`,
-        "about:blank",
-      ],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-    let url = "";
-    for (let i = 0; i < 100 && !url; i++) {
-      try {
-        const list = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as any[];
-        url = list.find((t) => t.type === "page")?.webSocketDebuggerUrl ?? "";
-      } catch {}
-      if (!url) await Bun.sleep(120);
-    }
-    if (!url) throw new Error("Chrome never opened a debugging target");
-    this.#ws = new WebSocket(url);
-    await new Promise((r) => (this.#ws.onopen = r as any));
-    this.#ws.onmessage = (e) => {
-      const m = JSON.parse(String(e.data));
-      if (m.id && this.#waiting.has(m.id)) {
-        this.#waiting.get(m.id)!(m);
-        this.#waiting.delete(m.id);
-      }
-    };
-    await this.send("Page.enable");
-    await this.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
-  }
-
-  send(method: string, params: Record<string, unknown> = {}): Promise<any> {
-    return new Promise((res) => {
-      const id = ++this.#id;
-      this.#waiting.set(id, res);
-      this.#ws.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  async shot(html: string, width: number, height = width): Promise<Uint8Array> {
-    await this.send("Emulation.setDeviceMetricsOverride", {
-      width,
-      height,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    const done = new Promise<void>((res) => {
-      const on = (e: MessageEvent) => {
-        if (JSON.parse(String(e.data)).method === "Page.loadEventFired") {
-          this.#ws.removeEventListener("message", on);
-          res();
-        }
-      };
-      this.#ws.addEventListener("message", on);
-    });
-    await this.send("Page.navigate", { url: `data:text/html;base64,${Buffer.from(html).toString("base64")}` });
-    await done;
-    await Bun.sleep(60); // let the SVG paint before the capture
-    const r = await this.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-    return new Uint8Array(Buffer.from(r.result.data, "base64"));
-  }
-
-  /** Capture a real page with reduced motion, after `prepare` resolves truthy. */
-  async page(url: string, width: number, height: number, prepare: string): Promise<Uint8Array> {
-    await this.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
-    await this.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
-    const done = new Promise<void>((res) => {
-      const on = (e: MessageEvent) => {
-        if (JSON.parse(String(e.data)).method === "Page.loadEventFired") {
-          this.#ws.removeEventListener("message", on);
-          res();
-        }
-      };
-      this.#ws.addEventListener("message", on);
-    });
-    await this.send("Page.navigate", { url });
-    await done;
-    const ready = await this.send("Runtime.evaluate", { expression: prepare, awaitPromise: true, returnByValue: true });
-    if (ready.result?.exceptionDetails || ready.result?.result?.value !== true) {
-      throw new Error(`${url}: prepare did not resolve true: ${JSON.stringify(ready.result)}`);
-    }
-    const r = await this.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
-    await this.send("Emulation.setEmulatedMedia", { features: [] });
-    return new Uint8Array(Buffer.from(r.result.data, "base64"));
-  }
-
-  stop() {
-    this.#ws.close();
-    this.#proc.kill();
-  }
+/** Capture a real page with reduced motion, after `prepare` resolves true. */
+async function capturePage(chrome: HeadlessChrome, url: string, width: number, height: number, prepare: string): Promise<Uint8Array> {
+  await chrome.viewport(width, height);
+  await chrome.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await chrome.navigate(url);
+  const ready = await chrome.evaluate(prepare);
+  if (ready !== true) throw new Error(`${url}: prepare did not resolve true: ${JSON.stringify(ready)}`);
+  const png = await chrome.screenshot();
+  await chrome.send("Emulation.setEmulatedMedia", { features: [] });
+  return png;
 }
 
 function page(svg: string, size: number, bleed: boolean): string {
@@ -269,11 +184,10 @@ if (family.favicon) {
   writeFileSync(OUT + family.favicon, svg.replace(/^<!--[\s\S]*?-->\s*/, ""));
   console.log(`  ${family.favicon}  copied from ${family.source.slice(ROOT.length)}`);
 }
-const chrome = new Chrome();
-await chrome.start();
+const chrome = await HeadlessChrome.start({ port: 9411, profile: `${process.env.TMPDIR ?? "/tmp/"}pocketjs-icons` });
 try {
   for (const job of family.pngs) {
-    const png = await chrome.shot(page(svg, job.size, job.bleed), job.size);
+    const png = await shot(chrome, page(svg, job.size, job.bleed), job.size);
     const [w, h] = pngSize(png);
     if (w !== job.size || h !== job.size) throw new Error(`${job.file}: rendered ${w}x${h}, wanted ${job.size}`);
     writeFileSync(OUT + job.file, png);
@@ -281,15 +195,15 @@ try {
   }
   const layers = [];
   for (const size of ICO) {
-    layers.push({ size, png: await chrome.shot(page(svg, size, false), size) });
+    layers.push({ size, png: await shot(chrome, page(svg, size, false), size) });
   }
   const container = ico(layers);
   writeFileSync(OUT + "favicon.ico", container);
   console.log(`  favicon.ico  ${ICO.join(" + ")}  ${(container.length / 1024).toFixed(1)} KiB`);
   for (const card of family.cards) {
     const png = "page" in card
-      ? await chrome.page(`file://${OUT}${card.page}`, card.width, card.height, card.prepare)
-      : await chrome.shot(cardPage(readFileSync(OUT + card.source, "utf8"), card.width, card.height), card.width, card.height);
+      ? await capturePage(chrome, `file://${OUT}${card.page}`, card.width, card.height, card.prepare)
+      : await shot(chrome, cardPage(readFileSync(OUT + card.source, "utf8"), card.width, card.height), card.width, card.height);
     const [w, h] = pngSize(png);
     if (w !== card.width || h !== card.height) {
       throw new Error(`${card.file}: rendered ${w}x${h}, wanted ${card.width}x${card.height}`);

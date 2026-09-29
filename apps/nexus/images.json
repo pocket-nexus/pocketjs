@@ -1,0 +1,227 @@
+{
+  "art/letter-0.png": {
+    "linear": true
+  },
+  "art/shadow-0.png": {
+    "linear": true
+  },
+  "art/shadow-1.png": {
+    "linear": true
+  },
+  "art/letter-2.png": {
+    "linear": true
+  },
+  "art/shadow-2.png": {
+    "linear": true
+  },
+  "art/letter-3.png": {
+    "linear": true
+  },
+  "art/shadow-3.png": {
+    "linear": true
+  },
+  "art/letter-4.png": {
+    "linear": true
+  },
+  "art/shadow-4.png": {
+    "linear": true
+  },
+  "art/letter-5.png": {
+    "linear": true
+  },
+  "art/shadow-5.png": {
+    "linear": true
+  },
+  "art/letter-6.png": {
+    "linear": true
+  },
+  "art/shadow-6.png": {
+    "linear": true
+  },
+  "art/letter-7.png": {
+    "linear": true
+  },
+  "art/shadow-7.png": {
+    "linear": true
+  },
+  "art/letter-8.png": {
+    "linear": true
+  },
+  "art/shadow-8.png": {
+    "linear": true
+  },
+  "art/letter-9.png": {
+    "linear": true
+  },
+  "art/shadow-9.png": {
+    "linear": true
+  },
+  "art/letter-10.png": {
+    "linear": true
+  },
+  "art/shadow-10.png": {
+    "linear": true
+  },
+  "art/o-open.png": {
+    "linear": true
+  },
+  "art/o-shut.png": {
+    "linear": true
+  },
+  "art/o-left.png": {
+    "linear": true
+  },
+  "art/o-right.png": {
+    "linear": true
+  },
+  "art/o-blink.png": {
+    "linear": true
+  },
+  "art/o-happy.png": {
+    "linear": true
+  },
+  "art/o-wince.png": {
+    "linear": true
+  },
+  "art/toy-star.png": {
+    "linear": true
+  },
+  "art/toy-spark.png": {
+    "linear": true
+  },
+  "art/toy-heart.png": {
+    "linear": true
+  },
+  "art/toy-cursor.png": {
+    "linear": true
+  },
+  "art/toy-gear.png": {
+    "linear": true
+  },
+  "art/toy-bolt.png": {
+    "linear": true
+  },
+  "art/toy-cart.png": {
+    "linear": true
+  },
+  "art/toy-planet.png": {
+    "linear": true
+  },
+  "art/toy-bubble.png": {
+    "linear": true
+  },
+  "art/toy-dpad.png": {
+    "linear": true
+  },
+  "art/toy-ghost.png": {
+    "linear": true
+  },
+  "art/toy-ball.png": {
+    "linear": true
+  },
+  "art/toy-pjs.png": {
+    "linear": true
+  },
+  "art/toy-mystery.png": {
+    "linear": true
+  },
+  "art/p-burst-y.png": {
+    "linear": true
+  },
+  "art/p-burst-p.png": {
+    "linear": true
+  },
+  "art/p-burst-c.png": {
+    "linear": true
+  },
+  "art/p-burst-l.png": {
+    "linear": true
+  },
+  "art/p-burst-o.png": {
+    "linear": true
+  },
+  "art/p-burst-i.png": {
+    "linear": true
+  },
+  "art/p-bdot-y.png": {
+    "linear": true
+  },
+  "art/p-bdot-p.png": {
+    "linear": true
+  },
+  "art/p-bdot-c.png": {
+    "linear": true
+  },
+  "art/p-bdot-l.png": {
+    "linear": true
+  },
+  "art/p-bdot-o.png": {
+    "linear": true
+  },
+  "art/p-bdot-i.png": {
+    "linear": true
+  },
+  "art/p-star-y.png": {
+    "linear": true
+  },
+  "art/p-star-p.png": {
+    "linear": true
+  },
+  "art/p-star-c.png": {
+    "linear": true
+  },
+  "art/p-star-l.png": {
+    "linear": true
+  },
+  "art/p-star-i.png": {
+    "linear": true
+  },
+  "art/p-dot-y.png": {
+    "linear": true
+  },
+  "art/p-dot-p.png": {
+    "linear": true
+  },
+  "art/p-dot-c.png": {
+    "linear": true
+  },
+  "art/p-dot-l.png": {
+    "linear": true
+  },
+  "art/p-dot-i.png": {
+    "linear": true
+  },
+  "art/pocket-front.png": {
+    "linear": true
+  },
+  "art/pocket-mouth.png": {
+    "linear": true
+  },
+  "art/pocket-eyes.png": {
+    "linear": true
+  },
+  "art/pocket-eyes-happy.png": {
+    "linear": true
+  },
+  "art/top.png": {
+    "linear": true
+  },
+  "art/haze.png": {
+    "linear": true
+  },
+  "art/bottom.png": {
+    "linear": true
+  },
+  "art/glow.png": {
+    "linear": true
+  },
+  "art/hint.png": {
+    "linear": true
+  },
+  "art/lede.png": {
+    "linear": true
+  },
+  "art/copy.png": {
+    "linear": true
+  }
+}

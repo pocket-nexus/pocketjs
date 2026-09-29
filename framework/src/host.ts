@@ -114,6 +114,21 @@ export interface HostOps {
    * display.auxiliary; coordinates belong to its logical viewport. */
   hitTestAuxiliary?(x: number, y: number): number;
   hitTestBoundsAuxiliary?(x: number, y: number): number;
+
+  // -- 2D bodies (spec ops 52..56, ui.physics; contracts/spec/physics.ts).
+  //    Present together or not at all; @pocketjs/framework/physics checks. ---
+  /** Create a world, body, collider, zone or emitter from little-endian f64
+   *  [key, value] pairs → handle, 0 when refused. */
+  physicsCreate?(kind: number, params: ArrayBuffer): number;
+  /** Apply little-endian f64 [handle, cmd, argc, arg*] command records. */
+  physicsApply?(records: ArrayBuffer): void;
+  /** Destroy a physics object; bodies and emitters release their views. */
+  physicsDestroy?(handle: number): void;
+  /** Drain the events the ticks since the last drain produced, as
+   *  little-endian f64 records; undefined when there are none. */
+  physicsEvents?(): ArrayBuffer | undefined;
+  /** Picks and body state reads (PHYSICS_QUERY). */
+  physicsQuery?(query: number, handle: number, a?: number, b?: number, c?: number, d?: number): number;
   /** Bind the cursor sprite: an uploaded texture drawn topmost every frame,
    *  offset by its hotspot; never laid out, never hit-tested. tex < 0 hides
    *  it; w/h <= 0 draw at the texture's own pixel size. */

@@ -1,4 +1,4 @@
-// Deterministic codegen: contracts/spec/{spec,audio,db,net}.ts -> engine/core/src/spec.rs.
+// Deterministic codegen: contracts/spec/{spec,audio,db,net,physics}.ts -> engine/core/src/spec.rs.
 //
 // Run from PocketJS/:  bun contracts/spec/gen-rust.ts
 //
@@ -50,6 +50,30 @@ import {
   NET_METHODS,
   NET_OP,
 } from "./net.ts";
+import {
+  PHYSICS_ALPHA_CURVE,
+  PHYSICS_ANCHOR,
+  PHYSICS_AXIS,
+  PHYSICS_CMD,
+  PHYSICS_EVENT,
+  PHYSICS_EVENT_MAX,
+  PHYSICS_EVENT_WORDS,
+  PHYSICS_GRAB,
+  PHYSICS_HANDLE_GEN_SHIFT,
+  PHYSICS_HANDLE_KIND_SHIFT,
+  PHYSICS_HANDLE_SLOT_MASK,
+  PHYSICS_KEY,
+  PHYSICS_KIND,
+  PHYSICS_MAX_POINTS,
+  PHYSICS_MAX_POOL,
+  PHYSICS_MAX_TEXTURES,
+  PHYSICS_MAX_VIEWS,
+  PHYSICS_QUERY,
+  PHYSICS_SCALE_CURVE,
+  PHYSICS_SHAPE,
+  PHYSICS_SQUASH_AXIS,
+  PHYSICS_SURFACE,
+} from "./physics.ts";
 import {
   ANALOG_CENTER,
   ANIMATABLE,
@@ -583,6 +607,39 @@ export function generateRust(): string {
   for (const [name, v] of Object.entries(NET_ERROR)) {
     put(`    pub const ERROR_${screaming(name)}: &str = ${JSON.stringify(v)};`);
   }
+  put("}");
+  put("");
+
+  // --- physics (contracts/spec/physics.ts; capability ui.physics) ------------
+  put("/// 2D bodies stepped by the UI core (contracts/spec/physics.ts).");
+  put("pub mod physics {");
+  const group = (prefix: string, table: Record<string, number>, ty: string) => {
+    for (const [name, v] of Object.entries(table)) {
+      put(`    pub const ${prefix}${screaming(name)}: ${ty} = ${v};`);
+    }
+  };
+  group("KIND_", PHYSICS_KIND, "u32");
+  put(`    pub const HANDLE_KIND_SHIFT: u32 = ${PHYSICS_HANDLE_KIND_SHIFT};`);
+  put(`    pub const HANDLE_GEN_SHIFT: u32 = ${PHYSICS_HANDLE_GEN_SHIFT};`);
+  put(`    pub const HANDLE_SLOT_MASK: u32 = ${hex(PHYSICS_HANDLE_SLOT_MASK, 5)};`);
+  group("SURFACE_", PHYSICS_SURFACE, "u32");
+  group("SHAPE_", PHYSICS_SHAPE, "u32");
+  group("ANCHOR_", PHYSICS_ANCHOR, "u32");
+  group("AXIS_", PHYSICS_AXIS, "u32");
+  group("SQUASH_AXIS_", PHYSICS_SQUASH_AXIS, "u32");
+  group("GRAB_", PHYSICS_GRAB, "u32");
+  group("SCALE_CURVE_", PHYSICS_SCALE_CURVE, "u32");
+  group("ALPHA_CURVE_", PHYSICS_ALPHA_CURVE, "u32");
+  group("KEY_", PHYSICS_KEY, "u32");
+  group("CMD_", PHYSICS_CMD, "u32");
+  group("EVENT_", PHYSICS_EVENT, "u32");
+  put(`    pub const EVENT_WORDS: usize = ${PHYSICS_EVENT_WORDS};`);
+  put(`    pub const EVENT_MAX: usize = ${PHYSICS_EVENT_MAX};`);
+  group("QUERY_", PHYSICS_QUERY, "u32");
+  put(`    pub const MAX_VIEWS: usize = ${PHYSICS_MAX_VIEWS};`);
+  put(`    pub const MAX_POOL: usize = ${PHYSICS_MAX_POOL};`);
+  put(`    pub const MAX_POINTS: usize = ${PHYSICS_MAX_POINTS};`);
+  put(`    pub const MAX_TEXTURES: usize = ${PHYSICS_MAX_TEXTURES};`);
   put("}");
 
   return L.join("\n") + "\n";

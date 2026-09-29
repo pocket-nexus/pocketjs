@@ -105,6 +105,15 @@ int32_t ui_load_styles(const uint8_t *bytes, size_t length);
 int32_t ui_load_font_atlas(const uint8_t *bytes, size_t length);
 float ui_measure_text(const uint8_t *text, size_t length, uint32_t font_slot);
 
+/* 2D bodies (spec ops 52..56, ui.physics). Params, records and events are
+ * little-endian f64 arrays (contracts/spec/physics.ts). The event pointer
+ * stays valid until the next ui_physics_take_events call. */
+int32_t ui_physics_create(uint32_t kind, const uint8_t *params, size_t length);
+void ui_physics_apply(const uint8_t *records, size_t length);
+void ui_physics_destroy(int32_t handle);
+const uint8_t *ui_physics_take_events(size_t *length);
+double ui_physics_query(uint32_t query, int32_t handle, double a, double b, double c, double d);
+
 /* Fixed-step frame. The core steps at exactly 1/60 s per ui_tick regardless
  * of the host's present cadence (contracts/spec/spec.ts FIXED_DT). */
 void ui_tick(void);

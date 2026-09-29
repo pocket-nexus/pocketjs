@@ -221,6 +221,7 @@
     "./model/tasks": "./framework/src/model-tasks.ts",
     "./model/animation": "./framework/src/model-animation.ts",
     "./net/model": "./framework/src/net-model.ts",
+    "./physics": "./framework/src/physics.ts",
     "./solid": "./framework/src/index.ts",
     "./solid/components": "./framework/src/components.ts",
     "./solid/lifecycle": "./framework/src/lifecycle.ts",
@@ -251,6 +252,7 @@
     "./vue-vapor/kinetics": "./framework/src/kinetics.vue-vapor.ts",
     "./vue-vapor/net": "./framework/src/net-api.ts",
     "./vue-vapor/renderer": "./framework/src/renderer-vue-vapor.ts",
+    "./vue-vapor/physics": "./framework/src/physics.ts",
     "./octane": "./framework/src/index-octane.ts",
     "./octane/animation": "./framework/src/animation.ts",
     "./octane/ime": "./framework/src/ime.ts",
@@ -274,7 +276,8 @@
     "./octane/lifecycle": "./framework/src/lifecycle-octane.ts",
     "./octane/input": "./framework/src/input-api.ts",
     "./octane/net": "./framework/src/net-api.ts",
-    "./octane/renderer": "./framework/src/renderer-octane.ts"
+    "./octane/renderer": "./framework/src/renderer-octane.ts",
+    "./octane/physics": "./framework/src/physics.ts"
   },
   "description": "A portable application runtime that turns modern component code into native pixels across radically different hardware: Solid, Vue Vapor and Octane over a native Rust core, with build-time Tailwind styling and 60 FPS animation under an 8 MB memory budget.",
   "scripts": {

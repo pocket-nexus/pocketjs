@@ -349,6 +349,18 @@ describe("3D + arc utilities", () => {
     expect(bitsF32(m.get(PROP.arcSweep)!)).toBe(-315);
     expect(bitsF32(m.get(PROP.arcWidth)!)).toBe(5);
   });
+  test("skew-x-[deg] parses and keyframes bake skewX()", () => {
+    const m = props(parseClassLiteral("skew-x-[-12]"));
+    expect(bitsF32(m.get(PROP.skewX)!)).toBe(-12);
+    registerAnimationTheme({
+      keyframes: { lean: { from: { transform: "skewX(0deg)" }, to: { transform: "skewX(14deg) scaleY(0.9)" } } },
+      animation: { lean: "lean 300ms linear" },
+    });
+    const tl = bakedTimelines()[parseClassLiteral("animate-lean")!.animation!.anims[0]];
+    const skew = tl.tracks.find((t) => t.prop === PROP.skewX)!;
+    expect(skew.segments[0].to).toBe(f32Bits(14));
+    registerAnimationTheme(undefined);
+  });
   test("non-arbitrary 3D values reject the literal", () => {
     expect(parseClassLiteral("rotate-x-40")).toBeNull();
     expect(parseClassLiteral("perspective-400")).toBeNull();

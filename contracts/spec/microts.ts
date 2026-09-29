@@ -30,7 +30,7 @@ export function parseMicroTsColor(value: string): number {
 }
 
 const pixelProps = new Set<string>(["width", "height", "minW", "minH", "maxW", "maxH", "paddingT", "paddingR", "paddingB", "paddingL", "marginT", "marginR", "marginB", "marginL", "gap", "basis", "insetT", "insetR", "insetB", "insetL", "radius", "borderWidth", "bevelWidth", "lineHeight", "tracking", "translateX", "translateY", "translateZ", "perspective", "arcWidth"]);
-const degreeProps = new Set<string>(["rotate", "rotateX", "rotateY", "arcStart", "arcSweep"]);
+const degreeProps = new Set<string>(["rotate", "rotateX", "rotateY", "arcStart", "arcSweep", "skewX"]);
 
 export const MICROTS_ELEMENTS = {
   View: {

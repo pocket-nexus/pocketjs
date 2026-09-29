@@ -146,6 +146,20 @@ export async function createWasmUi(wasm, options = {}) {
     ops.fontStreamRequests = () => streamJSON(ex.ui_font_stream_requests);
     ops.fontStreamStats = () => streamJSON(ex.ui_font_stream_stats);
   }
+  // 2D bodies (spec ops 52..56, ui.physics) — feature-detected so a stale
+  // pocketjs.wasm still boots; @pocketjs/framework/physics reports the gap.
+  if (ex.ui_physics_create) {
+    const f64Bytes = (records) => new Uint8Array(records instanceof ArrayBuffer ? records : records.buffer, records.byteOffset ?? 0, records.byteLength);
+    ops.physicsCreate = (kind, params) => withBytes(f64Bytes(params), (p, l) => ex.ui_physics_create(kind, p, l));
+    ops.physicsApply = (records) => withBytes(f64Bytes(records), (p, l) => ex.ui_physics_apply(p, l));
+    ops.physicsDestroy = (handle) => ex.ui_physics_destroy(handle);
+    ops.physicsEvents = () => {
+      const n = ex.ui_physics_take_events();
+      if (n === 0) return undefined;
+      return new Float64Array(ex.memory.buffer, ex.ui_physics_events_ptr(), n).slice().buffer;
+    };
+    ops.physicsQuery = (query, handle, a = 0, b = 0, c = 0, d = 0) => ex.ui_physics_query(query, handle, a, b, c, d);
+  }
   if (auxiliary) {
     ops.hitTestAuxiliary = (x, y) => ex.ui_hit_test_auxiliary(x, y);
     ops.hitTestBoundsAuxiliary = (x, y) => ex.ui_hit_test_bounds_auxiliary(x, y);

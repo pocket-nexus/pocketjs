@@ -26,6 +26,7 @@ export const DOC_NAV: DocSection[] = [
       { slug: "styling", title: "Styling" },
       { slug: "reactivity", title: "Reactivity" },
       { slug: "animation", title: "Animation" },
+      { slug: "physics", title: "Physics" },
       { slug: "input-focus", title: "Input & focus" },
       { slug: "touch-gestures", title: "Touch & gestures" },
       { slug: "app-shell", title: "App shell & overlays" },

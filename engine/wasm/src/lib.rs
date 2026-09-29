@@ -383,6 +383,53 @@ pub extern "C" fn ui_animation_completions_ptr() -> *const i32 {
     unsafe { ANIMATION_COMPLETIONS.as_ptr() }
 }
 
+// ---- physics (spec ops 52..56, ui.physics; contracts/spec/physics.ts) ------
+
+/// Drained physics event records (f64); valid until the next drain.
+static mut PHYSICS_EVENTS: Vec<f64> = Vec::new();
+
+/// Little-endian f64 records from host-written linear memory.
+fn f64_records(ptr: *const u8, len: usize) -> Vec<f64> {
+    unsafe { bytes(ptr, len) }
+        .chunks_exact(8)
+        .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+        .collect()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_create(kind: u32, ptr: *const u8, len: usize) -> i32 {
+    ui().physics_create(kind, &f64_records(ptr, len))
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_apply(ptr: *const u8, len: usize) {
+    ui().physics_apply(&f64_records(ptr, len))
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_destroy(handle: i32) {
+    ui().physics_destroy(handle)
+}
+
+/// Drain pending events; returns the number of f64 words staged.
+#[no_mangle]
+pub extern "C" fn ui_physics_take_events() -> u32 {
+    unsafe {
+        ui().physics_take_events(&mut PHYSICS_EVENTS);
+        PHYSICS_EVENTS.len() as u32
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_events_ptr() -> *const f64 {
+    unsafe { PHYSICS_EVENTS.as_ptr() }
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_query(query: u32, handle: i32, a: f64, b: f64, c: f64, d: f64) -> f64 {
+    ui().physics_query(query, handle, a, b, c, d)
+}
+
 #[no_mangle]
 pub extern "C" fn ui_set_focus(id: i32) {
     ui().set_focus(id)

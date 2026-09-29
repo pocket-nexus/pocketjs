@@ -101,7 +101,17 @@ static uint32_t discoveries;
 static uint32_t frame_commands;
 static uint32_t frame_vertices;
 static uint32_t frame_dropped_vertices;
-static char stats_json[768];
+static char stats_json[1024];
+
+/* Frame phase timing: the last complete 60-frame window's means and maxima,
+ * plus a running count of frames longer than two vblanks' worth of budget. */
+enum { TIMING_PHASES = 5, TIMING_WINDOW = 60 };
+static uint32_t timing_sum[TIMING_PHASES];
+static uint32_t timing_max[TIMING_PHASES];
+static uint32_t timing_count;
+static uint32_t timing_mean_out[TIMING_PHASES];
+static uint32_t timing_max_out[TIMING_PHASES];
+static uint32_t timing_slow_frames;
 
 static void set_error(char *out, size_t length, const char *format, ...) {
   if (out == NULL || length == 0) return;
@@ -456,6 +466,32 @@ void devserver_set_runtime(
   snprintf(runtime_phase, sizeof runtime_phase, "%s", phase == NULL ? "unknown" : phase);
 }
 
+void devserver_set_frame_timing(
+  uint32_t js_us,
+  uint32_t tick_us,
+  uint32_t draw_us,
+  uint32_t gpu_us,
+  uint32_t frame_us
+) {
+  const uint32_t values[TIMING_PHASES] = { js_us, tick_us, draw_us, gpu_us, frame_us };
+  for (int i = 0; i < TIMING_PHASES; i += 1) {
+    timing_sum[i] += values[i];
+    if (values[i] > timing_max[i]) timing_max[i] = values[i];
+  }
+  /* 1.5 frames at 60 Hz: the frame missed its vblank */
+  if (frame_us > 25000) timing_slow_frames += 1;
+  timing_count += 1;
+  if (timing_count == TIMING_WINDOW) {
+    for (int i = 0; i < TIMING_PHASES; i += 1) {
+      timing_mean_out[i] = timing_sum[i] / TIMING_WINDOW;
+      timing_max_out[i] = timing_max[i];
+      timing_sum[i] = 0;
+      timing_max[i] = 0;
+    }
+    timing_count = 0;
+  }
+}
+
 void devserver_set_frame_stats(
   uint32_t frame,
   uint32_t commands,
@@ -477,7 +513,9 @@ const char *devserver_debug_stats(void) {
     "\"gfx\":{\"commands\":%lu,\"vertices\":%lu,\"droppedVertices\":%lu},"
     "\"net\":{\"connected\":%s,\"rxBytes\":%llu,\"txBytes\":%llu,"
     "\"connects\":%lu,\"authFailures\":%lu,\"timeouts\":%lu,"
-    "\"discoveries\":%lu,\"uploads\":%lu,\"screenshots\":%lu}}",
+    "\"discoveries\":%lu,\"uploads\":%lu,\"screenshots\":%lu},"
+    "\"timingUs\":{\"js\":[%lu,%lu],\"tick\":[%lu,%lu],\"draw\":[%lu,%lu],"
+    "\"gpu\":[%lu,%lu],\"frame\":[%lu,%lu],\"slowFrames\":%lu}}",
     POCKETJS_TARGET_ID,
     (unsigned)POCKETJS_HOST_ABI,
     (unsigned long long)running_hash,
@@ -495,7 +533,13 @@ const char *devserver_debug_stats(void) {
     (unsigned long)timeouts,
     (unsigned long)discoveries,
     (unsigned long)uploads,
-    (unsigned long)screenshots
+    (unsigned long)screenshots,
+    (unsigned long)timing_mean_out[0], (unsigned long)timing_max_out[0],
+    (unsigned long)timing_mean_out[1], (unsigned long)timing_max_out[1],
+    (unsigned long)timing_mean_out[2], (unsigned long)timing_max_out[2],
+    (unsigned long)timing_mean_out[3], (unsigned long)timing_max_out[3],
+    (unsigned long)timing_mean_out[4], (unsigned long)timing_max_out[4],
+    (unsigned long)timing_slow_frames
   );
   return stats_json;
 }

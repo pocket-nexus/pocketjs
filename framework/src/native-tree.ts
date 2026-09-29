@@ -334,6 +334,11 @@ export function resetTextures(): void {
   textures.clear();
 }
 
+/** The texture handle registered for an image key, or -1. */
+export function textureHandle(key: string): number {
+  return textures.get(key) ?? -1;
+}
+
 /** A `sprite` key → its atlas texture handle + animation metadata. */
 export interface SpriteMeta {
   /** uploadTexture handle of the atlas. */

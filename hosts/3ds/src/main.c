@@ -885,6 +885,7 @@ int main(void) {
       1
     );
     if (hit_count != touch_count) fail("auxiliary touch hit resolution failed");
+    u64 phase_js __attribute__((unused)) = svcGetSystemTick();
     if (!qjs_frame(buttons, analog, &touch, &touch_hit, touch_count, right_analog)) {
 #if defined(POCKETJS_CAPTURE) || defined(POCKETJS_OFFLOAD)
       fail(qjs_last_error());
@@ -905,9 +906,12 @@ int main(void) {
     }
     /* Animations always advance at the fixed 1/60 timestep; this host
      * presents at the same rate, so it is one tick per frame. */
+    u64 phase_tick __attribute__((unused)) = svcGetSystemTick();
     ui_tick();
+    u64 phase_draw __attribute__((unused)) = svcGetSystemTick();
     size_t words = ui_draw();
     size_t auxiliary_words = ui_draw_auxiliary();
+    u64 phase_draw_end __attribute__((unused)) = svcGetSystemTick();
     const uint32_t *auxiliary_list = ui_draw_auxiliary_list_ptr();
 #ifndef POCKETJS_CAPTURE
     if (devmenu_visible()) {
@@ -930,6 +934,7 @@ int main(void) {
     accept_guest(&guest, &runtime_state, &failures, run_frame);
 #endif
     offload_cpu_start = svcGetSystemTick();
+    u64 phase_gpu __attribute__((unused)) = offload_cpu_start;
     gfx_begin_frame();
 #ifdef POCKETJS_MEDIA
     media_present();
@@ -974,6 +979,19 @@ int main(void) {
     C3D_FrameEnd(0);
     offload_measure((unsigned)((offload_ui_ticks + svcGetSystemTick() - offload_cpu_start) * 1000000 / SYSCLOCK_ARM11));
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
+    {
+      static u64 previous_js;
+      const u64 us = SYSCLOCK_ARM11 / 1000000;
+      u64 phase_end = svcGetSystemTick();
+      devserver_set_frame_timing(
+        (uint32_t)((phase_tick - phase_js) / us),
+        (uint32_t)((phase_draw - phase_tick) / us),
+        (uint32_t)((phase_draw_end - phase_draw) / us),
+        (uint32_t)((phase_end - phase_gpu) / us),
+        previous_js == 0 ? 0 : (uint32_t)((phase_js - previous_js) / us)
+      );
+      previous_js = phase_js;
+    }
     guest.submitted_frames += 1;
     devserver_set_frame_stats(
       run_frame,

@@ -73,6 +73,17 @@ void devserver_set_runtime(
   const char *phase,
   uint32_t frame
 );
+/* One frame's CPU phases in microseconds: guest JS, core tick (animation and
+ * physics), DrawList builds, PICA200 preparation and submission, and the
+ * interval since the previous frame began. Aggregated per 60-frame window. */
+void devserver_set_frame_timing(
+  uint32_t js_us,
+  uint32_t tick_us,
+  uint32_t draw_us,
+  uint32_t gpu_us,
+  uint32_t frame_us
+);
+
 void devserver_set_frame_stats(
   uint32_t frame,
   uint32_t commands,

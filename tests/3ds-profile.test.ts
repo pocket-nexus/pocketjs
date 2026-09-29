@@ -111,6 +111,7 @@ describe("private Nintendo 3DS build profile", () => {
         "input.touch.auxiliary",
         "display.auxiliary",
         "text.glyphs.baked",
+        "ui.physics",
       ],
     });
     expect(validatePlatformContractRegistry(THREE_DS_DEV_CONTRACTS)).toEqual([]);

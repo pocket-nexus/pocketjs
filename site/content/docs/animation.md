@@ -90,7 +90,7 @@ For non-color props you pass the raw native value:
 | ------------------------------------------------------------------ | ----------------------- |
 | `translateX`, `translateY`, `width`, `height`, padding/margin/inset | pixels                 |
 | `scale`, `scaleX`, `scaleY`                                        | multiplier (`1` = 100%) |
-| `rotate`, `rotateX`, `rotateY`                                     | degrees                 |
+| `rotate`, `rotateX`, `rotateY`, `skewX`                            | degrees                 |
 | `translateZ`                                                       | pixels                  |
 | `arcStart`, `arcSweep`                                             | degrees                 |
 | `arcWidth`                                                         | pixels                  |
@@ -252,7 +252,7 @@ into per-property tracks:
 ```
 
 Supported transform functions: `translate()`, `translateX/Y/Z()`, `rotate()`,
-`rotateX/Y()`, `scale()`, `scaleX/Y()`. Mixed `scale()`/`scaleX()` keyframes
+`rotateX/Y()`, `skewX()`, `scale()`, `scaleX/Y()`. Mixed `scale()`/`scaleX()` keyframes
 share one prop space (uniform scale decomposes to X + Y).
 
 **Values must be build-time absolute.** A `translateX(-50%)`, `calc()` or
@@ -301,7 +301,7 @@ center, and painter-sorts into clipped triangles the GPU rasterizes.
 
 All four take bracketed arbitrary values (negatives allowed). `rotate-N` without
 an axis stays the 2D Z rotation. Transforms compose in a fixed canonical order —
-scale, then rotate Y, rotate X, rotate Z, then translate — the common CSS idiom,
+scale, then skewX, rotate Y, rotate X, rotate Z, then translate — the common CSS idiom,
 though not an arbitrary `transform:` function list: there is no `matrix3d()`,
 `rotate3d()`, `scaleZ()`, or custom function ordering. `perspective` itself is a
 static context property, not animatable.
@@ -336,11 +336,12 @@ boundary worth knowing:
 | 2D transforms, colors, opacity, layout props | ✓ | ✓ | ✓ |
 | `rotateX`, `rotateY`, `translateZ` | ✓ | ✓ | — |
 | `arcStart`, `arcSweep`, `arcWidth` | ✓ | ✓ | — |
+| `skewX` | ✓ | ✓ | — |
 
 `ANIMATABLE` in `contracts/spec/spec.ts` is an ordered list whose index is a
 prop's anim bit, and the transition mask is a u32. `rotateX`, `rotateY`,
-`translateZ`, `arcStart`, `arcSweep` and `arcWidth` sit at **bits 32 through 37,
-past the end of that mask**, and the core's transition spawn loop skips every
+`translateZ`, `arcStart`, `arcSweep`, `arcWidth` and `skewX` sit at **bits 32
+through 38, past the end of that mask**, and the core's transition spawn loop skips every
 bit ≥ 32 — so even `transition-all`, which sets the mask to `0xffffffff`, leaves
 them alone. A `focus:rotate-y-[…]` swap snaps. Drive 3D and arc motion with a
 baked timeline or `animate()`.

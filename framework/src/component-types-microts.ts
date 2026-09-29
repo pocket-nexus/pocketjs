@@ -71,6 +71,7 @@ export interface MicroTsStyleProps {
   arcStart?: Deg | MicroTsIntegerInput;
   arcSweep?: Deg | MicroTsIntegerInput;
   arcWidth?: Px | MicroTsIntegerInput;
+  skewX?: Deg | MicroTsIntegerInput;
 }
 export interface MicroTsViewBaseProps {
   "class"?: MicroTsValue<string>;

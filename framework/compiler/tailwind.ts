@@ -265,6 +265,7 @@ const ARBITRARY_F32_PROPS: Record<string, number> = {
   "arc-start": PROP.arcStart,
   "arc-sweep": PROP.arcSweep,
   "arc-width": PROP.arcWidth,
+  "skew-x": PROP.skewX,
 };
 
 /**

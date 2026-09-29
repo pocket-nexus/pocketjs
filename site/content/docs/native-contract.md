@@ -55,7 +55,7 @@ Signatures are authoritative from `framework/src/host.ts` (`HostOps`) and `contr
 Node ids are generation-tagged positive `i32` values and reserve `0` for
 "none"; texture handles use their own 0-based or generation-tagged contracts.
 
-Codes 1–46 are shipped. A host installs the required core first; every other
+Codes 1–56 are shipped. A host installs the required core first; every other
 family is optional, gated on a capability, and feature-detected by the
 framework (`ops.hitTest?.(…)`) rather than assumed. `contracts/spec/spec.ts`
 carries a comment per op and is the only authority on argument order and edge
@@ -87,6 +87,9 @@ cases.
 | 43 | `wrapText` — greedy soft-wrap break columns for one line under `maxW`, as ascending UTF-16 code-unit indices | Breaks come from the same provider that measures and paints the slot; a native-text backend may install the host wrapper (gpui's `LineWrapper`) and its positions win. Without the op, apps run matching greedy rules over `measureText`. |
 | 44 | `setCompositorSurface` — bind a Pocket System package surface to a `NODE_TYPE.surface` node; the core emits `SURFACE_QUAD` in paint order with both full and clipped bounds | `ui.compositor-surfaces`. No image or texture semantics are involved; `handle < 0` clears. |
 | 45–46 | `hitTestAuxiliary`, `hitTestBoundsAuxiliary` — the twins of 27 and 42 in the auxiliary output's logical coordinates, never searching primary | `display.auxiliary`. |
+| 47–50 | `fontStreamConfigure`, `fontStreamRequests`, `fontStreamCommit`, `fontStreamStats` — a bounded external glyph cache fed by CPU handoff | `text.glyphs.streamed`. |
+| 51 | `appClose` — request graceful closure of a configured child app | Native navigation hosts only. |
+| 52–56 | `physicsCreate`, `physicsApply`, `physicsDestroy`, `physicsEvents`, `physicsQuery` — worlds, bodies, colliders, zones and emitters stepped inside `tick()`; parameters, commands and events are little-endian f64 records (`contracts/spec/physics.ts`) | `ui.physics`. See [Physics](/docs/physics/). |
 
 For the meaning of `PROP` ids, `ENUMS`, and how a `class` string becomes a `styleId`, see [Styling](/docs/styling/) and the [API reference](/docs/api/). For `animate`/`easing` semantics see [Animation](/docs/animation/).
 

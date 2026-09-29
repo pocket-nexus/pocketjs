@@ -51,6 +51,7 @@ export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
         "input.touch.auxiliary",
         "display.auxiliary",
         "text.glyphs.baked",
+        "ui.physics",
       ],
     },
   }),

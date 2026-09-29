@@ -1,0 +1,38 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "nexus.pocket.home",
+  "name": "pocket-nexus",
+  "title": "Pocket Nexus",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "display.auxiliary",
+        "input.touch.auxiliary",
+        "ui.physics"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/nexus/main.tsx",
+    "output": "pocket-nexus",
+    "framework": "solid",
+    "surfaces": {
+      "auxiliary": {
+        "fixed": {
+          "logical": [320, 240],
+          "presentation": "native"
+        }
+      }
+    },
+    "viewport": {
+      "fixed": {
+        "logical": [400, 240],
+        "presentation": "native"
+      }
+    }
+  }
+}

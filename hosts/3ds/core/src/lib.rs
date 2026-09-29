@@ -337,6 +337,57 @@ pub extern "C" fn ui_set_prop_batch(ptr: *const u8, len: usize) {
     }
 }
 
+// ---- physics (spec ops 52..56, ui.physics; contracts/spec/physics.ts) ------
+
+/// Drained physics events as little-endian f64 bytes; valid until the next
+/// drain.
+static mut PHYSICS_EVENT_BYTES: Vec<u8> = Vec::new();
+static mut PHYSICS_SCRATCH: Vec<f64> = Vec::new();
+
+fn f64_records(ptr: *const u8, len: usize) -> Vec<f64> {
+    let (records, _) = unsafe { bytes(ptr, len) }.as_chunks::<8>();
+    records.iter().map(|record| f64::from_le_bytes(*record)).collect()
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_create(kind: u32, ptr: *const u8, len: usize) -> i32 {
+    ui().physics_create(kind, &f64_records(ptr, len))
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_apply(ptr: *const u8, len: usize) {
+    ui().physics_apply(&f64_records(ptr, len));
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_destroy(handle: i32) {
+    ui().physics_destroy(handle);
+}
+
+/// Drain pending events; returns the byte pointer and stores the byte length
+/// (0 when there are none).
+#[no_mangle]
+pub extern "C" fn ui_physics_take_events(length: *mut usize) -> *const u8 {
+    unsafe {
+        PHYSICS_EVENT_BYTES.clear();
+        if ui().physics_has_events() {
+            ui().physics_take_events(&mut PHYSICS_SCRATCH);
+            for value in PHYSICS_SCRATCH.iter() {
+                PHYSICS_EVENT_BYTES.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        if !length.is_null() {
+            *length = PHYSICS_EVENT_BYTES.len();
+        }
+        PHYSICS_EVENT_BYTES.as_ptr()
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ui_physics_query(query: u32, handle: i32, a: f64, b: f64, c: f64, d: f64) -> f64 {
+    ui().physics_query(query, handle, a, b, c, d)
+}
+
 #[no_mangle]
 pub extern "C" fn ui_set_text(id: i32, ptr: *const u8, len: usize) {
     ui().set_text(id, unsafe { &text_lossy(ptr, len) });

@@ -163,6 +163,11 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // compositor surfaces. This describes the UI API, not the host's internal
   // scheduling implementation.
   "ui.compositor-surfaces",
+  // 2D bodies stepped by the UI core (ops 52..56, contracts/spec/physics.ts):
+  // worlds, anchored jelly bodies, colliders, zones and particle emitters
+  // that write paint-only transforms into retained nodes each tick. The wasm
+  // core behind the web and sim hosts and the 3DS host implement it.
+  "ui.physics",
   // Credit-based s16 PCM streaming through the audio module's own namespace
   // (`globalThis.audio`, contracts/spec/audio.ts). Registered ahead of any
   // stock TARGET advertising it: the web dev host and the sim host implement

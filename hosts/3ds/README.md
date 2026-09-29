@@ -203,6 +203,12 @@ status, native counters, the component tree, a live REPL evaluation, a console
 message, and a combined top/bottom PNG. `dev` keeps the DevTools panel attached;
 `r` rebuilds and pushes, `s` captures both screens, and `o` opens the panel.
 
+**`devStats` carries `timingUs`: the mean and maximum microseconds of each
+frame phase over the last 60 frames** — guest JS, core tick (animation and
+physics), the two DrawList builds, PICA200 preparation and submission, and the
+frame interval — plus `slowFrames`, the count of intervals above 25 ms since
+boot.
+
 **One authenticated, ordered TCP connection carries every development
 message.** JSON frames contain only Pocket DevTools control and logs. Package
 and rotated RGB8 screenshot bytes use bounded binary frames, so bulk data never
@@ -356,6 +362,17 @@ is geometry:
   root layer and the native root node cannot drift apart. Publishing a size is
   not a live-resize capability: that needs `installResizeViewportHook`, which a
   `takeover` host never calls.
+
+## 2D bodies
+
+The host advertises `ui.physics`. `src/qjs.c` binds ops 52–56
+(`physicsCreate`, `physicsApply`, `physicsDestroy`, `physicsEvents`,
+`physicsQuery`) to the `ui_physics_*` exports of `core/src/lib.rs`; parameters,
+command records and events cross as little-endian f64 byte buffers, and
+`physicsEvents` returns a fresh ArrayBuffer or `undefined`. **The simulation
+steps inside `ui_tick`, before `ui_draw`, and one world spans both screens:
+the app places the bottom screen's origin in world space.** `apps/nexus` is
+the reference scene ([Physics](../../site/content/docs/physics.md)).
 
 ## What the backend has to honour
 

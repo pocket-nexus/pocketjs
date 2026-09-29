@@ -43,6 +43,7 @@ pub mod draw;
 pub mod layout;
 pub mod package;
 pub mod pak;
+pub mod physics;
 pub mod raster;
 pub mod compositor;
 pub mod spec;
@@ -253,6 +254,8 @@ pub struct Ui {
     font_revisions: [u64; spec::MAX_FONT_SLOTS],
     anims: anim::Anims,
     timelines: Vec<TimelineInst>,
+    /// 2D bodies (ui.physics): stepped after animations, writes view props.
+    physics: physics::Physics,
     layout: layout::LayoutEngine,
     auxiliary: Option<AuxiliarySurface>,
     /// Generation-tagged texture slots (handles per spec.ts TEX_SLOT_BITS).
@@ -343,6 +346,7 @@ impl Ui {
             font_revisions: [0; spec::MAX_FONT_SLOTS],
             anims: anim::Anims::new(),
             timelines: Vec::new(),
+            physics: physics::Physics::new(),
             layout: layout::LayoutEngine::new(),
             auxiliary: None,
             textures: Vec::new(),
@@ -1335,9 +1339,60 @@ impl Ui {
         }
         self.anims.publish_completions();
         self.tick_timelines();
+        if !self.physics.is_idle() {
+            // Anchors and node colliders read layout, so it must be current.
+            if self.layout.needs() {
+                layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
+            }
+            if let Some(auxiliary) = self.auxiliary.as_mut() {
+                if auxiliary.layout.needs() {
+                    layout::relayout_root(
+                        &mut self.tree,
+                        &self.styles,
+                        &self.fonts,
+                        &mut auxiliary.layout,
+                        auxiliary.root,
+                    );
+                }
+            }
+            let aux_root = self.auxiliary_surface_root();
+            self.physics.step(self.dt, &mut self.tree, aux_root);
+        }
         if self.layout.needs() {
             layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
         }
+    }
+
+    // ---- physics (ui.physics; contracts/spec/physics.ts) ----------------------
+
+    /// `physicsCreate(kind, params)` → handle, or 0.
+    pub fn physics_create(&mut self, kind: u32, params: &[f64]) -> i32 {
+        self.physics.create(kind, params)
+    }
+
+    /// `physicsApply(records)`.
+    pub fn physics_apply(&mut self, records: &[f64]) {
+        self.physics.apply(records);
+    }
+
+    /// `physicsDestroy(handle)`.
+    pub fn physics_destroy(&mut self, handle: i32) {
+        self.physics.destroy(handle, &mut self.tree);
+    }
+
+    /// `physicsEvents()`: move the pending records into `out`.
+    pub fn physics_take_events(&mut self, out: &mut Vec<f64>) {
+        self.physics.take_events(out);
+    }
+
+    /// Whether `physicsEvents()` would return records.
+    pub fn physics_has_events(&self) -> bool {
+        self.physics.has_events()
+    }
+
+    /// `physicsQuery(query, handle, a, b, c, d)`.
+    pub fn physics_query(&self, query: u32, handle: i32, a: f64, b: f64, c: f64, d: f64) -> f64 {
+        self.physics.query(query, handle, a, b, c, d)
     }
 
     /// Advance every playing baked timeline one frame and write the sampled
