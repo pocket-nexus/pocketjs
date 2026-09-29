@@ -3,12 +3,14 @@
 // Tailwind (utilities inline + a few component classes in assets/tailwind.css).
 
 const YEAR = 2026;
-const GH = "https://github.com/pocket-stack/pocketjs";
+const GH = "https://github.com/pocket-nexus/pocketjs";
 const DISCORD = "https://discord.gg/cTce4eXzSK";
 const X_URL = "https://x.com/pocket_js";
 // The organization PocketJS belongs to; its homepage links back here.
 const NEXUS_URL = "https://pocket.nexus";
-export const SITE_URL = "https://pocketjs.dev";
+// The canonical origin: PocketJS lives under the Pocket Nexus homepage.
+// pocketjs.dev serves the same build; its pages point here as canonical.
+export const SITE_URL = "https://pocketjs.pocket.nexus";
 export const SITE_TITLE = "PocketJS · Create on every screen you love";
 export const SITE_DESC =
   "Create on every screen you love. Build apps and games with familiar JavaScript components, from handhelds and desktops to embedded screens.";

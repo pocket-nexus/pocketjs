@@ -21,7 +21,7 @@
     "url": "git+https://github.com/pocket-nexus/pocketjs.git",
     "directory": "cli"
   },
-  "homepage": "https://pocketjs.dev",
+  "homepage": "https://pocketjs.pocket.nexus",
   "keywords": [
     "pocketjs",
     "psp",
