@@ -320,10 +320,7 @@ impl Tree {
     pub fn collect_subtree(&self, id: i32, out: &mut Vec<u32>) {
         let Some(slot) = self.resolve(id) else { return };
         out.push(slot);
-        // Children Vec is cloned per level to keep borrowck simple; subtree
-        // destruction is not a per-frame hot path.
-        let children = self.slots[slot as usize].children.clone();
-        for c in children {
+        for &c in &self.slots[slot as usize].children {
             self.collect_subtree(c, out);
         }
     }
@@ -333,8 +330,7 @@ impl Tree {
     pub fn collect_run(&self, slot: u32, out: &mut String) {
         let node = &self.slots[slot as usize];
         out.push_str(&node.text);
-        let children = node.children.clone();
-        for c in children {
+        for &c in &node.children {
             if let Some(cs) = self.resolve(c) {
                 if self.slots[cs as usize].node_type == spec::NodeType::Text as u8 {
                     self.collect_run(cs, out);

@@ -23,12 +23,12 @@ use crate::text::Fonts;
 use crate::tree::{LayoutRect, Tree};
 
 /// Measure context attached to text leaves (taffy NodeContext).
+///
+/// Deliberately minimal: the solve-time measure closure reads only `size`,
+/// and shaping happens once in `MeasureCtx::shaped` (build/restyle) against
+/// the freshly collected run — storing slot/tracking/line_height here (or
+/// the run itself) would be dead weight duplicated per text node.
 pub struct MeasureCtx {
-    pub text: String,
-    pub slot: u8,
-    pub tracking: f32,
-    /// NAN = atlas default.
-    pub line_height: f32,
     /// Shaped size, computed ONCE when the context is (re)built. Text
     /// shaping is the expensive half of layout on the PSP; the taffy
     /// measure closure must never re-shape per solve pass.
@@ -38,14 +38,14 @@ pub struct MeasureCtx {
 impl MeasureCtx {
     fn shaped(
         fonts: &Fonts,
-        text: String,
+        text: &str,
         slot: u8,
         tracking: f32,
         line_height: f32,
         native: bool,
     ) -> MeasureCtx {
-        let size = fonts.measure_run_provider(native, &text, slot, tracking, line_height);
-        MeasureCtx { text, slot, tracking, line_height, size }
+        let size = fonts.measure_run_provider(native, text, slot, tracking, line_height);
+        MeasureCtx { size }
     }
 }
 
@@ -265,7 +265,7 @@ fn build(
         tree.slots[slot as usize].text_native = native;
         let ctx = MeasureCtx::shaped(
             fonts,
-            run,
+            &run,
             resolved.font_slot as u8,
             resolved.tracking,
             resolved.line_height,
@@ -275,9 +275,10 @@ fn build(
         tree.slots[slot as usize].taffy = Some(nid);
         return Some(nid);
     }
-    let children = tree.slots[slot as usize].children.clone();
-    let mut kids: Vec<taffy::NodeId> = Vec::with_capacity(children.len());
-    for c in children {
+    let child_count = tree.slots[slot as usize].children.len();
+    let mut kids: Vec<taffy::NodeId> = Vec::with_capacity(child_count);
+    for i in 0..child_count {
+        let c = tree.slots[slot as usize].children[i];
         if let Some(cs) = tree.resolve(c) {
             if let Some(k) = build(tree, styles, fonts, taffy, cs, in_transform) {
                 kids.push(k);
@@ -389,7 +390,7 @@ pub fn relayout_root(
                 tree.slots[slot as usize].text_native = native;
                 let ctx = MeasureCtx::shaped(
                     fonts,
-                    run,
+                    &run,
                     resolved.font_slot as u8,
                     resolved.tracking,
                     resolved.line_height,
