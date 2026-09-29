@@ -23,3 +23,18 @@ wide. The sticky **Browse docs** disclosure contains the same sections and
 active page as the desktop sidebar. It works without JavaScript, supports
 keyboard activation, and scrolls internally when the directory exceeds the
 screen.
+
+## pocket.nexus
+
+```sh
+bun run nexus:preview
+```
+
+Open **http://127.0.0.1:4190/** to preview the Pocket Nexus homepage. The
+preview serves `site/nexus/public/` as the `pocket-nexus` Worker does: the
+homepage at `/` and `404.html` for unknown paths. The page has no build step.
+
+After editing `site/nexus/mark.svg` or the homepage layout, run
+`bun run nexus:icons`. It rasterizes the favicon family from the mark and
+captures `og-image.png` from the homepage at 1200x630 with reduced motion,
+with the top bar, button and hint hidden.

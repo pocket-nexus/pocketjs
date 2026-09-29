@@ -406,8 +406,9 @@ bun run site:build            # docs, playground, Stage, and landing build
 
 ## Project
 
-Pocket Lab is an independent, non-VC-backed organization built on this runtime,
-so that the joy of creating belongs to everyone. Development is funded by
+[Pocket Nexus](https://pocket.nexus) is an independent, non-VC-backed
+organization built on this runtime, so that the joy of creating belongs to
+everyone. Development is funded by
 [sponsors](https://github.com/sponsors/doodlewind).
 
 ## Attribution

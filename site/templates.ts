@@ -6,6 +6,8 @@ const YEAR = 2026;
 const GH = "https://github.com/pocket-stack/pocketjs";
 const DISCORD = "https://discord.gg/cTce4eXzSK";
 const X_URL = "https://x.com/pocket_js";
+// The organization PocketJS belongs to; its homepage links back here.
+const NEXUS_URL = "https://pocket.nexus";
 export const SITE_URL = "https://pocketjs.dev";
 export const SITE_TITLE = "PocketJS · Create on every screen you love";
 export const SITE_DESC =
@@ -116,7 +118,7 @@ function header(active: string): string {
 
 const footer = `<footer class="foot">
   <div class="wrap">
-    <span class="hud">© ${YEAR} PocketJS · MIT · a Pocket Lab project</span>
+    <span class="hud">© ${YEAR} PocketJS · MIT · a <a href="${NEXUS_URL}">Pocket Nexus</a> project</span>
     <nav class="cols2" aria-label="Footer">
       <span class="fgrp">
         <a href="/docs/overview/">Docs</a>

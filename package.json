@@ -313,6 +313,8 @@
     "site:build": "bun tools/site-build.ts",
     "site:preview": "bun site/preview.ts",
     "site:icons": "bun tools/icons.ts",
+    "nexus:preview": "bun site/nexus/preview.ts",
+    "nexus:icons": "bun tools/icons.ts nexus",
     "site:verify-playground": "bun run site:build && bun site/verify-playground.ts",
     "site:verify-doc-demos": "bun run site:build && bun site/verify-doc-demos.ts",
     "serve": "bun hosts/web/serve.ts",

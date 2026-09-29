@@ -13,12 +13,14 @@
     // unknown paths -> the branded /404.html
     "not_found_handling": "404-page"
   },
-  // Serve the same site on both domains (apex + www). Wrangler provisions
-  // each custom domain and edge certificate on deploy.
+  // PocketJS lives at pocketjs.pocket.nexus, under the Pocket Nexus homepage
+  // (site/nexus/wrangler.jsonc owns pocket.nexus and www.pocket.nexus), and
+  // keeps serving pocketjs.dev and its www host. Wrangler provisions each
+  // custom domain and edge certificate on deploy; in CI it also detaches any
+  // custom domain of this Worker that is no longer listed here.
   "routes": [
     { "pattern": "pocketjs.dev", "custom_domain": true },
     { "pattern": "www.pocketjs.dev", "custom_domain": true },
-    { "pattern": "pocket.nexus", "custom_domain": true },
-    { "pattern": "www.pocket.nexus", "custom_domain": true }
+    { "pattern": "pocketjs.pocket.nexus", "custom_domain": true }
   ]
 }

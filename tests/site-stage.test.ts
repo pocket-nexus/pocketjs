@@ -168,7 +168,8 @@ test("homepage ships the four-chapter landing", () => {
   expect(gen).toContain("includePrivate: false");
 
   // Project provenance stays in the footer; the hero carries the calls to action.
-  expect(home).toContain("Pocket Lab");
+  expect(home).toContain('a <a href="https://pocket.nexus">Pocket Nexus</a> project');
+  expect(home).not.toContain("Pocket Lab");
   expect(home).toContain("Star on GitHub");
   expect(home).toContain("See what people make");
 
