@@ -55,20 +55,24 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
       for (const cb of frameCallbacks) cb(buttons);
       for (const [callback, node] of placed) enqueue(node, () => callback(buttons));
       resolveInput?.(enqueue);
-      const roots = new Set<NodeMirror>();
-      for (const node of pending.keys()) {
-        if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
-        let root = node;
-        while (root.parent) root = root.parent;
-        roots.add(root);
+      // Placed handlers and deferred presses run in document order; with
+      // none queued there is no tree to walk.
+      if (pending.size > 0) {
+        const roots = new Set<NodeMirror>();
+        for (const node of pending.keys()) {
+          if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
+          let root = node;
+          while (root.parent) root = root.parent;
+          roots.add(root);
+        }
+        const ordered: { node: NodeMirror; invoke: () => void }[] = [];
+        const collect = (node: NodeMirror): void => {
+          for (const invoke of pending.get(node) ?? []) ordered.push({ node, invoke });
+          for (const child of node.children) collect(child);
+        };
+        for (const root of roots) collect(root);
+        for (const { node, invoke } of ordered) withRowSnapshot(nodeRow(node), invoke);
       }
-      const ordered: { node: NodeMirror; invoke: () => void }[] = [];
-      const collect = (node: NodeMirror): void => {
-        for (const invoke of pending.get(node) ?? []) ordered.push({ node, invoke });
-        for (const child of node.children) collect(child);
-      };
-      for (const root of roots) collect(root);
-      for (const { node, invoke } of ordered) withRowSnapshot(nodeRow(node), invoke);
       reactModelRegions();
     });
     flushLifecycleHooks();

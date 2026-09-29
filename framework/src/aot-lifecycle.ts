@@ -11,6 +11,9 @@ export function createLifecycleScheduler(batch: (run: () => void) => void, updat
   const hooks = new Set<LifecycleHook>();
   let sequence = 0;
   let running = false;
+  // Set when a hook is registered or destroyed; clear means no hook is
+  // waiting to mount or unmount, so a flush round has nothing to collect.
+  let dirty = false;
   const dead = () => [...hooks].filter(hook => hook.destroyed).sort((a, b) => b.sequence - a.sequence);
   const destroy = (entries: LifecycleHook[]) => {
     for (const hook of entries) {
@@ -22,7 +25,8 @@ export function createLifecycleScheduler(batch: (run: () => void) => void, updat
     register(callback: () => void, phase: "mount" | "unmount"): () => void {
       const hook: LifecycleHook = { sequence: sequence++, [phase]: callback, destroyed: false, mounted: false };
       hooks.add(hook);
-      return () => { hook.destroyed = true; };
+      dirty = true;
+      return () => { hook.destroyed = true; dirty = true; };
     },
     flush(): void {
       if (running) return;
@@ -30,6 +34,8 @@ export function createLifecycleScheduler(batch: (run: () => void) => void, updat
       try {
         update();
         for (let round = 0; ; round++) {
+          if (!dirty) return;
+          dirty = false;
           const removed = dead();
           const added = [...hooks].filter(hook => !hook.destroyed && !hook.mounted).sort((a, b) => a.sequence - b.sequence);
           if (removed.length === 0 && added.length === 0) return;
@@ -52,6 +58,6 @@ export function createLifecycleScheduler(batch: (run: () => void) => void, updat
     flushUnmounted(): void {
       batch(() => destroy(dead()));
     },
-    reset(): void { hooks.clear(); sequence = 0; running = false; },
+    reset(): void { hooks.clear(); sequence = 0; running = false; dirty = false; },
   };
 }

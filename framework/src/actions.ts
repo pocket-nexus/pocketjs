@@ -122,6 +122,8 @@ export function useActions(actions: ActionMap | Accessor<ActionMap>, options: Us
       const pressed = buttons & ~previous;
       const released = previous & ~buttons;
       previous = buttons;
+      // No edge and no hold timer running: no intent can fire this frame.
+      if (pressed === 0 && released === 0 && held.size === 0) return;
       const blocked = !options.allowWhenBlocked && isButtonHandlerBlocked();
       const current = map();
       const holdFrames = Math.max(1, Math.round(HOLD_SECONDS * simulationHz()));

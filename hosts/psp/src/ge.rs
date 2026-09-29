@@ -386,6 +386,35 @@ unsafe fn paint_cpu_glyph(atlas: &Atlas, gid: u16, gx: i16, gy: i16, color: u32)
     );
 }
 
+/// Texels per 64-byte texture-cache line for a pixel format. A wide sprite
+/// sampled from an unswizzled texture refills the GE's 8 KB texture cache on
+/// every scanline; drawing it as columns of one cache line each keeps the
+/// working set resident.
+fn strip_texels(psm: u32) -> i32 {
+    match psm {
+        spec::psm::PSM_T8 => 64,
+        spec::psm::PSM_5650 | spec::psm::PSM_4444 => 32,
+        _ => 16,
+    }
+}
+
+/// Sprites one TEX_QUAD becomes: 1 unless the quad maps texels 1:1 in the
+/// positive direction on whole-texel bounds and is wider than one strip.
+fn strip_count(texels: (f32, f32, f32, f32), w: i32, h: i32, strip: i32) -> usize {
+    let (u0, v0, u1, v1) = texels;
+    let whole = |t: f32| t == (t as i32) as f32;
+    if w <= strip
+        || u0 < 0.0
+        || !(whole(u0) && whole(u1) && whole(v0) && whole(v1))
+        || u1 as i32 - u0 as i32 != w
+        || v1 as i32 - v0 as i32 != h
+    {
+        return 1;
+    }
+    let (a, b) = (u0 as i32, u1 as i32);
+    ((b + strip - 1) / strip - a / strip) as usize
+}
+
 /// Render one frame's DrawList into the open display list.
 pub unsafe fn render(ui: &Ui, words: &[u32]) {
     // Frame clear: uncovered framebuffer regions must not show stale VRAM.
@@ -644,42 +673,68 @@ pub unsafe fn render_over(ui: &Ui, words: &[u32]) {
                 if let Some(view) = ui.texture(handle) {
                     apply_texture(&view);
                     let (tw, th) = (view.w, view.h);
+                    let strip = strip_texels(view.psm);
                     // TRANSFORM_2D UVs are TEXELS (see module docs): scale the
                     // normalized DrawList UVs by the texture dimensions.
-                    let bytes = count * 2 * core::mem::size_of::<VertTC>();
+                    let texels = |o: usize| {
+                        (
+                            f32::from_bits(words[o + 4]) * tw as f32,
+                            f32::from_bits(words[o + 5]) * th as f32,
+                            f32::from_bits(words[o + 6]) * tw as f32,
+                            f32::from_bits(words[o + 7]) * th as f32,
+                        )
+                    };
+                    let mut sprites = 0usize;
+                    for k in 0..count {
+                        let o = i + k * 9;
+                        let (qw, qh) = wh(words[o + 3]);
+                        sprites += strip_count(texels(o), qw, qh, strip);
+                    }
+                    let bytes = sprites * 2 * core::mem::size_of::<VertTC>();
                     let verts = pool_alloc(bytes) as *mut VertTC;
+                    let mut s = 0usize;
                     for k in 0..count {
                         let o = i + k * 9;
                         let (qx, qy) = xy(words[o + 2]);
                         let (qw, qh) = wh(words[o + 3]);
-                        let qu0 = f32::from_bits(words[o + 4]);
-                        let qv0 = f32::from_bits(words[o + 5]);
-                        let qu1 = f32::from_bits(words[o + 6]);
-                        let qv1 = f32::from_bits(words[o + 7]);
+                        let (tu0, tv0, tu1, tv1) = texels(o);
                         let qcolor = words[o + 8];
-                        *verts.add(k * 2) = VertTC {
-                            u: (qu0 * tw as f32) as i16,
-                            v: (qv0 * th as f32) as i16,
+                        let vert = |u: f32, v: f32, x: i32, y: i32| VertTC {
+                            u: u as i16,
+                            v: v as i16,
                             color: qcolor,
-                            x: qx,
-                            y: qy,
+                            x: x as i16,
+                            y: y as i16,
                             z: 0,
                             _pad: 0,
                         };
-                        *verts.add(k * 2 + 1) = VertTC {
-                            u: (qu1 * tw as f32) as i16,
-                            v: (qv1 * th as f32) as i16,
-                            color: qcolor,
-                            x: (qx as i32 + qw) as i16,
-                            y: (qy as i32 + qh) as i16,
-                            z: 0,
-                            _pad: 0,
-                        };
+                        if strip_count((tu0, tv0, tu1, tv1), qw, qh, strip) == 1 {
+                            *verts.add(s * 2) = vert(tu0, tv0, qx as i32, qy as i32);
+                            *verts.add(s * 2 + 1) =
+                                vert(tu1, tv1, qx as i32 + qw, qy as i32 + qh);
+                            s += 1;
+                            continue;
+                        }
+                        // 1:1 texel mapping: cut at absolute multiples of the
+                        // strip width so every strip stays inside one
+                        // texture-cache-sized column of the source.
+                        let u0 = tu0 as i32;
+                        let u1 = tu1 as i32;
+                        let mut a = u0;
+                        while a < u1 {
+                            let b = ((a / strip + 1) * strip).min(u1);
+                            let x0 = qx as i32 + (a - u0);
+                            let x1 = qx as i32 + (b - u0);
+                            *verts.add(s * 2) = vert(a as f32, tv0, x0, qy as i32);
+                            *verts.add(s * 2 + 1) = vert(b as f32, tv1, x1, qy as i32 + qh);
+                            s += 1;
+                            a = b;
+                        }
                     }
                     flush(
                         GuPrimitive::Sprites,
                         VTYPE_TC,
-                        (count * 2) as i32,
+                        (sprites * 2) as i32,
                         verts as *const c_void,
                         bytes,
                     );

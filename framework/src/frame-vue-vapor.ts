@@ -51,21 +51,24 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
     resolveInput?.(enqueue);
     // A component's setup order is not its position after a keyed move.
     // Snapshot the live mirror's document order before running any handlers.
-    const roots = new Set<NodeMirror>();
-    for (const node of pending.keys()) {
-      if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
-      let root = node;
-      while (root.parent) root = root.parent;
-      roots.add(root);
+    // With nothing queued there is no tree to walk.
+    if (pending.size > 0) {
+      const roots = new Set<NodeMirror>();
+      for (const node of pending.keys()) {
+        if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
+        let root = node;
+        while (root.parent) root = root.parent;
+        roots.add(root);
+      }
+      const ordered: (() => void)[] = [];
+      const collect = (node: NodeMirror): void => {
+        const entries = pending.get(node);
+        if (entries) ordered.push(...entries);
+        for (const child of node.children) collect(child);
+      };
+      for (const root of roots) collect(root);
+      for (const invoke of ordered) invoke();
     }
-    const ordered: (() => void)[] = [];
-    const collect = (node: NodeMirror): void => {
-      const entries = pending.get(node);
-      if (entries) ordered.push(...entries);
-      for (const child of node.children) collect(child);
-    };
-    for (const root of roots) collect(root);
-    for (const invoke of ordered) invoke();
     reactModelRegions();
     flushLifecycleHooks();
   }
