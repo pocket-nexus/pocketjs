@@ -9,9 +9,16 @@ protocol — the op table, the frame entry, the embedded `__pocket_js` /
 `__pocket_pak` sections — is the same runtime compiled for the same
 architecture. The target remains outside the public `POCKET_TARGETS` registry.
 
-The bundled application is Pocket Clear (`apps/clear`), a Vue Vapor guest
-whose input is entirely gestures; its acceptance receipt is the
-`clear_gesture` action counter.
+The target builds two applications from this repository, selected with
+`POCKETJS_IPODTOUCH4_APP`:
+
+| App | Id | Guest | Acceptance action |
+|---|---|---|---|
+| Pocket Clear | `clear` (default) | `apps/clear`, Vue Vapor, gestures only | `clear_gesture` |
+| Pocket Nexus | `nexus-touch` | `apps/nexus-touch`, Solid, `ui.physics` | `nexus_play` |
+
+Each app has its own bundle identifier, executable, bundle name and URL
+scheme, so both install side by side.
 
 Clear also supports **companion-backed Chinese pinyin composition** through
 `io.offload`. The device owns the editor and a bounded input transcript; a
@@ -30,6 +37,39 @@ entry is `pocket_runtime_frame_contacts`, which packs every contact into the
 wide form above. A single id-0 contact produces the same bytes as the old
 single-touch entry points, so existing tapes and hosts decode unchanged. The
 1.x GSEvent fallback has no per-finger identity and owns slot 0 alone.
+
+## Pocket Nexus and 2D bodies
+
+`apps/nexus-touch` is the pocket.nexus homepage as a standalone app: the
+spill, the toys, the letters that hop, talk, and go back to the pocket's
+mouth. **The profile advertises `ui.physics`, and every ipodtouch4 build
+compiles `engine/quickjs-c/pocket_runtime.c` with `POCKET_PHYSICS`, which
+binds ops 52..56 to the `ui_physics_*` exports of the UI C ABI
+(`engine/ui-cabi`).** The define keeps the op tables of the other hosts that
+compile the same runtime (iPhone 2G, iPhone 4S, Meizu M8, BlackBerry Classic,
+Android) byte-identical. The host ABI stays 8: the family is optional behind
+its capability, as `io.offload` is, and the guest is embedded in the same
+binary as the host.
+
+**The core steps physics inside its tick, so the app descriptor sets
+`frameTicks: 1`: one core tick per display-link callback, the rate the guest
+clock assumes.** Stock builds keep two ticks per callback, the rate the
+original 30 Hz iPhone host set. Measured on the device (`iPod4,1`, iOS
+6.1.6) with the status record's window counters: 60 fps at rest with 1.4 ms
+of guest and core time per frame, and 57 to 61 fps with 3.5 to 4.3 ms under
+a sustained load of a pop every 0.3 s, 14 live toys, bursts, waves and
+swallowed letters.
+
+The app descriptor also names an icon (`site/nexus/public/apple-touch-icon.png`)
+and a launch image (`apps/nexus-touch/launch.png`, the app's first frame),
+which replaces the generated `Default@2x.png`.
+
+```sh
+bun apps/nexus-touch/gen-art.ts                       # re-bake the art from the homepage
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 deploy
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 launch
+```
 
 ## Device state
 
@@ -86,14 +126,15 @@ bun ipodtouch4 capture
 bun ipodtouch4 uninstall         # removes the app and its data
 ```
 
-`build` resolves `apps/clear/pocket.json` against the `ipodtouch4-dev`
-profile, produces the guest bundle and pak, compiles the shared legacy
+`build` resolves the selected app's manifest (`apps/clear/pocket.json` by
+default) against the `ipodtouch4-dev` profile, produces the guest bundle and pak, compiles the shared legacy
 runtime for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
 embedded as `__pocket_js` / `__pocket_pak` sections. The build id hashes the
 plan, the guest artifacts, every native object, the sysroot stubs, and the
 baked artwork.
 
-**`build` also produces `dist/ipodtouch4/PocketJSiPodTouch4.ipa`.** `deploy`
+**`build` also produces the app's IPA, `dist/ipodtouch4/PocketJSiPodTouch4.ipa`
+for Clear and `dist/ipodtouch4/PocketNexus.ipa` for Nexus.** `deploy`
 transfers that IPA over the pinned USB SSH tunnel and calls iOS 6
 `MobileInstallationInstall` with `ApplicationType=User`. **iOS creates the
 UUID container under `/var/mobile/Applications`, owns updates, and preserves

@@ -167,9 +167,10 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // worlds, anchored jelly bodies, colliders, zones and particle emitters
   // that write paint-only transforms into retained nodes each tick. The wasm
   // core behind the web and sim hosts implements the whole contract, and the
-  // 3ds-dev profile advertises it because the 3DS host binds the five ops. A
-  // target appends the id to its profile only when its host binds them too
-  // (the binding to copy is hosts/3ds/src/qjs.c over pocketjs-core).
+  // 3ds-dev and ipodtouch4-dev profiles advertise it because their hosts bind
+  // the five ops (hosts/3ds/src/qjs.c; engine/quickjs-c/pocket_runtime.c under
+  // POCKET_PHYSICS over engine/ui-cabi). A target appends the id to its
+  // profile only when its host binds them too.
   "ui.physics",
   // Credit-based s16 PCM streaming through the audio module's own namespace
   // (`globalThis.audio`, contracts/spec/audio.ts). Registered ahead of any

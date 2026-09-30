@@ -9,7 +9,7 @@ Painting, clipping and hit testing reuse the retained tree, and motion never
 runs layout.
 
 An app requires the capability `ui.physics`. The wasm core behind the web and
-sim hosts and the Nintendo 3DS host implement it; the contract is the five
+sim hosts, the Nintendo 3DS host and the iPod touch 4 host implement it; the contract is the five
 optional ops 52–56 in [Native contract](/docs/native-contract/), with every key,
 command, event, query and fixed constant pinned in `contracts/spec/physics.ts`.
 
@@ -249,4 +249,30 @@ homepage's canvas art into the sprites.
 ```sh
 bun apps/nexus/gen-art.ts      # re-bake the sprites (headless Chrome)
 bun tools/3ds.ts nexus         # dist/3ds/nexus-main.3dsx
+```
+
+## The touch Pocket Nexus scene
+
+`apps/nexus-touch` is the same homepage on one 320×480 touch screen, built
+for the iPod touch 4 as a standalone app. **`apps/nexus-touch/gen-art.ts`
+opens the homepage document at 320×480 with its top bar and button hidden,
+so the page's own `layout()` places the wordmark, the lede and the hint; the
+bake measures that layout and captures the page's text and sky at device
+scale 2.** Beyond the 3DS scene it carries the homepage's letter handling:
+
+- **A tapped letter hops** (`hop`) and may answer in a speech bubble.
+- **A dragged letter is carried** (`grab` with `mode: "carry"`) and springs
+  home when released.
+- **A letter dropped over the pocket's mouth is swallowed**: a `launch` into
+  the mouth, a `setAnchor` below the screen while the pocket chews, and a
+  `launch` from the mouth back to its slot. A second view of each letter,
+  drawn behind the pocket's front, shows it inside the pocket.
+
+Per-frame JS moves the O's eyes and the pocket's pupils toward what the
+finger is doing, keeps the bubbles on the toys that carry them, and writes
+the toys' floor shadows in one `setPropBatch` crossing.
+
+```sh
+bun apps/nexus-touch/gen-art.ts                            # re-bake the art from the homepage
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build   # dist/ipodtouch4/PocketNexus.app
 ```

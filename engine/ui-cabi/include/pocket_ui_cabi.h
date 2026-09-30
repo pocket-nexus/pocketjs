@@ -44,6 +44,14 @@ int32_t ui_animate(
 void ui_cancel_anim(int32_t animation_id);
 /* JSON bytes are borrowed until the next drain on the UI thread. */
 const uint8_t *ui_take_animation_completions_json(size_t *length);
+/* 2D bodies (spec ops 52..56, ui.physics): packed little-endian Float64
+ * records in, handles and query results out; drained events stay valid until
+ * the next drain. */
+int32_t ui_physics_create(uint32_t kind, const uint8_t *bytes, size_t length);
+void ui_physics_apply(const uint8_t *bytes, size_t length);
+void ui_physics_destroy(int32_t handle);
+const uint8_t *ui_physics_take_events(size_t *length);
+double ui_physics_query(uint32_t query, int32_t handle, double a, double b, double c, double d);
 void ui_set_focus(int32_t id);
 void ui_set_active(int32_t id, int32_t active);
 int32_t ui_hit_test(float x, float y);

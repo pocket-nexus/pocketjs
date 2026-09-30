@@ -42,7 +42,7 @@ describe("private iPod touch 4 profile", () => {
         presentations: ["native"],
         rasterDensity: IPODTOUCH4_RASTER_DENSITY,
       },
-      capabilities: ["input.touch", "text.glyphs.baked", "io.offload"],
+      capabilities: ["input.touch", "text.glyphs.baked", "io.offload", "ui.physics"],
     });
     // Same legacy UIKit runtime, same op table, same guest protocol as the
     // iPhone 4S — the ABI is the protocol revision, the target id the device.
@@ -64,6 +64,39 @@ describe("private iPod touch 4 profile", () => {
     expect(plan.app.output).toBe("clear-main");
     expect(plan.app.framework).toBe("vue-vapor");
     expect(verifyPlanHash(plan)).toBe(true);
+  });
+
+  test("resolves Pocket Nexus and binds the physics ops it requires", () => {
+    const manifest = JSON.parse(readFileSync(join(repository, "apps/nexus-touch/pocket.json"), "utf8"));
+    const plan = resolveIPodTouch4BuildPlan(manifest);
+    expect(plan.app.entry).toBe("apps/nexus-touch/main.tsx");
+    expect(plan.app.output).toBe("nexus-touch-main");
+    expect(plan.app.framework).toBe("solid");
+    expect(plan.viewport.logical).toEqual(IPODTOUCH4_LOGICAL_VIEWPORT);
+    expect(plan.viewport.rasterDensity).toBe(IPODTOUCH4_RASTER_DENSITY);
+    expect(plan.features).toEqual({ "input.touch": true, "ui.physics": true });
+    // a second installable app: every device-side name differs from Clear's
+    const nexus = selectIPodTouch4App("nexus-touch");
+    const clear = IPODTOUCH4_APPS.clear;
+    for (const key of ["bundleId", "bundleName", "executable", "scheme", "receiptSlug", "actionName"] as const) {
+      expect(nexus[key]).not.toBe(clear[key]);
+    }
+    // physics steps in the core tick, so the core advances once per display
+    // link callback, with the guest clock; stock Clear keeps two
+    expect(nexus.frameTicks).toBe(1);
+    expect(clear.frameTicks).toBeUndefined();
+    const tool = readFileSync(join(repository, "tools/ipodtouch4.ts"), "utf8");
+    expect(tool).toContain('...(APP.nativeCore || APP.frameTicks === 1 ? ["-DPOCKET_FRAME_TICKS=1"] : [])');
+    expect(tool).toContain('"-DPOCKET_PHYSICS"');
+    const guest = readFileSync(join(repository, "engine/quickjs-c/pocket_runtime.c"), "utf8");
+    expect(guest).toContain("#ifdef POCKET_PHYSICS");
+    for (const [name, arity] of [["physicsCreate", 2], ["physicsApply", 1], ["physicsDestroy", 1], ["physicsEvents", 0], ["physicsQuery", 6]] as const) {
+      expect(guest).toContain(`add_host_operation(context, ui, "${name}", ${arity}, Host${name[0].toUpperCase()}${name.slice(1)})`);
+    }
+    const cabi = readFileSync(join(repository, "engine/ui-cabi/src/lib.rs"), "utf8");
+    for (const name of ["create", "apply", "destroy", "take_events", "query"]) {
+      expect(cabi).toContain(`pub extern "C" fn ui_physics_${name}(`);
+    }
   });
 
   test("resolves an external landscape app with independent device identity", () => {

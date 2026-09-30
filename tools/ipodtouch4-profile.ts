@@ -13,6 +13,10 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * density 2 on a 640x960 panel), and the host is the same legacy UIKit
  * runtime with the same op table, so it shares host ABI 8 rather than
  * claiming a new protocol revision. The target id is what names the device.
+ * ui.physics is an optional op family behind its capability, as io.offload
+ * is: the ipodtouch4 build compiles the shared runtime with POCKET_PHYSICS
+ * and embeds the guest in the same binary, so no bundle can meet a host
+ * without the five ops.
  */
 export const IPODTOUCH4_DEV_TARGET_ID = "ipodtouch4-dev";
 export const IPODTOUCH4_DEV_HOST_ABI = 8;
@@ -36,7 +40,7 @@ export const IPODTOUCH4_DEV_CONTRACTS = definePlatformContractRegistry(
         presentations: ["native"],
         rasterDensity: IPODTOUCH4_RASTER_DENSITY,
       },
-      capabilities: ["input.touch", "text.glyphs.baked", "io.offload"],
+      capabilities: ["input.touch", "text.glyphs.baked", "io.offload", "ui.physics"],
     },
   }),
 );

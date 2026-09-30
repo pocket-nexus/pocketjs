@@ -90,6 +90,17 @@ typedef enum {
   HostSvcPoll,
   HostSvcSend,
 #endif
+#ifdef POCKET_PHYSICS
+  /* spec ops 52..56 — 2D bodies stepped by the core (ui.physics,
+   * contracts/spec/physics.ts). Present only in builds whose profile
+   * advertises the capability, so every other legacy Apple op table stays
+   * byte-identical. */
+  HostPhysicsCreate,
+  HostPhysicsApply,
+  HostPhysicsDestroy,
+  HostPhysicsEvents,
+  HostPhysicsQuery,
+#endif
 } HostOperation;
 
 static JSRuntime *runtime;
@@ -176,6 +187,23 @@ static int float_argument(
   }
   return JS_ToFloat64(ctx, value, argv[index]) == 0;
 }
+
+#ifdef POCKET_PHYSICS
+/* A trailing argument the caller may omit reads as 0. */
+static int optional_float_argument(
+  JSContext *ctx,
+  int argc,
+  JSValueConst *argv,
+  int index,
+  double *value
+) {
+  if (index >= argc || JS_IsUndefined(argv[index])) {
+    *value = 0.0;
+    return 1;
+  }
+  return JS_ToFloat64(ctx, value, argv[index]) == 0;
+}
+#endif
 
 static int non_negative_uint_argument(
   JSContext *ctx,
@@ -477,6 +505,34 @@ static JSValue host_operation(
       JS_FreeCString(ctx, text);
       return JS_UNDEFINED;
 #endif
+#ifdef POCKET_PHYSICS
+    case HostPhysicsCreate:
+      /* convert first: a conversion may allocate and move the borrowed bytes */
+      if (!uint_argument(ctx, argc, argv, 0, &ua) ||
+          !bytes_argument(ctx, argc, argv, 1, &bytes, &byte_length)) return JS_EXCEPTION;
+      return JS_NewInt32(ctx, ui_physics_create(ua, bytes, byte_length));
+    case HostPhysicsApply:
+      if (!bytes_argument(ctx, argc, argv, 0, &bytes, &byte_length)) return JS_EXCEPTION;
+      ui_physics_apply(bytes, byte_length);
+      return JS_UNDEFINED;
+    case HostPhysicsDestroy:
+      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
+      ui_physics_destroy(a);
+      return JS_UNDEFINED;
+    case HostPhysicsEvents: {
+      size_t length = 0;
+      const uint8_t *events = ui_physics_take_events(&length);
+      return length == 0 ? JS_UNDEFINED : JS_NewArrayBufferCopy(ctx, events, length);
+    }
+    case HostPhysicsQuery:
+      if (!uint_argument(ctx, argc, argv, 0, &ua) ||
+          !int_argument(ctx, argc, argv, 1, &a) ||
+          !optional_float_argument(ctx, argc, argv, 2, &da) ||
+          !optional_float_argument(ctx, argc, argv, 3, &db) ||
+          !optional_float_argument(ctx, argc, argv, 4, &dc) ||
+          !optional_float_argument(ctx, argc, argv, 5, &dd)) return JS_EXCEPTION;
+      return JS_NewFloat64(ctx, ui_physics_query(ua, a, da, db, dc, dd));
+#endif
   }
   return JS_ThrowInternalError(ctx, "unknown PocketJS HostOp");
 }
@@ -545,6 +601,16 @@ static int install_host(int width, int height) {
   if (!add_host_operation(context, ui, "svcOpen", 1, HostSvcOpen) ||
       !add_host_operation(context, ui, "svcPoll", 0, HostSvcPoll) ||
       !add_host_operation(context, ui, "svcSend", 1, HostSvcSend)) {
+    JS_FreeValue(context, ui);
+    return 0;
+  }
+#endif
+#ifdef POCKET_PHYSICS
+  if (!add_host_operation(context, ui, "physicsCreate", 2, HostPhysicsCreate) ||
+      !add_host_operation(context, ui, "physicsApply", 1, HostPhysicsApply) ||
+      !add_host_operation(context, ui, "physicsDestroy", 1, HostPhysicsDestroy) ||
+      !add_host_operation(context, ui, "physicsEvents", 0, HostPhysicsEvents) ||
+      !add_host_operation(context, ui, "physicsQuery", 6, HostPhysicsQuery)) {
     JS_FreeValue(context, ui);
     return 0;
   }
