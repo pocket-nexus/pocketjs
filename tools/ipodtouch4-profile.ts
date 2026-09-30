@@ -11,12 +11,12 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  *
  * The display tuple is byte-identical to the iPhone 4S (320x480 logical at
  * density 2 on a 640x960 panel), and the host is the same legacy UIKit
- * runtime with the same op table, so it shares host ABI 8 rather than
+ * runtime with the same base op table, so it shares host ABI 8 rather than
  * claiming a new protocol revision. The target id is what names the device.
- * ui.physics is an optional op family behind its capability, as io.offload
- * is: the ipodtouch4 build compiles the shared runtime with POCKET_PHYSICS
- * and embeds the guest in the same binary, so no bundle can meet a host
- * without the five ops.
+ * The optional families ride on that table behind their capabilities:
+ * io.offload, and ui.physics (ops 52..56), which the build compiles in for
+ * an app whose plan resolved it. The guest is embedded in the same binary as
+ * its host, so no bundle can meet a host without the ops its plan admitted.
  */
 export const IPODTOUCH4_DEV_TARGET_ID = "ipodtouch4-dev";
 export const IPODTOUCH4_DEV_HOST_ABI = 8;

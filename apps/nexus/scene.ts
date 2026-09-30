@@ -6,6 +6,12 @@
 // sprite from these numbers and app.tsx places bodies and colliders with
 // them, so art and physics cannot drift apart.
 
+import { markPoint } from "./homepage.ts";
+
+/** The homepage's phone scale for springs, speeds and toy sizes, and gravity. */
+export const U = 0.58;
+export const G = 2500 * U;
+
 export const TOP_W = 400;
 export const TOP_H = 240;
 export const BOTTOM_W = 320;
@@ -25,26 +31,6 @@ export const LETTER_GAP = FS * 0.04;
 export const ROW_GAP = FS * 0.1;
 /** Top of the wordmark block on the top screen. */
 export const WORD_TOP = 16;
-
-/** The homepage's resting tilt (degrees) and vertical offset (× FS) per letter. */
-export const HOME_R = [-5, 3, -2.5, 4, -3, 5, 4, -4, 2.5, -3, 5];
-export const HOME_Y = [0.02, -0.03, 0.012, -0.022, 0.026, -0.012, -0.02, 0.028, -0.018, 0.02, -0.026];
-
-export const WORD = [
-  { ch: "P", color: "pink" },
-  { ch: "O", color: "yellow", face: true },
-  { ch: "C", color: "cyan" },
-  { ch: "K", color: "lilac" },
-  { ch: "E", color: "orange" },
-  { ch: "T", color: "pink" },
-  { ch: "N", color: "cyan" },
-  { ch: "E", color: "lilac" },
-  { ch: "X", color: "yellow" },
-  { ch: "U", color: "pink" },
-  { ch: "S", color: "cyan" },
-] as const;
-/** Letters in the first row. */
-export const ROW_SPLIT = 6;
 
 /** Pocket: mark units (the 32-unit mark) to px, and where its tip sits. */
 export const POCKET_K = 4.6;
@@ -68,11 +54,5 @@ export const PARTICLE_SPRITE = 16;
 
 /** A point of the pocket outline in bottom-screen px, from mark units. */
 export function pocketPoint(x: number, y: number): [number, number] {
-  return [POCKET_CX + (x - 16) * POCKET_K, POCKET_TIP_Y + (y - 28) * POCKET_K];
+  return markPoint(POCKET_K, POCKET_CX, POCKET_TIP_Y, x, y);
 }
-
-/** The pocket's straight sides into an arced bottom, sampled from the mark. */
-export const POCKET_OUTLINE: readonly (readonly [number, number])[] = [
-  [5, 13], [5, 20.4], [5.9, 23], [8.6, 25.6], [12, 27.3], [16, 27.8],
-  [20, 27.3], [23.4, 25.6], [26.1, 23], [27, 20.4], [27, 13],
-];

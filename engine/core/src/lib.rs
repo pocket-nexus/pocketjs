@@ -1418,6 +1418,35 @@ impl Ui {
         self.physics.query(query, handle, a, b, c, d)
     }
 
+    // The wire form the C ABI hosts cross: packed little-endian Float64
+    // fields, whatever the host's own byte order. A trailing partial field is
+    // ignored.
+
+    /// `physicsCreate(kind, params)` from its wire bytes.
+    pub fn physics_create_wire(&mut self, kind: u32, bytes: &[u8]) -> i32 {
+        self.physics_create(kind, &wire_f64s(bytes))
+    }
+
+    /// `physicsApply(records)` from its wire bytes.
+    pub fn physics_apply_wire(&mut self, bytes: &[u8]) {
+        self.physics_apply(&wire_f64s(bytes));
+    }
+
+    /// `physicsEvents()` as wire bytes: `out` is replaced by the pending
+    /// records, and stays empty when there are none.
+    pub fn physics_take_events_wire(&mut self, out: &mut Vec<u8>) {
+        out.clear();
+        if !self.physics.has_events() {
+            return;
+        }
+        let mut words = Vec::new();
+        self.physics.take_events(&mut words);
+        out.reserve(words.len() * 8);
+        for word in words {
+            out.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+
     /// Advance every playing baked timeline one frame and write the sampled
     /// values into the nodes' `anim_values`. Instances of one node are
     /// processed as one contiguous batch so CSS comma-list precedence holds:
@@ -2107,3 +2136,9 @@ fn prop_bits(kind: u8, value: f64) -> u32 {
 
 #[cfg(test)]
 mod tests;
+
+/// Little-endian Float64 fields of a physics wire record.
+fn wire_f64s(bytes: &[u8]) -> Vec<f64> {
+    let (fields, _) = bytes.as_chunks::<8>();
+    fields.iter().map(|field| f64::from_le_bytes(*field)).collect()
+}

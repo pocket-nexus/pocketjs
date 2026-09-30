@@ -340,24 +340,17 @@ pub extern "C" fn ui_set_prop_batch(ptr: *const u8, len: usize) {
 
 // ---- physics (spec ops 52..56, ui.physics; contracts/spec/physics.ts) ------
 
-/// Drained physics events; valid until the next drain. The ARM11 runs
-/// little-endian, so the f64 storage is the wire's byte layout.
-static mut PHYSICS_EVENTS: Vec<f64> = Vec::new();
-const _: () = assert!(cfg!(target_endian = "little"));
-
-fn f64_records(ptr: *const u8, len: usize) -> Vec<f64> {
-    let (records, _) = unsafe { bytes(ptr, len) }.as_chunks::<8>();
-    records.iter().map(|record| f64::from_le_bytes(*record)).collect()
-}
+/// Drained physics events in their wire bytes; valid until the next drain.
+static mut PHYSICS_EVENTS: Vec<u8> = Vec::new();
 
 #[no_mangle]
 pub extern "C" fn ui_physics_create(kind: u32, ptr: *const u8, len: usize) -> i32 {
-    ui().physics_create(kind, &f64_records(ptr, len))
+    ui().physics_create_wire(kind, unsafe { bytes(ptr, len) })
 }
 
 #[no_mangle]
 pub extern "C" fn ui_physics_apply(ptr: *const u8, len: usize) {
-    ui().physics_apply(&f64_records(ptr, len));
+    ui().physics_apply_wire(unsafe { bytes(ptr, len) });
 }
 
 #[no_mangle]
@@ -369,13 +362,12 @@ pub extern "C" fn ui_physics_destroy(handle: i32) {
 /// (0 when there are none).
 #[no_mangle]
 pub extern "C" fn ui_physics_take_events(length: *mut usize) -> *const u8 {
-    unsafe {
-        ui().physics_take_events(&mut PHYSICS_EVENTS);
-        if !length.is_null() {
-            *length = PHYSICS_EVENTS.len() * 8;
-        }
-        PHYSICS_EVENTS.as_ptr() as *const u8
+    let events = unsafe { &mut *core::ptr::addr_of_mut!(PHYSICS_EVENTS) };
+    ui().physics_take_events_wire(events);
+    if !length.is_null() {
+        unsafe { *length = events.len() };
     }
+    events.as_ptr()
 }
 
 #[no_mangle]

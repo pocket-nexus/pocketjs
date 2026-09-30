@@ -359,28 +359,21 @@ pub extern "C" fn ui_set_prop_batch(ptr: *const u8, len: usize) {
 
 // ---- physics (spec ops 52..56, ui.physics; contracts/spec/physics.ts) ------
 
-/// Drained physics events; valid until the next drain or `ui_shutdown`.
-/// Every target of this crate runs little-endian, so the f64 storage is the
-/// wire's byte layout.
-static mut PHYSICS_EVENTS: Vec<f64> = Vec::new();
-const _: () = assert!(cfg!(target_endian = "little"));
+/// Drained physics events in their wire bytes; valid until the next drain or
+/// `ui_shutdown`.
+static mut PHYSICS_EVENTS: Vec<u8> = Vec::new();
 
-fn f64_records(ptr: *const u8, len: usize) -> Vec<f64> {
-    let (records, _) = unsafe { bytes(ptr, len) }.as_chunks::<8>();
-    records.iter().map(|record| f64::from_le_bytes(*record)).collect()
-}
-
-/// Create a world, body, collider, zone or emitter from packed little-endian
-/// Float64 fields; returns its handle, or 0 when the record is refused.
+/// Create a world, body, collider, zone or emitter from its wire record;
+/// returns its handle, or 0 when the record is refused.
 #[no_mangle]
 pub extern "C" fn ui_physics_create(kind: u32, ptr: *const u8, len: usize) -> i32 {
-    ui().physics_create(kind, &f64_records(ptr, len))
+    ui().physics_create_wire(kind, unsafe { bytes(ptr, len) })
 }
 
-/// Apply a packed command stream (little-endian Float64 records).
+/// Apply a command stream in its wire bytes.
 #[no_mangle]
 pub extern "C" fn ui_physics_apply(ptr: *const u8, len: usize) {
-    ui().physics_apply(&f64_records(ptr, len));
+    ui().physics_apply_wire(unsafe { bytes(ptr, len) });
 }
 
 #[no_mangle]
@@ -392,14 +385,12 @@ pub extern "C" fn ui_physics_destroy(handle: i32) {
 /// (0 when there are none).
 #[no_mangle]
 pub extern "C" fn ui_physics_take_events(length: *mut usize) -> *const u8 {
-    unsafe {
-        let events = &mut *core::ptr::addr_of_mut!(PHYSICS_EVENTS);
-        ui().physics_take_events(events);
-        if !length.is_null() {
-            *length = events.len() * 8;
-        }
-        events.as_ptr() as *const u8
+    let events = unsafe { &mut *core::ptr::addr_of_mut!(PHYSICS_EVENTS) };
+    ui().physics_take_events_wire(events);
+    if !length.is_null() {
+        unsafe { *length = events.len() };
     }
+    events.as_ptr()
 }
 
 #[no_mangle]

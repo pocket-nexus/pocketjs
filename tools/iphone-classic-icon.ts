@@ -1,5 +1,5 @@
 import { rasterizeIconSvg } from "./icon-raster.ts";
-import { createCanvas, type Canvas } from "@napi-rs/canvas";
+import { createCanvas, loadImage, type Canvas } from "@napi-rs/canvas";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,7 +36,16 @@ function assertOpaque(canvas: Canvas): void {
   }
 }
 
-export async function bakeClassicIPhoneArtwork(outputDirectory: string, applicationType: "System" | "User" = "System"): Promise<string[]> {
+/**
+ * Write the classic icons and launch images into a bundle. `launch`, an
+ * opaque 640x960 PNG (the app's first frame), replaces the generated launch
+ * image; the 4-inch one repeats its bottom row below it.
+ */
+export async function bakeClassicIPhoneArtwork(
+  outputDirectory: string,
+  applicationType: "System" | "User" = "System",
+  launch?: string,
+): Promise<string[]> {
   mkdirSync(outputDirectory, { recursive: true });
   const userApp = applicationType === "User";
   const icon = resolve(outputDirectory, userApp ? IPHONE_USER_ICON_FILE : IPHONE_CLASSIC_ICON_FILE);
@@ -45,11 +54,23 @@ export async function bakeClassicIPhoneArtwork(outputDirectory: string, applicat
   writeFileSync(retinaIcon, (await rasterizeRetinaArtwork(114, 114, userApp)).toBuffer("image/png"));
 
   const launchIcon = await rasterizeRetinaArtwork(228, 228);
+  const launchFrame = launch ? await loadImage(readFileSync(launch)) : undefined;
+  if (launchFrame && (launchFrame.width !== 640 || launchFrame.height !== 960)) {
+    throw new Error(`pocket iphone artwork: launch image must be 640x960, got ${launchFrame.width}x${launchFrame.height}`);
+  }
   const written = [icon, retinaIcon];
   for (const [name, height] of [["Default@2x.png", 960], ["Default-568h@2x.png", 1136]] as const) {
     const target = resolve(outputDirectory, name);
     const canvas = createCanvas(640, height);
     const context = canvas.getContext("2d");
+    if (launchFrame) {
+      context.drawImage(launchFrame, 0, 0);
+      if (height > 960) context.drawImage(launchFrame, 0, 959, 640, 1, 0, 960, 640, height - 960);
+      assertOpaque(canvas);
+      writeFileSync(target, canvas.toBuffer("image/png"));
+      written.push(target);
+      continue;
+    }
     context.fillStyle = "#020617";
     context.fillRect(0, 0, canvas.width, canvas.height);
     const x = Math.floor((canvas.width - launchIcon.width) / 2);

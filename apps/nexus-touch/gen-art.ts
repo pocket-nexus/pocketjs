@@ -7,24 +7,22 @@
 // sites), so the homepage's own layout() places the wordmark, the lede and
 // the hint on the iPod's screen. From that document it measures the layout
 // and captures the sky, the lede, the copy line, the hint and the speech
-// bubbles at device scale 2; apps/nexus/art/draw.js (the homepage's canvas
-// art, ported for the 3DS scene) and art/draw-touch.js draw the letters,
-// toys, particles and pocket at twice their logical size. Every sprite is
-// written as name@2x.png plus a box-filtered name.png, both power-of-two
-// textures of at most 512 px, with the colour of opaque edges bled into the
-// transparent texels around them (the GPU filters bilinearly with straight
-// alpha). Smooth gradients (the haze and the pop glow) are baked once at
-// low resolution and stretched.
+// bubbles at device scale 2; the Nexus canvas art (apps/nexus/bake.ts
+// DRAW_JS) and art/draw-touch.js draw the letters, toys, particles and pocket
+// at twice their logical size. Every sprite is written as name@2x.png plus a
+// box-filtered name.png, both staged through apps/nexus/bake.ts. Smooth
+// gradients (the haze and the pop glow) are baked once at low resolution and
+// stretched.
 //
 // art.ts is the manifest the app imports: literal image names for the
 // build's image scan, the measured layout, and the glyph metrics the physics
 // bodies are sized from. The page loads its fonts from Google Fonts; the PNGs
 // are the committed product art, so builds never need the network.
 
-import { readdirSync, rmSync } from "node:fs";
-import { decodePng } from "../../framework/compiler/pak.ts";
 import { HeadlessChrome } from "../../tools/headless-chrome.ts";
 import { encodePNG } from "../../tools/png.ts";
+import { DRAW_JS, TextureStage, dataUrlBytes, decode, type Rgba } from "../nexus/bake.ts";
+import { HOME_Y, LINES, O_LINES, SAYS, WORD } from "../nexus/homepage.ts";
 import * as S from "./scene.ts";
 
 const HERE = new URL(".", import.meta.url).pathname;
@@ -40,42 +38,12 @@ const HIDE_CHROME = ".bar,.cta{display:none!important}";
 
 // ---- images -----------------------------------------------------------------------
 
-interface Rgba { rgba: Uint8Array; width: number; height: number }
-
-const isPow2 = (n: number) => n >= 8 && n <= 512 && (n & (n - 1)) === 0;
 const pow2 = (n: number) => {
   let p = 8;
   while (p < n) p *= 2;
   return p;
 };
 const round = (n: number) => Math.round(n * 100) / 100;
-
-/** Copy the colour of opaque neighbours into fully transparent texels. */
-function bleed({ rgba, width: w, height: h }: Rgba): void {
-  for (let pass = 0; pass < 6; pass++) {
-    const src = rgba.slice();
-    let changed = false;
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        if (src[i + 3] !== 0 || (src[i] | src[i + 1] | src[i + 2]) !== 0) continue;
-        let r = 0, g = 0, b = 0, n = 0;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
-          const nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-          const j = (ny * w + nx) * 4;
-          if (src[j + 3] === 0 && (src[j] | src[j + 1] | src[j + 2]) === 0) continue;
-          r += src[j]; g += src[j + 1]; b += src[j + 2]; n++;
-        }
-        if (n > 0) {
-          rgba[i] = Math.round(r / n); rgba[i + 1] = Math.round(g / n); rgba[i + 2] = Math.round(b / n);
-          changed = true;
-        }
-      }
-    }
-    if (!changed) break;
-  }
-}
 
 /** Box-filter a density-2 image to density 1, averaging in premultiplied alpha. */
 function half(image: Rgba): Rgba {
@@ -111,15 +79,7 @@ function crop(image: Rgba, x: number, y: number, w: number, h: number): Rgba {
   return { rgba: out, width: w, height: h };
 }
 
-/** Encoded PNGs by file name, written only after every check has passed. */
-const staged = new Map<string, Uint8Array>();
-
-function put(name: string, image: Rgba): void {
-  if (!isPow2(image.width) || !isPow2(image.height)) throw new Error(`${name}: ${image.width}x${image.height} is not a power-of-two texture`);
-  if (staged.has(name)) throw new Error(`${name}: baked twice`);
-  bleed(image);
-  staged.set(name, encodePNG(image.rgba, image.width, image.height));
-}
+const textures = new TextureStage();
 
 /** Stage a density-2 sprite as name@2x.png and its box-filtered name.png;
  *  returns the image key the app names. */
@@ -127,14 +87,14 @@ function stage(name: string, image2x: Rgba, w: number, h: number): string {
   if (image2x.width !== w * D || image2x.height !== h * D) {
     throw new Error(`${name}: ${image2x.width}x${image2x.height}, expected ${w * D}x${h * D}`);
   }
-  put(`${name}@2x.png`, { ...image2x, rgba: image2x.rgba.slice() });
-  put(`${name}.png`, half(image2x));
+  textures.put(`${name}@2x.png`, { ...image2x, rgba: image2x.rgba.slice() });
+  textures.put(`${name}.png`, half(image2x));
   return `art/${name}.png`;
 }
 
 /** Stage a smooth image at one resolution; the app stretches it. */
 function stageFlat(name: string, image: Rgba): string {
-  put(`${name}.png`, image);
+  textures.put(`${name}.png`, image);
   return `art/${name}.png`;
 }
 
@@ -173,22 +133,18 @@ function tiles(name: string, image2x: Rgba, w: number, h: number, cols = cutColu
   return out;
 }
 
-const dataUrlBytes = (url: string) => Uint8Array.from(atob(url.split(",")[1]), (c) => c.charCodeAt(0));
 
 // ---- the bake ---------------------------------------------------------------------------
 
 async function main() {
   const chrome = await HeadlessChrome.start({ port: PORT, profile: `${process.env.TMPDIR ?? "/tmp/"}pocketjs-nexus-touch-art`, timeoutMs: 60_000 });
   const evaluate = (expression: string) => chrome.evaluate(expression);
-  const canvasPng = async (expr: string): Promise<Rgba> => {
-    const image = decodePng(dataUrlBytes(await evaluate(`(${expr}).toDataURL("image/png")`)));
-    return { rgba: new Uint8Array(image.rgba), width: image.width, height: image.height };
-  };
+  const canvasPng = async (expr: string): Promise<Rgba> => decode(dataUrlBytes(await evaluate(`(${expr}).toDataURL("image/png")`)));
   /** Viewport region in CSS px, captured at device scale D. */
   const shot = async (x: number, y: number, w: number, h: number): Promise<Rgba> => {
-    const image = decodePng(await chrome.screenshot({ x, y, width: w, height: h }));
+    const image = decode(await chrome.screenshot({ x, y, width: w, height: h }));
     if (image.width !== w * D || image.height !== h * D) throw new Error(`capture ${w}x${h} came back ${image.width}x${image.height}`);
-    return { rgba: new Uint8Array(image.rgba), width: image.width, height: image.height };
+    return image;
   };
   try {
     await chrome.send("Emulation.setDeviceMetricsOverride", { width: S.W, height: S.H, deviceScaleFactor: D, mobile: true });
@@ -214,7 +170,7 @@ async function main() {
     if (!fontsOk) throw new Error("web fonts did not load");
     // the page re-runs layout() on resize; give it the hidden chrome, then a frame
     await evaluate(`new Promise((r) => { window.dispatchEvent(new Event("resize")); setTimeout(r, 400); })`);
-    await evaluate((await Bun.file(ROOT + "apps/nexus/art/draw.js").text()) + "\ntrue");
+    await evaluate((await Bun.file(DRAW_JS).text()) + "\ntrue");
     await evaluate((await Bun.file(ART + "draw-touch.js").text()) + "\ntrue");
 
     // -- the layout the homepage chose ----------------------------------------------------
@@ -250,13 +206,13 @@ async function main() {
     const LS = S.LETTER_SPRITE;
     const letters: { ch: string; src: string; shadow: string; w: number; ih: number; rcK: number; home: [number, number] }[] = [];
     let wl = Infinity, wt = Infinity, wr = -Infinity, wb = -Infinity;
-    for (const [i, l] of S.WORD.entries()) {
+    for (const [i, l] of WORD.entries()) {
       const face = "face" in l && l.face;
       const g = await evaluate(`NX.glyph(${JSON.stringify(l.ch)}, ${face})`);
       const src = stage(face ? "o-body" : `letter-${i}`, await canvasPng(`NX.letter(${JSON.stringify(l.ch)}, "${l.color}", ${face}, null, ${FS * D}, ${LS * D})`), LS, LS);
       const shadow = stage(`shadow-${i}`, await canvasPng(`NX.shadow(${JSON.stringify(l.ch)}, "${l.color}", ${face}, ${FS * D}, ${LS * D})`), LS, LS);
       const [sx, sy] = page.slots[i];
-      const home: [number, number] = [round(sx), round(sy + S.HOME_Y[i] * FS)];
+      const home: [number, number] = [round(sx), round(sy + HOME_Y[i] * FS)];
       const w = g.w * s, ih = g.ih * s;
       letters.push({ ch: l.ch, src, shadow, w: round(w), ih: round(ih), rcK: g.rcK, home });
       // the homepage's WM box: each letter's collision box about its home
@@ -276,7 +232,6 @@ async function main() {
     for (const type of await evaluate("NX.toys")) {
       toys[type] = stage(`toy-${type}`, await canvasPng(`NX.toy("${type}", ${S.TOY_R * D}, ${S.TOY_SPRITE * D})`), S.TOY_SPRITE, S.TOY_SPRITE);
     }
-    const toyShadow = stage("toy-shadow", await canvasPng(`NXT.toyShadow(${S.SHADOW_W * D}, ${S.SHADOW_H * D}, ${S.SHADOW_RX * D}, ${S.SHADOW_RY * D})`), S.SHADOW_W, S.SHADOW_H);
     const COLORS: Record<string, string> = { y: "#ffd23f", p: "#ff5f9e", c: "#3fd0e8", l: "#a98bff", o: "#ffb45c", i: "#fcf6ff" };
     const particles: Record<string, string[]> = { burst: [], bdot: [], star: [], dot: [] };
     for (const kind of Object.keys(particles)) {
@@ -400,7 +355,7 @@ async function main() {
       const src = stage(name, await shot(x0, y0, w, h), w, h);
       return { src, w, h, px: AX - x0, py: AY - y0 };
     };
-    const lines = [...new Set<string>([...S.LINES, ...S.O_LINES, ...S.SAYS])];
+    const lines = [...new Set<string>([...LINES, ...O_LINES, ...SAYS])];
     const slug = (text: string) => text.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "") || "q";
     const tags = {
       pjs: await bubble("tag-pjs", "pjs", "PocketJS"),
@@ -431,9 +386,6 @@ export const FS = ${FS};
 
 export const LETTER_ART: readonly LetterArt[] = ${json(letters)};
 
-/** The homepage's WM box: every letter's collision box about its home. */
-export const WORD_BOX = ${JSON.stringify(wm)};
-
 /** The O's face layers over its plain sticker; the eyes are separate nodes. */
 export const O_FACE = ${json(faces)} as const;
 export const O_EYE = ${JSON.stringify(oEye)};
@@ -441,7 +393,6 @@ export const O_EYE = ${JSON.stringify(oEye)};
 export const O_EYES = ${JSON.stringify({ ex: round(oEyes.ex), ey: round(oEyes.ey) })};
 
 export const TOY_ART = ${json(toys)} as const;
-export const TOY_SHADOW = ${JSON.stringify(toyShadow)};
 
 export const PARTICLE_ART = ${json(particles)} as const;
 
@@ -461,14 +412,13 @@ export const HINT = ${json(hint)};
 export const TAG_ART = ${json(tags)};
 `;
     // every sprite rendered and checked: replace the art, its manifest and filters together
-    for (const name of readdirSync(ART)) if (name.endsWith(".png")) rmSync(ART + name);
-    for (const [name, png] of staged) await Bun.write(ART + name, png);
+    await textures.write(ART);
     await Bun.write(HERE + "launch.png", encodePNG(launch.rgba, launch.width, launch.height));
     await Bun.write(HERE + "art.ts", manifest);
     const images: Record<string, { linear: boolean }> = {};
-    for (const name of staged.keys()) if (!name.includes("@")) images[`art/${name}`] = { linear: true };
+    for (const name of textures.files.keys()) if (!name.includes("@")) images[`art/${name}`] = { linear: true };
     await Bun.write(HERE + "images.json", JSON.stringify(images, null, 2) + "\n");
-    console.log(`nexus-touch: baked ${staged.size} textures into apps/nexus-touch/art/ (wordmark ${FS}px)`);
+    console.log(`nexus-touch: baked ${textures.files.size} textures into apps/nexus-touch/art/ (wordmark ${FS}px)`);
   } finally {
     chrome.stop();
   }

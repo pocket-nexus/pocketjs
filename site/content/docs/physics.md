@@ -254,11 +254,14 @@ bun tools/3ds.ts nexus         # dist/3ds/nexus-main.3dsx
 ## The touch Pocket Nexus scene
 
 `apps/nexus-touch` is the same homepage on one 320×480 touch screen, built
-for the iPod touch 4 as a standalone app. **`apps/nexus-touch/gen-art.ts`
-opens the homepage document at 320×480 with its top bar and button hidden,
-so the page's own `layout()` places the wordmark, the lede and the hint; the
-bake measures that layout and captures the page's text and sky at device
-scale 2.** Beyond the 3DS scene it carries the homepage's letter handling:
+for the iPod touch 4 as a standalone app. Both scenes build their letters,
+pocket, shelf, emitters and toys from `apps/nexus/homepage.ts` and
+`apps/nexus/toys.ts`, and supply their own geometry and input. **The touch
+bake (`apps/nexus-touch/gen-art.ts`) opens the homepage document at 320×480
+with its top bar and button hidden, so the page's own `layout()` places the
+wordmark, the lede and the hint; it measures that layout and captures the
+page's text and sky at device scale 2.** Beyond the 3DS scene it carries the
+homepage's letter handling:
 
 - **A tapped letter hops** (`hop`) and may answer in a speech bubble.
 - **A dragged letter is carried** (`grab` with `mode: "carry"`) and springs
@@ -268,9 +271,10 @@ scale 2.** Beyond the 3DS scene it carries the homepage's letter handling:
   `launch` from the mouth back to its slot. A second view of each letter,
   drawn behind the pocket's front, shows it inside the pocket.
 
-Per-frame JS moves the O's eyes and the pocket's pupils toward what the
-finger is doing, keeps the bubbles on the toys that carry them, and writes
-the toys' floor shadows in one `setPropBatch` crossing.
+Per-frame JS moves the O's eyes and the pocket's pupils toward the finger,
+from positions the input already reports and from the spill's launch
+parabolas. It reads one pose per frame for each speech bubble riding a toy,
+at most two, which it keeps upright and on screen.
 
 ```sh
 bun apps/nexus-touch/gen-art.ts                            # re-bake the art from the homepage

@@ -49,6 +49,8 @@ JSValue JS_NewArrayBuffer(JSContext *context, uint8_t *buffer, size_t length,
                           void (*free_func)(JSRuntime *runtime, void *opaque,
                                             void *pointer),
                           void *opaque, int shared);
+JSValue JS_NewArrayBufferCopy(JSContext *context, const uint8_t *buffer,
+                              size_t length);
 uint8_t *JS_GetArrayBuffer(JSContext *context, size_t *length,
                            JSValueConst value);
 JSValue JS_GetTypedArrayBuffer(JSContext *context, JSValueConst value,

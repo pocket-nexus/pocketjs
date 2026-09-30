@@ -11,7 +11,8 @@ import {
   PHYSICS_QUERY as Q,
 } from "../contracts/spec/physics.ts";
 import { WORD_BOX } from "../apps/nexus/art.ts";
-import { WORD, WORD_TOP } from "../apps/nexus/scene.ts";
+import { WORD } from "../apps/nexus/homepage.ts";
+import { WORD_TOP } from "../apps/nexus/scene.ts";
 
 // apps/nexus on the wasm core with the 3DS geometry: a 400x240 primary and a
 // 320x240 auxiliary surface, the guest the 3ds-dev build ships, and a stylus

@@ -92,13 +92,6 @@ export interface IPodTouch4App {
   readonly svcWire: boolean;
   /** Disable iOS's idle timer while the app runs (a remote must not auto-lock). */
   readonly keepAwake: boolean;
-  /**
-   * UI core ticks per display-link callback. Stock builds keep 2, the rate
-   * the original 30 Hz iPhone host set; an app whose motion is stepped in the
-   * core (ui.physics) takes 1 so core time advances with the guest clock at
-   * the 60 Hz display link. Native cores always take 1.
-   */
-  readonly frameTicks?: 1 | 2;
   /** Application core includes the UI C ABI and exports its native extension. */
   readonly nativeCore?: { manifest: string; library: string; features: string[]; sources: string[] };
   /** Bundle-relative resources; every file participates in installation readback. */
@@ -149,7 +142,6 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
     actionName: "nexus_play",
     svcWire: false,
     keepAwake: true,
-    frameTicks: 1,
     icon: "site/nexus/public/apple-touch-icon.png",
     launch: "apps/nexus-touch/launch.png",
   },
@@ -205,12 +197,21 @@ export function readExternalIPodTouch4App(descriptorPath: string): IPodTouch4App
     actionName: parsed.actionName as string,
     svcWire: parsed.svcWire === true,
     keepAwake: parsed.keepAwake === true,
-    frameTicks: parsed.frameTicks === 1 ? 1 : undefined,
     nativeCore,
     assets: parsed.assets as string | undefined,
     icon: parsed.icon as string | undefined,
     launch: parsed.launch as string | undefined,
   };
+}
+
+/**
+ * Optional op families compiled into engine/quickjs-c/pocket_runtime.c for a
+ * resolved plan: ops 52..56 only for an app whose plan resolved ui.physics,
+ * so every other app keeps the op table, and the core archive, it was built
+ * against.
+ */
+export function guestRuntimeDefines(features: Readonly<Record<string, boolean>>): string[] {
+  return features["ui.physics"] ? ["-DPOCKET_PHYSICS"] : [];
 }
 
 export function selectIPodTouch4App(name: string | undefined, descriptor?: string): IPodTouch4App {
@@ -742,7 +743,7 @@ async function build(): Promise<void> {
   mkdirSync(bundle, { recursive: true });
   writeFileSync(join(bundle, "Info.plist"), renderInfoPlist());
   cpSync(join(REPOSITORY, "hosts/ipodtouch4/PkgInfo"), join(bundle, "PkgInfo"));
-  await bakeClassicIPhoneArtwork(bundle, "User");
+  await bakeClassicIPhoneArtwork(bundle, "User", APP.launch ? resolvePath(APP_ROOT, APP.launch) : undefined);
   if (APP.assets) stageIPodAssets(resolvePath(APP_ROOT, APP.assets), bundle, EXECUTABLE);
   if (APP.icon) {
     const { loadImage } = await import("@napi-rs/canvas");
@@ -754,27 +755,8 @@ async function build(): Promise<void> {
       writeFileSync(join(bundle, name), icon.toBuffer("image/png"));
     }
   }
-  if (APP.launch) {
-    const { loadImage } = await import("@napi-rs/canvas");
-    const source = await loadImage(readFileSync(resolvePath(APP_ROOT, APP.launch)));
-    if (source.width !== 640 || source.height !== 960) {
-      throw new Error(`pocket ipodtouch4: launch image must be 640x960, got ${source.width}x${source.height}`);
-    }
-    for (const [name, height] of [["Default@2x.png", 960], ["Default-568h@2x.png", 1136]] as const) {
-      const canvas = createCanvas(640, height), ctx = canvas.getContext("2d");
-      ctx.drawImage(source, 0, 0);
-      if (height > 960) ctx.drawImage(source, 0, 959, 640, 1, 0, 960, 640, height - 960);
-      const pixels = ctx.getImageData(0, 0, 640, height).data;
-      for (let index = 3; index < pixels.length; index += 4) {
-        if (pixels[index] !== 255) throw new Error("pocket ipodtouch4: launch image must be opaque");
-      }
-      writeFileSync(join(bundle, name), canvas.toBuffer("image/png"));
-    }
-  }
-
   const firstParty = [
     ...warnings,
-    ...(APP.nativeCore || APP.frameTicks === 1 ? ["-DPOCKET_FRAME_TICKS=1"] : []),
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -801,8 +783,7 @@ async function build(): Promise<void> {
   ]);
   compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntimeObject, [
     ...warnings,
-    // The profile advertises ui.physics, so every build binds ops 52..56.
-    "-DPOCKET_PHYSICS",
+    ...guestRuntimeDefines(plan.features),
     ...svcWireDefines,
     ...offloadDefines,
     ...(APP.nativeCore ? ["-DPOCKET_RUNTIME_EXTENSION", "-I", join(REPOSITORY, "hosts/nokia-e7/runtime")] : []),

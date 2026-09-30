@@ -38,29 +38,38 @@ wide form above. A single id-0 contact produces the same bytes as the old
 single-touch entry points, so existing tapes and hosts decode unchanged. The
 1.x GSEvent fallback has no per-finger identity and owns slot 0 alone.
 
+## Frame rate
+
+**The display link fires at 60 Hz, the rate of the guest clock (`__simHz`),
+and `hosts/ipodtouch4/runtime.c` advances the core one tick per callback.**
+Animations, baked keyframes and physics therefore run at the durations the
+guest authored, in step with its `after()` timers. The shared legacy runtime
+keeps its default of two ticks per callback for the original iPhone, which
+presents at 30 Hz. Before this rate was set in the iPod wrapper, core motion
+on this target ran at twice its authored speed.
+
 ## Pocket Nexus and 2D bodies
 
 `apps/nexus-touch` is the pocket.nexus homepage as a standalone app: the
-spill, the toys, the letters that hop, talk, and go back to the pocket's
-mouth. **The profile advertises `ui.physics`, and every ipodtouch4 build
-compiles `engine/quickjs-c/pocket_runtime.c` with `POCKET_PHYSICS`, which
-binds ops 52..56 to the `ui_physics_*` exports of the UI C ABI
-(`engine/ui-cabi`).** The define keeps the op tables of the other hosts that
-compile the same runtime (iPhone 2G, iPhone 4S, Meizu M8, BlackBerry Classic,
-Android) byte-identical. The host ABI stays 8: the family is optional behind
-its capability, as `io.offload` is, and the guest is embedded in the same
-binary as the host.
+spill, the toys, and letters that hop, talk, and go back to the pocket's
+mouth. It shares its bodies, toys and bake with the 3DS scene in
+`apps/nexus` (`homepage.ts`, `toys.ts`, `bake.ts`).
 
-**The core steps physics inside its tick, so the app descriptor sets
-`frameTicks: 1`: one core tick per display-link callback, the rate the guest
-clock assumes.** Stock builds keep two ticks per callback, the rate the
-original 30 Hz iPhone host set. Measured on the device (`iPod4,1`, iOS
-6.1.6) with the status record's window counters: 60 fps at rest with 1.4 ms
-of guest and core time per frame, and 57 to 61 fps with 3.5 to 4.3 ms under
-a sustained load of a pop every 0.3 s, 14 live toys, bursts, waves and
-swallowed letters.
+**The profile advertises `ui.physics`. For an app whose plan resolves it,
+the build compiles `engine/quickjs-c/pocket_runtime.c` with
+`POCKET_PHYSICS`, which binds ops 52..56 to the `ui_physics_*` exports of
+the UI C ABI (`engine/ui-cabi`).** Other apps, and the other hosts that
+compile the same runtime (iPhone 2G, iPhone 4S, Meizu M8, BlackBerry
+Classic, Android), keep their op tables byte-identical. The host ABI stays 8:
+the family is optional behind its capability, as `io.offload` is, and the
+guest is embedded in the same binary as the host.
 
-The app descriptor also names an icon (`site/nexus/public/apple-touch-icon.png`)
+Measured on the device (`iPod4,1`, iOS 6.1.6) with the status record's window
+counters: 60 fps at rest with 1.4 ms of guest and core time per frame, and 57
+to 61 fps with 3.5 to 4.3 ms under a sustained load of a pop every 0.3 s, 14
+live toys, bursts, waves and swallowed letters.
+
+The app descriptor names an icon (`site/nexus/public/apple-touch-icon.png`)
 and a launch image (`apps/nexus-touch/launch.png`, the app's first frame),
 which replaces the generated `Default@2x.png`.
 
@@ -166,8 +175,9 @@ its receipts and captures inside that container. **`status` reads
 `<container>/tmp/pocketjs.status` twice** and
 requires the running build id, an advancing frame counter and heartbeat, and
 the GLES1 640×960 density-2 drawable. With `--require-action` it additionally
-requires at least one completed touch sequence and a reported `clear_gesture`
-action — a receipt that a gesture interaction completed on the hardware.
+requires at least one completed touch sequence and a reported action under
+the app's action name (`clear_gesture`, `nexus_play`) — a receipt that an
+interaction completed on the hardware.
 
 `capture` asks the running app for a raw RGBA frame and converts it to
 `dist/ipodtouch4/device-frame.png`.
@@ -176,8 +186,8 @@ User application icons use **opaque 57×57 and 114×114 artwork**. SpringBoard a
 
 ## Native application extensions
 
-External app descriptors may supply `nativeCore`, `assets`, and `icon`, resolved
-against `projectRoot`:
+External app descriptors may supply `nativeCore`, `assets`, `icon` and
+`launch`, resolved against `projectRoot`:
 
 ```json
 {
@@ -188,7 +198,8 @@ against `projectRoot`:
     "sources": ["hosts/ipod/bridge.c"]
   },
   "assets": ".pocket/ipod/assets",
-  "icon": "assets/app-icon.png"
+  "icon": "assets/app-icon.png",
+  "launch": "assets/launch.png"
 }
 ```
 
@@ -205,15 +216,16 @@ The optional graphics tail releases GPU resources when the context shuts
 down; it must retain guest and simulation state and recreate GPU resources
 on the next render. Final shutdown runs before QuickJS context destruction.
 The supplied `gl_context_current` flag determines whether the extension may
-issue GL deletion calls or must abandon handles. Native application builds
-advance one UI tick per display-link callback; stock Clear retains its two
-UI ticks per callback.
+issue GL deletion calls or must abandon handles. Every app on this target
+advances one UI tick per display-link callback (see Frame rate).
 
 **Nested asset files participate in both build identity and installed-byte
 verification.** Symlinks, unsupported filenames and replacements for generated
 bundle content are rejected. The icon is baked into opaque 57- and 114-pixel
-User artwork. Keep the app's bundle identifier, executable, bundle name and
-URL scheme distinct from installed applications.
+User artwork. `launch`, an opaque 640×960 PNG, replaces the generated
+`Default@2x.png`; the 4-inch `Default-568h@2x.png` repeats its bottom row
+below it. Keep the app's bundle identifier, executable, bundle name and URL
+scheme distinct from installed applications.
 
 UIKit touch callbacks carry up to eight contacts. Host receipts include
 `touch_max_contacts`, `uikit_touch_events` and `legacy_touch_events` to

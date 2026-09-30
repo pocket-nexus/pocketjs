@@ -50,6 +50,21 @@ static JSCFunctionMagic *animation_completions;
 static int animation_completions_magic;
 static int animation_completions_delivered;
 
+#ifdef POCKET_PHYSICS
+/* The five physics ops as the runtime registered them, and what reached the
+ * C ABI through them. */
+static const char *const physics_names[5] = {
+  "physicsCreate", "physicsApply", "physicsDestroy", "physicsEvents", "physicsQuery",
+};
+static JSCFunctionMagic *physics_ops[5];
+static int physics_magic[5];
+static uint32_t physics_kind;
+static size_t physics_bytes, physics_events_pending, physics_events_copied;
+static int32_t physics_destroyed, physics_handle;
+static double physics_args[5];
+
+#endif
+
 #ifdef POCKET_RUNTIME_EXTENSION
 static char extension_trace[128];
 static size_t extension_events;
@@ -295,6 +310,38 @@ static void test_extension(void) {
   extension_fail = 0; extension_watching = 0;
 }
 #endif
+#ifdef POCKET_PHYSICS
+static JSValue physics_call(int op, int argc, JSValueConst *argv) {
+  return physics_ops[op](&stub_context, JS_UNDEFINED, argc, argv, physics_magic[op]);
+}
+
+static void test_physics(void) {
+  JSValueConst create[2] = {2, VALUE_OBJECT};
+  JSValueConst apply[1] = {VALUE_OBJECT};
+  JSValueConst destroy[1] = {9};
+  JSValueConst query[4] = {3, 5, 1, 2};
+  int op;
+  assert(boot(SCENARIO_SUCCESS));
+  for (op = 0; op < 5; op += 1) assert(physics_ops[op]);
+  /* create: kind first, then the borrowed record bytes */
+  assert(physics_call(0, 2, create) == 77);
+  assert(physics_kind == 2 && physics_bytes == sizeof(framebuffer));
+  assert(physics_call(0, 1, create) == JS_EXCEPTION);
+  physics_bytes = 0;
+  assert(physics_call(1, 1, apply) == JS_UNDEFINED && physics_bytes == sizeof(framebuffer));
+  assert(physics_call(2, 1, destroy) == JS_UNDEFINED && physics_destroyed == 9);
+  /* events: nothing pending is undefined; pending bytes come back as a copy */
+  physics_events_pending = 0;
+  assert(physics_call(3, 0, NULL) == JS_UNDEFINED && physics_events_copied == 0);
+  physics_events_pending = 16;
+  assert(physics_call(3, 0, NULL) == VALUE_OBJECT && physics_events_copied == 16);
+  /* query: omitted trailing arguments read as 0 */
+  assert(physics_call(4, 4, query) == 6);
+  assert(physics_handle == 5 && physics_args[0] == 3 && physics_args[1] == 1 &&
+         physics_args[2] == 2 && physics_args[3] == 0 && physics_args[4] == 0);
+  pocket_runtime_shutdown();
+}
+#endif
 int main(void) {
   if (!boot(SCENARIO_SUCCESS) || !animation_completions) return 1;
   animation_completions(&stub_context, JS_UNDEFINED, 0, NULL, animation_completions_magic);
@@ -312,6 +359,9 @@ int main(void) {
 #if defined(POCKET_RUNTIME_HARNESS)
   if (!test_dispatcher_contract())
     return 1;
+#endif
+#ifdef POCKET_PHYSICS
+  test_physics();
 #endif
   puts("quickjs-c harness: ok");
 #ifdef POCKET_RUNTIME_EXTENSION
@@ -391,6 +441,14 @@ JSValue JS_NewArrayBuffer(JSContext *context, uint8_t *buffer, size_t length,
   return VALUE_OBJECT;
 }
 
+JSValue JS_NewArrayBufferCopy(JSContext *context, const uint8_t *buffer,
+                              size_t length) {
+#ifdef POCKET_PHYSICS
+  physics_events_copied = length;
+#endif
+  return VALUE_OBJECT;
+}
+
 uint8_t *JS_GetArrayBuffer(JSContext *context, size_t *length,
                            JSValueConst value) {
   *length = sizeof(framebuffer);
@@ -413,6 +471,14 @@ JSValue JS_NewCFunctionMagic(JSContext *context, JSCFunctionMagic *function,
     animation_completions = function;
     animation_completions_magic = magic;
   }
+#ifdef POCKET_PHYSICS
+  for (int op = 0; op < 5; op += 1) {
+    if (strcmp(name, physics_names[op]) == 0) {
+      physics_ops[op] = function;
+      physics_magic[op] = magic;
+    }
+  }
+#endif
   return VALUE_FRAME_FUNCTION;
 }
 
@@ -554,3 +620,26 @@ int32_t ui_gl_render(int32_t target_x, int32_t target_y, int32_t target_width,
 int32_t ui_gl_render_over(int32_t x, int32_t y, int32_t w, int32_t h, int32_t ww, int32_t wh) {
   trace('U'); return 1;
 }
+#ifdef POCKET_PHYSICS
+int32_t ui_physics_create(uint32_t kind, const uint8_t *bytes, size_t length) {
+  physics_kind = kind;
+  physics_bytes = length;
+  return bytes ? 77 : 0;
+}
+void ui_physics_apply(const uint8_t *bytes, size_t length) { physics_bytes = bytes ? length : 0; }
+void ui_physics_destroy(int32_t handle) { physics_destroyed = handle; }
+const uint8_t *ui_physics_take_events(size_t *length) {
+  static const uint8_t events[16];
+  *length = physics_events_pending;
+  return events;
+}
+double ui_physics_query(uint32_t query, int32_t handle, double a, double b, double c, double d) {
+  physics_handle = handle;
+  physics_args[0] = query;
+  physics_args[1] = a;
+  physics_args[2] = b;
+  physics_args[3] = c;
+  physics_args[4] = d;
+  return a + b + c + d + query;
+}
+#endif

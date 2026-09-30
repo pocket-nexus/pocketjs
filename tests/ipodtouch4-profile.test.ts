@@ -23,6 +23,7 @@ import {
 import { IPHONE4S_TOOLCHAIN } from "../tools/iphone4s-toolchain.ts";
 import {
   buildReceiptsMatch,
+  guestRuntimeDefines,
   IPODTOUCH4_APPS,
   selectIPodTouch4App,
 } from "../tools/ipodtouch4.ts";
@@ -44,8 +45,9 @@ describe("private iPod touch 4 profile", () => {
       },
       capabilities: ["input.touch", "text.glyphs.baked", "io.offload", "ui.physics"],
     });
-    // Same legacy UIKit runtime, same op table, same guest protocol as the
-    // iPhone 4S — the ABI is the protocol revision, the target id the device.
+    // Same legacy UIKit runtime, same base op table, same guest protocol as
+    // the iPhone 4S — the ABI is the protocol revision, the target id the
+    // device; optional families (io.offload, ui.physics) follow the plan.
     expect(IPODTOUCH4_DEV_HOST_ABI).toBe(IPHONE4S_DEV_HOST_ABI);
   });
 
@@ -81,22 +83,10 @@ describe("private iPod touch 4 profile", () => {
     for (const key of ["bundleId", "bundleName", "executable", "scheme", "receiptSlug", "actionName"] as const) {
       expect(nexus[key]).not.toBe(clear[key]);
     }
-    // physics steps in the core tick, so the core advances once per display
-    // link callback, with the guest clock; stock Clear keeps two
-    expect(nexus.frameTicks).toBe(1);
-    expect(clear.frameTicks).toBeUndefined();
-    const tool = readFileSync(join(repository, "tools/ipodtouch4.ts"), "utf8");
-    expect(tool).toContain('...(APP.nativeCore || APP.frameTicks === 1 ? ["-DPOCKET_FRAME_TICKS=1"] : [])');
-    expect(tool).toContain('"-DPOCKET_PHYSICS"');
-    const guest = readFileSync(join(repository, "engine/quickjs-c/pocket_runtime.c"), "utf8");
-    expect(guest).toContain("#ifdef POCKET_PHYSICS");
-    for (const [name, arity] of [["physicsCreate", 2], ["physicsApply", 1], ["physicsDestroy", 1], ["physicsEvents", 0], ["physicsQuery", 6]] as const) {
-      expect(guest).toContain(`add_host_operation(context, ui, "${name}", ${arity}, Host${name[0].toUpperCase()}${name.slice(1)})`);
-    }
-    const cabi = readFileSync(join(repository, "engine/ui-cabi/src/lib.rs"), "utf8");
-    for (const name of ["create", "apply", "destroy", "take_events", "query"]) {
-      expect(cabi).toContain(`pub extern "C" fn ui_physics_${name}(`);
-    }
+    // the guest runtime binds ops 52..56 for this plan only; Clear keeps its op table
+    expect(guestRuntimeDefines(plan.features)).toEqual(["-DPOCKET_PHYSICS"]);
+    const clearPlan = resolveIPodTouch4BuildPlan(JSON.parse(readFileSync(join(repository, "apps/clear/pocket.json"), "utf8")));
+    expect(guestRuntimeDefines(clearPlan.features)).toEqual([]);
   });
 
   test("resolves an external landscape app with independent device identity", () => {
@@ -212,6 +202,9 @@ describe("private iPod touch 4 profile", () => {
     expect(runtime).toContain('send_void_bool(g_view, "setMultipleTouchEnabled:", YES)');
     expect(runtime).toContain("pocket_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)");
     expect(runtime).toContain("#define POCKET_FRAME_TICKS 2");
+    // the shared default serves the 30 Hz original iPhone; the iPod's display
+    // link runs at the guest clock's 60 Hz, so it advances one tick per frame
+    expect(wrapper).toContain("#define POCKET_FRAME_TICKS 1");
     expect(runtime).toContain("pocket_runtime_hit_test_bounds");
     expect(guest).toContain("POCKET_RUNTIME_MAX_CONTACTS");
     expect(guest).toContain("pocket_runtime_pack_contact(contact)");

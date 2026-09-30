@@ -153,13 +153,5 @@ function haze(o) {
   return c;
 }
 
-/** The floor shadow under a toy (the homepage's drawFloor ellipse) at full
- *  strength: the app scales it with the toy's height and fades it. */
-function toyShadow(w, h, rx, ry) {
-  const c = canvas(w, h), ctx = c.getContext("2d");
-  ctx.beginPath(); ctx.ellipse(w / 2, h / 2, rx, ry, 0, 0, TAU); ctx.fillStyle = "rgb(6,3,12)"; ctx.fill();
-  return c;
-}
-
-window.NXT = { oFace, oEyes, oEye, pocketEyePart, glowFloor, haze, toyShadow };
+window.NXT = { oFace, oEyes, oEye, pocketEyePart, glowFloor, haze };
 })();

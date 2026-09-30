@@ -8,7 +8,7 @@
 // app.tsx places bodies and colliders with them, so art and physics cannot
 // drift apart.
 
-const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
+import { clamp, markPoint } from "../nexus/homepage.ts";
 
 export const W = 320;
 export const H = 480;
@@ -45,33 +45,8 @@ export const EYES_H = 32;
 
 /** A point of the pocket outline in screen px, from mark units. */
 export function pocketPoint(x: number, y: number): [number, number] {
-  return [POCKET_CX + (x - 16) * POCKET_K, POCKET_TIP_Y + (y - 28) * POCKET_K];
+  return markPoint(POCKET_K, POCKET_CX, POCKET_TIP_Y, x, y);
 }
-
-/** The pocket's straight sides into an arced bottom, sampled from the mark. */
-export const POCKET_OUTLINE: readonly (readonly [number, number])[] = [
-  [5, 13], [5, 20.4], [5.9, 23], [8.6, 25.6], [12, 27.3], [16, 27.8],
-  [20, 27.3], [23.4, 25.6], [26.1, 23], [27, 20.4], [27, 13],
-];
-
-export const WORD = [
-  { ch: "P", color: "pink" },
-  { ch: "O", color: "yellow", face: true },
-  { ch: "C", color: "cyan" },
-  { ch: "K", color: "lilac" },
-  { ch: "E", color: "orange" },
-  { ch: "T", color: "pink" },
-  { ch: "N", color: "cyan" },
-  { ch: "E", color: "lilac" },
-  { ch: "X", color: "yellow" },
-  { ch: "U", color: "pink" },
-  { ch: "S", color: "cyan" },
-] as const;
-/** Letters in the first row. */
-export const ROW_SPLIT = 6;
-/** The homepage's resting tilt (degrees) and vertical offset (× FS) per letter. */
-export const HOME_R = [-5, 3, -2.5, 4, -3, 5, 4, -4, 2.5, -3, 5];
-export const HOME_Y = [0.02, -0.03, 0.012, -0.022, 0.026, -0.012, -0.02, 0.028, -0.018, 0.02, -0.026];
 
 /** Square sprite side of a letter sticker (texture and node box). */
 export const LETTER_SPRITE = 64;
@@ -79,15 +54,5 @@ export const LETTER_SPRITE = 64;
 export const TOY_R = 36 * U;
 export const TOY_SPRITE = 64;
 export const PARTICLE_SPRITE = 16;
-/** The toy floor-shadow sprite and the ellipse radii drawn in it. */
-export const SHADOW_W = 64;
-export const SHADOW_H = 16;
-export const SHADOW_RX = 30;
-export const SHADOW_RY = 7;
 /** One eye of the O, centred in its square sprite. */
 export const O_EYE_SPRITE = 16;
-
-/** Speech-bubble lines, verbatim from the homepage. */
-export const LINES = ["Shh.", "Not yet.", "Soon.", "Sealed.", "Still cooking.", "?"] as const;
-export const O_LINES = ["?", "Shh.", "Not yet.", "Soon."] as const;
-export const SAYS = ["Not yet.", "Still cooking.", "Shh.", "Sealed.", "Soon."] as const;

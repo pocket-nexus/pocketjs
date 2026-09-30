@@ -14,12 +14,12 @@
 // Fonts load from Google Fonts at bake time (Titan One, Fredoka, IBM Plex);
 // the PNGs are the committed product art, so builds never need the network.
 
-import { decodePng } from "../../framework/compiler/pak.ts";
 import { HeadlessChrome } from "../../tools/headless-chrome.ts";
-import { encodePNG } from "../../tools/png.ts";
+import { DRAW_JS, TextureStage, dataUrlBytes, decode } from "./bake.ts";
+import { ROW_SPLIT, WORD } from "./homepage.ts";
 import {
   FS, LETTER_SPRITE, POCKET_K, POCKET_LW, POCKET_PW, POCKET_SPRITE, POCKET_TIP_IN_SPRITE, POCKET_CX, POCKET_TOP_Y,
-  FLOOR_Y, BOTTOM_W, BOTTOM_H, TOP_W, TOP_H, TOY_R, TOY_SPRITE, PARTICLE_SPRITE, WORD, ROW_SPLIT, LETTER_GAP, ROW_GAP,
+  FLOOR_Y, BOTTOM_W, BOTTOM_H, TOP_W, TOP_H, TOY_R, TOY_SPRITE, PARTICLE_SPRITE, LETTER_GAP, ROW_GAP,
   WORD_TOP, HINGE, BOTTOM_X, BOTTOM_Y,
 } from "./scene.ts";
 
@@ -45,51 +45,13 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><link rel="styles
 
 // ---- images -----------------------------------------------------------------
 
-function isPow2(n: number): boolean {
-  return n >= 8 && n <= 512 && (n & (n - 1)) === 0;
-}
+const textures = new TextureStage();
 
-/** Copy the colour of opaque neighbours into fully transparent texels. */
-function bleed(rgba: Uint8Array, w: number, h: number): void {
-  for (let pass = 0; pass < 6; pass++) {
-    const src = rgba.slice();
-    let changed = false;
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        if (src[i + 3] !== 0 || (src[i] | src[i + 1] | src[i + 2]) !== 0) continue;
-        let r = 0, g = 0, b = 0, n = 0;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
-          const nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-          const j = (ny * w + nx) * 4;
-          if (src[j + 3] === 0 && (src[j] | src[j + 1] | src[j + 2]) === 0) continue;
-          r += src[j]; g += src[j + 1]; b += src[j + 2]; n++;
-        }
-        if (n > 0) {
-          rgba[i] = Math.round(r / n); rgba[i + 1] = Math.round(g / n); rgba[i + 2] = Math.round(b / n);
-          changed = true;
-        }
-      }
-    }
-    if (!changed) break;
-  }
-}
-
-/** Encoded PNGs by file name, written only after every check has passed. */
-const staged = new Map<string, Uint8Array>();
-
-/** A canvas's PNG data URL, as bytes. */
-const dataUrlBytes = (url: string) => Uint8Array.from(atob(url.split(",")[1]), (c) => c.charCodeAt(0));
-
-/** Check, bleed and stage one sprite; returns its image key. */
+/** Check one sprite's size and stage it; returns its image key. */
 function stage(name: string, bytes: Uint8Array, expectW: number, expectH: number): string {
-  const image = decodePng(bytes);
+  const image = decode(bytes);
   if (image.width !== expectW || image.height !== expectH) throw new Error(`${name}: ${image.width}x${image.height}, expected ${expectW}x${expectH}`);
-  if (!isPow2(image.width) || !isPow2(image.height)) throw new Error(`${name}: not a power-of-two texture`);
-  const rgba = new Uint8Array(image.rgba);
-  bleed(rgba, image.width, image.height);
-  staged.set(name, encodePNG(rgba, image.width, image.height));
+  textures.put(name, image);
   return `art/${name}`;
 }
 
@@ -123,7 +85,7 @@ async function main() {
       return false;
     })()`);
     if (!fontsOk) throw new Error("web fonts did not load");
-    await evaluate(await Bun.file(ART + "draw.js").text() + "\ntrue");
+    await evaluate(await Bun.file(DRAW_JS).text() + "\ntrue");
     const png = async (expr: string) => dataUrlBytes(await evaluate(`(${expr}).toDataURL("image/png")`));
 
     // -- letters --------------------------------------------------------------
@@ -228,12 +190,12 @@ export const LEDE_BOX = ${JSON.stringify({ l: round(ledeBox.l), t: round(ledeBox
 export const WORD_BOX = ${JSON.stringify({ w: round(wordW), h: round(wordH), rowH: round(rowH) })};
 `;
     // every sprite rendered and checked: write the art, its manifest and filters together
-    for (const [name, png] of staged) await Bun.write(ART + name, png);
+    await textures.write(ART);
     await Bun.write(HERE + "art.ts", manifest);
     const images: Record<string, { linear: boolean }> = {};
-    for (const name of staged.keys()) images[`art/${name}`] = { linear: true };
+    for (const name of textures.files.keys()) images[`art/${name}`] = { linear: true };
     await Bun.write(HERE + "images.json", JSON.stringify(images, null, 2) + "\n");
-    console.log(`nexus: baked ${staged.size} images into apps/nexus/art/ (hinge ${HINGE}px, bottom origin ${BOTTOM_X},${BOTTOM_Y})`);
+    console.log(`nexus: baked ${textures.files.size} images into apps/nexus/art/ (hinge ${HINGE}px, bottom origin ${BOTTOM_X},${BOTTOM_Y})`);
   } finally {
     chrome.stop();
   }

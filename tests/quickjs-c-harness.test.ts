@@ -63,6 +63,7 @@ describe("portable QuickJS C harness contract", () => {
     runVariant("native-extension", ["-std=c11", "-DPOCKET_RUNTIME_EXTENSION"]);
     runVariant("stages", ["-DPOCKET_RUNTIME_STAGE_HOOKS"]);
     runVariant("harness", ["-DPOCKET_RUNTIME_HARNESS"]);
+    runVariant("physics", ["-DPOCKET_PHYSICS"]);
     runVariant("stages-and-harness", [
       "-DPOCKET_RUNTIME_STAGE_HOOKS",
       "-DPOCKET_RUNTIME_HARNESS",

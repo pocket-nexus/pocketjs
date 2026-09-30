@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWasmUi } from "../hosts/web/wasm-ops.js";
 import {
-  PHYSICS_HANDLE_GEN_SHIFT,
   PHYSICS_HANDLE_KIND_SHIFT,
   PHYSICS_KIND,
   PHYSICS_MODE,
@@ -42,7 +41,7 @@ afterAll(() => {
 });
 
 /** A handle the core issued for the object in `slot`, first generation. */
-const handle = (kind: number, slot: number) => (kind << PHYSICS_HANDLE_KIND_SHIFT) | (0 << PHYSICS_HANDLE_GEN_SHIFT) | slot;
+const handle = (kind: number, slot: number) => (kind << PHYSICS_HANDLE_KIND_SHIFT) | slot;
 
 type Tape = Record<number, [number, number] | null>;
 

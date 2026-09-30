@@ -605,6 +605,44 @@ fn a_silent_world_records_nothing_and_a_flood_reports_overflow() {
 }
 
 #[test]
+fn the_wire_form_is_the_float64_form_in_little_endian_bytes() {
+    let wire = |words: &[f64]| words.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+    let run = |through_wire: bool| {
+        let mut ui = Ui::new();
+        let world_params = kv(&[(ps::KEY_GRAVITY_Y, 0.0)]);
+        let world = if through_wire { ui.physics_create_wire(ps::KIND_WORLD, &wire(&world_params)) } else { ui.physics_create(ps::KIND_WORLD, &world_params) };
+        let zone = kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_SHAPE, ps::SHAPE_BOX as f64), (ps::KEY_X, 100.0), (ps::KEY_Y, 100.0), (ps::KEY_HALF_WIDTH, 50.0), (ps::KEY_HALF_HEIGHT, 50.0)]);
+        let body = kv(&[(ps::KEY_WORLD, world as f64), (ps::KEY_X, 90.0), (ps::KEY_Y, 100.0), (ps::KEY_VX, 30.0)]);
+        let listen = [world as f64, ps::CMD_LISTEN as f64, 1.0, 1.0];
+        let mut bytes = Vec::new();
+        if through_wire {
+            ui.physics_create_wire(ps::KIND_ZONE, &wire(&zone));
+            ui.physics_create_wire(ps::KIND_BODY, &wire(&body));
+            // a trailing partial field is ignored
+            let mut command = wire(&listen);
+            command.push(0xff);
+            ui.physics_apply_wire(&command);
+        } else {
+            ui.physics_create(ps::KIND_ZONE, &zone);
+            ui.physics_create(ps::KIND_BODY, &body);
+            ui.physics_apply(&listen);
+        }
+        ui.physics_take_events_wire(&mut bytes);
+        assert!(bytes.is_empty(), "no pending records drain as no bytes");
+        ui.tick();
+        if through_wire {
+            ui.physics_take_events_wire(&mut bytes);
+        } else {
+            bytes = wire(&drain(&mut ui).concat());
+        }
+        bytes
+    };
+    let bytes = run(true);
+    assert!(!bytes.is_empty(), "the body entered the zone");
+    assert_eq!(bytes, run(false));
+}
+
+#[test]
 fn the_physics_layer_is_not_the_animation_layer() {
     let mut ui = Ui::new();
     let view = abs_box(&mut ui, spec::ROOT_ID, 0.0, 0.0, 20.0, 20.0);

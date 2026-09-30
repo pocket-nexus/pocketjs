@@ -388,22 +388,14 @@ pub extern "C" fn ui_animation_completions_ptr() -> *const i32 {
 /// Drained physics event records (f64); valid until the next drain.
 static mut PHYSICS_EVENTS: Vec<f64> = Vec::new();
 
-/// Little-endian f64 records from host-written linear memory.
-fn f64_records(ptr: *const u8, len: usize) -> Vec<f64> {
-    unsafe { bytes(ptr, len) }
-        .chunks_exact(8)
-        .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-        .collect()
-}
-
 #[no_mangle]
 pub extern "C" fn ui_physics_create(kind: u32, ptr: *const u8, len: usize) -> i32 {
-    ui().physics_create(kind, &f64_records(ptr, len))
+    ui().physics_create_wire(kind, unsafe { bytes(ptr, len) })
 }
 
 #[no_mangle]
 pub extern "C" fn ui_physics_apply(ptr: *const u8, len: usize) {
-    ui().physics_apply(&f64_records(ptr, len))
+    ui().physics_apply_wire(unsafe { bytes(ptr, len) })
 }
 
 #[no_mangle]

@@ -147,9 +147,6 @@ export const LETTER_ART: readonly LetterArt[] = [
   }
 ];
 
-/** The homepage's WM box: every letter's collision box about its home. */
-export const WORD_BOX = {"l":20.36,"t":29.06,"r":299.66,"b":146.17,"w":279.3,"h":117.11,"cx":160.01,"cy":87.61};
-
 /** The O's face layers over its plain sticker; the eyes are separate nodes. */
 export const O_FACE = {
   "look": "art/o-look.png",
@@ -178,7 +175,6 @@ export const TOY_ART = {
   "pjs": "art/toy-pjs.png",
   "mystery": "art/toy-mystery.png"
 } as const;
-export const TOY_SHADOW = "art/toy-shadow.png";
 
 export const PARTICLE_ART = {
   "burst": [
