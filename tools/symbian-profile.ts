@@ -69,17 +69,28 @@ export function resolveSymbianE7BuildPlan(input: unknown): ResolvedBuildPlan {
 type ViewportDeclaration = { dynamic?: { min?: readonly number[]; max?: readonly number[] } };
 
 /**
- * The orientation an E7 build holds. A manifest whose dynamic viewport range
- * admits portrait sizes only (every width below every height) is held in
- * portrait, a landscape-only range in landscape; any other app follows the
- * phone's rotation with live relayout.
+ * The orientation an E7 build holds, the host's one orientation lock. A
+ * manifest whose dynamic viewport range admits portrait sizes only (every
+ * width below every height) is held in portrait, a landscape-only range in
+ * landscape; any other app follows the phone's rotation with live relayout.
+ * A navigation registry entry marked `portrait` holds a rotating app in
+ * portrait as well.
  */
-export function symbianE7Orientation(manifest: unknown, plan: ResolvedBuildPlan): "auto" | "portrait" | "landscape" {
+export function symbianE7Orientation(
+  manifest: unknown,
+  plan: ResolvedBuildPlan,
+  navigation: "auto" | "portrait" = "auto",
+): "auto" | "portrait" | "landscape" {
   const app = (manifest as { app?: { viewport?: ViewportDeclaration; presentations?: { id?: string; viewport?: ViewportDeclaration }[] } }).app;
   const chosen = app?.presentations?.find((entry) => entry.id === plan.presentation.id);
   const dynamic = (chosen?.viewport ?? app?.viewport)?.dynamic;
-  if (!dynamic?.min || !dynamic.max) return "auto";
-  if (dynamic.max[0] < dynamic.min[1]) return "portrait";
-  if (dynamic.max[1] < dynamic.min[0]) return "landscape";
-  return "auto";
+  const range = !dynamic?.min || !dynamic.max ? "auto"
+    : dynamic.max[0] < dynamic.min[1] ? "portrait"
+    : dynamic.max[1] < dynamic.min[0] ? "landscape"
+    : "auto";
+  if (navigation === "auto") return range;
+  if (range === "landscape") {
+    throw new Error(`pocket symbian: the navigation registry holds ${plan.app.output} in portrait, but its manifest admits landscape only`);
+  }
+  return "portrait";
 }

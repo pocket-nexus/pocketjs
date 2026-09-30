@@ -16,8 +16,6 @@ const pow2 = (n: number) => {
   return p;
 };
 
-export type TouchScene = ReturnType<typeof touchScene>;
-
 /** The scene for a `w`×`h` screen whose wordmark the homepage set at `fs` px. */
 export function touchScene(w: number, h: number, fs: number) {
   /** The homepage's scale for springs, speeds and toy sizes. */
@@ -34,7 +32,6 @@ export function touchScene(w: number, h: number, fs: number) {
     H: h,
     U: u,
     G: 2500 * u,
-    FS: fs,
     /** The floor line and the pocket, from the homepage's layout(). */
     FLOOR_Y: floorY,
     POCKET_PW: pw,

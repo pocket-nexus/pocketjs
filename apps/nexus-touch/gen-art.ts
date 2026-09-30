@@ -183,222 +183,221 @@ async function bake(chrome: HeadlessChrome, layout: Layout) {
     if (image.width !== w * D || image.height !== h * D) throw new Error(`capture ${w}x${h} came back ${image.width}x${image.height}`);
     return image;
   };
-  {
-    await chrome.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: D, mobile: true });
-    await chrome.navigate(`file://${ROOT}site/nexus/public/index.html`);
-    const fontsOk = await evaluate(`(async () => {
-      const faces = ['100px "Titan One"', '600 16px "Fredoka"', '400 16px "IBM Plex Sans"', '600 16px "IBM Plex Sans"', '500 12px "IBM Plex Mono"'];
-      for (let i = 0; i < 200; i++) {
-        await document.fonts.ready;
-        if (faces.every((f) => document.fonts.check(f, "POCKETNXUS"))) return true;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      return false;
-    })()`);
-    if (!fontsOk) throw new Error("web fonts did not load");
-    // the page re-runs layout() on resize; give it the hidden chrome, then a frame
-    await evaluate(`new Promise((r) => { window.dispatchEvent(new Event("resize")); setTimeout(r, 400); })`);
-    await evaluate((await Bun.file(DRAW_JS).text()) + "\ntrue");
-    await evaluate((await Bun.file(HERE + "art/draw-touch.js").text()) + "\ntrue");
+  await chrome.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: D, mobile: true });
+  await chrome.navigate(`file://${ROOT}site/nexus/public/index.html`);
+  const fontsOk = await evaluate(`(async () => {
+    const faces = ['100px "Titan One"', '600 16px "Fredoka"', '400 16px "IBM Plex Sans"', '600 16px "IBM Plex Sans"', '500 12px "IBM Plex Mono"'];
+    for (let i = 0; i < 200; i++) {
+      await document.fonts.ready;
+      if (faces.every((f) => document.fonts.check(f, "POCKETNXUS"))) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  })()`);
+  if (!fontsOk) throw new Error("web fonts did not load");
+  // the page re-runs layout() on resize; give it the hidden chrome, then a frame
+  await evaluate(`new Promise((r) => { window.dispatchEvent(new Event("resize")); setTimeout(r, 400); })`);
+  await evaluate((await Bun.file(DRAW_JS).text()) + "\ntrue");
+  await evaluate((await Bun.file(HERE + "art/draw-touch.js").text()) + "\ntrue");
 
-    // -- the layout the homepage chose ----------------------------------------------------
-    const page = await evaluate(`(() => {
-      const box = (el) => { const q = el.getBoundingClientRect(); return { l: q.left, t: q.top, r: q.right, b: q.bottom }; };
-      const word = document.querySelector(".word");
-      const union = (el) => {
-        const rg = document.createRange(); rg.selectNodeContents(el);
-        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
-        for (const q of rg.getClientRects()) { if (q.width < 1) continue; l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom); }
-        return { l, t, r, b };
-      };
-      return {
-        fs: parseFloat(getComputedStyle(word).fontSize),
-        oneRow: word.classList.contains("one"),
-        slots: [...document.querySelectorAll(".word .ch")].map((el) => { const q = el.getBoundingClientRect(); return [q.left + q.width / 2, q.top + q.height / 2]; }),
-        lede: union(document.querySelector(".lede")),
-        copy: union(document.querySelector(".copy")),
-        hintText: box(document.querySelector("#hint b")),
-        hintArrow: box(document.querySelector("#hint svg")),
-        pocket: box(document.querySelector("#pocket")),
-      };
-    })()`);
-    if (page.oneRow) throw new Error("the homepage chose its one-row wordmark; the scene expects two rows");
-    const FS = page.fs, s = FS / 100;
-    const S = touchScene(W, H, FS);
-    // the pocket button the page placed must agree with scene.ts's formulas
-    const bw = S.POCKET_PW + S.POCKET_LW + 8;
-    if (Math.abs(page.pocket.l - (S.POCKET_CX - bw / 2)) > 0.5 || Math.abs(page.pocket.t - (S.POCKET_TOP_Y - S.POCKET_LW / 2 - 4)) > 0.5) {
-      throw new Error(`the page's pocket ${JSON.stringify(page.pocket)} disagrees with scene.ts`);
-    }
-
-    // -- letters -------------------------------------------------------------------------
-    const LS = S.LETTER_SPRITE;
-    const letters: { ch: string; src: string; shadow: string; w: number; ih: number; rcK: number; home: [number, number] }[] = [];
-    let wl = Infinity, wt = Infinity, wr = -Infinity, wb = -Infinity;
-    for (const [i, l] of WORD.entries()) {
-      const face = "face" in l && l.face;
-      const g = await evaluate(`NX.glyph(${JSON.stringify(l.ch)}, ${face})`);
-      const src = stage(face ? "o-body" : `letter-${i}`, await canvasPng(`NX.letter(${JSON.stringify(l.ch)}, "${l.color}", ${face}, null, ${FS * D}, ${LS * D})`), LS, LS);
-      const shadow = stage(`shadow-${i}`, await canvasPng(`NX.shadow(${JSON.stringify(l.ch)}, "${l.color}", ${face}, ${FS * D}, ${LS * D})`), LS, LS);
-      const [sx, sy] = page.slots[i];
-      const home: [number, number] = [round(sx), round(sy + HOME_Y[i] * FS)];
-      const w = g.w * s, ih = g.ih * s;
-      letters.push({ ch: l.ch, src, shadow, w: round(w), ih: round(ih), rcK: g.rcK, home });
-      // the homepage's WM box: each letter's collision box about its home
-      const hw = (g.w / 2 + 5) * s, hh = (g.ih / 2 + 5) * s;
-      wl = Math.min(wl, home[0] - hw); wr = Math.max(wr, home[0] + hw); wt = Math.min(wt, home[1] - hh); wb = Math.max(wb, home[1] + hh);
-    }
-    const wm = { l: round(wl), t: round(wt), r: round(wr), b: round(wb), w: round(wr - wl), h: round(wb - wt), cx: round((wl + wr) / 2), cy: round((wt + wb) / 2) };
-    const faces: Record<string, string> = {};
-    for (const state of ["look", "talk", "happy", "wince", "shut"]) {
-      faces[state] = stage(`o-${state}`, await canvasPng(`NXT.oFace("${state}", ${FS * D}, ${LS * D})`), LS, LS);
-    }
-    const oEyes = await evaluate(`NXT.oEyes(${FS})`);
-    const oEye = stage("o-eye", await canvasPng(`NXT.oEye(${FS * D}, ${S.O_EYE_SPRITE * D})`), S.O_EYE_SPRITE, S.O_EYE_SPRITE);
-
-    // -- toys and particles ------------------------------------------------------------------
-    const toys: Record<string, string> = {};
-    for (const type of await evaluate("NX.toys")) {
-      toys[type] = stage(`toy-${type}`, await canvasPng(`NX.toy("${type}", ${S.TOY_R * D}, ${S.TOY_SPRITE * D})`), S.TOY_SPRITE, S.TOY_SPRITE);
-    }
-    const COLORS: Record<string, string> = { y: "#ffd23f", p: "#ff5f9e", c: "#3fd0e8", l: "#a98bff", o: "#ffb45c", i: "#fcf6ff" };
-    const particles: Record<string, string[]> = { burst: [], bdot: [], star: [], dot: [] };
-    for (const kind of Object.keys(particles)) {
-      for (const [key, color] of Object.entries(COLORS)) {
-        if ((kind === "star" || kind === "dot") && key === "o") continue;
-        particles[kind].push(stage(`p-${kind}-${key}`, await canvasPng(`NX.particle("${kind}", "${color}", ${S.PARTICLE_SPRITE * D})`), S.PARTICLE_SPRITE, S.PARTICLE_SPRITE));
-      }
-    }
-
-    // -- the pocket ------------------------------------------------------------------------------
-    const k = S.POCKET_K, PW2 = S.POCKET_SPRITE_W * D, PH2 = S.POCKET_SPRITE_H * D;
-    // draw.js draws a square frame; crop the band that holds the pocket
-    const front = await canvasPng(`(() => {
-      const sq = NX.pocketFront(${k * D}, ${S.POCKET_LW * D}, ${PW2}, ${(S.POCKET_TIP_IN_SPRITE + (S.POCKET_SPRITE_W - S.POCKET_SPRITE_H) / 2) * D});
-      const c = document.createElement("canvas"); c.width = ${PW2}; c.height = ${PH2};
-      c.getContext("2d").drawImage(sq, 0, -${((S.POCKET_SPRITE_W - S.POCKET_SPRITE_H) / 2) * D});
-      window.pocketFront = c;
-      return c;
-    })()`);
-    const pocket = {
-      front: stage("pocket-front", front, S.POCKET_SPRITE_W, S.POCKET_SPRITE_H),
-      mouth: stage("pocket-mouth", await canvasPng(`NX.pocketMouth(${k * D}, ${S.POCKET_LW * D}, ${S.MOUTH_W * D}, ${S.MOUTH_H * D})`), S.MOUTH_W, S.MOUTH_H),
-      whites: stage("pocket-whites", await canvasPng(`NXT.pocketEyePart(${k * D}, "whites", ${S.EYES_W * D}, ${S.EYES_H * D})`), S.EYES_W, S.EYES_H),
-      pupils: stage("pocket-pupils", await canvasPng(`NXT.pocketEyePart(${k * D}, "pupils", ${S.EYES_W * D}, ${S.EYES_H * D})`), S.EYES_W, S.EYES_H),
-      happy: stage("pocket-happy", await canvasPng(`NXT.pocketEyePart(${k * D}, "happy", ${S.EYES_W * D}, ${S.EYES_H * D})`), S.EYES_W, S.EYES_H),
+  // -- the layout the homepage chose ----------------------------------------------------
+  const page = await evaluate(`(() => {
+    const box = (el) => { const q = el.getBoundingClientRect(); return { l: q.left, t: q.top, r: q.right, b: q.bottom }; };
+    const word = document.querySelector(".word");
+    const union = (el) => {
+      const rg = document.createRange(); rg.selectNodeContents(el);
+      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+      for (const q of rg.getClientRects()) { if (q.width < 1) continue; l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom); }
+      return { l, t, r, b };
     };
-    const glow = stageFlat("glow", await canvasPng(`NX.glow({ texW: 256, texH: 128, pw: ${S.POCKET_PW} })`));
-    const hazeBox = { x: 0, y: round(wm.cy - W / 2), w: W, h: W };
-    const haze = stageFlat("haze", await canvasPng(`NXT.haze(${JSON.stringify({ texW: 256, texH: 256, bx: hazeBox.x, by: hazeBox.y, bw: hazeBox.w, bh: hazeBox.h, wm })})`));
-
-    // -- the sky: the page's own background, plus drawGlow and drawFloor at rest --------------
-    await evaluate(`(() => {
-      document.querySelector("#play").style.display = "none";
-      for (const sel of [".hero", "#hint", ".copy", "#tags", "#pocket"]) document.querySelector(sel).style.visibility = "hidden";
-      const ov = document.createElement("canvas");
-      ov.id = "bake-overlay"; ov.width = ${W * D}; ov.height = ${H * D};
-      ov.style.cssText = "position:fixed;left:0;top:0;width:${W}px;height:${H}px;z-index:1;pointer-events:none";
-      document.body.appendChild(ov);
-      const ctx = ov.getContext("2d"); ctx.scale(${D}, ${D});
-      NXT.glowFloor(ctx, ${JSON.stringify({ cx: S.POCKET_CX, topY: S.POCKET_TOP_Y, pw: S.POCKET_PW, floorY: S.FLOOR_Y, W, H, wm })});
-      return true;
-    })()`);
-    const sky = await shot(0, 0, W, H);
-    const backdrop = tiles("sky", sky, W, H, W <= TILE ? [0, W] : [0, TILE, W], H <= TILE ? [0, H] : [0, TILE, H]);
-    // the launch image is the app's first frame: the sky and the pocket at rest
-    await evaluate(`(() => {
-      const ctx = document.querySelector("#bake-overlay").getContext("2d");
-      const mouthY = ${S.POCKET_TIP_Y - 15 * S.POCKET_K};
-      ctx.save(); ctx.translate(${S.POCKET_CX}, mouthY); ctx.scale(1, ${S.mouthScale(0.16)});
-      ctx.drawImage(NX.pocketMouth(${k * D}, ${S.POCKET_LW * D}, ${S.MOUTH_W * D}, ${S.MOUTH_H * D}), ${-S.MOUTH_W / 2}, ${-S.MOUTH_H / 2}, ${S.MOUTH_W}, ${S.MOUTH_H});
-      ctx.restore();
-      ctx.drawImage(pocketFront, ${S.POCKET_CX - S.POCKET_SPRITE_W / 2}, ${S.POCKET_TIP_Y - S.POCKET_TIP_IN_SPRITE}, ${S.POCKET_SPRITE_W}, ${S.POCKET_SPRITE_H});
-      return true;
-    })()`);
-    const launch = await shot(0, 0, W, H);
-
-    // -- text: the lede, the copy line and the hint on a transparent page -------------------------
-    await evaluate(`(() => {
-      document.querySelector("#bake-overlay").remove();
-      const s = document.createElement("style");
-      s.textContent = "html,body{background:transparent!important}.sky{display:none!important}.word{visibility:hidden!important}";
-      document.head.appendChild(s);
-      document.querySelector(".hero").style.visibility = "visible";
-      return true;
-    })()`);
-    const pad = (b: { l: number; t: number; r: number; b: number }, x: number, top: number, bottom: number) =>
-      ({ l: Math.floor(b.l - x), t: Math.floor(b.t - top), r: Math.ceil(b.r + x), b: Math.ceil(b.b + bottom) });
-    const ledeBox = pad(page.lede, 3, 2, 4);
-    const ledeImage = await shot(ledeBox.l, ledeBox.t, ledeBox.r - ledeBox.l, ledeBox.b - ledeBox.t);
-    const lede = {
-      x: ledeBox.l, y: ledeBox.t, w: ledeBox.r - ledeBox.l, h: ledeBox.b - ledeBox.t,
-      /** The text's ink box in screen px (the shelf the toys bonk). */
-      ink: { l: round(page.lede.l), t: round(page.lede.t), r: round(page.lede.r), b: round(page.lede.b) },
-      tiles: tiles("lede", ledeImage, ledeBox.r - ledeBox.l, ledeBox.b - ledeBox.t),
+    return {
+      fs: parseFloat(getComputedStyle(word).fontSize),
+      oneRow: word.classList.contains("one"),
+      slots: [...document.querySelectorAll(".word .ch")].map((el) => { const q = el.getBoundingClientRect(); return [q.left + q.width / 2, q.top + q.height / 2]; }),
+      lede: union(document.querySelector(".lede")),
+      copy: union(document.querySelector(".copy")),
+      hintText: box(document.querySelector("#hint b")),
+      hintArrow: box(document.querySelector("#hint svg")),
+      pocket: box(document.querySelector("#pocket")),
     };
-    await evaluate(`(() => { document.querySelector(".hero").style.visibility = "hidden"; document.querySelector(".copy").style.visibility = "visible"; return true; })()`);
-    const copyBox = pad(page.copy, 2, 2, 2);
-    const copyTiles = tiles("copy", await shot(copyBox.l, copyBox.t, copyBox.r - copyBox.l, copyBox.b - copyBox.t), copyBox.r - copyBox.l, copyBox.b - copyBox.t);
-    if (copyTiles.length !== 1) throw new Error("the copy line should fit one texture");
-    const copy = { ...copyTiles[0], x: copyBox.l, y: copyBox.t };
-    await evaluate(`(() => {
-      document.querySelector(".copy").style.visibility = "hidden";
-      const hint = document.querySelector("#hint"); hint.classList.add("on"); hint.style.visibility = "visible";
-      hint.querySelector("svg").style.visibility = "hidden";
-      return true;
-    })()`);
-    const hintTextBox = pad(page.hintText, 4, 4, 5);
-    const hintText = tiles("hint-text", await shot(hintTextBox.l, hintTextBox.t, hintTextBox.r - hintTextBox.l, hintTextBox.b - hintTextBox.t), hintTextBox.r - hintTextBox.l, hintTextBox.b - hintTextBox.t)[0];
-    await evaluate(`(() => { const hint = document.querySelector("#hint"); hint.querySelector("b").style.visibility = "hidden"; hint.querySelector("svg").style.visibility = "visible"; return true; })()`);
-    const arrowBox = pad(page.hintArrow, 3, 3, 3);
-    const hintArrow = tiles("hint-arrow", await shot(arrowBox.l, arrowBox.t, arrowBox.r - arrowBox.l, arrowBox.b - arrowBox.t), arrowBox.r - arrowBox.l, arrowBox.b - arrowBox.t)[0];
-    const hint = { text: { ...hintText, x: hintTextBox.l, y: hintTextBox.t }, arrow: { ...hintArrow, x: arrowBox.l, y: arrowBox.t } };
-    await evaluate(`(() => { document.querySelector("#hint").style.visibility = "hidden"; return true; })()`);
+  })()`);
+  if (page.oneRow) throw new Error("the homepage chose its one-row wordmark; the scene expects two rows");
+  const FS = page.fs, s = FS / 100;
+  const S = touchScene(W, H, FS);
+  // the pocket button the page placed must agree with scene.ts's formulas
+  const bw = S.POCKET_PW + S.POCKET_LW + 8;
+  if (Math.abs(page.pocket.l - (S.POCKET_CX - bw / 2)) > 0.5 || Math.abs(page.pocket.t - (S.POCKET_TOP_Y - S.POCKET_LW / 2 - 4)) > 0.5) {
+    throw new Error(`the page's pocket ${JSON.stringify(page.pocket)} disagrees with scene.ts`);
+  }
 
-    // -- speech bubbles: the homepage's .tag elements, anchored at a known point --------------------
-    const AX = 160, AY = 240;
-    const bubble = async (name: string, kind: string, text: string): Promise<TagArt> => {
-      const b = await evaluate(`(() => {
-        const tags = document.querySelector("#tags");
-        tags.textContent = ""; tags.style.visibility = "visible";
-        const el = document.createElement("div"); el.className = "tag ${kind} in";
-        const b = document.createElement("b"); b.textContent = ${JSON.stringify(text)}; el.appendChild(b);
-        el.style.transform = "translate3d(${AX}px,${AY}px,0)";
-        tags.appendChild(el);
-        const q = b.getBoundingClientRect();
-        return { l: q.left, t: q.top, r: q.right, b: q.bottom };
-      })()`);
-      // the tail reaches 8 px past the bubble toward the anchor, its shadow 4 px down
-      const ink = { l: b.l - 3, t: b.t - 3, r: b.r + 3, b: b.b + 6 };
-      if (kind.includes("perch-r")) ink.l = Math.min(ink.l, AX - 3);
-      else if (kind.includes("perch-l")) ink.r = Math.max(ink.r, AX + 3);
-      else ink.b = Math.max(ink.b, AY + 11);
-      const w = pow2(ink.r - ink.l), h = pow2(ink.b - ink.t);
-      // the anchor keeps its place in the sprite: pad the far side
-      let x0: number, y0: number;
-      if (kind.includes("perch-r")) { x0 = Math.floor(ink.l); y0 = Math.round(AY - h / 2); }
-      else if (kind.includes("perch-l")) { x0 = Math.ceil(ink.r) - w; y0 = Math.round(AY - h / 2); }
-      else { x0 = Math.round(AX - w / 2); y0 = Math.ceil(ink.b) - h; }
-      if (ink.l < x0 || ink.r > x0 + w || ink.t < y0 || ink.b > y0 + h) throw new Error(`${name}: bubble ${JSON.stringify(ink)} does not fit ${w}x${h} at ${x0},${y0}`);
-      const src = stage(name, await shot(x0, y0, w, h), w, h);
-      return { src, w, h, px: AX - x0, py: AY - y0 };
-    };
-    const lines = [...new Set<string>([...LINES, ...O_LINES, ...SAYS])];
-    const slug = (text: string) => text.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "") || "q";
-    const tags = {
-      pjs: await bubble("tag-pjs", "pjs", "PocketJS"),
-      say: {} as Record<string, TagArt>,
-      perchR: {} as Record<string, TagArt>,
-      perchL: {} as Record<string, TagArt>,
-    };
-    for (const text of lines) {
-      tags.say[text] = await bubble(`say-${slug(text)}`, "say", text);
-      tags.perchR[text] = await bubble(`say-${slug(text)}-r`, "say perch-r", text);
-      tags.perchL[text] = await bubble(`say-${slug(text)}-l`, "say perch-l", text);
+  // -- letters -------------------------------------------------------------------------
+  const LS = S.LETTER_SPRITE;
+  const letters: { ch: string; src: string; shadow: string; w: number; ih: number; rcK: number; home: [number, number] }[] = [];
+  let wl = Infinity, wt = Infinity, wr = -Infinity, wb = -Infinity;
+  for (const [i, l] of WORD.entries()) {
+    const face = "face" in l && l.face;
+    const g = await evaluate(`NX.glyph(${JSON.stringify(l.ch)}, ${face})`);
+    const src = stage(face ? "o-body" : `letter-${i}`, await canvasPng(`NX.letter(${JSON.stringify(l.ch)}, "${l.color}", ${face}, null, ${FS * D}, ${LS * D})`), LS, LS);
+    const shadow = stage(`shadow-${i}`, await canvasPng(`NX.shadow(${JSON.stringify(l.ch)}, "${l.color}", ${face}, ${FS * D}, ${LS * D})`), LS, LS);
+    const [sx, sy] = page.slots[i];
+    const home: [number, number] = [round(sx), round(sy + HOME_Y[i] * FS)];
+    const w = g.w * s, ih = g.ih * s;
+    letters.push({ ch: l.ch, src, shadow, w: round(w), ih: round(ih), rcK: g.rcK, home });
+    // the homepage's WM box: each letter's collision box about its home
+    const hw = (g.w / 2 + 5) * s, hh = (g.ih / 2 + 5) * s;
+    wl = Math.min(wl, home[0] - hw); wr = Math.max(wr, home[0] + hw); wt = Math.min(wt, home[1] - hh); wb = Math.max(wb, home[1] + hh);
+  }
+  const wm = { l: round(wl), t: round(wt), r: round(wr), b: round(wb), w: round(wr - wl), h: round(wb - wt), cx: round((wl + wr) / 2), cy: round((wt + wb) / 2) };
+  const faces: Record<string, string> = {};
+  for (const state of ["look", "talk", "happy", "wince", "shut"]) {
+    faces[state] = stage(`o-${state}`, await canvasPng(`NXT.oFace("${state}", ${FS * D}, ${LS * D})`), LS, LS);
+  }
+  const oEyes = await evaluate(`NXT.oEyes(${FS})`);
+  const oEye = stage("o-eye", await canvasPng(`NXT.oEye(${FS * D}, ${S.O_EYE_SPRITE * D})`), S.O_EYE_SPRITE, S.O_EYE_SPRITE);
+
+  // -- toys and particles ------------------------------------------------------------------
+  const toys: Record<string, string> = {};
+  for (const type of await evaluate("NX.toys")) {
+    toys[type] = stage(`toy-${type}`, await canvasPng(`NX.toy("${type}", ${S.TOY_R * D}, ${S.TOY_SPRITE * D})`), S.TOY_SPRITE, S.TOY_SPRITE);
+  }
+  const COLORS: Record<string, string> = { y: "#ffd23f", p: "#ff5f9e", c: "#3fd0e8", l: "#a98bff", o: "#ffb45c", i: "#fcf6ff" };
+  const particles: Record<string, string[]> = { burst: [], bdot: [], star: [], dot: [] };
+  for (const kind of Object.keys(particles)) {
+    for (const [key, color] of Object.entries(COLORS)) {
+      if ((kind === "star" || kind === "dot") && key === "o") continue;
+      particles[kind].push(stage(`p-${kind}-${key}`, await canvasPng(`NX.particle("${kind}", "${color}", ${S.PARTICLE_SPRITE * D})`), S.PARTICLE_SPRITE, S.PARTICLE_SPRITE));
     }
+  }
 
-    const json = (value: unknown) => JSON.stringify(value, null, 2);
-    const manifest = `// AUTO-GENERATED by apps/nexus-touch/gen-art.ts — do not edit; run \`bun apps/nexus-touch/gen-art.ts\`.
+  // -- the pocket ------------------------------------------------------------------------------
+  const k = S.POCKET_K, PW2 = S.POCKET_SPRITE_W * D, PH2 = S.POCKET_SPRITE_H * D;
+  // draw.js draws a square frame; crop the band that holds the pocket
+  const front = await canvasPng(`(() => {
+    const sq = NX.pocketFront(${k * D}, ${S.POCKET_LW * D}, ${PW2}, ${(S.POCKET_TIP_IN_SPRITE + (S.POCKET_SPRITE_W - S.POCKET_SPRITE_H) / 2) * D});
+    const c = document.createElement("canvas"); c.width = ${PW2}; c.height = ${PH2};
+    c.getContext("2d").drawImage(sq, 0, -${((S.POCKET_SPRITE_W - S.POCKET_SPRITE_H) / 2) * D});
+    window.pocketFront = c;
+    return c;
+  })()`);
+  const pocket = {
+    front: stage("pocket-front", front, S.POCKET_SPRITE_W, S.POCKET_SPRITE_H),
+    mouth: stage("pocket-mouth", await canvasPng(`NX.pocketMouth(${k * D}, ${S.POCKET_LW * D}, ${S.MOUTH_W * D}, ${S.MOUTH_H * D})`), S.MOUTH_W, S.MOUTH_H),
+    whites: stage("pocket-whites", await canvasPng(`NXT.pocketEyePart(${k * D}, "whites", ${S.EYES_W * D}, ${S.EYES_H * D})`), S.EYES_W, S.EYES_H),
+    pupils: stage("pocket-pupils", await canvasPng(`NXT.pocketEyePart(${k * D}, "pupils", ${S.EYES_W * D}, ${S.EYES_H * D})`), S.EYES_W, S.EYES_H),
+    happy: stage("pocket-happy", await canvasPng(`NXT.pocketEyePart(${k * D}, "happy", ${S.EYES_W * D}, ${S.EYES_H * D})`), S.EYES_W, S.EYES_H),
+  };
+  const glow = stageFlat("glow", await canvasPng(`NX.glow({ texW: 256, texH: 128, pw: ${S.POCKET_PW} })`));
+  const hazeBox = { x: 0, y: round(wm.cy - W / 2), w: W, h: W };
+  const haze = stageFlat("haze", await canvasPng(`NXT.haze(${JSON.stringify({ texW: 256, texH: 256, bx: hazeBox.x, by: hazeBox.y, bw: hazeBox.w, bh: hazeBox.h, wm })})`));
+
+  // -- the sky: the page's own background, plus drawGlow and drawFloor at rest --------------
+  await evaluate(`(() => {
+    document.querySelector("#play").style.display = "none";
+    for (const sel of [".hero", "#hint", ".copy", "#tags", "#pocket"]) document.querySelector(sel).style.visibility = "hidden";
+    const ov = document.createElement("canvas");
+    ov.id = "bake-overlay"; ov.width = ${W * D}; ov.height = ${H * D};
+    ov.style.cssText = "position:fixed;left:0;top:0;width:${W}px;height:${H}px;z-index:1;pointer-events:none";
+    document.body.appendChild(ov);
+    const ctx = ov.getContext("2d"); ctx.scale(${D}, ${D});
+    NXT.glowFloor(ctx, ${JSON.stringify({ cx: S.POCKET_CX, topY: S.POCKET_TOP_Y, pw: S.POCKET_PW, floorY: S.FLOOR_Y, W, H, wm })});
+    return true;
+  })()`);
+  const sky = await shot(0, 0, W, H);
+  const backdrop = tiles("sky", sky, W, H, W <= TILE ? [0, W] : [0, TILE, W], H <= TILE ? [0, H] : [0, TILE, H]);
+  // the launch image is the app's first frame: the sky and the pocket at rest
+  await evaluate(`(() => {
+    const ctx = document.querySelector("#bake-overlay").getContext("2d");
+    const mouthY = ${S.POCKET_TIP_Y - 15 * S.POCKET_K};
+    ctx.save(); ctx.translate(${S.POCKET_CX}, mouthY); ctx.scale(1, ${S.mouthScale(0.16)});
+    ctx.drawImage(NX.pocketMouth(${k * D}, ${S.POCKET_LW * D}, ${S.MOUTH_W * D}, ${S.MOUTH_H * D}), ${-S.MOUTH_W / 2}, ${-S.MOUTH_H / 2}, ${S.MOUTH_W}, ${S.MOUTH_H});
+    ctx.restore();
+    ctx.drawImage(pocketFront, ${S.POCKET_CX - S.POCKET_SPRITE_W / 2}, ${S.POCKET_TIP_Y - S.POCKET_TIP_IN_SPRITE}, ${S.POCKET_SPRITE_W}, ${S.POCKET_SPRITE_H});
+    return true;
+  })()`);
+  const launch = await shot(0, 0, W, H);
+
+  // -- text: the lede, the copy line and the hint on a transparent page -------------------------
+  await evaluate(`(() => {
+    document.querySelector("#bake-overlay").remove();
+    const s = document.createElement("style");
+    s.textContent = "html,body{background:transparent!important}.sky{display:none!important}.word{visibility:hidden!important}";
+    document.head.appendChild(s);
+    document.querySelector(".hero").style.visibility = "visible";
+    return true;
+  })()`);
+  const pad = (b: { l: number; t: number; r: number; b: number }, x: number, top: number, bottom: number) =>
+    ({ l: Math.floor(b.l - x), t: Math.floor(b.t - top), r: Math.ceil(b.r + x), b: Math.ceil(b.b + bottom) });
+  const ledeBox = pad(page.lede, 3, 2, 4);
+  const ledeImage = await shot(ledeBox.l, ledeBox.t, ledeBox.r - ledeBox.l, ledeBox.b - ledeBox.t);
+  const lede = {
+    x: ledeBox.l, y: ledeBox.t, w: ledeBox.r - ledeBox.l, h: ledeBox.b - ledeBox.t,
+    /** The text's ink box in screen px (the shelf the toys bonk). */
+    ink: { l: round(page.lede.l), t: round(page.lede.t), r: round(page.lede.r), b: round(page.lede.b) },
+    tiles: tiles("lede", ledeImage, ledeBox.r - ledeBox.l, ledeBox.b - ledeBox.t),
+  };
+  await evaluate(`(() => { document.querySelector(".hero").style.visibility = "hidden"; document.querySelector(".copy").style.visibility = "visible"; return true; })()`);
+  const copyBox = pad(page.copy, 2, 2, 2);
+  const copyTiles = tiles("copy", await shot(copyBox.l, copyBox.t, copyBox.r - copyBox.l, copyBox.b - copyBox.t), copyBox.r - copyBox.l, copyBox.b - copyBox.t);
+  if (copyTiles.length !== 1) throw new Error("the copy line should fit one texture");
+  const copy = { ...copyTiles[0], x: copyBox.l, y: copyBox.t };
+  await evaluate(`(() => {
+    document.querySelector(".copy").style.visibility = "hidden";
+    const hint = document.querySelector("#hint"); hint.classList.add("on"); hint.style.visibility = "visible";
+    hint.querySelector("svg").style.visibility = "hidden";
+    return true;
+  })()`);
+  const hintTextBox = pad(page.hintText, 4, 4, 5);
+  const hintText = tiles("hint-text", await shot(hintTextBox.l, hintTextBox.t, hintTextBox.r - hintTextBox.l, hintTextBox.b - hintTextBox.t), hintTextBox.r - hintTextBox.l, hintTextBox.b - hintTextBox.t)[0];
+  await evaluate(`(() => { const hint = document.querySelector("#hint"); hint.querySelector("b").style.visibility = "hidden"; hint.querySelector("svg").style.visibility = "visible"; return true; })()`);
+  const arrowBox = pad(page.hintArrow, 3, 3, 3);
+  const hintArrow = tiles("hint-arrow", await shot(arrowBox.l, arrowBox.t, arrowBox.r - arrowBox.l, arrowBox.b - arrowBox.t), arrowBox.r - arrowBox.l, arrowBox.b - arrowBox.t)[0];
+  const hint = { text: { ...hintText, x: hintTextBox.l, y: hintTextBox.t }, arrow: { ...hintArrow, x: arrowBox.l, y: arrowBox.t } };
+  await evaluate(`(() => { document.querySelector("#hint").style.visibility = "hidden"; return true; })()`);
+
+  // -- speech bubbles: the homepage's .tag elements, anchored at a known point --------------------
+  const AX = 160, AY = 240;
+  const bubble = async (name: string, kind: string, text: string): Promise<TagArt> => {
+    const b = await evaluate(`(() => {
+      const tags = document.querySelector("#tags");
+      tags.textContent = ""; tags.style.visibility = "visible";
+      const el = document.createElement("div"); el.className = "tag ${kind} in";
+      const b = document.createElement("b"); b.textContent = ${JSON.stringify(text)}; el.appendChild(b);
+      el.style.transform = "translate3d(${AX}px,${AY}px,0)";
+      tags.appendChild(el);
+      const q = b.getBoundingClientRect();
+      return { l: q.left, t: q.top, r: q.right, b: q.bottom };
+    })()`);
+    // the tail reaches 8 px past the bubble toward the anchor, its shadow 4 px down
+    const ink = { l: b.l - 3, t: b.t - 3, r: b.r + 3, b: b.b + 6 };
+    if (kind.includes("perch-r")) ink.l = Math.min(ink.l, AX - 3);
+    else if (kind.includes("perch-l")) ink.r = Math.max(ink.r, AX + 3);
+    else ink.b = Math.max(ink.b, AY + 11);
+    const w = pow2(ink.r - ink.l), h = pow2(ink.b - ink.t);
+    // the anchor keeps its place in the sprite: pad the far side
+    let x0: number, y0: number;
+    if (kind.includes("perch-r")) { x0 = Math.floor(ink.l); y0 = Math.round(AY - h / 2); }
+    else if (kind.includes("perch-l")) { x0 = Math.ceil(ink.r) - w; y0 = Math.round(AY - h / 2); }
+    else { x0 = Math.round(AX - w / 2); y0 = Math.ceil(ink.b) - h; }
+    if (ink.l < x0 || ink.r > x0 + w || ink.t < y0 || ink.b > y0 + h) throw new Error(`${name}: bubble ${JSON.stringify(ink)} does not fit ${w}x${h} at ${x0},${y0}`);
+    const src = stage(name, await shot(x0, y0, w, h), w, h);
+    return { src, w, h, px: AX - x0, py: AY - y0 };
+  };
+  const lines = [...new Set<string>([...LINES, ...O_LINES, ...SAYS])];
+  const slug = (text: string) => text.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "") || "q";
+  const tags = {
+    pjs: await bubble("tag-pjs", "pjs", "PocketJS"),
+    say: {} as Record<string, TagArt>,
+    perchR: {} as Record<string, TagArt>,
+    perchL: {} as Record<string, TagArt>,
+  };
+  for (const text of lines) {
+    tags.say[text] = await bubble(`say-${slug(text)}`, "say", text);
+    tags.perchR[text] = await bubble(`say-${slug(text)}-r`, "say perch-r", text);
+    tags.perchL[text] = await bubble(`say-${slug(text)}-l`, "say perch-l", text);
+  }
+
+  const json = (value: unknown) => JSON.stringify(value, null, 2);
+  const manifest = `// AUTO-GENERATED by apps/nexus-touch/gen-art.ts — do not edit; run \`bun apps/nexus-touch/gen-art.ts\`.
 //
 // The baked art of the Pocket Nexus touch scene and the layout the homepage
 // chose for a ${W}x${H} screen at density ${D}. Every image name is a full
@@ -439,16 +438,15 @@ export const HINT = ${json(hint)};
 /** Speech bubbles; (px, py) is the anchor the tail points at. */
 export const TAG_ART = ${json(tags)};
 `;
-    // every sprite rendered and checked: replace the art, its manifest and filters together
-    mkdirSync(OUT + "art", { recursive: true });
-    await textures.write(OUT + "art/");
-    if (layout.launch) await Bun.write(OUT + "launch.png", encodePNG(launch.rgba, launch.width, launch.height));
-    await Bun.write(OUT + "art.ts", manifest);
-    const images: Record<string, { linear: boolean }> = {};
-    for (const name of textures.files.keys()) if (!name.includes("@")) images[`art/${name}`] = { linear: true };
-    await Bun.write(OUT + "images.json", JSON.stringify(images, null, 2) + "\n");
-    console.log(`nexus-touch: baked ${textures.files.size} textures for ${W}x${H} @${D}x into apps/nexus-touch/${layout.dir}art/ (wordmark ${FS}px)`);
-  }
+  // every sprite rendered and checked: replace the art, its manifest and filters together
+  mkdirSync(OUT + "art", { recursive: true });
+  await textures.write(OUT + "art/");
+  if (layout.launch) await Bun.write(OUT + "launch.png", encodePNG(launch.rgba, launch.width, launch.height));
+  await Bun.write(OUT + "art.ts", manifest);
+  const images: Record<string, { linear: boolean }> = {};
+  for (const name of textures.files.keys()) if (!name.includes("@")) images[`art/${name}`] = { linear: true };
+  await Bun.write(OUT + "images.json", JSON.stringify(images, null, 2) + "\n");
+  console.log(`nexus-touch: baked ${textures.files.size} textures for ${W}x${H} @${D}x into apps/nexus-touch/${layout.dir}art/ (wordmark ${FS}px)`);
 }
 
 await main();

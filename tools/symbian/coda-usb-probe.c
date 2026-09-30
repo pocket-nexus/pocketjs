@@ -217,9 +217,11 @@ static int bytes_contain(
     return 0;
 }
 
-static int locator_advertises_processes(
+/* Whether the Locator Hello in `buffer` lists `service` (a quoted name). */
+static int locator_advertises(
     const unsigned char *buffer,
-    int length
+    int length,
+    const char *service
 ) {
     static const unsigned char locator_prefix[] = {
         'E', 0x00,
@@ -239,7 +241,7 @@ static int locator_advertises_processes(
         const unsigned char *payload = buffer + offset + 4;
         if (memcmp(payload, locator_prefix, sizeof(locator_prefix)) != 0)
             continue;
-        return bytes_contain(payload, payload_length, "\"Processes\"");
+        return bytes_contain(payload, payload_length, service);
     }
     return 0;
 }
@@ -409,34 +411,17 @@ static int append_command_field(
     return 1;
 }
 
-static int valid_executable(const char *executable) {
-    const size_t length = strlen(executable);
-    if (length < 5 || length > MaxExecutableLength ||
-        strcmp(executable + length - 4, ".exe") != 0) {
+/* A bare file name ending in `suffix` (".exe", ".sis"): no separators, so it
+ * cannot name a file outside the directory the command addresses. */
+static int valid_basename(const char *name, const char *suffix) {
+    const size_t length = strlen(name);
+    const size_t suffix_length = strlen(suffix);
+    if (length <= suffix_length || length > MaxExecutableLength ||
+        strcmp(name + length - suffix_length, suffix) != 0) {
         return 0;
     }
     for (size_t index = 0; index < length; ++index) {
-        const char value = executable[index];
-        if ((value >= 'a' && value <= 'z') ||
-            (value >= 'A' && value <= 'Z') ||
-            (value >= '0' && value <= '9') ||
-            value == '.' || value == '_' || value == '-') {
-            continue;
-        }
-        return 0;
-    }
-    return 1;
-}
-
-/* A SIS basename staged in the MTP Installs folder (E:\Installs). */
-static int valid_installs_file(const char *file) {
-    const size_t length = strlen(file);
-    if (length < 5 || length > MaxExecutableLength ||
-        strcmp(file + length - 4, ".sis") != 0) {
-        return 0;
-    }
-    for (size_t index = 0; index < length; ++index) {
-        const char value = file[index];
+        const char value = name[index];
         if ((value >= 'a' && value <= 'z') ||
             (value >= 'A' && value <= 'Z') ||
             (value >= '0' && value <= '9') ||
@@ -636,9 +621,10 @@ static int extract_process_id(
 
 static void print_command_error(
     const char *label,
+    const char *rejection,
     const struct command_reply_context *reply
 ) {
-    fprintf(stderr, "%s", label);
+    fprintf(stderr, "%s: %s", label, rejection);
     if (reply->values_length > 0) {
         fprintf(stderr, " (");
         for (int index = 0; index < reply->values_length; ++index) {
@@ -654,6 +640,54 @@ static void print_command_error(
 }
 
 #ifndef CODA_PROTOCOL_TEST
+/* Send one command and read its reply. A NAK or an error reply prints
+ * `label: rejection` with the reply's values and returns ERROR_OTHER. */
+static int run_command(
+    libusb_device_handle *handle,
+    uint8_t endpoint_in,
+    uint8_t endpoint_out,
+    unsigned char *response,
+    int response_capacity,
+    int *response_length,
+    const unsigned char *command,
+    size_t command_length,
+    struct command_reply_context *reply,
+    int timeout_ms,
+    const char *label,
+    const char *rejection
+) {
+    int result = send_serial_payload(
+        handle,
+        endpoint_out,
+        command,
+        command_length
+    );
+    if (result != LIBUSB_SUCCESS)
+        return result;
+
+    result = read_until(
+        handle,
+        endpoint_in,
+        response,
+        response_capacity,
+        response_length,
+        match_command_reply,
+        reply,
+        timeout_ms
+    );
+    if (result != LIBUSB_SUCCESS)
+        return result;
+    if (reply->values_overflow) {
+        fprintf(stderr, "%s: reply exceeds the safe parser limit\n", label);
+        return LIBUSB_ERROR_OVERFLOW;
+    }
+    if (reply->type != 'R' || command_reply_has_error(reply)) {
+        print_command_error(label, rejection, reply);
+        return LIBUSB_ERROR_OTHER;
+    }
+    return LIBUSB_SUCCESS;
+}
+
 static int launch_process(
     libusb_device_handle *handle,
     uint8_t endpoint_in,
@@ -676,41 +710,28 @@ static int launch_process(
         return LIBUSB_ERROR_OVERFLOW;
     }
 
-    int result = send_serial_payload(
-        handle,
-        endpoint_out,
-        command,
-        command_length
-    );
-    if (result != LIBUSB_SUCCESS)
-        return result;
-
     struct command_reply_context reply = {
         .token = token,
         .type = '\0',
         .values_length = 0,
         .values_overflow = 0,
     };
-    result = read_until(
+    const int result = run_command(
         handle,
         endpoint_in,
+        endpoint_out,
         response,
         response_capacity,
         response_length,
-        match_command_reply,
+        command,
+        command_length,
         &reply,
-        CommandTimeoutMs
+        CommandTimeoutMs,
+        "CODA launch",
+        "device rejected the start command"
     );
     if (result != LIBUSB_SUCCESS)
         return result;
-    if (reply.values_overflow) {
-        fprintf(stderr, "CODA launch: reply exceeds the safe parser limit\n");
-        return LIBUSB_ERROR_OVERFLOW;
-    }
-    if (reply.type != 'R' || command_reply_has_error(&reply)) {
-        print_command_error("CODA launch: device rejected the start command", &reply);
-        return LIBUSB_ERROR_OTHER;
-    }
 
     char process_id[128];
     if (!extract_process_id(&reply, process_id, sizeof(process_id))) {
@@ -735,37 +756,38 @@ static int install_package(
     static const char token[] = "1";
     unsigned char command[CommandCapacity];
     size_t command_length = 0;
-    if (!build_install_command(file, token, command, sizeof(command), &command_length))
+    if (!build_install_command(
+            file,
+            token,
+            command,
+            sizeof(command),
+            &command_length
+        )) {
         return LIBUSB_ERROR_OVERFLOW;
-    int result = send_serial_payload(handle, endpoint_out, command, command_length);
-    if (result != LIBUSB_SUCCESS)
-        return result;
+    }
+
     struct command_reply_context reply = {
         .token = token,
         .type = '\0',
         .values_length = 0,
         .values_overflow = 0,
     };
-    result = read_until(
+    const int result = run_command(
         handle,
         endpoint_in,
+        endpoint_out,
         response,
         response_capacity,
         response_length,
-        match_command_reply,
+        command,
+        command_length,
         &reply,
-        InstallTimeoutMs
+        InstallTimeoutMs,
+        "CODA install",
+        "device rejected the package"
     );
     if (result != LIBUSB_SUCCESS)
         return result;
-    if (reply.values_overflow) {
-        fprintf(stderr, "CODA install: reply exceeds the safe parser limit\n");
-        return LIBUSB_ERROR_OVERFLOW;
-    }
-    if (reply.type != 'R' || command_reply_has_error(&reply)) {
-        print_command_error("CODA install: device rejected the package", &reply);
-        return LIBUSB_ERROR_OTHER;
-    }
     printf("CODA install: installed E:\\Installs\\%s\n", file);
     return LIBUSB_SUCCESS;
 }
@@ -775,7 +797,7 @@ int main(int argc, char **argv) {
     const char *package = NULL;
     if (argc == 3 && strcmp(argv[1], "launch") == 0) {
         executable = argv[2];
-        if (!valid_executable(executable)) {
+        if (!valid_basename(executable, ".exe")) {
             fprintf(
                 stderr,
                 "CODA USB: executable must be a basename ending in .exe\n"
@@ -784,7 +806,7 @@ int main(int argc, char **argv) {
         }
     } else if (argc == 3 && strcmp(argv[1], "install") == 0) {
         package = argv[2];
-        if (!valid_installs_file(package)) {
+        if (!valid_basename(package, ".sis")) {
             fprintf(stderr, "CODA USB: package must be a basename ending in .sis\n");
             return 2;
         }
@@ -990,7 +1012,7 @@ int main(int argc, char **argv) {
     printf("CODA Locator: ready\n");
 
     if (package != NULL) {
-        if (!bytes_contain(response, response_length, "\"SymbianInstall\"")) {
+        if (!locator_advertises(response, response_length, "\"SymbianInstall\"")) {
             fprintf(stderr, "CODA install: SymbianInstall service is unavailable\n");
             goto cleanup;
         }
@@ -1011,7 +1033,7 @@ int main(int argc, char **argv) {
         }
     }
     if (executable != NULL) {
-        if (!locator_advertises_processes(response, response_length)) {
+        if (!locator_advertises(response, response_length, "\"Processes\"")) {
             fprintf(stderr, "CODA launch: Processes service is unavailable\n");
             goto cleanup;
         }

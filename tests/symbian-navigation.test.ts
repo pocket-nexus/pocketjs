@@ -8,7 +8,10 @@ const shell = { uid: "0xEA360236", id: "shell", output: "shell", title: "Pocket 
 const clear = { uid: "0xE16ACD8E", id: "clear", output: "clear", title: "Pocket Clear", orientation: "portrait" };
 test("native navigation is bounded, unique and includes the current package", () => {
   const config = { shell: shell.uid, apps: [clear, shell] };
-  expect(encodeSymbianNavigation(config, clear.uid).split("\n")[0]).toBe("0xEA360236\tshell\tshell\tPocket Shell\tauto");
+  expect(encodeSymbianNavigation(config, clear.uid).table.split("\n")[0]).toBe("0xEA360236\tshell\tshell\tPocket Shell");
+  // the registry's orientation is a build input for its own package, not a table column
+  expect(encodeSymbianNavigation(config, clear.uid).orientation).toBe("portrait");
+  expect(encodeSymbianNavigation(config, shell.uid).orientation).toBe("auto");
   for (const apps of [[shell, shell], [shell, { ...clear, title: "bad\nrow" }], [shell, { ...clear, uid: "0x10000000" }],
     [shell, { ...clear, output: shell.output }], [shell, { ...clear, orientation: "sideways" }], [shell, { ...clear, id: undefined }], [shell, { ...clear, output: undefined }]]) {
     expect(() => encodeSymbianNavigation({ ...config, apps }, shell.uid)).toThrow();

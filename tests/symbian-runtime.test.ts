@@ -384,6 +384,12 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(orientation("apps/clear/pocket.symbian.json")).toBe("portrait");
     expect(orientation("apps/nexus-touch/pocket.symbian.json")).toBe("portrait");
     expect(orientation("apps/hero/pocket.json")).toBe("auto");
+    // a navigation registry entry held in portrait folds into the same lock
+    const hero = manifest("apps/hero/pocket.json");
+    expect(symbianE7Orientation(hero, resolveSymbianE7BuildPlan(hero), "portrait")).toBe("portrait");
+    const wide = { ...hero, app: { ...hero.app, viewport: { dynamic: { default: [640, 360], min: [640, 360], max: [640, 360] } } } };
+    expect(symbianE7Orientation(wide, resolveSymbianE7BuildPlan(wide))).toBe("landscape");
+    expect(() => symbianE7Orientation(wide, resolveSymbianE7BuildPlan(wide), "portrait")).toThrow("admits landscape only");
     expect(resolveSymbianE7BuildPlan(manifest("apps/nexus-touch/pocket.symbian.json")).features["ui.physics"]).toBe(true);
     expect(resolveSymbianE7BuildPlan(manifest("apps/clear/pocket.symbian.json")).features["ui.physics"]).toBeUndefined();
     const runtime = readFileSync(join(repository, "hosts/nokia-e7/runtime/main.cpp"), "utf8");
@@ -394,6 +400,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       expect(runtime).toContain(`addHostOperation(context, ui, "${name}", ${arity}, Host${name[0].toUpperCase()}${name.slice(1)});`);
     }
     expect(runtime).toContain("if (POCKETJS_ORIENTATION_LOCK == 1) setAttribute(Qt::WA_LockPortraitOrientation, true);");
+    expect(runtime.match(/WA_LockPortraitOrientation/g)).toHaveLength(2); // the perf-replay lock and this one
     expect(project).toContain("DEFINES += POCKETJS_PHYSICS=$$POCKETJS_PHYSICS");
     expect(project).toContain("DEFINES += POCKETJS_ORIENTATION_LOCK=$$POCKETJS_ORIENTATION_LOCK");
     expect(buildApp).toContain('"POCKETJS_PHYSICS=$physics"');

@@ -419,9 +419,10 @@ export async function buildApp(
   const manifest = JSON.parse(readFileSync(absoluteManifest, "utf8")) as unknown;
   const plan = resolveSymbianE7BuildPlan(manifest);
   const packageIdentity = symbianPackageIdentity(plan, options.uid);
-  const navigation = options.navigation === undefined ? "" : encodeSymbianNavigation(
+  const navigation = options.navigation === undefined ? undefined : encodeSymbianNavigation(
     JSON.parse(readFileSync(resolve(options.navigation), "utf8")), packageIdentity.uid);
   if (navigation && options.catalogIndex) throw new Error("Native navigation and an embedded catalog are separate launch modes");
+  const orientation = symbianE7Orientation(manifest, plan, navigation?.orientation);
   const manifestRelativeToPocketJs = relative(root, absoluteManifest);
   const defaultProjectRoot =
     manifestRelativeToPocketJs !== ".." &&
@@ -535,7 +536,7 @@ export async function buildApp(
       copyFileSync(catalogIndex, resolve(payload, "catalog.tsv"));
       copyFileSync(catalogBlob, resolve(payload, "catalog.bin"));
     }
-    await Bun.write(resolve(payload, "navigation.tsv"), navigation);
+    await Bun.write(resolve(payload, "navigation.tsv"), navigation?.table ?? "");
     const embeddedPaths = [
       resolve(payload, "navigation.tsv"),
       resolve(payload, "app.js"),
@@ -600,7 +601,7 @@ export async function buildApp(
         String(embeddedBytes),
         String(frameRate),
         options.perfTrace ? "1" : "0",
-        symbianE7Orientation(manifest, plan),
+        orientation,
         plan.features["ui.physics"] ? "1" : "0",
       ],
       {
@@ -668,7 +669,7 @@ const HELP = `PocketJS Nokia E7 / Symbian toolchain
   pocket symbian coda usb launch <executable.exe>
                                     remotely launch an installed app from its receipt
   pocket symbian coda usb install <package.sis>
-                                    silently install a SIS that deploy staged in Installs
+                                    install a SIS that deploy staged in Installs, no prompts
 `;
 
 export async function symbianMain(

@@ -1297,7 +1297,7 @@ protected:
     void timerEvent(QTimerEvent *event);
 
 private:
-    struct NativeApp { uint32_t uid; QString output, id, title; int shot; bool portrait; };
+    struct NativeApp { uint32_t uid; QString output, id, title; int shot; };
     QVector<NativeApp> nativeApps_;
     int nativeSelf_, pendingNativeApp_, lastNativeApp_, nativeReturnDestination_;
     bool nativeWasBackground_, nativeShotPending_, nativeIgnoreUntilRelease_, nativeGraphicsSuspended_;
@@ -1510,8 +1510,9 @@ PocketJsRuntime::PocketJsRuntime()
             ? Qt::WA_LockPortraitOrientation : Qt::WA_LockLandscapeOrientation, true);
     } else
 #endif
-    // A manifest whose viewport range admits one orientation only is held in
-    // it; every other app follows the phone.
+    // The build's one orientation decision (tools/symbian-profile.ts): the
+    // manifest's viewport range, or a navigation registry entry held in
+    // portrait. Every other app follows the phone.
     if (POCKETJS_ORIENTATION_LOCK == 1) setAttribute(Qt::WA_LockPortraitOrientation, true);
     else if (POCKETJS_ORIENTATION_LOCK == 2) setAttribute(Qt::WA_LockLandscapeOrientation, true);
     else setAttribute(Qt::WA_AutoOrientation, true);
@@ -1537,7 +1538,6 @@ PocketJsRuntime::PocketJsRuntime()
     // The first timer event therefore observes the native fullscreen extent
     // instead of QWidget's pre-show default geometry.
     if (!initializeNativeNavigation()) { fail("Invalid native navigation table"); return; }
-    if (nativeSelf_ >= 0 && nativeApps_.at(nativeSelf_).portrait) { setAttribute(Qt::WA_AutoOrientation, false); setAttribute(Qt::WA_LockPortraitOrientation, true); }
     const int interval = qMax(1, 1000 / POCKETJS_FRAME_RATE);
     timer_.start(interval, this);
 }

@@ -52,10 +52,31 @@ int main(void) {
     assert(command_length == 59);
     assert(command_length == sizeof(expected_command) - 1);
     assert(memcmp(command, expected_command, command_length) == 0);
-    assert(valid_executable("PocketJsE7Runtime.exe"));
-    assert(!valid_executable(""));
-    assert(!valid_executable("../PocketJsE7Runtime.exe"));
-    assert(!valid_executable("PocketJsE7Runtime.sis"));
+    assert(valid_basename("PocketJsE7Runtime.exe", ".exe"));
+    assert(!valid_basename("", ".exe"));
+    assert(!valid_basename(".exe", ".exe"));
+    assert(!valid_basename("../PocketJsE7Runtime.exe", ".exe"));
+    assert(!valid_basename("PocketJsE7Runtime.sis", ".exe"));
+
+    static const unsigned char expected_install[] =
+        "C\0"
+        "1\0"
+        "SymbianInstall\0"
+        "install\0"
+        "\"E:\\\\Installs\\\\nexus-touch-e7-1.0.3.sis\"\0"
+        "\"E:\"\0";
+    assert(build_install_command(
+        "nexus-touch-e7-1.0.3.sis",
+        "1",
+        command,
+        sizeof(command),
+        &command_length
+    ));
+    assert(command_length == sizeof(expected_install) - 1);
+    assert(memcmp(command, expected_install, command_length) == 0);
+    assert(valid_basename("nexus-touch-e7-1.0.3.sis", ".sis"));
+    assert(!valid_basename("Installs\\clear-main.sis", ".sis"));
+    assert(!valid_basename("clear-main.exe", ".sis"));
 
     static const unsigned char locator_payload[] =
         "E\0Locator\0Hello\0[\"Locator\",\"Processes\"]\0";
@@ -67,9 +88,15 @@ int main(void) {
         sizeof(locator_frame)
     );
     assert(find_locator_hello(locator_frame, (int)locator_length));
-    assert(locator_advertises_processes(
+    assert(locator_advertises(
         locator_frame,
-        (int)locator_length
+        (int)locator_length,
+        "\"Processes\""
+    ));
+    assert(!locator_advertises(
+        locator_frame,
+        (int)locator_length,
+        "\"SymbianInstall\""
     ));
 
     static const unsigned char success_payload[] =

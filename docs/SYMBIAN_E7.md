@@ -269,7 +269,8 @@ The experimental host has these runtime semantics:
   the app): a maximum width below the minimum height is `portrait`, a maximum
   height below the minimum width is `landscape`, and every other range is
   `auto`. The host sets Qt's portrait or landscape lock in place of automatic
-  orientation, so opening the keyboard does not rotate the app. The receipt
+  orientation, so opening the keyboard does not rotate the app. A navigation
+  registry entry marked `portrait` feeds the same decision. The receipt
   records the choice as `runtime.orientation`. Pocket Clear and Pocket Nexus
   declare `360x640` as both minimum and maximum and stay portrait.
 - Applications targeting the E7 must declare a compatible dynamic viewport.
@@ -569,7 +570,11 @@ This mode cannot be combined with an embedded `--catalog`.
 
 The registry has `shell` (the Shell UID) and `apps` (2–32 entries). Every entry
 contains `uid`, `id`, `output` and `title`; `orientation` accepts `auto` or
-`portrait`. UIDs, manifest IDs and output keys must be unique. Build every
+`portrait`. **A package's own `portrait` entry folds into the build's
+orientation lock** (see the runtime semantics above): it holds an app whose
+manifest range admits both orientations in portrait, and the build rejects it
+for a landscape-only manifest. The packaged table carries no orientation
+column. UIDs, manifest IDs and output keys must be unique. Build every
 participating package with the same registry, including its own UID. The build
 receipt records the encoded registry hash.
 

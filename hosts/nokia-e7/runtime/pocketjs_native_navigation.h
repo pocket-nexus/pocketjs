@@ -9,7 +9,7 @@ bool PocketJsRuntime::initializeNativeNavigation()
     for (int i = 0; i < lines.size(); ++i) {
         if (lines.at(i).isEmpty()) continue;
         const QList<QByteArray> fields = lines.at(i).split('\t');
-        if (fields.size() != 5 || nativeApps_.size() >= 32) return false;
+        if (fields.size() != 4 || nativeApps_.size() >= 32) return false;
         bool ok = false;
         NativeApp app;
         app.uid = fields.at(0).toUInt(&ok, 16);
@@ -17,8 +17,6 @@ bool PocketJsRuntime::initializeNativeNavigation()
         app.output = QString::fromUtf8(fields.at(1));
         app.id = QString::fromUtf8(fields.at(2));
         app.title = QString::fromUtf8(fields.at(3));
-        if (fields.at(4) != "auto" && fields.at(4) != "portrait") return false;
-        app.portrait = fields.at(4) == "portrait";
         app.shot = -1;
         if (app.output.isEmpty() || app.id.isEmpty() || app.title.isEmpty()) return false;
         for (int j = 0; j < nativeApps_.size(); ++j) {

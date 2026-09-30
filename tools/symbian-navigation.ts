@@ -7,7 +7,14 @@ export interface SymbianNavigationApp {
   orientation?: "auto" | "portrait";
 }
 
-export function encodeSymbianNavigation(value: unknown, currentUid: string): string {
+/** The packaged table (uid, output, id and title per row, the shell first) and
+ *  the orientation the registry holds the current package in. */
+export interface SymbianNavigation {
+  table: string;
+  orientation: "auto" | "portrait";
+}
+
+export function encodeSymbianNavigation(value: unknown, currentUid: string): SymbianNavigation {
   const config = value as { shell?: unknown; apps?: unknown } | null;
   if (!config || typeof config.shell !== "string" || !Array.isArray(config.apps) ||
       config.apps.length < 2 || config.apps.length > 32) {
@@ -28,6 +35,7 @@ export function encodeSymbianNavigation(value: unknown, currentUid: string): str
   if (!uids.has(config.shell) || !uids.has(currentUid)) {
     throw new Error("Native navigation must contain this package and its shell");
   }
-  return [apps.find(app => app.uid === config.shell)!, ...apps.filter(app => app.uid !== config.shell)]
-    .map(app => [app.uid, app.output, app.id, app.title, app.orientation ?? "auto"].join("\t")).join("\n") + "\n";
+  const table = [apps.find(app => app.uid === config.shell)!, ...apps.filter(app => app.uid !== config.shell)]
+    .map(app => [app.uid, app.output, app.id, app.title].join("\t")).join("\n") + "\n";
+  return { table, orientation: apps.find(app => app.uid === currentUid)!.orientation ?? "auto" };
 }

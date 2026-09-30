@@ -1,4 +1,4 @@
-// apps/nexus-touch/app.tsx — the pocket.nexus homepage on a 320x480 touch screen.
+// apps/nexus-touch/app.tsx — the pocket.nexus homepage on a portrait touch screen.
 //
 // The homepage's one interactive screen, laid out by the homepage itself
 // (gen-art.ts measures the page at each screen's size and writes that
