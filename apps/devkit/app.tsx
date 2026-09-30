@@ -20,9 +20,9 @@ const STEPS = [
 /** The PocketJS mark from site/assets/favicon.svg, drawn with views. */
 function Mark() {
   return (
-    <View class="w-[56] h-[40] rounded-[12] bg-[#ffd23f] p-[5]">
-      <View class="w-full h-full rounded-[8] bg-[#171226] flex-row items-center px-[7] gap-[7]">
-        <View class="w-[12] h-[12] rounded-full bg-[#ff5f9e]" />
+    <View class="w-[64] h-[44] rounded-[13] bg-[#ffd23f] p-[5]">
+      <View class="w-full h-full rounded-[9] bg-[#171226] flex-row items-center px-[8] gap-[6]">
+        <View class="w-[12] h-[12] shrink-0 rounded-full bg-[#ff5f9e]" />
         <View class="flex-col gap-[4]">
           <View class="w-[20] h-[4] rounded-full bg-[#3fd0e8]" />
           <View class="w-[13] h-[4] rounded-full bg-[#ff5f9e]" />
@@ -56,7 +56,7 @@ export default function Devkit() {
         <For each={STEPS}>
           {(step) => (
             <View class="flex-row items-center gap-3">
-              <Text class="text-xs text-[#ff5f9e] font-bold">{step.n}</Text>
+              <Text class="w-[10] text-xs text-[#ff5f9e] font-bold">{step.n}</Text>
               <Text class="text-sm text-white">{step.text}</Text>
             </View>
           )}
