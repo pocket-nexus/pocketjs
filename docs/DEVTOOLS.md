@@ -93,7 +93,12 @@ poll transport → flush outbox → (paused? maybe step : record + run frame)
 
 ### 3. Transports
 
-The shim needs only `{ send(line), recv() -> line | null }`:
+The shim needs `{ send(line), recv() -> line | null }` and reads two optional
+fields: `everyFrames` (poll cadence in frames) and `listening() -> boolean`.
+**While `listening()` returns false the shim sends no tree or stats snapshots
+and no console lines; the first frame after it returns true sends the tree.**
+Explicit requests such as `getTree` get answers either way. A transport
+without `listening` counts as always attached.
 
 - **Browser / desktop:** `hosts/web/engine.js` connects a WebSocket to the dev
   server (`/ws?role=device`) and injects the transport before the bundle
@@ -127,7 +132,11 @@ The shim needs only `{ send(line), recv() -> line | null }`:
   retired-frame acceptance and rollback path. **The pairing key authenticates
   but does not encrypt the LAN connection. The channel updates `.pocket`
   guests; native `.3dsx` or CIA host changes still require deployment and
-  restart.**
+  restart.** The transport's `listening` reads `ui.__dbgConnected()`, which
+  reports an authenticated client; `ui.__dbgActive()` reports that the
+  listener exists, not that a client is attached. **Without a panel the guest
+  serializes no tree snapshots: a full-tree snapshot measured about 30 ms of
+  JS on an Old 3DS, once per 30 frames.**
 - **Native desktop (macOS et al., `pocket-ui-wgpu`):** the same file mailbox,
   minus the USB cable — `engine/crates/pocket-ui-wgpu/src/dbg.rs` is the
   std twin of the PSP transport. Probed once at `UiSurface::mount`: root =

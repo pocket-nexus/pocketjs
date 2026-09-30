@@ -552,34 +552,7 @@ impl Resolved {
 /// for every child's z each frame, and a full resolve there doubled the
 /// per-node style work (measured: the largest single cost in `draw` on PSP).
 pub fn resolve_z(node: &Node, table: &StyleTable) -> i32 {
-    let mut z = 0i32;
-    if let Some(rec) = table.record(node.style_id) {
-        for &(p, v) in &rec.base {
-            if p == spec::prop::Z_INDEX {
-                z = v as i32;
-            }
-        }
-        if node.focused {
-            for &(p, v) in &rec.focus {
-                if p == spec::prop::Z_INDEX {
-                    z = v as i32;
-                }
-            }
-        }
-        if node.active {
-            for &(p, v) in &rec.active {
-                if p == spec::prop::Z_INDEX {
-                    z = v as i32;
-                }
-            }
-        }
-    }
-    for &(p, v) in &node.overrides {
-        if p == spec::prop::Z_INDEX {
-            z = v as i32;
-        }
-    }
-    z
+    last_entry(node, table, Layers::Styled, spec::prop::Z_INDEX).map_or(0, |v| v as i32)
 }
 
 /// Resolve a node's effective style. `with_anim` controls whether live
@@ -588,69 +561,84 @@ pub fn resolve_z(node: &Node, table: &StyleTable) -> i32 {
 /// target). Animation start values use `resolve_animated`, which leaves the
 /// physics layer out.
 pub fn resolve(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
-    let mut r = resolve_animated(node, table, with_anim);
-    if with_anim {
-        for &(p, v) in &node.physics_values {
-            r.apply(p, v);
-        }
-    }
-    r
+    resolve_layers(node, table, if with_anim { Layers::Posed } else { Layers::Styled })
 }
 
-/// The opacity `resolve(node, table, true)` would produce, scanning only that
-/// property through the same layers in the same order. The draw walk uses it
-/// to cull a transparent subtree without resolving the whole style.
+/// The opacity `resolve(node, table, true)` would produce, from the same
+/// layers in the same order without building a `Resolved`. The draw walk uses
+/// it to cull a transparent subtree before resolving the whole style.
 pub fn resolve_opacity(node: &Node, table: &StyleTable) -> f32 {
-    let mut opacity = 1.0;
-    let mut scan = |layer: &[(u8, u32)]| {
-        for &(p, v) in layer {
-            if p == spec::prop::OPACITY {
-                opacity = f32::from_bits(v);
-            }
-        }
-    };
-    if let Some(rec) = table.record(node.style_id) {
-        scan(&rec.base);
-        if node.focused {
-            scan(&rec.focus);
-        }
-        if node.active {
-            scan(&rec.active);
-        }
-    }
-    scan(&node.overrides);
-    scan(&node.anim_values);
-    scan(&node.physics_values);
-    opacity
+    last_entry(node, table, Layers::Posed, spec::prop::OPACITY).map_or(Resolved::default().opacity, f32::from_bits)
 }
 
 /// Style, overrides and (with `with_anim`) animation tracks, without the
 /// physics layer: the values animations and transitions start from, so a
 /// body's pose never leaks into a view's own animation state.
 pub fn resolve_animated(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
+    resolve_layers(node, table, if with_anim { Layers::Animated } else { Layers::Styled })
+}
+
+/// How far down the layer stack a resolve reads. Each layer applies over the
+/// ones before it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Layers {
+    /// The style record (base, then the focus and active variants) and the
+    /// dynamic overrides.
+    Styled,
+    /// Plus live animation tracks.
+    Animated,
+    /// Plus physics poses.
+    Posed,
+}
+
+fn resolve_layers(node: &Node, table: &StyleTable, layers: Layers) -> Resolved {
     let mut r = Resolved::default();
+    for_each_entry(node, table, layers, |p, v| r.apply(p, v));
+    r
+}
+
+/// The raw payload of the last entry for `prop` within `layers`: the value
+/// that wins when every entry is applied in order.
+fn last_entry(node: &Node, table: &StyleTable, layers: Layers, prop: u8) -> Option<u32> {
+    let mut last = None;
+    for_each_entry(node, table, layers, |p, v| {
+        if p == prop {
+            last = Some(v);
+        }
+    });
+    last
+}
+
+/// Every (prop, payload) entry that shapes `node`, in application order. All
+/// resolvers read the layer stack through here, so they cannot disagree on
+/// its order.
+fn for_each_entry(node: &Node, table: &StyleTable, layers: Layers, mut apply: impl FnMut(u8, u32)) {
     if let Some(rec) = table.record(node.style_id) {
         for &(p, v) in &rec.base {
-            r.apply(p, v);
+            apply(p, v);
         }
         if node.focused {
             for &(p, v) in &rec.focus {
-                r.apply(p, v);
+                apply(p, v);
             }
         }
         if node.active {
             for &(p, v) in &rec.active {
-                r.apply(p, v);
+                apply(p, v);
             }
         }
     }
     for &(p, v) in &node.overrides {
-        r.apply(p, v);
+        apply(p, v);
     }
-    if with_anim {
+    if layers >= Layers::Animated {
         for &(p, v) in &node.anim_values {
-            r.apply(p, v);
+            apply(p, v);
         }
     }
-    r
+    if layers >= Layers::Posed {
+        for &(p, v) in &node.physics_values {
+            apply(p, v);
+        }
+    }
 }

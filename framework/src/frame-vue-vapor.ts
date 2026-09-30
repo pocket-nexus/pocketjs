@@ -7,6 +7,7 @@ import { __beginMotionFrame, __endMotionFrame, __motionReader, __resetMotionInpu
 import type { i32 } from "./numeric-microts.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
+import { dispatchFrame, FrameRegistry, type FrameCallback, type RunPress } from "./frame-dispatch.ts";
 import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-vue-aot.ts";
 import { reactModelRegions } from "./model-reactive.ts";
 import { resumeModelTasks, resetModelTaskClock } from "./model-tasks.ts";
@@ -14,16 +15,14 @@ import { pollModelAnimations } from "./model-animation.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
-type FrameCallback = (buttons: number) => void;
-
-const callbacks = new Set<FrameCallback>();
-const placedCallbacks = new Map<FrameCallback, NodeMirror>();
+const registry = new FrameRegistry();
 let buttonHandlerBlockDepth = 0;
+
+const runPress: RunPress = (_node, invoke) => invoke();
 
 export function resetFrameHooks(): void {
   resetModelTaskClock();
-  callbacks.clear();
-  placedCallbacks.clear();
+  registry.clear();
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
   __resetAxisInput();
@@ -35,37 +34,9 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
   __beginAxisFrame(axisDeltas);
   try {
     __beginMotionFrame(motion);
+    const frame = registry.freeze();
     pollModelAnimations(); resumeModelTasks();
-    const pending = new Map<NodeMirror, (() => void)[]>();
-    const enqueue: DeferredPress = (node, invoke) => {
-      const entries = pending.get(node);
-      if (entries) entries.push(invoke);
-      else pending.set(node, [invoke]);
-    };
-    // Gesture recognition keeps its original phase; its declarative presses
-    // join the ordered queue instead of running ahead of all input handlers.
-    beforeHooks?.(enqueue);
-    // General lifecycle subscriptions preserve their phase before navigation.
-    for (const cb of [...callbacks]) cb(buttons);
-    for (const [callback, node] of placedCallbacks) enqueue(node, () => callback(buttons));
-    resolveInput?.(enqueue);
-    // A component's setup order is not its position after a keyed move.
-    // Snapshot the live mirror's document order before running any handlers.
-    const roots = new Set<NodeMirror>();
-    for (const node of pending.keys()) {
-      if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
-      let root = node;
-      while (root.parent) root = root.parent;
-      roots.add(root);
-    }
-    const ordered: (() => void)[] = [];
-    const collect = (node: NodeMirror): void => {
-      const entries = pending.get(node);
-      if (entries) ordered.push(...entries);
-      for (const child of node.children) collect(child);
-    };
-    for (const root of roots) collect(root);
-    for (const invoke of ordered) invoke();
+    dispatchFrame(frame, buttons, runPress, beforeHooks, resolveInput);
     reactModelRegions();
     flushLifecycleHooks();
   }
@@ -73,9 +44,7 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
 }
 
 function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => void {
-  if (placement) placedCallbacks.set(callback, placement);
-  else callbacks.add(callback);
-  const dispose = () => { callbacks.delete(callback); placedCallbacks.delete(callback); };
+  const dispose = registry.add(callback, placement);
   onScopeDispose(dispose, true);
   return dispose;
 }

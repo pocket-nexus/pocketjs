@@ -11,6 +11,7 @@ import { __beginMotionFrame, __endMotionFrame, __motionReader, __resetMotionInpu
 import type { i32 } from "./numeric-microts.ts";
 import type { NodeMirror } from "./native-tree.ts";
 import type { DeferredPress } from "./input.ts";
+import { dispatchFrame, FrameRegistry, type FrameCallback, type RunPress } from "./frame-dispatch.ts";
 import { RowContext, nodeRow, withRowSnapshot } from "./solid-row.ts";
 import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-solid-aot.ts";
 import { reactModelRegions } from "./model-reactive.ts";
@@ -19,23 +20,15 @@ import { pollModelAnimations } from "./model-animation.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
-type FrameCallback = (buttons: number) => void;
-
-const callbacks = new Set<FrameCallback>();
-const placedCallbacks = new Map<FrameCallback, NodeMirror>();
-// Registration snapshots a frame iterates. Rebuilt after a registration
-// changes and never mutated once built, so a frame that holds one sees the
-// set frozen at its start.
-let callbackList: FrameCallback[] | null = null;
-let placedList: [FrameCallback, NodeMirror][] | null = null;
+const registry = new FrameRegistry();
 let buttonHandlerBlockDepth = 0;
+
+/** Deferred presses run inside the list row their node was created in. */
+const runInRow: RunPress = (node, invoke) => withRowSnapshot(nodeRow(node), invoke);
 
 export function resetFrameHooks(): void {
   resetModelTaskClock();
-  callbacks.clear();
-  placedCallbacks.clear();
-  callbackList = null;
-  placedList = null;
+  registry.clear();
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
   __resetAxisInput();
@@ -47,43 +40,10 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
   __beginAxisFrame(axisDeltas);
   try {
     __beginMotionFrame(motion);
-    // Freeze registration before any callback can mount another handler.
-    const frameCallbacks = callbackList ??= [...callbacks];
-    const placed = placedList ??= [...placedCallbacks];
+    const frame = registry.freeze();
     batch(() => {
       pollModelAnimations(); resumeModelTasks();
-      // Most frames defer nothing: allocate the queue on the first press.
-      let pending: Map<NodeMirror, (() => void)[]> | undefined;
-      const enqueue: DeferredPress = (node, invoke) => {
-        pending ??= new Map();
-        const entries = pending.get(node);
-        if (entries) entries.push(invoke);
-        else pending.set(node, [invoke]);
-      };
-      beforeHooks?.(enqueue);
-      for (let i = 0; i < frameCallbacks.length; i++) frameCallbacks[i](buttons);
-      for (let i = 0; i < placed.length; i++) {
-        const [callback, node] = placed[i];
-        enqueue(node, () => callback(buttons));
-      }
-      resolveInput?.(enqueue);
-      if (pending) {
-        const queued = pending;
-        const roots = new Set<NodeMirror>();
-        for (const node of queued.keys()) {
-          if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
-          let root = node;
-          while (root.parent) root = root.parent;
-          roots.add(root);
-        }
-        const ordered: { node: NodeMirror; invoke: () => void }[] = [];
-        const collect = (node: NodeMirror): void => {
-          for (const invoke of queued.get(node) ?? []) ordered.push({ node, invoke });
-          for (const child of node.children) collect(child);
-        };
-        for (const root of roots) collect(root);
-        for (const { node, invoke } of ordered) withRowSnapshot(nodeRow(node), invoke);
-      }
+      dispatchFrame(frame, buttons, runInRow, beforeHooks, resolveInput);
       reactModelRegions();
     });
     flushLifecycleHooks();
@@ -100,17 +60,7 @@ function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => v
     : row
       ? buttons => withRowSnapshot(row, () => callback(buttons))
       : buttons => callback(buttons);
-  if (placement) {
-    placedCallbacks.set(wrapped, placement);
-    placedList = null;
-  } else {
-    callbacks.add(wrapped);
-    callbackList = null;
-  }
-  const dispose = () => {
-    if (callbacks.delete(wrapped)) callbackList = null;
-    if (placedCallbacks.delete(wrapped)) placedList = null;
-  };
+  const dispose = registry.add(wrapped, placement);
   onCleanup(dispose);
   return dispose;
 }

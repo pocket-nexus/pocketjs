@@ -28,7 +28,7 @@ import {
 import { setOverlayRoot } from "./overlay.ts";
 import { mountAuxiliarySurface, unmountAuxiliarySurface } from "./display.ts";
 import { registerStyles, resolveStyle } from "./styles.ts";
-import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferredPress } from "./input.ts";
+import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferredPress, type DeferredPress } from "./input.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame-vue-vapor.ts";
 import { flushLifecycleHooks, flushUnmountedHooks, disposeRootModelRegions } from "./lifecycle-vue-aot.ts";
 import type { AxisDelta } from "./relative-axis.ts";
@@ -42,6 +42,9 @@ import { runServicePumps } from "./services.ts";
 import { entries as pakEntries, get as pakGet, hasPack, loadPack } from "./pak.ts";
 import { STYLE_IDS as DEFAULT_STYLE_IDS } from "./styles.generated.ts";
 import { ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
+
+/** Gesture recognition for one frame's deferred presses; shared across frames. */
+const runDeferredGestures = (defer: DeferredPress): void => withDeferredPress(defer, __runGestures);
 
 export interface RenderOptions {
   /** web/wasm/test hosts inject their ops here; omit on PSP (globalThis.ui). */
@@ -239,7 +242,7 @@ export function render(code: VaporRenderRoot, opts: RenderOptions = {}): () => v
         buttons,
         axisDeltas,
         defer => handleFrame(buttons, defer),
-        defer => withDeferredPress(defer, __runGestures),
+        runDeferredGestures,
         motion,
       );
       runSweep();

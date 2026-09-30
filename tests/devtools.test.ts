@@ -280,22 +280,60 @@ describe("listening", () => {
     mountApp(() => View({ debugName: "Scene", children: Text({ children: "idle" }) }));
   }
 
-  test("snapshots wait for a panel; the dirty tree goes out on the first frame after one attaches", () => {
+  test("snapshots and console lines wait for a panel", () => {
     let listening = false;
     mountQuiet(() => listening);
     for (let i = 0; i < 90; i++) frame();
+    (globalThis as { console: { log(...a: unknown[]): void } }).console.log("unheard");
     expect(sent("tree")).toHaveLength(0);
     expect(sent("stats")).toHaveLength(0);
+    expect(sent("log")).toHaveLength(0);
 
     listening = true;
     frame();
     expect(sent("tree")).toHaveLength(1);
+    (globalThis as { console: { log(...a: unknown[]): void } }).console.log("heard");
+    expect(sent("log").map((m) => m.args)).toEqual([["heard"]]);
+  });
+
+  test("a panel that reattaches to an unchanged tree gets it again", () => {
+    let listening = true;
+    mountQuiet(() => listening);
+    frame();
+    expect(sent("tree")).toHaveLength(1);
+    listening = false;
+    for (let i = 0; i < 40; i++) frame();
+    listening = true;
+    frame();
+    expect(sent("tree")).toHaveLength(2);
   });
 
   test("an explicit getTree is answered while nobody listens for snapshots", () => {
     mountQuiet(() => false);
     frame();
     push({ t: "getTree" });
+    frame();
+    expect(sent("tree")).toHaveLength(1);
+  });
+
+  test("the native transport listens through ui.__dbgConnected", () => {
+    delete g.__pocketDevtoolsTransport;
+    let connected = false;
+    let nativeInbox: string | undefined;
+    Object.assign(host.ops, {
+      __dbgActive: () => true,
+      __dbgConnected: () => connected,
+      __dbgPoll: () => {
+        const chunk = nativeInbox;
+        nativeInbox = undefined;
+        return chunk;
+      },
+      __dbgSend: (line: string) => outbox.push(line),
+    });
+    mountApp(() => View({ debugName: "Scene", children: Text({ children: "idle" }) }));
+    for (let i = 0; i < 90; i++) frame();
+    expect(sent("tree")).toHaveLength(0);
+    connected = true;
     frame();
     expect(sent("tree")).toHaveLength(1);
   });

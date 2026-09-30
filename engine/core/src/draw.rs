@@ -22,7 +22,7 @@
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
-use crate::fmath::{cosf, sinf, sqrtf, tanf};
+use crate::fmath::{clampf, cosf, sinf, sqrtf, tanf};
 use crate::layout::{floorf, roundf};
 use crate::spec;
 use crate::style::{self, StyleTable, NO_GRADIENT};
@@ -54,17 +54,6 @@ impl Default for DrawList {
 // ---- small math (no_std: no libm, no micromath — local polyfills) -----------
 
 const PI: f32 = core::f32::consts::PI;
-
-#[inline]
-fn clampf(x: f32, lo: f32, hi: f32) -> f32 {
-    if x < lo {
-        lo
-    } else if x > hi {
-        hi
-    } else {
-        x
-    }
-}
 
 /// Row-major 2D affine: p' = (a*x + c*y + tx, b*x + d*y + ty).
 #[derive(Clone, Copy, Debug)]
@@ -1193,6 +1182,7 @@ impl<'a> Walker<'a> {
             return;
         }
         let r = style::resolve(node, self.styles, true);
+        debug_assert_eq!(style::resolve_opacity(node, self.styles).to_bits(), r.opacity.to_bits());
         // The provider gate accumulates EXACTLY like layout.rs build() —
         // one shared predicate (Resolved::declares_transform), so the draw
         // walk and the layout record can only diverge when a transform
@@ -1450,10 +1440,7 @@ impl<'a> Walker<'a> {
             match item {
                 Item3::Quad { pts, color } => {
                     let poly = pts.map(|(x, y)| ClipVert { x, y, color: unpack(color), u: 0.0, v: 0.0 });
-                    let clipped = sutherland_hodgman(&poly, clip);
-                    for i in 1..clipped.len().saturating_sub(1) {
-                        emit_tri(dl, &clipped[0], &clipped[i], &clipped[i + 1], clip, self.screen);
-                    }
+                    clip_fan(&poly, clip, |a, b, c| emit_tri(dl, a, b, c, clip, self.screen));
                 }
                 Item3::TexMesh { cell_start, cell_end, tex, modulate } => {
                     for cell in &tex_cells[cell_start..cell_end] {
@@ -1461,10 +1448,7 @@ impl<'a> Walker<'a> {
                             let ((x, y), (u, v)) = (cell.pts[i], cell.uv[i]);
                             ClipVert { x, y, color: [255.0; 4], u, v }
                         });
-                        let clipped = sutherland_hodgman(&poly, clip);
-                        for i in 1..clipped.len().saturating_sub(1) {
-                            emit_tex_tri(dl, tex, modulate, &clipped[0], &clipped[i], &clipped[i + 1], clip, self.screen);
-                        }
+                        clip_fan(&poly, clip, |a, b, c| emit_tex_tri(dl, tex, modulate, a, b, c, clip, self.screen));
                     }
                 }
                 Item3::Run { slot, origin, opacity } => {
@@ -1920,13 +1904,7 @@ impl<'a> Walker<'a> {
                 let (sx, sy) = world.apply(corners[i].0, corners[i].1);
                 ClipVert { x: sx, y: sy, color: unpack(corner_color(&fill, i)), u: 0.0, v: 0.0 }
             });
-            let clipped = sutherland_hodgman(&poly, clip);
-            if clipped.len() < 3 {
-                return;
-            }
-            for i in 1..clipped.len() - 1 {
-                emit_tri(dl, &clipped[0], &clipped[i], &clipped[i + 1], clip, self.screen);
-            }
+            clip_fan(&poly, clip, |a, b, c| emit_tri(dl, a, b, c, clip, self.screen));
         }
     }
 
@@ -2678,11 +2656,8 @@ impl<'a> Walker<'a> {
                 let (sx, sy) = world.apply(lx, ly);
                 ClipVert { x: sx, y: sy, color: [255.0; 4], u, v }
             });
-            let clipped = sutherland_hodgman(&poly, clip);
             let modulate = scale_alpha(0xffff_ffff, op);
-            for i in 1..clipped.len().saturating_sub(1) {
-                emit_tex_tri(dl, tex, modulate, &clipped[0], &clipped[i], &clipped[i + 1], clip, self.screen);
-            }
+            clip_fan(&poly, clip, |a, b, c| emit_tex_tri(dl, tex, modulate, a, b, c, clip, self.screen));
             return;
         }
         let (sx0, sy0) = world.apply(0.0, 0.0);
@@ -3073,116 +3048,151 @@ fn emit_tex_tri(
 /// vertex per clip edge.
 const CLIP_STACK: usize = 8;
 
-/// A clipped polygon: the input itself when nothing was cut, on the stack for
-/// every quad the walk emits, on the heap only when a pass outgrows
-/// `CLIP_STACK`.
-enum ClipPoly<'a> {
-    Input(&'a [ClipVert]),
-    Stack([ClipVert; CLIP_STACK], usize),
-    Heap(Vec<ClipVert>),
+const CLIP_VERT_ZERO: ClipVert = ClipVert { x: 0.0, y: 0.0, color: [0.0; 4], u: 0.0, v: 0.0 };
+
+/// One clip half-plane: keep `coord <= bound` (`keep_leq`) or `coord >= bound`
+/// on `axis` (0 = x, 1 = y).
+#[derive(Clone, Copy)]
+struct ClipEdge {
+    axis: usize,
+    bound: f32,
+    keep_leq: bool,
 }
 
-impl core::ops::Deref for ClipPoly<'_> {
-    type Target = [ClipVert];
+impl ClipEdge {
+    fn all(clip: &Clip) -> [ClipEdge; 4] {
+        let edge = |axis, bound, keep_leq| ClipEdge { axis, bound, keep_leq };
+        [edge(0, clip.x0, false), edge(0, clip.x1, true), edge(1, clip.y0, false), edge(1, clip.y1, true)]
+    }
 
-    fn deref(&self) -> &[ClipVert] {
-        match self {
-            ClipPoly::Input(verts) => verts,
-            ClipPoly::Stack(verts, len) => &verts[..*len],
-            ClipPoly::Heap(verts) => verts,
+    fn coord(&self, v: &ClipVert) -> f32 {
+        if self.axis == 0 {
+            v.x
+        } else {
+            v.y
         }
     }
+
+    fn inside(&self, v: &ClipVert) -> bool {
+        if self.keep_leq {
+            self.coord(v) <= self.bound
+        } else {
+            self.coord(v) >= self.bound
+        }
+    }
+
+    /// Where edge a→b crosses the bound, colors and UVs interpolated.
+    fn cut(&self, a: &ClipVert, b: &ClipVert) -> ClipVert {
+        let da = self.coord(a) - self.bound;
+        let db = self.coord(b) - self.bound;
+        lerp_vert(a, b, da / (da - db))
+    }
+}
+
+/// Output of one clip pass; `push` reports false once the sink is full.
+trait ClipSink {
+    fn push(&mut self, v: ClipVert) -> bool;
+}
+
+impl ClipSink for Vec<ClipVert> {
+    fn push(&mut self, v: ClipVert) -> bool {
+        Vec::push(self, v);
+        true
+    }
+}
+
+struct StackPoly {
+    verts: [ClipVert; CLIP_STACK],
+    len: usize,
+}
+
+impl StackPoly {
+    fn verts(&self) -> &[ClipVert] {
+        &self.verts[..self.len]
+    }
+}
+
+impl ClipSink for StackPoly {
+    fn push(&mut self, v: ClipVert) -> bool {
+        if self.len == CLIP_STACK {
+            return false;
+        }
+        self.verts[self.len] = v;
+        self.len += 1;
+        true
+    }
+}
+
+/// Clip `cur` against one half-plane into `out` (Sutherland-Hodgman). False
+/// when `out` filled up before the pass finished.
+fn clip_pass(cur: &[ClipVert], edge: ClipEdge, out: &mut impl ClipSink) -> bool {
+    for i in 0..cur.len() {
+        let a = cur[i];
+        let b = cur[(i + 1) % cur.len()];
+        let (ia, ib) = (edge.inside(&a), edge.inside(&b));
+        if ia && !out.push(a) {
+            return false;
+        }
+        if ia != ib && !out.push(edge.cut(&a, &b)) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Clip a convex polygon against the 4 half-planes of `clip`, interpolating
-/// vertex colors along cut edges.
-fn sutherland_hodgman<'a>(poly: &'a [ClipVert], clip: &Clip) -> ClipPoly<'a> {
+/// vertex colors along cut edges, and fan the result into `tri(v0, vi, vi+1)`.
+///
+/// Not inlined: the clip buffers live in this frame only, never in the
+/// recursive paint walk that calls it.
+#[inline(never)]
+fn clip_fan(poly: &[ClipVert], clip: &Clip, mut tri: impl FnMut(&ClipVert, &ClipVert, &ClipVert)) {
+    let mut fan = |verts: &[ClipVert]| {
+        for i in 1..verts.len().saturating_sub(1) {
+            tri(&verts[0], &verts[i], &verts[i + 1]);
+        }
+    };
     // Every vertex inside every half-plane: each pass would copy the polygon
     // unchanged.
     if poly.iter().all(|v| v.x >= clip.x0 && v.x <= clip.x1 && v.y >= clip.y0 && v.y <= clip.y1) {
-        return ClipPoly::Input(poly);
+        fan(poly);
+        return;
     }
-    let Some(&first) = poly.first() else {
-        return ClipPoly::Input(poly);
-    };
-    if poly.len() > CLIP_STACK {
-        return ClipPoly::Heap(sutherland_hodgman_heap(poly, clip));
-    }
-    // Two buffers, swapped after each pass.
-    let mut bufs = [[first; CLIP_STACK]; 2];
-    bufs[0][..poly.len()].copy_from_slice(poly);
-    let (mut from, mut n) = (0, poly.len());
-    for &(axis, bound, keep_leq) in &clip_edges(clip) {
-        if n == 0 {
-            break;
+    if poly.len() <= CLIP_STACK {
+        let mut bufs = [StackPoly { verts: [CLIP_VERT_ZERO; CLIP_STACK], len: 0 }, StackPoly { verts: [CLIP_VERT_ZERO; CLIP_STACK], len: 0 }];
+        bufs[0].verts[..poly.len()].copy_from_slice(poly);
+        bufs[0].len = poly.len();
+        let mut from = 0;
+        let mut fits = true;
+        for edge in ClipEdge::all(clip) {
+            if bufs[from].len == 0 {
+                break;
+            }
+            let (lo, hi) = bufs.split_at_mut(1);
+            let (src, dst) = if from == 0 { (&lo[0], &mut hi[0]) } else { (&hi[0], &mut lo[0]) };
+            dst.len = 0;
+            if !clip_pass(src.verts(), edge, dst) {
+                fits = false;
+                break;
+            }
+            from ^= 1;
         }
-        let coord = |v: &ClipVert| if axis == 0 { v.x } else { v.y };
-        let inside = |v: &ClipVert| if keep_leq { coord(v) <= bound } else { coord(v) >= bound };
-        let (lo, hi) = bufs.split_at_mut(1);
-        let (cur, next) = if from == 0 { (&lo[0], &mut hi[0]) } else { (&hi[0], &mut lo[0]) };
-        let mut m = 0;
-        for i in 0..n {
-            let a = cur[i];
-            let b = cur[(i + 1) % n];
-            let (ia, ib) = (inside(&a), inside(&b));
-            if m + ia as usize + (ia != ib) as usize > CLIP_STACK {
-                return ClipPoly::Heap(sutherland_hodgman_heap(poly, clip));
-            }
-            if ia {
-                next[m] = a;
-                m += 1;
-            }
-            if ia != ib {
-                let da = coord(&a) - bound;
-                let db = coord(&b) - bound;
-                let t = da / (da - db);
-                next[m] = lerp_vert(&a, &b, t);
-                m += 1;
-            }
+        if fits {
+            fan(bufs[from].verts());
+            return;
         }
-        from ^= 1;
-        n = m;
     }
-    ClipPoly::Stack(bufs[from], n)
-}
-
-/// Each clip half-plane as (axis, bound, keep_leq): axis 0 = x, 1 = y.
-fn clip_edges(clip: &Clip) -> [(usize, f32, bool); 4] {
-    [
-        (0, clip.x0, false), // x >= x0
-        (0, clip.x1, true),  // x <= x1
-        (1, clip.y0, false), // y >= y0
-        (1, clip.y1, true),  // y <= y1
-    ]
-}
-
-/// The same clip over growable storage, for a polygon that outgrows the stack.
-fn sutherland_hodgman_heap(poly: &[ClipVert], clip: &Clip) -> Vec<ClipVert> {
-    let mut cur: Vec<ClipVert> = poly.to_vec();
-    for &(axis, bound, keep_leq) in &clip_edges(clip) {
+    // A polygon that outgrows the stack takes the same passes on the heap.
+    let mut cur = poly.to_vec();
+    for edge in ClipEdge::all(clip) {
         if cur.is_empty() {
             break;
         }
-        let coord = |v: &ClipVert| if axis == 0 { v.x } else { v.y };
-        let inside = |v: &ClipVert| if keep_leq { coord(v) <= bound } else { coord(v) >= bound };
-        let mut next: Vec<ClipVert> = Vec::with_capacity(cur.len() + 1);
-        for i in 0..cur.len() {
-            let a = cur[i];
-            let b = cur[(i + 1) % cur.len()];
-            let (ia, ib) = (inside(&a), inside(&b));
-            if ia {
-                next.push(a);
-            }
-            if ia != ib {
-                let da = coord(&a) - bound;
-                let db = coord(&b) - bound;
-                let t = da / (da - db);
-                next.push(lerp_vert(&a, &b, t));
-            }
-        }
+        let mut next = Vec::with_capacity(cur.len() + 1);
+        clip_pass(&cur, edge, &mut next);
         cur = next;
     }
-    cur
+    fan(&cur);
 }
 
 /// Emit one TRI op (degenerate triangles after rounding are dropped).
@@ -3217,4 +3227,89 @@ fn emit_tri(
     dl.words.push(pack(v0.color));
     dl.words.push(pack(v1.color));
     dl.words.push(pack(v2.color));
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+
+    /// The clip as a single growable pass per edge: the algorithm `clip_fan`
+    /// must reproduce bit for bit on every path.
+    fn reference(poly: &[ClipVert], clip: &Clip) -> Vec<ClipVert> {
+        let mut cur = poly.to_vec();
+        for edge in ClipEdge::all(clip) {
+            if cur.is_empty() {
+                break;
+            }
+            let mut next = Vec::new();
+            for i in 0..cur.len() {
+                let (a, b) = (cur[i], cur[(i + 1) % cur.len()]);
+                if edge.inside(&a) {
+                    next.push(a);
+                }
+                if edge.inside(&a) != edge.inside(&b) {
+                    next.push(edge.cut(&a, &b));
+                }
+            }
+            cur = next;
+        }
+        cur
+    }
+
+    fn bits(v: &ClipVert) -> [u32; 8] {
+        [v.x.to_bits(), v.y.to_bits(), v.u.to_bits(), v.v.to_bits(), v.color[0].to_bits(), v.color[1].to_bits(), v.color[2].to_bits(), v.color[3].to_bits()]
+    }
+
+    fn fan_of(poly: &[ClipVert], clip: &Clip) -> Vec<[[u32; 8]; 3]> {
+        let mut tris = Vec::new();
+        clip_fan(poly, clip, |a, b, c| tris.push([bits(a), bits(b), bits(c)]));
+        tris
+    }
+
+    fn expected_fan(verts: &[ClipVert]) -> Vec<[[u32; 8]; 3]> {
+        (1..verts.len().saturating_sub(1)).map(|i| [bits(&verts[0]), bits(&verts[i]), bits(&verts[i + 1])]).collect()
+    }
+
+    fn poly(points: &[(f32, f32)]) -> Vec<ClipVert> {
+        points
+            .iter()
+            .enumerate()
+            .map(|(i, &(x, y))| ClipVert { x, y, color: [i as f32 * 40.0, 255.0, 0.0, 128.0], u: x / 100.0, v: y / 100.0 })
+            .collect()
+    }
+
+    const CLIP: Clip = Clip { x0: 10.0, y0: 10.0, x1: 90.0, y1: 90.0 };
+
+    #[test]
+    fn inside_quad_fans_the_input_unchanged() {
+        let quad = poly(&[(20.0, 20.0), (80.0, 25.0), (75.0, 80.0), (15.0, 70.0)]);
+        assert_eq!(fan_of(&quad, &CLIP), expected_fan(&quad));
+    }
+
+    #[test]
+    fn clipped_quads_match_the_reference_up_to_the_stack_capacity() {
+        let one_edge = poly(&[(50.0, 20.0), (120.0, 30.0), (110.0, 80.0), (40.0, 70.0)]);
+        // A square rotated 45° around the clip centre, corners past all four
+        // edges: an octagon, exactly CLIP_STACK vertices.
+        let octagon = poly(&[(50.0, -5.0), (105.0, 50.0), (50.0, 105.0), (-5.0, 50.0)]);
+        assert_eq!(reference(&octagon, &CLIP).len(), CLIP_STACK);
+        for quad in [one_edge, octagon] {
+            assert_eq!(fan_of(&quad, &CLIP), expected_fan(&reference(&quad, &CLIP)));
+        }
+    }
+
+    #[test]
+    fn a_polygon_that_outgrows_the_stack_falls_back_to_the_heap() {
+        // Self-intersecting zigzag: each pass can add more than one vertex.
+        let zigzag = poly(&[(0.0, 50.0), (100.0, 0.0), (5.0, 95.0), (95.0, 5.0), (0.0, 100.0), (100.0, 50.0)]);
+        let expected = reference(&zigzag, &CLIP);
+        assert!(expected.len() > CLIP_STACK, "the fixture must overflow ({} vertices)", expected.len());
+        assert_eq!(fan_of(&zigzag, &CLIP), expected_fan(&expected));
+    }
+
+    #[test]
+    fn an_outside_quad_emits_nothing() {
+        let quad = poly(&[(100.0, 100.0), (120.0, 100.0), (120.0, 120.0), (100.0, 120.0)]);
+        assert!(fan_of(&quad, &CLIP).is_empty());
+    }
 }

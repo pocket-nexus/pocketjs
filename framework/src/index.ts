@@ -169,6 +169,9 @@ export function resizeViewport(w: number, h: number): void {
   ops.__viewport = { w, h };
 }
 
+/** Gesture recognition for one frame's deferred presses; shared across frames. */
+const runDeferredGestures = (defer: DeferredPress): void => withDeferredPress(defer, __runGestures);
+
 /**
  * Mount the app into the native root node and wire the frame loop. Returns a
  * disposer that unmounts and destroys the app subtree.
@@ -177,9 +180,6 @@ export function resizeViewport(w: number, h: number): void {
  * pak (zero QuickJS transit); on injected hosts (web/test) render() pushes
  * them through ops.loadStyles/loadFontAtlas here.
  */
-
-/** Gesture recognition for one frame's deferred presses; shared across frames. */
-const runDeferredGestures = (defer: DeferredPress): void => withDeferredPress(defer, __runGestures);
 export function render(code: () => unknown, opts: RenderOptions = {}): () => void {
   const host = detectHost(opts.ops);
   installHost(host);

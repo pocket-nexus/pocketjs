@@ -2572,6 +2572,44 @@ fn debug_inspect_overlays_and_reports_world_rect() {
 }
 
 #[test]
+fn transparent_subtree_paints_nothing_but_still_reports_when_inspected() {
+    let mut ui = Ui::new();
+    let mut s = StyleSpec::new();
+    s.base = alloc::vec![
+        (spec::prop::POS_TYPE, spec::PosType::Absolute as u32),
+        (spec::prop::WIDTH, 40f32.to_bits()),
+        (spec::prop::HEIGHT, 40f32.to_bits()),
+        (spec::prop::INSET_L, 10f32.to_bits()),
+        (spec::prop::INSET_T, 10f32.to_bits()),
+        (spec::prop::BG_COLOR, 0xff20_4060u32),
+        (spec::prop::OPACITY, 0f32.to_bits()),
+    ];
+    assert!(ui.load_styles(&encode_styles(&[s])));
+    let n = ui.create_node(0);
+    ui.insert_before(spec::ROOT_ID, n, 0);
+    ui.set_style(n, 0);
+    let child = ui.create_node(0);
+    ui.insert_before(n, child, 0);
+    ui.set_style(child, 0);
+    ui.set_prop(child, spec::prop::OPACITY, 1.0);
+    ui.tick();
+    let empty = ui.draw().words.len();
+
+    // An override lifts the parent out of the cull: its box and the child's now paint.
+    ui.set_prop(n, spec::prop::OPACITY, 1.0);
+    ui.tick();
+    assert!(ui.draw().words.len() > empty, "an opaque parent must paint");
+    ui.set_prop(n, spec::prop::OPACITY, 0.0);
+    ui.tick();
+    assert_eq!(ui.draw().words.len(), empty, "back at opacity 0, the subtree is culled");
+
+    ui.debug_inspect(n);
+    ui.draw();
+    assert_eq!(ui.debug_rect_xy(), 10 | (10 << 16), "the inspected node keeps its world box");
+    assert_eq!(ui.debug_rect_wh(), 40 | (40 << 16));
+}
+
+#[test]
 fn debug_inspect_glides_between_targets() {
     let mut ui = Ui::new();
     let mk = |x: f32| {
