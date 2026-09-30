@@ -56,6 +56,9 @@ pub struct Host {
     pub active_hash: String,
     pub error: String,
     pub notice: String,
+    /// Native engine telemetry reported under `engine` in every status
+    /// receipt (renderer state, compiler availability, frame timing).
+    pub engine: Value,
     boot: String,
     native_slot: &'static str,
     captures: SyncSender<Reply>,
@@ -91,6 +94,7 @@ impl Host {
             active_hash: env!("POCKETJS_BUNDLE_HASH").into(),
             error: String::new(),
             notice: "USB commands: status / push / native / capture".into(),
+            engine: Value::Null,
             boot,
             native_slot: current_native_slot(),
             captures: capture_tx,
@@ -129,6 +133,7 @@ impl Host {
             "menu":self.menu.visible,"usbEnabled":cfg!(feature="usb-debug"),
             "driverResult":self.link.driver.load(Ordering::Relaxed),
             "telemetry":self.link.telemetry.try_lock().map(|v|v.clone()).unwrap_or(Value::Null),
+            "engine":self.engine,
             "usbDiagnostic":self.link.diagnostic.try_lock().map(|s|s.clone()).unwrap_or_default()})
     }
 
