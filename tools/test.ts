@@ -66,6 +66,7 @@ const SUITE: readonly Stage[] = [
       "tests/quickjs-c-harness.test.ts",
       "tests/native-source.test.ts",
       "tests/3ds-profile.test.ts",
+      "tests/3ds-audio-mod.test.ts",
       "tests/media-service.test.ts",
       "tests/media.test.ts",
       "tests/service-client.test.ts",

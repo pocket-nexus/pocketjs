@@ -69,14 +69,15 @@ purpose — a bundle that plays anywhere plays everywhere.
 |---|---|---|
 | web (`hosts/web/audio.js` + `audio-worklet.js`) | AudioWorklet ring on the render thread, main-thread credit mirror, gesture-deferred `AudioContext` | audible, ships with the dev host |
 | sim (`hosts/sim/audio.ts`) | virtual-clock sink, `audioFramesForTick` consumption, PCM FNV-1a + op/event log | deterministic tests (`tests/audio.test.ts`, `tests/audio-sim.test.ts`) |
-| psp / vita | not mounted yet — `engine/core/src/spec.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy already exists in `hosts/psp/src/audio.rs` + `hosts/vita/src/audio.rs` (built for the video plane) | seam documented, capability not advertised |
+| PSP (`hosts/psp/src/audio_mod.rs`) | four source rings mixed by a dedicated thread into the native output channel | mounted, advertises `audio.pcm` |
+| 3DS (`hosts/3ds/src/audio_mod.c`) | per-stream rings queued through DMA-readable NDSP wave buffers on a dedicated pump thread | mounted by the private `3ds-dev` profile |
+| Vita (`hosts/vita/src/audio.rs`) | audio output for the video plane | module not mounted; capability not advertised |
 | macos-widget / pocketbook | not mounted | capability not advertised |
 
 Consoles adopt the module by implementing the namespace in their FFI table
-(`hosts/psp/src/ffi.rs` registration pattern), reusing their existing audio
-threads, then appending `audio.pcm` to their target profile in
-`contracts/spec/platforms.ts`. No spec change, no framework change, no app
-change.
+(`hosts/psp/src/ffi.rs` registration pattern), reusing their native audio
+output, then advertising `audio.pcm` in their target profile. No spec change,
+no framework change, no app change.
 
 ## Assets
 

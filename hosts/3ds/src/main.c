@@ -34,6 +34,7 @@
 #include "qjs.h"
 #include "offload.h"
 #include "media.h"
+#include "audio_mod.h"
 #include "devserver.h"
 #include "devmenu.h"
 #include "runtime.h"
@@ -1085,6 +1086,7 @@ int main(void) {
 #endif
   input_shutdown();
   teardown_guest();
+  audio_mod_shutdown();
   C3D_FrameEnd(0);
   release_choice(&guest, embedded);
   runtime_package_free(embedded);

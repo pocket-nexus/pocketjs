@@ -21,6 +21,7 @@
 #include "qjs.h"
 #include "offload.h"
 #include "media.h"
+#include "audio_mod.h"
 #include "offload_coverage.h"
 
 #include <stdlib.h>
@@ -52,6 +53,9 @@
 
 typedef enum {
   HostMediaOpen, HostMediaClose, HostMediaPaused, HostMediaVolume, HostMediaTexture, HostMediaStatus,
+  HostAudioCreateStream, HostAudioDestroyStream, HostAudioWritePcm,
+  HostAudioPlay, HostAudioPause, HostAudioStop, HostAudioSetVolume,
+  HostAudioEndStream, HostAudioPoll,
   HostOffloadSession, HostOffloadSubmit, HostOffloadTake, HostOffloadCoverage,
   HostCreateNode,
   HostDestroyNode,
@@ -274,6 +278,49 @@ static JSValue host_operation(
       char status[640]; media_snapshot(status,sizeof status); return JS_NewString(ctx,status);
     }
 #endif
+    case HostAudioCreateStream: {
+      int32_t rate = argument_int(ctx, argc, argv, 0);
+      int32_t channels = argument_int(ctx, argc, argv, 1);
+      if (rate <= 0 || channels <= 0) return JS_NewInt32(ctx, -1);
+      return JS_NewInt32(
+        ctx,
+        audio_mod_create_stream((uint32_t)rate, (uint32_t)channels)
+      );
+    }
+    case HostAudioDestroyStream:
+      audio_mod_destroy_stream(argument_int(ctx, argc, argv, 0));
+      return JS_UNDEFINED;
+    case HostAudioWritePcm:
+      if (!argument_bytes(ctx, argc, argv, 1, &bytes, &byte_length)) {
+        return JS_NewInt32(ctx, 0);
+      }
+      return JS_NewInt32(
+        ctx,
+        audio_mod_write_pcm(argument_int(ctx, argc, argv, 0), bytes, byte_length)
+      );
+    case HostAudioPlay:
+      audio_mod_play(argument_int(ctx, argc, argv, 0));
+      return JS_UNDEFINED;
+    case HostAudioPause:
+      audio_mod_pause(argument_int(ctx, argc, argv, 0));
+      return JS_UNDEFINED;
+    case HostAudioStop:
+      audio_mod_stop(argument_int(ctx, argc, argv, 0));
+      return JS_UNDEFINED;
+    case HostAudioSetVolume:
+      audio_mod_set_volume(
+        argument_int(ctx, argc, argv, 0),
+        argument_float(ctx, argc, argv, 1)
+      );
+      return JS_UNDEFINED;
+    case HostAudioEndStream:
+      audio_mod_end_stream(argument_int(ctx, argc, argv, 0));
+      return JS_UNDEFINED;
+    case HostAudioPoll: {
+      char event[96];
+      if (!audio_mod_poll(event, sizeof(event))) return JS_UNDEFINED;
+      return JS_NewString(ctx, event);
+    }
     case HostCreateNode:
       return JS_NewInt32(ctx, ui_create_node((uint32_t)argument_int(ctx, argc, argv, 0)));
     case HostDestroyNode:
@@ -646,6 +693,18 @@ static void install_host(void) {
   add_operation(media,"status",0,HostMediaStatus);
   JS_SetPropertyStr(context,global,"media",media);
 #endif
+  JSValue audio = JS_NewObject(context);
+  add_operation(audio, "createStream", 2, HostAudioCreateStream);
+  add_operation(audio, "destroyStream", 1, HostAudioDestroyStream);
+  add_operation(audio, "writePcm", 2, HostAudioWritePcm);
+  add_operation(audio, "play", 1, HostAudioPlay);
+  add_operation(audio, "pause", 1, HostAudioPause);
+  add_operation(audio, "stop", 1, HostAudioStop);
+  add_operation(audio, "setVolume", 2, HostAudioSetVolume);
+  add_operation(audio, "endStream", 1, HostAudioEndStream);
+  add_operation(audio, "poll", 0, HostAudioPoll);
+  JS_SetPropertyStr(context, global, "audio", audio);
+
 #ifdef POCKETJS_OFFLOAD
   JSValue offload = JS_NewObject(context);
   add_operation(offload, "uploadCoverage", 6, HostOffloadCoverage);
@@ -915,6 +974,7 @@ const char *qjs_last_error(void) {
 }
 
 void qjs_shutdown(void) {
+  audio_mod_forget_guest();
 #ifdef POCKETJS_MEDIA
   media_forget_guest();
 #endif

@@ -104,6 +104,7 @@ describe("private Nintendo 3DS build profile", () => {
       capabilities: [
         "io.offload",
         "media.playback",
+        "audio.pcm",
         "input.analog.left",
         "input.analog.right",
         "input.buttons",
@@ -121,9 +122,9 @@ describe("private Nintendo 3DS build profile", () => {
     // hostAbi is one sequence across every profile, private ones included:
     // 1 psp, 2 vita, 3 macos-widget, 4 symbian-e7-dev, 5 pocketbook,
     // 6 iphone2g-dev, 7 top-screen-only 3DS, 8 dual-screen 3DS,
-    // 9 Blackberry Classic, 10 companion media, 11 2D bodies (ui.physics).
-    // A collision would let a bundle mount on the wrong host.
-    expect(THREE_DS_DEV_HOST_ABI).toBe(11);
+    // 9 Blackberry Classic, 10 companion media, 11 2D bodies (ui.physics),
+    // 12 3DS PCM audio. A collision would let a bundle mount on the wrong host.
+    expect(THREE_DS_DEV_HOST_ABI).toBe(12);
     expect(
       Object.values(POCKET_TARGETS).map((profile) => profile.hostAbi),
     ).not.toContain(THREE_DS_DEV_HOST_ABI);
@@ -147,10 +148,10 @@ describe("private Nintendo 3DS build profile", () => {
       rasterDensity: 1,
       policy: "fixed",
     });
-    // The nub is provided, so the enhancement resolves true; the host ships no
-    // audio module in v1, so audio.pcm resolves false instead of failing.
+    // The nub and PCM audio module are provided, so both enhancements resolve
+    // true instead of failing.
     expect(plan.features).toEqual({
-      "audio.pcm": false,
+      "audio.pcm": true,
       "input.analog.left": true,
       "input.buttons": true,
       "text.glyphs.baked": true,

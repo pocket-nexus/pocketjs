@@ -457,12 +457,13 @@ re-measures the gap.
 Azahar derives its whole user directory from `$HOME` and has no switch for any
 part of it, so a run gets its own config and SD card by getting its own `$HOME`.
 
-## Not advertised
+## Profile boundaries
 
 `input.touch` is deliberately absent from the profile. The touchscreen belongs
 to the **bottom auxiliary surface**, so it is exposed only as
 `input.touch.auxiliary`; contacts are never remapped into the top screen's
-coordinate space. `audio.pcm` is not implemented in v1.
+coordinate space. The private `3ds-dev` profile mounts `audio.pcm` through
+NDSP channels 1–4; channel 0 remains owned by `media.playback`.
 
 The New 3DS C-stick is exposed as the optional right analog lane. Applications
 read `rightAnalogX()` / `rightAnalogY()` from the framework lifecycle API, using

@@ -10,9 +10,9 @@
 //
 // The player follows law 1: it mirrors its free-frame budget and cursor
 // guest-side, so a frame's hot path is poll-drain + at most one writePcm —
-// never a query. Hosts without the module (goldens, consoles today) leave
-// `globalThis.audio` unset; every player call degrades to a silent no-op and
-// the app's tick-driven UI is byte-identical either way.
+// never a query. Hosts without the module (goldens and targets without
+// `audio.pcm`) leave `globalThis.audio` unset; every player call degrades to
+// a silent no-op and the app's tick-driven UI is byte-identical either way.
 
 import {
   AUDIO_MAX_CHANNELS,
