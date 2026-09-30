@@ -7,7 +7,8 @@ registration, SIS packaging, and signing. The private runtime additionally
 links the PocketJS Rust core and pinned QuickJS, embeds a compiled application
 and its `.pak`, and exposes the host operations needed to draw and accept
 button and native-resolution touch input. The separate MTP command proves byte delivery to the phone;
-installation and launch remain device-side confirmations.
+with the CODA agent open, `coda usb install` and `coda usb launch` install and
+start a staged package over the same USB cable.
 
 This workflow does not flash or modify firmware. A CFW may relax installation
 policy on the phone, but applications should still use the smallest possible
@@ -164,7 +165,15 @@ bun tools/symbian.ts deploy dist/symbian/hero-main.sis
 ```
 
 Install it from `File manager > Mass memory > Installs`, then launch
-the manifest's title. Symbian package upgrades must use a version greater
+the manifest's title. With CODA open on the phone, the host installs and
+launches the staged package instead:
+
+```sh
+bun tools/symbian.ts coda usb install hero-main.sis
+bun tools/symbian.ts coda usb launch <executable>   # the receipt's "executable"
+```
+
+Symbian package upgrades must use a version greater
 than the version already installed on the phone. After installing `1.0.0`, for
 example, pass `--sis-version 1.0.1` for the next build rather than reusing
 `1.0.0`.
@@ -255,6 +264,14 @@ The experimental host has these runtime semantics:
   Rust core first, then calls the framework's live-viewport hook. Solid and Vue
   Vapor update their app and overlay roots in place, so application state,
   focus ownership, and timers survive rotation rather than being remounted.
+- **A manifest whose dynamic viewport range admits one orientation only is
+  held in it.** The build reads the range of the selected presentation (or of
+  the app): a maximum width below the minimum height is `portrait`, a maximum
+  height below the minimum width is `landscape`, and every other range is
+  `auto`. The host sets Qt's portrait or landscape lock in place of automatic
+  orientation, so opening the keyboard does not rotate the app. The receipt
+  records the choice as `runtime.orientation`. Pocket Clear and Pocket Nexus
+  declare `360x640` as both minimum and maximum and stay portrait.
 - Applications targeting the E7 must declare a compatible dynamic viewport.
   Responsive rows should use wrapping or other flexible layout constraints;
   the Hero example keeps its PSP/Vita fixed viewport and adds a
@@ -276,6 +293,10 @@ The experimental host has these runtime semantics:
   axis while retaining the original untagged 9-bit wire for PSP/Vita-era
   hosts. `symbian-e7-dev` advertises `input.touch`; the framework exposes the
   same immutable per-frame contact snapshots on both encodings.
+- **`symbian-e7-dev` advertises `ui.physics`.** For a plan that resolves it,
+  the build passes `POCKETJS_PHYSICS=1` to qmake and the host binds ops 52..56
+  to the `ui_physics_*` exports of the Rust core. Other apps keep the base op
+  table. The receipt records the choice as `runtime.physics`.
 
 ### Measure frame work
 
@@ -443,6 +464,8 @@ pocket symbian doctor --device --coda-usb
 # Launch an installed app without touching the phone (read the exact name
 # from that app's *.receipt.json):
 pocket symbian coda usb launch PocketJsLauncherMainECEF4AC6.exe
+# Install a SIS that `deploy` staged in Mass memory/Installs:
+pocket symbian coda usb install launcher-main.sis
 ```
 
 The host opens only the exact Nokia E7 Suite-mode VID/PID and claims CODA's
@@ -459,6 +482,14 @@ Success includes the CODA process context, for example
 `CODA process: p2382`. The command never guesses which app to start and never
 terminates an existing process; close the app first if CODA reports that it is
 already running.
+
+`coda usb install <package.sis>` requires the `SymbianInstall` service and
+sends `SymbianInstall.install` for `E:\Installs\<package.sis>` with target
+drive `E:`, the command Qt Creator's CODA deploy step sends. **The phone shows
+no installer dialogs; the command waits up to 180 s for the reply.** The
+argument is a bare file name of ASCII letters, digits, `.`, `_` and `-` ending
+in `.sis`, so the host cannot name a file outside `Installs`. The version rule
+of a manual upgrade still applies.
 
 This is a repeatable remote-launch path for device testing, not yet a
 source-level debugger. CODA also exposes run control, logging, memory,

@@ -21,6 +21,15 @@ void ui_remove_child(int32_t parent, int32_t child);
 void ui_set_style(int32_t id, int32_t style_id);
 void ui_set_prop(int32_t id, uint32_t prop, double value);
 void ui_set_prop_batch(const uint8_t *data, size_t len);
+
+/* 2D bodies (spec ops 52..56, ui.physics): packed little-endian Float64
+ * records in, handles and query results out; drained events stay valid until
+ * the next drain. */
+int32_t ui_physics_create(uint32_t kind, const uint8_t *data, size_t len);
+void ui_physics_apply(const uint8_t *data, size_t len);
+void ui_physics_destroy(int32_t handle);
+const uint8_t *ui_physics_take_events(size_t *len);
+double ui_physics_query(uint32_t query, int32_t handle, double a, double b, double c, double d);
 void ui_set_text(int32_t id, const uint8_t *text, size_t len);
 void ui_replace_text(int32_t id, const uint8_t *text, size_t len);
 

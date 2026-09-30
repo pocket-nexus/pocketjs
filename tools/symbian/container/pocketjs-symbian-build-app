@@ -10,8 +10,8 @@ if test "$POCKETJS_SYMBIAN_IMAGE_IMPLEMENTATION_SHA256" != \
     exit 1
 fi
 
-if test "$#" != 6; then
-    echo "usage: pocketjs-symbian-build-app <output-name> <sis-version> <data-base> <embedded-bytes> <frame-rate> <perf-trace>" >&2
+if test "$#" != 8; then
+    echo "usage: pocketjs-symbian-build-app <output-name> <sis-version> <data-base> <embedded-bytes> <frame-rate> <perf-trace> <orientation> <physics>" >&2
     exit 1
 fi
 app_output=$1
@@ -20,9 +20,21 @@ data_base=$3
 embedded_bytes=$4
 frame_rate=$5
 perf_trace=$6
+orientation=$7
+physics=$8
 if [[ ! "$frame_rate" =~ ^(1|2|3|4|5|6|10|12|15|20|30|60)$ ]] ||
     [[ ! "$perf_trace" =~ ^[01]$ ]]; then
     echo "Invalid frame rate or performance trace option." >&2
+    exit 1
+fi
+case "$orientation" in
+    auto) orientation_lock=0 ;;
+    portrait) orientation_lock=1 ;;
+    landscape) orientation_lock=2 ;;
+    *) echo "Orientation must be auto, portrait or landscape." >&2; exit 1 ;;
+esac
+if [[ ! "$physics" =~ ^[01]$ ]]; then
+    echo "Invalid physics option." >&2
     exit 1
 fi
 if [[ ! "$app_output" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -340,6 +352,8 @@ qmake \
     "POCKETJS_HOST_ABI=$host_abi" \
     "POCKETJS_INITIAL_LOGICAL_WIDTH=$initial_logical_width" \
     "POCKETJS_INITIAL_LOGICAL_HEIGHT=$initial_logical_height" \
+    "POCKETJS_ORIENTATION_LOCK=$orientation_lock" \
+    "POCKETJS_PHYSICS=$physics" \
     "QMAKE_${executable}_LFLAGS=-Ttext 0x80000 -Tdata $data_base" \
     pocketjs-e7-runtime.pro
 make -j2
@@ -410,6 +424,8 @@ jq -n \
     --arg quickjsRevision "$quickjs_revision" \
     --argjson frameRate "$frame_rate" \
     --argjson perfTrace "$perf_trace" \
+    --arg orientation "$orientation" \
+    --argjson physics "$physics" \
     --arg appJsSha256 "$app_js_sha256" \
     --arg appPakSha256 "$app_pak_sha256" \
     --arg planSha256 "$plan_sha256" \
@@ -429,7 +445,7 @@ jq -n \
       executable: $executable,
       sisVersion: $sisVersion,
       quickjs: {version: $quickjsVersion, revision: $quickjsRevision, optimization: "O2"},
-      runtime: {frameRate: $frameRate, perfTrace: ($perfTrace == 1), floatingPoint: "vfpv2-softfp"},
+      runtime: {frameRate: $frameRate, perfTrace: ($perfTrace == 1), floatingPoint: "vfpv2-softfp", orientation: $orientation, physics: ($physics == 1)},
       link: {
         dataBase: $dataBase,
         embeddedBytes: ($embeddedBytes | tonumber)

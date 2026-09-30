@@ -1,0 +1,28 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-stack.nexus-touch",
+  "name": "pocketjs-nexus-touch",
+  "title": "Pocket Nexus",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "input.touch",
+        "ui.physics"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/nexus-touch/e7/main.tsx",
+    "output": "nexus-touch-e7",
+    "framework": "solid",
+    "viewport": {
+      "dynamic": {
+        "default": [360, 640],
+        "min": [360, 640],
+        "max": [360, 640]
+      }
+    }
+  }
+}

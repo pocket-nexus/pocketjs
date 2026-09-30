@@ -186,7 +186,15 @@ enum HostOperation {
     HostDebugRectXY,
     HostDebugRectWH,
     HostDebugPause,
-    HostDebugStep
+    HostDebugStep,
+#if POCKETJS_PHYSICS
+    // spec ops 52..56, bound only for a plan that resolved ui.physics
+    HostPhysicsCreate,
+    HostPhysicsApply,
+    HostPhysicsDestroy,
+    HostPhysicsEvents,
+    HostPhysicsQuery,
+#endif
 };
 
 struct EmbeddedApp
@@ -629,6 +637,24 @@ bool floatArgument(
     return JS_ToFloat64(context, value, argv[index]) == 0;
 }
 
+#if POCKETJS_PHYSICS
+// A trailing argument the caller may omit reads as 0.
+bool optionalFloatArgument(
+    JSContext *context,
+    int argc,
+    JSValueConst *argv,
+    int index,
+    double *value
+)
+{
+    if (index >= argc || JS_IsUndefined(argv[index])) {
+        *value = 0.0;
+        return true;
+    }
+    return JS_ToFloat64(context, value, argv[index]) == 0;
+}
+#endif
+
 bool nonNegativeUintArgument(
     JSContext *context,
     int argc,
@@ -1004,8 +1030,48 @@ JSValue hostOperation(
     case HostDebugStep:
         ui_debug_step();
         return JS_UNDEFINED;
+
+#if POCKETJS_PHYSICS
+    case HostPhysicsCreate:
+        // convert first: a conversion may allocate and move the borrowed bytes
+        if (!uintArgument(context, argc, argv, 0, &ua) ||
+            !bytesArgument(context, argc, argv, 1, &bytes, &byteLength)) {
+            return JS_EXCEPTION;
+        }
+        return JS_NewInt32(context, ui_physics_create(ua, bytes, byteLength));
+
+    case HostPhysicsApply:
+        if (!bytesArgument(context, argc, argv, 0, &bytes, &byteLength)) {
+            return JS_EXCEPTION;
+        }
+        ui_physics_apply(bytes, byteLength);
+        return JS_UNDEFINED;
+
+    case HostPhysicsDestroy:
+        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
+        ui_physics_destroy(a);
+        return JS_UNDEFINED;
+
+    case HostPhysicsEvents: {
+        size_t length = 0;
+        const uint8_t *events = ui_physics_take_events(&length);
+        return length == 0
+            ? JS_UNDEFINED
+            : JS_NewArrayBufferCopy(context, events, length);
     }
 
+    case HostPhysicsQuery:
+        if (!uintArgument(context, argc, argv, 0, &ua) ||
+            !intArgument(context, argc, argv, 1, &a) ||
+            !optionalFloatArgument(context, argc, argv, 2, &da) ||
+            !optionalFloatArgument(context, argc, argv, 3, &db) ||
+            !optionalFloatArgument(context, argc, argv, 4, &dc) ||
+            !optionalFloatArgument(context, argc, argv, 5, &dd)) {
+            return JS_EXCEPTION;
+        }
+        return JS_NewFloat64(context, ui_physics_query(ua, a, da, db, dc, dd));
+#endif
+    }
     return JS_ThrowInternalError(context, "unknown PocketJS HostOp");
 }
 
@@ -1074,6 +1140,13 @@ bool installHostOps(
     addHostOperation(context, ui, "debugRectWH", 0, HostDebugRectWH);
     addHostOperation(context, ui, "debugPause", 1, HostDebugPause);
     addHostOperation(context, ui, "debugStep", 0, HostDebugStep);
+#if POCKETJS_PHYSICS
+    addHostOperation(context, ui, "physicsCreate", 2, HostPhysicsCreate);
+    addHostOperation(context, ui, "physicsApply", 1, HostPhysicsApply);
+    addHostOperation(context, ui, "physicsDestroy", 1, HostPhysicsDestroy);
+    addHostOperation(context, ui, "physicsEvents", 0, HostPhysicsEvents);
+    addHostOperation(context, ui, "physicsQuery", 6, HostPhysicsQuery);
+#endif
     if (multiApp) {
         JS_SetPropertyStr(
             context,
@@ -1437,7 +1510,11 @@ PocketJsRuntime::PocketJsRuntime()
             ? Qt::WA_LockPortraitOrientation : Qt::WA_LockLandscapeOrientation, true);
     } else
 #endif
-    setAttribute(Qt::WA_AutoOrientation, true);
+    // A manifest whose viewport range admits one orientation only is held in
+    // it; every other app follows the phone.
+    if (POCKETJS_ORIENTATION_LOCK == 1) setAttribute(Qt::WA_LockPortraitOrientation, true);
+    else if (POCKETJS_ORIENTATION_LOCK == 2) setAttribute(Qt::WA_LockLandscapeOrientation, true);
+    else setAttribute(Qt::WA_AutoOrientation, true);
     // This surface is a controller, not a Qt text editor. Do not advertise
     // input-method capabilities; controller identity comes from nativeScanCode.
     setAttribute(Qt::WA_InputMethodEnabled, false);

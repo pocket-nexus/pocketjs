@@ -2,37 +2,52 @@
 //
 //   bun apps/nexus-touch/gen-art.ts
 //
-// Opens site/nexus/public/index.html in headless Chrome at 320x480 with its
-// web chrome hidden (the top bar and the Enter PocketJS button link to other
-// sites), so the homepage's own layout() places the wordmark, the lede and
-// the hint on the iPod's screen. From that document it measures the layout
-// and captures the sky, the lede, the copy line, the hint and the speech
-// bubbles at device scale 2; the Nexus canvas art (apps/nexus/bake.ts
-// DRAW_JS) and art/draw-touch.js draw the letters, toys, particles and pocket
-// at twice their logical size. Every sprite is written as name@2x.png plus a
-// box-filtered name.png, both staged through apps/nexus/bake.ts. Smooth
-// gradients (the haze and the pop glow) are baked once at low resolution and
-// stretched.
+// For each screen in LAYOUTS it opens site/nexus/public/index.html in
+// headless Chrome at that size with its web chrome hidden (the top bar and
+// the Enter PocketJS button link to other sites), so the homepage's own
+// layout() places the wordmark, the lede and the hint. From that document it
+// measures the layout and captures the sky, the lede, the copy line, the hint
+// and the speech bubbles at the screen's density; the Nexus canvas art
+// (apps/nexus/bake.ts DRAW_JS) and art/draw-touch.js draw the letters, toys,
+// particles and pocket at the same density. A density-2 sprite is written as
+// name@2x.png plus a box-filtered name.png, a density-1 sprite as name.png,
+// all staged through apps/nexus/bake.ts. Smooth gradients (the haze and the
+// pop glow) are baked once at low resolution and stretched.
 //
-// art.ts is the manifest the app imports: literal image names for the
-// build's image scan, the measured layout, and the glyph metrics the physics
-// bodies are sized from. The page loads its fonts from Google Fonts; the PNGs
-// are the committed product art, so builds never need the network.
+// Each layout's art.ts is the manifest its entry imports: literal image names
+// for the build's image scan, the measured layout, and the glyph metrics the
+// physics bodies are sized from. The page loads its fonts from Google Fonts;
+// the PNGs are the committed product art, so builds never need the network.
 
+import { mkdirSync } from "node:fs";
 import { HeadlessChrome } from "../../tools/headless-chrome.ts";
 import { encodePNG } from "../../tools/png.ts";
 import { DRAW_JS, TextureStage, dataUrlBytes, decode, type Rgba } from "../nexus/bake.ts";
 import { HOME_Y, LINES, O_LINES, SAYS, WORD } from "../nexus/homepage.ts";
-import * as S from "./scene.ts";
+import type { TagArt, Tile } from "./app.tsx";
+import { touchScene } from "./scene.ts";
 
 const HERE = new URL(".", import.meta.url).pathname;
 const ROOT = new URL("../../", import.meta.url).pathname;
-const ART = HERE + "art/";
 const PORT = 9352;
-/** Bake density: the iPod touch 4 presents 320x480 on a 640x960 panel. */
-const D = 2;
-/** Largest logical texture side at density 2 (the core's 512 px cap). */
-const TILE = 256;
+/** The core's texture cap, device px. */
+const TEXTURE_MAX = 512;
+
+interface Layout {
+  /** The screen, logical px, and its raster density. */
+  w: number;
+  h: number;
+  density: 1 | 2;
+  /** The entry's directory under apps/nexus-touch: art/, art.ts and images.json go there. */
+  dir: string;
+  /** Also write the host's launch image (the scene's first frame). */
+  launch?: boolean;
+}
+/** The iPod touch 4 (320x480 on a 640x960 panel) and the Nokia E7 held in portrait. */
+const LAYOUTS: readonly Layout[] = [
+  { w: 320, h: 480, density: 2, dir: "", launch: true },
+  { w: 360, h: 640, density: 1, dir: "e7/" },
+];
 
 const HIDE_CHROME = ".bar,.cta{display:none!important}";
 
@@ -79,58 +94,60 @@ function crop(image: Rgba, x: number, y: number, w: number, h: number): Rgba {
   return { rgba: out, width: w, height: h };
 }
 
-const textures = new TextureStage();
-
-/** Stage a density-2 sprite as name@2x.png and its box-filtered name.png;
- *  returns the image key the app names. */
-function stage(name: string, image2x: Rgba, w: number, h: number): string {
-  if (image2x.width !== w * D || image2x.height !== h * D) {
-    throw new Error(`${name}: ${image2x.width}x${image2x.height}, expected ${w * D}x${h * D}`);
-  }
-  textures.put(`${name}@2x.png`, { ...image2x, rgba: image2x.rgba.slice() });
-  textures.put(`${name}.png`, half(image2x));
-  return `art/${name}.png`;
-}
-
-/** Stage a smooth image at one resolution; the app stretches it. */
-function stageFlat(name: string, image: Rgba): string {
-  textures.put(`${name}.png`, image);
-  return `art/${name}.png`;
-}
-
-interface Tile { src: string; x: number; y: number; w: number; h: number }
-
-/** Column cut of a logical `w`-wide strip into at most two textures: at the
- *  emptiest column the texture cap allows, so a cut rarely crosses ink. */
-function cutColumns(image2x: Rgba, w: number): number[] {
-  if (w <= TILE) return [0, w];
-  if (w > 2 * TILE) throw new Error(`strip of ${w} px needs more than two columns`);
-  let best = TILE, bestInk = Infinity;
-  for (let x = Math.ceil(w - TILE); x <= TILE; x++) {
-    let ink = 0;
-    for (let y = 0; y < image2x.height; y++) ink += image2x.rgba[(y * image2x.width + x * D) * 4 + 3];
-    if (ink < bestInk || (ink === bestInk && Math.abs(x - w / 2) < Math.abs(best - w / 2))) { best = x; bestInk = ink; }
-  }
-  return [0, best, w];
-}
-
-/** Split a density-2 image of logical size (w, h) into power-of-two tiles. */
-function tiles(name: string, image2x: Rgba, w: number, h: number, cols = cutColumns(image2x, w), rows = h <= TILE ? [0, h] : [0, TILE, h]): Tile[] {
-  const out: Tile[] = [];
-  for (let r = 0; r + 1 < rows.length; r++) {
-    for (let c = 0; c + 1 < cols.length; c++) {
-      const tw = pow2(cols[c + 1] - cols[c]), th = pow2(rows[r + 1] - rows[r]);
-      const part = crop(image2x, cols[c] * D, rows[r] * D, tw * D, th * D);
-      // pixels past the strip belong to the next tile
-      for (let y = 0; y < th * D; y++) {
-        for (let x = 0; x < tw * D; x++) {
-          if (x >= (cols[c + 1] - cols[c]) * D || y >= (rows[r + 1] - rows[r]) * D) part.rgba.fill(0, (y * tw * D + x) * 4, (y * tw * D + x) * 4 + 4);
-        }
-      }
-      out.push({ src: stage(`${name}-${r}-${c}`, part, tw, th), x: cols[c], y: rows[r], w: tw, h: th });
+/** Staging for one layout at density `d`. */
+function stager(d: 1 | 2) {
+  const textures = new TextureStage();
+  /** Largest logical tile side under the texture cap. */
+  const tile = TEXTURE_MAX / d;
+  /** Stage a sprite rendered at density `d`: name@2x.png plus its box-filtered
+   *  name.png at density 2, name.png at density 1. Returns the image key. */
+  function stage(name: string, image: Rgba, w: number, h: number): string {
+    if (image.width !== w * d || image.height !== h * d) {
+      throw new Error(`${name}: ${image.width}x${image.height}, expected ${w * d}x${h * d}`);
     }
+    if (d === 2) {
+      textures.put(`${name}@2x.png`, { ...image, rgba: image.rgba.slice() });
+      textures.put(`${name}.png`, half(image));
+    } else textures.put(`${name}.png`, image);
+    return `art/${name}.png`;
   }
-  return out;
+  /** Stage a smooth image at one resolution; the app stretches it. */
+  function stageFlat(name: string, image: Rgba): string {
+    textures.put(`${name}.png`, image);
+    return `art/${name}.png`;
+  }
+  /** Column cut of a logical `w`-wide strip into at most two textures: at the
+   *  emptiest column the texture cap allows, so a cut rarely crosses ink. */
+  function cutColumns(image: Rgba, w: number): number[] {
+    if (w <= tile) return [0, w];
+    if (w > 2 * tile) throw new Error(`strip of ${w} px needs more than two columns`);
+    let best = tile, bestInk = Infinity;
+    for (let x = Math.ceil(w - tile); x <= tile; x++) {
+      let ink = 0;
+      for (let y = 0; y < image.height; y++) ink += image.rgba[(y * image.width + x * d) * 4 + 3];
+      if (ink < bestInk || (ink === bestInk && Math.abs(x - w / 2) < Math.abs(best - w / 2))) { best = x; bestInk = ink; }
+    }
+    return [0, best, w];
+  }
+  /** Split an image of logical size (w, h) into power-of-two tiles. */
+  function tiles(name: string, image: Rgba, w: number, h: number, cols = cutColumns(image, w), rows = h <= tile ? [0, h] : [0, tile, h]): Tile[] {
+    const out: Tile[] = [];
+    for (let r = 0; r + 1 < rows.length; r++) {
+      for (let c = 0; c + 1 < cols.length; c++) {
+        const tw = pow2(cols[c + 1] - cols[c]), th = pow2(rows[r + 1] - rows[r]);
+        const part = crop(image, cols[c] * d, rows[r] * d, tw * d, th * d);
+        // pixels past the strip belong to the next tile
+        for (let y = 0; y < th * d; y++) {
+          for (let x = 0; x < tw * d; x++) {
+            if (x >= (cols[c + 1] - cols[c]) * d || y >= (rows[r + 1] - rows[r]) * d) part.rgba.fill(0, (y * tw * d + x) * 4, (y * tw * d + x) * 4 + 4);
+          }
+        }
+        out.push({ src: stage(`${name}-${r}-${c}`, part, tw, th), x: cols[c], y: rows[r], w: tw, h: th });
+      }
+    }
+    return out;
+  }
+  return { textures, tile, stage, stageFlat, tiles };
 }
 
 
@@ -138,16 +155,7 @@ function tiles(name: string, image2x: Rgba, w: number, h: number, cols = cutColu
 
 async function main() {
   const chrome = await HeadlessChrome.start({ port: PORT, profile: `${process.env.TMPDIR ?? "/tmp/"}pocketjs-nexus-touch-art`, timeoutMs: 60_000 });
-  const evaluate = (expression: string) => chrome.evaluate(expression);
-  const canvasPng = async (expr: string): Promise<Rgba> => decode(dataUrlBytes(await evaluate(`(${expr}).toDataURL("image/png")`)));
-  /** Viewport region in CSS px, captured at device scale D. */
-  const shot = async (x: number, y: number, w: number, h: number): Promise<Rgba> => {
-    const image = decode(await chrome.screenshot({ x, y, width: w, height: h }));
-    if (image.width !== w * D || image.height !== h * D) throw new Error(`capture ${w}x${h} came back ${image.width}x${image.height}`);
-    return image;
-  };
   try {
-    await chrome.send("Emulation.setDeviceMetricsOverride", { width: S.W, height: S.H, deviceScaleFactor: D, mobile: true });
     await chrome.send("Emulation.setDefaultBackgroundColorOverride", { color: { r: 0, g: 0, b: 0, a: 0 } });
     // reduced motion: the page settles its letters at once, with the text shown
     await chrome.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -157,6 +165,26 @@ async function main() {
         const s = document.createElement("style"); s.textContent = ${JSON.stringify(HIDE_CHROME)}; document.head.appendChild(s);
       });`,
     });
+    for (const layout of LAYOUTS) await bake(chrome, layout);
+  } finally {
+    chrome.stop();
+  }
+}
+
+async function bake(chrome: HeadlessChrome, layout: Layout) {
+  const { w: W, h: H, density: D } = layout;
+  const OUT = HERE + layout.dir;
+  const { textures, tile: TILE, stage, stageFlat, tiles } = stager(D);
+  const evaluate = (expression: string) => chrome.evaluate(expression);
+  const canvasPng = async (expr: string): Promise<Rgba> => decode(dataUrlBytes(await evaluate(`(${expr}).toDataURL("image/png")`)));
+  /** Viewport region in CSS px, captured at device scale D. */
+  const shot = async (x: number, y: number, w: number, h: number): Promise<Rgba> => {
+    const image = decode(await chrome.screenshot({ x, y, width: w, height: h }));
+    if (image.width !== w * D || image.height !== h * D) throw new Error(`capture ${w}x${h} came back ${image.width}x${image.height}`);
+    return image;
+  };
+  {
+    await chrome.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: D, mobile: true });
     await chrome.navigate(`file://${ROOT}site/nexus/public/index.html`);
     const fontsOk = await evaluate(`(async () => {
       const faces = ['100px "Titan One"', '600 16px "Fredoka"', '400 16px "IBM Plex Sans"', '600 16px "IBM Plex Sans"', '500 12px "IBM Plex Mono"'];
@@ -171,7 +199,7 @@ async function main() {
     // the page re-runs layout() on resize; give it the hidden chrome, then a frame
     await evaluate(`new Promise((r) => { window.dispatchEvent(new Event("resize")); setTimeout(r, 400); })`);
     await evaluate((await Bun.file(DRAW_JS).text()) + "\ntrue");
-    await evaluate((await Bun.file(ART + "draw-touch.js").text()) + "\ntrue");
+    await evaluate((await Bun.file(HERE + "art/draw-touch.js").text()) + "\ntrue");
 
     // -- the layout the homepage chose ----------------------------------------------------
     const page = await evaluate(`(() => {
@@ -196,6 +224,7 @@ async function main() {
     })()`);
     if (page.oneRow) throw new Error("the homepage chose its one-row wordmark; the scene expects two rows");
     const FS = page.fs, s = FS / 100;
+    const S = touchScene(W, H, FS);
     // the pocket button the page placed must agree with scene.ts's formulas
     const bw = S.POCKET_PW + S.POCKET_LW + 8;
     if (Math.abs(page.pocket.l - (S.POCKET_CX - bw / 2)) > 0.5 || Math.abs(page.pocket.t - (S.POCKET_TOP_Y - S.POCKET_LW / 2 - 4)) > 0.5) {
@@ -259,7 +288,7 @@ async function main() {
       happy: stage("pocket-happy", await canvasPng(`NXT.pocketEyePart(${k * D}, "happy", ${S.EYES_W * D}, ${S.EYES_H * D})`), S.EYES_W, S.EYES_H),
     };
     const glow = stageFlat("glow", await canvasPng(`NX.glow({ texW: 256, texH: 128, pw: ${S.POCKET_PW} })`));
-    const hazeBox = { x: 0, y: round(wm.cy - S.W / 2), w: S.W, h: S.W };
+    const hazeBox = { x: 0, y: round(wm.cy - W / 2), w: W, h: W };
     const haze = stageFlat("haze", await canvasPng(`NXT.haze(${JSON.stringify({ texW: 256, texH: 256, bx: hazeBox.x, by: hazeBox.y, bw: hazeBox.w, bh: hazeBox.h, wm })})`));
 
     // -- the sky: the page's own background, plus drawGlow and drawFloor at rest --------------
@@ -267,26 +296,26 @@ async function main() {
       document.querySelector("#play").style.display = "none";
       for (const sel of [".hero", "#hint", ".copy", "#tags", "#pocket"]) document.querySelector(sel).style.visibility = "hidden";
       const ov = document.createElement("canvas");
-      ov.id = "bake-overlay"; ov.width = ${S.W * D}; ov.height = ${S.H * D};
-      ov.style.cssText = "position:fixed;left:0;top:0;width:${S.W}px;height:${S.H}px;z-index:1;pointer-events:none";
+      ov.id = "bake-overlay"; ov.width = ${W * D}; ov.height = ${H * D};
+      ov.style.cssText = "position:fixed;left:0;top:0;width:${W}px;height:${H}px;z-index:1;pointer-events:none";
       document.body.appendChild(ov);
       const ctx = ov.getContext("2d"); ctx.scale(${D}, ${D});
-      NXT.glowFloor(ctx, ${JSON.stringify({ cx: S.POCKET_CX, topY: S.POCKET_TOP_Y, pw: S.POCKET_PW, floorY: S.FLOOR_Y, W: S.W, H: S.H, wm })});
+      NXT.glowFloor(ctx, ${JSON.stringify({ cx: S.POCKET_CX, topY: S.POCKET_TOP_Y, pw: S.POCKET_PW, floorY: S.FLOOR_Y, W, H, wm })});
       return true;
     })()`);
-    const sky = await shot(0, 0, S.W, S.H);
-    const backdrop = tiles("sky", sky, S.W, S.H, [0, TILE, S.W], [0, TILE, S.H]);
+    const sky = await shot(0, 0, W, H);
+    const backdrop = tiles("sky", sky, W, H, W <= TILE ? [0, W] : [0, TILE, W], H <= TILE ? [0, H] : [0, TILE, H]);
     // the launch image is the app's first frame: the sky and the pocket at rest
     await evaluate(`(() => {
       const ctx = document.querySelector("#bake-overlay").getContext("2d");
       const mouthY = ${S.POCKET_TIP_Y - 15 * S.POCKET_K};
-      ctx.save(); ctx.translate(${S.POCKET_CX}, mouthY); ctx.scale(1, ${S.MOUTH_REST});
+      ctx.save(); ctx.translate(${S.POCKET_CX}, mouthY); ctx.scale(1, ${S.mouthScale(0.16)});
       ctx.drawImage(NX.pocketMouth(${k * D}, ${S.POCKET_LW * D}, ${S.MOUTH_W * D}, ${S.MOUTH_H * D}), ${-S.MOUTH_W / 2}, ${-S.MOUTH_H / 2}, ${S.MOUTH_W}, ${S.MOUTH_H});
       ctx.restore();
       ctx.drawImage(pocketFront, ${S.POCKET_CX - S.POCKET_SPRITE_W / 2}, ${S.POCKET_TIP_Y - S.POCKET_TIP_IN_SPRITE}, ${S.POCKET_SPRITE_W}, ${S.POCKET_SPRITE_H});
       return true;
     })()`);
-    const launch = await shot(0, 0, S.W, S.H);
+    const launch = await shot(0, 0, W, H);
 
     // -- text: the lede, the copy line and the hint on a transparent page -------------------------
     await evaluate(`(() => {
@@ -327,7 +356,6 @@ async function main() {
     await evaluate(`(() => { document.querySelector("#hint").style.visibility = "hidden"; return true; })()`);
 
     // -- speech bubbles: the homepage's .tag elements, anchored at a known point --------------------
-    interface TagArt { src: string; w: number; h: number; px: number; py: number }
     const AX = 160, AY = 240;
     const bubble = async (name: string, kind: string, text: string): Promise<TagArt> => {
       const b = await evaluate(`(() => {
@@ -373,15 +401,15 @@ async function main() {
     const manifest = `// AUTO-GENERATED by apps/nexus-touch/gen-art.ts — do not edit; run \`bun apps/nexus-touch/gen-art.ts\`.
 //
 // The baked art of the Pocket Nexus touch scene and the layout the homepage
-// chose for a 320x480 screen. Every image name is a full string literal so
-// tools/build.ts bakes it into the pak; the letter metrics are the Titan One
-// ink boxes at FS px that the physics bodies are sized from.
+// chose for a ${W}x${H} screen at density ${D}. Every image name is a full
+// string literal so tools/build.ts bakes it into the pak; the letter metrics
+// are the Titan One ink boxes at FS px that the physics bodies are sized from.
 
-export interface LetterArt { ch: string; src: string; shadow: string; w: number; ih: number; rcK: number; home: readonly [number, number] }
-export interface Tile { src: string; x: number; y: number; w: number; h: number }
-export interface TagArt { src: string; w: number; h: number; px: number; py: number }
+import type { LetterArt, Tile } from "${layout.dir ? "../" : "./"}app.tsx";
 
-/** The wordmark's font size: the homepage's fitHero() at 320x480. */
+/** The screen this art is laid out for, logical px. */
+export const VIEWPORT = [${W}, ${H}] as const;
+/** The wordmark's font size: the homepage's fitHero() at ${W}x${H}. */
 export const FS = ${FS};
 
 export const LETTER_ART: readonly LetterArt[] = ${json(letters)};
@@ -412,15 +440,14 @@ export const HINT = ${json(hint)};
 export const TAG_ART = ${json(tags)};
 `;
     // every sprite rendered and checked: replace the art, its manifest and filters together
-    await textures.write(ART);
-    await Bun.write(HERE + "launch.png", encodePNG(launch.rgba, launch.width, launch.height));
-    await Bun.write(HERE + "art.ts", manifest);
+    mkdirSync(OUT + "art", { recursive: true });
+    await textures.write(OUT + "art/");
+    if (layout.launch) await Bun.write(OUT + "launch.png", encodePNG(launch.rgba, launch.width, launch.height));
+    await Bun.write(OUT + "art.ts", manifest);
     const images: Record<string, { linear: boolean }> = {};
     for (const name of textures.files.keys()) if (!name.includes("@")) images[`art/${name}`] = { linear: true };
-    await Bun.write(HERE + "images.json", JSON.stringify(images, null, 2) + "\n");
-    console.log(`nexus-touch: baked ${textures.files.size} textures into apps/nexus-touch/art/ (wordmark ${FS}px)`);
-  } finally {
-    chrome.stop();
+    await Bun.write(OUT + "images.json", JSON.stringify(images, null, 2) + "\n");
+    console.log(`nexus-touch: baked ${textures.files.size} textures for ${W}x${H} @${D}x into apps/nexus-touch/${layout.dir}art/ (wordmark ${FS}px)`);
   }
 }
 

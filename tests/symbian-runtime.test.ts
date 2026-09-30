@@ -15,6 +15,7 @@ import {
   SYMBIAN_E7_DEV_HOST_ABI,
   SYMBIAN_E7_DEV_TARGET_ID,
   resolveSymbianE7BuildPlan,
+  symbianE7Orientation,
 } from "../tools/symbian-profile.ts";
 import {
   encodeSymbianCatalog,
@@ -372,7 +373,32 @@ describe("experimental Nokia E7 runtime profile", () => {
       "input.touch",
       "display.viewport.live",
       "text.glyphs.baked",
+      "ui.physics",
     ]);
+  });
+
+  test("holds a portrait-only range in portrait and binds physics for the plans that require it", () => {
+    const manifest = (path: string) => JSON.parse(readFileSync(join(repository, path), "utf8"));
+    const orientation = (path: string) => symbianE7Orientation(manifest(path), resolveSymbianE7BuildPlan(manifest(path)));
+    // Clear and Pocket Nexus lay out once for 360x640; Hero relayouts live
+    expect(orientation("apps/clear/pocket.symbian.json")).toBe("portrait");
+    expect(orientation("apps/nexus-touch/pocket.symbian.json")).toBe("portrait");
+    expect(orientation("apps/hero/pocket.json")).toBe("auto");
+    expect(resolveSymbianE7BuildPlan(manifest("apps/nexus-touch/pocket.symbian.json")).features["ui.physics"]).toBe(true);
+    expect(resolveSymbianE7BuildPlan(manifest("apps/clear/pocket.symbian.json")).features["ui.physics"]).toBeUndefined();
+    const runtime = readFileSync(join(repository, "hosts/nokia-e7/runtime/main.cpp"), "utf8");
+    const project = readFileSync(join(repository, "hosts/nokia-e7/runtime/pocketjs-e7-runtime.pro"), "utf8");
+    const buildApp = readFileSync(join(repository, "tools/symbian/container/pocketjs-symbian-build-app"), "utf8");
+    const orchestrator = readFileSync(join(repository, "tools/symbian.ts"), "utf8");
+    for (const [name, arity] of [["physicsCreate", 2], ["physicsApply", 1], ["physicsDestroy", 1], ["physicsEvents", 0], ["physicsQuery", 6]] as const) {
+      expect(runtime).toContain(`addHostOperation(context, ui, "${name}", ${arity}, Host${name[0].toUpperCase()}${name.slice(1)});`);
+    }
+    expect(runtime).toContain("if (POCKETJS_ORIENTATION_LOCK == 1) setAttribute(Qt::WA_LockPortraitOrientation, true);");
+    expect(project).toContain("DEFINES += POCKETJS_PHYSICS=$$POCKETJS_PHYSICS");
+    expect(project).toContain("DEFINES += POCKETJS_ORIENTATION_LOCK=$$POCKETJS_ORIENTATION_LOCK");
+    expect(buildApp).toContain('"POCKETJS_PHYSICS=$physics"');
+    expect(buildApp).toContain("portrait) orientation_lock=1 ;;");
+    expect(orchestrator).toContain('plan.features["ui.physics"] ? "1" : "0"');
   });
 
   test("keeps the Hero's horizontal regions wrap-safe in portrait", () => {

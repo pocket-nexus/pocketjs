@@ -1,7 +1,8 @@
 // apps/nexus-touch/app.tsx — the pocket.nexus homepage on a 320x480 touch screen.
 //
 // The homepage's one interactive screen, laid out by the homepage itself
-// (gen-art.ts measures the page at this size) and moved by its springs at
+// (gen-art.ts measures the page at each screen's size and writes that
+// layout's art module; an entry passes it in) and moved by its springs at
 // its phone scale U, from the shared Pocket Nexus bodies and toys
 // (apps/nexus/homepage.ts, apps/nexus/toys.ts). On launch the pocket wakes
 // and spills POCKET NEXUS into the wordmark. Then: tap the pocket for toys;
@@ -24,11 +25,7 @@ import { createGesture, type GestureContact } from "@pocketjs/framework/gesture"
 import { reportAppAction } from "@pocketjs/framework/host";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import { createWorld, type Body, type Emitter, type Vec, type World } from "@pocketjs/framework/physics";
-import * as S from "./scene.ts";
-import {
-  COPY, FS, GLOW_ART, HAZE_ART, HAZE_BOX, HINT, LEDE, LETTER_ART, O_EYE, O_EYES, O_FACE, PARTICLE_ART, POCKET_ART,
-  SKY_TILES, TAG_ART, TOY_ART, type TagArt,
-} from "./art.ts";
+import { touchScene } from "./scene.ts";
 import {
   BOB, DEG, HOME_R, LINES, O_LINES, POCKET_OUTLINE, ROW_SPLIT, SAYS, SPIT_AT, SPIT_TF, TOYS, burstEmitter, clamp,
   landing, letterBody, letterHalf, pocketBodies, seededRandom, sparkEmitter, spillFlight, textShelf, twinkleEmitter,
@@ -37,12 +34,33 @@ import {
 import { createToyBox, type Toy, type ToyBox } from "../nexus/toys.ts";
 import { AfterMount, box } from "../nexus/view.ts";
 
-// ---- the scene's numbers -------------------------------------------------------------
+// ---- the art a layout bakes (gen-art.ts writes one art.ts per screen) ----------------
+// Each art.ts imports these types, so tsc checks every layout against this shape.
 
-const U = S.U;
-const G = S.G;
-const SIZE = FS / 100;
-const LS = S.LETTER_SPRITE;
+export interface Tile { src: string; x: number; y: number; w: number; h: number }
+export interface TagArt { src: string; w: number; h: number; px: number; py: number }
+export interface LetterArt { ch: string; src: string; shadow: string; w: number; ih: number; rcK: number; home: readonly [number, number] }
+type Line = (typeof LINES)[number] | (typeof O_LINES)[number] | (typeof SAYS)[number];
+export interface TouchArt {
+  VIEWPORT: readonly [number, number];
+  FS: number;
+  LETTER_ART: readonly LetterArt[];
+  O_FACE: Readonly<Record<"look" | "talk" | "happy" | "wince" | "shut", string>>;
+  O_EYE: string;
+  O_EYES: { ex: number; ey: number };
+  TOY_ART: Readonly<Record<ToyType, string>>;
+  PARTICLE_ART: { readonly [kind in "burst" | "bdot" | "star" | "dot"]: readonly string[] };
+  POCKET_ART: Readonly<Record<"front" | "mouth" | "whites" | "pupils" | "happy", string>>;
+  SKY_TILES: readonly Tile[];
+  HAZE_ART: string;
+  HAZE_BOX: { x: number; y: number; w: number; h: number };
+  GLOW_ART: string;
+  LEDE: { x: number; y: number; w: number; h: number; ink: { l: number; t: number; r: number; b: number }; tiles: readonly Tile[] };
+  COPY: Tile;
+  HINT: { text: Tile; arrow: Tile };
+  TAG_ART: { pjs: TagArt } & { readonly [side in "say" | "perchR" | "perchL"]: Readonly<Record<Line, TagArt>> };
+}
+
 /** The spill starts once the pocket has woken up (the homepage's base). */
 const SPILL_AT = 0.74;
 /** Toy node slots, and the live toys kept before the oldest fades out. */
@@ -50,38 +68,6 @@ const TOY_CAP = 16;
 const LIVE_TOYS = 14;
 /** Speech-bubble node slots: the PocketJS tag and two bubbles. */
 const TAG_SLOTS = 3;
-const LAND = landing(FS);
-const O_INDEX = LETTER_ART.findIndex((l) => l.ch === "O");
-
-/** Pocket landmarks in screen px. */
-const PX = S.POCKET_CX;
-const PTOP = S.POCKET_TOP_Y;
-const FLOOR = S.FLOOR_Y;
-const PW = S.POCKET_PW;
-const PH = S.POCKET_PH;
-const K = S.POCKET_K;
-const PAD = S.POCKET_PAD;
-/** The pocket's sprite frame, placed so its tip lands on the floor line. */
-const POCKET_LEFT = PX - S.POCKET_SPRITE_W / 2;
-const POCKET_TOP = S.POCKET_TIP_Y - S.POCKET_TIP_IN_SPRITE;
-const POCKET_PIVOT = S.POCKET_TIP_IN_SPRITE - S.POCKET_SPRITE_H / 2;
-/** The mouth line in sprite px; the mouth is drawn open and squashed with scaleY. */
-const MOUTH_Y = S.POCKET_TIP_IN_SPRITE - 15 * K;
-const MOUTH_FLASH = S.mouthScale(1.06);
-const MOUTH_HUNGRY = S.mouthScale(0.91);
-/** The eyes peek over the rim; hidden, they sit behind the pocket's front. */
-const ERY = 1.5 * K;
-const EYES_Y = MOUTH_Y - ERY * 0.62 - 0.3 * 0.24 * K;
-const EYES_HIDDEN = ERY * 1.62 + S.POCKET_LW + 0.3 * 0.24 * K;
-/** Where the pocket's eyes look from, screen px. */
-const EYE_X = PX;
-const EYE_Y = PTOP - 1.2 * K;
-/** The top of the text the toys arc under (the homepage's textBottom). */
-const TEXT_BOTTOM = LEDE.ink.b + 6;
-
-/** A letter's collision half extents (the homepage's hw/hh). */
-const halfW = (i: number) => letterHalf(LETTER_ART[i], FS)[0];
-const halfH = (i: number) => letterHalf(LETTER_ART[i], FS)[1];
 
 /** The core's launch parabola: from `from`, landing on `to` `tf` s later
  *  moving down at `arrive` px/s. */
@@ -89,22 +75,66 @@ function parabola(from: Vec, to: Vec, tf: number, arrive: number) {
   const dy = to[1] - from[1], g = (2 * (arrive - dy / tf)) / tf;
   return { vx: (to[0] - from[0]) / tf, vy: dy / tf - (g * tf) / 2, g };
 }
-/** Seconds after take-off at which a flight from the mouth clears the
- *  pocket's rim (the homepage's `emerging`), while the letter is drawn behind
- *  the pocket's front. */
-function emergeAfter(from: Vec, vy: number, g: number, hh: number): number {
-  const c = from[1] + hh * 0.55 - PTOP;
-  if (c <= 0) return 0;
-  const disc = vy * vy - 2 * g * c;
-  if (disc < 0 || g <= 0) return 0.4;
-  return clamp((-vy - Math.sqrt(disc)) / g, 0, 0.4);
-}
 
 type LetterState = "hidden" | "flight" | "home" | "carry" | "swallow" | "inside";
 type OMood = "look" | "talk" | "happy" | "wince" | "shut";
-type Line = keyof typeof TAG_ART.say;
 
-export default function Nexus() {
+export default function Nexus(props: { art: TouchArt }) {
+  // -- the layout ---------------------------------------------------------------
+  const {
+    COPY, FS, GLOW_ART, HAZE_ART, HAZE_BOX, HINT, LEDE, LETTER_ART, O_EYE, O_EYES, O_FACE, PARTICLE_ART, POCKET_ART,
+    SKY_TILES, TAG_ART, TOY_ART,
+  } = props.art;
+  const S = touchScene(props.art.VIEWPORT[0], props.art.VIEWPORT[1], FS);
+  const U = S.U;
+  const G = S.G;
+  const SIZE = FS / 100;
+  const LS = S.LETTER_SPRITE;
+  const LAND = landing(FS);
+  const O_INDEX = LETTER_ART.findIndex((l) => l.ch === "O");
+
+  /** Pocket landmarks in screen px. */
+  const PX = S.POCKET_CX;
+  const PTOP = S.POCKET_TOP_Y;
+  const FLOOR = S.FLOOR_Y;
+  const PW = S.POCKET_PW;
+  const PH = S.POCKET_PH;
+  const K = S.POCKET_K;
+  const PAD = S.POCKET_PAD;
+  /** The pocket's sprite frame, placed so its tip lands on the floor line. */
+  const POCKET_LEFT = PX - S.POCKET_SPRITE_W / 2;
+  const POCKET_TOP = S.POCKET_TIP_Y - S.POCKET_TIP_IN_SPRITE;
+  const POCKET_PIVOT = S.POCKET_TIP_IN_SPRITE - S.POCKET_SPRITE_H / 2;
+  /** The mouth line in sprite px; the mouth is drawn open and squashed with scaleY. */
+  const MOUTH_Y = S.POCKET_TIP_IN_SPRITE - 15 * K;
+  const MOUTH_REST = S.mouthScale(0.16);
+  const MOUTH_FLASH = S.mouthScale(1.06);
+  const MOUTH_HUNGRY = S.mouthScale(0.91);
+  /** The eyes peek over the rim; hidden, they sit behind the pocket's front. */
+  const ERY = 1.5 * K;
+  const EYES_Y = MOUTH_Y - ERY * 0.62 - 0.3 * 0.24 * K;
+  const EYES_HIDDEN = ERY * 1.62 + S.POCKET_LW + 0.3 * 0.24 * K;
+  /** Where the pocket's eyes look from, screen px. */
+  const EYE_X = PX;
+  const EYE_Y = PTOP - 1.2 * K;
+  /** The top of the text the toys arc under (the homepage's textBottom). */
+  const TEXT_BOTTOM = LEDE.ink.b + 6;
+
+  /** A letter's collision half extents (the homepage's hw/hh). */
+  const halfW = (i: number) => letterHalf(LETTER_ART[i], FS)[0];
+  const halfH = (i: number) => letterHalf(LETTER_ART[i], FS)[1];
+
+  /** Seconds after take-off at which a flight from the mouth clears the
+   *  pocket's rim (the homepage's `emerging`), while the letter is drawn behind
+   *  the pocket's front. */
+  function emergeAfter(from: Vec, vy: number, g: number, hh: number): number {
+    const c = from[1] + hh * 0.55 - PTOP;
+    if (c <= 0) return 0;
+    const disc = vy * vy - 2 * g * c;
+    if (disc < 0 || g <= 0) return 0.4;
+    return clamp((-vy - Math.sqrt(disc)) / g, 0, 0.4);
+  }
+
   // -- nodes ---------------------------------------------------------------------
   const sticker: NodeMirror[] = [];
   const shadow: NodeMirror[] = [];
@@ -235,7 +265,7 @@ export default function Nexus() {
   function flash() {
     if (mouth) {
       animate(mouth, "scaleY", MOUTH_FLASH, { dur: 60, easing: "out" });
-      later(0.08, () => mouth && !hungry && animate(mouth, "scaleY", S.MOUTH_REST, { dur: 650, easing: "out" }));
+      later(0.08, () => mouth && !hungry && animate(mouth, "scaleY", MOUTH_REST, { dur: 650, easing: "out" }));
     }
     if (glow) {
       animate(glow, "opacity", 1, { dur: 60, easing: "out" });
@@ -270,7 +300,7 @@ export default function Nexus() {
     if (on === hungry) return;
     hungry = on;
     pocket.press(0, on ? 1.045 : 1);
-    if (mouth) animate(mouth, "scaleY", on ? MOUTH_HUNGRY : S.MOUTH_REST, { dur: on ? 160 : 300, easing: "out" });
+    if (mouth) animate(mouth, "scaleY", on ? MOUTH_HUNGRY : MOUTH_REST, { dur: on ? 160 : 300, easing: "out" });
     if (eyes) animate(eyes, "scale", on ? 1.18 : 1, { dur: 160, easing: "out" });
     updateEyes();
   }
@@ -810,7 +840,7 @@ export default function Nexus() {
       <Image ref={(el) => (glow = el)} src={GLOW_ART} style={box(PX - 128, PTOP - 64, 256, 128, { opacity: 0 })} />
       {pool(twinkles, 12, PARTICLE_ART.star[0])}
       <View ref={(el) => (backWrap = el)} style={pocketBox()}>
-        <Image ref={(el) => (mouth = el)} src={POCKET_ART.mouth} style={box((S.POCKET_SPRITE_W - S.MOUTH_W) / 2, MOUTH_Y - S.MOUTH_H / 2, S.MOUTH_W, S.MOUTH_H, { scaleY: S.MOUTH_REST })} />
+        <Image ref={(el) => (mouth = el)} src={POCKET_ART.mouth} style={box((S.POCKET_SPRITE_W - S.MOUTH_W) / 2, MOUTH_Y - S.MOUTH_H / 2, S.MOUTH_W, S.MOUTH_H, { scaleY: MOUTH_REST })} />
       </View>
       <For each={LETTER_ART}>
         {(l, i) => (

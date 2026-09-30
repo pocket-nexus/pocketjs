@@ -9,7 +9,7 @@ Painting, clipping and hit testing reuse the retained tree, and motion never
 runs layout.
 
 An app requires the capability `ui.physics`. The wasm core behind the web and
-sim hosts, the Nintendo 3DS host and the iPod touch 4 host implement it; the contract is the five
+sim hosts, the Nintendo 3DS host, the iPod touch 4 host and the Nokia E7 host implement it; the contract is the five
 optional ops 52–56 in [Native contract](/docs/native-contract/), with every key,
 command, event, query and fixed constant pinned in `contracts/spec/physics.ts`.
 
@@ -253,14 +253,18 @@ bun tools/3ds.ts nexus         # dist/3ds/nexus-main.3dsx
 
 ## The touch Pocket Nexus scene
 
-`apps/nexus-touch` is the same homepage on one 320×480 touch screen, built
-for the iPod touch 4 as a standalone app. Both scenes build their letters,
+`apps/nexus-touch` is the same homepage on one portrait touch screen, built
+as a standalone app for the iPod touch 4 (320×480) and the Nokia E7 (360×640). Both scenes build their letters,
 pocket, shelf, emitters and toys from `apps/nexus/homepage.ts` and
 `apps/nexus/toys.ts`, and supply their own geometry and input. **The touch
 bake (`apps/nexus-touch/gen-art.ts`) opens the homepage document at 320×480
 with its top bar and button hidden, so the page's own `layout()` places the
 wordmark, the lede and the hint; it measures that layout and captures the
-page's text and sky at device scale 2.** Beyond the 3DS scene it carries the
+page's text and sky at device scale 2.** The same bake opens the document at
+360×640 for the E7 and captures it at scale 1 into `apps/nexus-touch/e7/`;
+`touchScene(w, h, fs)` in `scene.ts` derives the floor, the pocket and every
+sprite side from the screen size, so one `app.tsx` places both layouts. Beyond
+the 3DS scene it carries the
 homepage's letter handling:
 
 - **A tapped letter hops** (`hop`) and may answer in a speech bubble.
@@ -279,4 +283,6 @@ at most two, which it keeps upright and on screen.
 ```sh
 bun apps/nexus-touch/gen-art.ts                            # re-bake the art from the homepage
 POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build   # dist/ipodtouch4/PocketNexus.app
+bun tools/symbian.ts build app --manifest apps/nexus-touch/pocket.symbian.json \
+  --frame-rate 60                                          # dist/symbian/nexus-touch-e7.sis
 ```

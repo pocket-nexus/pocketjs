@@ -13,6 +13,8 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * the E7 host has passed the full hardware acceptance suite. The Qt window is
  * the PocketJS surface: its 640x360 landscape and 360x640 portrait geometries
  * are native logical viewports, with live relayout when Symbian rotates it.
+ * ui.physics (ops 52..56) is bound by hosts/nokia-e7/runtime/main.cpp for a
+ * plan that resolved it; the guest ships inside its host's SIS.
  */
 export const SYMBIAN_E7_DEV_TARGET_ID = "symbian-e7-dev";
 export const SYMBIAN_E7_DEV_HOST_ABI = 4;
@@ -42,6 +44,7 @@ export const SYMBIAN_E7_DEV_CONTRACTS = definePlatformContractRegistry(
         "input.touch",
         "display.viewport.live",
         "text.glyphs.baked",
+        "ui.physics",
       ],
     },
   }),
@@ -61,4 +64,22 @@ export function resolveSymbianE7BuildPlan(input: unknown): ResolvedBuildPlan {
     );
   }
   return resolution.plan;
+}
+
+type ViewportDeclaration = { dynamic?: { min?: readonly number[]; max?: readonly number[] } };
+
+/**
+ * The orientation an E7 build holds. A manifest whose dynamic viewport range
+ * admits portrait sizes only (every width below every height) is held in
+ * portrait, a landscape-only range in landscape; any other app follows the
+ * phone's rotation with live relayout.
+ */
+export function symbianE7Orientation(manifest: unknown, plan: ResolvedBuildPlan): "auto" | "portrait" | "landscape" {
+  const app = (manifest as { app?: { viewport?: ViewportDeclaration; presentations?: { id?: string; viewport?: ViewportDeclaration }[] } }).app;
+  const chosen = app?.presentations?.find((entry) => entry.id === plan.presentation.id);
+  const dynamic = (chosen?.viewport ?? app?.viewport)?.dynamic;
+  if (!dynamic?.min || !dynamic.max) return "auto";
+  if (dynamic.max[0] < dynamic.min[1]) return "portrait";
+  if (dynamic.max[1] < dynamic.min[0]) return "landscape";
+  return "auto";
 }

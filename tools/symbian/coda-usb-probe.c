@@ -17,6 +17,8 @@ enum {
     CodaDataInterface = 4,
     TransferTimeoutMs = 3000,
     CommandTimeoutMs = 10000,
+    /* A silent install unpacks, verifies and registers the whole package. */
+    InstallTimeoutMs = 180000,
     TransferSliceMs = 250,
     ResponseCapacity = 16384,
     CommandCapacity = 512,
@@ -426,6 +428,68 @@ static int valid_executable(const char *executable) {
     return 1;
 }
 
+/* A SIS basename staged in the MTP Installs folder (E:\Installs). */
+static int valid_installs_file(const char *file) {
+    const size_t length = strlen(file);
+    if (length < 5 || length > MaxExecutableLength ||
+        strcmp(file + length - 4, ".sis") != 0) {
+        return 0;
+    }
+    for (size_t index = 0; index < length; ++index) {
+        const char value = file[index];
+        if ((value >= 'a' && value <= 'z') ||
+            (value >= 'A' && value <= 'Z') ||
+            (value >= '0' && value <= '9') ||
+            value == '.' || value == '_' || value == '-') {
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
+/* SymbianInstall.install: the package's device path and the target drive,
+ * each a JSON string (the command Qt Creator's CODA deploy step sends). */
+static int build_install_command(
+    const char *file,
+    const char *token,
+    unsigned char *command,
+    size_t command_capacity,
+    size_t *command_length
+) {
+    char quoted_path[MaxExecutableLength + 32];
+    const int quoted_length = snprintf(
+        quoted_path,
+        sizeof(quoted_path),
+        "\"E:\\\\Installs\\\\%s\"",
+        file
+    );
+    if (quoted_length < 0 || quoted_length >= (int)sizeof(quoted_path))
+        return 0;
+    *command_length = 0;
+    const char *fields[] = {
+        "C",
+        token,
+        "SymbianInstall",
+        "install",
+        quoted_path,
+        "\"E:\"",
+    };
+    for (size_t index = 0;
+         index < sizeof(fields) / sizeof(fields[0]);
+         ++index) {
+        if (!append_command_field(
+                command,
+                command_capacity,
+                command_length,
+                fields[index]
+            )) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int build_process_start_command(
     const char *executable,
     const char *token,
@@ -571,9 +635,10 @@ static int extract_process_id(
 }
 
 static void print_command_error(
+    const char *label,
     const struct command_reply_context *reply
 ) {
-    fprintf(stderr, "CODA launch: device rejected the start command");
+    fprintf(stderr, "%s", label);
     if (reply->values_length > 0) {
         fprintf(stderr, " (");
         for (int index = 0; index < reply->values_length; ++index) {
@@ -643,7 +708,7 @@ static int launch_process(
         return LIBUSB_ERROR_OVERFLOW;
     }
     if (reply.type != 'R' || command_reply_has_error(&reply)) {
-        print_command_error(&reply);
+        print_command_error("CODA launch: device rejected the start command", &reply);
         return LIBUSB_ERROR_OTHER;
     }
 
@@ -658,8 +723,56 @@ static int launch_process(
     return LIBUSB_SUCCESS;
 }
 
+static int install_package(
+    libusb_device_handle *handle,
+    uint8_t endpoint_in,
+    uint8_t endpoint_out,
+    unsigned char *response,
+    int response_capacity,
+    int *response_length,
+    const char *file
+) {
+    static const char token[] = "1";
+    unsigned char command[CommandCapacity];
+    size_t command_length = 0;
+    if (!build_install_command(file, token, command, sizeof(command), &command_length))
+        return LIBUSB_ERROR_OVERFLOW;
+    int result = send_serial_payload(handle, endpoint_out, command, command_length);
+    if (result != LIBUSB_SUCCESS)
+        return result;
+    struct command_reply_context reply = {
+        .token = token,
+        .type = '\0',
+        .values_length = 0,
+        .values_overflow = 0,
+    };
+    result = read_until(
+        handle,
+        endpoint_in,
+        response,
+        response_capacity,
+        response_length,
+        match_command_reply,
+        &reply,
+        InstallTimeoutMs
+    );
+    if (result != LIBUSB_SUCCESS)
+        return result;
+    if (reply.values_overflow) {
+        fprintf(stderr, "CODA install: reply exceeds the safe parser limit\n");
+        return LIBUSB_ERROR_OVERFLOW;
+    }
+    if (reply.type != 'R' || command_reply_has_error(&reply)) {
+        print_command_error("CODA install: device rejected the package", &reply);
+        return LIBUSB_ERROR_OTHER;
+    }
+    printf("CODA install: installed E:\\Installs\\%s\n", file);
+    return LIBUSB_SUCCESS;
+}
+
 int main(int argc, char **argv) {
     const char *executable = NULL;
+    const char *package = NULL;
     if (argc == 3 && strcmp(argv[1], "launch") == 0) {
         executable = argv[2];
         if (!valid_executable(executable)) {
@@ -669,8 +782,14 @@ int main(int argc, char **argv) {
             );
             return 2;
         }
+    } else if (argc == 3 && strcmp(argv[1], "install") == 0) {
+        package = argv[2];
+        if (!valid_installs_file(package)) {
+            fprintf(stderr, "CODA USB: package must be a basename ending in .sis\n");
+            return 2;
+        }
     } else if (argc != 1) {
-        fprintf(stderr, "usage: coda-usb-probe [launch <executable.exe>]\n");
+        fprintf(stderr, "usage: coda-usb-probe [launch <executable.exe> | install <package.sis>]\n");
         return 2;
     }
 
@@ -870,6 +989,27 @@ int main(int argc, char **argv) {
         printf("CODA version: %s\n", version);
     printf("CODA Locator: ready\n");
 
+    if (package != NULL) {
+        if (!bytes_contain(response, response_length, "\"SymbianInstall\"")) {
+            fprintf(stderr, "CODA install: SymbianInstall service is unavailable\n");
+            goto cleanup;
+        }
+        result = install_package(
+            handle,
+            endpoint_in,
+            endpoint_out,
+            response,
+            sizeof(response),
+            &response_length,
+            package
+        );
+        if (result != LIBUSB_SUCCESS) {
+            if (result != LIBUSB_ERROR_OTHER) {
+                fprintf(stderr, "CODA install: failed (%s)\n", libusb_error_name(result));
+            }
+            goto cleanup;
+        }
+    }
     if (executable != NULL) {
         if (!locator_advertises_processes(response, response_length)) {
             fprintf(stderr, "CODA launch: Processes service is unavailable\n");

@@ -9,8 +9,8 @@ import {
   PHYSICS_MODE,
   PHYSICS_QUERY as Q,
 } from "../contracts/spec/physics.ts";
-import { LETTER_ART } from "../apps/nexus-touch/art.ts";
-import { POCKET_CX, POCKET_TOP_Y } from "../apps/nexus-touch/scene.ts";
+import { FS, LETTER_ART, VIEWPORT } from "../apps/nexus-touch/art.ts";
+import { touchScene } from "../apps/nexus-touch/scene.ts";
 import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
 
 // apps/nexus-touch on the wasm core at the iPod touch 4's 320x480 @2x, the
@@ -19,6 +19,7 @@ import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
 // mouth must come back to it; the whole run must be a pure function of the
 // tape.
 
+const { POCKET_CX, POCKET_TOP_Y } = touchScene(VIEWPORT[0], VIEWPORT[1], FS);
 const ROOT = new URL("..", import.meta.url).pathname;
 const OUT = mkdtempSync(join(tmpdir(), "pocketjs-nexus-touch-"));
 const GUEST = join(OUT, "guest", "nexus-touch-main");
