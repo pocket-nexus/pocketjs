@@ -29,44 +29,49 @@ function run(command: string, args: readonly string[]): string {
   return stdout;
 }
 
+const cc = Bun.which("cc");
+const common = [
+  "-std=c99",
+  "-Wall",
+  "-Wextra",
+  "-Werror",
+  "-Wno-unused-parameter",
+  '-DPOCKETJS_TARGET_ID="harness-test"',
+  "-DPOCKETJS_HOST_ABI=0",
+  "-I",
+  join(repository, "tests/fixtures/quickjs-c-harness"),
+  "-I",
+  join(repository, "engine/quickjs-c"),
+  "-I",
+  join(repository, "engine/ui-cabi/include"),
+  "-I",
+  join(repository, "contracts/generated"),
+  "-I",
+  join(repository, "hosts/nokia-e7/runtime"),
+];
+const runVariant = (name: string, defines: readonly string[]) => {
+  const binary = join(build, name);
+  run(cc!, [...common, ...defines, runtime, fixture, "-o", binary]);
+  expect(run(binary, [])).toBe("quickjs-c harness: ok\n");
+};
+
+// Each variant compiles and links the runtime once; a cold CI compiler takes
+// about a second per variant.
 describe("portable QuickJS C harness contract", () => {
   test("links and executes every capability combination", () => {
-    const cc = Bun.which("cc");
     expect(cc).not.toBeNull();
-
-    const common = [
-      "-std=c99",
-      "-Wall",
-      "-Wextra",
-      "-Werror",
-      "-Wno-unused-parameter",
-      '-DPOCKETJS_TARGET_ID="harness-test"',
-      "-DPOCKETJS_HOST_ABI=0",
-      "-I",
-      join(repository, "tests/fixtures/quickjs-c-harness"),
-      "-I",
-      join(repository, "engine/quickjs-c"),
-      "-I",
-      join(repository, "engine/ui-cabi/include"),
-      "-I",
-      join(repository, "contracts/generated"),
-      "-I",
-      join(repository, "hosts/nokia-e7/runtime"),
-    ];
-    const runVariant = (name: string, defines: readonly string[]) => {
-      const binary = join(build, name);
-      run(cc!, [...common, ...defines, runtime, fixture, "-o", binary]);
-      expect(run(binary, [])).toBe("quickjs-c harness: ok\n");
-    };
-
     runVariant("production", []);
     runVariant("native-extension", ["-std=c11", "-DPOCKET_RUNTIME_EXTENSION"]);
     runVariant("stages", ["-DPOCKET_RUNTIME_STAGE_HOOKS"]);
     runVariant("harness", ["-DPOCKET_RUNTIME_HARNESS"]);
-    runVariant("physics", ["-DPOCKET_PHYSICS"]);
     runVariant("stages-and-harness", [
       "-DPOCKET_RUNTIME_STAGE_HOOKS",
       "-DPOCKET_RUNTIME_HARNESS",
     ]);
-  });
+  }, 60_000);
+
+  test("binds the five physics ops through the dispatcher", () => {
+    expect(cc).not.toBeNull();
+    runVariant("physics", ["-DPOCKET_PHYSICS"]);
+  }, 60_000);
 });
