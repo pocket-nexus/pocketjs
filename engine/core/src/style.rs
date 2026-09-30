@@ -597,6 +597,33 @@ pub fn resolve(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
     r
 }
 
+/// The opacity `resolve(node, table, true)` would produce, scanning only that
+/// property through the same layers in the same order. The draw walk uses it
+/// to cull a transparent subtree without resolving the whole style.
+pub fn resolve_opacity(node: &Node, table: &StyleTable) -> f32 {
+    let mut opacity = 1.0;
+    let mut scan = |layer: &[(u8, u32)]| {
+        for &(p, v) in layer {
+            if p == spec::prop::OPACITY {
+                opacity = f32::from_bits(v);
+            }
+        }
+    };
+    if let Some(rec) = table.record(node.style_id) {
+        scan(&rec.base);
+        if node.focused {
+            scan(&rec.focus);
+        }
+        if node.active {
+            scan(&rec.active);
+        }
+    }
+    scan(&node.overrides);
+    scan(&node.anim_values);
+    scan(&node.physics_values);
+    opacity
+}
+
 /// Style, overrides and (with `with_anim`) animation tracks, without the
 /// physics layer: the values animations and transitions start from, so a
 /// body's pose never leaks into a view's own animation state.

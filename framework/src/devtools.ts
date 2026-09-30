@@ -25,6 +25,10 @@ export interface DevtoolsTransport {
   recv(): string | null | undefined;
   /** Poll cadence in frames (PSP mailbox IO is a few USB round trips). */
   everyFrames?: number;
+  /** Whether a panel is attached now. Absent means always. While it returns
+   *  false the shim skips tree and stats snapshots; the tree stays dirty, so
+   *  the first frame after a panel attaches sends it. */
+  listening?: () => boolean;
 }
 
 /** Input tape: the complete session input, RLE-encoded (docs/DEVTOOLS.md §4). */
@@ -206,6 +210,7 @@ export function initDevtools(ops: HostOps): void {
       send: (l) => ops.__dbgSend!(l),
       recv: () => ops.__dbgPoll!(),
       everyFrames: 10,
+      listening: ops.__dbgConnected ? () => ops.__dbgConnected!() : undefined,
     };
   } else {
     state.transport = null;
@@ -660,6 +665,7 @@ function handleMessage(line: string): void {
 }
 
 function afterFrame(): void {
+  if (state.transport?.listening && !state.transport.listening()) return;
   if (state.treeDirty && state.frame - state.treeSentAt >= TREE_THROTTLE) {
     sendTree();
   }

@@ -23,12 +23,19 @@ type FrameCallback = (buttons: number) => void;
 
 const callbacks = new Set<FrameCallback>();
 const placedCallbacks = new Map<FrameCallback, NodeMirror>();
+// Registration snapshots a frame iterates. Rebuilt after a registration
+// changes and never mutated once built, so a frame that holds one sees the
+// set frozen at its start.
+let callbackList: FrameCallback[] | null = null;
+let placedList: [FrameCallback, NodeMirror][] | null = null;
 let buttonHandlerBlockDepth = 0;
 
 export function resetFrameHooks(): void {
   resetModelTaskClock();
   callbacks.clear();
   placedCallbacks.clear();
+  callbackList = null;
+  placedList = null;
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
   __resetAxisInput();
@@ -41,34 +48,42 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
   try {
     __beginMotionFrame(motion);
     // Freeze registration before any callback can mount another handler.
-    const frameCallbacks = [...callbacks];
-    const placed = [...placedCallbacks];
+    const frameCallbacks = callbackList ??= [...callbacks];
+    const placed = placedList ??= [...placedCallbacks];
     batch(() => {
       pollModelAnimations(); resumeModelTasks();
-      const pending = new Map<NodeMirror, (() => void)[]>();
+      // Most frames defer nothing: allocate the queue on the first press.
+      let pending: Map<NodeMirror, (() => void)[]> | undefined;
       const enqueue: DeferredPress = (node, invoke) => {
+        pending ??= new Map();
         const entries = pending.get(node);
         if (entries) entries.push(invoke);
         else pending.set(node, [invoke]);
       };
       beforeHooks?.(enqueue);
-      for (const cb of frameCallbacks) cb(buttons);
-      for (const [callback, node] of placed) enqueue(node, () => callback(buttons));
-      resolveInput?.(enqueue);
-      const roots = new Set<NodeMirror>();
-      for (const node of pending.keys()) {
-        if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
-        let root = node;
-        while (root.parent) root = root.parent;
-        roots.add(root);
+      for (let i = 0; i < frameCallbacks.length; i++) frameCallbacks[i](buttons);
+      for (let i = 0; i < placed.length; i++) {
+        const [callback, node] = placed[i];
+        enqueue(node, () => callback(buttons));
       }
-      const ordered: { node: NodeMirror; invoke: () => void }[] = [];
-      const collect = (node: NodeMirror): void => {
-        for (const invoke of pending.get(node) ?? []) ordered.push({ node, invoke });
-        for (const child of node.children) collect(child);
-      };
-      for (const root of roots) collect(root);
-      for (const { node, invoke } of ordered) withRowSnapshot(nodeRow(node), invoke);
+      resolveInput?.(enqueue);
+      if (pending) {
+        const queued = pending;
+        const roots = new Set<NodeMirror>();
+        for (const node of queued.keys()) {
+          if (!(node as NodeMirror & { readonly isConnected: boolean }).isConnected) continue;
+          let root = node;
+          while (root.parent) root = root.parent;
+          roots.add(root);
+        }
+        const ordered: { node: NodeMirror; invoke: () => void }[] = [];
+        const collect = (node: NodeMirror): void => {
+          for (const invoke of queued.get(node) ?? []) ordered.push({ node, invoke });
+          for (const child of node.children) collect(child);
+        };
+        for (const root of roots) collect(root);
+        for (const { node, invoke } of ordered) withRowSnapshot(nodeRow(node), invoke);
+      }
       reactModelRegions();
     });
     flushLifecycleHooks();
@@ -77,10 +92,25 @@ export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[]
 
 function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => void {
   const row = useContext(RowContext);
-  const wrapped: FrameCallback = placement ? callback : buttons => withRowSnapshot(row, () => callback(buttons));
-  if (placement) placedCallbacks.set(wrapped, placement);
-  else callbacks.add(wrapped);
-  const dispose = () => { callbacks.delete(wrapped); placedCallbacks.delete(wrapped); };
+  // Outside a list row there is no snapshot to take, so the wrapper calls
+  // straight through instead of allocating a closure every frame. It stays a
+  // distinct function so registering one callback twice still runs it twice.
+  const wrapped: FrameCallback = placement
+    ? callback
+    : row
+      ? buttons => withRowSnapshot(row, () => callback(buttons))
+      : buttons => callback(buttons);
+  if (placement) {
+    placedCallbacks.set(wrapped, placement);
+    placedList = null;
+  } else {
+    callbacks.add(wrapped);
+    callbackList = null;
+  }
+  const dispose = () => {
+    if (callbacks.delete(wrapped)) callbackList = null;
+    if (placedCallbacks.delete(wrapped)) placedList = null;
+  };
   onCleanup(dispose);
   return dispose;
 }

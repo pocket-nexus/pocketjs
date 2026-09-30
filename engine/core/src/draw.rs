@@ -1186,6 +1186,12 @@ impl<'a> Walker<'a> {
         dl: &mut DrawList,
     ) {
         let node = &self.tree.slots[slot as usize];
+        // A subtree at effective opacity 0 paints nothing; cull it before
+        // resolving the full style and composing its transform. The
+        // inspected node still needs its world box, so it takes the full path.
+        if slot != self.inspect_slot && clampf(opacity * style::resolve_opacity(node, self.styles), 0.0, 1.0) <= 0.0 {
+            return;
+        }
         let r = style::resolve(node, self.styles, true);
         // The provider gate accumulates EXACTLY like layout.rs build() —
         // one shared predicate (Resolved::declares_transform), so the draw
@@ -1443,10 +1449,7 @@ impl<'a> Walker<'a> {
         for (_, item) in items {
             match item {
                 Item3::Quad { pts, color } => {
-                    let poly: Vec<ClipVert> = pts
-                        .iter()
-                        .map(|&(x, y)| ClipVert { x, y, color: unpack(color), u: 0.0, v: 0.0 })
-                        .collect();
+                    let poly = pts.map(|(x, y)| ClipVert { x, y, color: unpack(color), u: 0.0, v: 0.0 });
                     let clipped = sutherland_hodgman(&poly, clip);
                     for i in 1..clipped.len().saturating_sub(1) {
                         emit_tri(dl, &clipped[0], &clipped[i], &clipped[i + 1], clip, self.screen);
@@ -1454,11 +1457,10 @@ impl<'a> Walker<'a> {
                 }
                 Item3::TexMesh { cell_start, cell_end, tex, modulate } => {
                     for cell in &tex_cells[cell_start..cell_end] {
-                        let poly: Vec<ClipVert> = cell.pts
-                            .iter()
-                            .zip(cell.uv.iter())
-                            .map(|(&(x, y), &(u, v))| ClipVert { x, y, color: [255.0; 4], u, v })
-                            .collect();
+                        let poly: [ClipVert; 4] = core::array::from_fn(|i| {
+                            let ((x, y), (u, v)) = (cell.pts[i], cell.uv[i]);
+                            ClipVert { x, y, color: [255.0; 4], u, v }
+                        });
                         let clipped = sutherland_hodgman(&poly, clip);
                         for i in 1..clipped.len().saturating_sub(1) {
                             emit_tex_tri(dl, tex, modulate, &clipped[0], &clipped[i], &clipped[i + 1], clip, self.screen);
@@ -1914,11 +1916,10 @@ impl<'a> Walker<'a> {
             // Rotated: transform corners, Sutherland-Hodgman clip, fan into
             // TRI ops (gouraud carries any gradient through the clip).
             let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
-            let mut poly: Vec<ClipVert> = Vec::with_capacity(8);
-            for (i, &(lx, ly)) in corners.iter().enumerate() {
-                let (sx, sy) = world.apply(lx, ly);
-                poly.push(ClipVert { x: sx, y: sy, color: unpack(corner_color(&fill, i)), u: 0.0, v: 0.0 });
-            }
+            let poly: [ClipVert; 4] = core::array::from_fn(|i| {
+                let (sx, sy) = world.apply(corners[i].0, corners[i].1);
+                ClipVert { x: sx, y: sy, color: unpack(corner_color(&fill, i)), u: 0.0, v: 0.0 }
+            });
             let clipped = sutherland_hodgman(&poly, clip);
             if clipped.len() < 3 {
                 return;
@@ -2672,11 +2673,11 @@ impl<'a> Walker<'a> {
                 (w, h, fu1, fv1),
                 (0.0, h, fu0, fv1),
             ];
-            let mut poly: Vec<ClipVert> = Vec::with_capacity(8);
-            for &(lx, ly, u, v) in corners.iter() {
+            let poly: [ClipVert; 4] = core::array::from_fn(|i| {
+                let (lx, ly, u, v) = corners[i];
                 let (sx, sy) = world.apply(lx, ly);
-                poly.push(ClipVert { x: sx, y: sy, color: [255.0; 4], u, v });
-            }
+                ClipVert { x: sx, y: sy, color: [255.0; 4], u, v }
+            });
             let clipped = sutherland_hodgman(&poly, clip);
             let modulate = scale_alpha(0xffff_ffff, op);
             for i in 1..clipped.len().saturating_sub(1) {
@@ -3068,30 +3069,102 @@ fn emit_tex_tri(
     dl.words.push(modulate);
 }
 
+/// Stack capacity for a clipped polygon: a convex quad gains at most one
+/// vertex per clip edge.
+const CLIP_STACK: usize = 8;
+
+/// A clipped polygon: the input itself when nothing was cut, on the stack for
+/// every quad the walk emits, on the heap only when a pass outgrows
+/// `CLIP_STACK`.
+enum ClipPoly<'a> {
+    Input(&'a [ClipVert]),
+    Stack([ClipVert; CLIP_STACK], usize),
+    Heap(Vec<ClipVert>),
+}
+
+impl core::ops::Deref for ClipPoly<'_> {
+    type Target = [ClipVert];
+
+    fn deref(&self) -> &[ClipVert] {
+        match self {
+            ClipPoly::Input(verts) => verts,
+            ClipPoly::Stack(verts, len) => &verts[..*len],
+            ClipPoly::Heap(verts) => verts,
+        }
+    }
+}
+
 /// Clip a convex polygon against the 4 half-planes of `clip`, interpolating
 /// vertex colors along cut edges.
-fn sutherland_hodgman(poly: &[ClipVert], clip: &Clip) -> Vec<ClipVert> {
-    // edge: (inside predicate, intersection parameter solve)
-    // Encode each edge as (axis, bound, keep_leq): axis 0 = x, 1 = y.
-    let edges: [(usize, f32, bool); 4] = [
+fn sutherland_hodgman<'a>(poly: &'a [ClipVert], clip: &Clip) -> ClipPoly<'a> {
+    // Every vertex inside every half-plane: each pass would copy the polygon
+    // unchanged.
+    if poly.iter().all(|v| v.x >= clip.x0 && v.x <= clip.x1 && v.y >= clip.y0 && v.y <= clip.y1) {
+        return ClipPoly::Input(poly);
+    }
+    let Some(&first) = poly.first() else {
+        return ClipPoly::Input(poly);
+    };
+    if poly.len() > CLIP_STACK {
+        return ClipPoly::Heap(sutherland_hodgman_heap(poly, clip));
+    }
+    // Two buffers, swapped after each pass.
+    let mut bufs = [[first; CLIP_STACK]; 2];
+    bufs[0][..poly.len()].copy_from_slice(poly);
+    let (mut from, mut n) = (0, poly.len());
+    for &(axis, bound, keep_leq) in &clip_edges(clip) {
+        if n == 0 {
+            break;
+        }
+        let coord = |v: &ClipVert| if axis == 0 { v.x } else { v.y };
+        let inside = |v: &ClipVert| if keep_leq { coord(v) <= bound } else { coord(v) >= bound };
+        let (lo, hi) = bufs.split_at_mut(1);
+        let (cur, next) = if from == 0 { (&lo[0], &mut hi[0]) } else { (&hi[0], &mut lo[0]) };
+        let mut m = 0;
+        for i in 0..n {
+            let a = cur[i];
+            let b = cur[(i + 1) % n];
+            let (ia, ib) = (inside(&a), inside(&b));
+            if m + ia as usize + (ia != ib) as usize > CLIP_STACK {
+                return ClipPoly::Heap(sutherland_hodgman_heap(poly, clip));
+            }
+            if ia {
+                next[m] = a;
+                m += 1;
+            }
+            if ia != ib {
+                let da = coord(&a) - bound;
+                let db = coord(&b) - bound;
+                let t = da / (da - db);
+                next[m] = lerp_vert(&a, &b, t);
+                m += 1;
+            }
+        }
+        from ^= 1;
+        n = m;
+    }
+    ClipPoly::Stack(bufs[from], n)
+}
+
+/// Each clip half-plane as (axis, bound, keep_leq): axis 0 = x, 1 = y.
+fn clip_edges(clip: &Clip) -> [(usize, f32, bool); 4] {
+    [
         (0, clip.x0, false), // x >= x0
         (0, clip.x1, true),  // x <= x1
         (1, clip.y0, false), // y >= y0
         (1, clip.y1, true),  // y <= y1
-    ];
+    ]
+}
+
+/// The same clip over growable storage, for a polygon that outgrows the stack.
+fn sutherland_hodgman_heap(poly: &[ClipVert], clip: &Clip) -> Vec<ClipVert> {
     let mut cur: Vec<ClipVert> = poly.to_vec();
-    for &(axis, bound, keep_leq) in &edges {
+    for &(axis, bound, keep_leq) in &clip_edges(clip) {
         if cur.is_empty() {
             break;
         }
         let coord = |v: &ClipVert| if axis == 0 { v.x } else { v.y };
-        let inside = |v: &ClipVert| {
-            if keep_leq {
-                coord(v) <= bound
-            } else {
-                coord(v) >= bound
-            }
-        };
+        let inside = |v: &ClipVert| if keep_leq { coord(v) <= bound } else { coord(v) >= bound };
         let mut next: Vec<ClipVert> = Vec::with_capacity(cur.len() + 1);
         for i in 0..cur.len() {
             let a = cur[i];

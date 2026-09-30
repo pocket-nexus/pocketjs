@@ -96,16 +96,18 @@ fn body_contact(b: &Body, p: V2, r: f32) -> Option<(V2, f32)> {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn collide_bodies(a: &mut Body, b: &mut Body, ha: i32, hb: i32, now: u64, cooldown: u64, events: &mut Events) {
-    let (ma, _) = contact_mass(a);
-    let (mb, _) = contact_mass(b);
-    if ma == 0.0 && mb == 0.0 {
+    // Cheapest rejection first: most pairs are out of reach. The three
+    // checks are independent and side-effect free, so the order is free.
+    let reach = a.cache.radius + b.cache.radius;
+    if !(a.centre().sub(b.centre()).len2() < reach * reach) {
         return;
     }
     if matches!(a.shape, Shape::None) || matches!(b.shape, Shape::None) || !a.solid() || !b.solid() {
         return;
     }
-    let reach = a.cache.radius + b.cache.radius;
-    if !(a.centre().sub(b.centre()).len2() < reach * reach) {
+    let (ma, _) = contact_mass(a);
+    let (mb, _) = contact_mass(b);
+    if ma == 0.0 && mb == 0.0 {
         return;
     }
     let circles = matches!(a.cache.shape, Shape::Circle { .. }) && matches!(b.cache.shape, Shape::Circle { .. });
@@ -242,8 +244,16 @@ fn geo_circle(geo: &Geometry, p: V2, r: f32) -> Option<(V2, f32)> {
                 return None;
             }
             let mut best: Option<(V2, f32)> = None;
+            // The closest point lies inside the segment's box, so a point
+            // farther than the contact reach from that box cannot touch it.
+            // The extra pixel covers sqrtf's rounding: a skipped segment is
+            // one the exact test below would also have passed over.
+            let reach = geo.r + r + 1.0;
             for i in 0..geo.segments() {
                 let (a, b) = geo.segment(i);
+                if p.x < a.x.min(b.x) - reach || p.x > a.x.max(b.x) + reach || p.y < a.y.min(b.y) - reach || p.y > a.y.max(b.y) + reach {
+                    continue;
+                }
                 let ab = b.sub(a);
                 let l2 = ab.len2();
                 let t = if l2 > 0.0 { clampf(p.sub(a).dot(ab) / l2, 0.0, 1.0) } else { 0.0 };

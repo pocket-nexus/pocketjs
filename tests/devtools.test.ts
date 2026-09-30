@@ -270,6 +270,37 @@ describe("tree + semantic names", () => {
   });
 });
 
+describe("listening", () => {
+  function mountQuiet(isListening: () => boolean): void {
+    g.__pocketDevtoolsTransport = {
+      send: (l: string) => outbox.push(l),
+      recv: () => (inbox.length ? inbox.shift() : null),
+      listening: isListening,
+    };
+    mountApp(() => View({ debugName: "Scene", children: Text({ children: "idle" }) }));
+  }
+
+  test("snapshots wait for a panel; the dirty tree goes out on the first frame after one attaches", () => {
+    let listening = false;
+    mountQuiet(() => listening);
+    for (let i = 0; i < 90; i++) frame();
+    expect(sent("tree")).toHaveLength(0);
+    expect(sent("stats")).toHaveLength(0);
+
+    listening = true;
+    frame();
+    expect(sent("tree")).toHaveLength(1);
+  });
+
+  test("an explicit getTree is answered while nobody listens for snapshots", () => {
+    mountQuiet(() => false);
+    frame();
+    push({ t: "getTree" });
+    frame();
+    expect(sent("tree")).toHaveLength(1);
+  });
+});
+
 describe("pause / step / resume", () => {
   test("pause freezes app frames, step runs exactly one, resume continues", () => {
     let ran = 0;

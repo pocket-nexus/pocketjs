@@ -41,7 +41,7 @@ import {
 import { setOverlayRoot } from "./overlay.ts";
 import { mountAuxiliarySurface, unmountAuxiliarySurface } from "./display.ts";
 import { registerStyles, resolveStyle } from "./styles.ts";
-import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferredPress } from "./input.ts";
+import { handleFrame, setAuxiliaryHitRoot, setHitRoot, setInputRoot, withDeferredPress, type DeferredPress } from "./input.ts";
 import { __runGestures, resetGestures } from "./gesture.ts";
 import { installTouchActivation } from "./touch-activation.ts";
 import { __setAnalog, resetFrameHooks, runFrameHooks } from "./frame.ts";
@@ -177,6 +177,9 @@ export function resizeViewport(w: number, h: number): void {
  * pak (zero QuickJS transit); on injected hosts (web/test) render() pushes
  * them through ops.loadStyles/loadFontAtlas here.
  */
+
+/** Gesture recognition for one frame's deferred presses; shared across frames. */
+const runDeferredGestures = (defer: DeferredPress): void => withDeferredPress(defer, __runGestures);
 export function render(code: () => unknown, opts: RenderOptions = {}): () => void {
   const host = detectHost(opts.ops);
   installHost(host);
@@ -290,7 +293,7 @@ export function render(code: () => unknown, opts: RenderOptions = {}): () => voi
       __drainEffects(); // frame-boundary deliveries enter the world first
       runFrameHooks(buttons, axisDeltas,
         defer => handleFrame(buttons, defer),
-        defer => withDeferredPress(defer, __runGestures), motion);
+        runDeferredGestures, motion);
       runSweep(); // then destroy subtrees still detached [R]
     }),
   );

@@ -221,6 +221,9 @@ export interface HostOps {
   debugStep?(): void;
   /** Native DevTools transport (PSP mailbox or paired 3DS TCP connection). */
   __dbgActive?(): boolean;
+  /** Whether a DevTools client is connected now (3DS). Hosts without it keep
+   *  sending snapshots whenever the transport exists. */
+  __dbgConnected?(): boolean;
   __dbgPoll?(): string | undefined;
   __dbgSend?(line: string): void;
   /** On-demand native screenshot. The host transports bulk pixels outside
