@@ -19,9 +19,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "dev_protocol.h"
+#include "native.h"
 #include "soc.h"
 
 #ifndef POCKETJS_HOST_ABI
@@ -68,6 +70,9 @@ static uint32_t upload_received;
 static uint64_t upload_hash;
 static bool upload_ready;
 static bool packages_allowed = true;
+
+static bool launch_requested;
+static char launch_path[POCKET_NATIVE_PATH_BYTES];
 
 static bool screenshot_requested;
 static bool screenshot_ready;
@@ -174,6 +179,7 @@ static void disconnect_client(void) {
   screenshot_requested = false;
   devserver_screenshot_cancel();
   if (upload_file != NULL && !upload_ready) close_upload();
+  if (native_receiving()) native_abort();
 }
 
 static bool set_nonblocking(int fd) {
@@ -439,6 +445,23 @@ void devserver_report_install(const char *phase, uint64_t hash, const char *mess
   devserver_send_ctrl(line, strlen(line));
 }
 
+void devserver_report_native(const char *phase, const char *name, const char *message) {
+  char escaped_name[96] = {0};
+  char escaped[384] = {0};
+  char line[640];
+  json_escape(escaped_name, sizeof escaped_name, name == NULL ? "" : name);
+  json_escape(escaped, sizeof escaped, message == NULL ? "" : message);
+  snprintf(
+    line,
+    sizeof line,
+    "{\"t\":\"runtime.native\",\"phase\":\"%s\",\"name\":\"%s\",\"message\":\"%s\"}",
+    phase == NULL ? "unknown" : phase,
+    escaped_name,
+    escaped
+  );
+  devserver_send_ctrl(line, strlen(line));
+}
+
 void devserver_report_log(const char *level, const char *message) {
   char escaped[448] = {0};
   char line[560];
@@ -685,6 +708,77 @@ static void handle_package_commit(void) {
   devserver_report_install("received", upload_hash, "binary package transfer complete");
 }
 
+static void request_launch(const char *path) {
+  snprintf(launch_path, sizeof launch_path, "%s", path);
+  launch_requested = true;
+}
+
+static void handle_native_begin(const uint8_t *payload, size_t length) {
+  PocketRuntimeNativeBegin begin;
+  char error[160] = {0};
+  if (!pocket_runtime_parse_native_begin(payload, length, &begin)) {
+    native_abort();
+    devserver_report_native("transfer-error", "", "invalid .3dsx begin frame");
+    return;
+  }
+  if (!native_begin(&begin, error, sizeof error)) {
+    devserver_report_native("transfer-error", begin.name, error);
+    return;
+  }
+  devserver_report_native("receiving", begin.name, ".3dsx transfer started");
+}
+
+static void handle_native_chunk(const uint8_t *payload, size_t length) {
+  char error[160] = {0};
+  const char *name = native_receiving_name();
+  if (!native_receiving() || length <= 4) {
+    native_abort();
+    devserver_report_native("transfer-error", name, ".3dsx chunk arrived without an active transfer");
+    return;
+  }
+  if (!native_write(pocket_runtime_read_u32(payload), payload + 4, length - 4, error, sizeof error)) {
+    devserver_report_native("transfer-error", name, error);
+  }
+}
+
+static void handle_native_commit(void) {
+  NativeInstall install;
+  char error[160] = {0};
+  const char *name = native_receiving_name();
+  char receiving[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
+  snprintf(receiving, sizeof receiving, "%s", name);
+  if (!native_commit(&install, error, sizeof error)) {
+    devserver_report_native("rejected", receiving, error);
+    return;
+  }
+  uploads += 1;
+  if (install.deferred) {
+    devserver_report_native(
+      "staged",
+      install.name,
+      install.launch ? "replaces the running .3dsx; installs as it exits" : "replaces the running .3dsx; installs when it next exits"
+    );
+  } else {
+    devserver_report_native("installed", install.name, install.path);
+  }
+  if (install.launch) request_launch(install.path);
+}
+
+static void handle_launch(const uint8_t *payload, size_t length) {
+  char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
+  char path[POCKET_NATIVE_PATH_BYTES];
+  struct stat info;
+  if (!pocket_runtime_parse_launch(payload, length, name) || !native_path_for(name, path)) {
+    devserver_report_native("launch-error", "", "invalid launch frame");
+    return;
+  }
+  if (stat(path, &info) != 0) {
+    devserver_report_native("launch-error", name, "no such .3dsx under sdmc:/3ds");
+    return;
+  }
+  request_launch(path);
+}
+
 static void handle_frame(uint8_t type, uint8_t flags, const uint8_t *payload, size_t length) {
   if (flags != 0) {
     disconnect_client();
@@ -716,6 +810,26 @@ static void handle_frame(uint8_t type, uint8_t flags, const uint8_t *payload, si
       break;
     case POCKET_RUNTIME_MSG_PACKAGE_ABORT:
       abort_upload("host aborted package transfer");
+      break;
+    case POCKET_RUNTIME_MSG_NATIVE_BEGIN:
+      handle_native_begin(payload, length);
+      break;
+    case POCKET_RUNTIME_MSG_NATIVE_CHUNK:
+      handle_native_chunk(payload, length);
+      break;
+    case POCKET_RUNTIME_MSG_NATIVE_COMMIT:
+      if (length == 0) handle_native_commit();
+      else {
+        native_abort();
+        devserver_report_native("transfer-error", native_receiving_name(), ".3dsx commit payload must be empty");
+      }
+      break;
+    case POCKET_RUNTIME_MSG_NATIVE_ABORT:
+      if (native_receiving()) devserver_report_native("transfer-error", native_receiving_name(), "host aborted .3dsx transfer");
+      native_abort();
+      break;
+    case POCKET_RUNTIME_MSG_LAUNCH:
+      handle_launch(payload, length);
       break;
     case POCKET_RUNTIME_MSG_STATUS_REQUEST:
       if (length == 0) send_status();
@@ -758,7 +872,7 @@ static void receive_client(void) {
       accepted ? 0 : 2,
       POCKETJS_HOST_ABI,
       runtime_state.generation,
-      initialized ? 1u : 0u,
+      (initialized ? POCKET_RUNTIME_ACK_FLAG_LISTENING : 0u) | POCKET_RUNTIME_ACK_FLAG_NATIVE,
       runtime_state.active_hash
     );
     memmove(rx_buffer, rx_buffer + POCKET_RUNTIME_HELLO_BYTES, rx_length - POCKET_RUNTIME_HELLO_BYTES);
@@ -934,6 +1048,21 @@ size_t devserver_recv_ctrl(char *out, size_t capacity) {
   memmove(ctrl_input, ctrl_input + length, ctrl_input_length - length);
   ctrl_input_length -= length;
   return length;
+}
+
+bool devserver_take_launch(char *path, size_t capacity) {
+  if (!launch_requested || path == NULL || capacity == 0) return false;
+  launch_requested = false;
+  snprintf(path, capacity, "%s", launch_path);
+  return true;
+}
+
+void devserver_flush(uint32_t timeout_ms) {
+  uint64_t deadline = osGetTime() + timeout_ms;
+  while (devserver_connected() && tx_offset < tx_length && osGetTime() < deadline) {
+    send_client();
+    svcSleepThread(1000000LL);
+  }
 }
 
 bool devserver_take_upload(uint64_t *declared_hash) {

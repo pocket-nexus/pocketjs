@@ -66,6 +66,14 @@ void devserver_report_install(
 );
 void devserver_report_log(const char *level, const char *message);
 
+/* .3dsx files (src/native.c). An install or a LAUNCH message that asks to
+ * start a .3dsx leaves its path here; the caller hands it to hb:ldr and exits
+ * its loop. Receipts are {"t":"runtime.native",...} control records. */
+bool devserver_take_launch(char *path, size_t capacity);
+void devserver_report_native(const char *phase, const char *name, const char *message);
+/* Send what is queued before the process exits, for at most timeout_ms. */
+void devserver_flush(uint32_t timeout_ms);
+
 /* Current runtime facts are cached for connect/status/debugStats receipts. */
 void devserver_set_runtime(
   const PocketRuntimeState *state,

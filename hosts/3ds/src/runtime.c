@@ -359,6 +359,26 @@ bool runtime_commit(
   return true;
 }
 
+bool runtime_note_embedded(uint64_t embedded_hash) {
+  const char *path = POCKET_RUNTIME_APP_ROOT "/embedded.txt";
+  const char *temporary = POCKET_RUNTIME_APP_ROOT "/.embedded.txt.tmp";
+  unsigned long long recorded = 0;
+  FILE *file = fopen(path, "rb");
+  if (file != NULL) {
+    if (fscanf(file, "%16llx", &recorded) != 1) recorded = 0;
+    fclose(file);
+  }
+  if (file != NULL && recorded == embedded_hash) return false;
+  file = fopen(temporary, "wb");
+  if (file != NULL) {
+    bool written = fprintf(file, "%016llx\n", (unsigned long long)embedded_hash) > 0;
+    if (fclose(file) != 0) written = false;
+    remove(path);
+    if (!written || rename(temporary, path) != 0) remove(temporary);
+  }
+  return true;
+}
+
 static void write_report(const char *name, const char *text) {
   char path[192];
   char temporary[192];

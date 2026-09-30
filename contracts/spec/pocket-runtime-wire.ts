@@ -25,6 +25,15 @@ export const POCKET_RUNTIME_MAX_CTRL_BYTES = 16 * 1024;
 export const POCKET_RUNTIME_PACKAGE_BEGIN_BYTES = 12;
 export const POCKET_RUNTIME_SCREENSHOT_BEGIN_BYTES = 24;
 export const POCKET_RUNTIME_SCREENSHOT_FORMAT_ROTATED_RGB8 = 1;
+/** Ack flags: the listener is up; the Runtime installs and launches .3dsx files. */
+export const POCKET_RUNTIME_ACK_FLAG_LISTENING = 1;
+export const POCKET_RUNTIME_ACK_FLAG_NATIVE = 2;
+/** A .3dsx travels under a bare file name and lands at sdmc:/3ds/<name>. */
+export const POCKET_RUNTIME_NATIVE_NAME_BYTES = 64;
+export const POCKET_RUNTIME_NATIVE_BEGIN_BYTES = 12 + POCKET_RUNTIME_NATIVE_NAME_BYTES;
+export const POCKET_RUNTIME_LAUNCH_BYTES = 4 + POCKET_RUNTIME_NATIVE_NAME_BYTES;
+export const POCKET_RUNTIME_NATIVE_MAX_BYTES = 32 * 1024 * 1024;
+export const POCKET_RUNTIME_NATIVE_FLAG_LAUNCH = 1;
 
 export const POCKET_RUNTIME_MSG = {
   ping: 0x01,
@@ -34,6 +43,11 @@ export const POCKET_RUNTIME_MSG = {
   packageChunk: 0x21,
   packageCommit: 0x22,
   packageAbort: 0x23,
+  nativeBegin: 0x24,
+  nativeChunk: 0x25,
+  nativeCommit: 0x26,
+  nativeAbort: 0x27,
+  launch: 0x28,
   screenshotBegin: 0x30,
   screenshotChunk: 0x31,
   screenshotEnd: 0x32,
@@ -223,6 +237,70 @@ export function encodePocketRuntimePackageChunk(
   view(payload).setUint32(0, offset, true);
   payload.set(bytes, 4);
   return payload;
+}
+
+/** 1..64 bytes of [A-Za-z0-9._-], ending in ".3dsx", not starting with a dot:
+ *  one file directly under sdmc:/3ds/. */
+export function pocketRuntimeNativeNameValid(name: string): boolean {
+  return name.length <= POCKET_RUNTIME_NATIVE_NAME_BYTES &&
+    /^[A-Za-z0-9_-][A-Za-z0-9._-]*\.3dsx$/i.test(name);
+}
+
+function nativeNameBytes(name: string): Uint8Array {
+  if (!pocketRuntimeNativeNameValid(name)) {
+    throw new Error(`"${name}" is not a .3dsx file name the Runtime accepts`);
+  }
+  return new TextEncoder().encode(name);
+}
+
+/** u32 length, u32 CRC-32, u8 flags, u8 name length, u16 zero, 64 name bytes. */
+export function encodePocketRuntimeNativeBegin(
+  length: number,
+  crc32: number,
+  name: string,
+  flags = 0,
+): Uint8Array {
+  if (!Number.isSafeInteger(length) || length <= 0 || length > POCKET_RUNTIME_NATIVE_MAX_BYTES) {
+    throw new Error("Pocket Runtime .3dsx length is outside the 32 MiB limit");
+  }
+  if ((flags & ~POCKET_RUNTIME_NATIVE_FLAG_LAUNCH) !== 0) {
+    throw new Error("Pocket Runtime .3dsx flags are unknown");
+  }
+  const encoded = nativeNameBytes(name);
+  const bytes = new Uint8Array(POCKET_RUNTIME_NATIVE_BEGIN_BYTES);
+  const data = view(bytes);
+  data.setUint32(0, length, true);
+  data.setUint32(4, crc32 >>> 0, true);
+  data.setUint8(8, flags);
+  data.setUint8(9, encoded.length);
+  bytes.set(encoded, 12);
+  return bytes;
+}
+
+/** u8 name length, three zero bytes, 64 name bytes. */
+export function encodePocketRuntimeLaunch(name: string): Uint8Array {
+  const encoded = nativeNameBytes(name);
+  const bytes = new Uint8Array(POCKET_RUNTIME_LAUNCH_BYTES);
+  bytes[0] = encoded.length;
+  bytes.set(encoded, 4);
+  return bytes;
+}
+
+let crcTable: Uint32Array | null = null;
+
+/** zlib's CRC-32, the check the Runtime applies to a .3dsx transfer. */
+export function pocketRuntimeCrc32(bytes: Uint8Array): number {
+  if (!crcTable) {
+    crcTable = new Uint32Array(256);
+    for (let index = 0; index < 256; index += 1) {
+      let value = index;
+      for (let bit = 0; bit < 8; bit += 1) value = (value >>> 1) ^ (0xedb88320 & -(value & 1));
+      crcTable[index] = value >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 export function decodePocketRuntimeScreenshotBegin(

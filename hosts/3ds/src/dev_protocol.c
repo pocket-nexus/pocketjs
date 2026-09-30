@@ -117,6 +117,88 @@ bool pocket_runtime_parse_package_begin(
   return true;
 }
 
+bool pocket_runtime_native_name_valid(const char *name, size_t length) {
+  static const char suffix[] = ".3dsx";
+  const size_t suffix_length = sizeof suffix - 1;
+  if (name == NULL || length <= suffix_length || length > POCKET_RUNTIME_NATIVE_NAME_BYTES) {
+    return false;
+  }
+  if (name[0] == '.') return false;
+  for (size_t index = 0; index < length; index += 1) {
+    char c = name[index];
+    bool allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                   (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+    if (!allowed) return false;
+  }
+  for (size_t index = 0; index < suffix_length; index += 1) {
+    char c = name[length - suffix_length + index];
+    if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    if (c != suffix[index]) return false;
+  }
+  return true;
+}
+
+static bool parse_native_name(
+  const uint8_t *bytes,
+  uint8_t length,
+  char out[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1]
+) {
+  if (length > POCKET_RUNTIME_NATIVE_NAME_BYTES) return false;
+  for (size_t index = length; index < POCKET_RUNTIME_NATIVE_NAME_BYTES; index += 1) {
+    if (bytes[index] != 0) return false;
+  }
+  memcpy(out, bytes, length);
+  out[length] = '\0';
+  return pocket_runtime_native_name_valid(out, length);
+}
+
+bool pocket_runtime_parse_native_begin(
+  const uint8_t *bytes,
+  size_t length,
+  PocketRuntimeNativeBegin *out
+) {
+  if (bytes == NULL || out == NULL || length != POCKET_RUNTIME_NATIVE_BEGIN_BYTES) return false;
+  memset(out, 0, sizeof *out);
+  out->length = pocket_runtime_read_u32(bytes);
+  out->crc32 = pocket_runtime_read_u32(bytes + 4);
+  out->flags = bytes[8];
+  if (out->length == 0 || out->length > POCKET_RUNTIME_NATIVE_MAX_BYTES ||
+      (out->flags & ~POCKET_RUNTIME_NATIVE_FLAG_LAUNCH) != 0 ||
+      pocket_runtime_read_u16(bytes + 10) != 0) {
+    return false;
+  }
+  return parse_native_name(bytes + 12, bytes[9], out->name);
+}
+
+bool pocket_runtime_parse_launch(
+  const uint8_t *bytes,
+  size_t length,
+  char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1]
+) {
+  if (bytes == NULL || name == NULL || length != POCKET_RUNTIME_LAUNCH_BYTES) return false;
+  if (bytes[1] != 0 || bytes[2] != 0 || bytes[3] != 0) return false;
+  return parse_native_name(bytes + 4, bytes[0], name);
+}
+
+uint32_t pocket_runtime_crc32(uint32_t crc, const uint8_t *bytes, size_t length) {
+  /* A byte table: chunks are checked on the render thread between frames. */
+  static uint32_t table[256];
+  static bool table_ready;
+  if (!table_ready) {
+    for (uint32_t index = 0; index < 256; index += 1) {
+      uint32_t value = index;
+      for (int bit = 0; bit < 8; bit += 1) value = (value >> 1) ^ (0xedb88320u & (0u - (value & 1u)));
+      table[index] = value;
+    }
+    table_ready = true;
+  }
+  crc = ~crc;
+  for (size_t index = 0; index < length; index += 1) {
+    crc = table[(crc ^ bytes[index]) & 0xffu] ^ (crc >> 8);
+  }
+  return ~crc;
+}
+
 void pocket_runtime_encode_screenshot_begin(
   uint8_t out[POCKET_RUNTIME_SCREENSHOT_BEGIN_BYTES],
   uint32_t frame,

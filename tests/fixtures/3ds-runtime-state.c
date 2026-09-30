@@ -152,5 +152,15 @@ int main(int argc, char **argv) {
   ) == RUNTIME_PENDING_ERROR);
   assert(mismatch == NULL && exists(network));
   assert(strstr(error, "does not match declared") != NULL);
+
+  /* The first boot beside an embedded package, and every boot after a .3dsx
+   * with a different one was installed, reports an install exactly once. */
+  const char *embedded_record = POCKET_RUNTIME_APP_ROOT "/embedded.txt";
+  assert(!exists(embedded_record));
+  assert(runtime_note_embedded(0x1111222233334444ULL));
+  assert(exists(embedded_record));
+  assert(!runtime_note_embedded(0x1111222233334444ULL));
+  assert(runtime_note_embedded(0x5555666677778888ULL));
+  assert(!runtime_note_embedded(0x5555666677778888ULL));
   return 0;
 }

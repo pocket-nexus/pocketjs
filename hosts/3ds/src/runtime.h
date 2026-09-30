@@ -94,6 +94,15 @@ RuntimePendingResult runtime_prepare_file(
   size_t error_length
 );
 
+/*
+ * The slot records the embedded package it last booted beside
+ * (embedded.txt). Returns true, and records the new hash, when this .3dsx
+ * embeds a different package: it was installed since, and its guest boots in
+ * place of the active package once, so a pushed guest never shadows an
+ * install. A missing record counts as a change.
+ */
+bool runtime_note_embedded(uint64_t embedded_hash);
+
 /* Append one power-loss-safe state generation after a guest frame is accepted. */
 bool runtime_commit(
   PocketRuntimeState *state,

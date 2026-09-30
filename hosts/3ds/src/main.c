@@ -36,6 +36,8 @@
 #include "media.h"
 #include "devserver.h"
 #include "devmenu.h"
+#include "hbldr.h"
+#include "native.h"
 #include "runtime.h"
 #include "soc.h"
 #include "svcwire.h"
@@ -72,6 +74,10 @@
  * corrupts the stack here. libctru reads this symbol at startup.
  */
 unsigned int __stacksize__ = 1024 * 1024;
+
+/* libctru's argument vector: argv[0] is this .3dsx under the Homebrew Launcher. */
+extern int __system_argc;
+extern char **__system_argv;
 
 static C3D_RenderTarget *primary_target;
 static C3D_RenderTarget *auxiliary_target;
@@ -483,6 +489,9 @@ static GuestChoice startup_choice(
   return package_choice(embedded, 0, state);
 #else
   char error[256] = {0};
+  /* Recorded before anything else boots, so a pending package accepted this
+   * run is not replaced by the embedded one on the next. */
+  bool installed = runtime_note_embedded(embedded->guest.package_hash);
   PocketRuntimePackage *pending = NULL;
   RuntimePendingResult pending_result = runtime_prepare_pending(
     &pending,
@@ -495,6 +504,8 @@ static GuestChoice startup_choice(
   if (pending_result == RUNTIME_PENDING_ERROR) {
     runtime_write_error("prepare-pending", error);
   }
+  /* A newly installed .3dsx runs the guest it carries, not an older push. */
+  if (installed && state->active_hash != 0) return package_choice(embedded, 0, state);
   if (state->active_hash != 0) {
     PocketRuntimePackage *active = runtime_package_load_hash(
       state->active_hash,
@@ -722,6 +733,7 @@ int main(void) {
   if (!runtime_storage_init(&runtime_state, runtime_error, sizeof runtime_error)) {
     fail(runtime_error);
   }
+  native_set_running_path(__system_argc > 0 ? __system_argv[0] : NULL);
   DevserverInitResult devserver_result = devserver_init(
     &runtime_state,
     runtime_error,
@@ -811,6 +823,19 @@ int main(void) {
     }
     devserver_poll();
     svcwire_pump();
+    {
+      /* An installed or named .3dsx starts when this process exits: the same
+       * hand-off the Homebrew Launcher makes, so the loop ends here. */
+      char launch_path[POCKET_NATIVE_PATH_BYTES];
+      if (devserver_take_launch(launch_path, sizeof launch_path)) {
+        if (hbldr_launch_on_exit(launch_path, runtime_error, sizeof runtime_error)) {
+          devserver_report_native("launching", launch_path, "exiting to start it");
+          devserver_flush(1000);
+          break;
+        }
+        devserver_report_native("launch-error", launch_path, runtime_error);
+      }
+    }
     if (input_devmenu_toggle_requested()) devmenu_toggle();
     if (devmenu_visible() && input_devmenu_close_requested()) devmenu_hide();
     if (devmenu_visible() && input_devmenu_screenshot_requested()) {
@@ -1096,6 +1121,15 @@ int main(void) {
 #endif
   gfx_shutdown();
   romfsExit();
+#if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
+  /* A transfer that replaced this .3dsx was staged: ROMFS read from it. */
+  if (native_exit_pending()) {
+    char native_error[192] = {0};
+    if (!native_finish_exit(native_error, sizeof native_error)) {
+      runtime_write_error("native-install", native_error);
+    }
+  }
+#endif
   C3D_Fini();
   gfxExit();
   return 0;
