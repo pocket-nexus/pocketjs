@@ -527,6 +527,7 @@ describe("semantic resolution", () => {
       chrome: [true, true, false, true],
       clear: [false, false, false, false], // admitted only by the private ipodtouch4-dev profile (fixed 320x480 portrait touch surface)
       cursor: [true, true, false, true],
+      devkit: [true, true, false, true],
       gallery: [true, true, false, true],
       "gba-hero": [false, false, false, false], // built by hosts/gba/build.ts; no public profile hosts its fixed 240x160 viewport
       hero: [true, true, true, true],

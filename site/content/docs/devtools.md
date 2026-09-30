@@ -30,7 +30,8 @@ server connects to the panel on load.
 ## PS Vita USB runtime
 
 **Vita builds include a USB debug worker and a native L+R+SELECT menu.**
-`bun run vita:dev serve --app hero` connects the wired host;
+Pocket Devkit (`apps/devkit`) is the container installed on the console.
+`bun run vita:dev serve --app devkit` connects the wired host;
 `push` rebuilds and reloads JS/resources, `native` replaces the compiled SELF,
 and `capture` retrieves a **960 × 544 GXM framebuffer** with its build and
 frame identity. The native menu remains available after a guest exception.

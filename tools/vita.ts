@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { createHash, randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
+import { dirname, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   FRAMEWORKS,
@@ -325,12 +325,21 @@ if (usbDebug) {
 }
 
 await $`${vitasdk}/bin/vita-mksfoex -d ATTRIBUTE2=12 -s TITLE_ID=${titleId} ${packageTitle} ${sfo}`;
+// An app's `vita/` directory (VPK-relative paths, e.g. sce_sys/icon0.png)
+// overlays the framework's LiveArea defaults.
+const entryFile = stockDemo
+  ? resolvePath(pspUiDir, `apps/${stockDemoName}/main.tsx`)
+  : buildPlan
+    ? resolvePath(projectRoot, buildPlan.app.entry)
+    : undefined;
+const vitaAssets = entryFile ? resolvePath(dirname(entryFile), "vita") : undefined;
 await packageVitaVpk({
   tool: `${vitasdk}/bin/vita-pack-vpk`,
   sfo,
   eboot,
   output: vpk,
   usbDriver: usb?.driver,
+  applicationAssets: vitaAssets && existsSync(vitaAssets) ? vitaAssets : undefined,
 });
 
 const packagedDirectory = packageOutputDir ?? resolvePath(outputDir, "vita");

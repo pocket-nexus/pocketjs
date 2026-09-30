@@ -14,6 +14,17 @@ Successful USB status exchanges reset the display and automatic-suspend idle
 timers. Manual suspend remains available; disconnected apps keep the system's
 idle behavior.
 
+## Pocket Devkit
+
+**Pocket Devkit (`apps/devkit`, title `P3B1D7273`) is the development
+container.** Install its VPK once. Its screen waits for a build over USB;
+`push` replaces its JS/PAK guest and `native` runs another project's native
+build from its inactive slot. A native build addresses the container through
+its title: build it with `POCKETJS_VITA_TITLE_ID=P3B1D7273` (the variable
+`tools/vita.ts` sets from the app ID) and pass that build's `.runtime.json`
+to `native`. The LiveArea art is in `apps/devkit/vita/`; `tools/vita.ts`
+overlays an app's `vita/` directory on the framework defaults.
+
 ## First installation
 
 The computer needs VitaSDK, CMake, a C compiler, Bun, and Rust
@@ -24,22 +35,22 @@ The first build downloads the pinned USBHostFS source. Later builds use
 are recorded in `tools/vita-usb/`.
 
 ```sh
-bun run vita:dev build --app hero
+bun run vita:dev build --app devkit
 # In VitaShell, enter USB storage mode.
-bun run vita:dev install --app hero --mount /Volumes/PSV
+bun run vita:dev install --app devkit --mount /Volumes/PSV
 ```
 
-`install` copies `hero-main.vpk` to `ux0:data/pocketjs-dev/` and compares its
+`install` copies `devkit-main.vpk` to `ux0:data/pocketjs-dev/` and compares its
 SHA-256 with the source. Eject the storage volume, exit VitaShell's transfer
-mode, install the VPK, and open Pocket Hero from LiveArea. A successful copy
+mode, install the VPK, and open Pocket Devkit from LiveArea. A successful copy
 does not establish that the app has launched.
 
 ```sh
 # Keep this process running in one terminal.
-bun run vita:dev serve --app hero
+bun run vita:dev serve --app devkit
 # Other terminals:
-bun run vita:dev status --app hero
-bun run vita:dev capture --app hero
+bun run vita:dev status --app devkit
+bun run vita:dev capture --app devkit
 ```
 
 The device enumerates as **`054c:0f01`**, an experimental development ID used
@@ -88,10 +99,10 @@ identify the cause of a shutdown.
 ## JS and resource updates
 
 ```sh
-bun run vita:dev push --app hero
-bun run vita:dev watch --app hero
+bun run vita:dev push --app devkit
+bun run vita:dev watch --app devkit
 # Or send an existing target-correct package:
-bun run vita:dev push --app hero --package dist/hero-main.pocket
+bun run vita:dev push --app devkit --package dist/devkit-main.pocket
 ```
 
 `push` compiles JS/PAK from the runtime's resolved build plan and sends one
@@ -119,8 +130,8 @@ that guest before pushing.
 ## Native and JS replacement
 
 ```sh
-bun run vita:dev build --app hero
-bun run vita:dev native --app hero
+bun run vita:dev build --app devkit
+bun run vita:dev native --app devkit
 ```
 
 The build emits a VPK, SELF, and `.runtime.json` together. The native command
@@ -151,10 +162,10 @@ the development session and reboot before starting Pocket Runtime.
 ## Captures and acceptance
 
 ```sh
-bun run vita:dev menu --app hero
-bun run vita:dev capture --app hero --out .pocket-build/validation/vita-usb/manual/frame.png
-bun run vita:dev reload --app hero
-bun run vita:dev reset --app hero
+bun run vita:dev menu --app devkit
+bun run vita:dev capture --app devkit --out .pocket-build/validation/vita-usb/manual/frame.png
+bun run vita:dev reload --app devkit
+bun run vita:dev reset --app devkit
 ```
 
 **Captures read the 960 × 544 GXM render buffer after GPU completion.** The

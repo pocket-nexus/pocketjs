@@ -15,7 +15,8 @@ function value(flag: string): string | undefined {
   const i = args.indexOf(flag);
   return i < 0 ? undefined : args[i + 1];
 }
-const app = value("--app") ?? "hero";
+// Pocket Devkit (apps/devkit) is the installed development container.
+const app = value("--app") ?? "devkit";
 const output = app.endsWith("-main") ? app : `${app}-main`;
 const metadataPath = resolve(value("--runtime") ?? join(ROOT, "dist/vita", `${output}.runtime.json`));
 function metadata(): any { return JSON.parse(readFileSync(metadataPath, "utf8")); }
@@ -41,15 +42,15 @@ function capture(client: VitaUsbClient, receipt: any, stem = receipt.requestId):
 async function main(): Promise<void> {
   if (!command || args.includes("--help")) {
     console.log(`Vita wired debugging (no Wi-Fi fallback)
-  bun run vita:dev build   --app hero
-  bun run vita:dev install --app hero --mount /Volumes/PSV
-  bun run vita:dev serve   --app hero
-  bun run vita:dev status  --app hero
-  bun run vita:dev push    --app hero [--package file.pocket]
-  bun run vita:dev native  --app hero [--runtime file.runtime.json]
-  bun run vita:dev capture --app hero [--out frame.png]
-  bun run vita:dev reload|reset|menu --app hero
-  bun run vita:dev watch   --app hero
+  bun run vita:dev build   --app devkit
+  bun run vita:dev install --app devkit --mount /Volumes/PSV
+  bun run vita:dev serve   --app devkit
+  bun run vita:dev status  --app devkit
+  bun run vita:dev push    --app devkit [--package file.pocket]
+  bun run vita:dev native  --app devkit [--runtime file.runtime.json]
+  bun run vita:dev capture --app devkit [--out frame.png]
+  bun run vita:dev reload|reset|menu --app devkit
+  bun run vita:dev watch   --app devkit
 Use --title TITLEID to address a runtime and --dir to select the USB share.
 Install stages a VPK over USB mass storage; install/open it once in VitaShell.
 serve then owns the USB host. push rebuilds JS/PAK; native sends the SELF and
