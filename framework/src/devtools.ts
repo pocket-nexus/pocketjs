@@ -68,17 +68,77 @@ export interface Tape {
 const TAPE_CAP = 36000;
 const TOUCH_CHUNK_BITS = 7;
 const TOUCH_CHUNK_SIZE = 1 << TOUCH_CHUNK_BITS;
-type TouchRing = ((number[] | null)[] | undefined)[];
+interface TouchPage {
+  /** Zero is absent; length + 1 also preserves an explicit empty surface lane. */
+  sizes: Uint8Array;
+  words: Float64Array | Uint8Array;
+  stride: number;
+  occupied: number;
+}
+interface TouchRing {
+  pages: (TouchPage | undefined)[];
+  pageCount: number;
+  surfaces: boolean;
+}
 
-function writeTouch(ring: TouchRing, at: number, value: number[] | null): void {
+function createTouchRing(surfaces = false): TouchRing {
+  return { pages: [], pageCount: 0, surfaces };
+}
+
+function writeTouch(ring: TouchRing, at: number, value: readonly number[] | null, limit: number): void {
   const page = at >>> TOUCH_CHUNK_BITS;
-  let chunk = ring[page];
-  if (!chunk && value) chunk = ring[page] = new Array<number[] | null>(TOUCH_CHUNK_SIZE);
-  if (chunk) chunk[at & (TOUCH_CHUNK_SIZE - 1)] = value;
+  const slot = at & (TOUCH_CHUNK_SIZE - 1);
+  let chunk = ring.pages[page];
+  if (!value) {
+    if (chunk?.sizes[slot]) {
+      chunk.sizes[slot] = 0;
+      if (--chunk.occupied === 0) {
+        ring.pages[page] = undefined;
+        if (--ring.pageCount === 0) ring.pages = [];
+      }
+    }
+    return;
+  }
+  const length = Math.min(value.length, limit);
+  if (!chunk) {
+    let stride = 1;
+    while (stride < length) stride *= 2;
+    chunk = ring.pages[page] = {
+      sizes: new Uint8Array(TOUCH_CHUNK_SIZE),
+      // C guests supply signed packed words; other hosts supply unsigned words.
+      // Float64 keeps both representations intact in exported tapes.
+      words: ring.surfaces ? new Uint8Array(TOUCH_CHUNK_SIZE * stride) : new Float64Array(TOUCH_CHUNK_SIZE * stride),
+      stride,
+      occupied: 0,
+    };
+    ring.pageCount++;
+  } else if (length > chunk.stride) {
+    let stride = chunk.stride;
+    while (stride < length) stride *= 2;
+    const words = ring.surfaces ? new Uint8Array(TOUCH_CHUNK_SIZE * stride) : new Float64Array(TOUCH_CHUNK_SIZE * stride);
+    for (let frame = 0; frame < TOUCH_CHUNK_SIZE; frame++) {
+      for (let word = 0; word < chunk.sizes[frame] - 1; word++) {
+        words[frame * stride + word] = chunk.words[frame * chunk.stride + word];
+      }
+    }
+    chunk.words = words;
+    chunk.stride = stride;
+  }
+  if (!chunk.sizes[slot]) chunk.occupied++;
+  chunk.sizes[slot] = length + 1;
+  for (let word = 0; word < length; word++) {
+    chunk.words[slot * chunk.stride + word] = ring.surfaces ? (value[word] === 1 ? 1 : 0) : value[word];
+  }
 }
 
 function readTouch(ring: TouchRing, at: number): number[] | null {
-  return ring[at >>> TOUCH_CHUNK_BITS]?.[at & (TOUCH_CHUNK_SIZE - 1)] ?? null;
+  const chunk = ring.pages[at >>> TOUCH_CHUNK_BITS];
+  const slot = at & (TOUCH_CHUNK_SIZE - 1);
+  const size = chunk?.sizes[slot];
+  if (!size) return null;
+  const value = new Array<number>(size - 1);
+  for (let word = 0; word < value.length; word++) value[word] = chunk!.words[slot * chunk!.stride + word];
+  return value;
 }
 const TREE_THROTTLE = 30; // min frames between tree snapshots
 const STATS_EVERY = 30;
@@ -92,8 +152,8 @@ interface DevtoolsState {
   tape: Uint16Array;
   tapeAnalog: Uint16Array;
   tapeRightAnalog: Uint16Array | null;
-  /** Allocate at most 128 slots at a contact edge, instead of initializing
-   *  all 36,000 slots on the first touch. Empty pages need no storage. */
+  /** Packed pages cover 128 frames and grow their word stride with contact
+   *  count. A page is released when its last recorded frame expires. */
   tapeTouch: TouchRing | null;
   tapeTouchSurfaces: TouchRing | null;
   tapeAxes: (AxisDelta[] | null)[] | null;
@@ -352,24 +412,25 @@ function recordMask(
   if (motion && !state.tapeMotion) state.tapeMotion = new Array<MotionState | null>(TAPE_CAP).fill(null);
   const right = rightAnalog ?? ANALOG_CENTER;
   if (right !== ANALOG_CENTER && !state.tapeRightAnalog) state.tapeRightAnalog = new Uint16Array(TAPE_CAP).fill(ANALOG_CENTER);
-  // Defensive copy: hosts may reuse the packed-contact buffer across frames.
-  const contacts = touch && touch.length > 0 ? touch.slice(0, 16) : null;
+  // writeTouch copies the words into pages before a host can reuse its buffer.
+  const contacts = touch && touch.length > 0 ? touch : null;
+  const contactCount = Math.min(contacts?.length ?? 0, 16);
   if (contacts && !state.tapeTouch) {
-    state.tapeTouch = [];
+    state.tapeTouch = createTouchRing();
   }
-  const surfaces = contacts && touchSurfaces
-    ? touchSurfaces.slice(0, contacts.length).map((surface) => surface === 1 ? 1 : 0)
-    : null;
-  if (surfaces?.some((surface) => surface === 1) && !state.tapeTouchSurfaces) {
-    state.tapeTouchSurfaces = [];
+  const surfaces = contacts && touchSurfaces ? touchSurfaces : null;
+  if (surfaces && !state.tapeTouchSurfaces) {
+    for (let word = 0; word < Math.min(surfaces.length, contactCount); word++) {
+      if (surfaces[word] === 1) { state.tapeTouchSurfaces = createTouchRing(true); break; }
+    }
   }
   if (state.tapeLen < TAPE_CAP) {
     const at = (state.tapeStart + state.tapeLen) % TAPE_CAP;
     state.tape[at] = mask;
     state.tapeAnalog[at] = analog;
     if (state.tapeRightAnalog) state.tapeRightAnalog[at] = right;
-    if (state.tapeTouch) writeTouch(state.tapeTouch, at, contacts);
-    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, at, surfaces);
+    if (state.tapeTouch) writeTouch(state.tapeTouch, at, contacts, contactCount);
+    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, at, surfaces, contactCount);
     if (state.tapeAxes) state.tapeAxes[at] = axes;
     if (state.tapeMotion) state.tapeMotion[at] = motion ?? null;
     state.tapeLen++;
@@ -377,8 +438,8 @@ function recordMask(
     state.tape[state.tapeStart] = mask;
     state.tapeAnalog[state.tapeStart] = analog;
     if (state.tapeRightAnalog) state.tapeRightAnalog[state.tapeStart] = right;
-    if (state.tapeTouch) writeTouch(state.tapeTouch, state.tapeStart, contacts);
-    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, state.tapeStart, surfaces);
+    if (state.tapeTouch) writeTouch(state.tapeTouch, state.tapeStart, contacts, contactCount);
+    if (state.tapeTouchSurfaces) writeTouch(state.tapeTouchSurfaces, state.tapeStart, surfaces, contactCount);
     if (state.tapeAxes) state.tapeAxes[state.tapeStart] = axes;
     if (state.tapeMotion) state.tapeMotion[state.tapeStart] = motion ?? null;
     state.tapeStart = (state.tapeStart + 1) % TAPE_CAP;
@@ -421,7 +482,7 @@ function exportTape(): Tape {
     const touch: [number, number[]][] = [];
     for (let i = 0; i < state.tapeLen; i++) {
       const contacts = readTouch(state.tapeTouch, (state.tapeStart + i) % TAPE_CAP);
-      if (contacts) touch.push([i, contacts.slice()]);
+      if (contacts) touch.push([i, contacts]);
     }
     if (touch.length > 0) {
       tape.v = 2;
@@ -432,7 +493,7 @@ function exportTape(): Tape {
     const touchSurfaces: [number, number[]][] = [];
     for (let i = 0; i < state.tapeLen; i++) {
       const surfaces = readTouch(state.tapeTouchSurfaces, (state.tapeStart + i) % TAPE_CAP);
-      if (surfaces) touchSurfaces.push([i, surfaces.slice()]);
+      if (surfaces) touchSurfaces.push([i, surfaces]);
     }
     if (touchSurfaces.length > 0) {
       tape.v = 3;
