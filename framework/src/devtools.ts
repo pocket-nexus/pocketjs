@@ -224,10 +224,10 @@ export function initDevtools(ops: HostOps): void {
     setTreeMutationHook(() => {
       state.treeDirty = true;
     });
-    bridgeConsole();
   } else {
     setTreeMutationHook(null);
   }
+  bridgeConsole();
 
   // Manual/eval access (also the REPL's own handle into the shim).
   (globalThis as Record<string, unknown>).__pocketDevtools = api;
@@ -842,14 +842,17 @@ function bridgeConsole(): void {
   // channel IS the console, so create one from scratch.
   if (!g.console) g.console = {};
   const c = g.console as Record<string, (...a: unknown[]) => void> & { __pocketBridge?: { current: ConsoleBridge } };
-  const bridge: ConsoleBridge = { send, listening: panelListening };
-  // The console is realm-global, but a realm can evaluate a second bundle
-  // with its own shim (the sim, tests): the newest shim with a transport takes
-  // the mirror over instead of wrapping the console twice.
+  const bridge: ConsoleBridge = state.transport
+    ? { send, listening: panelListening }
+    : { send() {}, listening: () => false };
+  // A second bundle in the same realm takes over the existing mirror or
+  // detaches it when no transport is present, releasing the retired shim.
+  // Keep the holder callable for wrappers installed by earlier bundles.
   if (c.__pocketBridge) {
     c.__pocketBridge.current = bridge;
     return;
   }
+  if (!state.transport) return;
   const holder = { current: bridge };
   c.__pocketBridge = holder;
   for (const level of ["log", "warn", "error"] as const) {
