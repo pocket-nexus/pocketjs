@@ -39,11 +39,11 @@ export const IPODTOUCH4_TOOLCHAIN = IPHONE4S_TOOLCHAIN;
 
 export function ipodtouch4CacheRoot(env: NodeJS.ProcessEnv = process.env): string {
   if (env.POCKETJS_IPODTOUCH4_ROOT?.trim()) return resolve(env.POCKETJS_IPODTOUCH4_ROOT.trim());
-  const base = env.POCKET_STACK_CACHE_DIR?.trim()
-    ? resolve(env.POCKET_STACK_CACHE_DIR.trim())
+  const base = env.POCKET_NEXUS_CACHE_DIR?.trim()
+    ? resolve(env.POCKET_NEXUS_CACHE_DIR.trim())
     : join(
         env.XDG_CACHE_HOME?.trim() ? resolve(env.XDG_CACHE_HOME.trim()) : join(env.HOME || homedir(), ".cache"),
-        "pocket-stack",
+        "pocket-nexus",
       );
   return join(base, "ipodtouch4");
 }

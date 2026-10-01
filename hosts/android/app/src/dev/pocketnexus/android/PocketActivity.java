@@ -1,4 +1,4 @@
-package dev.pocketstack.android;
+package dev.pocketnexus.android;
 
 import android.app.Activity;
 import android.graphics.Color;

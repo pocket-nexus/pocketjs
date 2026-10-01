@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.blackberry-classic-demo",
+  "id": "dev.pocket-nexus.blackberry-classic-demo",
   "name": "pocketjs-blackberry-classic-hero",
   "title": "PocketJS: BlackBerry Classic Hero",
   "version": "0.1.1",

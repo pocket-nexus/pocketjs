@@ -39,7 +39,7 @@ export interface PspToolchainManifest {
 
 export const PSP_TOOLCHAIN = manifestJson as PspToolchainManifest;
 
-export const CARGO_PSP_RECEIPT = ".pocket-stack-cargo-psp.json";
+export const CARGO_PSP_RECEIPT = ".pocket-nexus-cargo-psp.json";
 
 export function cargoHostTriple(
   platform: NodeJS.Platform = process.platform,
@@ -203,20 +203,20 @@ export function publishStagedDirectory(staging: string, destination: string): vo
   if (hadPrevious) rmSync(previous, { recursive: true, force: true });
 }
 
-export function pocketStackCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.POCKET_STACK_CACHE_DIR?.trim()) return resolve(env.POCKET_STACK_CACHE_DIR.trim());
+export function pocketNexusCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.POCKET_NEXUS_CACHE_DIR?.trim()) return resolve(env.POCKET_NEXUS_CACHE_DIR.trim());
   const cacheHome = env.XDG_CACHE_HOME?.trim()
     ? resolve(env.XDG_CACHE_HOME.trim())
     : join(env.HOME || homedir(), ".cache");
-  return join(cacheHome, "pocket-stack");
+  return join(cacheHome, "pocket-nexus");
 }
 
 export function cachedPspSdk(env: NodeJS.ProcessEnv = process.env): string {
-  return join(pocketStackCacheRoot(env), PSP_TOOLCHAIN.sdk.cachePath);
+  return join(pocketNexusCacheRoot(env), PSP_TOOLCHAIN.sdk.cachePath);
 }
 
 export function cachedCargoPspRoot(env: NodeJS.ProcessEnv = process.env): string {
-  return join(pocketStackCacheRoot(env), PSP_TOOLCHAIN.cargoPsp.cachePath);
+  return join(pocketNexusCacheRoot(env), PSP_TOOLCHAIN.cargoPsp.cachePath);
 }
 
 export function cachedCargoPspBin(env: NodeJS.ProcessEnv = process.env): string {

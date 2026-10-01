@@ -223,7 +223,7 @@ if (!buildPlan && stockDemo) {
 const applicationId =
   buildPlan?.app.id ??
   stockDemo?.id ??
-  `dev.pocket-stack.legacy.${outputApp.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  `dev.pocket-nexus.legacy.${outputApp.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
 const packageTitle =
   buildPlan?.app.title ?? stockDemo?.title ?? `PocketJS ${outputApp}`;
 const titleId = vitaTitleId(applicationId);

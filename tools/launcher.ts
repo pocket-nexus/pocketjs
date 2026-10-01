@@ -413,7 +413,8 @@ function scanRegistryForTarget(
   const apps: LauncherRegistryEntry[] = [];
   const seen = new Map<string, string>();
   for (const dir of readdirSync(APPS_DIR).sort()) {
-    if (dir === "launcher") continue; // the launcher never lists itself
+    // The launcher never lists itself, nor the development container.
+    if (dir === "launcher" || dir === "devkit") continue;
     const manifestPath = join(APPS_DIR, dir, "pocket.json");
     if (!existsSync(manifestPath)) continue;
     const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -1078,7 +1079,7 @@ export function encodeSymbianCatalog(
 ): EncodedSymbianCatalog {
   if (
     entries.length < 2 ||
-    entries[0]?.plan.app.id !== "dev.pocket-stack.launcher"
+    entries[0]?.plan.app.id !== "dev.pocket-nexus.launcher"
   ) {
     throw new Error(
       "launcher: Symbian catalog must start with the launcher and contain an app",

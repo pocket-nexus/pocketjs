@@ -5,7 +5,7 @@ PocketJS build under test reaches the console over the USB cable:
 
 - `bun run vita:dev push --app devkit` replaces its JS/PAK guest;
 - `bun run vita:dev native --app devkit --runtime <app>.runtime.json` runs
-  another native build (built with title `P3B1D7273`) from the inactive
+  another native build (built with title `P25BFE5E2`) from the inactive
   `pocket-dev-a.self` or `pocket-dev-b.self` slot.
 
 Its installed `eboot.bin` is never replaced: reopening the LiveArea bubble

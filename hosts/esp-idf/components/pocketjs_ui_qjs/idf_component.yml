@@ -8,5 +8,5 @@ targets:
   - esp32s3
 dependencies:
   idf: ">=6.0,<6.2"
-  pocket-stack/pocketjs_guest: "0.1.0"
-  pocket-stack/pocketjs_ui_core: "0.1.0"
+  pocket-nexus/pocketjs_guest: "0.1.0"
+  pocket-nexus/pocketjs_ui_core: "0.1.0"

@@ -61,13 +61,13 @@ static char android_error[512];
 static char receipt_path[1024];
 static unsigned long frames, touch_sequences;
 static PocketContactLatch contacts;
-JNIEXPORT jint JNICALL Java_dev_pocketstack_android_PocketActivity_nativeLogicalWidth(JNIEnv *env, jclass owner) {
+JNIEXPORT jint JNICALL Java_dev_pocketnexus_android_PocketActivity_nativeLogicalWidth(JNIEnv *env, jclass owner) {
   (void)env; (void)owner; return POCKET_LOGICAL_WIDTH;
 }
-JNIEXPORT jint JNICALL Java_dev_pocketstack_android_PocketActivity_nativeLogicalHeight(JNIEnv *env, jclass owner) {
+JNIEXPORT jint JNICALL Java_dev_pocketnexus_android_PocketActivity_nativeLogicalHeight(JNIEnv *env, jclass owner) {
   (void)env; (void)owner; return POCKET_LOGICAL_HEIGHT;
 }
-JNIEXPORT void JNICALL Java_dev_pocketstack_android_PocketActivity_nativeConfigure(JNIEnv *env, jclass owner, jstring directory) {
+JNIEXPORT void JNICALL Java_dev_pocketnexus_android_PocketActivity_nativeConfigure(JNIEnv *env, jclass owner, jstring directory) {
   (void)owner;
   const char *path = (*env)->GetStringUTFChars(env, directory, NULL);
   if (!path) return;
@@ -78,7 +78,7 @@ JNIEXPORT void JNICALL Java_dev_pocketstack_android_PocketActivity_nativeConfigu
 #endif
   (*env)->ReleaseStringUTFChars(env, directory, path);
 }
-JNIEXPORT void JNICALL Java_dev_pocketstack_android_PocketActivity_nativeCancelTouches(JNIEnv *env, jclass owner) {
+JNIEXPORT void JNICALL Java_dev_pocketnexus_android_PocketActivity_nativeCancelTouches(JNIEnv *env, jclass owner) {
   (void)env; (void)owner;
   pthread_mutex_lock(&input_mutex);
   pocket_contacts_cancel(&contacts);
@@ -144,7 +144,7 @@ static void ensure_input(void)
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_pocketstack_android_PocketActivity_nativeSurfaceCreated(
+Java_dev_pocketnexus_android_PocketActivity_nativeSurfaceCreated(
   JNIEnv *env,
   jclass owner,
   jbyteArray guest_java_script,
@@ -201,7 +201,7 @@ Java_dev_pocketstack_android_PocketActivity_nativeSurfaceCreated(
 }
 
 JNIEXPORT void JNICALL
-Java_dev_pocketstack_android_PocketActivity_nativeSurfaceChanged(
+Java_dev_pocketnexus_android_PocketActivity_nativeSurfaceChanged(
   JNIEnv *env,
   jclass owner,
   jint width,
@@ -217,7 +217,7 @@ Java_dev_pocketstack_android_PocketActivity_nativeSurfaceChanged(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_dev_pocketstack_android_PocketActivity_nativeFrame(
+Java_dev_pocketnexus_android_PocketActivity_nativeFrame(
   JNIEnv *env,
   jclass owner
 )
@@ -264,7 +264,7 @@ Java_dev_pocketstack_android_PocketActivity_nativeFrame(
 }
 
 JNIEXPORT jstring JNICALL
-Java_dev_pocketstack_android_PocketActivity_nativeError(JNIEnv *env, jclass owner)
+Java_dev_pocketnexus_android_PocketActivity_nativeError(JNIEnv *env, jclass owner)
 {
   (void)owner;
   const char *message = android_error[0] != '\0'
@@ -274,7 +274,7 @@ Java_dev_pocketstack_android_PocketActivity_nativeError(JNIEnv *env, jclass owne
 }
 
 JNIEXPORT void JNICALL
-Java_dev_pocketstack_android_PocketActivity_nativeKey(
+Java_dev_pocketnexus_android_PocketActivity_nativeKey(
   JNIEnv *env,
   jclass owner,
   jint action,
@@ -298,7 +298,7 @@ Java_dev_pocketstack_android_PocketActivity_nativeKey(
 }
 
 JNIEXPORT void JNICALL
-Java_dev_pocketstack_android_PocketActivity_nativeTouch(
+Java_dev_pocketnexus_android_PocketActivity_nativeTouch(
   JNIEnv *env,
   jclass owner,
   jint action,
@@ -321,7 +321,7 @@ Java_dev_pocketstack_android_PocketActivity_nativeTouch(
 }
 
 JNIEXPORT void JNICALL
-Java_dev_pocketstack_android_PocketActivity_nativeRelative(
+Java_dev_pocketnexus_android_PocketActivity_nativeRelative(
   JNIEnv *env,
   jclass owner,
   jfloat delta_x,

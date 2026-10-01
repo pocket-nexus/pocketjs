@@ -4,7 +4,7 @@
 specialized engines that are all freely programmable from JavaScript — without
 becoming a general-purpose engine.*
 
-This document is normative for every runtime in the Pocket stack: the existing
+This document is normative for every PocketJS runtime: the existing
 2D UI runtime (`engine/core/` + PSP/wasm/wgpu hosts), the 3D substrate (`engine/pocket3d/`),
 and every game runtime built on them (the first one is
 [OpenStrike](https://github.com/pocket-nexus/open-strike)).

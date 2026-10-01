@@ -26,9 +26,9 @@ const DEVICE_PORT = 44;
 const LOCAL_PORT = Number(process.env.POCKETJS_IPODTOUCH_PORT ?? "2223");
 const KEY_PATH =
   process.env.POCKETJS_IPODTOUCH_KEY ??
-  join(homedir(), ".cache/pocket-stack/ipodtouch/keys/pocketjs_ed25519");
+  join(homedir(), ".cache/pocket-nexus/ipodtouch/keys/pocketjs_ed25519");
 const BUNDLE_NAME = "PocketJSiPod.app";
-const BUNDLE_ID = "dev.pocket-stack.ipodtouch-demo";
+const BUNDLE_ID = "dev.pocket-nexus.ipodtouch-demo";
 const INSTALL_PATH = `/Applications/${BUNDLE_NAME}`;
 const STATUS_PATH = "/private/var/tmp/pocketjs-ipodtouch.status.json";
 const FRAME_PATH = "/private/var/tmp/pocketjs-ipodtouch.frame.png";
@@ -341,7 +341,7 @@ async function build(): Promise<void> {
     throw new Error("pocket ipodtouch: guest build did not produce its JS and pak artifacts");
   }
 
-  const rustTarget = join(homedir(), ".cache/pocket-stack/ipodtouch/rust-target");
+  const rustTarget = join(homedir(), ".cache/pocket-nexus/ipodtouch/rust-target");
   mkdirSync(rustTarget, { recursive: true });
   const rustEnv = {
     ...process.env,

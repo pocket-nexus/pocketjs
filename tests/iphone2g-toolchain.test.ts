@@ -123,7 +123,7 @@ describe("canonical iPhone 2G toolchain", () => {
   test("resolves only explicit overrides or the shared cache", () => {
     const env = { HOME: "/home/test", XDG_CACHE_HOME: "/var/cache/test" };
     expect(iphone2gCacheRoot(env)).toBe(
-      "/var/cache/test/pocket-stack/iphone2g",
+      "/var/cache/test/pocket-nexus/iphone2g",
     );
     expect(iphone2gFirmwarePath(env)).toEndWith(
       "/iphone2g/downloads/iPhone1,1_1.1.4_4A102_Restore.ipsw",
@@ -265,12 +265,12 @@ describe("canonical iPhone 2G toolchain", () => {
     expect(
       iphone2gBootstrapPath(IPHONE2G_TOOLCHAIN.bootstrap.openssh, env),
     ).toBe(
-      "/cache/pocket-stack/iphone2g/downloads/bootstrap/openssh_4.7p1-1_iphoneos-arm.deb",
+      "/cache/pocket-nexus/iphone2g/downloads/bootstrap/openssh_4.7p1-1_iphoneos-arm.deb",
     );
     expect(
       iphone2gBootstrapPath(IPHONE2G_TOOLCHAIN.bootstrap.openssl, env),
     ).toBe(
-      "/cache/pocket-stack/iphone2g/downloads/bootstrap/openssl_0.9.8g-1_iphoneos-arm.deb",
+      "/cache/pocket-nexus/iphone2g/downloads/bootstrap/openssl_0.9.8g-1_iphoneos-arm.deb",
     );
   });
 });

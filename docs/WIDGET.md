@@ -21,7 +21,7 @@ factor puts two hard constraints on the architecture:
 1. **Idle must cost almost nothing.** A widget is judged by what it burns at
    rest, not at peak. pocket-character measured the gap: the same character
    stage costs 8 processes / 2184 MB / 44% CPU on Electron and
-   1 process / 118 MB / 3.9% CPU on the Pocket stack — *while rendering 60
+   1 process / 118 MB / 3.9% CPU on PocketJS — *while rendering 60
    fps of skinned, spring-boned 3D continuously*. A widget whose content is
    mostly static should land far below even that.
 2. **Behavior must be a bundle, not a build.** Which app the widget hosts,
@@ -348,7 +348,7 @@ without changing the app's logical coordinates:
 {
   "$schema": "https://pocketjs.dev/schema/pocket-stage-1.json",
   "pocketStage": 1,
-  "id": "dev.pocket-stack.stage.psp-eg02",
+  "id": "dev.pocket-nexus.stage.psp-eg02",
   "name": "psp-eg02",
   "title": "PSP EG02",
   "version": "1.0.0",
@@ -512,7 +512,7 @@ Still ahead: the golden-specs wiring (§8), density-2 screens for the 3D
 form (§5 — the flat form ships them), the `widget` surface (§7),
 click-through, per-camera sorting for shells with overlapping transparent
 layers, bold-weight CJK fallback faces + line-start kinsoku for CJK wrap,
-and extraction into `pocket-stack/pocket-stage` / `pocket-stack/pocket-note`
+and extraction into `pocket-nexus/pocket-stage` / `pocket-nexus/pocket-note`
 with the steady-state measurement harness and strict package schema in §6.1.
 pocket-character retrofits onto pocket-widget when convenient.
 

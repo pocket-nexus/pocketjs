@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.text-offload",
+  "id": "dev.pocket-nexus.text-offload",
   "name": "pocket-text-offload",
   "title": "Portable Text Layout",
   "version": "0.1.0",

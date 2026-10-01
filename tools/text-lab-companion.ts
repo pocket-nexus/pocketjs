@@ -6,7 +6,7 @@ const directory = resolve(arg("--assets") ?? ".pocket-build/text-lab");
 const worker = new URL("./text-lab-worker.ts", import.meta.url);
 const usb = arg("--usb");
 const provider = usb
-  ? connectOffloadUsbProvider({ directory: resolve(usb), app: "dev.pocket-stack.text-cjk", worker, data: { directory }, log: console.log })
+  ? connectOffloadUsbProvider({ directory: resolve(usb), app: "dev.pocket-nexus.text-cjk", worker, data: { directory }, log: console.log })
   : connectOffloadProvider({ address: arg("--address") ?? "127.0.0.1", key: process.env.POCKET_COMPANION_KEY ?? "",
       worker, data: { directory }, log: console.log });
 process.on("SIGINT", () => { provider.close(); process.exit(0); });

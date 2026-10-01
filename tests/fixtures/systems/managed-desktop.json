@@ -1,12 +1,12 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-system-1.json",
   "pocketSystem": 1,
-  "id": "dev.pocket-stack.test-system",
+  "id": "dev.pocket-nexus.test-system",
   "name": "test-system",
   "title": "Test System",
   "version": "1.0.0",
   "roles": {
-    "systemUI": "dev.pocket-stack.test-system-ui"
+    "systemUI": "dev.pocket-nexus.test-system-ui"
   },
   "applications": {
     "installPolicy": {
@@ -16,18 +16,18 @@
     "backgroundExecution": "suspend",
     "catalog": [
       {
-        "package": "dev.pocket-stack.test-system-ui",
+        "package": "dev.pocket-nexus.test-system-ui",
         "manifest": "tests/fixtures/manifests/system-ui.json",
         "required": true
       },
       {
-        "package": "dev.pocket-stack.hero",
+        "package": "dev.pocket-nexus.hero",
         "manifest": "apps/hero/pocket.json",
         "required": false,
         "presentation": { "title": "Hero", "viewport": [640, 360] }
       },
       {
-        "package": "dev.pocket-stack.settings",
+        "package": "dev.pocket-nexus.settings",
         "manifest": "apps/settings/pocket.json",
         "required": false,
         "presentation": { "title": "Settings", "viewport": [480, 272] }
@@ -36,9 +36,9 @@
   },
   "installation": {
     "installedPackages": [
-      "dev.pocket-stack.test-system-ui",
-      "dev.pocket-stack.hero",
-      "dev.pocket-stack.settings"
+      "dev.pocket-nexus.test-system-ui",
+      "dev.pocket-nexus.hero",
+      "dev.pocket-nexus.settings"
     ]
   }
 }

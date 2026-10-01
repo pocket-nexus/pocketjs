@@ -13,7 +13,7 @@ export interface AppEntry {
   installed?: boolean;
   /** dist output name — the appLaunch() key (e.g. "cafe-main"). */
   output: string;
-  /** Manifest id (e.g. "dev.pocket-stack.cafe"). */
+  /** Manifest id (e.g. "dev.pocket-nexus.cafe"). */
   id: string;
   /** Manifest title, for display. */
   title: string;

@@ -56,25 +56,25 @@ describe("independent Symbian package identity", () => {
   });
 
   test("derives stable private UIDs from Pocket ids", () => {
-    expect(symbianUidForAppId("dev.pocket-stack.openstrike")).toBe(
-      "0xE86B9226",
+    expect(symbianUidForAppId("dev.pocket-nexus.openstrike")).toBe(
+      "0xEE3D66AB",
     );
-    expect(symbianUidForAppId("dev.pocket-stack.figma")).toBe("0xEEB7A533");
-    expect(symbianUidForAppId("dev.pocket-stack.launcher")).toBe(
-      "0xECEF4AC6",
+    expect(symbianUidForAppId("dev.pocket-nexus.figma")).toBe("0xEEC5BADE");
+    expect(symbianUidForAppId("dev.pocket-nexus.launcher")).toBe(
+      "0xEDF4EB85",
     );
   });
 
   test("keeps every installed path unique and Symbian-safe", () => {
     const identity = symbianPackageIdentity(
-      plan("dev.pocket-stack.figma", "Pocket Figma", "pocket-figma"),
+      plan("dev.pocket-nexus.figma", "Pocket Figma", "pocket-figma"),
     );
     expect(identity).toEqual({
-      appId: "dev.pocket-stack.figma",
+      appId: "dev.pocket-nexus.figma",
       appOutput: "pocket-figma",
       title: "Pocket Figma",
-      uid: "0xEEB7A533",
-      executable: "PocketJsPocketFigmaEEB7A533",
+      uid: "0xEEC5BADE",
+      executable: "PocketJsPocketFigmaEEC5BADE",
       sisFile: "pocket-figma.sis",
       receiptFile: "pocket-figma.receipt.json",
     });
@@ -83,7 +83,7 @@ describe("independent Symbian package identity", () => {
     expect(
       symbianPackageIdentity(
         plan(
-          "dev.pocket-stack.launcher",
+          "dev.pocket-nexus.launcher",
           "PocketJS: Launcher",
           "launcher-main",
         ),
@@ -103,7 +103,7 @@ describe("independent Symbian package identity", () => {
   test("allows an explicit development UID but rejects protected UIDs", () => {
     expect(
       symbianPackageIdentity(
-        plan("dev.pocket-stack.app", "App", "app"),
+        plan("dev.pocket-nexus.app", "App", "app"),
         "0xe1234567",
       ).uid,
     ).toBe("0xE1234567");
@@ -115,12 +115,12 @@ describe("independent Symbian package identity", () => {
   test("rejects package metadata that can break the generated PKG", () => {
     expect(() =>
       symbianPackageIdentity(
-        plan("dev.pocket-stack.app", 'Bad "caption"', "app"),
+        plan("dev.pocket-nexus.app", 'Bad "caption"', "app"),
       )
     ).toThrow("safe ASCII");
     expect(() =>
       symbianPackageIdentity(
-        plan("dev.pocket-stack.app", "Bad $$system(id)", "app"),
+        plan("dev.pocket-nexus.app", "Bad $$system(id)", "app"),
       )
     ).toThrow("safe ASCII");
   });

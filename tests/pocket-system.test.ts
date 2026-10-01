@@ -5,8 +5,8 @@ import {
 } from "@pocketjs/framework/manifest";
 import systemInput from "./fixtures/systems/managed-desktop.json";
 
-const SYSTEM_UI = "dev.pocket-stack.test-system-ui";
-const HERO = "dev.pocket-stack.hero";
+const SYSTEM_UI = "dev.pocket-nexus.test-system-ui";
+const HERO = "dev.pocket-nexus.hero";
 
 async function packageInputs(system: any = systemInput) {
   const installed = new Set(system.installation.installedPackages as string[]);
@@ -126,7 +126,7 @@ describe("Pocket System resolution", () => {
     }
 
     const unknownSystem = structuredClone(systemInput);
-    unknownSystem.installation.installedPackages.push("dev.pocket-stack.unknown");
+    unknownSystem.installation.installedPackages.push("dev.pocket-nexus.unknown");
     const unknown = validateAndResolveSystemPlan(unknownSystem, {
       target: "macos-app",
       packages: await packageInputs(),

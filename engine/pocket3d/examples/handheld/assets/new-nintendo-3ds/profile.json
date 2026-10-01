@@ -235,7 +235,7 @@
     }
   ],
   "demo": {
-    "package_id": "dev.pocket-stack.3ds-demo",
+    "package_id": "dev.pocket-nexus.3ds-demo",
     "output": "3ds-demo-main"
   },
   "hinge": {

@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.hero",
+  "id": "dev.pocket-nexus.hero",
   "name": "pocketjs-hero",
   "title": "PocketJS: Hero",
   "version": "0.6.0",

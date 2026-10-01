@@ -25,7 +25,7 @@ bun ipodtouch status
 ```
 
 Deployment uses Checkra1n's USB-only Dropbear endpoint on device port 44 and a
-dedicated local key under `~/.cache/pocket-stack/ipodtouch/keys`. The app is
+dedicated local key under `~/.cache/pocket-nexus/ipodtouch/keys`. The app is
 installed transactionally at `/Applications/PocketJSiPod.app`, pseudo-signed
 with `ldid`, registered with `uicache`, and launched through its URL scheme.
 

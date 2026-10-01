@@ -20,7 +20,7 @@ describe("custom host build boundary", () => {
     const plan = portablePlan();
     expect(extractHostBuildInputs(plan, { expectedTarget: "psp" })).toEqual({
       appOutput: "main",
-      app: { id: "dev.pocket-stack.telemetry", title: "Pocket Telemetry", version: "0.1.0" },
+      app: { id: "dev.pocket-nexus.telemetry", title: "Pocket Telemetry", version: "0.1.0" },
       target: "psp",
       hostAbi: 1,
       viewport: {
@@ -47,7 +47,7 @@ describe("custom host build boundary", () => {
       embedApp: false,
     })).toEqual({
       POCKETJS_APP_OUTPUT: "main",
-      POCKETJS_APP_ID: "dev.pocket-stack.telemetry",
+      POCKETJS_APP_ID: "dev.pocket-nexus.telemetry",
       POCKETJS_APP_TITLE: "Pocket Telemetry",
       POCKETJS_APP_VERSION: "0.1.0",
       POCKETJS_EMBED_APP: "0",

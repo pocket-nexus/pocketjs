@@ -107,7 +107,7 @@ function writeFixture(): void {
 
 function writeDemoManifest(name: string): { readonly path: string; readonly titleId: string } {
   const demo = name.replace(/-main$/, "");
-  const applicationId = `dev.pocket-stack.e2e.${demo.replace(/-/g, ".")}`;
+  const applicationId = `dev.pocket-nexus.e2e.${demo.replace(/-/g, ".")}`;
   const manifest = JSON.parse(readFileSync(`${ROOT}pocket.json`, "utf8")) as Record<string, any>;
   manifest.id = applicationId;
   manifest.name = `pocketjs-e2e-${demo}`;

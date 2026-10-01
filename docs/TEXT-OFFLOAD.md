@@ -69,7 +69,7 @@ coverage compatible with optional `offload.uploadCoverage`.
 bun tools/text-wasm.ts
 bun tools/pocket.ts build --target psp --manifest apps/text-offload/pocket.json --project-root . -- --release
 bun tools/text-provider.ts --usb /path/to/psplink-host0-root \
-  --app dev.pocket-stack.text-offload --pak dist/text-offload-main.pak
+  --app dev.pocket-nexus.text-offload --pak dist/text-offload-main.pak
 ```
 
 The explicit local PSPLINK share is the USB pairing grant. It is scoped by a

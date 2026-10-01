@@ -38,7 +38,7 @@ import {
   withSymbianGuestBuildLock,
   withSymbianRuntimeBuildLock,
 } from "./symbian-toolchain.ts";
-import { pocketStackCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
+import { pocketNexusCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
 import {
   assertSymbianMassStorageDataStageSeparation,
   resolveSymbianMassStorageDataRoot,
@@ -173,7 +173,7 @@ async function runCodaUsbProbe(
     ], { timeoutMs: 30_000 });
     if (compiled.exitCode !== 0) return compiled;
     const lock = join(
-      pocketStackCacheRoot(),
+      pocketNexusCacheRoot(),
       "symbian/.locks/coda-usb-device.lock",
     );
     // a silent install unpacks and registers the whole package on the phone
@@ -300,7 +300,7 @@ async function buildProbe(): Promise<string> {
   mkdirSync(output, { recursive: true });
   const outputLockId = createHash("sha256").update(output).digest("hex");
   const outputLock = join(
-    pocketStackCacheRoot(),
+    pocketNexusCacheRoot(),
     `symbian/.locks/probe-output-${outputLockId}.lock`,
   );
   await withArtifactLock(outputLock, async () => {
@@ -635,7 +635,7 @@ async function deploy(path: string): Promise<void> {
   if (missing.length > 0) {
     throw new Error(`missing ${missing.join(", ")}; install with \`brew install libmtp\``);
   }
-  const lock = join(pocketStackCacheRoot(), "symbian/.locks/mtp-device.lock");
+  const lock = join(pocketNexusCacheRoot(), "symbian/.locks/mtp-device.lock");
   const result = await withArtifactLock(lock, () => deploySis(sis, mtpRunner, {
     storage: SYMBIAN_TOOLCHAIN.device.deployStorage,
     folder: SYMBIAN_TOOLCHAIN.device.deployFolder,

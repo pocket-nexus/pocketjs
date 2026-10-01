@@ -24,8 +24,8 @@ The completed bootstrap provides:
 The default local files are:
 
 ```text
-~/.cache/pocket-stack/iphone4s/ssh/id_rsa
-~/.cache/pocket-stack/iphone4s/ssh/known_hosts
+~/.cache/pocket-nexus/iphone4s/ssh/id_rsa
+~/.cache/pocket-nexus/iphone4s/ssh/known_hosts
 ```
 
 `POCKETJS_IPHONE4S_KEY`, `POCKETJS_IPHONE4S_KNOWN_HOSTS`, and
@@ -39,7 +39,7 @@ restore IPSW, builds Apple's pinned `dyld-210.2.3` extractor, thins the recovere
 images to ARMv7, and generates local TAPI linker stubs from their exported
 symbols.
 
-**Apple system binaries remain under `~/.cache/pocket-stack/iphone4s` and are
+**Apple system binaries remain under `~/.cache/pocket-nexus/iphone4s` and are
 never copied into the repository or npm package.** The checked-in manifest pins
 the firmware, dyld source, Csu source, QuickJS source, shared cache, and every
 system image used by the linker.

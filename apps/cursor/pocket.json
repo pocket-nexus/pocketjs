@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.cursor",
+  "id": "dev.pocket-nexus.cursor",
   "name": "pocketjs-cursor",
   "title": "PocketJS: Cursor",
   "version": "0.6.0",

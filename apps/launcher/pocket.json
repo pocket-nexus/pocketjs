@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.launcher",
+  "id": "dev.pocket-nexus.launcher",
   "name": "pocketjs-launcher",
   "title": "PocketJS: Launcher",
   "version": "0.1.0",

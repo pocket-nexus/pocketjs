@@ -85,7 +85,7 @@ function ndkHostTag(): string {
   }
 }
 
-const cache = join(homedir(), ".cache/pocket-stack", toolchain.cachePath);
+const cache = join(homedir(), ".cache/pocket-nexus", toolchain.cachePath);
 const sdk = process.env.POCKETJS_ANDROID_SDK_ROOT ?? (process.platform === "darwin" ? "/opt/homebrew/share/android-commandlinetools" : join(cache, "sdk"));
 const buildTools = join(sdk, "build-tools", toolchain.android.buildToolsVersion);
 const ndk = join(sdk, "ndk", toolchain.android.ndkVersion);
@@ -276,7 +276,7 @@ function compileActivity(): void {
     `/android-sdk/platforms/android-${toolchain.android.apiLevel}/android.jar`,
     "-d",
     "/build/classes",
-    "/repo/hosts/android/app/src/dev/pocketstack/android/PocketActivity.java",
+    "/repo/hosts/android/app/src/dev/pocketnexus/android/PocketActivity.java",
   ]);
   runJava(["jar", "cf", "/build/classes.jar", "-C", "/build/classes", "."]);
   runJava([

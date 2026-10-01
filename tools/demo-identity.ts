@@ -10,7 +10,7 @@ export interface DemoIdentity {
 export function demoIdentity(demo: string): DemoIdentity {
   const normalized = demo.replace(/-main$/, "");
   return {
-    id: `dev.pocket-stack.${normalized.replace(/-/g, ".")}`,
+    id: `dev.pocket-nexus.${normalized.replace(/-/g, ".")}`,
     name: `pocketjs-${normalized}`,
     title: `PocketJS ${normalized}`,
   };

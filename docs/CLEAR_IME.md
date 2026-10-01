@@ -94,7 +94,7 @@ bun moto-g-play launch --id=<adb serial>
 bun clear:companion moto-g-play --id=<adb serial>
 ```
 
-The device commands reject a different model. Deployment installs `dev.pocket_stack.clear` and verifies the installed APK SHA-256 against the local build. The development APK permits `run-as`, which writes the key to the app's private files directory. This package targets Android 14 and keeps the signing key in the local toolchain cache for replacement installs.
+The device commands reject a different model. Deployment installs `dev.pocket_nexus.clear` and verifies the installed APK SHA-256 against the local build. The development APK permits `run-as`, which writes the key to the app's private files directory. This package targets Android 14 and keeps the signing key in the local toolchain cache for replacement installs.
 
 ```sh
 bun moto-g-play status --id=<adb serial>
@@ -110,11 +110,11 @@ bun clear:companion moto-g-play --id=<adb serial> --service
 
 **The supervisor reconciles USB state every two seconds.** It recreates a lost ADB forward, restarts a stopped iPod tunnel or provider process, and checks the selected app's pairing key after reconnection and at 30-second intervals. A missing device or installation leaves the supervisor waiting. A process-owned loopback lease on port 18742 or 28742 rejects duplicate supervisors. Each command has a six-second deadline, and reconciliations do not overlap. The socket transport reconnects after the USB route returns. A local port owned by another device is rejected.
 
-LaunchAgents are named `dev.pocket-stack.clear-companion.<target>` and reference the current checkout and Bun executable. Logs stay in ignored `.pocket/ime/services/`. Keep that checkout available while the services run. To stop and uninstall one, replace `<target>` below with `ipodtouch4` or `moto-g-play`:
+LaunchAgents are named `dev.pocket-nexus.clear-companion.<target>` and reference the current checkout and Bun executable. Logs stay in ignored `.pocket/ime/services/`. Keep that checkout available while the services run. To stop and uninstall one, replace `<target>` below with `ipodtouch4` or `moto-g-play`:
 
 ```sh
-launchctl bootout gui/$(id -u)/dev.pocket-stack.clear-companion.<target>
-rm ~/Library/LaunchAgents/dev.pocket-stack.clear-companion.<target>.plist
+launchctl bootout gui/$(id -u)/dev.pocket-nexus.clear-companion.<target>
+rm ~/Library/LaunchAgents/dev.pocket-nexus.clear-companion.<target>.plist
 ```
 
 The two companions can run at the same time: Mac ports 18741 and 28741 forward to each device's loopback port 8741. Each device has its own 256-bit key in a mode-0600 ignored file. Pairing receipts contain a fingerprint, never the key. Stopping a companion leaves local scrolling and editing available. Restoring it resumes a composition that has not been committed or cancelled. Offline confirmation inserts raw pinyin; dictionary conversion requires the Mac to return.

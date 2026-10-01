@@ -55,9 +55,9 @@ export const IPHONE4S_TOOLCHAIN = manifestJson as IPhone4SToolchainManifest;
 
 export function iphone4sCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
   if (env.POCKETJS_IPHONE4S_ROOT?.trim()) return resolve(env.POCKETJS_IPHONE4S_ROOT.trim());
-  const base = env.POCKET_STACK_CACHE_DIR?.trim()
-    ? resolve(env.POCKET_STACK_CACHE_DIR.trim())
-    : join(env.XDG_CACHE_HOME?.trim() ? resolve(env.XDG_CACHE_HOME.trim()) : join(env.HOME || homedir(), ".cache"), "pocket-stack");
+  const base = env.POCKET_NEXUS_CACHE_DIR?.trim()
+    ? resolve(env.POCKET_NEXUS_CACHE_DIR.trim())
+    : join(env.XDG_CACHE_HOME?.trim() ? resolve(env.XDG_CACHE_HOME.trim()) : join(env.HOME || homedir(), ".cache"), "pocket-nexus");
   return join(base, IPHONE4S_TOOLCHAIN.cachePath);
 }
 

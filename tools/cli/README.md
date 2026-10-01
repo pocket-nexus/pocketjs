@@ -65,6 +65,6 @@ installs is for building PocketJS apps. See the
 [pocketjs.dev](https://pocketjs.dev) for the framework docs.
 
 `pocket setup` installs the exact toolchain described by the CLI's bundled
-`psp-toolchain.json` into the shared pocket-stack cache. PSPLINK is diagnosed
+`psp-toolchain.json` into the shared pocket-nexus cache. PSPLINK is diagnosed
 as an optional real-hardware hot-reload tool; it is not required to build a PSP
 EBOOT.

@@ -106,10 +106,10 @@ describe("canonical Symbian E7 toolchain", () => {
     expect(symbianDownloadsRoot({
       HOME: "/tmp/home",
       XDG_CACHE_HOME: "/tmp/cache",
-    })).toBe("/tmp/cache/pocket-stack/symbian/downloads");
+    })).toBe("/tmp/cache/pocket-nexus/symbian/downloads");
     expect(symbianDownloadsRoot({
       HOME: "/tmp/home",
-      POCKET_STACK_CACHE_DIR: "/tmp/pocket-cache",
+      POCKET_NEXUS_CACHE_DIR: "/tmp/pocket-cache",
     })).toBe("/tmp/pocket-cache/symbian/downloads");
     expect(symbianDownloadsRoot({
       HOME: "/tmp/home",
@@ -425,7 +425,7 @@ describe("canonical Symbian E7 toolchain", () => {
     temporary.push(root);
     const output = join(root, "dist/symbian");
     const payload = join(output, "build/shared-app");
-    const env = { POCKET_STACK_CACHE_DIR: join(root, "cache") };
+    const env = { POCKET_NEXUS_CACHE_DIR: join(root, "cache") };
     let active = 0;
     let maxActive = 0;
     const snapshots: string[][] = [];
@@ -489,7 +489,7 @@ describe("canonical Symbian E7 toolchain", () => {
   test("serializes guest compilation across independent output roots", async () => {
     const root = mkdtempSync(join(tmpdir(), "pocketjs-symbian-guest-lock-"));
     temporary.push(root);
-    const env = { POCKET_STACK_CACHE_DIR: join(root, "cache") };
+    const env = { POCKET_NEXUS_CACHE_DIR: join(root, "cache") };
     let active = 0;
     let maxActive = 0;
     const compile = () => withSymbianGuestBuildLock(async () => {

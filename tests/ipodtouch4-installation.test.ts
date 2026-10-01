@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ipodAppReceiptPaths, parseInstalledIPodApp, shellQuote, userDeploymentScript, type UserDeployment } from "../tools/ipodtouch4-installation.ts";
 
-const bundleId = "dev.pocket-stack.clear";
+const bundleId = "dev.pocket-nexus.clear";
 const bundleName = "PocketJSiPodTouch4.app";
 const container = "/private/var/mobile/Applications/236A6F72-07C7-4C2F-B00B-DDC8704E9A06";
 const record = { CFBundleIdentifier: bundleId, ApplicationType: "User", Path: `${container}/${bundleName}`, Container: container };

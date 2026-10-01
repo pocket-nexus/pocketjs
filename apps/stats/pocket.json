@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.stats",
+  "id": "dev.pocket-nexus.stats",
   "name": "pocketjs-stats",
   "title": "PocketJS: Mission Control",
   "version": "0.6.0",

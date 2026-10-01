@@ -432,7 +432,7 @@ describe("semantic resolution", () => {
     if (!result.ok) return;
     expect(result.plan.target).toEqual({ id: "psp", hostAbi: 1 });
     expect(result.plan.app).toEqual({
-      id: "dev.pocket-stack.telemetry",
+      id: "dev.pocket-nexus.telemetry",
       title: "Pocket Telemetry",
       version: "0.1.0",
       entry: "app/main.tsx",
@@ -640,7 +640,7 @@ describe("semantic resolution", () => {
     const { demoManifestFor } = await import("../tools/demo-identity.ts");
     const root = new URL("../", import.meta.url).pathname;
     const im = demoManifestFor(root, "im") as any;
-    expect(im.id).toBe("dev.pocket-stack.im");
+    expect(im.id).toBe("dev.pocket-nexus.im");
     expect(im.app.output).toBe("im-main");
     expect(im.engine.capabilities.enhances).toEqual(["input.analog.left"]);
     // A real manifest owns its framework — the override only applies to
@@ -685,7 +685,7 @@ describe("semantic resolution", () => {
   test("plan checksum is independent of capability order but covers package identity", () => {
     const changed = structuredClone(portableInput) as Record<string, any>;
     changed.engine.capabilities.requires.reverse();
-    changed.id = "dev.pocket-stack.renamed";
+    changed.id = "dev.pocket-nexus.renamed";
     changed.name = "renamed-app";
     changed.title = "Renamed App";
     changed.version = "9.0.0";

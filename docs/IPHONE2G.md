@@ -160,7 +160,7 @@ By default, proprietary and device-specific material lives outside the
 repository at:
 
 ```text
-~/.cache/pocket-stack/iphone2g
+~/.cache/pocket-nexus/iphone2g
 ```
 
 The supported overrides are:
@@ -281,7 +281,7 @@ It compiles pinned QuickJS, builds the PocketJS raster core with the pinned Rust
 nightly, and embeds the generated JavaScript and `.pak` as Mach-O sections. The
 Rust target directory is retained under the external iPhone 2G cache, so the
 first standard-library build can take several minutes while later demo builds
-reuse it. Removing `~/.cache/pocket-stack/iphone2g/build/rust-target` forces a
+reuse it. Removing `~/.cache/pocket-nexus/iphone2g/build/rust-target` forces a
 clean Rust rebuild. The
 host stays in C and registers its small UIKit view/delegate classes through the
 Objective-C runtime because the current classic linker cannot safely translate
@@ -763,10 +763,10 @@ sysroot, generates/reuses matching 2048-bit RSA host/client keypairs, writes a
 key-only policy, and emits a receipt. The default outputs are:
 
 ```text
-~/.cache/pocket-stack/iphone2g/bootstrap/stage/
-~/.cache/pocket-stack/iphone2g/bootstrap/ssh_config
-~/.cache/pocket-stack/iphone2g/bootstrap/known_hosts
-~/.cache/pocket-stack/iphone2g/bootstrap/keys/ssh_host_rsa_key
+~/.cache/pocket-nexus/iphone2g/bootstrap/stage/
+~/.cache/pocket-nexus/iphone2g/bootstrap/ssh_config
+~/.cache/pocket-nexus/iphone2g/bootstrap/known_hosts
+~/.cache/pocket-nexus/iphone2g/bootstrap/keys/ssh_host_rsa_key
 ~/.ssh/iphone2g_pocketjs
 ```
 
@@ -871,7 +871,7 @@ stage:
 
 ```sh
 # Use the exact cache path printed by `bun iphone2g doctor`; this also respects
-# POCKET_STACK_CACHE_DIR and all supported overrides.
+# POCKET_NEXUS_CACHE_DIR and all supported overrides.
 IPHONE2G_CACHE=/absolute/path/printed/by/doctor
 BOOTSTRAP_STAGE="$IPHONE2G_CACHE/bootstrap/stage"
 set -euo pipefail

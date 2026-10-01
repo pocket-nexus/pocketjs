@@ -24,7 +24,7 @@
     </dict>
   </dict>
   <key>CFBundleIdentifier</key>
-  <string>dev.pocket-stack.ipodtouch-demo</string>
+  <string>dev.pocket-nexus.ipodtouch-demo</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -43,7 +43,7 @@
   <array>
     <dict>
       <key>CFBundleURLName</key>
-      <string>dev.pocket-stack.ipodtouch-demo.launch</string>
+      <string>dev.pocket-nexus.ipodtouch-demo.launch</string>
       <key>CFBundleURLSchemes</key>
       <array>
         <string>pocketjs-ipodtouch</string>

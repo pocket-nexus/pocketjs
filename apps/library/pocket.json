@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.library",
+  "id": "dev.pocket-nexus.library",
   "name": "pocketjs-library",
   "title": "PocketJS: Game Library",
   "version": "0.6.0",

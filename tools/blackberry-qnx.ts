@@ -73,7 +73,7 @@ const toolchain = JSON.parse(
 };
 
 const image = `${toolchain.image.name}@${toolchain.image.digest}`;
-const cache = join(homedir(), ".cache/pocket-stack", toolchain.cachePath);
+const cache = join(homedir(), ".cache/pocket-nexus", toolchain.cachePath);
 const quickJsRoot = join(cache, "sources/quickjs-rs");
 const nativeBuild = join(repository, ".pocket-build/blackberry-qnx/runtime");
 const rustTarget = join(cache, "build/rust-target");

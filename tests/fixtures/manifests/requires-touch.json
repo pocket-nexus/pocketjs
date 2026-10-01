@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.touch-first",
+  "id": "dev.pocket-nexus.touch-first",
   "name": "pocket-touch-first",
   "title": "Pocket Touch First",
   "version": "0.1.0",

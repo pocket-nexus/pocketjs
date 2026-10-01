@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import manifestJson from "./cli/symbian-toolchain.json";
-import { pocketStackCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
+import { pocketNexusCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
 
 export interface PinnedDownload {
   readonly asset: string;
@@ -163,7 +163,7 @@ export async function withSymbianRuntimeBuildLock<T>(
   const output = resolve(outputRoot);
   const outputLockId = createHash("sha256").update(output).digest("hex");
   const outputLock = join(
-    pocketStackCacheRoot(env),
+    pocketNexusCacheRoot(env),
     `symbian/.locks/runtime-output-${outputLockId}.lock`,
   );
   return await withArtifactLock(outputLock, operation, {
@@ -182,7 +182,7 @@ export async function withSymbianGuestBuildLock<T>(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<T> {
   const lock = join(
-    pocketStackCacheRoot(env),
+    pocketNexusCacheRoot(env),
     "symbian/.locks/guest-build.lock",
   );
   return await withArtifactLock(lock, operation, {
@@ -194,7 +194,7 @@ export async function withSymbianGuestBuildLock<T>(
 export function symbianDownloadsRoot(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env.POCKETJS_SYMBIAN_DOWNLOADS?.trim();
   if (explicit) return resolve(explicit);
-  return join(pocketStackCacheRoot(env), SYMBIAN_TOOLCHAIN.downloadsCachePath);
+  return join(pocketNexusCacheRoot(env), SYMBIAN_TOOLCHAIN.downloadsCachePath);
 }
 
 export function symbianDownloadPath(

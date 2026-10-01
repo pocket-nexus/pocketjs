@@ -77,7 +77,7 @@ Artifacts are written to `dist/iphone2g/PocketJSDemo.app`. The app contains
 the generated Solid/PocketJS guest, pinned QuickJS, PocketJS raster core, and
 UIKit host. Firmware, the decrypted sysroot, Apple Csu and QuickJS sources,
 pairing records, SSH keys, ramdisks, historical bootstrap packages, and Cargo
-target cache live only under the shared Pocket Stack cache. They are never
+target cache live only under the shared `pocket-nexus` toolchain cache. They are never
 copied into the repository.
 
 See `docs/IPHONE2G.md` for the exact workflow and the archived 1.1.4 recovery

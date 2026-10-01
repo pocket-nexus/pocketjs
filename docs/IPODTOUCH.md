@@ -52,7 +52,7 @@ native-code change produces a different device receipt.**
 1. Re-identify the USB device as the exact tested model, system version, build,
    and activated state.
 2. Start a new `iproxy` tunnel bound to that UDID and verify the jailbreak's
-   SSH host key with the dedicated key in `~/.cache/pocket-stack/ipodtouch/keys`.
+   SSH host key with the dedicated key in `~/.cache/pocket-nexus/ipodtouch/keys`.
    **Deploy, launch, status, and capture never reuse an existing local tunnel.**
 3. Acquire a device-side deployment lock and extract through transaction-unique
    archive, unpack, stage, and backup paths.

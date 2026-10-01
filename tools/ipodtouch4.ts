@@ -120,7 +120,7 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   clear: {
     id: "clear",
     manifest: "apps/clear/pocket.json",
-    bundleId: "dev.pocket-stack.clear",
+    bundleId: "dev.pocket-nexus.clear",
     bundleName: "PocketJSiPodTouch4.app",
     executable: "PocketJSiPodTouch4",
     title: "Pocket Clear",
@@ -133,7 +133,7 @@ export const IPODTOUCH4_APPS: Readonly<Record<string, IPodTouch4App>> = {
   "nexus-touch": {
     id: "nexus-touch",
     manifest: "apps/nexus-touch/pocket.json",
-    bundleId: "dev.pocket-stack.nexus-touch",
+    bundleId: "dev.pocket-nexus.nexus-touch",
     bundleName: "PocketNexus.app",
     executable: "PocketNexus",
     title: "Pocket Nexus",

@@ -31,7 +31,7 @@ async function run(args: string[], stdin?: string) {
 }
 if (Bun.argv.includes("--service")) {
   if (process.platform !== "darwin") throw new Error("--service requires macOS launchd");
-  const label = `dev.pocket-stack.clear-companion.${target}`;
+  const label = `dev.pocket-nexus.clear-companion.${target}`;
   const logDir = resolve(".pocket/ime/services"); mkdirSync(logDir, { recursive: true });
   const agents = resolve(homedir(), "Library/LaunchAgents"); mkdirSync(agents, { recursive: true });
   const path = resolve(agents, `${label}.plist`);
@@ -71,7 +71,7 @@ await new Promise<void>((resolve, reject) => {
   lease.once("error", () => reject(new Error(`A ${target} companion is already running (lease port ${port + 1})`)));
   lease.listen(port + 1, "127.0.0.1", resolve);
 });
-const cache = resolve(homedir(), ".cache/pocket-stack/ipodtouch4/ssh");
+const cache = resolve(homedir(), ".cache/pocket-nexus/ipodtouch4/ssh");
 const ssh = ["ssh", "-p", "19224", "-i", resolve(cache, "id_rsa"), "-o", `UserKnownHostsFile=${resolve(cache, "known_hosts")}`,
   "-o", "HostKeyAlias=[127.0.0.1]:2224", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=3",
   "-o", "HostKeyAlgorithms=+ssh-rsa", "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa", "-o", "BatchMode=yes", "root@127.0.0.1"];
@@ -104,7 +104,7 @@ await superviseCompanion({ stopped: () => stopped, wait: () => Bun.sleep(2000), 
       if (!paired || Date.now() - checkedAt > 30000) {
         if (target === "ipodtouch4") {
           if (await run(["ideviceinfo", "-u", id, "-k", "ProductType"]) !== "iPod4,1") throw new Error("Expected iPod touch 4");
-          const bundle = await run([...ssh, "/var/root/Library/PocketJS/ipodtouch4-installer user-path dev.pocket-stack.clear"]);
+          const bundle = await run([...ssh, "/var/root/Library/PocketJS/ipodtouch4-installer user-path dev.pocket-nexus.clear"]);
           if (!/^\/private\/var\/mobile\/Applications\/[A-Fa-f0-9-]+\/PocketJSiPodTouch4.app$/.test(bundle)) throw new Error("Unexpected Clear installation path");
           const path = shellQuote(`${dirname(bundle)}/Documents/offload.key`);
           const read = () => run([...ssh, `cat ${path}`]);
@@ -114,10 +114,10 @@ await superviseCompanion({ stopped: () => stopped, wait: () => Bun.sleep(2000), 
           }
         } else {
           if (await run([...adb, "shell", "getprop", "ro.product.device"]) !== "fogona") throw new Error("Expected Moto G Play 2024 (fogona)");
-          const read = () => run([...adb, "shell", "run-as", "dev.pocket_stack.clear", "cat", "files/offload.key"]);
+          const read = () => run([...adb, "shell", "run-as", "dev.pocket_nexus.clear", "cat", "files/offload.key"]);
           if (await read().catch(() => "") !== key) {
-            await run([...adb, "shell", "run-as", "dev.pocket_stack.clear", "mkdir", "-p", "files"]);
-            await run([...adb, "shell", "run-as", "dev.pocket_stack.clear", "sh", "-c", "'umask 077; cat > files/offload.key'"], key);
+            await run([...adb, "shell", "run-as", "dev.pocket_nexus.clear", "mkdir", "-p", "files"]);
+            await run([...adb, "shell", "run-as", "dev.pocket_nexus.clear", "sh", "-c", "'umask 077; cat > files/offload.key'"], key);
             if (await read() !== key) throw new Error("Pairing readback mismatch");
           }
         }

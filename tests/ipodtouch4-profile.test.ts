@@ -115,7 +115,7 @@ describe("private iPod touch 4 profile", () => {
       const descriptor = join(root, "ipod/ipodtouch4.json");
       writeFileSync(descriptor, JSON.stringify({
         id: "shell", projectRoot: "..", manifest: "ipod/pocket.json",
-        bundleId: "dev.pocket-stack.shell", bundleName: "PocketShell.app",
+        bundleId: "dev.pocket-nexus.shell", bundleName: "PocketShell.app",
         executable: "PocketShell", title: "Pocket Shell", scheme: "pocketjs-shell",
         receiptSlug: "pocketjs-shell", actionName: "shell_action", svcWire: true,
       }));
@@ -218,7 +218,7 @@ describe("private iPod touch 4 profile", () => {
     const receipt = {
       schema: 1 as const,
       buildId: "a".repeat(32),
-      bundleId: "dev.pocket-stack.clear",
+      bundleId: "dev.pocket-nexus.clear",
       target: IPODTOUCH4_DEV_TARGET_ID,
       hostAbi: IPODTOUCH4_DEV_HOST_ABI,
       deploymentTarget: "6.0",

@@ -37,7 +37,7 @@ function topScreenManifest(): Record<string, any> {
   return {
     $schema: "https://pocketjs.dev/schema/pocket-2.json",
     pocket: 2,
-    id: "dev.pocket-stack.3ds-demo",
+    id: "dev.pocket-nexus.3ds-demo",
     name: "pocketjs-3ds-hero",
     title: "PocketJS: 3DS Hero",
     version: "0.1.0",
@@ -334,12 +334,12 @@ describe("private Nintendo 3DS build profile", () => {
   });
 
   test("derives bounded, application-specific Runtime state slots", () => {
-    expect(runtimeSlot("dev.pocket-stack.3ds-demo")).toMatch(/^[0-9a-f]{16}$/);
-    expect(runtimeSlot("dev.pocket-stack.3ds-demo")).toBe(
-      runtimeSlot("dev.pocket-stack.3ds-demo"),
+    expect(runtimeSlot("dev.pocket-nexus.3ds-demo")).toMatch(/^[0-9a-f]{16}$/);
+    expect(runtimeSlot("dev.pocket-nexus.3ds-demo")).toBe(
+      runtimeSlot("dev.pocket-nexus.3ds-demo"),
     );
-    expect(runtimeSlot("dev.pocket-stack.3ds-demo")).not.toBe(
-      runtimeSlot("dev.pocket-stack.term"),
+    expect(runtimeSlot("dev.pocket-nexus.3ds-demo")).not.toBe(
+      runtimeSlot("dev.pocket-nexus.term"),
     );
   });
 
@@ -386,19 +386,19 @@ describe("private Nintendo 3DS build profile", () => {
 });
 
 describe("CIA title identity", () => {
-  const APP = "dev.pocket-stack.3ds-demo";
+  const APP = "dev.pocket-nexus.3ds-demo";
 
   test("puts the unique id in the homebrew block and keeps it stable", () => {
     // 0xFF000-0xFFFFF is the range no retail or system title is assigned, so an
     // installed CIA cannot collide with one the console already has.
-    for (const app of [APP, "dev.pocket-stack.voxel", "a", ""]) {
+    for (const app of [APP, "dev.pocket-nexus.voxel", "a", ""]) {
       const unique = Number.parseInt(ciaUniqueId(app), 16);
       expect(unique).toBeGreaterThanOrEqual(0xff000);
       expect(unique).toBeLessThanOrEqual(0xfffff);
     }
     // Derived, so a rebuild replaces the installed title instead of adding one.
     expect(ciaUniqueId(APP)).toBe(ciaUniqueId(APP));
-    expect(ciaUniqueId(APP)).not.toBe(ciaUniqueId("dev.pocket-stack.voxel"));
+    expect(ciaUniqueId(APP)).not.toBe(ciaUniqueId("dev.pocket-nexus.voxel"));
   });
 
   test("names the directory the installed title lands in", () => {
@@ -411,7 +411,7 @@ describe("CIA title identity", () => {
   test("emits a product code makerom accepts without FreeProductCode", () => {
     // makerom's IsValidProductCode: 10..16 characters, CTR or KTR, '-' at 3 and
     // 5, digits or uppercase letters elsewhere.
-    for (const app of [APP, "x", "dev.pocket-stack.a-b", "UPPER.case.9"]) {
+    for (const app of [APP, "x", "dev.pocket-nexus.a-b", "UPPER.case.9"]) {
       expect(ciaProductCode(app)).toMatch(/^CTR-[A-Z0-9]-[A-Z0-9]{4}$/);
     }
     expect(ciaProductCode(APP)).toBe("CTR-P-3DSD");

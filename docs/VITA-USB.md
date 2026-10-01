@@ -16,11 +16,11 @@ idle behavior.
 
 ## Pocket Devkit
 
-**Pocket Devkit (`apps/devkit`, title `P3B1D7273`) is the development
+**Pocket Devkit (`apps/devkit`, title `P25BFE5E2`) is the development
 container.** Install its VPK once. Its screen waits for a build over USB;
 `push` replaces its JS/PAK guest and `native` runs another project's native
 build from its inactive slot. A native build addresses the container through
-its title: build it with `POCKETJS_VITA_TITLE_ID=P3B1D7273` (the variable
+its title: build it with `POCKETJS_VITA_TITLE_ID=P25BFE5E2` (the variable
 `tools/vita.ts` sets from the app ID) and pass that build's `.runtime.json`
 to `native`. The LiveArea art is in `apps/devkit/vita/`; `tools/vita.ts`
 overlays an app's `vita/` directory on the framework defaults.

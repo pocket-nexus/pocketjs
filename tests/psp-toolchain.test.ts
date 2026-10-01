@@ -11,7 +11,7 @@ import {
   hasVerifiedCachedPspSdk,
   hasPinnedCargoPspRoot,
   hasPinnedCargoPspTools,
-  pocketStackCacheRoot,
+  pocketNexusCacheRoot,
   publishStagedDirectory,
   resolvePspBuildToolchain,
   resolvePspSdk,
@@ -54,7 +54,7 @@ describe("canonical PSP toolchain", () => {
 
   test("uses explicit SDK authorities before the shared cache", () => {
     const env = { HOME: "/home/test", XDG_CACHE_HOME: "/var/cache/test" };
-    expect(pocketStackCacheRoot(env)).toBe("/var/cache/test/pocket-stack");
+    expect(pocketNexusCacheRoot(env)).toBe("/var/cache/test/pocket-nexus");
     expect(resolvePspSdk(env)).toEqual({ path: cachedPspSdk(env), source: "cache" });
     expect(resolvePspSdk({ ...env, PSPDEV: "/opt/pspdev" })).toEqual({
       path: "/opt/pspdev",
@@ -68,7 +68,7 @@ describe("canonical PSP toolchain", () => {
 
   test("only calls a cached SDK verified when its receipt matches the manifest", () => {
     const cache = tempRoot();
-    const env = { HOME: cache, POCKET_STACK_CACHE_DIR: cache };
+    const env = { HOME: cache, POCKET_NEXUS_CACHE_DIR: cache };
     const sdk = cachedPspSdk(env);
     mkdirSync(join(sdk, "psp/lib"), { recursive: true });
     writeFileSync(join(sdk, "psp/lib/libc.a"), "fixture");
@@ -92,11 +92,11 @@ describe("canonical PSP toolchain", () => {
     writeFileSync(join(llvm, "clang"), "fixture");
     writeFileSync(join(llvm, "llvm-ar"), "fixture");
     for (const tool of PSP_TOOLCHAIN.cargoPsp.tools) {
-      const path = join(cachedCargoPspBin({ HOME: cache, POCKET_STACK_CACHE_DIR: cache }), tool);
+      const path = join(cachedCargoPspBin({ HOME: cache, POCKET_NEXUS_CACHE_DIR: cache }), tool);
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, "fixture");
     }
-    writeFileSync(join(cachedCargoPspRoot({ HOME: cache, POCKET_STACK_CACHE_DIR: cache }), ".crates2.json"), JSON.stringify({
+    writeFileSync(join(cachedCargoPspRoot({ HOME: cache, POCKET_NEXUS_CACHE_DIR: cache }), ".crates2.json"), JSON.stringify({
       installs: {
         [`cargo-psp 0.2.8 (git+${PSP_TOOLCHAIN.rustPsp.repository}?rev=${PSP_TOOLCHAIN.rustPsp.rev}#${PSP_TOOLCHAIN.rustPsp.rev})`]: {
           bins: PSP_TOOLCHAIN.cargoPsp.tools,
@@ -104,12 +104,12 @@ describe("canonical PSP toolchain", () => {
         },
       },
     }));
-    expect(hasPinnedCargoPspTools({ HOME: cache, POCKET_STACK_CACHE_DIR: cache })).toBe(true);
+    expect(hasPinnedCargoPspTools({ HOME: cache, POCKET_NEXUS_CACHE_DIR: cache })).toBe(true);
 
     const resolved = resolvePspBuildToolchain({
       ...process.env,
       HOME: cache,
-      POCKET_STACK_CACHE_DIR: cache,
+      POCKET_NEXUS_CACHE_DIR: cache,
       POCKETJS_LLVM_BIN: llvm,
       PSP_SDK: sdk,
       PSPDEV: join(cache, "ignored"),
@@ -124,7 +124,7 @@ describe("canonical PSP toolchain", () => {
     expect(() => resolvePspBuildToolchain({
       ...process.env,
       HOME: cache,
-      POCKET_STACK_CACHE_DIR: cache,
+      POCKET_NEXUS_CACHE_DIR: cache,
       PSP_SDK: join(cache, "missing-explicit-sdk"),
     })).toThrow("PSP_SDK points to");
   });
@@ -137,7 +137,7 @@ describe("canonical PSP toolchain", () => {
     expect(() => resolvePspBuildToolchain({
       ...process.env,
       HOME: cache,
-      POCKET_STACK_CACHE_DIR: cache,
+      POCKET_NEXUS_CACHE_DIR: cache,
       PSP_SDK: sdk,
       POCKETJS_LLVM_BIN: join(cache, "missing-llvm"),
     })).toThrow("POCKETJS_LLVM_BIN points to");

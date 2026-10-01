@@ -142,7 +142,7 @@ describe("private iPhone 4S profile", () => {
     const receipt = {
       schema: 1 as const,
       buildId: "a".repeat(32),
-      bundleId: "dev.pocket-stack.iphone4s-demo",
+      bundleId: "dev.pocket-nexus.iphone4s-demo",
       target: "iphone4s-dev",
       hostAbi: 5,
       deploymentTarget: "6.0",

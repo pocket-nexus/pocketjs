@@ -12,8 +12,8 @@ export function verifyComponentVersions(root: string): string[] {
       { version: string; dependencies?: Record<string, unknown> };
     if (manifest.version !== release.version) throw new Error(`component version drift: ${name}`);
     const internal = Object.fromEntries(Object.entries(manifest.dependencies ?? {})
-      .filter(([key]) => key.startsWith("pocket-stack/pocketjs_"))
-      .map(([key, value]) => [key.slice("pocket-stack/".length), value]));
+      .filter(([key]) => key.startsWith("pocket-nexus/pocketjs_"))
+      .map(([key, value]) => [key.slice("pocket-nexus/".length), value]));
     if (Object.keys(internal).length !== Object.keys(release.requires).length)
       throw new Error(`component dependency drift: ${name}`);
     for (const [dependency, range] of Object.entries(release.requires)) {

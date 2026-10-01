@@ -36,7 +36,7 @@ const toolchain = JSON.parse(
   };
   readonly rapi: { readonly repository: string; readonly revision: string };
 };
-const cache = join(homedir(), ".cache/pocket-stack", toolchain.cachePath);
+const cache = join(homedir(), ".cache/pocket-nexus", toolchain.cachePath);
 const manifestPath = join(repository, "apps/meizu-m8-demo/pocket.json");
 // 80x80 M8 Shell derivative of the shipped iPhone 2G PocketJS Icon.png.
 const shellIcon = join(repository, "apps/meizu-m8-demo/icon80.png");

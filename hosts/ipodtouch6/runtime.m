@@ -58,7 +58,7 @@ static const CGFloat PocketRecoveredBrightness = 0.60;
   NSDictionary *status = @{
     @"schema" : @1,
     @"build_id" : [NSString stringWithUTF8String:POCKETJS_BUILD_ID],
-    @"bundle_id" : @"dev.pocket-stack.ipodtouch-demo",
+    @"bundle_id" : @"dev.pocket-nexus.ipodtouch-demo",
     @"state" : self.state ?: @"unknown",
     @"pid" : @((int)getpid()),
     @"written_at" : @([self now]),

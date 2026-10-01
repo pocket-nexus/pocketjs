@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.text-cjk",
+  "id": "dev.pocket-nexus.text-cjk",
   "name": "pocketjs-text-cjk",
   "title": "PocketJS: Text Lab",
   "version": "0.1.0",

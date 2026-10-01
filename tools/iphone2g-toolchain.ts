@@ -93,15 +93,15 @@ export function iphone2gCacheRoot(
 ): string {
   if (env.POCKETJS_IPHONE2G_ROOT?.trim())
     return resolve(env.POCKETJS_IPHONE2G_ROOT.trim());
-  const pocketStack = env.POCKET_STACK_CACHE_DIR?.trim()
-    ? resolve(env.POCKET_STACK_CACHE_DIR.trim())
+  const pocketNexus = env.POCKET_NEXUS_CACHE_DIR?.trim()
+    ? resolve(env.POCKET_NEXUS_CACHE_DIR.trim())
     : join(
         env.XDG_CACHE_HOME?.trim()
           ? resolve(env.XDG_CACHE_HOME.trim())
           : join(env.HOME || homedir(), ".cache"),
-        "pocket-stack",
+        "pocket-nexus",
       );
-  return join(pocketStack, IPHONE2G_TOOLCHAIN.cachePath);
+  return join(pocketNexus, IPHONE2G_TOOLCHAIN.cachePath);
 }
 
 export function iphone2gFirmwarePath(

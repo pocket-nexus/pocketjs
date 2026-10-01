@@ -19,7 +19,7 @@
         android:label="@string/app_name"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
         <activity
-            android:name="dev.pocketstack.android.PocketActivity"
+            android:name="dev.pocketnexus.android.PocketActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"

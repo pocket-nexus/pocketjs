@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.3ds-demo",
+  "id": "dev.pocket-nexus.3ds-demo",
   "name": "pocketjs-3ds-demo",
   "title": "PocketJS: 3DS Dual Screen",
   "version": "0.1.0",

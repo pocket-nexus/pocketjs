@@ -730,17 +730,17 @@ mod tests {
         let guest = Guest::new().unwrap();
         let surface = UiSurface::new((16.0, 16.0));
         let handle = surface
-            .register_compositor_surface("dev.pocket-stack.hero")
+            .register_compositor_surface("dev.pocket-nexus.hero")
             .unwrap();
         assert_eq!(
-            surface.register_compositor_surface("dev.pocket-stack.hero"),
+            surface.register_compositor_surface("dev.pocket-nexus.hero"),
             Some(handle)
         );
         surface.mount(&guest).unwrap();
         guest
             .eval(
                 "surface",
-                "globalThis.surface = ui.__surfaces['dev.pocket-stack.hero'];\
+                "globalThis.surface = ui.__surfaces['dev.pocket-nexus.hero'];\
                  globalThis.node = ui.createNode(3);\
                  ui.setCompositorSurface(globalThis.node, globalThis.surface, 1);",
             )

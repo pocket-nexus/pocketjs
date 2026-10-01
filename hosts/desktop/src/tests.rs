@@ -98,24 +98,24 @@ mod tests {
     fn resolved_system_plan_uses_the_exact_system_ui_wire_key() {
         let plan: ResolvedSystemPlan = serde_json::from_value(serde_json::json!({
             "system": {
-                "id": "dev.pocket-stack.desktop",
+                "id": "dev.pocket-nexus.desktop",
                 "name": "pocket-desktop",
                 "title": "Pocket Desktop",
                 "version": "0.1.0"
             },
             "target": { "id": HOST_ID, "hostAbi": 4 },
-            "roles": { "systemUI": "dev.pocket-stack.shell" },
+            "roles": { "systemUI": "dev.pocket-nexus.shell" },
             "lifecycle": { "backgroundExecution": "suspend" },
             "installation": {
-                "installedPackages": ["dev.pocket-stack.shell"]
+                "installedPackages": ["dev.pocket-nexus.shell"]
             },
             "systemUI": {
-                "package": "dev.pocket-stack.shell",
+                "package": "dev.pocket-nexus.shell",
                 "source": "apps/shell/pocket.json",
                 "required": true,
                 "plan": {
                     "app": {
-                        "id": "dev.pocket-stack.shell",
+                        "id": "dev.pocket-nexus.shell",
                         "output": "shell-main",
                         "title": "System UI",
                         "version": "0.1.0",
@@ -140,8 +140,8 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(plan.roles.system_ui, "dev.pocket-stack.shell");
-        assert_eq!(plan.system_ui.package, "dev.pocket-stack.shell");
+        assert_eq!(plan.roles.system_ui, "dev.pocket-nexus.shell");
+        assert_eq!(plan.system_ui.package, "dev.pocket-nexus.shell");
         assert!(plan.validate_for_host().is_ok());
     }
 }

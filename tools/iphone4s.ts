@@ -50,7 +50,7 @@ const KEY_PATH =
 const KNOWN_HOSTS_PATH =
   process.env.POCKETJS_IPHONE4S_KNOWN_HOSTS ?? join(iphone4sCacheRoot(), "ssh/known_hosts");
 const BUNDLE_NAME = "PocketJSiPhone4S.app";
-const BUNDLE_ID = "dev.pocket-stack.iphone4s-demo";
+const BUNDLE_ID = "dev.pocket-nexus.iphone4s-demo";
 const INSTALL_PATH = `/Applications/${BUNDLE_NAME}`;
 const STATUS_PATH = "/private/var/tmp/pocketjs-iphone4s.status";
 const FRAME_PATH = "/private/var/tmp/pocketjs-iphone4s.frame.rgba";

@@ -7,4 +7,4 @@ targets:
   - esp32p4
 dependencies:
   idf: ">=6.0,<6.2"
-  pocket-stack/pocketjs_render_rgb565: "0.1.0"
+  pocket-nexus/pocketjs_render_rgb565: "0.1.0"

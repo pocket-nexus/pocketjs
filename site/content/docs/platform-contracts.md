@@ -40,7 +40,7 @@ Format 2 is strict JSON data. A PSP-shaped portable app can say:
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.telemetry",
+  "id": "dev.pocket-nexus.telemetry",
   "name": "pocket-telemetry",
   "title": "Pocket Telemetry",
   "version": "1.0.0",
@@ -379,7 +379,7 @@ This is what the manifest above resolves to for `vita`:
 ```json
 {
   "app": {
-    "id": "dev.pocket-stack.telemetry",
+    "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
     "version": "1.0.0",
     "entry": "app/main.tsx",

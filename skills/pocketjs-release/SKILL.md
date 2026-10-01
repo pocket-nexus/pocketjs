@@ -71,7 +71,7 @@ gh release list --limit 2      # GitHub Release exists and is marked Latest
   `npm install -g npm@latest` (Node 22 bundles 10.x). Never add
   `registry-url` to setup-node (its .npmrc token placeholder breaks
   tokenless publishes). `permissions: id-token: write` is required.
-- Each package's npm **Trusted Publisher** config names org `pocket-stack`,
+- Each package's npm **Trusted Publisher** config names org `pocket-nexus`,
   repo `pocketjs`, workflow `release.yml`, no environment. A NEW package
   can't use it for its first publish — bootstrap locally with
   `npm publish --access public --otp=…` (account 2FA is auth-and-writes),

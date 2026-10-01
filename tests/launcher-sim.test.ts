@@ -82,7 +82,7 @@ describe("launcher registry admission", () => {
 
   test("every entry carries id + title for the deck", () => {
     for (const app of registry.apps) {
-      expect(app.id).toMatch(/^dev\.pocket-stack\./);
+      expect(app.id).toMatch(/^dev\.pocket-nexus\./);
       expect(app.title.length).toBeGreaterThan(0);
     }
   });
@@ -138,7 +138,7 @@ describe("launcher registry admission", () => {
         maxActive = Math.max(maxActive, active);
         await Bun.sleep(20);
         active -= 1;
-      }, { POCKET_STACK_CACHE_DIR: cache });
+      }, { POCKET_NEXUS_CACHE_DIR: cache });
     await Promise.all([
       build("/tmp/pocketjs-launcher-lock-a"),
       build("/tmp/pocketjs-launcher-lock-b"),
@@ -224,7 +224,7 @@ describe("launcher registry admission", () => {
       const manifest = JSON.parse(
         readFileSync(join(repository, "apps/hero/pocket.json"), "utf8"),
       );
-      manifest.id = "dev.pocket-stack.launcher.throw-probe";
+      manifest.id = "dev.pocket-nexus.launcher.throw-probe";
       manifest.name = output;
       manifest.title = "AAAA Launcher Throw Probe";
       manifest.app.entry = "app.tsx";

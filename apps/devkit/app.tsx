@@ -8,8 +8,8 @@ import { createSignal, For } from "solid-js";
 import { Text, View } from "@pocketjs/framework/components";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 
-/** vitaTitleId("dev.pocket-stack.devkit"): the title every tool addresses. */
-const TITLE_ID = "P3B1D7273";
+/** vitaTitleId("dev.pocket-nexus.devkit"): the title every tool addresses. */
+const TITLE_ID = "P25BFE5E2";
 
 const STEPS = [
   { n: "1", text: "Connect the USB cable to the computer" },

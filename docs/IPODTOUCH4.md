@@ -100,8 +100,8 @@ iOS 6.1.6 is untethered). The completed bootstrap provides:
 The default local files are:
 
 ```text
-~/.cache/pocket-stack/ipodtouch4/ssh/id_rsa
-~/.cache/pocket-stack/ipodtouch4/ssh/known_hosts
+~/.cache/pocket-nexus/ipodtouch4/ssh/id_rsa
+~/.cache/pocket-nexus/ipodtouch4/ssh/known_hosts
 ```
 
 `POCKETJS_IPODTOUCH4_KEY`, `POCKETJS_IPODTOUCH4_KNOWN_HOSTS`, and

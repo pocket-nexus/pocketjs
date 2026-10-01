@@ -373,7 +373,7 @@ So the packager derives a stable private-range UID from each app's Pocket id, al
 
 Then there is the other direction: the **Pocket Launcher**, which packs many `.pocket` app bundles into *one* SIS and switches between them.
 
-<img class="w-full rounded-xl border border-line" src="/assets/blog/symbian-e7-launcher.png" alt="The PocketJS Cover Flow launcher at 640 by 360 on the E7: a perspective carousel of app covers receding to both sides with mirrored reflections below, the centred card showing a retro Chrome-style window, and the caption 'Chrome — 3 / 18 — dev.pocket-stack.chrome'" />
+<img class="w-full rounded-xl border border-line" src="/assets/blog/symbian-e7-launcher.png" alt="The PocketJS Cover Flow launcher at 640 by 360 on the E7: a perspective carousel of app covers receding to both sides with mirrored reflections below, the centred card showing a retro Chrome-style window, and the caption 'Chrome — 3 / 18 — dev.pocket-nexus.chrome'" />
 
 <p class="text-sm text-slate-500 -mt-4">The Cover Flow launcher at 640×360 — real perspective, not a scaled sprite strip. The core projects and depth-sorts the cards, then subdivides each into textured triangles; the E7 backend decodes those triangles straight into GLES2 draw calls. (The "this host cannot switch apps" hint is the wasm oracle telling on itself — the capability is a host feature, and on the phone this line reads differently.)</p>
 

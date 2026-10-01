@@ -32,7 +32,7 @@ checked at boot.
 manifest's `id`, `title`, and `version`; `extractHostBuildInputs` hands them to
 the host tool, and `packageIdentity` (`tools/native-host-build.ts`) maps them
 onto the BAR: the package id is the manifest id with `-` replaced by `_`
-(`dev.pocket_stack.blackberry_classic_demo`), the version string is used
+(`dev.pocket_nexus.blackberry_classic_demo`), the version string is used
 verbatim, and `buildId` is `major·1 000 000 + minor·1 000 + patch`
 (0.1.1 → 1001). `bar-descriptor.xml` contains `@POCKET_…@` placeholders
 rendered at build time.
@@ -94,7 +94,7 @@ and QEMU for the BBNDK's 32-bit x86 host tools. USB deployment (below) uses
 reach the device at the address in `POCKETJS_BLACKBERRY_DEVICE`.
 
 The QuickJS checkout and Rust target directory live under
-`~/.cache/pocket-stack/blackberry-qnx/`.
+`~/.cache/pocket-nexus/blackberry-qnx/`.
 
 ## Native QNX host
 

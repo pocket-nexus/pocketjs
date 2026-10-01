@@ -58,7 +58,7 @@ pocket setup    # runs the checkout's pinned, idempotent bootstrap
 The PSP setup is self-contained in PocketJS; it does not inspect DreamCart or
 any sibling source checkout. Its exact revisions and SDK checksum live in
 `tools/cli/psp-toolchain.json`. Artifacts are shared through
-`${XDG_CACHE_HOME:-~/.cache}/pocket-stack`; `POCKET_STACK_CACHE_DIR` overrides
+`${XDG_CACHE_HOME:-~/.cache}/pocket-nexus`; `POCKET_NEXUS_CACHE_DIR` overrides
 that root. For a custom SDK, set `PSP_SDK` or `PSPDEV` (in that precedence
 order). The build validates an explicit path and then exports both names to the
 selected SDK, so a typo fails instead of falling through to a different cached

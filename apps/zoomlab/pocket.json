@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.zoomlab",
+  "id": "dev.pocket-nexus.zoomlab",
   "name": "pocketjs-zoomlab",
   "title": "Zoom Lab",
   "version": "0.6.0",

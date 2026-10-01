@@ -232,7 +232,7 @@ mkdirSync(goldensDir, { recursive: true });
 
 function writeDemoManifest(app: string): string {
   const manifest = JSON.parse(readFileSync(`${pspUiDir}pocket.json`, "utf8")) as Record<string, any>;
-  manifest.id = `dev.pocket-stack.e2e.psp.${app.replace(/-/g, ".")}`;
+  manifest.id = `dev.pocket-nexus.e2e.psp.${app.replace(/-/g, ".")}`;
   manifest.name = `pocketjs-e2e-${app}`;
   manifest.title = `PocketJS E2E ${app}`;
   manifest.app.entry = `apps/${app}/main.tsx`;

@@ -80,7 +80,7 @@ describe("experimental Nokia E7 runtime profile", () => {
   test("serializes the shared launcher source tree across targets", async () => {
     const root = mkdtempSync(join(tmpdir(), "pocketjs-launcher-source-lock-"));
     try {
-      const env = { POCKET_STACK_CACHE_DIR: join(root, "cache") };
+      const env = { POCKET_NEXUS_CACHE_DIR: join(root, "cache") };
       let active = 0;
       let maxActive = 0;
       const build = () => withLauncherSourceLock(async () => {
@@ -162,22 +162,22 @@ describe("experimental Nokia E7 runtime profile", () => {
     });
     const launcher = entry(
       "launcher-main",
-      "dev.pocket-stack.launcher",
+      "dev.pocket-nexus.launcher",
       "PocketJS: Launcher",
       [1, 2, 3],
       false,
     );
     const hero = entry(
       "hero-main",
-      "dev.pocket-stack.hero",
+      "dev.pocket-nexus.hero",
       "PocketJS: Hero",
       [4, 5],
       true,
     );
     const catalog = encodeSymbianCatalog([launcher, hero]);
     expect(new TextDecoder().decode(catalog.index)).toBe(
-      "launcher-main\tdev.pocket-stack.launcher\tPocketJS: Launcher\t0\t3\t480\t272\tfixed\n" +
-        "hero-main\tdev.pocket-stack.hero\tPocketJS: Hero\t16\t2\t640\t360\tlive\n",
+      "launcher-main\tdev.pocket-nexus.launcher\tPocketJS: Launcher\t0\t3\t480\t272\tfixed\n" +
+        "hero-main\tdev.pocket-nexus.hero\tPocketJS: Hero\t16\t2\t640\t360\tlive\n",
     );
     expect([...catalog.blob.subarray(0, 3)]).toEqual([1, 2, 3]);
     expect([...catalog.blob.subarray(3, 16)]).toEqual(new Array(13).fill(0));
@@ -250,7 +250,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       const manifest = JSON.parse(
         readFileSync(join(repository, "apps/hero/pocket.json"), "utf8"),
       );
-      manifest.id = "dev.pocket-stack.external-probe";
+      manifest.id = "dev.pocket-nexus.external-probe";
       manifest.name = "external-probe";
       manifest.title = "External Probe";
       manifest.app.entry = "app.tsx";
@@ -286,7 +286,7 @@ describe("experimental Nokia E7 runtime profile", () => {
         (entry) => entry.output === "external-probe",
       );
       expect(app).toMatchObject({
-        id: "dev.pocket-stack.external-probe",
+        id: "dev.pocket-nexus.external-probe",
         manifest: "pocket.json",
       });
       expect(app).not.toHaveProperty("projectRoot");

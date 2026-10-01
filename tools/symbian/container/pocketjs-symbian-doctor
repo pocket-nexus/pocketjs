@@ -214,8 +214,8 @@ echo "Packaging and signing a smoke SIS"
 cat > "$smoke/smoke.pkg" <<EOF
 &EN
 #{"PocketJS Doctor Smoke"},(0xE7A11FFE),1,0,0
-%{"Pocket Stack"}
-:"Pocket Stack"
+%{"Pocket Nexus"}
+:"Pocket Nexus"
 "$smoke/PocketJsDoctorSmoke.exe"-"!:\\sys\\bin\\PocketJsDoctorSmoke.exe"
 "$smoke/PocketJsDoctorSmoke.rsc"-"!:\\resource\\apps\\PocketJsDoctorSmoke.rsc"
 "$smoke/PocketJsDoctorSmoke_reg.rsc"-"!:\\private\\10003a3f\\import\\apps\\PocketJsDoctorSmoke_reg.rsc"

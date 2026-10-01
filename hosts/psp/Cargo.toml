@@ -7,7 +7,7 @@
 # environment resolved from tools/cli/psp-toolchain.json (llvm-ar, RUSTFLAGS
 # -A linker-messages, RUST_PSP_TARGET=targets/mipsel-sony-psp.json,
 # RUST_PSP_ABORT_ONLY=1, TARGET_CFLAGS). `bun run bootstrap` installs the
-# pinned cargo tools and verified SDK in the shared pocket-stack cache.
+# pinned cargo tools and verified SDK in the shared pocket-nexus cache.
 #
 # Memory (docs/DESIGN.md "Memory (the blocker fix)" [R]): the psp crate is built
 # with `external-global-alloc` (gates out rust-psp's one-kernel-object-per-

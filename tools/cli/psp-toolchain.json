@@ -24,7 +24,7 @@
     "url": "https://github.com/pocket-nexus/pspdev/releases/download/sdk-noabicalls-normalized-2026-06-19/mipsel-sony-psp.zip",
     "sha256": "fc7d7d502d53987f356871bc8c58396fb0f2a6eb6f5828b16c3bc3f22991a273",
     "marker": "psp/lib/libc.a",
-    "receipt": ".pocket-stack-sdk.json",
+    "receipt": ".pocket-nexus-sdk.json",
     "cachePath": "psp/sdk/sdk-noabicalls-normalized-2026-06-19/mipsel-sony-psp"
   }
 }

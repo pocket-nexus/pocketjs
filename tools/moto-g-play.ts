@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2), command = args.find(a => !a.startsWith("--")) ?? "doctor";
 const id = args.find(a => a.startsWith("--id="))?.slice(5) ?? process.env.POCKETJS_MOTO_G_PLAY_SERIAL;
-const packageId = "dev.pocket_stack.clear", activity = `${packageId}/dev.pocketstack.android.PocketActivity`;
+const packageId = "dev.pocket_nexus.clear", activity = `${packageId}/dev.pocketnexus.android.PocketActivity`;
 const output = resolve(root, "dist/moto-g-play");
 function adb(args: string[]) {
   const result = Bun.spawnSync(["adb", "-s", id!, ...args], { stdout: "pipe", stderr: "pipe" });

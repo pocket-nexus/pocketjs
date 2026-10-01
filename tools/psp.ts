@@ -5,7 +5,7 @@
 // (LLVM PATH, TARGET_CFLAGS, AR_mipsel_sony_psp=llvm-ar,
 //  RUST_PSP_TARGET=hosts/psp/targets/mipsel-sony-psp.json, RUST_PSP_ABORT_ONLY=1,
 //  RUSTFLAGS "-A linker-messages …"). `bun run bootstrap` installs the exact
-//  Rust, cargo-psp and SDK revisions into the shared pocket-stack cache.
+//  Rust, cargo-psp and SDK revisions into the shared pocket-nexus cache.
 //
 // Demo entries: `bun tools/psp.ts hero` prefers apps/hero/main.tsx (the
 // mounting entry — apps/hero/app.tsx only exports the component) when it exists.

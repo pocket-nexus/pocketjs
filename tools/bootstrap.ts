@@ -21,7 +21,7 @@ import {
   hasPinnedCargoPspRoot,
   hasPinnedCargoPspTools,
   hasVerifiedCachedPspSdk,
-  pocketStackCacheRoot,
+  pocketNexusCacheRoot,
   publishStagedDirectory,
   pspSdkReceipt,
   resolveLlvmBin,
@@ -32,7 +32,7 @@ import {
 
 const root = new URL("..", import.meta.url).pathname;
 const home = process.env.HOME ?? "";
-const cacheRoot = pocketStackCacheRoot();
+const cacheRoot = pocketNexusCacheRoot();
 const cachedSdk = cachedPspSdk();
 const sdkResolution = resolvePspSdk();
 const sdk = sdkResolution.path;

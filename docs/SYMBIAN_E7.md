@@ -18,7 +18,7 @@ does not register Symbian in the production `POCKET_TARGETS` registry.
 ## What gets installed
 
 `pocket symbian setup --yes` downloads five pinned, SHA-256-verified inputs into
-the shared Pocket Stack cache:
+the shared `pocket-nexus` toolchain cache:
 
 - Belle SDK for Qt SDK 1.2.1 (`SymbianSR1Qt474`)
 - GCCE 4.6.3 for Linux/i686
@@ -67,7 +67,7 @@ downloads, container image, and toolchain generation.
 The default cache is:
 
 ```text
-${POCKET_STACK_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pocket-stack}/symbian
+${POCKET_NEXUS_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/pocket-nexus}/symbian
 ```
 
 `POCKETJS_SYMBIAN_DOWNLOADS` can point at a pre-populated directory containing
@@ -580,10 +580,10 @@ receipt records the encoded registry hash.
 
 ```json
 {
-  "shell": "0xEA360236",
+  "shell": "0xE7C0F0BA",
   "apps": [
-    { "uid": "0xEA360236", "id": "dev.pocket-stack.fluid", "output": "pocketshell-touch", "title": "Pocket Shell" },
-    { "uid": "0xE16ACD8E", "id": "dev.pocket-stack.clear", "output": "clear-main", "title": "Pocket Clear", "orientation": "portrait" }
+    { "uid": "0xE7C0F0BA", "id": "dev.pocket-nexus.fluid", "output": "pocketshell-touch", "title": "Pocket Shell" },
+    { "uid": "0xE6EE02B8", "id": "dev.pocket-nexus.clear", "output": "clear-main", "title": "Pocket Clear", "orientation": "portrait" }
   ]
 }
 ```

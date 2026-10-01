@@ -1707,7 +1707,7 @@ bool PocketJsRuntime::parseCatalog(const QByteArray &index)
     }
 
     if (!apps_.isEmpty() &&
-        apps_.first().id != "dev.pocket-stack.launcher") {
+        apps_.first().id != "dev.pocket-nexus.launcher") {
         fail("PocketJS catalog entry zero is not the launcher");
         return false;
     }
@@ -1727,7 +1727,7 @@ bool PocketJsRuntime::initializeCatalog()
     if (apps_.isEmpty()) {
         EmbeddedApp app;
         app.output = "app";
-        app.id = "dev.pocket-stack.app";
+        app.id = "dev.pocket-nexus.app";
         app.title = "PocketJS App";
         app.packageOffset = -1;
         app.packageLength = 0;

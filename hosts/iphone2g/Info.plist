@@ -8,7 +8,7 @@
   <key>CFBundleExecutable</key>
   <string>PocketJSDemo</string>
   <key>CFBundleIdentifier</key>
-  <string>dev.pocket-stack.iphone2g-demo</string>
+  <string>dev.pocket-nexus.iphone2g-demo</string>
   <key>CFBundleDisplayName</key>
   <string>PocketJS</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -29,7 +29,7 @@
   <array>
     <dict>
       <key>CFBundleURLName</key>
-      <string>dev.pocket-stack.iphone2g-demo.launch</string>
+      <string>dev.pocket-nexus.iphone2g-demo.launch</string>
       <key>CFBundleURLSchemes</key>
       <array>
         <string>pocketjs-iphone2g-demo</string>

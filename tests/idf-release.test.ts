@@ -85,7 +85,7 @@ describe("ESP-IDF release integrity", () => {
     }
     expect(verifyComponentVersions(directory)).toEqual(names);
     const file = join(components, "pocketjs_ui_qjs/idf_component.yml");
-    writeFileSync(file, readFileSync(file, "utf8").replace('pocket-stack/pocketjs_ui_core: "0.1.0"', 'pocket-stack/pocketjs_ui_core: "9.0.0"'));
+    writeFileSync(file, readFileSync(file, "utf8").replace('pocket-nexus/pocketjs_ui_core: "0.1.0"', 'pocket-nexus/pocketjs_ui_core: "9.0.0"'));
     expect(() => verifyComponentVersions(directory)).toThrow(/dependency version drift/);
   });
 });

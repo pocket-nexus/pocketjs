@@ -83,10 +83,10 @@ function findFrameworkInstallation(from = process.cwd()) {
 // ---------------------------------------------------------------------------
 
 function cacheRoot() {
-  if (process.env.POCKET_STACK_CACHE_DIR?.trim()) {
-    return resolve(process.env.POCKET_STACK_CACHE_DIR.trim());
+  if (process.env.POCKET_NEXUS_CACHE_DIR?.trim()) {
+    return resolve(process.env.POCKET_NEXUS_CACHE_DIR.trim());
   }
-  return join(resolve(process.env.XDG_CACHE_HOME?.trim() || join(homedir(), ".cache")), "pocket-stack");
+  return join(resolve(process.env.XDG_CACHE_HOME?.trim() || join(homedir(), ".cache")), "pocket-nexus");
 }
 
 function sdkResolution() {
@@ -122,7 +122,7 @@ function hasPinnedCargoPspTools(root) {
     )) return true;
   } catch {}
   try {
-    const receipt = JSON.parse(readFileSync(join(root, ".pocket-stack-cargo-psp.json"), "utf8"));
+    const receipt = JSON.parse(readFileSync(join(root, ".pocket-nexus-cargo-psp.json"), "utf8"));
     return receipt.schemaVersion === 1 && receipt.repository === TOOLCHAIN.rustPsp.repository &&
       receipt.rev === TOOLCHAIN.rustPsp.rev && receipt.package === TOOLCHAIN.cargoPsp.package &&
       receipt.host === host && Array.isArray(receipt.tools) &&

@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.vue.sfc.lab",
+  "id": "dev.pocket-nexus.vue.sfc.lab",
   "name": "pocketjs-vue-sfc-lab",
   "title": "PocketJS: Vue SFC Feature Lab",
   "version": "0.6.0",

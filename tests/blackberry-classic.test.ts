@@ -70,12 +70,12 @@ describe("private BlackBerry Classic profile", () => {
     const plan = resolveBlackBerryClassicBuildPlan(manifest(), BLACKBERRY_QNX_DEV_TARGET_ID);
     const inputs = extractHostBuildInputs(plan, { expectedTarget: BLACKBERRY_QNX_DEV_TARGET_ID });
     expect(inputs.app).toEqual({
-      id: "dev.pocket-stack.blackberry-classic-demo",
+      id: "dev.pocket-nexus.blackberry-classic-demo",
       title: "PocketJS: BlackBerry Classic Hero",
       version: "0.1.1",
     });
     expect(packageIdentity(inputs.app)).toEqual({
-      packageId: "dev.pocket_stack.blackberry_classic_demo",
+      packageId: "dev.pocket_nexus.blackberry_classic_demo",
       version: "0.1.1",
       versionCode: 1001,
       title: "PocketJS: BlackBerry Classic Hero",

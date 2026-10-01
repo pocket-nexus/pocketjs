@@ -47,7 +47,7 @@
     "sha256": "c721a3645e4c8df526482c544450fe2bb6351e820471727511ac054c35f44fc3"
   },
   "downloadsCachePath": "symbian/downloads",
-  "receipt": ".pocket-stack-symbian.json",
+  "receipt": ".pocket-nexus-symbian.json",
   "signing": {
     "certificate": "current/pocketjs-e7-development.cer",
     "privateKey": "current/pocketjs-e7-development.key",

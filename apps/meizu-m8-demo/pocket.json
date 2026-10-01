@@ -1,7 +1,7 @@
 {
   "$schema": "https://pocketjs.dev/schema/pocket-2.json",
   "pocket": 2,
-  "id": "dev.pocket-stack.meizu-m8-demo",
+  "id": "dev.pocket-nexus.meizu-m8-demo",
   "name": "pocketjs-meizu-m8-hero",
   "title": "PocketJS: Meizu M8 Hero",
   "version": "0.1.0",
