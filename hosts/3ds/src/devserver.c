@@ -7,6 +7,7 @@
  */
 
 #include "devserver.h"
+#include "error_text.h"
 
 #include <3ds.h>
 #include <arpa/inet.h>
@@ -14,7 +15,6 @@
 #include <fcntl.h>
 #include <malloc.h>
 #include <netinet/in.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,7 +72,7 @@ static bool upload_ready;
 static bool packages_allowed = true;
 
 static bool launch_requested;
-static char launch_path[POCKET_NATIVE_PATH_BYTES];
+static char launch_name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
 
 static bool screenshot_requested;
 static bool screenshot_ready;
@@ -117,14 +117,6 @@ static uint32_t timing_count;
 static uint32_t timing_mean_out[TIMING_PHASES];
 static uint32_t timing_max_out[TIMING_PHASES];
 static uint32_t timing_slow_frames;
-
-static void set_error(char *out, size_t length, const char *format, ...) {
-  if (out == NULL || length == 0) return;
-  va_list arguments;
-  va_start(arguments, format);
-  vsnprintf(out, length, format, arguments);
-  va_end(arguments);
-}
 
 static bool would_block(void) {
   return errno == EAGAIN || errno == EWOULDBLOCK;
@@ -198,7 +190,7 @@ static DevserverInitResult load_key(char *error, size_t error_length) {
   FILE *file = fopen(POCKET_RUNTIME_DEV_KEY, "rb");
   if (file == NULL) {
     if (errno == ENOENT) return DEVSERVER_DISABLED;
-    set_error(error, error_length, "open %s failed (%d)", POCKET_RUNTIME_DEV_KEY, errno);
+    pocket_set_error(error, error_length, "open %s failed (%d)", POCKET_RUNTIME_DEV_KEY, errno);
     return DEVSERVER_ERROR;
   }
   char hex[66] = {0};
@@ -206,14 +198,14 @@ static DevserverInitResult load_key(char *error, size_t error_length) {
   int close_result = fclose(file);
   if (close_result != 0 || (length != 64 && length != 65) ||
       (length == 65 && hex[64] != '\n')) {
-    set_error(error, error_length, "dev.key must contain exactly 64 hexadecimal characters");
+    pocket_set_error(error, error_length, "dev.key must contain exactly 64 hexadecimal characters");
     return DEVSERVER_ERROR;
   }
   for (size_t index = 0; index < POCKET_RUNTIME_TOKEN_BYTES; index += 1) {
     int high = hex_digit(hex[index * 2]);
     int low = hex_digit(hex[index * 2 + 1]);
     if (high < 0 || low < 0) {
-      set_error(error, error_length, "dev.key contains a non-hexadecimal character");
+      pocket_set_error(error, error_length, "dev.key contains a non-hexadecimal character");
       return DEVSERVER_ERROR;
     }
     pairing_token[index] = (uint8_t)((high << 4) | low);
@@ -236,7 +228,7 @@ DevserverInitResult devserver_init(
 
   server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
-    set_error(error, error_length, "Pocket Runtime socket failed (%d)", errno);
+    pocket_set_error(error, error_length, "Pocket Runtime socket failed (%d)", errno);
     devserver_shutdown();
     return DEVSERVER_ERROR;
   }
@@ -249,7 +241,7 @@ DevserverInitResult devserver_init(
   address.sin_port = htons(POCKET_RUNTIME_WIRE_PORT);
   if (bind(server_fd, (struct sockaddr *)&address, sizeof address) != 0 ||
       listen(server_fd, 1) != 0 || !set_nonblocking(server_fd)) {
-    set_error(error, error_length, "Pocket Runtime listen on %u failed (%d)", POCKET_RUNTIME_WIRE_PORT, errno);
+    pocket_set_error(error, error_length, "Pocket Runtime listen on %u failed (%d)", POCKET_RUNTIME_WIRE_PORT, errno);
     devserver_shutdown();
     return DEVSERVER_ERROR;
   }
@@ -446,17 +438,19 @@ void devserver_report_install(const char *phase, uint64_t hash, const char *mess
 }
 
 void devserver_report_native(const char *phase, const char *name, const char *message) {
-  char escaped_name[96] = {0};
+  /* name is a validated bare file name or empty, so it needs no escaping. */
+  char path[POCKET_NATIVE_PATH_BYTES] = {0};
+  if (name == NULL || !native_path_for(name, path)) name = "";
   char escaped[384] = {0};
   char line[640];
-  json_escape(escaped_name, sizeof escaped_name, name == NULL ? "" : name);
   json_escape(escaped, sizeof escaped, message == NULL ? "" : message);
   snprintf(
     line,
     sizeof line,
-    "{\"t\":\"runtime.native\",\"phase\":\"%s\",\"name\":\"%s\",\"message\":\"%s\"}",
+    "{\"t\":\"runtime.native\",\"phase\":\"%s\",\"name\":\"%s\",\"path\":\"%s\",\"message\":\"%s\"}",
     phase == NULL ? "unknown" : phase,
-    escaped_name,
+    name,
+    path,
     escaped
   );
   devserver_send_ctrl(line, strlen(line));
@@ -708,8 +702,8 @@ static void handle_package_commit(void) {
   devserver_report_install("received", upload_hash, "binary package transfer complete");
 }
 
-static void request_launch(const char *path) {
-  snprintf(launch_path, sizeof launch_path, "%s", path);
+static void request_launch(const char *name) {
+  snprintf(launch_name, sizeof launch_name, "%s", name);
   launch_requested = true;
 }
 
@@ -729,11 +723,15 @@ static void handle_native_begin(const uint8_t *payload, size_t length) {
 }
 
 static void handle_native_chunk(const uint8_t *payload, size_t length) {
+  /* Chunks already in flight after a failed transfer are dropped: the failure
+   * was reported once and the tool stops sending on that receipt. */
+  if (!native_receiving()) return;
   char error[160] = {0};
-  const char *name = native_receiving_name();
-  if (!native_receiving() || length <= 4) {
+  char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
+  snprintf(name, sizeof name, "%s", native_receiving_name());
+  if (length <= 4) {
     native_abort();
-    devserver_report_native("transfer-error", name, ".3dsx chunk arrived without an active transfer");
+    devserver_report_native("transfer-error", name, ".3dsx chunk has no bytes");
     return;
   }
   if (!native_write(pocket_runtime_read_u32(payload), payload + 4, length - 4, error, sizeof error)) {
@@ -744,11 +742,10 @@ static void handle_native_chunk(const uint8_t *payload, size_t length) {
 static void handle_native_commit(void) {
   NativeInstall install;
   char error[160] = {0};
-  const char *name = native_receiving_name();
-  char receiving[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
-  snprintf(receiving, sizeof receiving, "%s", name);
+  char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
+  snprintf(name, sizeof name, "%s", native_receiving_name());
   if (!native_commit(&install, error, sizeof error)) {
-    devserver_report_native("rejected", receiving, error);
+    devserver_report_native("rejected", name, error);
     return;
   }
   uploads += 1;
@@ -759,9 +756,9 @@ static void handle_native_commit(void) {
       install.launch ? "replaces the running .3dsx; installs as it exits" : "replaces the running .3dsx; installs when it next exits"
     );
   } else {
-    devserver_report_native("installed", install.name, install.path);
+    devserver_report_native("installed", install.name, "");
   }
-  if (install.launch) request_launch(install.path);
+  if (install.launch) request_launch(install.name);
 }
 
 static void handle_launch(const uint8_t *payload, size_t length) {
@@ -776,7 +773,7 @@ static void handle_launch(const uint8_t *payload, size_t length) {
     devserver_report_native("launch-error", name, "no such .3dsx under sdmc:/3ds");
     return;
   }
-  request_launch(path);
+  request_launch(name);
 }
 
 static void handle_frame(uint8_t type, uint8_t flags, const uint8_t *payload, size_t length) {
@@ -819,13 +816,14 @@ static void handle_frame(uint8_t type, uint8_t flags, const uint8_t *payload, si
       break;
     case POCKET_RUNTIME_MSG_NATIVE_COMMIT:
       if (length == 0) handle_native_commit();
-      else {
+      else if (native_receiving()) {
+        char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
+        snprintf(name, sizeof name, "%s", native_receiving_name());
         native_abort();
-        devserver_report_native("transfer-error", native_receiving_name(), ".3dsx commit payload must be empty");
+        devserver_report_native("transfer-error", name, ".3dsx commit payload must be empty");
       }
       break;
     case POCKET_RUNTIME_MSG_NATIVE_ABORT:
-      if (native_receiving()) devserver_report_native("transfer-error", native_receiving_name(), "host aborted .3dsx transfer");
       native_abort();
       break;
     case POCKET_RUNTIME_MSG_LAUNCH:
@@ -1050,10 +1048,10 @@ size_t devserver_recv_ctrl(char *out, size_t capacity) {
   return length;
 }
 
-bool devserver_take_launch(char *path, size_t capacity) {
-  if (!launch_requested || path == NULL || capacity == 0) return false;
+bool devserver_take_launch(char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1]) {
+  if (!launch_requested || name == NULL) return false;
   launch_requested = false;
-  snprintf(path, capacity, "%s", launch_path);
+  snprintf(name, POCKET_RUNTIME_NATIVE_NAME_BYTES + 1, "%s", launch_name);
   return true;
 }
 

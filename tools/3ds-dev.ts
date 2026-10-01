@@ -37,6 +37,7 @@ import { startDevServer } from "../hosts/web/server.ts";
 import {
   PocketRuntimeClient,
   PocketRuntimeSession,
+  PocketRuntimeTimeoutError,
   discoverPocketRuntimes,
   parsePocketRuntimeToken,
   type DiscoveredPocketRuntime,
@@ -284,14 +285,15 @@ async function buildPackage(app: string): Promise<string> {
 
 interface NativeBuild {
   readonly path: string;
-  /** The .pocket built beside it: the guest the .3dsx embeds, if present. */
+  /** The guest the .3dsx embeds, when its .pocket is known. */
+  readonly pocket: string | null;
   readonly embeddedHash: string | null;
 }
 
-function embeddedHashBeside(path: string): string | null {
-  const pocket = path.replace(/\.3dsx$/i, ".pocket");
-  if (pocket === path || !existsSync(pocket)) return null;
-  return pocketPackageFooterHash(new Uint8Array(readFileSync(pocket))).toString(16).padStart(16, "0");
+function nativeBuildAt(path: string, pocket: string | null): NativeBuild {
+  if (!pocket || !existsSync(pocket)) return { path, pocket: null, embeddedHash: null };
+  const hash = pocketPackageFooterHash(new Uint8Array(readFileSync(pocket)));
+  return { path, pocket, embeddedHash: hash.toString(16).padStart(16, "0") };
 }
 
 async function buildNative(app: string): Promise<NativeBuild> {
@@ -302,17 +304,17 @@ async function buildNative(app: string): Promise<NativeBuild> {
   const text = `${result.stdout}\n${result.stderr}`;
   const path = [...text.matchAll(/^output: (.+\.3dsx)$/gm)].at(-1)?.[1];
   if (!path || !existsSync(path)) throw new Error("3DS build did not report a .3dsx output");
-  return { path, embeddedHash: embeddedHashBeside(path) };
+  const pocket = [...text.matchAll(/^output: (.+\.pocket) \(/gm)].at(-1)?.[1] ?? null;
+  return nativeBuildAt(path, pocket);
 }
 
+/** --file names a .3dsx built elsewhere; its .pocket, if any, sits beside it. */
 async function nativeBuild(): Promise<NativeBuild> {
   const explicit = value("--file");
-  if (explicit) {
-    const path = resolve(explicit);
-    if (!existsSync(path)) throw new Error(`.3dsx does not exist: ${path}`);
-    return { path, embeddedHash: embeddedHashBeside(path) };
-  }
-  return await buildNative(value("--app") ?? "3ds-demo");
+  if (!explicit) return await buildNative(value("--app") ?? "3ds-demo");
+  const path = resolve(explicit);
+  if (!existsSync(path)) throw new Error(`.3dsx does not exist: ${path}`);
+  return nativeBuildAt(path, path.replace(/\.3dsx$/i, ".pocket"));
 }
 
 async function packagePath(): Promise<string> {
@@ -334,32 +336,23 @@ function createClient(target: DeviceTarget): PocketRuntimeClient {
   });
 }
 
-async function connectAck(target: DeviceTarget, client: PocketRuntimeClient): Promise<PocketRuntimeAck> {
-  client.on("socketError", (error) => console.error(`3ds-dev: socket: ${String(error)}`));
-  const ack = await client.connect();
-  return reportAck(target, ack);
-}
-
-function reportAck(target: DeviceTarget, ack: PocketRuntimeAck): PocketRuntimeAck {
-  console.log(
-    `connected ${target.host}:${target.port} — abi ${ack.hostAbi}, generation ${ack.generation}, active ${ack.activeHash.toString(16).padStart(16, "0")}`,
-  );
-  return ack;
-}
-
 /** Connect, retrying once when the TCP connect or handshake times out: the
  *  console's single-client listener can miss a connection made right after
  *  the previous client left. */
 async function open(target: DeviceTarget): Promise<{ client: PocketRuntimeClient; ack: PocketRuntimeAck }> {
   for (let attempt = 0; ; attempt += 1) {
     const client = createClient(target);
+    client.on("socketError", (error) => console.error(`3ds-dev: socket: ${String(error)}`));
     try {
-      return { client, ack: await connectAck(target, client) };
+      const ack = await client.connect();
+      console.log(
+        `connected ${target.host}:${target.port} — abi ${ack.hostAbi}, generation ${ack.generation}, active ${ack.activeHash.toString(16).padStart(16, "0")}`,
+      );
+      return { client, ack };
     } catch (error) {
       client.close();
-      const detail = error instanceof Error ? error.message : String(error);
-      if (attempt > 0 || !detail.includes("timed out")) throw error;
-      console.error(`3ds-dev: ${detail}; retrying`);
+      if (attempt > 0 || !(error instanceof PocketRuntimeTimeoutError)) throw error;
+      console.error(`3ds-dev: ${error.message}; retrying`);
       await Bun.sleep(1000);
     }
   }
@@ -418,8 +411,12 @@ async function push(): Promise<void> {
   }
 }
 
+function supportsNative(ack: PocketRuntimeAck): boolean {
+  return (ack.flags & POCKET_RUNTIME_ACK_FLAG_NATIVE) !== 0;
+}
+
 function requireNative(ack: PocketRuntimeAck): void {
-  if ((ack.flags & POCKET_RUNTIME_ACK_FLAG_NATIVE) === 0) {
+  if (!supportsNative(ack)) {
     throw new Error(
       "this Runtime predates .3dsx install; copy one newer .3dsx through ftpd first: " +
         "bun run 3ds:dev install --ftp --host <3ds-ip>",
@@ -427,13 +424,48 @@ function requireNative(ack: PocketRuntimeAck): void {
   }
 }
 
-function isNative(message: Record<string, unknown>, name: string, phases: readonly string[]): boolean {
-  return message.t === "runtime.native" && phases.includes(String(message.phase)) &&
-    (String(message.name) === name || String(message.name).endsWith(`/${name}`));
+type NativeReceipt = Record<string, unknown> & { phase: string; name: string; message?: string };
+
+/** The runtime.native receipts for one file name, kept from before the
+ *  transfer starts so none is missed, with the first failure noted. */
+function collectReceipts(client: PocketRuntimeClient, name: string) {
+  const seen: NativeReceipt[] = [];
+  const waiters: (() => void)[] = [];
+  let failure: NativeReceipt | null = null;
+  const onCtrl = (message: Record<string, unknown>) => {
+    if (message.t !== "runtime.native" || message.name !== name) return;
+    const receipt = message as NativeReceipt;
+    seen.push(receipt);
+    if (!failure && /error|rejected/.test(receipt.phase)) failure = receipt;
+    for (const wake of waiters.splice(0)) wake();
+  };
+  client.on("ctrl", onCtrl);
+  return {
+    failed: () => failure,
+    stop: () => client.off("ctrl", onCtrl),
+    /** The next receipt in `phases` (or a failure), within timeoutMs from now. */
+    async next(phases: readonly string[], timeoutMs: number): Promise<NativeReceipt> {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const found = seen.find((receipt) => phases.includes(receipt.phase)) ?? failure;
+        if (found) return found;
+        const left = deadline - Date.now();
+        if (left <= 0) throw new PocketRuntimeTimeoutError(`no ${phases.join("/")} receipt for ${name} within ${timeoutMs} ms`);
+        await new Promise<void>((wake) => {
+          const timer = setTimeout(wake, left);
+          waiters.push(() => {
+            clearTimeout(timer);
+            wake();
+          });
+        });
+      }
+    },
+  };
 }
 
 /** Send a .3dsx and wait for the device to install (or stage) it and, when
- *  asked, to hand it to the loader. */
+ *  asked, to hand it to the loader. Waits are timed from the end of the
+ *  transfer, so a large file does not count against them. */
 async function installWithClient(
   client: PocketRuntimeClient,
   path: string,
@@ -441,64 +473,70 @@ async function installWithClient(
   launch: boolean,
 ): Promise<void> {
   const bytes = new Uint8Array(readFileSync(path));
-  const stored = client.waitForCtrl(
-    (message) => isNative(message, name, ["installed", "staged", "rejected", "transfer-error"]),
-    120_000,
-  );
-  const started = launch
-    ? client.waitForCtrl((message) => isNative(message, name, ["launching", "launch-error"]), 120_000)
-    : null;
-  started?.catch(() => {});
-  const began = Date.now();
-  const crc = await client.installNative(bytes, name, launch);
-  const result = await stored;
-  if (result.phase !== "installed" && result.phase !== "staged") {
-    throw new Error(`device refused ${name}: ${String(result.message ?? result.phase)}`);
+  const receipts = collectReceipts(client, name);
+  try {
+    const began = Date.now();
+    const crc = await client.installNative(bytes, name, launch, () => receipts.failed() !== null);
+    const stored = await receipts.next(["installed", "staged"], 30_000);
+    if (stored.phase !== "installed" && stored.phase !== "staged") {
+      throw new Error(`device refused ${name}: ${String(stored.message ?? stored.phase)}`);
+    }
+    const seconds = ((Date.now() - began) / 1000).toFixed(1);
+    console.log(
+      `${stored.phase} sdmc:/3ds/${name} — ${bytes.length} bytes, crc32 ${crc.toString(16).padStart(8, "0")}, ${seconds} s`,
+    );
+    if (!launch) {
+      if (stored.phase === "staged") console.log("the running .3dsx is replaced when it next exits");
+      return;
+    }
+    const started = await receipts.next(["launching", "launch-error"], 15_000);
+    if (started.phase !== "launching") {
+      throw new Error(`installed, but could not restart into it: ${String(started.message ?? started.phase)}`);
+    }
+    console.log(`restarting into ${name}`);
+  } finally {
+    receipts.stop();
   }
-  const seconds = ((Date.now() - began) / 1000).toFixed(1);
-  console.log(
-    `${result.phase} sdmc:/3ds/${name} — ${bytes.length} bytes, crc32 ${crc.toString(16).padStart(8, "0")}, ${seconds} s`,
-  );
-  if (!started) {
-    if (result.phase === "staged") console.log("the running .3dsx is replaced when it next exits");
-    return;
-  }
-  const verdict = await started;
-  if (verdict.phase !== "launching") {
-    throw new Error(`installed, but could not restart into it: ${String(verdict.message ?? verdict.phase)}`);
-  }
-  console.log(`restarting into ${name}`);
 }
 
-/** After a launch the device comes back under the same pairing ID; returns
- *  the running package hash. */
-async function awaitReturn(target: DeviceTarget, expectedHash: string | null): Promise<string> {
+async function runningHash(client: PocketRuntimeClient): Promise<string> {
+  const status = client.waitForCtrl((message) => message.t === "runtime.status");
+  await client.requestStatus();
+  return String((await status).running ?? "");
+}
+
+/** After a launch the device comes back under the same pairing ID. Returns
+ *  a connected client, or null when nothing answered within 60 s (a .3dsx
+ *  that is not a PocketJS dev build never does). */
+async function awaitReturn(target: DeviceTarget): Promise<PocketRuntimeClient | null> {
   const deadline = Date.now() + 60_000;
-  let lastError = "";
   while (Date.now() < deadline) {
     await Bun.sleep(1500);
     try {
-      const next = explicitHost ? target : await rediscoverTarget(target);
-      const client = createClient(next);
-      await client.connect();
-      try {
-        const status = client.waitForCtrl((message) => message.t === "runtime.status");
-        await client.requestStatus();
-        const running = String((await status).running ?? "");
-        if (expectedHash && running !== expectedHash) {
-          console.log(`back at ${next.host} — running ${running}, not the embedded guest ${expectedHash}`);
-        } else {
-          console.log(`back at ${next.host} — running ${running}${expectedHash ? " (its embedded guest)" : ""}`);
-        }
-        return running;
-      } finally {
-        client.close();
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
+      return await connect(explicitHost ? target : await rediscoverTarget(target));
+    } catch {
+      // Still restarting.
     }
   }
-  throw new Error(`the device did not come back within 60 s (${lastError})`);
+  return null;
+}
+
+/** The console should run the guest the installed .3dsx embeds. A .3dsx whose
+ *  embedded guest the slot has booted before does not displace a later push
+ *  (README: "A newly installed .3dsx boots the guest it embeds"), so an
+ *  unchanged binary reinstalled after a push gets its guest pushed. */
+async function settleGuest(client: PocketRuntimeClient, build: NativeBuild): Promise<void> {
+  const running = await runningHash(client);
+  if (!build.embeddedHash || !build.pocket) {
+    console.log(`running ${running}`);
+    return;
+  }
+  if (running === build.embeddedHash) {
+    console.log(`running ${running}, the guest ${basename(build.path)} embeds`);
+    return;
+  }
+  console.log(`running ${running}, an older push; sending the embedded guest ${build.embeddedHash}`);
+  await pushWithClient(client, build.pocket);
 }
 
 function ftpInstall(path: string, name: string): void {
@@ -514,10 +552,15 @@ function ftpInstall(path: string, name: string): void {
   console.log(`copied ${basename(path)} to ${url}; start it from the Homebrew Launcher`);
 }
 
-async function install(): Promise<void> {
-  const build = await nativeBuild();
+function nativeName(build: NativeBuild): string {
   const name = value("--name") ?? basename(build.path);
   if (!pocketRuntimeNativeNameValid(name)) usage(`${name} is not a .3dsx file name the Runtime accepts`);
+  return name;
+}
+
+async function install(): Promise<void> {
+  const build = await nativeBuild();
+  const name = nativeName(build);
   if (has("--ftp")) {
     ftpInstall(build.path, name);
     return;
@@ -532,20 +575,16 @@ async function install(): Promise<void> {
     client.close();
   }
   if (!launch) return;
-  const running = await awaitReturn(target, build.embeddedHash);
-  // A .3dsx whose embedded guest the slot has booted before does not displace
-  // a later push (README: "A newly installed .3dsx boots the guest it
-  // embeds"), so reinstalling an unchanged binary after a push would keep the
-  // push. Send the embedded package so the console runs what was deployed.
-  const pocket = build.path.replace(/\.3dsx$/i, ".pocket");
-  if (build.embeddedHash && running !== build.embeddedHash && existsSync(pocket)) {
-    const next = explicitHost ? target : await rediscoverTarget(target);
-    const again = await connect(next);
-    try {
-      await pushWithClient(again, pocket);
-    } finally {
-      again.close();
-    }
+  const back = await awaitReturn(target);
+  if (!back) {
+    if (build.embeddedHash) throw new Error(`${name} did not answer within 60 s after the restart`);
+    console.log(`${name} started; it does not answer the dev connection`);
+    return;
+  }
+  try {
+    await settleGuest(back, build);
+  } finally {
+    back.close();
   }
 }
 
@@ -554,18 +593,27 @@ async function launchCommand(): Promise<void> {
   if (!name || !pocketRuntimeNativeNameValid(name)) usage("launch needs a .3dsx name under sdmc:/3ds/");
   const target = await resolveTarget();
   const { client, ack } = await open(target);
+  const receipts = collectReceipts(client, name);
   try {
     requireNative(ack);
-    const verdict = client.waitForCtrl((message) => isNative(message, name, ["launching", "launch-error"]), 15_000);
     await client.launch(name);
-    const result = await verdict;
+    const result = await receipts.next(["launching", "launch-error"], 15_000);
     if (result.phase !== "launching") throw new Error(`could not launch ${name}: ${String(result.message ?? result.phase)}`);
     console.log(`launching ${name}`);
   } finally {
+    receipts.stop();
     client.close();
   }
-  // A PocketJS app answers again under the same pairing ID; other homebrew does not.
-  await awaitReturn(target, null).catch((error) => console.log(String(error instanceof Error ? error.message : error)));
+  const back = await awaitReturn(target);
+  if (!back) {
+    console.log(`${name} started; it does not answer the dev connection`);
+    return;
+  }
+  try {
+    console.log(`back at ${back.host} — running ${await runningHash(back)}`);
+  } finally {
+    back.close();
+  }
 }
 
 function screenshotPath(frame: number): string {
@@ -664,7 +712,9 @@ async function dev(): Promise<void> {
     if (!rawNotice && socket.readyState === WebSocket.OPEN) socket.send(line);
   });
   let reconnectFailures = 0;
+  let native = false;
   session.on("connect", (_client: PocketRuntimeClient, ack) => {
+    native = supportsNative(ack);
     console.log(
       `connected ${target.host}:${target.port} — abi ${ack.hostAbi}, generation ${ack.generation}, active ${ack.activeHash.toString(16).padStart(16, "0")}`,
     );
@@ -682,6 +732,7 @@ async function dev(): Promise<void> {
     }
   });
   session.on("reconnect", (client: PocketRuntimeClient, ack) => {
+    native = supportsNative(ack);
     reconnectFailures = 0;
     console.log(
       `reconnected ${target.host}:${target.port} — abi ${ack.hostAbi}, generation ${ack.generation}, active ${ack.activeHash.toString(16).padStart(16, "0")}`,
@@ -698,9 +749,15 @@ async function dev(): Promise<void> {
     await pushWithClient(await session.requireClient(), currentPackage);
   };
   // The session reconnects once the new process is up.
+  // The session reconnects once the new process is up; the guest is then
+  // settled over that connection, since the console takes one client.
   const reinstall = async () => {
+    if (!native) throw new Error("this Runtime predates .3dsx install; use install --ftp once");
     const build = await nativeBuild();
-    await installWithClient(await session.requireClient(), build.path, value("--name") ?? basename(build.path), true);
+    const reconnected = new Promise<PocketRuntimeClient>((resolveClient) =>
+      session.once("reconnect", (client: PocketRuntimeClient) => resolveClient(client)));
+    await installWithClient(await session.requireClient(), build.path, nativeName(build), true);
+    await settleGuest(await reconnected, build);
   };
   if (!has("--no-push")) await rebuild();
 

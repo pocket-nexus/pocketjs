@@ -14,11 +14,13 @@
  * One transfer at a time streams to a device-wide staging file, is checked
  * against its declared length, CRC-32 and 3DSX magic, and then replaces
  * sdmc:/3ds/<name>. The replaced file is kept as native-previous.3dsx. A
- * transfer that replaces the running .3dsx waits for the process to exit:
- * libctru reads the ROMFS of a running .3dsx from that file.
+ * transfer that replaces the running .3dsx moves to native-deferred.3dsx and
+ * is installed as the process exits: libctru reads the ROMFS of a running
+ * .3dsx from that file.
  */
 #define POCKET_NATIVE_DIR "sdmc:/3ds"
 #define POCKET_NATIVE_UPLOAD POCKET_RUNTIME_ROOT "/native-upload.3dsx"
+#define POCKET_NATIVE_DEFERRED POCKET_RUNTIME_ROOT "/native-deferred.3dsx"
 #define POCKET_NATIVE_PREVIOUS POCKET_RUNTIME_ROOT "/native-previous.3dsx"
 #define POCKET_NATIVE_PATH_BYTES 96u
 
@@ -51,7 +53,8 @@ const char *native_receiving_name(void);
  * restoring it when the rename fails. */
 bool native_swap(const char *staged, const char *target, char *error, size_t error_length);
 
-/* Called once the process has left ROMFS: installs a deferred replacement. */
+/* Called once the process has left ROMFS, on a normal exit or a fatal error:
+ * installs the deferred replacement of the running .3dsx. */
 bool native_exit_pending(void);
 bool native_finish_exit(char *error, size_t error_length);
 

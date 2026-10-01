@@ -9,10 +9,10 @@
  */
 
 #include "runtime.h"
+#include "error_text.h"
 
 #include <dirent.h>
 #include <errno.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,14 +22,6 @@
 #define PACKAGES_DIR POCKET_RUNTIME_APP_ROOT "/packages"
 #define STATE_DIR POCKET_RUNTIME_APP_ROOT "/state"
 #define MAX_PACKAGE_BYTES (24u * 1024u * 1024u)
-
-static void set_error(char *out, size_t length, const char *format, ...) {
-  if (out == NULL || length == 0) return;
-  va_list arguments;
-  va_start(arguments, format);
-  vsnprintf(out, length, format, arguments);
-  va_end(arguments);
-}
 
 static const char *package_error(int32_t code) {
   switch (code) {
@@ -50,7 +42,7 @@ static const char *package_error(int32_t code) {
 
 static bool ensure_directory(const char *path, char *error, size_t error_length) {
   if (mkdir(path, 0777) == 0 || errno == EEXIST) return true;
-  set_error(error, error_length, "mkdir %s failed (%d)", path, errno);
+  pocket_set_error(error, error_length, "mkdir %s failed (%d)", path, errno);
   return false;
 }
 
@@ -78,6 +70,21 @@ bool runtime_failure_lineage_add(PocketRuntimeFailureLineage *lineage, uint64_t 
   return true;
 }
 
+bool runtime_failure_lineage_reject(
+  PocketRuntimeFailureLineage *lineage,
+  const PocketRuntimeState *state,
+  uint64_t hash
+) {
+  if (lineage == NULL) return false;
+  if (hash == 0) {
+    if (lineage->embedded_failed) return false;
+    lineage->embedded_failed = true;
+  } else if (!runtime_failure_lineage_add(lineage, hash)) {
+    return false;
+  }
+  return !lineage->embedded_failed || runtime_recovery_hash(state, lineage) != 0;
+}
+
 uint64_t runtime_recovery_hash(
   const PocketRuntimeState *state,
   const PocketRuntimeFailureLineage *lineage
@@ -93,7 +100,7 @@ uint64_t runtime_recovery_hash(
 
 bool runtime_storage_init(PocketRuntimeState *state, char *error, size_t error_length) {
   if (state == NULL) {
-    set_error(error, error_length, "runtime state is null");
+    pocket_set_error(error, error_length, "runtime state is null");
     return false;
   }
   memset(state, 0, sizeof *state);
@@ -108,7 +115,7 @@ bool runtime_storage_init(PocketRuntimeState *state, char *error, size_t error_l
 
   DIR *directory = opendir(STATE_DIR);
   if (directory == NULL) {
-    set_error(error, error_length, "opendir %s failed (%d)", STATE_DIR, errno);
+    pocket_set_error(error, error_length, "opendir %s failed (%d)", STATE_DIR, errno);
     return false;
   }
   struct dirent *entry;
@@ -143,32 +150,32 @@ PocketRuntimePackage *runtime_package_load(
 ) {
   FILE *file = fopen(path, "rb");
   if (file == NULL) {
-    set_error(error, error_length, "open %s failed (%d)", path, errno);
+    pocket_set_error(error, error_length, "open %s failed (%d)", path, errno);
     return NULL;
   }
   if (fseek(file, 0, SEEK_END) != 0) {
-    set_error(error, error_length, "seek %s failed", path);
+    pocket_set_error(error, error_length, "seek %s failed", path);
     fclose(file);
     return NULL;
   }
   long raw_length = ftell(file);
   if (raw_length <= 0 || (unsigned long)raw_length > MAX_PACKAGE_BYTES ||
       fseek(file, 0, SEEK_SET) != 0) {
-    set_error(error, error_length, "%s has invalid package size %ld", path, raw_length);
+    pocket_set_error(error, error_length, "%s has invalid package size %ld", path, raw_length);
     fclose(file);
     return NULL;
   }
 
   PocketRuntimePackage *package = calloc(1, sizeof *package);
   if (package == NULL) {
-    set_error(error, error_length, "package descriptor allocation failed");
+    pocket_set_error(error, error_length, "package descriptor allocation failed");
     fclose(file);
     return NULL;
   }
   package->length = (size_t)raw_length;
   package->bytes = malloc(package->length);
   if (package->bytes == NULL) {
-    set_error(error, error_length, "%s needs %lu bytes", path, (unsigned long)package->length);
+    pocket_set_error(error, error_length, "%s needs %lu bytes", path, (unsigned long)package->length);
     fclose(file);
     free(package);
     return NULL;
@@ -176,7 +183,7 @@ PocketRuntimePackage *runtime_package_load(
   size_t read = fread(package->bytes, 1, package->length, file);
   int close_result = fclose(file);
   if (read != package->length || close_result != 0) {
-    set_error(error, error_length, "read %s was incomplete", path);
+    pocket_set_error(error, error_length, "read %s was incomplete", path);
     runtime_package_free(package);
     return NULL;
   }
@@ -190,7 +197,7 @@ PocketRuntimePackage *runtime_package_load(
     &package->guest
   );
   if (result != 0 || package->guest.package_hash == 0) {
-    set_error(
+    pocket_set_error(
       error,
       error_length,
       "%s: %s%s",
@@ -222,14 +229,14 @@ PocketRuntimePackage *runtime_package_load_hash(
   size_t error_length
 ) {
   if (hash == 0) {
-    set_error(error, error_length, "zero names the embedded recovery guest");
+    pocket_set_error(error, error_length, "zero names the embedded recovery guest");
     return NULL;
   }
   char path[192];
   blob_path(hash, path, sizeof path);
   PocketRuntimePackage *package = runtime_package_load(path, error, error_length);
   if (package != NULL && package->guest.package_hash != hash) {
-    set_error(error, error_length, "%s content hash does not match its name", path);
+    pocket_set_error(error, error_length, "%s content hash does not match its name", path);
     runtime_package_free(package);
     return NULL;
   }
@@ -252,25 +259,25 @@ RuntimePendingResult runtime_prepare_file(
   size_t error_length
 ) {
   if (out == NULL) {
-    set_error(error, error_length, "package output is null");
+    pocket_set_error(error, error_length, "package output is null");
     return RUNTIME_PENDING_ERROR;
   }
   *out = NULL;
   if (path == NULL || path[0] == '\0') {
-    set_error(error, error_length, "package staging path is empty");
+    pocket_set_error(error, error_length, "package staging path is empty");
     return RUNTIME_PENDING_ERROR;
   }
   struct stat info;
   if (stat(path, &info) != 0) {
     if (errno == ENOENT) return RUNTIME_PENDING_NONE;
-    set_error(error, error_length, "stat %s failed (%d)", path, errno);
+    pocket_set_error(error, error_length, "stat %s failed (%d)", path, errno);
     return RUNTIME_PENDING_ERROR;
   }
 
   PocketRuntimePackage *pending = runtime_package_load(path, error, error_length);
   if (pending == NULL) return RUNTIME_PENDING_ERROR;
   if (expected_hash != 0 && pending->guest.package_hash != expected_hash) {
-    set_error(
+    pocket_set_error(
       error,
       error_length,
       "%s footer %016llx does not match declared %016llx",
@@ -292,22 +299,22 @@ RuntimePendingResult runtime_prepare_file(
       sizeof duplicate_error
     );
     if (existing == NULL) {
-      set_error(error, error_length, "existing blob is invalid: %s", duplicate_error);
+      pocket_set_error(error, error_length, "existing blob is invalid: %s", duplicate_error);
       runtime_package_free(pending);
       return RUNTIME_PENDING_ERROR;
     }
     runtime_package_free(existing);
     if (remove(path) != 0) {
-      set_error(error, error_length, "remove duplicate staged package failed (%d)", errno);
+      pocket_set_error(error, error_length, "remove duplicate staged package failed (%d)", errno);
       runtime_package_free(pending);
       return RUNTIME_PENDING_ERROR;
     }
   } else if (errno != ENOENT) {
-    set_error(error, error_length, "stat %s failed (%d)", destination, errno);
+    pocket_set_error(error, error_length, "stat %s failed (%d)", destination, errno);
     runtime_package_free(pending);
     return RUNTIME_PENDING_ERROR;
   } else if (rename(path, destination) != 0) {
-    set_error(error, error_length, "commit staged package failed (%d)", errno);
+    pocket_set_error(error, error_length, "commit staged package failed (%d)", errno);
     runtime_package_free(pending);
     return RUNTIME_PENDING_ERROR;
   }
@@ -324,7 +331,7 @@ bool runtime_commit(
   size_t error_length
 ) {
   if (state == NULL || state->generation == UINT32_MAX) {
-    set_error(error, error_length, "runtime state generation exhausted");
+    pocket_set_error(error, error_length, "runtime state generation exhausted");
     return false;
   }
   uint32_t generation = state->generation + 1;
@@ -342,40 +349,20 @@ bool runtime_commit(
   remove(temporary_path);
   FILE *file = fopen(temporary_path, "wb");
   if (file == NULL) {
-    set_error(error, error_length, "open state.tmp failed (%d)", errno);
+    pocket_set_error(error, error_length, "open state.tmp failed (%d)", errno);
     return false;
   }
   bool written = fputs("accepted\n", file) >= 0 && fflush(file) == 0;
   if (written) written = fsync(fileno(file)) == 0;
   if (fclose(file) != 0) written = false;
   if (!written || rename(temporary_path, final_path) != 0) {
-    set_error(error, error_length, "commit runtime generation failed (%d)", errno);
+    pocket_set_error(error, error_length, "commit runtime generation failed (%d)", errno);
     remove(temporary_path);
     return false;
   }
   state->generation = generation;
   state->active_hash = active_hash;
   state->last_good_hash = last_good_hash;
-  return true;
-}
-
-bool runtime_note_embedded(uint64_t embedded_hash) {
-  const char *path = POCKET_RUNTIME_APP_ROOT "/embedded.txt";
-  const char *temporary = POCKET_RUNTIME_APP_ROOT "/.embedded.txt.tmp";
-  unsigned long long recorded = 0;
-  FILE *file = fopen(path, "rb");
-  if (file != NULL) {
-    if (fscanf(file, "%16llx", &recorded) != 1) recorded = 0;
-    fclose(file);
-  }
-  if (file != NULL && recorded == embedded_hash) return false;
-  file = fopen(temporary, "wb");
-  if (file != NULL) {
-    bool written = fprintf(file, "%016llx\n", (unsigned long long)embedded_hash) > 0;
-    if (fclose(file) != 0) written = false;
-    remove(path);
-    if (!written || rename(temporary, path) != 0) remove(temporary);
-  }
   return true;
 }
 
@@ -394,6 +381,18 @@ static void write_report(const char *name, const char *text) {
   }
   remove(path);
   rename(temporary, path);
+}
+
+bool runtime_note_embedded(uint64_t embedded_hash) {
+  unsigned long long recorded = 0;
+  FILE *file = fopen(POCKET_RUNTIME_APP_ROOT "/embedded.txt", "rb");
+  bool known = file != NULL && fscanf(file, "%16llx", &recorded) == 1;
+  if (file != NULL) fclose(file);
+  if (known && recorded == embedded_hash) return false;
+  char text[24];
+  snprintf(text, sizeof text, "%016llx", (unsigned long long)embedded_hash);
+  write_report("embedded.txt", text);
+  return true;
 }
 
 void runtime_write_status(

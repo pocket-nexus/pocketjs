@@ -30,6 +30,8 @@
 #define POCKET_RUNTIME_NATIVE_NAME_BYTES 64u
 #define POCKET_RUNTIME_NATIVE_BEGIN_BYTES (12u + POCKET_RUNTIME_NATIVE_NAME_BYTES)
 #define POCKET_RUNTIME_LAUNCH_BYTES (4u + POCKET_RUNTIME_NATIVE_NAME_BYTES)
+/* A 3DSX header alone is 0x20 bytes. */
+#define POCKET_RUNTIME_NATIVE_MIN_BYTES 0x20u
 #define POCKET_RUNTIME_NATIVE_MAX_BYTES (32u * 1024u * 1024u)
 #define POCKET_RUNTIME_NATIVE_FLAG_LAUNCH 1u
 
@@ -106,7 +108,7 @@ bool pocket_runtime_parse_package_begin(
   size_t length,
   PocketRuntimePackageBegin *out
 );
-/* A .3dsx name is 1..64 bytes of [A-Za-z0-9._-], ends in ".3dsx" and does
+/* A .3dsx name is 6..64 bytes of [A-Za-z0-9._-], ends in ".3dsx" and does
  * not start with a dot, so it names one file directly under sdmc:/3ds/. */
 bool pocket_runtime_native_name_valid(const char *name, size_t length);
 /* Layout: u32 length, u32 CRC-32, u8 flags, u8 name length, u16 zero,

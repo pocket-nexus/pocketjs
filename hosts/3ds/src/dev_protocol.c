@@ -162,7 +162,7 @@ bool pocket_runtime_parse_native_begin(
   out->length = pocket_runtime_read_u32(bytes);
   out->crc32 = pocket_runtime_read_u32(bytes + 4);
   out->flags = bytes[8];
-  if (out->length == 0 || out->length > POCKET_RUNTIME_NATIVE_MAX_BYTES ||
+  if (out->length < POCKET_RUNTIME_NATIVE_MIN_BYTES || out->length > POCKET_RUNTIME_NATIVE_MAX_BYTES ||
       (out->flags & ~POCKET_RUNTIME_NATIVE_FLAG_LAUNCH) != 0 ||
       pocket_runtime_read_u16(bytes + 10) != 0) {
     return false;

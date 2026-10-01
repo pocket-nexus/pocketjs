@@ -8,6 +8,9 @@
 
 #include "native.h"
 
+/* A 3DSX header is 0x20 bytes: every fixture file is at least that long. */
+#define BODY "................................"
+
 static int exists(const char *path) {
   struct stat info;
   return stat(path, &info) == 0;
@@ -56,94 +59,77 @@ int main(int argc, char **argv) {
   assert(mkdir("sdmc:/pocketjs", 0777) == 0 || errno == EEXIST);
   assert(mkdir(POCKET_RUNTIME_ROOT, 0777) == 0 || errno == EEXIST);
 
-  /* zlib's CRC-32 check value, fed whole and in pieces. */
-  assert(pocket_runtime_crc32(0, (const uint8_t *)"123456789", 9) == 0xcbf43926u);
-  assert(pocket_runtime_crc32(pocket_runtime_crc32(0, (const uint8_t *)"1234", 4), (const uint8_t *)"56789", 5) == 0xcbf43926u);
-
-  /* Names address one file directly under sdmc:/3ds. */
-  assert(pocket_runtime_native_name_valid("pocketshell-main.3dsx", 21));
-  assert(pocket_runtime_native_name_valid("Pocket_Nexus.3DSX", 17));
-  assert(!pocket_runtime_native_name_valid(".3dsx", 5));
-  assert(!pocket_runtime_native_name_valid(".hidden.3dsx", 12));
-  assert(!pocket_runtime_native_name_valid("../boot.3dsx", 12));
-  assert(!pocket_runtime_native_name_valid("dir/app.3dsx", 12));
-  assert(!pocket_runtime_native_name_valid("app.cia", 7));
-  assert(!pocket_runtime_native_name_valid("app 1.3dsx", 10));
-
-  uint8_t frame[POCKET_RUNTIME_NATIVE_BEGIN_BYTES] = {0};
-  pocket_runtime_write_u32(frame, 2810384);
-  pocket_runtime_write_u32(frame + 4, 0xafe26828u);
-  frame[8] = POCKET_RUNTIME_NATIVE_FLAG_LAUNCH;
-  frame[9] = 21;
-  memcpy(frame + 12, "pocketshell-main.3dsx", 21);
-  PocketRuntimeNativeBegin parsed;
-  assert(pocket_runtime_parse_native_begin(frame, sizeof frame, &parsed));
-  assert(parsed.length == 2810384 && parsed.crc32 == 0xafe26828u);
-  assert(parsed.flags == POCKET_RUNTIME_NATIVE_FLAG_LAUNCH);
-  assert(strcmp(parsed.name, "pocketshell-main.3dsx") == 0);
-  frame[12 + 30] = 'x'; /* bytes after the name must be zero */
-  assert(!pocket_runtime_parse_native_begin(frame, sizeof frame, &parsed));
-  frame[12 + 30] = 0;
-  frame[8] = 0x80; /* unknown flag */
-  assert(!pocket_runtime_parse_native_begin(frame, sizeof frame, &parsed));
-  frame[8] = 0;
-  pocket_runtime_write_u32(frame, POCKET_RUNTIME_NATIVE_MAX_BYTES + 1);
-  assert(!pocket_runtime_parse_native_begin(frame, sizeof frame, &parsed));
-
-  uint8_t launch[POCKET_RUNTIME_LAUNCH_BYTES] = {0};
-  char name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
-  launch[0] = 10;
-  memcpy(launch + 4, "nexus.3dsx", 10);
-  assert(pocket_runtime_parse_launch(launch, sizeof launch, name));
-  assert(strcmp(name, "nexus.3dsx") == 0);
-  launch[2] = 1;
-  assert(!pocket_runtime_parse_launch(launch, sizeof launch, name));
-
   char error[160] = {0};
   NativeInstall install;
-  native_set_running_path("sdmc:/3ds/Self.3dsx");
+  /* argv[0] without the device prefix still names the running file. */
+  native_set_running_path("/3ds/Self.3dsx");
 
   /* A new file lands under sdmc:/3ds, which is created on demand. */
-  PocketRuntimeNativeBegin other = header("other.3dsx", "3DSX-first", POCKET_RUNTIME_NATIVE_FLAG_LAUNCH);
-  assert(transfer(&other, "3DSX-first", &install, error));
+  PocketRuntimeNativeBegin other = header("other.3dsx", "3DSX-first" BODY, POCKET_RUNTIME_NATIVE_FLAG_LAUNCH);
+  assert(transfer(&other, "3DSX-first" BODY, &install, error));
   assert(!install.deferred && install.launch);
+  assert(strcmp(install.name, "other.3dsx") == 0);
   assert(strcmp(install.path, "sdmc:/3ds/other.3dsx") == 0);
-  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-first"));
+  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-first" BODY));
   assert(!exists(POCKET_NATIVE_UPLOAD) && !exists(POCKET_NATIVE_PREVIOUS));
+  assert(strcmp(native_receiving_name(), "") == 0);
 
   /* Replacing it keeps the previous file. */
-  other = header("other.3dsx", "3DSX-second", 0);
-  assert(transfer(&other, "3DSX-second", &install, error));
+  other = header("other.3dsx", "3DSX-second" BODY, 0);
+  assert(transfer(&other, "3DSX-second" BODY, &install, error));
   assert(!install.launch);
-  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-second"));
-  assert(contains(POCKET_NATIVE_PREVIOUS, "3DSX-first"));
+  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-second" BODY));
+  assert(contains(POCKET_NATIVE_PREVIOUS, "3DSX-first" BODY));
 
-  /* A corrupted transfer, a non-3DSX file and a gap all leave the target alone. */
-  other = header("other.3dsx", "3DSX-third", 0);
+  /* A corrupted transfer, a non-3DSX file, a short file and a gap all leave
+   * the target alone. The magic of the previous transfer does not carry over. */
+  other = header("other.3dsx", "3DSX-third" BODY, 0);
   other.crc32 ^= 1;
-  assert(!transfer(&other, "3DSX-third", &install, error));
+  assert(!transfer(&other, "3DSX-third" BODY, &install, error));
   assert(strstr(error, "CRC-32") != NULL);
-  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-second"));
+  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-second" BODY));
   assert(!exists(POCKET_NATIVE_UPLOAD));
-  other = header("other.3dsx", "ELF-binary", 0);
-  assert(!transfer(&other, "ELF-binary", &install, error));
+  other = header("other.3dsx", "ELF-binary" BODY, 0);
+  assert(!transfer(&other, "ELF-binary" BODY, &install, error));
   assert(strstr(error, "not a 3DSX") != NULL);
-  other = header("other.3dsx", "3DSX-gap", 0);
+  other = header("other.3dsx", "3", 0);
+  assert(!native_begin(&other, error, sizeof error));
+  other = header("other.3dsx", "3DSX-gap" BODY, 0);
   assert(native_begin(&other, error, sizeof error));
+  assert(strcmp(native_receiving_name(), "other.3dsx") == 0);
   assert(!native_write(2, (const uint8_t *)"SX-gap", 6, error, sizeof error));
   assert(!native_receiving() && !exists(POCKET_NATIVE_UPLOAD));
-  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-second"));
+  assert(strcmp(native_receiving_name(), "") == 0);
+  assert(contains("sdmc:/3ds/other.3dsx", "3DSX-second" BODY));
 
-  /* The running .3dsx (matched without case) is replaced only at exit. */
-  write_text("sdmc:/3ds/self.3dsx", "3DSX-running");
-  PocketRuntimeNativeBegin self = header("self.3dsx", "3DSX-update", POCKET_RUNTIME_NATIVE_FLAG_LAUNCH);
-  assert(transfer(&self, "3DSX-update", &install, error));
+  /* The running .3dsx (matched without case or device prefix) moves to its
+   * own file and is replaced only at exit. */
+  write_text("sdmc:/3ds/self.3dsx", "3DSX-running" BODY);
+  PocketRuntimeNativeBegin self = header("self.3dsx", "3DSX-update" BODY, POCKET_RUNTIME_NATIVE_FLAG_LAUNCH);
+  assert(transfer(&self, "3DSX-update" BODY, &install, error));
   assert(install.deferred && install.launch);
   assert(native_exit_pending());
-  assert(contains("sdmc:/3ds/self.3dsx", "3DSX-running"));
+  assert(contains(POCKET_NATIVE_DEFERRED, "3DSX-update" BODY));
+  assert(!exists(POCKET_NATIVE_UPLOAD));
+  assert(contains("sdmc:/3ds/self.3dsx", "3DSX-running" BODY));
+
+  /* Later transfers, failed ones and aborts do not disturb it. */
+  other = header("other.3dsx", "3DSX-fourth" BODY, 0);
+  assert(transfer(&other, "3DSX-fourth" BODY, &install, error));
+  assert(native_begin(&other, error, sizeof error));
+  native_abort();
+  assert(native_exit_pending() && contains(POCKET_NATIVE_DEFERRED, "3DSX-update" BODY));
+
   assert(native_finish_exit(error, sizeof error));
   assert(!native_exit_pending());
-  assert(contains("sdmc:/3ds/self.3dsx", "3DSX-update"));
-  assert(contains(POCKET_NATIVE_PREVIOUS, "3DSX-running"));
+  assert(contains("sdmc:/3ds/self.3dsx", "3DSX-update" BODY));
+  assert(contains(POCKET_NATIVE_PREVIOUS, "3DSX-running" BODY));
+  assert(!exists(POCKET_NATIVE_DEFERRED));
+
+  /* A swap without its staged file touches neither the target nor the backup. */
+  assert(!native_swap(POCKET_NATIVE_DEFERRED, "sdmc:/3ds/self.3dsx", error, sizeof error));
+  assert(strstr(error, "missing") != NULL);
+  assert(contains("sdmc:/3ds/self.3dsx", "3DSX-update" BODY));
+  assert(contains(POCKET_NATIVE_PREVIOUS, "3DSX-running" BODY));
   return 0;
 }

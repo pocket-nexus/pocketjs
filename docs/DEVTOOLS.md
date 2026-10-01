@@ -130,11 +130,13 @@ without `listening` counts as always attached.
   are absent when `sdmc:/pocketjs/runtime/dev.key` is absent. Package updates
   reuse the Runtime's target/ABI admission, immutable storage,
   retired-frame acceptance and rollback path. **The pairing key authenticates
-  but does not encrypt the LAN connection. A push replaces the `.pocket`
-  guest; `bun run 3ds:dev install` writes a `.3dsx` to `sdmc:/3ds/` over the
-  same connection and restarts into it through Luma3DS's `hb:ldr`, and
-  `launch` starts another `.3dsx` on the card.** The transport's `listening` reads `ui.__dbgConnected()`, which
-  reports an authenticated client; `ui.__dbgActive()` reports that the
+  but does not encrypt the LAN connection.** A push replaces the `.pocket`
+  guest. **`bun run 3ds:dev install` writes a `.3dsx` to `sdmc:/3ds/` over the
+  same connection and restarts into it through Luma3DS's `hb:ldr`**
+  (`--no-launch` installs for the next start), and `launch` starts another
+  `.3dsx` on the card. **A client holding the pairing key can install and
+  start native code on the console.** The transport's `listening` reads
+  `ui.__dbgConnected()`, which reports an authenticated client; `ui.__dbgActive()` reports that the
   listener exists, not that a client is attached. **Without a panel the guest
   serializes no tree snapshots: a full-tree snapshot measured about 30 ms of
   JS on an Old 3DS, once per 30 frames.**

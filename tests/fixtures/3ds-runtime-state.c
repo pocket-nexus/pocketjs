@@ -153,6 +153,25 @@ int main(int argc, char **argv) {
   assert(mismatch == NULL && exists(network));
   assert(strstr(error, "does not match declared") != NULL);
 
+  /* After an install the embedded guest boots first; when it fails, the
+   * stored packages are still tried, and only then is the failure fatal. */
+  const PocketRuntimeState installed_state = { .generation = 7, .active_hash = 0xaaaa, .last_good_hash = 0xbbbb };
+  PocketRuntimeFailureLineage lineage = {0};
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0));
+  assert(runtime_recovery_hash(&installed_state, &lineage) == 0xaaaa);
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0xaaaa));
+  assert(runtime_recovery_hash(&installed_state, &lineage) == 0xbbbb);
+  assert(!runtime_failure_lineage_reject(&lineage, &installed_state, 0xbbbb));
+  /* As the last resort the embedded guest's failure stays fatal. */
+  const PocketRuntimeState bare_state = { .generation = 1, .active_hash = 0, .last_good_hash = 0 };
+  runtime_failure_lineage_reset(&lineage);
+  assert(!lineage.embedded_failed);
+  assert(!runtime_failure_lineage_reject(&lineage, &bare_state, 0));
+  runtime_failure_lineage_reset(&lineage);
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0xaaaa));
+  assert(runtime_failure_lineage_reject(&lineage, &installed_state, 0xbbbb));
+  assert(!runtime_failure_lineage_reject(&lineage, &installed_state, 0));
+
   /* The first boot beside an embedded package, and every boot after a .3dsx
    * with a different one was installed, reports an install exactly once. */
   const char *embedded_record = POCKET_RUNTIME_APP_ROOT "/embedded.txt";

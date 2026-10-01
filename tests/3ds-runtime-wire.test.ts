@@ -26,8 +26,8 @@ import {
   encodePocketRuntimeHello,
   encodePocketRuntimeLaunch,
   encodePocketRuntimeNativeBegin,
+  encodePocketRuntimeChunk,
   encodePocketRuntimePackageBegin,
-  encodePocketRuntimePackageChunk,
   pocketPackageFooterHash,
   pocketRuntimeCrc32,
   pocketRuntimeDeviceId,
@@ -49,19 +49,29 @@ afterEach(() => {
 });
 
 describe("Nintendo 3DS Pocket Runtime wire", () => {
-  test("keeps TypeScript and C protocol constants byte-exact", () => {
+  test("keeps TypeScript and C protocol constants byte-exact", async () => {
     const header = readFileSync(join(ROOT, "hosts/3ds/src/dev_protocol.h"), "utf8");
-    expect(header).toContain("#define POCKET_RUNTIME_WIRE_MAGIC 0x54524b50u");
-    expect(header).toContain("#define POCKET_RUNTIME_DISCOVERY_MAGIC 0x44524b50u");
-    expect(header).toContain("#define POCKET_RUNTIME_WIRE_PORT 8131u");
-    expect(header).toContain("#define POCKET_RUNTIME_TOKEN_BYTES 32u");
-    expect(header).toContain("#define POCKET_RUNTIME_MAX_FRAME_BYTES (64u * 1024u)");
-    expect(header).toContain("#define POCKET_RUNTIME_MAX_CTRL_BYTES (16u * 1024u)");
-    expect(header).toContain("#define POCKET_RUNTIME_ACK_FLAG_NATIVE 2u");
-    expect(header).toContain("#define POCKET_RUNTIME_NATIVE_NAME_BYTES 64u");
-    expect(header).toContain("#define POCKET_RUNTIME_NATIVE_MAX_BYTES (32u * 1024u * 1024u)");
-    expect(header).toContain(`POCKET_RUNTIME_MSG_NATIVE_BEGIN = 0x${POCKET_RUNTIME_MSG.nativeBegin.toString(16)},`);
-    expect(header).toContain(`POCKET_RUNTIME_MSG_LAUNCH = 0x${POCKET_RUNTIME_MSG.launch.toString(16)},`);
+    // Every numeric #define, evaluated with its references to other defines.
+    const expressions = new Map(
+      [...header.matchAll(/^#define (POCKET_RUNTIME_\w+) (.+?)(?:\s*\/\*.*)?$/gm)].map((m) => [m[1], m[2]]),
+    );
+    const value = (name: string): number => {
+      const text = expressions.get(name)!
+        .replace(/\b(0x[0-9a-f]+|\d+)u\b/gi, "$1")
+        .replace(/\bPOCKET_RUNTIME_\w+/g, (reference) => String(value(reference)));
+      return Function(`return (${text});`)() as number;
+    };
+    const wire = await import("../contracts/spec/pocket-runtime-wire.ts");
+    const mirrored = Object.entries(wire).filter(
+      (entry): entry is [string, number] => typeof entry[1] === "number" && expressions.has(entry[0]),
+    );
+    expect(mirrored.length).toBeGreaterThan(15);
+    for (const [name, exported] of mirrored) expect([name, value(name)]).toEqual([name, exported]);
+    // Every message id, named the way the C enum spells it.
+    for (const [key, id] of Object.entries(POCKET_RUNTIME_MSG)) {
+      const name = key.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase();
+      expect(header).toContain(`POCKET_RUNTIME_MSG_${name} = 0x${id.toString(16).padStart(2, "0")},`);
+    }
     expect(POCKET_RUNTIME_WIRE_MAGIC).toBe(0x54524b50);
     expect(POCKET_RUNTIME_TOKEN_BYTES).toBe(32);
     expect(POCKET_RUNTIME_MAX_CTRL_BYTES).toBe(16 * 1024);
@@ -189,7 +199,7 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
   });
 
   test("package chunks carry an absolute offset before bulk bytes", () => {
-    const payload = encodePocketRuntimePackageChunk(0x12345678, Uint8Array.of(1, 2, 3));
+    const payload = encodePocketRuntimeChunk(0x12345678, Uint8Array.of(1, 2, 3));
     expect(new DataView(payload.buffer).getUint32(0, true)).toBe(0x12345678);
     expect([...payload.slice(4)]).toEqual([1, 2, 3]);
   });
@@ -216,7 +226,8 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
     expect([begin[8], begin[9], begin[10], begin[11]]).toEqual([1, 21, 0, 0]);
     expect(new TextDecoder().decode(begin.subarray(12, 33))).toBe("pocketshell-main.3dsx");
     expect(begin.subarray(33).every((byte) => byte === 0)).toBe(true);
-    expect(() => encodePocketRuntimeNativeBegin(1, 0, "boot.cia")).toThrow("file name");
+    expect(() => encodePocketRuntimeNativeBegin(64, 0, "boot.cia")).toThrow("file name");
+    expect(() => encodePocketRuntimeNativeBegin(31, 0, "short.3dsx")).toThrow("32 bytes");
     const launch = encodePocketRuntimeLaunch("nexus.3dsx");
     expect([launch[0], launch[1], launch[2], launch[3]]).toEqual([10, 0, 0, 0]);
     expect(new TextDecoder().decode(launch.subarray(4, 14))).toBe("nexus.3dsx");
@@ -292,7 +303,20 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
     let authenticated = false;
     const decoder = new PocketRuntimeFrameDecoder();
     const uploaded: Uint8Array[] = [];
-    const native: { begin: DataView | null; chunks: Uint8Array[] } = { begin: null, chunks: [] };
+    const native: { begin: DataView | null; chunks: Uint8Array[]; aborted: boolean } = {
+      begin: null,
+      chunks: [],
+      aborted: false,
+    };
+    const nativeName = () => native.begin
+      ? new TextDecoder().decode(new Uint8Array(native.begin.buffer, 12, native.begin.getUint8(9)))
+      : "";
+    const receipt = (phase: string, message = "") => Buffer.from(encodePocketRuntimeFrame(
+      POCKET_RUNTIME_MSG.ctrl,
+      new TextEncoder().encode(JSON.stringify({
+        t: "runtime.native", phase, name: nativeName(), path: `sdmc:/3ds/${nativeName()}`, message,
+      })),
+    ));
     const server = createServer((socket) => {
       connection.peer = socket;
       socket.on("data", (chunk: Buffer) => {
@@ -316,27 +340,24 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
         for (const frame of decoder.push(incoming)) {
           incoming = new Uint8Array(0);
           if (frame.type === POCKET_RUNTIME_MSG.packageChunk) uploaded.push(frame.payload.slice(4));
-          if (frame.type === POCKET_RUNTIME_MSG.nativeBegin) native.begin = new DataView(frame.payload.buffer);
+          if (frame.type === POCKET_RUNTIME_MSG.nativeBegin) {
+            native.begin = new DataView(frame.payload.buffer);
+            native.chunks = [];
+          }
           if (frame.type === POCKET_RUNTIME_MSG.nativeChunk) {
             expect(new DataView(frame.payload.buffer).getUint32(0, true)).toBe(
               native.chunks.reduce((sum, bytes) => sum + bytes.length, 0),
             );
             native.chunks.push(frame.payload.slice(4));
           }
+          if (frame.type === POCKET_RUNTIME_MSG.nativeAbort) native.aborted = true;
           if (frame.type === POCKET_RUNTIME_MSG.nativeCommit && native.begin) {
             const file = Buffer.concat(native.chunks.map((bytes) => Buffer.from(bytes)));
             expect(file.length).toBe(native.begin.getUint32(0, true));
             expect(pocketRuntimeCrc32(file)).toBe(native.begin.getUint32(4, true));
-            const name = new TextDecoder().decode(
-              new Uint8Array(native.begin.buffer, 12, native.begin.getUint8(9)),
-            );
-            const receipts = [{ t: "runtime.native", phase: "installed", name, message: `sdmc:/3ds/${name}` }];
-            if (native.begin.getUint8(8) & POCKET_RUNTIME_NATIVE_FLAG_LAUNCH) {
-              receipts.push({ t: "runtime.native", phase: "launching", name: `sdmc:/3ds/${name}`, message: "" });
-            }
-            socket.write(Buffer.concat(receipts.map((receipt) => Buffer.from(
-              encodePocketRuntimeFrame(POCKET_RUNTIME_MSG.ctrl, new TextEncoder().encode(JSON.stringify(receipt))),
-            ))));
+            const replies = [receipt("installed")];
+            if (native.begin.getUint8(8) & POCKET_RUNTIME_NATIVE_FLAG_LAUNCH) replies.push(receipt("launching"));
+            socket.write(Buffer.concat(replies));
           }
           if (frame.type === POCKET_RUNTIME_MSG.packageCommit) {
             const packageBytes = Buffer.concat(uploaded.map((bytes) => Buffer.from(bytes)));
@@ -406,9 +427,19 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
       const installed = client.waitForCtrl((message) => message.t === "runtime.native" && message.phase === "installed");
       const launching = client.waitForCtrl((message) => message.t === "runtime.native" && message.phase === "launching");
       await client.installNative(executable, "app.3dsx", true);
-      expect((await installed).message).toBe("sdmc:/3ds/app.3dsx");
-      expect((await launching).name).toBe("sdmc:/3ds/app.3dsx");
+      expect((await installed).path).toBe("sdmc:/3ds/app.3dsx");
+      expect((await launching).name).toBe("app.3dsx");
       expect(native.chunks.length).toBe(3);
+      // Once the caller reports a device-side failure the stream stops: the
+      // rest is not sent and the transfer is aborted, never committed.
+      const large = new Uint8Array(1_000_000);
+      large.set(new TextEncoder().encode("3DSX"));
+      let polls = 0;
+      await client.installNative(large, "full.3dsx", false, () => ++polls > 2);
+      await client.requestStatus(); // a frame after the abort, so the server has read it
+      await Bun.sleep(20);
+      expect(native.aborted).toBe(true);
+      expect(native.chunks.length).toBe(2);
       const screenshot = client.waitForScreenshot();
       await client.sendCtrl({ t: "screenshot" });
       const image = await screenshot;

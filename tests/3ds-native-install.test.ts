@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 describe("Nintendo 3DS .3dsx installation", () => {
-  test("stages, verifies and swaps .3dsx files, deferring the running one", () => {
+  test("stages, verifies and swaps .3dsx files, deferring the running one to its own file", () => {
     const directory = mkdtempSync(join(tmpdir(), "pocketjs-3ds-native-"));
     temporary.push(directory);
     const binary = join(directory, "native-install-test");

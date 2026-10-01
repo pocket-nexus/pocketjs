@@ -6,21 +6,13 @@
  */
 
 #include "hbldr.h"
+#include "error_text.h"
 
 #include <3ds.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
 #define HBLDR_ARGV_BYTES 0x400u
-
-static void set_error(char *out, size_t length, const char *format, ...) {
-  if (out == NULL || length == 0) return;
-  va_list arguments;
-  va_start(arguments, format);
-  vsnprintf(out, length, format, arguments);
-  va_end(arguments);
-}
 
 static Result send_static(Handle handle, u32 command, const void *buffer, u32 size, u32 slot) {
   u32 *words = getThreadCommandBuffer();
@@ -35,17 +27,17 @@ bool hbldr_launch_on_exit(const char *path, char *error, size_t error_length) {
   static u32 arguments[HBLDR_ARGV_BYTES / sizeof(u32)];
   static char target[HBLDR_ARGV_BYTES];
   if (path == NULL || strlen(path) + 1 > HBLDR_ARGV_BYTES - sizeof(u32)) {
-    set_error(error, error_length, "launch path is empty or too long");
+    pocket_set_error(error, error_length, "launch path is empty or too long");
     return false;
   }
   if (!envIsHomebrew()) {
-    set_error(error, error_length, "not running under the Homebrew Launcher");
+    pocket_set_error(error, error_length, "not running under the Homebrew Launcher");
     return false;
   }
   Handle handle = 0;
   Result result = svcConnectToPort(&handle, "hb:ldr");
   if (R_FAILED(result)) {
-    set_error(error, error_length, "hb:ldr unavailable (0x%08lx); start the .3dsx from the Homebrew Launcher", (unsigned long)result);
+    pocket_set_error(error, error_length, "hb:ldr unavailable (0x%08lx); start the .3dsx from the Homebrew Launcher", (unsigned long)result);
     return false;
   }
   snprintf(target, sizeof target, "%s", strncmp(path, "sdmc:/", 6) == 0 ? path + 5 : path);
@@ -58,7 +50,7 @@ bool hbldr_launch_on_exit(const char *path, char *error, size_t error_length) {
   }
   svcCloseHandle(handle);
   if (R_FAILED(result)) {
-    set_error(error, error_length, "hb:ldr refused %s (0x%08lx)", path, (unsigned long)result);
+    pocket_set_error(error, error_length, "hb:ldr refused %s (0x%08lx)", path, (unsigned long)result);
     return false;
   }
   return true;

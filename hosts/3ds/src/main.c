@@ -333,6 +333,21 @@ static void capture_done(void) {
 
 #endif /* POCKETJS_CAPTURE */
 
+#if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
+/* A transfer that replaced this .3dsx waits in native-deferred.3dsx until the
+ * process no longer reads ROMFS from the file. */
+static void finish_native_install(void) {
+  romfsExit();
+  if (!native_exit_pending()) return;
+  char error[192] = {0};
+  if (!native_finish_exit(error, sizeof error)) runtime_write_error("native-install", error);
+}
+#else
+static void finish_native_install(void) {
+  romfsExit();
+}
+#endif
+
 /* Report a boot or runtime failure as itself rather than as a timeout, then
  * park. */
 static void fail(const char *message) {
@@ -367,6 +382,7 @@ static void fail(const char *message) {
     gfxSwapBuffers();
     gspWaitForVBlank();
   }
+  finish_native_install();
   gfxExit();
   exit(1);
 #endif
@@ -542,13 +558,8 @@ static bool boot_with_recovery(
     runtime_write_error("boot-guest", error);
     snprintf(fatal, fatal_length, "%s", error);
     uint64_t rejected = choice->state_hash;
-    bool embedded_failed = choice->package == embedded;
     release_choice(choice, embedded);
-    if (embedded_failed) return false;
-    if (!runtime_failure_lineage_add(failures, rejected)) {
-      snprintf(fatal, fatal_length, "recovery failure lineage exhausted");
-      return false;
-    }
+    if (!runtime_failure_lineage_reject(failures, state, rejected)) return false;
     *choice = recovery_choice(state, embedded, failures);
   }
   snprintf(fatal, fatal_length, "guest recovery attempts exhausted");
@@ -626,12 +637,9 @@ static void recover_running_guest(
   const char *message
 ) {
   runtime_write_error(phase, message);
-  if (choice->package == embedded) fail(message);
   uint64_t rejected = choice->state_hash;
   bool candidate = choice->commit_on_accept;
-  if (!runtime_failure_lineage_add(failures, rejected)) {
-    fail("recovery failure lineage exhausted");
-  }
+  if (!runtime_failure_lineage_reject(failures, state, rejected)) fail(message);
   begin_frame_wait(run_frame);
   teardown_guest();
   release_choice(choice, embedded);
@@ -826,14 +834,15 @@ int main(void) {
     {
       /* An installed or named .3dsx starts when this process exits: the same
        * hand-off the Homebrew Launcher makes, so the loop ends here. */
+      char launch_name[POCKET_RUNTIME_NATIVE_NAME_BYTES + 1];
       char launch_path[POCKET_NATIVE_PATH_BYTES];
-      if (devserver_take_launch(launch_path, sizeof launch_path)) {
+      if (devserver_take_launch(launch_name) && native_path_for(launch_name, launch_path)) {
         if (hbldr_launch_on_exit(launch_path, runtime_error, sizeof runtime_error)) {
-          devserver_report_native("launching", launch_path, "exiting to start it");
+          devserver_report_native("launching", launch_name, "exiting to start it");
           devserver_flush(1000);
           break;
         }
-        devserver_report_native("launch-error", launch_path, runtime_error);
+        devserver_report_native("launch-error", launch_name, runtime_error);
       }
     }
     if (input_devmenu_toggle_requested()) devmenu_toggle();
@@ -1120,16 +1129,7 @@ int main(void) {
   devmenu_shutdown();
 #endif
   gfx_shutdown();
-  romfsExit();
-#if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
-  /* A transfer that replaced this .3dsx was staged: ROMFS read from it. */
-  if (native_exit_pending()) {
-    char native_error[192] = {0};
-    if (!native_finish_exit(native_error, sizeof native_error)) {
-      runtime_write_error("native-install", native_error);
-    }
-  }
-#endif
+  finish_native_install();
   C3D_Fini();
   gfxExit();
   return 0;
