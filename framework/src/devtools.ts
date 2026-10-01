@@ -280,6 +280,8 @@ export function wrapFrameHandler(
     let motion = motionArg;
     if (state.replayMasks) {
       if (state.replayAt < state.replayMasks.length) {
+        // Paused host polls must not consume queued replay input.
+        if (state.paused && state.stepQueued <= 0) return;
         axisDeltas = state.replayAxes?.[state.replayAt] ?? EMPTY_AXIS_DELTAS;
         motion = state.replayMotion?.[state.replayAt] ?? null; // null: no estimate, never the live one
         mask = state.replayMasks[state.replayAt];
