@@ -53,6 +53,7 @@ export async function executeModelJavaScript(fixture: ModelHarnessCase, vue = fa
   await Bun.write(file, transform ? transform(source) : source);
   const cleanups = Object.entries(fixture.services ?? {}).map(([name, service]) => registerModelService(name, { capacity: service.capacity ?? 4, available: () => service.available !== false, validate: () => true, request: () => {} }));
   const module = await import(file), region = module.__modelRegion;
+  region.traceEnabled = true;
   cleanups.push(registerModelCommandHandler(() => {}));
   region.react(true); region.settle(); region.trace = [];
   try {

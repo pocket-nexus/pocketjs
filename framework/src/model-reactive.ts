@@ -48,6 +48,8 @@ export class ModelRegion {
   readonly refs = new Map<string, unknown>();
   readonly fields = new Map<string, () => unknown>();
   schedule: number[] = [];
+  /** Diagnostic consumers opt in and clear trace after each observation. */
+  traceEnabled = false;
   trace: ModelTrace[] = [];
   initial = true;
   disposed = false;
@@ -62,7 +64,7 @@ export class ModelRegion {
   }
   field<T>(value: T): T { this.fieldRead(); return value; }
   fieldChanged(): void { this.fieldsDirty = true; this.dirty = true; }
-  emit(kind: string, data: Record<string, unknown> = {}): void { this.trace.push({ kind, region: this.instance, ...data }); }
+  emit(kind: string, data: Record<string, unknown> = {}): void { if (this.traceEnabled) this.trace.push({ kind, region: this.instance, ...data }); }
   signal<T>(id: number, name: string, seed: T, cap?: number, scalar?: boolean): [() => T, (value: T | ((old: T) => T), writeBack?: boolean) => T] {
     const value = capacity(copy(seed), cap, name, this.development), [read, store] = this.storage(value);
     this.cells.set(id, { id, name, value, version: 1, changed: false, read, store: store as any, capacity: cap, scalar });
@@ -94,7 +96,7 @@ export class ModelRegion {
           const changed = cell.version === 0 || !(cell.scalar ?? primitive(value)) || value !== cell.value;
           cell.seen = versions;
           if (changed) { cell.value = copy(value); cell.version++; cell.changed = true; cell.pending = true; }
-          this.emit("memo", { id, name: cell.name, mode, value: copy(value), changed, version: cell.version });
+          if (this.traceEnabled) this.emit("memo", { id, name: cell.name, mode, value: copy(value), changed, version: cell.version });
         }
       } finally { cell.computing = false; }
     }
@@ -107,7 +109,7 @@ export class ModelRegion {
     const value = capacity(input, cell.capacity, cell.name, this.development);
     const changed = (cell.scalar ?? primitive(value)) ? value !== cell.value : !writeBack;
     if (changed) { cell.value = copy(value); cell.version++; cell.changed = true; this.dirty = true; cell.pending = true; }
-    this.emit("set", { id, name: cell.name, value: copy(value), changed, version: cell.version });
+    if (this.traceEnabled) this.emit("set", { id, name: cell.name, value: copy(value), changed, version: cell.version });
   }
   react(initial = false): void {
     for (const id of this.schedule) {

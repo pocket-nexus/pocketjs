@@ -129,7 +129,7 @@ export class ModelTasks {
       else {
         wait.reserved = true;
         const call = source.call, args = copy(source.args);
-        this.region.emit("request", { module: source.service, call, args: copy(args), request });
+        if (this.region.traceEnabled) this.region.emit("request", { module: source.service, call, args: copy(args), request });
         commands.push(() => {
           wait.hostIssued = true;
           const cleanup = service.request(call, copy(args), request, value => deliverModelResult(request, value));
