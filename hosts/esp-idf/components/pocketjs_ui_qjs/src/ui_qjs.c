@@ -839,13 +839,11 @@ esp_err_t pocketjs_ui_turn(pocketjs_ui_qjs_t *binding,
                      ((uint32_t)input->touches[index].y << 9U) |
                      input->touches[index].x;
   }
-  if (input->touch_count != 0U) {
-    const size_t hit_count =
-        pocketjs_ui_core_touch_hits(binding->core, touches, input->touch_count,
-                                    hits, POCKETJS_UI_MAX_TOUCHES);
-    if (hit_count != input->touch_count)
-      return ESP_FAIL;
-  }
+  const size_t hit_count =
+      pocketjs_ui_core_touch_hits(binding->core, touches, input->touch_count,
+                                  hits, POCKETJS_UI_MAX_TOUCHES);
+  if (hit_count != input->touch_count)
+    return ESP_FAIL;
   const pocketjs_guest_frame_t frame = {
       .struct_size = sizeof(frame),
       .buttons = input->buttons,

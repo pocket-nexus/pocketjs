@@ -454,14 +454,18 @@ pub unsafe extern "C" fn pocketjs_native_ui_touch_hits(
     {
         return 0;
     }
-    if touch_count == 0 {
-        return 0;
-    }
     let Some(core) = core_mut(core) else { return 0 };
-    let touches = slice::from_raw_parts(touches, touch_count);
+    // Empty frames retire captures; the ABI permits null buffers for them.
+    let touches = if touch_count == 0 {
+        &[]
+    } else {
+        slice::from_raw_parts(touches, touch_count)
+    };
     let mut hits = [0i32; 8];
     let count = core.ui.touch_hits(touches, &mut hits);
-    ptr::copy_nonoverlapping(hits.as_ptr(), output, count);
+    if count != 0 {
+        ptr::copy_nonoverlapping(hits.as_ptr(), output, count);
+    }
     count
 }
 
