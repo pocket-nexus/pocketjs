@@ -339,10 +339,15 @@ function createClient(target: DeviceTarget): PocketRuntimeClient {
 /** Connect, retrying once when the TCP connect or handshake times out: the
  *  console's single-client listener can miss a connection made right after
  *  the previous client left. */
-async function open(target: DeviceTarget): Promise<{ client: PocketRuntimeClient; ack: PocketRuntimeAck }> {
+async function open(
+  target: DeviceTarget,
+  quiet = false,
+): Promise<{ client: PocketRuntimeClient; ack: PocketRuntimeAck }> {
   for (let attempt = 0; ; attempt += 1) {
     const client = createClient(target);
-    client.on("socketError", (error) => console.error(`3ds-dev: socket: ${String(error)}`));
+    client.on("socketError", (error) => {
+      if (!quiet) console.error(`3ds-dev: socket: ${String(error)}`);
+    });
     try {
       const ack = await client.connect();
       console.log(
@@ -513,7 +518,8 @@ async function awaitReturn(target: DeviceTarget): Promise<PocketRuntimeClient | 
   while (Date.now() < deadline) {
     await Bun.sleep(1500);
     try {
-      return await connect(explicitHost ? target : await rediscoverTarget(target));
+      // Refused connections are expected while the console restarts.
+      return (await open(explicitHost ? target : await rediscoverTarget(target), true)).client;
     } catch {
       // Still restarting.
     }
