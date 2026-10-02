@@ -420,6 +420,9 @@ export const PROP = {
   //                    `rotate() skewX() scale()`): with it, rotate + skewX +
   //                    scaleX/scaleY reach every 2D linear map with a
   //                    positive determinant.
+  spriteClock: 144, //  i32 reference-frame clock for animated sprites in this
+  //                    subtree. The nearest non-negative value wins; -1
+  //                    inherits, or uses host-vblank timing at the root.
 } as const;
 
 export type PropName = keyof typeof PROP;
@@ -554,6 +557,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   translateZ: VALUE_KIND.f32, perspective: VALUE_KIND.f32,
   arcStart: VALUE_KIND.f32, arcSweep: VALUE_KIND.f32, arcWidth: VALUE_KIND.f32,
   skewX: VALUE_KIND.f32,
+  spriteClock: VALUE_KIND.int,
 };
 
 // ---------------------------------------------------------------------------

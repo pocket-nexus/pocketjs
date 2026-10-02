@@ -308,6 +308,9 @@ pub struct Resolved {
     /// Horizontal shear in degrees about the transform origin, composed
     /// between rotate and scale (spec.ts PROP.skewX).
     pub skew_x: f32,
+    /// Explicit animated-sprite reference clock for this subtree. u32::MAX
+    /// means inherit, or use the legacy host-vblank clock at the root.
+    pub sprite_clock: u32,
 }
 
 impl Default for Resolved {
@@ -372,6 +375,7 @@ impl Default for Resolved {
             arc_sweep: 0.0,
             arc_width: 0.0,
             skew_x: 0.0,
+            sprite_clock: u32::MAX,
         }
     }
 }
@@ -466,6 +470,7 @@ impl Resolved {
             p::ARC_SWEEP => self.arc_sweep = f,
             p::ARC_WIDTH => self.arc_width = f,
             p::SKEW_X => self.skew_x = f,
+            p::SPRITE_CLOCK => self.sprite_clock = bits,
             _ => {}
         }
     }
@@ -543,6 +548,7 @@ impl Resolved {
             p::ARC_SWEEP => self.arc_sweep.to_bits(),
             p::ARC_WIDTH => self.arc_width.to_bits(),
             p::SKEW_X => self.skew_x.to_bits(),
+            p::SPRITE_CLOCK => self.sprite_clock,
             _ => 0,
         }
     }
