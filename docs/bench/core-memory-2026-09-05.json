@@ -1,0 +1,28 @@
+{
+  "command": "cargo run --manifest-path engine/core/Cargo.toml --example membench --quiet",
+  "toolchain": {
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)"
+  },
+  "git_revision": "b7dd46f",
+  "origin_main_revision": "2d20ddad228db52fa29ad7d7d06f44e8672164af",
+  "benchmark_implementation_revision": "0821ddf",
+  "workload": {
+    "shape": "99 nodes; 24 steady ticks; 8 rounds of 4-node subtree churn; 16 text ticks; 12 burst ticks",
+    "text_mode": "atlas",
+    "texture_mode": "atlas"
+  },
+  "receipt": {
+    "peak_requested_bytes": "29591",
+    "final_requested_bytes": "10793",
+    "allocation_count": "11682",
+    "total_allocated_bytes": "6225569",
+    "avg_layout_us": "1210",
+    "max_layout_us": "5163",
+    "nodes": "99",
+    "structural_relayouts": "16",
+    "text_mode": "atlas",
+    "texture_mode": "atlas",
+    "drawlist_checksum": "cc6a0b00efdba151"
+  }
+}
