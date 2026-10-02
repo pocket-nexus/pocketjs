@@ -3,7 +3,7 @@
 //! Text capabilities run in separately budgeted io.offload workers. No platform
 //! text system participates in layout, shaping or drawing.
 use anyhow::{Context as _, Result, anyhow};
-use pocket_mod::Guest;
+use pocket_mod::{Guest, IdleBudget, IdleGcConfig, IdleGcOutcome};
 use pocket_ui_surface::{UiSurface, offload::OffloadWorker};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -110,7 +110,9 @@ impl Runtime {
         surface.set_svc_allowlist(args.companions.clone());
         surface.feed_pak(&pak);
         let supervisor = AppSupervisor::new(args.system.as_ref(), &surface)?;
-        let guest = Guest::new()?;
+        // Cycle collection runs between ticks (run_runtime), not inside
+        // whichever turn crosses the engine's allocation threshold.
+        let guest = Guest::new_with_idle_gc(IdleGcConfig::default())?;
         surface.mount(&guest)?;
         let offload = text_worker(pak);
         offload.mount(&guest)?;
@@ -118,6 +120,9 @@ impl Runtime {
         if !guest.has_frame() {
             return Err(anyhow!("bundle installed no frame handler"));
         }
+        // Bundle evaluation is unbounded; arm the hard cap on the booted
+        // heap before the first product frame (run_runtime's tick).
+        guest.arm_idle_gc();
         surface.svc_push(
             json!({"t":"hello","w":args.viewport.0,"h":args.viewport.1,"epoch":epoch_ms()})
                 .to_string(),
@@ -316,6 +321,9 @@ impl Runtime {
         }
     }
 }
+/// Fixed guest tick period (60 Hz).
+const TICK: Duration = Duration::from_nanos(1_000_000_000 / 60);
+
 fn run_runtime(
     args: Args,
     inputs: Receiver<Input>,
@@ -387,7 +395,20 @@ fn run_runtime(
         {
             return Ok(());
         }
-        deadline += Duration::from_nanos(1_000_000_000 / 60);
+        deadline += TICK;
+        let gc_start = Instant::now();
+        let budget = IdleBudget {
+            remaining: deadline.saturating_duration_since(gc_start),
+            period: TICK,
+        };
+        if let IdleGcOutcome::Collected(_) = runtime.guest.idle_gc(Some(budget)) {
+            trace_frame(
+                runtime.args.trace_frames,
+                "idle-gc",
+                runtime.ticks,
+                gc_start,
+            );
+        }
         if let Some(wait) = deadline.checked_duration_since(Instant::now()) {
             thread::sleep(wait);
         } else {
