@@ -212,8 +212,8 @@ one variant:
   logical × `rasterDensity`. The app's own `dynamic.min`/`dynamic.max` are
   schema-valid and unread — the admitted range belongs to the target.
 - A fixed-only app resolves on a dynamic-form target when that profile sets
-  `dynamicViewport.acceptsFixed` (`macos-app`, `linux-app`, `web-app` do;
-  `macos-widget` does not), and runs size-locked in the window.
+  `dynamicViewport.acceptsFixed` (`macos-app`, `linux-app`, `windows-app`,
+  `web-app` do; `macos-widget` does not), and runs size-locked in the window.
 - A fixed-screen target rejects a dynamic-only app, and a dynamic-form target
   without `acceptsFixed` rejects a fixed-only app, both before compilation.
 
@@ -272,9 +272,10 @@ directory in `hosts/`:
 | `vita`         | 2       | vita / takeover   | 480×272 (`integer-fit`)                  | 2       | `input.analog.left`, `input.buttons`, `input.cursor`, `input.touch`, `text.glyphs.baked` |
 | `pocketbook`   | 5       | pocketbook / takeover | 480×272 (`integer-fit`)              | 2       | `input.buttons`, `input.touch`, `text.glyphs.baked` |
 | `macos-widget` | 3       | macos / widget    | 420×560 default, 240×180…4096×4096       | 2       | `input.buttons`, `input.ime`, `input.pointer`, `input.text`, `host.clipboard`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime` |
-| `macos-app`    | 4       | macos / window    | 720×480 default, 240×180…4096×4096, accepts fixed | 2 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.layout.native`; systemUI role adds `ui.compositor-surfaces` |
+| `macos-app`    | 4       | macos / window    | 720×480 default, 240×180…4096×4096, accepts fixed | 2 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `io.offload`, `text.layout.offload`; systemUI role adds `ui.compositor-surfaces` |
 | `linux-app`    | 4       | linux / window    | 800×600 default, 240×180…4096×4096, accepts fixed | 1 | same as `macos-app` |
-| `web-app`      | 4       | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`; systemUI role adds `ui.compositor-surfaces` |
+| `windows-app`  | 4       | windows / window  | 720×480 default, 240×180…4096×4096, accepts fixed | 2 | same as `macos-app` |
+| `web-app`      | 4       | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `io.offload`, `text.layout.offload`; systemUI role adds `ui.compositor-surfaces` |
 
 `roleCapabilities.systemUI` is the one conditional column: those APIs reach a
 package only when it resolves in the System-UI role. `ui.compositor-surfaces`
@@ -437,14 +438,14 @@ const targetBackends = {
 await targetBackends[target as PocketTargetId](context);
 ```
 
-**That table holds three of the seven registered targets.** The desktop targets
+**That table holds three of the eight registered targets.** The desktop targets
 build through their own tools instead — `macos-app` through `tools/macos.ts`,
-`macos-widget` through `tools/note.ts` and `tools/widget.ts` — and `linux-app`
-and `web-app` have no `pocket build` path today: the plan resolves and then the
-index throws a TypeError on an undefined backend. The table carries a
-`satisfies Record<PocketTargetId, TargetBackend>` annotation it does not meet,
-and `tools/` sits outside the `tsconfig.json` include list, so no typecheck
-reports the gap.
+`macos-widget` through `tools/note.ts` and `tools/widget.ts` — and `linux-app`,
+`windows-app` and `web-app` have no `pocket build` path today: the plan
+resolves and then the index throws a TypeError on an undefined backend. The
+table carries a `satisfies Record<PocketTargetId, TargetBackend>` annotation
+it does not meet, and `tools/` sits outside the `tsconfig.json` include list,
+so no typecheck reports the gap.
 
 After dispatch, a backend reads resolved fields; it does not recalculate
 physical dimensions or output names from the target id. The serialized plan

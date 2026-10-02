@@ -134,11 +134,11 @@ note does (pure-math unit tests over an injected measurer, sim traces,
 
 ## Native desktop targets
 
-`contracts/spec/platforms.ts` registers `macos-app` and `linux-app` at
-hostAbi 4 with `form: "window"`, a dynamic viewport and `acceptsFixed`.
-Both profiles use the same generic host. macOS resolves density 2; Linux
-resolves density 1. Fixed-viewport console apps run size-locked and
-letterboxed with their baked glyph pipeline intact.
+`contracts/spec/platforms.ts` registers `macos-app`, `linux-app` and
+`windows-app` at hostAbi 4 with `form: "window"`, a dynamic viewport and
+`acceptsFixed`. All three profiles use the same generic host. macOS and
+Windows resolve density 2; Linux resolves density 1. Fixed-viewport console
+apps run size-locked and letterboxed with their baked glyph pipeline intact.
 
 ```
 bun run macos note        # dynamic viewport, baked text, svc editor protocol
@@ -224,7 +224,7 @@ X,Y[,d|u|r]@TICK` (drags, right clicks), `--key
 
 |                    | portable                                                         | legacy gpui                                        |
 | ------------------ | ---------------------------------------------------------------- | ------------------------------------------- |
-| hosts              | PSP, Vita, PocketBook, ESP32-P4, Symbian, web, sim, macOS widget, macOS/Linux desktop | optional crate, no stock host           |
+| hosts              | PSP, Vita, PocketBook, ESP32-P4, Symbian, web, sim, macOS widget, macOS/Linux/Windows desktop | optional crate, no stock host           |
 | text measurement   | core, atlas advance tables                                       | gpui platform text system, per-app opt-in   |
 | codepoint coverage | baked charset (+ runtime extension)                              | OS fallback chain, color emoji              |
 | pixel determinism  | byte-exact across hosts                                          | per-host; transactions still deterministic  |
