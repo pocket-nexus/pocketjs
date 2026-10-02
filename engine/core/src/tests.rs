@@ -1319,7 +1319,7 @@ fn wrap_text_greedy_breaks_and_native_override() {
 #[test]
 fn text_measurement_against_synthetic_atlas() {
     let mut ui = Ui::new();
-    let blob = encode_atlas(
+    let mut blob = encode_atlas(
         2,
         8,
         8,
@@ -1328,6 +1328,11 @@ fn text_measurement_against_synthetic_atlas() {
         3,
         &[(0xfffd, 0, 8), ('A' as u32, 1, 6), ('B' as u32, 2, 5)],
     );
+    // Give tofu one visible coverage sample. A missing scalar must emit gid 0,
+    // and the software backend must paint that cell instead of leaving a blank.
+    let bitmap_off = spec::font_atlas::HEADER_SIZE
+        + 3 * spec::font_atlas::CMAP_ENTRY_SIZE;
+    blob[bitmap_off] = 255;
     assert!(ui.load_font_atlas(&blob));
     // Bad blobs are rejected.
     assert!(!ui.load_font_atlas(&blob[..10]));
@@ -1345,6 +1350,25 @@ fn text_measurement_against_synthetic_atlas() {
     let atlas = ui.font_atlas(2).unwrap();
     assert_eq!(atlas.lookup('B' as u32), Some((2, 5)));
     assert_eq!(atlas.glyph_rows(1).len(), 64); // cellH * cellW coverage bytes
+
+    let text = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(text, spec::prop::FONT_SLOT, 2.0);
+    ui.set_prop(text, spec::prop::TEXT_COLOR, abgr(255, 255, 255, 255) as f64);
+    ui.set_text(text, "你");
+    ui.insert_before(spec::ROOT_ID, text, 0);
+    ui.tick();
+    let words = ui.draw().words.clone();
+    let run = words
+        .iter()
+        .position(|&word| word == spec::draw_op::GLYPH_RUN)
+        .unwrap();
+    assert_eq!(words[run + 4], 0, "an unmapped scalar must emit tofu gid 0");
+    let mut pixels =
+        alloc::vec![0; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
+    crate::raster::render(&ui, &words, &mut pixels);
+    assert!(pixels
+        .chunks_exact(4)
+        .any(|pixel| pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0));
 }
 
 #[test]
