@@ -351,8 +351,14 @@ pub fn render(ui: &impl RenderResources, words: &[u32], fb: &mut [u8]) {
 /// over that destination and font coverage accounts for the atlas's own raster
 /// density.
 /// `ui` supplies font atlases and textures. The framebuffer is cleared to
-/// opaque black first (the PSP host clears the draw buffer the same way).
-pub fn render_scaled(ui: &impl RenderResources, words: &[u32], fb: &mut [u8], scale: u32) {
+/// opaque black unless the first drawing command provably overwrites every target
+/// pixel with opaque color (the PSP host clears the draw buffer the same way).
+pub fn render_scaled(
+    ui: &impl RenderResources,
+    words: &[u32],
+    fb: &mut [u8],
+    scale: u32,
+) {
     let mut target = RgbaTarget::<false> { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
@@ -562,10 +568,51 @@ fn render_scaled_impl<T: RenderTarget>(
     clear: bool,
 ) {
     let (width, _height, screen) = target_geometry(ui, target, scale);
-    if clear {
+    if clear && !first_draw_overwrites_target(words, scale as i32, screen) {
         target.clear_black();
     }
     render_scaled_clipped(ui, words, target, width, scale as i32, screen);
+}
+
+/// Return true only when executing the first command cannot observe the old
+/// target and replaces every target pixel. Once that command has run, later
+/// destination-alpha blends can only read pixels produced by this DrawList.
+///
+/// Keeping this proof to the first drawing command is intentionally
+/// conservative: transparent no-ops, transformed boxes (TRIs), partial
+/// scissors, and malformed or unknown commands all retain the established
+/// clear-before-render behavior. One leading full-target root scissor is
+/// accepted because it leaves the root clip unchanged.
+fn first_draw_overwrites_target(words: &[u32], scale: i32, screen: Clip) -> bool {
+    let i = if words.first() == Some(&draw_op::SCISSOR) {
+        if words.len() < 3 || !command_covers_target(words, 0, scale, screen) {
+            return false;
+        }
+        3
+    } else {
+        0
+    };
+    let opaque = match words.get(i).copied() {
+        Some(draw_op::RECT) if i + 4 <= words.len() => words[i + 3] >> 24 == 255,
+        Some(draw_op::GRAD_RECT) if i + 6 <= words.len() => {
+            words[i + 3] >> 24 == 255 && words[i + 4] >> 24 == 255
+        }
+        _ => false,
+    };
+    if !opaque {
+        return false;
+    }
+    command_covers_target(words, i, scale, screen)
+}
+
+#[inline]
+fn command_covers_target(words: &[u32], i: usize, scale: i32, screen: Clip) -> bool {
+    let (x, y) = xy(words[i + 1], scale);
+    let (width, height) = wh(words[i + 2], scale);
+    x <= screen.x0
+        && y <= screen.y0
+        && x + width >= screen.x1
+        && y + height >= screen.y1
 }
 
 fn render_scaled_regions_impl<T: RenderTarget>(
@@ -1345,6 +1392,234 @@ mod tests {
         let width = spec::SCREEN_W as usize * scale as usize;
         let offset = (y * width + x) * 4;
         fb[offset..offset + 4].try_into().unwrap()
+    }
+
+    fn assert_clear_decision_matches_baseline(words: &[u32], elides_clear: bool) {
+        let mut ui = Ui::new();
+        ui.set_viewport(4.0, 3.0);
+        let scale = 2;
+        let width = 4 * scale as usize;
+        let height = 3 * scale as usize;
+        let screen = Clip {
+            x0: 0,
+            y0: 0,
+            x1: width as i32,
+            y1: height as i32,
+        };
+        assert_eq!(
+            first_draw_overwrites_target(words, scale as i32, screen),
+            elides_clear
+        );
+
+        // A non-black seed makes any missing fallback clear visible. Compare
+        // the optimized public path against an explicitly cleared execution.
+        let mut actual = vec![0x5a; width * height * 4];
+        let mut baseline = actual.clone();
+        let mut target = RgbaTarget::<false> {
+            bytes: &mut baseline,
+        };
+        target.clear_black();
+        render_scaled_clipped(
+            &ui,
+            words,
+            &mut target,
+            width as i32,
+            scale as i32,
+            screen,
+        );
+        render_scaled(&ui, words, &mut actual, scale);
+        assert_eq!(actual, baseline);
+
+        let mut actual_argb = vec![0x5a; width * height * 4];
+        let mut baseline_argb = actual_argb.clone();
+        let mut target = RgbaTarget::<true> {
+            bytes: &mut baseline_argb,
+        };
+        target.clear_black();
+        render_scaled_clipped(
+            &ui,
+            words,
+            &mut target,
+            width as i32,
+            scale as i32,
+            screen,
+        );
+        render_scaled_argb(&ui, words, &mut actual_argb, scale);
+        assert_eq!(actual_argb, baseline_argb);
+
+        let mut actual_rgb565 = vec![0x5a5a; width * height];
+        let mut baseline_rgb565 = actual_rgb565.clone();
+        let mut target = Rgb565Target {
+            pixels: &mut baseline_rgb565,
+        };
+        target.clear_black();
+        render_scaled_clipped(
+            &ui,
+            words,
+            &mut target,
+            width as i32,
+            scale as i32,
+            screen,
+        );
+        render_scaled_rgb565(&ui, words, &mut actual_rgb565, scale);
+        assert_eq!(actual_rgb565, baseline_rgb565);
+    }
+
+    #[test]
+    fn full_opaque_viewport_rect_elides_clear() {
+        let words = [
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0xff33_2211,
+            // Later alpha blending reads only pixels written by the first op.
+            draw_op::RECT,
+            xy_word(1, 1),
+            wh_word(2, 1),
+            0x8080_4020,
+        ];
+        assert_clear_decision_matches_baseline(&words, true);
+    }
+
+    #[test]
+    fn full_opaque_viewport_gradient_elides_clear() {
+        let words = [
+            draw_op::GRAD_RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0xff33_2211,
+            0xffcc_bbaa,
+            spec::GradDir::ToRight as u32,
+        ];
+        assert_clear_decision_matches_baseline(&words, true);
+    }
+
+    #[test]
+    fn transparent_first_operation_keeps_clear() {
+        let words = [
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0x0033_2211,
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(2, 3),
+            0xff00_ff00,
+        ];
+        assert_clear_decision_matches_baseline(&words, false);
+    }
+
+    #[test]
+    fn partial_first_rect_keeps_clear() {
+        let words = [
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(3, 3),
+            0xff33_2211,
+        ];
+        assert_clear_decision_matches_baseline(&words, false);
+    }
+
+    #[test]
+    fn leading_clip_keeps_clear() {
+        let words = [
+            draw_op::SCISSOR,
+            xy_word(0, 0),
+            wh_word(3, 3),
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0xff33_2211,
+            draw_op::SCISSOR_POP,
+        ];
+        assert_clear_decision_matches_baseline(&words, false);
+    }
+
+    #[test]
+    fn full_viewport_clip_before_opaque_cover_elides_clear() {
+        let words = [
+            draw_op::SCISSOR,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0xff33_2211,
+            draw_op::SCISSOR_POP,
+        ];
+        assert_clear_decision_matches_baseline(&words, true);
+    }
+
+    #[test]
+    fn transformed_first_operation_keeps_clear() {
+        // Transformed boxes are emitted as triangles; even opaque vertices do
+        // not establish that one command covers every target pixel.
+        let words = [
+            draw_op::TRI,
+            xy_word(0, 0),
+            xy_word(4, 0),
+            xy_word(0, 3),
+            0xff33_2211,
+            0xff33_2211,
+            0xff33_2211,
+        ];
+        assert_clear_decision_matches_baseline(&words, false);
+    }
+
+    #[test]
+    fn empty_draw_list_keeps_clear() {
+        assert_clear_decision_matches_baseline(&[], false);
+    }
+
+    #[test]
+    fn nested_scissors_keep_clear() {
+        let mut words = Vec::new();
+        for _ in 0..2 {
+            words.extend_from_slice(&[
+                draw_op::SCISSOR,
+                xy_word(0, 0),
+                wh_word(4, 3),
+            ]);
+        }
+        words.extend_from_slice(&[
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0xff33_2211,
+        ]);
+        assert_clear_decision_matches_baseline(&words, false);
+    }
+
+    #[test]
+    fn malformed_or_unknown_first_command_keeps_clear() {
+        let truncated_rect = [
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+        ];
+        assert_clear_decision_matches_baseline(&truncated_rect, false);
+        assert_clear_decision_matches_baseline(&[u32::MAX], false);
+    }
+
+    #[test]
+    fn semitransparent_first_colors_keep_clear() {
+        let rect = [
+            draw_op::RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0x8033_2211,
+        ];
+        assert_clear_decision_matches_baseline(&rect, false);
+
+        let gradient = [
+            draw_op::GRAD_RECT,
+            xy_word(0, 0),
+            wh_word(4, 3),
+            0xff33_2211,
+            0xfecc_bbaa,
+            spec::GradDir::ToBottom as u32,
+        ];
+        assert_clear_decision_matches_baseline(&gradient, false);
     }
 
     #[test]
