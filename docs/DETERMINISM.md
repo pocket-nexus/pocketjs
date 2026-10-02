@@ -143,6 +143,20 @@ The 60 Hz café journey (390 frames, full per-frame pixel hashing) replays in
 well under a second — a 6.5-second user session, verified pixel-perfect,
 faster than one frame of the real thing takes to show.
 
+`bootWorld()` owns the process-global guest slots used by an evaluated bundle.
+**One Bun realm has one active simulated world.** Sequential boots are
+supported; a successful boot supersedes the previous world, and calls through
+its methods throw a `superseded by a newer boot` error. If boots overlap, the
+newest request wins and an older request in its load phase rejects before it
+can install globals. **A failed candidate restores the active world's global
+descriptors, console bridge, and DOM-constructor properties.** Concurrent
+worlds require separate processes or realms.
+
+**`world.render()` returns a borrowed view of that world's wasm framebuffer.**
+Any later call into the same wasm instance may grow linear memory and detach
+that view. Consume the pixels before the next world call, or retain a copy from
+`world.render().slice()`.
+
 ## The control experiment (`tools/flake-lab.ts`)
 
 One bundle, one journey, two clocks:

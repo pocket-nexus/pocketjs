@@ -191,12 +191,198 @@ function ensureBuilt(path: string, cmd: string[]): void {
 }
 
 let wasmBytes: ArrayBuffer | null = null;
+let nextWorldId = 0;
+let activeWorldId = 0;
+let activeGlobalRestore = new Map<PropertyKey, PropertyDescriptor | undefined>();
+let activeObjectRestore: GlobalObjectSnapshot[] = [];
+
+const SIM_GLOBAL_SLOTS = [
+  "ui",
+  "__pak",
+  "frame",
+  "offload",
+  "audio",
+  "db",
+  "fs",
+  "net",
+  "media",
+  "__pocketApp",
+  "__simHz",
+  "__pocketEffectTrace",
+  "__pocketEffectDriver",
+  "__pocketDevtoolsTransport",
+  "__pocketDevtools",
+  "__pocketDocument",
+  "__pocketResizeViewport",
+  "__pocketjsNativeReturn",
+] as const;
+
+type GlobalSnapshot = Map<PropertyKey, PropertyDescriptor>;
+type GlobalObjectSnapshot = {
+  target: Record<PropertyKey, unknown>;
+  properties: GlobalSnapshot;
+};
+
+function snapshotGlobals(g: object): GlobalSnapshot {
+  const snapshot: GlobalSnapshot = new Map();
+  for (const key of Reflect.ownKeys(g)) {
+    const descriptor = Object.getOwnPropertyDescriptor(g, key);
+    if (descriptor) snapshot.set(key, descriptor);
+  }
+  return snapshot;
+}
+
+function descriptorValue(
+  snapshot: GlobalSnapshot,
+  key: PropertyKey,
+): unknown {
+  const descriptor = snapshot.get(key);
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}
+
+function snapshotMutableGlobalObjects(
+  globals: GlobalSnapshot,
+): GlobalObjectSnapshot[] {
+  const targets = new Set<Record<PropertyKey, unknown>>();
+  const addTarget = (value: unknown): void => {
+    if ((typeof value === "object" && value !== null) || typeof value === "function") {
+      targets.add(value as Record<PropertyKey, unknown>);
+    }
+  };
+  const consoleObject = descriptorValue(globals, "console");
+  addTarget(consoleObject);
+  if ((typeof consoleObject === "object" && consoleObject !== null) || typeof consoleObject === "function") {
+    addTarget(descriptorValue(snapshotGlobals(consoleObject), "__pocketBridge"));
+  }
+  for (const key of ["Node", "Element", "HTMLElement", "Text", "Comment"] as const) {
+    addTarget(descriptorValue(globals, key));
+  }
+  return [...targets].map((target) => ({ target, properties: snapshotGlobals(target) }));
+}
+
+function sameDescriptor(
+  left: PropertyDescriptor | undefined,
+  right: PropertyDescriptor | undefined,
+): boolean {
+  if (!left || !right) return left === right;
+  if (
+    left.configurable !== right.configurable ||
+    left.enumerable !== right.enumerable
+  ) return false;
+  if ("value" in left || "value" in right) {
+    return (
+      "value" in left &&
+      "value" in right &&
+      left.writable === right.writable &&
+      Object.is(left.value, right.value)
+    );
+  }
+  return left.get === right.get && left.set === right.set;
+}
+
+function restoreGlobalEntries(
+  g: Record<PropertyKey, unknown>,
+  entries: ReadonlyMap<PropertyKey, PropertyDescriptor | undefined>,
+): void {
+  const failed: PropertyKey[] = [];
+  for (const [key, descriptor] of entries) {
+    try {
+      const restored = descriptor
+        ? Reflect.defineProperty(g, key, descriptor)
+        : Reflect.deleteProperty(g, key);
+      if (!restored) failed.push(key);
+    } catch {
+      failed.push(key);
+    }
+  }
+  if (failed.length > 0) {
+    throw new Error(`sim: could not restore globals: ${failed.map(String).join(", ")}`);
+  }
+}
+
+function restoreGlobalSnapshot(
+  g: Record<PropertyKey, unknown>,
+  snapshot: GlobalSnapshot,
+): void {
+  const entries = new Map<PropertyKey, PropertyDescriptor | undefined>();
+  for (const key of Reflect.ownKeys(g)) {
+    if (!snapshot.has(key)) entries.set(key, undefined);
+  }
+  for (const [key, descriptor] of snapshot) {
+    if (!sameDescriptor(Object.getOwnPropertyDescriptor(g, key), descriptor)) {
+      entries.set(key, descriptor);
+    }
+  }
+  restoreGlobalEntries(g, entries);
+}
+
+function restoreBootSnapshot(
+  g: Record<PropertyKey, unknown>,
+  globals: GlobalSnapshot,
+  objects: readonly GlobalObjectSnapshot[],
+): void {
+  const errors: unknown[] = [];
+  try {
+    restoreGlobalSnapshot(g, globals);
+  } catch (error) {
+    errors.push(error);
+  }
+  for (const { target, properties } of objects) {
+    try {
+      restoreGlobalSnapshot(target, properties);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "sim: could not restore global state");
+  }
+}
+
+function restoreMutableGlobalObjects(
+  objects: readonly GlobalObjectSnapshot[],
+): void {
+  const errors: unknown[] = [];
+  for (const { target, properties } of objects) {
+    try {
+      restoreGlobalSnapshot(target, properties);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) {
+    throw new AggregateError(errors, "sim: could not restore mutable global objects");
+  }
+}
+
+function globalRestoreDiff(
+  baseline: GlobalSnapshot,
+  current: GlobalSnapshot,
+): Map<PropertyKey, PropertyDescriptor | undefined> {
+  const restore = new Map<PropertyKey, PropertyDescriptor | undefined>();
+  const keys = new Set<PropertyKey>([...baseline.keys(), ...current.keys()]);
+  for (const key of keys) {
+    const before = baseline.get(key);
+    if (!sameDescriptor(before, current.get(key))) restore.set(key, before);
+  }
+  for (const key of SIM_GLOBAL_SLOTS) restore.set(key, baseline.get(key));
+  return restore;
+}
+
+function clearSimGlobals(g: Record<PropertyKey, unknown>): void {
+  const failed = SIM_GLOBAL_SLOTS.filter((key) => !Reflect.deleteProperty(g, key));
+  if (failed.length > 0) {
+    throw new Error(`sim: could not clear globals: ${failed.join(", ")}`);
+  }
+}
 
 export interface SimWorld {
   /** One host frame: buttons bitmask, analog byte, packed touch contacts
    *  (framework/src/touch.ts __packTouch format) — exactly the native frame() shape. */
   frame: (buttons: number, analog?: number, touches?: readonly number[], axes?: readonly AxisDelta[], motion?: MotionState | null) => void;
   tick: () => void;
+  /** Borrowed wasm-memory view. Consume or copy it before any later call into
+   *  this world's wasm instance. */
   render: () => Uint8Array;
   ticksPerFrame: number;
   hz: number;
@@ -216,7 +402,9 @@ export interface SimViewportOptions {
 /**
  * Boot a fresh world: fresh wasm core, fresh bundle eval, host globals
  * (ui/__pak/__simHz/effect trace/DevTools transport) installed before eval —
- * the identical boot the browser host performs, minus the screen.
+ * the identical boot the browser host performs, minus the screen. A Bun
+ * realm has one active world: the next boot supersedes the previous handle,
+ * and among overlapping requests the newest one wins before globals change.
  * `extraGlobals` land before eval too (e.g. a __pocketEffectDriver override —
  * tools/flake-lab.ts injects a wall-clock driver this way).
  */
@@ -229,54 +417,121 @@ export async function bootWorld(
 ): Promise<SimWorld> {
   ensureBuilt(WASM_PATH, [process.execPath, "tools/wasm.ts"]);
   ensureBuilt(DIST + app + ".js", [process.execPath, "tools/build.ts", app]);
-  if (!wasmBytes) wasmBytes = await Bun.file(WASM_PATH).arrayBuffer();
-  const wasm = await createWasmUi(wasmBytes, viewport);
+  const worldId = ++nextWorldId;
+  const [loadedWasm, pak, src] = await Promise.all([
+    wasmBytes ? Promise.resolve(wasmBytes) : Bun.file(WASM_PATH).arrayBuffer(),
+    existsSync(DIST + app + ".pak")
+      ? Bun.file(DIST + app + ".pak").arrayBuffer()
+      : Promise.resolve(undefined),
+    Bun.file(DIST + app + ".js").text(),
+  ]);
+  wasmBytes ??= loadedWasm;
+  const wasm = await createWasmUi(loadedWasm, viewport);
+  if (worldId !== nextWorldId) {
+    throw new Error(`sim: boot for ${app} was superseded by a newer boot`);
+  }
   const renderScale = viewport.renderScale ?? 1;
-  const g = globalThis as Record<string, unknown>;
+  const g = globalThis as Record<PropertyKey, unknown>;
   const effects: EffectEvent[] = [];
   const inbox: string[] = [];
   const outbox: string[] = [];
-  g.ui = wasm.ops;
-  // Host-flavored op extensions (the launcher runner adds appTable/appLaunch/
-  // appShot here) — installed before eval like every other contract slot.
-  mutateOps?.(wasm.ops as unknown as Record<string, unknown>);
-  g.__pak = existsSync(DIST + app + ".pak")
-    ? await Bun.file(DIST + app + ".pak").arrayBuffer()
-    : undefined;
-  g.frame = undefined;
-  g.offload = undefined; // isolated capability namespace; only test providers grant it
-  g.audio = undefined; // audio module namespace: absent unless extraGlobals mounts one
-  g.db = undefined; // db module namespace: absent unless extraGlobals mounts one
-  g.fs = undefined; // fs module namespace: absent unless extraGlobals mounts one
-  g.__pocketApp = app;
-  g.__simHz = hz;
-  g.__pocketEffectTrace = (e: EffectEvent) => effects.push(e);
-  g.__pocketEffectDriver = undefined; // no host override unless extraGlobals injects one
-  g.__pocketDevtoolsTransport = {
-    send: (line: string) => outbox.push(line),
-    recv: () => (inbox.length ? inbox.shift() : null),
-  };
-  if (extraGlobals) Object.assign(g, extraGlobals);
-  const src = await Bun.file(DIST + app + ".js").text();
-  (0, eval)(src);
-  const appFrame = g.frame as
-    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[], motion?: MotionState | null) => void)
-    | undefined;
-  if (typeof appFrame !== "function") {
-    throw new Error("sim: bundle did not install globalThis.frame (entry must call render()/mount())");
+  const previousWorldId = activeWorldId;
+  const previousGlobalRestore = activeGlobalRestore;
+  const previousObjectRestore = activeObjectRestore;
+  const beforeCandidate = snapshotGlobals(g);
+  const beforeCandidateObjects = snapshotMutableGlobalObjects(beforeCandidate);
+  let appFrame: (
+    buttons: number,
+    analog?: number,
+    touches?: readonly number[],
+    hits?: readonly number[],
+    touchSurfaces?: readonly number[],
+    rightAnalog?: number,
+    axes?: readonly AxisDelta[],
+    motion?: MotionState | null,
+  ) => void;
+  try {
+    restoreGlobalEntries(g, previousGlobalRestore);
+    restoreMutableGlobalObjects(previousObjectRestore);
+    const baseline = snapshotGlobals(g);
+    const baselineObjects = snapshotMutableGlobalObjects(baseline);
+    clearSimGlobals(g);
+    g.ui = wasm.ops;
+    // Host-flavored op extensions (the launcher runner adds appTable/appLaunch/
+    // appShot here) see the candidate ui and run before bundle evaluation.
+    mutateOps?.(wasm.ops as unknown as Record<string, unknown>);
+    if (worldId !== nextWorldId) {
+      throw new Error(`sim: boot for ${app} was superseded by a newer boot`);
+    }
+    g.__pak = pak;
+    g.__pocketApp = app;
+    g.__simHz = hz;
+    g.__pocketEffectTrace = (e: EffectEvent) => effects.push(e);
+    g.__pocketDevtoolsTransport = {
+      send: (line: string) => outbox.push(line),
+      recv: () => (inbox.length ? inbox.shift() : null),
+    };
+    if (extraGlobals) Object.assign(g, extraGlobals);
+    if (worldId !== nextWorldId) {
+      throw new Error(`sim: boot for ${app} was superseded by a newer boot`);
+    }
+    (0, eval)(src);
+    if (worldId !== nextWorldId) {
+      throw new Error(`sim: boot for ${app} was superseded by a newer boot`);
+    }
+    const installedFrame = g.frame;
+    if (typeof installedFrame !== "function") {
+      throw new Error("sim: bundle did not install globalThis.frame (entry must call render()/mount())");
+    }
+    appFrame = installedFrame as typeof appFrame;
+    if (worldId !== nextWorldId) {
+      throw new Error(`sim: boot for ${app} was superseded by a newer boot`);
+    }
+    activeGlobalRestore = globalRestoreDiff(baseline, snapshotGlobals(g));
+    activeObjectRestore = baselineObjects;
+    activeWorldId = worldId;
+  } catch (error) {
+    try {
+      restoreBootSnapshot(g, beforeCandidate, beforeCandidateObjects);
+      activeGlobalRestore = previousGlobalRestore;
+      activeObjectRestore = previousObjectRestore;
+      activeWorldId = previousWorldId;
+    } catch (rollbackError) {
+      activeGlobalRestore = new Map();
+      activeObjectRestore = [];
+      activeWorldId = 0;
+      throw new AggregateError(
+        [error, rollbackError],
+        `sim: boot for ${app} failed and global rollback failed`,
+      );
+    }
+    throw error;
   }
+  const assertActive = (): void => {
+    if (activeWorldId !== worldId) {
+      throw new Error(`sim: ${app} world was superseded by a newer boot`);
+    }
+  };
   // Touch hit facts (docs/TOUCH.md): the sim is a host, so it resolves each
   // new contact's bounds hit against the committed core frame and carries it
   // — the guest never queries on the touch path, exactly like device hosts.
   const hitTestBounds = (wasm.ops as { hitTestBounds?: (x: number, y: number) => number })
     .hitTestBounds;
   const hitFacts = hitTestBounds ? createTouchHitFacts(hitTestBounds) : undefined;
-  const frame = (buttons: number, analog?: number, touches?: readonly number[], axes?: readonly AxisDelta[], motion?: MotionState | null): void =>
+  const frame = (buttons: number, analog?: number, touches?: readonly number[], axes?: readonly AxisDelta[], motion?: MotionState | null): void => {
+    assertActive();
     appFrame(buttons, analog, touches, hitFacts?.(touches), undefined, undefined, axes, motion);
+  };
   return {
     frame,
-    tick: wasm.tick,
-    render: () => wasm.renderScaled(renderScale),
+    tick: () => {
+      assertActive();
+      wasm.tick();
+    },
+    render: () => {
+      assertActive();
+      return wasm.renderScaled(renderScale);
+    },
     ticksPerFrame: TICKS_PER_SECOND / hz,
     hz,
     effects,
@@ -284,6 +539,7 @@ export async function bootWorld(
     // shim polls its transport at frame start). The probe frame advances the
     // world — call it only when the run is over.
     getTree: () => {
+      assertActive();
       outbox.length = 0;
       inbox.push(JSON.stringify({ t: "getTree" }));
       frame(0);
