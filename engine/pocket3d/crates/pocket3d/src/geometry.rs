@@ -1,8 +1,7 @@
 //! Static lightmapped world geometry (format-agnostic).
 //!
-//! World formats (BSP today, anything later) produce a [`WorldSource`]; the
-//! runtime uploads it once into a [`WorldModel`]. With feature `bsp`, a
-//! `MapData` from `pocket3d-bsp` converts directly.
+//! Applications provide a [`WorldSource`]; this desktop runtime uploads it
+//! once into a [`WorldModel`]. Domain format adapters live with their applications.
 
 use bytemuck::{Pod, Zeroable};
 
@@ -209,84 +208,5 @@ fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         visibility: wgpu::ShaderStages::FRAGMENT,
         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
         count: None,
-    }
-}
-
-// ---------------------------------------------------------------------------
-// First-class BSP support
-// ---------------------------------------------------------------------------
-
-#[cfg(feature = "bsp")]
-impl WorldModel {
-    /// Upload a parsed GoldSrc map.
-    pub fn from_bsp(
-        gpu: &Gpu,
-        layout: &wgpu::BindGroupLayout,
-        samplers: &Samplers,
-        map: &pocket3d_bsp::MapData,
-    ) -> Self {
-        use pocket3d_bsp::SurfaceKind;
-        use pocket3d_bsp::lightmap::PAGE_SIZE;
-
-        // The layouts are identical; reinterpret instead of copying.
-        let vertices: Vec<WorldVertex> = map
-            .geometry
-            .vertices
-            .iter()
-            .map(|v| WorldVertex {
-                pos: v.pos,
-                uv: v.uv,
-                lm_uv: v.lm_uv,
-            })
-            .collect();
-        let batches: Vec<SourceBatch> = map
-            .geometry
-            .batches
-            .iter()
-            .map(|b| SourceBatch {
-                texture: b.texture,
-                lightmap_page: b.lm_page,
-                kind: match b.kind {
-                    SurfaceKind::AlphaTest => WorldBatchKind::AlphaTest,
-                    SurfaceKind::Sky => WorldBatchKind::Sky,
-                    // Water renders as plain opaque for now.
-                    _ => WorldBatchKind::Opaque,
-                },
-                first_index: b.first_index,
-                index_count: b.index_count,
-            })
-            .collect();
-        let textures: Vec<SourceImage> = map
-            .textures
-            .iter()
-            .map(|t| SourceImage {
-                width: t.width,
-                height: t.height,
-                rgba: &t.rgba,
-            })
-            .collect();
-        let lightmap_pages: Vec<SourceImage> = map
-            .geometry
-            .lightmap_pages
-            .iter()
-            .map(|p| SourceImage {
-                width: PAGE_SIZE,
-                height: PAGE_SIZE,
-                rgba: p,
-            })
-            .collect();
-
-        Self::new(
-            gpu,
-            layout,
-            samplers,
-            &WorldSource {
-                vertices: &vertices,
-                indices: &map.geometry.indices,
-                batches: &batches,
-                textures,
-                lightmap_pages,
-            },
-        )
     }
 }

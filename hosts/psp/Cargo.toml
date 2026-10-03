@@ -21,6 +21,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+pocket-psp-ge = { path = "../../devices/psp/pocket-psp-ge" }
 psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b" }
 pocketjs-core = { path = "../../engine/core" }

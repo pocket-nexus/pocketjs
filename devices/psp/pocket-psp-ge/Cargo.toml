@@ -1,0 +1,12 @@
+[package]
+name = "pocket-psp-ge"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "PSP GE memory lifetime, cache publication and texture layout mechanisms"
+
+[workspace]
+resolver = "2"
+
+[target.'cfg(target_os = "psp")'.dependencies]
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b" }

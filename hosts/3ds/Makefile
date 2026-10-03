@@ -45,6 +45,7 @@ DEVKITARM ?= $(DEVKITPRO)/devkitARM
 
 SOURCE := $(CURDIR)/src
 INCLUDE_DIR := $(CURDIR)/include
+POCKETJS_PICA_INCLUDE ?= $(CURDIR)/../../devices/3ds/pocket-3ds-pica/include
 BUILD := $(POCKETJS_BUILD_DIR)
 OUT := $(POCKETJS_OUT_3DSX)
 # 3dsxtool reads the recovery guest out of a RomFS directory.
@@ -83,7 +84,7 @@ CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections
   -DPOCKETJS_AUX_VIEW_W=$(POCKETJS_AUX_LOGICAL_WIDTH) \
   -DPOCKETJS_AUX_VIEW_H=$(POCKETJS_AUX_LOGICAL_HEIGHT) \
   -DPOCKETJS_RASTER_DENSITY=$(POCKETJS_RASTER_DENSITY) \
-  -I$(INCLUDE_DIR) -I$(BUILD) -I$(POCKETJS_QUICKJS_DIR) \
+  -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(BUILD) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include
 
 ifeq ($(POCKETJS_OFFLOAD),1)
@@ -147,7 +148,7 @@ $(FLAGS_STAMP).probe: | $(BUILD)
 	@rm -f $(FLAGS_STAMP).new
 $(FLAGS_STAMP): $(FLAGS_STAMP).probe ;
 
-$(BUILD)/%.o: $(SOURCE)/%.c $(BUILD)/vshader_shbin.h $(FLAGS_STAMP) | $(BUILD)
+$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD)/offload.o: $(SOURCE)/offload.h $(SOURCE)/offload_queue.h

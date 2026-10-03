@@ -35,11 +35,9 @@ unregister programs, then free their storage and the patcher. Rings only reuse a
 segment after the caller has waited for its previous frame. No destructor inserts
 an implicit GPU wait. Error cleanup follows the same ownership order.
 
-Atlas calls these primitives directly. The existing `pocket3d-vita` renderer
-wraps memory and shader registration for its BSP pipeline; its scene policy and
-shaders remain in `engine/pocket3d`. Moving that renderer into OpenStrike is a
-later migration. PICA / GE kernels should be extracted when two real consumers
-establish their required mechanisms, without introducing an empty common API.
+Atlas calls these primitives directly. OpenStrike owns the BSP renderer in
+`domain/crates/pocket3d-vita`; it uses the same device kernel. GE and PICA kernels
+live alongside this crate and expose their native mechanisms independently.
 
 ## Validation
 
@@ -50,9 +48,7 @@ cargo +nightly-2026-05-28 check --locked \
   --manifest-path devices/vita/pocket-vita-gxm/Cargo.toml \
   --features runtime-compiler \
   --target armv7-sony-vita-newlibeabihf -Z build-std=std,panic_abort
-cargo +nightly-2026-05-28 check --locked \
-  --manifest-path engine/pocket3d/crates/pocket3d-vita/Cargo.toml \
-  --target armv7-sony-vita-newlibeabihf -Z build-std=std,panic_abort
+# Application target compilation is covered by Atlas and OpenStrike builds.
 ```
 
 Host tests cover allocation arithmetic. Target compilation checks GXM bindings.
