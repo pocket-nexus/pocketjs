@@ -16,4 +16,6 @@ pub mod target;
 pub mod texture;
 
 #[cfg(any(target_os = "vita", test))]
+mod aligned;
+#[cfg(any(target_os = "vita", test))]
 mod allocation;

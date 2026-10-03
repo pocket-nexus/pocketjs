@@ -54,19 +54,13 @@ unsafe fn register(
 /// A GXP binary in 16-byte aligned storage. GXM reads the program in place,
 /// so the storage must outlive its registration with the shader patcher.
 pub struct Gxp {
-    words: Vec<u128>,
-    len: usize,
+    storage: crate::aligned::AlignedBytes,
 }
 
 impl Gxp {
     pub fn new(bytes: &[u8]) -> Result<Self, String> {
-        let mut words = vec![0u128; bytes.len().div_ceil(16)];
-        unsafe {
-            ptr::copy_nonoverlapping(bytes.as_ptr(), words.as_mut_ptr().cast::<u8>(), bytes.len())
-        };
         let gxp = Self {
-            words,
-            len: bytes.len(),
+            storage: crate::aligned::AlignedBytes::new(bytes),
         };
         unsafe {
             validate(gxp.bytes())?;
@@ -75,11 +69,11 @@ impl Gxp {
     }
 
     pub fn program(&self) -> *const g::SceGxmProgram {
-        self.words.as_ptr().cast()
+        self.bytes().as_ptr().cast()
     }
 
     pub fn bytes(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(self.words.as_ptr().cast(), self.len) }
+        self.storage.bytes()
     }
 }
 
