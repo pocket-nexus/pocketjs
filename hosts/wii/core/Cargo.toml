@@ -1,0 +1,19 @@
+[package]
+name = "pocketjs-wii-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "pocketjs_wii_core"
+crate-type = ["staticlib"]
+
+[dependencies]
+pocketjs-core = { path = "../../../engine/core" }
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+codegen-units = 1
+lto = true
+
+[workspace]
