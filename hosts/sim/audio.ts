@@ -104,6 +104,11 @@ export function createSimAudioSink(): SimAudioSink {
         for (let c = 0; c < s.channels; c++) s.ring[dst + c] = src[i * s.channels + c];
       }
       s.writePos += accepted;
+      // Keep the host's last-reported credit mirror aligned with the
+      // guest's own `free -= accepted` update. Without this, refilling the
+      // same number of frames consumed on each tick can leave `free` equal
+      // to the stale last report and suppress the next credit event.
+      s.lastFree = Math.max(0, s.lastFree - accepted);
       log.push(`op writePcm ${handle} ${frames} -> ${accepted}`);
       return accepted;
     },
