@@ -29,9 +29,11 @@ import {
   FS_MAX_DEPTH,
   FS_MAX_DIR_ENTRIES,
   FS_MAX_IO_BYTES,
+  FS_MAX_TEXT_BYTES,
   FS_MAX_PATH_BYTES,
   FS_MAX_SEGMENT_BYTES,
   FS_OP,
+  FS_READ_TEXT_TOO_LARGE,
   FS_WRITE_APPEND,
   FS_WRITE_TRUNCATE,
 } from "./fs.ts";
@@ -559,12 +561,13 @@ export function generateRust(): string {
 
   // --- fs module -----------------------------------------------------------
   // The fs MODULE's boundary (contracts/spec/fs.ts): a per-app file tree
-  // behind nine synchronous ops, mounted as `globalThis.fs`, independent of
+  // behind nine required synchronous ops plus optional readText, mounted as
+  // `globalThis.fs`, independent of
   // the ui surface. A native host implementing it reads these constants; the
   // reference implementation is engine/crates/pocket-fs.
   put("/// FS module boundary (contracts/spec/fs.ts — `globalThis.fs`).");
-  put("/// A per-app file tree behind nine synchronous ops; every path resolves");
-  put("/// under the app's own data root. No clock, no events, no mtime.");
+  put("/// A per-app file tree behind nine required ops plus optional readText;");
+  put("/// every path resolves under the app's own data root. No clock, no events, no mtime.");
   put("pub mod fs {");
   for (const [name, v] of Object.entries(FS_OP)) {
     put(`    pub const OP_${screaming(name)}: u8 = ${v};`);
@@ -582,6 +585,10 @@ export function generateRust(): string {
   put(`    pub const MAX_PATH_BYTES: usize = ${FS_MAX_PATH_BYTES};`);
   put(`    /// Payload ceiling per read()/write() call, in bytes.`);
   put(`    pub const MAX_IO_BYTES: usize = ${FS_MAX_IO_BYTES};`);
+  put(`    /// Whole-file ceiling for the optional readText() acceleration.`);
+  put(`    pub const MAX_TEXT_BYTES: usize = ${FS_MAX_TEXT_BYTES};`);
+  put(`    /// Stable readText() size error used by the SDK for paged fallback.`);
+  put(`    pub const READ_TEXT_TOO_LARGE: &str = ${JSON.stringify(FS_READ_TEXT_TOO_LARGE)};`);
   put(`    /// Entries per list() call (paged via offset + eof).`);
   put(`    pub const MAX_DIR_ENTRIES: usize = ${FS_MAX_DIR_ENTRIES};`);
   put("}");

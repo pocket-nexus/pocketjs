@@ -1,11 +1,12 @@
 //! pocket-fs — the fs module's reference core.
 //!
-//! A per-app file tree behind the nine-op boundary pinned in
+//! A per-app file tree behind the fs boundary pinned in
 //! contracts/spec/fs.ts (`pocketjs_core::spec::fs` is the generated
 //! mirror): read / write / remove / list / stat / mkdir / rename / usage /
-//! lastError, mounted as `globalThis.fs` through [`mount`]. Payloads cross
-//! as one JSON value (a string for text, `{"$b": base64}` for bytes);
-//! results cross as one JSON line.
+//! lastError, plus the optional readText acceleration, mounted as
+//! `globalThis.fs` through [`mount`]. Payloads cross as one JSON value (a
+//! string for text, `{"$b": base64}` for bytes); results cross as one JSON
+//! line except for readText's raw string.
 //!
 //! Storage policy is the host's: [`Storage::Memory`] for tests and
 //! throwaway guests, [`Storage::Dir`] to bind the module to the app's own
@@ -110,6 +111,11 @@ impl FsModule {
         json!({ "error": message }).to_string()
     }
 
+    fn err_text(&mut self, message: &str) -> String {
+        self.last_error = message.to_owned();
+        String::new()
+    }
+
     fn status(&mut self, result: Result<(), String>) -> i32 {
         match result {
             Ok(()) => {
@@ -158,6 +164,31 @@ impl FsModule {
                 .to_string(),
             ),
             Err(message) => self.err_line(&message),
+        }
+    }
+
+    /// `readText(path) -> string` (spec OP_READ_TEXT). The raw return avoids
+    /// a JSON/base64 round trip; lastError distinguishes an empty file from
+    /// failure. This optional op reads the complete file up to
+    /// FS_MAX_TEXT_BYTES and validates UTF-8.
+    pub fn read_text(&mut self, path: &str) -> String {
+        if !valid_path(path) {
+            return self.err_text("invalid path");
+        }
+        let result = match &mut self.backend {
+            Backend::Memory { files, dirs } => match files.get(path) {
+                Some(bytes) if bytes.len() <= spec::MAX_TEXT_BYTES => Ok(bytes.clone()),
+                Some(_) => Err(spec::READ_TEXT_TOO_LARGE.to_owned()),
+                None if dirs.contains(path) => Err("is a directory".to_owned()),
+                None => Err("not found".to_owned()),
+            },
+            Backend::Dir { root, .. } => dir_read_all(root, path),
+        };
+        match result.and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|_| "invalid UTF-8".to_owned())
+        }) {
+            Ok(text) => self.ok_line(text),
+            Err(message) => self.err_text(&message),
         }
     }
 
@@ -524,6 +555,18 @@ fn dir_read(root: &Path, path: &str, offset: u64, max_bytes: usize) -> Result<(V
     Ok((chunk, size, eof))
 }
 
+fn dir_read_all(root: &Path, path: &str) -> Result<Vec<u8>, String> {
+    let full = resolve(root, path)?;
+    let md = std::fs::metadata(&full).map_err(|_| "not found".to_owned())?;
+    if md.is_dir() {
+        return Err("is a directory".to_owned());
+    }
+    if md.len() > spec::MAX_TEXT_BYTES as u64 {
+        return Err(spec::READ_TEXT_TOO_LARGE.to_owned());
+    }
+    std::fs::read(&full).map_err(|e| e.to_string())
+}
+
 fn dir_write(
     root: &Path,
     tmp_dir: &Path,
@@ -714,7 +757,8 @@ use std::rc::Rc;
 /// Mount the module as `globalThis.fs` on a pocket-mod [`Guest`] — one JS
 /// function per spec op, marshaled as (String, f64) -> i32/String.
 /// Feature `mount` (default); a host with its own QuickJS wiring turns it
-/// off and spells these nine functions itself.
+/// off and spells the required functions itself. This reference mount also
+/// exposes the optional readText acceleration.
 #[cfg(feature = "mount")]
 pub fn mount(guest: &pocket_mod::Guest, module: Rc<RefCell<FsModule>>) -> anyhow::Result<()> {
     use pocket_mod::qjs::Function;
@@ -728,6 +772,13 @@ pub fn mount(guest: &pocket_mod::Guest, module: Rc<RefCell<FsModule>>) -> anyhow
                     m.borrow_mut().read(&path, offset as i64, max_bytes as i64)
                 },
             )?,
+        )?;
+        let m = module.clone();
+        ns.set(
+            "readText",
+            Function::new(ctx.clone(), move |path: String| -> String {
+                m.borrow_mut().read_text(&path)
+            })?,
         )?;
         let m = module.clone();
         ns.set(
@@ -863,6 +914,34 @@ mod tests {
     }
 
     #[test]
+    fn read_text_is_whole_file_strict_utf8_with_last_error_status() {
+        let mut m = module();
+        let chunk = "x".repeat(spec::MAX_IO_BYTES);
+        assert_eq!(m.write("big.txt", &text(&chunk), spec::WRITE_TRUNCATE), 0);
+        assert_eq!(m.write("big.txt", &text("终"), spec::WRITE_APPEND), 0);
+        assert_eq!(m.read_text("big.txt"), format!("{chunk}终"));
+        assert_eq!(m.last_error(), "");
+
+        assert_eq!(m.write("empty.txt", &text(""), spec::WRITE_TRUNCATE), 0);
+        assert_eq!(m.read_text("missing.txt"), "");
+        assert_eq!(m.last_error(), "not found");
+        assert_eq!(m.read_text("empty.txt"), "");
+        assert_eq!(m.last_error(), "");
+
+        let invalid = json!({ spec::BLOB_KEY: BASE64.encode([0xff]) }).to_string();
+        assert_eq!(m.write("bad.bin", &invalid, spec::WRITE_TRUNCATE), 0);
+        assert_eq!(m.read_text("bad.bin"), "");
+        assert_eq!(m.last_error(), "invalid UTF-8");
+
+        assert_eq!(m.write("too-big.txt", &text(&chunk), spec::WRITE_TRUNCATE), 0);
+        for _ in 0..(spec::MAX_TEXT_BYTES / spec::MAX_IO_BYTES) {
+            assert_eq!(m.write("too-big.txt", &text(&chunk), spec::WRITE_APPEND), 0);
+        }
+        assert_eq!(m.read_text("too-big.txt"), "");
+        assert_eq!(m.last_error(), spec::READ_TEXT_TOO_LARGE);
+    }
+
+    #[test]
     fn append_and_chunked_read() {
         let mut m = module();
         assert_eq!(m.write("log.txt", &text("aaa"), spec::WRITE_TRUNCATE), 0);
@@ -971,6 +1050,18 @@ mod tests {
             assert!(!tmp.join("7").exists(), "orphan swept on construction");
             assert_eq!(m.write("notes/a.md", &text("hello"), spec::WRITE_TRUNCATE), 0);
             assert_eq!(m.write("notes/a.md", &text(" world"), spec::WRITE_APPEND), 0);
+            std::fs::write(root.join("notes/bom.txt"), b"\xef\xbb\xbfline\n\0").unwrap();
+            assert_eq!(m.read_text("notes/bom.txt"), "\u{feff}line\n\0");
+            std::fs::write(root.join("notes/bad.bin"), [0xff]).unwrap();
+            assert_eq!(m.read_text("notes/bad.bin"), "");
+            assert_eq!(m.last_error(), "invalid UTF-8");
+            std::fs::write(
+                root.join("notes/too-big.txt"),
+                vec![b'x'; spec::MAX_TEXT_BYTES + 1],
+            )
+            .unwrap();
+            assert_eq!(m.read_text("notes/too-big.txt"), "");
+            assert_eq!(m.last_error(), spec::READ_TEXT_TOO_LARGE);
             m.mkdir("empty");
             let listing = line(&m.list("", 0));
             let names: Vec<&str> = listing["entries"]
@@ -1032,6 +1123,14 @@ mod tests {
                 if (stat.kind !== "file" || stat.size !== 10) throw new Error("bad stat");
                 const read = JSON.parse(fs.read("notes/hi.txt", 0, 64));
                 if (!read.eof) throw new Error("expected eof");
+                if (fs.readText("notes/hi.txt") !== "from-guest") {
+                    throw new Error("bad text read");
+                }
+                const sample = "\uFEFF行🚀\n\"quoted\"\0tail";
+                if (fs.write("notes/unicode.txt", JSON.stringify(sample), 0) !== 0 ||
+                    fs.readText("notes/unicode.txt") !== sample) {
+                    throw new Error("raw text bridge changed Unicode");
+                }
                 const escape = JSON.parse(fs.read("../../etc/passwd", 0, 64));
                 if (escape.error !== "invalid path") throw new Error("traversal not refused");
                 globalThis.result = read.data["$b"];

@@ -16,6 +16,8 @@ import {
   FS_BLOB_KEY,
   FS_MAX_DIR_ENTRIES,
   FS_MAX_IO_BYTES,
+  FS_MAX_TEXT_BYTES,
+  FS_READ_TEXT_TOO_LARGE,
   FS_WRITE_APPEND,
   FS_WRITE_TRUNCATE,
   fsValidPath,
@@ -64,6 +66,10 @@ export function createSimFsHost(options?: { quotaBytes?: number }): SimFsHost {
   const errLine = (message: string): string => {
     lastError = message;
     return JSON.stringify({ error: message });
+  };
+  const errText = (message: string): string => {
+    lastError = message;
+    return "";
   };
 
   const isDir = (path: string): boolean => path === "" || dirs.has(path);
@@ -124,6 +130,20 @@ export function createSimFsHost(options?: { quotaBytes?: number }): SimFsHost {
           eof: offset + chunk.length >= bytes.length,
         }),
       );
+    },
+    readText(path: string): string {
+      log.push(`op readText ${path}`);
+      if (!fsValidPath(path)) return errText("invalid path");
+      const bytes = files.get(path);
+      if (!bytes) return errText(isDir(path) ? "is a directory" : "not found");
+      if (bytes.length > FS_MAX_TEXT_BYTES) return errText(FS_READ_TEXT_TOO_LARGE);
+      try {
+        // ignoreBOM keeps U+FEFF in the returned string so re-encoding yields
+        // the file's exact bytes, matching the native host.
+        return ok(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes));
+      } catch {
+        return errText("invalid UTF-8");
+      }
     },
     write(path: string, data: string, mode: number): number {
       log.push(`op write ${path} ${mode}`);

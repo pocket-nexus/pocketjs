@@ -543,8 +543,8 @@ pub mod db {
 }
 
 /// FS module boundary (contracts/spec/fs.ts — `globalThis.fs`).
-/// A per-app file tree behind nine synchronous ops; every path resolves
-/// under the app's own data root. No clock, no events, no mtime.
+/// A per-app file tree behind nine required ops plus optional readText;
+/// every path resolves under the app's own data root. No clock, no events, no mtime.
 pub mod fs {
     pub const OP_READ: u8 = 1;
     pub const OP_WRITE: u8 = 2;
@@ -555,6 +555,7 @@ pub mod fs {
     pub const OP_RENAME: u8 = 7;
     pub const OP_USAGE: u8 = 8;
     pub const OP_LAST_ERROR: u8 = 9;
+    pub const OP_READ_TEXT: u8 = 10;
     /// write() modes.
     pub const WRITE_TRUNCATE: u32 = 0;
     pub const WRITE_APPEND: u32 = 1;
@@ -568,6 +569,10 @@ pub mod fs {
     pub const MAX_PATH_BYTES: usize = 160;
     /// Payload ceiling per read()/write() call, in bytes.
     pub const MAX_IO_BYTES: usize = 65536;
+    /// Whole-file ceiling for the optional readText() acceleration.
+    pub const MAX_TEXT_BYTES: usize = 1048576;
+    /// Stable readText() size error used by the SDK for paged fallback.
+    pub const READ_TEXT_TOO_LARGE: &str = "readText exceeds FS_MAX_TEXT_BYTES";
     /// Entries per list() call (paged via offset + eof).
     pub const MAX_DIR_ENTRIES: usize = 256;
 }
