@@ -151,13 +151,18 @@ The grammar is implemented once, as infrastructure every runtime reuses:
 | `pocket-widget` | The desktop-widget capability (WIDGET.md): a widget window shell whose guest ticks at a fixed rate while GPU frames render on demand, embedded `ui` surfaces bound onto meshes, and cursor-ray part picking mapped to declared inputs. `pocket-stage` is the first runtime on it; its bundled PSP stage runs admitted fixed-viewport apps unmodified. |
 | `pocketjs-core` | The 2D UI core (unchanged; now viewport-parameterized). |
 | `pocket3d` | Native substrate, desktop edition: wgpu bootstrap, forward renderer, glTF models, headless capture. |
-| `pocket3d-bsp` | The portable half of the 3D substrate (no_std + alloc): GoldSrc maps, hull collision, the character controller, PVS visibility, and the cooked `.p3d` world format. Runs identically under wgpu and on the PSP. |
-| `pocket3d-gu` | The 3D substrate, PSP edition: renders cooked worlds through the GE (sceGu) with PVS culling, CLUT8 textures, and dynamic meshes. |
+| OpenStrike `domain/crates/pocket3d-bsp` | GoldSrc maps, hull collision, character controller, PVS visibility and the `.p3d` format. Owned by OpenStrike; shared between its targets. |
+| OpenStrike `domain/crates/pocket3d-gu` | BSP world and mesh rendering through GE, with PVS culling and CLUT8 textures. Uses the PocketJS GE allocation and texture-layout mechanisms. |
 | `pocketjs-psp` (lib) | Guest hosting + `ui` surface, PSP edition: the arena allocator, the QuickJS embedding, the DrawList GE backend (with an overlay mode for 3D compositing), pak feeding, and the DevTools mailbox — everything the 2D EBOOT proved, linkable by game EBOOTs. |
-| `pocket3d-vita` | The 3D substrate, Vita edition: CPU projection and six-plane clipping into vita2d/GXM at 960x544, painter-sorted so a PocketJS HUD can share the same scene. |
+| OpenStrike `domain/crates/pocket3d-vita` | BSP rendering through GXM. Owns passes and materials; uses `devices/vita/pocket-vita-gxm` for mapped storage and program registration. |
 | `pocketjs-vita` (lib) | Guest hosting + `ui` surface, Vita edition: QuickJS, density-2 pak/font resources, controller/dual-analog input, logical-coordinate front-panel contacts and a native-density 960x544 vita2d backend over the portable 480x272 logical layout. |
 
-A specialized runtime is then a thin composition. OpenStrike is:
+The BSP rows belong to [OpenStrike's domain workspace](https://github.com/pocket-nexus/open-strike/tree/main/domain).
+PocketJS [device kernels](../devices/README.md) own GE frame storage/cache/layout,
+PICA texture storage/publication, and GXM memory/program mechanisms. Atlas and
+OpenStrike own their scene formats, compilers, renderers and quality decisions.
+
+A specialized runtime composes these mechanisms. OpenStrike is:
 
 ```
 openstrike (Rust bin)
