@@ -214,14 +214,8 @@
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",
     "./virtual-list": "./framework/src/virtual-list.ts",
-    "./vue-vapor/std": {
-      "types": "./framework/src/std-microts.d.ts",
-      "default": "./framework/src/std-microts.ts"
-    },
-    "./solid/std": {
-      "types": "./framework/src/std-microts.d.ts",
-      "default": "./framework/src/std-microts.ts"
-    },
+    "./vue-vapor/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
+    "./solid/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
     "./solid/reactive": "./framework/src/reactive-solid.ts",
     "./vue-vapor/reactive": "./framework/src/reactive-vue-vapor.ts",
     "./model/tasks": "./framework/src/model-tasks.ts",
