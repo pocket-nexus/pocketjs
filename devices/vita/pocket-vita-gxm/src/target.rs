@@ -16,6 +16,13 @@ pub enum ColorFormat {
     Rgba16f,
     /// Packed float RGB, 32 bits per pixel.
     R11G11B10f,
+    /// Single-channel 32-bit float (4 bytes per pixel), sampled as RRRR.
+    /// Storage precision does not change arithmetic already compiled into GXP.
+    R32f,
+    /// Two unsigned-normalized 16-bit channels (4 bytes per pixel).
+    /// Matching GR surface/texture swizzles preserve shader R/G as sampled
+    /// `.rg`. Write normalized float4 COLOR through [`Output::Ushort2`].
+    Rg16Unorm,
 }
 
 impl ColorFormat {
@@ -24,6 +31,8 @@ impl ColorFormat {
             ColorFormat::Rgba8 => g::SceGxmColorFormat_SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR,
             ColorFormat::Rgba16f => g::SceGxmColorFormat_SCE_GXM_COLOR_FORMAT_F16F16F16F16_ABGR,
             ColorFormat::R11G11B10f => g::SceGxmColorFormat_SCE_GXM_COLOR_FORMAT_F11F11F10_RGB,
+            ColorFormat::R32f => g::SceGxmColorFormat_SCE_GXM_COLOR_FORMAT_F32_R,
+            ColorFormat::Rg16Unorm => g::SceGxmColorFormat_SCE_GXM_COLOR_FORMAT_U16U16_GR,
         }
     }
 
@@ -32,6 +41,8 @@ impl ColorFormat {
             ColorFormat::Rgba8 => g::SceGxmTextureFormat_SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR,
             ColorFormat::Rgba16f => g::SceGxmTextureFormat_SCE_GXM_TEXTURE_FORMAT_F16F16F16F16_ABGR,
             ColorFormat::R11G11B10f => g::SceGxmTextureFormat_SCE_GXM_TEXTURE_FORMAT_F11F11F10_RGB,
+            ColorFormat::R32f => g::SceGxmTextureFormat_SCE_GXM_TEXTURE_FORMAT_F32_RRRR,
+            ColorFormat::Rg16Unorm => g::SceGxmTextureFormat_SCE_GXM_TEXTURE_FORMAT_U16U16_GR,
         }
     }
 
@@ -55,6 +66,8 @@ impl ColorFormat {
             ColorFormat::Rgba8 => Output::Uchar4,
             ColorFormat::Rgba16f => Output::Half4,
             ColorFormat::R11G11B10f => Output::Half4,
+            ColorFormat::R32f => Output::Float,
+            ColorFormat::Rg16Unorm => Output::Ushort2,
         }
     }
 }
