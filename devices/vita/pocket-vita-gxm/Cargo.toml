@@ -1,0 +1,21 @@
+[package]
+name = "pocket-vita-gxm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "PS Vita device mechanisms: GPU memory, GXP programs, targets and texture upload"
+
+# Vita-only standalone crate: consumers depend on it by path from their
+# cargo-vita binary (vita/); it is not a member of the root workspace.
+[workspace]
+resolver = "2"
+
+[dependencies]
+
+[target.'cfg(target_os = "vita")'.dependencies]
+vita2d-sys = "0.1.1"
+vitasdk-sys = { version = "0.3.3", features = ["SceGxm_stub", "SceKernelModulemgr_stub", "SceKernelThreadMgr_stub", "SceLibKernel_stub", "SceSysmem_stub"] }
+
+[features]
+default = []
+runtime-compiler = []

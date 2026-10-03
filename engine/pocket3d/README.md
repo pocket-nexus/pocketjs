@@ -1,18 +1,21 @@
 # Pocket3D
 
-A small, modern, extensible 3D runtime in Rust — the native desktop base of
-the Pocket runtime family (see [docs/RUNTIMES.md](../../docs/RUNTIMES.md)). Built on
-**wgpu** (Metal/Vulkan/DX12) + **winit**, with GoldSrc **BSP maps as a
-first-class world format**.
+Pocket3D is a family of mechanisms for building purpose-built 3D compilers and
+runtimes. OpenStrike owns BSP/FPS behavior; Pocket Atlas owns PlaceIR, scene
+cooking and its renderers. They do not share a scene engine or material API.
+Target compilers may use GXM, PICA and GE differences as optimization inputs.
 
-Pocket3D is deliberately not a general-purpose engine. It is a lean substrate
-you can read in an afternoon: a forward renderer, a first-person character
-controller driven by collision traces, skeletal animation, and a headless
-verification story that makes every feature screenshot- and script-testable
-without opening a window. Specialized runtimes compose it with the guest
-infrastructure below; the first one is
-**[OpenStrike](https://github.com/pocket-nexus/open-strike)**, a CS-like FPS
-whose gameplay rules are QuickJS mods and whose HUD is a PocketJS app.
+The first shared device kernel is
+[`pocket-vita-gxm`](../../devices/vita/pocket-vita-gxm/README.md): mapped memory,
+GXP registration, patching, targets and texture resources. Atlas uses it
+directly; the BSP Vita renderer uses its memory and registration primitives.
+Host services, guest execution, input and debug transports remain in PocketJS.
+
+The code below is the existing experimental BSP-oriented runtime and reusable
+animation / mesh mechanisms. Its historical `pocket3d` crate name does not
+make it the family-wide API. The desktop renderer uses wgpu and winit locally;
+handheld compilers and device kernels do not route through wgpu. Further
+extractions must follow demonstrated needs in actual consumers.
 
 ![status](https://img.shields.io/badge/status-v0.1_experiment-orange)
 

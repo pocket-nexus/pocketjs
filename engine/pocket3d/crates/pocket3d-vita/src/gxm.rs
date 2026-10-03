@@ -72,62 +72,26 @@ static PIPELINE: PipelineCell = PipelineCell(UnsafeCell::new(None));
 
 /// One GPU-mapped uncached allocation. Freeing is deliberately manual: the
 /// caller must guarantee no in-flight GPU work references the range.
-pub struct GpuSlab {
-    uid: v2d::SceUID,
-    base: *mut c_void,
-    len: usize,
-}
+pub struct GpuSlab(pocket_vita_gxm::mem::Block);
 
 impl GpuSlab {
-    /// Allocate `len` bytes of uncached, GXM-mapped memory.
-    pub unsafe fn alloc(len: usize) -> Result<Self, &'static str> {
-        let size = len.max(4096).next_multiple_of(4096);
-        let uid = v2d::sceKernelAllocMemBlock(
-            c"pocket3d-vita".as_ptr(),
-            v2d::SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE,
-            size as v2d::SceSize,
-            ptr::null_mut(),
-        );
-        if uid < 0 {
-            return Err("sceKernelAllocMemBlock failed");
-        }
-        let mut base: *mut c_void = ptr::null_mut();
-        if v2d::sceKernelGetMemBlockBase(uid, &mut base) < 0 || base.is_null() {
-            v2d::sceKernelFreeMemBlock(uid);
-            return Err("sceKernelGetMemBlockBase failed");
-        }
-        if v2d::sceGxmMapMemory(
-            base,
-            size as v2d::SceSize,
-            v2d::SceGxmMemoryAttribFlags_SCE_GXM_MEMORY_ATTRIB_READ,
-        ) < 0
-        {
-            v2d::sceKernelFreeMemBlock(uid);
-            return Err("sceGxmMapMemory failed");
-        }
-        Ok(Self {
-            uid,
-            base,
-            len: size,
-        })
-    }
-
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.base.cast()
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Unmap and free.
-    ///
     /// # Safety
-    ///
-    /// No queued or in-flight GXM work may reference this allocation.
+    /// Release only after the GPU has retired every reference to this allocation.
+    pub unsafe fn alloc(len: usize) -> Result<Self, &'static str> {
+        pocket_vita_gxm::mem::Block::with_access(pocket_vita_gxm::mem::Kind::Main, len, false)
+            .map(Self)
+            .map_err(|_| "GXM mapped allocation failed")
+    }
+    pub fn as_ptr(&self) -> *mut u8 {
+        self.0.base()
+    }
+    pub fn len(&self) -> usize {
+        self.0.size()
+    }
+    /// # Safety
+    /// No queued or in-flight GPU work may reference this allocation.
     pub unsafe fn free(self) {
-        v2d::sceGxmUnmapMemory(self.base);
-        v2d::sceKernelFreeMemBlock(self.uid);
+        self.0.free();
     }
 }
 
@@ -155,18 +119,8 @@ unsafe fn register(
     patcher: *mut v2d::SceGxmShaderPatcher,
     blob: &'static [u8],
 ) -> Result<(v2d::SceGxmShaderPatcherId, *const v2d::SceGxmProgram), &'static str> {
-    let program = blob.as_ptr().cast::<v2d::SceGxmProgram>();
-    if v2d::sceGxmProgramCheck(program) < 0 {
-        return Err("sceGxmProgramCheck failed");
-    }
-    if v2d::sceGxmProgramGetSize(program) as usize > blob.len() {
-        return Err("truncated GXM shader program");
-    }
-    let mut id: v2d::SceGxmShaderPatcherId = ptr::null_mut();
-    if v2d::sceGxmShaderPatcherRegisterProgram(patcher, program, &mut id) < 0 {
-        return Err("sceGxmShaderPatcherRegisterProgram failed");
-    }
-    Ok((id, program))
+    pocket_vita_gxm::program::register_static(patcher, blob)
+        .map_err(|_| "GXM shader registration failed")
 }
 
 unsafe fn parameter(

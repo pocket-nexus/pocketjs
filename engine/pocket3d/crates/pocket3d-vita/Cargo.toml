@@ -22,6 +22,7 @@ glam = { version = "0.33", default-features = false, features = ["libm"] }
 libm = "0.2"
 
 [target.'cfg(target_os = "vita")'.dependencies]
+pocket-vita-gxm = { path = "../../../../devices/vita/pocket-vita-gxm" }
 vita2d-sys = "0.1.1"
 vitasdk-sys = { version = "0.3.3", features = ["SceGxm_stub"] }
 
