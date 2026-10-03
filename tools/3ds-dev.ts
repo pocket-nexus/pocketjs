@@ -16,6 +16,7 @@
 // into it, `launch` starts a .3dsx already on the card.
 
 import { $ } from "bun";
+import { guardDeviceCommand } from "./device-lease.ts";
 import {
   chmodSync,
   existsSync,
@@ -796,6 +797,7 @@ async function dev(): Promise<void> {
 }
 
 try {
+  if (command !== "discover") await guardDeviceCommand("3ds:wire");
   if (command === "pair") await pair();
   else if (command === "discover") await discoverCommand();
   else if (command === "push") await push();
