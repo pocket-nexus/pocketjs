@@ -6,6 +6,7 @@ import solidPreset from "babel-preset-solid";
 import tsPreset from "@babel/preset-typescript"; // untyped - see framework/compiler/ambient.d.ts
 import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
 import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../microts/compiler/aot-solid-browser.ts";
@@ -67,7 +68,7 @@ const RESOLVED: Record<PocketFramework, Record<string, string>> = (() => {
 const OCTANE_PROFILING_STUB_PATH = fileURLToPath(
   new URL("../src/octane-profiling-stub.ts", import.meta.url),
 );
-const GENERATED_STYLES_PATH = fileURLToPath(
+export const GENERATED_STYLES_PATH = fileURLToPath(
   new URL("../src/styles.generated.ts", import.meta.url),
 );
 const VUE_VAPOR_RUNTIME_PATH = fileURLToPath(
@@ -605,6 +606,21 @@ export function jsxPlugin(
       build.onResolve({ filter: /^@pocketjs\/framework(?:\/.*)?$/ }, (args) => {
         const path = packagePath(args.path, framework);
         return path ? { path } : undefined;
+      });
+      // The generated styles module is written mid-build: pass 1 resolves the
+      // framework's `./styles.generated.ts` import (and a resolver may cache
+      // that miss) before tools/build.ts emits the file. Pass 2 must serve
+      // THIS build's in-memory table through onLoad, never read the path from
+      // disk — a stale negative entry would fail the first clean build, and a
+      // concurrent target's table could transiently occupy the file. Resolve
+      // the framework's own import to the canonical path so onLoad intercepts
+      // it; same-named app modules fall through to normal resolution.
+      build.onResolve({ filter: /(^|[\\/])styles\.generated\.ts$/ }, (args) => {
+        if (opts.generatedStyles === undefined) return undefined;
+        const resolved = args.path.startsWith(".")
+          ? resolvePath(dirname(args.importer), args.path)
+          : args.path;
+        return resolved === GENERATED_STYLES_PATH ? { path: GENERATED_STYLES_PATH } : undefined;
       });
       if (framework === "solid") {
         build.onResolve({ filter: /^\.{1,2}\// }, args => {
