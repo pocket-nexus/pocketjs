@@ -1,0 +1,26 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.ipod-video-demo",
+  "name": "pocketjs-ipod-video-hero",
+  "title": "PocketJS: iPod Video Hero",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.buttons", "text.glyphs.baked"]
+    }
+  },
+  "app": {
+    "entry": "apps/ipod-video-demo/main.tsx",
+    "output": "ipod-video-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [320, 240],
+        "presentation": "native"
+      }
+    },
+    "aot": true,
+    "model": "compiled"
+  }
+}

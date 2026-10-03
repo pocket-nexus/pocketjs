@@ -75,7 +75,7 @@ New things go where the axis says — never invent a top-level directory:
   change; the `exports`/`files` maps in package.json absorb internal moves.
 - **Cargo stays non-workspace where toolchains demand it**: `engine/core`,
   `engine/wasm`, `engine/ui-cabi`, `engine/backends/rgb565`, `hosts/psp`,
-  `hosts/vita`, `hosts/pocketbook`, and the gu/vita 3D crates each stand alone
+  `hosts/vita`, `hosts/pocketbook`, `hosts/rockbox`, and the gu/vita 3D crates each stand alone
   with their own lockfiles. `engine/Cargo.toml` is the one desktop workspace.
 - **Moves are `git mv`** — history stays traceable.
 
