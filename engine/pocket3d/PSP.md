@@ -4,9 +4,13 @@
 real Sony PSP, end to end and smooth — and for what pocket3d gains as a general
 3D runtime along the way.*
 
-Status: normative for the port. Companion docs: `docs/RUNTIMES.md` (the runtime-family
-ontology this port completes), `docs/DESIGN.md` (the 2D UI runtime whose PSP host we
-reuse), `docs/DEVTOOLS.md` (the debug loop).
+Status: historical design record from 2026-07-08. The ownership proposal and
+milestones below describe the original port. Current code ownership is in
+[the Pocket3D README](README.md) and [device mechanisms](../../devices/README.md).
+OpenStrike owns the BSP format, cooker and GE/GXM/GLES2 domain renderers under
+[open-strike/domain](https://github.com/pocket-nexus/open-strike/tree/main/domain).
+PocketJS owns its hosts and the reusable device kernels; the old crate paths
+below are historical paths, not current build entrypoints.
 
 ## 1. Goal
 

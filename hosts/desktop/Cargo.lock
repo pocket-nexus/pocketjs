@@ -1872,7 +1872,6 @@ dependencies = [
  "log",
  "png",
  "pocket3d-anim",
- "pocket3d-bsp",
  "pocket3d-mesh",
  "pollster",
  "serde_json",
@@ -1885,15 +1884,6 @@ name = "pocket3d-anim"
 version = "0.1.0"
 dependencies = [
  "glam",
-]
-
-[[package]]
-name = "pocket3d-bsp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "glam",
- "log",
 ]
 
 [[package]]

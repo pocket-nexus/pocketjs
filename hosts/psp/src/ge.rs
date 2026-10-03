@@ -84,19 +84,7 @@ const VTYPE_TC: VertexType = VertexType::from_bits_truncate(
 // Per-frame bump vertex arena [R]
 // ---------------------------------------------------------------------------
 
-#[repr(C, align(16))]
-#[derive(Copy, Clone)]
-struct Chunk16([u8; 16]);
-
-const BLOCK_BYTES: usize = 64 * 1024;
-
-struct Pool {
-    blocks: Vec<Vec<Chunk16>>,
-    cur: usize,
-    off: usize,
-}
-
-static mut POOL: Option<Pool> = None;
+static mut POOL: Option<pocket_psp_ge::FramePool> = None;
 
 use pocketjs_core::font_pages::{FontPage as FontTexture, FontPages};
 
@@ -104,31 +92,7 @@ static mut FONT_TEXTURES: Option<FontPages> = None;
 
 /// Bump-allocate `bytes` (16-byte aligned) valid until `reset_pool()`.
 unsafe fn pool_alloc(bytes: usize) -> *mut u8 {
-    if POOL.is_none() {
-        POOL = Some(Pool {
-            blocks: Vec::new(),
-            cur: 0,
-            off: 0,
-        });
-    }
-    let pool = POOL.as_mut().unwrap();
-    let need = (bytes + 15) & !15;
-    loop {
-        if pool.cur < pool.blocks.len() {
-            let cap = pool.blocks[pool.cur].len() * 16;
-            if pool.off + need <= cap {
-                let p = (pool.blocks[pool.cur].as_mut_ptr() as *mut u8).add(pool.off);
-                pool.off += need;
-                return p;
-            }
-            pool.cur += 1;
-            pool.off = 0;
-        } else {
-            // Grow: a standard block, or an exact-size one for oversize asks.
-            let n = core::cmp::max(need, BLOCK_BYTES) / 16;
-            pool.blocks.push(alloc::vec![Chunk16([0u8; 16]); n]);
-        }
-    }
+    POOL.get_or_insert_with(pocket_psp_ge::FramePool::new).alloc(bytes)
 }
 
 /// Rewind the bump pool. ONLY call after sceGuSync — the GE reads the
@@ -138,8 +102,7 @@ pub unsafe fn reset_pool() {
         pages.retire_frame();
     }
     if let Some(pool) = POOL.as_mut() {
-        pool.cur = 0;
-        pool.off = 0;
+        pool.reset();
     }
 }
 

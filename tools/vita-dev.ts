@@ -5,6 +5,7 @@ import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contract
 import { encodePNG } from "./png.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
 import { atomicWrite, VitaUsbClient } from "./vita-dev-client.ts";
+import { guardDeviceCommand } from "./device-lease.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
@@ -58,6 +59,7 @@ requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
     return;
   }
   if (command === "build") { await run(["bun", "tools/vita.ts", app, "--release"]); return; }
+  await guardDeviceCommand(command === "serve" ? "vita:usb:transport" : "vita:usb");
   const info = existsSync(metadataPath) ? metadata() : undefined;
   const title = value("--title") ?? info?.titleId;
   if (!title) throw new Error("build the Vita app first, or supply --title");

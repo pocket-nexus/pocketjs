@@ -4,6 +4,7 @@
 // picker; the PSP only runs the selected PRX.
 
 import { $ } from "bun";
+import { guardDeviceCommand } from "./device-lease.ts";
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createServer } from "node:net";
@@ -476,6 +477,10 @@ class Picker {
 
 async function main(): Promise<void> {
   const opts = parseArgs(Bun.argv.slice(2));
+  if (!opts.dryRun) {
+    await guardDeviceCommand("psp:usb:transport");
+    await guardDeviceCommand("psp:usb");
+  }
   const demos = await listDemos();
   if (demos.length === 0) throw new Error(`no demos found under ${DEMOS_DIR}`);
 

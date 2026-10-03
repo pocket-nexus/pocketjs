@@ -5,9 +5,6 @@
 #   core/, wasm/, backends/esp32p4-ppa/
 #                        — cargo-psp and ESP-IDF need to consume these as
 #                           lone standalone crates (see their Cargo.toml)
-#   pocket3d/crates/pocket3d-gu, gu-demo — PSP-only (cargo-psp toolchain)
-#   pocket3d/crates/pocket3d-vita        — Vita-only (vitasdk toolchain)
-#   pocket3d/crates/pocket3d-gles2       — no_std Symbian GLES2 backend
 [workspace]
 resolver = "2"
 members = [
@@ -25,8 +22,6 @@ members = [
     "pocket3d/crates/pocket3d",
     "pocket3d/crates/pocket3d-anim",
     "pocket3d/crates/pocket3d-mesh",
-    "pocket3d/crates/pocket3d-bsp",
-    "pocket3d/crates/pocket3d-cook",
     "pocket3d/crates/pocket3d-world",
     "pocket3d/examples/handheld",
     "pocket3d/examples/note-widget",
@@ -37,10 +32,6 @@ exclude = [
     "backends/gpui",
     "core",
     "wasm",
-    "pocket3d/crates/pocket3d-gu",
-    "pocket3d/crates/gu-demo",
-    "pocket3d/crates/pocket3d-vita",
-    "pocket3d/crates/pocket3d-gles2",
 ]
 
 [workspace.package]
@@ -53,7 +44,6 @@ repository = "https://github.com/pocket-nexus/pocketjs"
 pocket3d = { path = "pocket3d/crates/pocket3d" }
 pocket3d-anim = { path = "pocket3d/crates/pocket3d-anim" }
 pocket3d-mesh = { path = "pocket3d/crates/pocket3d-mesh" }
-pocket3d-bsp = { path = "pocket3d/crates/pocket3d-bsp" }
 pocket3d-world = { path = "pocket3d/crates/pocket3d-world" }
 pocket-db = { path = "crates/pocket-db" }
 pocket-fs = { path = "crates/pocket-fs" }
@@ -70,8 +60,7 @@ rquickjs = "0.12"
 
 wgpu = "25"
 winit = "0.30"
-# default-features off so pocket3d-bsp can build no_std (libm) for the PSP;
-# desktop crates re-enable "std" per member.
+# Shared math also serves no_std consumers; desktop crates re-enable std.
 glam = { version = "0.33", default-features = false }
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"

@@ -1,19 +1,13 @@
 [package]
 name = "pocket3d"
-description = "Pocket3D: a small, modern, extensible 3D runtime (wgpu-based)"
+description = "Pocket3D: desktop rendering mechanisms (wgpu-based)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[features]
-default = ["bsp"]
-# First-class GoldSrc BSP world support (rendering glue + collision impl).
-bsp = ["dep:pocket3d-bsp"]
-
 [dependencies]
 pocket3d-anim = { workspace = true }
 pocket3d-mesh = { workspace = true }
-pocket3d-bsp = { workspace = true, optional = true }
 
 wgpu = { workspace = true }
 winit = { workspace = true }

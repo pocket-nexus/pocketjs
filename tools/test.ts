@@ -43,6 +43,8 @@ const SUITE: readonly Stage[] = [
     // wasm-auxiliary.test.ts loads hosts/web/pocketjs.wasm.
     prep: [["bun", "tools/wasm.ts"]],
     tests: [
+      "tests/device-lease.test.ts",
+      "tests/device-evidence.test.ts",
       "tests/release-check.test.ts",
       "tests/release-notes.test.ts",
       "tests/platform-contracts.test.ts",
@@ -66,6 +68,7 @@ const SUITE: readonly Stage[] = [
       "tests/quickjs-c-harness.test.ts",
       "tests/native-source.test.ts",
       "tests/3ds-profile.test.ts",
+      "tests/pica-kernel.test.ts",
       "tests/media-service.test.ts",
       "tests/media.test.ts",
       "tests/service-client.test.ts",

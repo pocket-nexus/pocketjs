@@ -32,6 +32,7 @@
 
 #include <3ds.h>
 #include <citro3d.h>
+#include <pocket_pica.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -266,11 +267,11 @@ static bool upload_tiled(
   uint32_t texture_height,
   bool linear
 ) {
-  if (!C3D_TexInit(texture, (u16)texture_width, (u16)texture_height, GPU_RGBA8)) return false;
   size_t bytes = (size_t)texture_width * texture_height * 4;
+  if (!pocket_pica_texture_init(texture, texture_width, texture_height, 1, GPU_RGBA8, bytes)) return false;
   uint8_t *tiled = malloc(bytes);
   if (tiled == NULL) {
-    C3D_TexDelete(texture);
+    pocket_pica_texture_destroy(texture);
     return false;
   }
   memset(tiled, 0, bytes);
@@ -301,12 +302,11 @@ static bool upload_tiled(
       }
     }
   }
-  C3D_TexUpload(texture, tiled);
-  /* C3D_TexUpload is a plain memcpy through the CPU's write-back cache, and
-   * the PICA samples physical memory: without a flush the GPU reads whatever
-   * was there before. Azahar never shows this because its texture reads go
-   * through the same emulated memory the memcpy wrote. */
-  GSPGPU_FlushDataCache(texture->data, (u32)texture->size);
+  if (!pocket_pica_texture_upload(texture, tiled, bytes)) {
+    free(tiled);
+    pocket_pica_texture_destroy(texture);
+    return false;
+  }
   C3D_TexSetFilter(
     texture,
     linear ? GPU_LINEAR : GPU_NEAREST,
@@ -422,14 +422,14 @@ static bool upload_font(FontTexture *entry, const PocketFontAtlas *atlas) {
 
 static void release_image(ImageTexture *entry) {
   if (entry->live) {
-    C3D_TexDelete(&entry->texture);
+    pocket_pica_texture_destroy(&entry->texture);
     entry->live = false;
   }
 }
 
 static void release_font(FontTexture *entry) {
   if (entry->live) {
-    C3D_TexDelete(&entry->texture);
+    pocket_pica_texture_destroy(&entry->texture);
     entry->live = false;
   }
 }
@@ -1014,7 +1014,7 @@ void gfx_reset_resources(void) {
 void gfx_shutdown(void) {
   if (!initialized) return;
   gfx_reset_resources();
-  C3D_TexDelete(&white);
+  pocket_pica_texture_destroy(&white);
   linearFree(vertices);
   vertices = NULL;
   shaderProgramFree(&shader_program);

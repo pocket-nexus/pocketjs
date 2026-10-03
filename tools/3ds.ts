@@ -752,6 +752,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
       outputDirectory: containerPathFor(args.outputDir, mounts),
       embedApp: true,
     }),
+    POCKETJS_PICA_INCLUDE: containerPathFor(join(repository, "devices/3ds/pocket-3ds-pica/include"), mounts),
     POCKETJS_CORE_LIB: containerPathFor(coreLibrary, mounts),
     POCKETJS_QUICKJS_DIR: containerPathFor(quickJsDirectory, mounts),
     POCKETJS_APP_POCKET: containerPathFor(pocketOutput, mounts),

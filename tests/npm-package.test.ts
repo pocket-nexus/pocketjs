@@ -43,8 +43,8 @@ describe("published npm artifacts", () => {
   // entry ships ONLY when the framework runtime, the compiler, the shipped
   // tools, or a `pocket` CLI target consumes it from the tarball. Rust
   // sources ride along solely as build inputs for CLI-buildable targets
-  // (psp, vita, symbian, the web/sim wasm) plus the deliberately standalone
-  // Pocket3D Vita/GLES2 crates for out-of-tree native 3D apps. Platform source
+  // (psp, vita, symbian, the web/sim wasm) plus the shared device kernels
+  // for out-of-tree native 3D apps. Platform source
   // integrations without a CLI target (e.g. the ESP32-P4 PPA backend, whose
   // ESP-IDF C component cannot ship in npm anyway) stay git-only. Adding an
   // entry here means updating this list in the same PR — deliberately.
@@ -158,30 +158,18 @@ describe("published npm artifacts", () => {
       "devices/vita/pocket-vita-gxm/Cargo.lock",
       "devices/vita/pocket-vita-gxm/build.rs",
       "devices/vita/pocket-vita-gxm/README.md",
-      "engine/pocket3d/crates/pocket3d-vita/shaders",
-      "engine/pocket3d/crates/pocket3d-vita/src",
-      "engine/pocket3d/crates/pocket3d-vita/examples",
-      "engine/pocket3d/crates/pocket3d-vita/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-vita/Cargo.lock",
-      "engine/pocket3d/crates/pocket3d-gles2/src",
-      "engine/pocket3d/crates/pocket3d-gles2/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-gles2/Cargo.lock",
       "engine/pocket3d/crates/pocket3d-anim/src",
       "engine/pocket3d/crates/pocket3d-anim/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-mesh/src",
       "engine/pocket3d/crates/pocket3d-mesh/Cargo.toml",
       "engine/pocket3d/crates/pocket3d/src",
       "engine/pocket3d/crates/pocket3d/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-cook/src",
-      "engine/pocket3d/crates/pocket3d-cook/Cargo.toml",
       "engine/pocket3d/examples/handheld/src",
       "engine/pocket3d/examples/handheld/Cargo.toml",
       "engine/pocket3d/examples/note-widget/src",
       "engine/pocket3d/examples/note-widget/Cargo.toml",
       "engine/pocket3d/examples/uihost/src",
       "engine/pocket3d/examples/uihost/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-bsp/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-bsp/src",
       "engine/pocket3d/crates/pocket3d-world/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-world/README.md",
       "engine/pocket3d/crates/pocket3d-world/src",
@@ -196,6 +184,12 @@ describe("published npm artifacts", () => {
       "microts/compiler",
       "engine/crates/microts/src",
       "engine/crates/microts/Cargo.toml",
+      "devices/psp/pocket-psp-ge/Cargo.toml",
+      "devices/psp/pocket-psp-ge/Cargo.lock",
+      "devices/psp/pocket-psp-ge/src",
+      "devices/psp/pocket-psp-ge/README.md",
+      "devices/3ds/pocket-3ds-pica/include",
+      "devices/3ds/pocket-3ds-pica/README.md",
     ]);
   });
 
@@ -295,15 +289,7 @@ describe("published npm artifacts", () => {
       "devices/vita/pocket-vita-gxm/Cargo.lock",
       "devices/vita/pocket-vita-gxm/build.rs",
       "devices/vita/pocket-vita-gxm/README.md",
-      "engine/pocket3d/crates/pocket3d-vita/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-vita/Cargo.lock",
-      "engine/pocket3d/crates/pocket3d-gles2/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-gles2/Cargo.lock",
       "devices/vita/pocket-vita-gxm/src/lib.rs",
-      "engine/pocket3d/crates/pocket3d-vita/shaders/color_v.gxp",
-      "engine/pocket3d/crates/pocket3d-gles2/src/lib.rs",
-      "engine/pocket3d/crates/pocket3d-bsp/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-bsp/src/lib.rs",
       "engine/pocket3d/crates/pocket3d-world/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-world/README.md",
       "engine/pocket3d/crates/pocket3d-world/src/lib.rs",
@@ -324,11 +310,11 @@ describe("published npm artifacts", () => {
     // The CLI toolchain pin still ships via the wholesale "tools" entry.
     expect(files).toContain("tools/cli/psp-toolchain.json");
 
-    const bspManifest = await Bun.file(
-      `${root}engine/pocket3d/crates/pocket3d-bsp/Cargo.toml`,
-    ).text();
-    expect(bspManifest).not.toContain(".workspace = true");
-    expect(bspManifest).not.toContain("workspace = true");
+    expect(files).toContain("devices/psp/pocket-psp-ge/src/lib.rs");
+    expect(files).toContain("devices/psp/pocket-psp-ge/Cargo.lock");
+    expect(files).toContain("devices/3ds/pocket-3ds-pica/include/pocket_pica.h");
+    expect(files.some((file) => /pocket3d-(bsp|cook|gu|vita|gles2)\//.test(file))).toBe(false);
+
   }, 30_000);
 
   test("CLI tarball stays self-contained and minimal", () => {
