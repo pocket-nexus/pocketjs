@@ -7,6 +7,3 @@ description = "PSP GE memory lifetime, cache publication and texture layout mech
 
 [workspace]
 resolver = "2"
-
-[target.'cfg(target_os = "psp")'.dependencies]
-psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b" }

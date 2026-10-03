@@ -91,9 +91,6 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 [[package]]
 name = "pocket-psp-ge"
 version = "0.1.0"
-dependencies = [
- "psp",
-]
 
 [[package]]
 name = "pocketjs-core"

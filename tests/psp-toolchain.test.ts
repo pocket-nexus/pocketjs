@@ -269,10 +269,7 @@ describe("canonical PSP toolchain", () => {
   });
 
   test("Cargo manifests use the exact revisions from the canonical manifest", async () => {
-    const pspManifests = [
-      "hosts/psp/Cargo.toml",
-      "devices/psp/pocket-psp-ge/Cargo.toml",
-    ];
+    const pspManifests = ["hosts/psp/Cargo.toml"];
     for (const file of pspManifests) {
       const source = await Bun.file(join(root, file)).text();
       expect(source, file).toContain(`git = "${PSP_TOOLCHAIN.rustPsp.repository}"`);
@@ -289,7 +286,6 @@ describe("canonical PSP toolchain", () => {
     const locks = {
       "hosts/psp/Cargo.lock": [PSP_TOOLCHAIN.rustPsp.rev, PSP_TOOLCHAIN.quickJsRs.rev],
       "hosts/vita/Cargo.lock": [PSP_TOOLCHAIN.quickJsRs.rev],
-      "devices/psp/pocket-psp-ge/Cargo.lock": [PSP_TOOLCHAIN.rustPsp.rev],
     } as const;
     for (const [file, revisions] of Object.entries(locks)) {
       const source = await Bun.file(join(root, file)).text();

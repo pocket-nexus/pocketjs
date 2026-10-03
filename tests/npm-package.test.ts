@@ -43,8 +43,8 @@ describe("published npm artifacts", () => {
   // entry ships ONLY when the framework runtime, the compiler, the shipped
   // tools, or a `pocket` CLI target consumes it from the tarball. Rust
   // sources ride along solely as build inputs for CLI-buildable targets
-  // (psp, vita, symbian, the web/sim wasm) plus the deliberately standalone
-  // Pocket3D Vita/GLES2 crates for out-of-tree native 3D apps. Platform source
+  // (psp, vita, symbian, the web/sim wasm) plus the shared device kernels
+  // for out-of-tree native 3D apps. Platform source
   // integrations without a CLI target (e.g. the ESP32-P4 PPA backend, whose
   // ESP-IDF C component cannot ship in npm anyway) stay git-only. Adding an
   // entry here means updating this list in the same PR — deliberately.
