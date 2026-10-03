@@ -7,7 +7,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const url = process.argv[2] ?? "http://127.0.0.1:8140/";
@@ -214,6 +215,9 @@ try {
   }
   await S("Page.navigate", { url });
   await Bun.sleep(waitMs);
+  const driver = process.env.POCKETJS_VERIFY_DRIVER
+    ? await (await import(pathToFileURL(resolve(process.env.POCKETJS_VERIFY_DRIVER)).href)).run({ send: S })
+    : undefined;
 
   const evalRes = await S("Runtime.evaluate", {
     expression: probe,
@@ -248,6 +252,7 @@ try {
     JSON.stringify(
       {
         url,
+        driver,
         probe: evalRes.result?.value ?? evalRes.result ?? evalRes,
         pageErrors: pageErrors.slice(0, 8),
         consoleErrors: consoleErrors.slice(0, 8),

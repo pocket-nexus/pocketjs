@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PocketJS · Interactive desk</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./desk.css">
+<main>
+  <div id="scene" aria-label="PocketJS interactive desk">
+    <img id="plate" src="./preview.png" alt="A desktop scene with a central monitor and five handheld devices" width="2560" height="1920">
+    <canvas id="composite" aria-hidden="true"></canvas>
+    <div id="inputs"></div>
+  </div>
+  <footer>
+    <span id="status" role="status">Starting PocketJS apps…</span>
+    <button id="pause" disabled>Pause</button>
+    <button id="original" aria-pressed="false">View original</button>
+    <a href="./ATTRIBUTION.md">Model credits</a>
+  </footer>
+</main>
+<script type="module" src="./desk.js"></script>
+</html>
