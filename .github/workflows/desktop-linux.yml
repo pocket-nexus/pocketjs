@@ -11,6 +11,7 @@ on:
       - "engine/crates/pocket-text/**"
       - "framework/src/text-layout.ts"
       - "framework/src/offload.ts"
+      - "framework/src/audio-api.ts"
       - "hosts/web/*offload*.js"
       - "hosts/web/text-*"
       - "tools/*offload*"
@@ -21,6 +22,7 @@ on:
       - "tools/text-*"
       - "tests/text-layout-client.test.ts"
       - "apps/text-offload/**"
+      - "apps/music/**"
       - "hosts/desktop/**"
       - "engine/crates/pocket-ui-wgpu/**"
       - "engine/pocket3d/crates/pocket3d/**"
@@ -42,6 +44,7 @@ on:
       - "engine/crates/pocket-text/**"
       - "framework/src/text-layout.ts"
       - "framework/src/offload.ts"
+      - "framework/src/audio-api.ts"
       - "hosts/web/*offload*.js"
       - "hosts/web/text-*"
       - "tools/*offload*"
@@ -52,6 +55,7 @@ on:
       - "tools/text-*"
       - "tests/text-layout-client.test.ts"
       - "apps/text-offload/**"
+      - "apps/music/**"
       - "hosts/desktop/**"
       - "engine/crates/pocket-ui-wgpu/**"
       - "engine/pocket3d/crates/pocket3d/**"
@@ -80,7 +84,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           clang cmake pkg-config libwayland-dev libx11-dev libx11-xcb-dev
           libxkbcommon-dev libxkbcommon-x11-dev libudev-dev libdrm-dev libgbm-dev
-          libxcb-shape0-dev libxcb-xfixes0-dev xvfb xauth libvulkan1 mesa-vulkan-drivers
+          libxcb-shape0-dev libxcb-xfixes0-dev libasound2-dev xvfb xauth libvulkan1
+          mesa-vulkan-drivers
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -113,11 +118,25 @@ jobs:
           await Bun.write(".pocket/linux-app/note-main.plan.json", JSON.stringify(result.plan, null, 2) + "\n");'
           bun tools/build.ts --plan=.pocket/linux-app/note-main.plan.json
 
+      - name: Resolve and build the music demo for linux-app
+        run: |
+          bun -e '
+          import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
+          import { mkdirSync } from "node:fs";
+          const manifest = await Bun.file("apps/music/pocket.json").json();
+          const result = validateAndResolveBuildPlan(manifest, { target: "linux-app" });
+          if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+          mkdirSync(".pocket/linux-app", { recursive: true });
+          await Bun.write(".pocket/linux-app/music-main.plan.json", JSON.stringify(result.plan, null, 2) + "\n");'
+          bun tools/build.ts --plan=.pocket/linux-app/music-main.plan.json
+
       - name: Rust format, lint and tests
         run: |
           cargo fmt --check --manifest-path hosts/desktop/Cargo.toml
           cargo clippy --locked --manifest-path hosts/desktop/Cargo.toml -- -D warnings
+          cargo clippy --locked --manifest-path hosts/desktop/Cargo.toml --no-default-features -- -D warnings
           cargo test --locked --manifest-path hosts/desktop/Cargo.toml
+          cargo test --locked --manifest-path hosts/desktop/Cargo.toml --no-default-features
           cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --ignored
           cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml
           cargo test --locked --manifest-path engine/wasm/Cargo.toml
@@ -134,3 +153,12 @@ jobs:
           --app note-main --title Note --viewport 720x480 --density 1
           --companions note --editor --file /tmp/pocket-note.md
           --quit-after 20
+
+      - name: Play the music demo through the null audio device
+        env:
+          POCKETJS_DIST: ${{ github.workspace }}/dist
+          POCKETJS_AUDIO: "null"
+        run: >-
+          timeout 30s xvfb-run -a hosts/desktop/target/release/pocket-desktop-host
+          --app music-main --title Music --viewport 480x272 --fixed --density 1
+          --quit-after 180

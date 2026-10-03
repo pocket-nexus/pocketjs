@@ -279,6 +279,7 @@ describe("platform registry", () => {
     expect(POCKET_TARGETS["macos-app"].form).toBe("window");
     expect(POCKET_TARGETS["macos-app"].capabilities).toEqual([
       "input.buttons",
+      "audio.pcm",
       "display.viewport.live",
       "text.glyphs.baked",
       "io.offload",
@@ -309,6 +310,7 @@ describe("platform registry", () => {
       },
       capabilities: [
         "input.buttons",
+        "audio.pcm",
         "display.viewport.live",
         "text.glyphs.baked",
         "io.offload",
@@ -494,6 +496,18 @@ describe("semantic resolution", () => {
     if (!onPsp.ok) return;
     expect(onPsp.plan.features["input.text"]).toBe(false);
     expect(onPsp.plan.features["input.pointer"]).toBe(false);
+  });
+
+  test("desktop targets expose the music demo audio enhancement", async () => {
+    const manifest = await Bun.file(
+      new URL("../apps/music/pocket.json", import.meta.url),
+    ).json();
+    for (const target of ["macos-app", "linux-app"] as const) {
+      const result = validateAndResolveBuildPlan(manifest, { target });
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      expect(result.plan.features["audio.pcm"]).toBe(true);
+    }
   });
 
   test("dynamic viewport admits in-range sizes and rejects out-of-range", async () => {
