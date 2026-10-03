@@ -169,3 +169,8 @@ bool input_offload_exit_requested(void) {
   const uint32_t keys = KEY_L | KEY_R | KEY_START;
   return (hidKeysHeld() & keys) == keys;
 }
+
+/* Returns current 3DS hardware depth slider position [0.0 = 2D, 1.0 = max depth]. */
+float input_slider3d(void) {
+  return osGet3DSliderState();
+}

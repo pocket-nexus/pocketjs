@@ -79,8 +79,9 @@ unsigned int __stacksize__ = 1024 * 1024;
 extern int __system_argc;
 extern char **__system_argv;
 
-static C3D_RenderTarget *primary_target;
-static C3D_RenderTarget *auxiliary_target;
+static C3D_RenderTarget *primary_target;       /* Left eye (GFX_TOP, GFX_LEFT) */
+static C3D_RenderTarget *primary_target_right; /* Right eye (GFX_TOP, GFX_RIGHT) */
+static C3D_RenderTarget *auxiliary_target;     /* Bottom screen (GFX_BOTTOM, GFX_LEFT) */
 
 static const u32 DISPLAY_TRANSFER_FLAGS =
   GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
@@ -712,16 +713,23 @@ int main(void) {
     GPU_RB_RGBA8,
     GPU_RB_DEPTH24_STENCIL8
   );
+  primary_target_right = C3D_RenderTargetCreate(
+    VIEW_H,
+    VIEW_W,
+    GPU_RB_RGBA8,
+    GPU_RB_DEPTH24_STENCIL8
+  );
   auxiliary_target = C3D_RenderTargetCreate(
     AUX_VIEW_H,
     AUX_VIEW_W,
     GPU_RB_RGBA8,
     GPU_RB_DEPTH24_STENCIL8
   );
-  if (primary_target == NULL || auxiliary_target == NULL) {
+  if (primary_target == NULL || primary_target_right == NULL || auxiliary_target == NULL) {
     fail("C3D_RenderTargetCreate failed");
   }
   C3D_RenderTargetSetOutput(primary_target, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
+  C3D_RenderTargetSetOutput(primary_target_right, GFX_TOP, GFX_RIGHT, DISPLAY_TRANSFER_FLAGS);
   C3D_RenderTargetSetOutput(auxiliary_target, GFX_BOTTOM, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
   if (R_FAILED(romfsInit())) fail("romfsInit failed: the .3dsx has no romfs");
@@ -1008,11 +1016,28 @@ int main(void) {
     }
     gfx_finish_frame();
 
+    float slider = osGet3DSliderState();
+    bool is_stereo = slider > 0.0f;
+    /* Dynamically enable autostereoscopic parallax barrier only when depth slider > 0. */
+    gfxSet3D(is_stereo);
+
+    /* Left eye pass (primary monoscopic / stereo left view) */
     C3D_RenderTargetClear(primary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
     C3D_FrameDrawOn(primary_target);
     /* C3D_FrameDrawOn resets the viewport, so this comes after it. */
     C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
-    gfx_draw_surface(0);
+    /* IPD horizontal separation offset in pixels, scaled by slider position.
+     * 3.5f px separation gives comfortable depth perception without eye strain. */
+    gfx_draw_surface_stereo(0, is_stereo ? -slider * 3.5f : 0.0f);
+
+    /* Right eye pass: only rendered when hardware 3D slider is engaged (> 0.0f).
+     * Skipping this in 2D mode saves a complete GPU pass on Old 3DS (ARM11 @ 268 MHz). */
+    if (is_stereo) {
+      C3D_RenderTargetClear(primary_target_right, C3D_CLEAR_ALL, 0x000000ff, 0);
+      C3D_FrameDrawOn(primary_target_right);
+      C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
+      gfx_draw_surface_stereo(0, slider * 3.5f);
+    }
 
     C3D_RenderTargetClear(auxiliary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
     C3D_FrameDrawOn(auxiliary_target);
