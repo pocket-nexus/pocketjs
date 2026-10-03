@@ -136,18 +136,28 @@ export const AUDIO_MAX_STREAMS = 4;
 
 /**
  * Frames the audio clock consumes on virtual tick `tick` (0-based, counted
- * per stream while playing) at 60 core ticks per second. The Bresenham-style
- * floor difference distributes non-divisible rates (22050/60 = 367.5) with
- * zero drift: the sum over any 60 consecutive ticks is exactly `rate`.
+ * per stream while playing) at `ticksPerSecond` core ticks per second — the
+ * realm's declared rate, 60 unless the host declares otherwise. The
+ * Bresenham-style floor difference distributes non-divisible rates
+ * (22050/60 = 367.5) with zero drift: the sum over any `ticksPerSecond`
+ * consecutive ticks is exactly `rate`.
  *
  * This formula IS the deterministic-audio contract: virtual-clock hosts
  * (hosts/sim) consume exactly this many frames per playing tick, making the
  * consumed PCM byte-stream a pure function of (tick index, op stream).
  * Real-time hosts consume on the device clock instead and report through
  * `credit` — the formula is their long-run average by construction.
+ *
+ * An audio-capable host that declares a non-60 realm rate must pass that
+ * rate here; the pairing invariant (framework/src/host.ts) refuses the
+ * mismatched mount, so formula and realm can only disagree through a host
+ * bug, never through a bundle.
  */
-export function audioFramesForTick(rate: number, tick: number): number {
-  return Math.floor(((tick + 1) * rate) / 60) - Math.floor((tick * rate) / 60);
+export function audioFramesForTick(rate: number, tick: number, ticksPerSecond = 60): number {
+  return (
+    Math.floor(((tick + 1) * rate) / ticksPerSecond) -
+    Math.floor((tick * rate) / ticksPerSecond)
+  );
 }
 
 // ---------------------------------------------------------------------------
