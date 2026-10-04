@@ -3,7 +3,7 @@ name = "pocket3d-mesh"
 description = "Portable Pocket3D skin bindings and colored mesh assets"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file = "../../../../pocket3d/LICENSE"
 
 [dependencies]
 pocket3d-anim = { workspace = true }

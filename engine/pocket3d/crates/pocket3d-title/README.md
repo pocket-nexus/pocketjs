@@ -89,6 +89,9 @@ await title;                 // the card has ended and removed itself
 
 ## Rules for a game
 
+The [Pocket3D License](../../../../pocket3d/LICENSE) makes the first rule a
+condition of using Pocket3D in a distributed product.
+
 - The card plays **first, at every launch**, before the game's own titles and
   before input is read. It is not skipped, shortened, cropped, recoloured or
   drawn over.

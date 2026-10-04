@@ -4,7 +4,7 @@ description = "Deterministic physical and reactive world state for Pocket3D"
 readme = "README.md"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file = "../../../../pocket3d/LICENSE"
 repository.workspace = true
 
 [dependencies]

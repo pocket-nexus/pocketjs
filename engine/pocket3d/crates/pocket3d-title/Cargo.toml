@@ -2,7 +2,7 @@
 name = "pocket3d-title"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license-file = "../../../../pocket3d/LICENSE"
 description = "The Pocket3D title card: the mark and the wordmark, drawn into a console's frame buffer before a game starts its renderer"
 
 # Standalone crate with no dependencies off the PS Vita: a game depends on it

@@ -190,6 +190,9 @@ describe("published npm artifacts", () => {
       "devices/psp/pocket-psp-ge/README.md",
       "devices/3ds/pocket-3ds-pica/include",
       "devices/3ds/pocket-3ds-pica/README.md",
+      "devices/LICENSE",
+      "engine/pocket3d/LICENSE",
+      "pocket3d/LICENSE",
     ]);
   });
 

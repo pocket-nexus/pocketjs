@@ -1,7 +1,7 @@
 {
   "name": "@pocketjs/framework",
   "version": "0.13.0",
-  "license": "MIT",
+  "license": "(MIT AND LicenseRef-Pocket3D-1.0)",
   "type": "module",
   "repository": {
     "type": "git",
@@ -152,7 +152,10 @@
     "devices/psp/pocket-psp-ge/src",
     "devices/psp/pocket-psp-ge/README.md",
     "devices/3ds/pocket-3ds-pica/include",
-    "devices/3ds/pocket-3ds-pica/README.md"
+    "devices/3ds/pocket-3ds-pica/README.md",
+    "devices/LICENSE",
+    "engine/pocket3d/LICENSE",
+    "pocket3d/LICENSE"
   ],
   "publishConfig": {
     "access": "public"

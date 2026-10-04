@@ -3,7 +3,7 @@ name = "pocket3d-anim"
 description = "Pocket3D skeletal animation sampling and pose interpolation"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file = "../../../../pocket3d/LICENSE"
 
 [dependencies]
 glam = { workspace = true, features = ["libm"] }

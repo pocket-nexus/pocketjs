@@ -39,6 +39,17 @@ draws it into the console's frame buffer on the PS Vita, the PSP and the
 Nintendo 3DS, and over the page in a browser reference; the three drawers
 produce the same frames. Its README lists the calls and the rules for a game.
 
+## License
+
+Pocket3D is under the [Pocket3D License](./LICENSE), version 1.0. It grants
+what the MIT License grants, with one more condition: **a distributed product
+that draws 3D scenes with Pocket3D shows the title card each time it starts**,
+unmodified and at its full length. The PocketJS hosts in this repository, and
+software that reaches Pocket3D only through them to draw PocketJS interfaces,
+are exempt. A separate written license from the copyright holder removes the
+condition: write to support@pocket.nexus. Copies published under the MIT
+License before this license stay under the MIT License.
+
 ## Engines
 
 | Engine | Owns | Renderers |

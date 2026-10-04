@@ -17,6 +17,9 @@ PocketJS keeps the desktop widget, animation, mesh, VRM and simulation consumers
 under `engine/`; none requires the BSP compiler. The old `pocket3d::bsp`,
 `pocket3d::collide` and `WorldModel::from_bsp` adapters moved to OpenStrike.
 
+The kernels are under the [Pocket3D License](../pocket3d/LICENSE). The PocketJS
+hosts that use them are exempt from its title-card condition.
+
 Do not normalize GE, PICA and GXM into one GPU API. Compilers must be able to
 see their costs and constraints. Extract another mechanism only after concrete
 callers establish its contract. The caller owns GPU completion and retirement;

@@ -2,7 +2,7 @@
 name = "pocket-psp-ge"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license-file = "../../../pocket3d/LICENSE"
 description = "PSP GE memory lifetime, cache publication and texture layout mechanisms"
 
 [workspace]

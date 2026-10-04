@@ -462,5 +462,13 @@ capture-maintenance rules are recorded in
 
 ## License
 
-PocketJS is [MIT licensed](./LICENSE). Inter is vendored under the OFL in
-[`assets/fonts/`](./assets/fonts/).
+PocketJS and MicroTS are [MIT licensed](./LICENSE). Inter is vendored under the
+OFL in [`assets/fonts/`](./assets/fonts/).
+
+Pocket3D, the files under [`pocket3d/`](./pocket3d/), [`devices/`](./devices/)
+and [`engine/pocket3d/`](./engine/pocket3d/), is under the
+[Pocket3D License](./pocket3d/LICENSE). It grants what the MIT License grants,
+with one more condition: **a distributed product that draws 3D scenes with
+Pocket3D shows the Pocket3D title card when it starts**. PocketJS's own hosts
+and the applications built on them are exempt. A separate written license
+removes the condition: write to support@pocket.nexus.
