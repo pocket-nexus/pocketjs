@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pocket3D</title>
+<meta name="description" content="Pocket3D is a hardware-native 3D stack for portable interactive software. Write a game once as Three.js content, and a compiler builds it for each machine in that machine's own terms.">
+<link rel="canonical" href="https://3d.pocket.nexus/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Pocket3D">
+<meta property="og:title" content="Pocket3D">
+<meta property="og:description" content="Pocket3D is a hardware-native 3D stack for portable interactive software. Write a game once as Three.js content, and a compiler builds it for each machine in that machine's own terms.">
+<meta property="og:url" content="https://3d.pocket.nexus/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#171226">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titan+One&family=Fredoka:wght@500;600&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#171226;--bg-2:#1c1630;--panel:#231b3b;--panel-2:#2b2148;--shade:#0e091a;
+  --ink:#fcf6ff;--ink-2:#cbbde2;--muted:#8e80ac;
+  --yellow:#ffd23f;--pink:#ff5f9e;--cyan:#3fd0e8;--lilac:#a98bff;--orange:#ffb45c;
+  --out:#221338;--drop:#0a0614;--rule:rgba(203,189,226,.14);
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --round:"Fredoka","IBM Plex Sans",system-ui,sans-serif;
+  --display:"Titan One",ui-rounded,"Arial Rounded MT Bold",system-ui,sans-serif;
+  --spring:cubic-bezier(.3,1.6,.5,1);
+  --gutter:clamp(16px,4vw,40px);
+  --page:min(1200px,calc(100% - 2 * var(--gutter)));
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  min-height:100vh;color:var(--ink);font:17px/1.55 var(--sans);overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  background:
+    radial-gradient(60% 34rem at 50% 0,rgba(255,95,158,.14),transparent 70%),
+    radial-gradient(40% 26rem at 12% 8rem,rgba(63,208,232,.08),transparent 70%),
+    var(--bg);
+}
+a{color:inherit}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--cyan);outline-offset:4px;border-radius:8px}
+img{display:block;max-width:100%;height:auto}
+code,pre{font-family:var(--mono)}
+
+/* confetti ground, as on pocket.nexus */
+.sky{position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='370' height='370'%3E%3Cg opacity='.3'%3E%3Crect x='30' y='42' width='13' height='5' rx='2.5' fill='%23ffd23f' transform='rotate(-24 36 44)'/%3E%3Ccircle cx='168' cy='26' r='2.6' fill='%233fd0e8'/%3E%3Crect x='292' y='118' width='11' height='5' rx='2.5' fill='%23ff5f9e' transform='rotate(38 297 120)'/%3E%3Cpath d='M92 214q5-6 10 0t10 0' stroke='%23ffb45c' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='238' cy='300' r='2.2' fill='%23a98bff'/%3E%3Crect x='24' y='318' width='10' height='4.5' rx='2.25' fill='%233fd0e8' transform='rotate(58 29 320)'/%3E%3C/g%3E%3C/svg%3E") 0 0/370px 370px,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='530' height='530'%3E%3Cg opacity='.24'%3E%3Ccircle cx='70' cy='120' r='2.4' fill='%23ff5f9e'/%3E%3Crect x='250' y='60' width='12' height='5' rx='2.5' fill='%23a98bff' transform='rotate(-52 256 62)'/%3E%3Cpath d='M418 250l1.8 4.5 4.5 1.8-4.5 1.8-1.8 4.5-1.8-4.5-4.5-1.8 4.5-1.8z' fill='%23ffd23f'/%3E%3Crect x='150' y='400' width='12' height='5' rx='2.5' fill='%23ffb45c' transform='rotate(16 156 402)'/%3E%3Ccircle cx='470' cy='470' r='2' fill='%233fd0e8'/%3E%3C/g%3E%3C/svg%3E") 140px 90px/530px 530px,
+    radial-gradient(circle,rgba(203,189,226,.085) 1.1px,transparent 1.6px) 0 0/24px 24px}
+
+/* bar */
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px var(--gutter)}
+.links{display:flex;gap:10px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 17px;border-radius:999px;
+  border:2px solid var(--out);background:var(--panel);color:var(--ink);font:600 15px/1 var(--round);
+  text-decoration:none;box-shadow:0 4px 0 var(--drop);transition:transform .25s var(--spring),box-shadow .12s ease}
+.pill:hover{transform:translateY(-2px) rotate(-1.5deg);box-shadow:0 6px 0 var(--drop)}
+.pill:active{transform:translateY(3px);box-shadow:0 1px 0 var(--drop)}
+.pill svg{width:28px;height:28px;overflow:visible}
+.pill.brand{padding-left:11px}
+.pill.go{background:var(--yellow);color:#221338}
+
+main{display:flex;flex-direction:column;align-items:center}
+
+/* ---------- hero ---------- */
+.hero{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;width:var(--page);padding:clamp(18px,4.5vh,52px) 0 0}
+
+/* The title is one slab turned in 3D. Each word is a glossy face over a stack
+   of shadows that runs away from the viewer. It holds one pose; the script
+   leans it a few degrees toward the pointer. */
+.title{font:clamp(30px,8.6vw,104px)/1.02 var(--display);letter-spacing:-.01em;perspective:1100px;perspective-origin:50% 45%;
+  -webkit-user-select:none;user-select:none}
+.rig{display:inline-block;transform:rotateX(9deg) rotateY(-11deg);will-change:transform;
+  filter:drop-shadow(.022em 0 0 var(--out)) drop-shadow(-.022em 0 0 var(--out)) drop-shadow(0 .022em 0 var(--out)) drop-shadow(0 -.022em 0 var(--out))
+    drop-shadow(0 .16em .14em rgba(6,3,14,.55))}
+.ln{display:block;white-space:nowrap}
+.ln + .ln{margin-top:.02em}
+.w{position:relative;display:inline-block;--s:#8f73ea;
+  --ts:.012em .014em 0 #8a6fe6,.024em .028em 0 #8168dd,.036em .042em 0 #7861d3,.048em .056em 0 #6f59c9,.06em .07em 0 #6551bd,.072em .084em 0 #5b48b0,.084em .098em 0 #5140a4,.096em .112em 0 #473797,.108em .126em 0 #3d2b8c}
+.w::before{content:attr(data-t);position:absolute;left:0;top:0;color:var(--s);text-shadow:var(--ts);white-space:nowrap}
+.f{position:relative;display:inline-block;color:transparent;
+  background:linear-gradient(180deg,var(--f1,#fff) 14%,var(--f2,#f3ebff) 50%,var(--f3,#cdbcf6) 94%);-webkit-background-clip:text;background-clip:text}
+.f::after{content:attr(data-t);position:absolute;left:0;top:0;color:transparent;white-space:nowrap;
+  background:linear-gradient(104deg,transparent 42%,rgba(255,255,255,.95) 50%,transparent 58%) 150% 0/260% 100% no-repeat;-webkit-background-clip:text;background-clip:text}
+.w.gold{font-size:1.14em;--s:#f59a1f;--f1:#fff8cf;--f2:#ffd84a;--f3:#ffa61a;
+  --ts:.012em .014em 0 #ef941d,.024em .028em 0 #e38b1a,.036em .042em 0 #d68117,.048em .056em 0 #c97714,.06em .07em 0 #bc6d11,.072em .084em 0 #af630e,.084em .098em 0 #a2580b,.096em .112em 0 #964d08,.108em .126em 0 #8a3f05}
+.w.pink{--s:#de3d82;--f1:#ffdbe9;--f2:#ff78af;--f3:#ff3d88;
+  --ts:.012em .014em 0 #d6397c,.024em .028em 0 #c93476,.036em .042em 0 #bc2f6f,.048em .056em 0 #af2a68,.06em .07em 0 #a22561,.072em .084em 0 #94205a,.084em .098em 0 #871b52,.096em .112em 0 #79164a,.108em .126em 0 #6c123e}
+@media (prefers-reduced-motion:no-preference){
+  .f::after{animation:shine 6.5s ease-in-out infinite;animation-delay:var(--sd,1.2s)}
+  .js .w{animation:pop .8s var(--spring) both;animation-delay:var(--pd,0s)}
+}
+@keyframes shine{0%,62%{background-position:150% 0}100%{background-position:-60% 0}}
+@keyframes pop{from{opacity:0;transform:translateY(.35em) scale(.6) rotate(-6deg)}to{opacity:1;transform:none}}
+
+.spark{position:absolute;width:var(--z,26px);height:var(--z,26px);color:var(--c,var(--yellow));pointer-events:none}
+@media (prefers-reduced-motion:no-preference){.spark{animation:twinkle var(--t,2.6s) ease-in-out infinite;animation-delay:var(--sd,0s)}}
+@keyframes twinkle{0%,100%{transform:scale(.55) rotate(0);opacity:.35}50%{transform:scale(1.1) rotate(24deg);opacity:1}}
+
+.lede{margin-top:clamp(26px,4.4vh,44px);font:500 clamp(18px,1.7vw,23px)/1.42 var(--round);color:var(--ink-2);max-width:38em;text-wrap:balance}
+.ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin-top:clamp(20px,3.2vh,30px)}
+.btn{display:inline-flex;align-items:center;gap:10px;height:56px;padding:0 26px;border-radius:999px;
+  background:linear-gradient(180deg,#ffdc63,#ffc01f);color:#221338;border:3px solid var(--out);
+  box-shadow:0 6px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.6),inset 0 -4px 0 rgba(214,134,0,.32);
+  font:600 18px/1 var(--round);text-decoration:none;transition:transform .45s cubic-bezier(.28,2.2,.45,1),box-shadow .18s ease}
+.btn .arr{display:inline-block;transition:transform .35s cubic-bezier(.28,2.2,.45,1)}
+.btn:hover{transform:translateY(-2px) rotate(-1.6deg) scale(1.03)}
+.btn:hover .arr{transform:translate(var(--ax,4px),var(--ay,0))}
+.btn:active{transform:translateY(4px) scale(1.06,.88);box-shadow:0 1px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.6);transition-duration:.07s}
+.btn.alt{background:var(--panel);color:var(--ink);box-shadow:0 6px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.07)}
+
+/* a strip of frames captured on the consoles */
+.strip{width:100%;margin-top:clamp(28px,5vh,52px);overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.reel{display:flex;width:max-content;animation:reel 80s linear infinite}
+.strip:hover .reel{animation-play-state:paused}
+@keyframes reel{to{transform:translateX(-50%)}}
+.reel ul{display:flex;list-style:none;gap:clamp(12px,1.6vw,22px);padding:6px clamp(12px,1.6vw,22px) 0 0}
+.reel figure{display:flex;flex-direction:column;gap:9px;transition:transform .35s var(--spring)}
+.reel li:nth-child(odd) figure{transform:rotate(-.8deg)}
+.reel li:nth-child(even) figure{transform:rotate(.8deg)}
+.reel figure:hover{transform:rotate(0) scale(1.04)}
+.reel img{height:clamp(140px,17vw,212px);width:auto;max-width:none;border-radius:clamp(8px,1vw,14px);border:3px solid var(--out);
+  box-shadow:0 6px 0 var(--drop);background:var(--panel)}
+.reel figcaption{font:500 12.5px/1.3 var(--mono);color:var(--muted);text-align:left;padding:0 4px 10px}
+.reel figcaption b{font-weight:500;color:var(--ink-2)}
+
+/* ---------- chapters ---------- */
+.chap{width:var(--page);margin-top:clamp(72px,12vh,136px)}
+.head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px clamp(24px,4vw,56px);align-items:end}
+.head h2 span{white-space:nowrap}
+.head h2{font:clamp(32px,4.3vw,57px)/1.02 var(--display);color:var(--c);letter-spacing:-.005em;
+  -webkit-text-stroke:.085em var(--out);paint-order:stroke fill;
+  text-shadow:0 .03em 0 var(--c2),0 .06em 0 var(--c2),0 .09em 0 var(--c2),0 .15em 0 var(--drop)}
+.head .kick{margin-top:14px;font:600 clamp(19px,1.8vw,23px)/1.3 var(--round);color:var(--ink)}
+.head .why{font-size:17px;line-height:1.6;color:var(--ink-2)}
+.card{border-radius:clamp(16px,1.8vw,24px);border:3px solid var(--out);background:var(--panel);box-shadow:0 8px 0 var(--drop);min-width:0}
+.viz{margin-top:clamp(24px,4vh,40px)}
+
+/* things pop in as they scroll into view */
+.js .rv{opacity:0;transform:translateY(22px) scale(.97)}
+.js .rv.in{opacity:1;transform:none;transition:opacity .45s ease,transform .8s var(--spring);transition-delay:var(--d,0s)}
+
+/* ---------- 1. hardware-native: what each machine has, above what they share ---------- */
+.native{padding:clamp(18px,2.4vw,30px)}
+.mode{display:inline-grid;grid-template-columns:1fr 1fr;padding:5px;border-radius:999px;background:var(--shade);border:2px solid var(--out)}
+.mode button{appearance:none;border:0;cursor:pointer;height:40px;padding:0 20px;border-radius:999px;background:transparent;color:var(--muted);
+  font:600 15px/1 var(--round);transition:background-color .2s,color .2s,transform .3s var(--spring)}
+.mode button[aria-pressed="true"]{background:var(--yellow);color:#221338;box-shadow:0 3px 0 var(--drop)}
+.mode button:active{transform:scale(.94)}
+.says{position:relative;margin-top:14px;min-height:3.2em;font:500 17px/1.45 var(--round);color:var(--ink-2);max-width:40em}
+.says span{display:block;transition:opacity .3s ease}
+.native[data-mode="flat"] .says .n,.native[data-mode="native"] .says .o{position:absolute;inset:0 auto auto 0;opacity:0;pointer-events:none}
+.meter{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:clamp(12px,2vw,26px);margin-top:18px}
+.tw{display:contents}
+.tw:nth-child(1) > *{grid-column:1}.tw:nth-child(2) > *{grid-column:2}.tw:nth-child(3) > *{grid-column:3}
+.dev{grid-row:1;display:flex;align-items:center;gap:12px;min-height:60px}
+.dev svg{flex:none;height:44px;width:auto;overflow:visible}
+.dev h3{font:600 20px/1.15 var(--round);color:var(--c)}
+.dev h3 small{display:block;font:500 12.5px/1.4 var(--mono);color:var(--muted)}
+.feats{grid-row:2;list-style:none;display:grid;gap:8px;margin-top:12px;padding-bottom:14px}
+.feats li{display:grid;place-items:center;min-height:46px;padding:6px 10px;border-radius:14px;text-align:center;
+  font:600 15.5px/1.2 var(--round);color:#221338;background:var(--c);border:2.5px solid var(--out);box-shadow:0 4px 0 var(--drop);
+  transition:transform .6s var(--spring),background-color .3s,color .3s,border-color .3s,box-shadow .3s,opacity .3s;transition-delay:calc(var(--n) * 70ms)}
+.native[data-mode="flat"] .feats li{background:transparent;color:var(--muted);border-style:dashed;border-color:rgba(203,189,226,.3);box-shadow:none;
+  transform:scale(.94);text-decoration:line-through;text-decoration-color:rgba(203,189,226,.5)}
+.feats li{position:relative}
+.feats li::after{content:"";position:absolute;right:-7px;top:-9px;width:20px;height:20px;background:var(--ink);opacity:0;transform:scale(0) rotate(0);
+  clip-path:polygon(50% 0,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0 50%,40% 40%)}
+@media (prefers-reduced-motion:no-preference){
+  .native[data-mode="native"] .feats li::after{animation:glint .7s ease-out both;animation-delay:calc(var(--n) * 70ms + .25s)}
+  .dev svg{animation:bob 3.2s ease-in-out infinite}
+  .tw:nth-child(2) .dev svg{animation-delay:-1.1s}.tw:nth-child(3) .dev svg{animation-delay:-2.2s}
+}
+@keyframes glint{0%{opacity:0;transform:scale(0) rotate(0)}40%{opacity:1;transform:scale(1.15) rotate(40deg)}100%{opacity:0;transform:scale(.4) rotate(90deg)}}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-4px) rotate(2deg)}}
+.cut{grid-row:3;grid-column:1 / -1;display:flex;align-items:center;gap:12px;font:500 12.5px/1 var(--mono);color:var(--muted)}
+.cut::before,.cut::after{content:"";flex:1;border-top:2.5px dashed rgba(203,189,226,.4)}
+.shared{grid-row:4;grid-column:1 / -1;display:grid;place-items:center;min-height:52px;margin-top:12px;border-radius:14px;
+  font:600 16px/1.2 var(--round);color:var(--ink-2);background:var(--panel-2);border:2.5px solid var(--out);box-shadow:0 4px 0 var(--drop)}
+.native[data-mode="flat"] .shared{color:#221338;background:var(--ink-2)}
+.proof{grid-row:5;margin-top:18px;font-size:14.5px;line-height:1.5;color:var(--ink-2)}
+.proof b{display:block;margin-bottom:3px;font:21px/1.1 var(--display);color:var(--ink)}
+
+/* ---------- 2. compiler-first: front end, IR, back ends ---------- */
+.compile{padding:clamp(18px,2.4vw,30px)}
+.cols{display:grid;grid-template-columns:minmax(0,1.05fr) clamp(36px,5vw,64px) minmax(0,.9fr) clamp(44px,6vw,84px) minmax(0,1.35fr)}
+.stage{font:500 12.5px/1 var(--mono);color:var(--muted);padding-bottom:12px}
+.node{align-self:center;padding:18px;border-radius:18px;border:2.5px solid var(--out);background:var(--bg-2);box-shadow:0 5px 0 var(--drop)}
+.node h3{font:600 20px/1.2 var(--round);color:var(--c)}
+.node p{margin-top:6px;font-size:14.5px;line-height:1.5;color:var(--ink-2)}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;list-style:none}
+.tags li{padding:5px 10px;border-radius:9px;background:var(--shade);border:2px solid var(--out);font:500 12px/1.2 var(--mono);color:var(--ink)}
+.wire{align-self:stretch;width:100%;height:100%;min-height:60px;overflow:visible}
+.wire path{fill:none;stroke:var(--c,var(--lilac));stroke-width:5.5;stroke-linecap:round;stroke-dasharray:.1 14;vector-effect:non-scaling-stroke}
+@media (prefers-reduced-motion:no-preference){.wire path{animation:flow .9s linear infinite}}
+@keyframes flow{to{stroke-dashoffset:-14.1}}
+.outs{display:grid;gap:10px}
+.out{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;align-items:center;padding:12px 16px;border-radius:16px;
+  border:2.5px solid var(--out);background:var(--bg-2);box-shadow:0 5px 0 var(--drop)}
+.out svg{grid-row:1 / 3;height:38px;width:54px;overflow:visible}
+.out h3{font:600 17px/1.2 var(--round);color:var(--c)}
+.out h3 small{font:500 12px/1 var(--mono);color:var(--muted);margin-left:.5em}
+.out p{font:500 12.5px/1.45 var(--mono);color:var(--ink-2)}
+.llvm{margin-top:18px;padding-top:16px;border-top:2.5px dashed var(--rule);align-items:center;font:500 13px/1.4 var(--mono);color:var(--muted)}
+.llvm b{font:600 15px/1.2 var(--round);color:var(--ink-2)}
+.llvm span{color:var(--ink-2)}
+.llvm i{font-style:normal;text-align:center}
+.llvm > :first-child{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+
+/* the same view twice: the reference in a browser, the compiled scene on a console */
+.compare{position:relative;max-width:900px;margin:clamp(18px,2.4vw,28px) auto 0;border-radius:clamp(12px,1.4vw,18px);overflow:hidden;border:3px solid var(--out);
+  box-shadow:0 6px 0 var(--drop);aspect-ratio:960/544;--p:50%;touch-action:pan-y;background:var(--shade)}
+.compare img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.compare .top{clip-path:inset(0 calc(100% - var(--p)) 0 0)}
+.compare .bar2{position:absolute;top:0;bottom:0;left:var(--p);width:4px;margin-left:-2px;background:var(--yellow);box-shadow:0 0 0 2px var(--out)}
+.compare .knob{position:absolute;top:50%;left:var(--p);width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;display:grid;place-items:center;
+  background:var(--yellow);border:3px solid var(--out);box-shadow:0 4px 0 var(--drop);color:#221338;font:600 17px/1 var(--round);pointer-events:none}
+.compare .tag{position:absolute;bottom:12px;padding:7px 12px;border-radius:10px;background:rgba(14,9,26,.82);font:500 12.5px/1.2 var(--mono);color:var(--ink)}
+.compare .tag.l{left:12px}.compare .tag.r{right:12px}
+.compare input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
+.cap{max-width:900px;margin:12px auto 0;font-size:14.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.compare:not(.used) .knob{animation:nudge 1.6s ease-in-out infinite}}
+@keyframes nudge{0%,100%{transform:translateX(-5px)}50%{transform:translateX(5px)}}
+
+/* ---------- 3. purpose-built engines: three stacks on one plate ---------- */
+.engines{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(14px,2vw,26px);align-items:stretch}
+.eng{display:flex;flex-direction:column}
+.eng figure{overflow:hidden;border-radius:18px 18px 8px 8px;border:3px solid var(--out);box-shadow:0 5px 0 var(--drop);background:var(--shade)}
+.eng img{width:100%;aspect-ratio:16/9;object-fit:cover}
+.eng h3{margin-top:14px;font:clamp(22px,2.2vw,28px)/1.05 var(--display);color:var(--c);text-shadow:0 .07em 0 var(--drop)}
+.eng > p{margin-top:5px;font:500 16px/1.4 var(--round);color:var(--ink-2);min-height:2.8em}
+.bricks{list-style:none;display:grid;gap:9px;margin-top:auto;padding-top:12px}
+.brick{position:relative;display:grid;grid-template-columns:4.6em minmax(0,1fr);gap:2px 12px;align-items:baseline;padding:11px 14px 12px;border-radius:14px;
+  background:var(--panel);border:2.5px solid var(--out);box-shadow:0 5px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.06)}
+.brick::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:6px;border-radius:0 6px 6px 0;background:var(--c)}
+.brick span{font:500 12px/1.6 var(--mono);color:var(--muted)}
+.brick b{font:600 16.5px/1.25 var(--round);color:var(--ink)}
+.brick em{grid-column:2;font-style:normal;font-size:13.5px;line-height:1.4;color:var(--ink-2)}
+.js .rv .brick{opacity:0;transform:translateY(-46px) rotate(var(--r,-3deg))}
+.js .rv.in .brick{opacity:1;transform:none;transition:opacity .25s ease,transform .7s cubic-bezier(.3,1.9,.5,1);transition-delay:calc(var(--d,0s) + var(--n) * 110ms)}
+.plate{margin-top:14px;padding:16px 20px;border-radius:16px;text-align:center;font:600 16px/1.35 var(--round);color:#221338;
+  background:linear-gradient(180deg,#ffdc63,#ffc01f);border:3px solid var(--out);box-shadow:0 7px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.6)}
+.plate b{font:19px/1 var(--display);margin-right:.4em}
+
+/* ---------- 4. built for coding agents ---------- */
+.agent{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.5fr) minmax(0,1fr);gap:clamp(14px,2vw,24px);align-items:center}
+.chat{display:grid;gap:12px}
+.say2{padding:14px 16px;border-radius:18px 18px 18px 5px;background:var(--ink);color:#221338;border:3px solid var(--out);box-shadow:0 5px 0 var(--drop);
+  font:500 16px/1.4 var(--round)}
+.say2.bot{border-radius:18px 18px 5px 18px;background:var(--panel-2);color:var(--ink);justify-self:end}
+.say2 small{display:block;margin-bottom:3px;font:500 11.5px/1 var(--mono);color:var(--muted)}
+.say2:not(.bot) small{color:#6b5a8e}
+.editor{overflow:hidden;background:var(--shade)}
+.tabs{display:flex;align-items:center;gap:7px;padding:10px 14px;background:var(--panel);border-bottom:3px solid var(--out);font:500 12.5px/1 var(--mono);color:var(--ink-2)}
+.tabs i{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+.tabs i:first-child{background:var(--pink)}.tabs i:nth-child(2){background:var(--yellow)}.tabs i:nth-child(3){background:var(--cyan);margin-right:6px}
+.editor pre{padding:16px 18px;min-height:16em;font-size:clamp(11.5px,1vw,13.5px);line-height:1.75;color:var(--ink-2);overflow-x:auto;white-space:pre}
+.editor .k{color:var(--pink)}.editor .s{color:var(--yellow)}.editor .n{color:var(--cyan)}.editor .m{color:var(--muted)}
+.caret{display:inline-block;width:.55em;height:1.05em;vertical-align:-.18em;background:var(--yellow);animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.result figure{overflow:hidden;border-radius:16px;border:3px solid var(--out);box-shadow:0 6px 0 var(--drop);transform:rotate(1.5deg);transition:transform .4s var(--spring)}
+.result figure:hover{transform:rotate(0) scale(1.03)}
+.result p{margin-top:12px;font:500 12.5px/1.45 var(--mono);color:var(--muted)}
+.loop{--g:clamp(12px,2vw,26px);position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--g);margin-top:clamp(22px,3.4vh,36px)}
+.step{position:relative;padding:16px 18px 18px}
+.step b{display:block;font:20px/1 var(--display);color:var(--c);-webkit-text-stroke:.12em var(--out);paint-order:stroke fill}
+.step h3{margin-top:8px;font:600 18px/1.2 var(--round);color:var(--ink)}
+.step p{margin-top:4px;font-size:14px;line-height:1.45;color:var(--ink-2)}
+.step code{display:block;margin-top:10px;padding:8px 10px;border-radius:10px;background:var(--shade);border:2px solid var(--out);
+  font-size:11.5px;line-height:1.5;color:var(--yellow);overflow-x:auto;white-space:nowrap}
+.step + .step::before{content:"→";position:absolute;left:calc(-1 * var(--g) / 2 - 3px);top:50%;transform:translate(-50%,-50%);font:600 22px/1 var(--round);color:var(--muted)}
+.back{grid-column:2 / 5;position:relative;height:28px;margin:-8px calc((100% - 2 * var(--g)) / 6) 0;
+  border:2.5px dashed var(--muted);border-top:0;border-radius:0 0 18px 18px}
+.back::before{content:"";position:absolute;left:-8.5px;top:-4px;border:7px solid transparent;border-top:0;border-bottom:9px solid var(--muted)}
+.back span{position:absolute;left:50%;bottom:0;transform:translate(-50%,50%);padding:0 14px;background:var(--bg);font:600 15px/1.3 var(--round);color:var(--ink-2);white-space:nowrap}
+
+/* close */
+.close{display:flex;flex-direction:column;align-items:center;text-align:center;margin:clamp(80px,13vh,140px) 16px clamp(56px,9vh,96px)}
+.close h2{font:clamp(34px,4.6vw,60px)/1.02 var(--display);color:var(--ink);-webkit-text-stroke:.085em var(--out);paint-order:stroke fill;
+  text-shadow:0 .03em 0 #8f73ea,0 .06em 0 #8f73ea,0 .09em 0 #8f73ea,0 .15em 0 var(--drop)}
+.close p{margin-top:16px;color:var(--ink-2);max-width:32em}
+.foot{display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between;padding:26px var(--gutter) 34px;
+  border-top:2px dashed rgba(169,139,255,.25);font:500 13px/1.4 var(--mono);color:var(--muted)}
+.foot nav{display:flex;flex-wrap:wrap;gap:8px 22px}
+.foot a{text-decoration:none}
+.foot a:hover{color:var(--ink)}
+
+@media (max-width:980px){
+  .head{grid-template-columns:1fr}
+  .cols{grid-template-columns:1fr}
+  .cols .stage{display:none}
+  .wire{display:none}
+  .node + .wire + .node,.outs{margin-top:34px;position:relative}
+  .node + .wire + .node::before,.outs::before{content:"↓";position:absolute;left:50%;top:-31px;transform:translateX(-50%);font:600 22px/1 var(--round);color:var(--muted)}
+  .cols.llvm{display:flex;flex-wrap:wrap;gap:6px 10px}
+  .engines{grid-template-columns:1fr;gap:34px}
+  .agent{grid-template-columns:1fr}
+  .result{max-width:420px}
+  .loop{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .step:nth-child(3)::before{display:none}
+  .back{grid-column:1 / 3;margin-inline:0;height:auto;border:0;text-align:center}
+  .back::before{display:none}
+  .back span{position:static;transform:none;background:none}
+}
+@media (max-width:640px){
+  .links .pill:not(.go){display:none}
+  .meter{grid-template-columns:1fr}
+  .tw{display:block}
+  .tw + .tw{margin-top:22px}
+  .feats{padding-bottom:0}
+  .proof{margin-top:12px}
+  .cut,.shared{grid-row:auto;margin-top:22px}
+  .shared{margin-top:10px}
+  .loop{grid-template-columns:1fr}
+  .step + .step::before{display:none}
+  .back{grid-column:1}
+  .compare .tag{font-size:11.5px;padding:5px 9px;bottom:8px}
+  .compare .tag span{display:none}
+  .mode button{padding:0 13px;font-size:14px;white-space:nowrap}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+  .strip{overflow-x:auto}
+  .reel ul[aria-hidden]{display:none}
+  .js .rv,.js .rv .brick{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+<div class="sky" aria-hidden="true"></div>
+
+<header class="bar">
+  <a class="pill brand" href="/" aria-label="Pocket3D home"><svg aria-hidden="true" viewBox="-15.49 -17.28 32.76 32.76"><defs><linearGradient id="m3d-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe98a"/><stop offset=".45" stop-color="#ffd23f"/><stop offset="1" stop-color="#ffbe1f"/></linearGradient></defs><path d="M11.79 -11.36L12.79 -10.00L15.04 -7.99L14.11 -9.24Z" fill="#da991a" stroke="#da991a" stroke-width=".12" stroke-linejoin="round"/><path d="M12.79 -10.00L13.44 -8.39L15.65 -6.51L15.04 -7.99Z" fill="#d49318" stroke="#d49318" stroke-width=".12" stroke-linejoin="round"/><path d="M13.44 -8.39L13.71 -6.61L15.91 -4.88L15.65 -6.51Z" fill="#ce8c16" stroke="#ce8c16" stroke-width=".12" stroke-linejoin="round"/><path d="M13.71 -6.61L14.03 2.55L16.25 3.46L15.91 -4.88Z" fill="#cb8915" stroke="#cb8915" stroke-width=".12" stroke-linejoin="round"/><path d="M14.03 2.55L13.89 4.47L16.12 5.21L16.25 3.46Z" fill="#c88614" stroke="#c88614" stroke-width=".12" stroke-linejoin="round"/><path d="M13.89 4.47L13.33 6.33L15.62 6.89L16.12 5.21Z" fill="#c27f12" stroke="#c27f12" stroke-width=".12" stroke-linejoin="round"/><path d="M13.33 6.33L12.38 8.01L14.75 8.42L15.62 6.89Z" fill="#bd7a10" stroke="#bd7a10" stroke-width=".12" stroke-linejoin="round"/><path d="M12.38 8.01L11.11 9.42L13.59 9.69L14.75 8.42Z" fill="#b8750f" stroke="#b8750f" stroke-width=".12" stroke-linejoin="round"/><path d="M11.11 9.42L9.59 10.47L12.19 10.64L13.59 9.69Z" fill="#b5720e" stroke="#b5720e" stroke-width=".12" stroke-linejoin="round"/><path d="M9.59 10.47L7.92 11.12L10.65 11.24L12.19 10.64Z" fill="#b3700d" stroke="#b3700d" stroke-width=".12" stroke-linejoin="round"/><path d="M7.92 11.12L6.19 11.35L9.04 11.44L10.65 11.24Z" fill="#b36f0d" stroke="#b36f0d" stroke-width=".12" stroke-linejoin="round"/><path d="M6.19 11.35L-8.87 11.46L-5.07 11.53L9.04 11.44Z" fill="#b3700d" stroke="#b3700d" stroke-width=".12" stroke-linejoin="round"/><path d="M5.82 -13.22L7.45 -13.33L9.04 -13.05L10.51 -12.39L11.79 -11.36L12.79 -10.00L13.44 -8.39L13.71 -6.61L14.03 2.55L13.89 4.47L13.33 6.33L12.38 8.01L11.11 9.42L9.59 10.47L7.92 11.12L6.19 11.35L-8.87 11.46L-10.22 11.28L-11.46 10.75L-12.53 9.89L-13.40 8.78L-14.02 7.45L-14.38 5.98L-14.46 4.44L-14.19 -3.02L-14.01 -4.53L-13.56 -5.98L-12.87 -7.34L-11.97 -8.53L-10.89 -9.51L-9.68 -10.21L-8.39 -10.62Z" fill="url(#m3d-gold)"/><path d="M5.86 -10.54L6.91 -10.59L7.93 -10.39L8.86 -9.95L9.66 -9.27L10.28 -8.40L10.68 -7.37L10.84 -6.24L11.09 2.74L11.00 3.96L10.64 5.13L10.05 6.19L9.25 7.08L8.30 7.77L7.25 8.20L6.14 8.37L-8.81 8.79L-9.68 8.70L-10.48 8.37L-11.19 7.84L-11.76 7.12L-12.17 6.27L-12.42 5.31L-12.48 4.31L-12.24 -3.28L-12.12 -4.26L-11.83 -5.21L-11.37 -6.10L-10.78 -6.88L-10.07 -7.50L-9.28 -7.95L-8.45 -8.20Z" fill="#171226"/><path d="M-4.31 -0.31L-4.38 0.40L-4.59 1.08L-4.92 1.70L-5.36 2.23L-5.87 2.65L-6.43 2.92L-7.02 3.04L-7.60 3.01L-8.14 2.82L-8.62 2.49L-9.01 2.04L-9.30 1.49L-9.47 0.87L-9.52 0.20L-9.44 -0.47L-9.24 -1.12L-8.93 -1.72L-8.52 -2.24L-8.03 -2.66L-7.49 -2.94L-6.91 -3.09L-6.34 -3.08L-5.79 -2.92L-5.29 -2.62L-4.87 -2.18L-4.56 -1.63L-4.37 -1.00Z" fill="#ff5f9e"/><path d="M6.86 -5.09L7.21 -5.07L7.53 -4.94L7.79 -4.71L7.96 -4.40L8.02 -4.04L8.02 -4.04L7.97 -3.66L7.81 -3.31L7.57 -3.01L7.25 -2.81L6.90 -2.71L-0.71 -1.90L-1.02 -1.92L-1.30 -2.05L-1.52 -2.27L-1.66 -2.57L-1.71 -2.91L-1.71 -2.91L-1.66 -3.26L-1.51 -3.59L-1.29 -3.86L-1.01 -4.06L-0.70 -4.15Z" fill="#3fd0e8"/><path d="M3.40 0.22L3.74 0.25L4.05 0.39L4.29 0.64L4.45 0.95L4.51 1.32L4.51 1.32L4.46 1.69L4.31 2.04L4.07 2.32L3.76 2.52L3.42 2.60L-0.71 2.89L-1.03 2.86L-1.31 2.72L-1.54 2.48L-1.68 2.17L-1.73 1.82L-1.73 1.82L-1.68 1.46L-1.53 1.13L-1.31 0.86L-1.02 0.67L-0.71 0.59Z" fill="#ff5f9e"/></svg><span>Pocket3D</span></a>
+  <nav class="links" aria-label="Pocket3D">
+    <a class="pill" href="https://pocketjs.pocket.nexus/">PocketJS</a>
+    <a class="pill go" href="https://github.com/pocket-nexus/pocketjs/tree/main/engine/pocket3d">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero" id="hero">
+    <svg class="spark" style="left:6%;top:14%;--z:30px;--c:var(--yellow)" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 0c1.2 7.2 4.8 10.8 12 12-7.2 1.2-10.8 4.8-12 12-1.2-7.2-4.8-10.8-12-12 7.2-1.2 10.8-4.8 12-12z"/></svg>
+    <svg class="spark" style="right:9%;top:6%;--z:20px;--c:var(--cyan);--t:3.1s;--sd:.7s" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 0c1.2 7.2 4.8 10.8 12 12-7.2 1.2-10.8 4.8-12 12-1.2-7.2-4.8-10.8-12-12 7.2-1.2 10.8-4.8 12-12z"/></svg>
+    <svg class="spark" style="right:3%;top:58%;--z:30px;--c:var(--pink);--t:3.6s;--sd:1.3s" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 0c1.2 7.2 4.8 10.8 12 12-7.2 1.2-10.8 4.8-12 12-1.2-7.2-4.8-10.8-12-12 7.2-1.2 10.8-4.8 12-12z"/></svg>
+    <svg class="spark" style="left:11%;top:50%;--z:16px;--c:var(--lilac);--t:2.3s;--sd:.4s" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 0c1.2 7.2 4.8 10.8 12 12-7.2 1.2-10.8 4.8-12 12-1.2-7.2-4.8-10.8-12-12 7.2-1.2 10.8-4.8 12-12z"/></svg>
+
+    <h1 class="title" id="title" aria-label="Create 3D for every machine you love">
+      <span class="rig" aria-hidden="true">
+        <span class="ln"><span class="w" data-t="Create" style="--pd:.05s"><span class="f" data-t="Create">Create</span></span> <span class="w gold" data-t="3D" style="--pd:.16s"><span class="f" data-t="3D" style="--sd:1.5s">3D</span></span></span>
+        <span class="ln"><span class="w" data-t="for every machine" style="--pd:.27s"><span class="f" data-t="for every machine" style="--sd:1.8s">for every machine</span></span></span>
+        <span class="ln"><span class="w" data-t="you" style="--pd:.38s"><span class="f" data-t="you" style="--sd:2.1s">you</span></span> <span class="w pink" data-t="love" style="--pd:.49s"><span class="f" data-t="love" style="--sd:2.3s">love</span></span></span>
+      </span>
+    </h1>
+    <p class="lede">Pocket3D is a hardware-native 3D stack for portable interactive software.</p>
+    <div class="ctas">
+      <a class="btn" href="#hardware-native" style="--ax:0;--ay:4px">See how it works <span class="arr" aria-hidden="true">↓</span></a>
+      <a class="btn alt" href="https://github.com/pocket-nexus/pocketjs/tree/main/engine/pocket3d">Read the source</a>
+    </div>
+  </section>
+
+  <div class="strip" aria-label="Frames captured from Pocket3D engines on real consoles">
+    <div class="reel">
+      <ul>
+        <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt="A green tram passes a level crossing above the sea."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt="A street of timber houses with a tower at its end."><figcaption><b>Pocket Maneuver</b> on a PSP</figcaption></figure></li>
+        <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt="A grid of city lights seen from a hilltop terrace at dusk."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/maneuver-3ds.webp" width="400" height="480" alt="A street view on the upper screen and a town plan on the lower screen."><figcaption><b>Pocket Maneuver</b> on a 3DS</figcaption></figure></li>
+        <li><figure><img src="/assets/openstrike-psp.webp" width="960" height="544" alt="A first-person view of a sunlit courtyard with crates and a rifle."><figcaption><b>OpenStrike</b> on a PSP</figcaption></figure></li>
+        <li><figure><img src="/assets/atlas-konbini.webp" width="960" height="544" alt="A convenience store at night, reflected in wet ground."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/maneuver-vita.webp" width="960" height="544" alt="A figure on wires flies over the red roofs of a walled town."><figcaption><b>Pocket Maneuver</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/atlas-suga.webp" width="960" height="544" alt="Stone stairs between buildings under a tree, in hard sunlight."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+      </ul>
+      <ul aria-hidden="true">
+        <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt=""><figcaption><b>Pocket Maneuver</b> on a PSP</figcaption></figure></li>
+        <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/maneuver-3ds.webp" width="400" height="480" alt=""><figcaption><b>Pocket Maneuver</b> on a 3DS</figcaption></figure></li>
+        <li><figure><img src="/assets/openstrike-psp.webp" width="960" height="544" alt=""><figcaption><b>OpenStrike</b> on a PSP</figcaption></figure></li>
+        <li><figure><img src="/assets/atlas-konbini.webp" width="960" height="544" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/maneuver-vita.webp" width="960" height="544" alt=""><figcaption><b>Pocket Maneuver</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/atlas-suga.webp" width="960" height="544" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 1 -->
+  <section class="chap" id="hardware-native" style="--c:var(--yellow);--c2:#c98a00">
+    <header class="head rv">
+      <div>
+        <h2><span>Hardware-native</span></h2>
+        <p class="kick">Built to use each machine in full.</p>
+      </div>
+      <p class="why">Most cross-platform engines flatten every console down to what they all share. Pocket3D is designed the other way round. A game gets a renderer for each machine, so the PSP's fixed pipeline, the 3DS's glasses-free 3D screen and the Vita's GXM driver are all there to be used.</p>
+    </header>
+    <div class="card viz native rv" id="native" data-mode="native" style="--d:.1s">
+      <div class="mode" role="group" aria-label="Engine design">
+        <button type="button" data-set="flat" aria-pressed="false">One engine for all</button>
+        <button type="button" data-set="native" aria-pressed="true">Pocket3D</button>
+      </div>
+      <p class="says" aria-live="polite">
+        <span class="o">One renderer has to run on all three, so it draws with what all three share. Everything above the line goes unused.</span>
+        <span class="n">A renderer for each machine keeps everything above the line in reach.</span>
+      </p>
+      <div class="meter">
+        <div class="tw" style="--c:var(--yellow)">
+          <div class="dev">
+            <svg viewBox="0 0 76 36" aria-hidden="true"><rect x="1.5" y="3.5" width="73" height="29" rx="14.5" fill="#171226" stroke="currentColor" stroke-width="2.6" style="color:var(--yellow)"/><rect x="20" y="8.5" width="36" height="19" rx="2.5" fill="#3fd0e8" opacity=".9"/><path d="M10.5 13.5v9M6 18h9" stroke="#ff5f9e" stroke-width="2.6" stroke-linecap="round"/><circle cx="62.5" cy="18" r="1.7" fill="#ff5f9e"/><circle cx="68" cy="18" r="1.7" fill="#ffd23f"/><circle cx="65.2" cy="13.4" r="1.7" fill="#a98bff"/><circle cx="65.2" cy="22.6" r="1.7" fill="#3fd0e8"/></svg>
+            <h3>PSP <small>GE, 2004</small></h3>
+          </div>
+          <ul class="feats"><li style="--n:2">palette textures</li><li style="--n:1">GE bone blending</li><li style="--n:0">fixed pipeline</li></ul>
+          <p class="proof"><b>16 → 7 ms</b>The GE has no shaders, so lighting is baked into vertex colours and textures are packed as palettes. A street's GE time dropped by more than half.</p>
+        </div>
+        <div class="tw" style="--c:var(--pink)">
+          <div class="dev">
+            <svg viewBox="0 0 50 54" aria-hidden="true"><rect x="3.5" y="1.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="9" y="6" width="32" height="15" rx="2" fill="#3fd0e8" opacity=".9"/><rect x="3.5" y="28.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="15" y="33" width="20" height="15" rx="2" fill="#ffd23f" opacity=".9"/><circle cx="9.3" cy="38" r="2.3" fill="#a98bff"/><circle cx="40.8" cy="38" r="1.5" fill="#ff5f9e"/><circle cx="40.8" cy="43.5" r="1.5" fill="#3fd0e8"/></svg>
+            <h3>Nintendo 3DS <small>PICA200, 2011</small></h3>
+          </div>
+          <ul class="feats"><li style="--n:2">glasses-free 3D</li><li style="--n:1">a second screen</li><li style="--n:0">PICA fog table</li></ul>
+          <p class="proof"><b>250 → 60 draws</b>One position grid for the whole world lets a run of meshes go out in one call. The lower screen carries the town plan.</p>
+        </div>
+        <div class="tw" style="--c:var(--cyan)">
+          <div class="dev">
+            <svg viewBox="0 0 80 36" aria-hidden="true"><rect x="1.5" y="2.5" width="77" height="31" rx="15.5" fill="#171226" stroke="#3fd0e8" stroke-width="2.6"/><rect x="19" y="7" width="42" height="22" rx="2.5" fill="#ff5f9e" opacity=".9"/><circle cx="10.5" cy="24" r="3" fill="#ffd23f"/><circle cx="69.5" cy="24" r="3" fill="#ffd23f"/><path d="M10.5 9.5v6M7.5 12.5h6" stroke="#a98bff" stroke-width="2.2" stroke-linecap="round"/><circle cx="69.5" cy="12.5" r="2.4" fill="none" stroke="#a98bff" stroke-width="1.8"/></svg>
+            <h3>PS Vita <small>GXM, 2011</small></h3>
+          </div>
+          <ul class="feats"><li style="--n:2">bloom, light shafts</li><li style="--n:1">4× MSAA</li><li style="--n:0">Cg shaders</li></ul>
+          <p class="proof"><b>0 late frames</b>Cg programs are compiled on the device. The scene renders at 960 × 544 with 4× MSAA and a post chain, and still holds 60 fps.</p>
+        </div>
+        <p class="cut" aria-hidden="true">what every machine has</p>
+        <p class="shared">textured, lit triangles</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="chap" id="compiler-first" style="--c:var(--cyan);--c2:#1787a1">
+    <header class="head rv">
+      <div>
+        <h2><span>Compiler-first</span></h2>
+        <p class="kick">One source of truth, compiled for every target.</p>
+      </div>
+      <p class="why">The game is modelled once, as Three.js content that runs in a browser. A compiler lowers that semantic scene to each platform, the way LLVM takes one program to many processors. Hardware-native depends on it: each back end is free to emit what its own GPU wants.</p>
+    </header>
+    <div class="card viz compile rv" style="--d:.1s">
+      <div class="cols">
+        <span class="stage">front end</span><span></span><span class="stage">IR</span><span></span><span class="stage">back ends, as Pocket Maneuver has them</span>
+        <div class="node" style="--c:var(--yellow)">
+          <h3>Three.js scene</h3>
+          <p>Meshes, materials, lights and motion, with a note on each part that says what it is.</p>
+          <ul class="tags"><li>sign</li><li>water</li><li>light field</li><li>sky</li></ul>
+        </div>
+        <svg class="wire" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style="--c:var(--yellow)"><path d="M4 50H96"/></svg>
+        <div class="node" style="--c:var(--lilac)">
+          <h3>Scene IR</h3>
+          <p>The scene as meaning, with no GPU in it yet.</p>
+          <ul class="tags"><li>surfaces</li><li>signs</li><li>lights</li><li>models</li><li>collision</li></ul>
+        </div>
+        <svg class="wire" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M4 50C50 50 50 17 96 17" style="--c:var(--cyan)"/><path d="M4 50H96" style="--c:var(--pink)"/><path d="M4 50C50 50 50 83 96 83" style="--c:var(--yellow)"/></svg>
+        <div class="outs">
+          <div class="out" style="--c:var(--cyan)">
+            <svg viewBox="0 0 80 36" aria-hidden="true"><rect x="1.5" y="2.5" width="77" height="31" rx="15.5" fill="#171226" stroke="#3fd0e8" stroke-width="2.6"/><rect x="19" y="7" width="42" height="22" rx="2.5" fill="#3fd0e8" opacity=".9"/><circle cx="10.5" cy="24" r="3" fill="#ffd23f"/><circle cx="69.5" cy="24" r="3" fill="#ffd23f"/></svg>
+            <h3>PS Vita <small>GXM</small></h3>
+            <p>BC1 atlas, 16-byte vertices, Cg programs</p>
+          </div>
+          <div class="out" style="--c:var(--pink)">
+            <svg viewBox="0 0 50 54" aria-hidden="true"><rect x="3.5" y="1.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="9" y="6" width="32" height="15" rx="2" fill="#ff5f9e" opacity=".9"/><rect x="3.5" y="28.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="15" y="33" width="20" height="15" rx="2" fill="#ff5f9e" opacity=".55"/></svg>
+            <h3>Nintendo 3DS <small>PICA200</small></h3>
+            <p>RGB565 Morton tiles, one world grid, meshes in runs</p>
+          </div>
+          <div class="out" style="--c:var(--yellow)">
+            <svg viewBox="0 0 76 36" aria-hidden="true"><rect x="1.5" y="3.5" width="73" height="29" rx="14.5" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><rect x="20" y="8.5" width="36" height="19" rx="2.5" fill="#ffd23f" opacity=".9"/></svg>
+            <h3>PSP <small>GE</small></h3>
+            <p>8-bit palette pages, 12-byte vertices, clip groups</p>
+          </div>
+        </div>
+      </div>
+      <div class="cols llvm">
+        <span><b>LLVM does the same</b> <span>C, Rust, Swift</span></span><i>→</i><span>LLVM IR</span><i>→</i><span>x86, ARM, RISC-V</span>
+      </div>
+
+      <figure>
+        <div class="compare" id="compare">
+          <img src="/assets/overlook-vita.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: an observatory at dusk with a city skyline behind it.">
+          <img class="top" src="/assets/overlook-three.webp" width="960" height="544" loading="lazy" alt="The same view rendered by the Three.js reference in a browser.">
+          <span class="bar2" aria-hidden="true"></span><span class="knob" aria-hidden="true">↔</span>
+          <span class="tag l" aria-hidden="true">Three.js<span>, in a browser</span></span><span class="tag r" aria-hidden="true"><span>compiled, on a </span>PS Vita</span>
+          <input type="range" min="0" max="100" value="50" aria-label="Reveal the Three.js reference over the PS Vita capture">
+        </div>
+        <figcaption class="cap">Griffith Observatory in Pocket Atlas. Drag to compare the source of truth with what the compiler made of it for one machine.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="chap" id="purpose-built" style="--c:var(--pink);--c2:#b82a6b">
+    <header class="head rv">
+      <div>
+        <h2><span>Purpose-built</span> engines</h2>
+        <p class="kick">Every game gets an engine of its own.</p>
+      </div>
+      <p class="why">Pocket3D is not one engine that every game has to squeeze into. Each game builds on it with its own scene DSL, its own IR and its own renderers, and all three are tuned to that one game.</p>
+    </header>
+    <div class="viz">
+      <div class="engines">
+        <article class="eng rv" style="--c:var(--cyan)">
+          <figure><img src="/assets/atlas-konbini.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: a convenience store at night, reflected in wet ground."></figure>
+          <h3>Pocket Atlas</h3>
+          <p>Real places, at the best image a handheld holds at 30 fps.</p>
+          <ol class="bricks">
+            <li class="brick" style="--n:2;--r:-3deg"><span>DSL</span><b>a place kit</b><em>signs, glass, water, light fields</em></li>
+            <li class="brick" style="--n:1;--r:2deg"><span>IR</span><b>PlaceIR</b><em>glTF with a note on what each part is</em></li>
+            <li class="brick" style="--n:0;--r:-2deg"><span>renderers</span><b>GXM, PICA200</b><em>reflections, rain, 52,000 point-sprite lights</em></li>
+          </ol>
+        </article>
+        <article class="eng rv" style="--c:var(--yellow);--d:.12s">
+          <figure><img src="/assets/maneuver-vita.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: a figure on wires flies over the red roofs of a walled town."></figure>
+          <h3>Pocket Maneuver</h3>
+          <p>Wire traversal through a town of 5,400 houses, at 60 fps.</p>
+          <ol class="bricks">
+            <li class="brick" style="--n:2;--r:3deg"><span>DSL</span><b>a town generator</b><em>bands, blocks, row houses, one strip atlas</em></li>
+            <li class="brick" style="--n:1;--r:-2deg"><span>IR</span><b>WorldIR</b><em>cells, levels of detail, a collision world</em></li>
+            <li class="brick" style="--n:0;--r:2deg"><span>renderers</span><b>GXM, PICA200, GE</b><em>runs of cells in one draw, clip groups on the PSP</em></li>
+          </ol>
+        </article>
+        <article class="eng rv" style="--c:var(--pink);--d:.24s">
+          <figure><img src="/assets/openstrike-psp.webp" width="960" height="544" loading="lazy" alt="PSP capture: a first-person view of a sunlit courtyard with crates and a rifle."></figure>
+          <h3>OpenStrike</h3>
+          <p>A round-based shooter on classic maps, locked at 60 fps on a PSP.</p>
+          <ol class="bricks">
+            <li class="brick" style="--n:2;--r:-2deg"><span>DSL</span><b>maps and rules</b><em>BSP maps, TypeScript rounds, a JSX HUD</em></li>
+            <li class="brick" style="--n:1;--r:3deg"><span>IR</span><b>.p3d</b><em>visibility solved before the game runs</em></li>
+            <li class="brick" style="--n:0;--r:-3deg"><span>renderers</span><b>GE, GXM, GLES2</b><em>only what the camera can see reaches the GPU</em></li>
+          </ol>
+        </article>
+      </div>
+      <p class="plate rv" style="--d:.3s"><b>Pocket3D</b>device kernels and toolchains: GXM memory and patching, GE frame storage, PICA texture storage</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="chap" id="coding-agents" style="--c:var(--lilac);--c2:#5a3fc4">
+    <header class="head rv">
+      <div>
+        <h2>Built for coding agents</h2>
+        <p class="kick">Making a game is writing code.</p>
+      </div>
+      <p class="why">The whole workflow is an agent writing Three.js and a scene DSL. There is no editor to click through and no binary scene to edit by hand, so a game, or any rich interactive scene, can be made entirely by coding. Every step after the writing is a command the agent runs.</p>
+    </header>
+    <div class="viz">
+      <div class="agent rv" style="--d:.1s">
+        <div class="chat">
+          <p class="say2"><small>you</small>The LED band over the Radio Kaikan shopfront should chase, like the real one.</p>
+          <p class="say2 bot"><small>agent</small>Added a 32-frame flipbook sign on the band. On the Vita it costs what a still sign does.</p>
+        </div>
+        <div class="card editor">
+          <div class="tabs" aria-hidden="true"><i></i><i></i><i></i>kaikan.ts</div>
+<pre id="typed" aria-label="Code abridged from Pocket Atlas"><span class="m">// Housing: yellow steel, the face covered by the LED bars.</span>
+<span class="k">const</span> housing = lib.<span class="n">plain</span>(<span class="s">0xc9a20e</span>, <span class="s">0.5</span>, <span class="s">0.2</span>);
+w.<span class="n">mesh</span>(<span class="n">box</span>(bw, bh, zf + <span class="s">0.3</span>), housing, …);
+
+<span class="k">const</span> sign = w.<span class="n">addSign</span>(<span class="k">new</span> <span class="n">Sign</span>(<span class="s">"kaikan-band"</span>, tex,
+  <span class="k">new</span> <span class="n">Color</span>(<span class="s">1.9</span>, <span class="s">1.7</span>, <span class="s">1.25</span>),
+  { flipbook: { frames: <span class="s">32</span>, cols: <span class="s">1</span>, rows: <span class="s">32</span>, fps: <span class="s">6</span> } }));
+w.<span class="n">mesh</span>(<span class="n">frameUV</span>(<span class="k">new</span> <span class="n">PlaneGeometry</span>(bw - <span class="s">0.06</span>, bh - <span class="s">0.06</span>), <span class="s">1</span>, <span class="s">32</span>),
+  sign.material, …);</pre>
+        </div>
+        <div class="result">
+          <figure><img src="/assets/atlas-kaikan.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: the Radio Kaikan building at dusk, its facade covered in lit signs."></figure>
+          <p>The same sign on a PS Vita, at 30 fps. An example exchange; the code is abridged from Pocket Atlas.</p>
+        </div>
+      </div>
+      <div class="loop">
+        <div class="card step rv" style="--c:var(--cyan)"><b>1</b><h3>Write</h3><p>Three.js and the scene DSL. It runs in a browser at once.</p><code>bun run dev</code></div>
+        <div class="card step rv" style="--c:var(--yellow);--d:.08s"><b>2</b><h3>Compile</h3><p>Lower the scene to one console's formats, with budgets checked.</p><code>bun tools/maneuver.ts cook</code></div>
+        <div class="card step rv" style="--c:var(--pink);--d:.16s"><b>3</b><h3>Deploy</h3><p>Replace the binary running on the console.</p><code>bun tools/maneuver.ts native</code></div>
+        <div class="card step rv" style="--c:var(--lilac);--d:.24s"><b>4</b><h3>Measure</h3><p>Fly a fixed route and read back the late frames.</p><code>bun tools/maneuver.ts bench</code></div>
+        <p class="back"><span>read the numbers, write again</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="close">
+    <h2 class="rv">Build the next one</h2>
+    <p class="rv" style="--d:.08s">The GXM, GE and PICA device kernels are open source in the PocketJS repository, with the toolchain pins they build on.</p>
+    <div class="ctas rv" style="--d:.16s">
+      <a class="btn" href="https://github.com/pocket-nexus/pocketjs/tree/main/devices">Read the kernels <span class="arr" aria-hidden="true">→</span></a>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>© 2026 Pocket Nexus</span>
+  <nav aria-label="Elsewhere">
+    <a href="https://pocket.nexus/">Pocket Nexus</a>
+    <a href="https://pocketjs.pocket.nexus/">PocketJS</a>
+    <a href="https://github.com/pocket-nexus">GitHub</a>
+    <a href="https://x.com/pocket_js">X</a>
+    <a href="https://discord.gg/cTce4eXzSK">Discord</a>
+  </nav>
+</footer>
+
+<script>
+(() => {
+  "use strict";
+  const root = document.documentElement;
+  root.classList.add("js");
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const $ = (selector, scope = document) => scope.querySelector(selector);
+  const $$ = (selector, scope = document) => Array.from(scope.querySelectorAll(selector));
+  const mix = (a, b, t) => "#" + [1, 3, 5].map((i) => {
+    const x = parseInt(a.slice(i, i + 2), 16), y = parseInt(b.slice(i, i + 2), 16);
+    return Math.round(x + (y - x) * t).toString(16).padStart(2, "0");
+  }).join("");
+
+  /* ---------- the title: one pose, leaning a few degrees toward the pointer ---------- */
+  const title = $("#title"), rig = $(".rig", title), hero = $("#hero");
+  const SIDES = { "": ["#8f73ea", "#3d2b8c"], gold: ["#f59a1f", "#8a3f05"], pink: ["#de3d82", "#6c123e"] };
+  const words = $$(".w", title).map((el) => ({ el, side: SIDES[el.classList.contains("gold") ? "gold" : el.classList.contains("pink") ? "pink" : ""] }));
+  const DEPTH = 0.62;                       // extrusion length in em, before the turn foreshortens it
+  const REST = { x: -0.42, y: -0.46 }, LEAN = 0.09;   // the pose at rest, and how far the pointer moves it (26 and 20 degrees per unit)
+  let aim = { ...REST }, now = { ...REST }, raf = 0;
+  function pose(x, y) {
+    const ry = x * 26, rx = -y * 20;         // degrees: the face looks toward (x, y)
+    rig.style.transform = `rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
+    const dx = -Math.sin((ry * Math.PI) / 180) * DEPTH, dy = Math.sin((rx * Math.PI) / 180) * DEPTH;
+    const steps = Math.max(4, Math.min(22, Math.ceil(Math.hypot(dx, dy) * parseFloat(getComputedStyle(title).fontSize) / 1.15)));
+    for (const { el, side } of words) {
+      let shadow = "";
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        shadow += `${i > 1 ? "," : ""}${(dx * t).toFixed(4)}em ${(dy * t).toFixed(4)}em 0 ${mix(side[0], side[1], t)}`;
+      }
+      el.style.setProperty("--ts", shadow);
+    }
+  }
+  // ease toward the aim, and stop drawing once it is reached
+  function frame() {
+    now.x += (aim.x - now.x) * 0.07; now.y += (aim.y - now.y) * 0.07;
+    pose(now.x, now.y);
+    raf = Math.abs(aim.x - now.x) + Math.abs(aim.y - now.y) > 0.0015 ? requestAnimationFrame(frame) : 0;
+  }
+  const lean = (x, y) => { aim = { x: REST.x + x * LEAN, y: REST.y + y * LEAN }; if (!raf) raf = requestAnimationFrame(frame); };
+  pose(REST.x, REST.y);
+  if (!still) {
+    hero.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") return;
+      const box = title.getBoundingClientRect();
+      lean(Math.max(-1, Math.min(1, (event.clientX - (box.left + box.width / 2)) / box.width)),
+           Math.max(-1, Math.min(1, (event.clientY - (box.top + box.height / 2)) / box.height)));
+    });
+    hero.addEventListener("pointerleave", () => lean(0, 0));
+    addEventListener("resize", () => pose(now.x, now.y));
+  }
+
+  /* ---------- reveal on scroll ---------- */
+  const seen = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      entry.target.classList.add("in");
+      seen.unobserve(entry.target);
+      entry.target.dispatchEvent(new CustomEvent("reveal"));
+    }
+  }, { threshold: 0.18, rootMargin: "0px 0px -6% 0px" });
+  for (const el of $$(".rv")) seen.observe(el);
+
+  /* ---------- 1. one engine for all, or a renderer per machine ---------- */
+  const native = $("#native");
+  const setMode = (mode) => {
+    native.dataset.mode = mode;
+    for (const button of $$(".mode button", native)) button.setAttribute("aria-pressed", String(button.dataset.set === mode));
+  };
+  for (const button of $$(".mode button", native)) button.addEventListener("click", () => { native.dataset.touched = "1"; setMode(button.dataset.set); });
+  if (!still) {
+    // it opens flattened, then lights up once it is on screen
+    setMode("flat");
+    native.addEventListener("reveal", () => setTimeout(() => { if (!native.dataset.touched) setMode("native"); }, 1100));
+  }
+
+  /* ---------- 2. the reference over the capture ---------- */
+  const compare = $("#compare"), range = $("input", compare);
+  range.addEventListener("input", () => { compare.classList.add("used"); compare.style.setProperty("--p", range.value + "%"); });
+
+  /* ---------- 4. the editor types its code once ---------- */
+  const typed = $("#typed");
+  if (!still) {
+    const full = typed.innerHTML;
+    const total = typed.textContent.length;
+    typed.closest(".rv").addEventListener("reveal", () => {
+      // walk the markup, revealing text nodes a few characters per tick and keeping the tags
+      const source = document.createElement("div");
+      source.innerHTML = full;
+      let budget = 0;
+      const caret = '<span class="caret"></span>';
+      const cut = (node, left) => {
+        if (node.nodeType === 3) { const text = node.textContent.slice(0, left.n); left.n -= text.length; return text.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+        let html = "";
+        for (const child of node.childNodes) { if (left.n <= 0) break; html += cut(child, left); }
+        return node === source ? html : `<span class="${node.className}">${html}</span>`;
+      };
+      const tick = () => {
+        budget = Math.min(total, budget + 4);
+        typed.innerHTML = cut(source, { n: budget }) + (budget < total ? caret : "");
+        if (budget < total) setTimeout(tick, 22);
+      };
+      typed.innerHTML = caret;
+      setTimeout(tick, 500);
+    });
+  }
+})();
+</script>
+</body>
+</html>

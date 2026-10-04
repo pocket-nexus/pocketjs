@@ -38,3 +38,34 @@ After editing `site/nexus/mark.svg` or the homepage layout, run
 `bun run nexus:icons`. It rasterizes the favicon family from the mark and
 captures `og-image.png` from the homepage at 1200x630 with reduced motion,
 with the top bar, button and hint hidden.
+
+## 3d.pocket.nexus
+
+```sh
+bun run pocket3d:preview
+```
+
+Open **http://127.0.0.1:4191/** to preview the Pocket3D homepage. The preview
+serves `site/pocket3d/public/` as the `pocket3d` Worker does. The page has no
+build step: `public/index.html` carries its styles and script inline.
+
+| Route | Contents |
+| --- | --- |
+| `/` | The homepage: the extruded title, a strip of console captures, and four chapters with one diagram each |
+| `/logo/` | The mark study, in the preview only: six extrusions of the PocketJS mark beside the cube and the flat mark, with sliders for turn, tilt, depth and camera distance |
+
+The title holds one pose and leans about two degrees toward the pointer. With
+reduced motion set, the title stays still, the diagrams show their final state
+and the capture strip scrolls by hand.
+
+`site/pocket3d/logo/` sits outside `public/`, so the Worker does not deploy
+it. Its `mark3d.js` draws the mark: it extrudes the PocketJS outline, turns it
+and projects it to an SVG string. `site/pocket3d/mark.svg`,
+`public/favicon.svg` and the mark inlined in the homepage and `404.html` are
+its `left` option. To change the mark, pick or tune an option on `/logo/`,
+then write the same string to those four places;
+`tests/site-pocket3d.test.ts` fails while they differ.
+
+The captures in `public/assets/` are WebP encodings of frames from Pocket
+Maneuver, Pocket Atlas and OpenStrike. The measured figures are the ones
+recorded in those repositories' READMEs.

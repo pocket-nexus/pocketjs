@@ -2,6 +2,8 @@
 
 Pocket3D is a technology family for building purpose-built 3D runtimes and
 compilers. It is not one portable engine or one GPU API.
+[`pocket3d/README.md`](../../pocket3d/README.md) is its entry point in this
+repository.
 
 Atlas owns PlaceIR, profiles, recipes, native packs and its scene renderers.
 OpenStrike owns BSP/PVS/collision, `.p3d`, the map cooker and its GE/GXM/GLES2

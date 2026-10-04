@@ -38,6 +38,10 @@ pocketjs/
 │  ├─ src/        the TS runtime (Solid + Vue Vapor renderers, components, input, osk…)
 │  └─ compiler/   the interpreted-path build pipeline (jsx-plugin, tailwind, pak)
 ├─ microts/      MicroTS: Solid/Vue views and TypeScript models → View IR / Model IR → Rust
+│                (README.md is its entry point)
+├─ devices/      Pocket3D device kernels: pocket-vita-gxm, pocket-psp-ge, pocket-3ds-pica
+├─ pocket3d/     Pocket3D entry point: README.md with its design and a map of its code
+│                (devices/, engine/pocket3d/, site/pocket3d/); it holds no code
 ├─ contracts/    single sources of truth binding the layers
 │  ├─ spec/       op contract, platform contracts, manifest + package spec, gen-rust + gen-c
 │  ├─ generated/  generated C contract headers consumed by native hosts
@@ -48,7 +52,7 @@ pocketjs/
 │                symbian/ (isolated GCCE/Qt toolchain + CODA USB transport)
 ├─ tests/        the test suite: *.test.ts flat at the root, plus
 │                e2e/ (PPSSPP, Vita3K drivers), goldens/{web,psp,vita}, tapes/, fixtures/
-├─ site/         pocketjs.dev (Cloudflare)
+├─ site/         pocketjs.dev (Cloudflare), plus nexus/ (pocket.nexus) and pocket3d/ (3d.pocket.nexus)
 ├─ docs/         design docs (DESIGN, RUNTIMES, DETERMINISM, PLATFORM, …)
 ├─ skills/       repo Claude skills
 ├─ assets/       brand, fonts, shared art

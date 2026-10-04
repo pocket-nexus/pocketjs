@@ -1,8 +1,9 @@
 name: Deploy sites
 
-# Publish both sites to Cloudflare on every push to main (and on demand):
-# the PocketJS site (pocketjs.dev and pocketjs.pocket.nexus) and the Pocket
-# Nexus homepage (pocket.nexus). Requires two repo secrets:
+# Publish the sites to Cloudflare on every push to main (and on demand):
+# the PocketJS site (pocketjs.dev and pocketjs.pocket.nexus), the Pocket
+# Nexus homepage (pocket.nexus) and the Pocket3D homepage (3d.pocket.nexus).
+# Requires two repo secrets:
 # CLOUDFLARE_API_TOKEN (a scoped "Edit Cloudflare Workers" token) and
 # CLOUDFLARE_ACCOUNT_ID.
 on:
@@ -73,3 +74,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: bunx wrangler deploy -c site/nexus/wrangler.jsonc
+
+  # 3d.pocket.nexus is static files with no build step as well.
+  pocket3d:
+    name: 3d.pocket.nexus
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Deploy to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bunx wrangler deploy -c site/pocket3d/wrangler.jsonc

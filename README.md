@@ -27,8 +27,20 @@ WebView**. PocketJS is a [Pocket Nexus](https://pocket.nexus) project.
   <img src="./site/assets/pocketjs-demo-wall.jpg" alt="A wall of PocketJS software: music, deep-zoom graphics, messaging, a digital character, galleries, DevTools, dashboards, media, and a café app, alongside OpenStrike, Pocket Voxel and Pocket Figma on PSP, including Motion Lab studies credited to yui540" />
 </a>
 
+## In this repository
+
+Beside the PocketJS runtime, this repository holds the technology that Pocket
+projects build on:
+
+| | What it is | Entry point |
+| --- | --- | --- |
+| **PocketJS** | The application runtime: TypeScript components, a QuickJS guest and a Rust core that lays out and draws every pixel | This README · [pocketjs.pocket.nexus](https://pocketjs.pocket.nexus) |
+| **Pocket3D** | A hardware-native 3D stack: device kernels for GXM, GE and PICA200, and the mechanisms that purpose-built 3D engines share | [`pocket3d/`](./pocket3d/README.md) · [3d.pocket.nexus](https://3d.pocket.nexus) |
+| **MicroTS** | An ahead-of-time compiler from TypeScript views and models to Rust, in development | [`microts/`](./microts/README.md) |
+
 ## Contents
 
+- [In this repository](#in-this-repository)
 - [Familiar tools](#familiar-tools)
 - [Smooth motion](#smooth-motion)
 - [Small footprint](#small-footprint)
@@ -254,7 +266,7 @@ TypeScript application → guest bundle, one frame at a time
 
 See also: [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) ·
 [The runtime family](./docs/RUNTIMES.md) ·
-[Pocket3D](./engine/pocket3d/README.md)
+[Pocket3D](./pocket3d/README.md)
 
 ## Choose your screen
 
@@ -358,7 +370,7 @@ The [TypeScript support reference](./site/content/docs/typescript-support.md)
 compares ordinary application code, AOT views and compiled model bodies,
 including their restrictions and current implementation limits.
 
-[MicroTS](https://pocketjs.pocket.nexus/docs/microts-boundaries/) compiles
+[MicroTS](./microts/README.md) compiles
 Solid TSX and Vue SFC views to Rust through a shared typed View IR.
 **`app.model: "compiled"` also compiles the supported TypeScript model subset
 to Rust.** The default `"rust"` mode uses an application-provided Rust model
@@ -389,6 +401,9 @@ repository or the Rust AOT build.
 | --- | --- |
 | [`framework/`](./framework/) | Public framework APIs, renderers, components, input, lifecycle and build-time styling |
 | [`engine/`](./engine/) | `no_std` UI core, render backends, native modules, Pocket3D and platform-native crates |
+| [`devices/`](./devices/) | Pocket3D device kernels for GXM, GE and PICA200 |
+| [`pocket3d/`](./pocket3d/) | The Pocket3D entry point: its design and a map of where its code lives |
+| [`microts/`](./microts/) | The MicroTS ahead-of-time compiler |
 | [`contracts/`](./contracts/) | Generated wire specs, capability registry, manifests, build plans and package formats |
 | [`hosts/`](./hosts/) | PSP, Vita, 3DS, web, desktop, e-reader, phone and MCU host integrations |
 | [`hosts/esp-idf/`](./hosts/esp-idf/) | Composable package, QuickJS, UI, RGB565, PPA and runner components for P4/S3 firmware |
@@ -396,7 +411,7 @@ repository or the Rust AOT build.
 | [`tools/`](./tools/) | Build, package, launcher, device, DevTools, benchmark and release commands |
 | [`tests/`](./tests/) | Contract, compiler, simulation, emulator, package and golden verification |
 | [`docs/`](./docs/) | Platform, runtime, determinism, DevTools, backend and benchmark records |
-| [`site/`](./site/) | This website ([`site/nexus/`](./site/nexus/) holds the [pocket.nexus](https://pocket.nexus) homepage) |
+| [`site/`](./site/) | This website ([`site/nexus/`](./site/nexus/) holds the [pocket.nexus](https://pocket.nexus) homepage, [`site/pocket3d/`](./site/pocket3d/) the [3d.pocket.nexus](https://3d.pocket.nexus) homepage) |
 
 ### Building and testing
 
@@ -420,7 +435,8 @@ bun run site:preview          # build, then serve the site at http://127.0.0.1:4
 | Runtime internals | [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) · [Native contract](https://pocketjs.pocket.nexus/docs/native-contract/) |
 | Targets and packaging | [Platform contracts](https://pocketjs.pocket.nexus/docs/platform-contracts/) · [The `.pocket` platform](./docs/PLATFORM.md) |
 | Debugging and verification | [DevTools](./docs/DEVTOOLS.md) · [Determinism](./docs/DETERMINISM.md) |
-| Runtimes beyond 2D UI | [The runtime family](./docs/RUNTIMES.md) · [Pocket3D](./engine/pocket3d/README.md) |
+| Runtimes beyond 2D UI | [The runtime family](./docs/RUNTIMES.md) · [Pocket3D](./pocket3d/README.md) |
+| Ahead-of-time compilation | [MicroTS](./microts/README.md) · [TypeScript support](./site/content/docs/typescript-support.md) |
 | Complete examples | [`apps/`](./apps/) · [Blog](https://pocketjs.pocket.nexus/blog/) |
 
 ## Sponsors and Pocket Nexus
