@@ -51,8 +51,11 @@ test("the title rests in one pose and the pointer leans it a few degrees", () =>
 });
 
 test("the Worker deploys only what the homepage uses", () => {
-  // public/ holds the two pages, the favicon and the captures; studies stay out of it
-  expect(readdirSync(PUBLIC).sort()).toEqual(["404.html", "assets", "favicon.svg", "index.html"]);
+  // public/ holds the two pages, the icon family, the social card and the captures; studies stay out of it
+  expect(readdirSync(PUBLIC).sort()).toEqual([
+    "404.html", "apple-touch-icon-precomposed.png", "apple-touch-icon.png", "assets", "favicon-96.png", "favicon.ico",
+    "favicon.svg", "icon-192.png", "icon-512-maskable.png", "icon-512.png", "index.html", "og-image.png", "site.webmanifest",
+  ]);
   const used = new Set([...home.matchAll(/src="\/assets\/([^"]+)"/g)].map((match) => match[1]));
   const shipped = readdirSync(PUBLIC + "assets");
   expect(shipped.sort()).toEqual([...used].sort());
@@ -70,7 +73,7 @@ test("the mark is the generator's output wherever the site draws it", async () =
   expect(logo).toContain('<meta name="robots" content="noindex">');
   expect(logo).toContain('from "./mark3d.js"');
   const { mark3d, OPTIONS } = await import(SITE + "logo/mark3d.js");
-  const drawn = mark3d(OPTIONS.find((option: any) => option.id === "left").opts);
+  const drawn = mark3d(OPTIONS.find((option: any) => option.id === "brick").opts);
   expect(readFileSync(SITE + "mark.svg", "utf8")).toContain(drawn);
   expect(readFileSync(PUBLIC + "favicon.svg", "utf8").trim()).toBe(drawn);
   const shapes = [...drawn.matchAll(/<path d="([^"]+)"/g)].map((match) => match[1]);
@@ -81,6 +84,29 @@ test("the mark is the generator's output wherever the site draws it", async () =
     const svg = mark3d(option.opts);
     for (const fill of ["#171226", "#ff5f9e", "#3fd0e8", "url(#m3d-gold)"]) expect(svg).toContain(`fill="${fill}"`);
   }
+});
+
+test("the homepage shares well: icon family, manifest and a 1200 x 630 social card", () => {
+  const meta = (key: string) => home.match(new RegExp(`<meta (?:property|name)="${key}" content="([^"]*)">`))?.[1];
+  expect(meta("og:image")).toBe("https://3d.pocket.nexus/og-image.png");
+  expect(meta("twitter:image")).toBe("https://3d.pocket.nexus/og-image.png");
+  expect(meta("twitter:card")).toBe("summary_large_image");
+  // the card is a PNG whose size lives in the IHDR chunk; it is captured from og-card.html beside public/
+  const card = readFileSync(PUBLIC + "og-image.png");
+  expect([card.readUInt32BE(16), card.readUInt32BE(20)]).toEqual([1200, 630]);
+  expect([meta("og:image:width"), meta("og:image:height")]).toEqual(["1200", "630"]);
+  expect(card.length).toBeLessThan(200 * 1024);
+  expect(readFileSync(SITE + "og-card.html", "utf8")).toContain('<img src="mark.svg"');
+  expect(readFileSync(ROOT + "tools/icons.ts", "utf8")).toContain("site/pocket3d/og-card.html");
+  // every icon the pages and the manifest name is served from public/
+  for (const html of [home, notFound]) {
+    for (const [, href] of html.matchAll(/<link rel="(?:icon|apple-touch-icon|manifest)"[^>]*href="\/([^"?]+)/g)) {
+      expect([href, existsSync(PUBLIC + href)]).toEqual([href, true]);
+    }
+  }
+  const manifest = JSON.parse(readFileSync(PUBLIC + "site.webmanifest", "utf8"));
+  expect(manifest.name).toBe("Pocket3D");
+  for (const icon of manifest.icons) expect(existsSync(PUBLIC + icon.src.slice(1))).toBe(true);
 });
 
 test("page copy has no em dashes and links only to public places", () => {

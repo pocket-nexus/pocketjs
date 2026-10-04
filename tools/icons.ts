@@ -2,6 +2,7 @@
 //
 //   bun tools/icons.ts          pocketjs.dev, from site/assets/favicon.svg
 //   bun tools/icons.ts nexus    pocket.nexus, from site/nexus/mark.svg
+//   bun tools/icons.ts pocket3d 3d.pocket.nexus, from site/pocket3d/mark.svg
 //
 // For pocketjs.dev, site/assets/favicon.svg is the only drawing. Everything a browser or a phone
 // home screen asks for is rasterized from it here, so the mark can never drift
@@ -20,6 +21,10 @@
 // apple-touch ladder, favicon.svg copied from the mark, and a social card
 // captured from the homepage itself in its settled reduced-motion state, so
 // the card shows the live wordmark and pocket rather than a second drawing.
+//
+// 3d.pocket.nexus follows pocket.nexus. Its social card is captured from
+// site/pocket3d/og-card.html, a page beside public/ that draws the mark and the
+// wordmark and is not deployed.
 //
 // iOS picks the apple-touch-icon whose `sizes` is closest to what it wants and
 // ignores the manifest when one exists, so the ladder below is what actually
@@ -41,7 +46,8 @@ const BACKING = "#171226"; // the backing the mark is drawn on, matching favicon
 type Job = { file: string; size: number; bleed: boolean };
 /**
  * Non-square art: rendered from its own SVG, or captured from a page after a
- * `prepare` expression resolves truthy.
+ * `prepare` expression resolves truthy. A `page` is a file in the family's
+ * output directory, or an absolute path for a page that is not deployed.
  */
 type Card = { file: string; width: number; height: number } & ({ source: string } | { page: string; prepare: string });
 type Family = { out: string; source: string; favicon?: string; pngs: Job[]; cards: Card[] };
@@ -97,6 +103,20 @@ const FAMILIES: Record<string, Family> = {
     ],
     cards: [{ file: "og-image.png", page: "index.html", prepare: NEXUS_CARD, width: 1200, height: 630 }],
   },
+};
+// The card page loads its two faces from Google Fonts; the capture waits for both.
+const POCKET3D_CARD = `(async () => {
+  await document.fonts.ready;
+  await Promise.all([...document.images].map((image) => image.decode()));
+  await new Promise((r) => setTimeout(r, 300));
+  return document.fonts.check('150px "Titan One"', "Pocket3D") && document.fonts.check('600 42px Fredoka', "Create");
+})()`;
+FAMILIES.pocket3d = {
+  out: `${ROOT}site/pocket3d/public/`,
+  source: `${ROOT}site/pocket3d/mark.svg`,
+  favicon: "favicon.svg",
+  pngs: FAMILIES.nexus.pngs,
+  cards: [{ file: "og-image.png", page: `${ROOT}site/pocket3d/og-card.html`, prepare: POCKET3D_CARD, width: 1200, height: 630 }],
 };
 const familyName = process.argv[2] ?? "pocketjs";
 const family = FAMILIES[familyName];
@@ -204,7 +224,7 @@ try {
   console.log(`  favicon.ico  ${ICO.join(" + ")}  ${(container.length / 1024).toFixed(1)} KiB`);
   for (const card of family.cards) {
     const png = "page" in card
-      ? await capturePage(chrome, `file://${OUT}${card.page}`, card.width, card.height, card.prepare)
+      ? await capturePage(chrome, `file://${card.page.startsWith("/") ? "" : OUT}${card.page}`, card.width, card.height, card.prepare)
       : await shot(chrome, cardPage(readFileSync(OUT + card.source, "utf8"), card.width, card.height), card.width, card.height);
     const [w, h] = pngSize(png);
     if (w !== card.width || h !== card.height) {

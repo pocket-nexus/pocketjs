@@ -319,6 +319,7 @@
     "nexus:preview": "bun site/nexus/preview.ts",
     "nexus:icons": "bun tools/icons.ts nexus",
     "pocket3d:preview": "bun site/pocket3d/preview.ts",
+    "pocket3d:icons": "bun tools/icons.ts pocket3d",
     "site:verify-playground": "bun run site:build && bun site/verify-playground.ts",
     "site:verify-doc-demos": "bun run site:build && bun site/verify-doc-demos.ts",
     "serve": "bun hosts/web/serve.ts",

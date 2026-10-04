@@ -62,9 +62,14 @@ and the capture strip scrolls by hand.
 it. Its `mark3d.js` draws the mark: it extrudes the PocketJS outline, turns it
 and projects it to an SVG string. `site/pocket3d/mark.svg`,
 `public/favicon.svg` and the mark inlined in the homepage and `404.html` are
-its `left` option. To change the mark, pick or tune an option on `/logo/`,
+its `brick` option. To change the mark, pick or tune an option on `/logo/`,
 then write the same string to those four places;
 `tests/site-pocket3d.test.ts` fails while they differ.
+
+After the mark or `site/pocket3d/og-card.html` changes, run
+`bun run pocket3d:icons`. It rasterizes the favicon family from the mark and
+captures `og-image.png` from the card page at 1200x630. The card page loads
+Titan One and Fredoka from Google Fonts, so the command needs a network.
 
 The captures in `public/assets/` are WebP encodings of frames from Pocket
 Maneuver, Pocket Atlas and OpenStrike. The measured figures are the ones
