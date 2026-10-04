@@ -93,7 +93,14 @@ export async function create(options) {
       }
     },
     drawHash() {
-      return wasm.drawHash ? wasm.drawHash() : 0n;
+      // Null on a wasm predating ui_draw_hash: the System shell treats it
+      // as "no dirty signal available" and keeps uploading every frame.
+      return wasm.drawHash ? wasm.drawHash() : null;
+    },
+    rasterRevision() {
+      // Null on a wasm predating ui_raster_revision: the shell gate cannot
+      // see in-place asset replacements, so it falls back to every frame.
+      return wasm.rasterRevision ? wasm.rasterRevision() : null;
     },
     bindings() {
       return wasm.compositorBindings();

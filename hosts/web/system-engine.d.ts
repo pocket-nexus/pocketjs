@@ -20,6 +20,32 @@ export declare function createSurfaceCatalog(
 /** Throws unless the plan is a web-app ABI 4 System the browser host can run. */
 export declare function validateSystemPlan(plan: ResolvedSystemPlan): void;
 
+/** Per-AppInstance child-surface upload gate record (dies with the instance). */
+export interface SurfaceGate {
+  hash: bigint | null;
+  revision: bigint | null;
+  width: number;
+  height: number;
+  clean: boolean;
+}
+
+export declare function createSurfaceGate(): SurfaceGate;
+export declare function surfaceNeedsUpload(
+  gate: SurfaceGate,
+  hash: bigint | null,
+  revision: bigint | null,
+  width: number,
+  height: number,
+): boolean;
+export declare function noteSurfaceUpload(
+  gate: SurfaceGate,
+  hash: bigint | null,
+  revision: bigint | null,
+  width: number,
+  height: number,
+  ok: boolean,
+): void;
+
 export declare function mountPocketSystem(
   canvas: unknown,
   options?: {

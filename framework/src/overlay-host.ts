@@ -16,10 +16,17 @@ export function connectOverlay<State, Command>(receive: (state: State) => void) 
     const batch = ops.svcPoll?.();
     if (!batch) return;
     for (const line of batch.split("\n")) {
-      if (!line) continue;
-      const message = JSON.parse(line) as { type: string; value: State; event: PointerPacket };
-      if (message.type === "state") receive(message.value);
-      else if (message.type === "pointer") pointer.update(message.event);
+      if (!line.trim()) continue;
+      // A malformed line (bad JSON or a shape the dispatch dereferences,
+      // such as null or a pointer without an event) cannot break the frame:
+      // throwing here would discard every later line in the already-drained
+      // batch and starve pumps registered after this one. Mirrors the
+      // per-line isolation in service-client.ts.
+      try {
+        const message = JSON.parse(line) as { type: string; value: State; event: PointerPacket };
+        if (message.type === "state") receive(message.value);
+        else if (message.type === "pointer") pointer.update(message.event);
+      } catch { /* One malformed overlay line cannot break the frame. */ }
     }
   });
   return {
