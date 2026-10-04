@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pocket3D title card art</title>
+<!-- The art of the Pocket3D title card: the mark and the wordmark on the plum
+     ground, 624 x 192 at scale 1. `bun tools/pocket3d-title.ts` opens this page
+     in headless Chrome at scale 1 and at scale 0.5 (the fragment sets the
+     scale), and writes what it captures into the pocket3d-title crate. It sits
+     beside public/, so the Worker does not deploy it. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titan+One&display=block">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html{--s:1}
+html,body{width:calc(624px * var(--s));height:calc(192px * var(--s));overflow:hidden;background:#171226}
+.lockup{display:flex;align-items:center;justify-content:center;gap:.24em;height:100%;font-size:calc(80px * var(--s));padding-right:.06em}
+.lockup img{width:1.72em;height:1.72em;filter:drop-shadow(0 .09em .08em rgba(5,2,12,.55))}
+/* the wordmark: a face over a stack of shadows, as the homepage title is drawn */
+.word{font:1em/1 "Titan One",sans-serif;letter-spacing:-.01em;color:#fcf6ff;
+  filter:drop-shadow(.022em 0 0 #221338) drop-shadow(-.022em 0 0 #221338) drop-shadow(0 .022em 0 #221338) drop-shadow(0 -.022em 0 #221338) drop-shadow(0 .1em .08em rgba(5,2,12,.55))}
+.word span{text-shadow:.013em .013em 0 #8a6fe6,.026em .026em 0 #8168dd,.039em .039em 0 #7861d3,.052em .052em 0 #6f59c9,.065em .065em 0 #6551bd,.078em .078em 0 #5b48b0,.091em .091em 0 #5140a4,.104em .104em 0 #473797,.117em .117em 0 #3d2b8c}
+.word b{font-weight:400;margin-left:.07em;color:#ffd84a;text-shadow:.013em .013em 0 #ef941d,.026em .026em 0 #e38b1a,.039em .039em 0 #d68117,.052em .052em 0 #c97714,.065em .065em 0 #bc6d11,.078em .078em 0 #af630e,.091em .091em 0 #a2580b,.104em .104em 0 #964d08,.117em .117em 0 #8a3f05}
+</style>
+<script>document.documentElement.style.setProperty("--s", location.hash.slice(1) || "1");</script>
+</head>
+<body>
+  <div class="lockup"><img src="mark.svg" alt=""><div class="word"><span>Pocket</span><b>3D</b></div></div>
+</body>
+</html>

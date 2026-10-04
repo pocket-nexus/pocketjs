@@ -1,10 +1,10 @@
 name: Handheld device kernels
 on:
   pull_request:
-    paths: ['devices/psp/**', 'hosts/psp/**', 'tests/psp-toolchain.test.ts', '.github/workflows/handheld-kernels.yml']
+    paths: ['devices/psp/**', 'hosts/psp/**', 'tests/psp-toolchain.test.ts', 'engine/pocket3d/crates/pocket3d-title/**', 'tests/pocket3d-title.test.ts', 'tests/fixtures/pocket3d-title/**', 'tools/pocket3d-title.ts', '.github/workflows/handheld-kernels.yml']
   push:
     branches: [main]
-    paths: ['devices/psp/**', 'hosts/psp/**', 'tests/psp-toolchain.test.ts', '.github/workflows/handheld-kernels.yml']
+    paths: ['devices/psp/**', 'hosts/psp/**', 'tests/psp-toolchain.test.ts', 'engine/pocket3d/crates/pocket3d-title/**', 'tests/pocket3d-title.test.ts', 'tests/fixtures/pocket3d-title/**', 'tools/pocket3d-title.ts', '.github/workflows/handheld-kernels.yml']
 permissions:
   contents: read
 jobs:
@@ -18,3 +18,15 @@ jobs:
           bun-version: 1.3.14
       - run: cargo test --locked --manifest-path devices/psp/pocket-psp-ge/Cargo.toml
       - run: bun test tests/psp-toolchain.test.ts
+  # The title card's Rust drawer records its frames; the C header and the
+  # browser module are held to them.
+  title:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: cargo test --locked --manifest-path engine/pocket3d/crates/pocket3d-title/Cargo.toml
+      - run: bun test tests/pocket3d-title.test.ts

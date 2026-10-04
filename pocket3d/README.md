@@ -24,11 +24,20 @@ This directory is the entry point. The code sits on the axes
 | Path | Contents |
 | --- | --- |
 | [`devices/`](../devices/README.md) | Device kernels with explicit memory and GPU-lifetime contracts: `pocket-vita-gxm` (GXM memory, patching, targets, descriptors), `pocket-psp-ge` (GE frame storage, byte swizzle, cache publication), `pocket-3ds-pica` (PICA texture storage and mip publication) |
-| [`engine/pocket3d/`](../engine/pocket3d/README.md) | Desktop wgpu mechanisms, skeletons and clips, mesh loading, the shared physical simulation, the citro3d mesh submission surface and example consumers |
+| [`engine/pocket3d/`](../engine/pocket3d/README.md) | Desktop wgpu mechanisms, skeletons and clips, mesh loading, the shared physical simulation, the citro3d mesh submission surface, the title card and example consumers |
 | [`site/pocket3d/`](../site/pocket3d/) | The homepage served at 3d.pocket.nexus |
 
 Scene formats, cookers and scene renderers belong to the engines. Each engine
 keeps them in its own repository.
+
+## Title card
+
+A game built on Pocket3D shows the Pocket3D title card when it starts: the
+mark and the wordmark, **144 ticks at 60 Hz**, before the game's renderer
+starts. [`pocket3d-title`](../engine/pocket3d/crates/pocket3d-title/README.md)
+draws it into the console's frame buffer on the PS Vita, the PSP and the
+Nintendo 3DS, and over the page in a browser reference; the three drawers
+produce the same frames. Its README lists the calls and the rules for a game.
 
 ## Engines
 

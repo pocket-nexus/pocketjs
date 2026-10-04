@@ -71,6 +71,10 @@ After the mark or `site/pocket3d/og-card.html` changes, run
 captures `og-image.png` from the card page at 1200x630. The card page loads
 Titan One and Fredoka from Google Fonts, so the command needs a network.
 
+`site/pocket3d/title-card.html` is the art of the title card that Pocket3D
+games show at launch. `bun tools/pocket3d-title.ts` bakes it into
+`engine/pocket3d/crates/pocket3d-title/`; that crate's README has the steps.
+
 The captures in `public/assets/` are WebP encodings of frames from Pocket
 Maneuver, Pocket Atlas and OpenStrike. The measured figures are the ones
 recorded in those repositories' READMEs.
