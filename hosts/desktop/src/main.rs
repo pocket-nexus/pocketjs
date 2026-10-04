@@ -27,6 +27,7 @@ use winit::{
     keyboard::{Key, ModifiersState, NamedKey},
     window::{CursorIcon, Window, WindowId},
 };
+mod fs;
 mod gpu;
 mod net;
 include!("plan.rs");
@@ -82,6 +83,9 @@ struct Runtime {
     guest: Guest,
     supervisor: AppSupervisor,
     offload: OffloadWorker,
+    /// The fs module core the guest's `globalThis.fs` closures hold; kept
+    /// here for the runtime's life (the mount owns clones too).
+    _fs: fs::FsMount,
     viewport: (u32, u32),
     ticks: u64,
     buttons: u32,
@@ -109,11 +113,21 @@ impl Runtime {
         surface.set_tick_rate(60);
         surface.set_svc_allowlist(args.companions.clone());
         surface.feed_pak(&pak);
-        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface)?;
+        let supervisor =
+            AppSupervisor::new(args.system.as_ref(), &surface, args.data_root.clone())?;
         let guest = Guest::new()?;
         surface.mount(&guest)?;
         let offload = text_worker(pak);
         offload.mount(&guest)?;
+        // data.fs: one per-app tree bound at the platform data root, mounted
+        // before eval so the guest sees globalThis.fs at boot.
+        let app_id = args.app_id.clone().unwrap_or_else(|| args.app.clone());
+        let fs_roots = fs::data_roots(args.data_root.as_deref(), &app_id)?;
+        let fs_mount = fs::mount_fs(&guest, &fs_roots)?;
+        log::info!(
+            "pocket-desktop-host: data.fs bound at {}",
+            fs_roots.data.display()
+        );
         guest.eval(&args.app, &source)?;
         if !guest.has_frame() {
             return Err(anyhow!("bundle installed no frame handler"));
@@ -139,6 +153,7 @@ impl Runtime {
             guest,
             supervisor,
             offload,
+            _fs: fs_mount,
             ticks: 0,
             buttons: 0,
             script_buttons: 0,

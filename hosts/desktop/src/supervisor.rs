@@ -11,6 +11,8 @@ struct AppInstance {
     surface: UiSurface,
     guest: Guest,
     offload: OffloadWorker,
+    /// The per-app fs module mounted as the instance's `globalThis.fs`.
+    _fs: fs::FsMount,
     buttons: u32,
     visible: bool,
     focused: bool,
@@ -24,6 +26,9 @@ struct AppSupervisor {
     instances: Vec<AppInstance>,
     suppressed: HashSet<u32>,
     background_execution: String,
+    /// Host data base override (`--data-root`); None uses the platform
+    /// default. Every AppInstance gets `<base>/<its package id>/data`.
+    data_root: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,7 +70,11 @@ fn scheduled_app_instances(facts: &[SchedulingFact]) -> Vec<usize> {
 }
 
 impl AppSupervisor {
-    fn new(system: Option<&ResolvedSystemPlan>, shell: &UiSurface) -> Result<Self> {
+    fn new(
+        system: Option<&ResolvedSystemPlan>,
+        shell: &UiSurface,
+        data_root: Option<PathBuf>,
+    ) -> Result<Self> {
         let Some(system) = system else {
             return Ok(Self {
                 next_generation: 0,
@@ -73,6 +82,7 @@ impl AppSupervisor {
                 instances: Vec::new(),
                 suppressed: HashSet::new(),
                 background_execution: "suspend".into(),
+                data_root,
             });
         };
         system.validate_for_host()?;
@@ -97,6 +107,7 @@ impl AppSupervisor {
             instances: Vec::new(),
             suppressed: HashSet::new(),
             background_execution: system.lifecycle.background_execution.clone(),
+            data_root,
         })
     }
 
@@ -136,6 +147,13 @@ impl AppSupervisor {
         surface.mount(&guest)?;
         let offload = text_worker(pak);
         offload.mount(&guest)?;
+        // data.fs: each AppInstance binds its own package id's data root.
+        let fs_roots = fs::data_roots(self.data_root.as_deref(), &plan.app.id)?;
+        let fs_mount = fs::mount_fs(&guest, &fs_roots)?;
+        log::info!(
+            "pocket-desktop-host: data.fs bound at {}",
+            fs_roots.data.display()
+        );
         guest.eval(output, &bundle)?;
         if !guest.has_frame() {
             return Err(anyhow!("{output} evaluated but installed no frame()"));
@@ -149,6 +167,7 @@ impl AppSupervisor {
             surface,
             guest,
             offload,
+            _fs: fs_mount,
             buttons: 0,
             visible: false,
             focused: false,
