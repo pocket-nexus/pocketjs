@@ -1,0 +1,22 @@
+[package]
+name = "pocket-web-wgpu"
+version = "0.1.0"
+edition = "2021"
+license-file = "../../../pocket3d/LICENSE"
+description = "Browser device mechanisms for a Pocket3D game drawn with wgpu: device and screens, an interface overlay pass, 16-bit pictures, ranged pack reads"
+
+[dependencies]
+wgpu = { version = "25", default-features = false, features = ["webgpu", "wgsl", "metal"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# A game that links this crate into a wasm-bindgen module pins the same version as its command line tool.
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "WorkerGlobalScope", "Request", "RequestInit", "Response", "Headers", "HtmlCanvasElement", "Performance"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "0.4"
+
+[workspace]
+resolver = "2"

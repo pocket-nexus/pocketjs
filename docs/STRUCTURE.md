@@ -39,7 +39,8 @@ pocketjs/
 │  └─ compiler/   the interpreted-path build pipeline (jsx-plugin, tailwind, pak)
 ├─ microts/      MicroTS: Solid/Vue views and TypeScript models → View IR / Model IR → Rust
 │                (README.md is its entry point)
-├─ devices/      Pocket3D device kernels: pocket-vita-gxm, pocket-psp-ge, pocket-3ds-pica
+├─ devices/      Pocket3D device kernels: pocket-vita-gxm, pocket-psp-ge, pocket-3ds-pica,
+│                pocket-web-wgpu (the browser: a Rust crate, and web/ for the page's modules)
 ├─ pocket3d/     Pocket3D entry point: README.md with its design and a map of its code
 │                (devices/, engine/pocket3d/, site/pocket3d/); it holds no code
 ├─ contracts/    single sources of truth binding the layers

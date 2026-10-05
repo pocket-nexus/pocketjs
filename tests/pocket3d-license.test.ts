@@ -28,6 +28,7 @@ test("every Pocket3D manifest and directory names the license", () => {
   for (const manifest of [
     "devices/vita/pocket-vita-gxm/Cargo.toml",
     "devices/psp/pocket-psp-ge/Cargo.toml",
+    "devices/web/pocket-web-wgpu/Cargo.toml",
     "engine/pocket3d/crates/pocket3d/Cargo.toml",
     "engine/pocket3d/crates/pocket3d-anim/Cargo.toml",
     "engine/pocket3d/crates/pocket3d-mesh/Cargo.toml",

@@ -27,7 +27,8 @@ API for other members of the family:
 | `examples/` | Widget and handheld consumers |
 
 [Device kernels](../../devices/README.md) expose native GXM, GE and PICA
-mechanisms with explicit memory and GPU-lifetime contracts. Platform compilers
+mechanisms with explicit memory and GPU-lifetime contracts, and the browser's
+WebGPU device with the page around it. Platform compilers
 retain knowledge of target formats, limits and costs. New shared code must come
 from demonstrated needs in actual applications, without domain scene names or
 implicit GPU waits.

@@ -23,12 +23,27 @@ This directory is the entry point. The code sits on the axes
 
 | Path | Contents |
 | --- | --- |
-| [`devices/`](../devices/README.md) | Device kernels with explicit memory and GPU-lifetime contracts: `pocket-vita-gxm` (GXM memory, patching, targets, descriptors), `pocket-psp-ge` (GE frame storage, byte swizzle, cache publication), `pocket-3ds-pica` (PICA texture storage and mip publication) |
+| [`devices/`](../devices/README.md) | Device kernels with explicit memory and GPU-lifetime contracts: `pocket-vita-gxm` (GXM memory, patching, targets, descriptors), `pocket-psp-ge` (GE frame storage, byte swizzle, cache publication), `pocket-3ds-pica` (PICA texture storage and mip publication), `pocket-web-wgpu` (the browser: WebGPU device and screens, the interface overlay pass, ranged pack reads, the page's modules) |
 | [`engine/pocket3d/`](../engine/pocket3d/README.md) | Desktop wgpu mechanisms, skeletons and clips, mesh loading, the shared physical simulation, the citro3d mesh submission surface, the title card, the app icon and example consumers |
 | [`site/pocket3d/`](../site/pocket3d/) | The homepage served at 3d.pocket.nexus |
 
 Scene formats, cookers and scene renderers belong to the engines. Each engine
 keeps them in its own repository.
+
+## Browser
+
+A game reaches a browser tab through one more renderer: **wgpu over WebGPU,
+compiled to wasm32, reading a pack the game's compiler lowered for a
+handheld**. [`devices/web/pocket-web-wgpu`](../devices/web/pocket-web-wgpu/README.md)
+supplies the device, the screens, the pass that lays the PocketJS interface
+over the scene, ranged reads of the pack over HTTP, and the page's modules.
+The game supplies its pipelines, its pack reader and its pad mapping.
+
+**The page shows the game as each handheld it runs on.** One renderer and one
+pack stay loaded; picking a device changes the screen's size, starts that
+device's interface bundle in a new realm and maps the keys to that device's
+buttons. A second screen is a second canvas, and a pointer is the finger or
+the stylus on a surface that takes touch.
 
 ## Title card
 
@@ -36,8 +51,10 @@ A game built on Pocket3D shows the Pocket3D title card when it starts: the
 mark and the wordmark, **144 ticks at 60 Hz**, before the game's renderer
 starts. [`pocket3d-title`](../engine/pocket3d/crates/pocket3d-title/README.md)
 draws it into the console's frame buffer on the PS Vita, the PSP and the
-Nintendo 3DS, and over the page in a browser reference; the three drawers
-produce the same frames. Its README lists the calls and the rules for a game.
+Nintendo 3DS, and over the page in a browser; the three drawers produce the
+same frames. Its README lists the calls and the rules for a game. A browser
+build plays it through `titleCard` of the browser kernel's
+`pocket3d-shell.js`, before the page shows its canvas.
 
 ## App icon
 
@@ -58,7 +75,9 @@ A game built on Pocket3D draws its title, its readouts, its menus and its
 touch controls with PocketJS, over the scene: **one PocketJS app with one
 presentation per device shape, and a renderer that draws no text**. The
 game's state reaches the app, and the app's commands reach the game, over the
-`pocket.overlay` service answered inside the process.
+`pocket.overlay` service answered inside the process. In a browser tab the
+same bundles run in PocketJS's web realm, and the UI core rasterizes the
+interface with its alpha for the renderer to lay over the scene.
 [`skills/pocket3d-interface`](../skills/pocket3d-interface/SKILL.md) is the
 procedure for a game repository.
 
