@@ -81,3 +81,33 @@ ffmpeg -y -framerate 6 -i dist/handheld-models/hinge-frames/%03d.png \
   -vf 'split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse' \
   -loop 0 dist/handheld-models/new-nintendo-3ds-hinge.gif
 ```
+
+## Shells for a page
+
+`shells.py` renders a device from the front for the Pocket3D player
+(`devices/web/pocket-web-wgpu/web/shells`): an orthographic camera on the
+screen's axis, a transparent film, **14 pixels a millimetre** (20 for the
+iPod touch). `bun tools/pocket3d-shells.ts` runs it and encodes the result.
+
+```sh
+bun tools/pocket3d-shells.ts            # all four: psp, vita, 3ds, ipod
+bun tools/pocket3d-shells.ts 3ds --samples 64
+```
+
+Each device is rendered as **the case with its moving parts taken out**, then
+**each moving part alone** in its own rectangle of the frame, packed on one
+sheet. A page lays the parts over the case and moves one when its key is
+held. The profile says where the screens, the controls and the parts are.
+
+- The PS Vita and the 3DS are read from their `.blend` files. The 3DS's
+  hinge is set flat (`Lid_Hinge` at 0), so both screens face the camera.
+- The PSP is Dibad's GLB, one mesh. The script finds the front from the
+  screen's plane, brings the model to millimetres, and **splits it by where a
+  face is**: a d-pad arm is a wedge about the d-pad's middle, a face button a
+  disc about its cap, and only what stands in front of the case's face is a
+  key. Sockets get dark floors, since the file has bright metal behind a key.
+- The iPod touch is drawn in the script.
+- **`hide` lists the objects that are a wordmark or a logo.** A new device
+  lists its own before its shell is committed.
+
+Cycles' noise differs between two runs, so a rerun changes the files' bytes.
