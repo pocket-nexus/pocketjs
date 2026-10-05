@@ -90,7 +90,7 @@ test("the homepage offers Pocket3D beside PocketJS, and names the contact addres
   const symbol = home.match(/<symbol id="p3d"[^>]*>(.*?)<\/symbol>/s)![1];
   for (const shape of shapes) expect(symbol).toContain(shape);
   expect(home.match(/<use href="#p3d" width="32" height="32"\/>/g)!.length).toBe(2);
-  expect(home).toContain('<a href="mailto:support@pocket.nexus">support@pocket.nexus</a>');
+  expect(home).toContain('<a href="mailto:support@pocket.nexus">Contact</a>');
   expect(home).toContain('"email":"support@pocket.nexus"');
 });
 

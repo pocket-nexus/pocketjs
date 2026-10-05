@@ -65,8 +65,25 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(-
 img{display:block;max-width:100%;height:auto}
 code,pre{font-family:var(--mono)}
 
+/* a name a reader may not know carries a bubble: on hover, on focus, on a tap */
+.tip{position:relative;cursor:help;text-decoration:underline dotted;text-decoration-thickness:2px;text-underline-offset:.22em;border-radius:4px}
+.tip:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}
+.bubble{position:absolute;left:-14px;bottom:calc(100% + 13px);z-index:30;width:max-content;max-width:min(290px,78vw);padding:11px 14px 13px;border-radius:14px;
+  background:var(--ink);color:#4a3b68;border:3px solid var(--out);box-shadow:0 5px 0 var(--drop);
+  font:400 13.5px/1.45 var(--sans);letter-spacing:0;text-align:left;text-transform:none;text-shadow:none;white-space:normal;cursor:auto;
+  opacity:0;visibility:hidden;transform:translateY(6px) scale(.96);transform-origin:26px 100%;pointer-events:none;
+  transition:opacity .15s ease,transform .3s var(--spring),visibility 0s linear .2s}
+.bubble::after{content:"";position:absolute;left:24px;bottom:-9px;width:14px;height:14px;transform:rotate(45deg);background:var(--ink);
+  border-right:3px solid var(--out);border-bottom:3px solid var(--out);border-radius:0 0 4px 0}
+.bubble b{display:block;margin-bottom:3px;font:600 14.5px/1.3 var(--round);color:#221338}
+.tip:hover .bubble,.tip:focus .bubble{opacity:1;visibility:visible;transform:none;transition-delay:0s}
+@media (max-width:1100px){
+  .tip{position:static}
+  .bubble{left:0;max-width:min(290px,100%);bottom:calc(100% + 10px)}
+}
+
 /* confetti ground, as on pocket.nexus */
-.sky{position:fixed;inset:0;pointer-events:none;z-index:-1;
+.sky{position:fixed;inset:0;pointer-events:none;z-index:-1;opacity:.6;
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='370' height='370'%3E%3Cg opacity='.3'%3E%3Crect x='30' y='42' width='13' height='5' rx='2.5' fill='%23ffd23f' transform='rotate(-24 36 44)'/%3E%3Ccircle cx='168' cy='26' r='2.6' fill='%233fd0e8'/%3E%3Crect x='292' y='118' width='11' height='5' rx='2.5' fill='%23ff5f9e' transform='rotate(38 297 120)'/%3E%3Cpath d='M92 214q5-6 10 0t10 0' stroke='%23ffb45c' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='238' cy='300' r='2.2' fill='%23a98bff'/%3E%3Crect x='24' y='318' width='10' height='4.5' rx='2.25' fill='%233fd0e8' transform='rotate(58 29 320)'/%3E%3C/g%3E%3C/svg%3E") 0 0/370px 370px,
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='530' height='530'%3E%3Cg opacity='.24'%3E%3Ccircle cx='70' cy='120' r='2.4' fill='%23ff5f9e'/%3E%3Crect x='250' y='60' width='12' height='5' rx='2.5' fill='%23a98bff' transform='rotate(-52 256 62)'/%3E%3Cpath d='M418 250l1.8 4.5 4.5 1.8-4.5 1.8-1.8 4.5-1.8-4.5-4.5-1.8 4.5-1.8z' fill='%23ffd23f'/%3E%3Crect x='150' y='400' width='12' height='5' rx='2.5' fill='%23ffb45c' transform='rotate(16 156 402)'/%3E%3Ccircle cx='470' cy='470' r='2' fill='%233fd0e8'/%3E%3C/g%3E%3C/svg%3E") 140px 90px/530px 530px,
@@ -82,18 +99,24 @@ code,pre{font-family:var(--mono)}
 .pill:active{transform:translateY(3px);box-shadow:0 1px 0 var(--drop)}
 .pill svg{width:28px;height:28px;overflow:visible}
 .pill.brand{padding-left:11px}
-.pill.go{background:var(--yellow);color:#221338}
+.pill.ico{width:44px;padding:0;justify-content:center;color:var(--ink-2)}
+.pill.ico svg{width:20px;height:20px}
+.pill.ico:hover{background:var(--yellow);color:#221338;transform:translateY(-2px) rotate(-8deg)}
 
 main{display:flex;flex-direction:column;align-items:center}
 
 /* ---------- hero ---------- */
-.hero{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;width:var(--page);padding:clamp(18px,4.5vh,52px) 0 0}
+.hero{position:relative;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);align-items:center;width:var(--page);
+  gap:clamp(14px,2.4vh,24px) clamp(28px,4vw,56px);padding:clamp(6px,2vh,24px) 0 0}
+.copy{grid-column:1;grid-row:1;align-self:end;display:flex;flex-direction:column;align-items:flex-start;min-width:0;container-type:inline-size}
+.kicker{display:flex;flex-wrap:wrap;gap:6px 22px;margin-bottom:clamp(12px,2.2vh,20px);font:500 13px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2)}
+.kicker span{display:inline-flex;align-items:center;gap:9px}
+.kicker span::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--k)}
 
 /* The title is pocketjs.dev's marquee: candy letters in the pixel face through the five hues, on a plate
    with scanlines and a rail of bulbs. The bezel is the mark's gold. */
-.title{--u:3px;font:400 clamp(20px,3.75vw,52px)/1.6 var(--display);text-transform:uppercase;-webkit-user-select:none;user-select:none}
-@media (min-width:1180px){.title{--u:4px}}
-.plate0{position:relative;display:inline-block;padding:1.15em 1.25em 1.75em;border-radius:26px;border:4px solid var(--yellow);
+.title{align-self:stretch;--u:3px;font:400 clamp(14px,min(4.98cqw,4.5vh),36px)/1.62 var(--display);text-transform:uppercase;-webkit-user-select:none;user-select:none}
+.plate0{position:relative;display:block;padding:1em 1.1em 1.7em;text-align:left;border-radius:26px;border:4px solid var(--yellow);
   background:radial-gradient(ellipse 70% 90% at 25% 30%,rgba(255,95,158,.15),transparent 70%),#120c21;
   box-shadow:inset 0 0 0 4px #1a1130,inset 0 5px 0 4px rgba(0,0,0,.35),0 8px 0 #c99400,0 8px 0 3px var(--drop),0 30px 50px -20px rgba(0,0,0,.8)}
 .plate0::after{content:"";position:absolute;inset:8px;border-radius:18px;pointer-events:none;
@@ -105,8 +128,6 @@ main{display:flex;flex-direction:column;align-items:center}
 .rail{position:absolute;left:24px;right:24px;bottom:15px;height:6px;opacity:.8;
   background:repeating-linear-gradient(90deg,#ffd23f 0 6px,transparent 6px 12px,#ff5f9e 12px 18px,transparent 18px 24px,#3fd0e8 24px 30px,transparent 30px 36px,#a98bff 36px 42px,transparent 42px 48px)}
 .ln{display:block}
-.ln i{display:none}
-@media (max-width:700px){.ln i{display:block}}
 .wd{display:inline-block;white-space:nowrap}
 /* a letter: an extrusion in its deep hue, a plum outline around both, a stepped drop */
 .ch{--f:#ffd23f;--fd:#c99400;display:inline-block;color:var(--f);
@@ -125,34 +146,43 @@ main{display:flex;flex-direction:column;align-items:center}
 }
 @keyframes drop{0%{transform:translateY(-.6em);opacity:0}34%{opacity:1}67%{transform:translateY(.12em)}100%{transform:none;opacity:1}}
 
-.lede{margin-top:clamp(26px,4.4vh,44px);font:500 clamp(18px,1.7vw,23px)/1.42 var(--round);color:var(--ink-2);max-width:38em;text-wrap:balance}
-.ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin-top:clamp(20px,3.2vh,30px)}
-.btn{display:inline-flex;align-items:center;gap:10px;height:56px;padding:0 26px;border-radius:999px;
+.lede{margin-top:clamp(20px,3.4vh,32px);font:500 clamp(17px,1.5vw,21px)/1.42 var(--round);color:var(--ink-2);max-width:29em;text-wrap:pretty}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:clamp(14px,2.4vh,24px)}
+.btn{display:inline-flex;align-items:center;gap:10px;height:52px;padding:0 22px;border-radius:999px;
   background:linear-gradient(180deg,#ffdc63,#ffc01f);color:#221338;border:3px solid var(--out);
   box-shadow:0 6px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.6),inset 0 -4px 0 rgba(214,134,0,.32);
-  font:600 18px/1 var(--round);text-decoration:none;transition:transform .45s cubic-bezier(.28,2.2,.45,1),box-shadow .18s ease}
+  font:600 17px/1 var(--round);text-decoration:none;transition:transform .45s cubic-bezier(.28,2.2,.45,1),box-shadow .18s ease}
 .btn .arr{display:inline-block;transition:transform .35s cubic-bezier(.28,2.2,.45,1)}
 .btn:hover{transform:translateY(-2px) rotate(-1.6deg) scale(1.03)}
 .btn:hover .arr{transform:translate(var(--ax,4px),var(--ay,0))}
 .btn:active{transform:translateY(4px) scale(1.06,.88);box-shadow:0 1px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.6);transition-duration:.07s}
 .btn.alt{background:var(--panel);color:var(--ink);box-shadow:0 6px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.07)}
-.wip{padding:4px 7px 3px;border-radius:7px;border:2px solid var(--yellow);color:var(--yellow);font:500 11px/1 var(--mono);letter-spacing:.08em}
 
-/* a strip of frames captured on the consoles */
-.strip{width:100%;margin-top:clamp(28px,5vh,52px);overflow:hidden;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
-.reel{display:flex;width:max-content;animation:reel 100s linear infinite}
-.strip:hover .reel{animation-play-state:paused}
-@keyframes reel{to{transform:translateX(-50%)}}
-.reel ul{display:flex;list-style:none;gap:clamp(12px,1.6vw,22px);padding:6px clamp(12px,1.6vw,22px) 0 0}
-.reel figure{display:flex;flex-direction:column;gap:9px;transition:transform .35s var(--spring)}
-.reel li:nth-child(odd) figure{transform:rotate(-.8deg)}
-.reel li:nth-child(even) figure{transform:rotate(.8deg)}
-.reel figure:hover{transform:rotate(0) scale(1.04)}
-.reel img{height:clamp(140px,17vw,212px);width:auto;max-width:none;border-radius:clamp(8px,1vw,14px);border:3px solid var(--out);
-  box-shadow:0 6px 0 var(--drop);background:var(--panel)}
-.reel figcaption{font:500 12.5px/1.3 var(--mono);color:var(--muted);text-align:left;padding:0 4px 10px}
-.reel figcaption b{font-weight:500;color:var(--ink-2)}
+/* the chapters, named under the buttons */
+.chapters{grid-column:1;grid-row:2;align-self:start;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 24px;padding-top:clamp(12px,2.2vh,20px);border-top:2.5px dashed var(--rule)}
+.chapters a{display:block;padding-left:13px;border-left:4px solid var(--c);border-radius:2px;text-decoration:none;transition:transform .25s var(--spring)}
+.chapters a:hover{transform:translateX(3px)}
+.chapters b{display:block;font:600 16.5px/1.2 var(--round);color:var(--ink)}
+.chapters span{display:block;margin-top:2px;font-size:13.5px;line-height:1.38;color:var(--ink-2)}
+/* a wall of frames captured on the consoles: three columns to the window's edge, the middle one drifting the other way */
+.wall{grid-column:2;grid-row:1 / span 2;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;min-width:0;height:clamp(400px,calc(100vh - 150px),680px);overflow:hidden;
+  margin-right:calc((100vw - min(1200px,100vw - 2 * var(--gutter))) / -2);
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 13%,#000 87%,transparent);mask-image:linear-gradient(180deg,transparent,#000 13%,#000 87%,transparent)}
+.col{min-width:0}
+.col:nth-child(2){margin-top:-70px}
+.run ul{list-style:none;display:grid;gap:14px;padding-bottom:14px}
+.run figure{display:grid;gap:7px}
+.run img{width:100%;height:auto;border-radius:11px;border:3px solid var(--out);box-shadow:0 5px 0 var(--drop);background:var(--panel)}
+.run figcaption{padding:0 3px 4px;font:500 12px/1.3 var(--mono);color:var(--muted)}
+.run figcaption::before{content:"";display:inline-block;width:8px;height:8px;margin-right:7px;border-radius:2px;background:var(--c)}
+.run figcaption b{font-weight:500;color:var(--ink-2)}
+@media (prefers-reduced-motion:no-preference){
+  .run{animation:drift 78s linear infinite}
+  .col:nth-child(2) .run{animation-direction:reverse;animation-duration:92s}
+  .col:nth-child(3) .run{animation-duration:66s}
+  .wall:hover .run{animation-play-state:paused}
+}
+@keyframes drift{to{transform:translateY(-50%)}}
 
 /* ---------- chapters ---------- */
 .chap{width:var(--page);margin-top:clamp(72px,12vh,136px)}
@@ -185,10 +215,10 @@ main{display:flex;flex-direction:column;align-items:center}
 .meter{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:clamp(12px,2vw,26px);margin-top:18px}
 .tw{display:contents}
 .tw:nth-child(1) > *{grid-column:1}.tw:nth-child(2) > *{grid-column:2}.tw:nth-child(3) > *{grid-column:3}
-.dev{grid-row:1;display:flex;align-items:center;gap:12px;min-height:60px}
+.dev{position:relative;grid-row:1;display:flex;align-items:center;gap:12px;min-height:60px}
 .dev svg{flex:none;height:44px;width:auto;overflow:visible}
 .dev h3{font:600 20px/1.15 var(--round);color:var(--c)}
-.dev h3 small{display:block;font:500 12.5px/1.4 var(--mono);color:var(--muted)}
+.gpu{font:500 12.5px/1.4 var(--mono);color:var(--muted)}
 .feats{grid-row:2;list-style:none;display:grid;gap:8px;margin-top:12px;padding-bottom:14px}
 .feats li{display:grid;place-items:center;min-height:46px;padding:6px 10px;border-radius:14px;text-align:center;
   font:600 15.5px/1.2 var(--round);color:#221338;background:var(--c);border:2.5px solid var(--out);box-shadow:0 4px 0 var(--drop);
@@ -213,10 +243,10 @@ main{display:flex;flex-direction:column;align-items:center}
 
 /* ---------- 2. compiler-first: front end, IR, back ends ---------- */
 .compile{padding:clamp(18px,2.4vw,30px)}
-.stage{display:block;font:500 12.5px/1.2 var(--mono);color:var(--muted)}
 /* a line of the scene enters the IR as one beam and leaves as three, one to each machine */
 .prism{position:relative;display:grid;grid-template-columns:minmax(0,300px) minmax(110px,1fr) minmax(0,2.5fr);gap:0 clamp(8px,1vw,14px);align-items:center}
-.scene h3{margin-top:6px;font:600 22px/1.15 var(--round);color:var(--yellow)}
+.scene{position:relative}
+.scene h3{font:600 22px/1.15 var(--round);color:var(--yellow)}
 .scene > p{margin-top:3px;font-size:14px;line-height:1.4;color:var(--ink-2)}
 .lines{display:grid;gap:10px;margin-top:14px}
 .line{appearance:none;cursor:pointer;text-align:left;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;align-items:center;padding:12px 14px;border-radius:16px;
@@ -281,7 +311,6 @@ main{display:flex;flex-direction:column;align-items:center}
 @keyframes fire{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
 @keyframes land{from{opacity:0;transform:translateX(-16px) scale(.97)}to{opacity:1;transform:none}}
 .differ{margin-top:clamp(18px,2.2vw,26px);padding-top:16px;border-top:2.5px dashed var(--rule);font-size:15.5px;line-height:1.55;color:var(--ink-2);max-width:60em}
-.differ b{font:600 17px/1.2 var(--round);color:var(--ink);margin-right:.3em}
 
 /* the same view twice: the reference in a browser, the compiled scene on a console */
 .compare{position:relative;max-width:900px;margin:clamp(18px,2.4vw,28px) auto 0;border-radius:clamp(12px,1.4vw,18px);overflow:hidden;border:3px solid var(--out);
@@ -295,8 +324,8 @@ main{display:flex;flex-direction:column;align-items:center}
 .compare .tag.l{left:12px}.compare .tag.r{right:12px}
 .compare input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
 .pair{padding:clamp(18px,2.4vw,30px)}
-.pair figcaption{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:8px clamp(20px,3vw,40px);align-items:end;max-width:900px;margin:0 auto}
-.pair h3{margin-top:6px;font:600 22px/1.15 var(--round);color:var(--cyan)}
+.pair figcaption{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:8px clamp(20px,3vw,40px);align-items:end;max-width:900px;margin:0 auto}
+.pair h3{font:600 22px/1.15 var(--round);color:var(--cyan)}
 .pair h3 small{font:500 12.5px/1 var(--mono);color:var(--muted);margin-left:.4em}
 .pair figcaption p{font-size:14.5px;line-height:1.5;color:var(--ink-2)}
 @media (prefers-reduced-motion:no-preference){.compare:not(.used) .knob{animation:nudge 1.6s ease-in-out infinite}}
@@ -311,14 +340,14 @@ main{display:flex;flex-direction:column;align-items:center}
 .eng img{width:100%;aspect-ratio:16/9;object-fit:cover}
 .eng h3{margin:16px 6px 0;font:clamp(12px,1.12vw,15px)/1.6 var(--display);color:var(--c);text-shadow:0 3px 0 var(--drop)}
 .eng > p{margin:6px 6px 0;font:500 15px/1.4 var(--round);color:var(--ink-2);min-height:4.2em}
-.chain{--x:15px;position:relative;list-style:none;display:flex;flex-direction:column;gap:16px;margin:14px 0 0;padding:4px 6px 26px 40px;flex:1}
+.chain{--x:17px;position:relative;list-style:none;display:flex;flex-direction:column;gap:16px;margin:14px 0 0;padding:4px 6px 26px 44px;flex:1}
 /* the thread: beads running down from the game to the plate */
-.chain::before{content:"";position:absolute;left:calc(var(--x) - 3px);top:0;bottom:0;width:6px;
+.chain::before{content:"";position:absolute;left:calc(var(--x) - 3px);top:19px;bottom:0;width:6px;
   background:radial-gradient(circle at 3px 3px,var(--c) 2.6px,transparent 3.1px) 0 0/6px 11px repeat-y}
 @media (prefers-reduced-motion:no-preference){.chain::before{animation:fall .9s linear infinite}}
 @keyframes fall{to{background-position:0 11px}}
 .chain li{position:relative;display:grid;gap:1px}
-.chain li::before{content:"";position:absolute;left:calc(var(--x) - 40px - 9px);top:1px;width:18px;height:18px;border-radius:50%;
+.chain li::before{content:"";box-sizing:border-box;position:absolute;left:calc(var(--x) - 44px - 14px);top:1px;width:28px;height:28px;border-radius:50%;
   background:var(--panel);border:5px solid var(--c);box-shadow:0 0 0 3px var(--panel)}
 .chain span{font:500 12px/1.6 var(--mono);color:var(--muted)}
 .chain b{font:600 17px/1.25 var(--round);color:var(--ink)}
@@ -326,14 +355,36 @@ main{display:flex;flex-direction:column;align-items:center}
 /* the last link points into the plate */
 .chain .base{margin-top:auto}
 .chain .base b{color:var(--yellow)}
-.chain .base::after{content:"";position:absolute;left:calc(var(--x) - 40px - 10px);bottom:-27px;border:10px solid transparent;border-bottom:0;border-top:13px solid var(--c)}
+.chain .base::after{content:"";position:absolute;left:calc(var(--x) - 44px - 10px);bottom:-27px;border:10px solid transparent;border-bottom:0;border-top:13px solid var(--c)}
 .js .rv .chain li{opacity:0;transform:translateY(-14px)}
 .js .rv.in .chain li{opacity:1;transform:none;transition:opacity .3s ease,transform .6s var(--spring);transition-delay:calc(var(--d,0s) + .2s + var(--n) * .14s)}
 .plate{position:relative;z-index:1;margin:0;padding:16px 20px;border-radius:6px 6px 18px 18px;text-align:center;font:600 16px/1.35 var(--round);color:#221338;
   background:linear-gradient(180deg,#ffdc63,#ffc01f);border:3px solid var(--out);box-shadow:0 7px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.6)}
 .plate b{font:13px/1.5 var(--display);margin-right:.6em}
 
-/* ---------- 4. built for coding agents ---------- */
+/* ---------- 4. efficient UI: the code of a screen beside the screen ---------- */
+.ui{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:clamp(14px,2vw,26px);align-items:center}
+.ui .editor pre{min-height:0;font-size:clamp(10.5px,.92vw,12.5px)}
+/* a part of the screen: a number in the code's margin, and the same number on the picture */
+.mk{position:relative;display:block;margin:0 -18px;padding:0 18px;border-left:4px solid transparent;outline:0;transition:background-color .15s,border-color .15s}
+.mk i,.area i{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--c);color:#221338;font:600 12px/1 var(--round);font-style:normal}
+.mk i{position:absolute;left:10px;top:.3em}
+.mk[data-m="1"],.area[data-m="1"]{--c:var(--pink)}.mk[data-m="2"],.area[data-m="2"]{--c:var(--lilac)}
+.mk[data-m="3"],.area[data-m="3"]{--c:var(--cyan)}.mk[data-m="4"],.area[data-m="4"]{--c:var(--yellow)}
+.mk.on,.mk:hover,.mk:focus-visible{background:color-mix(in srgb,var(--c) 14%,transparent);border-left-color:var(--c)}
+.screen figcaption{margin-top:12px;font:500 12.5px/1.45 var(--mono);color:var(--muted)}
+.shot{position:relative;overflow:hidden;border-radius:16px;border:3px solid var(--out);box-shadow:0 6px 0 var(--drop);background:var(--shade)}
+.shot img{width:100%}
+.area{position:absolute;border-radius:8px;border:2.5px dashed var(--c);transition:background-color .15s,box-shadow .15s}
+.area i{position:absolute;right:-8px;top:-8px;box-shadow:0 2px 0 var(--drop)}
+.area.on,.area:hover{background:color-mix(in srgb,var(--c) 20%,transparent);border-style:solid;box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 30%,transparent)}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(12px,2vw,26px);margin-top:clamp(22px,3.4vh,36px)}
+.fact{padding:16px 18px 18px}
+.fact h3{font:600 18px/1.2 var(--round);color:var(--c)}
+.fact p{margin-top:5px;font-size:14px;line-height:1.5;color:var(--ink-2)}
+.why a{color:var(--ink);text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px;text-decoration-color:var(--c)}
+
+/* ---------- 5. built for coding agents ---------- */
 .agent{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.5fr) minmax(0,1fr);gap:clamp(14px,2vw,24px);align-items:center}
 .chat{display:grid;gap:12px}
 .say2{padding:14px 16px;border-radius:18px 18px 18px 5px;background:var(--ink);color:#221338;border:3px solid var(--out);box-shadow:0 5px 0 var(--drop);
@@ -368,13 +419,26 @@ main{display:flex;flex-direction:column;align-items:center}
 /* close */
 .close{display:flex;flex-direction:column;align-items:center;text-align:center;margin:clamp(80px,13vh,140px) 16px clamp(56px,9vh,96px)}
 .close h2{--c:var(--ink);--c2:#7155d8}
-.close p{margin-top:16px;color:var(--ink-2);max-width:32em}
+.close p{margin-top:22px;color:var(--ink-2);max-width:34em}
+.close .ctas{justify-content:center}
 .foot{display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between;padding:26px var(--gutter) 34px;
   border-top:2px dashed rgba(169,139,255,.25);font:500 13px/1.4 var(--mono);color:var(--muted)}
 .foot nav{display:flex;flex-wrap:wrap;gap:8px 22px}
 .foot a{text-decoration:none}
 .foot a:hover{color:var(--ink)}
 
+@media (max-width:900px){
+  .hero{grid-template-columns:minmax(0,1fr);row-gap:clamp(20px,3.4vh,30px)}
+  .copy,.wall,.chapters{grid-column:1;grid-row:auto;align-self:auto}
+  .title{font-size:clamp(14px,4.98cqw,36px)}
+  .wall{margin-right:0;height:340px;gap:10px}
+}
+@media (max-width:560px){
+  .chapters{grid-template-columns:minmax(0,1fr)}
+  .wall{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .col:nth-child(3){display:none}
+  .run figcaption{font-size:10.5px}
+}
 @media (max-width:980px){
   .head{grid-template-columns:1fr}
   .prism{grid-template-columns:1fr}
@@ -393,6 +457,8 @@ main{display:flex;flex-direction:column;align-items:center}
   .eng > p{min-height:2.8em}
   .plate{margin-top:26px;border-radius:16px}
   .agent{grid-template-columns:1fr}
+  .ui{grid-template-columns:1fr}
+  .facts{grid-template-columns:1fr}
   .result{max-width:420px}
   .loop{grid-template-columns:repeat(2,minmax(0,1fr))}
   .step:nth-child(3)::before{display:none}
@@ -401,7 +467,8 @@ main{display:flex;flex-direction:column;align-items:center}
   .back span{position:static;transform:none;background:none}
 }
 @media (max-width:640px){
-  .links .pill:not(.go){display:none}
+  .links .pill:not(.ico){display:none}
+  .links{gap:8px}
   .meter{grid-template-columns:1fr}
   .engines{grid-template-columns:1fr}
   .eng > p{min-height:0}
@@ -423,8 +490,6 @@ main{display:flex;flex-direction:column;align-items:center}
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
   html{scroll-behavior:auto}
-  .strip{overflow-x:auto}
-  .reel ul[aria-hidden]{display:none}
   .js .rv,.js .rv .chain li{opacity:1;transform:none}
 }
 </style>
@@ -444,55 +509,88 @@ main{display:flex;flex-direction:column;align-items:center}
   <a class="pill brand" href="/" aria-label="Pocket3D home"><svg aria-hidden="true" viewBox="-16.48 -17.09 33.56 33.56"><defs><linearGradient id="m3d-gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe98a"/><stop offset=".45" stop-color="#ffd23f"/><stop offset="1" stop-color="#ffbe1f"/></linearGradient></defs><path d="M7.14 -14.12L8.15 -13.38L14.31 -9.27L13.31 -10.00Z" fill="#e09f1b" stroke="#e09f1b" stroke-width=".12" stroke-linejoin="round"/><path d="M8.15 -13.38L8.92 -12.35L15.08 -8.25L14.31 -9.27Z" fill="#dd9c1a" stroke="#dd9c1a" stroke-width=".12" stroke-linejoin="round"/><path d="M8.92 -12.35L9.42 -11.06L15.59 -7.00L15.08 -8.25Z" fill="#da9819" stroke="#da9819" stroke-width=".12" stroke-linejoin="round"/><path d="M9.42 -11.06L9.61 -9.59L15.79 -5.57L15.59 -7.00Z" fill="#d69418" stroke="#d69418" stroke-width=".12" stroke-linejoin="round"/><path d="M9.61 -9.59L9.76 -1.94L16.03 1.85L15.79 -5.57Z" fill="#d49217" stroke="#d49217" stroke-width=".12" stroke-linejoin="round"/><path d="M9.76 -1.94L9.63 -0.31L15.92 3.43L16.03 1.85Z" fill="#d19017" stroke="#d19017" stroke-width=".12" stroke-linejoin="round"/><path d="M9.63 -0.31L9.18 1.34L15.50 5.03L15.92 3.43Z" fill="#cd8b15" stroke="#cd8b15" stroke-width=".12" stroke-linejoin="round"/><path d="M9.18 1.34L8.43 2.92L14.78 6.55L15.50 5.03Z" fill="#c98614" stroke="#c98614" stroke-width=".12" stroke-linejoin="round"/><path d="M8.43 2.92L7.42 4.35L13.80 7.92L14.78 6.55Z" fill="#c48213" stroke="#c48213" stroke-width=".12" stroke-linejoin="round"/><path d="M7.42 4.35L6.21 5.55L12.63 9.06L13.80 7.92Z" fill="#c17e12" stroke="#c17e12" stroke-width=".12" stroke-linejoin="round"/><path d="M6.21 5.55L4.86 6.45L11.31 9.92L12.63 9.06Z" fill="#be7b11" stroke="#be7b11" stroke-width=".12" stroke-linejoin="round"/><path d="M4.86 6.45L3.44 7.01L9.92 10.45L11.31 9.92Z" fill="#bc7910" stroke="#bc7910" stroke-width=".12" stroke-linejoin="round"/><path d="M3.44 7.01L-9.90 10.64L-3.18 13.81L9.92 10.45Z" fill="#bb7810" stroke="#bb7810" stroke-width=".12" stroke-linejoin="round"/><path d="M-9.90 10.64L-11.19 10.82L-4.46 13.97L-3.18 13.81Z" fill="#bb7810" stroke="#bb7810" stroke-width=".12" stroke-linejoin="round"/><path d="M-11.19 10.82L-12.40 10.64L-5.65 13.78L-4.46 13.97Z" fill="#bb7810" stroke="#bb7810" stroke-width=".12" stroke-linejoin="round"/><path d="M3.30 -14.29L4.65 -14.58L5.96 -14.52L7.14 -14.12L8.15 -13.38L8.92 -12.35L9.42 -11.06L9.61 -9.59L9.76 -1.94L9.63 -0.31L9.18 1.34L8.43 2.92L7.42 4.35L6.21 5.55L4.86 6.45L3.44 7.01L-9.90 10.64L-11.19 10.82L-12.40 10.64L-13.47 10.12L-14.33 9.29L-14.97 8.19L-15.34 6.89L-15.43 5.44L-15.21 -1.76L-15.03 -3.24L-14.58 -4.73L-13.89 -6.16L-13.00 -7.45L-11.93 -8.56L-10.74 -9.42L-9.50 -10.00Z" fill="url(#m3d-gold)"/><path d="M3.31 -11.93L4.19 -12.11L5.03 -12.07L5.79 -11.80L6.43 -11.32L6.92 -10.65L7.23 -9.82L7.35 -8.87L7.47 -1.26L7.38 -0.22L7.09 0.83L6.61 1.84L5.96 2.75L5.19 3.52L4.33 4.10L3.42 4.47L-9.85 8.17L-10.68 8.29L-11.46 8.19L-12.15 7.86L-12.71 7.33L-13.13 6.63L-13.37 5.79L-13.44 4.86L-13.24 -2.38L-13.13 -3.34L-12.84 -4.30L-12.39 -5.23L-11.81 -6.07L-11.12 -6.79L-10.35 -7.34L-9.54 -7.71Z" fill="#171226"/><path d="M-6.44 -1.57L-6.52 -0.91L-5.71 -0.47L-5.64 -1.13Z" fill="#c2366d" stroke="#c2366d" stroke-width=".12" stroke-linejoin="round"/><path d="M-6.52 -0.91L-6.71 -0.25L-5.90 0.19L-5.71 -0.47Z" fill="#bf356b" stroke="#bf356b" stroke-width=".12" stroke-linejoin="round"/><path d="M-6.71 -0.25L-7.01 0.39L-6.21 0.82L-5.90 0.19Z" fill="#bc3469" stroke="#bc3469" stroke-width=".12" stroke-linejoin="round"/><path d="M-7.01 0.39L-7.42 0.97L-6.61 1.39L-6.21 0.82Z" fill="#ba3267" stroke="#ba3267" stroke-width=".12" stroke-linejoin="round"/><path d="M-7.42 0.97L-7.89 1.45L-7.09 1.88L-6.61 1.39Z" fill="#b83166" stroke="#b83166" stroke-width=".12" stroke-linejoin="round"/><path d="M-7.89 1.45L-8.42 1.82L-7.61 2.25L-7.09 1.88Z" fill="#b63165" stroke="#b63165" stroke-width=".12" stroke-linejoin="round"/><path d="M-8.42 1.82L-8.98 2.06L-8.17 2.48L-7.61 2.25Z" fill="#b53064" stroke="#b53064" stroke-width=".12" stroke-linejoin="round"/><path d="M-8.98 2.06L-9.52 2.15L-8.71 2.57L-8.17 2.48Z" fill="#b43063" stroke="#b43063" stroke-width=".12" stroke-linejoin="round"/><path d="M-9.52 2.15L-10.04 2.09L-9.23 2.51L-8.71 2.57Z" fill="#b43063" stroke="#b43063" stroke-width=".12" stroke-linejoin="round"/><path d="M-10.04 2.09L-10.50 1.89L-9.69 2.31L-9.23 2.51Z" fill="#b53064" stroke="#b53064" stroke-width=".12" stroke-linejoin="round"/><path d="M-7.35 -3.51L-6.96 -3.18L-6.16 -2.74L-6.55 -3.06Z" fill="#cb3b73" stroke="#cb3b73" stroke-width=".12" stroke-linejoin="round"/><path d="M-6.96 -3.18L-6.68 -2.73L-5.88 -2.29L-6.16 -2.74Z" fill="#c93a72" stroke="#c93a72" stroke-width=".12" stroke-linejoin="round"/><path d="M-6.68 -2.73L-6.50 -2.19L-5.70 -1.75L-5.88 -2.29Z" fill="#c73971" stroke="#c73971" stroke-width=".12" stroke-linejoin="round"/><path d="M-6.50 -2.19L-6.44 -1.57L-5.64 -1.13L-5.70 -1.75Z" fill="#c5376f" stroke="#c5376f" stroke-width=".12" stroke-linejoin="round"/><path d="M-6.44 -1.57L-6.52 -0.91L-6.71 -0.25L-7.01 0.39L-7.42 0.97L-7.89 1.45L-8.42 1.82L-8.98 2.06L-9.52 2.15L-10.04 2.09L-10.50 1.89L-10.88 1.55L-11.15 1.10L-11.32 0.55L-11.37 -0.06L-11.29 -0.71L-11.10 -1.36L-10.80 -1.99L-10.40 -2.55L-9.94 -3.03L-9.42 -3.40L-8.87 -3.64L-8.33 -3.75L-7.81 -3.70L-7.35 -3.51L-6.96 -3.18L-6.68 -2.73L-6.50 -2.19Z" fill="#ff5f9e"/><path d="M3.88 -7.75L4.09 -7.58L4.87 -7.10L4.66 -7.27Z" fill="#269db5" stroke="#269db5" stroke-width=".12" stroke-linejoin="round"/><path d="M4.09 -7.58L4.23 -7.34L5.00 -6.86L4.87 -7.10Z" fill="#259bb3" stroke="#259bb3" stroke-width=".12" stroke-linejoin="round"/><path d="M4.23 -7.34L4.28 -7.03L5.05 -6.55L5.00 -6.86Z" fill="#2498b0" stroke="#2498b0" stroke-width=".12" stroke-linejoin="round"/><path d="M4.28 -7.03L4.23 -6.70L5.01 -6.22L5.05 -6.55Z" fill="#2395ac" stroke="#2395ac" stroke-width=".12" stroke-linejoin="round"/><path d="M4.23 -6.70L4.10 -6.37L4.88 -5.89L5.01 -6.22Z" fill="#2291a9" stroke="#2291a9" stroke-width=".12" stroke-linejoin="round"/><path d="M4.10 -6.37L3.90 -6.07L4.67 -5.60L4.88 -5.89Z" fill="#208ea5" stroke="#208ea5" stroke-width=".12" stroke-linejoin="round"/><path d="M3.90 -6.07L3.63 -5.84L4.41 -5.37L4.67 -5.60Z" fill="#208ca3" stroke="#208ca3" stroke-width=".12" stroke-linejoin="round"/><path d="M3.63 -5.84L3.34 -5.70L4.12 -5.23L4.41 -5.37Z" fill="#1f8aa1" stroke="#1f8aa1" stroke-width=".12" stroke-linejoin="round"/><path d="M3.34 -5.70L-3.18 -3.68L-2.39 -3.23L4.12 -5.23Z" fill="#1f89a0" stroke="#1f89a0" stroke-width=".12" stroke-linejoin="round"/><path d="M-3.18 -3.68L-3.46 -3.65L-2.67 -3.19L-2.39 -3.23Z" fill="#1f89a0" stroke="#1f89a0" stroke-width=".12" stroke-linejoin="round"/><path d="M-3.46 -3.65L-3.71 -3.71L-2.92 -3.26L-2.67 -3.19Z" fill="#1f8aa0" stroke="#1f8aa0" stroke-width=".12" stroke-linejoin="round"/><path d="M3.33 -7.77L3.62 -7.81L3.88 -7.75L4.09 -7.58L4.23 -7.34L4.28 -7.03L4.28 -7.03L4.23 -6.70L4.10 -6.37L3.90 -6.07L3.63 -5.84L3.34 -5.70L-3.18 -3.68L-3.46 -3.65L-3.71 -3.71L-3.91 -3.88L-4.03 -4.12L-4.07 -4.42L-4.07 -4.42L-4.03 -4.75L-3.90 -5.07L-3.70 -5.36L-3.45 -5.58L-3.17 -5.72Z" fill="#3fd0e8"/><path d="M0.93 -2.50L1.14 -2.33L1.93 -1.87L1.72 -2.04Z" fill="#cb3b73" stroke="#cb3b73" stroke-width=".12" stroke-linejoin="round"/><path d="M1.14 -2.33L1.27 -2.08L2.06 -1.62L1.93 -1.87Z" fill="#c93972" stroke="#c93972" stroke-width=".12" stroke-linejoin="round"/><path d="M1.27 -2.08L1.32 -1.77L2.11 -1.31L2.06 -1.62Z" fill="#c5386f" stroke="#c5386f" stroke-width=".12" stroke-linejoin="round"/><path d="M1.32 -1.77L1.27 -1.43L2.06 -0.98L2.11 -1.31Z" fill="#c1366d" stroke="#c1366d" stroke-width=".12" stroke-linejoin="round"/><path d="M1.27 -1.43L1.14 -1.10L1.93 -0.65L2.06 -0.98Z" fill="#be346a" stroke="#be346a" stroke-width=".12" stroke-linejoin="round"/><path d="M1.14 -1.10L0.94 -0.80L1.73 -0.36L1.93 -0.65Z" fill="#ba3267" stroke="#ba3267" stroke-width=".12" stroke-linejoin="round"/><path d="M0.94 -0.80L0.68 -0.58L1.47 -0.13L1.73 -0.36Z" fill="#b73165" stroke="#b73165" stroke-width=".12" stroke-linejoin="round"/><path d="M0.68 -0.58L0.39 -0.44L1.18 0.01L1.47 -0.13Z" fill="#b53064" stroke="#b53064" stroke-width=".12" stroke-linejoin="round"/><path d="M0.39 -0.44L-3.21 0.63L-2.41 1.06L1.18 0.01Z" fill="#b43063" stroke="#b43063" stroke-width=".12" stroke-linejoin="round"/><path d="M-3.21 0.63L-3.49 0.66L-2.69 1.09L-2.41 1.06Z" fill="#b43063" stroke="#b43063" stroke-width=".12" stroke-linejoin="round"/><path d="M-3.49 0.66L-3.74 0.59L-2.94 1.02L-2.69 1.09Z" fill="#b43064" stroke="#b43064" stroke-width=".12" stroke-linejoin="round"/><path d="M0.39 -2.53L0.67 -2.56L0.93 -2.50L1.14 -2.33L1.27 -2.08L1.32 -1.77L1.32 -1.77L1.27 -1.43L1.14 -1.10L0.94 -0.80L0.68 -0.58L0.39 -0.44L-3.21 0.63L-3.49 0.66L-3.74 0.59L-3.94 0.42L-4.07 0.17L-4.11 -0.14L-4.11 -0.14L-4.06 -0.47L-3.93 -0.80L-3.73 -1.09L-3.48 -1.31L-3.20 -1.44Z" fill="#ff5f9e"/></svg><span>Pocket3D</span></a>
   <nav class="links" aria-label="Pocket3D">
     <a class="pill" href="https://pocketjs.pocket.nexus/">PocketJS</a>
-    <a class="pill go" href="https://github.com/pocket-nexus/pocketjs">GitHub</a>
+    <a class="pill ico" href="https://x.com/pocket_js" target="_blank" rel="noreferrer" aria-label="Pocket Nexus on X"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+    <a class="pill ico" href="https://discord.gg/cTce4eXzSK" target="_blank" rel="noreferrer" aria-label="Pocket Nexus on Discord"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.54 5.34A17.75 17.75 0 0 0 15.07 4c-.19.35-.41.82-.56 1.19a16.5 16.5 0 0 0-5.02 0A12.1 12.1 0 0 0 8.92 4c-1.55.27-3.06.73-4.47 1.34C1.62 9.54.86 13.64 1.24 17.68A17.9 17.9 0 0 0 6.72 20.4c.44-.59.83-1.22 1.16-1.89-.64-.24-1.25-.54-1.83-.89.15-.11.3-.23.44-.35a12.68 12.68 0 0 0 11.02 0c.15.12.29.24.44.35-.58.35-1.2.65-1.84.89.34.67.72 1.3 1.16 1.89a17.85 17.85 0 0 0 5.49-2.72c.45-4.69-.75-8.75-3.22-12.34ZM8.7 15.19c-1.07 0-1.95-.98-1.95-2.18s.86-2.18 1.95-2.18c1.08 0 1.96.98 1.95 2.18 0 1.2-.87 2.18-1.95 2.18Zm6.6 0c-1.07 0-1.95-.98-1.95-2.18s.86-2.18 1.95-2.18c1.08 0 1.96.98 1.95 2.18 0 1.2-.87 2.18-1.95 2.18Z"/></svg></a>
+    <a class="pill ico" href="https://github.com/pocket-nexus/pocketjs" target="_blank" rel="noreferrer" aria-label="PocketJS on GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
   </nav>
 </header>
 
 <main>
   <section class="hero" id="hero">
-    <h1 class="title" id="title" aria-label="Create 3D for every machine you love">
-      <span class="plate0" aria-hidden="true">
-        <span class="ln"><span class="wd"><span class="ch p" style="--i:0">C</span><span class="ch y" style="--i:1">r</span><span class="ch c" style="--i:2">e</span><span class="ch l" style="--i:3">a</span><span class="ch o" style="--i:4">t</span><span class="ch p" style="--i:5">e</span></span> <span class="wd"><span class="ch y" style="--i:6">3</span><span class="ch c" style="--i:7">D</span></span></span>
-        <span class="ln"><span class="wd"><span class="ch l" style="--i:8">f</span><span class="ch o" style="--i:9">o</span><span class="ch p" style="--i:10">r</span></span> <span class="wd"><span class="ch y" style="--i:11">e</span><span class="ch c" style="--i:12">v</span><span class="ch l" style="--i:13">e</span><span class="ch o" style="--i:14">r</span><span class="ch p" style="--i:15">y</span></span> <i></i><span class="wd"><span class="ch y" style="--i:16">m</span><span class="ch c" style="--i:17">a</span><span class="ch l" style="--i:18">c</span><span class="ch o" style="--i:19">h</span><span class="ch p" style="--i:20">i</span><span class="ch y" style="--i:21">n</span><span class="ch c" style="--i:22">e</span></span></span>
-        <span class="ln"><span class="wd"><span class="ch l" style="--i:23">y</span><span class="ch o" style="--i:24">o</span><span class="ch p" style="--i:25">u</span></span> <span class="wd"><span class="ch y" style="--i:26">l</span><span class="ch c" style="--i:27">o</span><span class="ch l" style="--i:28">v</span><span class="ch o" style="--i:29">e</span></span></span>
-        <span class="rail"></span>
-      </span>
-    </h1>
-    <p class="lede">Pocket3D is a hardware-native 3D stack for portable interactive software.</p>
-    <div class="ctas">
-      <a class="btn" href="#hardware-native" style="--ax:0;--ay:4px">See how it works <span class="arr" aria-hidden="true">↓</span></a>
-      <a class="btn alt" href="https://studio.pocket.nexus/" aria-label="Open Pocket Studio, a work in progress">Open Pocket Studio <span class="wip" aria-hidden="true">WIP</span></a>
+    <div class="copy">
+      <p class="kicker"><span style="--k:var(--yellow)">PSP</span><span style="--k:var(--pink)">Nintendo 3DS</span><span style="--k:var(--cyan)">PS Vita</span></p>
+      <h1 class="title" id="title" aria-label="Create 3D for every machine you love">
+        <span class="plate0" aria-hidden="true">
+          <span class="ln"><span class="wd"><span class="ch p" style="--i:0">C</span><span class="ch y" style="--i:1">r</span><span class="ch c" style="--i:2">e</span><span class="ch l" style="--i:3">a</span><span class="ch o" style="--i:4">t</span><span class="ch p" style="--i:5">e</span></span> <span class="wd"><span class="ch y" style="--i:6">3</span><span class="ch c" style="--i:7">D</span></span></span>
+          <span class="ln"><span class="wd"><span class="ch l" style="--i:8">f</span><span class="ch o" style="--i:9">o</span><span class="ch p" style="--i:10">r</span></span> <span class="wd"><span class="ch y" style="--i:11">e</span><span class="ch c" style="--i:12">v</span><span class="ch l" style="--i:13">e</span><span class="ch o" style="--i:14">r</span><span class="ch p" style="--i:15">y</span></span> <span class="wd"><span class="ch y" style="--i:16">m</span><span class="ch c" style="--i:17">a</span><span class="ch l" style="--i:18">c</span><span class="ch o" style="--i:19">h</span><span class="ch p" style="--i:20">i</span><span class="ch y" style="--i:21">n</span><span class="ch c" style="--i:22">e</span></span></span>
+          <span class="ln"><span class="wd"><span class="ch l" style="--i:23">y</span><span class="ch o" style="--i:24">o</span><span class="ch p" style="--i:25">u</span></span> <span class="wd"><span class="ch y" style="--i:26">l</span><span class="ch c" style="--i:27">o</span><span class="ch l" style="--i:28">v</span><span class="ch o" style="--i:29">e</span></span></span>
+          <span class="rail"></span>
+        </span>
+      </h1>
+      <p class="lede">Pocket3D is a hardware-native 3D stack for portable interactive software.</p>
+      <div class="ctas">
+        <a class="btn" href="#hardware-native" style="--ax:0;--ay:4px">See how it works <span class="arr" aria-hidden="true">↓</span></a>
+        <a class="btn alt" href="https://studio.pocket.nexus/">Open Pocket Studio</a>
+      </div>
     </div>
+    <div class="wall" role="group" aria-label="Frames captured from Pocket3D engines on real consoles">
+      <div class="col"><div class="run">
+          <ul>
+            <li><figure><img src="/assets/tokyo-dusk.webp" width="720" height="408" alt="PS Vita capture: Tokyo Tower at dusk from the air, over lit streets and windows." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Tokyo</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-suga.webp" width="960" height="544" alt="PS Vita capture: Stone stairs between buildings under a tree, in hard sunlight." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt="PSP capture: A street of timber houses with a tower at its end." decoding="async"><figcaption style="--c:var(--yellow)"><b>Pocket Maneuver</b> · PSP</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-3ds.webp" width="400" height="240" alt="Nintendo 3DS capture: Upper screen: Tokyo Tower in the afternoon." decoding="async"><figcaption style="--c:var(--pink)"><b>Pocket Tokyo</b> · 3DS</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-konbini.webp" width="960" height="544" alt="PS Vita capture: A convenience store at night, reflected in wet ground." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+          </ul>
+          <ul aria-hidden="true">
+            <li><figure><img src="/assets/tokyo-dusk.webp" width="720" height="408" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Tokyo</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-suga.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt="" decoding="async"><figcaption style="--c:var(--yellow)"><b>Pocket Maneuver</b> · PSP</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-3ds.webp" width="400" height="240" alt="" decoding="async"><figcaption style="--c:var(--pink)"><b>Pocket Tokyo</b> · 3DS</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-konbini.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+          </ul>
+      </div></div>
+      <div class="col"><div class="run">
+          <ul>
+            <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt="PS Vita capture: A green tram passes a level crossing above the sea." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/openstrike-psp.webp" width="960" height="544" alt="PSP capture: A first-person view of a sunlit courtyard with crates and a rifle." decoding="async"><figcaption style="--c:var(--yellow)"><b>OpenStrike</b> · PSP</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-3ds-dusk.webp" width="400" height="240" alt="Nintendo 3DS capture: Upper screen: Tokyo Tower at dusk over lit streets." decoding="async"><figcaption style="--c:var(--pink)"><b>Pocket Tokyo</b> · 3DS</figcaption></figure></li>
+            <li><figure><img src="/assets/maneuver-vita.webp" width="960" height="544" alt="PS Vita capture: A figure on wires flies over the red roofs of a walled town." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Maneuver</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-psp-dusk.webp" width="480" height="272" alt="PSP capture: Tokyo Tower at dusk over lit streets." decoding="async"><figcaption style="--c:var(--yellow)"><b>Pocket Tokyo</b> · PSP</figcaption></figure></li>
+          </ul>
+          <ul aria-hidden="true">
+            <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/openstrike-psp.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--yellow)"><b>OpenStrike</b> · PSP</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-3ds-dusk.webp" width="400" height="240" alt="" decoding="async"><figcaption style="--c:var(--pink)"><b>Pocket Tokyo</b> · 3DS</figcaption></figure></li>
+            <li><figure><img src="/assets/maneuver-vita.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Maneuver</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-psp-dusk.webp" width="480" height="272" alt="" decoding="async"><figcaption style="--c:var(--yellow)"><b>Pocket Tokyo</b> · PSP</figcaption></figure></li>
+          </ul>
+      </div></div>
+      <div class="col"><div class="run">
+          <ul>
+            <li><figure><img src="/assets/tokyo-title.webp" width="960" height="544" alt="PS Vita capture: The Pocket Tokyo title menu over Tokyo Tower and the Shiba district." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Tokyo</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt="PS Vita capture: A grid of city lights seen from a hilltop terrace at dusk." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-psp.webp" width="480" height="272" alt="PSP capture: Tokyo Tower among office blocks by day, with altitude and speed readouts." decoding="async"><figcaption style="--c:var(--yellow)"><b>Pocket Tokyo</b> · PSP</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-kaikan.webp" width="960" height="544" alt="PS Vita capture: The Radio Kaikan building at dusk, its facade covered in lit signs." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/overlook-vita.webp" width="960" height="544" alt="PS Vita capture: An observatory at dusk with a city skyline behind it." decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+          </ul>
+          <ul aria-hidden="true">
+            <li><figure><img src="/assets/tokyo-title.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Tokyo</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/tokyo-psp.webp" width="480" height="272" alt="" decoding="async"><figcaption style="--c:var(--yellow)"><b>Pocket Tokyo</b> · PSP</figcaption></figure></li>
+            <li><figure><img src="/assets/atlas-kaikan.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+            <li><figure><img src="/assets/overlook-vita.webp" width="960" height="544" alt="" decoding="async"><figcaption style="--c:var(--cyan)"><b>Pocket Atlas</b> · PS Vita</figcaption></figure></li>
+          </ul>
+      </div></div>
+    </div>
+    <nav class="chapters" aria-label="What Pocket3D is">
+      <a href="#hardware-native" style="--c:var(--yellow)"><b>Hardware-native</b><span>Built to use each machine in full.</span></a>
+      <a href="#compiler-first" style="--c:var(--cyan)"><b>Compiler-first</b><span>One source of truth, a different program on each machine.</span></a>
+      <a href="#purpose-built" style="--c:var(--pink)"><b>Purpose-built engines</b><span>Every game gets an engine of its own.</span></a>
+      <a href="#efficient-ui" style="--c:var(--orange)"><b>Efficient UI</b><span>The HUD is written like a web page, and a PSP keeps up.</span></a>
+      <a href="#coding-agents" style="--c:var(--lilac)"><b>Built for coding agents</b><span>Making a game is writing code.</span></a>
+    </nav>
   </section>
-
-  <div class="strip" aria-label="Frames captured from Pocket3D engines on real consoles">
-    <div class="reel">
-      <ul>
-        <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt="A green tram passes a level crossing above the sea."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-dusk.webp" width="720" height="408" alt="Tokyo Tower at dusk from the air, over lit streets and windows."><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt="A street of timber houses with a tower at its end."><figcaption><b>Pocket Maneuver</b> on a PSP</figcaption></figure></li>
-        <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt="A grid of city lights seen from a hilltop terrace at dusk."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-psp.webp" width="480" height="272" alt="Tokyo Tower among office blocks by day, with altitude and speed readouts."><figcaption><b>Pocket Tokyo</b> on a PSP</figcaption></figure></li>
-        <li><figure><img src="/assets/openstrike-psp.webp" width="960" height="544" alt="A first-person view of a sunlit courtyard with crates and a rifle."><figcaption><b>OpenStrike</b> on a PSP</figcaption></figure></li>
-        <li><figure><img src="/assets/atlas-konbini.webp" width="960" height="544" alt="A convenience store at night, reflected in wet ground."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-title.webp" width="960" height="544" alt="The Pocket Tokyo title menu over Tokyo Tower and the Shiba district."><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/maneuver-vita.webp" width="960" height="544" alt="A figure on wires flies over the red roofs of a walled town."><figcaption><b>Pocket Maneuver</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/atlas-suga.webp" width="960" height="544" alt="Stone stairs between buildings under a tree, in hard sunlight."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-      </ul>
-      <ul aria-hidden="true">
-        <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-dusk.webp" width="720" height="408" alt=""><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt=""><figcaption><b>Pocket Maneuver</b> on a PSP</figcaption></figure></li>
-        <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-psp.webp" width="480" height="272" alt=""><figcaption><b>Pocket Tokyo</b> on a PSP</figcaption></figure></li>
-        <li><figure><img src="/assets/openstrike-psp.webp" width="960" height="544" alt=""><figcaption><b>OpenStrike</b> on a PSP</figcaption></figure></li>
-        <li><figure><img src="/assets/atlas-konbini.webp" width="960" height="544" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-title.webp" width="960" height="544" alt=""><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/maneuver-vita.webp" width="960" height="544" alt=""><figcaption><b>Pocket Maneuver</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/atlas-suga.webp" width="960" height="544" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-      </ul>
-    </div>
-  </div>
 
   <!-- 1 -->
   <section class="chap" id="hardware-native" style="--c:var(--yellow);--c2:#c98a00">
@@ -516,21 +614,21 @@ main{display:flex;flex-direction:column;align-items:center}
         <div class="tw" style="--c:var(--yellow)">
           <div class="dev">
             <svg viewBox="0 0 76 36" aria-hidden="true"><rect x="1.5" y="3.5" width="73" height="29" rx="14.5" fill="#171226" stroke="currentColor" stroke-width="2.6" style="color:var(--yellow)"/><rect x="20" y="8.5" width="36" height="19" rx="2.5" fill="#3fd0e8" opacity=".9"/><path d="M10.5 13.5v9M6 18h9" stroke="#ff5f9e" stroke-width="2.6" stroke-linecap="round"/><circle cx="62.5" cy="18" r="1.7" fill="#ff5f9e"/><circle cx="68" cy="18" r="1.7" fill="#ffd23f"/><circle cx="65.2" cy="13.4" r="1.7" fill="#a98bff"/><circle cx="65.2" cy="22.6" r="1.7" fill="#3fd0e8"/></svg>
-            <h3>PSP <small>GE, 2004</small></h3>
+            <div><h3>PSP</h3><p class="gpu"><span class="tip" tabindex="0" aria-describedby="tip-ge">GE<span class="bubble" role="tooltip" id="tip-ge"><b>GE, the Graphics Engine</b>The graphics chip of Sony's PSP. Its pipeline is fixed: it has no shaders, so lighting, fog and texturing are stages a game switches on and sets.</span></span>, 2004</p></div>
           </div>
           <ul class="feats"><li style="--n:2">palette textures</li><li style="--n:1">GE bone blending</li><li style="--n:0">fixed pipeline</li></ul>
         </div>
         <div class="tw" style="--c:var(--pink)">
           <div class="dev">
             <svg viewBox="0 0 50 54" aria-hidden="true"><rect x="3.5" y="1.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="9" y="6" width="32" height="15" rx="2" fill="#3fd0e8" opacity=".9"/><rect x="3.5" y="28.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="15" y="33" width="20" height="15" rx="2" fill="#ffd23f" opacity=".9"/><circle cx="9.3" cy="38" r="2.3" fill="#a98bff"/><circle cx="40.8" cy="38" r="1.5" fill="#ff5f9e"/><circle cx="40.8" cy="43.5" r="1.5" fill="#3fd0e8"/></svg>
-            <h3>Nintendo 3DS <small>PICA200, 2011</small></h3>
+            <div><h3>Nintendo 3DS</h3><p class="gpu"><span class="tip" tabindex="0" aria-describedby="tip-pica">PICA200<span class="bubble" role="tooltip" id="tip-pica"><b>PICA200</b>The graphics chip of the Nintendo 3DS. It runs vertex programs and has no fragment shaders: a pixel's colour comes from a chain of up to six combiner stages.</span></span>, 2011</p></div>
           </div>
           <ul class="feats"><li style="--n:2">glasses-free 3D</li><li style="--n:1">a second screen</li><li style="--n:0">PICA fog table</li></ul>
         </div>
         <div class="tw" style="--c:var(--cyan)">
           <div class="dev">
             <svg viewBox="0 0 80 36" aria-hidden="true"><rect x="1.5" y="2.5" width="77" height="31" rx="15.5" fill="#171226" stroke="#3fd0e8" stroke-width="2.6"/><rect x="19" y="7" width="42" height="22" rx="2.5" fill="#ff5f9e" opacity=".9"/><circle cx="10.5" cy="24" r="3" fill="#ffd23f"/><circle cx="69.5" cy="24" r="3" fill="#ffd23f"/><path d="M10.5 9.5v6M7.5 12.5h6" stroke="#a98bff" stroke-width="2.2" stroke-linecap="round"/><circle cx="69.5" cy="12.5" r="2.4" fill="none" stroke="#a98bff" stroke-width="1.8"/></svg>
-            <h3>PS Vita <small>GXM, 2011</small></h3>
+            <div><h3>PS Vita</h3><p class="gpu"><span class="tip" tabindex="0" aria-describedby="tip-gxm">GXM<span class="bubble" role="tooltip" id="tip-gxm"><b>GXM</b>The graphics interface of Sony's PS Vita, over a PowerVR chip. Vertex and fragment programs are written in Cg, and 4× multisampling is built in.</span></span>, 2011</p></div>
           </div>
           <ul class="feats"><li style="--n:2">bloom, light shafts</li><li style="--n:1">4× MSAA</li><li style="--n:0">Cg shaders</li></ul>
         </div>
@@ -552,9 +650,8 @@ main{display:flex;flex-direction:column;align-items:center}
     <div class="card viz compile rv" style="--d:.1s">
       <div class="prism" id="prism">
         <div class="scene">
-          <span class="stage">the scene, written once in Three.js</span>
-          <h3>Pocket Tokyo</h3>
-          <p>The real city around Tokyo Tower. Pick a line of it.</p>
+          <h3><span class="tip" tabindex="0" aria-describedby="tip-tokyo">Pocket Tokyo<span class="bubble" role="tooltip" id="tip-tokyo"><b>Pocket Tokyo, an example app</b>A flight over the real Tokyo around Tokyo Tower, built on Pocket3D for the PS Vita, the PSP and the Nintendo 3DS.</span></span></h3>
+          <p>One Three.js scene of the city. Pick a line of it.</p>
           <div class="lines" role="group" aria-label="A part of Pocket Tokyo's scene">
             <button type="button" class="line" aria-pressed="true"><svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="5.2" fill="currentColor"/><path d="M15 2.5v4M15 23.5v4M2.5 15h4M23.5 15h4M6.2 6.2 9 9M21 21l2.8 2.8M23.8 6.2 21 9M9 21l-2.8 2.8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg><b>Shadows turn with the sun</b><span>The clock runs, and every shadow in the city follows it.</span></button>
             <button type="button" class="line" aria-pressed="false"><svg viewBox="0 0 30 30" aria-hidden="true"><path d="M20.5 4.5a11 11 0 1 0 5 15.6A9.4 9.4 0 0 1 20.5 4.5z" fill="currentColor"/><circle cx="7.5" cy="7" r="1.6" fill="currentColor"/><circle cx="12.5" cy="3.8" r="1.1" fill="currentColor"/></svg><b>The city lights up at dusk</b><span>Windows and 9,128 street lamps come on.</span></button>
@@ -603,12 +700,12 @@ main{display:flex;flex-direction:column;align-items:center}
           <g class="hot" filter="url(#mist)"><circle class="at-in" r="5"/><circle class="at-o vita" r="4"/><circle class="at-o n3ds" r="4"/><circle class="at-o psp" r="4"/></g>
         </svg>
       </div>
-      <p class="differ"><b>One meaning, three mechanisms.</b> CityIR holds the city as meaning, with no GPU in it. A portable engine would carry one renderer to all three machines and turn its features down, or off, where a machine lacks them. Here each back end emits its own data for its own renderer, so the PSP gets moving shadows without a single shader.</p>
+      <p class="differ">CityIR holds the city as meaning, with no GPU in it. A portable engine would carry one renderer to all three machines and turn its features down, or off, where a machine lacks them. Here each back end emits its own data for its own renderer, so the PSP gets moving shadows without a single shader.</p>
     </div>
     <figure class="card viz pair rv" style="--d:.1s">
       <figcaption>
-        <div><span class="stage">source and result, the same view</span><h3>Pocket Atlas <small>Griffith Observatory</small></h3></div>
-        <p>Another game, one machine. Drag to compare the Three.js reference in a browser with what the compiler made of it for a PS Vita.</p>
+        <h3><span class="tip" tabindex="0" aria-describedby="tip-atlas">Pocket Atlas<span class="bubble" role="tooltip" id="tip-atlas"><b>Pocket Atlas, an example app</b>Real places to stand in, such as this observatory and a street in Akihabara, built on Pocket3D for the PS Vita and the Nintendo 3DS.</span></span> <small>Griffith Observatory</small></h3>
+        <p>Drag to compare the Three.js reference in a browser with what the compiler made of it for a PS Vita.</p>
       </figcaption>
       <div class="compare" id="compare">
         <img src="/assets/overlook-vita.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: an observatory at dusk with a city skyline behind it.">
@@ -682,6 +779,52 @@ main{display:flex;flex-direction:column;align-items:center}
   </section>
 
   <!-- 4 -->
+  <section class="chap" id="efficient-ui" style="--c:var(--orange);--c2:#cf7d1c">
+    <header class="head rv">
+      <div>
+        <h2><span>Efficient</span> UI</h2>
+        <p class="kick">The HUD is written like a web page, and a PSP keeps up.</p>
+      </div>
+      <p class="why">A Pocket3D game draws its 3D and leaves every 2D pixel to <a href="https://pocketjs.pocket.nexus/">PocketJS</a>, the runtime Pocket3D's toolchains, dev hosts and device kernels come from. The title, the menus and the HUD are one app in JSX, with SolidJS for state and Tailwind classes for layout, drawn as a layer over the 3D frame. It costs little enough for a PSP, a machine with 32 MB of memory and a 333 MHz processor.</p>
+    </header>
+    <div class="viz">
+      <div class="ui rv" id="ui" style="--d:.1s">
+        <div class="card editor">
+          <div class="tabs" aria-hidden="true"><i></i><i></i><i></i>single.tsx</div>
+<pre aria-label="Code abridged from Pocket Tokyo's interface"><span class="m">// Pocket Tokyo's title screen, abridged from its interface</span>
+<span class="k">function</span> <span class="n">Title</span>(props) {
+  <span class="k">return</span> (
+    &lt;<span class="n">View</span> class=<span class="s">"relative w-full h-full"</span>&gt;<span class="mk" data-m="1" tabindex="0"><i>1</i>      &lt;<span class="n">View</span> class=<span class="s">"absolute"</span> style={{ insetL: <span class="s">24</span>, insetT: <span class="s">22</span> }}&gt;
+        &lt;<span class="n">Wordmark</span> large /&gt;
+      &lt;/<span class="n">View</span>&gt;</span><span class="mk" data-m="2" tabindex="0"><i>2</i>      &lt;<span class="n">Text</span> class=<span class="s">"absolute text-xs"</span> style={{ insetL: <span class="s">24</span>, insetT: <span class="s">88</span> }}&gt;
+        A flight over Shiba, around Tokyo Tower.
+      &lt;/<span class="n">Text</span>&gt;</span><span class="mk" data-m="3" tabindex="0"><i>3</i>      &lt;<span class="n">View</span> class=<span class="s">"absolute"</span> style={{ insetR: <span class="s">16</span>, insetT: <span class="s">12</span> }}&gt;
+        &lt;<span class="n">Clock</span> host={flight.host} /&gt;
+      &lt;/<span class="n">View</span>&gt;</span><span class="mk" data-m="4" tabindex="0"><i>4</i>      &lt;<span class="n">View</span> class=<span class="s">"absolute"</span> style={{ insetL: <span class="s">10</span>, insetT: <span class="s">110</span> }}&gt;
+        &lt;<span class="n">Rows</span> flight={flight} menu={props.menu} rowHeight={<span class="s">26</span>} /&gt;
+      &lt;/<span class="n">View</span>&gt;</span>    &lt;/<span class="n">View</span>&gt;
+  );
+}</pre>
+        </div>
+        <figure class="screen">
+          <div class="shot"><img src="/assets/tokyo-title.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: the Pocket Tokyo title screen, its wordmark, a line of text, a clock and a list of five rows over the city.">
+            <span class="area" data-m="1" style="left:3.6%;top:6.6%;width:31%;height:24.6%" aria-label="the wordmark"><i>1</i></span>
+            <span class="area" data-m="2" style="left:3.6%;top:31.8%;width:51.6%;height:6.8%" aria-label="the line under it"><i>2</i></span>
+            <span class="area" data-m="3" style="left:78.8%;top:2.2%;width:19.8%;height:21.4%" aria-label="the clock"><i>3</i></span>
+            <span class="area" data-m="4" style="left:1.4%;top:40.8%;width:40.6%;height:47.6%" aria-label="the rows"><i>4</i></span>
+          </div>
+          <figcaption>The same four parts on a PS Vita, over the city the renderer draws. The code is abridged from Pocket Tokyo.</figcaption>
+        </figure>
+      </div>
+      <div class="facts">
+        <div class="card fact rv"><h3>Written like the web</h3><p>Components in JSX, state in SolidJS signals, layout in Tailwind classes. One app serves every console and takes a layout for each screen.</p></div>
+        <div class="card fact rv" style="--d:.08s"><h3>No browser on the console</h3><p>Classes become a style table at build time. A QuickJS guest runs the app, and a Rust core lays it out and draws every pixel.</p></div>
+        <div class="card fact rv" style="--d:.16s"><h3>Small in a frame</h3><p>OpenStrike's HUD takes 2.2 ms of JavaScript in a 60 fps frame on a PSP. A number that changes every frame is written to its node with no layout.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 -->
   <section class="chap" id="coding-agents" style="--c:var(--lilac);--c2:#5a3fc4">
     <header class="head rv">
       <div>
@@ -724,10 +867,11 @@ w.<span class="n">mesh</span>(<span class="n">frameUV</span>(<span class="k">new
   </section>
 
   <section class="close">
-    <h2 class="rv">Build the next one</h2>
-    <p class="rv" style="--d:.08s">The GXM, GE and PICA device kernels are open source in the PocketJS repository, with the toolchain pins they build on.</p>
+    <h2 class="rv">Make your first game</h2>
+    <p class="rv" style="--d:.08s">You do not need a PSP, a PS Vita or a 3DS on your desk, or to know how one draws. Pocket Studio runs in your browser: pick a machine, make a game with your coding agent and play it there.</p>
     <div class="ctas rv" style="--d:.16s">
-      <a class="btn" href="https://github.com/pocket-nexus/pocketjs/tree/main/devices">Read the kernels <span class="arr" aria-hidden="true">→</span></a>
+      <a class="btn" href="https://studio.pocket.nexus/">Try it in Pocket Studio <span class="arr" aria-hidden="true">→</span></a>
+      <a class="btn alt" href="https://github.com/pocket-nexus/pocketjs"><span aria-hidden="true">★</span> Star on GitHub</a>
     </div>
   </section>
 </main>
@@ -740,7 +884,7 @@ w.<span class="n">mesh</span>(<span class="n">frameUV</span>(<span class="k">new
     <a href="https://github.com/pocket-nexus">GitHub</a>
     <a href="https://x.com/pocket_js">X</a>
     <a href="https://discord.gg/cTce4eXzSK">Discord</a>
-    <a href="mailto:support@pocket.nexus">support@pocket.nexus</a>
+    <a href="mailto:support@pocket.nexus">Contact</a>
   </nav>
 </footer>
 
@@ -853,7 +997,15 @@ w.<span class="n">mesh</span>(<span class="n">frameUV</span>(<span class="k">new
   const compare = $("#compare"), range = $("input", compare);
   range.addEventListener("input", () => { compare.classList.add("used"); compare.style.setProperty("--p", range.value + "%"); });
 
-  /* ---------- 4. the editor types its code once ---------- */
+  /* ---------- 4. a part of the code and its place on the screen ---------- */
+  const ui = $("#ui");
+  const light = (id) => { for (const el of $$("[data-m]", ui)) el.classList.toggle("on", el.dataset.m === id); };
+  for (const el of $$("[data-m]", ui)) {
+    for (const type of ["pointerenter", "focus"]) el.addEventListener(type, () => light(el.dataset.m));
+    for (const type of ["pointerleave", "blur"]) el.addEventListener(type, () => light(""));
+  }
+
+  /* ---------- 5. the editor types its code once ---------- */
   const typed = $("#typed");
   if (!still) {
     const full = typed.innerHTML;
