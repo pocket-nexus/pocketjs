@@ -107,19 +107,22 @@ or `validateAndResolveBuildPlan` with a registry of one target.
 
 A browser build has no presentation of its own. **The page loads the bundle a
 device loads, with the `plan.json` PocketJS wrote for it, and shows the game
-as that device**: its screens at their own pixels, its presentation, its
-buttons from the keyboard. The browser kernel
+as that device**: its shell, its screens in the shell, its presentation, its
+keys under a pointer and from the keyboard. The browser kernel
 ([`devices/web/pocket-web-wgpu`](../../devices/web/pocket-web-wgpu/README.md))
-supplies the parts.
+supplies the page itself, `createPlayer`: **one page for every Pocket3D
+game**. The game's page has an empty body and no line of its own.
 
 | The page does | With |
 | --- | --- |
 | Reads the screens, the raster density and the surface that takes touch from the plan | `screens(plan)` in `pocket3d-interface.js`. The page keeps no table of device sizes |
 | Starts the device's guest in a realm of its own | `openInterface`: `hosts/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared. **`simHz` is the turns a second the game gives the guest** (30 where the device's host sets `__simHz` to 30); each turn then advances `ticks` sixtieths |
-| Lays out one or two screens at a whole number of display pixels | `createStage`; the lower screen is a second canvas. `pocket3d-stage.css` holds the layout and the look of the buttons and the picker, by the `data-pocket-*` attributes the modules set |
-| Maps the keyboard to the device's buttons, and draws them on the page for a browser whose pointer is a finger | `createControls`; the bits are PocketJS's, so one mask goes to the guest and to the game's pad mapping |
-| Hands a pointer to the guest as a contact on the surface that takes touch | `controls.touch(element, size)`, in the surface's logical pixels |
-| Offers the devices as text and changes device while the game runs | `choices` |
+| Builds the page: the bar, the device's shell, the dock that leads to Pocket Studio | `createPlayer({ title, tagline, devices, runsOn, pick })`. The page links `pocket3d-stage.css` and `pocket3d-player.css` |
+| Shows a device: its shell with one or two screens in it | `player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`, from `screens(plan)` and the renderer's shape. The scene is drawn into `player.canvas`; the lower screen is `player.stage.second` |
+| Reads the device's buttons and sticks | `player.controls.read()`: the keyboard and the shell's own keys, d-pad and sticks under a pointer or a finger. The bits are PocketJS's, so one mask goes to the guest and to the game's pad mapping |
+| Hands a pointer to the guest as a contact on the surface that takes touch | `player.show` binds it from `touch` and `viewport`, in the surface's logical pixels |
+| Says how the tab's picture differs from the device's | `note` on each device: one or two sentences the mark **Simulated** opens, after the player's own |
+| Tells the player the first frame is drawn | `player.ready()`: it then reads the other devices' shells |
 
 **Changing device replaces the guest and keeps the game.** The page removes
 the current realm, starts the next device's bundle in a new one, and the
@@ -132,6 +135,12 @@ finger and the baseline at two samples a pixel otherwise.
 **A difference between the tab and a device is the page's or the shell's,
 not a branch in `ui/`.** Do not add a `web` presentation, and do not compile
 a bundle for the browser alone.
+
+**What the page says is the player's, and what the game says is in its
+interface.** Credits, sources and a control legend of the game's own belong
+to a sheet of the interface (an About list reached from the title), where
+every device shows them. The page carries no footer, no attribution line and
+no key legend of a game: the player lists the keys and the notices itself.
 
 ## The protocol
 
@@ -317,6 +326,10 @@ after, as a renderer change does.
   then disagree about what START does.
 - A `web` presentation, or a table of screen sizes in the page. The page
   loads a device's bundle and reads that bundle's plan.
+- A header, a footer or buttons of the game's own on the browser page. The
+  player builds the page; a game that draws its own differs from every other.
+- A wordmark or a logo on a shell. A new device's shell lists them under
+  `hide` in `tools/handheld-models/shells.py` before it is rendered.
 - Drawing the interface twice in a browser, over black and over white, to
   find what it covers. `renderPremultiplied` is one drawing with its alpha.
 - Redrawing a second screen on every turn. `drawHashAuxiliary` says when it

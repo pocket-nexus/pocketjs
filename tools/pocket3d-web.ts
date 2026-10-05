@@ -13,7 +13,7 @@
 // A game's build tool imports `stagePocket3dWeb` and `cutPack` from its
 // PocketJS checkout; this file's command line is the same two functions.
 
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +23,9 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 /** The kernel: the crate a game links, and the modules of its page. */
 export const POCKET3D_WEB = {
   crate: join(ROOT, "devices/web/pocket-web-wgpu"),
-  modules: ["pocket3d-shell.js", "pocket3d-interface.js", "pocket3d-controls.js", "pocket3d-stage.js", "pocket3d-stage.css"],
+  modules: ["pocket3d-shell.js", "pocket3d-interface.js", "pocket3d-controls.js", "pocket3d-stage.js", "pocket3d-stage.css", "pocket3d-player.js", "pocket3d-player.css"],
+  /** What the player's modules load beside themselves: the handhelds' shells with their profiles, and the display face. */
+  assets: ["shells", "fonts"],
   /** The Pocket3D title card for a page, as pocket3d-title ships it. */
   title: ["pocket3d-title.js", "art.js"],
   /** The realm of a guest: PocketJS's AppInstance and what it imports. A realm started with
@@ -51,6 +53,11 @@ export async function stagePocket3dWeb(out: string): Promise<string[]> {
     if (built.exitCode !== 0) throw new Error("pocket3d-web: the UI core did not build (bun tools/wasm.ts)");
   }
   for (const file of POCKET3D_WEB.modules) cpSync(join(POCKET3D_WEB.crate, "web", file), join(out, file));
+  const assets: string[] = [];
+  for (const directory of POCKET3D_WEB.assets) {
+    cpSync(join(POCKET3D_WEB.crate, "web", directory), join(out, directory), { recursive: true });
+    assets.push(...readdirSync(join(POCKET3D_WEB.crate, "web", directory)).map((file) => `${directory}/${file}`));
+  }
   for (const file of POCKET3D_WEB.title) cpSync(join(ROOT, "engine/pocket3d/crates/pocket3d-title/web", file), join(out, file));
   for (const file of [...POCKET3D_WEB.realm, POCKET3D_WEB.core]) cpSync(join(web, file), join(out, file));
   // One module of the framework's own sources: the contact wire format, the touch hit facts and the button bits.
@@ -59,7 +66,7 @@ export async function stagePocket3dWeb(out: string): Promise<string[]> {
   const bundle = await Bun.build({ entrypoints: [entry], format: "esm", target: "browser" });
   if (!bundle.success) throw new Error(`pocket3d-web: ${bundle.logs.join("; ")}`);
   writeFileSync(join(out, POCKET3D_WEB.host), await bundle.outputs[0]!.text());
-  return [...POCKET3D_WEB.modules, ...POCKET3D_WEB.title, ...POCKET3D_WEB.realm, POCKET3D_WEB.core, POCKET3D_WEB.host];
+  return [...POCKET3D_WEB.modules, ...assets, ...POCKET3D_WEB.title, ...POCKET3D_WEB.realm, POCKET3D_WEB.core, POCKET3D_WEB.host];
 }
 
 const sha256 = (bytes: Uint8Array) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");

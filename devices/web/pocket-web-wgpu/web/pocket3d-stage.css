@@ -1,42 +1,48 @@
-/* The layout and the look of what pocket3d-stage.js and pocket3d-controls.js
- * put on a page: the stage and its screens, a device's buttons and sticks,
- * the choice of device as text. A page links this file and keeps its own
- * rules for everything else (its ground, its header, its copy).
+/* The layout of what pocket3d-stage.js and pocket3d-controls.js put on a
+ * page: the stage, the device's shell, the screens in it, the shell's moving
+ * parts and the places that take a pointer. A page links this file.
  *
- * pocket3d-stage.js reads the stage's gaps and padding from these rules when
- * it fits the screens, and the `data-stacked` attribute a page sets on the
- * stage for a window taller than wide (the buttons then go under the screens).
- *
- * The colours are four custom properties with the title card's plum as their
- * defaults; a page sets them on `:root` to change them:
- *
- *   --pocket3d-ink     the buttons' marks, the chosen device      #cfc8e6
- *   --pocket3d-bright  the chosen device's text                   #f4f0ff
- *   --pocket3d-dim     the other devices                          #8f87ab
- *   --pocket3d-line    the buttons' outlines, a stick's knob      #5d5680
- *   --pocket3d-ground  a held button's mark                       #171226
+ * pocket3d-stage.js reads the stage's padding from these rules when it fits
+ * the shell. Everything inside the shell is placed by the script in parts of
+ * the shell's own size, so the shell scales as one thing.
  */
 
-[data-pocket-stage="root"] { min-height: 0; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 0 8px; overflow: hidden; }
-[data-pocket-stage="root"][data-stacked] { flex-wrap: wrap; align-content: center; gap: 12px 24px; }
-[data-pocket-stage="root"][data-stacked] > [data-pocket-stage="screens"] { order: -1; flex-basis: 100%; }
-[data-pocket-stage="screens"] { display: flex; flex-direction: column; align-items: center; }
-[data-pocket-screen] { display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
+[data-pocket-stage="root"] { min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px 20px 20px; overflow: hidden; }
+[data-pocket-shell] { position: relative; flex: none; }
+/* The case: a picture, with the page's light under it. */
+[data-pocket-shell-art] { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; filter: drop-shadow(0 14px 22px rgb(0 0 0 / 0.5)); transition: opacity 0.2s; }
+[data-pocket-shell-art][hidden] { display: none; }
+[data-pocket-shell][data-loading] > [data-pocket-shell-art], [data-pocket-shell][data-loading] > [data-pocket-shell-parts] { opacity: 0; }
+[data-pocket-screen] { position: absolute; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
 [data-pocket-screen][hidden] { display: none; }
+/* (the parts lie over the whole shell and take no pointer: a screen under them does, and so do the controls) */
+[data-pocket-shell-parts] { position: absolute; inset: 0; pointer-events: none; transition: opacity 0.2s; }
 
-/* A device's buttons, for a browser without keys: outlines and their names, no case around them. */
-[data-pocket-stage="left"], [data-pocket-stage="right"] { display: grid; gap: 10px; justify-items: center; touch-action: none; user-select: none; -webkit-user-select: none; }
-[data-pocket-stage="left"]:empty, [data-pocket-stage="right"]:empty { display: none; }
-[data-pocket-group] { display: grid; gap: 2px; }
-[data-pocket-group="top"] { gap: 8px; }
-[data-pocket-button] { all: unset; box-sizing: border-box; min-width: 40px; height: 40px; padding: 0 8px; display: grid; place-items: center; border: 1px solid var(--pocket3d-line, #5d5680); border-radius: 4px; color: var(--pocket3d-ink, #cfc8e6); font: 600 13px/1 ui-sans-serif, system-ui, sans-serif; touch-action: none; }
-[data-pocket-button][data-held] { background: var(--pocket3d-ink, #cfc8e6); color: var(--pocket3d-ground, #171226); }
-[data-pocket-stick] { width: 92px; height: 92px; display: grid; place-items: center; border: 1px solid var(--pocket3d-line, #5d5680); border-radius: 50%; touch-action: none; }
-[data-pocket-stick] > div { width: 40px; height: 40px; border-radius: 50%; background: var(--pocket3d-line, #5d5680); pointer-events: none; }
+/* A moving part: a window on the parts' picture. Held, a key goes down into its socket, a shoulder key in
+ * from its edge, a moulded cross leans; a stick's cap is moved by the script. */
+[data-pocket-part] { position: absolute; background-repeat: no-repeat; pointer-events: none; transition: transform 70ms ease-out, filter 70ms ease-out; }
+[data-pocket-part][data-held][data-pocket-part-kind="key"] { transform: translateY(1.5%) scale(0.95); filter: brightness(0.68); }
+[data-pocket-part][data-held][data-pocket-part-kind="shoulder"] { transform: translateY(6%); filter: brightness(0.78); }
+[data-pocket-part][data-held][data-pocket-part-kind="rocker"] { transform: translate(calc(var(--lean-x, 0) * 1.4%), calc(var(--lean-y, 0) * 1.4%)) scale(0.985); filter: brightness(0.93); }
+[data-pocket-part][data-pocket-part-kind="cap"] { transition: transform 45ms linear; }
+
+/* Where a pointer takes a control: nothing is drawn, the part under it is the picture. */
+[data-pocket-control] { all: unset; }
+[data-pocket-control], [data-pocket-pad], [data-pocket-stick] { position: absolute; box-sizing: border-box; border-radius: 50%; pointer-events: auto; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+[data-pocket-stick] { cursor: grab; }
+/* A key that is out of sight from the front has no part: its name stands where a finger reaches it. */
+[data-pocket-control]:not(:empty) { display: grid; place-items: center; border-radius: 22%; color: rgb(60 60 66 / 0.55); font: 700 calc(var(--pocket-shell-unit, 4px) * 2.1) / 1 ui-sans-serif, system-ui, sans-serif; }
+[data-pocket-control]:not(:empty)[data-held] { background: rgb(0 0 0 / 0.14); color: rgb(30 30 34 / 0.9); }
+/* (the left one's name toward the left edge, the right one's toward the right: what is in the middle of a case's corner stays in sight) */
+[data-pocket-control="l"]:not(:empty) { justify-items: start; padding-left: 22%; }
+[data-pocket-control="r"]:not(:empty) { justify-items: end; padding-right: 22%; }
+@media (hover: hover) {
+  [data-pocket-control]:not(:empty):hover { color: rgb(30 30 34 / 0.85); }
+}
 
 /* The devices, as text: the one that is shown is underlined. */
-[data-pocket-choices] { display: flex; flex-wrap: wrap; gap: 4px 18px; }
-[data-pocket-choices] button { all: unset; cursor: pointer; color: var(--pocket3d-dim, #8f87ab); }
-[data-pocket-choices] button:hover { color: var(--pocket3d-ink, #cfc8e6); }
-[data-pocket-choices] button:focus-visible { outline: 1px solid var(--pocket3d-dim, #8f87ab); outline-offset: 3px; }
-[data-pocket-choices] button[aria-pressed="true"] { color: var(--pocket3d-bright, #f4f0ff); text-decoration: underline; text-underline-offset: 4px; cursor: default; }
+[data-pocket-choices] { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 20px; }
+[data-pocket-choices] button { all: unset; cursor: pointer; color: var(--pocket3d-muted, #8f7fb0); }
+[data-pocket-choices] button:hover { color: var(--pocket3d-ink-2, #cbbde2); }
+[data-pocket-choices] button:focus-visible { outline: 1px solid var(--pocket3d-muted, #8f7fb0); outline-offset: 3px; }
+[data-pocket-choices] button[aria-pressed="true"] { color: var(--pocket3d-ink, #fcf6ff); text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 5px; cursor: default; }

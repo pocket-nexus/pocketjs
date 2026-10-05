@@ -1,0 +1,115 @@
+/* The look of the player pocket3d-player.js builds: the bar with the game's
+ * name, the choice of device and the mark beside it, the panels its controls
+ * open, and the way to Pocket Studio under the stage. A page links this file
+ * after pocket3d-stage.css.
+ *
+ * The colours are Pocket Studio's own player's, as custom properties a page
+ * may set on `:root`:
+ *
+ *   --pocket3d-ground  the page                       #171226
+ *   --pocket3d-panel   a panel, the dock              #211a38
+ *   --pocket3d-line    hairlines                      #342a57
+ *   --pocket3d-ink     names, what is chosen          #fcf6ff
+ *   --pocket3d-ink-2   sentences                      #cbbde2
+ *   --pocket3d-muted   what waits to be chosen        #8f7fb0
+ *   --pocket3d-accent  the one action                 #ffd23f
+ *
+ * Gabarito (SIL Open Font License, ./fonts/OFL.txt) sets the game's name and
+ * the dock's heading; everything else is the system's own face. The page
+ * draws with the system's face until the file has come.
+ */
+
+@font-face {
+  font-family: "Gabarito";
+  src: url("./fonts/gabarito-800-latin.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+[data-pocket-player] {
+  --ground: var(--pocket3d-ground, #171226);
+  --panel: var(--pocket3d-panel, #211a38);
+  --line: var(--pocket3d-line, #342a57);
+  --ink: var(--pocket3d-ink, #fcf6ff);
+  --ink-2: var(--pocket3d-ink-2, #cbbde2);
+  --muted: var(--pocket3d-muted, #8f7fb0);
+  --accent: var(--pocket3d-accent, #ffd23f);
+  --display: "Gabarito", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--ground);
+  color: var(--ink-2);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+[data-pocket-player] :is(h1, h2, p, dl, dd) { margin: 0; }
+[data-pocket-player] [hidden] { display: none; }
+
+/* The bar: the game at the left, the device in the middle, the player's own controls at the right. */
+[data-pocket-bar] { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px 24px; padding: max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 6px max(20px, env(safe-area-inset-left)); }
+[data-pocket-game] { min-width: 0; }
+[data-pocket-game] h1 { color: var(--ink); font: 800 22px/1.15 var(--display); letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-pocket-game] p { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-pocket-device] { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px 20px; }
+/* The mark beside the device's name: a word with the dotted line of a term that explains itself. */
+[data-pocket-mark] { all: unset; cursor: help; color: var(--muted); font-size: 12px; text-decoration: underline dotted; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset: 4px; }
+[data-pocket-mark]:hover, [data-pocket-mark][aria-expanded="true"] { color: var(--ink-2); }
+/* (a hairline between the devices and the mark: it is said of the one that is chosen, and is not one of them) */
+[data-pocket-device] { position: relative; }
+[data-pocket-mark]::before { content: ""; display: inline-block; width: 1px; height: 1em; margin-right: 20px; vertical-align: -0.15em; background: var(--line); }
+[data-pocket-tools] { display: flex; justify-content: flex-end; gap: 20px; }
+[data-pocket-open] { all: unset; cursor: pointer; color: var(--muted); }
+[data-pocket-open]:hover, [data-pocket-open][aria-expanded="true"] { color: var(--ink); }
+:is([data-pocket-mark], [data-pocket-open], [data-pocket-action]):focus-visible { outline: 1px solid var(--muted); outline-offset: 4px; border-radius: 2px; }
+
+/* A sentence in place of the game. */
+[data-pocket-say] { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--ink-2); pointer-events: none; }
+[data-pocket-say]:empty { display: none; }
+
+/* What a control opens: under it, over the stage, never under a pointer that plays. */
+[data-pocket-panel] { position: absolute; z-index: 2; box-sizing: border-box; width: max-content; max-width: min(340px, calc(100vw - 24px)); padding: 14px 16px; display: grid; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 32px rgb(0 0 0 / 0.45); color: var(--ink-2); font-size: 13px; }
+[data-pocket-panel] h2 { color: var(--ink); font-size: 13px; font-weight: 600; line-height: 1.3; }
+[data-pocket-panel] a { color: var(--ink); text-underline-offset: 3px; }
+[data-pocket-panel] dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; }
+[data-pocket-panel] dt { color: var(--ink); font: 12px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; }
+[data-pocket-panel] dd { color: var(--ink-2); }
+
+/* The way to Pocket Studio: what the game is built for, and the door. */
+[data-pocket-studio] { display: flex; align-items: center; justify-content: space-between; gap: 16px 32px; padding: 14px max(20px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); border-top: 1px solid var(--line); background: linear-gradient(color-mix(in srgb, var(--panel) 55%, var(--ground)), var(--ground)); }
+[data-pocket-pitch] { min-width: 0; flex: 1; display: grid; gap: 2px; }
+[data-pocket-pitch] h2 { color: var(--ink); font: 800 20px/1.2 var(--display); letter-spacing: -0.02em; }
+[data-pocket-pitch] p { max-width: 64ch; color: var(--ink-2); }
+[data-pocket-actions] { flex: none; display: flex; align-items: center; gap: 20px; }
+[data-pocket-action] { color: var(--ink-2); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent); text-underline-offset: 4px; white-space: nowrap; }
+[data-pocket-action]:hover { color: var(--ink); }
+[data-pocket-action="get"] { padding: 9px 16px; border-radius: 8px; background: var(--accent); color: #1c1503; font-weight: 600; text-decoration: none; }
+[data-pocket-action="get"]:hover { color: #1c1503; filter: brightness(1.06); }
+
+/* A window narrower than its bar: the game and the controls on one line, the devices under them; the
+ * dock's words above its door. */
+@media (max-width: 760px) {
+  [data-pocket-bar] { grid-template-columns: minmax(0, 1fr) auto; }
+  [data-pocket-device] { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; gap: 4px 14px; }
+  [data-pocket-device] [data-pocket-choices] { justify-content: flex-start; gap: 4px 14px; }
+  /* (no hairline: on a line of its own the mark would start with it) */
+  [data-pocket-mark]::before { display: none; }
+  [data-pocket-tools] { gap: 16px; }
+  [data-pocket-studio] { flex-direction: column; align-items: stretch; gap: 12px; }
+  [data-pocket-actions] { flex-wrap: wrap; justify-content: space-between; gap: 12px 14px; }
+  [data-pocket-action="get"] { padding: 9px 14px; }
+}
+/* A window too low for the dock's sentences (a phone on its side): its heading and its door on one line. */
+@media (max-height: 560px) {
+  [data-pocket-bar] { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 2px; }
+  [data-pocket-game] p { display: none; }
+  [data-pocket-studio] { flex-direction: row; align-items: center; padding-top: 6px; padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+  [data-pocket-pitch] p { display: none; }
+  [data-pocket-pitch] h2 { font-size: 15px; }
+  [data-pocket-action="get"] { padding: 5px 12px; }
+  [data-pocket-action="make"] { display: none; }
+}

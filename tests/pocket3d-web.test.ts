@@ -17,13 +17,23 @@ test("the staged directory holds what a page loads, and a guest runs in its real
   const staged = mkdtempSync(join(tmpdir(), "pocket3d-web-"));
   try {
     const files = await stagePocket3dWeb(staged);
-    expect(files.sort()).toEqual(["app-instance.html", "app-instance.js", "art.js", "offload-worker.js", "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js", "pocketjs-host.js", "pocketjs.wasm", "wasm-ops.js"]);
+    expect(files.sort()).toEqual([
+      "app-instance.html", "app-instance.js", "art.js", "fonts/OFL.txt", "fonts/gabarito-800-latin.woff2", "offload-worker.js",
+      "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-player.css", "pocket3d-player.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js",
+      "pocketjs-host.js", "pocketjs.wasm",
+      "shells/3ds-parts.webp", "shells/3ds.webp", "shells/ATTRIBUTION.md", "shells/ipod.webp", "shells/profiles.js", "shells/psp-parts.webp", "shells/psp.webp", "shells/vita-parts.webp", "shells/vita.webp",
+      "wasm-ops.js",
+    ]);
     for (const file of files) expect([file, existsSync(join(staged, file))]).toEqual([file, true]);
     // PocketJS's own files are staged as they are.
     for (const file of POCKET3D_WEB.realm) expect(readFileSync(join(staged, file), "utf8")).toBe(readFileSync(ROOT + "hosts/web/" + file, "utf8"));
     // Every module a staged module imports is staged too.
     for (const file of files.filter((name) => name.endsWith(".js"))) {
-      for (const [, from] of readFileSync(join(staged, file), "utf8").matchAll(/^import [^;]*? from "\.\/([^"]+)";$/gm)) expect([file, from, files.includes(from!)]).toEqual([file, from, true]);
+      for (const [, from] of readFileSync(join(staged, file), "utf8").matchAll(/^import [^;]*? from "\.\/([^"]+)";$/gm)) {
+        // (a module in a directory names its neighbours from there)
+        const named = join(file, "..", from!);
+        expect([file, from, files.includes(named)]).toEqual([file, from, true]);
+      }
     }
 
     const run = Bun.spawnSync(["bun", ROOT + "tests/fixtures/pocket3d-web/realm.ts", staged], { stdout: "pipe", stderr: "pipe" });
@@ -56,8 +66,11 @@ test("the staged directory holds what a page loads, and a guest runs in its real
     for (const file of ["pocket3d-stage.js", "pocket3d-controls.js"]) {
       for (const [, name] of readFileSync(join(staged, file), "utf8").matchAll(/dataset\.pocket([A-Z][A-Za-z]*)/g)) marks.add("data-pocket-" + name![0]!.toLowerCase() + name!.slice(1));
     }
-    expect([...marks].sort()).toEqual(["data-pocket-button", "data-pocket-choices", "data-pocket-group", "data-pocket-screen", "data-pocket-stage", "data-pocket-stick"]);
-    for (const mark of marks) expect([mark, sheet.includes(`[${mark}`)]).toEqual([mark, true]);
+    expect([...marks].sort()).toEqual(["data-pocket-choices", "data-pocket-control", "data-pocket-pad", "data-pocket-part", "data-pocket-partKind", "data-pocket-screen", "data-pocket-shell", "data-pocket-shellArt", "data-pocket-shellParts", "data-pocket-stage", "data-pocket-stick"]);
+    for (const mark of marks) {
+      const attribute = mark.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase());
+      expect([attribute, sheet.includes(`[${attribute}`)]).toEqual([attribute, true]);
+    }
 
     // The controls name a device's keys from PocketJS's button bits.
     const { legend, FACES } = await import(pathToFileURL(join(staged, "pocket3d-controls.js")).href);
@@ -93,7 +106,8 @@ test("a pack is cut into pieces of one size with the manifest the kernel reads",
 
 test("the kernel names no game, and its manifest and documents name its license", () => {
   const kernel = ROOT + "devices/web/pocket-web-wgpu/";
-  const sources = [...readdirSync(kernel + "src").map((f) => "src/" + f), ...readdirSync(kernel + "web").map((f) => "web/" + f), "tests/overlay.rs", "Cargo.toml"];
+  const text = (directory: string): string[] => readdirSync(kernel + directory, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? text(`${directory}/${entry.name}`) : /\.(rs|js|css|toml|txt)$/.test(entry.name) ? [`${directory}/${entry.name}`] : []));
+  const sources = [...text("src"), ...text("web"), "tests/overlay.rs", "Cargo.toml"];
   for (const file of sources) expect([file, /tokyo|atlas|maneuver|openstrike/i.test(readFileSync(kernel + file, "utf8"))]).toEqual([file, false]);
   expect(readFileSync(kernel + "Cargo.toml", "utf8")).toContain('license-file = "../../../pocket3d/LICENSE"');
   const readme = readFileSync(kernel + "README.md", "utf8");
@@ -101,4 +115,57 @@ test("the kernel names no game, and its manifest and documents name its license"
   expect(readme).toContain("title card");
   expect(readFileSync(ROOT + "devices/README.md", "utf8")).toContain("`web/pocket-web-wgpu`");
   expect(readFileSync(ROOT + "pocket3d/README.md", "utf8")).toContain("pocket-web-wgpu");
+});
+
+test("each shell has its pictures, its screens in the device's shape, and controls that are in the picture", async () => {
+  const web = ROOT + "devices/web/pocket-web-wgpu/web/";
+  const { SHELLS } = await import(pathToFileURL(web + "shells/profiles.js").href);
+  const { SHELL_IDS } = await import("../tools/pocket3d-shells.ts");
+  expect(Object.keys(SHELLS)).toEqual([...SHELL_IDS]);
+  // The screens of the devices, in their own pixels (a device's profile under contracts/ and the 3DS's two).
+  const screens: Record<string, Record<string, [number, number]>> = { psp: { upper: [480, 272] }, vita: { upper: [960, 544] }, "3ds": { upper: [400, 240], lower: [320, 240] }, ipod: { upper: [480, 320] } };
+  const buttons = ["up", "down", "left", "right", "triangle", "circle", "cross", "square", "l", "r", "start", "select"];
+  let bytes = 0;
+  for (const id of SHELL_IDS) {
+    const shell = SHELLS[id];
+    for (const file of [shell.art, shell.partsArt].filter(Boolean)) {
+      const picture = readFileSync(web + "shells/" + file);
+      // (a WebP: "RIFF" …… "WEBP")
+      expect([file, picture.subarray(0, 4).toString("latin1"), picture.subarray(8, 12).toString("latin1")]).toEqual([file, "RIFF", "WEBP"]);
+      // A shell is read before a game's first frame: a picture of it stays under 96 kB.
+      expect([file, picture.length < 96_000]).toEqual([file, true]);
+      bytes += picture.length;
+    }
+    expect(Object.keys(shell.screens)).toEqual(Object.keys(screens[id]!));
+    for (const [name, rect] of Object.entries(shell.screens) as [string, number[]][]) {
+      const [width, height] = screens[id]![name]!;
+      // The picture's screen has the device's shape to a twentieth, and the game's canvas is fitted inside it.
+      expect([id, name, Math.abs(rect[2]! / rect[3]! / (width / height) - 1) < 0.05]).toEqual([id, name, true]);
+    }
+    const inside = (rect: number[]) => rect[0]! >= 0 && rect[1]! >= 0 && rect[0]! + rect[2]! <= shell.width && rect[1]! + rect[3]! <= shell.height;
+    for (const control of shell.controls) {
+      expect([id, control.button, buttons.includes(control.button), inside(control.rect)]).toEqual([id, control.button, true, true]);
+      expect([id, control.button, control.part === null || control.part < shell.parts.length]).toEqual([id, control.button, true]);
+    }
+    for (const part of shell.parts) {
+      expect([id, inside(part.slice(0, 4)), part[4] + part[2] <= shell.partsWidth, part[5] + part[3] <= shell.partsHeight]).toEqual([id, true, true, true]);
+    }
+    for (const stick of shell.sticks) expect([id, stick.id, stick.part < shell.parts.length, stick.travel > 0]).toEqual([id, stick.id, true, true]);
+    // A device with buttons has every one a guest reads; a touch panel has none.
+    expect([id, shell.controls.map((c: { button: string }) => c.button).sort()]).toEqual([id, id === "ipod" ? [] : [...buttons].sort()]);
+  }
+  // The four together, for a page that has shown each: under 400 kB.
+  expect(bytes < 400_000).toBe(true);
+});
+
+test("the player's display face is a file of the kernel, with its licence beside it", () => {
+  const web = ROOT + "devices/web/pocket-web-wgpu/web/";
+  const face = readFileSync(web + "fonts/gabarito-800-latin.woff2");
+  expect([face.subarray(0, 4).toString("latin1"), face.length < 24_000]).toEqual(["wOF2", true]);
+  expect(readFileSync(web + "fonts/OFL.txt", "utf8")).toContain("SIL OPEN FONT LICENSE Version 1.1");
+  const sheet = readFileSync(web + "pocket3d-player.css", "utf8");
+  expect(sheet).toContain('url("./fonts/gabarito-800-latin.woff2")');
+  expect(sheet).toContain("font-display: swap");
+  // The page asks no other host for anything it draws with.
+  for (const file of ["pocket3d-player.css", "pocket3d-stage.css"]) expect([file, /url\(["']?https?:/.test(readFileSync(web + file, "utf8"))]).toEqual([file, false]);
 });

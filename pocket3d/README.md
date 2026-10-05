@@ -36,14 +36,18 @@ A game reaches a browser tab through one more renderer: **wgpu over WebGPU,
 compiled to wasm32, reading a pack the game's compiler lowered for a
 handheld**. [`devices/web/pocket-web-wgpu`](../devices/web/pocket-web-wgpu/README.md)
 supplies the device, the screens, the pass that lays the PocketJS interface
-over the scene, ranged reads of the pack over HTTP, and the page's modules.
-The game supplies its pipelines, its pack reader and its pad mapping.
+over the scene, ranged reads of the pack over HTTP, and the page: **one
+player for every game**, with the devices' shells. The game supplies its
+pipelines, its pack reader and its pad mapping.
 
-**The page shows the game as each handheld it runs on.** One renderer and one
-pack stay loaded; picking a device changes the screen's size, starts that
-device's interface bundle in a new realm and maps the keys to that device's
-buttons. A second screen is a second canvas, and a pointer is the finger or
-the stylus on a surface that takes touch.
+**The page shows the game as each handheld it runs on, in that handheld's
+shell.** One renderer and one pack stay loaded; picking a device changes the
+shell and the screen's size, starts that device's interface bundle in a new
+realm and maps the keys to that device's buttons. The shell's own keys and
+sticks take a pointer or a finger. A second screen is a second canvas, and a
+pointer is the finger or the stylus on a surface that takes touch. The page
+says the picture is simulated, and leads to the game's packages in Pocket
+Studio.
 
 ## Title card
 
