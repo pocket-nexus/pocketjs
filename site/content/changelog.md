@@ -3,6 +3,85 @@
 Engine and site milestones, newest first. Versions track the
 `@pocketjs/framework` npm package.
 
+## 0.14.0 — October 5, 2026
+
+**Pocket3D gets a homepage, a title card and its own license, and the PS Vita and Nintendo 3DS replace native builds over their development connections.**
+The repository now names three technologies: PocketJS, Pocket3D and MicroTS.
+The core steps 2D physics, builds without `std` on every target and keeps its
+layout tree across structural updates. Pocket Nexus runs on the Old 3DS, the
+iPod touch 4 and the Nokia E7.
+
+- **Pocket3D has a homepage and entry points in the repository.**
+  [3d.pocket.nexus](https://3d.pocket.nexus) presents it with frames captured
+  on consoles. `pocket3d/README.md` states its design and maps its code
+  (`devices/`, `engine/pocket3d/`, `site/pocket3d/`); `microts/README.md` does
+  the same for MicroTS, and the README gains an "In this repository" table.
+- **A Pocket3D game shows a title card at launch.** `pocket3d-title` draws the
+  mark and the name into a console's frame buffer **before the game starts
+  its renderer**, for 144 ticks at 60 Hz, with no GPU: `vita::play()` on the
+  PS Vita, `play(surface, present)` on the PSP, `pocket3d_title_play()` in a C
+  header on the Nintendo 3DS and `playTitle()` in a browser. The three
+  drawers produce the same frames; the crate's tests record their hashes and
+  the C header and the browser module are held to them.
+- **Breaking: Pocket3D moves from the MIT License to the Pocket3D License
+  1.0.** `pocket3d/`, `devices/` and `engine/pocket3d/` keep the MIT License's
+  grant and add one condition: a distributed product that draws 3D scenes
+  with Pocket3D shows the title card each time it starts. The PocketJS hosts,
+  and software that reaches Pocket3D only through them to draw PocketJS
+  interfaces, are exempt. A separate written license waives the condition
+  (support@pocket.nexus). PocketJS and MicroTS stay MIT; the npm package's
+  license is now `(MIT AND LicenseRef-Pocket3D-1.0)` and ships
+  `pocket3d/LICENSE`. Copies published before this release stay MIT.
+- **Breaking: the handheld device kernels are shared, and BSP code moved to
+  OpenStrike.** `devices/vita/pocket-vita-gxm`, `devices/psp/pocket-psp-ge`
+  and `devices/3ds/pocket-3ds-pica` hold GPU memory, patching and texture
+  storage for every caller. `pocket3d::bsp`, `pocket3d::collide` and
+  `WorldModel::from_bsp` left this repository; OpenStrike owns them. The GXM
+  kernel gains float and normalized data targets and aligns owned GXP storage
+  on the ARM ABI.
+- **PS Vita development runs in Pocket Devkit.** The Devkit app waits for a
+  build over USB: `vita:dev push` replaces its JS/PAK guest and
+  `vita:dev native` runs another project's native build from the inactive
+  slot. Native apps publish renderer telemetry under `engine` in each status
+  receipt, and the USB host closes descriptors idle for 30 s, which ends the
+  "filedescriptor out of range" stop after about 40 minutes.
+- **The Nintendo 3DS installs and starts `.3dsx` files over the dev
+  connection.** The Runtime stages an upload, checks its length, CRC-32 and
+  3DSX magic, keeps the replaced file as `native-previous.3dsx` and hands the
+  new one to `hb:ldr`.
+- **`ui.physics` steps 2D jelly bodies inside `Ui::tick`.** Ops 52..56 run a
+  fixed-step simulation and write each body's pose into its views as
+  paint-only props; a `skewX` transform prop joins rotate and scale. The wasm
+  core, the 3DS host, the iPod touch 4 host and the Nokia E7 host bind it.
+- **The core builds without `std` on hosts and devices, and keeps its layout
+  tree.** Layout rounding at half boundaries no longer differs by one pixel
+  between a host test and a device. Inserting, removing or reordering nodes
+  reconciles a retained Taffy tree: unchanged nodes keep their handles,
+  styles and text measurements.
+- **Pocket Nexus fits the Old 3DS frame budget and runs on two more
+  devices.** On an Old 3DS it went from 34.6 ms a frame to 16.7 to 17.0 ms.
+  It ships as a standalone iPod touch 4 app and installs on the Nokia E7
+  beside Pocket Clear. The iPod touch 4 host runs native games with a depth
+  buffer and bundled assets.
+- **MicroTS admits imperative code in compiled models.** State modules,
+  assignable places with in-place array operations, `while`, `do`-`while`,
+  `break`, `continue`, general `for` loops, numeric conversions, float math
+  and static constant arrays compile to Rust; element reads of stored arrays
+  index them in place.
+- **Device sessions take leases.** Tools that drive a console take a named
+  lease, so two sessions do not drive one device, and validation evidence is
+  bound to the build that produced it.
+- **Breaking: every `pocket-stack` identifier is `pocket-nexus`.** App ids
+  are `dev.pocket-nexus.*`, the Android package and its JNI symbols follow,
+  and the toolchain cache is `~/.cache/pocket-nexus`. The canonical origin is
+  pocketjs.pocket.nexus; pocketjs.dev keeps working.
+- **DevTools and touch fixes.** Replay input survives a pause, the touch
+  recorder compacts its history and releases empty pages, retired console
+  bridges detach on init, guest trace retention is off by default, and
+  native touch captures are released before new contacts are assigned.
+- **Sites.** [pocket.nexus](https://pocket.nexus) is the Pocket Nexus
+  homepage, and the PocketJS site takes the candy arcade style.
+
 ## 0.13.0 — September 26, 2026
 
 **MicroTS compiles Solid and Vue TypeScript apps to native Rust, and the PS Vita gains a wired development runtime.**
