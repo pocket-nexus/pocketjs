@@ -37,7 +37,13 @@ struct Texture {
     ptr: *mut vita2d_texture,
     w: u32,
     h: u32,
+    /// Bytes a texel takes: 4 for an RGBA picture, 1 for a font atlas, which
+    /// is coverage alone.
+    texel_bytes: u8,
 }
+
+const RGBA_TEXEL: u8 = 4;
+const COVERAGE_TEXEL: u8 = 1;
 
 struct RetiredTexture {
     texture: Texture,
@@ -98,10 +104,13 @@ unsafe fn ensure_rendering_done() {
     }
 }
 
-unsafe fn take_recycled_texture(w: u32, h: u32) -> Option<Texture> {
+unsafe fn take_recycled_texture(w: u32, h: u32, texel_bytes: u8) -> Option<Texture> {
     let recycled = RECYCLED_TEXTURES.as_mut()?;
     let index = recycled.iter().position(|entry| {
-        entry.texture.w == w && entry.texture.h == h && (!SCENE_OPEN || entry.reusable_in_scene)
+        entry.texture.w == w
+            && entry.texture.h == h
+            && entry.texture.texel_bytes == texel_bytes
+            && (!SCENE_OPEN || entry.reusable_in_scene)
     })?;
     ensure_rendering_done();
     Some(recycled.swap_remove(index).texture)
@@ -109,9 +118,10 @@ unsafe fn take_recycled_texture(w: u32, h: u32) -> Option<Texture> {
 
 #[inline]
 fn texture_bytes(texture: Texture) -> usize {
-    // libvita2d aligns RGBA row widths to 8 pixels and CDRAM allocations to
+    // libvita2d aligns row widths to 8 pixels and CDRAM allocations to
     // 256 KiB. Counting only logical pixels let tiny textures evade the cap.
-    let bytes = (texture.w as usize).div_ceil(8) * 8 * texture.h as usize * 4;
+    let bytes =
+        (texture.w as usize).div_ceil(8) * 8 * texture.h as usize * texture.texel_bytes as usize;
     bytes.div_ceil(256 * 1024) * (256 * 1024)
 }
 
@@ -291,7 +301,7 @@ unsafe fn upload_rgba(w: u32, h: u32, rgba: &[u8], linear: bool) -> Option<Textu
     // bounds each power-of-two size bucket by its historical resident high
     // water mark. `take_recycled_texture` drains GXM before handing an
     // allocation back, so a recycled allocation is no longer in flight.
-    let ptr = take_recycled_texture(w, h)
+    let ptr = take_recycled_texture(w, h, RGBA_TEXEL)
         .map(|texture| texture.ptr)
         .unwrap_or_else(|| {
             vita2d_create_empty_texture_format(
@@ -319,7 +329,52 @@ unsafe fn upload_rgba(w: u32, h: u32, rgba: &[u8], linear: bool) -> Option<Textu
         SceGxmTextureFilter_SCE_GXM_TEXTURE_FILTER_POINT
     };
     vita2d_texture_set_filters(ptr, filter, filter);
-    Some(Texture { ptr, w, h })
+    Some(Texture {
+        ptr,
+        w,
+        h,
+        texel_bytes: RGBA_TEXEL,
+    })
+}
+
+/// A font atlas on the GPU: one byte a texel. `U8_R111` reads the byte as
+/// alpha and white as the colour (GXM spells a swizzle from alpha down to
+/// red), which is what the tint draw multiplies by the text colour. The
+/// same atlas as RGBA took four times the video memory: 4 MiB for the
+/// 1024x1024 page of the 36px slot at density 2.
+unsafe fn upload_coverage(w: u32, h: u32, coverage: &[u8]) -> Option<Texture> {
+    if w == 0 || h == 0 || coverage.len() < w as usize * h as usize {
+        return None;
+    }
+    let ptr = take_recycled_texture(w, h, COVERAGE_TEXEL)
+        .map(|texture| texture.ptr)
+        .unwrap_or_else(|| {
+            vita2d_create_empty_texture_format(
+                w,
+                h,
+                SceGxmTextureFormat_SCE_GXM_TEXTURE_FORMAT_U8_R111,
+            )
+        });
+    if ptr.is_null() {
+        return None;
+    }
+    let stride = vita2d_texture_get_stride(ptr) as usize;
+    let dst = vita2d_texture_get_datap(ptr) as *mut u8;
+    for row in 0..h as usize {
+        core::ptr::copy_nonoverlapping(
+            coverage.as_ptr().add(row * w as usize),
+            dst.add(row * stride),
+            w as usize,
+        );
+    }
+    let filter = SceGxmTextureFilter_SCE_GXM_TEXTURE_FILTER_POINT;
+    vita2d_texture_set_filters(ptr, filter, filter);
+    Some(Texture {
+        ptr,
+        w,
+        h,
+        texel_bytes: COVERAGE_TEXEL,
+    })
 }
 
 pub fn register_texture(ui: &Ui, handle: i32) {
@@ -468,33 +523,27 @@ pub fn register_font_atlas(slot: u8, atlas: &Atlas) {
         ));
         return;
     };
-    let Some(rgba_len) = (tex_w as usize)
-        .checked_mul(tex_h as usize)
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
+    let Some(texels) = (tex_w as usize).checked_mul(tex_h as usize) else {
         evict_font(slot);
         crate::vita_log(format_args!(
-            "[PocketJS Vita] font atlas slot {slot} rejected: {tex_w}x{tex_h} RGBA size overflow"
+            "[PocketJS Vita] font atlas slot {slot} rejected: {tex_w}x{tex_h} size overflow"
         ));
         return;
     };
-    let mut rgba = vec![0u8; rgba_len];
+    let mut coverage = vec![0u8; texels];
     for gid in 0..atlas.glyph_count {
         let src = atlas.glyph_rows(gid);
-        let gx = (gid as u32 % cols) * coverage_w;
-        let gy = (gid as u32 / cols) * coverage_h;
+        let gx = ((gid as u32 % cols) * coverage_w) as usize;
+        let gy = ((gid as u32 / cols) * coverage_h) as usize;
         for y in 0..coverage_h as usize {
-            for x in 0..coverage_w as usize {
-                let dst = ((gy as usize + y) * tex_w as usize + gx as usize + x) * 4;
-                rgba[dst] = 255;
-                rgba[dst + 1] = 255;
-                rgba[dst + 2] = 255;
-                rgba[dst + 3] = src[y * atlas.bytes_per_row() + x];
-            }
+            let from = y * atlas.bytes_per_row();
+            let to = (gy + y) * tex_w as usize + gx;
+            coverage[to..to + coverage_w as usize]
+                .copy_from_slice(&src[from..from + coverage_w as usize]);
         }
     }
     unsafe {
-        let Some(texture) = upload_rgba(tex_w, tex_h, &rgba, false) else {
+        let Some(texture) = upload_coverage(tex_w, tex_h, &coverage) else {
             evict_font(slot);
             crate::vita_log(format_args!(
                 "[PocketJS Vita] font atlas slot {slot} GPU upload failed: {tex_w}x{tex_h}"
