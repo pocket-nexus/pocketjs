@@ -51,6 +51,11 @@ impl Gpu {
 
     /// A device with no screen and with whichever of `wanted` the adapter has; [`Gpu::features`] says which.
     pub async fn headless_wanting(wanted: wgpu::Features) -> Result<Gpu, String> {
+        // This crate builds wgpu for Metal and for WebGPU. On any other platform wgpu has no backend and
+        // would panic in `Instance::new`; answer that as a missing GPU instead.
+        if wgpu::Instance::enabled_backend_features().is_empty() {
+            return Err("this build of wgpu has no backend for this platform".into());
+        }
         let instance = wgpu::Instance::default();
         Ok(open(&instance, None, wanted).await?.1)
     }
