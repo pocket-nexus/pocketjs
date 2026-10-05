@@ -18,7 +18,7 @@
 // The rasterizer is the one tools/device-icons.ts uses, so the command needs
 // no browser and no network. The outputs are committed: a game's build reads
 // them through POCKET3D_ICON or by path. Importing this module for the paths
-// loads no rasterizer; `bake` loads it.
+// loads no rasterizer and names none in its types; `bake` loads it.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -129,11 +129,16 @@ function index(rgba: Uint8Array, width: number, height: number): { indices: Uint
   return { indices, palette: Uint8Array.from(entries) };
 }
 
-type Rasterize = typeof import("./icon-raster.ts").rasterizeIconSvg;
+// tools/icon-raster.ts's rasterizer, typed here and loaded by path: a game
+// that imports this module for POCKET3D_ICON type-checks without the
+// rasterizer's package (@napi-rs/canvas) installed.
+type Raster = { getContext(kind: "2d"): { getImageData(x: number, y: number, width: number, height: number): { data: Uint8ClampedArray } } };
+type Rasterize = (svg: string, width: number, height?: number, requireOpaque?: boolean) => Promise<Raster>;
+const RASTERIZER: string = new URL("./icon-raster.ts", import.meta.url).pathname;
 
 /** Every icon as the bytes of its file and the RGBA those bytes decode to. */
 export async function bake(): Promise<{ icon: Icon; png: Buffer; rgba: Uint8Array }[]> {
-  const { rasterizeIconSvg } = await import("./icon-raster.ts");
+  const { rasterizeIconSvg } = (await import(RASTERIZER)) as { rasterizeIconSvg: Rasterize };
   const { box, body } = mark();
   const covered = await extent(rasterizeIconSvg, box, body);
   const baked = [];

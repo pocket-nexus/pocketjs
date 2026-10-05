@@ -24,7 +24,8 @@ given one icon, `smdhtool` halves the 48-pixel one.
 A game reads the files from its PocketJS checkout (`vendor/pocketjs`), so a new
 drawing reaches every game with the pin. A game keeps no copy in Git.
 
-A build written in TypeScript takes the paths from `tools/pocket3d-icon.ts`:
+A build written in TypeScript takes the paths from `tools/pocket3d-icon.ts`.
+The import needs no package installed in the game's repository:
 
 ```ts
 import { POCKET3D_ICON } from "../vendor/pocketjs/tools/pocket3d-icon.ts";
@@ -54,7 +55,9 @@ $(BUILD)/game.smdh: $(ICON) $(SMALL_ICON)
 PocketJS's own 3DS Makefile (`hosts/3ds/Makefile`) takes the same two
 variables, `ICON` and `SMALL_ICON`. Its iPod touch packager
 (`tools/ipodtouch4.ts`) takes `icon` in the application's description: give it
-`ios/Icon@2x.png`. A game with its own iPod packager copies `ios/Icon.png` and
+`ios/Icon@2x.png`. That packager writes the 57-pixel file by reducing the one
+it is given, and the iPod touch 4 shows the 114-pixel file. A game with its own
+iPod packager copies `ios/Icon.png` and
 `ios/Icon@2x.png` into the bundle under those names and sets
 `UIPrerenderedIcon` in `Info.plist`, so SpringBoard adds no gloss.
 

@@ -79,6 +79,17 @@ test("the PS Vita packager takes the icon in place of the framework's and the ga
   expect(() => resolveVitaPackageAssets({ icon: POCKET3D_ICON.psp })).toThrow();
 });
 
+test("a game imports the paths without the rasterizer's package", () => {
+  // tsc follows a literal specifier, static or dynamic, into @napi-rs/canvas, which a game does not install
+  const source = readFileSync(ROOT + "tools/pocket3d-icon.ts", "utf8");
+  expect(source).not.toMatch(/from "\.\/icon-raster\.ts"/);
+  expect(source).not.toMatch(/import\("\.\/icon-raster\.ts"\)/);
+  // every module it does name statically is free of packages
+  for (const [, module] of source.matchAll(/^import .* from "(\.\/[^"]+)";$/gm)) {
+    expect([module, readFileSync(ROOT + "tools/" + module.slice(2), "utf8").match(/from "(?!node:|\.)[^"]+"/)]).toEqual([module, null]);
+  }
+});
+
 test("the README, the skill and the Pocket3D entry point name every file", () => {
   const readme = readFileSync(DIRECTORY + "README.md", "utf8");
   const skill = readFileSync(ROOT + "skills/pocket3d-brand/SKILL.md", "utf8");
