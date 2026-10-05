@@ -64,37 +64,59 @@ test("the reel shows consoles' own frames, and chapter 1 carries no headline fig
   expect(shown.filter((frame) => frame[3] === "Pocket Tokyo").length).toBeGreaterThanOrEqual(2);
   expect(new Set(shown.map((frame) => frame[4]))).toEqual(new Set(["PS Vita", "PSP"]));
   expect(home).not.toContain("maneuver-3ds");
-  // the city's data sources are credited where its frames are shown
-  expect(home).toContain("Project PLATEAU (MLIT Japan)");
-  expect(home).toContain('<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>');
   const native = home.slice(home.indexOf('id="hardware-native"'), home.indexOf("<!-- 2 -->"));
   expect(native).not.toContain('class="proof"');
   for (const figure of ["16 → 7 ms", "250 → 60 draws", "0 late frames"]) expect(home).not.toContain(figure);
 });
 
-test("chapter 2 shows one part of the scene as a different mechanism on each console", () => {
-  const table = home.slice(home.indexOf('<div class="lower"'), home.indexOf('<p class="differ">'));
-  const rows = table.split('<div class="lrow').slice(1);
-  // a header row, then one row per part of the scene
-  expect(rows.length).toBe(4);
-  expect(rows[0]).toContain("Three.js");
-  for (const [n, row] of rows.entries()) expect(row).toContain(`--r:${n + 1}`);
-  const titles = new Set<string>();
-  for (const row of rows.slice(1)) {
-    expect(row).toContain('<div class="says2" role="rowheader">');
-    const cells = [...row.matchAll(/<div class="how (vita|n3ds|psp)" role="cell">.*?<h4>([^<]+)<\/h4><p>([^<]+)<\/p><\/div>/g)];
-    expect(cells.map((cell) => cell[1])).toEqual(["vita", "n3ds", "psp"]);
-    // each console's cell has a drawing of its own
-    expect(new Set([...row.matchAll(/<svg class="gl"[^>]*>(.*?)<\/svg>/g)].map((drawing) => drawing[1])).size).toBe(3);
-    for (const cell of cells) titles.add(cell[2]);
+test("chapter 2 splits a line of Pocket Tokyo's scene into a mechanism for each console", () => {
+  const figure = home.slice(home.indexOf('<div class="prism" id="prism">'), home.indexOf('<p class="differ">'));
+  // three lines of the scene to pick from, the first one picked
+  const lines = [...figure.matchAll(/<button type="button" class="line" aria-pressed="(true|false)"><svg[^>]*>.*?<\/svg><b>([^<]+)<\/b><span>([^<]+)<\/span><\/button>/g)];
+  expect(lines.map((line) => line[1])).toEqual(["true", "false", "false"]);
+  // one set of answers per line, under the same name, the first one shown
+  const sets = figure.split('<div class="set').slice(1);
+  expect(sets.length).toBe(3);
+  expect(sets.map((set) => set.startsWith(' on">'))).toEqual([true, false, false]);
+  const titles = new Set<string>(), shots = new Set<string>();
+  for (const [i, set] of sets.entries()) {
+    expect(set).toContain(`<p class="what">${lines[i][2]}</p>`);
+    const rows = [...set.matchAll(/<article class="ans (vita|n3ds|psp)" style="--k:(\d)"><img src="\/assets\/([^"]+)\.webp" width="(\d+)" height="(\d+)" loading="lazy" alt="([^"]+)"><div><span class="on">([^<]+)<\/span><h4>([^<]+)<\/h4><p>([^<]+)<\/p><\/div><svg class="gl"[^>]*>(.*?)<\/svg><\/article>/g)];
+    expect(rows.map((row) => [row[1], row[2]])).toEqual([["vita", "0"], ["n3ds", "1"], ["psp", "2"]]);
+    // each row shows Pocket Tokyo captured on the console it names
+    const console = { vita: "PS Vita", n3ds: "Nintendo 3DS", psp: "PSP" };
+    for (const row of rows) {
+      expect(row[3]).toStartWith("tokyo-");
+      expect(row[6]).toStartWith(console[row[1] as keyof typeof console] + " capture");
+      expect(row[7]).toStartWith(console[row[1] as keyof typeof console] + " · ");
+      titles.add(row[8]);
+      shots.add(row[3]);
+    }
+    // the three consoles' captures differ, and so do their drawings
+    expect(new Set(rows.map((row) => row[3])).size).toBe(3);
+    expect(new Set(rows.map((row) => row[10])).size).toBe(3);
   }
-  // no two cells of the table name the same mechanism
+  // no two rows name the same mechanism; day and dusk are shown on every console
   expect(titles.size).toBe(9);
-  expect(table).toContain('<p class="ir" aria-hidden="true"><b>CityIR</b>');
-  // the fan-out it replaces is gone, and the comparison of the reference with the capture stays
-  for (const old of ['class="cols"', 'class="wire"', 'class="outs"', "LLVM does the same"]) expect(home).not.toContain(old);
-  expect(home).toContain('<div class="compare" id="compare">');
-  expect(home).toContain('<img class="top" src="/assets/overlook-three.webp"');
+  expect([...shots].sort()).toEqual(["tokyo-3ds", "tokyo-3ds-dusk", "tokyo-day", "tokyo-dusk", "tokyo-psp", "tokyo-psp-dusk"]);
+  // one beam in, three rays across the glass, three beams out
+  expect(figure).toContain('<div class="glass">');
+  expect(figure).toContain("<b>CityIR</b>");
+  const beams = figure.match(/<svg class="beams" aria-hidden="true">(.*?)<\/svg>/)![1];
+  expect([...beams.matchAll(/<path class="([^"]+)" pathLength="1"\/>/g)].map((beam) => beam[1])).toEqual(["in", "ray vita", "ray n3ds", "ray psp", "o vita", "o n3ds", "o psp"]);
+  // the beams are aimed from layout boxes, and a pick starts them again
+  expect(home).toContain("function aimBeams()");
+  expect(home).toContain('lines.forEach((line, i) => line.addEventListener("click", () => choose(i)));');
+  // the table and the fan-out it replaced are gone
+  for (const old of ['class="cols"', 'class="wire"', 'class="outs"', 'class="lrow', "LLVM does the same"]) expect(home).not.toContain(old);
+  // the comparison of the reference with the capture is a figure of its own, named for its game
+  const pair = home.slice(home.indexOf('<figure class="card viz pair rv"'), home.indexOf("<!-- 3 -->"));
+  expect(pair).toContain("<h3>Pocket Atlas <small>Griffith Observatory</small></h3>");
+  expect(pair).toContain('<div class="compare" id="compare">');
+  expect(pair).toContain('<img class="top" src="/assets/overlook-three.webp"');
+  expect(figure).not.toContain("Pocket Atlas");
+  // the footer carries no credit line
+  expect(home).not.toContain('class="credit"');
 });
 
 test("the title rests in one pose and the pointer leans it a few degrees", () => {
@@ -176,7 +198,6 @@ test("page copy has no em dashes and links only to public places", () => {
     "https://fonts.gstatic.com",
     "https://3d.pocket.nexus/",
     "https://studio.pocket.nexus/",
-    "https://www.openstreetmap.org/copyright",
   ];
   for (const html of [home, notFound, logo]) {
     expect(html).not.toContain("—");

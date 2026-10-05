@@ -208,47 +208,57 @@ main{display:flex;flex-direction:column;align-items:center}
 /* ---------- 2. compiler-first: front end, IR, back ends ---------- */
 .compile{padding:clamp(18px,2.4vw,30px)}
 .stage{display:block;font:500 12.5px/1.2 var(--mono);color:var(--muted)}
-/* one row per part of the scene; the IR is the band every row crosses on its way to the three machines */
-.lower{--gap:clamp(8px,1vw,14px);--run:clamp(10px,1.4vw,20px);display:grid;gap:var(--gap);
-  grid-template-columns:minmax(0,1.04fr) clamp(38px,4vw,50px) repeat(3,minmax(0,1fr))}
-.lrow{display:contents}
-.lrow > *{grid-row:var(--r)}
-.lrow > :nth-child(1){grid-column:1}.lrow > :nth-child(2){grid-column:3}.lrow > :nth-child(3){grid-column:4}.lrow > :nth-child(4){grid-column:5}
-.lhead > *{align-self:end;padding-bottom:4px}
-.lhead h3{font:600 20px/1.15 var(--round);color:var(--c)}
-.lhead .src{--c:var(--yellow)}
-.lhead .src h3{margin-top:6px}
-.lhead .src p{margin-top:3px;font-size:14px;line-height:1.4;color:var(--ink-2)}
-.bk{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;align-items:center}
-.bk .stage{grid-column:1 / -1}
-.bk svg{height:34px;width:auto;overflow:visible}
+/* a line of the scene enters the IR as one beam and leaves as three, one to each machine */
+.prism{position:relative;display:grid;grid-template-columns:minmax(0,300px) minmax(110px,1fr) minmax(0,2.5fr);gap:0 clamp(8px,1vw,14px);align-items:center}
+.scene h3{margin-top:6px;font:600 22px/1.15 var(--round);color:var(--yellow)}
+.scene > p{margin-top:3px;font-size:14px;line-height:1.4;color:var(--ink-2)}
+.lines{display:grid;gap:10px;margin-top:14px}
+.line{appearance:none;cursor:pointer;text-align:left;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;align-items:center;padding:12px 14px;border-radius:16px;
+  border:2.5px solid var(--out);background:var(--bg-2);color:var(--ink-2);box-shadow:0 5px 0 var(--drop);font:inherit;
+  transition:transform .3s var(--spring),background-color .2s,color .2s}
+.line svg{grid-row:1 / 3;width:30px;height:30px;color:var(--muted);transition:color .2s}
+.line b{font:600 16.5px/1.2 var(--round);color:var(--ink);transition:color .2s}
+.line span{font-size:13px;line-height:1.4}
+.line:hover{transform:translateX(3px)}
+.line[aria-pressed="true"]{background:var(--ink);color:#55467a;transform:translateX(8px)}
+.line[aria-pressed="true"] b,.line[aria-pressed="true"] svg{color:#221338}
+.optics{display:flex;justify-content:center}
+.glass{position:relative;width:clamp(92px,9.6vw,124px)}
+.glass svg{display:block;width:100%;height:auto;overflow:visible;filter:drop-shadow(0 6px 0 var(--drop))}
+.glass b{position:absolute;left:0;right:0;bottom:11%;text-align:center;font:600 clamp(13px,1.3vw,16px)/1 var(--round);color:#221338}
+.beams{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.beams path{fill:none;stroke-linecap:round;stroke-width:5;stroke:var(--c)}
+.beams .in{stroke:var(--ink);filter:drop-shadow(0 0 5px rgba(252,246,255,.75))}
+.beams .o{filter:drop-shadow(0 0 5px var(--c))}
+.beams .ray{stroke-width:2.6}
 .vita{--c:var(--cyan)}.n3ds{--c:var(--pink)}.psp{--c:var(--yellow)}
-.ir{grid-column:2;grid-row:2 / span 3;display:flex;align-items:center;justify-content:center;gap:10px;writing-mode:vertical-rl;transform:rotate(180deg);
-  border-radius:999px;border:2.5px solid var(--out);background:var(--lilac);color:#221338;box-shadow:0 -5px 0 var(--drop);white-space:nowrap}
-.ir b{font:600 17px/1 var(--round)}
-.ir span{font:500 12px/1 var(--mono);opacity:.8}
-.says2,.how{position:relative;padding:14px 16px 16px;border-radius:16px;border:2.5px solid var(--out);background:var(--bg-2);box-shadow:0 5px 0 var(--drop)}
-.says2{display:flex;flex-direction:column;justify-content:center;margin-right:var(--run);background:var(--panel-2)}
-.says2 h3{font:600 clamp(17px,1.6vw,20px)/1.2 var(--round);color:var(--ink)}
-.says2 p{margin-top:5px;font-size:14px;line-height:1.45;color:var(--ink-2)}
-/* beads on a wire: out of the scene, through the IR, into the three answers */
-.says2::after,.how.vita::before{content:"";position:absolute;top:50%;height:6px;margin-top:-3px;width:calc(var(--gap) + var(--run));
-  background:radial-gradient(circle at 3px 3px,var(--lilac) 2.6px,transparent 3.1px) 0 0/9px 6px repeat-x}
-.says2::after{left:calc(100% + 2.5px)}
-.how.vita::before{right:calc(100% + 2.5px)}
-@media (prefers-reduced-motion:no-preference){.says2::after,.how.vita::before{animation:beads .7s linear infinite}}
-@keyframes beads{to{background-position:9px 0}}
-.how{border-top:5px solid var(--c)}
-.how.vita{margin-left:var(--run)}
-.how .on{display:none;font:500 12px/1 var(--mono);color:var(--c);margin-bottom:10px}
-.gl{display:block;height:44px;width:auto;max-width:100%;color:var(--c);overflow:visible}
+.answers{min-width:0}
+.set{display:grid;gap:12px}
+.what{font:600 17px/1.2 var(--round);color:var(--ink)}
+.set + .set{margin-top:22px}
+/* with the script, the three sets share one cell: the tallest keeps the height, the picked one shows */
+.js .answers{display:grid}
+.js .set{grid-area:1 / 1;align-content:center;margin:0}
+.js .set:not(.on){visibility:hidden}
+.js .what{display:none}
+.ans{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 14px;align-items:center;padding:10px 16px 10px 10px;border-radius:16px;
+  border:2.5px solid var(--out);border-left:6px solid var(--c);background:var(--bg-2);box-shadow:0 5px 0 var(--drop)}
+.ans img{height:clamp(92px,8.4vw,112px);width:auto;aspect-ratio:16 / 9;object-fit:cover;border-radius:9px;border:2px solid var(--out);background:var(--shade)}
+.ans .on{font:500 12px/1 var(--mono);color:var(--c)}
+.ans h4{margin-top:6px;font:600 17px/1.2 var(--round);color:var(--c)}
+.ans p{margin-top:3px;font-size:13.5px;line-height:1.45;color:var(--ink-2)}
+.gl{display:block;height:40px;width:auto;color:var(--c);overflow:visible}
 .gl text{font-family:var(--mono);font-weight:500;fill:var(--ink-2)}
-.how h4{margin-top:10px;font:600 16.5px/1.2 var(--round);color:var(--c)}
-.how p{margin-top:4px;font-size:13.5px;line-height:1.45;color:var(--ink-2)}
-.js .rv .how{opacity:0;transform:translateX(-18px)}
-.js .rv.in .how{opacity:1;transform:none;transition:opacity .3s ease,transform .7s var(--spring);transition-delay:calc(.25s + var(--n) * .16s + var(--k,0) * .07s)}
-.how.n3ds{--k:1}.how.psp{--k:2}
-.differ{margin-top:clamp(16px,2vw,22px);padding-top:16px;border-top:2.5px dashed var(--rule);font-size:15.5px;line-height:1.55;color:var(--ink-2);max-width:60em}
+@media (prefers-reduced-motion:no-preference){
+  .beams path{stroke-dasharray:1;stroke-dashoffset:0}
+  .fire .beams .in{animation:fire .26s ease-out both}
+  .fire .beams .ray{animation:fire .14s .24s linear both}
+  .fire .beams .o{animation:fire .3s .36s ease-out both}
+  .fire .set.on .ans{animation:land .6s var(--spring) both;animation-delay:calc(.5s + var(--k) * .09s)}
+}
+@keyframes fire{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes land{from{opacity:0;transform:translateX(-16px) scale(.97)}to{opacity:1;transform:none}}
+.differ{margin-top:clamp(18px,2.2vw,26px);padding-top:16px;border-top:2.5px dashed var(--rule);font-size:15.5px;line-height:1.55;color:var(--ink-2);max-width:60em}
 .differ b{font:600 17px/1.2 var(--round);color:var(--ink);margin-right:.3em}
 
 /* the same view twice: the reference in a browser, the compiled scene on a console */
@@ -262,7 +272,11 @@ main{display:flex;flex-direction:column;align-items:center}
 .compare .tag{position:absolute;bottom:12px;padding:7px 12px;border-radius:10px;background:rgba(14,9,26,.82);font:500 12.5px/1.2 var(--mono);color:var(--ink)}
 .compare .tag.l{left:12px}.compare .tag.r{right:12px}
 .compare input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:ew-resize;margin:0}
-.cap{max-width:900px;margin:12px auto 0;font-size:14.5px;color:var(--muted)}
+.pair{padding:clamp(18px,2.4vw,30px)}
+.pair figcaption{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:8px clamp(20px,3vw,40px);align-items:end;max-width:900px;margin:0 auto}
+.pair h3{margin-top:6px;font:600 22px/1.15 var(--round);color:var(--cyan)}
+.pair h3 small{font:500 12.5px/1 var(--mono);color:var(--muted);margin-left:.4em}
+.pair figcaption p{font-size:14.5px;line-height:1.5;color:var(--ink-2)}
 @media (prefers-reduced-motion:no-preference){.compare:not(.used) .knob{animation:nudge 1.6s ease-in-out infinite}}
 @keyframes nudge{0%,100%{transform:translateX(-5px)}50%{transform:translateX(5px)}}
 
@@ -326,20 +340,21 @@ main{display:flex;flex-direction:column;align-items:center}
 .foot{display:flex;flex-wrap:wrap;gap:12px 28px;justify-content:space-between;padding:26px var(--gutter) 34px;
   border-top:2px dashed rgba(169,139,255,.25);font:500 13px/1.4 var(--mono);color:var(--muted)}
 .foot nav{display:flex;flex-wrap:wrap;gap:8px 22px}
-.foot .credit{flex:0 0 100%;line-height:1.6;opacity:.8}
-.foot .credit a{text-decoration:underline;text-underline-offset:3px}
 .foot a{text-decoration:none}
 .foot a:hover{color:var(--ink)}
 
 @media (max-width:980px){
   .head{grid-template-columns:1fr}
-  .lower{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .lrow > *{grid-row:auto}
-  .lrow > :nth-child(1){grid-column:1 / -1}.lrow > :nth-child(2){grid-column:1}.lrow > :nth-child(3){grid-column:2}.lrow > :nth-child(4){grid-column:3}
-  .ir{grid-column:1 / -1;grid-row:auto;writing-mode:horizontal-tb;transform:none;padding:9px 16px;flex-wrap:wrap;gap:4px 10px;white-space:normal;text-align:center;box-shadow:0 5px 0 var(--drop)}
-  .says2{margin:14px 0 0}
-  .how.vita{margin-left:0}
-  .says2::after,.how.vita::before{display:none}
+  .prism{grid-template-columns:1fr}
+  .beams{display:none}
+  .line:hover,.line[aria-pressed="true"]{transform:none}
+  .optics{flex-direction:column;align-items:center;gap:5px;margin:10px 0 8px}
+  .optics::before,.optics::after{content:"";height:16px;border-radius:3px}
+  .optics::before{width:5px;background:var(--ink)}
+  .optics::after{width:74px;background:linear-gradient(90deg,var(--cyan) 0 5px,transparent 5px 34.5px,var(--pink) 34.5px 39.5px,transparent 39.5px 69px,var(--yellow) 69px 74px)}
+  .glass{width:74px}
+  .glass b{font-size:11.5px}
+  .pair figcaption{grid-template-columns:1fr}
   .engines{grid-template-columns:repeat(2,minmax(0,1fr));gap:34px clamp(14px,2vw,26px)}
   .eng > p{min-height:2.8em}
   .agent{grid-template-columns:1fr}
@@ -355,10 +370,9 @@ main{display:flex;flex-direction:column;align-items:center}
   .meter{grid-template-columns:1fr}
   .engines{grid-template-columns:1fr}
   .eng > p{min-height:0}
-  .lower{grid-template-columns:1fr}
-  .lrow > :nth-child(n){grid-column:1}
-  .lhead .bk{display:none}
-  .how .on{display:block}
+  .ans{grid-template-columns:minmax(0,1fr) auto;padding:10px 12px 12px}
+  .ans img{grid-column:1 / -1;width:100%;height:auto;aspect-ratio:auto}
+  .gl{height:34px}
   .tw{display:block}
   .tw + .tw{margin-top:22px}
   .feats{padding-bottom:0}
@@ -376,7 +390,7 @@ main{display:flex;flex-direction:column;align-items:center}
   html{scroll-behavior:auto}
   .strip{overflow-x:auto}
   .reel ul[aria-hidden]{display:none}
-  .js .rv,.js .rv .brick,.js .rv .how{opacity:1;transform:none}
+  .js .rv,.js .rv .brick{opacity:1;transform:none}
 }
 </style>
 </head>
@@ -416,7 +430,7 @@ main{display:flex;flex-direction:column;align-items:center}
     <div class="reel">
       <ul>
         <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt="A green tram passes a level crossing above the sea."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-dusk.webp" width="960" height="544" alt="Tokyo at dusk from the air: lit streets and windows around Tokyo Tower."><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/tokyo-dusk.webp" width="720" height="408" alt="Tokyo Tower at dusk from the air, over lit streets and windows."><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
         <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt="A street of timber houses with a tower at its end."><figcaption><b>Pocket Maneuver</b> on a PSP</figcaption></figure></li>
         <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt="A grid of city lights seen from a hilltop terrace at dusk."><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
         <li><figure><img src="/assets/tokyo-psp.webp" width="480" height="272" alt="Tokyo Tower among office blocks by day, with altitude and speed readouts."><figcaption><b>Pocket Tokyo</b> on a PSP</figcaption></figure></li>
@@ -428,7 +442,7 @@ main{display:flex;flex-direction:column;align-items:center}
       </ul>
       <ul aria-hidden="true">
         <li><figure><img src="/assets/atlas-kamakura.webp" width="960" height="544" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
-        <li><figure><img src="/assets/tokyo-dusk.webp" width="960" height="544" alt=""><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
+        <li><figure><img src="/assets/tokyo-dusk.webp" width="720" height="408" alt=""><figcaption><b>Pocket Tokyo</b> on a PS Vita</figcaption></figure></li>
         <li><figure><img src="/assets/maneuver-psp.webp" width="480" height="272" alt=""><figcaption><b>Pocket Maneuver</b> on a PSP</figcaption></figure></li>
         <li><figure><img src="/assets/atlas-griffith.webp" width="960" height="404" alt=""><figcaption><b>Pocket Atlas</b> on a PS Vita</figcaption></figure></li>
         <li><figure><img src="/assets/tokyo-psp.webp" width="480" height="272" alt=""><figcaption><b>Pocket Tokyo</b> on a PSP</figcaption></figure></li>
@@ -497,45 +511,57 @@ main{display:flex;flex-direction:column;align-items:center}
       <p class="why">The game is modelled once, as Three.js content that runs in a browser. A compiler lowers that semantic scene to each platform, the way LLVM takes one program to many processors. Hardware-native depends on it: each back end is free to emit what its own GPU wants.</p>
     </header>
     <div class="card viz compile rv" style="--d:.1s">
-      <div class="lower" role="table" aria-label="What Pocket Tokyo's compiler makes of three parts of its scene, on each console">
-        <div class="lrow lhead" role="row" style="--r:1">
-          <div class="src" role="columnheader"><span class="stage">the scene, written once</span><h3>Three.js</h3><p>Pocket Tokyo's city. It runs in a browser.</p></div>
-          <div class="bk vita" role="columnheader"><span class="stage">GXM back end</span><svg viewBox="0 0 80 36" aria-hidden="true"><rect x="1.5" y="2.5" width="77" height="31" rx="15.5" fill="#171226" stroke="#3fd0e8" stroke-width="2.6"/><rect x="19" y="7" width="42" height="22" rx="2.5" fill="#3fd0e8" opacity=".9"/><circle cx="10.5" cy="24" r="3" fill="#ffd23f"/><circle cx="69.5" cy="24" r="3" fill="#ffd23f"/></svg><h3>PS Vita</h3></div>
-          <div class="bk n3ds" role="columnheader"><span class="stage">PICA200 back end</span><svg viewBox="0 0 50 54" aria-hidden="true"><rect x="3.5" y="1.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="9" y="6" width="32" height="15" rx="2" fill="#ff5f9e" opacity=".9"/><rect x="3.5" y="28.5" width="43" height="24" rx="5" fill="#171226" stroke="#ff5f9e" stroke-width="2.6"/><rect x="15" y="33" width="20" height="15" rx="2" fill="#ff5f9e" opacity=".55"/></svg><h3>Nintendo 3DS</h3></div>
-          <div class="bk psp" role="columnheader"><span class="stage">GE back end</span><svg viewBox="0 0 76 36" aria-hidden="true"><rect x="1.5" y="3.5" width="73" height="29" rx="14.5" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><rect x="20" y="8.5" width="36" height="19" rx="2.5" fill="#ffd23f" opacity=".9"/></svg><h3>PSP</h3></div>
+      <div class="prism" id="prism">
+        <div class="scene">
+          <span class="stage">the scene, written once in Three.js</span>
+          <h3>Pocket Tokyo</h3>
+          <p>The real city around Tokyo Tower. Pick a line of it.</p>
+          <div class="lines" role="group" aria-label="A part of Pocket Tokyo's scene">
+            <button type="button" class="line" aria-pressed="true"><svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="5.2" fill="currentColor"/><path d="M15 2.5v4M15 23.5v4M2.5 15h4M23.5 15h4M6.2 6.2 9 9M21 21l2.8 2.8M23.8 6.2 21 9M9 21l-2.8 2.8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg><b>Shadows turn with the sun</b><span>The clock runs, and every shadow in the city follows it.</span></button>
+            <button type="button" class="line" aria-pressed="false"><svg viewBox="0 0 30 30" aria-hidden="true"><path d="M20.5 4.5a11 11 0 1 0 5 15.6A9.4 9.4 0 0 1 20.5 4.5z" fill="currentColor"/><circle cx="7.5" cy="7" r="1.6" fill="currentColor"/><circle cx="12.5" cy="3.8" r="1.1" fill="currentColor"/></svg><b>The city lights up at dusk</b><span>Windows and 9,128 street lamps come on.</span></button>
+            <button type="button" class="line" aria-pressed="false"><svg viewBox="0 0 30 30" aria-hidden="true"><path d="M4 25V9.5l11-5v20.5z" fill="currentColor"/><path d="M15 4.5l11 5V25H15z" fill="currentColor" opacity=".42"/></svg><b>A wall faces the sun, or not</b><span>The lit side of a street is brighter than the other.</span></button>
+          </div>
         </div>
-        <p class="ir" aria-hidden="true"><b>CityIR</b><span>the city as meaning, with no GPU in it</span></p>
-        <div class="lrow" role="row" style="--n:0;--r:2">
-          <div class="says2" role="rowheader"><h3>Shadows turn with the sun</h3><p>The clock runs, and every shadow in the city follows it.</p></div>
-          <div class="how vita" role="cell"><span class="on">PS Vita</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="4" width="16" height="16" rx="3" opacity=".25"/><rect x="21" y="4" width="16" height="16" rx="3" opacity=".55"/><rect x="40" y="4" width="16" height="16" rx="3" opacity="1"/><rect x="2" y="23" width="16" height="16" rx="3" opacity=".4"/><rect x="21" y="23" width="16" height="16" rx="3" opacity=".8"/><rect x="40" y="23" width="16" height="16" rx="3" opacity=".3"/></g><text x="64" y="28" font-size="17">h ≥ t</text></svg><h4>A texture of heights</h4><p>16 bits a texel. Each fragment compares its own height with one texel.</p></div>
-          <div class="how n3ds" role="cell"><span class="on">Nintendo 3DS</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.4"><rect x="2" y="11" width="24" height="22" rx="6"/><rect x="36" y="11" width="24" height="22" rx="6" fill="currentColor" fill-opacity=".9"/><rect x="70" y="11" width="24" height="22" rx="6"/></g><text x="31" y="28" font-size="15" text-anchor="middle">×</text><text x="65" y="28" font-size="15" text-anchor="middle">×</text></svg><h4>A combiner stage</h4><p>An 8-bit texture of shade over the whole city, multiplied in by one of three combiner stages.</p></div>
-          <div class="how psp" role="cell"><span class="on">PSP</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="5" width="13" height="15" rx="3"/><rect x="18" y="5" width="13" height="15" rx="3" opacity=".8"/><rect x="34" y="5" width="13" height="15" rx="3" opacity=".62"/><rect x="50" y="5" width="13" height="15" rx="3" opacity=".46"/><rect x="2" y="24" width="13" height="15" rx="3" opacity=".4"/><rect x="18" y="24" width="13" height="15" rx="3" opacity=".32"/><rect x="34" y="24" width="13" height="15" rx="3" opacity=".25"/><rect x="50" y="24" width="13" height="15" rx="3" opacity=".18"/></g><text x="70" y="36" font-size="13">bit 7</text></svg><h4>One bit of a palette index</h4><p>The upper half of each palette is the lower half in shadow. A thread sets the top bit where the ground is shaded.</p></div>
+        <div class="optics" aria-hidden="true">
+          <div class="glass"><svg viewBox="0 0 120 106"><defs><linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e3d9ff"/><stop offset=".5" stop-color="#b9a2ff"/><stop offset="1" stop-color="#8d71f0"/></linearGradient></defs><path d="M60 4 116 102H4z" fill="url(#glass)" stroke="#221338" stroke-width="5" stroke-linejoin="round"/><path d="M58 17 33 61" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity=".6"/></svg><b>CityIR</b></div>
         </div>
-        <div class="lrow" role="row" style="--n:1;--r:3">
-          <div class="says2" role="rowheader"><h3>The city lights up at dusk</h3><p>Windows and 9,128 street lamps come on.</p></div>
-          <div class="how vita" role="cell"><span class="on">PS Vita</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><rect x="2" y="7" width="38" height="30" rx="6" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="15" cy="20" r="3" fill="currentColor"/><circle cx="27" cy="27" r="2.4" fill="currentColor"/><text x="48" y="28" font-size="15" text-anchor="middle">+</text><circle cx="70" cy="22" r="15" fill="currentColor" opacity=".2"/><circle cx="70" cy="22" r="9" fill="currentColor" opacity=".4"/><circle cx="70" cy="22" r="4" fill="currentColor"/></svg><h4>A glow from the last frame</h4><p>Each building's rooms come on at their own moment. What is bright on screen is blurred and added to the next frame.</p></div>
-          <div class="how n3ds" role="cell"><span class="on">Nintendo 3DS</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><rect x="2" y="7" width="38" height="30" rx="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 30q10-16 26-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-dasharray=".1 6"/><text x="48" y="28" font-size="15" text-anchor="middle">+</text><rect x="56" y="7" width="38" height="30" rx="6" fill="currentColor" opacity=".9"/><g fill="#171226"><rect x="62" y="13" width="6" height="6" rx="1.5"/><rect x="72" y="13" width="6" height="6" rx="1.5"/><rect x="82" y="13" width="6" height="6" rx="1.5"/><rect x="62" y="24" width="6" height="6" rx="1.5"/><rect x="82" y="24" width="6" height="6" rx="1.5"/></g></svg><h4>Night as light</h4><p>The lamps' light is one texture over the city. Facades carry a second picture of what their windows emit.</p></div>
-          <div class="how psp" role="cell"><span class="on">PSP</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="5" width="13" height="15" rx="3"/><rect x="18" y="5" width="13" height="15" rx="3" opacity=".85"/><rect x="34" y="5" width="13" height="15" rx="3" opacity=".7"/></g><g fill="#a98bff"><rect x="2" y="24" width="13" height="15" rx="3" opacity=".9"/><rect x="18" y="24" width="13" height="15" rx="3" opacity=".65"/><rect x="34" y="24" width="13" height="15" rx="3" opacity=".45"/></g><path d="M52 12q10 0 10 10t10 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M52 32q10 0 10-10" fill="none" stroke="#a98bff" stroke-width="2.4" stroke-linecap="round"/><text x="76" y="27" font-size="13">19:00</text></svg><h4>Two palettes</h4><p>Every picture has a day palette and a night palette. The GE reads their mix by the hour.</p></div>
+        <div class="answers" aria-live="polite">
+          <div class="set on">
+            <p class="what">Shadows turn with the sun</p>
+            <article class="ans vita" style="--k:0"><img src="/assets/tokyo-day.webp" width="720" height="408" loading="lazy" alt="PS Vita capture: Tokyo Tower in the afternoon, with office blocks behind it."><div><span class="on">PS Vita · GXM</span><h4>A texture of heights</h4><p>16 bits a texel. Each fragment compares its own height with one texel.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="4" width="16" height="16" rx="3" opacity=".25"/><rect x="21" y="4" width="16" height="16" rx="3" opacity=".55"/><rect x="40" y="4" width="16" height="16" rx="3" opacity="1"/><rect x="2" y="23" width="16" height="16" rx="3" opacity=".4"/><rect x="21" y="23" width="16" height="16" rx="3" opacity=".8"/><rect x="40" y="23" width="16" height="16" rx="3" opacity=".3"/></g><text x="64" y="28" font-size="17">h ≥ t</text></svg></article>
+            <article class="ans n3ds" style="--k:1"><img src="/assets/tokyo-3ds.webp" width="400" height="240" loading="lazy" alt="Nintendo 3DS capture, upper screen: Tokyo Tower in the afternoon."><div><span class="on">Nintendo 3DS · PICA200</span><h4>A combiner stage</h4><p>An 8-bit texture of shade over the whole city, multiplied in by one of three combiner stages.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.4"><rect x="2" y="11" width="24" height="22" rx="6"/><rect x="36" y="11" width="24" height="22" rx="6" fill="currentColor" fill-opacity=".9"/><rect x="70" y="11" width="24" height="22" rx="6"/></g><text x="31" y="28" font-size="15" text-anchor="middle">×</text><text x="65" y="28" font-size="15" text-anchor="middle">×</text></svg></article>
+            <article class="ans psp" style="--k:2"><img src="/assets/tokyo-psp.webp" width="480" height="272" loading="lazy" alt="PSP capture: Tokyo Tower in the afternoon."><div><span class="on">PSP · GE</span><h4>One bit of a palette index</h4><p>The upper half of each palette is the lower half in shadow. A thread sets the top bit where the ground is shaded.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="5" width="13" height="15" rx="3"/><rect x="18" y="5" width="13" height="15" rx="3" opacity=".8"/><rect x="34" y="5" width="13" height="15" rx="3" opacity=".62"/><rect x="50" y="5" width="13" height="15" rx="3" opacity=".46"/><rect x="2" y="24" width="13" height="15" rx="3" opacity=".4"/><rect x="18" y="24" width="13" height="15" rx="3" opacity=".32"/><rect x="34" y="24" width="13" height="15" rx="3" opacity=".25"/><rect x="50" y="24" width="13" height="15" rx="3" opacity=".18"/></g><text x="70" y="36" font-size="13">bit 7</text></svg></article>
+          </div>
+          <div class="set">
+            <p class="what">The city lights up at dusk</p>
+            <article class="ans vita" style="--k:0"><img src="/assets/tokyo-dusk.webp" width="720" height="408" loading="lazy" alt="PS Vita capture: Tokyo Tower at dusk over lit streets."><div><span class="on">PS Vita · GXM</span><h4>A glow from the last frame</h4><p>Each building's rooms come on at their own moment. What is bright on screen is blurred and added to the next frame.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><rect x="2" y="7" width="38" height="30" rx="6" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="15" cy="20" r="3" fill="currentColor"/><circle cx="27" cy="27" r="2.4" fill="currentColor"/><text x="48" y="28" font-size="15" text-anchor="middle">+</text><circle cx="70" cy="22" r="15" fill="currentColor" opacity=".2"/><circle cx="70" cy="22" r="9" fill="currentColor" opacity=".4"/><circle cx="70" cy="22" r="4" fill="currentColor"/></svg></article>
+            <article class="ans n3ds" style="--k:1"><img src="/assets/tokyo-3ds-dusk.webp" width="400" height="240" loading="lazy" alt="Nintendo 3DS capture, upper screen: the city at dusk, its streets and windows lit."><div><span class="on">Nintendo 3DS · PICA200</span><h4>Night as light</h4><p>The lamps' light is one texture over the city. Facades carry a second picture of what their windows emit.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><rect x="2" y="7" width="38" height="30" rx="6" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 30q10-16 26-14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-dasharray=".1 6"/><text x="48" y="28" font-size="15" text-anchor="middle">+</text><rect x="56" y="7" width="38" height="30" rx="6" fill="currentColor" opacity=".9"/><g fill="#171226"><rect x="62" y="13" width="6" height="6" rx="1.5"/><rect x="72" y="13" width="6" height="6" rx="1.5"/><rect x="82" y="13" width="6" height="6" rx="1.5"/><rect x="62" y="24" width="6" height="6" rx="1.5"/><rect x="82" y="24" width="6" height="6" rx="1.5"/></g></svg></article>
+            <article class="ans psp" style="--k:2"><img src="/assets/tokyo-psp-dusk.webp" width="480" height="272" loading="lazy" alt="PSP capture: Tokyo Tower at dusk over lit streets."><div><span class="on">PSP · GE</span><h4>Two palettes</h4><p>Every picture has a day palette and a night palette. The GE reads their mix by the hour.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="5" width="13" height="15" rx="3"/><rect x="18" y="5" width="13" height="15" rx="3" opacity=".85"/><rect x="34" y="5" width="13" height="15" rx="3" opacity=".7"/></g><g fill="#a98bff"><rect x="2" y="24" width="13" height="15" rx="3" opacity=".9"/><rect x="18" y="24" width="13" height="15" rx="3" opacity=".65"/><rect x="34" y="24" width="13" height="15" rx="3" opacity=".45"/></g><path d="M52 12q10 0 10 10t10 10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M52 32q10 0 10-10" fill="none" stroke="#a98bff" stroke-width="2.4" stroke-linecap="round"/><text x="76" y="27" font-size="13">19:00</text></svg></article>
+          </div>
+          <div class="set">
+            <p class="what">A wall faces the sun, or not</p>
+            <article class="ans vita" style="--k:0"><img src="/assets/tokyo-day.webp" width="720" height="408" loading="lazy" alt="PS Vita capture: Tokyo Tower in the afternoon, with office blocks behind it."><div><span class="on">PS Vita · GXM</span><h4>A normal in every vertex</h4><p>A Cg program takes its dot product with the sun, then the shadow lookup cuts it.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><path d="M8 38 40 26v-20L8 18z" fill="currentColor" opacity=".3" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M24 22 52 10" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M45 8.5 53 9.5 48 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><text x="60" y="34" font-size="15">n · sun</text></svg></article>
+            <article class="ans n3ds" style="--k:1"><img src="/assets/tokyo-3ds.webp" width="400" height="240" loading="lazy" alt="Nintendo 3DS capture, upper screen: Tokyo Tower in the afternoon."><div><span class="on">Nintendo 3DS · PICA200</span><h4>A compass sector in the vertex</h4><p>One byte names the way the wall faces. The vertex program picks one of 17 lights by it.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g transform="translate(22 22)"><circle r="17" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M0 0 15.7-6.5A17 17 0 0 0 12-12z" fill="currentColor"/><g stroke="currentColor" stroke-width="1.4" opacity=".55"><path d="M0-17V17M-17 0H17M-12-12 12 12M-12 12 12-12"/></g></g><text x="48" y="28" font-size="14">→ 1 of 17</text></svg></article>
+            <article class="ans psp" style="--k:2"><img src="/assets/tokyo-psp.webp" width="480" height="272" loading="lazy" alt="PSP capture: Tokyo Tower in the afternoon."><div><span class="on">PSP · GE</span><h4>One draw per direction</h4><p>Walls are sorted by the 16 directions they face. Each group is drawn with the GE's ambient colour as its light.</p></div><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="6" width="9" height="13" rx="2.5"/><rect x="14" y="6" width="9" height="13" rx="2.5" opacity=".9"/><rect x="26" y="6" width="9" height="13" rx="2.5" opacity=".78"/><rect x="38" y="6" width="9" height="13" rx="2.5" opacity=".66"/><rect x="50" y="6" width="9" height="13" rx="2.5" opacity=".54"/><rect x="62" y="6" width="9" height="13" rx="2.5" opacity=".44"/><rect x="74" y="6" width="9" height="13" rx="2.5" opacity=".34"/><rect x="86" y="6" width="9" height="13" rx="2.5" opacity=".26"/><rect x="2" y="25" width="9" height="13" rx="2.5" opacity=".2"/><rect x="14" y="25" width="9" height="13" rx="2.5" opacity=".26"/><rect x="26" y="25" width="9" height="13" rx="2.5" opacity=".34"/><rect x="38" y="25" width="9" height="13" rx="2.5" opacity=".44"/><rect x="50" y="25" width="9" height="13" rx="2.5" opacity=".54"/><rect x="62" y="25" width="9" height="13" rx="2.5" opacity=".66"/><rect x="74" y="25" width="9" height="13" rx="2.5" opacity=".78"/><rect x="86" y="25" width="9" height="13" rx="2.5" opacity=".9"/></g></svg></article>
+          </div>
         </div>
-        <div class="lrow" role="row" style="--n:2;--r:4">
-          <div class="says2" role="rowheader"><h3>A wall faces the sun, or not</h3><p>The lit side of a street is brighter than the other.</p></div>
-          <div class="how vita" role="cell"><span class="on">PS Vita</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><path d="M8 38 40 26v-20L8 18z" fill="currentColor" opacity=".3" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M24 22 52 10" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M45 8.5 53 9.5 48 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><text x="60" y="34" font-size="15">n · sun</text></svg><h4>A normal in every vertex</h4><p>A Cg program takes its dot product with the sun, then the shadow lookup cuts it.</p></div>
-          <div class="how n3ds" role="cell"><span class="on">Nintendo 3DS</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g transform="translate(22 22)"><circle r="17" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M0 0 15.7-6.5A17 17 0 0 0 12-12z" fill="currentColor"/><g stroke="currentColor" stroke-width="1.4" opacity=".55"><path d="M0-17V17M-17 0H17M-12-12 12 12M-12 12 12-12"/></g></g><text x="48" y="28" font-size="14">→ 1 of 17</text></svg><h4>A compass sector in the vertex</h4><p>One byte names the way the wall faces. The vertex program picks one of 17 lights by it.</p></div>
-          <div class="how psp" role="cell"><span class="on">PSP</span><svg class="gl" viewBox="0 0 96 44" aria-hidden="true"><g fill="currentColor"><rect x="2" y="6" width="9" height="13" rx="2.5"/><rect x="14" y="6" width="9" height="13" rx="2.5" opacity=".9"/><rect x="26" y="6" width="9" height="13" rx="2.5" opacity=".78"/><rect x="38" y="6" width="9" height="13" rx="2.5" opacity=".66"/><rect x="50" y="6" width="9" height="13" rx="2.5" opacity=".54"/><rect x="62" y="6" width="9" height="13" rx="2.5" opacity=".44"/><rect x="74" y="6" width="9" height="13" rx="2.5" opacity=".34"/><rect x="86" y="6" width="9" height="13" rx="2.5" opacity=".26"/><rect x="2" y="25" width="9" height="13" rx="2.5" opacity=".2"/><rect x="14" y="25" width="9" height="13" rx="2.5" opacity=".26"/><rect x="26" y="25" width="9" height="13" rx="2.5" opacity=".34"/><rect x="38" y="25" width="9" height="13" rx="2.5" opacity=".44"/><rect x="50" y="25" width="9" height="13" rx="2.5" opacity=".54"/><rect x="62" y="25" width="9" height="13" rx="2.5" opacity=".66"/><rect x="74" y="25" width="9" height="13" rx="2.5" opacity=".78"/><rect x="86" y="25" width="9" height="13" rx="2.5" opacity=".9"/></g></svg><h4>One draw per direction</h4><p>Walls are sorted by the 16 directions they face. Each group is drawn with the GE's ambient colour as its light.</p></div>
-        </div>
+        <svg class="beams" aria-hidden="true"><path class="in" pathLength="1"/><path class="ray vita" pathLength="1"/><path class="ray n3ds" pathLength="1"/><path class="ray psp" pathLength="1"/><path class="o vita" pathLength="1"/><path class="o n3ds" pathLength="1"/><path class="o psp" pathLength="1"/></svg>
       </div>
-      <p class="differ"><b>One meaning, three mechanisms.</b> A portable engine would carry one renderer to all three machines and turn its features down, or off, where a machine lacks them. Here each back end emits its own data for its own renderer, so the PSP gets moving shadows without a single shader.</p>
-
-      <figure>
-        <div class="compare" id="compare">
-          <img src="/assets/overlook-vita.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: an observatory at dusk with a city skyline behind it.">
-          <img class="top" src="/assets/overlook-three.webp" width="960" height="544" loading="lazy" alt="The same view rendered by the Three.js reference in a browser.">
-          <span class="bar2" aria-hidden="true"></span><span class="knob" aria-hidden="true">↔</span>
-          <span class="tag l" aria-hidden="true">Three.js<span>, in a browser</span></span><span class="tag r" aria-hidden="true"><span>compiled, on a </span>PS Vita</span>
-          <input type="range" min="0" max="100" value="50" aria-label="Reveal the Three.js reference over the PS Vita capture">
-        </div>
-        <figcaption class="cap">Griffith Observatory in Pocket Atlas. Drag to compare the source of truth with what the compiler made of it for one machine.</figcaption>
-      </figure>
+      <p class="differ"><b>One meaning, three mechanisms.</b> CityIR holds the city as meaning, with no GPU in it. A portable engine would carry one renderer to all three machines and turn its features down, or off, where a machine lacks them. Here each back end emits its own data for its own renderer, so the PSP gets moving shadows without a single shader.</p>
+    </div>
+    <figure class="card viz pair rv" style="--d:.1s">
+      <figcaption>
+        <div><span class="stage">source and result, the same view</span><h3>Pocket Atlas <small>Griffith Observatory</small></h3></div>
+        <p>Another game, one machine. Drag to compare the Three.js reference in a browser with what the compiler made of it for a PS Vita.</p>
+      </figcaption>
+      <div class="compare" id="compare">
+        <img src="/assets/overlook-vita.webp" width="960" height="544" loading="lazy" alt="PS Vita capture: an observatory at dusk with a city skyline behind it.">
+        <img class="top" src="/assets/overlook-three.webp" width="960" height="544" loading="lazy" alt="The same view rendered by the Three.js reference in a browser.">
+        <span class="bar2" aria-hidden="true"></span><span class="knob" aria-hidden="true">↔</span>
+        <span class="tag l" aria-hidden="true">Three.js<span>, in a browser</span></span><span class="tag r" aria-hidden="true"><span>compiled, on a </span>PS Vita</span>
+        <input type="range" min="0" max="100" value="50" aria-label="Reveal the Three.js reference over the PS Vita capture">
+      </div>
+    </figure>
     </div>
   </section>
 
@@ -656,7 +682,6 @@ w.<span class="n">mesh</span>(<span class="n">frameUV</span>(<span class="k">new
     <a href="https://discord.gg/cTce4eXzSK">Discord</a>
     <a href="mailto:support@pocket.nexus">support@pocket.nexus</a>
   </nav>
-  <p class="credit">Pocket Tokyo's city is compiled from Project PLATEAU (MLIT Japan), the Geospatial Information Authority of Japan and <a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>, after Procedural Tokyo by Yong Su.</p>
 </footer>
 
 <script>
@@ -735,6 +760,46 @@ w.<span class="n">mesh</span>(<span class="n">frameUV</span>(<span class="k">new
     setMode("flat");
     native.addEventListener("reveal", () => setTimeout(() => { if (!native.dataset.touched) setMode("native"); }, 1100));
   }
+
+  /* ---------- 2. a line of the scene, split into three ---------- */
+  const prism = $("#prism"), lines = $$(".line", prism), sets = $$(".set", prism), glass = $(".glass", prism), beamBox = $(".beams", prism);
+  const beamIn = $(".in", beamBox), rays = $$(".ray", beamBox), outs = $$(".o", beamBox);
+  let pick = 0;
+  // the beams run from the picked line to the glass, across it, and on to each console's row
+  function aimBeams() {
+    if (getComputedStyle(beamBox).display === "none") return;
+    // layout boxes: a transform or a running animation does not move them
+    const at = (el) => {
+      let l = 0, t = 0;
+      for (let e = el; e && e !== prism; e = e.offsetParent) { l += e.offsetLeft; t += e.offsetTop; }
+      return { l, t, w: el.offsetWidth, h: el.offsetHeight, y: t + el.offsetHeight / 2 };
+    };
+    const n = (value) => value.toFixed(1);
+    const from = at(lines[pick]), g = at(glass);
+    // the glass is a triangle with its apex up: at height y a face lies this far from its middle
+    const face = (side, y) => g.l + g.w / 2 + side * (g.w / 2) * ((y - g.t) / g.h) * 0.9;
+    const ey = g.t + g.h * 0.5, ex = face(-1, ey);
+    // the picked line stands 8px out of its column
+    beamIn.setAttribute("d", `M${n(from.l + from.w + 14)} ${n(from.y)}L${n(ex)} ${n(ey)}`);
+    $$(".ans", sets[pick]).forEach((row, k) => {
+      const to = at(row), oy = g.t + g.h * (0.38 + k * 0.12), ox = face(1, oy);
+      rays[k].setAttribute("d", `M${n(ex)} ${n(ey)}L${n(ox)} ${n(oy)}`);
+      outs[k].setAttribute("d", `M${n(ox)} ${n(oy)}L${n(to.l - 7)} ${n(to.y)}`);
+    });
+  }
+  function choose(i) {
+    pick = i;
+    lines.forEach((line, k) => line.setAttribute("aria-pressed", String(k === i)));
+    sets.forEach((set, k) => set.classList.toggle("on", k === i));
+    aimBeams();
+    // start the beams and the rows again
+    prism.classList.remove("fire"); void prism.offsetWidth; prism.classList.add("fire");
+  }
+  lines.forEach((line, i) => line.addEventListener("click", () => choose(i)));
+  aimBeams();
+  if (window.ResizeObserver) new ResizeObserver(aimBeams).observe(prism);
+  for (const image of $$("img", prism)) image.addEventListener("load", aimBeams);
+  prism.closest(".rv").addEventListener("reveal", () => choose(pick));
 
   /* ---------- 2. the reference over the capture ---------- */
   const compare = $("#compare"), range = $("input", compare);
