@@ -154,6 +154,16 @@ the app share the work of keeping that off the frame:
 - On the PSP a turn is two halves on two frames (the script, then layout and
   the draw list), each beside the GE's work on the previous frame.
 
+What each console charged for the overlay, measured on one game (a city
+flown over at 30 or 60 frames a second):
+
+| Console | A turn | What else the overlay costs | What the game did |
+| --- | --- | --- | --- |
+| PSP | script 6.4 ms, layout and draw list 2.9 ms; 10 turns a second in flight | The GE blends every pixel of a list: 0.9 ms for the HUD, 6.7 ms for a menu over the scene. A collection of the guest's heap stops the CPU for 60 to 80 ms | The scene's triangle budget drops while a list is up. The collection waits for a list. Every list stays built once shown |
+| Nintendo 3DS (Old) | 12.3 ms, 15 turns a second | Redrawing the lower screen on every turn added 3 ms to the GPU's longest frame | The lower surface is redrawn when its draw list changes |
+| PS Vita | 1.05 ms, 30 turns a second; 0.8 ms to draw | vita2d draws a clip as a full-screen stencil pass: one `overflow-hidden` in the HUD made frames late. A collection that starts inside a turn takes 35 ms | No clip in a part that is on the screen during play. The collector runs at the end of loading and when a list closes |
+| iPod touch 4 | 1.0 ms a turn, 5.1 ms a redraw, 11 redraws a second | A blended full-screen layer over a 4× multisampled target made 38 % of frames late | The scene's programs read the interface's texture at their own pixel, and the triangle budget pays for the rest |
+
 Compiler facts that shape the parts: a `rounded-full` literal needs `w-[N]`
 and `h-[N]` in the same literal; a pak image is a power of two up to 512; the
 glyphs a runtime string can show are declared in `fonts.json` beside the
@@ -223,5 +233,9 @@ after, as a renderer change does.
   lower screen for a logo.
 - A touch control smaller than 44 logical pixels, or a list on a touch-only
   device with no way back drawn on the screen.
+- An `overflow-hidden` part in the HUD. It is a scissor on the PSP and a
+  full-screen stencil pass on the Vita.
+- Leaving the scene's budget where it was while a menu covers the screen.
+  The menu's pixels are the GPU's work too.
 - Letting each device keep its own title / play / pause switch. Two devices
   then disagree about what START does.
