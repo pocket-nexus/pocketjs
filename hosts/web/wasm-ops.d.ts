@@ -19,6 +19,8 @@ export interface WasmUi {
   tick(): void;
   /** Hash the current DrawList without rasterizing it; null for an older wasm. */
   drawHash: (() => bigint) | null;
+  /** Hash the auxiliary surface's DrawList; null for an older wasm. */
+  drawHashAuxiliary: (() => bigint) | null;
   compositorBindings(): Array<{ handle: number; focused: boolean }>;
   compositorFrames(): Array<{
     handle: number;
@@ -38,6 +40,8 @@ export interface WasmUi {
   render(): Uint8Array;
   /** Rasterize directly at an integer physical scale from 1 through 4. */
   renderScaled(scale: number): Uint8Array;
+  /** Rasterize once with coverage: premultiplied RGBA8, alpha 0 where nothing is drawn; null for an older wasm. */
+  renderPremultiplied: ((scale?: number) => Uint8Array) | null;
   /** Render child surfaces at their compositor instructions. */
   renderComposited(scale?: number): Uint8Array;
   /** Repaint only changed regions at the logical viewport size. */

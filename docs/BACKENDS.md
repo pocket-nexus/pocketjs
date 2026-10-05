@@ -172,6 +172,18 @@ visible pixels, and the instruction remains at its original DrawList offset.
 Shell chrome emitted after the surface therefore stays above the child. A
 missing child raster leaves the shell's loading fallback visible.
 
+**The wasm host rasterizes an interface with its coverage for a scene the
+embedder draws.** `ui_render_premultiplied_scaled(scale)` runs the primary
+DrawList once into a buffer cleared to zero: premultiplied R,G,B and the alpha
+the ops accumulated, 0 where nothing is drawn. Its R,G,B bytes equal
+`ui_render_scaled`'s, and it writes a buffer of its own, so the opaque
+framebuffer and the incremental tracker stay as they were.
+`ui_draw_hash_auxiliary` hashes the auxiliary surface's DrawList as
+`ui_draw_hash` hashes the primary one. An AppInstance created with
+`text: false` starts no text worker and gives its guest no `offload`. A
+Pocket3D game's browser tab uses the three to lay its interface over a WebGPU
+scene ([`devices/web/pocket-web-wgpu`](../devices/web/pocket-web-wgpu/README.md)).
+
 ## System UI companion input
 
 The host speaks the `system-ui` svc dialect when the resolved System UI plan

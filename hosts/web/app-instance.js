@@ -2,6 +2,11 @@
 // every Pocket package receives an independent JavaScript Realm and wasm Ui.
 // The parent System host owns scheduling and composition through this narrow
 // object; package code never receives another realm or framebuffer.
+//
+// `options.text: false` starts the instance without the text worker and its
+// pocket_text.wasm: the guest then has no `offload` global, as on a host
+// with no text provider. A guest whose glyphs are all baked needs neither
+// (a Pocket3D game's interface over its scene, devices/web/pocket-web-wgpu).
 
 import { createWasmUi } from "./wasm-ops.js";
 import { createWorkerOffload } from "./offload-worker.js";
@@ -43,8 +48,10 @@ export async function create(options) {
   globalThis.__pocketApp = options.packageId;
   const pak = await fetch(options.pakUrl);
   globalThis.__pak = pak.ok ? await pak.arrayBuffer() : undefined;
-  const textWorker=createWorkerOffload({workerUrl:new URL("./text-worker.js",import.meta.url),wasmUrl:new URL("./pocket_text.wasm",import.meta.url),pak:globalThis.__pak});
-  globalThis.offload=textWorker.ops;
+  const textWorker = options.text === false
+    ? { beginFrame() {}, dispose() {} }
+    : createWorkerOffload({workerUrl:new URL("./text-worker.js",import.meta.url),wasmUrl:new URL("./pocket_text.wasm",import.meta.url),pak:globalThis.__pak});
+  if (options.text !== false) globalThis.offload=textWorker.ops;
   const source = await (await requiredFetch(options.bundleUrl, "Pocket app bundle")).text();
   new Function(`${source}\n//# sourceURL=${options.packageId}.js`)();
   if (typeof globalThis.frame !== "function") {
@@ -58,10 +65,14 @@ export async function create(options) {
     // frame(buttons, analog, touches?, hits?, touchSurfaces?). A parent that
     // passes only buttons keeps the button-only contract — `undefined`
     // touches clear the contact snapshot, exactly as a host with no panel.
-    step(buttons = 0, touches, hits, touchSurfaces) {
+    // `ticks` is the sixtieths of a second the core advances after the guest's
+    // frame: a parent that turns the guest less often than the display
+    // refreshes passes the refreshes since the last turn, as the native
+    // runtime does (engine/quickjs-c/pocket_runtime.c).
+    step(buttons = 0, touches, hits, touchSurfaces, ticks = 1) {
       textWorker.beginFrame();
       globalThis.frame(buttons, 0x8080, touches, hits, touchSurfaces);
-      wasm.tick();
+      for (let i = 0; i < ticks; i++) wasm.tick();
     },
     /**
      * Bounds hit query (spec op 42) against the committed frame, so the parent
@@ -81,6 +92,15 @@ export async function create(options) {
     renderAuxiliary() {
       return wasm.renderAuxiliary();
     },
+    /**
+     * The primary surface with coverage: premultiplied RGBA8 whose alpha is 0
+     * where the guest draws nothing, for a parent that lays the guest over a
+     * scene of its own. One rasterization; null on a pocketjs.wasm that
+     * predates it.
+     */
+    renderPremultiplied(scale = 1) {
+      return wasm.renderPremultiplied ? wasm.renderPremultiplied(scale) : null;
+    },
     renderComposited() {
       return wasm.renderComposited();
     },
@@ -94,6 +114,10 @@ export async function create(options) {
     },
     drawHash() {
       return wasm.drawHash ? wasm.drawHash() : 0n;
+    },
+    /** The auxiliary surface's draw hash; null on a pocketjs.wasm that predates it. */
+    drawHashAuxiliary() {
+      return wasm.drawHashAuxiliary ? wasm.drawHashAuxiliary() : null;
     },
     bindings() {
       return wasm.compositorBindings();

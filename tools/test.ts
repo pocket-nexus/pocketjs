@@ -40,7 +40,7 @@ const SUITE: readonly Stage[] = [
     // .github/workflows/native-c-harness.yml; tests/test-suite.test.ts
     // verifies these exclusions against that workflow.
     name: "unit",
-    // wasm-auxiliary.test.ts loads hosts/web/pocketjs.wasm.
+    // wasm-auxiliary.test.ts and wasm-premultiplied.test.ts load hosts/web/pocketjs.wasm.
     prep: [["bun", "tools/wasm.ts"]],
     tests: [
       "tests/device-lease.test.ts",
@@ -133,6 +133,7 @@ const SUITE: readonly Stage[] = [
       "tests/net-web.test.js",
       "tests/web-system-host.test.ts",
       "tests/wasm-auxiliary.test.ts",
+      "tests/wasm-premultiplied.test.ts",
       "tests/physics.test.ts",
       "tests/nexus-3ds.test.ts",
       "tests/nexus-touch.test.ts",

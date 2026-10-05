@@ -36,6 +36,12 @@
 //! low-bandwidth opaque target for 16-bit hosts. Hardware DrawList backends
 //! reuse it (via [`render_scaled_rgb565_over`]) as their ordered software
 //! fallback for ops their accelerator cannot express.
+//!
+//! [`render_scaled_premultiplied`] is the one target that keeps coverage: the
+//! buffer starts transparent and every pixel ends as premultiplied R,G,B with
+//! the alpha the DrawList's ops accumulated. A host that lays the interface
+//! over a scene of its own (a 3D frame) composites that buffer with
+//! `dst × (1 − a) + src`. Its colour bytes equal [`render_scaled`]'s.
 
 use crate::damage::{
     DamageError, DamagePlan, DamagePolicy, DamageRect, DamageTarget, DamageTracker,
@@ -186,6 +192,59 @@ impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
         let byte_start = start * 4;
         fill_opaque_span::<ARGB>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
+    }
+}
+
+/// RGBA8 target that keeps coverage. The colour bytes are premultiplied: they
+/// follow the same integer src-over as [`RgbaTarget`] does over its black
+/// clear, so they are the bytes that target writes. Alpha follows
+/// `a + da × (1 − a)` with the same rounding.
+struct PremultipliedTarget<'a> {
+    bytes: &'a mut [u8],
+}
+
+impl RenderTarget for PremultipliedTarget<'_> {
+    #[inline]
+    fn pixel_len(&self) -> usize {
+        assert_eq!(
+            self.bytes.len() & 3,
+            0,
+            "scaled framebuffer byte length must be a multiple of four"
+        );
+        self.bytes.len() / 4
+    }
+
+    #[inline]
+    fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32) {
+        let o = offset * 4;
+        if a >= 255 {
+            self.bytes[o] = r as u8;
+            self.bytes[o + 1] = g as u8;
+            self.bytes[o + 2] = b as u8;
+            self.bytes[o + 3] = 255;
+            return;
+        }
+        if a == 0 {
+            return;
+        }
+        let ia = 255 - a;
+        let mix = |s: u32, d: u8| ((s * a + d as u32 * ia + 127) / 255) as u8;
+        self.bytes[o] = mix(r, self.bytes[o]);
+        self.bytes[o + 1] = mix(g, self.bytes[o + 1]);
+        self.bytes[o + 2] = mix(b, self.bytes[o + 2]);
+        self.bytes[o + 3] = mix(255, self.bytes[o + 3]);
+    }
+
+    #[inline]
+    fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
+        let byte_start = start * 4;
+        fill_opaque_span::<false>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
+    }
+
+    /// The clear of this target is transparent: nothing is covered yet.
+    #[inline]
+    fn clear_black(&mut self) {
+        self.bytes.fill(0);
     }
 }
 
@@ -365,6 +424,21 @@ pub fn render_scaled(ui: &impl RenderResources, words: &[u32], fb: &mut [u8], sc
 /// placement differs.
 pub fn render_scaled_argb(ui: &impl RenderResources, words: &[u32], fb: &mut [u8], scale: u32) {
     let mut target = RgbaTarget::<true> { bytes: fb };
+    render_scaled_impl(ui, words, &mut target, scale, true);
+}
+
+/// Execute `words` into an RGBA8 buffer that keeps coverage. `fb` has the size
+/// [`render_scaled`] takes. The buffer is cleared to transparent first; each
+/// pixel ends as premultiplied R,G,B and the alpha its ops accumulated:
+/// 0 where the DrawList draws nothing, 255 under an opaque op. The R,G,B bytes
+/// equal [`render_scaled`]'s for the same DrawList.
+pub fn render_scaled_premultiplied(
+    ui: &impl RenderResources,
+    words: &[u32],
+    fb: &mut [u8],
+    scale: u32,
+) {
+    let mut target = PremultipliedTarget { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
 
@@ -1378,6 +1452,55 @@ mod tests {
             [0, 0, 0, 255],
             "clearing variant blacks out"
         );
+    }
+
+    #[test]
+    fn premultiplied_output_keeps_coverage_and_the_opaque_colour_bytes() {
+        let ui = Ui::new();
+        let words = [
+            // an opaque red square
+            draw_op::RECT,
+            xy_word(10, 10),
+            wh_word(20, 20),
+            0xff00_00ff,
+            // a white square at alpha 128, over part of it and over nothing
+            draw_op::RECT,
+            xy_word(20, 20),
+            wh_word(20, 20),
+            0x80ff_ffff,
+            // a second layer of the same over a corner of the first
+            draw_op::RECT,
+            xy_word(30, 30),
+            wh_word(20, 20),
+            0x80ff_ffff,
+            // a gradient from clear to opaque blue
+            draw_op::GRAD_RECT,
+            xy_word(60, 10),
+            wh_word(64, 8),
+            0x00ff_0000,
+            0xffff_0000,
+            spec::GradDir::ToRight as u32,
+        ];
+        for scale in [1, 2] {
+            let mut over = framebuffer(scale);
+            over.fill(7); // the clear is this target's own: no earlier content survives
+            render_scaled_premultiplied(&ui, &words, &mut over, scale);
+            let mut opaque = framebuffer(scale);
+            render_scaled(&ui, &words, &mut opaque, scale);
+            for (index, (a, b)) in over.chunks_exact(4).zip(opaque.chunks_exact(4)).enumerate() {
+                assert_eq!(a[..3], b[..3], "colour bytes at pixel {index}, scale {scale}");
+                assert_eq!(b[3], 255);
+            }
+            let at = |x: usize, y: usize| rgba(&over, scale, x * scale as usize, y * scale as usize);
+            assert_eq!(at(5, 5), [0, 0, 0, 0], "nothing drawn: clear");
+            assert_eq!(at(15, 15), [255, 0, 0, 255], "an opaque op: covered");
+            assert_eq!(at(25, 25), [255, 128, 128, 255], "over an opaque pixel alpha stays 255");
+            assert_eq!(at(35, 25), [128, 128, 128, 128], "one layer over nothing");
+            // 128 + 128 x (1 - 128/255), rounded as the colour is
+            assert_eq!(at(35, 35), [192, 192, 192, 192], "two layers accumulate");
+            assert!(at(60, 12)[3] < 4, "a gradient's clear end");
+            assert!(at(123, 12)[3] > 245, "and its opaque end");
+        }
     }
 
     #[test]
