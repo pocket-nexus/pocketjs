@@ -69,13 +69,34 @@ three entries:
 | --- | --- | --- |
 | baseline (`single`) | PSP; PS Vita at 2× raster | Readouts at the edges of the scene. Lists walked by the d-pad with one focus bar; a legend strip from `useActions`. On the Vita a list row also takes a tap. |
 | `dual-screen` | Nintendo 3DS | The upper screen keeps the scene and the readouts. **The lower screen is a second surface, not a copy**: the map, the controls a stylus works (a slider, a toggle), and every list. |
-| `touch` | iPod touch | No buttons exist: every verb is a control under a thumb, at least 44 logical pixels. A stick and keys at the lower corners, a drag on the scene for the view, lists as buttons. |
+| `touch` | iPod touch | No buttons exist: every verb is drawn on the panel. A stick and keys at the lower corners, at least 44 logical pixels each, and a drag on the scene for the view. The title and the lists keep the baseline's layout with taller rows; the way back stands in a list's heading. |
 
 A device differs by its presentation. A small difference inside one entry
 reads `modality`, `surfaceHasTouch()` and `glyph()` from
 `@pocketjs/framework/modality` (a legend says ○ on a PSP and A on a 3DS from
 one source line). **Do not fork a part per device, and do not write a second
 `pocket.json`.**
+
+### One layout for the screens every device has
+
+The title, a list, the menu over the scene and the strip under a list
+**stand in the same place, built from the same parts, in every
+presentation**. Two devices side by side then show one game. A presentation
+changes what its device's input changes:
+
+| | Buttons (PSP, Vita, 3DS) | Touch panel with no buttons |
+| --- | --- | --- |
+| A row's height | 26 px or more (the HIG's floor on a 320-wide screen) | 44 px; 36 px where five rows share the title with the name (iOS's own bars are 32 points on a panel held sideways) |
+| The list's mark | The focus bar, moved by the d-pad | The same bar, under the finger while a row is pressed |
+| The strip under a list | A notice at the left, the buttons' legend at the right | The notice; `useActions().legend()` is empty where no button exists |
+| The way back | ✕ in the legend | `‹ Back` in the list's heading |
+
+A control one device alone has (a stick, keys under a thumb, a bar to drag,
+the lower screen's map) belongs to that presentation. **A shared screen is
+not restyled for a device.** A touch title made of large buttons beside a
+PSP title that is a list reads as another game. A list too long for rows a
+finger can press stands two abreast in the same rows (six hours as three
+rows of two) before it becomes a grid of buttons.
 
 A device outside PocketJS's public registry (the 3DS development target, an
 iPod drawable that shares the scene's 480 × 320) resolves through a profile
@@ -192,7 +213,9 @@ the loading steps are the interface's first screen.
    UI core (`hosts/web/pocketjs.wasm`, `hosts/web/wasm-ops.js`) against a
    mock renderer, and every screen is written as a picture over a capture of
    the scene. **Look at every picture before a device build**: clipped text,
-   a readout over another, a row too short for a finger.
+   a readout over another, a row too short for a finger. Then put the same
+   screen from every device in one picture: a title or a list that differs
+   by more than its rows' height was restyled for that device.
 2. `bun tools/ui.ts test`: the same rig presses buttons and touches the
    panel through a whole session and asserts the commands the interface
    sent, on every device's bundle.
@@ -216,7 +239,9 @@ after, as a renderer change does.
 - [ ] The renderer draws no text; the pack carries no HUD font.
 - [ ] One `ui/` app; one presentation per device shape; parts defined once.
 - [ ] The 3DS's lower screen and the iPod's panel carry controls of their
-      own, not the PSP layout scaled.
+      own (a map, a bar to drag, a stick), not the PSP's readouts scaled.
+- [ ] The title, the lists and the menu have one layout on every device;
+      the same screen from each device was looked at side by side.
 - [ ] Numbers in flight go through `hot`; nothing else updates every turn.
 - [ ] `idle` is reported, and the device paces turns by it.
 - [ ] The flow is one `Session`; the no-guest fallback is a button, not a HUD.
@@ -238,6 +263,8 @@ after, as a renderer change does.
   lower screen for a logo.
 - A touch control smaller than 44 logical pixels, or a list on a touch-only
   device with no way back drawn on the screen.
+- A title or a list rebuilt from large buttons for the touch panel while the
+  other devices show rows. Keep the layout and raise the rows.
 - An `overflow-hidden` part in the HUD. It is a scissor on the PSP and a
   full-screen stencil pass on the Vita.
 - Leaving the scene's budget where it was while a menu covers the screen.
