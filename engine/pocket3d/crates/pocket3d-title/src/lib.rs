@@ -220,6 +220,12 @@ pub fn changed(tick: u32) -> bool {
 /// `present` shows the surface and waits for the next vertical blank. It runs
 /// [`TICKS`] times; the surface is redrawn on the ticks where the frame
 /// changes.
+///
+/// The card ends on black, and `play` then sets every byte of `pixels` to
+/// zero. In [`Layout::Rgba8`] a black pixel is `0, 0, 0, 255`; a renderer that
+/// next shows the same memory as 16-bit pixels, as a PSP game with a 5650
+/// frame buffer does, would read those bytes as `0x0000, 0xff00` columns
+/// until its first frame. Zero bytes are black in every format.
 pub fn play(surface: &mut Surface, mut present: impl FnMut(&mut Surface)) {
     for tick in 0..TICKS {
         if changed(tick) {
@@ -227,6 +233,7 @@ pub fn play(surface: &mut Surface, mut present: impl FnMut(&mut Surface)) {
         }
         present(surface);
     }
+    surface.pixels.fill(0);
 }
 
 /// The card on a PS Vita.
@@ -387,12 +394,13 @@ mod tests {
 
     #[test]
     fn play_presents_every_tick_and_draws_only_changes() {
-        let mut pixels = vec![0u8; 480 * 272 * 4];
+        let mut pixels = vec![0xaau8; 480 * 272 * 4];
         let mut surface = Surface { pixels: &mut pixels, width: 480, height: 272, stride: 480, layout: Layout::Rgba8 };
         let mut presented = 0;
         play(&mut surface, |_| presented += 1);
         assert_eq!(presented, TICKS);
-        assert!(pixels.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]));
+        // the surface is left as zero bytes, black in a 32-bit and in a 16-bit display mode
+        assert!(pixels.iter().all(|&byte| byte == 0));
         assert_eq!((0..TICKS).filter(|&tick| changed(tick)).count() as u32, FADE_IN + FADE_OUT - 1);
     }
 

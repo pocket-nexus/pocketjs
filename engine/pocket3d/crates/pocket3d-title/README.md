@@ -62,6 +62,10 @@ unsafe {
 // ... sceGuInit sets the game's own display mode and frame buffer
 ```
 
+`play` leaves the surface as zero bytes. A game that next shows the same video
+memory as a 16-bit 5650 frame buffer starts from black: the card's own black
+is `0, 0, 0, 255` in 8888, which a 16-bit mode would show as columns.
+
 ## Nintendo 3DS
 
 ```make
