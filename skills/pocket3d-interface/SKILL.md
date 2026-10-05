@@ -144,8 +144,13 @@ the app share the work of keeping that off the frame:
   when the renderer has news, when a button the interface listens to
   changes, while a finger is down, and for a few turns after any of those.
   Buttons pressed between two turns are latched.
-- A timer in the app goes through one counter (`createPulse`), so `idle` is
-  true only when no timer is pending.
+- **The renderer counts a hint's seconds.** A timer of the guest's counts
+  its turns, so while one is pending the device has to take every turn it
+  offers: a hint that stands for 7 s cost a PSP 30 turns a second for 7 s,
+  and frames went late at the start of every flight. The app sends
+  `{ type: "wake", id, seconds }` and the renderer says the id back in a
+  state member when it is due. A timer of the guest's own runs only for the
+  0.4 s of a fade, and `idle` is false for that long.
 - **Screens stay built.** The title, the HUD and the menu are built while
   the world loads and then shown or hidden (`display`), because a screen
   takes tenths of a second to build on a PSP.
@@ -237,5 +242,7 @@ after, as a renderer change does.
   full-screen stencil pass on the Vita.
 - Leaving the scene's budget where it was while a menu covers the screen.
   The menu's pixels are the GPU's work too.
+- A `setTimeout`-style timer for a toast or a hint. It holds `idle` off for
+  its whole length.
 - Letting each device keep its own title / play / pause switch. Two devices
   then disagree about what START does.
