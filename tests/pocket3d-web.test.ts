@@ -17,7 +17,7 @@ test("the staged directory holds what a page loads, and a guest runs in its real
   const staged = mkdtempSync(join(tmpdir(), "pocket3d-web-"));
   try {
     const files = await stagePocket3dWeb(staged);
-    expect(files.sort()).toEqual(["app-instance.html", "app-instance.js", "art.js", "offload-worker.js", "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-shell.js", "pocket3d-stage.js", "pocket3d-title.js", "pocketjs-host.js", "pocketjs.wasm", "wasm-ops.js"]);
+    expect(files.sort()).toEqual(["app-instance.html", "app-instance.js", "art.js", "offload-worker.js", "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js", "pocketjs-host.js", "pocketjs.wasm", "wasm-ops.js"]);
     for (const file of files) expect([file, existsSync(join(staged, file))]).toEqual([file, true]);
     // PocketJS's own files are staged as they are.
     for (const file of POCKET3D_WEB.realm) expect(readFileSync(join(staged, file), "utf8")).toBe(readFileSync(ROOT + "hosts/web/" + file, "utf8"));
@@ -49,6 +49,15 @@ test("the staged directory holds what a page loads, and a guest runs in its real
     // (a game that names no rate leaves the realm at 60 turns a second)
     expect(out.simHzUnsaid).toBe(60);
     expect(out.drainedOnce).toBe(0);
+
+    // The stylesheet styles every element the two modules mark, by the attributes they set.
+    const sheet = readFileSync(join(staged, "pocket3d-stage.css"), "utf8");
+    const marks = new Set<string>();
+    for (const file of ["pocket3d-stage.js", "pocket3d-controls.js"]) {
+      for (const [, name] of readFileSync(join(staged, file), "utf8").matchAll(/dataset\.pocket([A-Z][A-Za-z]*)/g)) marks.add("data-pocket-" + name![0]!.toLowerCase() + name!.slice(1));
+    }
+    expect([...marks].sort()).toEqual(["data-pocket-button", "data-pocket-choices", "data-pocket-group", "data-pocket-screen", "data-pocket-stage", "data-pocket-stick"]);
+    for (const mark of marks) expect([mark, sheet.includes(`[${mark}`)]).toEqual([mark, true]);
 
     // The controls name a device's keys from PocketJS's button bits.
     const { legend, FACES } = await import(pathToFileURL(join(staged, "pocket3d-controls.js")).href);

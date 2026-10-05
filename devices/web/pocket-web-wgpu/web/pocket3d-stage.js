@@ -9,6 +9,11 @@
 //   stage.left, stage.right        // where the device's buttons go (pocket3d-controls.js)
 //   choices(element, [{ id, label }], current, pick)              // the devices, as text
 //
+// pocket3d-stage.css lays these out and gives the buttons and the choice their
+// look: a page links it. The elements are found by `data-pocket-*` attributes
+// this module and pocket3d-controls.js set, so a page needs no ids of its own
+// for them.
+//
 // A screen's pixel is a whole number of the display's own, the largest that
 // fits, as a device's own presentation of PocketJS scales (`integer-fit`).
 // Where that would leave more than two fifths of the room unused, or the
@@ -27,6 +32,7 @@ export function createStage(root, canvas) {
     return el;
   };
   const left = make("left"), screens = make("screens"), right = make("right");
+  root.dataset.pocketStage = "root";
   const second = document.createElement("canvas");
   second.hidden = true;
   second.dataset.pocketScreen = "lower";
@@ -92,6 +98,7 @@ export function createStage(root, canvas) {
  * `aria-pressed`. `pick(id)` is called for another; the mark moves when `set(id)` is.
  */
 export function choices(element, list, current, pick) {
+  element.dataset.pocketChoices = "";
   const buttons = new Map();
   for (const { id, label } of list) {
     const el = document.createElement("button");

@@ -24,9 +24,10 @@ browser's.
 | `web/pocket3d-interface.js` | `openInterface`: the interface's guest in PocketJS's realm (`hosts/web/app-instance.html`, started with `text: false`), its turns, the lines of its service, its picture when the draw hash has changed. **`simHz` is the turns a second the game gives the guest**, published as `globalThis.__simHz` before the bundle runs, as a device's host does. |
 | `web/pocket3d-controls.js` | A handheld's controls: PocketJS button bits and two sticks from the keyboard and from buttons drawn on the page, and contacts of pointers on a surface that takes touch. |
 | `web/pocket3d-stage.js` | A device's screens on the page at a whole number of display pixels, a second screen under the first, the choice of device as text. |
+| `web/pocket3d-stage.css` | The layout of the stage and the look of the buttons, the sticks and the choice, by the `data-pocket-*` attributes the two modules above set. A page links it and sets four custom properties to change its colours. |
 
 `bun tools/pocket3d-web.ts stage <directory>` writes the modules a page loads:
-the four above, the title card (`pocket3d-title.js`, `art.js`), the realm
+the five above, the title card (`pocket3d-title.js`, `art.js`), the realm
 (`app-instance.html`, `app-instance.js`, `wasm-ops.js`, `offload-worker.js`,
 `pocketjs.wasm`) and `pocketjs-host.js`, one module bundled from the
 framework's sources (`__packTouch`, `createTouchHitFacts`, `BTN`).
