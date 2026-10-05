@@ -24,7 +24,7 @@ This directory is the entry point. The code sits on the axes
 | Path | Contents |
 | --- | --- |
 | [`devices/`](../devices/README.md) | Device kernels with explicit memory and GPU-lifetime contracts: `pocket-vita-gxm` (GXM memory, patching, targets, descriptors), `pocket-psp-ge` (GE frame storage, byte swizzle, cache publication), `pocket-3ds-pica` (PICA texture storage and mip publication) |
-| [`engine/pocket3d/`](../engine/pocket3d/README.md) | Desktop wgpu mechanisms, skeletons and clips, mesh loading, the shared physical simulation, the citro3d mesh submission surface, the title card and example consumers |
+| [`engine/pocket3d/`](../engine/pocket3d/README.md) | Desktop wgpu mechanisms, skeletons and clips, mesh loading, the shared physical simulation, the citro3d mesh submission surface, the title card, the app icon and example consumers |
 | [`site/pocket3d/`](../site/pocket3d/) | The homepage served at 3d.pocket.nexus |
 
 Scene formats, cookers and scene renderers belong to the engines. Each engine
@@ -38,6 +38,19 @@ starts. [`pocket3d-title`](../engine/pocket3d/crates/pocket3d-title/README.md)
 draws it into the console's frame buffer on the PS Vita, the PSP and the
 Nintendo 3DS, and over the page in a browser reference; the three drawers
 produce the same frames. Its README lists the calls and the rules for a game.
+
+## App icon
+
+A game built on Pocket3D shows the Pocket3D mark as its icon in the console's
+launcher. [`engine/pocket3d/icon/`](../engine/pocket3d/icon/README.md) holds
+the file each launcher reads: **144 x 80 for the XMB, 128 x 128 indexed for the
+PS Vita's bubble, 48 x 48 and 24 x 24 for the 3DS, 57 x 57 and 114 x 114 for
+the iPod touch**. `bun tools/pocket3d-icon.ts` bakes them from
+`site/pocket3d/mark.svg`. A game reads them from its PocketJS checkout and
+keeps no icon of its own; the picture behind the icon (`PIC1.PNG`, the
+LiveArea) stays a capture of the game.
+[`skills/pocket3d-brand`](../skills/pocket3d-brand/SKILL.md) is the procedure
+for a game repository.
 
 ## License
 

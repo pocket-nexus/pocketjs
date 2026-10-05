@@ -32,6 +32,12 @@ export interface VitaPackageAsset {
 export interface ResolveVitaPackageAssetsInput {
   /** Optional application tree whose relative paths mirror the VPK root. */
   readonly applicationAssets?: string;
+  /**
+   * Optional bubble icon (128 x 128 indexed PNG). It replaces the framework's
+   * icon and any `sce_sys/icon0.png` in the application tree: a Pocket3D game
+   * passes `POCKET3D_ICON.vita` from tools/pocket3d-icon.ts.
+   */
+  readonly icon?: string;
 }
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -246,7 +252,8 @@ function validateLiveArea(assets: ReadonlyMap<string, VitaPackageAsset>): void {
 
 /**
  * Resolve one deterministic VPK asset list. Framework defaults are registered
- * first and the application's VPK-relative tree overlays matching paths.
+ * first, the application's VPK-relative tree overlays matching paths, and an
+ * `icon` replaces the bubble icon last.
  */
 export function resolveVitaPackageAssets(
   input: ResolveVitaPackageAssetsInput = {},
@@ -261,6 +268,10 @@ export function resolveVitaPackageAssets(
   for (const asset of files(DEFAULT_VITA_PACKAGE_ASSETS)) resolved.set(asset.destination, asset);
   if (input.applicationAssets) {
     for (const asset of files(input.applicationAssets)) resolved.set(asset.destination, asset);
+  }
+  if (input.icon) {
+    if (!existsSync(input.icon)) throw new Error(`Vita icon not found at ${input.icon}`);
+    resolved.set(VITA_ICON_VPK_PATH, { source: input.icon, destination: VITA_ICON_VPK_PATH });
   }
   validateLiveArea(resolved);
   return [...resolved.values()].sort((a, b) => compareCodePoints(a.destination, b.destination));
