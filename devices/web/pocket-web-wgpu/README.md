@@ -15,13 +15,13 @@ browser's.
 
 | Part | Mechanism |
 | --- | --- |
-| `src/gpu.rs` | `Gpu`: the device and its queue with WebGPU's default limits. `Screen`: a canvas, or a texture that is read back; **`width × height` pixels with `samples` samples each and a depth buffer**, resized while the game runs. `Frame`: one frame's views and its scene pass. |
+| `src/gpu.rs` | `Gpu`: the device and its queue with WebGPU's default limits, and **the optional features a game wanted that the adapter has** (`for_canvas_wanting`, `Gpu::features`). `Screen`: a canvas, or a texture that is read back; **`width × height` pixels with `samples` samples each and a depth buffer**, resized while the game runs. `Frame`: one frame's views and its scene pass. |
 | `src/overlay.rs` | `Overlay`: a premultiplied RGBA picture laid over a frame in a pass of its own, after the scene's samples are resolved: `dst × (1 − a) + src`. |
 | `src/picture.rs` | Pictures of `r5 g6 b5` texels as `rgba8unorm` textures, with the levels below the stored ones made by halving in the 16-bit colours. |
-| `src/source.rs` | `Source::range(offset, size)`: an HTTP `Range` request on a pack's file, or whole pieces of a pack cut into files of one size with a manifest (`pocket-pack-pieces/1`). A file read outside a tab. |
+| `src/source.rs` | `Source::range(offset, size)`: an HTTP `Range` request on a pack's file, or whole pieces of a pack cut into files of one size with a manifest (`pocket-pack-pieces/1`). A file read outside a tab. `Source::length()` is the pack's size (the manifest's `bytes`, or the total a server names in `Content-Range`) and `Source::all()` the whole of a file a runtime holds in one piece. |
 | `src/task.rs` | `spawn`: work that waits, started from a frame. `now`: a clock. |
 | `web/pocket3d-shell.js` | `titleCard`: the Pocket3D title card before any other picture. `hasWebGPU`. `frames`: the frame loop, **a whole number of display refreshes a frame**. |
-| `web/pocket3d-interface.js` | `openInterface`: the interface's guest in PocketJS's realm (`hosts/web/app-instance.html`, started with `text: false`), its turns, the lines of its service, its picture when the draw hash has changed. |
+| `web/pocket3d-interface.js` | `openInterface`: the interface's guest in PocketJS's realm (`hosts/web/app-instance.html`, started with `text: false`), its turns, the lines of its service, its picture when the draw hash has changed. **`simHz` is the turns a second the game gives the guest**, published as `globalThis.__simHz` before the bundle runs, as a device's host does. |
 | `web/pocket3d-controls.js` | A handheld's controls: PocketJS button bits and two sticks from the keyboard and from buttons drawn on the page, and contacts of pointers on a surface that takes touch. |
 | `web/pocket3d-stage.js` | A device's screens on the page at a whole number of display pixels, a second screen under the first, the choice of device as text. |
 
@@ -49,7 +49,9 @@ A frame of the page, in a device's order:
 1. The game's step: it takes the commands the guest sent on its last turn and
    advances its simulation.
 2. The guest's turn, when the game says one is due: `send` the state line,
-   `turn(buttons, contacts, ticks)`, then `drain`.
+   `turn(buttons, contacts, ticks)`, then `drain`. `ticks` is the sixtieths of a
+   second since its last turn; a guest opened with `simHz: 30` is turned 30
+   times a second with 2 ticks.
 3. `changed()`: when it is true, `picture()` and `Overlay::write`. The UI core
    rasterizes the picture once with its alpha
    (`ui_render_premultiplied_scaled`). `lowerChanged()` and `lower()` do the
@@ -66,8 +68,13 @@ the upload), 0.44 ms at 480 × 272. A guest's turn takes 0.04 ms.
 
 - It has no fallback renderer: a browser without WebGPU gets the page's own
   sentence (`hasWebGPU`).
-- `Gpu` asks for WebGPU's default limits and no feature, so a renderer that
-  fits them runs wherever WebGPU does.
+- `Gpu` asks for WebGPU's default limits, and for no feature unless the game
+  names some. A feature the adapter lacks is left out, not refused: a
+  renderer reads `Gpu::features` and loads what the device can sample (BC
+  blocks on a desktop GPU, ETC2 or ASTC on a phone's).
+- The realm hands the guest a centred stick (`hosts/web/app-instance.js`
+  passes `0x8080`): an interface that reads `input.analog` sees none. The
+  game reads the page's sticks itself (`pocket3d-controls.js`).
 - A canvas that loses its device is not restored; the page is loaded again.
 - `Source` does not retry. A read that fails returns its error to the game.
 
@@ -79,8 +86,9 @@ bun test tests/pocket3d-web.test.ts tests/wasm-premultiplied.test.ts
 ```
 
 The Rust tests cover the overlay pass on this machine's GPU (skipped where
-wgpu's Metal backend finds none), the 16-bit pictures and a pack in pieces
-read beside its file. The Bun tests stage the page's modules, run a guest
+wgpu's Metal backend finds none), a device opened with optional features,
+the 16-bit pictures, and a pack in pieces read beside its file, with its
+length and its whole. The Bun tests stage the page's modules, run a guest
 written by hand in the realm through `pocket3d-interface.js`, and cut a pack.
 Neither needs a game. A browser run belongs to the game that owns the page:
 Pocket Tokyo's `bun tools/wgpu.ts check` drives Chrome through every device.

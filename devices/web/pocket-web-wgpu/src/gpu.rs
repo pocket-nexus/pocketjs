@@ -11,6 +11,8 @@ pub struct Gpu {
     pub queue: Queue,
     /// What the adapter calls itself, for a status.
     pub adapter: String,
+    /// The features the device was opened with: those a game wanted that the adapter has.
+    pub features: wgpu::Features,
 }
 
 /// A canvas the frames are presented on.
@@ -19,16 +21,17 @@ pub struct Canvas {
     format: TextureFormat,
 }
 
-async fn open(instance: &wgpu::Instance, surface: Option<&Surface<'static>>) -> Result<(wgpu::Adapter, Gpu), String> {
+async fn open(instance: &wgpu::Instance, surface: Option<&Surface<'static>>, wanted: wgpu::Features) -> Result<(wgpu::Adapter, Gpu), String> {
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, compatible_surface: surface, force_fallback_adapter: false })
         .await
         .map_err(|e| format!("no GPU adapter: {e}"))?;
     let info = adapter.get_info();
+    let features = wanted & adapter.features();
     let (device, queue) = adapter
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("pocket3d"),
-            required_features: wgpu::Features::empty(),
+            required_features: features,
             // What every WebGPU device has: a game that fits these runs wherever WebGPU does.
             required_limits: wgpu::Limits::default(),
             memory_hints: wgpu::MemoryHints::Performance,
@@ -37,22 +40,35 @@ async fn open(instance: &wgpu::Instance, surface: Option<&Surface<'static>>) -> 
         .await
         .map_err(|e| format!("no GPU device: {e}"))?;
     let adapter_name = format!("{} ({:?})", info.name, info.backend);
-    Ok((adapter, Gpu { device, queue, adapter: adapter_name }))
+    Ok((adapter, Gpu { device, queue, adapter: adapter_name, features }))
 }
 
 impl Gpu {
     /// A device with no screen: frames go to textures and are read back.
     pub async fn headless() -> Result<Gpu, String> {
+        Self::headless_wanting(wgpu::Features::empty()).await
+    }
+
+    /// A device with no screen and with whichever of `wanted` the adapter has; [`Gpu::features`] says which.
+    pub async fn headless_wanting(wanted: wgpu::Features) -> Result<Gpu, String> {
         let instance = wgpu::Instance::default();
-        Ok(open(&instance, None).await?.1)
+        Ok(open(&instance, None, wanted).await?.1)
     }
 
     /// A device for a canvas of a page.
     #[cfg(target_arch = "wasm32")]
     pub async fn for_canvas(canvas: web_sys::HtmlCanvasElement) -> Result<(Gpu, Canvas), String> {
+        Self::for_canvas_wanting(canvas, wgpu::Features::empty()).await
+    }
+
+    /// A device for a canvas of a page, with whichever of `wanted` the adapter has. A feature is not a
+    /// requirement: a tab whose GPU lacks one still opens, and [`Gpu::features`] says what the game may use
+    /// (a pack of BC blocks on a desktop GPU, of ETC2 or ASTC on a phone's).
+    #[cfg(target_arch = "wasm32")]
+    pub async fn for_canvas_wanting(canvas: web_sys::HtmlCanvasElement, wanted: wgpu::Features) -> Result<(Gpu, Canvas), String> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor { backends: wgpu::Backends::BROWSER_WEBGPU, ..Default::default() });
         let surface = instance.create_surface(wgpu::SurfaceTarget::Canvas(canvas)).map_err(|e| format!("the canvas takes no WebGPU context: {e}"))?;
-        let (adapter, gpu) = open(&instance, Some(&surface)).await?;
+        let (adapter, gpu) = open(&instance, Some(&surface), wanted).await?;
         // Colours are written as the pack holds them, in the display's own encoding: a format that does not
         // convert on the way out.
         let formats = surface.get_capabilities(&adapter).formats;

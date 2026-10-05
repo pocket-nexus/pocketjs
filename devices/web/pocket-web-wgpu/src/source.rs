@@ -129,6 +129,8 @@ struct Inner {
     place: String,
     pieces: Option<Pieces>,
     read: Cell<Read>,
+    /// The file's length, once it has been asked.
+    length: Cell<Option<u64>>,
 }
 
 #[derive(Clone)]
@@ -172,7 +174,7 @@ mod tab {
 impl Source {
     /// Opens a pack: the file at `place`, or, when `place` ends in `.json`, the pieces its manifest lists.
     pub async fn open(place: &str) -> Result<Source, String> {
-        let mut inner = Inner { place: place.to_string(), pieces: None, read: Cell::new(Read::default()) };
+        let mut inner = Inner { place: place.to_string(), pieces: None, read: Cell::new(Read::default()), length: Cell::new(None) };
         if place.split(['?', '#']).next().is_some_and(|path| path.ends_with(".json")) {
             #[cfg(target_arch = "wasm32")]
             let text = {
@@ -209,8 +211,34 @@ impl Source {
         self.inner.read.get()
     }
 
+    /// The pack's length in bytes. A pack in pieces has it in its manifest. A file is asked once: the file
+    /// system on the build machine; in a tab a request for its first byte, whose `Content-Range` names the
+    /// whole (a server of another origin must expose that header).
+    pub async fn length(&self) -> Result<u64, String> {
+        if let Some(pieces) = &self.inner.pieces {
+            return Ok(pieces.manifest.bytes);
+        }
+        if let Some(known) = self.inner.length.get() {
+            return Ok(known);
+        }
+        let length = self.inner.clone().measure().await?;
+        self.inner.length.set(Some(length));
+        Ok(length)
+    }
+
+    /// The whole pack, for a file a runtime holds in one piece (a surface, a table): `length` bytes from 0.
+    pub async fn all(&self) -> Result<Vec<u8>, String> {
+        match self.length().await? {
+            0 => Ok(Vec::new()),
+            length => self.range(0, length).await,
+        }
+    }
+
     /// `size` bytes from `offset`.
     pub async fn range(&self, offset: u64, size: u64) -> Result<Vec<u8>, String> {
+        if size == 0 {
+            return Ok(Vec::new());
+        }
         let Some(pieces) = &self.inner.pieces else { return self.inner.clone().whole(offset, size).await };
         let mut bytes = vec![0u8; size as usize];
         let mut at = 0;
@@ -271,6 +299,24 @@ impl Inner {
         file.read_exact(&mut bytes).map_err(|e| format!("{}: {e}", self.place))?;
         self.count(size);
         Ok(bytes)
+    }
+
+    /// The file's length.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn measure(self: Rc<Self>) -> Result<u64, String> {
+        std::fs::metadata(&self.place).map(|m| m.len()).map_err(|e| format!("{}: {e}", self.place))
+    }
+
+    /// The file's length: the total a server names when it answers a range (`Content-Range: bytes 0-0/N`).
+    #[cfg(target_arch = "wasm32")]
+    async fn measure(self: Rc<Self>) -> Result<u64, String> {
+        let response = tab::fetch(&self.place, Some((0, 0))).await?;
+        if response.status() != 206 {
+            return Err(format!("{}: status {} for a range (the server must answer byte ranges with 206)", self.place, response.status()));
+        }
+        let named = response.headers().get("Content-Range").ok().flatten().unwrap_or_default();
+        self.count(1);
+        parse_total(&named).ok_or_else(|| format!("{}: the answer to a range names no length (Content-Range: \"{named}\")", self.place))
     }
 
     /// Asks for a piece: the file is read here and now.
@@ -348,9 +394,24 @@ impl Inner {
     }
 }
 
+/// The length a `Content-Range` names: `bytes 0-0/524288` is 524288; `bytes 0-0/*` names none.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn parse_total(content_range: &str) -> Option<u64> {
+    content_range.trim().strip_prefix("bytes ")?.rsplit_once('/')?.1.trim().parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_content_range_names_the_whole() {
+        assert_eq!(parse_total("bytes 0-0/524288"), Some(524_288));
+        assert_eq!(parse_total(" bytes 10-19/20 "), Some(20));
+        assert_eq!(parse_total("bytes 0-0/*"), None);
+        assert_eq!(parse_total("items 0-0/5"), None);
+        assert_eq!(parse_total(""), None);
+    }
 
     fn manifest() -> Manifest {
         Manifest::parse(r#"{ "pack": "pocket-pack-pieces/1", "bytes": 2500, "piece": 1000, "sha256": "ab", "pieces": ["a.bin", "b.bin", "c.bin"] }"#).unwrap()
@@ -403,6 +464,11 @@ mod tests {
             assert_eq!(a, b, "{size} bytes at {offset}");
         }
         assert!(pollster::block_on(pieces.range(249_999, 2)).is_err());
+        // Both forms say how long the pack is, and give all of it.
+        assert_eq!((pollster::block_on(file.length()).unwrap(), pollster::block_on(pieces.length()).unwrap()), (250_000, 250_000));
+        assert_eq!(pollster::block_on(file.all()).unwrap(), whole);
+        assert_eq!(pollster::block_on(pieces.all()).unwrap(), whole);
+        assert!(pollster::block_on(file.range(17, 0)).unwrap().is_empty());
         // A piece read again comes from memory.
         let before = pieces.read_so_far().requests;
         pollster::block_on(pieces.range(8192, 4096)).unwrap();

@@ -97,11 +97,38 @@ export function attach(instance, plan, close = () => {}) {
 }
 
 /**
+ * What the realm is started with (`PocketAppInstance.create`) for the guest
+ * of `bundle` and `pak` on the device of `plan`.
+ */
+export function realmOptions({ wasm, bundle, pak, plan, service = "pocket.overlay", simHz }) {
+  const shape = screens(plan);
+  return {
+    packageId: plan.app.id,
+    viewport: shape.viewport,
+    rasterDensity: shape.density,
+    auxiliary: shape.auxiliary,
+    wasmUrl: wasm,
+    bundleUrl: bundle,
+    pakUrl: pak,
+    companions: [service],
+    simHz,
+    // An interface's glyphs are baked: the realm starts no text worker.
+    text: false,
+  };
+}
+
+/**
  * Starts the guest of `bundle` and `pak` for the device of `plan`, in a
  * hidden frame that loads `realm` (PocketJS's app-instance.html). Resolves
  * when the guest has run its first lines and opened `service`.
+ *
+ * `simHz` is the turns a second the game gives the guest while it takes
+ * every one, published to it as `globalThis.__simHz` before its bundle
+ * runs, as a device's host does. The framework's clock counts a turn as
+ * `1 / simHz` seconds: a game that turns its guest 30 times a second says
+ * 30 here and passes 2 ticks a turn. Without it the realm says 60.
  */
-export async function openInterface({ realm, wasm, bundle, pak, plan, service = "pocket.overlay" }) {
+export async function openInterface({ realm, wasm, bundle, pak, plan, service = "pocket.overlay", simHz }) {
   const frame = document.createElement("iframe");
   frame.hidden = true;
   frame.tabIndex = -1;
@@ -115,19 +142,7 @@ export async function openInterface({ realm, wasm, bundle, pak, plan, service = 
   try {
     await loaded;
     // (the realm's module has run when its document has loaded)
-    const shape = screens(plan);
-    const instance = await frame.contentWindow.PocketAppInstance.create({
-      packageId: plan.app.id,
-      viewport: shape.viewport,
-      rasterDensity: shape.density,
-      auxiliary: shape.auxiliary,
-      wasmUrl: wasm,
-      bundleUrl: bundle,
-      pakUrl: pak,
-      companions: [service],
-      // An interface's glyphs are baked: the realm starts no text worker.
-      text: false,
-    });
+    const instance = await frame.contentWindow.PocketAppInstance.create(realmOptions({ wasm, bundle, pak, plan, service, simHz }));
     return attach(instance, plan, () => frame.remove());
   } catch (error) {
     frame.remove();

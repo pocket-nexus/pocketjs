@@ -35,7 +35,7 @@ globalThis.frame = (buttons, analog, touches, hits, surfaces) => {
     if (said.panel) ui.setProp(panel, ${PROP.width}, said.panel);
     if (said.lower) ui.setProp(lower, ${PROP.width}, said.lower);
   }
-  if (touches) ui.svcSend(JSON.stringify({ touches: touches.length, hit: hits[0] === lower, surface: surfaces[0], buttons, offload: typeof globalThis.offload }));
+  if (touches) ui.svcSend(JSON.stringify({ touches: touches.length, hit: hits[0] === lower, surface: surfaces[0], buttons, offload: typeof globalThis.offload, simHz: globalThis.__simHz }));
 };
 `);
 
@@ -52,7 +52,7 @@ const workers: string[] = [];
 };
 
 await import(url("app-instance.js"));
-const { attach, screens } = await import(url("pocket3d-interface.js"));
+const { attach, realmOptions, screens } = await import(url("pocket3d-interface.js"));
 const realm = (globalThis as unknown as { PocketAppInstance: { create(options: object): Promise<any> } }).PocketAppInstance;
 
 // The plan of a device with two screens, the second under a stylus, at two samples a logical pixel.
@@ -62,7 +62,8 @@ const plan = {
   modality: { screens: [{ role: "primary", logical: [32, 16], touch: false }, { role: "auxiliary", logical: [24, 16], touch: true }], buttons: true, glyphs: "letters" },
 };
 const shape = screens(plan);
-const options = { packageId: plan.app.id, viewport: shape.viewport, rasterDensity: shape.density, auxiliary: shape.auxiliary, wasmUrl: url("pocketjs.wasm"), bundleUrl: url("guest.js"), pakUrl: url("guest.pak"), companions: ["pocket.overlay"] };
+// (the game turns this guest 30 times a second, and the realm tells it so)
+const { text: _none, ...options } = realmOptions({ wasm: url("pocketjs.wasm"), bundle: url("guest.js"), pak: url("guest.pak"), plan, simHz: 30 });
 const instance = await realm.create({ ...options, text: false });
 const ui = attach(instance, plan);
 const out: Record<string, unknown> = { shape, workersWithoutText: workers.length, offloadWithoutText: typeof (globalThis as Record<string, unknown>).offload };
@@ -96,8 +97,9 @@ const opaque = instance.render(2);
 out.opaque = { inside: pixel(opaque, 64, 10, 6), outside: pixel(opaque, 64, 50, 20) };
 
 // A realm started as before starts the text worker and gives the guest its offload.
-await realm.create(options);
+await realm.create({ ...options, simHz: undefined });
 out.workersWithText = workers.length;
+out.simHzUnsaid = (globalThis as Record<string, unknown>).__simHz;
 out.offloadWithText = typeof (globalThis as Record<string, unknown>).offload;
 console.log(JSON.stringify(out));
 process.exit(0);

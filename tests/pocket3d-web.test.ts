@@ -45,7 +45,9 @@ test("the staged directory holds what a page loads, and a guest runs in its real
     expect(out.changedAfterLower).toEqual([false, true]);
     expect(out.lowerWider).toEqual([0, 255, 0, 255]);
     // A contact reaches the guest on the surface that takes touch, with the node under it and the buttons held.
-    expect(out.heard).toEqual([{ touches: 1, hit: true, surface: 1, buttons: 0x2000, offload: "undefined" }]);
+    expect(out.heard).toEqual([{ touches: 1, hit: true, surface: 1, buttons: 0x2000, offload: "undefined", simHz: 30 }]);
+    // (a game that names no rate leaves the realm at 60 turns a second)
+    expect(out.simHzUnsaid).toBe(60);
     expect(out.drainedOnce).toBe(0);
 
     // The controls name a device's keys from PocketJS's button bits.
