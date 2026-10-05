@@ -23,7 +23,7 @@
 //   rows              (run - 1, palette index) pairs, run 1..=256
 //
 // Palette entry 0 is the ground, so a console fills the screen with it and
-// copies the art into the middle. The page loads Titan One from Google Fonts,
+// copies the art into the middle. The page loads Fredoka from Google Fonts,
 // so the command needs a network; the outputs are committed.
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -166,9 +166,9 @@ if (import.meta.main) {
         await document.fonts.ready;
         await Promise.all([...document.images].map((image) => image.decode()));
         await new Promise((r) => setTimeout(r, 300));
-        return document.fonts.check('80px "Titan One"', "Pocket3D");
+        return document.fonts.check("600 80px Fredoka", "Pocket3D");
       })()`);
-      if (ready !== true) throw new Error("Titan One did not load");
+      if (ready !== true) throw new Error("Fredoka did not load");
       const shot = decodePNG(await chrome.screenshot());
       if (shot.w !== size.width || shot.h !== size.height) throw new Error(`${size.name}: captured ${shot.w}x${shot.h}`);
       const art = bake(shot.rgba, size.width, size.height);

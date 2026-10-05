@@ -1,7 +1,7 @@
 //! The Pocket3D title card.
 //!
 //! A game built on Pocket3D shows this card when it starts: the mark and the
-//! wordmark on the plum ground, faded in from black, held, and faded back to
+//! name in white on the plum ground, faded in from black, held, and faded back to
 //! black. [`TICKS`] ticks at 60 Hz, 2.4 seconds.
 //!
 //! The card needs no GPU. [`draw`] writes one tick's frame into a CPU-visible
@@ -346,7 +346,7 @@ mod tests {
         assert!(outside.clone().all(|(x, y)| at(x, y) == [0x17, 0x12, 0x26, 255]));
         let inside = (176..368).flat_map(|y| (168..792).map(move |x| (x, y)))
             .filter(|&(x, y)| at(x, y) != [0x17, 0x12, 0x26, 255]).count();
-        assert!(inside > 30_000, "the art covers {inside} pixels");
+        assert!(inside > 20_000, "the art covers {inside} pixels");
     }
 
     #[test]
@@ -401,9 +401,9 @@ mod tests {
     /// this table.
     const NINTENDO_3DS_FRAMES: [(u32, u64); 5] = [
         (0, 0xaf48_8c52_4099_8725),
-        (9, 0x6514_aa31_ea8d_79d0),
-        (60, 0xc3d3_9dd3_dd14_d318),
-        (130, 0x732a_b9a5_51c0_d785),
+        (9, 0xeb4f_0096_b8e5_68f6),
+        (60, 0x2f22_1313_3624_58cb),
+        (130, 0x4033_e986_bf01_6fbd),
         (143, 0xaf48_8c52_4099_8725),
     ];
 
@@ -414,7 +414,7 @@ mod tests {
             assert_eq!(got, hash, "tick {tick}: 0x{got:016x}");
         }
         // one frame of each art, on the consoles that show it
-        assert_eq!(fnv(&frame(960, 544, 960, Layout::Rgba8, 60)), 0x7fc7_8078_ba5d_7f3f, "PS Vita");
-        assert_eq!(fnv(&frame(480, 272, 512, Layout::Rgba8, 60)), 0x6605_dcb9_c179_0b74, "PSP");
+        assert_eq!(fnv(&frame(960, 544, 960, Layout::Rgba8, 60)), 0x94c3_6637_5fcd_ee99, "PS Vita");
+        assert_eq!(fnv(&frame(480, 272, 512, Layout::Rgba8, 60)), 0xa0a1_0857_4d7f_d895, "PSP");
     }
 }

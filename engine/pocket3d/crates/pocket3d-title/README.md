@@ -1,7 +1,8 @@
 # pocket3d-title
 
-The Pocket3D title card: the mark and the wordmark on the plum ground, shown
-when a game built on Pocket3D starts. It fades in from black over 20 ticks,
+The Pocket3D title card: the mark and the name "Pocket3D" in white on the plum
+ground, set as the bar of 3d.pocket.nexus sets them, shown when a game built on
+Pocket3D starts. It fades in from black over 20 ticks,
 holds, and fades back to black over 28: **144 ticks at 60 Hz, 2.4 seconds**.
 
 The card needs no GPU. Each drawer writes a tick's frame into a CPU-visible
@@ -110,7 +111,7 @@ bun tools/pocket3d-title.ts --preview   # art/*.bin, include/pocket3d_title_art.
 cargo test --manifest-path engine/pocket3d/crates/pocket3d-title/Cargo.toml
 ```
 
-The bake needs a network (the page loads Titan One from Google Fonts) and
+The bake needs a network (the page loads Fredoka from Google Fonts) and
 changes the recorded hashes: copy the new values the failing test prints into
 `src/lib.rs`. `--preview` also writes the decoded art as PNGs under
 `.pocket-build/pocket3d-title/`.
