@@ -37,8 +37,6 @@ test("the homepage carries the title, the one-sentence lede and the four chapter
   for (const id of ["hardware-native", "compiler-first", "purpose-built", "coding-agents"]) {
     expect(home).toContain(`<section class="chap" id="${id}"`);
   }
-  // each word of the title names its own text twice: the extrusion and the gloss are drawn from the attribute
-  for (const [, shown, text] of home.matchAll(/<span class="f" data-t="([^"]+)"[^>]*>([^<]+)<\/span>/g)) expect(shown).toBe(text);
 });
 
 test("the bar, the hero and the footer link where a visitor expects", () => {
@@ -99,13 +97,20 @@ test("chapter 2 splits a line of Pocket Tokyo's scene into a mechanism for each 
   // no two rows name the same mechanism; day and dusk are shown on every console
   expect(titles.size).toBe(9);
   expect([...shots].sort()).toEqual(["tokyo-3ds", "tokyo-3ds-dusk", "tokyo-day", "tokyo-dusk", "tokyo-psp", "tokyo-psp-dusk"]);
-  // one beam in, three rays across the glass, three beams out
-  expect(figure).toContain('<div class="glass">');
+  // the glass is one drawing: still inside the figure, and live among the beams
+  expect(figure).toContain('<div class="glass"><svg class="still" viewBox="0 0 120 106"><use href="#glass-back"/><use href="#glass-front"/></svg></div>');
   expect(figure).toContain("<b>CityIR</b>");
-  const beams = figure.match(/<svg class="beams" aria-hidden="true">(.*?)<\/svg>/)![1];
-  expect([...beams.matchAll(/<path class="([^"]+)" pathLength="1"\/>/g)].map((beam) => beam[1])).toEqual(["in", "ray vita", "ray n3ds", "ray psp", "o vita", "o n3ds", "o psp"]);
-  // the beams are aimed from layout boxes, and a pick starts them again
+  for (const id of ["glass-back", "glass-front"]) expect(home).toContain(`<symbol id="${id}" viewBox="0 0 120 106">`);
+  const beams = figure.match(/<svg class="beams" aria-hidden="true">(.*?)<\/svg>\s*<\/div>\s*$/s)![1];
+  expect([...beams.matchAll(/<use class="body" href="#(glass-\w+)"\/>/g)].map((use) => use[1])).toEqual(["glass-back", "glass-front"]);
+  // one beam in and its reflection, a spectrum and three rays inside the glass, three beams out; each beam is a halo and a core
+  const paths = [...beams.matchAll(/<path class="([^"]+)"/g)].map((beam) => beam[1]);
+  expect(paths).toEqual(["tri", "in", "o vita", "o n3ds", "o psp", "back", "fan", "ray vita", "ray n3ds", "ray psp", "in core", "o vita core", "o n3ds core", "o psp core"]);
+  expect(beams).toContain('<g clip-path="url(#inside)"><path class="fan"');
+  // the beam bends by Snell's law for glass of index 1.5, and is aimed from layout boxes
   expect(home).toContain("function aimBeams()");
+  expect(home).toContain("eta = 1 / 1.5");
+  expect(home).toContain("e.offsetLeft");
   expect(home).toContain('lines.forEach((line, i) => line.addEventListener("click", () => choose(i)));');
   // the table and the fan-out it replaced are gone
   for (const old of ['class="cols"', 'class="wire"', 'class="outs"', 'class="lrow', "LLVM does the same"]) expect(home).not.toContain(old);
@@ -119,13 +124,40 @@ test("chapter 2 splits a line of Pocket Tokyo's scene into a mechanism for each 
   expect(home).not.toContain('class="credit"');
 });
 
-test("the title rests in one pose and the pointer leans it a few degrees", () => {
-  // 26 and 20 degrees per unit of aim: a lean of 0.09 is about 2.3 degrees of turn and 1.8 of tilt
-  const lean = Number(home.match(/LEAN = ([0-9.]+)/)![1]);
-  expect(lean).toBeGreaterThan(0);
-  expect(lean * 26).toBeLessThan(3);
-  // nothing moves it while the pointer is elsewhere
-  expect(home).not.toMatch(/Math\.sin\(time/);
+test("the title is the arcade marquee: letters of the pixel face through five hues, on a plate", () => {
+  const title = home.match(/<h1 class="title" id="title" aria-label="Create 3D for every machine you love">(.*?)<\/h1>/s)![1];
+  expect(title).toContain('<span class="plate0" aria-hidden="true">');
+  expect(title).toContain('<span class="rail"></span>');
+  const letters = [...title.matchAll(/<span class="ch ([pyclo])" style="--i:(\d+)">(.)<\/span>/g)];
+  // every letter of the headline once, in order, each a step later than the one before and one hue on
+  expect(letters.map((letter) => letter[3]).join("")).toBe("Create3Dforeverymachineyoulove");
+  expect(letters.map((letter) => Number(letter[2]))).toEqual(letters.map((_, i) => i));
+  expect(letters.map((letter) => letter[1]).join("")).toBe("pyclo".repeat(6));
+  expect(title.split('<span class="ln">').length - 1).toBe(3);
+  // the page loads the pixel face and no longer the round one, and the chapter heads use it
+  expect(home).toContain("family=Press+Start+2P&");
+  expect(home).toContain('--display:"Press Start 2P"');
+  expect(home).toContain(".head h2,.close h2{font:400 clamp(17px,2.2vw,29px)/1.6 var(--display)");
+  for (const page of [home, notFound]) expect(page).not.toContain("Titan");
+  // the turned slab, its script and the stars are gone
+  for (const old of ['class="rig"', 'class="spark"', "function pose(", "LEAN", "rotateX("]) expect(home).not.toContain(old);
+});
+
+test("chapter 3 stands each engine as one tower, read from the game down to the plate", () => {
+  const chapter = home.slice(home.indexOf('id="purpose-built"'), home.indexOf("<!-- 4 -->"));
+  const towers = [...chapter.matchAll(/<article class="eng rv" style="--c:var\(--(\w+)\);--d:[^"]+">\s*<figure><img src="\/assets\/([^"]+)"[^>]*><\/figure>\s*<h3>([^<]+)<\/h3>\s*<p>[^<]+<\/p>\s*<ol class="chain">(.*?)<\/ol>\s*<\/article>/gs)];
+  expect(towers.map((tower) => tower[3])).toEqual(["Pocket Atlas", "Pocket Maneuver", "Pocket Tokyo", "OpenStrike"]);
+  expect(new Set(towers.map((tower) => tower[1])).size).toBe(4);
+  for (const tower of towers) {
+    const links = [...tower[4].matchAll(/<li(?: class="(base)")? style="--n:(\d)"><span>([^<]+)<\/span><b>([^<]+)<\/b>(?:<em>[^<]+<\/em>)?<\/li>/g)];
+    // three links say what each layer is to the one above it, and the last stands on Pocket3D
+    expect(links.map((link) => [link[2], link[3]])).toEqual([["0", "written in its DSL"], ["1", "compiled to its IR"], ["2", "drawn by its renderers"], ["3", "standing on"]]);
+    expect([links[3][1], links[3][4]]).toEqual(["base", "Pocket3D"]);
+  }
+  expect(chapter).toContain('<p class="plate rv"');
+  // a thread of beads runs down each tower, and the old rows of bricks are gone
+  expect(home).toContain(".chain::before{");
+  expect(home).not.toContain('class="brick"');
 });
 
 test("the Worker deploys only what the homepage uses", () => {
