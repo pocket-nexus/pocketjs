@@ -22,7 +22,7 @@ API for other members of the family:
 | `crates/pocket3d-mesh` | Mesh loading; desktop models and widgets |
 | `crates/pocket3d-world` | Shared physical simulation and its invariant tests |
 | `crates/pocket3d-title` | The title card a Pocket3D game shows at launch, drawn into a frame buffer with no GPU; Rust for the PS Vita and PSP, a C header for the Nintendo 3DS, a module for browser references |
-| `icon/` | The app icon a Pocket3D game shows in a console's launcher: the mark on the title card's ground, one file per launcher (PSP, PS Vita, Nintendo 3DS, iPod touch), baked by `tools/pocket3d-icon.ts` |
+| `icon/` | The app icon a Pocket3D game shows in a console's launcher: the mark on the title card's ground, one file per launcher (PSP, PS Vita, Nintendo 3DS, iPod touch, Android), baked by `tools/pocket3d-icon.ts` |
 | `backends/citro3d` | Existing 3DS mesh submission surface used by handheld experiments and OpenStrike |
 | `examples/` | Widget and handheld consumers |
 

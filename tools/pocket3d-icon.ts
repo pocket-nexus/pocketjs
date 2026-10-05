@@ -14,6 +14,10 @@
 //   engine/pocket3d/icon/3ds/icon-small.png    24 x 24    SMDH small
 //   engine/pocket3d/icon/ios/Icon.png          57 x 57    SpringBoard, iPod touch 4
 //   engine/pocket3d/icon/ios/Icon@2x.png      114 x 114   SpringBoard, Retina
+//   engine/pocket3d/icon/android/mdpi.png      48 x 48    Android launcher, 160 dpi
+//   engine/pocket3d/icon/android/hdpi.png      72 x 72    Android launcher, 240 dpi
+//   engine/pocket3d/icon/android/xhdpi.png     96 x 96    Android launcher, 320 dpi
+//   engine/pocket3d/icon/android/xxhdpi.png   144 x 144   Android launcher, 480 dpi
 //
 // The rasterizer is the one tools/device-icons.ts uses, so the command needs
 // no browser and no network. The outputs are committed: a game's build reads
@@ -39,6 +43,18 @@ export const POCKET3D_ICON = {
   n3dsSmall: `${OUT}3ds/icon-small.png`,
   ios: `${OUT}ios/Icon.png`,
   ios2x: `${OUT}ios/Icon@2x.png`,
+  androidMdpi: `${OUT}android/mdpi.png`,
+  androidHdpi: `${OUT}android/hdpi.png`,
+  androidXhdpi: `${OUT}android/xhdpi.png`,
+  androidXxhdpi: `${OUT}android/xxhdpi.png`,
+} as const;
+
+/** The Android files by the density qualifier of the resource directory each goes into (`res/drawable-<density>/`). */
+export const POCKET3D_ICON_ANDROID = {
+  mdpi: POCKET3D_ICON.androidMdpi,
+  hdpi: POCKET3D_ICON.androidHdpi,
+  xhdpi: POCKET3D_ICON.androidXhdpi,
+  xxhdpi: POCKET3D_ICON.androidXxhdpi,
 } as const;
 
 type Icon = {
@@ -52,8 +68,9 @@ type Icon = {
 };
 
 // A launcher that masks the icon (the Vita's round bubble, SpringBoard's
-// rounded square) gets a smaller mark; one that shows the whole rectangle
-// (XMB, Homebrew Launcher) gets a larger one. The 24-pixel icon is drawn
+// rounded square, an Android launcher that cuts every icon to its own shape)
+// gets a smaller mark; one that shows the whole rectangle (XMB, Homebrew
+// Launcher) gets a larger one. The 24-pixel icon is drawn
 // larger again so the lens and the keys keep a pixel each.
 export const ICONS: readonly Icon[] = [
   { file: POCKET3D_ICON.psp, width: 144, height: 80, fit: 0.86 },
@@ -62,6 +79,10 @@ export const ICONS: readonly Icon[] = [
   { file: POCKET3D_ICON.n3dsSmall, width: 24, height: 24, fit: 0.92 },
   { file: POCKET3D_ICON.ios, width: 57, height: 57, fit: 0.76 },
   { file: POCKET3D_ICON.ios2x, width: 114, height: 114, fit: 0.76 },
+  { file: POCKET3D_ICON.androidMdpi, width: 48, height: 48, fit: 0.76 },
+  { file: POCKET3D_ICON.androidHdpi, width: 72, height: 72, fit: 0.76 },
+  { file: POCKET3D_ICON.androidXhdpi, width: 96, height: 96, fit: 0.76 },
+  { file: POCKET3D_ICON.androidXxhdpi, width: 144, height: 144, fit: 0.76 },
 ];
 
 /** The mark's own drawing: its view box and what is inside the <svg> element. */

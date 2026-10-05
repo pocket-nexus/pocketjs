@@ -1,6 +1,6 @@
 ---
 name: pocket3d-brand
-description: Apply the Pocket3D brand to a game built on Pocket3D — the Pocket3D app icon on PSP, PS Vita, Nintendo 3DS and iPod touch, and the title card at launch. Use when creating or packaging a Pocket3D game, adding a console target to one, touching ICON0 / icon0 / SMDH / Icon.png / PIC1 / LiveArea files, or reviewing a game repository's launcher art.
+description: Apply the Pocket3D brand to a game built on Pocket3D — the Pocket3D app icon on PSP, PS Vita, Nintendo 3DS, iPod touch and Android, and the title card at launch. Use when creating or packaging a Pocket3D game, adding a console target to one, touching ICON0 / icon0 / SMDH / Icon.png / an APK's drawable icon / PIC1 / LiveArea files, or reviewing a game repository's launcher art.
 ---
 
 # Pocket3D brand
@@ -35,10 +35,13 @@ Pocket3D mark on the plum ground, and every game shows the same one:
 | PS Vita | `vita/icon0.png` (128 x 128, 8-bit indexed) |
 | Nintendo 3DS | `3ds/icon.png` (48 x 48) and `3ds/icon-small.png` (24 x 24) |
 | iPod touch 4 | `ios/Icon.png` (57 x 57) and `ios/Icon@2x.png` (114 x 114) |
+| Android | `android/mdpi.png` (48 x 48), `android/hdpi.png` (72 x 72), `android/xhdpi.png` (96 x 96) and `android/xxhdpi.png` (144 x 144) |
 
 1. Point the build at the file. TypeScript builds import `POCKET3D_ICON` from
    `tools/pocket3d-icon.ts`; `Psp.toml` and Makefiles name the path;
-   `packageVitaVpk` takes `icon`.
+   `packageVitaVpk` takes `icon`. An Android build copies the four files of
+   `POCKET3D_ICON_ANDROID` to `res/drawable-<density>/icon.png` in its build
+   directory and names `@drawable/icon` in the manifest.
 2. Delete the game's own icon files (`icon0.png`, `ICON0.png`, `n3ds/icon.png`,
    an `Icon*.png` in an iOS bundle directory) and whatever script produced
    them. Where a build system reads the icon from a directory it owns, the
@@ -56,7 +59,12 @@ bun -e 'const d=require("fs").readFileSync(process.argv[1]);const o=i=>d.readUIn
   process.stdout.write(d.subarray(o(1),o(2)))' EBOOT.PBP | cmp - vendor/pocketjs/engine/pocket3d/icon/psp/ICON0.PNG
 # PS Vita: the VPK is a zip
 unzip -p game.vpk sce_sys/icon0.png | cmp - vendor/pocketjs/engine/pocket3d/icon/vita/icon0.png
+# Android: the APK is a zip, and aapt stores a PNG it cannot shrink as it was given
+unzip -p game.apk res/drawable-xhdpi/icon.png | cmp - vendor/pocketjs/engine/pocket3d/icon/android/xhdpi.png
 ```
+
+`aapt package` rewrites a PNG when its own encoding is smaller, so a `cmp`
+that fails there is settled by decoding both files and comparing pixels.
 
 For a `.3dsx`, `smdhtool` stores the icons as RGB565 tiles, so compare the
 SMDH with one built from the two files by the same `smdhtool`.

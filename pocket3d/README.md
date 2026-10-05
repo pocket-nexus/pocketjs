@@ -45,7 +45,8 @@ A game built on Pocket3D shows the Pocket3D mark as its icon in the console's
 launcher. [`engine/pocket3d/icon/`](../engine/pocket3d/icon/README.md) holds
 the file each launcher reads: **144 x 80 for the XMB, 128 x 128 indexed for the
 PS Vita's bubble, 48 x 48 and 24 x 24 for the 3DS, 57 x 57 and 114 x 114 for
-the iPod touch**. `bun tools/pocket3d-icon.ts` bakes them from
+the iPod touch, 48, 72, 96 and 144 pixels square for an Android launcher's
+four densities**. `bun tools/pocket3d-icon.ts` bakes them from
 `site/pocket3d/mark.svg`. A game reads them from its PocketJS checkout and
 keeps no icon of its own; the picture behind the icon (`PIC1.PNG`, the
 LiveArea) stays a capture of the game.

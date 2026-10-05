@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { decodePNG } from "../tools/png.ts";
-import { bake, distance, GROUND, ICONS, POCKET3D_ICON } from "../tools/pocket3d-icon.ts";
+import { bake, distance, GROUND, ICONS, POCKET3D_ICON, POCKET3D_ICON_ANDROID } from "../tools/pocket3d-icon.ts";
 import { resolveVitaPackageAssets, VITA_ICON_VPK_PATH } from "../tools/vita-package.ts";
 
 // engine/pocket3d/icon/ holds the icon a Pocket3D game shows in a console's
@@ -15,6 +15,10 @@ const SIZES: Record<string, [number, number]> = {
   "3ds/icon-small.png": [24, 24],
   "ios/Icon.png": [57, 57],
   "ios/Icon@2x.png": [114, 114],
+  "android/mdpi.png": [48, 48],
+  "android/hdpi.png": [72, 72],
+  "android/xhdpi.png": [96, 96],
+  "android/xxhdpi.png": [144, 144],
 };
 const near = (rgba: Uint8Array, at: number, colour: readonly number[], within: number) =>
   Math.abs(rgba[at] - colour[0]) <= within && Math.abs(rgba[at + 1] - colour[1]) <= within && Math.abs(rgba[at + 2] - colour[2]) <= within;
@@ -77,6 +81,17 @@ test("the PS Vita packager takes the icon in place of the framework's and the ga
   expect(() => resolveVitaPackageAssets({ icon: DIRECTORY + "vita/missing.png" })).toThrow("Vita icon not found");
   // the XMB's 144 x 80 file is not a bubble icon
   expect(() => resolveVitaPackageAssets({ icon: POCKET3D_ICON.psp })).toThrow();
+});
+
+test("an Android build finds one file per density", () => {
+  const sides = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144 };
+  expect(Object.keys(POCKET3D_ICON_ANDROID)).toEqual(Object.keys(sides));
+  for (const [density, side] of Object.entries(sides)) {
+    const file = POCKET3D_ICON_ANDROID[density as keyof typeof sides];
+    expect(file).toBe(`${DIRECTORY}android/${density}.png`);
+    // a launcher icon is 48 dp: 48 pixels at 160 dpi, scaled by the density
+    expect(readFileSync(file).readUInt32BE(16)).toBe(side);
+  }
 });
 
 test("a game imports the paths without the rasterizer's package", () => {
