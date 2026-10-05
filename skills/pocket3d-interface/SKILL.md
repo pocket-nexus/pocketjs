@@ -115,8 +115,8 @@ supplies the parts.
 | The page does | With |
 | --- | --- |
 | Reads the screens, the raster density and the surface that takes touch from the plan | `screens(plan)` in `pocket3d-interface.js`. The page keeps no table of device sizes |
-| Starts the device's guest in a realm of its own | `openInterface`: `hosts/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared |
-| Lays out one or two screens at a whole number of display pixels | `createStage`; the lower screen is a second canvas |
+| Starts the device's guest in a realm of its own | `openInterface`: `hosts/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared. **`simHz` is the turns a second the game gives the guest** (30 where the device's host sets `__simHz` to 30); each turn then advances `ticks` sixtieths |
+| Lays out one or two screens at a whole number of display pixels | `createStage`; the lower screen is a second canvas. `pocket3d-stage.css` holds the layout and the look of the buttons and the picker, by the `data-pocket-*` attributes the modules set |
 | Maps the keyboard to the device's buttons, and draws them on the page for a browser whose pointer is a finger | `createControls`; the bits are PocketJS's, so one mask goes to the guest and to the game's pad mapping |
 | Hands a pointer to the guest as a contact on the surface that takes touch | `controls.touch(element, size)`, in the surface's logical pixels |
 | Offers the devices as text and changes device while the game runs | `choices` |
