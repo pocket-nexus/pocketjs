@@ -1,6 +1,6 @@
 ---
 name: pocket3d-interface
-description: Build the 2D interface of a Pocket3D game (title, HUD, menus, settings, touch controls, a second screen) as one PocketJS app drawn over the scene, with one presentation per device shape (PSP, PS Vita, Nintendo 3DS, iPod touch). Use when a Pocket3D game draws text, gauges or menus from its renderer, when debug text or a status line is what a player sees, when adding a console target, a menu, a setting or a touch control to a game, or when reviewing a game's HUD.
+description: Build the 2D interface of a Pocket3D game (title, HUD, menus, settings, touch controls, a second screen) as one PocketJS app drawn over the scene, with one presentation per device shape (PSP, PS Vita, Nintendo 3DS, iPod touch), and show every presentation on one browser page that changes device. Use when a Pocket3D game draws text, gauges or menus from its renderer, when debug text or a status line is what a player sees, when adding a console target, a browser tab, a menu, a setting or a touch control to a game, or when reviewing a game's HUD.
 ---
 
 # Pocket3D interface
@@ -103,6 +103,36 @@ iPod drawable that shares the scene's 480 × 320) resolves through a profile
 kept with the game's tool: `resolve3dsBuildPlan` from `tools/3ds-profile.ts`,
 or `validateAndResolveBuildPlan` with a registry of one target.
 
+### A browser tab shows every presentation
+
+A browser build has no presentation of its own. **The page loads the bundle a
+device loads, with the `plan.json` PocketJS wrote for it, and shows the game
+as that device**: its screens at their own pixels, its presentation, its
+buttons from the keyboard. The browser kernel
+([`devices/web/pocket-web-wgpu`](../../devices/web/pocket-web-wgpu/README.md))
+supplies the parts.
+
+| The page does | With |
+| --- | --- |
+| Reads the screens, the raster density and the surface that takes touch from the plan | `screens(plan)` in `pocket3d-interface.js`. The page keeps no table of device sizes |
+| Starts the device's guest in a realm of its own | `openInterface`: `hosts/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared |
+| Lays out one or two screens at a whole number of display pixels | `createStage`; the lower screen is a second canvas |
+| Maps the keyboard to the device's buttons, and draws them on the page for a browser whose pointer is a finger | `createControls`; the bits are PocketJS's, so one mask goes to the guest and to the game's pad mapping |
+| Hands a pointer to the guest as a contact on the surface that takes touch | `controls.touch(element, size)`, in the surface's logical pixels |
+| Offers the devices as text and changes device while the game runs | `choices` |
+
+**Changing device replaces the guest and keeps the game.** The page removes
+the current realm, starts the next device's bundle in a new one, and the
+renderer opens its channel again: the new guest receives the whole state on
+its first turn and shows the mode the game is in. The flow stays in
+`Session`; the renderer changes its screen's size and its pad mapping. The
+first device is the touch presentation for a browser whose pointer is a
+finger and the baseline at two samples a pixel otherwise.
+
+**A difference between the tab and a device is the page's or the shell's,
+not a branch in `ui/`.** Do not add a `web` presentation, and do not compile
+a bundle for the browser alone.
+
 ## The protocol
 
 Both sides speak JSON lines over PocketJS's `pocket.overlay` service,
@@ -189,6 +219,7 @@ flown over at 30 or 60 frames a second):
 | Nintendo 3DS (Old) | 12.3 ms, 15 turns a second | Redrawing the lower screen on every turn added 3 ms to the GPU's longest frame | The lower surface is redrawn when its draw list changes |
 | PS Vita | 1.05 ms, 30 turns a second; 0.8 ms to draw | vita2d draws a clip as a full-screen stencil pass: one `overflow-hidden` in the HUD made frames late. A collection that starts inside a turn takes 35 ms | No clip in a part that is on the screen during play. The collector runs at the end of loading and when a list closes |
 | iPod touch 4 | 1.0 ms a turn, 5.1 ms a redraw, 11 redraws a second | A blended full-screen layer over a 4× multisampled target made 38 % of frames late | The scene's programs read the interface's texture at their own pixel, and the triangle budget pays for the rest |
+| Browser tab (Chrome 154, M3 Max) | 0.04 ms a turn; a redraw 1.6 ms at 960 × 544 with two samples a pixel, 0.44 ms at 480 × 272; 16 redraws a second | Drawing the interface over black and over white to recover its alpha took 3.3 ms a redraw at 960 × 544. A second screen redrawn on every turn took 1.4 ms on each of 23 turns a second | The UI core draws once with its alpha (`renderPremultiplied`). The second screen is redrawn when `drawHashAuxiliary` changes: 7 times a second |
 
 Compiler facts that shape the parts: a `rounded-full` literal needs `w-[N]`
 and `h-[N]` in the same literal; a pak image is a power of two up to 512; the
@@ -203,6 +234,7 @@ entry.
 | PS Vita | `hosts/vita` as a library: `Runtime::new`, `eval`, `frame_with_input`, `tick`, `render_over` | The display scene, after the game's composite |
 | Nintendo 3DS | `hosts/3ds/src` (`qjs.c`, `gfx.c`) and the 3DS UI core compiled in: `qjs_boot`, `qjs_frame`, `gfx_prepare_surface`, `gfx_draw_surface` | The upper surface over the scene every frame; the lower surface as its own target |
 | iPod touch 4 | `engine/quickjs-c/pocket_runtime.c` with the UI core's OpenGL ES 2 backend | A texture redrawn when the draw hash changes, laid over the scene |
+| Browser tab | `hosts/web/app-instance.js` in a hidden frame of the page, driven through `openInterface` of the browser kernel; the UI core is `hosts/web/pocketjs.wasm` | `renderPremultiplied` when `drawHash` changes: one software drawing with its alpha, uploaded and laid over the scene in a pass of its own (`pocket_web_wgpu::overlay`). A second screen from `renderAuxiliary` into its own canvas when `drawHashAuxiliary` changes |
 
 The guest starts before the world loads when memory has room for both, so
 the loading steps are the interface's first screen.
@@ -221,6 +253,13 @@ the loading steps are the interface's first screen.
    sent, on every device's bundle.
 3. `cargo test` in the interface crate: the command parser against the lines
    the rig logs, the state line, the flow, and when a turn is due.
+
+4. In a browser, the game's own check drives the page with real input on
+   every device: the title's list, a flight, a list opened and closed, the
+   second screen under the pointer, the touch presentation's controls, and
+   another device picked in the middle of a flight. The kernel's check
+   (`bun test tests/pocket3d-web.test.ts`) runs a guest written by hand in
+   the realm with no game.
 
 Change `protocol.ts` and the interface crate in one commit.
 
@@ -248,6 +287,9 @@ after, as a renderer change does.
 - [ ] Previews looked at for every device; the flow test passes on every
       bundle; the frame bench is reported before and after.
 - [ ] Developer statistics are a setting inside the interface.
+- [ ] A browser page loads each device's own bundle and plan; every device
+      was flown from its title there, and another device was picked in a
+      flight.
 
 ## Common mistakes
 
@@ -273,3 +315,9 @@ after, as a renderer change does.
   its whole length.
 - Letting each device keep its own title / play / pause switch. Two devices
   then disagree about what START does.
+- A `web` presentation, or a table of screen sizes in the page. The page
+  loads a device's bundle and reads that bundle's plan.
+- Drawing the interface twice in a browser, over black and over white, to
+  find what it covers. `renderPremultiplied` is one drawing with its alpha.
+- Redrawing a second screen on every turn. `drawHashAuxiliary` says when it
+  changed.

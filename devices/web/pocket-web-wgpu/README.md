@@ -5,9 +5,9 @@ This crate and the modules under `web/` are what a Pocket3D game drawn with
 screens a frame goes to, a pass that lays the game's PocketJS interface over
 its scene, ranged reads of a pack over HTTP, and the page around the canvas**
 (the title card, the frame loop, a handheld's buttons and screens). It holds no
-scene format, no pipeline of a game and no flow. The Rust crate also builds
-for the machine that builds the game (Metal), so one renderer draws in a tab
-and writes a frame to a file.
+scene format, no pipeline of a game and no flow. The Rust crate has two
+targets, wasm32 for the tab and the machine that builds the game (Metal), so
+one renderer draws in a tab and writes a frame to a file.
 
 The browser is a device of its own. A game writes a renderer for it as it does
 for GE, PICA200 and GXM; this kernel does not turn a console's renderer into a
@@ -57,8 +57,10 @@ A frame of the page, in a device's order:
 4. The game's draw: its scene, then `Overlay::draw`.
 
 **The interface is drawn again when its draw hash changes**, not every frame.
-At 960 × 544 with two samples a logical pixel a redraw takes about 1.5 ms of
-an M3 Max in Chrome 154.
+Measured in Chrome 154 on an M3 Max with one game's interface, 16 redraws a
+second in play: **1.6 ms a redraw at 960 × 544 with two samples a logical
+pixel** (0.85 ms the UI core's drawing, the rest the copy into the module and
+the upload), 0.44 ms at 480 × 272. A guest's turn takes 0.04 ms.
 
 ## What it does not do
 
