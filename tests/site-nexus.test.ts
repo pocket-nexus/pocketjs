@@ -71,6 +71,29 @@ test("the homepage links out to PocketJS, Pocket Shell and the social accounts",
   expect(home).not.toContain("underline wavy");
 });
 
+test("the homepage offers Pocket3D beside PocketJS, and names the contact address", () => {
+  // from the hero's second button and from the Projects menu
+  expect(home.match(/href="https:\/\/3d\.pocket\.nexus\/"/g)!.length).toBe(2);
+  const menu = home.slice(home.indexOf('id="projects-list"'), home.indexOf("</nav>"));
+  expect([...menu.matchAll(/<b>([^<]+?)(?: <svg|<\/b>)/g)].map((entry) => entry[1])).toEqual(["PocketJS", "Pocket3D", "Pocket Shell"]);
+  const cta = home.slice(home.indexOf('<div class="cta">'), home.indexOf("</main>"));
+  expect([...cta.matchAll(/<a class="(btn[^"]*)" href="([^"]+)"/g)].map((button) => [button[1], button[2]])).toEqual([
+    ["btn", "https://pocketjs.pocket.nexus/"],
+    ["btn alt", "https://3d.pocket.nexus/"],
+  ]);
+  // every button is a shelf for the toys: the script measures each of them
+  expect(home).toContain('for (const el of ctaWrap.querySelectorAll(".btn"))');
+  // the mark both entries draw is the one the Pocket3D site serves as its favicon
+  const mark = readFileSync(ROOT + "site/pocket3d/public/favicon.svg", "utf8");
+  const shapes = [...mark.matchAll(/<path d="([^"]+)"/g)].map((match) => match[1]);
+  expect(shapes.length).toBeGreaterThan(8);
+  const symbol = home.match(/<symbol id="p3d"[^>]*>(.*?)<\/symbol>/s)![1];
+  for (const shape of shapes) expect(symbol).toContain(shape);
+  expect(home.match(/<use href="#p3d" width="32" height="32"\/>/g)!.length).toBe(2);
+  expect(home).toContain('<a href="mailto:support@pocket.nexus">support@pocket.nexus</a>');
+  expect(home).toContain('"email":"support@pocket.nexus"');
+});
+
 test("the pocket has an arced bottom everywhere it is drawn", () => {
   const mark = readFileSync(ROOT + "site/nexus/mark.svg", "utf8");
   const favicon = readFileSync(PUBLIC + "favicon.svg", "utf8");

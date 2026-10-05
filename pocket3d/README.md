@@ -70,6 +70,7 @@ License before this license stay under the MIT License.
 | [OpenStrike](https://github.com/pocket-nexus/open-strike) | BSP, PVS and collision, `.p3d`, the map cooker | GE, GXM, GLES2 |
 | Pocket Atlas | PlaceIR, target profiles, `.place` packs | GXM, PICA200 |
 | Pocket Maneuver | WorldIR, device profiles, `.pack` packs with a compile receipt | GXM, PICA200, GE |
+| Pocket Tokyo | CityIR, device profiles, city packs with a compile receipt | GXM, GE, PICA200 |
 
 ## Validation
 
