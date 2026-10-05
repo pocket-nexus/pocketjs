@@ -52,6 +52,16 @@ LiveArea) stays a capture of the game.
 [`skills/pocket3d-brand`](../skills/pocket3d-brand/SKILL.md) is the procedure
 for a game repository.
 
+## Interface
+
+A game built on Pocket3D draws its title, its readouts, its menus and its
+touch controls with PocketJS, over the scene: **one PocketJS app with one
+presentation per device shape, and a renderer that draws no text**. The
+game's state reaches the app, and the app's commands reach the game, over the
+`pocket.overlay` service answered inside the process.
+[`skills/pocket3d-interface`](../skills/pocket3d-interface/SKILL.md) is the
+procedure for a game repository.
+
 ## License
 
 Pocket3D is under the [Pocket3D License](./LICENSE), version 1.0. It grants
