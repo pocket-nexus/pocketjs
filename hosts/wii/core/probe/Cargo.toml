@@ -1,0 +1,17 @@
+[package]
+name = "pocketjs-wii-link-probe"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+pocketjs-core = { path = "../../../../engine/core" }
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+codegen-units = 1
+
+[workspace]

@@ -1,0 +1,26 @@
+{
+  "arch": "powerpc",
+  "cpu": "750",
+  "data-layout": "E-m:e-p:32:32-Fn32-i64:64-n32",
+  "env": "eabi",
+  "features": "+hard-float",
+  "linker": "powerpc-eabi-gcc",
+  "linker-flavor": "gnu-cc",
+  "llvm-target": "powerpc-unknown-eabi",
+  "max-atomic-width": 32,
+  "metadata": {
+    "description": "PowerPC 750 Wii EABI hard-float",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "os": "none",
+  "panic-strategy": "abort",
+  "pre-link-args": {
+    "gnu-cc": ["-mcpu=750", "-meabi", "-mhard-float"]
+  },
+  "relocation-model": "static",
+  "target-endian": "big",
+  "target-pointer-width": 32,
+  "vendor": "nintendo"
+}

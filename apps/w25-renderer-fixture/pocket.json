@@ -1,0 +1,30 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.wii-renderer-fixture",
+  "name": "pocketjs-wii-renderer-fixture",
+  "title": "PocketJS Wii Renderer Fixture",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "input.buttons",
+        "text.glyphs.baked"
+      ]
+    }
+  },
+  "app": {
+    "entry": "apps/w25-renderer-fixture/main.tsx",
+    "output": "w25-renderer-fixture",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [
+          480,
+          272
+        ],
+        "presentation": "integer-fit"
+      }
+    }
+  }
+}

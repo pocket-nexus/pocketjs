@@ -31,6 +31,10 @@ import {
   THREE_DS_DEV_TARGET_ID,
 } from "./3ds-profile.ts";
 import {
+  WII_DEV_CONTRACTS,
+  WII_DEV_TARGET_ID,
+} from "./wii-profile.ts";
+import {
   POCKET_SECTION,
   decodePocketPackage,
   decodeHostInputs,
@@ -110,7 +114,11 @@ function resolveTarget(manifest: unknown, target: string) {
   return validateAndResolveBuildPlan(
     manifest,
     { target },
-    target === THREE_DS_DEV_TARGET_ID ? THREE_DS_DEV_CONTRACTS : undefined,
+    target === THREE_DS_DEV_TARGET_ID
+      ? THREE_DS_DEV_CONTRACTS
+      : target === WII_DEV_TARGET_ID
+        ? WII_DEV_CONTRACTS
+        : undefined,
   );
 }
 
@@ -121,7 +129,8 @@ async function compileTarget(
 ): Promise<string> {
   const outdir = join(ROOT, ".pocket-build", target);
   mkdirSync(outdir, { recursive: true });
-  const command = target === THREE_DS_DEV_TARGET_ID
+  const privateProfile = target === THREE_DS_DEV_TARGET_ID || target === WII_DEV_TARGET_ID;
+  const command = privateProfile
     ? [
         "bun",
         "tools/build.ts",
@@ -142,7 +151,7 @@ async function compileTarget(
         "--outdir",
         relative(ROOT, outdir),
       ];
-  if (target === THREE_DS_DEV_TARGET_ID) {
+  if (privateProfile) {
     writeFileSync(join(outdir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`);
   }
   const p = Bun.spawnSync(

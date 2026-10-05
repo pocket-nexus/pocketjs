@@ -1,0 +1,22 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.wii-w14-probe",
+  "name": "pocketjs-wii-w14-probe",
+  "title": "PocketJS Wii HostOps Probe",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": { "requires": ["input.buttons"] }
+  },
+  "app": {
+    "entry": "hosts/wii/src/w14-app.tsx",
+    "output": "w14-probe",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [480, 272],
+        "presentation": "native"
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+[unstable]
+build-std = ["core", "alloc", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]
+
+[build]
+target = "targets/powerpc-gekko-eabi.json"
