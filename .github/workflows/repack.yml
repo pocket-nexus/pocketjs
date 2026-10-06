@@ -3,7 +3,7 @@ name: Runtime repack
 # The repack step (tools/repack/): a prebuilt PocketJS runtime and a game's
 # .pocket into a device's installation package, in TypeScript with no native
 # tool. These tests hold each target's package structure, its determinism and
-# its refusals.
+# its refusals, and that every repack bundles for a Worker.
 on:
   pull_request:
     paths:
@@ -16,6 +16,10 @@ on:
       - "tools/png.ts"
       - "contracts/spec/pocket-package.ts"
       - "tests/repack-*.test.ts"
+      - "tests/helpers/android-fixture.ts"
+      - "tests/helpers/apk-test-signer.ts"
+      - "tools/android-link.ts"
+      - "tools/community-key.ts"
       - "tests/fixtures/packages/**"
       - "tests/fixtures/repack-*/**"
       - "tools/vita-package.ts"
@@ -32,6 +36,10 @@ on:
       - "tools/png.ts"
       - "contracts/spec/pocket-package.ts"
       - "tests/repack-*.test.ts"
+      - "tests/helpers/android-fixture.ts"
+      - "tests/helpers/apk-test-signer.ts"
+      - "tools/android-link.ts"
+      - "tools/community-key.ts"
       - "tests/fixtures/packages/**"
       - "tests/fixtures/repack-*/**"
       - "tools/vita-package.ts"

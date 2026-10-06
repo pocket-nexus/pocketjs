@@ -1,10 +1,10 @@
 name: Android runtime and repack
 on:
   pull_request:
-    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "tools/android-icon.ts", "hosts/android/**"]
+    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "tools/android-icon.ts", "hosts/android/**"]
   push:
     branches: [main]
-    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "tools/android-icon.ts", "hosts/android/**"]
+    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "tools/android-icon.ts", "hosts/android/**"]
 permissions:
   contents: read
 jobs:
@@ -17,6 +17,7 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      # The native half (aapt2, zipalign, apksigner) is skipped where the
-      # pinned Android SDK is absent, as it is on this runner.
-      - run: bun test tests/repack-android.test.ts tests/repack-shared.test.ts
+      # The aapt2 + zipalign + apksigner comparison is skipped where the
+      # pinned Android SDK is absent, as it is on this runner; a TypeScript
+      # verifier checks the v1 and v2 signatures.
+      - run: bun test tests/repack-android.test.ts tests/repack-worker.test.ts tests/repack-shared.test.ts

@@ -4,22 +4,18 @@
 //
 // A game's installation package from a prebuilt runtime (tools/runtime.ts)
 // and the game's `.pocket`, with no native tools. This file only reads the
-// files; tools/repack/<target>.ts does the work on bytes, so a Worker can call
-// it the same way.
+// files; tools/repack/index.ts names each target's repack, which works on
+// bytes, so a Worker calls it the same way. `--target` is a runtime name
+// (psp, vita, 3ds, ipod, android) or a Pocket Studio target (ipod-touch).
+//
+// Android signs with the Pocket Studio community key: the two DER files
+// `bun tools/community-key.ts` writes beside the keystore
+// (POCKET_STUDIO_COMMUNITY_KEY names another keystore).
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import type { RepackInput } from "./repack/shared/runtime.ts";
-
-type Repack = (input: RepackInput) => Promise<Uint8Array>;
-
-const TARGETS: Record<string, () => Promise<Repack>> = {
-  "3ds": async () => (await import("./repack/3ds.ts")).repack3ds,
-  android: async () => (await import("./repack/android.ts")).repackAndroid,
-  psp: async () => (await import("./repack/psp.ts")).repackPsp,
-  vita: async () => (await import("./repack/vita.ts")).repackVita,
-  ipod: async () => (await import("./repack/ipod.ts")).repackIPod,
-};
+import { readCommunitySigner } from "./community-key.ts";
+import { REPACK_TARGETS, repackTarget } from "./repack/index.ts";
 
 /** Every file below `directory`, by "/"-separated relative path. */
 export function readRuntimeDirectory(directory: string): Map<string, Uint8Array> {
@@ -35,8 +31,10 @@ export function readRuntimeDirectory(directory: string): Map<string, Uint8Array>
   return files;
 }
 
+const TARGET_NAMES = [...new Set(Object.values(REPACK_TARGETS).map((target) => target.runtime))];
+
 const USAGE =
-  `usage: bun tools/repack.ts --target <${Object.keys(TARGETS).join("|")}> --runtime <dir> --pocket <file> ` +
+  `usage: bun tools/repack.ts --target <${TARGET_NAMES.join("|")}> --runtime <dir> --pocket <file> ` +
   "--id <id> --title <title> --author <author> --version <version> [--icon <png>] -o <out>";
 
 export async function repackMain(argv: readonly string[]): Promise<string> {
@@ -55,12 +53,12 @@ export async function repackMain(argv: readonly string[]): Promise<string> {
   if (missing.length || unknown.length) {
     throw new Error(`${USAGE}\n${[...missing.map((name) => `missing --${name}`), ...unknown.map((name) => `unknown --${name}`)].join(", ")}`);
   }
-  const load = TARGETS[options.get("target")!];
-  if (!load) throw new Error(USAGE);
-  const repack = await load();
+  const target = repackTarget(options.get("target")!);
+  if (!target) throw new Error(USAGE);
   const icon = options.get("icon");
+  const signer = target.signed ? readCommunitySigner() : undefined;
   const started = performance.now();
-  const bytes = await repack({
+  const bytes = await target.repack({
     runtime: readRuntimeDirectory(options.get("runtime")!),
     pocket: new Uint8Array(readFileSync(options.get("pocket")!)),
     identity: {
@@ -70,6 +68,7 @@ export async function repackMain(argv: readonly string[]): Promise<string> {
       version: options.get("version")!,
       ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}),
     },
+    ...(signer ? { signer } : {}),
   });
   const elapsed = performance.now() - started;
   const out = options.get("out")!;

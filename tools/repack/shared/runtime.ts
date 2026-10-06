@@ -17,6 +17,7 @@ import {
   type PocketPackageIdentity,
   type PocketPackageVariant,
 } from "../../../contracts/spec/pocket-package.ts";
+import type { ApkSigner } from "./apk-sign.ts";
 
 export interface RepackIdentity {
   /** Reverse-DNS application id; must equal the `.pocket` variant's app id. */
@@ -34,6 +35,9 @@ export interface RepackInput {
   /** A `.pocket` holding this target's variant. */
   readonly pocket: Uint8Array;
   readonly identity: RepackIdentity;
+  /** The key and certificate an Android APK is signed with: the Pocket Studio
+   *  community key. The other targets take none. */
+  readonly signer?: ApkSigner;
 }
 
 /** dist/runtime/<target>/runtime.json */
@@ -95,7 +99,7 @@ export async function readRuntime(
 
 export interface AdmittedPocket {
   /** The package to ship: the input bytes when they hold only this target's
-   *  variant, otherwise the same package thinned to it. */
+   *  variant, otherwise the same package thinned to it (encoded on first read). */
   readonly bytes: Uint8Array;
   readonly variant: PocketPackageVariant;
   readonly identity: PocketPackageIdentity;
@@ -151,10 +155,16 @@ export function admitPocket(
   if (target?.id !== runtime.target || target.hostAbi !== runtime.hostAbi) {
     throw new Error(`repack: the .pocket's ${runtime.target} plan resolves another target or ABI`);
   }
-  const bytes = decoded.variants.length === 1
-    ? pocket
-    : encodePocketPackage(thinPocketPackage(decoded, [runtime.target]));
-  return { bytes, variant, identity: packageIdentity, plan };
+  let thinned: Uint8Array | undefined;
+  return {
+    get bytes() {
+      thinned ??= decoded.variants.length === 1 ? pocket : encodePocketPackage(thinPocketPackage(decoded, [runtime.target]));
+      return thinned;
+    },
+    variant,
+    identity: packageIdentity,
+    plan,
+  };
 }
 
 /** Identity fields every package needs, checked once for every target. */

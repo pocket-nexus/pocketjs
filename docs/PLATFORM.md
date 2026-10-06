@@ -142,6 +142,21 @@ shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`
 | `3ds-dev` | `romfs:/app.pocket` | `.3dsx` (hosts/3ds/README.md) |
 | `psp` | `app.pocket` in the EBOOT's folder (the module's argv[0] directory) into one kernel block before the arena reserves the rest | `.zip`: `PSP/GAME/Studio<Name>/EBOOT.PBP` (PARAM.SFO with the game's `TITLE` and `MEMSIZE = 1`, ICON0 144×80 from the icon, the runtime's `DATA.PSP` unchanged) and `app.pocket` beside it; a plan that asks for `io.offload` is refused |
 | `vita` | `app0:app.pocket` into one 16-byte-aligned block; no compiled app id | `.vpk`: `sce_sys/param.sfo` (byte for byte what `vita-mksfoex` writes for `tools/vita.ts`: the game's title, title id `P` + 8 hex of SHA-256(id)), the runtime's `eboot.bin` unchanged, `app.pocket`, `sce_sys/icon0.png` 128×128 indexed PNG-8 from the icon, the runtime's LiveArea files |
+| `ipodtouch4-dev` | `app.pocket` in the app bundle | `.ipa`: the runtime's executable under the game's bundle name, an Info.plist with the game's bundle id (the app id), name and version, 57 and 114 px icons, `app.pocket` (docs/IPODTOUCH4.md) |
+| `redmi-1s-dev`, `moto-g-play-dev` | `assets/app.js` and `assets/app.pak` | `.apk`: the runtime's `template.apk` with the package name, versionCode, label, icons and the variant's bundle and pack rewritten, signed v1 + v2 with the Pocket Studio community key in Web Crypto (docs/ANDROID.md) |
+
+**`tools/repack/index.ts` is the entry Pocket Studio's Worker imports.**
+`REPACK_TARGETS` has one row per Studio target (`psp`, `vita`, `3ds`,
+`ipod-touch`, `android`): `repack(input)`, `runtime` (the
+`tools/runtime.ts` name: `psp`, `vita`, `3ds`, `ipod`, `android`),
+`variantTargets` (the `.pocket` targets that target's runtimes boot),
+`extension` (`.zip`, `.vpk`, `.3dsx`, `.ipa`, `.apk`), `contentType` and
+`signed` (Android alone takes `input.signer`). `tools/repack.ts` reads the
+files and calls the same rows. **`tests/repack-worker.test.ts` bundles the
+entry and each target's module with `Bun.build({ target: "browser" })` and
+fails on any Node or Bun built-in module and on any reference to `Bun`,
+`process`, `require`, `__dirname` or `import.meta.dir`**; it also runs the
+bundled Android module and compares its APK with the source module's.
 
 On the PSP the game file takes the place of the embedded build's rodata
 copy: with twenty48 (723 KB file) the arena's free block measured

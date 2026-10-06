@@ -41,9 +41,9 @@ export type ZipInput =
   | {
     readonly name: string;
     readonly data: Uint8Array;
-    /** Deflate the data (default true); stored entries can be aligned. */
+    /** Deflate the data when that makes it smaller (default true); false stores it. */
     readonly compress?: boolean;
-    /** Align a stored entry's data to this many bytes within the archive. */
+    /** Align the data to this many bytes within the archive when the entry is stored. */
     readonly align?: number;
     readonly unixMode?: number;
   }
@@ -130,7 +130,7 @@ export async function zipEntry(input: ZipInput): Promise<ZipEntry> {
   if ("entry" in input) return { ...input.entry, name: input.name };
   const crc = crc32(input.data);
   const base = { name: input.name, crc32: crc, size: input.data.length, ...(input.unixMode !== undefined ? { unixMode: input.unixMode } : {}) };
-  if (input.compress === false || input.align) return { ...base, method: ZIP_STORED, stored: input.data };
+  if (input.compress === false) return { ...base, method: ZIP_STORED, stored: input.data };
   const deflated = await deflateRaw(input.data);
   return deflated.length < input.data.length
     ? { ...base, method: ZIP_DEFLATED, stored: deflated }
