@@ -49,3 +49,6 @@ hosts/ios-nativescript/package-lock.json
 tools/bench-desktop/tauri/src-tauri/gen/
 
 hosts/web/pocket_text.wasm
+
+# Generated glTF binary exports; retain source models and build exports as artifacts.
+*.glb

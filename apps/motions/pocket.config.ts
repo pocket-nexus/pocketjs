@@ -42,7 +42,7 @@ export default definePocketConfig({
       "fade-out": { from: { opacity: 1 }, to: { opacity: 0 } },
 
       // ================= motions/53 =========================================
-      // menu (メニュー): 38px pill opens to 128px revealing T/B/I items.
+      // menu: 38px pill opens to 128px revealing T/B/I items.
       "m53-menu-open": { from: { width: 38 }, "60%": { width: 144 }, to: { width: 141 } },
       "m53-menu-close": { from: { width: 141 }, "60%": { width: 31 }, to: { width: 38 } },
       "m53-menu-x-left": {
@@ -85,7 +85,7 @@ export default definePocketConfig({
       },
       "m53-menu-item-out": { from: { translateY: 0 }, to: { translateY: 46 } },
 
-      // d-pad (十字キー): pentagon keys (cap + same-color trapezoid base);
+      // d-pad: pentagon keys (cap + same-color trapezoid base);
       // caps stretch away from the center, inner edges pinned.
       "m53-dpad-up": {
         "from,to": { top: 13, height: 24 },
@@ -108,7 +108,7 @@ export default definePocketConfig({
         "75%": { left: 40, width: 22 },
       },
 
-      // share (共有): the white card inflates from its bottom edge; the icon
+      // share: the white card inflates from its bottom edge; the icon
       // box is FIXED (original keeps the logo pinned while the card grows).
       "m53-share-grow-a": {
         from: { left: 33, top: 34, width: 38, height: 38 },
@@ -144,7 +144,7 @@ export default definePocketConfig({
         to: { translateY: 16, opacity: 0 },
       },
 
-      // hover button (ホバー)
+      // hover button
       "m53-hover-lift": { from: { translateY: 0 }, to: { translateY: -1 } },
       "m53-hover-drop": { from: { translateY: -1 }, to: { translateY: 0 } },
       "m53-hover-arrow-in": {
@@ -160,7 +160,7 @@ export default definePocketConfig({
         to: { width: 0 },
       },
 
-      // reload (リロード): the arc draws on while winding 45 -> 220deg.
+      // reload: the arc draws on while winding 45 -> 220deg.
       "m53-arc-start": arcKeyframes(ARC_START, "arcStart"),
       "m53-arc-sweep": arcKeyframes(ARC_SWEEP, "arcSweep"),
       "m53-reload-icon": { from: { rotate: 0 }, to: { rotate: 360 } },
@@ -172,7 +172,7 @@ export default definePocketConfig({
         to: { opacity: 0 },
       },
 
-      // keypad (キーパッド): center-preserving squish + inset top shadow
+      // keypad: center-preserving squish + inset top shadow
       // (approximated by a top gradient overlay fading in with the squish).
       "m53-key-squish": {
         "from,to": { left: 0, top: 0, width: 34, height: 34, borderRadius: 10 },
