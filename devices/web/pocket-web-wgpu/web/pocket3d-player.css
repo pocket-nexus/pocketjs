@@ -17,6 +17,12 @@
  * Gabarito (SIL Open Font License, ./fonts/OFL.txt) sets the game's name and
  * the dock's heading; everything else is the system's own face. The page
  * draws with the system's face until the file has come.
+ *
+ * Japanese is in the system's Japanese face (Hiragino Sans, Yu Gothic, Meiryo,
+ * Noto Sans JP) after the Latin ones, headings too: a heading can hold a
+ * game's own words, which no subset of the player's characters would cover,
+ * and a heading in two faces reads worse than one in the system's. Japanese
+ * lines are taller and break between phrases (`word-break: auto-phrase`).
  */
 
 @font-face {
@@ -35,7 +41,8 @@
   --ink-2: var(--pocket3d-ink-2, #cbbde2);
   --muted: var(--pocket3d-muted, #8f7fb0);
   --accent: var(--pocket3d-accent, #ffd23f);
-  --display: "Gabarito", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --japanese: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "YuGothic", "Meiryo", "Noto Sans JP", sans-serif;
+  --display: "Gabarito", ui-sans-serif, system-ui, -apple-system, "Segoe UI", var(--japanese);
   position: fixed;
   inset: 0;
   display: grid;
@@ -43,12 +50,16 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--ground);
   color: var(--ink-2);
-  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", var(--japanese);
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
 }
 [data-pocket-player] :is(h1, h2, p, dl, dd) { margin: 0; }
 [data-pocket-player] [hidden] { display: none; }
+/* Japanese: taller lines, breaks between phrases, and no tightened tracking on its headings. */
+[data-pocket-player]:lang(ja) { line-height: 1.7; }
+[data-pocket-player]:lang(ja) :is(p, dd, h2) { word-break: auto-phrase; overflow-wrap: anywhere; }
+[data-pocket-player]:lang(ja) [data-pocket-pitch] h2 { letter-spacing: 0; line-height: 1.4; }
 
 /* The bar: the game at the left, the device in the middle, the player's own controls at the right. */
 [data-pocket-bar] { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px 24px; padding: max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 6px max(20px, env(safe-area-inset-left)); }
@@ -63,9 +74,11 @@
 [data-pocket-device] { position: relative; }
 [data-pocket-mark]::before { content: ""; display: inline-block; width: 1px; height: 1em; margin-right: 20px; vertical-align: -0.15em; background: var(--line); }
 [data-pocket-tools] { display: flex; justify-content: flex-end; gap: 20px; }
-[data-pocket-open] { all: unset; cursor: pointer; color: var(--muted); }
-[data-pocket-open]:hover, [data-pocket-open][aria-expanded="true"] { color: var(--ink); }
-:is([data-pocket-mark], [data-pocket-open], [data-pocket-action]):focus-visible { outline: 1px solid var(--muted); outline-offset: 4px; border-radius: 2px; }
+[data-pocket-open], [data-pocket-language] { all: unset; cursor: pointer; color: var(--muted); white-space: nowrap; }
+[data-pocket-open]:hover, [data-pocket-open][aria-expanded="true"], [data-pocket-language]:hover { color: var(--ink); }
+/* (the other language, after the panels' controls: a hairline sets it apart, as the mark is from the devices) */
+[data-pocket-language]::before { content: ""; display: inline-block; width: 1px; height: 1em; margin-right: 20px; vertical-align: -0.15em; background: var(--line); }
+:is([data-pocket-mark], [data-pocket-open], [data-pocket-language], [data-pocket-action]):focus-visible { outline: 1px solid var(--muted); outline-offset: 4px; border-radius: 2px; }
 
 /* A sentence in place of the game. */
 [data-pocket-say] { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--ink-2); pointer-events: none; }
@@ -100,6 +113,7 @@
   /* (no hairline: on a line of its own the mark would start with it) */
   [data-pocket-mark]::before { display: none; }
   [data-pocket-tools] { gap: 16px; }
+  [data-pocket-language]::before { margin-right: 16px; }
   [data-pocket-studio] { flex-direction: column; align-items: stretch; gap: 12px; }
   [data-pocket-actions] { flex-wrap: wrap; justify-content: space-between; gap: 12px 14px; }
   [data-pocket-action][data-pocket-primary] { padding: 9px 14px; }

@@ -26,6 +26,7 @@
 // the keys move slides there: the shell shows the device's state, whatever
 // set it.
 import { BTN } from "./pocketjs-host.js";
+import { WORDS } from "./pocket3d-words.js";
 
 const KEYS = {
   ArrowUp: BTN.UP, ArrowDown: BTN.DOWN, ArrowLeft: BTN.LEFT, ArrowRight: BTN.RIGHT,
@@ -48,14 +49,17 @@ export const FACES = {
   letters: { top: "X", right: "A", bottom: "B", left: "Y" },
 };
 
-/** The keys that stand for a device's controls, as short text for a page: `[["W A S D", "stick"], …]`. */
-export function legend({ sticks, glyphs }) {
+/**
+ * The keys that stand for a device's controls, as short text for a page: `[["W A S D", "stick"], …]`, in
+ * the words of a catalog of pocket3d-words.js (English when none is given).
+ */
+export function legend({ sticks, glyphs }, words = WORDS.en) {
   const face = FACES[glyphs] ?? FACES.playstation;
   if (!sticks) return [];
   const faces = sticks > 1
-    ? [["I J K L", "right stick"], ["Z X C V", `${face.right} ${face.bottom} ${face.left} ${face.top}`]]
+    ? [["I J K L", words.rightStick], ["Z X C V", `${face.right} ${face.bottom} ${face.left} ${face.top}`]]
     : [["I K J L", `${face.top} ${face.bottom} ${face.left} ${face.right}`]];
-  return [["W A S D", sticks > 1 ? "left stick" : "stick"], ["arrows", "d-pad"], ...faces, ["Q E", "L R"], ["Space", "START"], ["Shift", "SELECT"]];
+  return [["W A S D", sticks > 1 ? words.leftStick : words.stick], [words.arrows, words.dpad], ...faces, ["Q E", "L R"], ["Space", "START"], ["Shift", "SELECT"]];
 }
 
 export function createControls(target = window) {

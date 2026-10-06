@@ -25,9 +25,10 @@ browser's.
 | `web/pocket3d-interface.js` | `openInterface`: the interface's guest in PocketJS's realm (`hosts/web/app-instance.html`, started with `text: false`), its turns, the lines of its service, its picture when the draw hash has changed. **`simHz` is the turns a second the game gives the guest**, published as `globalThis.__simHz` before the bundle runs, as a device's host does. |
 | `web/pocket3d-player.js` | `createPlayer`: **the page of every game**. The bar (the game's name, the devices as text, the mark that says the picture is simulated, the keys and the notices as panels), the stage, and the dock that leads to the game in Pocket Studio. |
 | `web/pocket3d-stage.js` | A device's shell on the page with the game's canvas where the shell's screen is, a second screen for a device that has one, and the shell's keys, d-pad and sticks as elements. **A screen's pixel is a whole number of the display's own where the shell then keeps three quarters of the size that fits.** |
+| `web/pocket3d-words.js` | The player's words in English and Japanese (`WORDS`), **the order a page reads its visitor's language in** (`chooseLanguage`, `readLanguage`), where the choice is kept (`saveLanguage`), and a game's words in a language (`wordsIn`). |
 | `web/pocket3d-controls.js` | A handheld's controls: PocketJS button bits and two sticks from the keyboard and from the shell's own keys under a pointer or a finger, and contacts of pointers on a surface that takes touch. **The shell shows what is held, whatever holds it.** |
 | `web/shells/` | The shells: `psp`, `vita`, `3ds`, `ipod` and `android`, each **a WebP of the case with its moving parts taken out and, for a device with keys, a WebP sheet of those parts** (20 to 71 kB a file), and `profiles.js`: where the screens, the controls and the parts are in the picture. |
-| `web/fonts/` | Gabarito at weight 800, a Latin subset of 15 kB, with its licence (`OFL.txt`). It sets the game's name and the dock's heading; the system's face sets the rest, and the whole page until the file has come (`font-display: swap`). |
+| `web/fonts/` | Gabarito at weight 800, a Latin subset of 15 kB, with its licence (`OFL.txt`). It sets the game's name and the dock's heading; the system's face sets the rest, and the whole page until the file has come (`font-display: swap`). Japanese is set in the system's Japanese face, headings too (see [Languages](#languages)). |
 | `web/pocket3d-stage.css`, `web/pocket3d-player.css` | The layout of the stage and the shell, and the look of the bar, the panels and the dock, by the `data-pocket-*` attributes the modules set. A page links both. Seven custom properties change the colours (`pocket3d-player.css`). |
 
 `bun tools/pocket3d-web.ts stage <directory>` writes the files a page loads:
@@ -48,7 +49,7 @@ writes the manifest `Source` reads. A game's build tool imports
 | **Its pack reader.** Which sections are the head, which records are read when the eye comes near. | `Source::range`, started with `task::spawn`; the game hands what arrived to the GPU on a later frame. |
 | **Its pad mapping.** What a device's buttons and sticks mean in its simulation. | `player.controls.read()` gives PocketJS button bits and two sticks in −1…1; the same bits go to the guest. |
 | **The interface channel.** The state lines it sends, the commands it parses, its flow (`pocket.overlay`, [`skills/pocket3d-interface`](../../../skills/pocket3d-interface/SKILL.md)). | `openInterface` returns `send`, `turn`, `drain`: the page carries each line between the guest and the game's module. |
-| **What it says of itself.** Its name and one sentence, the devices it offers, the targets it has packages for, and one sentence a device on how its picture there differs from the tab's. | `createPlayer({ title, tagline, devices, runsOn, withoutPackages, about, pick })`. The page's body is empty: the player builds it. The build plan PocketJS wrote for each device's bundle (`plan.json`) says the screens, the raster density and the surface that takes touch, which the game hands to `player.show`. |
+| **What it says of itself.** Its name and one sentence, the devices it offers, the targets it has packages for, and one sentence a device on how its picture there differs from the tab's, **in one language or in each** ([Languages](#languages)). | `createPlayer({ title, tagline, devices, runsOn, withoutPackages, about, pick })`. The page's body is empty: the player builds it. The build plan PocketJS wrote for each device's bundle (`plan.json`) says the screens, the raster density and the surface that takes touch, which the game hands to `player.show`. |
 
 A frame of the page, in a device's order:
 
@@ -77,7 +78,7 @@ they say and not in where a visitor finds it.
 
 | Part | Mechanism |
 | --- | --- |
-| The bar | The game's name and its sentence at the left, from the game and then from the host (`/app.json`). The devices in the middle as text, the chosen one underlined. The player's own controls at the right. |
+| The bar | The game's name and its sentence at the left, from the game and then from the host (`/app.json`). The devices in the middle as text, the chosen one underlined. The player's own controls at the right, the last of them the other language, by its name in itself ("日本語", "English"). |
 | The mark | The word **Simulated** beside the devices. A pointer that rests on it, the keys' focus or a finger opens its sentences: the browser draws the picture and the device draws the game with its own hardware, then the game's sentence for that device (`note`). |
 | The shell | A picture of the device with the game's canvas where its screen is (`player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`). Its keys, its d-pad and its sticks take a pointer or a finger; the d-pad reads eight ways from where a thumb rests. A held key is drawn down in its socket and a stick's cap slides, also when the keyboard holds them. **A shell with no key stands for a screen taller than wide**: the iPod touch's picture is turned a quarter clockwise, its screen's rectangle with it, for a screen of 320 × 480 (`shellFor`); for 480 × 320 it lies. The Android phone's stands for 720 × 1280 and lies for 1280 × 720. A shell with keys is not turned. A device without a profile is shown as its screens alone. |
 | Controls | The keys of the device as a list. A browser whose only pointer is a finger is told to press the picture. |
@@ -93,6 +94,74 @@ answers it for a PocketJS game. Where the host has no such file the page's
 own words stand: `<meta name="pocket-app" content="<id>">` and
 `<meta name="pocket-studio" content="<origin>">`, written by the game's
 build; with neither, both doors lead to `https://studio.pocket.nexus/`.
+
+## Languages
+
+**The player speaks English and Japanese.** Its words are two catalogs in
+`web/pocket3d-words.js` with the same keys; a test holds the Japanese one to
+every key of the English one and to no English sentence. A third language is
+an entry in `LANGUAGES` and a catalog in `WORDS`; a key a catalog lacks is read
+from English.
+
+A page reads the language in this order:
+
+| | Read from | Kept |
+| --- | --- | --- |
+| 1 | `?lang=ja` or `?lang=en` in the address | saved as the visitor's choice (3) and taken out of the address with `history.replaceState`; the rest of the query stays |
+| 2 | (Pocket Studio's pages: a path under `/ja/`; the player has none) | |
+| 3 | the visitor's choice: **the cookie `lang` on Pocket Studio's own host, the key `pocket3d-player.lang` of the host's `localStorage` on a game's host** | |
+| 4 | the browser's first language, `navigator.languages[0]` | |
+| 5 | English | |
+
+The control at the right of the bar shows the other language. A press saves
+it as the visitor's choice (step 3: `localStorage`, and the cookie `lang`,
+host-only, `Path=/`, `SameSite=Lax`, one year, where the page is on the
+Studio's host) and says everything again in it without loading the page: the
+player's words, the game's, the devices' names, the names of the shell's
+controls, and the last words the game handed `say`. `<html lang>` follows.
+`player.lang` is the language, `player.onLanguage(heard)` calls `heard(lang)`
+on each change, `player.words(words)` gives a game's words in it.
+
+**No cookie crosses hosts.** A game's host keeps the choice in its own
+storage, and the dock's links into Pocket Studio carry the language
+(`lang=ja`) when it is not English or when the visitor chose it; the
+Studio's front door is the language's own page (`<studio>/ja/`).
+
+**A game's words are a string, said in every language, or one string per
+language.** `tagline`, a device's `label`, `note` and `mark`,
+`withoutPackages.heading` and `.sentence`, `about` and what the game hands
+`player.say` take either; `title` is a name and is one string.
+
+```js
+const player = createPlayer({
+  title: "Pocket Tokyo",
+  tagline: { en: "A flight over Shiba, around Tokyo Tower.", ja: "東京タワーのまわり、芝の上を飛ぶ。" },
+  devices: [
+    { id: "vita", label: "PS Vita", note: { en: "On a PS Vita the city has…", ja: "PS Vita では…" } },
+    { id: "3ds", label: "Nintendo 3DS", note: "…" },
+  ],
+  runsOn: ["psp", "vita", "3ds", "ipod-touch", "android"],
+  pick,
+});
+player.say({ en: "The city could not be read.", ja: "街のデータを読めませんでした。" });
+if (!hasWebGPU()) player.sayNoWebGPU();
+```
+
+| A game's word | In a language it does not give |
+| --- | --- |
+| `tagline` | the host's in that language (`app.listing.translations[lang].tagline` in `/app.json`), else the host's English (`tagline`), else the game's English |
+| a device's `label` given as a string | the player's name for that device (`ニンテンドー3DS`, `Android スマートフォン`); in English, the game's string |
+| `note`, `mark`, `withoutPackages`, `about`, `say` | the game's English |
+
+In English the host's `tagline` comes before the game's, as before there
+were languages.
+
+**Japanese is set in the system's Japanese face** (Hiragino Sans, Yu Gothic,
+Meiryo, Noto Sans JP) after the Latin faces, headings too: a heading can hold
+a game's own words, which a subset of the player's characters would not
+cover, and the kernel ships no Japanese font file. Japanese lines are 1.7
+high and break between phrases (`word-break: auto-phrase`, with
+`overflow-wrap: anywhere` where a browser has no phrase breaking).
 
 **A host counts the players that open by naming an address**: `opened` in
 `/app.json`, or `<meta name="pocket-opened" content="<address>">`. The player

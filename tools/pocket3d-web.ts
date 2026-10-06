@@ -23,7 +23,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 /** The kernel: the crate a game links, and the modules of its page. */
 export const POCKET3D_WEB = {
   crate: join(ROOT, "devices/web/pocket-web-wgpu"),
-  modules: ["pocket3d-shell.js", "pocket3d-interface.js", "pocket3d-controls.js", "pocket3d-stage.js", "pocket3d-stage.css", "pocket3d-player.js", "pocket3d-player.css"],
+  modules: ["pocket3d-shell.js", "pocket3d-interface.js", "pocket3d-controls.js", "pocket3d-stage.js", "pocket3d-stage.css", "pocket3d-player.js", "pocket3d-player.css", "pocket3d-words.js"],
   /** What the player's modules load beside themselves: the handhelds' shells with their profiles, and the display face. */
   assets: ["shells", "fonts"],
   /** The Pocket3D title card for a page, as pocket3d-title ships it. */

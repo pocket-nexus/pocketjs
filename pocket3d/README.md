@@ -47,7 +47,8 @@ realm and maps the keys to that device's buttons. The shell's own keys and
 sticks take a pointer or a finger. A second screen is a second canvas, and a
 pointer is the finger or the stylus on a surface that takes touch. The page
 says the picture is simulated, and leads to the game's packages in Pocket
-Studio.
+Studio. **It speaks English and Japanese**, by the visitor's choice or the
+browser's language, and a game gives its own words in each.
 
 ## Title card
 

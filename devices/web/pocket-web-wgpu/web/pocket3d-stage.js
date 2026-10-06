@@ -7,6 +7,7 @@
 //   stage.show({ device: "3ds", width: 400, height: 240, lower: [320, 240] });   // a device's screens, in their own pixels
 //   stage.lower                    // the second screen's 2D context, when there is one
 //   stage.shell                    // the shell's controls, for pocket3d-controls.js (`controls.shell(stage.shell)`)
+//   stage.speak(WORDS.ja.shell)    // what the shell's controls are called (pocket3d-words.js)
 //   choices(element, [{ id, label }], current, pick)              // the devices, as text
 //
 // The shells are pictures (./shells/*.webp) with a profile each
@@ -27,6 +28,7 @@
 // quarters of the size that fits (nine tenths, in a window narrower than 900
 // CSS pixels), or the window is too small for one display pixel each, the
 // shell is shown at the fraction that fits, smoothed.
+import { WORDS } from "./pocket3d-words.js";
 import { SHELLS } from "./shells/profiles.js";
 
 /**
@@ -52,13 +54,14 @@ export function shellFor(device, { width, height, lower } = {}) {
 }
 
 const DIRECTIONS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-const NAMES = { up: "Up", down: "Down", left: "Left", right: "Right", triangle: "Top face button", circle: "Right face button", cross: "Bottom face button", square: "Left face button", l: "L", r: "R", start: "START", select: "SELECT" };
 const percent = (part, whole) => `${(part / whole) * 100}%`;
 
 /**
  * Builds the stage inside `root` around `canvas` (the scene's): the shell, the screens in it and its controls.
  */
 export function createStage(root, canvas) {
+  // What the shell's controls are called, for a reader of the page: a catalog of pocket3d-words.js.
+  let names = WORDS.en.shell;
   root.dataset.pocketStage = "root";
   const shell = document.createElement("div");
   shell.dataset.pocketShell = "";
@@ -129,7 +132,7 @@ export function createStage(root, canvas) {
       const el = document.createElement("div");
       el.dataset.pocketPad = "";
       el.setAttribute("role", "group");
-      el.setAttribute("aria-label", "Directional pad");
+      el.setAttribute("aria-label", names.pad);
       place(el, [x0 - grow, y0 - grow, x1 - x0 + 2 * grow, y1 - y0 + 2 * grow]);
       moving.append(el);
       controls.pad = el;
@@ -139,12 +142,12 @@ export function createStage(root, canvas) {
       const el = document.createElement("button");
       el.type = "button";
       el.dataset.pocketControl = c.button;
-      el.setAttribute("aria-label", NAMES[c.button] ?? c.button);
+      el.setAttribute("aria-label", names[c.button] ?? c.button);
       // (a finger is wider than a key: the place that takes it is a fifth larger each way)
       const grow = Math.min(c.rect[2], c.rect[3]) * 0.2;
       place(el, [c.rect[0] - grow, c.rect[1] - grow, c.rect[2] + 2 * grow, c.rect[3] + 2 * grow]);
       // A key with no picture of its own (it is out of sight from the front) is its name.
-      if (c.part === null) el.textContent = NAMES[c.button] ?? c.button;
+      if (c.part === null) el.textContent = names[c.button] ?? c.button;
       moving.append(el);
       controls.buttons.push({ button: c.button, el });
     }
@@ -152,7 +155,7 @@ export function createStage(root, canvas) {
       const el = document.createElement("div");
       el.dataset.pocketStick = s.id;
       el.setAttribute("role", "group");
-      el.setAttribute("aria-label", profile.sticks.length > 1 ? `${s.id === "left" ? "Left" : "Right"} stick` : "Stick");
+      el.setAttribute("aria-label", profile.sticks.length > 1 ? (s.id === "left" ? names.leftStick : names.rightStick) : names.stick);
       const reach = s.radius * 1.7;
       place(el, [s.centre[0] - reach, s.centre[1] - reach, 2 * reach, 2 * reach]);
       moving.append(el);
@@ -280,6 +283,18 @@ export function createStage(root, canvas) {
       return fit();
     },
     fit,
+    /**
+     * What the shell's controls are called from now on (`shell` of a catalog in pocket3d-words.js). The
+     * controls are made again with those names; what pocket3d-controls.js bound is bound again.
+     */
+    speak(shellNames) {
+      if (shellNames === names) return;
+      names = shellNames;
+      if (!profile) return;
+      build();
+      controls.onchange?.();
+      fit();
+    },
   };
 }
 
@@ -306,5 +321,9 @@ export function choices(element, list, current, pick) {
     for (const [key, el] of buttons) el.setAttribute("aria-pressed", String(key === id));
   };
   set(current);
-  return { set };
+  /** The devices' names from now on: `{ id: label }`. */
+  const name = (labels) => {
+    for (const [key, el] of buttons) if (key in labels) el.textContent = labels[key];
+  };
+  return { set, name };
 }

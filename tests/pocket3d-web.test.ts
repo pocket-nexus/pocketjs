@@ -19,7 +19,7 @@ test("the staged directory holds what a page loads, and a guest runs in its real
     const files = await stagePocket3dWeb(staged);
     expect(files.sort()).toEqual([
       "app-instance.html", "app-instance.js", "art.js", "fonts/OFL.txt", "fonts/gabarito-800-latin.woff2", "offload-worker.js",
-      "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-player.css", "pocket3d-player.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js",
+      "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-player.css", "pocket3d-player.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js", "pocket3d-words.js",
       "pocketjs-host.js", "pocketjs.wasm",
       "shells/3ds-parts.webp", "shells/3ds.webp", "shells/ATTRIBUTION.md", "shells/android.webp", "shells/ipod.webp", "shells/profiles.js", "shells/psp-parts.webp", "shells/psp.webp", "shells/vita-parts.webp", "shells/vita.webp",
       "wasm-ops.js",
@@ -277,15 +277,108 @@ test("a shell with no key stands for a screen that stands, the dock follows what
     expect(low).toContain("[data-pocket-action]:not([data-pocket-primary]) { display: none; }");
     expect(/\[data-pocket-action="(get|make)"\]/.test(sheet)).toBe(false);
     const player = readFileSync(join(staged, "pocket3d-player.js"), "utf8");
-    expect(player).toContain('get.toggleAttribute("data-pocket-primary", words.doors[0] === "get")');
-    expect(player).toContain('own.toggleAttribute("data-pocket-primary", words.doors[0] === "make")');
-    // What the player is, in About: the page's sentence, or this one.
-    expect(player).toContain('about = "This is the Pocket3D web player."');
-    expect(player).toContain("`${about} The game is drawn in your browser; the handheld around it is a picture.`");
+    expect(player).toContain('get.toggleAttribute("data-pocket-primary", dockSays.doors[0] === "get")');
+    expect(player).toContain('own.toggleAttribute("data-pocket-primary", dockSays.doors[0] === "make")');
+    // What the player is, in About: the page's sentence, or the player's own.
+    const { WORDS } = await import(pathToFileURL(join(staged, "pocket3d-words.js")).href);
+    expect(WORDS.en.aboutPlayer).toBe("This is the Pocket3D web player.");
+    expect(WORDS.en.aboutSays({ about: WORDS.en.aboutPlayer })).toBe("This is the Pocket3D web player. The game is drawn in your browser; the handheld around it is a picture.");
+    expect(player).toContain("about == null ? w.aboutPlayer : wordsIn(about, lang)");
     // A label that is more than a trademark names the word that is one: About lists "Android", not "Android phone".
-    expect(player).toContain("devices.map((d) => d.mark ?? d.label)");
+    expect(player).toContain("d.mark == null ? label(d) : wordsIn(d.mark, lang)");
     // A game for one device names one mark in the singular.
-    expect(player).toContain("`${marks[0]} is a trademark of its owner. Pocket Nexus is not affiliated with it.`");
+    expect(WORDS.en.markOne({ mark: "Android" })).toBe("Android is a trademark of its owner. Pocket Nexus is not affiliated with it.");
+  } finally {
+    rmSync(staged, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("the player speaks English and Japanese: each catalog has every word, and the language is read in one order", async () => {
+  const staged = mkdtempSync(join(tmpdir(), "pocket3d-words-"));
+  try {
+    await stagePocket3dWeb(staged);
+    const words = await import(pathToFileURL(join(staged, "pocket3d-words.js")).href);
+    const { LANGUAGES, WORDS, DEFAULT_LANGUAGE, chooseLanguage, languageOf, wordsIn, saysIn, layout, nextLanguage, catalog } = words;
+    expect(LANGUAGES).toEqual({ en: "English", ja: "日本語" });
+    expect(DEFAULT_LANGUAGE).toBe("en");
+
+    // Every catalog has the keys of the English one, nested ones too, of the same kind.
+    const shapeOf = (value: unknown): unknown =>
+      typeof value === "function" ? "function" : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, shapeOf(inner)])) : typeof value;
+    for (const code of Object.keys(LANGUAGES)) expect([code, shapeOf(WORDS[code])]).toEqual([code, shapeOf(WORDS.en)]);
+    // The names a page shows for every target and shell, in each language.
+    expect(WORDS.ja.devices).toEqual({ psp: "PSP", vita: "PS Vita", "3ds": "ニンテンドー3DS", ipod: "iPod touch", android: "Android スマートフォン" });
+    expect(WORDS.ja.targets["3ds"]).toBe("ニンテンドー3DS");
+    // Japanese text holds no English the visitor reads, beyond names and keys.
+    const names = /Pocket(?: Studio| Nexus|3D)|PSP|PS Vita|3DS|iPod touch|Android|WebGPU|Enter|Backspace|START|SELECT|CC BY 4\.0|\{[a-z]+\}|\b[LR]\b|MB|Gabarito|Dibad/g;
+    const flat = (value: unknown, facts: Record<string, unknown>): string[] =>
+      typeof value === "function" ? [String(value({ title: "T", device: "D", mark: "M", marks: "M", right: "○", bottom: "✕", name: "N", targets: "X", list: "X", count: 2, about: "A", size: "1 MB" }))] : value && typeof value === "object" ? Object.values(value).flatMap((inner) => flat(inner, facts)) : [String(value)];
+    const { list: _list, sentences: _sentences, names: _names, ...said } = WORDS.ja;
+    for (const text of flat(said, {})) {
+      const left = text.replace(names, "").replace(/\b[TDMANX]\b/g, "");
+      expect([text, /[A-Za-z]{2,}/.test(left)]).toEqual([text, false]);
+    }
+
+    // The order: the address, the cookie, the host's saved choice, the browser, English.
+    expect(chooseLanguage({ search: "?lang=ja&device=psp", cookie: "lang=en", stored: "en", languages: ["en-US"] })).toEqual({ lang: "ja", from: "address" });
+    expect(chooseLanguage({ search: "?lang=fr", cookie: "theme=x; lang=ja", stored: "en", languages: ["en-US"] })).toEqual({ lang: "ja", from: "cookie" });
+    expect(chooseLanguage({ cookie: "theme=x", stored: "ja", languages: ["en-US"] })).toEqual({ lang: "ja", from: "stored" });
+    expect(chooseLanguage({ languages: ["ja-JP", "en"] })).toEqual({ lang: "ja", from: "browser" });
+    expect(chooseLanguage({ languages: ["en-GB", "ja"] })).toEqual({ lang: "en", from: "browser" });
+    expect(chooseLanguage({ languages: ["fr-FR", "ja"] })).toEqual({ lang: "en", from: "default" });
+    expect(chooseLanguage()).toEqual({ lang: "en", from: "default" });
+    expect([languageOf("JA_jp"), languageOf("en"), languageOf("de"), languageOf(undefined)]).toEqual(["ja", "en", null, null]);
+    expect([nextLanguage("en"), nextLanguage("ja")]).toEqual(["ja", "en"]);
+
+    // A game's words: one string for every language, or one per language with English under it.
+    expect([wordsIn("Same.", "ja"), wordsIn({ en: "One.", ja: "一。" }, "ja"), wordsIn({ en: "One." }, "ja"), wordsIn(null, "ja")]).toEqual(["Same.", "一。", "One.", ""]);
+    expect([saysIn({ en: "One.", ja: "一。" }, "ja"), saysIn({ en: "One." }, "ja"), saysIn("One.", "ja")]).toEqual([true, false, false]);
+    expect(layout("By {author}, under {license}.", { author: "A", license: "L" })).toEqual(["By ", "A", ", under ", "L", "."]);
+    // Japanese with facts in it: a space where Latin meets Japanese, none between Japanese, none by a bracket.
+    expect(WORDS.ja.simulatedSays({ device: "ニンテンドー3DS", title: "Pocket Tokyo" })).toBe("この画面はブラウザが描いています。実機のニンテンドー3DS は Pocket Tokyo を本体のハードウェアで描くため、見た目も動きもここと異なります。");
+    expect(WORDS.ja.simulatedSays({ device: "PS Vita", title: "ポケット東京" })).toStartWith("この画面はブラウザが描いています。実機の PS Vita はポケット東京を");
+    expect(WORDS.ja.packagesHeld({ list: "PSP（43 MB）" })).toBe("Pocket Studio に PSP（43 MB）のパッケージがあります。");
+    expect(WORDS.ja.packagesHeld({ list: "PSP、PS Vita" })).toBe("Pocket Studio に PSP、PS Vita のパッケージがあります。");
+    expect(WORDS.ja.keysPointer({ right: "A", bottom: "B" })).toEndWith("Enter は A、Backspace は B です。");
+    expect(WORDS.ja.keysPointer({ right: "○", bottom: "✕" })).toEndWith("Enter は○、Backspace は✕です。");
+    expect(WORDS.ja.aboutSays({ about: "This is the PocketJS web player." })).toBe("This is the PocketJS web player. ゲームはブラウザの中で描かれ、まわりの本体は画像です。");
+    // A catalog that lacks a word reads English's.
+    WORDS.xx = { controls: "Kontrolle" };
+    try {
+      expect([catalog("xx").controls, catalog("xx").about]).toEqual(["Kontrolle", "About"]);
+    } finally {
+      delete WORDS.xx;
+    }
+
+    // The dock, the doors and the keys in Japanese.
+    const { dockWords, makeDoor, fromPlayer } = await import(pathToFileURL(join(staged, "pocket3d-player.js")).href);
+    const runsOn = ["psp", "vita", "3ds"];
+    const packages = [{ target: "psp", size: 42_934_596 }, { target: "3ds", size: 32_037_912 }];
+    expect(dockWords({ title: "A Game", runsOn, packages, lang: "ja" })).toEqual({
+      heading: "実機で遊ぶ",
+      sentence: "A Game は PSP、PS Vita、ニンテンドー3DS 向けに作られています。Pocket Studio に PSP（43 MB）、ニンテンドー3DS（32 MB）のパッケージがあります。",
+      doors: ["get", "make"],
+    });
+    expect(dockWords({ title: "A Game", packages: [], lang: "ja" })).toEqual({ heading: "実機のために作られたゲーム", sentence: "A Game はこのブラウザで動いています。ダウンロードできるパッケージはまだありません。", doors: ["make"] });
+    // A page's own words for the dock, in each language, with English where it gives no Japanese.
+    const own = { heading: { en: "Made with Pocket Studio", ja: "Pocket Studio で作られたゲーム" }, sentence: "A Game is a PocketJS app." };
+    expect(dockWords({ title: "A Game", packages: [], withoutPackages: own, lang: "ja" })).toEqual({ heading: "Pocket Studio で作られたゲーム", sentence: "A Game is a PocketJS app.", doors: ["make"] });
+    expect(dockWords({ title: "A Game", packages: [], withoutPackages: own }).heading).toBe("Made with Pocket Studio");
+    // Links into the room carry the language; the front door is the language's own page.
+    expect(fromPlayer("https://studio.example/studio/?app=a1", "ja")).toBe("https://studio.example/studio/?app=a1&from=player&lang=ja");
+    expect(makeDoor({ studio: "https://studio.example", id: "a1", remixable: true, lang: "ja", carry: "ja" })).toEqual({ text: "このゲームをリミックス", href: "https://studio.example/studio/?remix=a1&from=player&lang=ja" });
+    expect(makeDoor({ studio: "https://studio.example", lang: "ja", carry: "ja" })).toEqual({ text: "自分のゲームを作る", href: "https://studio.example/ja/?from=player" });
+    // (English chosen by a visitor whose browser asks for Japanese: the front door is told so)
+    expect(makeDoor({ studio: "https://studio.example", carry: "en" })).toEqual({ text: "Make a game of your own", href: "https://studio.example/?from=player&lang=en" });
+    const { legend } = await import(pathToFileURL(join(staged, "pocket3d-controls.js")).href);
+    expect(legend({ sticks: 2, glyphs: "playstation" }, WORDS.ja).slice(0, 3)).toEqual([["W A S D", "左スティック"], ["矢印キー", "十字キー"], ["I J K L", "右スティック"]]);
+    expect(legend({ sticks: 1, glyphs: "letters" })[0]).toEqual(["W A S D", "stick"]);
+
+    // The player builds every word it shows from the catalog: no English sentence is left in its source.
+    const player = readFileSync(join(staged, "pocket3d-player.js"), "utf8");
+    for (const gone of ["\"Simulated\"", "\"Controls\"", "\"About this player\"", "\"Get it in Pocket Studio\"", "Your browser draws this picture"]) expect([gone, player.includes(gone)]).toEqual([gone, false]);
+    const stage = readFileSync(join(staged, "pocket3d-stage.js"), "utf8");
+    expect(stage.includes("\"Directional pad\"")).toBe(false);
   } finally {
     rmSync(staged, { recursive: true, force: true });
   }
