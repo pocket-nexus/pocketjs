@@ -23,6 +23,9 @@ void pocket_bench_stage(int stage);
 void pocket_runtime_offload_key(const char *path);
 #endif
 
+/* Raster density for the next pocket_runtime_boot (default: the build's
+ * POCKET_RASTER_DENSITY). */
+void pocket_runtime_set_raster_density(uint32_t density);
 int pocket_runtime_boot(
   const char *java_script,
   size_t java_script_length,

@@ -178,7 +178,7 @@ describe("private iPod touch 4 profile", () => {
     expect(tool).toContain('deviceValue(udid, "HardwareModel")');
     expect(tool).toContain("passwordauthentication no");
     expect(tool).toContain("byte-exact readback");
-    expect(tool).toContain('"build-receipt.json": sha256(receiptPath())');
+    expect(tool).toContain('"build-receipt.json": IPA ? IPA.receiptDigest : sha256(receiptPath())');
     expect(tool).toContain("/bin/su mobile -c 'touch ${paths.capture}'");
     expect(tool).toContain('label: "native/runtime.build-id-input.o"');
     expect(tool).toContain('label: "native/pocket_runtime.o"');

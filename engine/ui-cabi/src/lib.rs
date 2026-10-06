@@ -233,6 +233,108 @@ fn clear_framebuffer() {
     }
 }
 
+// ---- packages ---------------------------------------------------------------
+
+/// One `.pocket` variant admitted for a runtime that serves every game: the
+/// borrowed guest sections and what the host takes from the variant's plan at
+/// launch instead of having it compiled in. Pointers borrow the caller's
+/// package buffer, which must outlive the guest.
+#[repr(C)]
+pub struct PocketUiPackage {
+    pub javascript: *const u8,
+    /// Includes the QuickJS NUL terminator.
+    pub javascript_length: usize,
+    pub pak: *const u8,
+    pub pak_length: usize,
+    pub plan: *const u8,
+    pub plan_length: usize,
+    pub package_hash: u64,
+    pub view_width: u32,
+    pub view_height: u32,
+    pub raster_density: u32,
+    /// POCKET_UI_PACKAGE_* bits.
+    pub features: u32,
+}
+
+/// `features.ui.physics` is true in the plan.
+pub const POCKET_UI_PACKAGE_PHYSICS: u32 = 1;
+/// `features.io.offload` is true in the plan.
+pub const POCKET_UI_PACKAGE_OFFLOAD: u32 = 2;
+/// The plan names companion services (`companions` is not empty).
+pub const POCKET_UI_PACKAGE_COMPANIONS: u32 = 4;
+
+/// Verify a complete `.pocket` (footer hash included) and select the exact
+/// target/ABI variant. 0 = admitted; 1-11 are the package errors the 3DS host
+/// numbers the same way (truncated, magic, version, footer hash, UTF-8,
+/// no variant, host ABI, identity, plan, JavaScript, NUL terminator), 12 a bad
+/// argument, 13-14 a plan whose JSON or viewport cannot be read.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_ui_package_open(
+    ptr: *const u8,
+    len: usize,
+    target_ptr: *const u8,
+    target_len: usize,
+    host_abi: u32,
+    out: *mut PocketUiPackage,
+) -> i32 {
+    use pocketjs_core::package::{select_guest, GuestError, PackageError};
+    use pocketjs_core::plan_facts::{plan_facts, PlanFactsError};
+    if ptr.is_null() || len == 0 || target_ptr.is_null() || target_len == 0 || out.is_null() {
+        return 12;
+    }
+    let target = match core::str::from_utf8(bytes(target_ptr, target_len)) {
+        Ok(value) if !value.is_empty() => value,
+        _ => return 12,
+    };
+    let guest = match select_guest(bytes(ptr, len), target, host_abi, false) {
+        Ok(guest) => guest,
+        Err(error) => {
+            return match error {
+                GuestError::Package(PackageError::Truncated) => 1,
+                GuestError::Package(PackageError::BadMagic) => 2,
+                GuestError::Package(PackageError::BadVersion) => 3,
+                GuestError::Package(PackageError::HashMismatch) => 4,
+                GuestError::Package(PackageError::BadUtf8) => 5,
+                GuestError::MissingVariant => 6,
+                GuestError::HostAbiMismatch => 7,
+                GuestError::MissingIdentity => 8,
+                GuestError::MissingPlan => 9,
+                GuestError::MissingJavaScript => 10,
+                GuestError::JavaScriptNotTerminated => 11,
+            }
+        }
+    };
+    let facts = match plan_facts(guest.plan) {
+        Ok(facts) => facts,
+        Err(PlanFactsError::Malformed) => return 13,
+        Err(_) => return 14,
+    };
+    let mut features = 0;
+    if facts.feature("ui.physics") {
+        features |= POCKET_UI_PACKAGE_PHYSICS;
+    }
+    if facts.feature("io.offload") {
+        features |= POCKET_UI_PACKAGE_OFFLOAD;
+    }
+    if facts.companions {
+        features |= POCKET_UI_PACKAGE_COMPANIONS;
+    }
+    out.write(PocketUiPackage {
+        javascript: guest.js.as_ptr(),
+        javascript_length: guest.js.len(),
+        pak: guest.pak.as_ptr(),
+        pak_length: guest.pak.len(),
+        plan: guest.plan.as_ptr(),
+        plan_length: guest.plan.len(),
+        package_hash: guest.package_hash,
+        view_width: facts.viewport.width,
+        view_height: facts.viewport.height,
+        raster_density: facts.viewport.raster_density,
+        features,
+    });
+    0
+}
+
 // ---- lifecycle and transfer buffers ---------------------------------------
 
 /// Reset the single UI instance. `raster_density == 0` selects density 1.
@@ -947,6 +1049,50 @@ pub extern "C" fn ui_framebuffer_len() -> usize {
 mod tests {
     use super::*;
     use pocketjs_core::spec;
+
+    #[test]
+    fn package_open_reports_why_a_package_is_refused() {
+        let fixture = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/packages/synthetic.pocket"),
+        )
+        .unwrap();
+        let open = |bytes: &[u8], target: &str, abi: u32| unsafe {
+            let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
+            pocket_ui_package_open(bytes.as_ptr(), bytes.len(), target.as_ptr(), target.len(), abi, out.as_mut_ptr())
+        };
+        // The fixture's plans carry a target but no viewport.
+        assert_eq!(open(&fixture, "psp", 1), 14);
+        assert_eq!(open(&fixture, "psp", 2), 7);
+        assert_eq!(open(&fixture, "ipodtouch4-dev", 8), 6);
+        let mut damaged = fixture.clone();
+        damaged[40] ^= 0xff;
+        assert_eq!(open(&damaged, "psp", 1), 4);
+        assert_eq!(unsafe { pocket_ui_package_open(core::ptr::null(), 0, b"psp".as_ptr(), 3, 1, core::ptr::null_mut()) }, 12);
+    }
+
+    #[test]
+    fn package_open_reads_the_surface_and_features_from_the_plan() {
+        // tests/fixtures/repack-ipod/landscape-physics.pocket: a 480x320
+        // ipodtouch4-dev plan at density 2 that requires ui.physics.
+        let fixture = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/repack-ipod/landscape-physics.pocket"),
+        )
+        .unwrap();
+        let target = "ipodtouch4-dev";
+        let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
+        let result = unsafe {
+            pocket_ui_package_open(fixture.as_ptr(), fixture.len(), target.as_ptr(), target.len(), 8, out.as_mut_ptr())
+        };
+        assert_eq!(result, 0);
+        let package = unsafe { out.assume_init() };
+        assert_eq!((package.view_width, package.view_height, package.raster_density), (480, 320, 2));
+        assert_eq!(package.features, POCKET_UI_PACKAGE_PHYSICS);
+        let javascript = unsafe { core::slice::from_raw_parts(package.javascript, package.javascript_length) };
+        assert_eq!(javascript.last(), Some(&0));
+        assert!(javascript.starts_with(b"globalThis.frame"));
+        assert_eq!(package.pak_length, 4);
+    }
 
     #[test]
     fn c_allocator_supports_core_texture_alignment() {

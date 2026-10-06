@@ -46,6 +46,9 @@ export interface RuntimeManifest {
   readonly profile: string;
   /** Every other file of the runtime directory: size and SHA-256 (hex). */
   readonly files: Readonly<Record<string, { readonly bytes: number; readonly sha256: string }>>;
+  /** Target-specific facts about the program (the iPod's build id, executable
+   *  name and deployment target). */
+  readonly host?: Readonly<Record<string, string>>;
 }
 
 export const RUNTIME_MANIFEST = "runtime.json";

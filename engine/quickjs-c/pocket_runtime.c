@@ -686,6 +686,15 @@ void pocket_runtime_shutdown(void) {
   ui_shutdown();
 }
 
+/* The density the next boot passes to ui_init: the build's
+ * POCKET_RASTER_DENSITY unless a host that reads it from a package's plan at
+ * launch sets another. */
+static uint32_t boot_raster_density = POCKET_RASTER_DENSITY;
+
+void pocket_runtime_set_raster_density(uint32_t density) {
+  boot_raster_density = density == 0 ? 1u : density;
+}
+
 int pocket_runtime_boot(
   const char *java_script,
   size_t java_script_length,
@@ -700,7 +709,7 @@ int pocket_runtime_boot(
   reported_action_name[0] = '\0';
   reported_action_value = 0;
   reported_action_sequence = 0;
-  ui_init(POCKET_RASTER_DENSITY);
+  ui_init(boot_raster_density);
   REPORT_BOOT_STAGE(2);
   ui_set_viewport((float)width, (float)height);
   REPORT_BOOT_STAGE(3);

@@ -230,3 +230,64 @@ scheme distinct from installed applications.
 UIKit touch callbacks carry up to eight contacts. Host receipts include
 `touch_max_contacts`, `uikit_touch_events` and `legacy_touch_events` to
 distinguish multi-contact delivery from a completed single-contact gesture.
+
+## One runtime for every game
+
+`bun tools/runtime.ts ipod` builds the legacy UIKit host once, with no game,
+into `dist/runtime/ipod/`: the executable `PocketJSRuntime`, the PocketJS
+icons and launch images, `PkgInfo` and `runtime.json` (target, host ABI 8,
+PocketJS commit, the files' sizes and SHA-256, and under `host` the build id,
+the executable name and the deployment target). **The executable has no
+`__pocket_js` or `__pocket_pak` section and is compiled with
+`POCKET_PACKAGE_RUNTIME`: before `UIApplicationMain` it reads `app.pocket`
+beside itself, admits its `ipodtouch4-dev` ABI 8 variant through
+`pocket_ui_package_open` (footer hash, target, ABI, identity, plan, NUL-ended
+JavaScript), and takes the logical surface and raster density from that
+variant's plan.** The plan must ask for 320×480 or 480×320 at density 2. A
+bundle without `app.pocket`, or with one that is refused, opens a
+software-drawn window that shows the reason (for example `this app carries no
+game: app.pocket is missing`) and writes it to the status record.
+
+What a per-app build compiles from its descriptor or plan, the runtime fixes
+once:
+
+| Per-app build | Generic runtime |
+|---|---|
+| viewport and raster density (`-DPOCKET_LOGICAL_*`) | read from the plan at launch |
+| `ui.physics` ops 52..56 (`-DPOCKET_PHYSICS` when the plan has it) | compiled in for every game |
+| `io.offload` worker | compiled in, as in every build |
+| keep-awake (`-DPOCKET_KEEP_AWAKE`, descriptor) | off: iOS's idle timer applies |
+| svc wire (`-DPOCKET_SVC_WIRE`, descriptor) | not carried; a plan with `companions` is refused |
+| native core and assets (descriptor) | not carried |
+
+The executable is linked and signed by `ldid -S` in a directory of its own.
+**`codesign -d` reports `Info.plist=not bound` and `Sealed Resources=none`:
+the ad hoc signature covers the code pages and nothing else, so a bundle with another
+Info.plist, other icons and another `app.pocket` keeps it valid.**
+
+`tools/repack/ipod.ts` writes a game's `.ipa` from that directory and the
+game's `.pocket`, in TypeScript with no native tool:
+`Payload/Studio<Name>.app/` holds the executable byte for byte under the
+name `Studio<Name>` (`<Name>` from the title as pocket-studio names its
+bundles), an Info.plist with the game's bundle id, display name, version and
+URL scheme (the id), opaque 57 and 114 px icons scaled from the identity's PNG
+(file names carry a hash of the 57 px PNG, so a changed icon is not shown from
+SpringBoard's cache), the runtime's launch images, `app.pocket` and a
+`build-receipt.json` with every file's SHA-256 and the runtime's build id.
+The zip is deterministic: 1980-01-01 entry times, Unix modes (the executable
+0755), PNGs stored and the rest deflated.
+
+```sh
+bun tools/runtime.ts ipod
+bun tools/repack.ts --target ipod --runtime dist/runtime/ipod --pocket game.pocket \
+  --id dev.example.game --title Game --author Example --version 1.0.0 --icon icon.png -o game.ipa
+bun ipodtouch4 deploy --ipa game.ipa    # AppSync Unified install, byte-exact readback
+bun ipodtouch4 launch --ipa game.ipa
+bun ipodtouch4 capture --ipa game.ipa
+```
+
+`--ipa` makes `deploy`, `uninstall`, `launch`, `status` and `capture` take
+the bundle id, bundle name, executable, URL scheme and receipt from the
+package instead of this repository's build. `bun tests/e2e/ipod-repack.ts`
+builds a project's `.pocket`, repacks it and, with `--device`, runs those
+commands.

@@ -239,9 +239,41 @@ const APP_ROOT = APP.root ?? REPOSITORY;
 const VIA = process.env.POCKETJS_IPODTOUCH4_VIA?.trim() || null;
 /** The tunnel's port on the jump host (fixed: nothing else there uses it). */
 const VIA_TUNNEL_PORT = 22224;
-const BUNDLE_NAME = APP.bundleName;
-const BUNDLE_ID = APP.bundleId;
-const EXECUTABLE = APP.executable;
+let BUNDLE_NAME = APP.bundleName;
+let BUNDLE_ID = APP.bundleId;
+let EXECUTABLE = APP.executable;
+let SCHEME = APP.scheme;
+/**
+ * `--ipa <file>`: deploy, launch, status, capture and uninstall act on a
+ * package written elsewhere (tools/repack/ipod.ts) instead of this build. The
+ * identity comes from the package's Info.plist and its build-receipt.json.
+ */
+let IPA: { readonly path: string; readonly receipt: BuildReceipt; readonly receiptDigest: string } | null = null;
+
+function useIpa(path: string): void {
+  const file = resolvePath(path);
+  const names = mustRun("unzip", ["-Z1", file]).split("\n");
+  const bundle = names.find((name) => /^Payload\/[^/]+\.app\/$/.test(name));
+  if (!bundle) throw new Error(`pocket ipodtouch4: ${file} has no Payload/<name>.app/`);
+  const entry = (name: string) => runBinary("unzip", ["-p", file, `${bundle}${name}`]).stdout;
+  const plist = run("plutil", ["-convert", "json", "-o", "-", "-"], { input: entry("Info.plist") });
+  if (plist.exitCode !== 0) throw new Error(`pocket ipodtouch4: ${file} has no readable Info.plist`);
+  const info = JSON.parse(plist.stdout) as {
+    CFBundleIdentifier: string;
+    CFBundleExecutable: string;
+    CFBundleURLTypes?: { CFBundleURLSchemes?: string[] }[];
+  };
+  const receiptBytes = entry("build-receipt.json");
+  const receipt = JSON.parse(receiptBytes.toString("utf8")) as BuildReceipt;
+  if (receipt.bundleId !== info.CFBundleIdentifier) {
+    throw new Error("pocket ipodtouch4: the package's receipt and Info.plist name different bundles");
+  }
+  BUNDLE_NAME = bundle.slice("Payload/".length, -1);
+  BUNDLE_ID = info.CFBundleIdentifier;
+  EXECUTABLE = info.CFBundleExecutable;
+  SCHEME = info.CFBundleURLTypes?.[0]?.CFBundleURLSchemes?.[0] ?? SCHEME;
+  IPA = { path: file, receipt, receiptDigest: createHash("sha256").update(receiptBytes).digest("hex") };
+}
 
 interface CommandResult {
   readonly exitCode: number;
@@ -336,7 +368,7 @@ function runBinary(executable: string, args: readonly string[]): BinaryCommandRe
   };
 }
 
-function mustRun(
+export function mustRun(
   executable: string,
   args: readonly string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: Uint8Array } = {},
@@ -357,12 +389,12 @@ function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-interface BuildIdentityInput {
+export interface BuildIdentityInput {
   readonly label: string;
   readonly path: string;
 }
 
-function hashInputs(inputs: readonly (string | BuildIdentityInput)[]): string {
+export function hashInputs(inputs: readonly (string | BuildIdentityInput)[]): string {
   const hash = createHash("sha256");
   for (const input of inputs) {
     const path = typeof input === "string" ? input : input.path;
@@ -438,6 +470,7 @@ function receiptPath(): string {
 }
 
 function readReceipt(): BuildReceipt {
+  if (IPA) return IPA.receipt;
   if (!existsSync(receiptPath())) {
     throw new Error("pocket ipodtouch4: no built bundle; run `bun ipodtouch4 build`");
   }
@@ -655,7 +688,31 @@ function delegateToIPhone4S(command: string): void {
   mustRun("bun", ["tools/iphone4s.ts", command]);
 }
 
-async function build(): Promise<void> {
+/** The pinned compilers and the objects every iPod executable links. */
+export interface IPodNative {
+  readonly linker: string;
+  readonly sysroot: string;
+  readonly quickjs: string;
+  readonly nativeBuild: string;
+  readonly compile: (source: string, output: string, extra?: readonly string[]) => void;
+  readonly csuStart: string;
+  readonly csuDyldGlue: string;
+  readonly quickJsObjects: readonly string[];
+  readonly rustLibrary: string;
+}
+
+export const IPOD_WARNINGS = ["-Wall", "-Wextra", "-Werror", "-Wno-incompatible-sysroot"] as const;
+
+/**
+ * Check the pinned toolchain, empty `nativeBuild`, and compile what does not
+ * depend on the app: the Csu start objects, QuickJS and the Rust core
+ * archive (an app's own native core when it brings one).
+ */
+export function prepareIPodNative(
+  nativeBuild: string,
+  nativeCore?: IPodTouch4App["nativeCore"],
+  appRoot = REPOSITORY,
+): IPodNative {
   const toolchain = inspectIPodTouch4Toolchain();
   if (!toolchain.csu || !toolchain.quickjs) {
     throw new Error("pocket ipodtouch4: pinned sources are absent; run `bun ipodtouch4 setup-sources`");
@@ -663,6 +720,153 @@ async function build(): Promise<void> {
   if (!toolchain.sysroot) {
     throw new Error("pocket ipodtouch4: validated iOS 6.1.3 sysroot is absent; run `bun ipodtouch4 prepare-sysroot`");
   }
+  const clang = mustRun("xcrun", ["--find", "clang"]);
+  const linker = mustRun("xcrun", ["--find", IPODTOUCH4_TOOLCHAIN.compiler.linker]);
+  const macosSdk = mustRun("xcrun", ["--sdk", "macosx", "--show-sdk-path"]);
+  const sysroot = ipodtouch4SysrootPath();
+  const csu = ipodtouch4CsuPath();
+  const quickjs = join(ipodtouch4QuickJsPath(), "libquickjs-sys/embed/quickjs");
+  const rustTarget = join(ipodtouch4CacheRoot(), "build/rust-target");
+  const cargoHome = join(ipodtouch4CacheRoot(), "build/cargo-home");
+  rmSync(nativeBuild, { recursive: true, force: true });
+  mkdirSync(nativeBuild, { recursive: true });
+  mkdirSync(rustTarget, { recursive: true });
+  mkdirSync(cargoHome, { recursive: true });
+
+  const common = [
+    "-target", "armv7-apple-ios6.0", `-miphoneos-version-min=${DEPLOYMENT_TARGET}`,
+    "-march=armv7", "-Os", "-fno-stack-protector", "-fno-builtin", "-fno-common",
+    "-fwrapv", "-funsigned-char", "-U_FORTIFY_SOURCE", "-D_FORTIFY_SOURCE=0",
+    "-isysroot", macosSdk,
+  ];
+  const compile = (source: string, output: string, extra: readonly string[] = []) =>
+    void mustRun(clang, [...common, ...extra, "-c", source, "-o", output]);
+  const csuStart = join(nativeBuild, "csu-start.o");
+  const csuDyldGlue = join(nativeBuild, "csu-dyld-glue.o");
+  compile(join(csu, "start.s"), csuStart, ["-x", "assembler-with-cpp"]);
+  compile(join(csu, "dyld_glue.s"), csuDyldGlue, [
+    "-x", "assembler-with-cpp", "-DMACH_HEADER_SYMBOL_NAME=__mh_execute_header", "-DCRT",
+  ]);
+
+  const quickJsObjects: string[] = [];
+  for (const source of ["quickjs.c", "cutils.c", "dtoa.c", "libregexp.c", "libunicode.c"]) {
+    const output = join(nativeBuild, `quickjs-${source.replace(/\.c$/, "")}.o`);
+    compile(join(quickjs, source), output, ["-I", quickjs, `-DCONFIG_VERSION=\"${IPODTOUCH4_TOOLCHAIN.compiler.quickJsVersion}\"`]);
+    quickJsObjects.push(output);
+  }
+
+  const rustup = commandPath("rustup");
+  if (!rustup) throw new Error("pocket ipodtouch4: rustup is unavailable");
+  const cargo = mustRun(rustup, ["which", "--toolchain", IPODTOUCH4_TOOLCHAIN.compiler.rustToolchain, "cargo"]);
+  const rustc = mustRun(rustup, ["which", "--toolchain", IPODTOUCH4_TOOLCHAIN.compiler.rustToolchain, "rustc"]);
+  mustRun(
+    cargo,
+    ["build", "--release", "--locked", "--manifest-path", resolvePath(appRoot, nativeCore?.manifest ?? join(REPOSITORY, "engine/ui-cabi/Cargo.toml")),
+      "--features", nativeCore?.features.join(",") ?? "bare-platform,gles1", "--target",
+      join(REPOSITORY, "hosts/ipodtouch4/armv7-apple-ios.json"), "-Z", "json-target-spec",
+      "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
+    {
+      cwd: join(REPOSITORY, "engine/ui-cabi"),
+      env: { ...process.env, RUSTC: rustc, CARGO_HOME: cargoHome, CARGO_TARGET_DIR: rustTarget, IPHONEOS_DEPLOYMENT_TARGET: DEPLOYMENT_TARGET },
+    },
+  );
+  const rustLibrary = join(rustTarget, "armv7-apple-ios/release", nativeCore?.library ?? "libpocketjs_symbian_core.a");
+  if (!existsSync(rustLibrary)) {
+    throw new Error(`pocket ipodtouch4: missing Rust static library at ${rustLibrary}`);
+  }
+  return { linker, sysroot, quickjs, nativeBuild, compile, csuStart, csuDyldGlue, quickJsObjects, rustLibrary };
+}
+
+/** The host objects beside runtime.c: the shared guest runtime and its helpers. */
+export interface IPodHostObjects {
+  readonly offload: string;
+  readonly crtGlobals: string;
+  readonly pocketRuntime: string;
+  readonly svcWire: string | null;
+  readonly compat: string;
+  readonly application: readonly string[];
+}
+
+/**
+ * Compile engine/quickjs-c/pocket_runtime.c and the files linked beside it.
+ * `features` are the plan's (ui.physics compiles ops 52..56 in); `rasterDensity`
+ * is pocket_runtime.c's default, which a package runtime replaces at launch.
+ */
+export function compileIPodHost(native: IPodNative, options: {
+  readonly target: string;
+  readonly hostAbi: number;
+  readonly rasterDensity: number;
+  readonly features: Readonly<Record<string, boolean>>;
+  readonly svcWire: boolean;
+  readonly nativeCore?: IPodTouch4App["nativeCore"];
+  readonly appRoot?: string;
+}): IPodHostObjects {
+  const { compile, nativeBuild, quickjs } = native;
+  const offloadDefines = ["-DPOCKET_OFFLOAD_POSIX", "-I", join(REPOSITORY, "hosts/shared")];
+  const offload = join(nativeBuild, "offload_posix.o");
+  compile(join(REPOSITORY, "hosts/shared/offload_posix.c"), offload, [...IPOD_WARNINGS, ...offloadDefines]);
+  const svcWireDefines = options.svcWire ? ["-DPOCKET_SVC_WIRE", "-I", join(REPOSITORY, "hosts/ios-legacy")] : [];
+  const crtGlobals = join(nativeBuild, "crt_globals.o");
+  const pocketRuntime = join(nativeBuild, "pocket_runtime.o");
+  const svcWire = join(nativeBuild, "svcwire.o");
+  const compat = join(nativeBuild, "compat.o");
+  compile(join(REPOSITORY, "hosts/ios-legacy/crt_globals.c"), crtGlobals, IPOD_WARNINGS);
+  compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntime, [
+    ...IPOD_WARNINGS,
+    ...guestRuntimeDefines(options.features),
+    ...svcWireDefines,
+    ...offloadDefines,
+    ...(options.nativeCore ? ["-DPOCKET_RUNTIME_EXTENSION", "-I", join(REPOSITORY, "hosts/nokia-e7/runtime")] : []),
+    `-DPOCKETJS_TARGET_ID=\"${options.target}\"`,
+    `-DPOCKETJS_HOST_ABI=${options.hostAbi}`,
+    `-DPOCKET_RASTER_DENSITY=${options.rasterDensity}`,
+    "-I", join(REPOSITORY, "engine/ui-cabi/include"),
+    "-I", join(REPOSITORY, "contracts/generated"),
+    "-isystem",
+    quickjs,
+  ]);
+  if (options.svcWire) {
+    compile(join(REPOSITORY, "hosts/ios-legacy/svcwire.c"), svcWire, [...IPOD_WARNINGS, ...svcWireDefines]);
+  }
+  compile(join(REPOSITORY, "hosts/ios-legacy/compat.c"), compat, IPOD_WARNINGS);
+  const application = (options.nativeCore?.sources ?? []).map((source, index) => {
+    const object = join(nativeBuild, `application-${index}.o`);
+    compile(resolvePath(options.appRoot ?? REPOSITORY, source), object, [...IPOD_WARNINGS, "-isystem", quickjs, "-Wno-cast-function-type-mismatch"]);
+    return object;
+  });
+  return { offload, crtGlobals, pocketRuntime, svcWire: options.svcWire ? svcWire : null, compat, application };
+}
+
+/**
+ * Link the executable, then sign it ad hoc with ldid. `sections` embeds a
+ * guest as __DATA,__pocket_js / __pocket_pak; without them the executable is a
+ * package runtime that reads the bundle's app.pocket at launch.
+ */
+export function linkIPodExecutable(
+  native: IPodNative,
+  host: IPodHostObjects,
+  runtimeObject: string,
+  executable: string,
+  sections?: { readonly javaScript: string; readonly pak: string },
+): void {
+  mustRun(native.linker, ["-arch", "armv7", "-syslibroot", native.sysroot, "-L/usr/lib",
+    "-F/System/Library/Frameworks", "-iphoneos_version_min", DEPLOYMENT_TARGET,
+    "-no_pie", "-no_uuid", "-no_function_starts", "-no_data_in_code_info",
+    "-no_source_version", "-no_compact_unwind", "-no_adhoc_codesign", "-no_encryption",
+    "-e", "start", "-o", executable, native.csuStart,
+    native.csuDyldGlue, host.crtGlobals,
+    runtimeObject, host.pocketRuntime, host.offload, ...(host.svcWire ? [host.svcWire] : []), host.compat,
+    "-force_load", native.rustLibrary, ...host.application, ...native.quickJsObjects,
+    ...(sections
+      ? ["-sectcreate", "__DATA", "__pocket_js", sections.javaScript, "-sectcreate", "__DATA", "__pocket_pak", sections.pak]
+      : []),
+    "-framework", "UIKit", "-framework", "Foundation", "-framework", "CoreGraphics",
+    "-framework", "OpenGLES", "-lobjc", "-lSystem", "-lgcc_s.1"]);
+  chmodSync(executable, 0o755);
+  mustRun("ldid", ["-S", executable]);
+}
+
+async function build(): Promise<void> {
   const manifest = JSON.parse(readFileSync(manifestPath(), "utf8"));
   const plan = resolveIPodTouch4BuildPlan(manifest);
   mkdirSync(dirname(planPath()), { recursive: true });
@@ -683,60 +887,9 @@ async function build(): Promise<void> {
     throw new Error("pocket ipodtouch4: guest build did not produce its JS and pak artifacts");
   }
 
-  const clang = mustRun("xcrun", ["--find", "clang"]);
-  const linker = mustRun("xcrun", ["--find", IPODTOUCH4_TOOLCHAIN.compiler.linker]);
-  const macosSdk = mustRun("xcrun", ["--sdk", "macosx", "--show-sdk-path"]);
-  const sysroot = ipodtouch4SysrootPath();
-  const csu = ipodtouch4CsuPath();
-  const quickjs = join(ipodtouch4QuickJsPath(), "libquickjs-sys/embed/quickjs");
   const nativeBuild = join(REPOSITORY, `.pocket-build/ipodtouch4/${APP.id}/runtime`);
-  const rustTarget = join(ipodtouch4CacheRoot(), "build/rust-target");
-  const cargoHome = join(ipodtouch4CacheRoot(), "build/cargo-home");
-  rmSync(nativeBuild, { recursive: true, force: true });
-  mkdirSync(nativeBuild, { recursive: true });
-  mkdirSync(rustTarget, { recursive: true });
-  mkdirSync(cargoHome, { recursive: true });
-
-  const common = [
-    "-target", "armv7-apple-ios6.0", `-miphoneos-version-min=${DEPLOYMENT_TARGET}`,
-    "-march=armv7", "-Os", "-fno-stack-protector", "-fno-builtin", "-fno-common",
-    "-fwrapv", "-funsigned-char", "-U_FORTIFY_SOURCE", "-D_FORTIFY_SOURCE=0",
-    "-isysroot", macosSdk,
-  ];
-  const compile = (source: string, output: string, extra: readonly string[] = []) =>
-    mustRun(clang, [...common, ...extra, "-c", source, "-o", output]);
-  const warnings = ["-Wall", "-Wextra", "-Werror", "-Wno-incompatible-sysroot"];
-  compile(join(csu, "start.s"), join(nativeBuild, "csu-start.o"), ["-x", "assembler-with-cpp"]);
-  compile(join(csu, "dyld_glue.s"), join(nativeBuild, "csu-dyld-glue.o"), [
-    "-x", "assembler-with-cpp", "-DMACH_HEADER_SYMBOL_NAME=__mh_execute_header", "-DCRT",
-  ]);
-
-  const quickJsObjects: string[] = [];
-  for (const source of ["quickjs.c", "cutils.c", "dtoa.c", "libregexp.c", "libunicode.c"]) {
-    const output = join(nativeBuild, `quickjs-${source.replace(/\.c$/, "")}.o`);
-    compile(join(quickjs, source), output, ["-I", quickjs, `-DCONFIG_VERSION=\"${IPODTOUCH4_TOOLCHAIN.compiler.quickJsVersion}\"`]);
-    quickJsObjects.push(output);
-  }
-
-  const rustup = commandPath("rustup");
-  if (!rustup) throw new Error("pocket ipodtouch4: rustup is unavailable");
-  const cargo = mustRun(rustup, ["which", "--toolchain", IPODTOUCH4_TOOLCHAIN.compiler.rustToolchain, "cargo"]);
-  const rustc = mustRun(rustup, ["which", "--toolchain", IPODTOUCH4_TOOLCHAIN.compiler.rustToolchain, "rustc"]);
-  mustRun(
-    cargo,
-    ["build", "--release", "--locked", "--manifest-path", resolvePath(APP_ROOT, APP.nativeCore?.manifest ?? join(REPOSITORY, "engine/ui-cabi/Cargo.toml")),
-      "--features", APP.nativeCore?.features.join(",") ?? "bare-platform,gles1", "--target",
-      join(REPOSITORY, "hosts/ipodtouch4/armv7-apple-ios.json"), "-Z", "json-target-spec",
-      "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
-    {
-      cwd: join(REPOSITORY, "engine/ui-cabi"),
-      env: { ...process.env, RUSTC: rustc, CARGO_HOME: cargoHome, CARGO_TARGET_DIR: rustTarget, IPHONEOS_DEPLOYMENT_TARGET: DEPLOYMENT_TARGET },
-    },
-  );
-  const rustLibrary = join(rustTarget, "armv7-apple-ios/release", APP.nativeCore?.library ?? "libpocketjs_symbian_core.a");
-  if (!existsSync(rustLibrary)) {
-    throw new Error(`pocket ipodtouch4: missing Rust static library at ${rustLibrary}`);
-  }
+  const native = prepareIPodNative(nativeBuild, APP.nativeCore, APP_ROOT);
+  const { compile, sysroot, quickJsObjects, rustLibrary } = native;
 
   const bundle = bundleDirectory();
   rmSync(bundle, { recursive: true, force: true });
@@ -756,7 +909,7 @@ async function build(): Promise<void> {
     }
   }
   const firstParty = [
-    ...warnings,
+    ...IPOD_WARNINGS,
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -765,49 +918,26 @@ async function build(): Promise<void> {
     // so it needs the same switch as the guest runtime.
     ...(APP.svcWire ? ["-DPOCKET_SVC_WIRE"] : []),
   ];
-  const offloadDefines = ["-DPOCKET_OFFLOAD_POSIX", "-I", join(REPOSITORY, "hosts/shared")];
-  const offloadObject = join(nativeBuild, "offload_posix.o");
-  compile(join(REPOSITORY, "hosts/shared/offload_posix.c"), offloadObject, [...warnings, ...offloadDefines]);
-  const svcWireDefines = APP.svcWire ? ["-DPOCKET_SVC_WIRE", "-I", join(REPOSITORY, "hosts/ios-legacy")] : [];
-  const crtGlobalsObject = join(nativeBuild, "crt_globals.o");
+  const host = compileIPodHost(native, {
+    target: inputs.target,
+    hostAbi: inputs.hostAbi,
+    rasterDensity: inputs.viewport.rasterDensity,
+    features: plan.features,
+    svcWire: APP.svcWire,
+    nativeCore: APP.nativeCore,
+    appRoot: APP_ROOT,
+  });
   const runtimeIdentityObject = join(nativeBuild, "runtime.build-id-input.o");
-  const pocketRuntimeObject = join(nativeBuild, "pocket_runtime.o");
-  const svcWireObject = join(nativeBuild, "svcwire.o");
-  const compatObject = join(nativeBuild, "compat.o");
-  compile(join(REPOSITORY, "hosts/ios-legacy/crt_globals.c"), crtGlobalsObject, warnings);
   compile(join(REPOSITORY, "hosts/ipodtouch4/runtime.c"), runtimeIdentityObject, [
     ...firstParty,
     `-DPOCKET_BUILD_ID=\"${BUILD_ID_PLACEHOLDER}\"`,
     "-I", join(REPOSITORY, "engine/quickjs-c"),
     "-Wno-cast-function-type-mismatch",
   ]);
-  compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntimeObject, [
-    ...warnings,
-    ...guestRuntimeDefines(plan.features),
-    ...svcWireDefines,
-    ...offloadDefines,
-    ...(APP.nativeCore ? ["-DPOCKET_RUNTIME_EXTENSION", "-I", join(REPOSITORY, "hosts/nokia-e7/runtime")] : []),
-    `-DPOCKETJS_TARGET_ID=\"${inputs.target}\"`,
-    `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
-    `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
-    "-I", join(REPOSITORY, "engine/ui-cabi/include"),
-    "-I", join(REPOSITORY, "contracts/generated"),
-    "-isystem",
-    quickjs,
-  ]);
-  if (APP.svcWire) {
-    compile(join(REPOSITORY, "hosts/ios-legacy/svcwire.c"), svcWireObject, [...warnings, ...svcWireDefines]);
-  }
-  compile(join(REPOSITORY, "hosts/ios-legacy/compat.c"), compatObject, warnings);
-  const nativeObjects = (APP.nativeCore?.sources ?? []).map((source, index) => {
-    const object = join(nativeBuild, `application-${index}.o`);
-    compile(resolvePath(APP_ROOT, source), object, [...warnings, "-isystem", quickjs, "-Wno-cast-function-type-mismatch"]);
-    return object;
-  });
 
   const buildId = hashInputs([
     ...ipodBundleFiles(bundle).map(name => ({ label: `bundle/${name}`, path: join(bundle, name) })),
-    ...nativeObjects.map((path, index) => ({ label: `native/application-${index}.o`, path })),
+    ...host.application.map((path, index) => ({ label: `native/application-${index}.o`, path })),
     planPath(),
     guestJavaScript,
     guestPak,
@@ -821,21 +951,15 @@ async function build(): Promise<void> {
     join(REPOSITORY, "tools/ipodtouch4-toolchain.ts"),
     join(REPOSITORY, "tools/cli/iphone4s-toolchain.json"),
     join(REPOSITORY, "hosts/ipodtouch4/armv7-apple-ios.json"),
-    { label: "sysroot/UIKit.tbd", path: join(sysroot, "System/Library/Frameworks/UIKit.framework/UIKit.tbd") },
-    { label: "sysroot/Foundation.tbd", path: join(sysroot, "System/Library/Frameworks/Foundation.framework/Foundation.tbd") },
-    { label: "sysroot/CoreGraphics.tbd", path: join(sysroot, "System/Library/Frameworks/CoreGraphics.framework/CoreGraphics.tbd") },
-    { label: "sysroot/OpenGLES.tbd", path: join(sysroot, "System/Library/Frameworks/OpenGLES.framework/OpenGLES.tbd") },
-    { label: "sysroot/libSystem.tbd", path: join(sysroot, "usr/lib/libSystem.tbd") },
-    { label: "sysroot/libobjc.tbd", path: join(sysroot, "usr/lib/libobjc.tbd") },
-    { label: "sysroot/libgcc_s.1.tbd", path: join(sysroot, "usr/lib/libgcc_s.1.tbd") },
-    { label: "native/csu-start.o", path: join(nativeBuild, "csu-start.o") },
-    { label: "native/csu-dyld-glue.o", path: join(nativeBuild, "csu-dyld-glue.o") },
-    { label: "native/crt_globals.o", path: crtGlobalsObject },
+    ...sysrootIdentityInputs(sysroot),
+    { label: "native/csu-start.o", path: native.csuStart },
+    { label: "native/csu-dyld-glue.o", path: native.csuDyldGlue },
+    { label: "native/crt_globals.o", path: host.crtGlobals },
     { label: "native/runtime.build-id-input.o", path: runtimeIdentityObject },
-    { label: "native/pocket_runtime.o", path: pocketRuntimeObject },
-    { label: "native/offload_posix.o", path: offloadObject },
-    ...(APP.svcWire ? [{ label: "native/svcwire.o", path: svcWireObject }] : []),
-    { label: "native/compat.o", path: compatObject },
+    { label: "native/pocket_runtime.o", path: host.pocketRuntime },
+    { label: "native/offload_posix.o", path: host.offload },
+    ...(host.svcWire ? [{ label: "native/svcwire.o", path: host.svcWire }] : []),
+    { label: "native/compat.o", path: host.compat },
     ...quickJsObjects.map((path) => ({ label: `native/${path.slice(nativeBuild.length + 1)}`, path })),
     { label: "native/libpocketjs_symbian_core.a", path: rustLibrary },
     { label: `bundle/${IPHONE_USER_ICON_FILE}`, path: join(bundle, IPHONE_USER_ICON_FILE) },
@@ -855,28 +979,10 @@ async function build(): Promise<void> {
   const embeddedJavaScript = join(nativeBuild, "app.js.bin");
   writeFileSync(embeddedJavaScript, Buffer.concat([readFileSync(guestJavaScript), Buffer.from([0])]));
   const executable = join(bundle, EXECUTABLE);
-  mustRun(linker, ["-arch", "armv7", "-syslibroot", sysroot, "-L/usr/lib",
-    "-F/System/Library/Frameworks", "-iphoneos_version_min", DEPLOYMENT_TARGET,
-    "-no_pie", "-no_uuid", "-no_function_starts", "-no_data_in_code_info",
-    "-no_source_version", "-no_compact_unwind", "-no_adhoc_codesign", "-no_encryption",
-    "-e", "start", "-o", executable, join(nativeBuild, "csu-start.o"),
-    join(nativeBuild, "csu-dyld-glue.o"), crtGlobalsObject,
-    runtimeObject, pocketRuntimeObject, offloadObject, ...(APP.svcWire ? [svcWireObject] : []), compatObject,
-    "-force_load", rustLibrary, ...nativeObjects, ...quickJsObjects,
-    "-sectcreate", "__DATA", "__pocket_js", embeddedJavaScript,
-    "-sectcreate", "__DATA", "__pocket_pak", guestPak,
-    "-framework", "UIKit", "-framework", "Foundation", "-framework", "CoreGraphics",
-    "-framework", "OpenGLES", "-lobjc", "-lSystem", "-lgcc_s.1"]);
-  chmodSync(executable, 0o755);
-  mustRun("ldid", ["-S", executable]);
+  linkIPodExecutable(native, host, runtimeObject, executable, { javaScript: embeddedJavaScript, pak: guestPak });
   mustRun("plutil", ["-lint", join(bundle, "Info.plist")]);
 
-  const fileInfo = mustRun("file", [executable]);
-  if (!fileInfo.includes("Mach-O executable arm_v7")) throw new Error(`pocket ipodtouch4: unexpected binary: ${fileInfo}`);
-  const loads = mustRun("xcrun", ["otool-classic", "-l", executable]);
-  for (const marker of ["LC_VERSION_MIN_IPHONEOS", "version 6.0", "sectname __pocket_js", "sectname __pocket_pak", "LC_CODE_SIGNATURE"]) {
-    if (!loads.includes(marker)) throw new Error(`pocket ipodtouch4: binary is missing ${marker}`);
-  }
+  const fileInfo = checkIPodExecutable(executable, true);
 
   const fileNames = ipodBundleFiles(bundle);
   const files = Object.fromEntries(fileNames.map((name) => [name, sha256(join(bundle, name))]));
@@ -896,20 +1002,7 @@ async function build(): Promise<void> {
   };
   writeFileSync(receiptPath(), JSON.stringify(receipt, null, 2) + "\n");
 
-  // The USB-side bridge uses the same pinned ARMv7 toolchain, outside the app.
-  const installerObject = join(nativeBuild, "installer.o");
-  compile(join(REPOSITORY, "hosts/ipodtouch4/installer.c"), installerObject,
-    [...warnings, "-Wno-cast-function-type-mismatch"]);
-  const installer = join(REPOSITORY, "dist/ipodtouch4/installer");
-  mustRun(linker, ["-arch", "armv7", "-syslibroot", sysroot, "-L/usr/lib",
-    "-F/System/Library/Frameworks", "-iphoneos_version_min", DEPLOYMENT_TARGET,
-    "-no_pie", "-no_uuid", "-no_function_starts", "-no_data_in_code_info",
-    "-no_source_version", "-no_compact_unwind", "-no_adhoc_codesign", "-no_encryption",
-    "-e", "start", "-o", installer, join(nativeBuild, "csu-start.o"),
-    join(nativeBuild, "csu-dyld-glue.o"), crtGlobalsObject, installerObject,
-    "-framework", "Foundation", "-lobjc", "-lSystem", "-lgcc_s.1"]);
-  chmodSync(installer, 0o755);
-  mustRun("ldid", [`-S${join(REPOSITORY, "hosts/ipodtouch4/installer-entitlements.plist")}`, installer]);
+  buildIPodInstaller(native);
 
   const packageRoot = join(nativeBuild, "package");
   const payload = join(packageRoot, "Payload", BUNDLE_NAME);
@@ -923,7 +1016,56 @@ async function build(): Promise<void> {
   console.log(`build_id=${buildId}`);
 }
 
+/** The sysroot stubs a build links against, as build-identity inputs. */
+export function sysrootIdentityInputs(sysroot: string): BuildIdentityInput[] {
+  return [
+    { label: "sysroot/UIKit.tbd", path: join(sysroot, "System/Library/Frameworks/UIKit.framework/UIKit.tbd") },
+    { label: "sysroot/Foundation.tbd", path: join(sysroot, "System/Library/Frameworks/Foundation.framework/Foundation.tbd") },
+    { label: "sysroot/CoreGraphics.tbd", path: join(sysroot, "System/Library/Frameworks/CoreGraphics.framework/CoreGraphics.tbd") },
+    { label: "sysroot/OpenGLES.tbd", path: join(sysroot, "System/Library/Frameworks/OpenGLES.framework/OpenGLES.tbd") },
+    { label: "sysroot/libSystem.tbd", path: join(sysroot, "usr/lib/libSystem.tbd") },
+    { label: "sysroot/libobjc.tbd", path: join(sysroot, "usr/lib/libobjc.tbd") },
+    { label: "sysroot/libgcc_s.1.tbd", path: join(sysroot, "usr/lib/libgcc_s.1.tbd") },
+  ];
+}
+
+/** `file` and load-command checks on a linked executable; returns `file`'s line. */
+export function checkIPodExecutable(executable: string, embedded: boolean): string {
+  const fileInfo = mustRun("file", [executable]);
+  if (!fileInfo.includes("Mach-O executable arm_v7")) throw new Error(`pocket ipodtouch4: unexpected binary: ${fileInfo}`);
+  const loads = mustRun("xcrun", ["otool-classic", "-l", executable]);
+  for (const marker of ["LC_VERSION_MIN_IPHONEOS", "version 6.0", "LC_CODE_SIGNATURE"]) {
+    if (!loads.includes(marker)) throw new Error(`pocket ipodtouch4: binary is missing ${marker}`);
+  }
+  for (const marker of ["sectname __pocket_js", "sectname __pocket_pak"]) {
+    if (loads.includes(marker) !== embedded) {
+      throw new Error(`pocket ipodtouch4: binary ${embedded ? "is missing" : "must not carry"} ${marker}`);
+    }
+  }
+  return fileInfo;
+}
+
+/** The USB-side bridge uses the same pinned ARMv7 toolchain, outside the app. */
+export function buildIPodInstaller(native: IPodNative): string {
+  const installerObject = join(native.nativeBuild, "installer.o");
+  native.compile(join(REPOSITORY, "hosts/ipodtouch4/installer.c"), installerObject,
+    [...IPOD_WARNINGS, "-Wno-cast-function-type-mismatch"]);
+  const installer = join(REPOSITORY, "dist/ipodtouch4/installer");
+  mkdirSync(dirname(installer), { recursive: true });
+  mustRun(native.linker, ["-arch", "armv7", "-syslibroot", native.sysroot, "-L/usr/lib",
+    "-F/System/Library/Frameworks", "-iphoneos_version_min", DEPLOYMENT_TARGET,
+    "-no_pie", "-no_uuid", "-no_function_starts", "-no_data_in_code_info",
+    "-no_source_version", "-no_compact_unwind", "-no_adhoc_codesign", "-no_encryption",
+    "-e", "start", "-o", installer, native.csuStart,
+    native.csuDyldGlue, join(native.nativeBuild, "crt_globals.o"), installerObject,
+    "-framework", "Foundation", "-lobjc", "-lSystem", "-lgcc_s.1"]);
+  chmodSync(installer, 0o755);
+  mustRun("ldid", [`-S${join(REPOSITORY, "hosts/ipodtouch4/installer-entitlements.plist")}`, installer]);
+  return installer;
+}
+
 function ipaPath(): string {
+  if (IPA) return IPA.path;
   return join(REPOSITORY, `dist/ipodtouch4/${BUNDLE_NAME.replace(/\.app$/, ".ipa")}`);
 }
 
@@ -935,7 +1077,7 @@ function copyToDevice(port: number, source: string, destination: string): void {
 }
 
 async function deploy(): Promise<void> {
-  await build();
+  if (!IPA) await build();
   const receipt = readReceipt();
   const transactionId = randomBytes(12).toString("hex");
   const remoteRoot = `/private/var/tmp/pocketjs-user-${transactionId}`;
@@ -943,7 +1085,7 @@ async function deploy(): Promise<void> {
   const script = join(REPOSITORY, `.pocket-build/ipodtouch4/deploy-${transactionId}.sh`);
   writeFileSync(script, userDeploymentScript({
     bundleId: BUNDLE_ID, bundleName: BUNDLE_NAME, executable: EXECUTABLE, archive, archiveHash: sha256(ipaPath()),
-    files: { ...receipt.files, "build-receipt.json": sha256(receiptPath()) },
+    files: { ...receipt.files, "build-receipt.json": IPA ? IPA.receiptDigest : sha256(receiptPath()) },
   }));
   try {
     await withTunnel((port) => {
@@ -1004,7 +1146,7 @@ async function launch(): Promise<void> {
     mustRemote(
       port,
       `killall ${EXECUTABLE} 2>/dev/null || true; rm -f ${paths.status} ${paths.frame}; ` +
-        `/bin/su mobile -c '/usr/bin/uiopen ${APP.scheme}://launch'; echo launch-requested`,
+        `/bin/su mobile -c '/usr/bin/uiopen ${SCHEME}://launch'; echo launch-requested`,
     );
     await Bun.sleep(2500);
   });
@@ -1181,11 +1323,21 @@ function usage(): void {
   bun ipodtouch4 launch
   bun ipodtouch4 status [--require-action]
   bun ipodtouch4 capture
-  bun ipodtouch4 tunnel`);
+  bun ipodtouch4 tunnel
+
+  deploy, uninstall, launch, status and capture take --ipa <file> to act on a
+  package tools/repack/ipod.ts wrote instead of this build.`);
 }
 
 export async function main(args: readonly string[] = Bun.argv.slice(2)): Promise<void> {
   const command = args[0] ?? "doctor";
+  const ipa = args.indexOf("--ipa");
+  if (ipa >= 0) {
+    if (!["deploy", "uninstall", "launch", "status", "capture"].includes(command) || !args[ipa + 1]) {
+      throw new Error("pocket ipodtouch4: --ipa <file> goes with deploy, uninstall, launch, status or capture");
+    }
+    useIpa(args[ipa + 1]!);
+  }
   switch (command) {
     case "doctor":
       await doctor();

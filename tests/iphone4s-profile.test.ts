@@ -104,7 +104,9 @@ describe("private iPhone 4S profile", () => {
     expect(runtime).toContain("g_gl_width != POCKET_LOGICAL_WIDTH * POCKET_RASTER_DENSITY");
     expect(runtime).not.toContain("fsync(");
     expect(guest).toContain("#define POCKET_RASTER_DENSITY 1");
-    expect(guest).toContain("ui_init(POCKET_RASTER_DENSITY)");
+    // The build's density is the default; a package runtime sets the plan's at launch.
+    expect(guest).toContain("static uint32_t boot_raster_density = POCKET_RASTER_DENSITY;");
+    expect(guest).toContain("ui_init(boot_raster_density)");
     expect(readFileSync(join(repository, "tools/iphone4s.ts"), "utf8").match(
       /`-DPOCKET_RASTER_DENSITY=\$\{inputs\.viewport\.rasterDensity\}`/g,
     )).toHaveLength(2);

@@ -4,6 +4,39 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* One `.pocket` variant admitted for a runtime that serves every game.
+ * Pointers borrow the caller's package buffer; javascript_length includes
+ * the QuickJS NUL. view_* and raster_density come from the variant's plan. */
+typedef struct {
+  const uint8_t *javascript;
+  size_t javascript_length;
+  const uint8_t *pak;
+  size_t pak_length;
+  const uint8_t *plan;
+  size_t plan_length;
+  uint64_t package_hash;
+  uint32_t view_width;
+  uint32_t view_height;
+  uint32_t raster_density;
+  uint32_t features; /* POCKET_UI_PACKAGE_* */
+} PocketUiPackage;
+
+#define POCKET_UI_PACKAGE_PHYSICS 1u    /* features["ui.physics"] */
+#define POCKET_UI_PACKAGE_OFFLOAD 2u    /* features["io.offload"] */
+#define POCKET_UI_PACKAGE_COMPANIONS 4u /* companions is not empty */
+
+/* 0 = admitted: footer hash, exact target and host ABI, identity, plan and
+ * NUL-terminated JS. 1-11 package errors, 12 bad arguments, 13 plan JSON,
+ * 14 plan viewport. */
+int32_t pocket_ui_package_open(
+  const uint8_t *bytes,
+  size_t length,
+  const uint8_t *target,
+  size_t target_length,
+  uint32_t host_abi,
+  PocketUiPackage *out
+);
+
 void ui_init(uint32_t raster_density);
 void ui_shutdown(void);
 void ui_set_viewport(float width, float height);

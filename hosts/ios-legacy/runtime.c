@@ -69,6 +69,30 @@ typedef enum {
 
 #define YES ((BOOL)1)
 #define NO ((BOOL)0)
+#ifdef POCKET_PACKAGE_RUNTIME
+/*
+ * One executable for every game. The executable has no __pocket_js or
+ * __pocket_pak section; the bundle carries the game as app.pocket, and
+ * load_bundle_package (main, before UIApplicationMain) takes the surface from
+ * the plan inside it. Until then the window is the panel's portrait 320x480 at
+ * density 2, so a package that cannot be read still gets its message drawn.
+ */
+#include <stdlib.h>
+#include <string.h>
+#include "pocket_ui_cabi.h"
+#ifndef POCKETJS_TARGET_ID
+#error "POCKETJS_TARGET_ID names the package variant this runtime admits"
+#endif
+#ifndef POCKETJS_HOST_ABI
+#error "POCKETJS_HOST_ABI names the package variant this runtime admits"
+#endif
+static int g_package_width = 320;
+static int g_package_height = 480;
+static int g_package_density = 2;
+#define POCKET_LOGICAL_WIDTH g_package_width
+#define POCKET_LOGICAL_HEIGHT g_package_height
+#define POCKET_RASTER_DENSITY g_package_density
+#endif
 #ifndef POCKET_LOGICAL_WIDTH
 #error "POCKET_LOGICAL_WIDTH must come from the verified ResolvedBuildPlan"
 #endif
@@ -966,7 +990,96 @@ static BOOL send_bool_class_object(Class cls, const char *selector, id value) {
  * this at view creation, before setup_gl runs, so the decision has to be made
  * from the same marker file setup_gl consults.
  */
+#ifdef POCKET_PACKAGE_RUNTIME
+static PocketUiPackage g_package;
+static uint8_t *g_package_bytes;
+static char g_package_error[192] = "app.pocket was not read";
+
+/*
+ * Read app.pocket beside the executable, admit its variant for this target
+ * and host ABI (footer hash included), and take the surface from its plan:
+ * 320x480 or 480x320 logical at density 2, the panels the profile admits.
+ * Every failure leaves one line in g_package_error for the screen and the
+ * acceptance record.
+ */
+static void load_bundle_package(const char *executable) {
+  char path[1024];
+  const char *slash = executable == NULL ? NULL : strrchr(executable, '/');
+  FILE *file;
+  long size;
+  int32_t result;
+
+  if (slash == NULL || (size_t)(slash - executable) + sizeof "/app.pocket" > sizeof path) {
+    snprintf(g_package_error, sizeof g_package_error, "the app bundle could not be located");
+    return;
+  }
+  snprintf(path, sizeof path, "%.*s/app.pocket", (int)(slash - executable), executable);
+  file = fopen(path, "rb");
+  if (file == NULL) {
+    snprintf(g_package_error, sizeof g_package_error, "this app carries no game: app.pocket is missing");
+    return;
+  }
+  size = fseek(file, 0, SEEK_END) == 0 ? ftell(file) : -1;
+  if (size <= 0 || size > 64L * 1024L * 1024L || fseek(file, 0, SEEK_SET) != 0) {
+    fclose(file);
+    snprintf(g_package_error, sizeof g_package_error, "app.pocket has an unusable size (%ld bytes)", size);
+    return;
+  }
+  g_package_bytes = malloc((size_t)size);
+  if (g_package_bytes == NULL || fread(g_package_bytes, 1, (size_t)size, file) != (size_t)size) {
+    fclose(file);
+    snprintf(g_package_error, sizeof g_package_error, "app.pocket could not be read (%ld bytes)", size);
+    return;
+  }
+  fclose(file);
+  result = pocket_ui_package_open(
+    g_package_bytes,
+    (size_t)size,
+    (const uint8_t *)POCKETJS_TARGET_ID,
+    strlen(POCKETJS_TARGET_ID),
+    POCKETJS_HOST_ABI,
+    &g_package
+  );
+  if (result != 0) {
+    snprintf(
+      g_package_error,
+      sizeof g_package_error,
+      "app.pocket is not a %s ABI %d game (error %d)",
+      POCKETJS_TARGET_ID,
+      POCKETJS_HOST_ABI,
+      (int)result
+    );
+    return;
+  }
+  if (g_package.raster_density != 2 ||
+      !((g_package.view_width == 320 && g_package.view_height == 480) ||
+        (g_package.view_width == 480 && g_package.view_height == 320))) {
+    snprintf(
+      g_package_error,
+      sizeof g_package_error,
+      "the game's plan asks for %ux%u at density %u; this panel is 320x480 or 480x320 at 2",
+      (unsigned)g_package.view_width,
+      (unsigned)g_package.view_height,
+      (unsigned)g_package.raster_density
+    );
+    return;
+  }
+  if ((g_package.features & POCKET_UI_PACKAGE_COMPANIONS) != 0) {
+    snprintf(g_package_error, sizeof g_package_error, "the game needs companion services, which this runtime does not carry");
+    return;
+  }
+  g_package_width = (int)g_package.view_width;
+  g_package_height = (int)g_package.view_height;
+  g_package_density = (int)g_package.raster_density;
+  g_package_error[0] = '\0';
+}
+#endif
+
 static int pocket_prefers_gl(void) {
+#ifdef POCKET_PACKAGE_RUNTIME
+  /* A game that cannot start is drawn by drawRect:, which a CAEAGLLayer never gets. */
+  if (g_package_error[0] != '\0') return 0;
+#endif
   return POCKET_GL_DEFAULT || access(POCKET_PREFER_GL_PATH, F_OK) == 0;
 }
 
@@ -1212,6 +1325,21 @@ static int boot_embedded_runtime(void) {
   size_t pack_length = 0;
   const uint8_t *java_script = getsectdata("__DATA", "__pocket_js", &java_script_length);
   const uint8_t *pack = getsectdata("__DATA", "__pocket_pak", &pack_length);
+
+#ifdef POCKET_PACKAGE_RUNTIME
+  /* No embedded sections: the game is the bundle's app.pocket. */
+  if (java_script == NULL || java_script_length == 0) {
+    if (g_package_error[0] != '\0') {
+      fail_runtime(g_package_error);
+      return 0;
+    }
+    java_script = g_package.javascript;
+    java_script_length = g_package.javascript_length;
+    pack = g_package.pak;
+    pack_length = g_package.pak_length;
+    pocket_runtime_set_raster_density((uint32_t)g_package_density);
+  }
+#endif
 
   /* The packager adds a C terminator for diagnostics; JS_Eval wants byte length. */
   if (java_script != NULL && java_script_length > 0 && java_script[java_script_length - 1] == 0) {
@@ -2019,6 +2147,9 @@ int main(int argc, char **argv) {
   if (register_view_class() == NULL || register_delegate_class() == NULL) {
     return 2;
   }
+#ifdef POCKET_PACKAGE_RUNTIME
+  load_bundle_package(argc > 0 ? argv[0] : NULL);
+#endif
 
   pool = send_id(send_id((id)objc_getClass("NSAutoreleasePool"), "alloc"), "init");
   string_class = objc_getClass("NSString");

@@ -13,6 +13,7 @@
 //!   surfaces.auxiliary.logical    [width, height]   (absent: no auxiliary)
 //!   surfaces.auxiliary.rasterDensity
 //!   features.<name>               boolean (absent: false)
+//!   companions                    array (absent or empty: none)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanFactsError {
@@ -35,6 +36,8 @@ pub struct PlanSurface {
 pub struct PlanFacts<'a> {
     pub viewport: PlanSurface,
     pub auxiliary: Option<PlanSurface>,
+    /// The plan names at least one companion service (`app.companions`).
+    pub companions: bool,
     plan: &'a [u8],
     features: Option<usize>,
 }
@@ -70,7 +73,14 @@ pub fn plan_facts(plan: &[u8]) -> Result<PlanFacts<'_>, PlanFactsError> {
         Some(start) => Some(surface(plan, start).ok_or(PlanFactsError::Auxiliary)?),
     };
     let features = find(plan, root, &[b"features"]).filter(|&start| plan[start] == b'{');
-    Ok(PlanFacts { viewport, auxiliary, plan, features })
+    let companions = find(plan, root, &[b"companions"]).is_some_and(|start| {
+        let mut reader = Reader { bytes: plan, at: start + 1 };
+        plan[start] == b'[' && {
+            reader.whitespace();
+            reader.peek() != Some(b']')
+        }
+    });
+    Ok(PlanFacts { viewport, auxiliary, companions, plan, features })
 }
 
 fn find(plan: &[u8], mut object: usize, path: &[&[u8]]) -> Option<usize> {
@@ -341,16 +351,18 @@ mod tests {
         assert!(!facts.feature("input.touch"));
         assert!(!facts.feature("io.offload"));
         assert!(!facts.feature("media.playback"));
+        assert!(!facts.companions);
     }
 
     #[test]
     fn reads_a_single_surface_plan_with_whitespace() {
-        let plan = br#" { "features" : { "ui.physics" : true } ,
+        let plan = br#" { "companions" : [ "shell" ], "features" : { "ui.physics" : true } ,
             "viewport" : { "rasterDensity" : 2 , "logical" : [ 320 , 480 ] } } "#;
         let facts = plan_facts(plan).unwrap();
         assert_eq!(facts.viewport, PlanSurface { width: 320, height: 480, raster_density: 2 });
         assert_eq!(facts.auxiliary, None);
         assert!(facts.feature("ui.physics"));
+        assert!(facts.companions);
     }
 
     #[test]
