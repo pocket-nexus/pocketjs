@@ -15,9 +15,11 @@
 // POCKET_PACKAGE_RUNTIME: at launch it reads app.pocket beside itself, admits
 // the ipodtouch4-dev ABI 8 variant, and takes the logical surface (320x480 or
 // 480x320) and raster density from that variant's plan (hosts/ios-legacy/
-// runtime.c). ui.physics (ops 52..56) and io.offload are compiled in for every
-// game; keep-awake and the svc wire are not, and a plan that names companion
-// services is refused. tools/repack/ipod.ts writes a game's .ipa from it.
+// runtime.c). ui.physics (ops 52..56), io.offload and keep-awake (the idle
+// timer disabled while the game runs, POCKET_KEEP_AWAKE as a first-party app
+// descriptor sets it) are compiled in for every game; the svc wire is not, and
+// a plan that names companion services is refused. tools/repack/ipod.ts writes
+// a game's .ipa from it.
 
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
@@ -58,6 +60,9 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
   const runtimeDefines = (buildId: string) => [
     ...IPOD_WARNINGS,
     "-DPOCKET_PACKAGE_RUNTIME",
+    // Studio games keep the screen awake: no game has to be touched once a
+    // minute to stay on screen.
+    "-DPOCKET_KEEP_AWAKE",
     `-DPOCKETJS_TARGET_ID="${IPODTOUCH4_DEV_TARGET_ID}"`,
     `-DPOCKETJS_HOST_ABI=${IPODTOUCH4_DEV_HOST_ABI}`,
     `-DPOCKET_BUILD_ID="${buildId}"`,

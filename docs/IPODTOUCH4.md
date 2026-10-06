@@ -256,7 +256,7 @@ once:
 | viewport and raster density (`-DPOCKET_LOGICAL_*`) | read from the plan at launch |
 | `ui.physics` ops 52..56 (`-DPOCKET_PHYSICS` when the plan has it) | compiled in for every game |
 | `io.offload` worker | compiled in, as in every build |
-| keep-awake (`-DPOCKET_KEEP_AWAKE`, descriptor) | off: iOS's idle timer applies |
+| keep-awake (`-DPOCKET_KEEP_AWAKE`, descriptor) | on for every game: the idle timer is disabled while the game runs |
 | svc wire (`-DPOCKET_SVC_WIRE`, descriptor) | not carried; a plan with `companions` is refused |
 | native core and assets (descriptor) | not carried |
 

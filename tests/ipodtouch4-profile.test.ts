@@ -184,6 +184,8 @@ describe("private iPod touch 4 profile", () => {
     expect(tool).toContain('label: "native/pocket_runtime.o"');
     expect(tool).toContain("...quickJsObjects.map");
     expect(tool).toContain('const ACTION_NAME = "clear_gesture"');
+    // The generic runtime keeps every game's screen awake, as a descriptor's keepAwake does.
+    expect(readFileSync(join(repository, "tools/runtime/ipod.ts"), "utf8")).toContain('"-DPOCKET_KEEP_AWAKE"');
     // Preparation delegates to the pinned 4S flow instead of re-pinning it.
     expect(tool).toContain('delegateToIPhone4S("setup-sources")');
     expect(tool).toContain('delegateToIPhone4S("prepare-sysroot")');
