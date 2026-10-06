@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Template: package identity is rendered from the resolved build plan by
      tools/android.ts (packageIdentity); this file is not the source
-     of the app id or version. -->
+     of the app id or version. The SDK levels come from the profile's
+     toolchain file, and a release build is not debuggable. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="@POCKET_PACKAGE@"
     android:versionCode="@POCKET_VERSION_CODE@"
     android:versionName="@POCKET_VERSION_NAME@">
 
-    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
+    <uses-sdk android:minSdkVersion="@POCKET_MIN_SDK@" android:targetSdkVersion="@POCKET_TARGET_SDK@" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
 
     <application
         android:allowBackup="false"
-        android:debuggable="true"
+        android:debuggable="@POCKET_DEBUGGABLE@"
         android:hardwareAccelerated="true"
         android:icon="@drawable/icon"
         android:label="@string/app_name"

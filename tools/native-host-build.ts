@@ -93,6 +93,55 @@ export function buildGuestBundle(request: GuestBundleRequest): GuestBundle {
   return bundle;
 }
 
+export interface PlanBundleRequest {
+  readonly label: string;
+  readonly repository: string;
+  /** The target id the plan must have been resolved for. */
+  readonly target: string;
+  /** A resolved plan on disk, as a product repository's own resolver wrote it. */
+  readonly planPath: string;
+  /** The directory the plan's entry is relative to. */
+  readonly projectRoot: string;
+  readonly outputDirectory: string;
+}
+
+/**
+ * Compiles app.js + app.pak from a plan that is already resolved, so a
+ * product repository builds its own app with this repository's host. The
+ * plan's checksum and target are verified before the compiler runs.
+ */
+export function buildGuestBundleFromPlan(request: PlanBundleRequest): GuestBundle {
+  if (!existsSync(request.planPath)) {
+    throw new Error(`${request.label}: no plan at ${request.planPath}`);
+  }
+  const plan = JSON.parse(readFileSync(request.planPath, "utf8")) as ResolvedBuildPlan;
+  const inputs = extractHostBuildInputs(plan, { expectedTarget: request.target });
+  rmSync(request.outputDirectory, { recursive: true, force: true });
+  mkdirSync(request.outputDirectory, { recursive: true });
+  mustRunCommand(
+    request.label,
+    process.execPath,
+    [
+      join(request.repository, "tools/build.ts"),
+      `--plan=${request.planPath}`,
+      `--project-root=${request.projectRoot}`,
+      `--outdir=${request.outputDirectory}`,
+    ],
+    request.projectRoot,
+  );
+  const bundle: GuestBundle = {
+    plan,
+    inputs,
+    javaScript: join(request.outputDirectory, `${inputs.appOutput}.js`),
+    pack: join(request.outputDirectory, `${inputs.appOutput}.pak`),
+  };
+  if (!existsSync(bundle.javaScript) || !existsSync(bundle.pack)) {
+    throw new Error(`${request.label}: guest build did not emit app.js and app.pak`);
+  }
+  console.log(`${request.label}: guest bundle -> ${request.outputDirectory}`);
+  return bundle;
+}
+
 /** Reads a previously built bundle and rejects it when the manifest moved on. */
 export function readGuestBundle(request: GuestBundleRequest): GuestBundle {
   if (!existsSync(request.planPath)) {
