@@ -2,7 +2,9 @@
 //
 // A candidate string literal compiles to a style record IFF every
 // whitespace-separated token parses as a supported utility [R]; otherwise the
-// literal is silently ignored (it was ordinary text, not a class string).
+// literal is ignored (it was ordinary text, not a class string). The build
+// knows which literals sit in a `class` attribute, so it reports those that
+// did not compile: `unknownUtilities` names the tokens at fault.
 // The ONE exception: `rounded-full` in an otherwise-valid literal that does
 // not pin both `w-N` and `h-N` is a HARD compile error [R] (the radius must
 // be build-time bakeable).
@@ -554,6 +556,64 @@ function dedupe(decls: Decl[]): StyleProp[] {
     .map(([prop, value]) => ({ prop, value }));
 }
 
+/** A token's variant prefix and the utility after it; null when the prefix is no variant or nothing follows it. */
+function splitVariant(tok: string): { variant: "base" | "focus" | "active"; body: string; hover: boolean } | null {
+  let variant: "base" | "focus" | "active" = "base";
+  let body = tok;
+  let hover = false;
+  const colon = tok.indexOf(":");
+  if (colon > 0) {
+    const prefix = tok.slice(0, colon);
+    if (prefix === "focus" || prefix === "active") variant = prefix;
+    else if (prefix === "hover") hover = true;
+    else return null;
+    body = tok.slice(colon + 1);
+  }
+  return body.length === 0 ? null : { variant, body, hover };
+}
+
+/**
+ * The tokens of `literal` that are not supported utilities, in source order.
+ * Empty for a literal every token of which parses. A token one of the loud
+ * rules rejects (`hover:`, a malformed `animate-loop-[..]`) is a known
+ * utility: `parseClassLiteral` reports it with its own message.
+ */
+export function unknownUtilities(literal: string): string[] {
+  const unknown: string[] = [];
+  for (const tok of literal.trim().split(/\s+/).filter((t) => t.length > 0)) {
+    const split = splitVariant(tok);
+    let known = false;
+    if (split !== null) {
+      try {
+        known =
+          (split.variant === "base" && (parseMotion(split.body, {}) || parseAnimation(split.body, { ids: [], loopFrames: 0 }))) ||
+          parseUtility(split.body, { decls: [] });
+      } catch {
+        known = true;
+      }
+    }
+    if (!known) unknown.push(tok);
+  }
+  return unknown;
+}
+
+/** A token that has the shape of a utility: lower case words joined by hyphens, an optional variant, an optional bracket value. */
+const UTILITY_SHAPE = /^(?:(?:focus|active|hover):)?-?[a-z][a-z0-9]*(?:-(?:[a-z0-9.%/]+|\[[^\]\s]+\]))*$/;
+
+/**
+ * For a literal that is NOT in a `class` attribute and did not compile: the
+ * unsupported tokens when the literal still reads as a class string with a
+ * mistake in it, else null. It reads as one when it has at least two tokens,
+ * every token has the shape of a utility, and more of them are supported
+ * than not. A sentence, a file name or a single word never qualifies.
+ */
+export function suspectClassLiteral(literal: string): string[] | null {
+  const tokens = literal.trim().split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length < 2 || !tokens.every((tok) => UTILITY_SHAPE.test(tok))) return null;
+  const unknown = unknownUtilities(literal);
+  return unknown.length > 0 && tokens.length - unknown.length > unknown.length ? unknown : null;
+}
+
 /**
  * Parse one candidate class literal.
  * Returns the StyleRecord, or null when the literal is NOT a class string
@@ -573,22 +633,10 @@ export function parseClassLiteral(literal: string): StyleRecord | null {
   let sawHover = false;
 
   for (const tok of tokens) {
-    let variant: "base" | "focus" | "active" = "base";
-    let body = tok;
-    const colon = tok.indexOf(":");
-    if (colon > 0) {
-      const prefix = tok.slice(0, colon);
-      if (prefix === "focus" || prefix === "active") {
-        variant = prefix;
-        body = tok.slice(colon + 1);
-      } else if (prefix === "hover") {
-        sawHover = true; // decided after the rest of the literal parses
-        body = tok.slice(colon + 1);
-      } else {
-        return null; // not a utility (arbitrary text with a colon)
-      }
-    }
-    if (body.length === 0) return null;
+    const split = splitVariant(tok);
+    if (split === null) return null; // not a utility (arbitrary text with a colon)
+    const { variant, body } = split;
+    if (split.hover) sawHover = true; // decided after the rest of the literal parses
     if (variant === "base" && parseMotion(body, tr)) { sawMotion = true; continue; }
     if (variant === "base" && parseAnimation(body, anim)) continue;
     if (!parseUtility(body, acc[variant])) return null;

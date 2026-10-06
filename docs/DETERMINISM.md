@@ -143,6 +143,44 @@ The 60 Hz café journey (390 frames, full per-frame pixel hashing) replays in
 well under a second — a 6.5-second user session, verified pixel-perfect,
 faster than one frame of the real thing takes to show.
 
+### A bundle built outside this repository (`bootBundle`)
+
+`runScenario` boots `dist/<app>.js` of this checkout and lets a guest exception
+escape. `bootBundle` takes the **two files a build wrote** and the **viewport of
+the target they were built for**, and hands back a world that a tool steps by
+hand:
+
+```ts
+import { bootBundle } from "./hosts/sim/sim.ts";
+
+const world = await bootBundle({
+  js: "out/3ds/game.js",
+  pak: "out/3ds/game.pak",
+  viewport: { width: 400, height: 240, auxiliary: [320, 240] },
+});
+for (let f = 0; f < 60; f++) world.step();
+world.step({ buttons: BTN.CIRCLE });
+world.step({ touches: [{ x: 160, y: 120 }], surface: "auxiliary" });
+
+world.pixels();             // RGBA8 of the primary surface, at the raster density
+world.pixels("auxiliary");  // the second screen
+world.tree();               // every node: type, text, display, world box in logical px
+world.failure;              // { phase, frame, message, stack } once the guest threw
+world.logs;                 // each console line with the frame that wrote it
+```
+
+- **A guest exception is data.** One thrown while the bundle evaluates is a
+  `boot` failure; one thrown inside `frame()` or a tick is a `frame` failure
+  with the frame index. The bundle is evaluated under a `sourceURL` of
+  `<app>.js`, so stack frames inside it carry that name, a line and a column.
+  A failed world steps no further.
+- **The tree is read from the core**, not from the DevTools shim: node type,
+  text, `display` and the world box the core records while it builds the draw
+  list (`debugInspect` + `debugRectXY/WH`). No guest frame runs for it, so
+  reading the tree between two steps leaves the journey's pixels unchanged.
+- **It builds nothing.** A missing wasm core or bundle is an error that names
+  the path. A tool installed without the engine sources passes `wasm`.
+
 ## The control experiment (`tools/flake-lab.ts`)
 
 One bundle, one journey, two clocks:

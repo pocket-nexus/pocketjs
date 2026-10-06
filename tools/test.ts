@@ -102,6 +102,7 @@ const SUITE: readonly Stage[] = [
       "tests/compiler-portability.test.ts",
       "tests/platform-runtime.test.ts",
       "tests/app-check.test.ts",
+      "tests/class-diagnostics.test.ts",
       "tests/vue-sfc.test.ts",
       "tests/font-bake.test.ts",
       "tests/indexed-image.test.ts",
@@ -284,7 +285,7 @@ const SUITE: readonly Stage[] = [
     name: "cafe sim (determinism)",
     prep: [["bun", "tools/build.ts", "cafe-main"]],
     browser: true,
-    tests: ["tests/sim.test.ts"],
+    tests: ["tests/sim.test.ts", "tests/sim-bundle.test.ts"],
   },
   {
     name: "deepzoom sim",

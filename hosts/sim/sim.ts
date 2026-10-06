@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { createWasmUi } from "../web/wasm-ops.js";
 import { normalizeHz, TICKS_PER_SECOND } from "../../framework/src/clock.ts";
-import { createTouchHitFacts, __packTouch } from "../../framework/src/touch.ts";
+import { createTouchHitFacts, __packTouch, __packTouchWide } from "../../framework/src/touch.ts";
 import type { AxisDelta } from "../../framework/src/relative-axis.ts";
 import type { MotionState } from "../../framework/src/motion.ts";
 
@@ -293,6 +293,311 @@ export async function bootWorld(
         if (msg.t === "tree") return msg.root;
       }
       return null;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A bundle built anywhere, stepped by hand
+// ---------------------------------------------------------------------------
+//
+// `bootWorld` runs an app of this checkout from dist/ and lets a guest
+// exception escape. `bootBundle` runs any built bundle from the two paths its
+// build wrote, at the viewport its target has, and turns a guest exception
+// into data: a tool that shows an author their own game (a screenshot, the
+// texts on screen, the line that threw) drives it. It builds nothing: a
+// missing wasm core or bundle is an error that names the path.
+//
+//   const world = await bootBundle({ js: "out/game.js", pak: "out/game.pak",
+//     viewport: { width: 400, height: 240, auxiliary: [320, 240] } });
+//   for (let f = 0; f < 60; f++) world.step();
+//   world.step({ buttons: BTN.CIRCLE });
+//   world.step({ touches: [{ x: 160, y: 120 }], surface: "auxiliary" });
+//   const { width, height, rgba } = world.pixels();
+//   const roots = world.tree();
+
+export type SimSurface = "primary" | "auxiliary";
+
+export interface BundleOptions {
+  /** The built bundle. */
+  js: string;
+  /** Its asset pack. A bundle with none runs without `__pak`. */
+  pak?: string;
+  /** What the guest reads as `__pocketApp`. Default: the bundle's file name. */
+  app?: string;
+  /** Virtual frames per second; must divide 60. Default 60. */
+  hz?: number;
+  /** The target's logical viewport, raster density and second screen. `renderScale` is not read: pixels come at the raster density. */
+  viewport?: SimViewportOptions;
+  /** The wasm core. Default: hosts/web/pocketjs.wasm of this PocketJS root. */
+  wasm?: string;
+}
+
+/** A guest exception: thrown while the bundle evaluated (`boot`) or inside a frame. */
+export interface GuestFailure {
+  phase: "boot" | "frame";
+  /** The frame that threw; 0 for `boot`. */
+  frame: number;
+  message: string;
+  /** The engine's stack. Frames inside the bundle carry its file name, line and column. */
+  stack: string;
+}
+
+/** One line the guest wrote to `console`. */
+export interface GuestLog {
+  frame: number;
+  level: "log" | "info" | "warn" | "error" | "debug";
+  text: string;
+}
+
+/** A finger or stylus, in logical pixels of the surface it is on. */
+export interface SimContact {
+  id?: number;
+  x: number;
+  y: number;
+}
+
+/** What is held for one frame. Everything left out is at rest. */
+export interface StepInput {
+  /** BTN mask. */
+  buttons?: number;
+  /** Packed analog stick, (x << 8) | y with 128 the centre. */
+  analog?: number;
+  touches?: readonly SimContact[];
+  /** The surface the contacts are on. Default `primary`. */
+  surface?: SimSurface;
+}
+
+/** One node of the retained tree, as the core holds it. */
+export interface SimNode {
+  id: number;
+  type: "view" | "text" | "image" | "surface";
+  /** The node's text; "" for a node that holds none. */
+  text: string;
+  /** `display: none` on this node. Its subtree paints nothing. */
+  hidden: boolean;
+  /** x, y, width, height of its world box in logical pixels of its surface; null when it did not paint. */
+  rect: [number, number, number, number] | null;
+  children: SimNode[];
+}
+
+export interface SimPixels {
+  /** Physical size: the logical viewport times the raster density on the primary surface. */
+  width: number;
+  height: number;
+  /** RGBA8, a copy the next render does not overwrite. */
+  rgba: Uint8Array;
+}
+
+export interface BundleWorld {
+  hz: number;
+  ticksPerFrame: number;
+  viewport: { width: number; height: number; rasterDensity: number; auxiliary: [number, number] | null };
+  /** Frames stepped so far. */
+  readonly frames: number;
+  /** The guest's exception, once it threw. A failed world steps no further. */
+  readonly failure: GuestFailure | null;
+  /** Everything the guest wrote to `console`, oldest first. */
+  logs: GuestLog[];
+  effects: EffectEvent[];
+  /** One virtual frame with this input, then the core's ticks. False once the guest has failed. */
+  step(input?: StepInput): boolean;
+  /** What a surface shows now. */
+  pixels(surface?: SimSurface): SimPixels;
+  /** The retained tree under a surface's root, with each node's box. */
+  tree(surface?: SimSurface): SimNode | null;
+}
+
+const NODE_TYPE_NAMES = ["view", "text", "image", "surface"] as const;
+const LOG_LEVELS = ["log", "info", "warn", "error", "debug"] as const;
+/** spec ROOT_ID and ENUMS.Display.None, kept literal: this module stays host-side. */
+const PRIMARY_ROOT = 1;
+const DISPLAY_NONE = 1;
+
+function failureOf(error: unknown, phase: GuestFailure["phase"], frame: number): GuestFailure {
+  if (error instanceof Error) return { phase, frame, message: `${error.name}: ${error.message}`, stack: error.stack ?? "" };
+  return { phase, frame, message: String(error), stack: "" };
+}
+
+/** One console call as one line: strings as written, everything else as JSON where it has one. */
+function logText(args: unknown[]): string {
+  return args
+    .map((arg) => {
+      if (typeof arg === "string") return arg;
+      if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+      try {
+        return JSON.stringify(arg) ?? String(arg);
+      } catch {
+        return String(arg);
+      }
+    })
+    .join(" ");
+}
+
+/** Boot a built bundle from its files and hand back a world to step, look at and read. */
+export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
+  const hz = normalizeHz(options.hz ?? TICKS_PER_SECOND);
+  if (hz !== (options.hz ?? TICKS_PER_SECOND)) throw new Error(`sim: hz=${options.hz} does not divide ${TICKS_PER_SECOND}`);
+  const wasmPath = options.wasm ?? WASM_PATH;
+  if (!existsSync(wasmPath)) throw new Error(`sim: the wasm core is missing: ${wasmPath}`);
+  if (!existsSync(options.js)) throw new Error(`sim: the bundle is missing: ${options.js}`);
+  const app = options.app ?? options.js.replace(/^.*[\\/]/, "").replace(/\.js$/, "");
+  const viewport = options.viewport ?? {};
+  const density = viewport.rasterDensity ?? 1;
+  const wasm = await createWasmUi(await Bun.file(wasmPath).arrayBuffer(), viewport);
+  const ops = wasm.ops as unknown as Record<string, unknown> & {
+    debugInspect?: (id: number) => void;
+    debugRectXY?: () => number;
+    debugRectWH?: () => number;
+    hitTestBounds?: (x: number, y: number) => number;
+    hitTestBoundsAuxiliary?: (x: number, y: number) => number;
+    __viewport: { w: number; h: number };
+    __auxiliarySurface?: { root: number; w: number; h: number };
+  };
+
+  const logs: GuestLog[] = [];
+  const effects: EffectEvent[] = [];
+  let frames = 0;
+  let failure: GuestFailure | null = null;
+
+  // The guest's console is the process's. While guest code runs, its lines
+  // are kept with the frame that wrote them and printed nowhere.
+  const host = globalThis.console as unknown as Record<string, (...args: unknown[]) => void>;
+  const guest = <T>(run: () => T): T => {
+    const kept = LOG_LEVELS.map((level) => host[level]);
+    LOG_LEVELS.forEach((level) => {
+      host[level] = (...args: unknown[]) => void logs.push({ frame: frames, level, text: logText(args) });
+    });
+    try {
+      return run();
+    } finally {
+      LOG_LEVELS.forEach((level, index) => (host[level] = kept[index]!));
+    }
+  };
+
+  const g = globalThis as Record<string, unknown>;
+  g.ui = wasm.ops;
+  g.__pak = options.pak && existsSync(options.pak) ? await Bun.file(options.pak).arrayBuffer() : undefined;
+  g.frame = undefined;
+  g.offload = undefined;
+  g.audio = undefined;
+  g.db = undefined;
+  g.fs = undefined;
+  g.__pocketApp = app;
+  g.__simHz = hz;
+  g.__pocketEffectTrace = (e: EffectEvent) => effects.push(e);
+  g.__pocketEffectDriver = undefined;
+  // No DevTools transport: the tree is read from the core, so the guest runs as it does in a browser realm.
+  g.__pocketDevtoolsTransport = undefined;
+
+  const source = await Bun.file(options.js).text();
+  try {
+    // The name is what a stack frame inside the bundle carries.
+    guest(() => (0, eval)(`${source}\n//# sourceURL=${app}.js`));
+    if (typeof g.frame !== "function") throw new Error("the bundle installed no frame function (its entry must call mount())");
+  } catch (error) {
+    failure = failureOf(error, "boot", 0);
+  }
+  const appFrame = g.frame as
+    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[]) => void)
+    | undefined;
+
+  let surface = 0;
+  const hitFacts = createTouchHitFacts((x, y) =>
+    surface ? ops.hitTestBoundsAuxiliary?.(x, y) ?? 0 : ops.hitTestBounds?.(x, y) ?? 0,
+  );
+  const ticksPerFrame = TICKS_PER_SECOND / hz;
+
+  const rectOf = (id: number, auxiliary: boolean): SimNode["rect"] => {
+    if (!ops.debugInspect || !ops.debugRectXY || !ops.debugRectWH) return null;
+    // The core records the inspected node's box when it builds the draw list.
+    ops.debugInspect(id);
+    if (auxiliary) wasm.drawHashAuxiliary?.();
+    else wasm.drawHash?.();
+    const xy = ops.debugRectXY();
+    if (xy === -1) return null;
+    const wh = ops.debugRectWH();
+    return [(xy << 16) >> 16, xy >> 16, wh & 0xffff, (wh >> 16) & 0xffff];
+  };
+  const inspect = (wasm as unknown as { inspectNode(id: number): { type: number; text: string; children: number[]; display: number } | null }).inspectNode;
+  const walk = (id: number, auxiliary: boolean, shown: boolean): SimNode | null => {
+    const node = inspect(id);
+    if (!node) return null;
+    const hidden = node.display === DISPLAY_NONE;
+    const children: SimNode[] = [];
+    for (const child of node.children) {
+      const entry = walk(child, auxiliary, shown && !hidden);
+      if (entry) children.push(entry);
+    }
+    return {
+      id,
+      type: NODE_TYPE_NAMES[node.type] ?? "view",
+      text: node.text,
+      hidden,
+      rect: shown && !hidden ? rectOf(id, auxiliary) : null,
+      children,
+    };
+  };
+
+  return {
+    hz,
+    ticksPerFrame,
+    viewport: {
+      width: ops.__viewport.w,
+      height: ops.__viewport.h,
+      rasterDensity: density,
+      auxiliary: ops.__auxiliarySurface ? [ops.__auxiliarySurface.w, ops.__auxiliarySurface.h] : null,
+    },
+    get frames() {
+      return frames;
+    },
+    get failure() {
+      return failure;
+    },
+    logs,
+    effects,
+    step(input = {}) {
+      if (failure || !appFrame) return false;
+      surface = input.surface === "auxiliary" ? 1 : 0;
+      const touches = input.touches?.length
+        ? input.touches.map((contact) => __packTouchWide(contact.id ?? 0, Math.round(contact.x), Math.round(contact.y)))
+        : undefined;
+      try {
+        guest(() => {
+          appFrame(input.buttons ?? 0, input.analog ?? 0x8080, touches, hitFacts(touches), touches?.map(() => surface));
+          for (let t = 0; t < ticksPerFrame; t++) wasm.tick();
+        });
+      } catch (error) {
+        failure = failureOf(error, "frame", frames);
+        return false;
+      }
+      frames++;
+      return true;
+    },
+    pixels(which = "primary") {
+      if (which === "auxiliary") {
+        const aux = ops.__auxiliarySurface;
+        if (!aux) throw new Error("sim: this world has no auxiliary surface");
+        return { width: aux.w, height: aux.h, rgba: wasm.renderAuxiliary().slice() };
+      }
+      return {
+        width: ops.__viewport.w * density,
+        height: ops.__viewport.h * density,
+        rgba: (density === 1 ? wasm.render() : wasm.renderScaled(density)).slice(),
+      };
+    },
+    tree(which = "primary") {
+      const auxiliary = which === "auxiliary";
+      const root = auxiliary ? ops.__auxiliarySurface?.root : PRIMARY_ROOT;
+      if (!root) return null;
+      try {
+        return walk(root, auxiliary, true);
+      } finally {
+        // Drop the inspection so the next render paints no highlight.
+        ops.debugInspect?.(0);
+        wasm.drawHash?.();
+        if (auxiliary) wasm.drawHashAuxiliary?.();
+      }
     },
   };
 }

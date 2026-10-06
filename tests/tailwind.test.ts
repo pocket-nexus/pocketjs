@@ -8,6 +8,8 @@ import {
   fontSlotFor,
   paletteColor,
   parseClassLiteral,
+  suspectClassLiteral,
+  unknownUtilities,
 } from "../framework/compiler/tailwind.ts";
 import {
   ANIM_FILL_BACKWARDS,
@@ -545,5 +547,38 @@ describe("baked keyframe animations", () => {
     const b = parseClassLiteral("animate-fadeB")!;
     expect(a.animation!.anims[0]).toBe(b.animation!.anims[0]);
     registerAnimationTheme(undefined);
+  });
+});
+
+describe("literals that do not compile", () => {
+  test("unknownUtilities names the unsupported tokens in source order", () => {
+    expect(unknownUtilities("flex-row items-centre gap-2")).toEqual(["items-centre"]);
+    expect(unknownUtilities("w-[52] hiden bg-[#ff5f9e] txt-lg")).toEqual(["hiden", "txt-lg"]);
+    expect(unknownUtilities("focus:bg-red-500 active:scale-95 sm:p-2")).toEqual(["sm:p-2"]);
+    expect(unknownUtilities("hiden")).toEqual(["hiden"]);
+  });
+
+  test("a literal that compiles has none, and a loud rule is not an unknown utility", () => {
+    expect(unknownUtilities("flex-row items-center gap-2 transition-colors duration-150 animate-spin")).toEqual([]);
+    // `hover:` and `rounded-full` without a size are reported by parseClassLiteral itself.
+    expect(unknownUtilities("hover:bg-red-500")).toEqual([]);
+    expect(unknownUtilities("rounded-full bg-red-500")).toEqual([]);
+    expect(unknownUtilities("animate-loop-[0s]")).toEqual([]);
+    expect(unknownUtilities("animate-loop-[4x]")).toEqual(["animate-loop-[4x]"]);
+  });
+
+  test("suspectClassLiteral takes a class string with a mistake and leaves prose alone", () => {
+    expect(suspectClassLiteral("text-xl font-bold txt-center")).toEqual(["txt-center"]);
+    expect(suspectClassLiteral("absolute rounded-[12] bg-[#231b3b] ovrflow-hidden")).toEqual(["ovrflow-hidden"]);
+    // Every token compiles: nothing to report.
+    expect(suspectClassLiteral("text-xl font-bold")).toBeNull();
+    // Sentences, names, one word, a list of words with no utility among them.
+    expect(suspectClassLiteral("Tap to start")).toBeNull();
+    expect(suspectClassLiteral("game over")).toBeNull();
+    expect(suspectClassLiteral("hiden")).toBeNull();
+    expect(suspectClassLiteral("left right up down")).toBeNull();
+    expect(suspectClassLiteral("bob 0.9s ease-in-out infinite")).toBeNull();
+    // As many unsupported tokens as supported ones reads as text, not as a class string.
+    expect(suspectClassLiteral("flex wrong-one")).toBeNull();
   });
 });

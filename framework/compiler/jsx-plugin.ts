@@ -82,7 +82,7 @@ const SOLID_UNIVERSAL_RUNTIME_PATH = fileURLToPath(
 
 const PACKAGE_NAME = "@pocketjs/framework";
 const CACHE_DIR = fileURLToPath(new URL("../../.cache/transforms/", import.meta.url));
-const CACHE_VERSION = "2"; // manual backstop; compiler sources are hashed in below
+const CACHE_VERSION = "3"; // manual backstop; compiler sources are hashed in below
 const COMPILER_DIR = new URL("./", import.meta.url).pathname;
 
 /**
@@ -201,6 +201,15 @@ export function parseFramework(value: string | undefined, source: string): Pocke
   throw new Error(`PocketJS ${source}: framework must be "solid", "vue-vapor" or "octane"`);
 }
 
+/** A string literal and where the source wrote it: 1-based line and column. */
+export interface LiteralSite {
+  literal: string;
+  line: number;
+  column: number;
+  /** Whether the literal is the value of a JSX `class` attribute, or one branch of it. */
+  inClass: boolean;
+}
+
 export interface TransformResult {
   /** ESM JS: JSX compiled for the selected framework. */
   code: string;
@@ -208,11 +217,20 @@ export interface TransformResult {
   classStrings: string[];
   /** Every codepoint appearing in any collected literal. */
   textCodepoints: Set<number>;
+  /**
+   * Each string literal in a `class` attribute, and each literal of two or
+   * more words anywhere else, with its place in the file. The build reports
+   * the ones that did not compile (tools/build.ts). Empty for a Vue SFC and
+   * for a module a lowering rewrote: the collector's positions are then not
+   * the file's.
+   */
+  literalSites: LiteralSite[];
 }
 
 interface Collected {
   classStrings: string[];
   textCodepoints: Set<number>;
+  literalSites: LiteralSite[];
 }
 
 export type BuildFeatures = Readonly<Record<string, boolean>>;
@@ -262,17 +280,60 @@ function makeCollector(out: Collected, framework: PocketFramework): PluginObj {
       out.classStrings.push(s);
     }
   };
+  // The literals a `class` attribute holds: its string value, or the string
+  // branches of the ternaries and `&&` / `||` / `??` chains in its expression.
+  const classNodes = new Set<object>();
+  const markClass = (node: { type: string } | null | undefined): void => {
+    if (!node) return;
+    const n = node as unknown as Record<string, { type: string }>;
+    switch (node.type) {
+      case "StringLiteral":
+      case "TemplateLiteral":
+        classNodes.add(node);
+        return;
+      case "JSXExpressionContainer":
+      case "ParenthesizedExpression":
+      case "TSAsExpression":
+      case "TSSatisfiesExpression":
+      case "TSNonNullExpression":
+        return markClass(n.expression);
+      case "ConditionalExpression":
+        markClass(n.consequent);
+        return markClass(n.alternate);
+      case "LogicalExpression":
+        markClass(n.left);
+        return markClass(n.right);
+    }
+  };
+  const site = (node: object, literal: string, loc: { start: { line: number; column: number } } | null | undefined): void => {
+    const inClass = classNodes.has(node);
+    // Outside a class attribute one word says nothing: it compiles or it is ordinary text.
+    if (!loc || literal.trim() === "" || (!inClass && !/\S\s+\S/.test(literal))) return;
+    out.literalSites.push({ literal, line: loc.start.line, column: loc.start.column + 1, inClass });
+  };
   return {
     name: "pocketjs-collect",
     visitor: {
       Program: {
         enter(program) {
+          // First, so every literal below knows whether a class attribute holds it.
+          program.traverse({
+            JSXAttribute(path) {
+              const name = path.node.name;
+              if (name.type === "JSXIdentifier" && name.name === "class") markClass(path.node.value);
+            },
+          });
           program.traverse({
             StringLiteral(path) {
               add(path.node.value);
+              site(path.node, path.node.value, path.node.loc);
             },
             TemplateLiteral(path) {
               for (const q of path.node.quasis) add(q.value.cooked ?? q.value.raw);
+              if (path.node.expressions.length === 0 && path.node.quasis.length === 1) {
+                const quasi = path.node.quasis[0]!;
+                site(path.node, quasi.value.cooked ?? quasi.value.raw, path.node.loc);
+              }
             },
             JSXText(path) {
               const raw = path.node.extra?.raw;
@@ -381,6 +442,7 @@ interface CacheEntry {
   code: string;
   classStrings: string[];
   textCodepoints: number[];
+  literalSites: LiteralSite[];
 }
 
 function resolvePackageSubpath(spec: string): string | null {
@@ -452,9 +514,12 @@ export async function transformFile(
   // Contract dependencies can change without changing the SFC's transform
   // hash, so admission precedes the cache lookup on browser and guest builds.
   if (isVueSfc && hasVueAotContract(src, path)) checkVueAotSource(src, path);
+  const written = src;
   const solidAot = framework === "solid" && path.endsWith(".tsx") ? getSolidAotProgram(path, src, options.entry) : undefined;
   if (solidAot) src = normalizeSolidAotSemantics(src, path, solidAot);
   src = transformCompiledModel(src, path, options.entry) ?? src;
+  // A lowering above rewrote the text, so the collector's positions are not the file's.
+  const positionsHold = src === written;
   const key = await hashKey(path, src, framework, options.features);
   const cacheFile = CACHE_DIR + key + ".json";
   const cached = (await Bun.file(cacheFile).json().catch(() => null)) as CacheEntry | null;
@@ -465,12 +530,13 @@ export async function transformFile(
       code: cached.code,
       classStrings: cached.classStrings,
       textCodepoints: new Set(cached.textCodepoints),
+      literalSites: cached.literalSites ?? [],
     };
   }
 
   if (isVueSfc) {
     const result = compileVueSfc(src, path, { stripTypes: true, checkedAot: true });
-    const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set() };
+    const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set(), literalSites: [] };
     const transformed = await transformAsync(result.code, {
       filename: path,
       presets: [],
@@ -490,16 +556,19 @@ export async function transformFile(
       code: transformed.code!,
       classStrings: collected.classStrings,
       textCodepoints: [...collected.textCodepoints],
+      // The collector read compiled SFC output: its positions are not the file's.
+      literalSites: [],
     };
     await Bun.write(cacheFile, JSON.stringify(entry));
     return {
       code: entry.code,
       classStrings: entry.classStrings,
       textCodepoints: new Set(entry.textCodepoints),
+      literalSites: [],
     };
   }
 
-  const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set() };
+  const collected: Collected = { classStrings: solidAot ? Object.keys(solidAot.styles.ids) : [], textCodepoints: new Set(), literalSites: [] };
   const opts = transformOptions(framework);
   const plugins = [
     ...(options.features === undefined ? [] : [makeFeatureFolder(options.features)]),
@@ -575,9 +644,10 @@ export async function transformFile(
     code: res.code!,
     classStrings: collected.classStrings,
     textCodepoints: [...collected.textCodepoints],
+    literalSites: positionsHold ? collected.literalSites : [],
   };
   await Bun.write(cacheFile, JSON.stringify(entry));
-  return { code: entry.code, classStrings: entry.classStrings, textCodepoints: collected.textCodepoints };
+  return { code: entry.code, classStrings: entry.classStrings, textCodepoints: collected.textCodepoints, literalSites: entry.literalSites };
 }
 
 export function jsxPlugin(

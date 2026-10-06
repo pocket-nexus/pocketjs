@@ -5,8 +5,10 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import ts from "typescript";
+import type { PocketFramework } from "../src/config.ts";
+import { POCKET_FRAMEWORKS, SUBPATHS } from "./subpaths.ts";
 
 export interface AppCheckOptions {
   entry: string;
@@ -161,4 +163,94 @@ export function checkAppTypes(options: AppCheckOptions): AppCheckResult {
   } finally {
     if (!options.keepTemporaryFiles) rmSync(directory, { recursive: true, force: true });
   }
+}
+
+// ---------------------------------------------------------------------------
+// A project with no tsconfig and no packages of its own
+// ---------------------------------------------------------------------------
+
+export interface ProjectCheckOptions {
+  entry: string;
+  /** The PocketJS root whose framework sources and installed packages the project compiles against. */
+  frameworkRoot: string;
+  /** The framework the project's manifest names. Default solid. */
+  framework?: PocketFramework;
+}
+
+const PACKAGE = "@pocketjs/framework";
+
+/**
+ * `@pocketjs/framework[/…]` to the module the compiler resolves it to for
+ * `framework`, read from the subpath registry: the bare form, and each
+ * framework's prefixed form. A subpath a framework does not resolve is left
+ * out, so importing it is the same error here as in the build.
+ */
+export function frameworkPaths(frameworkRoot: string, framework: PocketFramework = "solid"): Record<string, string[]> {
+  const paths: Record<string, string[]> = {};
+  const fileOf = (name: string, fw: PocketFramework): string | undefined => {
+    const decl = SUBPATHS[name];
+    const rel = decl === undefined ? undefined : typeof decl.file === "string" ? decl.file : decl.file[fw];
+    return rel === undefined ? undefined : resolve(frameworkRoot, rel);
+  };
+  for (const name of Object.keys(SUBPATHS)) {
+    const bare = fileOf(name, framework);
+    if (bare) paths[name ? `${PACKAGE}/${name}` : PACKAGE] = [bare];
+    for (const fw of POCKET_FRAMEWORKS) {
+      const prefixed = fileOf(name, fw);
+      if (prefixed) paths[name ? `${PACKAGE}/${fw}/${name}` : `${PACKAGE}/${fw}`] = [prefixed];
+    }
+  }
+  return paths;
+}
+
+/**
+ * Typecheck a project that carries no tsconfig and no node_modules: a game
+ * made outside this repository, compiled against a PocketJS root. The
+ * framework's subpaths resolve through the registry and every other package
+ * (`solid-js`) through that root's node_modules, so the check reads nothing
+ * of the project but its sources and writes nothing into it.
+ *
+ * It reports what the project's own files get wrong: an import that does not
+ * exist, a `style` prop that is no PocketJS prop, a call with the wrong
+ * arguments. A diagnostic inside the PocketJS root is not the author's and is
+ * left out.
+ */
+export function checkProjectTypes(options: ProjectCheckOptions): AppCheckResult {
+  const entry = resolve(options.entry);
+  if (!existsSync(entry)) throw new Error(`PocketJS app check: entry not found: ${entry}`);
+  const root = resolve(options.frameworkRoot);
+  const config = {
+    compilerOptions: {
+      target: "ES2022",
+      module: "ESNext",
+      moduleResolution: "Bundler",
+      lib: ["ES2022"],
+      types: [],
+      strict: true,
+      noEmit: true,
+      jsx: "preserve",
+      allowImportingTsExtensions: true,
+      skipLibCheck: true,
+      baseUrl: root,
+      paths: { ...frameworkPaths(root, options.framework), "*": [resolve(root, "node_modules/*")] },
+    },
+  };
+  const tsconfig = JSON.stringify(config, null, 2) + "\n";
+  const converted = ts.convertCompilerOptionsFromJson(config.compilerOptions, root);
+  const declarations = [resolve(root, "framework/src/jsx.d.ts"), resolve(root, "framework/compiler/app-globals.d.ts")];
+  const program = ts.createProgram({ rootNames: [entry, ...declarations], options: converted.options });
+  const inside = (file: string | undefined): boolean => file !== undefined && resolve(file).startsWith(root + sep);
+  const diagnostics = [...converted.errors, ...ts.getPreEmitDiagnostics(program)]
+    .map(toDiagnostic)
+    .filter((diagnostic) => !inside(diagnostic.file));
+  return {
+    ok: diagnostics.every((diagnostic) => diagnostic.category !== "error"),
+    diagnostics,
+    checkedFiles: program
+      .getSourceFiles()
+      .filter((file) => !file.isDeclarationFile && !inside(file.fileName))
+      .map((file) => resolve(file.fileName))
+      .sort(),
+    artifacts: { tsconfig },
+  };
 }

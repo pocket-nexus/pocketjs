@@ -53,8 +53,31 @@ attributes, so it needs a rule for deciding which strings are styles:
 ```
 
 A label like `"flex the muscles"` never turns into a layout: one unrecognized
-token disqualifies the literal, with no diagnostic. Some literals that do parse
-fail the build instead — see [Loud errors](#loud-errors).
+token disqualifies the literal. Some literals that do parse fail the build
+instead — see [Loud errors](#loud-errors).
+
+The build reports a literal it left out when the source says it was meant as a
+class string:
+
+- **In a `class` attribute** (the attribute's string, or a branch of the
+  ternaries and `&&` / `||` / `??` chains in its expression): every
+  unsupported token is reported with **file, line, column and the token**.
+  `bun tools/build.ts` prints it as a warning; **`--strict-classes` makes it an
+  error** and writes no bundle.
+- **Anywhere else** (a constant, a function that returns the class): reported
+  as a warning in both modes, and only when the literal has **at least two
+  tokens, every token has the shape of a utility, and more of them are
+  supported than not**. `"text-xl font-bold txt-center"` in a constant is
+  reported; `"Tap to start"` is not.
+
+```
+error: app.tsx:42:17: class "flex-row items-centre gap-2" does not compile: unknown utility items-centre
+  warning: layout.ts:8:22: "text-xl font-bold txt-center" reads as a class string and does not compile: unknown utility txt-center
+```
+
+At run time a class string with no record throws on the browser and headless
+hosts (`unknown class "…" - not in the compiled style table`) and counts a miss
+on native hosts, where the node keeps no style from it.
 
 ## How a class attribute resolves
 
@@ -108,8 +131,9 @@ pressed look drops away when the list starts scrolling
 
 Any utility below can carry a variant prefix, with one exception: motion and
 `animate-*` tokens are recognized on the base variant only, so `focus:transition`
-drops **the whole literal** to plain text with no diagnostic. A prefix that is
-not `focus:`, `active:` or `hover:` does the same.
+drops **the whole literal** to plain text. A prefix that is not `focus:`,
+`active:` or `hover:` does the same. In a `class` attribute the build reports
+either one as an unknown utility.
 
 ## Dynamic styling
 

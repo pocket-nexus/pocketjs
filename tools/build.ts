@@ -28,6 +28,9 @@ import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 //   --outdir=<path>              write <app>.js/.pak here instead of dist/
 //                                (external repos build their apps against a
 //                                vendored PocketJS and keep outputs local)
+//   --strict-classes             fail when a `class` attribute holds a literal
+//                                that does not compile; without it the build
+//                                prints the same finding as a warning
 
 import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
@@ -40,12 +43,13 @@ import {
   packagePath,
   parseFramework,
   transformFile,
+  type LiteralSite,
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
 import type { PocketConfig } from "../framework/src/config.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
-import { compileClasses, generateStylesModule } from "../framework/compiler/tailwind.ts";
+import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
@@ -95,6 +99,7 @@ let densityFlag: number | undefined;
 let hzFlag: number | undefined;
 let projectRoot = process.cwd();
 let inputsFile: string | undefined;
+let strictClasses = false;
 const buildInputs = new BuildInputs();
 for (const a of args) {
   if (a.startsWith("--extra-chars=")) extraChars = a.slice("--extra-chars=".length);
@@ -109,6 +114,7 @@ for (const a of args) {
   else if (a.startsWith("--density=")) densityFlag = Number(a.slice("--density=".length));
   else if (a.startsWith("--hz=")) hzFlag = Number(a.slice("--hz=".length));
   else if (a.startsWith("--inputs-file=")) inputsFile = resolvePath(a.slice("--inputs-file=".length));
+  else if (a === "--strict-classes") strictClasses = true;
   else if (!a.startsWith("-")) appArg = a;
 }
 
@@ -280,6 +286,7 @@ function resolveImport(fromFile: string, spec: string): string | null {
 }
 
 const classStrings: string[] = [];
+const literalSites: Array<{ file: string; site: LiteralSite }> = [];
 const seenClass = new Set<string>();
 const codepoints = new Set<number>();
 const visited = new Set<string>();
@@ -304,6 +311,8 @@ async function walk(file: string): Promise<void> {
     }
   }
   for (const cp of res.textCodepoints) codepoints.add(cp);
+  // The framework's own modules are not the app author's to fix.
+  if (!file.startsWith(ROOT + "/framework/")) for (const site of res.literalSites) literalSites.push({ file, site });
   for (const spec of importSpecifiers(src)) {
     const dep = resolveImport(file, spec);
     if (dep) await walk(dep);
@@ -325,6 +334,40 @@ const styles = compileClasses(classStrings);
 if (styles.records.length === 0) {
   console.warn("  tailwind: no class literals compiled — is the app unstyled?");
 }
+// A literal the compiler left out gives its node no style, and nothing at run
+// time says so on a native host. Where the source put it tells two cases
+// apart. In a `class` attribute it was meant as a class string, so each
+// unsupported token is a finding. Anywhere else (a constant, a function that
+// returns the class) it is reported only when it reads as a class string
+// with a mistake in it, and it never fails the build.
+{
+  const shown = (file: string, site: LiteralSite): string => {
+    const base = projectRoot.endsWith("/") ? projectRoot : projectRoot + "/";
+    return `${file.startsWith(base) ? file.slice(base.length) : file}:${site.line}:${site.column}`;
+  };
+  const utilities = (unknown: string[]): string =>
+    `unknown ${unknown.length === 1 ? "utility" : "utilities"} ${unknown.join(", ")}`;
+  const findings: string[] = [];
+  const suspects: string[] = [];
+  for (const { file, site } of literalSites) {
+    if (site.literal in styles.ids) continue;
+    if (site.inClass) {
+      const unknown = unknownUtilities(site.literal);
+      if (unknown.length > 0) findings.push(`${shown(file, site)}: class "${site.literal}" does not compile: ${utilities(unknown)}`);
+    } else {
+      const unknown = suspectClassLiteral(site.literal);
+      if (unknown) suspects.push(`${shown(file, site)}: "${site.literal}" reads as a class string and does not compile: ${utilities(unknown)}`);
+    }
+  }
+  for (const line of suspects) console.warn(`  warning: ${line}`);
+  if (strictClasses && findings.length > 0) {
+    for (const line of findings) console.error(`error: ${line}`);
+    console.error(`PocketJS build: ${findings.length} class literal(s) do not compile. The supported utilities are listed in the styling reference.`);
+    process.exit(1);
+  }
+  for (const line of findings) console.warn(`  warning: ${line}`);
+}
+
 const generatedPath = join(ROOT, "framework/src/styles.generated.ts");
 const generatedStyles = generateStylesModule(styles);
 // Keep the ignored mirror for docs/site tooling and human inspection. Pass 2
