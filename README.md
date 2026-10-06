@@ -1,8 +1,8 @@
 <h1><img src="./site/assets/favicon.svg" width="40" height="40" alt="" align="absmiddle" /> PocketJS</h1>
 
-**Create on every screen you love.** Build apps and games for your favorite
-devices, from a PSP to your desktop, with familiar JavaScript components and a
-compact native runtime.
+**Create UI on every screen you love.** Build apps for your favorite devices,
+from a PSP to your desktop, with familiar JavaScript components and a compact
+native runtime.
 
 [![@pocketjs/framework](https://img.shields.io/npm/v/%40pocketjs%2Fframework?label=%40pocketjs%2Fframework)](https://www.npmjs.com/package/@pocketjs/framework)
 [![@pocketjs/cli](https://img.shields.io/npm/v/%40pocketjs%2Fcli?label=%40pocketjs%2Fcli)](https://www.npmjs.com/package/@pocketjs/cli)
@@ -254,6 +254,11 @@ Apps and games share the same runtime. Cores are **independent native modules,
 loaded the way a kernel loads drivers**: an application takes the ones its
 content needs, such as networking, audio or 3D, and the rest never enters the
 build. The JavaScript uses them beside the same UI and input APIs.
+
+The full 3D stack is a project of its own in this repository.
+[Pocket3D](./pocket3d/README.md) gives a game **a renderer for each console's
+GPU**, and its interface is a PocketJS app drawn over the scene:
+[3d.pocket.nexus](https://3d.pocket.nexus).
 
 ```text
 TypeScript application → guest bundle, one frame at a time

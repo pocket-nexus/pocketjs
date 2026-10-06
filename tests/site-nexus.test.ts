@@ -79,6 +79,9 @@ test("Pocket Studio leads as the product, and the lab's three technologies are n
     ["Pocket3D", "https://3d.pocket.nexus/"],
     ["MicroTS", MICROTS],
   ]);
+  // each technology says what it is for: PocketJS is the interface, Pocket3D the scene
+  expect(menu).toContain("<b>PocketJS</b><small>Create UI on every screen you love</small>");
+  expect(menu).toContain("<b>Pocket3D</b><small>Create 3D for every machine you love</small>");
   expect(home).toContain('const menuEl = $("#tech")');
   // MicroTS has an entry point to open
   expect(existsSync(ROOT + "microts/README.md")).toBe(true);

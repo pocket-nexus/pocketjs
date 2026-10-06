@@ -84,13 +84,6 @@
     calc(var(--u)*-1) calc(var(--u)*4) 0 var(--ar-drop), 0 calc(var(--u)*4) 0 var(--ar-drop), var(--u) calc(var(--u)*4) 0 var(--ar-drop),
     calc(var(--u)*-1) calc(var(--u)*5) 0 var(--ar-drop), 0 calc(var(--u)*5) 0 var(--ar-drop), var(--u) calc(var(--u)*5) 0 var(--ar-drop);
 }
-/* small marks keep the outline and a short drop only */
-:root .ar-sm .ar-ch{
-  text-shadow:
-    var(--u) 0 0 var(--ar-out), calc(var(--u)*-1) 0 0 var(--ar-out), 0 var(--u) 0 var(--ar-out), 0 calc(var(--u)*-1) 0 var(--ar-out),
-    var(--u) var(--u) 0 var(--ar-out), calc(var(--u)*-1) var(--u) 0 var(--ar-out), var(--u) calc(var(--u)*-1) 0 var(--ar-out), calc(var(--u)*-1) calc(var(--u)*-1) 0 var(--ar-out),
-    calc(var(--u)*-1) calc(var(--u)*2) 0 var(--ar-drop), 0 calc(var(--u)*2) 0 var(--ar-drop), var(--u) calc(var(--u)*2) 0 var(--ar-drop);
-}
 :root .ar-y{--f:var(--ar-y);--fd:var(--ar-y-d)}
 :root .ar-p{--f:var(--ar-p);--fd:var(--ar-p-d)}
 :root .ar-c{--f:var(--ar-c);--fd:var(--ar-c-d)}
@@ -99,8 +92,7 @@
 
 @media (prefers-reduced-motion:no-preference){
   :root .hero h1 .ar-ch{animation:ar-drop-in .45s steps(3,end) both;animation-delay:calc(var(--i)*40ms + .1s)}
-  :root .vwrap:hover .ar-ch,
-  :root .mark:hover .ar-ch{animation:ar-hop .4s steps(3,end);animation-delay:calc(var(--i)*35ms)}
+  :root .vwrap:hover .ar-ch{animation:ar-hop .4s steps(3,end);animation-delay:calc(var(--i)*35ms)}
 }
 @keyframes ar-drop-in{0%{transform:translateY(-.6em);opacity:0}34%{opacity:1}67%{transform:translateY(.12em)}100%{transform:none;opacity:1}}
 @keyframes ar-hop{0%,100%{transform:none}40%{transform:translateY(-.25em)}}
@@ -112,12 +104,10 @@
   content:"";position:absolute;left:0;right:0;bottom:-3px;height:3px;pointer-events:none;
   background:repeating-linear-gradient(90deg,var(--ar-p) 0 18px,var(--ar-y) 18px 36px,var(--ar-c) 36px 54px,var(--ar-l) 54px 72px,var(--ar-o) 72px 90px);
 }
-:root .mark{gap:.65rem}
+:root .mark{gap:.55rem}
 :root .mark svg{filter:drop-shadow(0 2px 0 var(--ar-drop))}
-:root .mark .nm.ar-candy{--u:2px;font-size:.95rem;line-height:1;text-transform:none;padding:4.5px 2px}
-/* Press Start 2P draws its capitals high in the line box, about 1/10 em above
-   its center: lower the wordmark by that much to center its letters on the logo */
-:root .mark .nm.ar-candy{position:relative;top:.1em}
+/* the wordmark: white Fredoka 600, as the bar of 3d.pocket.nexus sets "Pocket3D" */
+:root .mark .nm{font:600 1.34rem/1 var(--ar-round);letter-spacing:0;color:var(--ink)}
 :root .nav-links{gap:.5rem;font:400 .66rem/1 var(--ar-px);letter-spacing:.02em;color:var(--ink-2)}
 :root .nav-links > a:not(.ico),
 :root .nav-links .menu-btn{
@@ -381,6 +371,23 @@
 :root .frame .cap b{color:var(--hue);font-weight:600}
 
 /* ================= apps and games ================= */
+/* the way to Pocket3D: its mark, one sentence and its address, as one link */
+:root .p3d{
+  display:flex;align-items:center;gap:1rem;width:fit-content;max-width:100%;margin:0 0 1.7rem;padding:.8rem 1.15rem .85rem .95rem;
+  border:2px solid rgba(var(--hue-rgb),.6);border-radius:16px;background:rgba(var(--hue-rgb),.09);box-shadow:0 4px 0 var(--ar-drop);color:var(--ink);
+  transition:transform .12s ease-out,box-shadow .12s ease-out,background-color .12s;
+}
+:root .p3d:hover{transform:translateY(-2px);box-shadow:0 6px 0 var(--ar-drop);background:rgba(var(--hue-rgb),.15)}
+:root .p3d:active{transform:translateY(2px);box-shadow:0 2px 0 var(--ar-drop)}
+:root .p3d img{width:44px;height:44px;flex:none}
+:root .p3d-copy{display:grid;gap:.25rem;min-width:0;max-width:34rem}
+:root .p3d-copy strong{font:600 1.12rem/1.1 var(--ar-round);letter-spacing:.005em}
+:root .p3d-copy>span{color:var(--ar-soft);font-size:.95rem;line-height:1.45}
+:root .p3d-go{flex:none;margin-left:.6rem;font:600 .95rem/1 var(--ar-round);letter-spacing:.01em;color:var(--hue-l);white-space:nowrap}
+@media (max-width:700px){
+  :root .p3d{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:start;gap:.6rem .9rem;width:auto}
+  :root .p3d-go{grid-column:2;margin-left:0}
+}
 :root .mods-now{font:400 .9rem/1 var(--ar-px);min-width:12rem}
 :root .mods-now i{background:none;-webkit-background-clip:border-box;background-clip:border-box;
   text-shadow:2px 0 0 var(--ar-out),-2px 0 0 var(--ar-out),0 2px 0 var(--ar-out),0 -2px 0 var(--ar-out),2px 2px 0 var(--ar-out),-2px 2px 0 var(--ar-out),2px -2px 0 var(--ar-out),-2px -2px 0 var(--ar-out),0 4px 0 var(--ar-drop),2px 4px 0 var(--ar-drop),-2px 4px 0 var(--ar-drop)}
@@ -559,7 +566,7 @@
     repeating-linear-gradient(90deg,transparent 0 26px,var(--ar-drop) 26px 28px),
     repeating-linear-gradient(90deg,var(--ar-p) 0 28px,var(--ar-y) 28px 56px,var(--ar-c) 56px 84px,var(--ar-l) 84px 112px,var(--ar-o) 112px 140px);
 }
-:root .foot .mark .nm.ar-candy{--u:2px;font-size:.85rem;text-transform:none;padding:4.5px 2px}
+:root .foot .mark .nm{font-size:1.16rem}
 :root .foot .cols2{font:600 .95rem/1 var(--ar-round);letter-spacing:.01em;gap:1.2rem}
 :root .foot .cols2 .fgrp{gap:1.2rem}
 :root .foot .cols2 a{color:var(--ink-2)}
@@ -599,7 +606,9 @@
 
 /* ================= responsive ================= */
 @media (max-width:700px){
-  :root .hero h1{font-size:clamp(1.45rem,7.2vw,2rem);line-height:1.45}
+  /* a line of the headline is twelve letters, each one em wide, in a column 86px
+     narrower than the screen: the size that keeps "Create UI on" on one line */
+  :root .hero h1{font-size:clamp(1.15rem,calc(8.3vw - 7.4px),2rem);line-height:1.45}
   :root .hero h1 .ar-candy{--u:2px}
   :root .plate::before{width:28px;height:28px;right:-9px;top:-14px}
 }
@@ -610,7 +619,7 @@
   :root .nav-links .menu-btn svg{display:none}
   :root .nav-links .ico{width:1.6rem;height:2rem;background:none;border:0;box-shadow:none}
   :root .mark{gap:.4rem}
-  :root .mark .nm.ar-candy{font-size:.7rem}
+  :root .mark .nm{font-size:1.16rem}
   :root .btn{font-size:.62rem;padding:.9rem 1.05rem .85rem}
   :root .vwrap .verb{font-size:clamp(1.05rem,5.4vw,1.3rem)}
   :root .vwrap .verb.ar-candy{--u:2px}
@@ -620,6 +629,18 @@
   :root .pe-strip .pe-entry+.pe-entry{border-left:0;border-top:3px dotted rgba(63,208,232,.2)}
   :root .doc-content > h1.ar-candy,
   :root main > section > h1.ar-candy{font-size:1.4rem}
+}
+/* a 320px screen: the bar's three buttons and the module panel's title fit the width */
+@media (max-width:350px){
+  :root .nav-links{gap:.22rem}
+  :root .nav-links > a:not(.ico),
+  :root .nav-links .menu-btn{padding:0 .34rem}
+  :root .nav .wrap{padding-inline:.7rem}
+  :root .mark{gap:.35rem}
+  :root .mark .nm{font-size:1rem}
+  :root .mods-head{flex-direction:column;align-items:flex-start;gap:.7rem}
+  :root .mods-now{min-width:0;width:100%;height:.9rem;font-size:.8rem}
+  :root .mods-now i{right:auto;left:0}
 }
 
 @media (prefers-reduced-motion:reduce){

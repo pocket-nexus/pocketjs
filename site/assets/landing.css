@@ -401,7 +401,9 @@
     linear-gradient(180deg, rgba(var(--shade-rgb),.93) 0%, rgba(var(--shade-rgb),.96) 50%, rgba(var(--shade-rgb),.92) 100%),
     radial-gradient(ellipse 90% 80% at 50% 50%, transparent 46%, rgba(var(--shade-rgb),.75) 100%)}
   .hero-note{position:static;margin:1.6rem clamp(1.25rem,4vw,2.5rem) 0;text-align:left}
-  .cols,.chartset,.vs{grid-template-columns:1fr}
+  /* !important: four sections set their column ratio in a style attribute */
+  .cols{grid-template-columns:minmax(0,1fr) !important}
+  .chartset,.vs{grid-template-columns:1fr}
   .eco{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:620px){

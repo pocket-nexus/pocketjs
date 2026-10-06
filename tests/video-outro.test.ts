@@ -13,7 +13,7 @@ describe("branding defaults", () => {
   test("uses the current three-line PocketJS positioning", () => {
     const result = parseArgs(["-i", import.meta.path]);
     expect(result.tagline).toBe(DEFAULT_TAGLINE);
-    expect(result.tagline.split("\n")).toEqual(["Create on", "every screen", "you love."]);
+    expect(result.tagline.split("\n")).toEqual(["Create UI on", "every screen", "you love."]);
   });
 
   test("keeps an explicitly supplied tagline unchanged", () => {

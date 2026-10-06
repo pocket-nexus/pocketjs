@@ -10,10 +10,10 @@ const arcade = readFileSync(ROOT + "site/assets/arcade.css", "utf8");
 
 test("headlines are split into candy letters in the HTML, with their text kept once", () => {
   const html = candyHeadings(
-    '<section class="hero"><h1><span class="spectrum lit">Create on<br>every screen</span></h1></section>' +
+    '<section class="hero"><h1><span class="spectrum lit">Create UI on<br>every screen</span></h1></section>' +
       '<div class="vwrap"><h2 class="verb" id="t">Input &amp; <code>focus</code></h2></div>',
   );
-  expect(html).toContain('<span class="spectrum lit ar-candy"><span class="ar-sr">Create on every screen</span>');
+  expect(html).toContain('<span class="spectrum lit ar-candy"><span class="ar-sr">Create UI on every screen</span>');
   expect(html).toContain('<span class="ar-vis" aria-hidden="true">');
   // one sticker per letter, hues cycling from the target's start, a <br> kept between lines
   expect(html).toContain('<span class="ar-ch ar-p" style="--i:0">C</span><span class="ar-ch ar-y" style="--i:1">r</span>');
@@ -25,9 +25,8 @@ test("headlines are split into candy letters in the HTML, with their text kept o
   expect(html).toContain('id="t"');
 });
 
-test("every page ships its wordmark already split, with the pixel font preloaded", () => {
+test("every page ships its headline already split, with the pixel font preloaded", () => {
   const page = renderPage({ title: "Overview", active: "docs", body: '<article class="doc-content"><h1>Overview</h1></article>' });
-  expect(page).toContain('<span class="nm ar-candy ar-sm"><span class="ar-sr">PocketJS</span>');
   expect(page).toContain('<h1 class="ar-candy"><span class="ar-sr">Overview</span>');
   // arcade.css loads after site.css so it restyles the shared chrome
   expect(page.indexOf("/assets/arcade.css")).toBeGreaterThan(page.indexOf("/assets/site.css"));
@@ -46,10 +45,35 @@ test("every page ships its wordmark already split, with the pixel font preloaded
   expect(build.match(/\$\{PIXEL_FONT_PRELOAD\}/g)).toHaveLength(2);
 });
 
-test("the wordmark centers on the logo and the sponsor button carries no emoji", () => {
-  expect(arcade).toContain(":root .mark .nm.ar-candy{--u:2px;font-size:.95rem;line-height:1;text-transform:none;padding:4.5px 2px}");
-  expect(arcade).toContain(":root .mark .nm.ar-candy{position:relative;top:.1em}");
+test("the wordmark is one run of white rounded text, and the sponsor button carries no emoji", () => {
+  // Fredoka 600 in the ink colour, as 3d.pocket.nexus sets "Pocket3D": no
+  // candy letters, so nothing to hop on hover.
+  const page = renderPage({ title: "Overview", active: "docs", body: '<article class="doc-content"><h1>Overview</h1></article>' });
+  expect(page).toContain('<span class="nm">PocketJS</span>');
+  expect(arcade).toContain(':root .mark .nm{font:600 1.34rem/1 var(--ar-round);letter-spacing:0;color:var(--ink)}');
+  expect(arcade).not.toContain(".mark:hover");
+  expect(arcade).not.toContain(".nm.ar-candy");
+  expect(arcade).not.toContain(".ar-sm");
+  expect(readFileSync(ROOT + "site/candy.ts", "utf8")).not.toContain(".mark .nm");
   const home = readFileSync(ROOT + "site/home.html", "utf8");
+  expect(home.split('<span class="nm">PocketJS</span>')).toHaveLength(3);
   const cta = home.slice(home.indexOf('class="btn btn--pri spon-cta"'));
   expect(cta.slice(0, cta.indexOf("</a>"))).not.toMatch(/\p{Extended_Pictographic}/u);
+});
+
+test("a phone gets one column per section and the headline on three lines", () => {
+  const landing = readFileSync(ROOT + "site/assets/landing.css", "utf8");
+  const home = readFileSync(ROOT + "site/home.html", "utf8");
+  // Four sections give .cols its ratio in a style attribute, which a plain rule
+  // in the narrow-screen query cannot override.
+  expect(home.split('<div class="cols" style="grid-template-columns:').length - 1).toBe(4);
+  const narrow = landing.slice(landing.indexOf("@media (max-width:1000px){"));
+  expect(narrow.slice(0, narrow.indexOf("\n}"))).toContain(".cols{grid-template-columns:minmax(0,1fr) !important}");
+  // Twelve letters a line, one em each, in a column 86px narrower than the screen.
+  expect(home).toContain("Create UI on<br>every screen<br>you love");
+  expect(arcade).toContain(":root .hero h1{font-size:clamp(1.15rem,calc(8.3vw - 7.4px),2rem);line-height:1.45}");
+  for (const screen of [320, 360, 390, 430]) {
+    const size = Math.min(32, Math.max(18.4, screen * 0.083 - 7.4));
+    expect(size * 12).toBeLessThanOrEqual(screen - 86);
+  }
 });
