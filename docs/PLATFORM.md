@@ -104,6 +104,48 @@ Design rules:
   host-input record. The device compares target, ABI, tick rate, viewport,
   density, presentation, and host-profile SHA-256 before exposing JS/PAK spans.
 
+## Generic runtimes and the repack step
+
+A generic runtime is one prebuilt host per device with no app in it. It
+reads `app.pocket` at boot, checks the footer hash, takes the variant for
+its own target and refuses a variant whose host ABI differs from its own.
+A runtime that finds no file, or a file it refuses, shows one line on screen
+that names the fault. The embedded-app build stays: the built-in games and
+the dev loops use it.
+
+The repack step turns a runtime and a game's `.pocket` into the device's
+installation package in TypeScript, with no native tool and no network:
+
+```
+bun tools/runtime.ts psp            # dist/runtime/psp/EBOOT.PBP + runtime.json
+bun tools/repack.ts --target psp --runtime dist/runtime/psp --pocket game.pocket \
+  --id <id> --title <title> --author <author> --version <version> [--icon icon.png] -o game.zip
+```
+
+`runtime.json` records `target`, `hostAbi`, the PocketJS commit, the device
+profile and each file's size and SHA-256. `tools/repack/<target>.ts` exports
+`repack<Target>({ runtime, pocket, identity })`: the runtime's files as bytes
+by path, the `.pocket` bytes and the identity (id, title, author, version, a
+square PNG icon). `tools/repack/shared/runtime.ts` refuses a runtime for
+another target or with a file that differs from `runtime.json`, a `.pocket`
+whose footer does not verify, one with no variant for the target, a host ABI
+that differs from `runtime.json`, and an app id other than the identity's.
+The package carries the `.pocket` thinned to the target's variant. The other
+shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`
+(1980-01-01 dates, entries in the given order, `CompressionStream` deflate),
+`png.ts`, `scale.ts`, `sfo.ts` (PARAM.SFO) and `crc32.ts`.
+
+| Target | Runtime reads | Package |
+| --- | --- | --- |
+| `3ds-dev` | `romfs:/app.pocket` | `.3dsx` (hosts/3ds/README.md) |
+| `psp` | `app.pocket` in the EBOOT's folder (the module's argv[0] directory) into one kernel block before the arena reserves the rest | `.zip`: `PSP/GAME/Studio<Name>/EBOOT.PBP` (PARAM.SFO with the game's `TITLE` and `MEMSIZE = 1`, ICON0 144×80 from the icon, the runtime's `DATA.PSP` unchanged) and `app.pocket` beside it; a plan that asks for `io.offload` is refused |
+
+On the PSP the game file takes the place of the embedded build's rodata
+copy: with twenty48 (723 KB file) the arena's free block measured
+**10 KB smaller** than the embedded build, on a PSP under PSPLINK and in
+PPSSPP. `MEMSIZE = 1` gives a PSP-2000 or 3000 started from the XMB the
+52 MB user partition; the PSP-1000 ignores it.
+
 ## Dynamic install & runtime admission
 
 - **Loading**: the eval path already treats bundles as data — the PSP host

@@ -79,3 +79,19 @@ export function squareIcon(image: RgbaImage, size: number): RgbaImage {
   }
   return scaleRgba(image, size, size);
 }
+
+/**
+ * `image` scaled to fit inside `width` x `height` with its aspect kept,
+ * centred on a transparent canvas of that size (the PSP's 144 x 80 ICON0
+ * holds a square icon this way).
+ */
+export function fitRgba(image: RgbaImage, width: number, height: number): RgbaImage {
+  const scale = Math.min(width / image.width, height / image.height);
+  const w = Math.max(1, Math.round(image.width * scale));
+  const h = Math.max(1, Math.round(image.height * scale));
+  const scaled = scaleRgba(image, w, h);
+  const rgba = new Uint8Array(width * height * 4);
+  const x0 = Math.floor((width - w) / 2), y0 = Math.floor((height - h) / 2);
+  for (let y = 0; y < h; y++) rgba.set(scaled.rgba.subarray(y * w * 4, (y + 1) * w * 4), ((y0 + y) * width + x0) * 4);
+  return { width, height, rgba };
+}

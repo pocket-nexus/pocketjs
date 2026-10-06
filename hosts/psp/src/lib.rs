@@ -31,6 +31,8 @@ mod framebuffer;
 pub mod ge;
 pub mod host;
 pub mod pak;
+#[cfg(feature = "runtime")]
+pub mod package_file;
 pub mod qjs_alloc;
 pub mod stats;
 pub mod svc;

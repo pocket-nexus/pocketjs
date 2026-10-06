@@ -15,6 +15,11 @@
 // used by tests/e2e/ppsspp.ts, never by normal builds.
 // --bench additionally enables native microsecond timing output to
 // ms0:/PocketJS-bench.jsonl and implies --capture.
+//
+// --runtime builds the generic runtime instead of an app's EBOOT (cargo
+// feature `runtime`, POCKETJS_EMBED_APP=0): no app is built or embedded, and
+// the EBOOT reads app.pocket from its own folder at boot. tools/runtime/psp.ts
+// runs this and collects the output.
 
 import { $ } from "bun";
 import { createHash } from "node:crypto";
@@ -55,6 +60,7 @@ let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
 let skipBuild = false;
 let launcherRegistry = "";
+let runtime = false;
 const cargoArgs: string[] = [];
 const buildFlags: string[] = [];
 for (const a of argv) {
@@ -83,12 +89,17 @@ for (const a of argv) {
   else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
   else if (a.startsWith("--outdir=")) outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
   else if (a === "--skip-build") skipBuild = true;
+  else if (a === "--runtime") runtime = true;
   else if (!appArg && !a.startsWith("-")) appArg = a;
   else cargoArgs.push(a);
 }
-const features = [capture ? "capture" : "", bench ? "bench" : ""].filter(Boolean);
+const features = [capture ? "capture" : "", bench ? "bench" : "", runtime ? "runtime" : ""].filter(Boolean);
 if (features.length > 0) cargoArgs.push("--features", features.join(","));
-if (!appArg && !planPath) {
+if (runtime && (appArg || planPath || launcherRegistry)) {
+  console.error("PocketJS psp: --runtime builds an EBOOT without an app; give no app, --plan or --launcher-registry");
+  process.exit(1);
+}
+if (!appArg && !planPath && !runtime) {
   console.error("usage: bun tools/psp.ts <app> [--plan=<resolved-plan.json>] [--capture|--bench] [cargo args…]   e.g. bun tools/psp.ts hero --release");
   process.exit(1);
 }
@@ -138,7 +149,7 @@ async function loadConfig(): Promise<PocketConfig> {
   return mod.default ?? mod.config ?? {};
 }
 
-const config = buildPlan ? {} : await loadConfig();
+const config = buildPlan || runtime ? {} : await loadConfig();
 const framework: PocketFramework = buildPlan
   ? parseFramework(buildPlan.app.framework, "ResolvedBuildPlan")
   : frameworkFlag
@@ -152,8 +163,9 @@ const outputApp = buildPlan
 // 1. Build the app bundle + pak -> dist/<app>.js + dist/<app>.pak
 // ---------------------------------------------------------------------------
 
-console.log(`PocketJS psp: building app "${app}" (framework=${framework})`);
-if (!skipBuild) {
+if (runtime) console.log("PocketJS psp: building the generic runtime (no app; reads app.pocket)");
+else console.log(`PocketJS psp: building app "${app}" (framework=${framework})`);
+if (!skipBuild && !runtime) {
   if (buildPlan) {
     await $`bun tools/build.ts --plan=${planPath!} --project-root=${projectRoot} --outdir=${outputDir}`.cwd(pspUiDir);
   } else {
@@ -184,7 +196,7 @@ const frameworkFragmentHome = `${fragmentBase}/${framework}`;
 const fragmentHome = existsSync(`${frameworkFragmentHome}/Psp.toml`)
   ? frameworkFragmentHome
   : fragmentBase;
-const xmbFragment = `${fragmentHome}/Psp.toml`;
+const xmbFragment = runtime ? `${pspUiDir}hosts/psp/runtime/Psp.toml` : `${fragmentHome}/Psp.toml`;
 const xmbFragmentLabel = xmbFragment.startsWith(pspUiDir)
   ? xmbFragment.slice(pspUiDir.length)
   : xmbFragment;
@@ -294,8 +306,8 @@ const hostEnvironment = buildPlan
       embedApp: true,
     })
   : {
-      POCKETJS_APP_OUTPUT: outputApp,
-      POCKETJS_EMBED_APP: "1",
+      POCKETJS_APP_OUTPUT: runtime ? "" : outputApp,
+      POCKETJS_EMBED_APP: runtime ? "0" : "1",
       POCKETJS_OUTPUT_DIR: outputDir,
       POCKETJS_TARGET: "psp",
       POCKETJS_HOST_ABI: "1",
@@ -367,7 +379,7 @@ function outputProfile(args: string[]): string {
   return args.includes("--release") || args.includes("-r") ? "release" : "debug";
 }
 
-console.log(`PocketJS psp: cargo psp (app=${outputApp})`);
+console.log(`PocketJS psp: cargo psp (app=${runtime ? "none, runtime" : outputApp})`);
 await $`${toolchain.rustup} run ${toolchain.manifest.rust.toolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
 
 const profile = outputProfile(cargoArgs);

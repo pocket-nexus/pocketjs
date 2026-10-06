@@ -86,6 +86,8 @@ const SUITE: readonly Stage[] = [
       "tests/3ds-runtime-wire.test.ts",
       "tests/repack-3ds.test.ts",
       "tests/repack-shared.test.ts",
+      "tests/repack-sfo.test.ts",
+      "tests/repack-psp.test.ts",
       "tests/3ds-soc.test.ts",
       "tests/iphone2g-profile.test.ts",
       "tests/iphone4s-profile.test.ts",

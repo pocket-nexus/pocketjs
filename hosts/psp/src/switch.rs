@@ -22,27 +22,57 @@ use pocketjs_core::{spec, Ui};
 include!(concat!(env!("OUT_DIR"), "/apps.rs"));
 
 /// The bytes a guest boots from — extracted zero-copy from the entry's
-/// embedded `.pocket` (package mode), or the classic inline embed. `js`
-/// includes its NUL terminator (eval with len - 1). None = a malformed
-/// package or a variant this target does not carry; main.rs routes that
-/// through the broken-guest path.
+/// embedded `.pocket` (package mode), from `app.pocket` beside the EBOOT
+/// (the generic runtime, feature `runtime`), or the classic inline embed.
+/// `js` includes its NUL terminator (eval with len - 1).
 pub struct GuestBytes {
     pub js: &'static [u8],
     pub pak: &'static [u8],
 }
 
-pub fn guest_bytes(index: usize) -> Option<GuestBytes> {
+/// Why a guest has no bytes; main.rs routes it through the broken-guest
+/// path with `message()` on screen.
+pub enum GuestFault {
+    /// An embedded package that does not parse or carries no variant for
+    /// this target.
+    Embedded,
+    /// The generic runtime's `app.pocket` (package_file.rs).
+    #[cfg(feature = "runtime")]
+    File(crate::package_file::Fault),
+}
+
+impl GuestFault {
+    pub fn message(&self) -> String {
+        match self {
+            GuestFault::Embedded => String::from("embedded package unreadable for this target"),
+            #[cfg(feature = "runtime")]
+            GuestFault::File(fault) => fault.message(),
+        }
+    }
+}
+
+pub fn guest_bytes(index: usize) -> Result<GuestBytes, GuestFault> {
+    #[cfg(feature = "runtime")]
+    if index == 0 {
+        // SAFETY: package_file::load ran on the main thread before the
+        // worker started, and nothing writes its state again.
+        let game = unsafe { crate::package_file::game() }.map_err(GuestFault::File)?;
+        return Ok(GuestBytes { js: game.js, pak: game.pak });
+    }
     let app = &APPS[index];
     if app.pocket.is_empty() {
-        return Some(GuestBytes { js: app.js.as_bytes(), pak: app.pak });
+        return Ok(GuestBytes { js: app.js.as_bytes(), pak: app.pak });
     }
     // Embedded packages were hashed into the build identity at pack time —
     // skip the footer walk at boot (filesystem loads must NOT skip it).
-    let pkg = Package::parse(app.pocket, true).ok()?;
-    let variant = pkg.find_variant(env!("POCKETJS_TARGET")).ok()??;
-    let js = variant.section(package::section::JS).ok()??;
-    let pak = variant.section(package::section::PAK).ok()?.unwrap_or(&[]);
-    Some(GuestBytes { js, pak })
+    let embedded = || -> Option<GuestBytes> {
+        let pkg = Package::parse(app.pocket, true).ok()?;
+        let variant = pkg.find_variant(env!("POCKETJS_TARGET")).ok()??;
+        let js = variant.section(package::section::JS).ok()??;
+        let pak = variant.section(package::section::PAK).ok()?.unwrap_or(&[]);
+        Some(GuestBytes { js, pak })
+    };
+    embedded().ok_or(GuestFault::Embedded)
 }
 
 /// Shot geometry (spec op 41; hosts/sim/shot.ts is the sim twin). The FULL

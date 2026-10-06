@@ -16,6 +16,7 @@ type Repack = (input: RepackInput) => Promise<Uint8Array>;
 const TARGETS: Record<string, () => Promise<Repack>> = {
   "3ds": async () => (await import("./repack/3ds.ts")).repack3ds,
   android: async () => (await import("./repack/android.ts")).repackAndroid,
+  psp: async () => (await import("./repack/psp.ts")).repackPsp,
 };
 
 /** Every file below `directory`, by "/"-separated relative path. */

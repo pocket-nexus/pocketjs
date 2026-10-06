@@ -369,6 +369,15 @@ unsafe fn bench_maybe_flush(frame_count: u32) {
 
 unsafe fn boot() {
     trace_reset();
+    // The generic runtime reads its game here: on the module's main thread,
+    // in the EBOOT's folder (rust-psp changed to it), and before the first
+    // allocation, so app.pocket takes a kernel block of its own and the arena
+    // reserves the rest (src/package_file.rs).
+    #[cfg(feature = "runtime")]
+    {
+        pocketjs_psp::package_file::load();
+        trace("boot: app.pocket read");
+    }
     trace("boot: creating worker thread");
     host::run_on_worker(worker_main, run);
 }
@@ -470,6 +479,18 @@ unsafe fn guest_fail(app_index: usize, msg: &str) -> usize {
     }
 }
 
+/// The generic runtime without a game it can start: one line on the debug
+/// screen saying what is wrong with app.pocket, then park (HOME exits).
+#[cfg(feature = "runtime")]
+unsafe fn refuse(line: &str) -> ! {
+    trace_pair(b"[PocketJS runtime] ", line);
+    psp::dprintln!("{}", line);
+    psp::dprintln!("Press HOME to exit.");
+    loop {
+        sys::sceDisplayWaitVblankStart();
+    }
+}
+
 /// Boot embedded app `app_index`, drive it until a switch request, tear the
 /// guest down, and return the next app index to boot.
 unsafe fn run_guest(
@@ -482,8 +503,11 @@ unsafe fn run_guest(
     // Package mode extracts js/pak zero-copy from the entry's embedded
     // `.pocket`; single-app mode reads the classic inline embed. A package
     // that fails to parse routes through the broken-guest rule.
-    let Some(guest) = switch::guest_bytes(app_index) else {
-        return guest_fail(app_index, "embedded package unreadable for this target");
+    let guest = match switch::guest_bytes(app_index) {
+        Ok(guest) => guest,
+        #[cfg(feature = "runtime")]
+        Err(switch::GuestFault::File(fault)) => refuse(&fault.message()),
+        Err(fault) => return guest_fail(app_index, &fault.message()),
     };
     let app_js = guest.js;
     let app_pak = guest.pak;

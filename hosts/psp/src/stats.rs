@@ -52,6 +52,16 @@ pub static SVC_TRUNC_RESETS: AtomicU32 = AtomicU32::new(0);
 /// "stats" message — extend, never rename.
 pub fn json() -> String {
     let r = |c: &AtomicU32| c.load(Ordering::Relaxed);
+    // Memory: the arena's one block (what QuickJS and the core share), the
+    // largest free kernel block when it was reserved, and the bytes of the
+    // generic runtime's app.pocket block (0 when the game is embedded).
+    // SAFETY: the QuickJS worker is the only thread that touches the arena.
+    let arena = unsafe { crate::arena::stats() };
+    #[cfg(feature = "runtime")]
+    // SAFETY: written once at boot, before the worker started.
+    let app_file = unsafe { crate::package_file::game() }.map(|g| g.file_bytes).unwrap_or(0);
+    #[cfg(not(feature = "runtime"))]
+    let app_file = 0usize;
     format!(
         concat!(
             "{{\"app\":\"{}\",\"bundle\":\"{}\",",
@@ -59,7 +69,9 @@ pub fn json() -> String {
             "\"releaseTimeouts\":{},\"pushedFrames\":{}}},",
             "\"vid\":{{\"presented\":{},\"torn\":{},\"lapped\":{},\"epochs\":{},",
             "\"hdrFails\":{},\"bytes\":{}}},",
-            "\"svc\":{{\"truncResets\":{}}}}}"
+            "\"svc\":{{\"truncResets\":{}}},",
+            "\"memory\":{{\"arenaCapacity\":{},\"arenaInitFree\":{},\"arenaBump\":{},",
+            "\"arenaTailFree\":{},\"appFile\":{},\"maxFree\":{}}}}}"
         ),
         env!("POCKETJS_APP"),
         env!("POCKETJS_BUNDLE_HASH"),
@@ -75,5 +87,12 @@ pub fn json() -> String {
         r(&VID_HDR_FAILS),
         r(&VID_BYTES),
         r(&SVC_TRUNC_RESETS),
+        arena.capacity_bytes,
+        arena.init_free_bytes,
+        arena.bump_bytes,
+        arena.tail_free_bytes,
+        app_file,
+        // SAFETY: a read-only kernel query.
+        unsafe { psp::sys::sceKernelMaxFreeMemSize() },
     )
 }
