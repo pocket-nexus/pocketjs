@@ -823,22 +823,13 @@ ${body}
 
 // The /for/ pages share the homepage's bespoke chrome (home.css, no shared
 // Tailwind shell): site/for/shell.html holds the nav + footer, and
-// site/for/<slug>.html the main content. Linked from the use-case cards.
+// site/for/<slug>.html the main content. Games and 3D have no page here: that
+// subject belongs to Pocket3D and its own site.
 const FOR_PAGES = [
   {
     slug: "interfaces",
     title: "PocketJS for user interfaces",
     desc: "Components, signals and Tailwind classes in Solid, Vue Vapor or Octane become one native tree that runs on every machine in the registry.",
-  },
-  {
-    slug: "games",
-    title: "PocketJS for games",
-    desc: "Rust engine cores under JavaScript gameplay: OpenStrike holds a locked 60 fps on a 333 MHz PSP while the HUD stays a Solid app.",
-  },
-  {
-    slug: "worlds",
-    title: "PocketJS for 3D worlds",
-    desc: "Pocket3D cooks a scene once and renders it through wgpu, sceGu, GXM and OpenGL ES, up to VRM humans with spring-bone physics.",
   },
   {
     slug: "agents",

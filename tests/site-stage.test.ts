@@ -69,8 +69,6 @@ test("homepage ships the four-chapter landing", () => {
     "site/home.html",
     "site/for/shell.html",
     "site/for/interfaces.html",
-    "site/for/games.html",
-    "site/for/worlds.html",
     "site/for/agents.html",
   ]) {
     const source = readFileSync(ROOT + file, "utf8");
@@ -187,6 +185,11 @@ test("homepage ships the four-chapter landing", () => {
   const build0 = readFileSync(ROOT + "site/build.ts", "utf8");
   expect(build0).toContain("renderForPage");
   expect(build0).toContain('for/shell.html');
+  // Two of them: games and 3D are Pocket3D's subject, with a site of their own.
+  expect([...build0.slice(build0.indexOf("const FOR_PAGES = [")).matchAll(/slug: "([a-z]+)"/g)].map((m) => m[1])).toEqual(["interfaces", "agents"]);
+  expect(readdirSync(ROOT + "site/for").sort()).toEqual(["agents.html", "interfaces.html", "shell.html"]);
+  const forLinks = [...readFileSync(ROOT + "site/for/shell.html", "utf8").matchAll(/href="\/for\/([a-z]+)\/"/g)].map((m) => m[1]);
+  expect(forLinks).toEqual(["interfaces", "agents"]);
   expect(build0).toContain('copy(SITE + "assets/home.css", "assets/home.css")');
 
   // Homepage glue and styles: landing.css/landing.js, with home.css kept for /for/.
