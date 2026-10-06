@@ -32,6 +32,7 @@ import {
 
 import { MOTO_G_PLAY_TARGET, resolveMotoGPlayBuildPlan } from "./moto-g-play-profile.ts";
 import { REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "./redmi-1s-profile.ts";
+import { ANDROID_DEFAULT_ICON, bakeAndroidLauncherIcons } from "./android-icon.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 
 /**
@@ -65,6 +66,8 @@ const projectRoot = resolve(option("project-root") ?? repository);
 const outOption = option("out");
 /** Signed with the Pocket Nexus Android release key and not debuggable. */
 const release = argv.includes("--release");
+/** The launcher icon's source: a square PNG of at least 192 pixels a side, or an SVG. Default: PocketJS's mark. */
+const iconOption = option("icon");
 
 interface AndroidAbi {
   /** The APK's `lib/<abi>` directory. */
@@ -392,7 +395,8 @@ function packageApk(identity: PackageIdentity, resources: string, assets: string
   // Before any packaging: a release without its key stops here.
   const signer = signerArguments();
   const compiled = join(build, "app-res.zip");
-  mustRun(join(buildTools, "aapt2"), ["compile", "--dir", resources, "-o", compiled]);
+  // `--no-crunch`: the launcher icons go in as tools/android-icon.ts wrote them, byte for byte.
+  mustRun(join(buildTools, "aapt2"), ["compile", "--no-crunch", "--dir", resources, "-o", compiled]);
   const manifest = join(build, "AndroidManifest.xml");
   writeFileSync(
     manifest,
@@ -659,9 +663,15 @@ function guestBundle(): GuestBundle {
   });
 }
 
-function buildApp(): void {
+async function buildApp(): Promise<void> {
   requireToolchain();
   resetBuild();
+  // Before any compile: an icon the tool refuses stops the build here.
+  const iconSource = iconOption ? resolve(iconOption) : join(repository, ANDROID_DEFAULT_ICON);
+  if (!existsSync(iconSource)) throw new Error(`${LABEL}: no icon at ${iconSource}`);
+  const resources = join(build, "resources");
+  cpSync(join(appHost, "res"), resources, { recursive: true });
+  const icons = await bakeAndroidLauncherIcons(iconSource, resources);
   const bundle = guestBundle();
   const libraries = abis.map((abi) => {
     const coreLibrary = buildRustCore(abi);
@@ -675,8 +685,6 @@ function buildApp(): void {
   copyFileSync(bundle.javaScript, join(assets, "app.js"));
   copyFileSync(bundle.pack, join(assets, "app.pak"));
   const identity = packageIdentity(bundle.inputs.app);
-  const resources = join(build, "resources");
-  cpSync(join(appHost, "res"), resources, { recursive: true });
   writeFileSync(
     join(resources, "values/strings.xml"),
     renderTemplate(readFileSync(join(appHost, "res/values/strings.xml"), "utf8"), {
@@ -684,17 +692,15 @@ function buildApp(): void {
       TITLE: xmlEscape(identity.title).replace(/'/g, "\\'"),
     }),
   );
-  mkdirSync(join(resources, "drawable"), { recursive: true });
-  copyFileSync(
-    join(repository, "assets/images/logo.png"),
-    join(resources, "drawable/icon.png"),
-  );
   const { signature, certificateSha256, badging } = packageApk(identity, resources, assets);
   for (const marker of [
     `package: name='${identity.packageId}' versionCode='${identity.versionCode}' versionName='${identity.version}'`,
     `sdkVersion:'${minSdkVersion}'`,
     `targetSdkVersion:'${targetSdkVersion}'`,
     ...abis.map(abi => `'${abi.abi}'`),
+    "application-icon-160:'res/mipmap-mdpi-v4/icon.png'",
+    "application-icon-320:'res/mipmap-xhdpi-v4/icon.png'",
+    "application-icon-640:'res/mipmap-xxxhdpi-v4/icon.png'",
   ]) {
     if (!badging.includes(marker)) {
       throw new Error(`${LABEL}: APK badging is missing ${marker}`);
@@ -721,6 +727,11 @@ function buildApp(): void {
     },
     signer: {
       certificateSha256,
+    },
+    icon: {
+      source: iconSource.startsWith(repository) ? iconSource.slice(repository.length) : iconSource,
+      sha256: icons.sourceSha256,
+      files: icons.files.map(({ density, size, sha256 }) => ({ density, size, sha256 })),
     },
     guest: {
       javaScript: sha256File(bundle.javaScript),
@@ -750,10 +761,13 @@ function buildApp(): void {
 
 const USAGE =
   `usage: bun tools/android.ts [--profile=${Object.keys(PROFILES).join("|")}] <doctor|setup|build-demo|build-app|build>\n` +
-  `       build-app --plan=<plan.json> [--project-root=<dir>] [--out=<file.apk>] [--release]`;
+  `       build-app [--plan=<plan.json> [--project-root=<dir>]] [--out=<file.apk>] [--icon=<png|svg>] [--release]`;
 
 if (planOption && command !== "build-app" && command !== "build") {
   throw new Error(`${LABEL}: --plan goes with build-app\n${USAGE}`);
+}
+if (iconOption && !/\.(png|svg)$/i.test(iconOption)) {
+  throw new Error(`${LABEL}: --icon names a .png or an .svg file`);
 }
 if (outOption && !outOption.endsWith(".apk")) {
   throw new Error(`${LABEL}: --out names an .apk file`);
@@ -770,11 +784,11 @@ switch (command) {
     buildGuestBundle(guest);
     break;
   case "build-app":
-    buildApp();
+    await buildApp();
     break;
   case "build":
     if (!planOption) buildGuestBundle(guest);
-    buildApp();
+    await buildApp();
     break;
   default:
     throw new Error(USAGE);

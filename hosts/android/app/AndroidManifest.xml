@@ -2,7 +2,8 @@
 <!-- Template: package identity is rendered from the resolved build plan by
      tools/android.ts (packageIdentity); this file is not the source
      of the app id or version. The SDK levels come from the profile's
-     toolchain file, and a release build is not debuggable. -->
+     toolchain file, a release build is not debuggable, and the launcher
+     icon is one file a density (tools/android-icon.ts). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="@POCKET_PACKAGE@"
     android:versionCode="@POCKET_VERSION_CODE@"
@@ -16,7 +17,7 @@
         android:allowBackup="false"
         android:debuggable="@POCKET_DEBUGGABLE@"
         android:hardwareAccelerated="true"
-        android:icon="@drawable/icon"
+        android:icon="@mipmap/icon"
         android:label="@string/app_name"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
         <activity

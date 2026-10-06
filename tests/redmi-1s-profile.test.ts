@@ -62,7 +62,7 @@ test("the Android manifest takes its SDK levels and its debuggable flag from the
   expect(rendered).not.toContain("@POCKET_");
 });
 
-test("the Android CLI refuses a plan outside build-app and an output that is not an .apk", () => {
+test("the Android CLI refuses a plan outside build-app, an output that is not an .apk and an icon that is neither a .png nor an .svg", () => {
   const run = (...args: string[]) => Bun.spawnSync([process.execPath, "tools/android.ts", "--profile=redmi-1s", ...args], { stdout: "pipe", stderr: "pipe" });
   const plan = run("doctor", "--plan=plan.json");
   expect(plan.exitCode).not.toBe(0);
@@ -70,4 +70,7 @@ test("the Android CLI refuses a plan outside build-app and an output that is not
   const out = run("build-app", "--plan=plan.json", "--out=clear.zip");
   expect(out.exitCode).not.toBe(0);
   expect(out.stderr.toString()).toContain("--out names an .apk file");
+  const icon = run("build-app", "--icon=icon.jpg");
+  expect(icon.exitCode).not.toBe(0);
+  expect(icon.stderr.toString()).toContain("--icon names a .png or an .svg file");
 });

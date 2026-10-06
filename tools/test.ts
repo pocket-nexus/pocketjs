@@ -127,6 +127,7 @@ const SUITE: readonly Stage[] = [
       "tests/clear-candidate-panel.test.ts",
       "tests/moto-g-play-profile.test.ts",
       "tests/redmi-1s-profile.test.ts",
+      "tests/android-icon.test.ts",
       "tests/offload-provider.test.ts",
       "tests/companion-session.test.ts",
       "tests/resource-cache.test.ts",

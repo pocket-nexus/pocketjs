@@ -61,7 +61,7 @@ followed by `build-app` (the libraries, the Activity and the package).
 
 ```sh
 bun tools/android.ts --profile=redmi-1s build-app \
-  --plan=<plan.json> --project-root=<dir> --out=<file.apk> [--release]
+  --plan=<plan.json> --project-root=<dir> --out=<file.apk> [--icon=<png|svg>] [--release]
 ```
 
 - `--plan` is a plan resolved for the profile's target, for example by
@@ -74,6 +74,28 @@ bun tools/android.ts --profile=redmi-1s build-app \
 - `--out` is the APK's path (default: the toolchain file's output).
 - The build directory is `.pocket-build/<profile>`, so builds of one profile
   run one at a time.
+
+## The launcher icon
+
+**The package carries one icon file a density**: `mipmap-mdpi` to
+`mipmap-xxxhdpi` at 48, 72, 96, 144 and 192 pixels (`tools/android-icon.ts`).
+A launcher draws the file of its own bucket. A single bitmap in
+`res/drawable` is an mdpi file, which an xhdpi launcher scales up by 2.
+
+- **`--icon=<file>` names the source**: a square PNG of at least 192 pixels a
+  side, or an SVG that declares its width and height. Without it the source
+  is PocketJS's mark on its plum ground, `assets/brand/pocketjs-avatar-dark.svg`.
+- **Each file is made from the source once.** A bitmap is averaged down: a
+  destination pixel is the mean of the source area it covers, in
+  premultiplied colour. A vector is rastered for each size at four samples a
+  pixel in each direction.
+- **A source is never scaled up.** The tool refuses a bitmap under 192
+  pixels a side and one that is not square, before the first compile.
+- aapt2 runs with `--no-crunch`, so the files in the package are the bytes
+  the tool wrote.
+
+Art that fills the square to its corners suits a launcher that cuts its own
+shape: MIUI V5 masks the icon to its rounded plate.
 
 ## Signing
 
@@ -103,7 +125,8 @@ date, adds them with `zip -X` in a fixed order, and links each library with
 The receipt stands beside the APK (`<profile>.receipt.json` for the default
 output, `<name>.receipt.json` for `--out=<name>.apk`). It records the plan
 hash, the package identity, `release`, both SDK levels, the APK's size and
-SHA-256, **`signer.certificateSha256`**, each library's ABI, API level, size,
+SHA-256, **`signer.certificateSha256`**, the icon's source with its SHA-256
+and the SHA-256 of each density's file, each library's ABI, API level, size,
 SHA-256 and ELF summary, and the `apksigner verify` and `aapt dump badging`
 output.
 
@@ -125,6 +148,13 @@ adb shell run-as dev.pocket_nexus.clear cat files/runtime.txt   # a development 
 MIUI V5 shows two confirmation screens on the phone for each `adb install`,
 and `adb exec-out` is absent on Android 4.3: `adb shell screencap -p
 /sdcard/frame.png` followed by `adb pull` takes a frame.
+
+**The MIUI V5 launcher keeps the bitmap of an icon it has drawn.** After a
+package is replaced, and after an uninstall followed by an install, the
+launcher page shows the earlier icon until the launcher restarts: `adb shell
+am force-stop com.miui.home`, then the Home key. MIUI writes the plated icon
+it will draw to `/data/system/customized_icons/<package>.png` (136 pixels a
+side) at install time; `adb pull` reads it.
 
 Measured with Pocket Clear on the Redmi 1S at 55 °C: **`tick_us` 1600 to 2000
 and `render_us` 1500 to 1900 on the Lists screen at rest and under repeated
