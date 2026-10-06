@@ -1,0 +1,22 @@
+name: Runtimes and repack
+on:
+  pull_request:
+    paths: [".github/workflows/repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-*.test.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "hosts/android/**"]
+  push:
+    branches: [main]
+    paths: [".github/workflows/repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-*.test.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "hosts/android/**"]
+permissions:
+  contents: read
+jobs:
+  repack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      # Every repack step's tests (tests/repack-<target>.test.ts). Steps that
+      # run SDK tools skip that part where the SDK is absent.
+      - run: bun test tests/repack-

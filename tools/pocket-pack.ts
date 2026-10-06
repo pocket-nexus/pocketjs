@@ -6,6 +6,7 @@ import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 //   bun tools/pocket-pack.ts build --manifest apps/hero/pocket.json \
 //       --target psp --target vita [-o dist/packages/hero.pocket]
 //   bun tools/pocket-pack.ts build --manifest ... --all-targets
+//   bun tools/pocket-pack.ts build --manifest game/pocket.json --project-root game --target psp
 //   bun tools/pocket-pack.ts inspect <file.pocket>
 //   bun tools/pocket-pack.ts thin <file.pocket> --target psp -o out.pocket
 //   bun tools/pocket-pack.ts verify <file.pocket>
@@ -30,6 +31,8 @@ import {
   THREE_DS_DEV_CONTRACTS,
   THREE_DS_DEV_TARGET_ID,
 } from "./3ds-profile.ts";
+import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "./redmi-1s-profile.ts";
+import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "./moto-g-play-profile.ts";
 import {
   POCKET_SECTION,
   decodePocketPackage,
@@ -50,7 +53,7 @@ function usage(message?: string): never {
   if (message) console.error(`pocket-pack: ${message}`);
   console.error(
     "usage:\n" +
-      "  bun tools/pocket-pack.ts build --manifest <pocket.json> (--target <t>)+ | --all-targets [-o <file>]\n" +
+      "  bun tools/pocket-pack.ts build --manifest <pocket.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
       "  bun tools/pocket-pack.ts inspect <file.pocket>\n" +
       "  bun tools/pocket-pack.ts thin <file.pocket> --target <t> [-o <file>]\n" +
       "  bun tools/pocket-pack.ts verify <file.pocket>",
@@ -106,28 +109,36 @@ export function makeVariant(input: {
   return { target: input.target, hostAbi: input.hostAbi, sections };
 }
 
+/**
+ * Device-profile targets outside POCKET_TARGETS: each resolves against its
+ * own contract registry and compiles from the resolved plan (tools/build.ts
+ * --plan), as its native host tool does.
+ */
+const PROFILE_TARGETS: Readonly<Record<string, Parameters<typeof validateAndResolveBuildPlan>[2]>> = {
+  [THREE_DS_DEV_TARGET_ID]: THREE_DS_DEV_CONTRACTS,
+  [REDMI_1S_TARGET]: REDMI_1S_CONTRACTS,
+  [MOTO_G_PLAY_TARGET]: MOTO_G_PLAY_CONTRACTS,
+};
+
 function resolveTarget(manifest: unknown, target: string) {
-  return validateAndResolveBuildPlan(
-    manifest,
-    { target },
-    target === THREE_DS_DEV_TARGET_ID ? THREE_DS_DEV_CONTRACTS : undefined,
-  );
+  return validateAndResolveBuildPlan(manifest, { target }, PROFILE_TARGETS[target]);
 }
 
 async function compileTarget(
   manifestPath: string,
   target: string,
   plan: ResolvedBuildPlan,
+  projectRoot: string,
 ): Promise<string> {
   const outdir = join(ROOT, ".pocket-build", target);
   mkdirSync(outdir, { recursive: true });
-  const command = target === THREE_DS_DEV_TARGET_ID
+  const command = target in PROFILE_TARGETS
     ? [
         "bun",
         "tools/build.ts",
         `--plan=${join(outdir, "plan.json")}`,
-        "--project-root=.",
-        `--outdir=${relative(ROOT, outdir)}`,
+        `--project-root=${projectRoot}`,
+        `--outdir=${outdir}`,
       ]
     : [
         "bun",
@@ -138,11 +149,11 @@ async function compileTarget(
         "--manifest",
         manifestPath,
         "--project-root",
-        ".",
+        projectRoot,
         "--outdir",
-        relative(ROOT, outdir),
+        outdir,
       ];
-  if (target === THREE_DS_DEV_TARGET_ID) {
+  if (target in PROFILE_TARGETS) {
     writeFileSync(join(outdir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`);
   }
   const p = Bun.spawnSync(
@@ -155,6 +166,7 @@ async function compileTarget(
 
 async function buildCommand(argv: string[]): Promise<void> {
   let manifestPath = "";
+  let projectRoot = ROOT;
   let output = "";
   let allTargets = false;
   const targets: string[] = [];
@@ -162,6 +174,7 @@ async function buildCommand(argv: string[]): Promise<void> {
     const a = argv.shift()!;
     if (a === "--manifest") manifestPath = resolve(argv.shift() ?? usage("--manifest needs a value"));
     else if (a === "--target") targets.push(argv.shift() ?? usage("--target needs a value"));
+    else if (a === "--project-root") projectRoot = resolve(argv.shift() ?? usage("--project-root needs a value"));
     else if (a === "--all-targets") allTargets = true;
     else if (a === "-o" || a === "--output") output = resolve(argv.shift() ?? usage("-o needs a value"));
     else usage(`unknown option ${a}`);
@@ -184,7 +197,7 @@ async function buildCommand(argv: string[]): Promise<void> {
       throw new Error(`pocket-pack: ${target} does not admit this manifest (${codes})`);
     }
     const plan = resolution.plan;
-    const outdir = await compileTarget(manifestPath, target, plan);
+    const outdir = await compileTarget(manifestPath, target, plan, projectRoot);
     const js = new Uint8Array(readFileSync(join(outdir, `${plan.app.output}.js`)));
     const pakPath = join(outdir, `${plan.app.output}.pak`);
     const pak = existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0);

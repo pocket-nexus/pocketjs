@@ -130,6 +130,55 @@ and the SHA-256 of each density's file, each library's ABI, API level, size,
 SHA-256 and ELF summary, and the `apksigner verify` and `aapt dump badging`
 output.
 
+## A game without a compile: the runtime and the repack
+
+**The native library takes four values from the profile and none from the
+app** (target id, host ABI, logical viewport, raster density), so every app
+of a profile links the same `libpocketjs.so` and `classes.dex`. The runtime
+build makes them once, with no guest; the repack adds a game to them.
+
+```sh
+bun tools/runtime.ts android        # dist/runtime/android/ with runtime.json
+bun tools/pocket-pack.ts build --manifest <pocket.json> --project-root <dir> \
+  --target redmi-1s-dev -o game.pocket
+bun tools/repack.ts --target android --runtime dist/runtime/android --pocket game.pocket \
+  --id <id> --title <title> --author <author> --version <x.y.z> [--icon <square.png>] -o game.apk
+```
+
+- **The runtime directory** holds `lib/armeabi-v7a/libpocketjs.so`,
+  `lib/arm64-v8a/libpocketjs.so`, `classes.dex`, the manifest and string
+  templates, the default icon at the five densities, and `runtime.json`:
+  target `redmi-1s-dev`, host ABI 9, the PocketJS commit, the SDK levels and
+  the size and SHA-256 of each file. **Its libraries and `classes.dex` are
+  the bytes `build-app` links** at the same commit.
+- **`tools/repack/android.ts` checks before it writes**: the runtime's files
+  against `runtime.json`, the `.pocket` footer, a `redmi-1s-dev` variant at
+  host ABI 9, and the variant's viewport against the runtime's. Any mismatch
+  stops the repack with the reason.
+- It writes the variant's bundle (without the section's NUL terminator) and
+  pack as `assets/app.js` and `assets/app.pak`, the two files
+  `PocketActivity` reads; renders the manifest (package name = the id with
+  each `-` as `_`, the version code as above, `android:debuggable="false"`)
+  and the label; and scales `--icon`, a square PNG of any size, to the five
+  densities. Without `--icon` the runtime's default icon goes in.
+- **The native steps are one function**, `AndroidNativeSteps`
+  (`tools/repack/android-native.ts`): aapt2 compile and link, the merge with
+  `classes.dex` and the libraries, `zipalign -p 4`, `apksigner sign` (v1 + v2)
+  and `apksigner verify`. The steps before it are TypeScript with no file
+  system, so a container can run the native function for a caller that has
+  no SDK.
+- **A repacked game is signed with the Pocket Studio community key, never
+  the Pocket Nexus release key.** `POCKET_STUDIO_COMMUNITY_KEY` names the
+  PKCS #12 keystore, default
+  `~/.config/pocket-nexus/signing/pocket-studio-community.p12`, alias
+  `pocket-studio-community`; the password is the first line of the
+  `.password` file beside it, read by apksigner. The certificate's SHA-256 is
+  `POCKET_STUDIO_COMMUNITY_SIGNER` in `tools/repack/android.ts`, and the
+  native step refuses an APK that verifies under another certificate.
+- **The same inputs give the same APK bytes**: every entry the merge writes is
+  dated 1980-01-01, the entries keep a fixed order, and v1 + v2 signatures
+  with an RSA key carry no time.
+
 ## On the device
 
 A running host rewrites `files/runtime.txt` in its private directory every 60

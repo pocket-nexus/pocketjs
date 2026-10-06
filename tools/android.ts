@@ -3,6 +3,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   utimesSync,
@@ -30,23 +31,55 @@ import {
   xmlEscape,
 } from "./native-host-build.ts";
 
-import { MOTO_G_PLAY_TARGET, resolveMotoGPlayBuildPlan } from "./moto-g-play-profile.ts";
-import { REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "./redmi-1s-profile.ts";
+import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET, resolveMotoGPlayBuildPlan } from "./moto-g-play-profile.ts";
+import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "./redmi-1s-profile.ts";
 import { ANDROID_DEFAULT_ICON, bakeAndroidLauncherIcons } from "./android-icon.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 
+/** The target values the native library is compiled with: the same for every app of a profile. */
+interface NativeInputs {
+  readonly target: string;
+  readonly hostAbi: number;
+  readonly rasterDensity: number;
+  readonly logical: readonly [number, number];
+}
+
 /**
  * One Android host (hosts/android), built for a named device profile. A
- * profile is its target id, the resolver of that target, and the toolchain
- * file `tools/cli/<profile>-toolchain.json`.
+ * profile is its target id, the resolver of that target, the target's
+ * contract (where `runtime` reads the native inputs), and the toolchain file
+ * `tools/cli/<profile>-toolchain.json`.
  */
 const PROFILES: Readonly<Record<string, {
   readonly target: string;
   readonly resolvePlan: (manifest: unknown) => ResolvedBuildPlan;
+  readonly nativeInputs: () => NativeInputs;
 }>> = {
-  "moto-g-play": { target: MOTO_G_PLAY_TARGET, resolvePlan: resolveMotoGPlayBuildPlan },
-  "redmi-1s": { target: REDMI_1S_TARGET, resolvePlan: resolveRedmi1sBuildPlan },
+  "moto-g-play": {
+    target: MOTO_G_PLAY_TARGET,
+    resolvePlan: resolveMotoGPlayBuildPlan,
+    nativeInputs: () => contractInputs(MOTO_G_PLAY_TARGET, MOTO_G_PLAY_CONTRACTS.targets[MOTO_G_PLAY_TARGET]),
+  },
+  "redmi-1s": {
+    target: REDMI_1S_TARGET,
+    resolvePlan: resolveRedmi1sBuildPlan,
+    nativeInputs: () => contractInputs(REDMI_1S_TARGET, REDMI_1S_CONTRACTS.targets[REDMI_1S_TARGET]),
+  },
 };
+function contractInputs(target: string, contract: {
+  readonly hostAbi: number;
+  readonly display: { readonly logicalViewports: readonly (readonly [number, number])[]; readonly rasterDensity: number };
+}): NativeInputs {
+  if (contract.display.logicalViewports.length !== 1) {
+    throw new Error(`${target}: a runtime is built for one logical viewport, and the contract lists ${contract.display.logicalViewports.length}`);
+  }
+  return {
+    target,
+    hostAbi: contract.hostAbi,
+    rasterDensity: contract.display.rasterDensity,
+    logical: contract.display.logicalViewports[0],
+  };
+}
 const argv = Bun.argv.slice(2);
 function option(name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -537,7 +570,7 @@ function buildQuickJs(abi: AndroidAbi): string {
   return library;
 }
 
-function buildNativeLibrary(abi: AndroidAbi, bundle: GuestBundle, quickJsLibrary: string, coreLibrary: string): string {
+function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrary: string, coreLibrary: string): string {
   const clang = clangFor(abi);
   const objects = join(build, "objects", abi.abi);
   mkdirSync(objects, { recursive: true });
@@ -560,9 +593,9 @@ function buildNativeLibrary(abi: AndroidAbi, bundle: GuestBundle, quickJsLibrary
   const portableRuntime = join(objects, "pocket_runtime.o");
   mustRun(clang, [
     ...cFlags,
-    `-DPOCKETJS_TARGET_ID="${bundle.inputs.target}"`,
-    `-DPOCKETJS_HOST_ABI=${bundle.inputs.hostAbi}`,
-    `-DPOCKET_RASTER_DENSITY=${bundle.inputs.viewport.rasterDensity}`,
+    `-DPOCKETJS_TARGET_ID="${inputs.target}"`,
+    `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
+    `-DPOCKET_RASTER_DENSITY=${inputs.rasterDensity}`,
     `-I${join(repository, "engine/quickjs-c")}`,
     `-I${join(repository, "engine/ui-cabi/include")}`,
     `-I${join(repository, "contracts/generated")}`,
@@ -575,8 +608,8 @@ function buildNativeLibrary(abi: AndroidAbi, bundle: GuestBundle, quickJsLibrary
   const androidRuntime = join(objects, "android_runtime.o");
   mustRun(clang, [
     ...cFlags,
-    `-DPOCKET_LOGICAL_WIDTH=${bundle.inputs.viewport.logical[0]}`,
-    `-DPOCKET_LOGICAL_HEIGHT=${bundle.inputs.viewport.logical[1]}`,
+    `-DPOCKET_LOGICAL_WIDTH=${inputs.logical[0]}`,
+    `-DPOCKET_LOGICAL_HEIGHT=${inputs.logical[1]}`,
     `-I${join(repository, "engine/quickjs-c")}`,
     `-I${join(repository, "hosts/blackberry-classic")}`,
     `-I${join(repository, "contracts/generated")}`,
@@ -640,6 +673,15 @@ function buildNativeLibrary(abi: AndroidAbi, bundle: GuestBundle, quickJsLibrary
   return nativeLibrary;
 }
 
+/** The Rust core, QuickJS and the host, linked into staging/lib/<abi>/libpocketjs.so for each ABI. */
+function buildNativeLibraries(inputs: NativeInputs): Array<{ abi: AndroidAbi; path: string }> {
+  return abis.map((abi) => {
+    const coreLibrary = buildRustCore(abi);
+    const quickJsLibrary = buildQuickJs(abi);
+    return { abi, path: buildNativeLibrary(abi, inputs, quickJsLibrary, coreLibrary) };
+  });
+}
+
 /** The ELF header and dynamic section, with the build attributes where this NDK's readelf prints them (`-A`, LLVM 11 and later). */
 function elfSummary(library: string): string {
   const full = run(readelf, ["-h", "-A", "-d", library]);
@@ -673,10 +715,11 @@ async function buildApp(): Promise<void> {
   cpSync(join(appHost, "res"), resources, { recursive: true });
   const icons = await bakeAndroidLauncherIcons(iconSource, resources);
   const bundle = guestBundle();
-  const libraries = abis.map((abi) => {
-    const coreLibrary = buildRustCore(abi);
-    const quickJsLibrary = buildQuickJs(abi);
-    return { abi, path: buildNativeLibrary(abi, bundle, quickJsLibrary, coreLibrary) };
+  const libraries = buildNativeLibraries({
+    target: bundle.inputs.target,
+    hostAbi: bundle.inputs.hostAbi,
+    rasterDensity: bundle.inputs.viewport.rasterDensity,
+    logical: bundle.inputs.viewport.logical,
   });
   compileActivity();
 
@@ -759,9 +802,45 @@ async function buildApp(): Promise<void> {
   console.log(`Receipt: ${receiptPath}`);
 }
 
+/**
+ * The game-independent part of an APK for this profile, into `--out=<dir>`:
+ * `lib/<abi>/libpocketjs.so` for each ABI and `classes.dex` (the same files
+ * build-app links for any app of the profile, since the library takes only
+ * the profile's target values), the manifest and string templates, and the
+ * default launcher icon in `res/mipmap-<density>/icon.png`. No guest, no
+ * signature: tools/runtime/android.ts writes runtime.json beside them and
+ * tools/repack/android.ts adds a game.
+ */
+async function buildRuntime(): Promise<void> {
+  if (!outOption) throw new Error(`${LABEL}: runtime needs --out=<directory>`);
+  const out = resolve(outOption);
+  // The directory is replaced: refuse one that holds anything but an earlier runtime, before any compile.
+  if (existsSync(out) && readdirSync(out).length && !existsSync(join(out, "classes.dex"))) {
+    throw new Error(`${LABEL}: ${out} is not empty and holds no earlier runtime; runtime replaces its --out directory`);
+  }
+  requireToolchain();
+  resetBuild();
+  const inputs = PROFILES[profile].nativeInputs();
+  const libraries = buildNativeLibraries(inputs);
+  compileActivity();
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  for (const { abi, path } of libraries) {
+    mkdirSync(join(out, "lib", abi.abi), { recursive: true });
+    copyFileSync(path, join(out, "lib", abi.abi, "libpocketjs.so"));
+  }
+  copyFileSync(join(staging, "classes.dex"), join(out, "classes.dex"));
+  copyFileSync(join(appHost, "AndroidManifest.xml"), join(out, "AndroidManifest.xml"));
+  mkdirSync(join(out, "res/values"), { recursive: true });
+  copyFileSync(join(appHost, "res/values/strings.xml"), join(out, "res/values/strings.xml"));
+  await bakeAndroidLauncherIcons(join(repository, ANDROID_DEFAULT_ICON), join(out, "res"));
+  console.log(`${LABEL}: runtime -> ${out} (${inputs.target}, host ABI ${inputs.hostAbi}, ${inputs.logical.join("x")} at ${inputs.rasterDensity})`);
+}
+
 const USAGE =
-  `usage: bun tools/android.ts [--profile=${Object.keys(PROFILES).join("|")}] <doctor|setup|build-demo|build-app|build>\n` +
-  `       build-app [--plan=<plan.json> [--project-root=<dir>]] [--out=<file.apk>] [--icon=<png|svg>] [--release]`;
+  `usage: bun tools/android.ts [--profile=${Object.keys(PROFILES).join("|")}] <doctor|setup|build-demo|build-app|build|runtime>\n` +
+  `       build-app [--plan=<plan.json> [--project-root=<dir>]] [--out=<file.apk>] [--icon=<png|svg>] [--release]\n` +
+  `       runtime --out=<directory>`;
 
 if (planOption && command !== "build-app" && command !== "build") {
   throw new Error(`${LABEL}: --plan goes with build-app\n${USAGE}`);
@@ -769,7 +848,7 @@ if (planOption && command !== "build-app" && command !== "build") {
 if (iconOption && !/\.(png|svg)$/i.test(iconOption)) {
   throw new Error(`${LABEL}: --icon names a .png or an .svg file`);
 }
-if (outOption && !outOption.endsWith(".apk")) {
+if (outOption && command !== "runtime" && !outOption.endsWith(".apk")) {
   throw new Error(`${LABEL}: --out names an .apk file`);
 }
 
@@ -789,6 +868,9 @@ switch (command) {
   case "build":
     if (!planOption) buildGuestBundle(guest);
     await buildApp();
+    break;
+  case "runtime":
+    await buildRuntime();
     break;
   default:
     throw new Error(USAGE);
