@@ -77,3 +77,12 @@ test("a phone gets one column per section and the headline on three lines", () =
     expect(size * 12).toBeLessThanOrEqual(screen - 86);
   }
 });
+
+test("the bar's buttons are set in the wordmark's rounded face, not the pixel face", () => {
+  expect(arcade).toContain(":root .nav-links{gap:.5rem;font:600 .95rem/1 var(--ar-round);letter-spacing:.01em;color:var(--ink-2)}");
+  // the buttons inherit it, and the menu they open is in the same face
+  const button = arcade.slice(arcade.indexOf(":root .nav-links .menu-btn{"), arcade.indexOf("}", arcade.indexOf(":root .nav-links .menu-btn{")));
+  expect(button).toContain("font:inherit");
+  expect(arcade).toContain(":root .menu-list a{border:0;border-radius:9px;padding:.6rem .75rem;color:var(--ink);font:600 .92rem/1.2 var(--ar-round)");
+  for (const rule of arcade.match(/:root \.nav-links[^{]*\{[^}]*\}/g) ?? []) expect(rule).not.toContain("--ar-px");
+});

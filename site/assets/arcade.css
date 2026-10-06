@@ -108,7 +108,8 @@
 :root .mark svg{filter:drop-shadow(0 2px 0 var(--ar-drop))}
 /* the wordmark: white Fredoka 600, as the bar of 3d.pocket.nexus sets "Pocket3D" */
 :root .mark .nm{font:600 1.34rem/1 var(--ar-round);letter-spacing:0;color:var(--ink)}
-:root .nav-links{gap:.5rem;font:400 .66rem/1 var(--ar-px);letter-spacing:.02em;color:var(--ink-2)}
+/* the bar's buttons are set in the wordmark's face, as the entries of the menu they open are */
+:root .nav-links{gap:.5rem;font:600 .95rem/1 var(--ar-round);letter-spacing:.01em;color:var(--ink-2)}
 :root .nav-links > a:not(.ico),
 :root .nav-links .menu-btn{
   display:inline-flex;align-items:center;gap:.45rem;height:2.3rem;padding:0 .8rem;border-radius:10px;
@@ -613,7 +614,7 @@
   :root .plate::before{width:28px;height:28px;right:-9px;top:-14px}
 }
 @media (max-width:620px){
-  :root .nav-links{gap:.3rem;font-size:.5rem}
+  :root .nav-links{gap:.3rem;font-size:.84rem}
   :root .nav-links > a:not(.ico),
   :root .nav-links .menu-btn{height:2rem;padding:0 .45rem;border-radius:8px}
   :root .nav-links .menu-btn svg{display:none}
