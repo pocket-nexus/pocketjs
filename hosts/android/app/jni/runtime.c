@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "pocket_input.h"
 #include "../../../shared/contact_latch.h"
@@ -15,7 +16,10 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 /* The logical viewport comes from the resolved build plan (tools/android.ts);
- * the defaults match the private moto-g-play-dev profile. */
+ * the defaults match the private moto-g-play-dev profile. PocketActivity
+ * sizes the surface to this aspect ratio inside the window and centres it,
+ * so the picture has one scale in both directions on every panel, and a
+ * contact arrives relative to the surface. */
 #ifndef POCKET_LOGICAL_WIDTH
 #define POCKET_LOGICAL_WIDTH 360
 #endif
@@ -60,6 +64,17 @@ static int gl_initialized;
 static char android_error[512];
 static char receipt_path[1024];
 static unsigned long frames, touch_sequences;
+/* Sums over the 60 frames between two receipts, in microseconds: the guest's
+ * frame() with the core's tick, the GL submission, and the slowest of their
+ * sums. The mean interval is the time the 60 frames took, swap included. */
+static uint64_t window_tick_us, window_render_us, window_started_us;
+static uint32_t window_worst_us;
+
+static uint64_t monotonic_us(void) {
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  return (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
+}
 static PocketContactLatch contacts;
 JNIEXPORT jint JNICALL Java_dev_pocketnexus_android_PocketActivity_nativeLogicalWidth(JNIEnv *env, jclass owner) {
   (void)env; (void)owner; return POCKET_LOGICAL_WIDTH;
@@ -242,23 +257,39 @@ Java_dev_pocketnexus_android_PocketActivity_nativeFrame(
   pocket_contacts_sample(&contacts, &frame, width, height, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT,
     pocket_runtime_hit_test_bounds);
   pthread_mutex_unlock(&input_mutex);
+  uint64_t started = monotonic_us();
+  if (window_started_us == 0) window_started_us = started;
   if (!pocket_runtime_tick_contacts(&frame)) {
     set_android_error(pocket_runtime_error());
     return JNI_FALSE;
   }
+  uint64_t ticked = monotonic_us();
   if (!pocket_runtime_gl_render(width, height)) {
     set_android_error("PocketJS GLES2 frame submission failed");
     return JNI_FALSE;
   }
+  uint64_t rendered = monotonic_us();
+  window_tick_us += ticked - started;
+  window_render_us += rendered - ticked;
+  if (rendered - started > window_worst_us) window_worst_us = (uint32_t)(rendered - started);
   frames++;
-  if (frames % 60 == 0 && receipt_path[0]) {
-    FILE *receipt = fopen(receipt_path, "w");
-    if (receipt) {
-      fprintf(receipt, "state=running\nrenderer=gles2\nframes=%lu\ntouch_sequences=%lu\nlogical_width=%d\nlogical_height=%d\nsurface_width=%d\nsurface_height=%d\naction_name=%s\naction_value=%d\n",
-        frames, sequences, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, width, height,
-        pocket_runtime_action_name(), pocket_runtime_action_value());
-      fclose(receipt);
+  if (frames % 60 == 0) {
+    if (receipt_path[0]) {
+      FILE *receipt = fopen(receipt_path, "w");
+      if (receipt) {
+        fprintf(receipt, "state=running\nrenderer=gles2\nframes=%lu\ntouch_sequences=%lu\nlogical_width=%d\nlogical_height=%d\nsurface_width=%d\nsurface_height=%d\naction_name=%s\naction_value=%d\n"
+          "tick_us=%lu\nrender_us=%lu\nframe_us_max=%lu\ninterval_us=%lu\n",
+          frames, sequences, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, width, height,
+          pocket_runtime_action_name(), pocket_runtime_action_value(),
+          (unsigned long)(window_tick_us / 60), (unsigned long)(window_render_us / 60),
+          (unsigned long)window_worst_us, (unsigned long)((rendered - window_started_us) / 60));
+        fclose(receipt);
+      }
     }
+    window_tick_us = 0;
+    window_render_us = 0;
+    window_worst_us = 0;
+    window_started_us = rendered;
   }
   return JNI_TRUE;
 }
