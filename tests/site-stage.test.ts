@@ -83,10 +83,20 @@ test("homepage ships the four-chapter landing", () => {
   expect(home).toContain('class="hero-bg"');
   expect(home).toContain("/assets/pocketjs-demo-wall.mp4");
   expect(home).toContain("/assets/pocketjs-demo-wall.jpg");
-  expect(home).toContain("Create on<br>every screen<br>you love");
+  expect(home).toContain("Create UI on<br>every screen<br>you love");
   expect(home).toContain(
-    "Build apps and games for your favorite devices, from a PSP to your desktop.",
+    "Build apps for your favorite devices, from a PSP to your desktop.",
   );
+  // PocketJS is positioned as the interface; the chapter that shows games says
+  // where the 3D stack lives.
+  const beyond = home.slice(home.indexOf('<section class="sect" id="beyond">'), home.indexOf('<section class="sect" id="compat">'));
+  const way = beyond.slice(beyond.indexOf('<a class="p3d" href="https://3d.pocket.nexus/">'), beyond.indexOf('<div class="cols"'));
+  expect(way).toContain("<strong>Pocket3D</strong>");
+  expect(way).toContain("Full 3D lives in its own project");
+  // its mark is 3d.pocket.nexus's own drawing, copied at build time
+  expect(way).toContain('<img src="/assets/pocket3d-mark.svg" alt="" width="44" height="44">');
+  expect(readFileSync(ROOT + "site/build.ts", "utf8")).toContain('copy(SITE + "pocket3d/mark.svg", "assets/pocket3d-mark.svg");');
+  expect(existsSync(ROOT + "site/pocket3d/mark.svg")).toBe(true);
   for (const file of ["site/home.html", "site/bake-demo-wall.ts", "site/content/blog/pocket-figma.md"]) {
     expect(readFileSync(ROOT + file, "utf8")).not.toContain("figma-psp-cover-zoom");
   }
@@ -506,7 +516,7 @@ test("the icon family is rendered from one drawing and linked from every head", 
   // Nothing links it, but iOS fetches this path from the root on its own.
   expect(build).toContain('"apple-touch-icon-precomposed.png"');
   // The tab title carries the homepage tagline.
-  expect(SITE_TITLE).toBe("PocketJS · Create on every screen you love");
+  expect(SITE_TITLE).toBe("PocketJS · Create UI on every screen you love");
 
   // The generator reads the one drawing and nothing else.
   const gen = readFileSync(ROOT + "tools/icons.ts", "utf8");

@@ -13,12 +13,12 @@ const NEXUS_URL = "https://pocket.nexus";
 // The canonical origin: PocketJS lives under the Pocket Nexus homepage.
 // pocketjs.dev serves the same build; its pages point here as canonical.
 export const SITE_URL = "https://pocketjs.pocket.nexus";
-export const SITE_TITLE = "PocketJS · Create on every screen you love";
+export const SITE_TITLE = "PocketJS · Create UI on every screen you love";
 export const SITE_DESC =
-  "Create on every screen you love. Build apps and games with familiar JavaScript components, from handhelds and desktops to embedded screens.";
+  "Create UI on every screen you love. Build apps with familiar JavaScript components, from handhelds and desktops to embedded screens.";
 // Shared by the standalone homepage and every page rendered through renderPage().
 export const SITE_FOOTER_DESC =
-  "Create on every screen you love. A small runtime for apps and games on handhelds, desktops, and embedded devices.";
+  "Create UI on every screen you love. A small runtime for apps on handhelds, desktops, and embedded devices.";
 export const SITE_FOOTER_DESC_SLOT = "{{SITE_FOOTER_DESC}}";
 export const OG_IMAGE_URL = `${SITE_URL}/og-image.png`;
 

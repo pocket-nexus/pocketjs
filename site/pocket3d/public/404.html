@@ -23,10 +23,24 @@ body{min-height:100dvh;display:grid;place-items:center;padding:24px;text-align:c
     radial-gradient(circle,rgba(203,189,226,.085) 1.1px,transparent 1.6px) 0 0/24px 24px,#171226}
 main{display:flex;flex-direction:column;align-items:center;gap:18px}
 svg{width:112px;height:112px;overflow:visible}
-h1{font:400 clamp(19px,5.2vw,40px)/1.6 "Press Start 2P",ui-monospace,monospace;text-transform:uppercase;color:#ff5f9e;
-  text-shadow:0 3px 0 #c23a73,0 6px 0 #c23a73,3px 0 0 #221338,-3px 0 0 #221338,0 -3px 0 #221338,3px -3px 0 #221338,-3px -3px 0 #221338,
-    3px 3px 0 #221338,-3px 3px 0 #221338,3px 6px 0 #221338,-3px 6px 0 #221338,3px 9px 0 #221338,-3px 9px 0 #221338,0 9px 0 #221338,
-    -3px 12px 0 #0a0614,0 12px 0 #0a0614,3px 12px 0 #0a0614}
+/* --u steps the outline, the extrusion and the drop: 3px, and one cell of the face's 1/8 em grid where
+   that is smaller, so the copies stay joined to the letter */
+h1{--u:min(3px,.125em);font:400 clamp(19px,5.2vw,40px)/1.6 "Press Start 2P",ui-monospace,monospace;text-transform:uppercase;color:#ff5f9e;
+  text-shadow:0 var(--u) 0 #c23a73,0 calc(var(--u)*2) 0 #c23a73,
+    var(--u) 0 0 #221338,calc(var(--u)*-1) 0 0 #221338,0 calc(var(--u)*-1) 0 #221338,
+    var(--u) calc(var(--u)*-1) 0 #221338,calc(var(--u)*-1) calc(var(--u)*-1) 0 #221338,
+    var(--u) var(--u) 0 #221338,calc(var(--u)*-1) var(--u) 0 #221338,
+    var(--u) calc(var(--u)*2) 0 #221338,calc(var(--u)*-1) calc(var(--u)*2) 0 #221338,
+    var(--u) calc(var(--u)*3) 0 #221338,calc(var(--u)*-1) calc(var(--u)*3) 0 #221338,0 calc(var(--u)*3) 0 #221338,
+    calc(var(--u)*-1) calc(var(--u)*4) 0 #0a0614,0 calc(var(--u)*4) 0 #0a0614,var(--u) calc(var(--u)*4) 0 #0a0614}
+@media (max-width:560px){
+  h1{text-shadow:0 var(--u) 0 #c23a73,
+    var(--u) 0 0 #221338,calc(var(--u)*-1) 0 0 #221338,0 calc(var(--u)*-1) 0 #221338,
+    var(--u) calc(var(--u)*-1) 0 #221338,calc(var(--u)*-1) calc(var(--u)*-1) 0 #221338,
+    var(--u) var(--u) 0 #221338,calc(var(--u)*-1) var(--u) 0 #221338,
+    var(--u) calc(var(--u)*2) 0 #221338,calc(var(--u)*-1) calc(var(--u)*2) 0 #221338,0 calc(var(--u)*2) 0 #221338,
+    calc(var(--u)*-1) calc(var(--u)*3) 0 #0a0614,0 calc(var(--u)*3) 0 #0a0614,var(--u) calc(var(--u)*3) 0 #0a0614}
+}
 p{color:#cbbde2;max-width:26em}
 a{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 22px;border-radius:999px;text-decoration:none;
   background:linear-gradient(180deg,#ffdc63,#ffc01f);color:#2a1b10;font:600 16px/1 Fredoka,system-ui,sans-serif;

@@ -632,6 +632,9 @@ async function main() {
   ]) {
     if (existsSync(SITE + "assets/" + asset)) copy(SITE + "assets/" + asset, asset);
   }
+  // The Pocket3D mark beside the homepage's link to 3d.pocket.nexus: that site's
+  // drawing, copied at build time so this one keeps no second copy.
+  copy(SITE + "pocket3d/mark.svg", "assets/pocket3d-mark.svg");
   // The Arcade look for pages outside the homepage, and its self-hosted pixel font.
   copy(SITE + "assets/arcade.css", "assets/arcade.css");
   copy(SITE + "assets/fonts/", "assets/fonts/");

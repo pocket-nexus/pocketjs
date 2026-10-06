@@ -10,8 +10,8 @@ description: Append a short PocketJS animated end card to a local video (screen 
 Turns any local video into a shareable clip that ends on the PocketJS brand card.
 The card uses the current landing-page treatment: a dark `#171226` field, faint
 blueprint grid, yellow/pink corner glows, the lens/viewfinder logo glyph, the
-wordmark, and the uppercase VT323 headline. The brand line is **Create on every
-screen you love.** It is rendered on three deliberate lines: `CREATE ON` / `EVERY SCREEN` / `YOU LOVE.`. The exact VT323
+wordmark, and the uppercase VT323 headline. The brand line is **Create UI on every
+screen you love.** It is rendered on three deliberate lines: `CREATE UI ON` / `EVERY SCREEN` / `YOU LOVE.`. The exact VT323
 font file is bundled with the skill, so card rendering does not depend on a network
 font request. Headless Chrome renders the layers, then `ffmpeg` appends the card
 and animates the text in. **The default ending adds 2 seconds after the full
@@ -67,7 +67,7 @@ explicit line breaks when the lockup requires them; the template keeps them:
 ```bash
 bun skills/pocketjs-video-outro/scripts/make-outro.ts \
   -i ~/Downloads/clip.mov \
-  --tagline $'Create on\nevery screen\nyou love.'
+  --tagline $'Create UI on\nevery screen\nyou love.'
 ```
 
 For an X upload, enable the compatibility mode. It produces 30 fps CFR video,
@@ -128,7 +128,7 @@ shorter custom card, sample only the tail after the original source has ended.
 |------|---------|---------|
 | `-i` / `--input` | — (required) | input video |
 | `-o` / `--output` | `<input>_outro.mp4` next to input | output path (`_outro_x.mp4` with `--x`) |
-| `--tagline` | `Create on` / `every screen` / `you love.` | hero line; explicit newlines are preserved |
+| `--tagline` | `Create UI on` / `every screen` / `you love.` | hero line; explicit newlines are preserved |
 | `--brand` | `PocketJS` | wordmark next to the glyph |
 | `--url` | `pocketjs.dev` | footer line; pass `--url ""` to hide it |
 | `--outro` | `2` | appended end-card length in seconds, including the transition |

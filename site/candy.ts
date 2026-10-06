@@ -20,14 +20,11 @@ interface Target {
   selector: string;
   /** Hue of the first letter; omitted targets take turns from a shared counter. */
   start?: number;
-  /** Small marks (the wordmark) get the short outline instead of the full extrusion. */
-  small?: boolean;
 }
 
+// The wordmark beside the logo is not a headline: it stays one run of text.
 const TARGETS: Target[] = [
   { selector: ".hero h1 .spectrum", start: 0 },
-  { selector: ".nav .mark .nm", start: 0, small: true },
-  { selector: ".foot .mark .nm", start: 0, small: true },
   // section heads and showcase dialog titles, each starting two hues on
   { selector: ".vwrap .verb" },
   { selector: ".sc-dialog h2" },
@@ -73,8 +70,7 @@ export function candyHeadings(html: string): string {
         const start = target.start ?? (turn++ * 2) % HUES.length;
         const parts: string[] = [];
         text = parts;
-        const classes = [el.getAttribute("class") ?? "", "ar-candy", target.small ? "ar-sm" : ""];
-        el.setAttribute("class", classes.filter(Boolean).join(" "));
+        el.setAttribute("class", [el.getAttribute("class") ?? "", "ar-candy"].filter(Boolean).join(" "));
         el.onEndTag((end) => {
           end.before(letters(decode(parts.join("")), start), { html: true });
           text = null;

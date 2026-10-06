@@ -215,10 +215,38 @@ test("the title is the arcade marquee: letters of the pixel face through five hu
   // the page loads the pixel face and no longer the round one, and the chapter heads use it
   expect(home).toContain("family=Press+Start+2P&");
   expect(home).toContain('--display:"Press Start 2P"');
-  expect(home).toContain(".head h2,.close h2{font:400 clamp(17px,2.2vw,29px)/1.6 var(--display)");
+  expect(home).toContain(".head h2,.close h2{--u:min(3px,.125em);font:400 clamp(17px,2.2vw,29px)/1.6 var(--display)");
   for (const page of [home, notFound]) expect(page).not.toContain("Titan");
   // the turned slab, its script and the stars are gone
   for (const old of ['class="rig"', 'class="spark"', "function pose(", "LEAN", "rotateX("]) expect(home).not.toContain(old);
+});
+
+test("pixel headlines step their outline, extrusion and drop by no more than one cell of the face", () => {
+  // Press Start 2P draws on a grid of 1/8 em. A step wider than a cell leaves the
+  // copies below a letter apart from it, as stripes: the step is 3px and one cell
+  // where the letters are under 24px, and no shadow of a headline is a fixed length.
+  const rule = (page: string, selector: string) => page.slice(page.indexOf(selector), page.indexOf("}", page.indexOf(selector)));
+  for (const [page, selector] of [[home, ".title{"], [home, ".head h2,.close h2{"], [notFound, "h1{"]] as const) {
+    expect(rule(page, selector)).toContain("--u:min(3px,.125em)");
+  }
+  for (const [page, selector] of [[home, ".ch{"], [home, ".head h2,.close h2{"], [notFound, "h1{"]] as const) {
+    const shadow = rule(page, selector).split("text-shadow:")[1];
+    expect(shadow).toContain("0 var(--u) 0");
+    expect(shadow).not.toMatch(/\dpx/);
+  }
+  // small letters take one step of extrusion, so the openings of A, E and R keep a dark row
+  const small = (page: string, query: string) => page.slice(page.indexOf(query), page.indexOf("\n}", page.indexOf(query)));
+  for (const [page, query, selector] of [
+    [home, "@media (max-width:980px){", ".head h2,.close h2{"],
+    [home, "@media (max-width:560px){", ".ch{"],
+    [notFound, "@media (max-width:560px){", "h1{"],
+  ] as const) {
+    const shadow = rule(small(page, query), selector).split("text-shadow:")[1];
+    expect(shadow).toContain("0 var(--u) 0");
+    expect(shadow).not.toContain("0 calc(var(--u)*2) 0 var(--c2)");
+    expect(shadow.split("calc(var(--u)*4)")).toHaveLength(1);
+    expect(shadow).not.toMatch(/\dpx/);
+  }
 });
 
 test("chapter 3 stands each engine as one tower, read from the game down to the plate", () => {

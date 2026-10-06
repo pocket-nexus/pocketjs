@@ -114,8 +114,11 @@ main{display:flex;flex-direction:column;align-items:center}
 .kicker span::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--k)}
 
 /* The title is pocketjs.dev's marquee: candy letters in the pixel face through the five hues, on a plate
-   with scanlines and a rail of bulbs. The bezel is the mark's gold. */
-.title{align-self:stretch;--u:3px;font:400 clamp(14px,min(4.98cqw,4.5vh),36px)/1.62 var(--display);text-transform:uppercase;-webkit-user-select:none;user-select:none}
+   with scanlines and a rail of bulbs. The bezel is the mark's gold.
+   --u is the step of every letter's outline, extrusion and drop. The pixel face draws a letter on a grid
+   of 1/8 em, so a step wider than that leaves the copies apart from the letter as stripes: the step is
+   3px, and one cell of the grid where the letters are smaller than 24px. */
+.title{align-self:stretch;--u:min(3px,.125em);font:400 clamp(14px,min(4.98cqw,4.5vh),36px)/1.62 var(--display);text-transform:uppercase;-webkit-user-select:none;user-select:none}
 .plate0{position:relative;display:block;padding:1em 1.1em 1.7em;text-align:left;border-radius:26px;border:4px solid var(--yellow);
   background:radial-gradient(ellipse 70% 90% at 25% 30%,rgba(255,95,158,.15),transparent 70%),#120c21;
   box-shadow:inset 0 0 0 4px #1a1130,inset 0 5px 0 4px rgba(0,0,0,.35),0 8px 0 #c99400,0 8px 0 3px var(--drop),0 30px 50px -20px rgba(0,0,0,.8)}
@@ -188,11 +191,14 @@ main{display:flex;flex-direction:column;align-items:center}
 .chap{width:var(--page);margin-top:clamp(72px,12vh,136px)}
 .head{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px clamp(24px,4vw,56px);align-items:end}
 .head h2 span{white-space:nowrap}
-.head h2,.close h2{font:400 clamp(17px,2.2vw,29px)/1.6 var(--display);text-transform:uppercase;color:var(--c);
-  text-shadow:0 3px 0 var(--c2),0 6px 0 var(--c2),
-    3px 0 0 var(--out),-3px 0 0 var(--out),0 -3px 0 var(--out),3px -3px 0 var(--out),-3px -3px 0 var(--out),3px 3px 0 var(--out),-3px 3px 0 var(--out),
-    3px 6px 0 var(--out),-3px 6px 0 var(--out),3px 9px 0 var(--out),-3px 9px 0 var(--out),0 9px 0 var(--out),
-    -3px 12px 0 var(--drop),0 12px 0 var(--drop),3px 12px 0 var(--drop)}
+.head h2,.close h2{--u:min(3px,.125em);font:400 clamp(17px,2.2vw,29px)/1.6 var(--display);text-transform:uppercase;color:var(--c);
+  text-shadow:0 var(--u) 0 var(--c2),0 calc(var(--u)*2) 0 var(--c2),
+    var(--u) 0 0 var(--out),calc(var(--u)*-1) 0 0 var(--out),0 calc(var(--u)*-1) 0 var(--out),
+    var(--u) calc(var(--u)*-1) 0 var(--out),calc(var(--u)*-1) calc(var(--u)*-1) 0 var(--out),
+    var(--u) var(--u) 0 var(--out),calc(var(--u)*-1) var(--u) 0 var(--out),
+    var(--u) calc(var(--u)*2) 0 var(--out),calc(var(--u)*-1) calc(var(--u)*2) 0 var(--out),
+    var(--u) calc(var(--u)*3) 0 var(--out),calc(var(--u)*-1) calc(var(--u)*3) 0 var(--out),0 calc(var(--u)*3) 0 var(--out),
+    calc(var(--u)*-1) calc(var(--u)*4) 0 var(--drop),0 calc(var(--u)*4) 0 var(--drop),var(--u) calc(var(--u)*4) 0 var(--drop)}
 .head .kick{margin-top:22px;font:600 clamp(19px,1.8vw,23px)/1.3 var(--round);color:var(--ink)}
 .head .why{font-size:17px;line-height:1.6;color:var(--ink-2)}
 .card{border-radius:clamp(16px,1.8vw,24px);border:3px solid var(--out);background:var(--panel);box-shadow:0 8px 0 var(--drop);min-width:0}
@@ -435,12 +441,28 @@ main{display:flex;flex-direction:column;align-items:center}
 }
 @media (max-width:560px){
   .chapters{grid-template-columns:minmax(0,1fr)}
+  /* a phone's title: the same one-step extrusion as a small chapter head */
+  .ch{
+    text-shadow:0 var(--u) 0 var(--fd),
+      var(--u) 0 0 var(--out),calc(var(--u)*-1) 0 0 var(--out),0 calc(var(--u)*-1) 0 var(--out),
+      var(--u) calc(var(--u)*-1) 0 var(--out),calc(var(--u)*-1) calc(var(--u)*-1) 0 var(--out),
+      var(--u) var(--u) 0 var(--out),calc(var(--u)*-1) var(--u) 0 var(--out),
+      var(--u) calc(var(--u)*2) 0 var(--out),calc(var(--u)*-1) calc(var(--u)*2) 0 var(--out),0 calc(var(--u)*2) 0 var(--out),
+      calc(var(--u)*-1) calc(var(--u)*3) 0 var(--drop),0 calc(var(--u)*3) 0 var(--drop),var(--u) calc(var(--u)*3) 0 var(--drop)}
   .wall{grid-template-columns:repeat(2,minmax(0,1fr))}
   .col:nth-child(3){display:none}
   .run figcaption{font-size:10.5px}
 }
 @media (max-width:980px){
   .head{grid-template-columns:1fr}
+  /* small letters: an extrusion of one step, so the two-row openings of A, E and R keep a dark row */
+  .head h2,.close h2{
+    text-shadow:0 var(--u) 0 var(--c2),
+      var(--u) 0 0 var(--out),calc(var(--u)*-1) 0 0 var(--out),0 calc(var(--u)*-1) 0 var(--out),
+      var(--u) calc(var(--u)*-1) 0 var(--out),calc(var(--u)*-1) calc(var(--u)*-1) 0 var(--out),
+      var(--u) var(--u) 0 var(--out),calc(var(--u)*-1) var(--u) 0 var(--out),
+      var(--u) calc(var(--u)*2) 0 var(--out),calc(var(--u)*-1) calc(var(--u)*2) 0 var(--out),0 calc(var(--u)*2) 0 var(--out),
+      calc(var(--u)*-1) calc(var(--u)*3) 0 var(--drop),0 calc(var(--u)*3) 0 var(--drop),var(--u) calc(var(--u)*3) 0 var(--drop)}
   .prism{grid-template-columns:1fr}
   .beams{display:none}
   .line:hover,.line[aria-pressed="true"]{transform:none}
