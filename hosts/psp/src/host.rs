@@ -11,16 +11,20 @@ use psp::sys::{
     TexturePixelFormat, ThreadAttributes,
 };
 use psp::vram_alloc::get_vram_allocator;
-use psp::{Align16, BUF_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH};
+use pocket_psp_ge::DisplayList;
+use psp::{BUF_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-// GE display list buffer (1 MB), 16-byte aligned. One per program; the
-// frame loop owns sceGuStart/Finish against it (the "dreamcart contract" —
-// ge.rs never opens or kicks lists).
-static mut LIST: Align16<[u32; 0x40000]> = Align16([0; 0x40000]);
+// GE display list buffer (1 MB). One per program; the frame loop owns
+// sceGuStart/Finish against it (the "dreamcart contract" — ge.rs never opens
+// or kicks lists). sceGuStart writes it through the uncached mirror, so it
+// has data-cache lines of its own: in a line shared with a static the CPU
+// writes through the cache, that line's write-back replaces the first
+// commands with what RAM held before them (pocket_psp_ge::list).
+static mut LIST: DisplayList<0x40000> = DisplayList::new();
 
 /// The display-list pointer for `sceGuStart`.
 pub fn list_ptr() -> *mut c_void {
-    unsafe { &mut LIST as *mut _ as *mut c_void }
+    DisplayList::as_mut_ptr(core::ptr::addr_of_mut!(LIST))
 }
 
 static mut RENDER_MEMORY: (*mut u8, usize) = (core::ptr::null_mut(), 0);

@@ -2,8 +2,10 @@
 //! belong to the caller. No operation here starts or waits for a GE list.
 #![no_std]
 extern crate alloc;
+pub mod list;
 pub mod pool;
 pub mod swizzle;
+pub use list::DisplayList;
 pub use pool::FramePool;
 
 #[cfg(any(target_os = "psp", test))]
