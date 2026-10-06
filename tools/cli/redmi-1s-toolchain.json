@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "toolchainVersion": "redmi-1s-api18-v1",
+  "cachePath": "android",
+  "android": {
+    "apiLevel": 34,
+    "platformVersion": "14",
+    "buildToolsVersion": "35.0.0",
+    "ndkVersion": "21.4.7075529",
+    "minSdkVersion": 18,
+    "targetSdkVersion": 34,
+    "abis": [
+      {
+        "abi": "armeabi-v7a",
+        "clangTarget": "armv7a-linux-androideabi18",
+        "rustTarget": "armv7-linux-androideabi"
+      },
+      {
+        "abi": "arm64-v8a",
+        "clangTarget": "aarch64-linux-android21",
+        "rustTarget": "aarch64-linux-android"
+      }
+    ]
+  },
+  "quickjs": {
+    "version": "2026-06-04",
+    "repository": "https://github.com/pocket-nexus/quickjs-rs.git",
+    "revision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
+  },
+  "rust": {
+    "toolchain": "nightly-2026-07-02"
+  },
+  "app": {
+    "manifest": "apps/clear/pocket.redmi-1s.json",
+    "output": "dist/redmi-1s/pocket-clear.apk"
+  }
+}
