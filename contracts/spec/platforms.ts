@@ -415,6 +415,9 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
       "input.buttons",
       "display.viewport.live",
       "text.glyphs.baked",
+      // hosts/web/runtime-glyphs.js: the browser draws a codepoint no baked
+      // atlas maps and the realm appends it to the atlases (app-instance.js).
+      "text.glyphs.runtime",
       "io.offload",
       "text.layout.offload",
     ],

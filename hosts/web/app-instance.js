@@ -7,8 +7,17 @@
 // pocket_text.wasm: the guest then has no `offload` global, as on a host
 // with no text provider. A guest whose glyphs are all baked needs neither
 // (a Pocket3D game's interface over its scene, devices/web/pocket-web-wgpu).
+//
+// Text a guest sets at run time draws in every script the browser has a font
+// for (text.glyphs.runtime, ./runtime-glyphs.js): a codepoint no baked atlas
+// maps is drawn by the browser and added to the atlases before the core lays
+// it out. `options.runtimeGlyphs: false` leaves the atlases as the build
+// baked them; `options.glyphFamilies` names the CSS font families to draw
+// with (default: the Japanese, Chinese and Korean faces of the common
+// systems, then sans-serif).
 
 import { createWasmUi } from "./wasm-ops.js";
+import { canvasRasterizer, installRuntimeGlyphs } from "./runtime-glyphs.js";
 import { createWorkerOffload } from "./offload-worker.js";
 
 async function requiredFetch(url, kind) {
@@ -27,6 +36,10 @@ export async function create(options) {
     rasterDensity: density,
     auxiliary: options.auxiliary,
   });
+
+  const glyphs = options.runtimeGlyphs === false
+    ? null
+    : installRuntimeGlyphs(wasm.ops, { rasterize: canvasRasterizer(options.glyphFamilies ? { families: options.glyphFamilies } : {}) });
 
   const incoming = [];
   const outgoing = [];
@@ -72,6 +85,7 @@ export async function create(options) {
     step(buttons = 0, touches, hits, touchSurfaces, ticks = 1) {
       textWorker.beginFrame();
       globalThis.frame(buttons, 0x8080, touches, hits, touchSurfaces);
+      glyphs?.flush();
       for (let i = 0; i < ticks; i++) wasm.tick();
     },
     /**
@@ -114,6 +128,10 @@ export async function create(options) {
     },
     drawHash() {
       return wasm.drawHash ? wasm.drawHash() : 0n;
+    },
+    /** What text.glyphs.runtime added: codepoints, cells, atlas reloads and the milliseconds spent; null when it is off. */
+    glyphStats() {
+      return glyphs ? glyphs.stats() : null;
     },
     /** The auxiliary surface's draw hash; null on a pocketjs.wasm that predates it. */
     drawHashAuxiliary() {

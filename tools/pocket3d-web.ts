@@ -30,7 +30,7 @@ export const POCKET3D_WEB = {
   title: ["pocket3d-title.js", "art.js"],
   /** The realm of a guest: PocketJS's AppInstance and what it imports. A realm started with
    *  `text: false` reads no text worker, so the worker and its wasm are not staged. */
-  realm: ["app-instance.html", "app-instance.js", "wasm-ops.js", "offload-worker.js"],
+  realm: ["app-instance.html", "app-instance.js", "wasm-ops.js", "runtime-glyphs.js", "offload-worker.js"],
   core: "pocketjs.wasm",
   /** What a host needs of the framework to hand a guest its contacts and name its buttons. */
   host: "pocketjs-host.js",

@@ -335,6 +335,7 @@ describe("platform registry", () => {
         "input.buttons",
         "display.viewport.live",
         "text.glyphs.baked",
+        "text.glyphs.runtime",
         "io.offload",
         "text.layout.offload",
       ],

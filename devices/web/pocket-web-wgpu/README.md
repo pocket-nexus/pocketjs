@@ -34,7 +34,8 @@ browser's.
 `bun tools/pocket3d-web.ts stage <directory>` writes the files a page loads:
 the modules, stylesheets and directories above, the title card
 (`pocket3d-title.js`, `art.js`), the realm (`app-instance.html`,
-`app-instance.js`, `wasm-ops.js`, `offload-worker.js`, `pocketjs.wasm`) and
+`app-instance.js`, `wasm-ops.js`, `runtime-glyphs.js`, `offload-worker.js`,
+`pocketjs.wasm`) and
 `pocketjs-host.js`, one module bundled from the framework's sources
 (`__packTouch`, `createTouchHitFacts`, `BTN`).
 `bun tools/pocket3d-web.ts cut <pack> <directory>` cuts a pack into pieces and

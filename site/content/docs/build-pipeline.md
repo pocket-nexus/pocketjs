@@ -300,9 +300,27 @@ Codepoints the font does not map are left out of the atlas. **On a target whose
 profile carries only `text.glyphs.baked`, a codepoint missing from the atlas
 resolves to glyph 0 — a drawn hollow "tofu" box, also mapped from U+FFFD so it
 has an advance.** A target that also advertises `text.glyphs.runtime`
-(`macos-widget` today) rasterizes the missing glyph from a system font and
+(`macos-widget`, and `web-app` and every page that runs a package through
+`hosts/web/app-instance.js`) rasterizes the missing glyph from a system font and
 reloads the atlas through `loadFontAtlas`, so tofu is what an app that accepts
-arbitrary text gets on a baked-only target. Each atlas is horizontally
+arbitrary text gets on a baked-only target.
+
+In a browser, `hosts/web/runtime-glyphs.js` does this inside the package's
+realm. It keeps a copy of each atlas the guest loads. Before the core reads a
+string (`setText`, `replaceText`, `measureText`, `wrapText`) it draws each
+codepoint no atlas maps on a 2D canvas, in the browser's Japanese, Chinese and
+Korean faces and then `sans-serif`, and appends the cell to **every loaded
+slot**. The new glyph's em is the slot's cap height (the ink of its `H`) over
+0.72, so it stands as tall beside the slot's Latin as it does in a CJK UI face;
+a bold slot draws at weight 700; a slot whose baked coverage is only 0 and 255
+(a bitmap face) gets cells thresholded at 120; a glyph wider than the slot's
+cells widens every cell of that atlas. The grown atlases reach the core before
+`measureText` and `wrapText` measure and before each tick, and layout
+re-measures on the reload. The pixels are the browser's: Hiragino on macOS,
+Yu Gothic or Meiryo on Windows, Noto Sans CJK on Android and ChromeOS.
+`create({ runtimeGlyphs: false })` keeps the baked atlases unchanged, and
+`glyphFamilies` names other CSS families. `glyphStats()` on the instance
+reports the codepoints and cells added, the reloads and the milliseconds. Each atlas is horizontally
 supersampled 8‑bit coverage cells plus proportional advances and a cmap, and is
 packed into the pak as `ui:font.<slot>`.
 

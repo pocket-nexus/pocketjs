@@ -172,6 +172,11 @@ visible pixels, and the instruction remains at its original DrawList offset.
 Shell chrome emitted after the surface therefore stays above the child. A
 missing child raster leaves the shell's loading fallback visible.
 
+**Each AppInstance draws codepoints its baked atlases lack**
+(`text.glyphs.runtime`, `hosts/web/runtime-glyphs.js`): the realm appends a
+cell drawn by the browser to every loaded slot before the core lays the text
+out ([Build pipeline](../site/content/docs/build-pipeline.md)).
+
 **The wasm host rasterizes an interface with its coverage for a scene the
 embedder draws.** `ui_render_premultiplied_scaled(scale)` runs the primary
 DrawList once into a buffer cleared to zero: premultiplied R,G,B and the alpha

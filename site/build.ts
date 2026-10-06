@@ -555,6 +555,7 @@ async function main() {
   copy(ROOT + "hosts/web/app-instance.html", "pg/app-instance.html");
   copy(ROOT + "hosts/web/app-instance.js", "pg/app-instance.js");
   copy(ROOT + "hosts/web/wasm-ops.js", "pg/wasm-ops.js");
+  copy(ROOT + "hosts/web/runtime-glyphs.js", "pg/runtime-glyphs.js");
   for (const name of ["offload-worker.js", "text-worker.js", "text-engine.js", "pocket_text.wasm"]) {
     copy(ROOT + "hosts/web/" + name, "pg/" + name);
   }
