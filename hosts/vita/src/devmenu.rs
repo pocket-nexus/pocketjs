@@ -7,6 +7,21 @@ pub use input::{Action, Menu};
 
 static mut FONT: *mut vita2d_pgf = std::ptr::null_mut();
 
+/// The generic runtime without a game it can start: one line saying what is
+/// wrong, and how to leave. Called inside the host's open scene.
+pub unsafe fn notice(line: &str) {
+    if FONT.is_null() {
+        FONT = vita2d_load_default_pgf();
+    }
+    if FONT.is_null() {
+        return;
+    }
+    vita2d_disable_clipping();
+    let text = CString::new(line.replace('\0', " ")).unwrap();
+    vita2d_pgf_draw_text(FONT, 48, 72, 0xffef_eeea, 1.0, text.as_ptr());
+    vita2d_pgf_draw_text(FONT, 48, 112, 0xff9a_9590, 1.0, c"Press the PS button to leave.".as_ptr());
+}
+
 /// Called inside the host's open scene. Font is retained for the process lifetime.
 pub unsafe fn draw(lines: &[String]) {
     if FONT.is_null() {

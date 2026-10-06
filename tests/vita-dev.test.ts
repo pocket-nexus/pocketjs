@@ -191,5 +191,5 @@ test("device Rust admission consumes the TypeScript package format", async () =>
     { env: { ...process.env, VITA_DEV_FIXTURES: directory }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) throw new Error(stdout + stderr);
-  expect(stdout).toContain("8 passed");
+  expect(stdout).toContain("9 passed");
 }, 120_000);

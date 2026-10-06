@@ -6,6 +6,11 @@ use serde_json::Value;
 pub const VERSION: u32 = 1;
 pub const MAX_PACKAGE: usize = 32 * 1024 * 1024;
 pub const MAX_NATIVE: usize = 64 * 1024 * 1024;
+/// A file staged on the card (`stage`): a VPK for VitaShell, or a runtime's
+/// app.pocket.
+pub const MAX_STAGE: usize = 64 * 1024 * 1024;
+/// Where `stage --into card` writes, for VitaShell to install from.
+pub const STAGE_DIRECTORY: &str = "ux0:/data/pocket-runtime";
 pub const MAX_CONTROL: usize = 4096;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -25,6 +30,10 @@ pub enum Op {
     Menu,
     Native,
     Reset,
+    /// Write the payload to the card: `into: "card"` puts `name` under
+    /// STAGE_DIRECTORY; `into: "app"` puts app.pocket in this title's
+    /// application directory, where the generic runtime reads app0:app.pocket.
+    Stage,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -42,6 +51,19 @@ pub struct Command {
     pub build: String,
     #[serde(default)]
     pub title_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub into: String,
+}
+
+/// The card path a validated `stage` command writes.
+pub fn stage_path(command: &Command, title_id: &str) -> String {
+    if command.into == "app" {
+        format!("ux0:/app/{title_id}/{}", command.name)
+    } else {
+        format!("{STAGE_DIRECTORY}/{}", command.name)
+    }
 }
 
 pub fn hex_id(value: &str) -> bool {
@@ -58,11 +80,11 @@ impl Command {
         {
             return Err("invalid protocol, session or command id".into());
         }
-        if matches!(self.op, Op::Push | Op::Native) {
-            let cap = if self.op == Op::Native {
-                MAX_NATIVE
-            } else {
-                MAX_PACKAGE
+        if matches!(self.op, Op::Push | Op::Native | Op::Stage) {
+            let cap = match self.op {
+                Op::Native => MAX_NATIVE,
+                Op::Stage => MAX_STAGE,
+                _ => MAX_PACKAGE,
             };
             if self.size == 0
                 || self.size > cap
@@ -70,6 +92,19 @@ impl Command {
                 || !self.hash.bytes().all(|b| b.is_ascii_hexdigit())
             {
                 return Err("invalid upload size or checksum".into());
+            }
+        }
+        if self.op == Op::Stage {
+            let name_ok = !self.name.is_empty()
+                && self.name.len() <= 64
+                && !self.name.starts_with('.')
+                && self
+                    .name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+            let into_ok = self.into == "card" || (self.into == "app" && self.name == "app.pocket");
+            if !name_ok || !into_ok {
+                return Err("stage needs a plain file name, into card, or app.pocket into app".into());
             }
         }
         if self.op == Op::Native
@@ -133,10 +168,13 @@ pub fn admit(bytes: &[u8], plan: &Value) -> Result<Bundle, String> {
         .map_err(|e| format!("identity: {e:?}"))?
         .ok_or("missing identity")?;
     let next: Value = serde_json::from_slice(guest.plan).map_err(|e| format!("plan: {e}"))?;
-    if plan.get("app").is_none()
+    // The generic runtime (feature `runtime`) was built without an app, so a
+    // push is held to the target, host ABI and footer that select_guest
+    // checked, as app0:app.pocket is (package_file.rs).
+    if !cfg!(feature = "runtime") && (plan.get("app").is_none()
         || identity.id != plan["app"]["id"].as_str().unwrap_or("")
         || identity.output != plan["app"]["output"].as_str().unwrap_or("")
-        || native_contract(&next) != native_contract(plan)
+        || native_contract(&next) != native_contract(plan))
     {
         return Err(
             "native contract or application identity changed; rebuild and push native runtime"

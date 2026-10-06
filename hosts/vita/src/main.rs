@@ -110,19 +110,14 @@ fn fail(message: &str) -> ! {
 /// Boot one embedded guest, drive it until an app switch is requested, then
 /// retire it at a closed-scene boundary and return the next table index.
 unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<Runtime, String> {
-    let mut runtime = if let Some(bundle) = active {
-        Runtime::with_owned_pak(bundle.pak.clone())?
+    let (mut runtime, js) = if let Some(bundle) = active {
+        (Runtime::with_owned_pak(bundle.pak.clone())?, bundle.js.as_str())
     } else {
-        Runtime::new(
-            switch::guest_bytes(app_index)
-                .ok_or("embedded package unreadable")?
-                .pak,
-        )?
+        // Embedded bytes, or the generic runtime's app0:app.pocket; a file
+        // the runtime refuses returns the line the screen shows.
+        let guest = switch::guest(app_index)?;
+        (Runtime::new(guest.pak)?, guest.js)
     };
-    let js = active
-        .as_ref()
-        .map(|b| b.js.as_str())
-        .unwrap_or_else(|| switch::guest_bytes(app_index).unwrap().js);
     if let Err(error) = runtime.eval(js) {
         runtime.shutdown();
         return Err(error);
@@ -148,7 +143,8 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
     let mut runtime = boot_guest(app_index, &active)
         .map_err(|e| {
             dev.error = e;
-            dev.menu.visible = true;
+            // The generic runtime shows the one line instead of the menu.
+            dev.menu.visible = !cfg!(feature = "runtime");
         })
         .ok();
     // Retain the last admitted bundle until the candidate produces its first frame.
@@ -229,6 +225,10 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
             guest.render();
         } else {
             graphics::begin_frame(0xff1c_1410);
+            #[cfg(feature = "runtime")]
+            if !dev.menu.visible && !dev.error.is_empty() {
+                pocketjs_vita::devmenu::notice(&dev.error);
+            }
         }
         dev.overlay();
         graphics::present();
@@ -251,9 +251,12 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
         #[cfg(feature = "capture")]
         if wanted.contains(&GLOBAL_FRAME) {
             let stem = format!("{CAPTURE_DIR}/f{:04}", GLOBAL_FRAME);
-            runtime
-                .as_mut()
-                .unwrap()
+            // No guest to capture (a refused app.pocket, a failed boot):
+            // report its error to the capture harness instead.
+            let Some(guest) = runtime.as_mut() else {
+                fail(&dev.error)
+            };
+            guest
                 .capture_golden(&format!("{stem}.rgba"))
                 .unwrap_or_else(|error| fail(&error.to_string()));
             std::fs::write(format!("{stem}.json"), switch::frame_json(app_index))
@@ -356,6 +359,13 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
                         }
                     }
                 }
+            }
+            Some(Op::Stage) => {
+                // The worker wrote and read back the file before this request
+                // reached the frame boundary.
+                let request = request.take().unwrap();
+                let path = pocketjs_vita::dev_protocol::stage_path(&request.command, dev::TITLE_ID);
+                request.finish(Ok(serde_json::json!({ "path": path })));
             }
             Some(Op::Native) => {
                 let request = request.take().unwrap();

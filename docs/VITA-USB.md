@@ -159,6 +159,31 @@ the system's USB mode. Exit the host process before returning to VitaShell
 USB storage. If another USB plugin owns the port, disable that plugin for
 the development session and reboot before starting Pocket Runtime.
 
+## Generic runtime
+
+`bun tools/vita.ts --runtime --no-usb-debug --release` builds the generic
+runtime (cargo feature `runtime`): no embedded app, and the program reads
+`app0:app.pocket` at startup (docs/PLATFORM.md, "Generic runtimes and the
+repack step"). `bun tools/runtime.ts vita` runs it and collects
+`dist/runtime/vita/`. A file the runtime refuses leaves one line on screen.
+A USB-debug build for an installed container takes the container's title:
+
+```sh
+bun tools/vita.ts --runtime --title=P25BFE5E2 --release
+bun run vita:dev native --runtime dist/vita/pocket-runtime.runtime.json --title P25BFE5E2
+bun run vita:dev stage --file app.pocket --into app --title P25BFE5E2
+bun run vita:dev stage --file game.vpk --title P25BFE5E2
+```
+
+**`stage` writes one file to the card.** `--into card` (the default) puts it
+in `ux0:data/pocket-runtime/` for VitaShell to install; `--into app` puts
+`app.pocket` in the container's own directory, read by the next runtime
+process that `native` starts (the running process released its `app0:`
+mount to write it). The worker writes the file, reads it back and compares
+size and checksum before it replies. The limit is **64 MiB**. The runtime's
+`push` admits any package with a `vita` variant for host ABI 2: it has no
+compiled app id.
+
 ## Captures and acceptance
 
 ```sh

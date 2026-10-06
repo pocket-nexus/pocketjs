@@ -51,6 +51,18 @@ fn main() {
         !embed_app || !app.is_empty(),
         "POCKETJS_EMBED_APP=1 requires POCKETJS_APP_OUTPUT"
     );
+    // The generic runtime (feature `runtime`) carries no game: it reads
+    // app0:app.pocket at startup (src/package_file.rs).
+    if env::var_os("CARGO_FEATURE_RUNTIME").is_some() {
+        assert!(
+            !embed_app,
+            "the runtime feature builds an eboot without an app: set POCKETJS_EMBED_APP=0"
+        );
+        assert!(
+            env::var("POCKETJS_LAUNCHER_REGISTRY").unwrap_or_default().is_empty(),
+            "the runtime feature cannot embed a launcher registry"
+        );
+    }
     let target = env::var("POCKETJS_TARGET").unwrap_or_else(|_| "vita".into());
     assert_eq!(target, "vita", "Vita host requires POCKETJS_TARGET=vita");
     let host_abi = env::var("POCKETJS_HOST_ABI").unwrap_or_else(|_| "2".into());

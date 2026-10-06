@@ -1,3 +1,12 @@
+// tools/vita.ts <app> | --plan=<plan.json> [--no-usb-debug] [--capture] [cargo args…]
+// tools/vita.ts --runtime [--title=TITLEID] [--no-usb-debug] [cargo args…]
+//
+// --runtime builds the generic runtime (cargo feature `runtime`): no app is
+// built or embedded, and the program reads app0:app.pocket at startup.
+// tools/runtime/vita.ts runs it with --no-usb-debug --release and collects
+// eboot.bin; --title addresses a USB-debug build to an installed container
+// such as Pocket Devkit (P25BFE5E2) for `vita:dev native`.
+
 import { $ } from "bun";
 import { createHash, randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
@@ -47,6 +56,8 @@ let skipBuild = false;
 let usbDebug = true;
 let launcherRegistry = "";
 let launcherPackages = "";
+let runtime = false;
+let titleOverride: string | undefined;
 const cargoArgs: string[] = [];
 const buildFlags: string[] = [];
 
@@ -79,6 +90,10 @@ for (const a of argv) {
     launcherPackages = resolvePath(a.slice("--launcher-packages=".length));
   } else if (a === "--skip-build") {
     skipBuild = true;
+  } else if (a === "--runtime") {
+    runtime = true;
+  } else if (a.startsWith("--title=")) {
+    titleOverride = a.slice("--title=".length);
   } else if (!appArg && !a.startsWith("-")) {
     appArg = a;
   } else {
@@ -86,7 +101,13 @@ for (const a of argv) {
   }
 }
 
-if (!appArg && !planPath) {
+if (runtime && (appArg || planPath || launcherRegistry)) {
+  throw new Error("PocketJS vita: --runtime builds a program without an app; give no app, --plan or launcher registry");
+}
+if (titleOverride !== undefined && !/^[A-Z][A-Z0-9]{8}$/.test(titleOverride)) {
+  throw new Error(`PocketJS vita: --title must be nine uppercase letters and digits, got ${titleOverride}`);
+}
+if (!appArg && !planPath && !runtime) {
   console.error(
     "usage: bun tools/vita.ts <app> [--plan=<resolved-plan.json>] [--capture] " +
       "[--launcher-registry=<tsv> --launcher-packages=<dir>] [cargo args…]   " +
@@ -178,7 +199,7 @@ async function loadConfig(): Promise<PocketConfig> {
   return mod.default ?? mod.config ?? {};
 }
 
-const config = buildPlan ? {} : await loadConfig();
+const config = buildPlan || runtime ? {} : await loadConfig();
 const framework: PocketFramework = buildPlan
   ? parseFramework(buildPlan.app.framework, "ResolvedBuildPlan")
   : frameworkFlag
@@ -186,9 +207,11 @@ const framework: PocketFramework = buildPlan
     : parseFramework(config.framework, "pocket.config.ts");
 // A resolved plan owns the exact artifact name. Low-level demo builds keep the
 // framework suffix so multiple variants can still coexist in dist/.
-const outputApp = buildPlan
-  ? buildPlan.app.output
-  : `${app}${FRAMEWORKS[framework].outputSuffix}`;
+const outputApp = runtime
+  ? "pocket-runtime"
+  : buildPlan
+    ? buildPlan.app.output
+    : `${app}${FRAMEWORKS[framework].outputSuffix}`;
 const stockDemoName = !buildPlan && appArg ? appArg.replace(/-main$/, "") : "";
 const stockDemo =
   stockDemoName && existsSync(`${pspUiDir}apps/${stockDemoName}/main.tsx`)
@@ -220,13 +243,15 @@ if (!buildPlan && stockDemo) {
   mkdirSync(resolvePath(planPath, ".."), { recursive: true });
   await Bun.write(planPath, JSON.stringify(buildPlan, null, 2) + "\n");
 }
-const applicationId =
-  buildPlan?.app.id ??
+const applicationId = runtime
+  ? "dev.pocket-nexus.runtime"
+  : buildPlan?.app.id ??
   stockDemo?.id ??
   `dev.pocket-nexus.legacy.${outputApp.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-const packageTitle =
-  buildPlan?.app.title ?? stockDemo?.title ?? `PocketJS ${outputApp}`;
-const titleId = vitaTitleId(applicationId);
+const packageTitle = runtime
+  ? "PocketJS Runtime"
+  : buildPlan?.app.title ?? stockDemo?.title ?? `PocketJS ${outputApp}`;
+const titleId = titleOverride ?? vitaTitleId(applicationId);
 const nativeBuild = randomBytes(16).toString("hex");
 const usb = usbDebug ? await prepareVitaUsb() : undefined;
 
@@ -234,8 +259,9 @@ const usb = usbDebug ? await prepareVitaUsb() : undefined;
 // 1. Build the app bundle + pak -> dist/<app>.js + dist/<app>.pak
 // ---------------------------------------------------------------------------
 
-console.log(`PocketJS vita: building app "${app}" (framework=${framework})`);
-if (!skipBuild) {
+if (runtime) console.log("PocketJS vita: building the generic runtime (no app; reads app0:app.pocket)");
+else console.log(`PocketJS vita: building app "${app}" (framework=${framework})`);
+if (!skipBuild && !runtime) {
   if (buildPlan) {
     await $`bun tools/build.ts --plan=${planPath!} --project-root=${projectRoot} --outdir=${outputDir}`.cwd(pspUiDir);
   } else {
@@ -249,6 +275,7 @@ if (!skipBuild) {
 
 const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
   appOutput: outputApp,
+  app: { id: applicationId, title: packageTitle, version: "0.0.0" },
   target: "vita",
   hostAbi: 2,
   viewport: {
@@ -275,7 +302,7 @@ const env = {
   POCKETJS_NATIVE_BUILD: nativeBuild,
   ...hostBuildEnvironment(nativeInputs, {
     outputDirectory: outputDir,
-    embedApp: true,
+    embedApp: !runtime,
   }),
   TARGET_AR: "arm-vita-eabi-ar",
   AR_armv7_sony_vita_newlibeabihf: "arm-vita-eabi-ar",
@@ -293,11 +320,12 @@ const env = {
   POCKETJS_LAUNCHER_PACKAGES: launcherPackages,
 };
 
-if (capture) cargoArgs.push("--features", "capture");
+const features = [capture ? "capture" : "", runtime ? "runtime" : ""].filter(Boolean);
+if (features.length > 0) cargoArgs.push("--features", features.join(","));
 if (!usbDebug) cargoArgs.push("--no-default-features");
 
 console.log(
-  `PocketJS vita: cargo vita build vpk (app=${outputApp}${capture ? ", capture" : ""})`,
+  `PocketJS vita: cargo vita build vpk (app=${runtime ? "none, runtime" : outputApp}${capture ? ", capture" : ""})`,
 );
 // Forward to cargo-vita
 await $`${rustup} run nightly-2026-05-28 cargo vita build vpk ${cargoArgs}`
@@ -327,11 +355,13 @@ if (usbDebug) {
 await $`${vitasdk}/bin/vita-mksfoex -d ATTRIBUTE2=12 -s TITLE_ID=${titleId} ${packageTitle} ${sfo}`;
 // An app's `vita/` directory (VPK-relative paths, e.g. sce_sys/icon0.png)
 // overlays the framework's LiveArea defaults.
-const entryFile = stockDemo
-  ? resolvePath(pspUiDir, `apps/${stockDemoName}/main.tsx`)
-  : buildPlan
-    ? resolvePath(projectRoot, buildPlan.app.entry)
-    : undefined;
+const entryFile = runtime
+  ? undefined
+  : stockDemo
+    ? resolvePath(pspUiDir, `apps/${stockDemoName}/main.tsx`)
+    : buildPlan
+      ? resolvePath(projectRoot, buildPlan.app.entry)
+      : undefined;
 const vitaAssets = entryFile ? resolvePath(dirname(entryFile), "vita") : undefined;
 await packageVitaVpk({
   tool: `${vitasdk}/bin/vita-pack-vpk`,

@@ -21,6 +21,8 @@ pub mod graphics;
 pub mod input;
 pub mod net;
 pub mod pak;
+#[cfg(feature = "runtime")]
+pub mod package_file;
 pub mod stats;
 pub mod svc;
 pub mod switch;

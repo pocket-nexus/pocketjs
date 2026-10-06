@@ -6,6 +6,7 @@ const TARGETS: Record<string, () => Promise<(argv: readonly string[]) => Promise
   "3ds": async () => (await import("./runtime/3ds.ts")).buildRuntime3ds,
   android: async () => (await import("./runtime/android.ts")).buildRuntimeAndroid,
   psp: async () => (await import("./runtime/psp.ts")).buildRuntimePsp,
+  vita: async () => (await import("./runtime/vita.ts")).buildRuntimeVita,
 };
 
 if (import.meta.main) {

@@ -350,16 +350,31 @@ fn prepare(
     root: &str,
     local: &str,
 ) -> Result<(Option<Bundle>, Option<String>), String> {
-    if !matches!(command.op, Op::Push | Op::Native) {
+    if !matches!(command.op, Op::Push | Op::Native | Op::Stage) {
         return Ok((None, None));
     }
-    let cap = if command.op == Op::Native {
-        wire::MAX_NATIVE
-    } else {
-        wire::MAX_PACKAGE
+    let cap = match command.op {
+        Op::Native => wire::MAX_NATIVE,
+        Op::Stage => wire::MAX_STAGE,
+        _ => wire::MAX_PACKAGE,
     };
     let bytes = read_bounded(&format!("{root}/{}.payload", command.id), cap)?;
     command.check_payload(&bytes)?;
+    if command.op == Op::Stage {
+        let path = wire::stage_path(command, TITLE_ID);
+        if command.into == "app" {
+            // The app0: mount makes this title's directory read-only; the
+            // next process (a native replacement) mounts it again.
+            allow_native_slot_write()?;
+        } else {
+            fs::create_dir_all(wire::STAGE_DIRECTORY).map_err(|e| format!("create {}: {e}", wire::STAGE_DIRECTORY))?;
+        }
+        atomic_write(&path, &bytes).map_err(|e| format!("write {path}: {e}"))?;
+        drop(bytes);
+        let written = read_bounded(&path, cap).map_err(|e| format!("read back {path}: {e}"))?;
+        command.check_payload(&written)?;
+        return Ok((None, None));
+    }
     if command.op == Op::Push {
         let plan: Value = serde_json::from_str(PLAN).map_err(|e| e.to_string())?;
         return Ok((Some(wire::admit(&bytes, &plan)?), None));

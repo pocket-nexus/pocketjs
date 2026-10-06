@@ -119,4 +119,34 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn stage_writes_plain_names_to_the_card_or_app_pocket_to_the_title() {
+        let session = Session {
+            version: VERSION,
+            session: "a".repeat(32),
+        };
+        let stage = |name: &str, into: &str, size: usize| -> Command {
+            serde_json::from_value(json!({
+                "version":1,"session":session.session,"id":"b".repeat(32),"op":"stage",
+                "size":size,"hash":"0123456789abcdef","name":name,"into":into
+            }))
+            .unwrap()
+        };
+        let card = stage("twenty48-vita.vpk", "card", 3);
+        card.validate(&session).unwrap();
+        assert_eq!(stage_path(&card, "PABCDEF12"), "ux0:/data/pocket-runtime/twenty48-vita.vpk");
+        let app = stage("app.pocket", "app", 3);
+        app.validate(&session).unwrap();
+        assert_eq!(stage_path(&app, "PABCDEF12"), "ux0:/app/PABCDEF12/app.pocket");
+        for (name, into, size) in [
+            ("../eboot.bin", "card", 3),
+            ("eboot.bin", "app", 3),
+            (".hidden", "card", 3),
+            ("x.vpk", "system", 3),
+            ("x.vpk", "card", 0),
+            ("x.vpk", "card", MAX_STAGE + 1),
+        ] {
+            assert!(stage(name, into, size).validate(&session).is_err(), "accepted {name} into {into}");
+        }
+    }
 }

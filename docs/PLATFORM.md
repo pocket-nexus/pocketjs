@@ -118,6 +118,7 @@ installation package in TypeScript, with no native tool and no network:
 
 ```
 bun tools/runtime.ts psp            # dist/runtime/psp/EBOOT.PBP + runtime.json
+bun tools/runtime.ts vita           # dist/runtime/vita/eboot.bin, LiveArea files + runtime.json
 bun tools/repack.ts --target psp --runtime dist/runtime/psp --pocket game.pocket \
   --id <id> --title <title> --author <author> --version <version> [--icon icon.png] -o game.zip
 ```
@@ -133,12 +134,14 @@ that differs from `runtime.json`, and an app id other than the identity's.
 The package carries the `.pocket` thinned to the target's variant. The other
 shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`
 (1980-01-01 dates, entries in the given order, `CompressionStream` deflate),
-`png.ts`, `scale.ts`, `sfo.ts` (PARAM.SFO) and `crc32.ts`.
+`png.ts`, `scale.ts`, `palette.ts` (median cut, indexed PNG-8), `sfo.ts`
+(PARAM.SFO) and `crc32.ts`.
 
 | Target | Runtime reads | Package |
 | --- | --- | --- |
 | `3ds-dev` | `romfs:/app.pocket` | `.3dsx` (hosts/3ds/README.md) |
 | `psp` | `app.pocket` in the EBOOT's folder (the module's argv[0] directory) into one kernel block before the arena reserves the rest | `.zip`: `PSP/GAME/Studio<Name>/EBOOT.PBP` (PARAM.SFO with the game's `TITLE` and `MEMSIZE = 1`, ICON0 144×80 from the icon, the runtime's `DATA.PSP` unchanged) and `app.pocket` beside it; a plan that asks for `io.offload` is refused |
+| `vita` | `app0:app.pocket` into one 16-byte-aligned block; no compiled app id | `.vpk`: `sce_sys/param.sfo` (byte for byte what `vita-mksfoex` writes for `tools/vita.ts`: the game's title, title id `P` + 8 hex of SHA-256(id)), the runtime's `eboot.bin` unchanged, `app.pocket`, `sce_sys/icon0.png` 128×128 indexed PNG-8 from the icon, the runtime's LiveArea files |
 
 On the PSP the game file takes the place of the embedded build's rodata
 copy: with twenty48 (723 KB file) the arena's free block measured

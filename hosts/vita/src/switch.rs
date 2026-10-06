@@ -15,15 +15,30 @@ use pocketjs_core::{spec, Ui};
 // $OUT_DIR/apps.rs -- `EmbeddedApp` + `APPS` (hosts/vita/build.rs).
 include!(concat!(env!("OUT_DIR"), "/apps.rs"));
 
-/// Zero-copy bytes for one embedded guest. Package JS includes the trailing
-/// NUL required by `Runtime::eval`; classic single-app JS is generated with the
+/// Zero-copy bytes for one guest: embedded, or (feature `runtime`) the
+/// app0:app.pocket the process loaded. Package JS includes the trailing NUL
+/// required by `Runtime::eval`; classic single-app JS is generated with the
 /// same terminator.
+#[derive(Clone, Copy)]
 pub struct GuestBytes {
     pub js: &'static str,
     pub pak: &'static [u8],
 }
 
+/// The guest at `index`, or the line that says why it cannot start.
+pub fn guest(index: usize) -> Result<GuestBytes, String> {
+    #[cfg(feature = "runtime")]
+    if index == 0 {
+        return crate::package_file::game();
+    }
+    guest_bytes(index).ok_or_else(|| String::from("embedded package unreadable"))
+}
+
 pub fn guest_bytes(index: usize) -> Option<GuestBytes> {
+    #[cfg(feature = "runtime")]
+    if index == 0 {
+        return crate::package_file::game().ok();
+    }
     let app = APPS.get(index)?;
     if app.pocket.is_empty() {
         return Some(GuestBytes {

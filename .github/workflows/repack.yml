@@ -17,6 +17,9 @@ on:
       - "contracts/spec/pocket-package.ts"
       - "tests/repack-*.test.ts"
       - "tests/fixtures/packages/**"
+      - "tests/fixtures/repack-*/**"
+      - "tools/vita-package.ts"
+      - "hosts/vita/assets/**"
   push:
     branches: [main]
     paths:
@@ -30,6 +33,9 @@ on:
       - "contracts/spec/pocket-package.ts"
       - "tests/repack-*.test.ts"
       - "tests/fixtures/packages/**"
+      - "tests/fixtures/repack-*/**"
+      - "tools/vita-package.ts"
+      - "hosts/vita/assets/**"
 
 permissions:
   contents: read

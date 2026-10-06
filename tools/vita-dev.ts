@@ -49,13 +49,17 @@ async function main(): Promise<void> {
   bun run vita:dev status  --app devkit
   bun run vita:dev push    --app devkit [--package file.pocket]
   bun run vita:dev native  --app devkit [--runtime file.runtime.json]
+  bun run vita:dev stage   --file x.vpk [--name x.vpk] [--into card|app]
   bun run vita:dev capture --app devkit [--out frame.png]
   bun run vita:dev reload|reset|menu --app devkit
   bun run vita:dev watch   --app devkit
 Use --title TITLEID to address a runtime and --dir to select the USB share.
 Install stages a VPK over USB mass storage; install/open it once in VitaShell.
 serve then owns the USB host. push rebuilds JS/PAK; native sends the SELF and
-requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
+requires a receipt from the replacement process. stage writes a file to
+ux0:data/pocket-runtime/ (card) for VitaShell to install, or app.pocket into
+the title's directory (app) for a generic runtime's next start.
+L+R+SELECT opens the menu.`);
     return;
   }
   if (command === "build") { await run(["bun", "tools/vita.ts", app, "--release"]); return; }
@@ -138,6 +142,14 @@ requires a receipt from the replacement process. L+R+SELECT opens the menu.`);
     console.log(JSON.stringify(await client.command("push", { payload }), null, 2));
   }
   if (command === "push") { await push(); return; }
+  if (command === "stage") {
+    const file = value("--file");
+    if (!file) throw new Error("stage needs --file");
+    const into = (value("--into") ?? "card") as "card" | "app";
+    const name = value("--name") ?? file.split("/").pop()!;
+    console.log(JSON.stringify(await client.command("stage", { payload: readFileSync(file), name, into }), null, 2));
+    return;
+  }
   if (command === "watch") {
     const directory = resolve(value("--watch-dir") ?? join(ROOT, "apps", app.replace(/-main$/, "")));
     function stamp(path: string): string {

@@ -17,6 +17,7 @@ const TARGETS: Record<string, () => Promise<Repack>> = {
   "3ds": async () => (await import("./repack/3ds.ts")).repack3ds,
   android: async () => (await import("./repack/android.ts")).repackAndroid,
   psp: async () => (await import("./repack/psp.ts")).repackPsp,
+  vita: async () => (await import("./repack/vita.ts")).repackVita,
 };
 
 /** Every file below `directory`, by "/"-separated relative path. */
