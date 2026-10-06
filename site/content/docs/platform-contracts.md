@@ -338,6 +338,8 @@ under `tools/`, builds through its own command, and stays out of
 | `symbian-e7-dev`         | `bun run symbian`            | the E7 host has not passed the hardware acceptance suite |
 | `meizu-m8-dev`           | `bun run meizu-m8`           | the Windows CE 6 acceptance receipt has not passed |
 | `blackberry-qnx-dev`     | `bun run blackberry-qnx`     | a private exact-device profile (Classic SQC100, Core Native) |
+| `moto-g-play-dev`        | `bun run moto-g-play`        | a private exact-device profile (Android 14, arm64) |
+| `redmi-1s-dev`           | `bun run redmi-1s`           | a private exact-device profile (Android 4.3; one APK with ARMv7 and arm64 libraries) |
 
 Each module builds its own `definePlatformContractRegistry` and passes it to
 `validateAndResolveBuildPlan`, so the resolver, compiler, and plan format are

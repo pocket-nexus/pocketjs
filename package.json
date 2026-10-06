@@ -349,6 +349,7 @@
     "esp-idf:release": "bun tools/esp-idf-release.ts",
     "android": "bun tools/android.ts",
     "moto-g-play": "bun tools/moto-g-play.ts",
+    "redmi-1s": "bun tools/android.ts --profile=redmi-1s",
     "ime:setup": "bun tools/ime/setup.ts",
     "clear:companion": "bun tools/ime/device.ts",
     "test:fuzz": "bun microts/compiler/model-fuzz.ts"
