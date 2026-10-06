@@ -21,7 +21,6 @@ describe("Nintendo 3DS .3dsx installation", () => {
       compiler!,
       "-std=c11",
       "-D_POSIX_C_SOURCE=200809L",
-      '-DPOCKETJS_RUNTIME_SLOT="0123456789abcdef"',
       `-I${join(ROOT, "hosts/3ds/include")}`,
       `-I${join(ROOT, "hosts/3ds/src")}`,
       join(ROOT, "tests/fixtures/3ds-native-install.c"),

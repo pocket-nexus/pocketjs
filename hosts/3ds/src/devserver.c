@@ -403,12 +403,13 @@ static void send_status(void) {
     message,
     sizeof message,
     "{\"t\":\"runtime.status\",\"phase\":\"%s\",\"target\":\"%s\",\"hostAbi\":%u,"
-    "\"ip\":\"%s\",\"port\":%u,\"generation\":%lu,"
+    "\"slot\":\"%s\",\"ip\":\"%s\",\"port\":%u,\"generation\":%lu,"
     "\"active\":\"%016llx\",\"lastGood\":\"%016llx\",\"running\":\"%016llx\","
     "\"frame\":%lu}",
     runtime_phase,
     POCKETJS_TARGET_ID,
     (unsigned)POCKETJS_HOST_ABI,
+    runtime_slot(),
     ip,
     (unsigned)POCKET_RUNTIME_WIRE_PORT,
     (unsigned long)runtime_state.generation,

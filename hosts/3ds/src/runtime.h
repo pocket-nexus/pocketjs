@@ -7,19 +7,26 @@
 
 #include "pocket_core.h"
 
-#ifndef POCKETJS_RUNTIME_SLOT
-#error "POCKETJS_RUNTIME_SLOT must come from the verified application id"
-#endif
-
 /* Pairing identifies the console, so every Pocket app shares one key. Guest
  * state is application-scoped: two .3dsx entries on the same SD card must not
  * recover or hot-load one another's package. */
 #define POCKET_RUNTIME_ROOT "sdmc:/pocketjs/runtime"
 #define POCKET_RUNTIME_APPS POCKET_RUNTIME_ROOT "/apps"
-#define POCKET_RUNTIME_APP_ROOT POCKET_RUNTIME_APPS "/" POCKETJS_RUNTIME_SLOT
-#define POCKET_RUNTIME_PENDING POCKET_RUNTIME_APP_ROOT "/pending.pocket"
-#define POCKET_RUNTIME_UPLOAD POCKET_RUNTIME_APP_ROOT "/network-upload.pocket"
 #define POCKET_RUNTIME_DEV_KEY POCKET_RUNTIME_ROOT "/dev.key"
+
+/* The application's directory below POCKET_RUNTIME_APPS is named at boot from
+ * the package in the .3dsx's RomFS (PocketGuestPackage.slot, the first 16 hex
+ * digits of SHA-256 of its app id), so one runtime binary serves every game.
+ * runtime_select_slot accepts exactly 16 lowercase hex digits; the paths
+ * below are empty strings until it succeeds. */
+bool runtime_select_slot(const char *slot);
+const char *runtime_slot(void);
+const char *runtime_app_root(void);
+const char *runtime_pending_path(void);
+const char *runtime_upload_path(void);
+#define POCKET_RUNTIME_APP_ROOT runtime_app_root()
+#define POCKET_RUNTIME_PENDING runtime_pending_path()
+#define POCKET_RUNTIME_UPLOAD runtime_upload_path()
 
 typedef struct {
   uint8_t *bytes;

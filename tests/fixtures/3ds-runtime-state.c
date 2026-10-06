@@ -68,6 +68,18 @@ int main(int argc, char **argv) {
 
   char error[256] = {0};
   PocketRuntimeState state;
+  /* The slot comes from the booted package at run time. Nothing is written
+   * before one is chosen, and only 16 lowercase hex digits name one. */
+  assert(!runtime_storage_init(&state, error, sizeof error));
+  assert(strcmp(POCKET_RUNTIME_APP_ROOT, "") == 0);
+  assert(!runtime_select_slot(NULL));
+  assert(!runtime_select_slot("0123456789abcde"));
+  assert(!runtime_select_slot("0123456789abcdef0"));
+  assert(!runtime_select_slot("0123456789ABCDEF"));
+  assert(!runtime_select_slot("../../../3ds/xyz"));
+  assert(strcmp(POCKET_RUNTIME_APP_ROOT, "") == 0);
+  assert(runtime_select_slot("0123456789abcdef"));
+  assert(strcmp(runtime_slot(), "0123456789abcdef") == 0);
   assert(runtime_storage_init(&state, error, sizeof error));
   assert(state.generation == 0 && state.active_hash == 0 && state.last_good_hash == 0);
   assert(strcmp(POCKET_RUNTIME_APP_ROOT, "sdmc:/pocketjs/runtime/apps/0123456789abcdef") == 0);
@@ -174,7 +186,7 @@ int main(int argc, char **argv) {
 
   /* The first boot beside an embedded package, and every boot after a .3dsx
    * with a different one was installed, reports an install exactly once. */
-  const char *embedded_record = POCKET_RUNTIME_APP_ROOT "/embedded.txt";
+  const char *embedded_record = "sdmc:/pocketjs/runtime/apps/0123456789abcdef/embedded.txt";
   assert(!exists(embedded_record));
   assert(runtime_note_embedded(0x1111222233334444ULL));
   assert(exists(embedded_record));

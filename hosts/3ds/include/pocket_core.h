@@ -25,10 +25,27 @@ typedef struct {
   size_t plan_length;
   uint64_t package_hash;
   uint64_t variant_hash;
+  /* Read from the variant's plan when the package is opened: one runtime
+   * serves every game, so none of these is compiled in. aux_width and
+   * aux_height are 0 when the plan has no auxiliary surface. */
+  uint32_t view_width;
+  uint32_t view_height;
+  uint32_t raster_density;
+  uint32_t aux_width;
+  uint32_t aux_height;
+  uint32_t aux_raster_density;
+  uint32_t features; /* POCKET_GUEST_FEATURE_* */
+  /* First 16 hex digits of SHA-256(app id), NUL-terminated: the
+   * application's state directory below sdmc:/pocketjs/runtime/apps. */
+  char slot[17];
 } PocketGuestPackage;
 
+#define POCKET_GUEST_FEATURE_OFFLOAD 1u /* features["io.offload"] */
+#define POCKET_GUEST_FEATURE_MEDIA 2u   /* features["media.playback"] */
+
 /* 0 = admitted. The package footer, target, host ABI, identity, plan and
- * NUL-terminated JS section are all checked before success. */
+ * NUL-terminated JS section are all checked before success; 13, 14 and 15
+ * name a plan whose JSON, viewport or auxiliary surface cannot be read. */
 int32_t pocket_package_open(
   const uint8_t *bytes,
   size_t length,

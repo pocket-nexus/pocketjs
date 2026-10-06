@@ -42,27 +42,82 @@
 #include "soc.h"
 #include "svcwire.h"
 
-/* The guest viewport comes from the resolved build plan, never a literal. */
-#ifndef POCKETJS_VIEW_W
-#error "POCKETJS_VIEW_W must come from the verified ResolvedBuildPlan"
-#endif
-#ifndef POCKETJS_VIEW_H
-#error "POCKETJS_VIEW_H must come from the verified ResolvedBuildPlan"
-#endif
-#ifndef POCKETJS_RASTER_DENSITY
-#error "POCKETJS_RASTER_DENSITY must come from the verified ResolvedBuildPlan"
-#endif
-#ifndef POCKETJS_AUX_VIEW_W
-#error "POCKETJS_AUX_VIEW_W must come from the verified ResolvedBuildPlan"
-#endif
-#ifndef POCKETJS_AUX_VIEW_H
-#error "POCKETJS_AUX_VIEW_H must come from the verified ResolvedBuildPlan"
-#endif
-#define VIEW_W POCKETJS_VIEW_W
-#define VIEW_H POCKETJS_VIEW_H
-#define AUX_VIEW_W POCKETJS_AUX_VIEW_W
-#define AUX_VIEW_H POCKETJS_AUX_VIEW_H
+/* The guest surfaces come from the plan of the package in the .3dsx's RomFS
+ * (pocket_package_open reads them), never from a literal or a compile flag:
+ * one runtime binary serves every game. surfaces_admit() holds them to the
+ * two screens, and every later guest (a push, a recovery) to the surfaces the
+ * render targets were created with. */
+#define TOP_SCREEN_W 400u
+#define TOP_SCREEN_H 240u
+#define BOTTOM_SCREEN_W 320u
+#define BOTTOM_SCREEN_H 240u
+static uint32_t view_width;
+static uint32_t view_height;
+static uint32_t aux_view_width;
+static uint32_t aux_view_height;
+static uint32_t raster_density;
+#define VIEW_W view_width
+#define VIEW_H view_height
+#define AUX_VIEW_W aux_view_width
+#define AUX_VIEW_H aux_view_height
 #define CAPTURE_BYTES ((size_t)VIEW_W * VIEW_H * 4)
+
+/* The auxiliary surface a plan without one gets: the whole bottom screen. */
+static uint32_t guest_aux_width(const PocketGuestPackage *guest) {
+  return guest->aux_width == 0 ? BOTTOM_SCREEN_W : guest->aux_width;
+}
+static uint32_t guest_aux_height(const PocketGuestPackage *guest) {
+  return guest->aux_height == 0 ? BOTTOM_SCREEN_H : guest->aux_height;
+}
+
+/* Whether this binary can run the package: its plan's surfaces fit the
+ * screens at density 1 (and, once the first guest has booted, equal the
+ * surfaces in use), and it asks for no feature this build left out. */
+static bool surfaces_admit(
+  const PocketRuntimePackage *package,
+  char *error,
+  size_t error_length
+) {
+  const PocketGuestPackage *guest = &package->guest;
+  uint32_t aux_width = guest_aux_width(guest);
+  uint32_t aux_height = guest_aux_height(guest);
+  if (guest->view_width != TOP_SCREEN_W || guest->view_height != TOP_SCREEN_H ||
+      aux_width != BOTTOM_SCREEN_W || aux_height != BOTTOM_SCREEN_H ||
+      guest->raster_density != 1 ||
+      (guest->aux_raster_density != 0 && guest->aux_raster_density != 1)) {
+    snprintf(
+      error,
+      error_length,
+      "plan surfaces %lux%lu + %lux%lu at density %lu do not fit the 400x240 + 320x240 screens",
+      (unsigned long)guest->view_width,
+      (unsigned long)guest->view_height,
+      (unsigned long)aux_width,
+      (unsigned long)aux_height,
+      (unsigned long)guest->raster_density
+    );
+    return false;
+  }
+  if (view_width != 0 &&
+      (guest->view_width != view_width || guest->view_height != view_height ||
+       aux_width != aux_view_width || aux_height != aux_view_height ||
+       guest->raster_density != raster_density)) {
+    snprintf(error, error_length, "plan surfaces differ from the running guest's");
+    return false;
+  }
+#ifndef POCKETJS_MEDIA
+  if ((guest->features & POCKET_GUEST_FEATURE_MEDIA) != 0) {
+    snprintf(error, error_length, "plan needs media.playback, which this runtime does not carry");
+    return false;
+  }
+#endif
+#ifndef POCKETJS_OFFLOAD
+  if ((guest->features & POCKET_GUEST_FEATURE_OFFLOAD) != 0) {
+    snprintf(error, error_length, "plan needs io.offload, which this runtime does not carry");
+    return false;
+  }
+#endif
+  return true;
+}
 
 /* contracts/spec/spec.ts ANALOG_CENTER. */
 #define ANALOG_CENTER 0x8080
@@ -411,7 +466,8 @@ static bool boot_guest(
     snprintf(error, error_length, "guest package has no JavaScript");
     return false;
   }
-  ui_init(POCKETJS_RASTER_DENSITY);
+  if (!surfaces_admit(package, error, error_length)) return false;
+  ui_init(raster_density);
   ui_set_viewport((float)VIEW_W, (float)VIEW_H);
   if (ui_create_auxiliary_surface((float)AUX_VIEW_W, (float)AUX_VIEW_H) == 0) {
     snprintf(error, error_length, "auxiliary UI root allocation failed");
@@ -706,6 +762,29 @@ int main(void) {
   (void)devmenu_init();
 #endif
 
+  /* The package in RomFS is the game: it names the surfaces the render
+   * targets take and the application's state directory on the SD card. A
+   * runtime with no package says so on the bottom screen and waits for HOME. */
+  struct stat romfs_package;
+  if (R_FAILED(romfsInit()) || stat("romfs:/app.pocket", &romfs_package) != 0) {
+    fail("this .3dsx carries no game: romfs:/app.pocket is missing");
+  }
+  char runtime_error[256] = {0};
+  PocketRuntimePackage *embedded = runtime_package_load(
+    "romfs:/app.pocket",
+    runtime_error,
+    sizeof runtime_error
+  );
+  if (embedded == NULL) fail(runtime_error);
+  snprintf(embedded->origin, sizeof embedded->origin, "romfs:/app.pocket (recovery)");
+  if (!surfaces_admit(embedded, runtime_error, sizeof runtime_error)) fail(runtime_error);
+  view_width = embedded->guest.view_width;
+  view_height = embedded->guest.view_height;
+  aux_view_width = guest_aux_width(&embedded->guest);
+  aux_view_height = guest_aux_height(&embedded->guest);
+  raster_density = embedded->guest.raster_density;
+  if (!runtime_select_slot(embedded->guest.slot)) fail("package app id gave no runtime slot");
+
   primary_target = C3D_RenderTargetCreate(
     VIEW_H,
     VIEW_W,
@@ -724,17 +803,7 @@ int main(void) {
   C3D_RenderTargetSetOutput(primary_target, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
   C3D_RenderTargetSetOutput(auxiliary_target, GFX_BOTTOM, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
-  if (R_FAILED(romfsInit())) fail("romfsInit failed: the .3dsx has no romfs");
   if (!gfx_init(VIEW_W, VIEW_H)) fail("PICA200 backend failed to initialize");
-
-  char runtime_error[256] = {0};
-  PocketRuntimePackage *embedded = runtime_package_load(
-    "romfs:/app.pocket",
-    runtime_error,
-    sizeof runtime_error
-  );
-  if (embedded == NULL) fail(runtime_error);
-  snprintf(embedded->origin, sizeof embedded->origin, "romfs:/app.pocket (recovery)");
 
   PocketRuntimeState runtime_state = {0};
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)

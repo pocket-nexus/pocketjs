@@ -70,6 +70,52 @@ Every build writes a target-thinned `.pocket` next to the native artifact.
 target-flavoured PAK.** The native runtime embeds the same file as its immutable
 recovery guest; it no longer embeds independent `app.js` and `app.pak` files.
 
+## One runtime for every game
+
+**Nothing in the program depends on the game.** At boot `main.c` reads
+`romfs:/app.pocket` before it creates a render target: `pocket_package_open`
+admits the package and returns the plan's `viewport` and
+`surfaces.auxiliary` (logical size and raster density), its `io.offload` and
+`media.playback` features, and the first 16 hex digits of SHA-256 over the
+variant identity's app id. The surfaces must be the 400x240 top screen and the
+320x240 bottom screen at density 1 (a plan without an auxiliary surface gets
+the whole bottom screen); the hash names the state slot below
+`sdmc:/pocketjs/runtime/apps/`. A guest installed later over the wire must
+have the same surfaces. A `.3dsx` with no RomFS, or no `app.pocket` in it,
+writes `this .3dsx carries no game: romfs:/app.pocket is missing` to the bottom
+screen and to `sdmc:/pocketjs-error.txt`, and waits for HOME.
+
+The program a build of any app produces is therefore the same apart from
+`--capture`, `io.offload` (a different main loop) and `media.playback` (the
+media worker), and a game's `.3dsx` can be written without a compiler:
+
+```sh
+bun tools/runtime.ts 3ds          # dist/runtime/3ds/runtime.3dsx + runtime.json
+bun tools/repack.ts --target 3ds --runtime dist/runtime/3ds --pocket game.pocket \
+  --id dev.example.game --title Game --author Example --version 1.0.0 --icon icon.png -o game.3dsx
+```
+
+`tools/runtime/3ds.ts` builds the program with an SMDH ("PocketJS Runtime",
+the PocketJS mark) and no RomFS, and records its size, SHA-256, target, host
+ABI and PocketJS commit in `runtime.json`. `tools/repack/3ds.ts` works on
+bytes, with no file system and no native tool: it checks `runtime.json`, the
+`.pocket` footer, that the package's `3ds-dev` variant has the runtime's host
+ABI and the identity's app id, and refuses a plan that needs `io.offload` or
+`media.playback` (the runtime carries neither) or other surfaces. It keeps the
+`.3dsx` header's segment sizes, the relocation headers, the three segments and
+the relocation tables byte for byte, and writes a new SMDH (title, `<title>
+<version>` as the description, author, 24 and 48 px icons scaled from the
+identity's PNG or the runtime's own) and a RomFS holding `app.pocket` (the
+`.pocket` thinned to its `3ds-dev` variant when it carries others).
+**The SMDH and RomFS are the bytes `smdhtool` and `3dsxtool` (3dstools 1.3.1)
+write for the same inputs**: `tests/repack-3ds.test.ts` compares them with
+fixtures those tools wrote, and `bun tools/repack/reference-3ds.ts` builds a
+whole `.3dsx` with them in the devkitARM image and byte-compares it with the
+repack's. `bun tests/e2e/3ds-repack.ts` starts the bare runtime and a repacked
+game in Azahar and plays the game over the Pocket Runtime wire; with
+`--device --host <ip>` it plays a repacked game already installed on a
+console.
+
 ## Updating the guest from SD
 
 The build prints the application's 16-hex-digit runtime slot. The runtime
@@ -98,7 +144,8 @@ running or accepted guest.
 
 **Each embedded application id has its own package, generation and recovery
 state.** The slot is the first 16 hexadecimal digits of SHA-256 over the
-manifest `id`; the fixed length keeps native paths bounded. Contacts, Pocket
+manifest `id`, which the runtime computes at boot from the identity of
+`romfs:/app.pocket`; the fixed length keeps native paths bounded. Contacts, Pocket
 Shell and Pocket Term can therefore live as separate `.3dsx` files on one SD
 card without one app's last-good package booting under another app's icon.
 The pairing key remains device-wide at `sdmc:/pocketjs/runtime/dev.key`, so the

@@ -19,9 +19,38 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define PACKAGES_DIR POCKET_RUNTIME_APP_ROOT "/packages"
-#define STATE_DIR POCKET_RUNTIME_APP_ROOT "/state"
 #define MAX_PACKAGE_BYTES (24u * 1024u * 1024u)
+
+/* "sdmc:/pocketjs/runtime/apps/" + 16 hex digits + the longest leaf below. */
+#define RUNTIME_PATH_BYTES 96
+static char slot_name[17];
+static char app_root[RUNTIME_PATH_BYTES];
+static char packages_dir[RUNTIME_PATH_BYTES];
+static char state_dir[RUNTIME_PATH_BYTES];
+static char pending_path[RUNTIME_PATH_BYTES];
+static char upload_path[RUNTIME_PATH_BYTES];
+#define PACKAGES_DIR packages_dir
+#define STATE_DIR state_dir
+
+bool runtime_select_slot(const char *slot) {
+  if (slot == NULL || strlen(slot) != 16) return false;
+  for (size_t index = 0; index < 16; index += 1) {
+    char c = slot[index];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+  }
+  memcpy(slot_name, slot, 17);
+  snprintf(app_root, sizeof app_root, POCKET_RUNTIME_APPS "/%s", slot_name);
+  snprintf(packages_dir, sizeof packages_dir, POCKET_RUNTIME_APPS "/%s/packages", slot_name);
+  snprintf(state_dir, sizeof state_dir, POCKET_RUNTIME_APPS "/%s/state", slot_name);
+  snprintf(pending_path, sizeof pending_path, POCKET_RUNTIME_APPS "/%s/pending.pocket", slot_name);
+  snprintf(upload_path, sizeof upload_path, POCKET_RUNTIME_APPS "/%s/network-upload.pocket", slot_name);
+  return true;
+}
+
+const char *runtime_slot(void) { return slot_name; }
+const char *runtime_app_root(void) { return app_root; }
+const char *runtime_pending_path(void) { return pending_path; }
+const char *runtime_upload_path(void) { return upload_path; }
 
 static const char *package_error(int32_t code) {
   switch (code) {
@@ -36,6 +65,9 @@ static const char *package_error(int32_t code) {
     case 9: return "package plan section missing";
     case 10: return "package JavaScript section missing";
     case 11: return "package JavaScript is not NUL-terminated";
+    case 13: return "package plan is not readable JSON";
+    case 14: return "package plan has no usable viewport";
+    case 15: return "package plan has an unusable auxiliary surface";
     default: return "invalid package arguments";
   }
 }
@@ -104,6 +136,10 @@ bool runtime_storage_init(PocketRuntimeState *state, char *error, size_t error_l
     return false;
   }
   memset(state, 0, sizeof *state);
+  if (slot_name[0] == '\0') {
+    pocket_set_error(error, error_length, "runtime slot not selected");
+    return false;
+  }
   if (!ensure_directory("sdmc:/pocketjs", error, error_length) ||
       !ensure_directory(POCKET_RUNTIME_ROOT, error, error_length) ||
       !ensure_directory(POCKET_RUNTIME_APPS, error, error_length) ||
@@ -220,7 +256,7 @@ void runtime_package_free(PocketRuntimePackage *package) {
 }
 
 static void blob_path(uint64_t hash, char *out, size_t length) {
-  snprintf(out, length, PACKAGES_DIR "/%016llx.pocket", (unsigned long long)hash);
+  snprintf(out, length, "%s/%016llx.pocket", PACKAGES_DIR, (unsigned long long)hash);
 }
 
 PocketRuntimePackage *runtime_package_load_hash(
@@ -337,11 +373,12 @@ bool runtime_commit(
   uint32_t generation = state->generation + 1;
   char final_path[224];
   char temporary_path[192];
-  snprintf(temporary_path, sizeof temporary_path, STATE_DIR "/state.tmp");
+  snprintf(temporary_path, sizeof temporary_path, "%s/state.tmp", STATE_DIR);
   snprintf(
     final_path,
     sizeof final_path,
-    STATE_DIR "/state-%08lx-%016llx-%016llx.commit",
+    "%s/state-%08lx-%016llx-%016llx.commit",
+    STATE_DIR,
     (unsigned long)generation,
     (unsigned long long)active_hash,
     (unsigned long long)last_good_hash
@@ -369,8 +406,9 @@ bool runtime_commit(
 static void write_report(const char *name, const char *text) {
   char path[192];
   char temporary[192];
-  snprintf(path, sizeof path, POCKET_RUNTIME_APP_ROOT "/%s", name);
-  snprintf(temporary, sizeof temporary, POCKET_RUNTIME_APP_ROOT "/.%s.tmp", name);
+  if (slot_name[0] == '\0') return;
+  snprintf(path, sizeof path, "%s/%s", POCKET_RUNTIME_APP_ROOT, name);
+  snprintf(temporary, sizeof temporary, "%s/.%s.tmp", POCKET_RUNTIME_APP_ROOT, name);
   FILE *file = fopen(temporary, "wb");
   if (file == NULL) return;
   fputs(text == NULL ? "" : text, file);
@@ -385,7 +423,9 @@ static void write_report(const char *name, const char *text) {
 
 bool runtime_note_embedded(uint64_t embedded_hash) {
   unsigned long long recorded = 0;
-  FILE *file = fopen(POCKET_RUNTIME_APP_ROOT "/embedded.txt", "rb");
+  char path[RUNTIME_PATH_BYTES + 16];
+  snprintf(path, sizeof path, "%s/embedded.txt", POCKET_RUNTIME_APP_ROOT);
+  FILE *file = fopen(path, "rb");
   bool known = file != NULL && fscanf(file, "%16llx", &recorded) == 1;
   if (file != NULL) fclose(file);
   if (known && recorded == embedded_hash) return false;
@@ -406,7 +446,7 @@ void runtime_write_status(
     sizeof message,
     "phase=%s\nslot=%s\ngeneration=%lu\nactive=%016llx\nlast_good=%016llx\nrunning=%016llx\norigin=%s",
     phase == NULL ? "unknown" : phase,
-    POCKETJS_RUNTIME_SLOT,
+    slot_name,
     (unsigned long)(state == NULL ? 0 : state->generation),
     (unsigned long long)(state == NULL ? 0 : state->active_hash),
     (unsigned long long)(state == NULL ? 0 : state->last_good_hash),

@@ -81,6 +81,8 @@ pub struct Identity<'a> {
 /// A filesystem package admitted for one native host. The package allocation
 /// must outlive these slices; native runtimes keep it until guest teardown.
 pub struct Guest<'a> {
+    /// The variant identity's application id (`app.id` of its plan).
+    pub id: &'a str,
     pub js: &'a [u8],
     pub pak: &'a [u8],
     pub plan: &'a [u8],
@@ -245,9 +247,7 @@ pub fn select_guest<'a>(
     if variant.host_abi != host_abi {
         return Err(GuestError::HostAbiMismatch);
     }
-    if variant.identity()?.is_none() {
-        return Err(GuestError::MissingIdentity);
-    }
+    let identity = variant.identity()?.ok_or(GuestError::MissingIdentity)?;
     let plan = variant
         .section(section::PLAN)?
         .filter(|value| !value.is_empty())
@@ -261,6 +261,7 @@ pub fn select_guest<'a>(
     }
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
     Ok(Guest {
+        id: identity.id,
         js,
         pak,
         plan,
@@ -404,6 +405,7 @@ mod tests {
     fn admits_a_complete_guest_for_an_exact_host() {
         let guest = select_guest(FIXTURE, "psp", 1, false).unwrap();
         assert_eq!(guest.js.last(), Some(&0));
+        assert!(!guest.id.is_empty());
         assert!(!guest.plan.is_empty());
         assert_eq!(guest.pak[0], 10);
         assert_ne!(guest.package_hash, 0);

@@ -7,19 +7,10 @@
 #
 #   POCKETJS_TARGET          target id to publish as ui.__host
 #   POCKETJS_HOST_ABI        ABI number to publish as ui.__hostAbi
-#   POCKETJS_LOGICAL_WIDTH   guest viewport, baked into the host
-#   POCKETJS_LOGICAL_HEIGHT
-#   POCKETJS_AUX_LOGICAL_WIDTH
-#   POCKETJS_AUX_LOGICAL_HEIGHT
-#   POCKETJS_AUX_PHYSICAL_WIDTH
-#   POCKETJS_AUX_PHYSICAL_HEIGHT
-#   POCKETJS_AUX_PRESENTATION
-#   POCKETJS_AUX_RASTER_DENSITY
-#   POCKETJS_RASTER_DENSITY  raster samples per logical pixel
 #   POCKETJS_CORE_LIB        libpocketjs_3ds_core.a
 #   POCKETJS_QUICKJS_DIR     directory holding quickjs.h and libquickjs.a
-#   POCKETJS_APP_POCKET      target-thinned guest package to embed as recovery
-#   POCKETJS_RUNTIME_SLOT    app-id-derived state directory below runtime/apps
+#   POCKETJS_APP_POCKET      target-thinned guest package to embed as recovery;
+#                            empty builds the runtime alone, with no RomFS
 #   POCKETJS_BUILD_DIR       scratch for objects, the .shbin, the .elf, romfs
 #   POCKETJS_OUT_3DSX        the .3dsx to write
 #   POCKETJS_SMDH_TITLE      SMDH metadata
@@ -35,6 +26,11 @@
 #   POCKETJS_CIA_TITLE       exheader process name (8 bytes)
 #   POCKETJS_CIA_PRODUCT     CTR-P-XXXX product code
 #   POCKETJS_CIA_UNIQUE_ID   title id unique part, e.g. 0xFF3D0
+#
+# The guest's surfaces and its state directory on the SD card are not here:
+# the host reads them at boot from the plan and the identity of the package in
+# RomFS, so the code segments are the same for every game (the generic runtime
+# tools/runtime/3ds.ts builds, which tools/repack/3ds.ts pairs with a game).
 #
 # The tape and the capture window travel INSIDE the binary: a capture run never
 # reads the emulator's filesystem for its input. Nothing is written outside
@@ -77,13 +73,7 @@ ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections -fdata-sections \
   $(ARCH) -D__3DS__ -DJS_NO_NAN_BOXING \
   -DPOCKETJS_TARGET_ID='"$(POCKETJS_TARGET)"' \
-  -DPOCKETJS_RUNTIME_SLOT='"$(POCKETJS_RUNTIME_SLOT)"' \
   -DPOCKETJS_HOST_ABI=$(POCKETJS_HOST_ABI) \
-  -DPOCKETJS_VIEW_W=$(POCKETJS_LOGICAL_WIDTH) \
-  -DPOCKETJS_VIEW_H=$(POCKETJS_LOGICAL_HEIGHT) \
-  -DPOCKETJS_AUX_VIEW_W=$(POCKETJS_AUX_LOGICAL_WIDTH) \
-  -DPOCKETJS_AUX_VIEW_H=$(POCKETJS_AUX_LOGICAL_HEIGHT) \
-  -DPOCKETJS_RASTER_DENSITY=$(POCKETJS_RASTER_DENSITY) \
   -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(BUILD) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include
 
@@ -200,9 +190,17 @@ $(SMDH): $(ICON) $(SMALL_ICON) $(SMDH_STAMP) | $(BUILD)
 	$(SMDHTOOL) --create "$$POCKETJS_SMDH_TITLE" "$$POCKETJS_SMDH_DESC" \
 	  "$$POCKETJS_SMDH_AUTHOR" $(ICON) $@ $(SMALL_ICON)
 
+ifneq ($(POCKETJS_APP_POCKET),)
 $(OUT): $(ELF) $(SMDH) $(ROMFS)/app.pocket $(ROMFS_LAYOUT_STAMP)
 	mkdir -p $(dir $(OUT))
 	$(THREEDSXTOOL) $(ELF) $@ --romfs=$(ROMFS) --smdh=$(SMDH)
+else
+# The generic runtime: an SMDH and no RomFS. Started as it is, it says on the
+# bottom screen that it carries no game; tools/repack/3ds.ts gives it one.
+$(OUT): $(ELF) $(SMDH)
+	mkdir -p $(dir $(OUT))
+	$(THREEDSXTOOL) $(ELF) $@ --smdh=$(SMDH)
+endif
 
 ifneq ($(CIA),)
 # The CIA's identity arrives as -D substitutions, not in a file, and make cannot

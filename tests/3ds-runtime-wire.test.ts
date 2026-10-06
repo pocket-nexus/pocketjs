@@ -283,7 +283,6 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
     const compile = Bun.spawnSync([
       compiler!,
       "-std=c11",
-      '-DPOCKETJS_RUNTIME_SLOT="0123456789abcdef"',
       `-I${join(ROOT, "hosts/3ds/src")}`,
       `-I${join(ROOT, "hosts/3ds/include")}`,
       join(ROOT, "tests/fixtures/3ds-devmenu.c"),

@@ -33,17 +33,16 @@
 // The contract with hosts/3ds/Makefile
 // ---------------------------------------------------------------------------
 // The Makefile runs in the container with CWD /repo/hosts/3ds and receives all
-// paths as container paths. It gets the application, target, primary-display,
-// and auxiliary-display variables hostBuildEnvironment() emits —
-// POCKETJS_TARGET and POCKETJS_HOST_ABI are the
-// values the host must publish as ui.__host / ui.__hostAbi, so the C compile
-// derives -DPOCKETJS_TARGET_ID and -DPOCKETJS_HOST_ABI from them rather than
-// from literals — plus:
+// paths as container paths. It gets the variables hostBuildEnvironment()
+// emits, of which it reads POCKETJS_TARGET and POCKETJS_HOST_ABI: the values
+// the host must publish as ui.__host / ui.__hostAbi, so the C compile derives
+// -DPOCKETJS_TARGET_ID and -DPOCKETJS_HOST_ABI from them rather than from
+// literals. Plus:
 //
 //   POCKETJS_CORE_LIB      absolute path to libpocketjs_3ds_core.a
 //   POCKETJS_QUICKJS_DIR   directory holding quickjs.h and libquickjs.a
-//   POCKETJS_APP_POCKET    target-thinned recovery guest to embed
-//   POCKETJS_RUNTIME_SLOT  app-id-derived state directory below runtime/apps
+//   POCKETJS_APP_POCKET    target-thinned recovery guest to embed ("" builds
+//                          the generic runtime, tools/runtime/3ds.ts)
 //   POCKETJS_BUILD_DIR     scratch directory for objects, .shbin and the .elf
 //   POCKETJS_OUT_3DSX      the .3dsx path to write
 //   POCKETJS_SMDH_TITLE    application title  (3dsxtool --smdh metadata)
@@ -65,6 +64,12 @@
 //
 // The default goal must produce POCKETJS_OUT_3DSX and nothing outside
 // POCKETJS_BUILD_DIR and dist/3ds/.
+//
+// The viewport, the raster density and the application's state slot on the
+// SD card are not among them: the host reads all three at boot from the plan
+// and identity of romfs:/app.pocket. Apart from --capture, io.offload and
+// media.playback builds, the code segments are therefore the same for every
+// app, and they are the ones the generic runtime carries.
 
 import { $ } from "bun";
 import { containerPathFor, ensureQuickJs, runContainer, THREE_DS_CONTAINER_IMAGE, type Mount } from "./3ds-toolchain.ts";
@@ -622,6 +627,83 @@ async function loadBuildPlan(
 }
 
 // ---------------------------------------------------------------------------
+// Native steps shared with tools/runtime/3ds.ts
+// ---------------------------------------------------------------------------
+
+export interface Native3ds {
+  /** The devkitARM image id, part of every container cache stamp. */
+  readonly imageId: string;
+  readonly coreLibrary: string;
+  readonly quickJsDirectory: string;
+  readonly mounts: readonly Mount[];
+}
+
+/**
+ * Preflight Docker and Rust, build the Rust core staticlib on macOS and the
+ * cached QuickJS archive in the container. `roots` are the host directories
+ * the make step reads or writes; one outside the repository gets its own
+ * mount (a second distinct one is refused by containerPathFor).
+ */
+export async function prepare3dsNative(options: {
+  readonly cargoArgs: readonly string[];
+  readonly roots: readonly string[];
+}): Promise<Native3ds> {
+  const imageId = await preflightContainer();
+  const { rustup, toolchain, rustcPath } = await preflightRust();
+
+  console.log(`PocketJS 3ds: cargo build --release (${RUST_TARGET}, ${toolchain})`);
+  await $`${rustup} run ${toolchain} cargo build --release ${options.cargoArgs}`
+    .cwd(coreDirectory)
+    .env({ ...process.env, RUSTC: rustcPath });
+  const releaseDirectory = `${coreDirectory}target/${RUST_TARGET}/release`;
+  const coreLibrary = join(releaseDirectory, CORE_STATIC_LIBRARY);
+  if (!existsSync(coreLibrary)) {
+    const found = existsSync(releaseDirectory)
+      ? readdirSync(releaseDirectory).filter((name) => name.endsWith(".a"))
+      : [];
+    throw new Error(
+      `PocketJS 3ds: ${CORE_STATIC_LIBRARY} is absent from ${releaseDirectory}` +
+        (found.length > 0 ? ` (found ${found.join(", ")})` : "") +
+        " — hosts/3ds/core must be a staticlib crate named pocketjs-3ds-core",
+    );
+  }
+
+  const mounts: Mount[] = [
+    { hostPath: repository, containerPath: CONTAINER_REPOSITORY },
+  ];
+  const outsideRepository = options.roots.filter(
+    (path) => !resolvePath(path).startsWith(`${resolvePath(repository)}/`),
+  );
+  if (outsideRepository.length > 0) {
+    mounts.push({
+      hostPath: resolvePath(outsideRepository[0]),
+      containerPath: CONTAINER_OUTPUT,
+    });
+  }
+  const quickJsDirectory = join(repository, "dist/3ds/quickjs");
+  await ensureQuickJs(quickJsDirectory, imageId, mounts);
+  return { imageId, coreLibrary, quickJsDirectory, mounts };
+}
+
+/** Run hosts/3ds/Makefile's default goal in the container. */
+export async function run3dsMake(
+  environment: Readonly<Record<string, string>>,
+  mounts: readonly Mount[],
+  notes: readonly string[] = [],
+): Promise<void> {
+  console.log(
+    `PocketJS 3ds: make (${THREE_DS_CONTAINER_IMAGE}${notes.length > 0 ? `, ${notes.join(", ")}` : ""})`,
+  );
+  await runContainer(
+    `make -j${availableParallelism()}`,
+    mounts,
+    containerPathFor(hostDirectory, mounts),
+    environment,
+    "hosts/3ds/Makefile",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The pipeline
 // ---------------------------------------------------------------------------
 
@@ -688,59 +770,20 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   );
   if (args.pocketOnly) return pocketOutput;
 
-  const imageId = await preflightContainer();
-  const { rustup, toolchain, rustcPath } = await preflightRust();
+  // 2-3. the Rust core staticlib (macOS) and QuickJS (container)
+  const { imageId, coreLibrary, quickJsDirectory, mounts } = await prepare3dsNative({
+    cargoArgs: args.cargoArgs,
+    roots: [args.outputDir, args.packageDir, args.projectRoot],
+  });
 
-  // 2. the Rust core staticlib, on macOS
-  console.log(`PocketJS 3ds: cargo build --release (${RUST_TARGET}, ${toolchain})`);
-  await $`${rustup} run ${toolchain} cargo build --release ${args.cargoArgs}`
-    .cwd(coreDirectory)
-    .env({
-      ...process.env,
-      RUSTC: rustcPath,
-      ...hostBuildEnvironment(inputs, {
-        outputDirectory: args.outputDir,
-        embedApp: true,
-      }),
-    });
-  const releaseDirectory = `${coreDirectory}target/${RUST_TARGET}/release`;
-  const coreLibrary = join(releaseDirectory, CORE_STATIC_LIBRARY);
-  if (!existsSync(coreLibrary)) {
-    const found = existsSync(releaseDirectory)
-      ? readdirSync(releaseDirectory).filter((name) => name.endsWith(".a"))
-      : [];
-    throw new Error(
-      `PocketJS 3ds: ${CORE_STATIC_LIBRARY} is absent from ${releaseDirectory}` +
-        (found.length > 0 ? ` (found ${found.join(", ")})` : "") +
-        " — hosts/3ds/core must be a staticlib crate named pocketjs-3ds-core",
-    );
-  }
-
-  // 3-4. everything that needs devkitARM
+  // 4. everything else that needs devkitARM
   const distributionRoot = `${repository}dist/3ds`;
-  const quickJsDirectory = join(distributionRoot, "quickjs");
   // C objects, romfs staging and SMDH metadata are cacheable only within one
   // resolved output. A shared directory can package app B with app A's older
   // romfs files when their mtimes happen to precede the staging targets.
   const buildDirectory = join(distributionRoot, "build", inputs.appOutput);
   mkdirSync(buildDirectory, { recursive: true });
 
-  const mounts: Mount[] = [
-    { hostPath: repository, containerPath: CONTAINER_REPOSITORY },
-  ];
-  const outsideRepository = [args.outputDir, args.packageDir, args.projectRoot].filter(
-    (path) => !resolvePath(path).startsWith(`${resolvePath(repository)}/`),
-  );
-  if (outsideRepository.length > 0) {
-    // One extra mount covers an app built outside the repository; a second
-    // distinct root would need its own and is refused by containerPathFor.
-    mounts.push({
-      hostPath: resolvePath(outsideRepository[0]),
-      containerPath: CONTAINER_OUTPUT,
-    });
-  }
-
-  await ensureQuickJs(quickJsDirectory, imageId, mounts);
   const makerom = args.cia
     ? await ensureMakerom(join(distributionRoot, "makerom"), imageId, mounts)
     : "";
@@ -756,7 +799,6 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
     POCKETJS_CORE_LIB: containerPathFor(coreLibrary, mounts),
     POCKETJS_QUICKJS_DIR: containerPathFor(quickJsDirectory, mounts),
     POCKETJS_APP_POCKET: containerPathFor(pocketOutput, mounts),
-    POCKETJS_RUNTIME_SLOT: appRuntimeSlot,
     POCKETJS_BUILD_DIR: containerPathFor(buildDirectory, mounts),
     POCKETJS_OUT_3DSX: containerPathFor(output, mounts),
     POCKETJS_OFFLOAD: plan.features["io.offload"] ? "1" : "",
@@ -781,16 +823,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   };
 
   const notes = [args.capture ? "capture" : "", args.cia ? "cia" : ""].filter(Boolean);
-  console.log(
-    `PocketJS 3ds: make (${THREE_DS_CONTAINER_IMAGE}${notes.length > 0 ? `, ${notes.join(", ")}` : ""})`,
-  );
-  await runContainer(
-    `make -j${availableParallelism()}`,
-    mounts,
-    containerPathFor(hostDirectory, mounts),
-    makeEnvironment,
-    "hosts/3ds/Makefile",
-  );
+  await run3dsMake(makeEnvironment, mounts, notes);
   if (!existsSync(output)) {
     throw new Error(`PocketJS 3ds: the container build did not produce ${output}`);
   }
