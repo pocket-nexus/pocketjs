@@ -21,7 +21,7 @@ test("the staged directory holds what a page loads, and a guest runs in its real
       "app-instance.html", "app-instance.js", "art.js", "fonts/OFL.txt", "fonts/gabarito-800-latin.woff2", "offload-worker.js",
       "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-player.css", "pocket3d-player.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js",
       "pocketjs-host.js", "pocketjs.wasm",
-      "shells/3ds-parts.webp", "shells/3ds.webp", "shells/ATTRIBUTION.md", "shells/ipod.webp", "shells/profiles.js", "shells/psp-parts.webp", "shells/psp.webp", "shells/vita-parts.webp", "shells/vita.webp",
+      "shells/3ds-parts.webp", "shells/3ds.webp", "shells/ATTRIBUTION.md", "shells/android.webp", "shells/ipod.webp", "shells/profiles.js", "shells/psp-parts.webp", "shells/psp.webp", "shells/vita-parts.webp", "shells/vita.webp",
       "wasm-ops.js",
     ]);
     for (const file of files) expect([file, existsSync(join(staged, file))]).toEqual([file, true]);
@@ -123,7 +123,7 @@ test("each shell has its pictures, its screens in the device's shape, and contro
   const { SHELL_IDS } = await import("../tools/pocket3d-shells.ts");
   expect(Object.keys(SHELLS)).toEqual([...SHELL_IDS]);
   // The screens of the devices, in their own pixels (a device's profile under contracts/ and the 3DS's two).
-  const screens: Record<string, Record<string, [number, number]>> = { psp: { upper: [480, 272] }, vita: { upper: [960, 544] }, "3ds": { upper: [400, 240], lower: [320, 240] }, ipod: { upper: [480, 320] } };
+  const screens: Record<string, Record<string, [number, number]>> = { psp: { upper: [480, 272] }, vita: { upper: [960, 544] }, "3ds": { upper: [400, 240], lower: [320, 240] }, ipod: { upper: [480, 320] }, android: { upper: [1280, 720] } };
   const buttons = ["up", "down", "left", "right", "triangle", "circle", "cross", "square", "l", "r", "start", "select"];
   let bytes = 0;
   for (const id of SHELL_IDS) {
@@ -152,9 +152,11 @@ test("each shell has its pictures, its screens in the device's shape, and contro
     }
     for (const stick of shell.sticks) expect([id, stick.id, stick.part < shell.parts.length, stick.travel > 0]).toEqual([id, stick.id, true, true]);
     // A device with buttons has every one a guest reads; a touch panel has none.
-    expect([id, shell.controls.map((c: { button: string }) => c.button).sort()]).toEqual([id, id === "ipod" ? [] : [...buttons].sort()]);
+    expect([id, shell.controls.map((c: { button: string }) => c.button).sort()]).toEqual([id, id === "ipod" || id === "android" ? [] : [...buttons].sort()]);
   }
-  // The four together, for a page that has shown each: under 400 kB.
+  // The Android phone's panel is 16:9 to the pixel: a canvas of 1280 by 720 fills it with no band.
+  expect(SHELLS.android.screens.upper[2] * 9).toBe(SHELLS.android.screens.upper[3] * 16);
+  // The five together, for a page that has shown each: under 400 kB.
   expect(bytes < 400_000).toBe(true);
 });
 
@@ -233,6 +235,12 @@ test("a shell with no key stands for a screen that stands, the dock follows what
     const [x, y, w, h] = SHELLS.ipod.screens.upper;
     expect(stood.screens.upper).toEqual([SHELLS.ipod.height - y - h, x, h, w]);
     expect(Math.abs(stood.screens.upper[2] / stood.screens.upper[3] / (320 / 480) - 1) < 0.05).toBe(true);
+    // The Android phone stands for the Studio's 720 by 1280 and lies for a game that holds it on its side.
+    const phone = shellFor("android", { width: 720, height: 1280 });
+    const [px, py, pw, ph] = SHELLS.android.screens.upper;
+    expect([phone.standing, phone.width, phone.height, phone.screens.upper]).toEqual([true, SHELLS.android.height, SHELLS.android.width, [SHELLS.android.height - py - ph, px, ph, pw]]);
+    expect(phone.screens.upper[2] * 16).toBe(phone.screens.upper[3] * 9);
+    expect(shellFor("android", { width: 1280, height: 720 })).toBe(SHELLS.android);
     // (what is at the picture's right, the home key's end, is at the bottom of the standing shell)
     const right = { width: 100, height: 40, screens: { upper: [90, 0, 10, 40] }, controls: [], sticks: [], parts: [] };
     expect(stoodUp(right).screens.upper).toEqual([0, 90, 40, 10]);
@@ -270,6 +278,8 @@ test("a shell with no key stands for a screen that stands, the dock follows what
     // What the player is, in About: the page's sentence, or this one.
     expect(player).toContain('about = "This is the Pocket3D web player."');
     expect(player).toContain("`${about} The game is drawn in your browser; the handheld around it is a picture.`");
+    // A label that is more than a trademark names the word that is one: About lists "Android", not "Android phone".
+    expect(player).toContain("devices.map((d) => d.mark ?? d.label)");
   } finally {
     rmSync(staged, { recursive: true, force: true });
   }

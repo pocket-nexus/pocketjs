@@ -26,7 +26,7 @@ browser's.
 | `web/pocket3d-player.js` | `createPlayer`: **the page of every game**. The bar (the game's name, the devices as text, the mark that says the picture is simulated, the keys and the notices as panels), the stage, and the dock that leads to the game in Pocket Studio. |
 | `web/pocket3d-stage.js` | A device's shell on the page with the game's canvas where the shell's screen is, a second screen for a device that has one, and the shell's keys, d-pad and sticks as elements. **A screen's pixel is a whole number of the display's own where the shell then keeps three quarters of the size that fits.** |
 | `web/pocket3d-controls.js` | A handheld's controls: PocketJS button bits and two sticks from the keyboard and from the shell's own keys under a pointer or a finger, and contacts of pointers on a surface that takes touch. **The shell shows what is held, whatever holds it.** |
-| `web/shells/` | The shells: `psp`, `vita`, `3ds` and `ipod`, each **a WebP of the case with its moving parts taken out and a WebP sheet of those parts** (20 to 71 kB a file), and `profiles.js`: where the screens, the controls and the parts are in the picture. |
+| `web/shells/` | The shells: `psp`, `vita`, `3ds`, `ipod` and `android`, each **a WebP of the case with its moving parts taken out and, for a device with keys, a WebP sheet of those parts** (20 to 71 kB a file), and `profiles.js`: where the screens, the controls and the parts are in the picture. |
 | `web/fonts/` | Gabarito at weight 800, a Latin subset of 15 kB, with its licence (`OFL.txt`). It sets the game's name and the dock's heading; the system's face sets the rest, and the whole page until the file has come (`font-display: swap`). |
 | `web/pocket3d-stage.css`, `web/pocket3d-player.css` | The layout of the stage and the shell, and the look of the bar, the panels and the dock, by the `data-pocket-*` attributes the modules set. A page links both. Seven custom properties change the colours (`pocket3d-player.css`). |
 
@@ -79,9 +79,9 @@ they say and not in where a visitor finds it.
 | --- | --- |
 | The bar | The game's name and its sentence at the left, from the game and then from the host (`/app.json`). The devices in the middle as text, the chosen one underlined. The player's own controls at the right. |
 | The mark | The word **Simulated** beside the devices. A pointer that rests on it, the keys' focus or a finger opens its sentences: the browser draws the picture and the device draws the game with its own hardware, then the game's sentence for that device (`note`). |
-| The shell | A picture of the device with the game's canvas where its screen is (`player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`). Its keys, its d-pad and its sticks take a pointer or a finger; the d-pad reads eight ways from where a thumb rests. A held key is drawn down in its socket and a stick's cap slides, also when the keyboard holds them. **A shell with no key stands for a screen taller than wide**: the iPod touch's picture is turned a quarter clockwise, its screen's rectangle with it, for a screen of 320 × 480 (`shellFor`); for 480 × 320 it lies. A shell with keys is not turned. A device without a profile is shown as its screens alone. |
+| The shell | A picture of the device with the game's canvas where its screen is (`player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`). Its keys, its d-pad and its sticks take a pointer or a finger; the d-pad reads eight ways from where a thumb rests. A held key is drawn down in its socket and a stick's cap slides, also when the keyboard holds them. **A shell with no key stands for a screen taller than wide**: the iPod touch's picture is turned a quarter clockwise, its screen's rectangle with it, for a screen of 320 × 480 (`shellFor`); for 480 × 320 it lies. The Android phone's stands for 720 × 1280 and lies for 1280 × 720. A shell with keys is not turned. A device without a profile is shown as its screens alone. |
 | Controls | The keys of the device as a list. A browser whose only pointer is a finger is told to press the picture. |
-| About | What the player is (`about`, by default "This is the Pocket3D web player."), that the handheld is a picture, **that the devices' names are trademarks of their owners and Pocket Nexus is not affiliated with them**, and the PSP model's author and licence. |
+| About | What the player is (`about`, by default "This is the Pocket3D web player."), that the handheld is a picture, **that the devices' names are trademarks of their owners and Pocket Nexus is not affiliated with them**, and the PSP model's author and licence. A device names the trademark in its label when the label is more than that (`mark: "Android"` beside `label: "Android phone"`). |
 | The dock | Under the stage, in the page's flow: it never lies over a screen. **With packages a visitor may get**: what the game is built for (`runsOn`), what Pocket Studio holds of it, a door to the game's card (`<studio>/studio/?app=<id>`, "Get it in Pocket Studio") and one to the Studio's front ("Make a game of your own"). **With none**: what the page is (`withoutPackages.heading` and `.sentence`; by default "Made for real handhelds" and that the game has no packages to download yet) and the one door "Make a game of your own". The dock's first door is drawn as its action. |
 
 **The player reads `/app.json` from the page's own host**: `id`, `title`,
@@ -107,7 +107,8 @@ names no address is told nothing.** Both doors of the dock carry
 `player.ready()` tells the player the game's first frame is drawn. It then
 reads the other devices' shells, so a change of device shows its case at
 once. **Before the first frame a page reads one shell: 33 kB for the iPod
-touch, 75 to 132 kB for a device with keys**, with the font's 15 kB.
+touch, 30 kB for the Android phone, 75 to 132 kB for a device with keys**,
+with the font's 15 kB.
 
 **The page asks no other host for anything it draws with.** The font is a
 file of the kernel: Gabarito's variable font from
@@ -129,16 +130,18 @@ own" when there is not. The other door is hidden there.
 
 ## The shells
 
-`bun tools/pocket3d-shells.ts` renders the four shells with Blender
+`bun tools/pocket3d-shells.ts` renders the five shells with Blender
 (`tools/handheld-models/shells.py`) and encodes them with `cwebp`. Each is the
 device seen from the front by an orthographic camera at 14 pixels a
-millimetre (20 for the iPod touch), on a transparent film.
+millimetre (20 for the iPod touch, 16 for the Android phone), on a
+transparent film.
 
 | Shell | Made from |
 | --- | --- |
 | `vita`, `3ds` | This repository's own models (`engine/pocket3d/examples/handheld/assets`), authored in Blender from photographs as references. The 3DS lies open flat, both screens toward the camera. |
 | `psp` | [Dibad's PSP model](../../../engine/pocket3d/examples/handheld/assets/dibad-psp/ATTRIBUTION.md), **CC BY 4.0**. The script splits its one mesh into the case and its keys. |
 | `ipod` | Drawn in `shells.py`: a slab of glass in a steel back. No file of anyone else's is read. |
+| `android` | Drawn in `shells.py`: **a phone of 137.0 × 69.0 mm with a 16:9 panel of 104.0 × 58.5 mm**, one sheet of black glass in a graphite shell, lying with its three keys at the right. The keys are drawn on the glass and take no pointer. It is no maker's phone. No file of anyone else's is read. |
 
 **No shell carries a wordmark or a logo.** The script leaves out the objects
 that are one (the maker's name, the product's name, the PlayStation and

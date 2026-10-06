@@ -243,7 +243,7 @@ export function createStage(root, canvas) {
     /**
      * A device's screens from now on, in their own pixels: the scene's canvas at `width` by `height`, and
      * `lower` (`[width, height]`) for a second screen. `device` names its shell (`SHELLS` in
-     * ./shells/profiles.js: "psp", "vita", "3ds", "ipod"); without one the screens stand alone.
+     * ./shells/profiles.js: "psp", "vita", "3ds", "ipod", "android"); without one the screens stand alone.
      * Sets the canvases' sizes.
      */
     show(next) {

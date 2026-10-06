@@ -1,6 +1,6 @@
 """Render the handhelds' front shells for a page, in two passes each.
 
-Run: Blender --background --python tools/handheld-models/shells.py -- [psp|vita|3ds|ipod|all] [--samples 96]
+Run: Blender --background --python tools/handheld-models/shells.py -- [psp|vita|3ds|ipod|android|all] [--samples 96]
 
 A shell is the device seen straight from the front by an orthographic camera,
 on a transparent film, at a whole number of pixels a millimetre:
@@ -20,7 +20,7 @@ the d-pad's arrows).
 
 The PS Vita and the 3DS are this repository's own models. The PSP is Dibad's
 (CC BY 4.0, assets/dibad-psp/ATTRIBUTION.md), split into its parts here. The
-iPod touch is drawn in this file.
+iPod touch and the Android phone are drawn in this file.
 """
 import bpy
 import json
@@ -132,7 +132,17 @@ IPOD = {
     'buttons': {},
 }
 
-DEVICES = {'psp': PSP, 'vita': VITA, '3ds': N3DS, 'ipod': IPOD}
+ANDROID = {
+    'name': 'Android phone',
+    'source': None,
+    'pixels_per_mm': 16,
+    'hide': [],
+    'screens': {'upper': 'Screen'},
+    # The three keys under the panel are drawn and take no pointer: a guest reads no button from a phone.
+    'buttons': {},
+}
+
+DEVICES = {'psp': PSP, 'vita': VITA, '3ds': N3DS, 'ipod': IPOD, 'android': ANDROID}
 
 
 def psp_parts(path):
@@ -320,58 +330,66 @@ def studio(scene):
     scene.camera = camera
 
 
+def paint(name, colour, roughness, metallic=0.0, coat=0.0):
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    shader = m.node_tree.nodes['Principled BSDF']
+    shader.inputs['Base Color'].default_value = (*colour, 1)
+    shader.inputs['Roughness'].default_value = roughness
+    shader.inputs['Metallic'].default_value = metallic
+    shader.inputs['Coat Weight'].default_value = coat
+    return m
+
+
+def outline(w, h, r, steps=20):
+    """A rectangle of `w` by `h` about the origin with corners of radius `r`, as points."""
+    points = []
+    for cx, cy, start in [(w / 2 - r, h / 2 - r, 0), (-w / 2 + r, h / 2 - r, 90), (-w / 2 + r, -h / 2 + r, 180), (w / 2 - r, -h / 2 + r, 270)]:
+        for i in range(steps + 1):
+            a = math.radians(start + 90 * i / steps)
+            points.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    return points
+
+
+def disc(r, steps=64):
+    return [(r * math.cos(2 * math.pi * i / steps), r * math.sin(2 * math.pi * i / steps)) for i in range(steps)]
+
+
+def slab(name, points, z0, z1, mat, at=(0, 0), bevel=0.0):
+    """`points` from `z0` to `z1`, about `at`, in the scene."""
+    n = len(points)
+    vertices = [(x + at[0], y + at[1], z0) for x, y in points] + [(x + at[0], y + at[1], z1) for x, y in points]
+    faces = [tuple(reversed(range(n))), tuple(range(n, 2 * n))] + [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+    data = bpy.data.meshes.new(name)
+    data.from_pydata(vertices, [], faces)
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(obj)
+    data.materials.append(mat)
+    if bevel:
+        mod = obj.modifiers.new('Edge', 'BEVEL')
+        mod.width, mod.segments, mod.limit_method = bevel, 4, 'ANGLE'
+    return obj
+
+
+def ring(name, outer, inner, z, mat, at=(0, 0)):
+    """What lies between two outlines of as many points, flat at `z`."""
+    n = len(outer)
+    vertices = [(x + at[0], y + at[1], z) for x, y in outer] + [(x + at[0], y + at[1], z) for x, y in inner]
+    faces = [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+    data = bpy.data.meshes.new(name)
+    data.from_pydata(vertices, [], faces)
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(obj)
+    data.materials.append(mat)
+    return obj
+
+
 def ipod_parts(_path):
     """An iPod touch of the fourth generation, drawn here: a slab of glass in a steel back, lying on its side
     with the home button at the right, as a game holds it. No file of anyone else's is read."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     LONG, SHORT, CORNER = 111.0, 58.9, 9.2
-
-    def paint(name, colour, roughness, metallic=0.0, coat=0.0):
-        m = bpy.data.materials.new(name)
-        m.use_nodes = True
-        shader = m.node_tree.nodes['Principled BSDF']
-        shader.inputs['Base Color'].default_value = (*colour, 1)
-        shader.inputs['Roughness'].default_value = roughness
-        shader.inputs['Metallic'].default_value = metallic
-        shader.inputs['Coat Weight'].default_value = coat
-        return m
-
-    def outline(w, h, r, steps=20):
-        points = []
-        for cx, cy, start in [(w / 2 - r, h / 2 - r, 0), (-w / 2 + r, h / 2 - r, 90), (-w / 2 + r, -h / 2 + r, 180), (w / 2 - r, -h / 2 + r, 270)]:
-            for i in range(steps + 1):
-                a = math.radians(start + 90 * i / steps)
-                points.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-        return points
-
-    def slab(name, points, z0, z1, mat, at=(0, 0), bevel=0.0):
-        n = len(points)
-        vertices = [(x + at[0], y + at[1], z0) for x, y in points] + [(x + at[0], y + at[1], z1) for x, y in points]
-        faces = [tuple(reversed(range(n))), tuple(range(n, 2 * n))] + [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
-        data = bpy.data.meshes.new(name)
-        data.from_pydata(vertices, [], faces)
-        obj = bpy.data.objects.new(name, data)
-        scene.collection.objects.link(obj)
-        data.materials.append(mat)
-        if bevel:
-            mod = obj.modifiers.new('Edge', 'BEVEL')
-            mod.width, mod.segments, mod.limit_method = bevel, 4, 'ANGLE'
-        return obj
-
-    def ring(name, outer, inner, z, mat, at=(0, 0)):
-        n = len(outer)
-        vertices = [(x + at[0], y + at[1], z) for x, y in outer] + [(x + at[0], y + at[1], z) for x, y in inner]
-        faces = [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
-        data = bpy.data.meshes.new(name)
-        data.from_pydata(vertices, [], faces)
-        obj = bpy.data.objects.new(name, data)
-        scene.collection.objects.link(obj)
-        data.materials.append(mat)
-        return obj
-
-    def disc(r, steps=64):
-        return [(r * math.cos(2 * math.pi * i / steps), r * math.sin(2 * math.pi * i / steps)) for i in range(steps)]
 
     steel = paint('Polished steel back', (.72, .73, .74), .22, metallic=1.0)
     glass = paint('Black glass face', (.004, .004, .005), .07, coat=.6)
@@ -391,6 +409,71 @@ def ipod_parts(_path):
     slab('Camera surround', disc(1.9), 0.0, 0.02, recess, at=eye)
     slab('Camera glass', disc(1.15), 0.0, 0.04, optic, at=eye)
     studio(scene)
+
+
+def strokes(name, lines, width, z, mat, at):
+    """Lines of one `width`, flat from `z` up, with round ends and joins. A line is its points as a key's own
+    frame has them, millimetres right and up of `at` on a phone that stands: on the phone lying with its
+    keys at the right, up is to the left and right is up."""
+    vertices, faces = [], []
+    def face(points):
+        # (each piece a hair above the last: two faces in one plane shade each other where they overlap)
+        height = z + len(faces) * 0.002
+        faces.append(tuple(range(len(vertices), len(vertices) + len(points))))
+        vertices.extend((at[0] - v, at[1] + u, height) for u, v in points)
+    for line in lines:
+        for (u0, v0), (u1, v1) in zip(line, line[1:]):
+            along = math.hypot(u1 - u0, v1 - v0)
+            nu, nv = -(v1 - v0) / along * width / 2, (u1 - u0) / along * width / 2
+            face([(u0 + nu, v0 + nv), (u0 - nu, v0 - nv), (u1 - nu, v1 - nv), (u1 + nu, v1 + nv)])
+        for u, v in line:
+            face([(u + x, v + y) for x, y in disc(width / 2, 16)])
+    data = bpy.data.meshes.new(name)
+    data.from_pydata(vertices, [], faces)
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(obj)
+    data.materials.append(mat)
+    return obj
+
+
+def android_parts(_path):
+    """An Android phone of 2014, drawn here: a panel of 4.7 inches at 16:9 behind one sheet of black glass,
+    in a satin shell, lying on its side with its three keys at the right, as a game holds it. No file of
+    anyone else's is read, and the phone is no maker's: it carries no name and no mark."""
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    scene = bpy.context.scene
+    LONG, SHORT, CORNER, RIM = 137.0, 69.0, 9.0, 1.2
+
+    shell = paint('Graphite shell', (.04, .042, .047), .42)
+    glass = paint('Black glass face', (.004, .004, .005), .07, coat=.6)
+    panel = paint('Screen_Primary', (.012, .014, .016), .12)
+    recess = paint('Earpiece slot', (.016, .016, .018), .7)
+    pale = paint('Key glyphs', (.3, .31, .33), .55)
+    optic = paint('Camera glass', (.01, .012, .02), .05, coat=1.0)
+    slab('Shell', outline(LONG, SHORT, CORNER), -9.9, -0.3, shell, bevel=.8)
+    slab('Glass face', outline(LONG - 2 * RIM, SHORT - 2 * RIM, CORNER - RIM), -0.7, 0.0, glass, bevel=.12)
+    # The panel: 104.0 by 58.5 mm, 14.5 mm from the earpiece's end of the case and 18.5 mm from the keys'.
+    slab('Screen', [(52.0, 29.25), (-52.0, 29.25), (-52.0, -29.25), (52.0, -29.25)], 0.0, 0.02, panel, at=(-2.0, 0))
+    # Above the panel (at the left as it lies): the earpiece, the camera to its left, two sensors to its right.
+    top = -LONG / 2 + 6.5
+    slab('Earpiece', outline(1.6, 10.0, .8, 8), 0.0, 0.02, recess, at=(top, 0))
+    slab('Camera surround', disc(1.7), 0.0, 0.02, paint('Camera surround', (.006, .006, .007), .32), at=(top, -13.0))
+    slab('Camera glass', disc(1.0), 0.0, 0.04, optic, at=(top, -13.0))
+    for index, across in enumerate([10.5, 13.2]):
+        slab(f'Sensor {index}', disc(.6, 24), 0.0, 0.02, recess, at=(top, across))
+    # Below it: three keys that are drawn on the glass. Three bars, a house, an arrow that turns back.
+    keys = LONG / 2 - 9.0
+    strokes('Menu key', [[(-2.3, v), (2.3, v)] for v in (1.6, 0.0, -1.6)], .55, 0.03, pale, at=(keys, -19.0))
+    strokes('Home key', [[(-2.2, -2.1), (-2.2, 0.2), (0.0, 2.3), (2.2, 0.2), (2.2, -2.1), (-2.2, -2.1)]], .55, 0.03, pale, at=(keys, 0.0))
+    turn = [(0.9 + 1.55 * math.cos(math.radians(a)), -0.35 + 1.55 * math.sin(math.radians(a))) for a in range(-90, 91, 10)]
+    strokes('Back key', [[(-0.6, -1.9), *turn, (-2.3, 1.2)], [(-1.1, 2.4), (-2.3, 1.2), (-1.1, 0.0)]], .55, 0.03, pale, at=(keys, 19.0))
+    # On the right edge as it stands (the upper edge as it lies): the volume rocker over the power key.
+    for name, along, length in [('Volume rocker', -22.0, 16.0), ('Power key', -3.0, 9.0)]:
+        slab(name, outline(length, 1.4, .5, 6), -6.3, -3.7, shell, at=(along, SHORT / 2 - 0.2), bevel=.2)
+    studio(scene)
+
+
+DRAWN = {'ipod': ipod_parts, 'android': android_parts}
 
 
 def centre(o):
@@ -424,8 +507,8 @@ def use_gpu():
 
 
 def shell(key, spec, samples):
-    if key == 'ipod':
-        ipod_parts(None)
+    if key in DRAWN:
+        DRAWN[key](None)
     elif spec['source'].endswith('.blend'):
         bpy.ops.wm.open_mainfile(filepath=str(ASSETS / spec['source']))
     else:

@@ -87,10 +87,11 @@ ffmpeg -y -framerate 6 -i dist/handheld-models/hinge-frames/%03d.png \
 `shells.py` renders a device from the front for the Pocket3D player
 (`devices/web/pocket-web-wgpu/web/shells`): an orthographic camera on the
 screen's axis, a transparent film, **14 pixels a millimetre** (20 for the
-iPod touch). `bun tools/pocket3d-shells.ts` runs it and encodes the result.
+iPod touch, 16 for the Android phone). `bun tools/pocket3d-shells.ts` runs it
+and encodes the result.
 
 ```sh
-bun tools/pocket3d-shells.ts            # all four: psp, vita, 3ds, ipod
+bun tools/pocket3d-shells.ts            # all five: psp, vita, 3ds, ipod, android
 bun tools/pocket3d-shells.ts 3ds --samples 64
 ```
 
@@ -106,7 +107,9 @@ held. The profile says where the screens, the controls and the parts are.
   face is**: a d-pad arm is a wedge about the d-pad's middle, a face button a
   disc about its cap, and only what stands in front of the case's face is a
   key. Sockets get dark floors, since the file has bright metal behind a key.
-- The iPod touch is drawn in the script.
+- The iPod touch and the Android phone are drawn in the script, each lying
+  on its side with its keys' end at the right: the player turns the picture
+  a quarter for a screen that stands.
 - **`hide` lists the objects that are a wordmark or a logo.** A new device
   lists its own before its shell is committed.
 

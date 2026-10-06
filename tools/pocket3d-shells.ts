@@ -1,7 +1,7 @@
 // tools/pocket3d-shells.ts: the handhelds' shells a Pocket3D game's page shows
 // its screens in (devices/web/pocket-web-wgpu/web/shells).
 //
-//   bun tools/pocket3d-shells.ts [psp|vita|3ds|ipod …] [--samples 128] [--no-render]
+//   bun tools/pocket3d-shells.ts [psp|vita|3ds|ipod|android …] [--samples 128] [--no-render]
 //
 // For each device, Blender renders its front in two passes
 // (tools/handheld-models/shells.py → dist/handheld-shells/<id>/): the case with
@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const RENDERS = join(ROOT, "dist/handheld-shells");
 const OUT = join(ROOT, "devices/web/pocket-web-wgpu/web/shells");
-export const SHELL_IDS = ["psp", "vita", "3ds", "ipod"] as const;
+export const SHELL_IDS = ["psp", "vita", "3ds", "ipod", "android"] as const;
 
 if (import.meta.main) {
   const args = process.argv.slice(2);

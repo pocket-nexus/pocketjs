@@ -10,6 +10,8 @@
 //     title: "My Game",
 //     tagline: "One sentence about it.",
 //     devices: [{ id: "vita", label: "PS Vita", note: "…" }, …],   // ids of ./shells/profiles.js
+//                                                                  // (`mark`: the trademark in a label that is more than one,
+//                                                                  //  { id: "android", label: "Android phone", mark: "Android" })
 //     runsOn: ["psp", "vita", "3ds", "ipod-touch", "android"],     // what the game has packages for
 //     withoutPackages: { heading: "…", sentence: "…" },            // the dock's words when a visitor can get none
 //     about: "This is the Pocket3D web player.",                   // what the About panel says this player is
@@ -213,6 +215,8 @@ async function readApp() {
 /**
  * Builds the player in `root` (the page's body) and returns it. `devices` are `{ id, label, note }`: `id`
  * names a shell, `note` is the game's sentence on how its picture on that device differs from this one.
+ * A device whose label is more than a trademark says which word is one (`mark`: "Android" for an
+ * "Android phone"); About names that word among the marks.
  * `runsOn` are the targets the game has packages for, as Pocket Studio names them, for a host that lists
  * none. `withoutPackages` (`{ heading, sentence }`) are the dock's words when a visitor can get no package.
  * `about` is the first sentence of the About panel: what this player is. `pick(id)` is called when another
@@ -300,7 +304,7 @@ export function createPlayer({ root = document.body, title, tagline = "", device
       ...(keys.length && fingers ? [make("p", { text: "The buttons and sticks on the picture are the controls: press them with a finger." })] : []),
       ...(touch ? [make("p", { text: touch })] : []),
     );
-    const marks = [...new Set(devices.map((d) => d.label))];
+    const marks = [...new Set(devices.map((d) => d.mark ?? d.label))];
     aboutPanel.replaceChildren(
       make("h2", { text: "About this player" }),
       make("p", { text: `${about} The game is drawn in your browser; the handheld around it is a picture.` }),
