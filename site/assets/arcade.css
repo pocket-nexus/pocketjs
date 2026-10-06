@@ -135,6 +135,12 @@
 }
 :root .menu-list a{border:0;border-radius:9px;padding:.6rem .75rem;color:var(--ink);font:600 .92rem/1.2 var(--ar-round);letter-spacing:.01em}
 :root .menu-list a:hover{background:rgba(169,139,255,.18);color:var(--ar-y)}
+/* Pocket3D is a button in the bar; a phone has no room for a fourth, so there it is the menu's first entry. */
+:root .menu-list .p3d-item{display:none}
+@media (max-width:420px){
+  :root .nav-links > a.p3d-link:not(.ico){display:none}
+  :root .menu-list .p3d-item{display:block}
+}
 
 /* ================= arcade keys ================= */
 :root .btn{

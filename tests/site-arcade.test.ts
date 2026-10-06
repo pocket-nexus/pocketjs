@@ -86,3 +86,18 @@ test("the bar's buttons are set in the wordmark's rounded face, not the pixel fa
   expect(arcade).toContain(":root .menu-list a{border:0;border-radius:9px;padding:.6rem .75rem;color:var(--ink);font:600 .92rem/1.2 var(--ar-round)");
   for (const rule of arcade.match(/:root \.nav-links[^{]*\{[^}]*\}/g) ?? []) expect(rule).not.toContain("--ar-px");
 });
+
+test("the bar leads to Pocket3D's site after Docs and Blog, and a phone finds it in the menu", () => {
+  const templates = readFileSync(ROOT + "site/templates.ts", "utf8");
+  const home = readFileSync(ROOT + "site/home.html", "utf8");
+  // the pages' template and the homepage, which writes its bar by hand
+  for (const page of [templates, home]) {
+    const bar = page.slice(page.indexOf('<nav class="nav-links"'), page.indexOf("</nav>", page.indexOf('<nav class="nav-links"')));
+    expect(bar.indexOf("Blog")).toBeLessThan(bar.indexOf('<a href="https://3d.pocket.nexus/" class="p3d-link">Pocket3D</a>'));
+    expect(bar.indexOf('<a href="https://3d.pocket.nexus/" class="p3d-link">Pocket3D</a>')).toBeLessThan(bar.indexOf('<div class="menu">'));
+    expect(bar).toContain('<div class="menu-list">\n          <a href="https://3d.pocket.nexus/" class="p3d-item">Pocket3D</a>');
+  }
+  expect(arcade).toContain(":root .menu-list .p3d-item{display:none}\n@media (max-width:420px){\n  :root .nav-links > a.p3d-link:not(.ico){display:none}\n  :root .menu-list .p3d-item{display:block}\n}");
+  const shell = readFileSync(ROOT + "site/for/shell.html", "utf8");
+  expect(shell).toContain('<a class="lp-nav__link lp-nav__optional" href="https://3d.pocket.nexus/">Pocket3D</a>');
+});

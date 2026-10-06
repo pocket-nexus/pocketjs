@@ -109,11 +109,13 @@ function header(active: string): string {
     <nav class="nav-links" aria-label="Primary">
       ${link("/docs/overview/", "Docs", "docs")}
       ${link("/blog/", "Blog", "blog")}
+      <a href="https://3d.pocket.nexus/" class="p3d-link">Pocket3D</a>
       <div class="menu">
         <button class="menu-btn" aria-haspopup="true" aria-expanded="false">Resources
           <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="menu-list">
+          <a href="https://3d.pocket.nexus/" class="p3d-item">Pocket3D</a>
           <a href="/playground/">Playground</a>
           <a href="/changelog/">Changelog</a>
         </div>
