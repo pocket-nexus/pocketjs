@@ -308,7 +308,8 @@ export function createPlayer({ root = document.body, title, tagline = "", device
     aboutPanel.replaceChildren(
       make("h2", { text: "About this player" }),
       make("p", { text: `${about} The game is drawn in your browser; the handheld around it is a picture.` }),
-      make("p", { text: `${listed(marks)} are trademarks of their owners. Pocket Nexus is not affiliated with them.` }),
+      // One device's name is one mark: "Android is a trademark of its owner."
+      make("p", { text: marks.length === 1 ? `${marks[0]} is a trademark of its owner. Pocket Nexus is not affiliated with it.` : `${listed(marks)} are trademarks of their owners. Pocket Nexus is not affiliated with them.` }),
       make("p", {}, "The PSP is rendered from a model by ", make("a", { href: "https://sketchfab.com/3d-models/playstation-portable-psp-eg02-b76c7f9158204a39929a9c97d0b813d0", target: "_blank", rel: "noopener", text: "Dibad" }), ", used under ", make("a", { href: "https://creativecommons.org/licenses/by/4.0/", target: "_blank", rel: "noopener", text: "CC BY 4.0" }), ", with its marks taken off."),
     );
   };

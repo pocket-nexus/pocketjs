@@ -280,6 +280,8 @@ test("a shell with no key stands for a screen that stands, the dock follows what
     expect(player).toContain("`${about} The game is drawn in your browser; the handheld around it is a picture.`");
     // A label that is more than a trademark names the word that is one: About lists "Android", not "Android phone".
     expect(player).toContain("devices.map((d) => d.mark ?? d.label)");
+    // A game for one device names one mark in the singular.
+    expect(player).toContain("`${marks[0]} is a trademark of its owner. Pocket Nexus is not affiliated with it.`");
   } finally {
     rmSync(staged, { recursive: true, force: true });
   }
