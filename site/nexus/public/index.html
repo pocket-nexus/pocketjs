@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Pocket Nexus</title>
-<meta name="description" content="An independent lab exploring new possibilities in computing, interaction and creation. We start with PocketJS.">
+<meta name="description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D and MicroTS.">
 <link rel="canonical" href="https://pocket.nexus/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Pocket Nexus">
 <meta property="og:title" content="Pocket Nexus">
-<meta property="og:description" content="An independent lab exploring new possibilities in computing, interaction and creation. We start with PocketJS.">
+<meta property="og:description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D and MicroTS.">
 <meta property="og:url" content="https://pocket.nexus/">
 <meta property="og:image" content="https://pocket.nexus/og-image.png">
 <meta property="og:image:type" content="image/png">
@@ -20,7 +20,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@pocket_js">
 <meta name="twitter:title" content="Pocket Nexus">
-<meta name="twitter:description" content="An independent lab exploring new possibilities in computing, interaction and creation. We start with PocketJS.">
+<meta name="twitter:description" content="An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D and MicroTS.">
 <meta name="twitter:image" content="https://pocket.nexus/og-image.png">
 <meta name="twitter:image:alt" content="The Pocket Nexus wordmark in bubble letters above a stitched jeans pocket">
 <meta name="theme-color" content="#171226">
@@ -33,7 +33,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=1">
 <meta name="apple-mobile-web-app-title" content="Pocket Nexus">
 <link rel="manifest" href="/site.webmanifest">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Pocket Nexus","url":"https://pocket.nexus/","logo":"https://pocket.nexus/icon-512.png","description":"An independent lab exploring new possibilities in computing, interaction and creation. We start with PocketJS.","email":"support@pocket.nexus","sameAs":["https://github.com/pocket-nexus","https://x.com/pocket_js","https://discord.gg/cTce4eXzSK"]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Pocket Nexus","url":"https://pocket.nexus/","logo":"https://pocket.nexus/icon-512.png","description":"An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D and MicroTS.","email":"support@pocket.nexus","sameAs":["https://github.com/pocket-nexus","https://x.com/pocket_js","https://discord.gg/cTce4eXzSK"]}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titan+One&text=POCKETNXUS&display=block">
@@ -88,8 +88,7 @@ html:not(.js) .ch{width:auto;height:auto;line-height:.86;color:var(--c);-webkit-
   padding:0 .14em;margin:0 -.04em;border-radius:.3em;text-shadow:0 2px 0 var(--shade);
   background:linear-gradient(180deg,transparent 54%,rgba(var(--h),.2) 54%,rgba(var(--h),.2) 94%,transparent 94%)}
 .lede .v1{--h:63,208,232}.lede .v2{--h:255,95,158}.lede .v3{--h:255,210,63}
-.lede .starts{display:block;margin-top:.3em;color:var(--ink);font-weight:600}
-.cta{display:flex;flex-wrap:wrap;justify-content:center;gap:12px 14px;margin-top:clamp(12px,2.4vh,24px);pointer-events:auto}
+.cta{display:flex;flex-direction:column;align-items:center;gap:clamp(10px,1.9vh,16px);margin-top:clamp(12px,2.4vh,24px);pointer-events:auto}
 .btn{display:inline-flex;align-items:center;gap:.6em;height:54px;padding:0 24px 0 9px;border-radius:999px;text-decoration:none;
   background:linear-gradient(180deg,#ffdc63,#ffc01f);color:#2a1b10;font:600 17px/1 var(--sans);letter-spacing:.005em;
   border:2.5px solid var(--out);
@@ -102,11 +101,24 @@ html:not(.js) .ch{width:auto;height:auto;line-height:.86;color:var(--c);-webkit-
 .btn:hover .arr{transform:translateX(4px)}
 .btn:active{transform:translateY(4px) scale(1.08,.86);box-shadow:0 1px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.6),inset 0 -2px 0 rgba(214,134,0,.32);transition-duration:.07s}
 .btn:focus-visible{outline-offset:5px}
-.btn.alt{background:var(--panel);color:var(--ink);box-shadow:0 5px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.08)}
-.btn.alt .pj svg{width:27px;height:27px;overflow:visible}
-.btn.alt:active{box-shadow:0 1px 0 var(--drop),inset 0 2px 0 rgba(255,255,255,.08)}
+/* the product's button: larger, with a line that says what the product is */
+.btn.big{height:66px;gap:.8em;padding:0 26px 0 11px;font-size:19px}
+.btn.big .pj{width:44px;height:44px}
+.btn.big .pj svg{width:27px;height:27px}
+.btn .two{display:grid;gap:4px;text-align:left}
+.btn .two b{font:600 19px/1 var(--sans);letter-spacing:.005em}
+.btn .two small{font:500 13px/1 var(--sans);color:#6a4f12}
+/* the lab's technology, one small button each */
+.tech{display:inline-flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px}
+.tech > span{margin-right:4px;font:500 13.5px/1 var(--sans);color:var(--ink-2)}
+.chip{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 14px 0 8px;border-radius:999px;text-decoration:none;color:var(--ink);font:600 14.5px/1 var(--round);letter-spacing:.01em;
+  background:rgba(35,27,59,.82);border:2px solid rgba(203,189,226,.16);box-shadow:0 4px 0 var(--shade);
+  transition:transform .2s cubic-bezier(.3,1.6,.5,1),background-color .15s,border-color .15s,color .15s}
+.chip svg{width:23px;height:23px;flex:none;overflow:visible}
+.chip:hover{background:var(--yellow);border-color:var(--yellow);color:#2a1b10;transform:translateY(-2px)}
+.chip:active{transform:translateY(3px);box-shadow:0 1px 0 var(--shade)}
 
-/* top bar: the mark on the left, projects and social links on the right */
+/* top bar: the mark on the left; the product, the technology and the social links on the right */
 .bar{position:fixed;z-index:6;left:0;right:0;top:0;display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding:max(16px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) 0 max(18px,env(safe-area-inset-left));
   pointer-events:none;transition:opacity .7s ease}
@@ -120,6 +132,8 @@ html:not(.js) .ch{width:auto;height:auto;line-height:.86;color:var(--c);-webkit-
 .pill svg{width:20px;height:20px;flex:none}
 .pill:hover,.menu.open>.pill{background:var(--yellow);border-color:var(--yellow);color:#2a1b10}
 .pill.ico:hover{transform:rotate(-10deg) scale(1.08)}
+.pill.go{padding:0 17px;background:var(--yellow);border-color:var(--yellow);color:#2a1b10}
+.pill.go:hover{transform:translateY(-2px) rotate(-1.5deg)}
 .brand{padding:0;width:48px;height:48px}
 .brand svg{width:34px;height:34px;overflow:visible}
 .brand:hover{background:rgba(35,27,59,.78);border-color:rgba(203,189,226,.16);transform:rotate(-8deg) scale(1.06)}
@@ -204,7 +218,6 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
 @media (max-width:640px){
   :root{--gap:.04em;--rowgap:.1em}
   .lede{font-size:15.5px;max-width:22em}
-  .btn{height:50px;font-size:16px}
   .copy{bottom:max(18px,env(safe-area-inset-bottom));left:20px}
   .pill{height:40px;min-width:40px;font-size:14px}
   .pill svg{width:18px;height:18px}
@@ -213,30 +226,40 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
   .links{gap:6px}
   .menu>.pill{padding:0 11px 0 14px}
 }
+@media (max-width:640px){
+  .pill.go{display:none}
+}
 @media (max-width:480px){
-  .cta{gap:10px 8px}
-  .btn{height:46px;font-size:15px;gap:.45em;padding:0 14px 0 7px}
-  .btn .enter{display:none}
-  .btn .pj{width:32px;height:32px}
-  .btn .pj svg{width:21px;height:21px}
-  .btn.alt .pj svg{width:24px;height:24px}
+  .btn.big{height:58px;padding:0 20px 0 9px;gap:.65em}
+  .btn.big .pj{width:40px;height:40px}
+  .btn .two b{font-size:17px}
+  .btn .two small{font-size:12px}
+  .tech{gap:7px 6px}
+  .tech > span{flex-basis:100%;margin:0;text-align:center}
+  .chip{height:35px;padding:0 11px 0 6px;font-size:13.5px;gap:6px}
+  .chip svg{width:21px;height:21px}
 }
 @media (max-width:340px){
   .hero{padding:0 10px}
-  .cta{gap:10px 6px}
-  .btn{font-size:14.5px;padding:0 11px 0 6px}
+  .btn.big{padding:0 16px 0 8px}
+  .btn.big .arr{display:none}
+  .btn .two small{font-size:11.5px;white-space:nowrap}
+  .tech > span{display:none}
+  .chip{height:33px;padding:0 9px 0 5px;font-size:12.5px;gap:5px}
+  .chip svg{width:19px;height:19px}
 }
 @media (max-height:560px) and (min-width:641px){
   .lede{font-size:13.5px;max-width:46em;line-height:1.4;margin-top:2px}
-  .lede .starts{margin-top:.15em}
-  .cta{margin-top:8px}
-  .btn{height:42px;font-size:15px;padding-right:18px}
-  .btn .pj{width:30px;height:30px}
-  .btn .pj svg{width:20px;height:20px}
-  .btn.alt .pj svg{width:23px;height:23px}
+  .cta{flex-direction:row;gap:16px;margin-top:8px}
+  .btn.big{height:44px;font-size:15px;padding:0 18px 0 7px}
+  .btn.big .pj{width:30px;height:30px}
+  .btn.big .pj svg{width:19px;height:19px}
+  .btn .two b{font-size:15px}
+  .btn .two small{display:none}
+  .chip{height:34px}
 }
 @media (prefers-reduced-motion:reduce){
-  .lede,.cta,.bar,.pill,.menu-list,.copy,.btn,.btn .arr{transition:none}
+  .lede,.cta,.bar,.pill,.menu-list,.copy,.btn,.btn .arr,.chip{transition:none}
 }
 </style>
 </head>
@@ -249,14 +272,15 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
 <header class="bar">
   <a class="pill brand" href="/" aria-label="Pocket Nexus home"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 13h22v7.4c0 1-.3 1.9-.9 2.6C23.6 26 20 27.8 16 27.8S8.4 26 5.9 23C5.3 22.3 5 21.4 5 20.4z" fill="#171226" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/><path d="M9 17.4h14" stroke="#ffd23f" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="2.2 2.2"/><path d="M16 1.6c.55 3.4 1.5 4.5 4.9 5.05-3.4.55-4.35 1.65-4.9 5.05-.55-3.4-1.5-4.5-4.9-5.05 3.4-.55 4.35-1.65 4.9-5.05z" fill="#ff5f9e"/><circle cx="24.2" cy="5" r="1.8" fill="#3fd0e8"/></svg></a>
   <nav class="links" aria-label="Pocket Nexus">
-    <div class="menu" id="projects">
-      <button class="pill" type="button" aria-expanded="false" aria-controls="projects-list">Projects
+    <a class="pill go" href="https://studio.pocket.nexus/">Pocket Studio</a>
+    <div class="menu" id="tech">
+      <button class="pill" type="button" aria-expanded="false" aria-controls="tech-list">Technology
         <svg class="chev" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <div class="menu-list" id="projects-list">
+      <div class="menu-list" id="tech-list">
         <a href="https://pocketjs.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/><rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/><rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/></svg></span><span><b>PocketJS</b><small>Create on every screen you love</small></span></a>
         <a href="https://3d.pocket.nexus/"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#p3d" width="32" height="32"/></svg></span><span><b>Pocket3D</b><small>Create 3D for every machine you love</small></span></a>
-        <a href="https://github.com/pocket-nexus/pocket-shell" target="_blank" rel="noreferrer"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="26" height="22" rx="5" fill="#171226" stroke="#a98bff" stroke-width="2.4"/><rect x="7" y="9" width="8" height="14" rx="2" fill="#3fd0e8"/><rect x="17.5" y="9" width="7.5" height="6" rx="2" fill="#ff5f9e"/><rect x="17.5" y="17" width="7.5" height="6" rx="2" fill="#ffd23f"/></svg></span><span><b>Pocket Shell <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5h5.5V8M9.3 2.7 2.5 9.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></b><small>Interaction models across devices</small></span></a>
+        <a href="https://github.com/pocket-nexus/pocketjs/tree/main/microts" target="_blank" rel="noreferrer"><span class="tile"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3.5 11h4M3.5 16h4M3.5 21h4M24.5 11h4M24.5 16h4M24.5 21h4" stroke="#a98bff" stroke-width="2.2" stroke-linecap="round"/><rect x="7.3" y="5.3" width="17.4" height="21.4" rx="4.6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><rect x="11.2" y="10.8" width="9.6" height="2.4" rx="1.2" fill="#3fd0e8"/><rect x="14.8" y="10.8" width="2.4" height="10.6" rx="1.2" fill="#3fd0e8"/></svg></span><span><b>MicroTS <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5h5.5V8M9.3 2.7 2.5 9.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></b><small>TypeScript compiled ahead of time to native code</small></span></a>
       </div>
     </div>
     <a class="pill ico" href="https://x.com/pocket_js" target="_blank" rel="noreferrer" aria-label="Pocket Nexus on X"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
@@ -270,16 +294,14 @@ html.hide-btn .cta{opacity:0;transform:translateY(14px) scale(.2);pointer-events
     <span class="row" aria-hidden="true"><span class="ch" data-c="pink" style="--c:var(--pink)">P</span><span class="ch" data-c="yellow" data-face style="--c:var(--yellow)">O</span><span class="ch" data-c="cyan" style="--c:var(--cyan)">C</span><span class="ch" data-c="lilac" style="--c:var(--lilac)">K</span><span class="ch" data-c="orange" style="--c:var(--orange)">E</span><span class="ch" data-c="pink" style="--c:var(--pink)">T</span></span>
     <span class="row" aria-hidden="true"><span class="ch" data-c="cyan" style="--c:var(--cyan)">N</span><span class="ch" data-c="lilac" style="--c:var(--lilac)">E</span><span class="ch" data-c="yellow" style="--c:var(--yellow)">X</span><span class="ch" data-c="pink" style="--c:var(--pink)">U</span><span class="ch" data-c="cyan" style="--c:var(--cyan)">S</span></span>
   </h1>
-  <p class="lede">An independent lab exploring new possibilities in <span class="v v1">computing</span>, <span class="v v2">interaction</span> and <span class="v v3">creation</span>. <span class="starts">We start with PocketJS.</span></p>
+  <p class="lede">An independent lab exploring new possibilities in <span class="v v1">computing</span>, <span class="v v2">interaction</span> and <span class="v v3">creation</span>.</p>
   <div class="cta">
-    <a class="btn" href="https://pocketjs.pocket.nexus/">
-      <span class="pj" aria-hidden="true"><svg viewBox="0 0 32 32"><rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/><rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/><rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/></svg></span>
-      <span><span class="enter">Enter </span>PocketJS <span class="arr" aria-hidden="true">→</span></span>
+    <a class="btn big" href="https://studio.pocket.nexus/">
+      <span class="pj" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M12.5 9.5v13l10.5-6.5z" fill="#ffd23f" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/></svg></span>
+      <span class="two"><b>Try Pocket Studio</b><small>Make a game with your coding agent</small></span>
+      <span class="arr" aria-hidden="true">→</span>
     </a>
-    <a class="btn alt" href="https://3d.pocket.nexus/">
-      <span class="pj" aria-hidden="true"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#p3d" width="32" height="32"/></svg></span>
-      <span><span class="enter">Enter </span>Pocket3D <span class="arr" aria-hidden="true">→</span></span>
-    </a>
+    <p class="tech"><span>Our technology</span><a class="chip" href="https://pocketjs.pocket.nexus/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/><rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/><rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/></svg>PocketJS</a><a class="chip" href="https://3d.pocket.nexus/"><svg viewBox="0 0 32 32" aria-hidden="true"><use href="#p3d" width="32" height="32"/></svg>Pocket3D</a><a class="chip" href="https://github.com/pocket-nexus/pocketjs/tree/main/microts" target="_blank" rel="noreferrer"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M3.5 11h4M3.5 16h4M3.5 21h4M24.5 11h4M24.5 16h4M24.5 21h4" stroke="#a98bff" stroke-width="2.2" stroke-linecap="round"/><rect x="7.3" y="5.3" width="17.4" height="21.4" rx="4.6" fill="#171226" stroke="#ffd23f" stroke-width="2.6"/><rect x="11.2" y="10.8" width="9.6" height="2.4" rx="1.2" fill="#3fd0e8"/><rect x="14.8" y="10.8" width="2.4" height="10.6" rx="1.2" fill="#3fd0e8"/></svg>MicroTS</a></p>
   </div>
 </main>
 
@@ -799,6 +821,9 @@ function measure() {
     shelves.push({ poly: rectPoly(cb.l, cb.t, cb.r, cb.b + 5), kind: "btn" });
     below = Math.max(below, cb.b);
   }
+  const row = boxOf(ctaWrap.querySelector(".tech"));
+  shelves.push({ poly: rectPoly(row.l, row.t, row.r, row.b + 5), kind: "btn" });
+  below = Math.max(below, row.b);
   // the top bar's pills are solid too, so a toy never comes to rest behind them
   for (const el of barEl.querySelectorAll(".brand,.links")) {
     const q = el.getBoundingClientRect();
@@ -1598,10 +1623,10 @@ window.addEventListener("keydown", (e) => {
   if (hits.length) lastInteract = T;
 });
 
-/* ---------- projects menu ---------- */
+/* ---------- technology menu ---------- */
 // click or Enter toggles it; a mouse also opens it on hover. Escape, a click
 // elsewhere, or tabbing out of it closes it.
-const menuEl = $("#projects"), menuBtn = menuEl.querySelector("button");
+const menuEl = $("#tech"), menuBtn = menuEl.querySelector("button");
 const finePointer = matchMedia("(hover: hover) and (pointer: fine)");
 let menuHoverT = 0, menuHoverAt = -1e9;
 function setMenu(open) {

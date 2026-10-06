@@ -53,13 +53,18 @@ test("the bar, the hero, the closing call and the footer link where a visitor ex
   expect((bar.match(/aria-label="[^"]+"><svg/g) ?? []).length).toBe(3);
   expect(home).not.toContain("pocketjs/tree/main/engine/pocket3d");
   // Pocket Studio is live: the hero offers it second, the closing call first, with a star on GitHub beside it
-  expect(home).toContain('<a class="btn alt" href="https://studio.pocket.nexus/">Open Pocket Studio</a>');
+  // the hero does not name a product the reader has not met: it offers to try online
+  expect(home).toContain('<a class="btn alt" href="https://studio.pocket.nexus/">Try it online</a>');
+  expect(home).not.toContain("Open Pocket Studio");
   const close = home.slice(home.indexOf('<section class="close">'), home.indexOf("</main>"));
   expect([...close.matchAll(/<a class="(btn[^"]*)" href="([^"]+)"/g)].map((button) => [button[1], button[2]])).toEqual([
     ["btn", "https://studio.pocket.nexus/"],
     ["btn alt", "https://github.com/pocket-nexus/pocketjs"],
   ]);
   expect(close).toContain("Star on GitHub");
+  // the closing text says what Pocket Studio is to Pocket3D before it sends the reader there
+  expect(close.indexOf("Pocket3D is built into Pocket Studio")).toBeGreaterThan(0);
+  expect(close.indexOf("Pocket3D is built into Pocket Studio")).toBeLessThan(close.indexOf('<a class="btn"'));
   expect(close).not.toContain("device kernels");
   for (const old of ["WIP", "Read the source", "Read the kernels"]) expect(home).not.toContain(old);
   // the address is behind the word Contact
@@ -233,6 +238,9 @@ test("chapter 3 stands each engine as one tower, read from the game down to the 
   // a pseudo-element states its own box: the page's "*" rule does not reach it
   expect(home).toContain(".chain li::before{content:\"\";box-sizing:border-box;position:absolute;left:calc(var(--x) - 44px - 14px);top:1px;width:28px;height:28px;");
   expect(home).not.toContain('class="brick"');
+  // every engine's IR goes by a name of one kind
+  expect(towers.map((tower) => tower[4].match(/compiled to its IR<\/span><b>([^<]+)<\/b>/)![1])).toEqual(["PlaceIR", "WorldIR", "CityIR", "MapIR"]);
+  expect(chapter).not.toContain(".p3d");
 });
 
 test("the Worker deploys only what the homepage uses", () => {

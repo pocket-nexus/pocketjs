@@ -33,7 +33,7 @@ test("each hostname belongs to exactly one Worker", () => {
 
 test("the homepage shares well: canonical URL, Open Graph and X card", () => {
   const desc =
-    "An independent lab exploring new possibilities in computing, interaction and creation. We start with PocketJS.";
+    "An independent lab exploring new possibilities in computing, interaction and creation. Our product is Pocket Studio; our technology is PocketJS, Pocket3D and MicroTS.";
   expect(home).toContain('<link rel="canonical" href="https://pocket.nexus/">');
   expect(meta("description")).toBe(desc);
   expect(meta("og:title")).toBe("Pocket Nexus");
@@ -56,39 +56,52 @@ test("the homepage shares well: canonical URL, Open Graph and X card", () => {
   for (const icon of manifest.icons) expect(existsSync(PUBLIC + icon.src.slice(1))).toBe(true);
 });
 
-test("the homepage links out to PocketJS, Pocket Shell and the social accounts", () => {
-  expect(home).toContain("We start with PocketJS.");
-  expect(home).not.toContain("It starts with PocketJS");
-  // PocketJS opens on its pocket.nexus subdomain, from the button, the menu and the toy
-  expect(home.match(/https:\/\/pocketjs\.pocket\.nexus\//g)!.length).toBeGreaterThanOrEqual(3);
+test("Pocket Studio leads as the product, and the lab's three technologies are named beside it", () => {
+  const STUDIO = "https://studio.pocket.nexus/", MICROTS = "https://github.com/pocket-nexus/pocketjs/tree/main/microts";
+  // the hero: one button, for the product, with a line that says what it is
+  const cta = home.slice(home.indexOf('<div class="cta">'), home.indexOf("</main>"));
+  expect([...cta.matchAll(/<a class="(btn[^"]*)" href="([^"]+)"/g)].map((button) => [button[1], button[2]])).toEqual([["btn big", STUDIO]]);
+  expect(cta).toContain('<span class="two"><b>Try Pocket Studio</b><small>Make a game with your coding agent</small></span>');
+  // then the technology, three small buttons in this order
+  const tech = cta.match(/<p class="tech"><span>Our technology<\/span>(.*?)<\/p>/s)![1];
+  expect([...tech.matchAll(/<a class="chip" href="([^"]+)"[^>]*><svg.*?<\/svg>([^<]+)<\/a>/g)].map((chip) => [chip[2], chip[1]])).toEqual([
+    ["PocketJS", "https://pocketjs.pocket.nexus/"],
+    ["Pocket3D", "https://3d.pocket.nexus/"],
+    ["MicroTS", MICROTS],
+  ]);
+  // the bar: the product as a button, the technology as a menu with the same three
+  const bar = home.slice(home.indexOf('<nav class="links"'), home.indexOf("</header>"));
+  expect(bar).toContain(`<a class="pill go" href="${STUDIO}">Pocket Studio</a>`);
+  expect(bar).toContain('<button class="pill" type="button" aria-expanded="false" aria-controls="tech-list">Technology');
+  const menu = bar.slice(bar.indexOf('id="tech-list"'), bar.indexOf('class="pill ico"'));
+  expect([...menu.matchAll(/<a href="([^"]+)"[^>]*><span class="tile">.*?<\/span><span><b>([^<]+?)(?: <svg.*?<\/svg>)?<\/b><small>([^<]+)<\/small>/g)].map((entry) => [entry[2], entry[1]])).toEqual([
+    ["PocketJS", "https://pocketjs.pocket.nexus/"],
+    ["Pocket3D", "https://3d.pocket.nexus/"],
+    ["MicroTS", MICROTS],
+  ]);
+  expect(home).toContain('const menuEl = $("#tech")');
+  // MicroTS has an entry point to open
+  expect(existsSync(ROOT + "microts/README.md")).toBe(true);
+  // Pocket Shell is not offered yet, and the old statement and buttons are gone
+  for (const old of ["pocket-shell", "Pocket Shell", "We start with PocketJS", "Enter </span>", 'id="projects"']) expect(home).not.toContain(old);
   expect(home).not.toContain("pocketjs.dev");
-  expect(home).toContain('href="https://github.com/pocket-nexus/pocket-shell"');
-  expect(home).toContain('<button class="pill" type="button" aria-expanded="false" aria-controls="projects-list">Projects');
   for (const href of ["https://x.com/pocket_js", "https://discord.gg/cTce4eXzSK", "https://github.com/pocket-nexus"]) {
     expect(home).toContain(`href="${href}"`);
   }
   // the three verbs are coloured words, not spell-check squiggles
   expect(home).not.toContain("underline wavy");
+  // the button and the row of technology are shelves for the toys: the script measures both
+  expect(home).toContain('for (const el of ctaWrap.querySelectorAll(".btn"))');
+  expect(home).toContain('const row = boxOf(ctaWrap.querySelector(".tech"));');
 });
 
-test("the homepage offers Pocket3D beside PocketJS, and names the contact address", () => {
-  // from the hero's second button and from the Projects menu
-  expect(home.match(/href="https:\/\/3d\.pocket\.nexus\/"/g)!.length).toBe(2);
-  const menu = home.slice(home.indexOf('id="projects-list"'), home.indexOf("</nav>"));
-  expect([...menu.matchAll(/<b>([^<]+?)(?: <svg|<\/b>)/g)].map((entry) => entry[1])).toEqual(["PocketJS", "Pocket3D", "Pocket Shell"]);
-  const cta = home.slice(home.indexOf('<div class="cta">'), home.indexOf("</main>"));
-  expect([...cta.matchAll(/<a class="(btn[^"]*)" href="([^"]+)"/g)].map((button) => [button[1], button[2]])).toEqual([
-    ["btn", "https://pocketjs.pocket.nexus/"],
-    ["btn alt", "https://3d.pocket.nexus/"],
-  ]);
-  // every button is a shelf for the toys: the script measures each of them
-  expect(home).toContain('for (const el of ctaWrap.querySelectorAll(".btn"))');
-  // the mark both entries draw is the one the Pocket3D site serves as its favicon
+test("the Pocket3D mark is the one its site serves, and the contact address is behind a word", () => {
   const mark = readFileSync(ROOT + "site/pocket3d/public/favicon.svg", "utf8");
   const shapes = [...mark.matchAll(/<path d="([^"]+)"/g)].map((match) => match[1]);
   expect(shapes.length).toBeGreaterThan(8);
   const symbol = home.match(/<symbol id="p3d"[^>]*>(.*?)<\/symbol>/s)![1];
   for (const shape of shapes) expect(symbol).toContain(shape);
+  // drawn in the menu and in the row of technology
   expect(home.match(/<use href="#p3d" width="32" height="32"\/>/g)!.length).toBe(2);
   expect(home).toContain('<a href="mailto:support@pocket.nexus">Contact</a>');
   expect(home).toContain('"email":"support@pocket.nexus"');
