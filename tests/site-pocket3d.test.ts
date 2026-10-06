@@ -103,8 +103,8 @@ test("the hero's wall shows consoles' own frames, and chapter 1 carries no headl
 });
 
 test("a name a reader may not know carries a bubble that says what it is", () => {
-  const tips = [...home.matchAll(/<span class="tip" tabindex="0" aria-describedby="(tip-\w+)">([^<]+)<span class="bubble" role="tooltip" id="(tip-\w+)"><b>([^<]+)<\/b>([^<]+)<\/span><\/span>/g)];
-  expect(tips.map((tip) => [tip[1], tip[2]])).toEqual([["tip-ge", "GE"], ["tip-pica", "PICA200"], ["tip-gxm", "GXM"], ["tip-tokyo", "Pocket Tokyo"], ["tip-atlas", "Pocket Atlas"]]);
+  const tips = [...home.matchAll(/<span class="tip(?: under)?" tabindex="0" aria-describedby="(tip-\w+)">([^<]+)<span class="bubble" role="tooltip" id="(tip-\w+)"><b>([^<]+)<\/b>([^<]+)<\/span><\/span>/g)];
+  expect(tips.map((tip) => [tip[1], tip[2]])).toEqual([["tip-ge", "GE"], ["tip-pica", "PICA200"], ["tip-gxm", "GXM"], ["tip-tokyo", "Pocket Tokyo"], ["tip-cityir", "CityIR"], ["tip-atlas", "Pocket Atlas"]]);
   for (const tip of tips) expect(tip[3]).toBe(tip[1]);
   const said = Object.fromEntries(tips.map((tip) => [tip[1], tip[4] + " " + tip[5]]));
   // each console's graphics chip or interface, beside the console's glyph in chapter 1
@@ -116,6 +116,13 @@ test("a name a reader may not know carries a bubble that says what it is", () =>
   for (const id of ["tip-ge", "tip-pica", "tip-gxm"]) expect(native).toContain(`id="${id}"`);
   // the two games are named as examples where chapter 2 first speaks of them
   for (const id of ["tip-tokyo", "tip-atlas"]) expect(said[id]).toContain("an example app");
+  // the IR under the glass belongs to one game: its bubble says Pocket3D games do not share it.
+  // The glass is above the name, so this bubble opens below, and the name is not hidden from a reader.
+  expect(said["tip-cityir"]).toContain("Pocket3D games do not share an IR");
+  expect(said["tip-cityir"]).toContain("Pocket Tokyo's compiler");
+  expect(home).toContain('<span class="ir"><span class="tip under" tabindex="0" aria-describedby="tip-cityir">CityIR<');
+  expect(home).toContain(".under .bubble{left:50%;bottom:auto;top:calc(100% + 13px);translate:-50% 0;");
+  expect(home).toContain('<div class="optics">\n          <div class="glass" aria-hidden="true">');
   // shown on hover and on focus, and kept inside its block below 1100 px
   expect(home).toContain(".tip:hover .bubble,.tip:focus .bubble{opacity:1;visibility:visible");
   expect(home).toContain("@media (max-width:1100px){\n  .tip{position:static}");
@@ -174,8 +181,8 @@ test("chapter 2 splits a line of Pocket Tokyo's scene into a mechanism for each 
   expect(titles.size).toBe(9);
   expect([...shots].sort()).toEqual(["tokyo-3ds", "tokyo-3ds-dusk", "tokyo-day", "tokyo-dusk", "tokyo-psp", "tokyo-psp-dusk"]);
   // the glass is one drawing: still inside the figure, and live among the beams
-  expect(figure).toContain('<div class="glass"><svg class="still" viewBox="0 0 120 106"><use href="#glass-back"/><use href="#glass-front"/></svg></div>');
-  expect(figure).toContain("<b>CityIR</b>");
+  expect(figure).toContain('<div class="glass" aria-hidden="true"><svg class="still" viewBox="0 0 120 106"><use href="#glass-back"/><use href="#glass-front"/></svg></div>');
+  expect(figure).toContain('aria-describedby="tip-cityir">CityIR<');
   for (const id of ["glass-back", "glass-front"]) expect(home).toContain(`<symbol id="${id}" viewBox="0 0 120 106">`);
   const beams = figure.match(/<svg class="beams" aria-hidden="true">(.*?)<\/svg>\s*<\/div>\s*$/s)![1];
   expect([...beams.matchAll(/<use class="body" href="#(glass-\w+)"\/>/g)].map((use) => use[1])).toEqual(["glass-back", "glass-front"]);
@@ -196,6 +203,25 @@ test("chapter 2 splits a line of Pocket Tokyo's scene into a mechanism for each 
   for (const old of ['class="stage"', "written once in Three.js", "source and result", "Another game, one machine", "One meaning, three mechanisms"]) expect(home).not.toContain(old);
   expect(pair).toContain('<div class="compare" id="compare">');
   expect(pair).toContain('<img class="top" src="/assets/overlook-three.webp"');
+  // under it, the two halves as machines: what runs on each, and which parts the agent wrote
+  const route = pair.slice(pair.indexOf('<div class="route"'), pair.indexOf("</figure>"));
+  expect(pair.indexOf('<div class="route"')).toBeGreaterThan(pair.indexOf('<input type="range"'));
+  const machines = route.split('<div class="mach').slice(1).map((machine) => ({
+    name: machine.match(/<\/svg>([^<]+)<\/p>/)![1],
+    parts: [...machine.matchAll(/<div class="part (made|out)"><h4>([^<]+)<\/h4><p>([^<]+)<\/p>(<svg class="wrote")?/g)].map((part) => [part[2], part[1], Boolean(part[4])]),
+  }));
+  expect(machines).toEqual([
+    { name: "Development machine", parts: [["The scene", "made", true], ["The compiler", "made", true]] },
+    { name: "PS Vita", parts: [["The renderer", "made", true], ["The compiled scene", "out", false]] },
+  ]);
+  expect(route).toContain("Three.js, running in a browser.");
+  expect(route).toContain("Rust, written for these places.");
+  expect(route).toMatch(/<p class="by"><svg class="wrote"[^>]*>.*?<\/svg>written by a coding agent, as one project<\/p>/);
+  // the two cards share their rows, so the arrow from the compiler meets the compiled scene
+  expect(home).toContain(".mach{grid-row:1 / span 4;display:grid;grid-template-rows:subgrid;");
+  expect(home).toContain(".via{grid-row:4;");
+  // the slider itself is as it was
+  expect(pair).toContain('<input type="range" min="0" max="100" value="50" aria-label="Reveal the Three.js reference over the PS Vita capture">');
   expect(figure).not.toContain("Pocket Atlas");
   expect(figure).toMatch(/<h3><span class="tip"[^>]*>Pocket Tokyo<span class="bubble"/);
   // the footer carries no credit line

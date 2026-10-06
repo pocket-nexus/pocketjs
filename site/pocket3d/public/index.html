@@ -81,6 +81,10 @@ code,pre{font-family:var(--mono)}
   .tip{position:static}
   .bubble{left:0;max-width:min(290px,100%);bottom:calc(100% + 10px)}
 }
+/* a name with something above it opens its bubble below, centred on the name */
+.tip.under{position:relative}
+.under .bubble{left:50%;bottom:auto;top:calc(100% + 13px);translate:-50% 0;max-width:min(290px,78vw);transform-origin:50% 0}
+.under .bubble::after{left:calc(50% - 7px);bottom:auto;top:-9px;transform:rotate(225deg)}
 
 /* confetti ground, as on pocket.nexus */
 .sky{position:fixed;inset:0;pointer-events:none;z-index:-1;opacity:.6;
@@ -269,7 +273,7 @@ main{display:flex;flex-direction:column;align-items:center}
 .glass svg{display:block;width:100%;height:auto;overflow:visible}
 /* with the script the live glass is drawn among the beams, and this one keeps its place */
 .js .prism.live .still{visibility:hidden}
-.optics b{font:600 16px/1 var(--round);color:var(--lilac)}
+.optics .ir{font:600 16px/1 var(--round);color:var(--lilac)}
 /* light: every beam is a wide halo under a thin bright core, added to what is behind it */
 .beams{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
 .beams path{fill:none;stroke-linecap:round}
@@ -334,6 +338,25 @@ main{display:flex;flex-direction:column;align-items:center}
 .pair h3{font:600 22px/1.15 var(--round);color:var(--cyan)}
 .pair h3 small{font:500 12.5px/1 var(--mono);color:var(--muted);margin-left:.4em}
 .pair figcaption p{font-size:14.5px;line-height:1.5;color:var(--ink-2)}
+/* under the comparison, the same two halves as machines: the scene goes down to its compiler, across as a
+   pack, and up to its renderer. A star marks what the agent wrote. */
+.route{max-width:900px;margin:clamp(14px,1.8vw,20px) auto 0;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+  grid-template-rows:auto auto auto auto;column-gap:clamp(8px,1.4vw,16px)}
+.mach{grid-row:1 / span 4;display:grid;grid-template-rows:subgrid;padding:14px;border-radius:18px;border:2.5px solid var(--out);background:var(--shade)}
+.where{display:flex;align-items:center;gap:11px;margin:0 2px 12px;font:600 18px/1.2 var(--round);color:var(--c)}
+.where svg{flex:none;height:30px;width:auto;overflow:visible}
+.part{position:relative;padding:11px 40px 12px 14px;border-radius:13px;border:2px solid var(--out);background:var(--panel)}
+.part h4{font:600 16.5px/1.2 var(--round);color:var(--ink)}
+.part p{margin-top:2px;font-size:13.5px;line-height:1.45;color:var(--ink-2)}
+.part.out{border-style:dashed;border-color:rgba(203,189,226,.3);background:none}
+.wrote{position:absolute;right:12px;top:11px;width:17px;height:17px;fill:var(--lilac)}
+.hop{display:grid;place-items:center;height:26px;color:var(--muted)}
+.hop svg,.via svg{width:14px;height:20px;fill:none;stroke:currentColor;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.hop.up svg{transform:rotate(180deg)}
+.via{grid-row:4;display:grid;place-items:center;color:var(--yellow)}
+.via svg{transform:rotate(-90deg);width:16px;height:24px}
+.by{grid-column:1 / -1;display:flex;align-items:center;justify-content:center;gap:9px;margin-top:14px;font:500 15px/1.4 var(--round);color:var(--ink-2)}
+.by .wrote{position:static;flex:none}
 @media (prefers-reduced-motion:no-preference){.compare:not(.used) .knob{animation:nudge 1.6s ease-in-out infinite}}
 @keyframes nudge{0%,100%{transform:translateX(-5px)}50%{transform:translateX(5px)}}
 
@@ -467,12 +490,12 @@ main{display:flex;flex-direction:column;align-items:center}
   .beams{display:none}
   .line:hover,.line[aria-pressed="true"]{transform:none}
   .optics{gap:5px;margin:10px 0 8px}
-  .optics b{order:3}
+  .optics .ir{order:3}
   .optics::before,.optics::after{content:"";height:16px;border-radius:3px}
   .optics::before{width:5px;background:var(--ink)}
   .optics::after{width:74px;background:linear-gradient(90deg,var(--cyan) 0 5px,transparent 5px 34.5px,var(--pink) 34.5px 39.5px,transparent 39.5px 69px,var(--yellow) 69px 74px)}
   .glass{width:86px}
-  .optics b{font-size:14px}
+  .optics .ir{font-size:14px}
   .pair figcaption{grid-template-columns:1fr}
   .engines{grid-template-columns:repeat(2,minmax(0,1fr));gap:26px clamp(14px,2vw,26px)}
   .eng{border-bottom:3px solid var(--out);border-radius:22px;box-shadow:0 7px 0 var(--drop)}
@@ -490,6 +513,14 @@ main{display:flex;flex-direction:column;align-items:center}
 }
 @media (max-width:640px){
   .links .pill:not(.ico){display:none}
+  /* one column, read downward: on the Vita the pack comes before the renderer that draws it */
+  .route{grid-template-columns:minmax(0,1fr);grid-template-rows:none}
+  .mach{grid-row:auto;display:flex;flex-direction:column}
+  .mach.vita .out{order:1}.mach.vita .hop{order:2}.mach.vita .made{order:3}
+  .where{order:0}
+  .hop.up svg{transform:none}
+  .via{grid-row:auto;height:34px}
+  .via svg{transform:none}
   .links{gap:8px}
   .meter{grid-template-columns:1fr}
   .engines{grid-template-columns:1fr}
@@ -680,9 +711,9 @@ main{display:flex;flex-direction:column;align-items:center}
             <button type="button" class="line" aria-pressed="false"><svg viewBox="0 0 30 30" aria-hidden="true"><path d="M4 25V9.5l11-5v20.5z" fill="currentColor"/><path d="M15 4.5l11 5V25H15z" fill="currentColor" opacity=".42"/></svg><b>A wall faces the sun, or not</b><span>The lit side of a street is brighter than the other.</span></button>
           </div>
         </div>
-        <div class="optics" aria-hidden="true">
-          <div class="glass"><svg class="still" viewBox="0 0 120 106"><use href="#glass-back"/><use href="#glass-front"/></svg></div>
-          <b>CityIR</b>
+        <div class="optics">
+          <div class="glass" aria-hidden="true"><svg class="still" viewBox="0 0 120 106"><use href="#glass-back"/><use href="#glass-front"/></svg></div>
+          <span class="ir"><span class="tip under" tabindex="0" aria-describedby="tip-cityir">CityIR<span class="bubble" role="tooltip" id="tip-cityir"><b>CityIR, written for Pocket Tokyo</b>Pocket3D games do not share an IR. Pocket Tokyo's compiler defines this one to hold a city: buildings, footprints, a picture from above. Another game defines its own.</span></span></span>
         </div>
         <div class="answers" aria-live="polite">
           <div class="set on">
@@ -735,6 +766,22 @@ main{display:flex;flex-direction:column;align-items:center}
         <span class="bar2" aria-hidden="true"></span><span class="knob" aria-hidden="true">↔</span>
         <span class="tag l" aria-hidden="true">Three.js<span>, in a browser</span></span><span class="tag r" aria-hidden="true"><span>compiled, on a </span>PS Vita</span>
         <input type="range" min="0" max="100" value="50" aria-label="Reveal the Three.js reference over the PS Vita capture">
+      </div>
+      <div class="route" role="group" aria-label="What runs on each machine: the scene and its compiler on the development machine, the compiled scene and its renderer on the PS Vita">
+        <div class="mach" style="--c:var(--ink)">
+          <p class="where"><svg viewBox="0 0 52 36" aria-hidden="true"><rect x="8.5" y="2.5" width="35" height="24" rx="4" fill="#171226" stroke="currentColor" stroke-width="2.6"/><rect x="13" y="7" width="26" height="15" rx="1.5" fill="#a98bff" opacity=".9"/><path d="M2.5 32.5h47" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>Development machine</p>
+          <div class="part made"><h4>The scene</h4><p>Three.js, running in a browser. It draws the left half.</p><svg class="wrote" viewBox="0 0 22 22" aria-hidden="true"><path d="M11 0q2 9 11 11q-9 2 -11 11q-2 -9 -11 -11q9 -2 11 -11z"/></svg></div>
+          <span class="hop" aria-hidden="true"><svg viewBox="0 0 14 20"><path d="M7 2v15M2 12l5 6 5-6"/></svg></span>
+          <div class="part made"><h4>The compiler</h4><p>Lowers the scene to the formats the Vita's GPU reads.</p><svg class="wrote" viewBox="0 0 22 22" aria-hidden="true"><path d="M11 0q2 9 11 11q-9 2 -11 11q-2 -9 -11 -11q9 -2 11 -11z"/></svg></div>
+        </div>
+        <span class="via" aria-hidden="true"><svg viewBox="0 0 14 20"><path d="M7 2v15M2 12l5 6 5-6"/></svg></span>
+        <div class="mach vita" style="--c:var(--cyan)">
+          <p class="where"><svg viewBox="0 0 80 36" aria-hidden="true"><rect x="1.5" y="2.5" width="77" height="31" rx="15.5" fill="#171226" stroke="#3fd0e8" stroke-width="2.6"/><rect x="19" y="7" width="42" height="22" rx="2.5" fill="#ff5f9e" opacity=".9"/><circle cx="10.5" cy="24" r="3" fill="#ffd23f"/><circle cx="69.5" cy="24" r="3" fill="#ffd23f"/><path d="M10.5 9.5v6M7.5 12.5h6" stroke="#a98bff" stroke-width="2.2" stroke-linecap="round"/><circle cx="69.5" cy="12.5" r="2.4" fill="none" stroke="#a98bff" stroke-width="1.8"/></svg>PS Vita</p>
+          <div class="part made"><h4>The renderer</h4><p>Rust, written for these places. It draws the right half.</p><svg class="wrote" viewBox="0 0 22 22" aria-hidden="true"><path d="M11 0q2 9 11 11q-9 2 -11 11q-2 -9 -11 -11q9 -2 11 -11z"/></svg></div>
+          <span class="hop up" aria-hidden="true"><svg viewBox="0 0 14 20"><path d="M7 2v15M2 12l5 6 5-6"/></svg></span>
+          <div class="part out"><h4>The compiled scene</h4><p>A pack of textures, vertices and baked light.</p></div>
+        </div>
+        <p class="by"><svg class="wrote" viewBox="0 0 22 22" aria-hidden="true"><path d="M11 0q2 9 11 11q-9 2 -11 11q-2 -9 -11 -11q9 -2 11 -11z"/></svg>written by a coding agent, as one project</p>
       </div>
     </figure>
     </div>
