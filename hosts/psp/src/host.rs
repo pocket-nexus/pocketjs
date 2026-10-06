@@ -6,12 +6,12 @@
 use core::ffi::c_void;
 
 use libquickjs_sys::*;
+use pocket_psp_ge::DisplayList;
 use psp::sys::{
     self, DisplayPixelFormat, GuContextType, GuState, GuSyncBehavior, GuSyncMode, ShadingModel,
     TexturePixelFormat, ThreadAttributes,
 };
 use psp::vram_alloc::get_vram_allocator;
-use pocket_psp_ge::DisplayList;
 use psp::{BUF_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 // GE display list buffer (1 MB). One per program; the frame loop owns
