@@ -4,6 +4,7 @@
 
 const TARGETS: Record<string, () => Promise<(argv: readonly string[]) => Promise<string>>> = {
   "3ds": async () => (await import("./runtime/3ds.ts")).buildRuntime3ds,
+  android: async () => (await import("./runtime/android.ts")).buildRuntimeAndroid,
 };
 
 if (import.meta.main) {

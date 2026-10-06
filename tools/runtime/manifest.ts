@@ -17,7 +17,14 @@ export function pocketjsCommit(): string {
 
 export async function writeRuntimeManifest(
   directory: string,
-  fields: { target: string; hostAbi: number; profile: string; files: readonly string[] },
+  fields: {
+    target: string;
+    hostAbi: number;
+    profile: string;
+    files: readonly string[];
+    /** Target-specific fields written beside the common ones (an Android runtime's viewport and SDK levels). */
+    extra?: Readonly<Record<string, unknown>>;
+  },
 ): Promise<RuntimeManifest> {
   const files: Record<string, { bytes: number; sha256: string }> = {};
   for (const name of fields.files) {
@@ -29,6 +36,7 @@ export async function writeRuntimeManifest(
     hostAbi: fields.hostAbi,
     pocketjs: pocketjsCommit(),
     profile: fields.profile,
+    ...fields.extra,
     files,
   };
   writeFileSync(join(directory, RUNTIME_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
