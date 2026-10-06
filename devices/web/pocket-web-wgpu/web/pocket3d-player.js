@@ -121,6 +121,16 @@ export function dockWords({ title, runsOn = [], packages, allowNative, withoutPa
   };
 }
 
+/**
+ * The dock's second door: the Studio's front door, or, for a game whose host says it is `remixable`, the
+ * Studio's way to start a game of one's own from a copy of this one (`/studio/?remix=<id>`).
+ */
+export function makeDoor({ studio = STUDIO, id = "", remixable = false } = {}) {
+  return remixable && id
+    ? { text: "Remix this game", href: fromPlayer(`${studio}/studio/?remix=${encodeURIComponent(id)}`) }
+    : { text: "Make a game of your own", href: fromPlayer(`${studio}/`) };
+}
+
 /** A panel under the control that opens it: one open at a time, closed by Escape, by a press outside it, or by its control. */
 function panels(root) {
   let open = null;
@@ -264,7 +274,7 @@ export function createPlayer({ root = document.body, title, tagline = "", device
 
   // What is said of the game, until the host says more.
   // (`packages` is what the host lists: none is known until it has answered)
-  let game = { title, packages: undefined, allowNative: undefined, studio: STUDIO, id: "" };
+  let game = { title, packages: undefined, allowNative: undefined, studio: STUDIO, id: "", remixable: false };
   let current = devices.find((d) => d.id === device) ?? devices[0];
   let shape = { sticks: 0, glyphs: "playstation", touch: null };
   let kept = null;
@@ -280,7 +290,9 @@ export function createPlayer({ root = document.body, title, tagline = "", device
     get.toggleAttribute("data-pocket-primary", words.doors[0] === "get");
     own.toggleAttribute("data-pocket-primary", words.doors[0] === "make");
     get.href = fromPlayer(game.id ? `${game.studio}/studio/?app=${encodeURIComponent(game.id)}` : `${game.studio}/`);
-    own.href = fromPlayer(`${game.studio}/`);
+    const door = makeDoor(game);
+    own.textContent = door.text;
+    own.href = door.href;
 
     // The mark's words: what every game's picture here is, then the game's own sentence for this device.
     tip.replaceChildren(
@@ -324,6 +336,8 @@ export function createPlayer({ root = document.body, title, tagline = "", device
       allowNative: typeof app?.allowNative === "boolean" ? app.allowNative : undefined,
       studio,
       id: app?.id ?? "",
+      // (a host says it when a game of one's own can start from a copy of this one)
+      remixable: app?.remixable === true,
     };
     if (typeof app?.tagline === "string" && app.tagline) {
       line.textContent = app.tagline;

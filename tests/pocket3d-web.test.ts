@@ -250,7 +250,11 @@ test("a shell with no key stands for a screen that stands, the dock follows what
     expect(shellFor("a device without a shell", { width: 320, height: 480 })).toBe(null);
     expect(readFileSync(join(staged, "pocket3d-stage.css"), "utf8")).toContain("[data-pocket-shell][data-pocket-standing] > [data-pocket-shell-art]");
 
-    const { dockWords } = await import(pathToFileURL(join(staged, "pocket3d-player.js")).href);
+    const { dockWords, makeDoor } = await import(pathToFileURL(join(staged, "pocket3d-player.js")).href);
+    // The second door leads to a remix of the game when its host says one can be made, else to the Studio.
+    expect(makeDoor({ studio: "https://studio.example", id: "a1", remixable: true })).toEqual({ text: "Remix this game", href: "https://studio.example/studio/?remix=a1&from=player" });
+    expect(makeDoor({ studio: "https://studio.example", id: "a1" })).toEqual({ text: "Make a game of your own", href: "https://studio.example/?from=player" });
+    expect(makeDoor({ studio: "https://studio.example", remixable: true })).toEqual({ text: "Make a game of your own", href: "https://studio.example/?from=player" });
     const runsOn = ["psp", "vita", "3ds"];
     const packages = [{ target: "psp", size: 42_934_596 }, { target: "3ds", size: 32_037_912 }];
     const real = { heading: "Play it on the real thing", doors: ["get", "make"] };
