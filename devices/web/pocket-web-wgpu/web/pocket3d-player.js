@@ -26,6 +26,11 @@
 // `tagline`, `author`, `packages`). A host that has none leaves the page's own
 // words: `<meta name="pocket-app" content="<id>">` and
 // `<meta name="pocket-studio" content="<origin>">`, then the Studio's front door.
+//
+// The host may also name an address that counts the players that open
+// (`opened` in `/app.json`, or `<meta name="pocket-opened">`): the player asks
+// for it once a page, and a host that names none is told nothing. The dock's
+// links say where their visitor comes from (`from=player`).
 import { createControls, FACES, legend } from "./pocket3d-controls.js";
 import { choices, createStage } from "./pocket3d-stage.js";
 import { SHELLS } from "./shells/profiles.js";
@@ -46,6 +51,40 @@ const make = (tag, attributes = {}, ...children) => {
 };
 const listed = (words) => (words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`);
 const megabytes = (bytes) => `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+
+/** A link into Pocket Studio that says its visitor comes from a player, with what the address already had. */
+export function fromPlayer(address) {
+  const url = new URL(address);
+  url.searchParams.set("from", "player");
+  return url.href;
+}
+
+let reported = false;
+/**
+ * Tells the address a host named that a player opened: one GET with the game's id (`app`) and the device
+ * the page opened as (`layout`), with what the address already had. It is sent once a page, with the
+ * visitor's own session, at low priority; no answer is waited for or read, and one that fails is not
+ * heard of. Returns the address asked for, or null when nothing was sent (no address, no id, a second call).
+ */
+export function reportOpened(address, app, layout, send = (...request) => fetch(...request), base = globalThis.location?.href) {
+  if (reported || !address || !app) return null;
+  let url;
+  try {
+    url = new URL(address, base);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  reported = true;
+  url.searchParams.set("app", app);
+  url.searchParams.set("layout", layout);
+  try {
+    Promise.resolve(send(url.href, { mode: "no-cors", credentials: "include", cache: "no-store", keepalive: true, priority: "low" })).catch(() => {});
+  } catch {
+    // (a browser that refuses the request says so to no one)
+  }
+  return url.href;
+}
 
 /** A panel under the control that opens it: one open at a time, closed by Escape, by a press outside it, or by its control. */
 function panels(root) {
@@ -116,12 +155,13 @@ function panels(root) {
 /** What the page's host, then the page, says of the game in Pocket Studio. */
 async function readApp() {
   const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content || "";
-  let app = null, studio = meta("pocket-studio");
+  let app = null, studio = meta("pocket-studio"), opened = meta("pocket-opened");
   try {
     const reply = await fetch(new URL("/app.json", location.href), { headers: { accept: "application/json" } });
     const said = reply.ok && (reply.headers.get("content-type") ?? "").includes("json") ? await reply.json() : null;
     if (said && typeof said.id === "string" && said.id) {
       app = said;
+      if (typeof said.opened === "string" && said.opened) opened = said.opened;
       // (a game's host is one label below the Studio's)
       if (!studio && typeof said.slug === "string" && location.hostname.startsWith(`${said.slug}.`)) studio = `${location.protocol}//${location.host.split(".").slice(1).join(".")}`;
     }
@@ -134,7 +174,7 @@ async function readApp() {
   } catch {
     studio = STUDIO;
   }
-  return { app, studio };
+  return { app, studio, opened };
 }
 
 /**
@@ -199,8 +239,8 @@ export function createPlayer({ root = document.body, title, tagline = "", device
         ? `Pocket Studio has its ${held.length > 1 ? "packages" : "package"} for ${listed(held.map((p) => (p.size > 0 ? `${TARGETS[p.target]} (${megabytes(p.size)})` : TARGETS[p.target])))}.`
         : "Its packages are in Pocket Studio, ready to install on your own.",
     );
-    get.href = game.id ? `${game.studio}/studio/?app=${encodeURIComponent(game.id)}` : `${game.studio}/`;
-    own.href = `${game.studio}/`;
+    get.href = fromPlayer(game.id ? `${game.studio}/studio/?app=${encodeURIComponent(game.id)}` : `${game.studio}/`);
+    own.href = fromPlayer(`${game.studio}/`);
 
     // The mark's words: what every game's picture here is, then the game's own sentence for this device.
     tip.replaceChildren(
@@ -233,7 +273,9 @@ export function createPlayer({ root = document.body, title, tagline = "", device
     );
   };
   write();
-  readApp().then(({ app, studio }) => {
+  readApp().then(({ app, studio, opened }) => {
+    // (once a page, as the device it opened as: another device picked later is the same visit)
+    reportOpened(opened, app?.id ?? "", current.id);
     game = {
       title: typeof app?.title === "string" && app.title ? app.title : title,
       packages: Array.isArray(app?.packages) ? app.packages.filter((p) => p && typeof p.target === "string") : [],

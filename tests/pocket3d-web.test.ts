@@ -169,3 +169,52 @@ test("the player's display face is a file of the kernel, with its licence beside
   // The page asks no other host for anything it draws with.
   for (const file of ["pocket3d-player.css", "pocket3d-stage.css"]) expect([file, /url\(["']?https?:/.test(readFileSync(web + file, "utf8"))]).toEqual([file, false]);
 });
+
+test("the dock's links say they come from a player, and a player that opens is reported once to the address a host named", async () => {
+  const staged = mkdtempSync(join(tmpdir(), "pocket3d-player-"));
+  try {
+    await stagePocket3dWeb(staged);
+    // (a page loads the module once: each copy here is another page. They are written before the first is read.)
+    for (const page of ["links", "once", "fails", "refuses"]) writeFileSync(join(staged, `player-${page}.js`), readFileSync(join(staged, "pocket3d-player.js")));
+    const load = (page: string) => import(pathToFileURL(join(staged, `player-${page}.js`)).href);
+    const { fromPlayer } = await load("links");
+    expect(fromPlayer("https://studio.example/studio/?app=a1")).toBe("https://studio.example/studio/?app=a1&from=player");
+    expect(fromPlayer("https://studio.example/")).toBe("https://studio.example/?from=player");
+    expect(fromPlayer("https://studio.example/?from=elsewhere&x=1")).toBe("https://studio.example/?from=player&x=1");
+
+    // One GET with the game's id and the device, the visitor's session, and no answer read.
+    const { reportOpened } = await load("once");
+    const sent: [string, Record<string, unknown>][] = [];
+    const send = (url: string, options: Record<string, unknown>) => (sent.push([url, options]), Promise.resolve());
+    // (a host that names no address, or a page that knows no id, reports nothing and may report later)
+    expect([reportOpened("", "a1", "vita", send), reportOpened("https://studio.example/api/events/player", "", "vita", send), reportOpened("javascript:alert(1)", "a1", "vita", send)]).toEqual([null, null, null]);
+    expect(reportOpened("https://studio.example/api/events/player?kept=1", "a1", "3ds", send)).toBe("https://studio.example/api/events/player?kept=1&app=a1&layout=3ds");
+    expect(sent).toEqual([["https://studio.example/api/events/player?kept=1&app=a1&layout=3ds", { mode: "no-cors", credentials: "include", cache: "no-store", keepalive: true, priority: "low" }]]);
+    // Once a page: another device picked later sends nothing.
+    expect(reportOpened("https://studio.example/api/events/player", "a1", "psp", send)).toBe(null);
+    expect(sent.length).toBe(1);
+
+    // A request that is refused, or that fails, is heard of by no one: nothing is thrown and nothing rejects.
+    const rejections: unknown[] = [];
+    const heard = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", heard);
+    try {
+      const failing = await load("fails");
+      expect(failing.reportOpened("/api/events/player", "a1", "ipod", () => Promise.reject(new TypeError("Failed to fetch")), "https://game.example/")).toBe("https://game.example/api/events/player?app=a1&layout=ipod");
+      const refusing = await load("refuses");
+      expect(refusing.reportOpened("https://studio.example/e", "a1", "ipod", () => { throw new Error("blocked"); })).toBe("https://studio.example/e?app=a1&layout=ipod");
+      await new Promise((done) => setTimeout(done, 20));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", heard);
+    }
+
+    // The player learns the address from the host or the page, and names no route of its own.
+    const source = readFileSync(join(staged, "pocket3d-player.js"), "utf8");
+    expect(source).toContain("said.opened");
+    expect(source).toContain('meta("pocket-opened")');
+    expect(/api\/events|\/events\//.test(source)).toBe(false);
+  } finally {
+    rmSync(staged, { recursive: true, force: true });
+  }
+}, 120_000);

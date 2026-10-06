@@ -85,11 +85,21 @@ they say and not in where a visitor finds it.
 | The dock | Under the stage, in the page's flow: it never lies over a screen. What the game is built for (`runsOn`), what Pocket Studio holds of it when the host lists packages, a door to the game's card (`<studio>/studio/?app=<id>`) and one to the Studio's front. |
 
 **The player reads `/app.json` from the page's own host**: `id`, `title`,
-`tagline`, `packages` (`target`, `size`), `slug`. A host of Pocket Studio
+`tagline`, `packages` (`target`, `size`), `slug`, `opened`. A host of Pocket Studio
 answers it for a PocketJS game. Where the host has no such file the page's
 own words stand: `<meta name="pocket-app" content="<id>">` and
 `<meta name="pocket-studio" content="<origin>">`, written by the game's
 build; with neither, both doors lead to `https://studio.pocket.nexus/`.
+
+**A host counts the players that open by naming an address**: `opened` in
+`/app.json`, or `<meta name="pocket-opened" content="<address>">`. The player
+sends one `GET <address>?app=<id>&layout=<device id>` a page, with the device
+the page opened as; a device picked later sends nothing. The request carries
+the visitor's session (`credentials: "include"`, `mode: "no-cors"`), has low
+priority, and its answer is not waited for or read, so it needs no CORS
+header and a request that fails changes nothing on the page. **A host that
+names no address is told nothing.** Both doors of the dock carry
+`from=player` beside the parameters they have.
 
 `player.ready()` tells the player the game's first frame is drawn. It then
 reads the other devices' shells, so a change of device shows its case at
