@@ -14,7 +14,9 @@
 // which part moves with it. A shell is two pictures: the case with its moving
 // parts taken out, and a sheet of those parts, each rendered alone. A key
 // that is held goes down into its socket; a stick's cap slides in its well.
-// A device without a profile is shown as its screens alone.
+// A device without a profile is shown as its screens alone. A shell with no
+// key (a touch panel's) is stood up for a screen taller than wide: its picture
+// a quarter turned, its rectangles with it.
 //
 // pocket3d-stage.css lays these out: a page links it. The elements are found
 // by the `data-pocket-*` attributes this module sets.
@@ -26,6 +28,28 @@
 // CSS pixels), or the window is too small for one display pixel each, the
 // shell is shown at the fraction that fits, smoothed.
 import { SHELLS } from "./shells/profiles.js";
+
+/**
+ * A shell a quarter turn clockwise: a point (x, y) of its picture goes to (height - y, x), so what was at
+ * the picture's right is at the bottom. `standing` says its picture is to be drawn turned.
+ */
+export function stoodUp(shell) {
+  const turn = ([x, y, w, h, ...rest]) => [shell.height - y - h, x, h, w, ...rest];
+  return { ...shell, standing: true, width: shell.height, height: shell.width, screens: Object.fromEntries(Object.entries(shell.screens).map(([name, rect]) => [name, turn(rect)])) };
+}
+
+/**
+ * The shell a device is shown in, for screens of `width` by `height` (and `lower`): its profile as it
+ * lies in ./shells/profiles.js, or stood up when the screen is taller than wide, the picture's screen is
+ * wider than tall and the shell has no key, stick or moving part (those would have to turn too). Null for
+ * a device without a profile.
+ */
+export function shellFor(device, { width, height, lower } = {}) {
+  const shell = SHELLS[device] ?? null;
+  if (!shell) return null;
+  const keyless = !shell.controls.length && !shell.sticks.length && !shell.parts.length && !lower;
+  return keyless && height > width && shell.screens.upper[2] > shell.screens.upper[3] ? stoodUp(shell) : shell;
+}
 
 const DIRECTIONS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const NAMES = { up: "Up", down: "Down", left: "Left", right: "Right", triangle: "Top face button", circle: "Right face button", cross: "Bottom face button", square: "Left face button", l: "L", r: "R", start: "START", select: "SELECT" };
@@ -223,7 +247,8 @@ export function createStage(root, canvas) {
      * Sets the canvases' sizes.
      */
     show(next) {
-      const changed = next.device !== shown.device;
+      const chosen = shellFor(next.device, next);
+      const changed = next.device !== shown.device || Boolean(chosen?.standing) !== Boolean(profile?.standing);
       shown = next;
       if (canvas.width !== next.width || canvas.height !== next.height) {
         canvas.width = next.width;
@@ -232,8 +257,13 @@ export function createStage(root, canvas) {
       second.hidden = !next.lower;
       if (next.lower) [second.width, second.height] = next.lower;
       if (changed) {
-        profile = SHELLS[next.device] ?? null;
+        profile = chosen;
         shell.dataset.pocketShell = profile ? next.device : "";
+        // (a shell that stands: the picture lies on its side, so it is drawn at its own size about the
+        // shell's middle and turned, which pocket3d-stage.css does)
+        shell.toggleAttribute("data-pocket-standing", Boolean(profile?.standing));
+        art.style.width = profile?.standing ? percent(profile.height, profile.width) : "";
+        art.style.height = profile?.standing ? percent(profile.width, profile.height) : "";
         if (profile) {
           // (the case comes in when its picture has: until then the screens stand where they will)
           shell.toggleAttribute("data-loading", true);

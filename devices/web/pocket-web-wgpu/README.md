@@ -48,7 +48,7 @@ writes the manifest `Source` reads. A game's build tool imports
 | **Its pack reader.** Which sections are the head, which records are read when the eye comes near. | `Source::range`, started with `task::spawn`; the game hands what arrived to the GPU on a later frame. |
 | **Its pad mapping.** What a device's buttons and sticks mean in its simulation. | `player.controls.read()` gives PocketJS button bits and two sticks in −1…1; the same bits go to the guest. |
 | **The interface channel.** The state lines it sends, the commands it parses, its flow (`pocket.overlay`, [`skills/pocket3d-interface`](../../../skills/pocket3d-interface/SKILL.md)). | `openInterface` returns `send`, `turn`, `drain`: the page carries each line between the guest and the game's module. |
-| **What it says of itself.** Its name and one sentence, the devices it offers, the targets it has packages for, and one sentence a device on how its picture there differs from the tab's. | `createPlayer({ title, tagline, devices, runsOn, pick })`. The page's body is empty: the player builds it. The build plan PocketJS wrote for each device's bundle (`plan.json`) says the screens, the raster density and the surface that takes touch, which the game hands to `player.show`. |
+| **What it says of itself.** Its name and one sentence, the devices it offers, the targets it has packages for, and one sentence a device on how its picture there differs from the tab's. | `createPlayer({ title, tagline, devices, runsOn, withoutPackages, about, pick })`. The page's body is empty: the player builds it. The build plan PocketJS wrote for each device's bundle (`plan.json`) says the screens, the raster density and the surface that takes touch, which the game hands to `player.show`. |
 
 A frame of the page, in a device's order:
 
@@ -79,13 +79,16 @@ they say and not in where a visitor finds it.
 | --- | --- |
 | The bar | The game's name and its sentence at the left, from the game and then from the host (`/app.json`). The devices in the middle as text, the chosen one underlined. The player's own controls at the right. |
 | The mark | The word **Simulated** beside the devices. A pointer that rests on it, the keys' focus or a finger opens its sentences: the browser draws the picture and the device draws the game with its own hardware, then the game's sentence for that device (`note`). |
-| The shell | A picture of the device with the game's canvas where its screen is (`player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`). Its keys, its d-pad and its sticks take a pointer or a finger; the d-pad reads eight ways from where a thumb rests. A held key is drawn down in its socket and a stick's cap slides, also when the keyboard holds them. A device without a profile is shown as its screens alone. |
+| The shell | A picture of the device with the game's canvas where its screen is (`player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`). Its keys, its d-pad and its sticks take a pointer or a finger; the d-pad reads eight ways from where a thumb rests. A held key is drawn down in its socket and a stick's cap slides, also when the keyboard holds them. **A shell with no key stands for a screen taller than wide**: the iPod touch's picture is turned a quarter clockwise, its screen's rectangle with it, for a screen of 320 × 480 (`shellFor`); for 480 × 320 it lies. A shell with keys is not turned. A device without a profile is shown as its screens alone. |
 | Controls | The keys of the device as a list. A browser whose only pointer is a finger is told to press the picture. |
-| About | That the handheld is a picture, **that the devices' names are trademarks of their owners and Pocket Nexus is not affiliated with them**, and the PSP model's author and licence. |
-| The dock | Under the stage, in the page's flow: it never lies over a screen. What the game is built for (`runsOn`), what Pocket Studio holds of it when the host lists packages, a door to the game's card (`<studio>/studio/?app=<id>`) and one to the Studio's front. |
+| About | What the player is (`about`, by default "This is the Pocket3D web player."), that the handheld is a picture, **that the devices' names are trademarks of their owners and Pocket Nexus is not affiliated with them**, and the PSP model's author and licence. |
+| The dock | Under the stage, in the page's flow: it never lies over a screen. **With packages a visitor may get**: what the game is built for (`runsOn`), what Pocket Studio holds of it, a door to the game's card (`<studio>/studio/?app=<id>`, "Get it in Pocket Studio") and one to the Studio's front ("Make a game of your own"). **With none**: what the page is (`withoutPackages.heading` and `.sentence`; by default "Made for real handhelds" and that the game has no packages to download yet) and the one door "Make a game of your own". The dock's first door is drawn as its action. |
 
 **The player reads `/app.json` from the page's own host**: `id`, `title`,
-`tagline`, `packages` (`target`, `size`), `slug`, `opened`. A host of Pocket Studio
+`tagline`, `packages` (`target`, `size`), `allowNative`, `slug`, `opened`.
+**A visitor may get packages when the host lists at least one and does not
+say `allowNative: false`.** A host that answers nothing leaves the game's own
+word: packages are taken to exist when `runsOn` names a target. A host of Pocket Studio
 answers it for a PocketJS game. Where the host has no such file the page's
 own words stand: `<meta name="pocket-app" content="<id>">` and
 `<meta name="pocket-studio" content="<origin>">`, written by the game's
@@ -120,7 +123,9 @@ pyftsubset Gabarito-800.ttf --flavor=woff2 --layout-features=kern,liga \
 
 A window narrower than 760 CSS pixels has the devices on a line of their own
 and the dock's words above its doors. A window lower than 560 CSS pixels (a
-phone on its side) has the dock on one line.
+phone on its side) has the dock on one line: its heading and **its first
+door**, the one to the packages when there is one and "Make a game of your
+own" when there is not. The other door is hidden there.
 
 ## The shells
 

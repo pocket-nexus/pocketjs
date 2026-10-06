@@ -218,3 +218,59 @@ test("the dock's links say they come from a player, and a player that opens is r
     rmSync(staged, { recursive: true, force: true });
   }
 }, 120_000);
+
+test("a shell with no key stands for a screen that stands, the dock follows what the host says of packages, and About says what the player is", async () => {
+  const staged = mkdtempSync(join(tmpdir(), "pocket3d-player-"));
+  try {
+    await stagePocket3dWeb(staged);
+    const { shellFor, stoodUp } = await import(pathToFileURL(join(staged, "pocket3d-stage.js")).href);
+    const { SHELLS } = await import(pathToFileURL(join(staged, "shells/profiles.js")).href);
+
+    // A screen that lies keeps the shell as its picture has it; one that stands turns a keyless shell a quarter.
+    expect(shellFor("ipod", { width: 480, height: 320 })).toBe(SHELLS.ipod);
+    const stood = shellFor("ipod", { width: 320, height: 480 });
+    expect([stood.standing, stood.width, stood.height, stood.art]).toEqual([true, SHELLS.ipod.height, SHELLS.ipod.width, SHELLS.ipod.art]);
+    const [x, y, w, h] = SHELLS.ipod.screens.upper;
+    expect(stood.screens.upper).toEqual([SHELLS.ipod.height - y - h, x, h, w]);
+    expect(Math.abs(stood.screens.upper[2] / stood.screens.upper[3] / (320 / 480) - 1) < 0.05).toBe(true);
+    // (what is at the picture's right, the home key's end, is at the bottom of the standing shell)
+    const right = { width: 100, height: 40, screens: { upper: [90, 0, 10, 40] }, controls: [], sticks: [], parts: [] };
+    expect(stoodUp(right).screens.upper).toEqual([0, 90, 40, 10]);
+    // A shell with keys is not turned: its parts would have to turn too. Neither is one with two screens.
+    expect(shellFor("vita", { width: 544, height: 960 })).toBe(SHELLS.vita);
+    expect(shellFor("3ds", { width: 240, height: 400, lower: [240, 320] })).toBe(SHELLS["3ds"]);
+    expect(shellFor("a device without a shell", { width: 320, height: 480 })).toBe(null);
+    expect(readFileSync(join(staged, "pocket3d-stage.css"), "utf8")).toContain("[data-pocket-shell][data-pocket-standing] > [data-pocket-shell-art]");
+
+    const { dockWords } = await import(pathToFileURL(join(staged, "pocket3d-player.js")).href);
+    const runsOn = ["psp", "vita", "3ds"];
+    const packages = [{ target: "psp", size: 42_934_596 }, { target: "3ds", size: 32_037_912 }];
+    const real = { heading: "Play it on the real thing", doors: ["get", "make"] };
+    // Packages a visitor may get: where they are, and both doors.
+    expect(dockWords({ title: "A Game", runsOn, packages, allowNative: true })).toEqual({ ...real, sentence: "A Game is built for PSP, PS Vita and Nintendo 3DS. Pocket Studio has its packages for PSP (43 MB) and Nintendo 3DS (32 MB)." });
+    expect(dockWords({ title: "A Game", runsOn, packages }).doors).toEqual(["get", "make"]);
+    // A host that said nothing leaves the game's own word.
+    expect(dockWords({ title: "A Game", runsOn })).toEqual({ ...real, sentence: "A Game is built for PSP, PS Vita and Nintendo 3DS. Its packages are in Pocket Studio, ready to install on your own." });
+    // None to get: the host lists none, or its author keeps them, or no one named any. One door, and no word of packages to get.
+    const plain = { heading: "Made for real handhelds", sentence: "A Game is built for PSP, PS Vita and Nintendo 3DS. It has no packages to download yet.", doors: ["make"] };
+    expect(dockWords({ title: "A Game", runsOn, packages: [] })).toEqual(plain);
+    expect(dockWords({ title: "A Game", runsOn, packages, allowNative: false })).toEqual(plain);
+    expect(dockWords({ title: "A Game" })).toEqual({ ...plain, sentence: "A Game runs here in your browser. It has no packages to download yet." });
+    // The page's own words for it.
+    expect(dockWords({ title: "A Game", packages: [], withoutPackages: { heading: "Made with Pocket Studio", sentence: "A Game is a PocketJS app." } })).toEqual({ heading: "Made with Pocket Studio", sentence: "A Game is a PocketJS app.", doors: ["make"] });
+
+    // A low window keeps the dock's first door, whichever it is, and hides the other.
+    const sheet = readFileSync(join(staged, "pocket3d-player.css"), "utf8");
+    const low = sheet.slice(sheet.indexOf("@media (max-height: 560px)"));
+    expect(low).toContain("[data-pocket-action]:not([data-pocket-primary]) { display: none; }");
+    expect(/\[data-pocket-action="(get|make)"\]/.test(sheet)).toBe(false);
+    const player = readFileSync(join(staged, "pocket3d-player.js"), "utf8");
+    expect(player).toContain('get.toggleAttribute("data-pocket-primary", words.doors[0] === "get")');
+    expect(player).toContain('own.toggleAttribute("data-pocket-primary", words.doors[0] === "make")');
+    // What the player is, in About: the page's sentence, or this one.
+    expect(player).toContain('about = "This is the Pocket3D web player."');
+    expect(player).toContain("`${about} The game is drawn in your browser; the handheld around it is a picture.`");
+  } finally {
+    rmSync(staged, { recursive: true, force: true });
+  }
+}, 120_000);

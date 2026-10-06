@@ -12,6 +12,9 @@
 /* The case: a picture, with the page's light under it. */
 [data-pocket-shell-art] { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; filter: drop-shadow(0 14px 22px rgb(0 0 0 / 0.5)); transition: opacity 0.2s; }
 [data-pocket-shell-art][hidden] { display: none; }
+/* A shell that stands: its picture lies on its side, so it is drawn at its own size (the script sets it)
+ * about the shell's middle and turned a quarter. Its shadow is turned back to fall down the page. */
+[data-pocket-shell][data-pocket-standing] > [data-pocket-shell-art] { inset: auto; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(90deg); filter: drop-shadow(14px 0 22px rgb(0 0 0 / 0.5)); }
 [data-pocket-shell][data-loading] > [data-pocket-shell-art], [data-pocket-shell][data-loading] > [data-pocket-shell-parts] { opacity: 0; }
 [data-pocket-screen] { position: absolute; display: block; touch-action: none; user-select: none; -webkit-user-select: none; }
 [data-pocket-screen][hidden] { display: none; }

@@ -11,6 +11,8 @@
 //     tagline: "One sentence about it.",
 //     devices: [{ id: "vita", label: "PS Vita", note: "…" }, …],   // ids of ./shells/profiles.js
 //     runsOn: ["psp", "vita", "3ds", "ipod-touch", "android"],     // what the game has packages for
+//     withoutPackages: { heading: "…", sentence: "…" },            // the dock's words when a visitor can get none
+//     about: "This is the Pocket3D web player.",                   // what the About panel says this player is
 //     pick: (id) => present(id),                                   // another device was chosen
 //   });
 //   player.canvas                    // the scene's canvas, hidden until the game shows it
@@ -84,6 +86,37 @@ export function reportOpened(address, app, layout, send = (...request) => fetch(
     // (a browser that refuses the request says so to no one)
   }
   return url.href;
+}
+
+/**
+ * What the dock says, and its doors, from what the game and its host say. `packages` is what the host
+ * lists (leave it out for a host that said nothing) and `allowNative` whether a visitor may have them
+ * (`false` when the host says no; a host that does not say lets them). With packages a visitor may get,
+ * the dock says where they are and has two doors, "get" first; with none it says what the page is
+ * (`withoutPackages.heading`, `withoutPackages.sentence`) and has the one door "make". A host that said
+ * nothing leaves the game's own word: `runsOn`.
+ */
+export function dockWords({ title, runsOn = [], packages, allowNative, withoutPackages = {} }) {
+  const targets = runsOn.filter((t) => t in TARGETS);
+  const built = targets.length ? `${title} is built for ${listed(targets.map((t) => TARGETS[t]))}.` : "";
+  const held = (packages ?? []).filter((p) => p && p.target in TARGETS);
+  const may = packages ? held.length > 0 && allowNative !== false : targets.length > 0;
+  if (!may) {
+    return {
+      heading: withoutPackages.heading ?? "Made for real handhelds",
+      sentence: withoutPackages.sentence ?? `${built || `${title} runs here in your browser.`} It has no packages to download yet.`,
+      doors: ["make"],
+    };
+  }
+  return {
+    heading: "Play it on the real thing",
+    sentence: `${built || `${title} is built for real handhelds.`} ${
+      held.length
+        ? `Pocket Studio has its ${held.length > 1 ? "packages" : "package"} for ${listed(held.map((p) => (p.size > 0 ? `${TARGETS[p.target]} (${megabytes(p.size)})` : TARGETS[p.target])))}.`
+        : "Its packages are in Pocket Studio, ready to install on your own."
+    }`,
+    doors: ["get", "make"],
+  };
 }
 
 /** A panel under the control that opens it: one open at a time, closed by Escape, by a press outside it, or by its control. */
@@ -181,12 +214,14 @@ async function readApp() {
  * Builds the player in `root` (the page's body) and returns it. `devices` are `{ id, label, note }`: `id`
  * names a shell, `note` is the game's sentence on how its picture on that device differs from this one.
  * `runsOn` are the targets the game has packages for, as Pocket Studio names them, for a host that lists
- * none. `pick(id)` is called when another device is chosen.
+ * none. `withoutPackages` (`{ heading, sentence }`) are the dock's words when a visitor can get no package.
+ * `about` is the first sentence of the About panel: what this player is. `pick(id)` is called when another
+ * device is chosen.
  */
-export function createPlayer({ root = document.body, title, tagline = "", devices, device, runsOn = [], pick }) {
+export function createPlayer({ root = document.body, title, tagline = "", devices, device, runsOn = [], withoutPackages = {}, about = "This is the Pocket3D web player.", pick }) {
   const canvas = make("canvas", { hidden: true });
   const name = make("h1", { text: title });
-  const about = make("p", { text: tagline, hidden: !tagline });
+  const line = make("p", { text: tagline, hidden: !tagline });
   const nav = make("nav", { "aria-label": "Device" });
   const mark = make("button", { type: "button", "data-pocket-mark": true, "aria-describedby": "pocket-simulated", text: "Simulated" });
   const tip = make("div", { "data-pocket-panel": "tip", id: "pocket-simulated", role: "tooltip" });
@@ -196,14 +231,15 @@ export function createPlayer({ root = document.body, title, tagline = "", device
   const aboutPanel = make("div", { "data-pocket-panel": "about", id: "pocket-about", role: "dialog", "aria-label": "About this player" });
   const stageRoot = make("main");
   const status = make("p", { "data-pocket-say": true, role: "status" });
+  const heading = make("h2");
   const pitch = make("p");
   const get = make("a", { "data-pocket-action": "get", href: STUDIO, text: "Get it in Pocket Studio" });
   const own = make("a", { "data-pocket-action": "make", href: STUDIO, text: "Make a game of your own" });
-  const dock = make("aside", { "data-pocket-studio": true, "aria-label": "Pocket Studio" }, make("div", { "data-pocket-pitch": true }, make("h2", { text: "Play it on the real thing" }), pitch), make("div", { "data-pocket-actions": true }, get, own));
+  const dock = make("aside", { "data-pocket-studio": true, "aria-label": "Pocket Studio" }, make("div", { "data-pocket-pitch": true }, heading, pitch), make("div", { "data-pocket-actions": true }, get, own));
   const frame = make(
     "div",
     { "data-pocket-player": true },
-    make("header", { "data-pocket-bar": true }, make("div", { "data-pocket-game": true }, name, about), make("div", { "data-pocket-device": true }, nav, mark), make("div", { "data-pocket-tools": true }, keysControl, aboutControl)),
+    make("header", { "data-pocket-bar": true }, make("div", { "data-pocket-game": true }, name, line), make("div", { "data-pocket-device": true }, nav, mark), make("div", { "data-pocket-tools": true }, keysControl, aboutControl)),
     stageRoot,
     status,
     dock,
@@ -223,22 +259,22 @@ export function createPlayer({ root = document.body, title, tagline = "", device
   open.bind(aboutControl, aboutPanel);
 
   // What is said of the game, until the host says more.
-  let game = { title, packages: [], studio: STUDIO, id: "" };
+  // (`packages` is what the host lists: none is known until it has answered)
+  let game = { title, packages: undefined, allowNative: undefined, studio: STUDIO, id: "" };
   let current = devices.find((d) => d.id === device) ?? devices[0];
   let shape = { sticks: 0, glyphs: "playstation", touch: null };
   let kept = null;
   const write = () => {
     name.textContent = game.title;
     document.title = game.title;
-    // What the game says it is built for, then what the Studio holds of it today when the host has said.
-    const targets = runsOn.filter((t) => t in TARGETS);
-    const held = game.packages.filter((p) => p.target in TARGETS);
-    pitch.replaceChildren(
-      targets.length ? `${game.title} is built for ${listed(targets.map((t) => TARGETS[t]))}. ` : `${game.title} is built for real handhelds. `,
-      held.length
-        ? `Pocket Studio has its ${held.length > 1 ? "packages" : "package"} for ${listed(held.map((p) => (p.size > 0 ? `${TARGETS[p.target]} (${megabytes(p.size)})` : TARGETS[p.target])))}.`
-        : "Its packages are in Pocket Studio, ready to install on your own.",
-    );
+    // What the game says it is built for, then what the Studio holds of it today when the host has said;
+    // or, where a visitor can get no package, what the page is. The first door is the dock's own action.
+    const words = dockWords({ title: game.title, runsOn, packages: game.packages, allowNative: game.allowNative, withoutPackages });
+    heading.textContent = words.heading;
+    pitch.textContent = words.sentence;
+    get.hidden = !words.doors.includes("get");
+    get.toggleAttribute("data-pocket-primary", words.doors[0] === "get");
+    own.toggleAttribute("data-pocket-primary", words.doors[0] === "make");
     get.href = fromPlayer(game.id ? `${game.studio}/studio/?app=${encodeURIComponent(game.id)}` : `${game.studio}/`);
     own.href = fromPlayer(`${game.studio}/`);
 
@@ -267,7 +303,7 @@ export function createPlayer({ root = document.body, title, tagline = "", device
     const marks = [...new Set(devices.map((d) => d.label))];
     aboutPanel.replaceChildren(
       make("h2", { text: "About this player" }),
-      make("p", { text: `This is the Pocket3D web player. The game is drawn in your browser; the handheld around it is a picture.` }),
+      make("p", { text: `${about} The game is drawn in your browser; the handheld around it is a picture.` }),
       make("p", { text: `${listed(marks)} are trademarks of their owners. Pocket Nexus is not affiliated with them.` }),
       make("p", {}, "The PSP is rendered from a model by ", make("a", { href: "https://sketchfab.com/3d-models/playstation-portable-psp-eg02-b76c7f9158204a39929a9c97d0b813d0", target: "_blank", rel: "noopener", text: "Dibad" }), ", used under ", make("a", { href: "https://creativecommons.org/licenses/by/4.0/", target: "_blank", rel: "noopener", text: "CC BY 4.0" }), ", with its marks taken off."),
     );
@@ -278,13 +314,15 @@ export function createPlayer({ root = document.body, title, tagline = "", device
     reportOpened(opened, app?.id ?? "", current.id);
     game = {
       title: typeof app?.title === "string" && app.title ? app.title : title,
-      packages: Array.isArray(app?.packages) ? app.packages.filter((p) => p && typeof p.target === "string") : [],
+      // (a host that answered and lists none has none; a page that knows only the game's id knows nothing of them)
+      packages: Array.isArray(app?.packages) ? app.packages.filter((p) => p && typeof p.target === "string") : undefined,
+      allowNative: typeof app?.allowNative === "boolean" ? app.allowNative : undefined,
       studio,
       id: app?.id ?? "",
     };
     if (typeof app?.tagline === "string" && app.tagline) {
-      about.textContent = app.tagline;
-      about.hidden = false;
+      line.textContent = app.tagline;
+      line.hidden = false;
     }
     write();
   });

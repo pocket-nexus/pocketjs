@@ -87,8 +87,9 @@
 [data-pocket-actions] { flex: none; display: flex; align-items: center; gap: 20px; }
 [data-pocket-action] { color: var(--ink-2); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent); text-underline-offset: 4px; white-space: nowrap; }
 [data-pocket-action]:hover { color: var(--ink); }
-[data-pocket-action="get"] { padding: 9px 16px; border-radius: 8px; background: var(--accent); color: #1c1503; font-weight: 600; text-decoration: none; }
-[data-pocket-action="get"]:hover { color: #1c1503; filter: brightness(1.06); }
+/* (the dock's first door is its action: the one to the packages, or the only one it has) */
+[data-pocket-action][data-pocket-primary] { padding: 9px 16px; border-radius: 8px; background: var(--accent); color: #1c1503; font-weight: 600; text-decoration: none; }
+[data-pocket-action][data-pocket-primary]:hover { color: #1c1503; filter: brightness(1.06); }
 
 /* A window narrower than its bar: the game and the controls on one line, the devices under them; the
  * dock's words above its door. */
@@ -101,7 +102,7 @@
   [data-pocket-tools] { gap: 16px; }
   [data-pocket-studio] { flex-direction: column; align-items: stretch; gap: 12px; }
   [data-pocket-actions] { flex-wrap: wrap; justify-content: space-between; gap: 12px 14px; }
-  [data-pocket-action="get"] { padding: 9px 14px; }
+  [data-pocket-action][data-pocket-primary] { padding: 9px 14px; }
 }
 /* A window too low for the dock's sentences (a phone on its side): its heading and its door on one line. */
 @media (max-height: 560px) {
@@ -110,6 +111,7 @@
   [data-pocket-studio] { flex-direction: row; align-items: center; padding-top: 6px; padding-bottom: max(6px, env(safe-area-inset-bottom)); }
   [data-pocket-pitch] p { display: none; }
   [data-pocket-pitch] h2 { font-size: 15px; }
-  [data-pocket-action="get"] { padding: 5px 12px; }
-  [data-pocket-action="make"] { display: none; }
+  /* (one door stays: the dock's first) */
+  [data-pocket-action][data-pocket-primary] { padding: 5px 12px; }
+  [data-pocket-action]:not([data-pocket-primary]) { display: none; }
 }
