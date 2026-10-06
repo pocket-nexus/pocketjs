@@ -378,6 +378,9 @@ export interface SimNode {
   hidden: boolean;
   /** x, y, width, height of its world box in logical pixels of its surface; null when it did not paint. */
   rect: [number, number, number, number] | null;
+  /** The resolved background and text colours as the core holds them: 0xAABBGGRR. A background with alpha 0 paints nothing. */
+  bgColor: number;
+  textColor: number;
   children: SimNode[];
 }
 
@@ -519,7 +522,11 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
     const wh = ops.debugRectWH();
     return [(xy << 16) >> 16, xy >> 16, wh & 0xffff, (wh >> 16) & 0xffff];
   };
-  const inspect = (wasm as unknown as { inspectNode(id: number): { type: number; text: string; children: number[]; display: number } | null }).inspectNode;
+  const inspect = (
+    wasm as unknown as {
+      inspectNode(id: number): { type: number; text: string; children: number[]; display: number; style: { bgColor: number; textColor: number } } | null;
+    }
+  ).inspectNode;
   const walk = (id: number, auxiliary: boolean, shown: boolean): SimNode | null => {
     const node = inspect(id);
     if (!node) return null;
@@ -535,6 +542,8 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
       text: node.text,
       hidden,
       rect: shown && !hidden ? rectOf(id, auxiliary) : null,
+      bgColor: node.style.bgColor,
+      textColor: node.style.textColor,
       children,
     };
   };

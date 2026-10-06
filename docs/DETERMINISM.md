@@ -164,7 +164,7 @@ world.step({ touches: [{ x: 160, y: 120 }], surface: "auxiliary" });
 
 world.pixels();             // RGBA8 of the primary surface, at the raster density
 world.pixels("auxiliary");  // the second screen
-world.tree();               // every node: type, text, display, world box in logical px
+world.tree();               // every node: type, text, display, colours, world box in logical px
 world.failure;              // { phase, frame, message, stack } once the guest threw
 world.logs;                 // each console line with the frame that wrote it
 ```
@@ -175,8 +175,9 @@ world.logs;                 // each console line with the frame that wrote it
   `<app>.js`, so stack frames inside it carry that name, a line and a column.
   A failed world steps no further.
 - **The tree is read from the core**, not from the DevTools shim: node type,
-  text, `display` and the world box the core records while it builds the draw
-  list (`debugInspect` + `debugRectXY/WH`). No guest frame runs for it, so
+  text, `display`, the resolved background and text colours, and the world box
+  the core records while it builds the draw list (`debugInspect` +
+  `debugRectXY/WH`). No guest frame runs for it, so
   reading the tree between two steps leaves the journey's pixels unchanged.
 - **It builds nothing.** A missing wasm core or bundle is an error that names
   the path. A tool installed without the engine sources passes `wasm`.

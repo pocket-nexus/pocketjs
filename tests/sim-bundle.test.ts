@@ -84,6 +84,9 @@ describe("bootBundle", () => {
     expect(w).toBeGreaterThan(20);
     expect(h).toBeGreaterThan(8);
     expect(x + w).toBeLessThanOrEqual(480);
+    // Colours are the core's 0xAABBGGRR: the text is opaque, and some view behind it has a background.
+    expect(element.textColor >>> 24).toBe(0xff);
+    expect(nodes.some((node) => node.type === "view" && node.bgColor >>> 24 === 0xff)).toBe(true);
     expect(world.tree("auxiliary")).toBeNull();
   }, 30000);
 
