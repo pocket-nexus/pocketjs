@@ -84,6 +84,18 @@ describe("bootBundle", () => {
     expect(w).toBeGreaterThan(20);
     expect(h).toBeGreaterThan(8);
     expect(x + w).toBeLessThanOrEqual(480);
+    // The pack's faces say how tall a line is, and a text box in one of them is that tall.
+    expect(world.fonts.length).toBeGreaterThan(0);
+    const faces = world.fonts.filter((font) => font.lineHeight === h);
+    expect(faces.length).toBeGreaterThan(0);
+    // The string measures no wider than the box it was laid out in, in either weight of that size.
+    const said = element.children.map((child) => child.text).join("");
+    for (const font of faces) {
+      const measured = world.measureText(said, font.slot);
+      expect(measured).toBeGreaterThan(20);
+      expect(measured).toBeLessThanOrEqual(w);
+    }
+    expect(world.measureText(`${said} ${said} ${said}`, faces[0]!.slot)).toBeGreaterThan(w);
     // Colours are the core's 0xAABBGGRR: the text is opaque, and some view behind it has a background.
     expect(element.textColor >>> 24).toBe(0xff);
     expect(nodes.some((node) => node.type === "view" && node.bgColor >>> 24 === 0xff)).toBe(true);

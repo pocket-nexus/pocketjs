@@ -165,6 +165,8 @@ world.step({ touches: [{ x: 160, y: 120 }], surface: "auxiliary" });
 world.pixels();             // RGBA8 of the primary surface, at the raster density
 world.pixels("auxiliary");  // the second screen
 world.tree();               // every node: type, text, display, colours, world box in logical px
+world.fonts;                // the pack's faces: slot, line height, bold
+world.measureText(s, slot); // one line's width in a face, as layout measures it
 world.failure;              // { phase, frame, message, stack } once the guest threw
 world.logs;                 // each console line with the frame that wrote it
 ```

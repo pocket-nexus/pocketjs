@@ -29,6 +29,7 @@ import { join, resolve } from "node:path";
 import { createWasmUi } from "../web/wasm-ops.js";
 import { normalizeHz, TICKS_PER_SECOND } from "../../framework/src/clock.ts";
 import { createTouchHitFacts, __packTouch, __packTouchWide } from "../../framework/src/touch.ts";
+import { unpack } from "../../framework/compiler/pak.ts";
 import type { AxisDelta } from "../../framework/src/relative-axis.ts";
 import type { MotionState } from "../../framework/src/motion.ts";
 
@@ -392,9 +393,22 @@ export interface SimPixels {
   rgba: Uint8Array;
 }
 
+/** One font face the pack carries. */
+export interface SimFont {
+  /** The slot a `text-*` / `font-bold` class resolves to. */
+  slot: number;
+  /** The height of one line in logical pixels: the height of a <Text> box in this face. */
+  lineHeight: number;
+  bold: boolean;
+}
+
 export interface BundleWorld {
   hz: number;
   ticksPerFrame: number;
+  /** The font faces baked into the pack, by slot. */
+  fonts: SimFont[];
+  /** The width of one line of `text` in a font slot, in logical pixels, as layout measures it. */
+  measureText(text: string, fontSlot: number): number;
   viewport: { width: number; height: number; rasterDensity: number; auxiliary: [number, number] | null };
   /** Frames stepped so far. */
   readonly frames: number;
@@ -479,8 +493,18 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
   };
 
   const g = globalThis as Record<string, unknown>;
+  const pak = options.pak && existsSync(options.pak) ? await Bun.file(options.pak).arrayBuffer() : undefined;
+  // A font atlas names its slot, its line height and its weight in its header (spec FONT ATLAS).
+  const fonts: SimFont[] = [];
+  if (pak) {
+    for (const blob of unpack(new Uint8Array(pak))) {
+      if (!blob.key.startsWith("ui:font.") || blob.data.length < 16) continue;
+      fonts.push({ slot: blob.data[12]!, lineHeight: blob.data[11]!, bold: (blob.data[13]! & 1) !== 0 });
+    }
+    fonts.sort((a, b) => a.slot - b.slot);
+  }
   g.ui = wasm.ops;
-  g.__pak = options.pak && existsSync(options.pak) ? await Bun.file(options.pak).arrayBuffer() : undefined;
+  g.__pak = pak;
   g.frame = undefined;
   g.offload = undefined;
   g.audio = undefined;
@@ -551,6 +575,8 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
   return {
     hz,
     ticksPerFrame,
+    fonts,
+    measureText: (text, fontSlot) => (wasm.ops as unknown as { measureText(text: string, slot: number): number }).measureText(text, fontSlot),
     viewport: {
       width: ops.__viewport.w,
       height: ops.__viewport.h,
