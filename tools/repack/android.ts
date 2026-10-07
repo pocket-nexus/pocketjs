@@ -301,7 +301,8 @@ async function admitAndroidGame(input: RepackInput): Promise<AdmittedGame> {
     icons = new Map();
     for (const [density, side] of ANDROID_ICON_DENSITIES) icons.set(density, await encodePng(squareIcon(image, side)));
   }
-  // PocketActivity hands app.js to QuickJS with its length: the section's NUL stays out.
+  // PocketActivity hands app.js to QuickJS with its length and the host's copy adds the NUL
+  // JS_Eval reads to (hosts/android/app/jni/runtime.c), so the section's NUL stays out.
   return { names, runtime, template, js: js.subarray(0, js.length - 1), pak, icons };
 }
 

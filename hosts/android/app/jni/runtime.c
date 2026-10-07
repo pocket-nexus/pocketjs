@@ -119,7 +119,10 @@ static uint8_t *copy_java_bytes(
   if (source == NULL) return NULL;
   jsize source_length = (*env)->GetArrayLength(env, source);
   if (source_length <= 0) return NULL;
-  uint8_t *bytes = (uint8_t *)malloc((size_t)source_length);
+  /* One byte more for a NUL: JS_Eval reads app.js up to input[length], which
+   * must be '\0'. The assets hold no terminator, and the byte after an
+   * unterminated copy is whatever the heap left there. */
+  uint8_t *bytes = (uint8_t *)malloc((size_t)source_length + 1);
   if (bytes == NULL) return NULL;
   (*env)->GetByteArrayRegion(env, source, 0, source_length, (jbyte *)bytes);
   if ((*env)->ExceptionCheck(env)) {
@@ -127,6 +130,7 @@ static uint8_t *copy_java_bytes(
     free(bytes);
     return NULL;
   }
+  bytes[source_length] = '\0';
   *length = (size_t)source_length;
   return bytes;
 }
