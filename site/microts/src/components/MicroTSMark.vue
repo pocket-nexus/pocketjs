@@ -1,0 +1,13 @@
+<script setup lang="ts">
+// MicroTS mark: a chip with a yellow body, purple pins and a cyan T. Same icon as on pocket.nexus.
+withDefaults(defineProps<{ size?: number }>(), { size: 28 });
+</script>
+
+<template>
+  <svg :width="size" :height="size" viewBox="0 0 32 32" aria-hidden="true">
+    <path d="M3.5 11h4M3.5 16h4M3.5 21h4M24.5 11h4M24.5 16h4M24.5 21h4" stroke="#a98bff" stroke-width="2.2" stroke-linecap="round" />
+    <rect x="7.3" y="5.3" width="17.4" height="21.4" rx="4.6" fill="#171226" stroke="#ffd23f" stroke-width="2.6" />
+    <rect x="11.2" y="10.8" width="9.6" height="2.4" rx="1.2" fill="#3fd0e8" />
+    <rect x="14.8" y="10.8" width="2.4" height="10.6" rx="1.2" fill="#3fd0e8" />
+  </svg>
+</template>

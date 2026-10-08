@@ -1,0 +1,20 @@
+{
+  // MicroTS site — an assets-only Worker (Workers Static Assets, no server
+  // script) serving site/microts/dist, built by `bun run microts:build`.
+  // Deploy from the repo root:
+  //   bunx wrangler deploy -c site/microts/wrangler.jsonc
+  // `directory` is resolved relative to THIS file, so it points at
+  // site/microts/dist.
+  "name": "microts",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    // The site is a Vue SPA: paths without a file (/docs/microts,
+    // /playground/retro-jump) serve index.html and the router renders them,
+    // including its own 404 page.
+    "not_found_handling": "single-page-application"
+  },
+  // Wrangler provisions the custom domain and its edge certificate on deploy.
+  "routes": [{ "pattern": "microts.pocket.nexus", "custom_domain": true }]
+}

@@ -1,0 +1,29 @@
+{
+  // Typecheck only (bun run microts:typecheck); site/microts/build.ts bundles.
+  // `retro` resolves to the SDK generated from pocket-retro, so run the build
+  // (or `bun site/microts/build.ts --prepare`) once before typechecking.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["bun"],
+    "strict": true,
+    "jsx": "preserve",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "retro": ["./.cache/retro/sdk/retro.ts"],
+      "retro-sdk/*": ["./.cache/retro/sdk/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.vue", "lib/**/*.ts", "kit/**/*.ts", "*.ts"],
+  "exclude": [
+    "src/playground/ui/starters/**",
+    "src/playground/templates/vue/**",
+    "src/playground/templates/solid/**"
+  ]
+}

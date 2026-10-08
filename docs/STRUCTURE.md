@@ -53,7 +53,8 @@ pocketjs/
 │                symbian/ (isolated GCCE/Qt toolchain + CODA USB transport)
 ├─ tests/        the test suite: *.test.ts flat at the root, plus
 │                e2e/ (PPSSPP, Vita3K drivers), goldens/{web,psp,vita}, tapes/, fixtures/
-├─ site/         pocketjs.dev (Cloudflare), plus nexus/ (pocket.nexus) and pocket3d/ (3d.pocket.nexus)
+├─ site/         pocketjs.dev (Cloudflare), plus nexus/ (pocket.nexus), pocket3d/ (3d.pocket.nexus)
+│                and microts/ (microts.pocket.nexus)
 ├─ docs/         design docs (DESIGN, RUNTIMES, DETERMINISM, PLATFORM, …)
 ├─ skills/       repo Claude skills
 ├─ assets/       brand, fonts, shared art

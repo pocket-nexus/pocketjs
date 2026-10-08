@@ -78,3 +78,17 @@ games show at launch. `bun tools/pocket3d-title.ts` bakes it into
 The captures in `public/assets/` are WebP encodings of frames from Pocket
 Maneuver, Pocket Atlas and OpenStrike. The measured figures are the ones
 recorded in those repositories' READMEs.
+
+## microts.pocket.nexus
+
+```sh
+bun run microts:dev
+```
+
+Open **http://127.0.0.1:8150/** to preview the MicroTS site. The dev server
+builds `site/microts/dist/` once, rebuilds the app when `site/microts/src/`,
+`site/content/docs/` or `site/nav.ts` changes, and reloads the page. Paths
+without a file serve `index.html`, as the `microts` Worker does
+(`not_found_handling: single-page-application`). `bun run microts:preview`
+serves an existing `site/microts/dist/` without rebuilding. The build steps are
+in `site/microts/README.md`.
