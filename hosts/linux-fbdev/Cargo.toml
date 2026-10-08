@@ -1,0 +1,23 @@
+[package]
+name = "pocketjs-linux-fbdev"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "PocketJS software-rendered Linux framebuffer host for embedded systems"
+
+[dependencies]
+pocketjs-core = { path = "../../engine/core" }
+pocket-mod = { path = "../../engine/crates/pocket-mod" }
+pocket-ui-surface = { path = "../../engine/crates/pocket-ui-surface" }
+anyhow = "1"
+env_logger = "0.11"
+log = "0.4"
+libc = "0.2"
+rquickjs = "0.12"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

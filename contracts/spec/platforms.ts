@@ -251,6 +251,7 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
   readonly psp: TargetProfile<PocketCapabilityId>;
   readonly vita: TargetProfile<PocketCapabilityId>;
   readonly pocketbook: TargetProfile<PocketCapabilityId>;
+  readonly "linux-fbdev": TargetProfile<PocketCapabilityId>;
   readonly "macos-widget": TargetProfile<PocketCapabilityId>;
   readonly "macos-app": TargetProfile<PocketCapabilityId>;
   readonly "linux-app": TargetProfile<PocketCapabilityId>;
@@ -317,6 +318,21 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
       physicalViewport: [960, 544],
       logicalViewports: [[480, 272]],
       presentations: ["integer-fit"],
+      rasterDensity: 2,
+    },
+    capabilities: ["input.buttons", "input.touch", "text.glyphs.baked"],
+  },
+  // Direct Linux fbdev takeover for embedded systems without a GPU. The
+  // host rasterizes with the core CPU renderer and writes the mapped device
+  // framebuffer; DRM/KMS-only devices use a separate presenter.
+  "linux-fbdev": {
+    hostAbi: 1,
+    platform: "linux",
+    form: "takeover",
+    display: {
+      physicalViewport: [720, 1280],
+      logicalViewports: [[360, 640]],
+      presentations: ["native", "integer-fit"],
       rasterDensity: 2,
     },
     capabilities: ["input.buttons", "input.touch", "text.glyphs.baked"],
