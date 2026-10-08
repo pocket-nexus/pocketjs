@@ -57,7 +57,7 @@ test("the homepage shares well: canonical URL, Open Graph and X card", () => {
 });
 
 test("Pocket Studio leads as the product, and the lab's three technologies are named beside it", () => {
-  const STUDIO = "https://studio.pocket.nexus/", MICROTS = "https://github.com/pocket-nexus/pocketjs/tree/main/microts";
+  const STUDIO = "https://studio.pocket.nexus/", MICROTS = "https://microts.pocket.nexus/";
   // the hero: one button, for the product, with a line that says what it is
   const cta = home.slice(home.indexOf('<div class="cta">'), home.indexOf("</main>"));
   expect([...cta.matchAll(/<a class="(btn[^"]*)" href="([^"]+)"/g)].map((button) => [button[1], button[2]])).toEqual([["btn big", STUDIO]]);

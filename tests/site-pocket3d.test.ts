@@ -367,6 +367,7 @@ test("page copy has no em dashes and links only to public places", () => {
     "https://fonts.gstatic.com",
     "https://3d.pocket.nexus/",
     "https://studio.pocket.nexus/",
+    "https://microts.pocket.nexus/",
   ];
   for (const html of [home, notFound, logo]) {
     expect(html).not.toContain("—");

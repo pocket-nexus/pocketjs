@@ -116,6 +116,7 @@ function header(active: string): string {
         </button>
         <div class="menu-list">
           <a href="https://3d.pocket.nexus/" class="p3d-item">Pocket3D</a>
+          <a href="https://microts.pocket.nexus/">MicroTS</a>
           <a href="/playground/">Playground</a>
           <a href="/changelog/">Changelog</a>
         </div>

@@ -36,9 +36,10 @@ so it must run before a Cargo build.
 
 | Topic | Reference |
 | --- | --- |
-| Overview | [MicroTS](https://pocketjs.pocket.nexus/docs/microts/) |
-| Ownership across the application, generated Rust and the host | [TypeScript and native code](https://pocketjs.pocket.nexus/docs/microts-boundaries/) |
-| Execution modes and supported subset | [TypeScript support](https://pocketjs.pocket.nexus/docs/typescript-support/) |
-| Compiled models | [TypeScript models to Rust](https://pocketjs.pocket.nexus/docs/microts-model/) |
-| Views | [Solid TSX to Rust](https://pocketjs.pocket.nexus/docs/microts-solid/) · [MicroTS components](https://pocketjs.pocket.nexus/docs/microts-components/) |
-| Reference | [MicroTS reference](https://pocketjs.pocket.nexus/docs/microts-reference/) |
+| Overview | [MicroTS](https://microts.pocket.nexus/docs/microts) |
+| Ownership across the application, generated Rust and the host | [TypeScript and native code](https://microts.pocket.nexus/docs/microts-boundaries) |
+| Execution modes and supported subset | [TypeScript support](https://microts.pocket.nexus/docs/typescript-support) |
+| Compiled models | [TypeScript models to Rust](https://microts.pocket.nexus/docs/microts-model) |
+| Views | [Solid TSX to Rust](https://microts.pocket.nexus/docs/microts-solid) · [MicroTS components](https://microts.pocket.nexus/docs/microts-components) |
+| Reference | [MicroTS reference](https://microts.pocket.nexus/docs/microts-reference) |
+| Browser playground | [microts.pocket.nexus/playground](https://microts.pocket.nexus/playground) |
