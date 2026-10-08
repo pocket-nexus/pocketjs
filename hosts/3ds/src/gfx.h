@@ -25,6 +25,11 @@ bool gfx_prepare_surface(
 );
 void gfx_finish_frame(void);
 void gfx_draw_surface(uint32_t surface);
+/**
+ * Draw a prepared surface with a horizontal stereoscopic parallax shift (in pixels).
+ * Negative shift projects the left-eye view; positive shift projects the right-eye view.
+ */
+void gfx_draw_surface_stereo(uint32_t surface, float eye_offset);
 /* Retire every guest-owned image/font texture at a GPU-idle frame boundary.
  * Shader, white texture and vertex arena remain process-owned. */
 void gfx_reset_resources(void);

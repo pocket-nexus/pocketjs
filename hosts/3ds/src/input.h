@@ -30,5 +30,7 @@ bool input_devmenu_blocks_guest(bool menu_visible);
 size_t input_touch(uint32_t *packed);
 
 bool input_offload_exit_requested(void);
+/** Read the physical 3D depth slider position [0.0f, 1.0f]. */
+float input_slider3d(void);
 
 #endif
