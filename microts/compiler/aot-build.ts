@@ -5,6 +5,7 @@ import { analyzeSolidAot } from "./aot-solid-frontend.ts";
 import { analyzeVueAot } from "./aot-frontend.ts";
 import { emitAot } from "./aot-codegen.ts";
 import type { AotProgram } from "./aot-ir.ts";
+import type { LayoutEnvironment, LayoutReport } from "./aot-layout-plan.ts";
 import { requireAotBoard, aotBoardAdmission } from "./aot-admission.ts";
 import { attachCompiledModel } from "./aot-model-build.ts";
 import { generateModelRust } from "./aot-model-codegen.ts";
@@ -19,12 +20,16 @@ export interface AotBuildOptions {
   format?: boolean;
   ir?: string;
   board?: string;
+  /** Required when the app uses `layout-baked`: the viewport, font atlases and wasm core that solve its static set. */
+  layoutEnvironment?: LayoutEnvironment;
 }
 export interface AotBuildResult {
   entry: string;
   outDir: string;
   files: string[];
   program: AotProgram;
+  /** The `layout-baked` subtrees the build solved. */
+  layout: LayoutReport;
 }
 
 export function resolveAotEntry(app: string): string {
@@ -54,7 +59,7 @@ export async function buildAot(app: string, options: AotBuildOptions = {}): Prom
   const entry = resolveAotEntry(app);
   const program = analyzeAot(entry, { strict: options.strict });
   if (options.board) requireAotBoard(program, options.board);
-  const output = emitAot(program);
+  const output = emitAot(program, { layoutEnvironment: options.layoutEnvironment });
   if (program.model) {
     const name = program.root.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase() + "_model";
     output.files[`${name}.rs`] = generateModelRust(program.model, program);
@@ -103,7 +108,7 @@ export async function buildAot(app: string, options: AotBuildOptions = {}): Prom
       writeFileSync(modelPath, JSON.stringify(program.model, null, 2) + "\n"); files.push(modelPath);
     }
   }
-  return { entry, outDir, files, program };
+  return { entry, outDir, files, program, layout: output.layout };
 }
 
 export async function runAotCli(args: string[]): Promise<void> {

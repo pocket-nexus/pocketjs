@@ -1,0 +1,26 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.test.layout-baked",
+  "name": "layout-baked-fixture",
+  "title": "layout-baked fixture",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["text.glyphs.baked", "input.buttons"]
+    }
+  },
+  "app": {
+    "entry": "app.tsx",
+    "output": "layout-baked-fixture",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [240, 160],
+        "presentation": "integer-fit"
+      }
+    },
+    "aot": true,
+    "model": "compiled"
+  }
+}

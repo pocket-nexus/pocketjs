@@ -197,6 +197,30 @@ pub extern "C" fn ui_node_display(id: i32) -> i32 {
     ui().resolved_style(id).map_or(-1, |style| i32::from(style.display))
 }
 
+/// Rounded rect (x, y, w, h, relative to the parent) then the unrounded solver
+/// output (NaN without a solver node) into eight f32 at `out`. Returns 0 for
+/// a stale id. The MicroTS compiler's build-time layout evaluation reads it.
+#[no_mangle]
+pub extern "C" fn ui_node_layout(id: i32, out: *mut f32) -> i32 {
+    let Some((x, y, w, h)) = ui().layout_of(id) else {
+        return 0;
+    };
+    let (ux, uy, uw, uh) = ui().layout_unrounded_of(id).unwrap_or((f32::NAN, f32::NAN, f32::NAN, f32::NAN));
+    let values = [x, y, w, h, ux, uy, uw, uh];
+    for (index, value) in values.into_iter().enumerate() {
+        // SAFETY: the caller passes an `ui_alloc` buffer of at least 32 bytes.
+        unsafe { out.add(index).write(value) };
+    }
+    1
+}
+
+/// `Ui::set_layout_mode`: pocketjs_core::tree::LAYOUT_LIVE, LAYOUT_STATIC
+/// (with the rect) or LAYOUT_FORMULA.
+#[no_mangle]
+pub extern "C" fn ui_set_layout_mode(id: i32, mode: i32, x: f32, y: f32, w: f32, h: f32) {
+    ui().set_layout_mode(id, mode as u8, x, y, w, h);
+}
+
 #[no_mangle]
 pub extern "C" fn ui_node_bg_color(id: i32) -> u32 {
     ui().resolved_style(id).map_or(0, |style| style.bg_color)

@@ -257,6 +257,8 @@ pub struct Resolved {
     pub inset: [f32; 4],
     pub display: u8,
     pub overflow: u8,
+    /// spec::Contain ordinal (layout containment).
+    pub contain: u8,
     pub hit_pass: u8,
     pub z_index: i32,
     pub bg_color: u32,
@@ -333,6 +335,7 @@ impl Default for Resolved {
             inset: [f32::NAN; 4],
             display: spec::Display::Flex as u8,
             overflow: spec::Overflow::Visible as u8,
+            contain: spec::Contain::None as u8,
             hit_pass: 0,
             z_index: 0,
             bg_color: 0,
@@ -427,6 +430,7 @@ impl Resolved {
             p::INSET_L => self.inset[3] = f,
             p::DISPLAY => self.display = bits as u8,
             p::OVERFLOW => self.overflow = bits as u8,
+            p::CONTAIN => self.contain = bits as u8,
             p::HIT_PASS => self.hit_pass = bits as u8,
             p::Z_INDEX => self.z_index = bits as i32,
             p::BG_COLOR => self.bg_color = bits,
@@ -504,6 +508,7 @@ impl Resolved {
             p::INSET_L => self.inset[3].to_bits(),
             p::DISPLAY => self.display as u32,
             p::OVERFLOW => self.overflow as u32,
+            p::CONTAIN => self.contain as u32,
             p::HIT_PASS => self.hit_pass as u32,
             p::Z_INDEX => self.z_index as u32,
             p::BG_COLOR => self.bg_color,
@@ -569,6 +574,14 @@ pub fn resolve(node: &Node, table: &StyleTable, with_anim: bool) -> Resolved {
 /// it to cull a transparent subtree before resolving the whole style.
 pub fn resolve_opacity(node: &Node, table: &StyleTable) -> f32 {
     last_entry(node, table, Layers::Posed, spec::prop::OPACITY).map_or(Resolved::default().opacity, f32::from_bits)
+}
+
+/// The `contain` value `resolve` would produce, without building a
+/// `Resolved`: `set_style` checks it on every call to keep the region table
+/// current.
+pub fn resolve_contain(node: &Node, table: &StyleTable) -> u8 {
+    last_entry(node, table, Layers::Styled, spec::prop::CONTAIN)
+        .map_or(spec::Contain::None as u8, |bits| bits as u8)
 }
 
 /// Style, overrides and (with `with_anim`) animation tracks, without the

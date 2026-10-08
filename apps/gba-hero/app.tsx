@@ -7,7 +7,7 @@ import { count, phase, press, reset, start, underline } from "./app";
 export default function App() {
   onMount(start);
   return (
-    <View debugName="HeroScreen" class="w-full h-full bg-gradient-to-b from-slate-50 to-slate-100">
+    <View debugName="HeroScreen" class="w-full h-full layout-baked bg-gradient-to-b from-slate-50 to-slate-100">
       <ActionHandler button={BTN.CROSS} onPress={reset} />
       <Image class="absolute left-[8] top-[8] w-[24] h-[24] rounded-lg shadow" src="logo.png" />
       <View class="absolute left-[40] top-[7] flex-col">
@@ -20,7 +20,7 @@ export default function App() {
       </View>
       <Text class="absolute left-[8] top-[44] text-xs text-blue-600">ONE RUST CORE / ONE TSX APP</Text>
       <Text class="absolute left-[8] top-[59] text-xl font-bold text-slate-950">JSX on GBA.</Text>
-      <View debugName="Spinner" class="absolute left-[200] top-[58] w-[32] h-[32]">
+      <View debugName="Spinner" class="absolute left-[200] top-[58] w-[32] h-[32] contain-strict">
         <Show when={phase() === 0}><Image class="w-[32] h-[32]" src="spinner-00.svg" /></Show>
         <Show when={phase() === 1}><Image class="w-[32] h-[32]" src="spinner-01.svg" /></Show>
         <Show when={phase() === 2}><Image class="w-[32] h-[32]" src="spinner-02.svg" /></Show>
@@ -36,11 +36,11 @@ export default function App() {
         <Text class="text-xs font-bold text-white">Press A</Text>
       </View>
       <View debugName="Counter" class="absolute left-[100] top-[123] w-[82] h-[15]">
-        <Text class="text-xs text-slate-600">Count: {count()}</Text>
+        <Text class="w-[82] h-[15] text-xs text-slate-600">Count: {count()}</Text>
       </View>
       <Text class="absolute left-[185] top-[123] text-xs text-slate-500">B: Reset</Text>
       <View debugName="ReactiveMessage" class="absolute left-[8] top-[145] w-[224] h-[15]">
-        <Show when={count() > 3}><Text class="text-xs text-emerald-600">Reactive on GBA.</Text></Show>
+        <Show when={count() > 3}><Text class="absolute left-0 top-0 w-[224] h-[15] text-xs text-emerald-600">Reactive on GBA.</Text></Show>
       </View>
     </View>
   );

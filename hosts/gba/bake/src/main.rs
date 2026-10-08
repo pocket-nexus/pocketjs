@@ -103,12 +103,25 @@ fn set_visible(app: &mut App, nodes: &[NodeId], visible: Option<NodeId>) {
     }
 }
 
+/// One generated frame, then the layout oracle: every static and formula
+/// rect the compiler emitted, and every live region, must equal a fresh solve
+/// of the whole tree. The host runs the same no_std float math as the
+/// cartridge, so a pass here is a pass on the device.
+fn frame(app: &mut App) {
+    app.frame(&Input::default());
+    let mismatches = app.ui_mut().core_mut().layout_mismatches();
+    assert!(
+        mismatches.is_empty(),
+        "baked layout differs from the full-tree solve: {mismatches:?}"
+    );
+}
+
 fn advance_to_phase(app: &mut App, phase: i32) {
     for _ in 0..64 {
         if app.model.phase() == phase {
             return;
         }
-        app.frame(&Input::default());
+        frame(app);
     }
     panic!("Generated spinner task did not reach phase {phase}");
 }
@@ -120,7 +133,7 @@ fn reference(app: &mut App, out: &Path, count: usize) {
         app.model.press();
     }
     app.invalidate();
-    app.frame(&Input::default());
+    frame(app);
     advance_to_phase(app, 0);
     let pixels = rgba(app);
     fs::write(out.join(format!("reference-{count}.rgba")), &pixels).unwrap();
@@ -155,7 +168,7 @@ fn main() {
     // Complete the mount reveal and focus transition before overriding fixture
     // properties. This leaves the original animation path intact on cartridge.
     for _ in 0..40 {
-        app.frame(&Input::default());
+        frame(&mut app);
     }
     reference(&mut app, &out, 0);
     reference(&mut app, &out, 6);

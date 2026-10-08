@@ -40,6 +40,7 @@ pub const STYLE_PROPS: &[(&str, u8, &str)] = &[
     ("overflow", 30, "i32"),
     ("zIndex", 31, "i32"),
     ("hitPass", 32, "i32"),
+    ("contain", 33, "i32"),
     ("bgColor", 64, "u32"),
     ("gradFrom", 65, "u32"),
     ("gradTo", 66, "u32"),

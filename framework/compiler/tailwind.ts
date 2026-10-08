@@ -293,6 +293,11 @@ function parseUtility(tok: string, acc: VariantAcc): boolean {
     case "relative": D.push([PROP.posType, int(ENUMS.PosType.Relative)]); return true;
     case "hidden": D.push([PROP.display, int(ENUMS.Display.None)]); return true;
     case "overflow-hidden": D.push([PROP.overflow, int(ENUMS.Overflow.Hidden)]); return true;
+    // Layout containment (PocketJS extension of Tailwind's contain-*): the
+    // subtree is solved as its own layout root given this node's box.
+    // `layout-baked` adds the MicroTS build-time proof and rect tables.
+    case "contain-strict": D.push([PROP.contain, int(ENUMS.Contain.Strict)]); return true;
+    case "layout-baked": D.push([PROP.contain, int(ENUMS.Contain.Baked)]); return true;
     case "w-full": D.push([PROP.width, px(SIZE_FULL)]); return true;
     case "h-full": D.push([PROP.height, px(SIZE_FULL)]); return true;
     case "rounded": D.push([PROP.radius, px(4)]); acc.sawRounded = true; return true;

@@ -334,6 +334,7 @@ export function generateRust(): string {
     PosType: "position type.",
     Display: "display (None removes from layout AND paint).",
     Overflow: "overflow (Hidden => scissor in draw).",
+    Contain: "layout containment (Strict: own layout root; Baked: Strict plus build-time rects).",
     TextAlign: "text alignment within the node box.",
     GradDir: "gradient direction (`bg-gradient-to-t|b|l|r`).",
     Easing:

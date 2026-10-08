@@ -187,6 +187,18 @@ impl Ui {
     pub fn set_text(&mut self, node: NodeId, text: &str) {
         self.core.set_text(node.0, text);
     }
+    /// The compiler proved this node's rect at build time: assign it and keep
+    /// the subtree out of every solver projection.
+    pub fn set_layout_static(&mut self, node: NodeId, x: f32, y: f32, w: f32, h: f32) {
+        self.core
+            .set_layout_mode(node.0, pocketjs_core::tree::LAYOUT_STATIC, x, y, w, h);
+    }
+    /// An absolutely positioned leaf whose rect follows its own inset and
+    /// size without a solver pass.
+    pub fn set_layout_formula(&mut self, node: NodeId) {
+        self.core
+            .set_layout_mode(node.0, pocketjs_core::tree::LAYOUT_FORMULA, 0.0, 0.0, 0.0, 0.0);
+    }
     pub fn set_focus(&mut self, node: NodeId) {
         if self.active != node {
             self.core.set_active(self.active.0, false);

@@ -7,7 +7,9 @@ publish = false
 [workspace]
 
 [dependencies]
-microts = { path = "../../../engine/crates/microts" }
+# `counters` links the full-tree layout oracle: every baked frame is checked
+# against a fresh solve of the whole tree on the host (device-identical math).
+microts = { path = "../../../engine/crates/microts", features = ["counters"] }
 pocketjs-core = { path = "../../../engine/core" }
 serde_json = "1"
 

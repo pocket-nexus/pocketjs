@@ -35,6 +35,7 @@ export interface MicroTsStyleProps {
   overflow?: i32;
   zIndex?: i32;
   hitPass?: i32;
+  contain?: i32;
   bgColor?: Color;
   gradFrom?: Color;
   gradTo?: Color;

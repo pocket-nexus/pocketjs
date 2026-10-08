@@ -3,7 +3,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { buildAot } from "../../microts/compiler/aot-build.ts";
+import { analyzeAot, buildAot } from "../../microts/compiler/aot-build.ts";
 import { bakeAtlases } from "../../framework/compiler/bake-font.ts";
 import { bakeSvg } from "../../framework/compiler/bake-svg.ts";
 import { decodePng } from "../../framework/compiler/pak.ts";
@@ -56,8 +56,18 @@ async function main() {
   const out = resolve(options.find(arg => arg.startsWith("--outdir="))?.slice(9) ?? resolve(root, "dist/gba"));
   const gen = resolve(out, "generated");
   mkdirSync(out, { recursive: true });
-  const result = await buildAot(resolve(root, "apps/gba-hero/app.tsx"), { outDir: gen, strict: true, format: false });
-  const fonts = await bakeAtlases({ codepoints: [], slots: result.program.styles.usedFontSlots });
+  // The hero's `layout-baked` page is solved at build time in the no_std wasm
+  // core: the same crate and float math the cartridge runs. Fonts come first
+  // because text leaves measure during that solve.
+  const entry = resolve(root, "apps/gba-hero/app.tsx");
+  const fonts = await bakeAtlases({ codepoints: [], slots: analyzeAot(entry, { strict: true }).styles.usedFontSlots });
+  const wasm = resolve(root, "hosts/web/pocketjs.wasm");
+  const wasmBuild = Bun.spawnSync([process.execPath, resolve(root, "tools/wasm.ts")], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (wasmBuild.exitCode !== 0) throw new Error(`pocketjs.wasm build failed: ${wasmBuild.stderr.toString()}`);
+  const result = await buildAot(entry, { outDir: gen, strict: true, format: false, layoutEnvironment: {
+    viewport: [240, 160], fontAtlases: fonts.map(font => font.bytes), wasm: readFileSync(wasm),
+  } });
+  for (const region of result.layout.regions) console.log(`layout-baked ${region.name}: ${region.nodes} nodes, ${region.formulas} formula leaves, ${region.islands} live islands`);
   for (const font of fonts) writeFileSync(resolve(gen, `font-${font.slot}.bin`), font.bytes);
   const images: string[] = [];
   for (const name of ["logo.png", ...Array.from({ length: 8 }, (_, index) => `spinner-0${index}.svg`)]) {
@@ -88,6 +98,7 @@ async function main() {
     romBytes: rom.length, romSha256: hash(rom), elfSha256: hash(elf),
     app: "apps/gba-hero", nominalTickHz: 30, vblanksPerPresentation: 2,
     fontSlots: result.program.styles.usedFontSlots,
+    layout: result.layout.regions,
     renderer: "mode0-bg-obj", assets,
   }, null, 2) + "\n");
   console.log(`GBA Hero: ${rom.length} ROM bytes -> ${resolve(out, "gba-hero.gba")}`);

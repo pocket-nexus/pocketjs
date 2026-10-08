@@ -238,11 +238,27 @@ parse, so the literal is text.
 | `hidden` | `display: none` |
 | `overflow-hidden` | clip children (native scissor) |
 | `z-N` | z-index |
+| `contain-strict` | the subtree is solved as its own layout root, given this node's box |
+| `layout-baked` | `contain-strict`, plus the MicroTS compiler proves every rect in the subtree at build time |
 
 Those five `justify-*` and four `items-*` values are the whole set — no
 `justify-evenly`, no `items-baseline`. `w-full` / `h-full` are the only
 percentage-style sizes; `p-N` and `m-N` fan out to four sides, `px`/`py` and
 `mx`/`my` to the two axes.
+
+**`contain-strict` needs a definite `w-*` and `h-*`.** The parent solves the
+node as a leaf of that size; the node's children form a second solver root in
+the core's single taffy tree, computed with that box as the available space.
+A structure or style change below the node reconciles and solves that root
+only; the rest of the page keeps its solver nodes and cached results. The
+rects come out as the full tree would produce them: the solver runs with
+rounding off and readback rounds every rect against the cumulative unrounded
+origin, the algorithm taffy itself uses. This is CSS size and layout
+containment, and it works on every host, guest or MicroTS.
+
+**`layout-baked` moves the solve to the build.** It is only meaningful for
+MicroTS native builds; the rules and the compiler's output are in the
+[MicroTS reference](/docs/microts-reference/#build-time-layout-layout-baked).
 
 ## Visual
 

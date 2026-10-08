@@ -227,6 +227,7 @@ const SUITE: readonly Stage[] = [
       "tests/aot-constant-contracts.test.ts",
       "tests/aot-codegen.test.ts",
       "tests/aot-differential.test.ts",
+      "tests/microts-layout-baked.test.ts",
       "tests/solid-for.test.ts",
       "tests/solid-aot-lab.test.ts",
       "tests/vue-vapor-frame-flush.test.ts",

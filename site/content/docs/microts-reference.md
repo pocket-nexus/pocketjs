@@ -238,6 +238,52 @@ cannot accompany a style-prop binding.
 names. Use PocketJS names such as `width`, `paddingT`, `bgColor` and `rotate`.
 Values must match the property's numeric type or unit below.
 
+### Build-time layout: `layout-baked`
+
+A `layout-baked` class on a `View` asserts that **every rect in its subtree is
+a build-time constant**. The compiler checks the assertion, solves the subtree
+once in the no_std wasm core (`hosts/web/pocketjs.wasm`, the same crate and
+float math the device runs), and emits the result into the generated mount
+code. Each element gets one of two calls before its `insert_before`:
+
+- `ui.set_layout_static(node, x, y, w, h)`: the rect, relative to the parent.
+  The node and its subtree never enter a solver projection; a layout prop set
+  on it, a text swap in it, or a `<Show>` swap under it costs no solver work.
+- `ui.set_layout_formula(node)`: an absolutely positioned childless `View` or
+  `Image` whose width, height or inset changes at runtime (a `:style` binding,
+  a transition, a timeline, or a model `animate`/`jump` on its ref). The core
+  recomputes its rect from its own resolved style on each change, with the
+  solver's rounding, and solves nothing else.
+
+The rules, each a compile error naming the node:
+
+- A `layout-baked` node sits at the root position or under another
+  `layout-baked` node. Under a live parent its own rect is not a constant.
+- `focus:` and `active:` variants and dynamic-class alternatives change paint
+  props only.
+- Dynamic text sits in a fixed cell: `w-[n] h-[n]` on the `Text`. The run never
+  sizes the box; an empty run keeps the cell.
+- A `<Show>` branch is absolutely positioned with a constant inset and size,
+  so its presence moves nothing else.
+- `<For>`, factory components and slots are runtime instances: wrap them in a
+  `contain-strict` `View` with a definite size. That node is a constant leaf
+  of the baked subtree; its children stay live in their own region.
+- A formula leaf has a constant left or right inset and top or bottom inset,
+  no min/max size or margin, and a parent at an integer position.
+
+The build needs a layout environment: the viewport from `pocket.json`
+(`app.viewport.fixed.logical`), the baked font atlases, and the wasm core.
+`buildAot(app, { layoutEnvironment })` supplies it; `hosts/gba/build.ts` is the
+reference caller. The result's `layout.regions` lists every baked root with its
+node, formula and island counts, and `build.json` records it.
+
+**The oracle is the full tree.** `pocketjs-core` built with the `counters`
+feature exposes `Ui::layout_mismatches()`: a fresh solve of the whole tree with
+no regions, static or formula nodes, compared rect by rect against what the
+modes produced. The GBA desktop baker runs it after every generated frame, so
+a baked ROM is only written when the host, running device-identical math,
+agrees with the tables.
+
 ## Types and Rust methods
 
 The shared [TypeScript support reference](/docs/typescript-support/#data-types-and-rust-values)

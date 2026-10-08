@@ -18,5 +18,7 @@ portable-atomic = { version = "1.3", default-features = false, features = ["requ
 
 [features]
 default = []
+# Layout work counters and the full-tree layout oracle (`Ui::layout_mismatches`).
+counters = ["pocketjs-core/counters"]
 model-trace = []
 critical-section = ["portable-atomic/critical-section"]

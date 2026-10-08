@@ -350,6 +350,11 @@ export const PROP = {
   //                    marks its full-screen overlay/portal layers with it so
   //                    bounds hit facts (op 42) resolve through empty overlay
   //                    space to the app content beneath.
+  contain: 33, //       enum Contain. Strict: the subtree is solved as its own
+  //                    layout root given this node's box (CSS size + layout
+  //                    containment; needs definite width and height). Baked:
+  //                    Strict, plus the MicroTS compiler proves every rect in
+  //                    the subtree at build time and writes it as a constant.
 
   // -- visual (64..95) -------------------------------------------------------
   bgColor: 64, //       color u32 ABGR
@@ -500,7 +505,7 @@ export const LAYOUT_DIRTYING: readonly PropName[] = [
   "paddingT", "paddingR", "paddingB", "paddingL",
   "marginT", "marginR", "marginB", "marginL",
   "gap", "flexDir", "justify", "align", "grow", "shrink", "basis", "flexWrap",
-  "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow",
+  "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow", "contain",
   "fontSlot", "textAlign", "lineHeight", "tracking",
 ];
 
@@ -535,7 +540,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   insetT: VALUE_KIND.f32, insetR: VALUE_KIND.f32,
   insetB: VALUE_KIND.f32, insetL: VALUE_KIND.f32,
   display: VALUE_KIND.int, overflow: VALUE_KIND.int, zIndex: VALUE_KIND.int,
-  hitPass: VALUE_KIND.int,
+  hitPass: VALUE_KIND.int, contain: VALUE_KIND.int,
   bgColor: VALUE_KIND.color, gradFrom: VALUE_KIND.color, gradTo: VALUE_KIND.color,
   gradDir: VALUE_KIND.int, radius: VALUE_KIND.f32, opacity: VALUE_KIND.f32,
   borderColor: VALUE_KIND.color, borderWidth: VALUE_KIND.f32,
@@ -568,6 +573,8 @@ export const ENUMS = {
   PosType: { Relative: 0, Absolute: 1 },
   Display: { Flex: 0, None: 1 },
   Overflow: { Visible: 0, Hidden: 1 },
+  /** Layout containment: `contain-strict` / `layout-baked`. */
+  Contain: { None: 0, Strict: 1, Baked: 2 },
   TextAlign: { Left: 0, Center: 1, Right: 2 },
   /** Gradient direction: `bg-gradient-to-t|b|l|r`. */
   GradDir: { ToTop: 0, ToBottom: 1, ToLeft: 2, ToRight: 3 },

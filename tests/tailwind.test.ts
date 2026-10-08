@@ -92,6 +92,11 @@ describe("spacing / box", () => {
     expect(f32Of(m, PROP.maxH)).toBe(80);
     expect(m.get(PROP.zIndex)).toBe(5);
   });
+  test("contain-strict / layout-baked", () => {
+    expect(props(parseClassLiteral("contain-strict")).get(PROP.contain)).toBe(ENUMS.Contain.Strict);
+    expect(props(parseClassLiteral("w-[32] h-[32] layout-baked")).get(PROP.contain)).toBe(ENUMS.Contain.Baked);
+    expect(unknownUtilities("contain-strict layout-baked contain-layout")).toEqual(["contain-layout"]);
+  });
   test("hidden / overflow-hidden", () => {
     const m = props(parseClassLiteral("hidden overflow-hidden"));
     expect(m.get(PROP.display)).toBe(ENUMS.Display.None);

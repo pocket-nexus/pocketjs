@@ -6,6 +6,7 @@ import { allocateRustTypeNames, printRust, rustVariant } from "./rust-printer";
 import { parseMicroTsColor, MICROTS_ELEMENTS } from "../../contracts/spec/microts";
 import { generateAotApp, generateAotLifecycle, generateAotReconcile } from "./aot-app-codegen";
 import { MOTION_VALUES, motionValueParameters, type MotionValueName } from "../../contracts/spec/motion";
+import { planLayout, type LayoutEnvironment, type LayoutPlan, type LayoutReport } from "./aot-layout-plan";
 
 const motionValueName = (id: number) => (Object.keys(MOTION_VALUES) as MotionValueName[]).find(name => MOTION_VALUES[name].id === id)!;
 
@@ -56,7 +57,9 @@ class Lowerer {
   scopedLocals = new Set<string>();
   explicitSlotUpdates = new WeakSet<RustExpr>();
   asyncDispatch: boolean;
-  constructor(readonly program: AotProgram) {
+  /** Build-time rects for `layout-baked` subtrees (aot-layout-plan.ts). */
+  layoutPlan: LayoutPlan = { entries: new WeakMap(), report: { regions: [] } };
+  constructor(readonly program: AotProgram, readonly options: AotEmitOptions = {}) {
     this.asyncDispatch = program.components.some(component => component.functions.some(fn => fn.async));
     this.lifecycle = !!program.modelProtocol || program.components.some(component => !!component.hooks?.mount || !!component.hooks?.unmount);
     this.declarations = new Map(program.types.map(t => [t.name, t]));
@@ -621,7 +624,13 @@ class Lowerer {
     this.registerBlock(name, [children]);
     const fields: RustField[] = [{ name: "node", type: rt("NodeId") }, { name: "children", type: rt(children.name) }];
     const initial: { name: string; value?: RustExpr }[] = [{ name: "node" }, { name: "children" }];
-    const mount: RustStatement[] = [stmtLet("node", rm(ui, "create_node", rl(MICROTS_ELEMENTS[node.tag].nodeType, "u8"))), re(rm(ui, "insert_before", parent, rp("node"), anchor)), re(rm(ui, "set_style", rp("node"), rc(rp("StyleId"), rl(node.style, "i32"))))];
+    // A planned node takes its layout mode before it is inserted and styled:
+    // the insert under a static parent and the style application then cost
+    // no solver work.
+    const placed = this.layoutPlan.entries.get(node);
+    const placement: RustStatement[] = placed?.mode === "static" ? [re(rm(ui, "set_layout_static", rp("node"), ...placed.rect.map(value => rl(value, "f32"))))]
+      : placed?.mode === "formula" ? [re(rm(ui, "set_layout_formula", rp("node")))] : [];
+    const mount: RustStatement[] = [stmtLet("node", rm(ui, "create_node", rl(MICROTS_ELEMENTS[node.tag].nodeType, "u8"))), ...placement, re(rm(ui, "insert_before", parent, rp("node"), anchor)), re(rm(ui, "set_style", rp("node"), rc(rp("StyleId"), rl(node.style, "i32"))))];
     if (node.focusable) mount.push(re(rm(ui, "set_focusable", rp("node"), rl(true))));
     if (node.src) mount.push(re(rm(ui, "set_image_asset", rp("node"), rl(node.src))));
     if (node.debugName) mount.push(re(rm(ui, "set_debug_name", rp("node"), rl(node.debugName))));
@@ -1127,6 +1136,7 @@ class Lowerer {
         });
       }
       const expanded = this.expand(component.nodes, { component, props: new Map(), events: new Map(), slots: new Map() });
+      if (component.root) this.layoutPlan = planLayout(this.program, component, expanded, this.options.layoutEnvironment);
       this.compileGroup(expanded, new Map(), `${component.name}View`);
       if (component.root) this.items.push(...generateAotApp(component, this.propsType(component), this.program.demands, this.blocks.get(`${component.name}View`)!.generic, this.lifecycle, this.program.version, !!this.program.modelProtocol, this.asyncDispatch));
     }
@@ -1134,10 +1144,21 @@ class Lowerer {
   }
 }
 
-export interface AotEmission { files: Record<string, string>; ast: RustModule }
-export function lowerAot(program: AotProgram): RustModule { checkAotVersion(program); if (program.model && !program.modelProtocol) attachAotModel(program, program.model); return new Lowerer(program).run(); }
-export function emitAot(program: AotProgram): AotEmission {
-  const ast = lowerAot(program);
+export interface AotEmitOptions {
+  /** Viewport, font atlases and wasm core for `layout-baked` subtrees. */
+  layoutEnvironment?: LayoutEnvironment;
+}
+export interface AotEmission { files: Record<string, string>; ast: RustModule; layout: LayoutReport }
+export function lowerAot(program: AotProgram, options: AotEmitOptions = {}): RustModule { return lower(program, options).ast; }
+function lower(program: AotProgram, options: AotEmitOptions): { ast: RustModule; layout: LayoutReport } {
+  checkAotVersion(program);
+  if (program.model && !program.modelProtocol) attachAotModel(program, program.model);
+  const lowerer = new Lowerer(program, options);
+  const ast = lowerer.run();
+  return { ast, layout: lowerer.layoutPlan.report };
+}
+export function emitAot(program: AotProgram, options: AotEmitOptions = {}): AotEmission {
+  const { ast, layout } = lower(program, options);
   const moduleName = program.root.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-  return { ast, files: { [`${moduleName}.rs`]: printRust(ast), "mod.rs": printRust({ items: [{ kind: "mod", name: moduleName }, { kind: "use", path: ["self", moduleName], names: ["*"], public: true }] }) } };
+  return { ast, layout, files: { [`${moduleName}.rs`]: printRust(ast), "mod.rs": printRust({ items: [{ kind: "mod", name: moduleName }, { kind: "use", path: ["self", moduleName], names: ["*"], public: true }] }) } };
 }
