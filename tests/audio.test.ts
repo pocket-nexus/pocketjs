@@ -132,6 +132,29 @@ describe("apps/music media", () => {
 // --- the SDK pump against the sim sink (credit flow end to end) ------------
 
 describe("WavPlayer x sim sink", () => {
+  test("a full-ring guest receives fresh credit after every refill", () => {
+    const sink = createSimAudioSink();
+    const ns = sink.ns as {
+      createStream(rate: number, channels: number): number;
+      writePcm(handle: number, pcm: ArrayBuffer): number;
+      play(handle: number): void;
+      poll(): string | undefined;
+    };
+    const handle = ns.createStream(44100, 1);
+    expect(ns.writePcm(handle, new Int16Array(AUDIO_RING_FRAMES).buffer as ArrayBuffer))
+      .toBe(AUDIO_RING_FRAMES);
+    ns.play(handle);
+
+    for (let tick = 0; tick < 60; tick++) {
+      sink.tick();
+      const event = JSON.parse(ns.poll()!) as { t: string; h: number; free: number };
+      expect(event).toEqual({ t: "credit", h: handle, free: 735 });
+      expect(ns.writePcm(handle, new Int16Array(event.free).buffer as ArrayBuffer)).toBe(735);
+    }
+    expect(sink.consumedFrames()).toBe(44100);
+    expect(sink.log.some((line) => line.includes('"underrun"'))).toBe(false);
+  });
+
   test("credit-driven pump feeds, drains, and ends deterministically", () => {
     const sink = createSimAudioSink();
     (globalThis as Record<string, unknown>).audio = sink.ns;
