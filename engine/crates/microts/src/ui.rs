@@ -108,6 +108,7 @@ pub struct Ui {
     core: CoreUi,
     focusable: BTreeSet<NodeId>,
     images: BTreeMap<String, i32>,
+    image_assets: BTreeMap<NodeId, String>,
     debug_names: BTreeMap<NodeId, String>,
     previous_buttons: u32,
     active: NodeId,
@@ -134,6 +135,7 @@ impl Ui {
             core,
             focusable: BTreeSet::new(),
             images: BTreeMap::new(),
+            image_assets: BTreeMap::new(),
             debug_names: BTreeMap::new(),
             previous_buttons: 0,
             active: NodeId::NONE,
@@ -174,6 +176,7 @@ impl Ui {
         self.core.destroy_node(node.0);
         self.focusable.retain(|id| self.core.node_exists(id.0));
         self.debug_names.retain(|id, _| self.core.node_exists(id.0));
+        self.image_assets.retain(|id, _| self.core.node_exists(id.0));
         if !self.core.node_exists(self.active.0) {
             self.active = NodeId::NONE;
         }
@@ -209,6 +212,11 @@ impl Ui {
     pub fn focused(&self) -> NodeId {
         NodeId(self.core.focused())
     }
+    /// The focusable node mounted first (ids ascend in mount order). Native
+    /// hosts without a focus policy of their own start here.
+    pub fn initial_focus(&self) -> NodeId {
+        self.focusable.iter().next().copied().unwrap_or(NodeId::NONE)
+    }
     pub fn set_focusable(&mut self, node: NodeId, enabled: bool) {
         if enabled && self.core.node_exists(node.0) {
             self.focusable.insert(node);
@@ -231,6 +239,13 @@ impl Ui {
     pub fn set_image_asset(&mut self, node: NodeId, name: &str) {
         self.core
             .set_image(node.0, self.images.get(name).copied().unwrap_or(-1));
+        self.image_assets.insert(node, name.into());
+    }
+    /// The asset name the last `set_image_asset` bound to a node. Native
+    /// presenters that bake artwork offline match image nodes by it, since the
+    /// cartridge loads no textures.
+    pub fn image_asset(&self, node: NodeId) -> Option<&str> {
+        self.image_assets.get(&node).map(String::as_str)
     }
     pub fn set_image(&mut self, node: NodeId, texture: i32) {
         self.core.set_image(node.0, texture);

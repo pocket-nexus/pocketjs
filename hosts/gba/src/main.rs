@@ -142,20 +142,9 @@ pub unsafe extern "C" fn gba_main() -> ! {
     reg(0x04000106, 0x84);
     reg(0x04000102, 0x80);
     let mut app = mount();
-    fn named(ui: &Ui, node: i32, name: &str) -> Option<microts::NodeId> {
-        let id = microts::NodeId(node);
-        if ui.debug_name(id) == Some(name) {
-            return Some(id);
-        }
-        ui.core()
-            .node_children(node)
-            .iter()
-            .find_map(|child| named(ui, *child, name))
-    }
-    let button = named(app.ui(), microts::NodeId::ROOT.0, "HeroAction").unwrap();
-    app.ui_mut().set_focus(button);
-    let underline = app.model.underline().get().unwrap();
-    let mut scene = alloc::boxed::Box::new(scene::Scene::new());
+    let first = app.ui().initial_focus();
+    app.ui_mut().set_focus(first);
+    let mut scene = alloc::boxed::Box::new(scene::Scene::new(app.ui()));
     diag(2, 2);
     let mut deadline = diagnostic(4) + 2;
     let mut keys = 0;
@@ -183,18 +172,13 @@ pub unsafe extern "C" fn gba_main() -> ! {
         app.frame(&Input::buttons(buttons));
         let model_end = cycles();
         diag(10, app.model.count() as u32);
-        let style = app.ui().core().resolved_style(underline.0).unwrap();
-        let color = app.ui().core().resolved_style(button.0).unwrap().bg_color;
-        scene.update(
-            app.model.count(),
-            app.model.phase(),
-            style.width,
-            style.translate_x,
-            color,
-        );
-        diag(28, app.model.phase() as u32);
-        diag(29, (style.width + 0.5) as u32);
-        diag(30, color);
+        scene.update(app.ui());
+        // Words 28.. publish each layer's state in plan order (branch index,
+        // visibility, size value, color bits, glyph count).
+        for (index, value) in scene.state.iter().enumerate().take(16) {
+            diag(28 + index, *value);
+        }
+        diag(31, scene.faults);
         // Scan from the bottom so unused gaps inside stack frames cannot
         // hide deeper writes. The watermark survives returns from functions.
         if diagnostic(3) & 31 == 0 {
@@ -214,7 +198,7 @@ pub unsafe extern "C" fn gba_main() -> ! {
         diag(18, 0);
         diag(5, end.wrapping_sub(begin));
         diag(6, diagnostic(6).max(end.wrapping_sub(begin)));
-        diag(12, 35);
+        diag(12, scene::art::OAM_SLOTS_USED as u32);
         // Always wait for a future VBlank edge, including an overrun.
         if diagnostic(4).wrapping_sub(deadline) as i32 >= 0 {
             diag(7, diagnostic(7).wrapping_add(1));

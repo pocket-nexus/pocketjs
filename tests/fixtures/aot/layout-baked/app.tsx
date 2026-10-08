@@ -20,7 +20,9 @@ export default function App() {
       <View debugName="Counter" class="absolute left-[100] top-[123] w-[82] h-[15]">
         <Text class="text-xs w-[82] h-[15] text-slate-600">Count: {count()}</Text>
       </View>
-      <Show when={count() > 3}><Text class="absolute left-[8] top-[145] w-[224] h-[15] text-xs text-emerald-600">Reactive</Text></Show>
+      <View debugName="Message" class="absolute left-[8] top-[145] w-[224] h-[15]">
+        <Show when={count() > 3}><Text class="absolute left-0 top-0 w-[224] h-[15] text-xs text-emerald-600">Reactive</Text></Show>
+      </View>
     </View>
   );
 }

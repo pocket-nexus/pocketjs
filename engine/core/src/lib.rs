@@ -803,6 +803,12 @@ impl Ui {
         self.tree.get(id).map(|node| node.text.as_str())
     }
 
+    /// Style-table record id of a node (spec::STYLE_ID_NONE when unstyled).
+    /// Native presenters match mounted conditional branches by it.
+    pub fn node_style(&self, id: i32) -> Option<i32> {
+        self.tree.get(id).map(|node| node.style_id)
+    }
+
     // ---- styling ----------------------------------------------------------
 
     /// Apply style-table record `style_id` (spec::STYLE_ID_NONE clears).

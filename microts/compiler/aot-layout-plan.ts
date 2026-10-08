@@ -22,6 +22,7 @@ import { AotCompileError, type AotComponent, type AotDiagnostic, type AotExpr, t
 import type { ModelProgram } from "./aot-model-ir.ts";
 import { ANIMATABLE, ENUMS, LAYOUT_DIRTYING, PROP, PROP_VALUE_KIND, VALUE_KIND, bitsF32, f32Bits, type PropName, type StyleProp, type StyleRecord } from "../../contracts/spec/spec.ts";
 import { MICROTS_ELEMENTS } from "../../contracts/spec/microts.ts";
+import { planPaint, type DynamicLayer, type LayerDeclarations, type Rect } from "./aot-paint-plan.ts";
 
 export interface LayoutEnvironment {
   /** Logical viewport the baked rects hold for (`app.viewport.fixed.logical`). */
@@ -30,6 +31,12 @@ export interface LayoutEnvironment {
   fontAtlases: Uint8Array[];
   /** pocketjs.wasm: the no_std core that solves the static set. */
   wasm: ArrayBuffer | Uint8Array;
+  /** Also plan sprite layers for a background-plus-sprites host (aot-paint-plan.ts). */
+  spriteLayers?: boolean;
+  /** Core tick rate of the target (default 60); sizes color transition samples. */
+  tickRate?: number;
+  /** Per-layer declarations for the sprite-layer recipes. */
+  declarations?: LayerDeclarations;
 }
 
 export type LayoutPlanEntry =
@@ -43,8 +50,8 @@ export interface LayoutPlan {
 }
 
 export interface LayoutReport {
-  /** One row per `layout-baked` root. */
-  regions: { name: string; file: string; line: number; nodes: number; formulas: number; islands: number }[];
+  /** One row per `layout-baked` root, with the sprite layers its dynamic paint needs. */
+  regions: { name: string; file: string; line: number; nodes: number; formulas: number; islands: number; layers: DynamicLayer[] }[];
 }
 
 type ElementNode = Extract<AotNode, { kind: "element" }>;
@@ -325,8 +332,10 @@ export function planLayout(program: AotProgram, component: AotComponent, expande
     }
     core.solve();
     const origins = new Map<ElementNode, [number, number]>();
+    const rects = new Map<ElementNode, Rect>();
     for (const element of analysis.elements) {
       const [x, y, w, h, ux, uy] = core.layout(ids.get(element.node)!);
+      rects.set(element.node, [x, y, w, h]);
       const parentOrigin = element.parent ? origins.get(element.parent)! : [0, 0];
       const origin: [number, number] = [parentOrigin[0] + ux, parentOrigin[1] + uy];
       origins.set(element.node, origin);
@@ -337,7 +346,14 @@ export function planLayout(program: AotProgram, component: AotComponent, expande
         plan.entries.set(element.node, { mode: "formula" });
       } else plan.entries.set(element.node, { mode: "static", rect: [x, y, w, h] });
     }
-    plan.report.regions.push({ name: root.debugName ?? root.tag, file: root.loc.file, line: root.loc.line, nodes: analysis.elements.length, formulas: analysis.formulas, islands: analysis.islands });
+    const layers = environment.spriteLayers ? planPaint({
+      program, root,
+      rectOf: node => rects.get(node) ?? null,
+      islandOf: node => analysis.elements.some(element => element.node === node && element.leaf),
+      tickRate: environment.tickRate ?? 60,
+      declarations: environment.declarations ?? {},
+    }) : [];
+    plan.report.regions.push({ name: root.debugName ?? root.tag, file: root.loc.file, line: root.loc.line, nodes: analysis.elements.length, formulas: analysis.formulas, islands: analysis.islands, layers });
   }
   return plan;
 }

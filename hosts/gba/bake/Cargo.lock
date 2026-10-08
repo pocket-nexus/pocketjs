@@ -76,6 +76,7 @@ version = "0.1.0"
 dependencies = [
  "microts",
  "pocketjs-core",
+ "serde",
  "serde_json",
 ]
 

@@ -284,6 +284,14 @@ modes produced. The GBA desktop baker runs it after every generated frame, so
 a baked ROM is only written when the host, running device-identical math,
 agrees with the tables.
 
+**Sprite layers.** With `spriteLayers: true` in the environment, the build also
+plans one sprite layer per named dynamic subtree of each baked root
+(`microts/compiler/aot-paint-plan.ts`, `layout.regions[].layers`): a state
+recipe (`branches`, `opacity`, `size`, `color` or `text`) plus a translate
+flag, for hosts that present a baked page as a static background and hardware
+sprites. The rules and the hero's plan are in
+[`hosts/gba/README.md`](https://github.com/pocket-nexus/pocketjs/blob/main/hosts/gba/README.md).
+
 ## Types and Rust methods
 
 The shared [TypeScript support reference](/docs/typescript-support/#data-types-and-rust-values)

@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 /** Experimental bare-metal MicroTS Hero ROM; no JavaScript VM or OS. */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { analyzeAot, buildAot } from "../../microts/compiler/aot-build.ts";
 import { bakeAtlases } from "../../framework/compiler/bake-font.ts";
 import { bakeSvg } from "../../framework/compiler/bake-svg.ts";
 import { decodePng } from "../../framework/compiler/pak.ts";
-import { packHeroAssets } from "./assets.ts";
+import { packLayers } from "./assets.ts";
+import type { LayerDeclarations } from "../../microts/compiler/aot-paint-plan.ts";
 
 const root = resolve(import.meta.dir, "../..");
 export const GBA_TOOLCHAIN = "nightly-2026-07-01";
@@ -64,10 +65,17 @@ async function main() {
   const wasm = resolve(root, "hosts/web/pocketjs.wasm");
   const wasmBuild = Bun.spawnSync([process.execPath, resolve(root, "tools/wasm.ts")], { cwd: root, stdout: "pipe", stderr: "pipe" });
   if (wasmBuild.exitCode !== 0) throw new Error(`pocketjs.wasm build failed: ${wasmBuild.stderr.toString()}`);
+  // Optional per-layer declarations (size ranges, glyph sets, text lengths)
+  // the recipes cannot infer from literals and types.
+  const declarationsPath = resolve(root, "apps/gba-hero/gba-layers.json");
+  const declarations: LayerDeclarations = existsSync(declarationsPath) ? JSON.parse(readFileSync(declarationsPath, "utf8")) : {};
   const result = await buildAot(entry, { outDir: gen, strict: true, format: false, layoutEnvironment: {
-    viewport: [240, 160], fontAtlases: fonts.map(font => font.bytes), wasm: readFileSync(wasm),
+    viewport: [240, 160], fontAtlases: fonts.map(font => font.bytes), wasm: readFileSync(wasm), spriteLayers: true, tickRate: 30, declarations,
   } });
-  for (const region of result.layout.regions) console.log(`layout-baked ${region.name}: ${region.nodes} nodes, ${region.formulas} formula leaves, ${region.islands} live islands`);
+  for (const region of result.layout.regions) console.log(`layout-baked ${region.name}: ${region.nodes} nodes, ${region.formulas} formula leaves, ${region.islands} live islands, ${region.layers.length} sprite layers`);
+  // The sprite layer plan drives the desktop baker and the packer.
+  const layers = result.layout.regions.flatMap(region => region.layers);
+  writeFileSync(resolve(gen, "layers.json"), JSON.stringify({ viewport: [240, 160], tickRate: 30, settleFrames: 40, layers }, null, 2) + "\n");
   for (const font of fonts) writeFileSync(resolve(gen, `font-${font.slot}.bin`), font.bytes);
   const images: string[] = [];
   for (const name of ["logo.png", ...Array.from({ length: 8 }, (_, index) => `spinner-0${index}.svg`)]) {
@@ -83,7 +91,9 @@ async function main() {
   const bakeCommand = ["cargo", "+stable", "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/gba/bake/Cargo.toml"), "--target-dir", resolve(out, "bake-target"), "--", bakeDirectory];
   const baker = Bun.spawn(bakeCommand, { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env, GBA_GENERATED: gen } });
   if (await baker.exited !== 0) throw new Error("GBA native scene bake failed");
-  const assets = packHeroAssets(bakeDirectory, gen);
+  const assets = packLayers(bakeDirectory, gen);
+  for (const layer of assets.layers) console.log(`layer ${layer.name}: ${layer.frames} frames x ${layer.bytesPerFrame} B, crop [${layer.crop.join(", ")}], ${layer.oam} OAM, ${layer.vramBytes} B VRAM`);
+  console.log(`OAM ${assets.oamSlots}/128, OBJ VRAM ${assets.vramBytes}/32768 B, frame ROM ${assets.frameBytes} B`);
   const command = ["cargo", `+${GBA_TOOLCHAIN}`, "build", "--locked", "--release", "--target", "thumbv4t-none-eabi", "-Z", "build-std=core,alloc", "--manifest-path", resolve(root, "hosts/gba/Cargo.toml"), "--target-dir", resolve(out, "target")];
   const rustflags = ["-C", `link-arg=-T${resolve(root, "hosts/gba/gba.ld")}`, "-C", "link-arg=--gc-sections"];
   const child = Bun.spawn(command, { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env, GBA_GENERATED: gen, CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f") } });
@@ -98,7 +108,7 @@ async function main() {
     romBytes: rom.length, romSha256: hash(rom), elfSha256: hash(elf),
     app: "apps/gba-hero", nominalTickHz: 30, vblanksPerPresentation: 2,
     fontSlots: result.program.styles.usedFontSlots,
-    layout: result.layout.regions,
+    layout: result.layout.regions.map(region => ({ ...region, layers: region.layers.map(layer => ({ name: layer.name, kind: layer.recipe.kind, rect: layer.rect })) })),
     renderer: "mode0-bg-obj", assets,
   }, null, 2) + "\n");
   console.log(`GBA Hero: ${rom.length} ROM bytes -> ${resolve(out, "gba-hero.gba")}`);

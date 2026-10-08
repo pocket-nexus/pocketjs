@@ -1,5 +1,5 @@
-/** Build-time palette reduction and native Hero → GBA tile packing. */
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+/** Build-time palette reduction and sprite layer → GBA tile packing. */
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const channels = (color: number) => [color & 31, color >> 5 & 31, color >> 10 & 31];
@@ -70,123 +70,146 @@ export function objectTiles(pixels: Uint8Array, width: number, height: number, o
 }
 
 type Crop = [number, number, number, number];
-interface Frame { file: string; width?: number; color?: number; advance?: number; char?: string }
-interface BakeManifest {
-  width: number; height: number; format: string;
-  background: string; digitsBackground: string; prefixAdvance: number;
-  spinner: Frame[]; underline: Frame[]; button: Frame[]; digits: Frame[]; message: string;
-  crops: Record<"spinner" | "underline" | "button" | "digits" | "message", Crop>;
+interface ManifestFrame { file: string; value?: number; color?: number; char?: string; advance?: number }
+interface ManifestLayer {
+  name: string; kind: "branches" | "opacity" | "size" | "color" | "text"; island: boolean; translate: boolean;
+  node: number[]; crop: Crop; grid: "wide32x16" | "tall16x32"; base: string; frames: ManifestFrame[]; below: number[];
+  signatures: { style: number; src: string | null; text: string | null }[];
+  range?: [number, number]; prop?: "width" | "height"; samples?: number[]; prefix?: string; prefixAdvance?: number; maxLength?: number; glyphs?: { char: string; advance: number }[];
 }
+interface BakeManifest { width: number; height: number; format: string; background: string; layers: ManifestLayer[] }
 
-export function packHeroAssets(directory: string, generated: string) {
+export const OAM_SLOTS = 128;
+export const OBJ_VRAM_BYTES = 0x8000;
+const KIND: Record<ManifestLayer["kind"], number> = { branches: 0, opacity: 1, size: 2, color: 3, text: 4 };
+const SHAPE: Record<ManifestLayer["grid"], { id: number; width: number; height: number }> = { wide32x16: { id: 0, width: 32, height: 16 }, tall16x32: { id: 1, width: 16, height: 32 } };
+
+export interface PackedLayer { name: string; kind: string; frames: number; bytesPerFrame: number; crop: Crop; oam: number; vramBytes: number }
+export interface PackSummary { backgroundTiles: number; backgroundBytes: number; palettes: { background: number; objects: number }; layers: PackedLayer[]; oamSlots: number; vramBytes: number; frameBytes: number }
+
+/**
+ * Pack the baker's manifest into `assets.rs`: palettes, background tiles and
+ * one `Layer` table entry per sprite layer, with OAM slots and OBJ VRAM
+ * allocated in layer order. Hardware limits are build errors here.
+ */
+export function packLayers(directory: string, generated: string): PackSummary {
   const manifest: BakeManifest = JSON.parse(readFileSync(resolve(directory, "manifest.json"), "utf8"));
-  // This is the Hero cartridge's fixed OBJ allocation, shared with scene.rs.
-  // Changing a crop or frame count requires changing that allocation too;
-  // accepting arbitrary dimensions here could overwrite a neighboring layer.
-  if (manifest.width !== 240 || manifest.height !== 160 || manifest.format !== "rgb555le") {
-    throw new Error("Hero assets require 240x160 rgb555le native snapshots");
-  }
-  const crops: BakeManifest["crops"] = {
-    spinner: [200, 56, 32, 48], underline: [0, 80, 160, 16],
-    button: [0, 112, 96, 48], digits: [100, 120, 16, 32], message: [8, 144, 224, 16],
-  };
-  for (const name of Object.keys(crops) as (keyof typeof crops)[]) {
-    const actual = manifest.crops?.[name], expected = crops[name];
-    if (!Array.isArray(actual) || actual.length !== 4 || expected.some((value, index) => actual[index] !== value)) {
-      throw new Error(`Hero OBJ allocation requires ${name} crop [${expected.join(", ")}]`);
-    }
-  }
-  const counts = { spinner: 8, underline: 145, button: 21, digits: 11 } as const;
-  const files = new Set<string>();
-  const requireFile = (file: string) => {
-    if (typeof file !== "string" || !file.length) throw new Error("Hero snapshot file is missing");
-    files.add(file);
-  };
-  requireFile(manifest.background); requireFile(manifest.digitsBackground); requireFile(manifest.message);
-  for (const name of Object.keys(counts) as (keyof typeof counts)[]) {
-    const frames = manifest[name];
-    if (!Array.isArray(frames) || frames.length !== counts[name]) {
-      throw new Error(`Hero OBJ allocation requires ${counts[name]} ${name} frames`);
-    }
-    for (const frame of frames) requireFile(frame?.file);
-  }
-  if (manifest.underline.some((frame, index) => frame.width !== index)) {
-    throw new Error("Hero underline frames must be ordered by width 0 through 144");
-  }
-  if (manifest.button.some(frame => !Number.isInteger(frame.color) || frame.color! < 0 || frame.color! > 0xffffffff)) {
-    throw new Error("Hero button frames require unsigned 32-bit colors");
-  }
-  if (manifest.digits.some((frame, index) => frame.char !== "0123456789-"[index]
-    || !Number.isFinite(frame.advance) || frame.advance! <= 0 || frame.advance! > 16)) {
-    throw new Error("Hero digit frames must be 0 through 9 then minus, with advances in (0, 16]");
-  }
-  if (!Number.isFinite(manifest.prefixAdvance) || manifest.prefixAdvance < 0 || manifest.prefixAdvance > 240) {
-    throw new Error("Hero counter prefix advance must be between 0 and 240 pixels");
-  }
-  for (const file of files) {
-    if (statSync(resolve(directory, file)).size !== 240 * 160 * 2) {
-      throw new Error(`Invalid native snapshot: ${file}; expected 76800 bytes`);
-    }
-  }
-  const read = (file: string) => {
+  const { width, height } = manifest;
+  if (manifest.format !== "rgb555le" || !Number.isInteger(width) || !Number.isInteger(height)) throw new Error("GBA assets require rgb555le native snapshots");
+  const read = (file: string, length: number) => {
     const bytes = readFileSync(resolve(directory, file));
-    if (bytes.length !== 240 * 160 * 2) throw new Error(`Invalid native snapshot: ${file}`);
-    return Uint16Array.from({ length: 240 * 160 }, (_, i) => bytes.readUInt16LE(i * 2));
+    if (bytes.length !== length * 2) throw new Error(`Invalid native snapshot: ${file}; expected ${length * 2} bytes`);
+    return Uint16Array.from({ length }, (_, i) => bytes.readUInt16LE(i * 2));
   };
-  const background = read(manifest.background), digitsBackground = read(manifest.digitsBackground);
+  const background = read(manifest.background, width * height);
   const bgHistogram = new Map<number, number>();
   for (const color of background) bgHistogram.set(color, (bgHistogram.get(color) ?? 0) + 1);
   const bgPalette = paletteFor(bgHistogram), bgIndex = indexer(bgPalette);
   const bgTiles: number[] = [], bgMap = Array(32 * 32).fill(0), dedup = new Map<string, number>();
-  for (let y = 0; y < 20; ++y) for (let x = 0; x < 30; ++x) {
+  for (let y = 0; y < Math.ceil(height / 8); ++y) for (let x = 0; x < Math.ceil(width / 8); ++x) {
     const tile: number[] = [];
-    for (let dy = 0; dy < 8; ++dy) for (let dx = 0; dx < 8; ++dx) tile.push(bgIndex(background[(y * 8 + dy) * 240 + x * 8 + dx]!));
+    for (let dy = 0; dy < 8; ++dy) for (let dx = 0; dx < 8; ++dx) {
+      const px = x * 8 + dx, py = y * 8 + dy;
+      tile.push(px < width && py < height ? bgIndex(background[py * width + px]!) : 0);
+    }
     const key = tile.join(",");
     let id = dedup.get(key);
     if (id === undefined) { id = bgTiles.length / 64; dedup.set(key, id); bgTiles.push(...tile); }
     bgMap[y * 32 + x] = id;
   }
-  if (bgTiles.length > 0xf800) throw new Error("Hero background exceeds GBA character memory");
+  if (bgTiles.length > 0xf800) throw new Error("Background exceeds GBA character memory");
+
+  // Layers: transparent where a frame equals the layer's base capture.
   const histogram = new Map<number, number>();
-  const groups = (["spinner", "underline", "button", "digits", "message"] as const).map(name => {
-    const crop = manifest.crops[name];
-    const [x, y, width, height] = crop;
-    const base = name === "digits" ? digitsBackground : background;
-    const frames = (name === "message" ? [{ file: manifest.message }] : manifest[name]).map(frame => {
-      const native = read(frame.file), pixels = new Int32Array(width * height).fill(-1);
-      for (let py = 0; py < height; ++py) for (let px = 0; px < width; ++px) {
-        if (x + px < 0 || x + px >= 240 || y + py < 0 || y + py >= 160) continue;
-        const offset = (y + py) * 240 + x + px, color = native[offset]!;
-        if (color === base[offset]) continue;
-        pixels[py * width + px] = color;
-        histogram.set(color, (histogram.get(color) ?? 0) + 1);
+  const layers = manifest.layers.map(layer => {
+    const [, , w, h] = layer.crop;
+    const base = read(layer.base, w * h);
+    const frames = layer.frames.map(frame => {
+      const native = read(frame.file, w * h), pixels = new Int32Array(w * h).fill(-1);
+      for (let i = 0; i < w * h; ++i) {
+        if (native[i] === base[i]) continue;
+        pixels[i] = native[i]!;
+        histogram.set(native[i]!, (histogram.get(native[i]!) ?? 0) + 1);
       }
       return { ...frame, pixels };
     });
-    return { name, crop, frames, objectWidth: name === "digits" ? 16 : 32, objectHeight: name === "digits" ? 32 : 16 };
+    const shape = SHAPE[layer.grid];
+    if (w % shape.width || h % shape.height) throw new Error(`${layer.name}: crop ${w}x${h} is not a ${layer.grid} grid`);
+    const columns = w / shape.width, rows = h / shape.height;
+    // Text layers keep every glyph resident and place one object per glyph;
+    // the others hold one frame in VRAM and swap it on change.
+    const objectsPerFrame = columns * rows;
+    const oam = layer.kind === "text" ? (layer.maxLength ?? 0) * objectsPerFrame : objectsPerFrame;
+    const vramBytes = (layer.kind === "text" ? frames.length : 1) * w * h;
+    return { layer, frames, shape, columns, rows, oam, vramBytes };
   });
-  const objPalette = paletteFor(histogram), objIndex = indexer(objPalette);
-  const source: string[] = ["// Generated from the native TSX scene. Do not edit."];
-  const array = (name: string, words: number[]) => source.push(`pub static ${name}: [u16; ${words.length}] = [${words.join(",")}];`);
-  const halfwords = (bytes: ArrayLike<number>) => Array.from({ length: bytes.length / 2 }, (_, i) => bytes[i * 2]! | bytes[i * 2 + 1]! << 8);
-  array("BG_PALETTE", bgPalette); array("BG_TILES", halfwords(bgTiles)); array("BG_MAP", bgMap); array("OBJ_PALETTE", objPalette);
-  const summary: Record<string, unknown> = { backgroundTiles: bgTiles.length / 64, backgroundBytes: bgTiles.length, palettes: { background: new Set(bgPalette).size, objects: new Set(objPalette).size } };
-  for (const group of groups) {
-    const name = group.name.toUpperCase(), frames: string[] = [];
-    for (const [i, frame] of group.frames.entries()) {
-      const pixels = Uint8Array.from(frame.pixels, color => color < 0 ? 0 : objIndex(color));
-      const tiles = objectTiles(pixels, group.crop[2], group.crop[3], group.objectWidth, group.objectHeight);
-      array(`${name}_${i}`, halfwords(tiles)); frames.push(`&${name}_${i}`);
+  // A layer was baked over the lower layers it paints across, so those
+  // pixels of the lower layer must be the same in every one of its states;
+  // otherwise one of them would show a stale blend.
+  const screenIndex = (item: typeof layers[number], i: number) => (item.layer.crop[1] + Math.floor(i / item.layer.crop[2])) * width + item.layer.crop[0] + i % item.layer.crop[2];
+  for (const [index, upper] of layers.entries()) {
+    const paintedAbove = new Set<number>();
+    for (const frame of upper.frames) for (let i = 0; i < frame.pixels.length; ++i) if (frame.pixels[i]! >= 0) paintedAbove.add(screenIndex(upper, i));
+    for (const lowerIndex of upper.layer.below) {
+      const lower = layers[lowerIndex]!;
+      const [, , w, h] = lower.layer.crop;
+      for (let i = 0; i < w * h; ++i) {
+        if (!paintedAbove.has(screenIndex(lower, i))) continue;
+        const values = new Set(lower.frames.map(frame => frame.pixels[i]!));
+        if (values.size > 1) throw new Error(`layer ${upper.layer.name} paints over ${lower.layer.name} at (${lower.layer.crop[0] + i % w}, ${lower.layer.crop[1] + Math.floor(i / w)}) where ${lower.layer.name} differs between its states; move one of them`);
+      }
     }
-    source.push(`pub static ${name}: [&[u16]; ${frames.length}] = [${frames.join(",")}];`);
-    source.push(`pub const ${name}_CROP: [i16; 4] = [${group.crop.join(",")}];`);
-    summary[group.name] = { frames: frames.length, bytesPerFrame: group.crop[2] * group.crop[3], crop: group.crop };
+    void index;
   }
-  source.push(`pub static BUTTON_COLORS: [u32; ${manifest.button.length}] = [${manifest.button.map(frame => frame.color).join(",")}];`);
-  // Quarter-pixel advances preserve the core's variable glyph spacing. OAM positions round at presentation.
-  source.push(`pub static DIGIT_ADVANCES: [i16; ${manifest.digits.length}] = [${manifest.digits.map(frame => Math.round(frame.advance! * 4)).join(",")}];`);
-  source.push(`pub const PREFIX_ADVANCE: i16 = ${Math.round(manifest.prefixAdvance * 4)};`);
+  const oamSlots = layers.reduce((sum, item) => sum + item.oam, 0);
+  const vramBytes = layers.reduce((sum, item) => sum + item.vramBytes, 0);
+  if (oamSlots > OAM_SLOTS) throw new Error(`sprite layers need ${oamSlots} OAM slots; the GBA has ${OAM_SLOTS}`);
+  if (vramBytes > OBJ_VRAM_BYTES) throw new Error(`sprite layers need ${vramBytes} bytes of OBJ VRAM; the GBA has ${OBJ_VRAM_BYTES}`);
+  const objPalette = paletteFor(histogram), objIndex = indexer(objPalette);
+
+  const source: string[] = ["// Generated from the compiler's sprite layer plan and the native bake. Do not edit."];
+  const array = (name: string, words: number[], type = "u16") => source.push(`pub static ${name}: [${type}; ${words.length}] = [${words.join(",")}];`);
+  const halfwords = (bytes: ArrayLike<number>) => Array.from({ length: bytes.length / 2 }, (_, i) => bytes[i * 2]! | bytes[i * 2 + 1]! << 8);
+  const str = (value: string | null | undefined) => JSON.stringify(value ?? "");
+  array("BG_PALETTE", bgPalette); array("BG_TILES", halfwords(bgTiles)); array("BG_MAP", bgMap); array("OBJ_PALETTE", objPalette);
+  const entries: string[] = [];
+  const packed: PackedLayer[] = [];
+  // Lower OAM indices draw on top: later layers (painted above) take the
+  // first slots.
+  const oamStart: number[] = [];
+  let slot = 0;
+  for (let i = layers.length - 1; i >= 0; --i) { oamStart[i] = slot; slot += layers[i]!.oam; }
+  let vramWords = 0, frameBytes = 0;
+  for (const [index, item] of layers.entries()) {
+    const { layer, frames, shape, columns, rows } = item;
+    const oamFirst = oamStart[index]!;
+    const [x, y, w, h] = layer.crop;
+    const names: string[] = [];
+    for (const [i, frame] of frames.entries()) {
+      const pixels = Uint8Array.from(frame.pixels, color => color < 0 ? 0 : objIndex(color));
+      const tiles = objectTiles(pixels, w, h, shape.width, shape.height);
+      array(`LAYER${index}_FRAME${i}`, halfwords(tiles)); names.push(`&LAYER${index}_FRAME${i}`);
+      frameBytes += tiles.length;
+    }
+    source.push(`static LAYER${index}_FRAMES: [&[u16]; ${names.length}] = [${names.join(",")}];`);
+    const keys = layer.kind === "size" ? frames.map(frame => frame.value!) : layer.kind === "color" ? frames.map(frame => frame.color! >>> 0)
+      : layer.kind === "text" ? frames.map(frame => frame.char!.codePointAt(0)!) : [];
+    array(`LAYER${index}_KEYS`, keys, "u32");
+    array(`LAYER${index}_STYLES`, layer.signatures.map(signature => signature.style), "i32");
+    source.push(`static LAYER${index}_ASSETS: [&str; ${layer.signatures.length}] = [${layer.signatures.map(signature => str(signature.src)).join(",")}];`);
+    source.push(`static LAYER${index}_TEXTS: [&str; ${layer.signatures.length}] = [${layer.signatures.map(signature => str(signature.text)).join(",")}];`);
+    // Quarter-pixel advances preserve the core's glyph spacing; OAM positions round at presentation.
+    array(`LAYER${index}_ADVANCES`, (layer.glyphs ?? []).map(glyph => Math.round(glyph.advance * 4)), "i16");
+    array(`LAYER${index}_NODE`, layer.node, "u8");
+    entries.push(`Layer { name: ${str(layer.name)}, kind: ${KIND[layer.kind]}, crop: [${[x, y, w, h].join(",")}], shape: ${shape.id}, columns: ${columns}, rows: ${rows}, oam_first: ${oamFirst}, vram_words: ${vramWords}, translate: ${layer.translate}, node: &LAYER${index}_NODE, frames: &LAYER${index}_FRAMES, keys: &LAYER${index}_KEYS, styles: &LAYER${index}_STYLES, assets: &LAYER${index}_ASSETS, texts: &LAYER${index}_TEXTS, advances: &LAYER${index}_ADVANCES, prefix: ${str(layer.prefix)}, prefix_advance: ${Math.round((layer.prefixAdvance ?? 0) * 4)}, max_glyphs: ${layer.maxLength ?? 0}, axis: ${layer.prop === "height" ? 1 : 0}, range_low: ${layer.range?.[0] ?? 0} }`);
+    packed.push({ name: layer.name, kind: layer.kind, frames: frames.length, bytesPerFrame: w * h, crop: layer.crop, oam: item.oam, vramBytes: item.vramBytes });
+    vramWords += item.vramBytes / 2;
+  }
+  source.push(`pub static LAYERS: [Layer; ${entries.length}] = [${entries.join(",\n")}];`);
+  source.push(`pub const OAM_SLOTS_USED: usize = ${oamSlots};`);
+  source.push(`pub const OBJ_VRAM_WORDS: usize = ${vramWords};`);
   writeFileSync(resolve(generated, "assets.rs"), source.join("\n") + "\n");
+  const summary: PackSummary = { backgroundTiles: bgTiles.length / 64, backgroundBytes: bgTiles.length, palettes: { background: new Set(bgPalette).size, objects: new Set(objPalette).size }, layers: packed, oamSlots, vramBytes, frameBytes };
   writeFileSync(resolve(generated, "assets.json"), JSON.stringify(summary, null, 2) + "\n");
   return summary;
 }
