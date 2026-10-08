@@ -283,6 +283,7 @@ name = "pocketjs-linux-fbdev"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cc",
  "env_logger",
  "libc",
  "log",

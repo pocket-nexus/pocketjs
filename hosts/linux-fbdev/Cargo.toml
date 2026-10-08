@@ -16,6 +16,13 @@ log = "0.4"
 libc = "0.2"
 rquickjs = "0.12"
 
+[build-dependencies]
+cc = "1"
+
+[features]
+default = []
+rkrga = []
+
 [profile.release]
 opt-level = "s"
 lto = true

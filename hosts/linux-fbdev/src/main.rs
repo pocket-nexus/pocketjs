@@ -1,21 +1,26 @@
 mod input;
+#[cfg(feature = "rkrga")]
+mod rkrga;
 
+#[cfg(not(feature = "rkrga"))]
+use std::slice;
 use std::{
     fs,
     os::fd::AsRawFd,
-    ptr, slice,
+    ptr,
     time::{Duration, Instant},
 };
 
 use anyhow::{bail, Context, Result};
 use pocket_mod::Guest;
 use pocket_ui_surface::UiSurface;
+#[cfg(feature = "rkrga")]
+use pocketjs_core::damage::{DamagePlan, DamagePolicy, DamageRect, DamageTracker};
 
-const WIDTH: usize = 720;
-const HEIGHT: usize = 1280;
 const LOGICAL_W: f32 = 360.0;
 const LOGICAL_H: f32 = 640.0;
 const DENSITY: u32 = 2;
+const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
 const HOST_ID: &str = "linux-fbdev";
 const HOST_ABI: u32 = 1;
 const FBIOGET_VSCREENINFO: libc::c_ulong = 0x4600;
@@ -159,7 +164,15 @@ impl Framebuffer {
         })
     }
 
-    fn present(&mut self, rgba: &[u8]) -> Result<()> {
+    #[cfg(not(feature = "rkrga"))]
+    fn present(&mut self, pixels: &[u8], source_width: usize, source_height: usize) -> Result<()> {
+        let source_size = source_width
+            .checked_mul(source_height)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .context("software framebuffer dimensions overflow")?;
+        if pixels.len() != source_size {
+            bail!("software framebuffer has the wrong size");
+        }
         let bpp = (self.info.bits_per_pixel / 8) as usize;
         let width = self.info.xres as usize;
         let height = self.info.yres as usize;
@@ -171,18 +184,19 @@ impl Framebuffer {
         }
         let dst = unsafe { slice::from_raw_parts_mut(self.map, self.map_len) };
         if self.direct_bgrx {
-            let row_bytes = width.min(WIDTH) * 4;
-            for y in 0..height.min(HEIGHT) {
-                let src_at = y * WIDTH * 4;
+            let row_bytes = width.min(source_width) * 4;
+            for y in 0..height.min(source_height) {
+                let src_at = y * source_width * 4;
                 let dst_at = (y + yoff) * self.stride + xoff * 4;
-                dst[dst_at..dst_at + row_bytes].copy_from_slice(&rgba[src_at..src_at + row_bytes]);
+                dst[dst_at..dst_at + row_bytes]
+                    .copy_from_slice(&pixels[src_at..src_at + row_bytes]);
             }
             return Ok(());
         }
-        for y in 0..height.min(HEIGHT) {
-            for x in 0..width.min(WIDTH) {
-                let i = (y * WIDTH + x) * 4;
-                let rgb = [rgba[i], rgba[i + 1], rgba[i + 2]];
+        for y in 0..height.min(source_height) {
+            for x in 0..width.min(source_width) {
+                let i = (y * source_width + x) * 4;
+                let rgb = [pixels[i], pixels[i + 1], pixels[i + 2]];
                 let pixel = pack(
                     rgb,
                     self.info.red,
@@ -198,6 +212,24 @@ impl Framebuffer {
         }
         Ok(())
     }
+
+    #[cfg(feature = "rkrga")]
+    fn present_rkrga(&mut self, rkrga: &mut rkrga::RkrgaPresenter) -> Result<()> {
+        if !self.direct_bgrx {
+            bail!("RK RGA presenter requires a BGRX8888 framebuffer");
+        }
+        let width = self.info.xres as usize;
+        let height = self.info.yres as usize;
+        let xoff = self.info.xoffset as usize;
+        let yoff = self.info.yoffset as usize;
+        let destination_offset = yoff * self.stride + xoff * 4;
+        let needed = destination_offset + height.saturating_sub(1) * self.stride + width * 4;
+        if needed > self.map_len {
+            bail!("fbdev visible area exceeds mapped memory");
+        }
+        let destination = unsafe { self.map.add(destination_offset) };
+        rkrga.present(destination)
+    }
 }
 
 impl Drop for Framebuffer {
@@ -208,6 +240,7 @@ impl Drop for Framebuffer {
     }
 }
 
+#[cfg(not(feature = "rkrga"))]
 fn pack(rgb: [u8; 3], r: Bitfield, g: Bitfield, b: Bitfield, a: Bitfield) -> u32 {
     fn channel(value: u8, f: Bitfield) -> u32 {
         if f.length == 0 {
@@ -240,7 +273,39 @@ fn main() -> Result<()> {
     surface.mount(&guest)?;
     guest.eval("app", &bundle)?;
     anyhow::ensure!(guest.has_frame(), "bundle installed no frame()");
-    let mut rgba = vec![0u8; WIDTH * HEIGHT * 4];
+    #[cfg(feature = "rkrga")]
+    let raster_scale = 1u32;
+    #[cfg(not(feature = "rkrga"))]
+    let raster_scale = DENSITY;
+    let raster_width = LOGICAL_W as usize * raster_scale as usize;
+    let raster_height = LOGICAL_H as usize * raster_scale as usize;
+    #[cfg(feature = "rkrga")]
+    let mut rkrga = {
+        if !fb.direct_bgrx || fb.stride % 4 != 0 {
+            bail!("RK RGA requires a BGRX8888 framebuffer with a pixel-aligned stride");
+        }
+        let path = std::env::var("POCKET_RKRGA_LIB").unwrap_or_else(|_| "librga.so".into());
+        log::info!(
+            "RK RGA present: CPU {}x{} incremental raster -> {}x{} resize via {path}",
+            raster_width,
+            raster_height,
+            fb.info.xres,
+            fb.info.yres
+        );
+        rkrga::RkrgaPresenter::open(
+            &path,
+            raster_width,
+            raster_height,
+            fb.info.xres as usize,
+            fb.info.yres as usize,
+            fb.stride / 4,
+            fb.info.yres as usize,
+        )?
+    };
+    #[cfg(feature = "rkrga")]
+    let mut damage_tracker: DamageTracker = DamageTracker::new();
+    #[cfg(not(feature = "rkrga"))]
+    let mut rgba = vec![0u8; raster_width * raster_height * 4];
     let input_path = std::env::var("POCKET_INPUT").unwrap_or_else(|_| "/dev/input/event0".into());
     let mut input = input::TouchInput::open(&input_path)
         .with_context(|| format!("opening touch input {input_path}"))?;
@@ -252,11 +317,16 @@ fn main() -> Result<()> {
     let mut guest_tick_time = Duration::ZERO;
     let mut raster_time = Duration::ZERO;
     let mut present_time = Duration::ZERO;
+    let mut presented_frames = 0u64;
+    #[cfg(feature = "rkrga")]
+    let mut damage_pixels = 0u64;
+    #[cfg(feature = "rkrga")]
+    let mut full_redraws = 0u64;
     let mut last = Instant::now();
     loop {
         let elapsed = last.elapsed();
-        if bench_frames.is_none() && elapsed < Duration::from_millis(33) {
-            std::thread::sleep(Duration::from_millis(33) - elapsed);
+        if bench_frames.is_none() && elapsed < FRAME_INTERVAL {
+            std::thread::sleep(FRAME_INTERVAL - elapsed);
         }
         last = Instant::now();
         let guest_tick_start = Instant::now();
@@ -265,13 +335,56 @@ fn main() -> Result<()> {
         surface.tick();
         guest_tick_time += guest_tick_start.elapsed();
         let raster_start = Instant::now();
+        #[cfg(feature = "rkrga")]
+        let damage = {
+            let rgba = rkrga.source_buffer();
+            surface.with_ui(|ui| {
+                let words = ui.draw().words.clone();
+                match pocketjs_core::raster::render_scaled_argb_incremental(
+                    ui,
+                    &words,
+                    rgba,
+                    raster_scale,
+                    &mut damage_tracker,
+                    DamagePolicy::default(),
+                ) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        log::warn!(
+                            "DrawList damage planning failed ({error:?}); rendering a full frame"
+                        );
+                        pocketjs_core::raster::render_scaled_argb(ui, &words, rgba, raster_scale);
+                        damage_tracker.invalidate();
+                        DamagePlan::full(DamageRect::new(0, 0, LOGICAL_W as i32, LOGICAL_H as i32))
+                    }
+                }
+            })
+        };
+        #[cfg(not(feature = "rkrga"))]
         surface.with_ui(|ui| {
             let words = ui.draw().words.clone();
-            pocketjs_core::raster::render_scaled_argb(ui, &words, &mut rgba, DENSITY);
+            if fb.direct_bgrx {
+                pocketjs_core::raster::render_scaled_argb(ui, &words, &mut rgba, raster_scale);
+            } else {
+                pocketjs_core::raster::render_scaled(ui, &words, &mut rgba, raster_scale);
+            }
         });
         raster_time += raster_start.elapsed();
         let present_start = Instant::now();
-        fb.present(&rgba)?;
+        #[cfg(feature = "rkrga")]
+        if !damage.is_empty() {
+            fb.present_rkrga(&mut rkrga)?;
+            presented_frames += 1;
+            damage_pixels += damage.area();
+            if damage.is_full_redraw() {
+                full_redraws += 1;
+            }
+        }
+        #[cfg(not(feature = "rkrga"))]
+        {
+            fb.present(&rgba, raster_width, raster_height)?;
+            presented_frames += 1;
+        }
         present_time += present_start.elapsed();
         frame_count += 1;
         if bench_frames.is_some_and(|limit| frame_count >= limit) {
@@ -280,8 +393,9 @@ fn main() -> Result<()> {
             let raster_seconds = raster_time.as_secs_f64();
             let present_seconds = present_time.as_secs_f64();
             log::info!(
-                "benchmark: {} frames; total {:.3}s = {:.2} fps; guest+tick {:.3}s ({:.2} ms/frame); raster {:.3}s = {:.2} fps ({:.2} ms/frame); fbdev-present {:.3}s ({:.2} ms/frame)",
+                "benchmark: {} frames ({} presented); total {:.3}s = {:.2} fps; guest+tick {:.3}s ({:.2} ms/frame); raster {:.3}s = {:.2} fps ({:.2} ms/frame); fbdev-present {:.3}s ({:.2} ms/frame)",
                 frame_count,
+                presented_frames,
                 seconds,
                 frame_count as f64 / seconds,
                 guest_tick_seconds,
@@ -291,6 +405,14 @@ fn main() -> Result<()> {
                 raster_seconds * 1000.0 / frame_count as f64,
                 present_seconds,
                 present_seconds * 1000.0 / frame_count as f64
+            );
+            #[cfg(feature = "rkrga")]
+            log::info!(
+                "RK RGA damage: {} presented / {} ticks; {} full redraws; {:.1} logical pixels/tick average",
+                presented_frames,
+                frame_count,
+                full_redraws,
+                damage_pixels as f64 / frame_count as f64,
             );
             break Ok(());
         }

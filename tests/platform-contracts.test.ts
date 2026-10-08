@@ -210,6 +210,7 @@ describe("platform registry", () => {
       "psp",
       "vita",
       "pocketbook",
+      "linux-fbdev",
       "macos-widget",
       "macos-app",
       "linux-app",
@@ -251,6 +252,17 @@ describe("platform registry", () => {
       physicalViewport: [960, 544],
       logicalViewports: [[480, 272]],
       presentations: ["integer-fit"],
+      rasterDensity: 2,
+    });
+    expect(POCKET_TARGETS["linux-fbdev"].capabilities).toEqual([
+      "input.buttons",
+      "input.touch",
+      "text.glyphs.baked",
+    ]);
+    expect(POCKET_TARGETS["linux-fbdev"].display).toEqual({
+      physicalViewport: [720, 1280],
+      logicalViewports: [[360, 640]],
+      presentations: ["native", "integer-fit"],
       rasterDensity: 2,
     });
     // The desktop widget target: dynamic viewport, real pointer/text/IME,
