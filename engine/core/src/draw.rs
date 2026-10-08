@@ -1115,7 +1115,15 @@ pub fn build_root(
     let Some(root_slot) = tree.resolve(root_id) else {
         return (None, None, false);
     };
-    w.paint(root_slot, Affine::IDENTITY, 1.0, Clip::viewport(screen), false, dl);
+    w.paint(
+        root_slot,
+        Affine::IDENTITY,
+        1.0,
+        Clip::viewport(screen),
+        false,
+        None,
+        dl,
+    );
     let provider_stale = w.provider_stale;
     let target = w.inspect_hit.map(|c| (c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0));
     // Highlight glide: the drawn box exponentially approaches the target
@@ -1172,6 +1180,7 @@ impl<'a> Walker<'a> {
         opacity: f32,
         clip: Clip,
         in_transform: bool,
+        sprite_clock: Option<u32>,
         dl: &mut DrawList,
     ) {
         let node = &self.tree.slots[slot as usize];
@@ -1183,6 +1192,11 @@ impl<'a> Walker<'a> {
         }
         let r = style::resolve(node, self.styles, true);
         debug_assert_eq!(style::resolve_opacity(node, self.styles).to_bits(), r.opacity.to_bits());
+        let sprite_clock = if r.sprite_clock == u32::MAX {
+            sprite_clock
+        } else {
+            Some(r.sprite_clock)
+        };
         // The provider gate accumulates EXACTLY like layout.rs build() —
         // one shared predicate (Resolved::declares_transform), so the draw
         // walk and the layout record can only diverge when a transform
@@ -1330,7 +1344,9 @@ impl<'a> Walker<'a> {
                 let cols = node.sprite_cols.max(1) as u32;
                 let rows = (node.sprite_frames as u32).div_ceil(cols);
                 let step = node.sprite_step.max(1) as u64;
-                let elapsed = self.frame.wrapping_sub(node.sprite_start);
+                let elapsed = sprite_clock
+                    .map(u64::from)
+                    .unwrap_or_else(|| self.frame.wrapping_sub(node.sprite_start));
                 let idx = ((elapsed / step) % node.sprite_frames as u64) as u32;
                 let (cx, cy) = (idx % cols, idx / cols);
                 (
@@ -1379,7 +1395,17 @@ impl<'a> Walker<'a> {
         if r.perspective > 0.0 {
             // 3D context root: the subtree composes 3x4 matrices, projects
             // through r.perspective about this node's center and painter-sorts.
-            self.paint_3d(slot, &world, op, &child_clip, dl, r.perspective, l.w, l.h);
+            self.paint_3d(
+                slot,
+                &world,
+                op,
+                &child_clip,
+                dl,
+                r.perspective,
+                l.w,
+                l.h,
+                sprite_clock,
+            );
             if scissored {
                 dl.words.push(spec::draw_op::SCISSOR_POP);
             }
@@ -1390,7 +1416,7 @@ impl<'a> Walker<'a> {
         // never disagree with painted stacking.
         let (tree, styles) = (self.tree, self.styles);
         for_children_in_paint_order(tree, styles, slot, |cs| {
-            self.paint(cs, world, op, child_clip, in_transform, dl);
+            self.paint(cs, world, op, child_clip, in_transform, sprite_clock, dl);
         });
 
         if scissored {
@@ -1415,6 +1441,7 @@ impl<'a> Walker<'a> {
         distance: f32,
         w: f32,
         h: f32,
+        sprite_clock: Option<u32>,
     ) {
         // Text under a perspective root always uses the baked pair; the
         // provider-divergence check is suspended for the subtree.
@@ -1429,7 +1456,7 @@ impl<'a> Walker<'a> {
             if let Some(cs) = self.tree.resolve(cid) {
                 self.collect_3d(
                     cs, &Mat34::IDENTITY, opacity, root_world, distance, cx, cy,
-                    &mut items, &mut tex_cells,
+                    sprite_clock, &mut items, &mut tex_cells,
                 );
             }
         }
@@ -1478,11 +1505,17 @@ impl<'a> Walker<'a> {
         distance: f32,
         cx: f32,
         cy: f32,
+        sprite_clock: Option<u32>,
         items: &mut Vec<(f32, Item3)>,
         tex_cells: &mut Vec<TexCell>,
     ) {
         let node = &self.tree.slots[slot as usize];
         let r = style::resolve(node, self.styles, true);
+        let sprite_clock = if r.sprite_clock == u32::MAX {
+            sprite_clock
+        } else {
+            Some(r.sprite_clock)
+        };
         if r.display == spec::Display::None as u8 {
             return;
         }
@@ -1552,7 +1585,9 @@ impl<'a> Walker<'a> {
                 let cols = node.sprite_cols.max(1) as u32;
                 let rows = (node.sprite_frames as u32).div_ceil(cols);
                 let step = node.sprite_step.max(1) as u64;
-                let elapsed = self.frame.wrapping_sub(node.sprite_start);
+                let elapsed = sprite_clock
+                    .map(u64::from)
+                    .unwrap_or_else(|| self.frame.wrapping_sub(node.sprite_start));
                 let idx = ((elapsed / step) % node.sprite_frames as u64) as u32;
                 let (cx2, cy2) = (idx % cols, idx / cols);
                 (
@@ -1656,7 +1691,9 @@ impl<'a> Walker<'a> {
         }
         for &cid in &node.children {
             if let Some(cs) = self.tree.resolve(cid) {
-                self.collect_3d(cs, &m2, op, root_world, distance, cx, cy, items, tex_cells);
+                self.collect_3d(
+                    cs, &m2, op, root_world, distance, cx, cy, sprite_clock, items, tex_cells,
+                );
             }
         }
     }

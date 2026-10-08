@@ -1643,6 +1643,93 @@ fn image_tex_quad_clips_with_uv_reinterpolation() {
 }
 
 #[test]
+fn explicit_sprite_clock_is_inherited_and_freezes_2d_and_3d_atlas_frames() {
+    let mut ui = Ui::new();
+    let pixels = alloc::vec![0xffu8; 8 * 2 * 4];
+    let atlas = ui.upload_texture(&pixels, 8, 2, spec::psm::PSM_8888);
+
+    let world = ui.create_node(0);
+    ui.set_prop(world, spec::prop::WIDTH, 16.0);
+    ui.set_prop(world, spec::prop::HEIGHT, 16.0);
+    ui.set_prop(world, spec::prop::SPRITE_CLOCK, 5.0);
+    ui.insert_before(spec::ROOT_ID, world, 0);
+    let image = ui.create_node(spec::NodeType::Image as u8);
+    ui.set_prop(image, spec::prop::WIDTH, 8.0);
+    ui.set_prop(image, spec::prop::HEIGHT, 2.0);
+    ui.set_sprite(image, atlas, 4, 4, 2);
+    ui.insert_before(world, image, 0);
+    ui.tick();
+
+    let sprite_u = |words: &[u32]| {
+        let i = words.iter().position(|&word| word == spec::draw_op::TEX_QUAD).unwrap();
+        f32::from_bits(words[i + 4])
+    };
+    assert_eq!(sprite_u(&ui.draw().words), 0.5, "clock 5 selects frame 2 at step 2");
+    for _ in 0..20 {
+        ui.tick();
+    }
+    assert_eq!(sprite_u(&ui.draw().words), 0.5, "host vblanks cannot advance an explicit clock");
+
+    // A perspective root uses the separate TEX_TRI collection path. Leave the
+    // image undeclared so this also proves that the root clock crosses into it.
+    ui.set_prop(world, spec::prop::SPRITE_CLOCK, 4.0);
+    ui.set_prop(world, spec::prop::PERSPECTIVE, 300.0);
+    let words = ui.draw().words.clone();
+    validate_drawlist(&words);
+    let mut us = Vec::new();
+    let mut i = 0usize;
+    while i < words.len() {
+        if words[i] == spec::draw_op::TEX_TRI {
+            us.extend([3usize, 6, 9].map(|offset| f32::from_bits(words[i + offset])));
+            i += 12;
+        } else {
+            i += match words[i] {
+                x if x == spec::draw_op::RECT => 4,
+                x if x == spec::draw_op::GRAD_RECT => 6,
+                x if x == spec::draw_op::GLYPH_RUN => 3 + 2 * ((words[i + 1] >> 16) as usize),
+                x if x == spec::draw_op::TEX_QUAD => 9,
+                x if x == spec::draw_op::SURFACE_QUAD => 9,
+                x if x == spec::draw_op::SCISSOR => 3,
+                x if x == spec::draw_op::SCISSOR_POP => 1,
+                x if x == spec::draw_op::TRI => 7,
+                x if x == spec::draw_op::TEXT_RUN => 8 + (words[i + 7] as usize).div_ceil(4),
+                other => panic!("unknown draw op {other} at word {i}"),
+            };
+        }
+    }
+    assert!(!us.is_empty());
+    assert_eq!(us.iter().copied().reduce(f32::min), Some(0.5));
+    assert_eq!(us.iter().copied().reduce(f32::max), Some(0.75));
+
+    ui.set_prop(world, spec::prop::PERSPECTIVE, 0.0);
+    ui.set_prop(image, spec::prop::SPRITE_CLOCK, 7.0);
+    assert_eq!(sprite_u(&ui.draw().words), 0.75, "nearest clock declaration wins");
+    ui.set_prop(image, spec::prop::SPRITE_CLOCK, -1.0);
+    assert_eq!(sprite_u(&ui.draw().words), 0.5, "-1 restores the inherited clock");
+}
+
+#[test]
+fn sprites_without_an_explicit_clock_keep_the_host_vblank_behavior() {
+    let mut ui = Ui::new();
+    let pixels = alloc::vec![0xffu8; 8 * 2 * 4];
+    let atlas = ui.upload_texture(&pixels, 8, 2, spec::psm::PSM_8888);
+    let image = ui.create_node(spec::NodeType::Image as u8);
+    ui.set_prop(image, spec::prop::WIDTH, 8.0);
+    ui.set_prop(image, spec::prop::HEIGHT, 2.0);
+    ui.set_sprite(image, atlas, 4, 4, 2);
+    ui.insert_before(spec::ROOT_ID, image, 0);
+    ui.tick();
+    let frame_u = |ui: &mut Ui| {
+        let words = &ui.draw().words;
+        let i = words.iter().position(|&word| word == spec::draw_op::TEX_QUAD).unwrap();
+        f32::from_bits(words[i + 4])
+    };
+    assert_eq!(frame_u(&mut ui), 0.0);
+    ui.tick();
+    assert_eq!(frame_u(&mut ui), 0.25);
+}
+
+#[test]
 fn root_is_a_full_screen_flex_column() {
     let mut ui = Ui::new();
     ui.tick();
