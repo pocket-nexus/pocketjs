@@ -328,6 +328,7 @@
     "microts:build": "bun site/microts/build.ts",
     "microts:dev": "bun site/microts/serve.ts",
     "microts:preview": "bun site/microts/serve.ts --dist",
+    "microts:icons": "bun tools/icons.ts microts",
     "microts:typecheck": "bun site/microts/build.ts --prepare && vue-tsc --noEmit -p site/microts/tsconfig.json",
     "site:verify-playground": "bun run site:build && bun site/verify-playground.ts",
     "site:verify-doc-demos": "bun run site:build && bun site/verify-doc-demos.ts",

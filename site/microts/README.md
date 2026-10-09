@@ -58,6 +58,7 @@ and the router renders the 404 page.
 | `pocket/` | the UI preview kit (`lib/kit.ts`): `kit/` compiler worker and preview iframe, the framework subpaths, Vue Vapor and Solid runtimes, `hosts/web/pocketjs.wasm`, Inter |
 | `retro/<id>/` | baked assets and a poster frame per game (`lib/retro.ts`) |
 | `fonts/`, `pocket3d-mark.svg` | copied from `site/assets/fonts/` and `site/pocket3d/mark.svg` |
+| `favicon.svg`, `favicon.ico`, `*.png`, `site.webmanifest` | copied from `public/`; `bun run microts:icons` writes the icons there from `mark.svg` |
 
 The app imports build-time data through virtual modules (`src/env.d.ts` has
 their types): `microts:docs`, `microts:files/<kind>/<name>`,
@@ -83,6 +84,8 @@ build.ts, serve.ts     build and dev server
 lib/                   Bun plugins, Markdown rendering, preview kit and Pocket Retro builders
 kit/                   browser compiler and preview runtime, bundled into /pocket/
 content/home/          code snippets shown on the home page
+mark.svg               the MicroTS mark; every icon of the site is generated from it
+public/                favicon, icon family and manifest, copied to the site root
 src/docs/              which docs pages render (catalog.ts) and the sidebar (nav.ts)
 src/pages/             Home, Docs, Playground start page, Playground, 404
 src/playground/        presets, templates, project storage, editor, device frames, retro host, UI preview

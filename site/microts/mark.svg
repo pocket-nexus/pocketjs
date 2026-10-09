@@ -1,3 +1,10 @@
+<!-- The MicroTS mark: a plum tile in a yellow frame, a cyan italic μ, and a
+     pink and a lilac bar on each side of it. This file is the drawing; every
+     other copy is generated from it or inlines its shapes. The two stems are
+     round-capped strokes and the bowl is a fill, so the bowl thins where it
+     meets the right stem and leaves a notch above the foot.
+     `bun tools/icons.ts microts` writes site/microts/public/favicon.svg and
+     rasterizes the icon family from it. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <rect x="4.5" y="4.5" width="91" height="91" rx="22" fill="#171226" stroke="#ffd23f" stroke-width="9"/>
   <path d="M17.5 40h7.5M75 40h7.5" stroke="#ff5f9e" stroke-width="8" stroke-linecap="round"/>
