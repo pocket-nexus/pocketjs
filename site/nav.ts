@@ -69,6 +69,14 @@ export interface BlogPost {
 
 export const BLOG_POSTS: BlogPost[] = [
   {
+    slug: "introducing-pocket3d",
+    title: "Introducing Pocket3D",
+    date: "2026-10-07",
+    description:
+      "A hardware-native 3D stack for portable interactive software. How a city becomes different programs for the PSP, Nintendo 3DS and PS Vita, why each experience owns its compiler and renderer, and how Pocket Studio brings the games to the people who play and create them.",
+    author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
+  },
+  {
     slug: "blackberry-classic",
     title:
       "A Square Screen and a Dead Signing Server: PocketJS on the BlackBerry Classic",
