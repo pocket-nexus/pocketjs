@@ -350,6 +350,8 @@
     "contract": "bun tests/contract.ts",
     "gen": "bun contracts/spec/gen-rust.ts && bun tools/gen-exports.ts",
     "esp-idf:native": "bun tools/esp-idf-native.ts",
+    "rt-thread-edgitalk:native": "bun tools/rt-thread-edgitalk-native.ts",
+    "rt-thread-edgitalk:contracts": "bun tools/rt-thread-edgitalk-contracts.ts",
     "esp-idf:release": "bun tools/esp-idf-release.ts",
     "android": "bun tools/android.ts",
     "moto-g-play": "bun tools/moto-g-play.ts",

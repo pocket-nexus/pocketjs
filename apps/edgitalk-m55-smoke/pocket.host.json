@@ -1,0 +1,15 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-idf-host-1.json",
+  "version": 1,
+  "id": "edgitalk-m55",
+  "platform": "esp-idf",
+  "form": "takeover",
+  "tickHz": 30,
+  "display": {
+    "physicalViewport": [800, 480],
+    "logicalViewports": [[400, 240]],
+    "presentations": ["native"],
+    "rasterDensity": 2
+  },
+  "capabilities": ["input.touch", "text.glyphs.baked"]
+}

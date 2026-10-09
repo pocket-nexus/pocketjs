@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "component": "pocketjs_ui_core",
+  "crate": "ui-core",
+  "target": "edgitalk-m55",
+  "rustTarget": "thumbv8m.main-none-eabihf",
+  "archive": "libpocketjs_idf_ui_core.a",
+  "archivePath": "hosts/esp-idf/native/ui-core/target/thumbv8m.main-none-eabihf/release/libpocketjs_idf_ui_core.a",
+  "compiler": "<rustc -Vv stdout; recorded at build time>",
+  "archiver": null,
+  "sourceSha256": "<sha256 over native sources + build script; recorded at build time>",
+  "archiveSha256": "<sha256 of the .a; recorded at build time>",
+  "archiveBytes": 0,
+  "policy": {
+    "profile": "release",
+    "defaultFeatures": false,
+    "locked": true,
+    "codegenUnits": 16,
+    "lto": false,
+    "optLevel": 3,
+    "panic": "abort"
+  },
+  "officialRegistry": false,
+  "notes": "Example only — replace by running bun tools/rt-thread-edgitalk-native.ts"
+}

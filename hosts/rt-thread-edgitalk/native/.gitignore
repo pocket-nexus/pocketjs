@@ -1,0 +1,7 @@
+# Cargo build trees (archives stay under crate target/ for SConscript LIBPATH)
+**/target/
+**/target-*/
+# Real receipts with digests (example schema is committed)
+receipts/*.json
+!receipts/example-build-receipt.json
+!receipts/README.md

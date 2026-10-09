@@ -1,0 +1,22 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.srakoul.edgitalk-smoke",
+  "name": "edgitalk-m55-smoke",
+  "title": "Beat Dash",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.touch", "text.glyphs.baked"]
+    }
+  },
+  "app": {
+    "entry": "main.tsx",
+    "output": "edgitalk-m55-smoke",
+    "framework": "solid",
+    "viewport": {
+      "logical": [400, 240],
+      "presentation": "native"
+    }
+  }
+}
