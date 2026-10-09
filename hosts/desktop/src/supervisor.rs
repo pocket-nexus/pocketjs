@@ -132,7 +132,9 @@ impl AppSupervisor {
         surface.set_identity(&plan.target.id, plan.target.host_abi);
         surface.set_tick_rate(TICK_HZ as u32);
         surface.feed_pak(&pak);
-        let guest = Guest::new()?;
+        // Child realms use the same between-tick collection as the top-level
+        // guest; the supervisor tick calls `idle_gc` after each child turn.
+        let guest = Guest::new_with_idle_gc(IdleGcConfig::default())?;
         surface.mount(&guest)?;
         let offload = text_worker(pak);
         offload.mount(&guest)?;
@@ -140,6 +142,9 @@ impl AppSupervisor {
         if !guest.has_frame() {
             return Err(anyhow!("{output} evaluated but installed no frame()"));
         }
+        // Arm the hard cap on the booted heap before the child's first
+        // product frame (the supervisor tick below).
+        guest.arm_idle_gc();
 
         self.next_generation += 1;
         self.instances.push(AppInstance {
@@ -301,6 +306,9 @@ impl AppSupervisor {
                 failures.push((instance.package.package.clone(), error.to_string()));
                 continue;
             }
+            // Frame boundary: collect cycles between turns. Child realms
+            // have no per-app deadline, so a pending collection runs.
+            instance.guest.idle_gc(None);
             instance.surface.tick();
         }
         failures
