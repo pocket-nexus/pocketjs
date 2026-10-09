@@ -44,6 +44,12 @@ declare module "microts:retro-sources" {
   export default sources;
 }
 
+declare module "microts:retro-code" {
+  /** The home page code panel for one game: game.ts, then the tabs of content/home/retro.md. */
+  const code: Record<string, () => Promise<{ default: { title: string; html: string }[] }>>;
+  export default code;
+}
+
 declare module "microts:build" {
   /** The pocketjs commit the site, docs and playground kit are built from. */
   export const COMMIT: string;
