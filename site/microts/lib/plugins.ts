@@ -11,6 +11,7 @@
 //   microts:retro-code            { id: () => import(code tabs) } for every game in the list: game.ts and
 //                                 the tabs of content/home/retro.md, rendered at build time
 //   microts:build                 build constants (source commit, worker URLs)
+//   microts:shells                the devices' shells: pictures from the front and where screens and keys are
 //   retro, retro-sdk/*            the generated Pocket Retro SDK
 import type { BunPlugin } from "bun";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -19,6 +20,7 @@ import { compileScript, compileStyle, parse } from "@vue/compiler-sfc";
 import { MICROTS_DOCS } from "../src/docs/catalog.ts";
 import { getHighlighter, highlight, renderMarkdown, renderTabs } from "./markdown.ts";
 import { ROOT, SITE, RETRO_OUT } from "./paths.ts";
+import { shellProfiles } from "./shells.ts";
 
 const js = (contents: string) => ({ contents, loader: "js" as const });
 
@@ -156,6 +158,16 @@ export function constantsPlugin(name: string, values: Record<string, unknown>): 
       b.onLoad({ filter: /.*/, namespace: `microts-${name}` }, () =>
         js(Object.entries(values).map(([k, v]) => `export const ${k} = ${JSON.stringify(v)};`).join("\n")),
       );
+    },
+  };
+}
+
+export function shellsPlugin(): BunPlugin {
+  return {
+    name: "microts-shells",
+    setup(b) {
+      b.onResolve({ filter: /^microts:shells$/ }, () => ({ path: "shells", namespace: "microts-shells" }));
+      b.onLoad({ filter: /.*/, namespace: "microts-shells" }, async () => js(`export const SHELLS = ${JSON.stringify(await shellProfiles())};`));
     },
   };
 }

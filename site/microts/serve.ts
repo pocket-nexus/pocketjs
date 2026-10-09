@@ -21,7 +21,7 @@ if (!process.argv.includes("--dist")) {
   buildWasm();
   await buildKit(OUT, commit);
   await buildApp({ dev: true, commit });
-  copyStatic();
+  await copyStatic();
 
   // Rebuild what changed, one build at a time, then tell open pages to reload.
   const pending = new Set<"app" | "kit">();

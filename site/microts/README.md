@@ -57,14 +57,26 @@ and the router renders the 404 page.
 | `assets/retro-worker.js`, `assets/retro-mixer.js` | the retro game worker and the audio worklet |
 | `pocket/` | the UI preview kit (`lib/kit.ts`): `kit/` compiler worker and preview iframe, the framework subpaths, Vue Vapor and Solid runtimes, `hosts/web/pocketjs.wasm`, Inter |
 | `retro/<id>/` | baked assets and a poster frame per game (`lib/retro.ts`) |
+| `shells/` | the playground devices' pictures and their credits (`lib/shells.ts`): `shells/` here and the Pocket3D player's PSP and 3DS |
 | `fonts/`, `pocket3d-mark.svg` | copied from `site/assets/fonts/` and `site/pocket3d/mark.svg` |
 | `favicon.svg`, `favicon.ico`, `*.png`, `site.webmanifest` | copied from `public/`; `bun run microts:icons` writes the icons there from `mark.svg` |
 
 The app imports build-time data through virtual modules (`src/env.d.ts` has
 their types): `microts:docs`, `microts:files/<kind>/<name>`,
 `microts:retro-catalog`, `microts:retro-sources`, `microts:retro-code` (the
-home page code panel for each game, highlighted at build time) and
-`microts:build`.
+home page code panel for each game, highlighted at build time),
+`microts:shells` (the devices' profiles) and `microts:build`.
+
+### Device pictures
+
+The playground draws each device as a picture of it from the front.
+`bun tools/handheld-shells.ts microts` renders `shells/` in Blender
+(`tools/handheld-models/shells.py`) and writes `shells/profiles.js`; the
+pictures are committed, so the site build does not need Blender. The GBA,
+iPhone, iPod touch and BlackBerry are other authors' models (CC BY 4.0,
+`tools/handheld-models/downloads.json`) that the repository does not carry:
+the tool downloads them from Sketchfab with a token in `SKETCHFAB_TOKEN` or
+`~/.sketchfab-token`.
 
 ### Pocket Retro
 
@@ -88,9 +100,10 @@ kit/                   browser compiler and preview runtime, bundled into /pocke
 content/home/          code snippets shown on the home page; retro.md is the Build tab for every game
 mark.svg               the MicroTS mark; every icon of the site is generated from it
 public/                favicon, icon family and manifest, copied to the site root
+shells/                the devices' pictures and profiles (tools/handheld-shells.ts) and their credits
 src/docs/              which docs pages render (catalog.ts) and the sidebar (nav.ts)
 src/pages/             Home, Docs, Playground start page, Playground, 404
-src/playground/        presets, templates, project storage, editor, device frames, retro host, UI preview
+src/playground/        presets, templates, project storage, editor, devices, retro host, UI preview
 src/styles/main.css    Tailwind v4 theme tokens and the Arcade component classes
 ```
 
@@ -98,5 +111,6 @@ src/styles/main.css    Tailwind v4 theme tokens and the Arcade component classes
 
 Bundled third-party content keeps its own license, published next to it:
 PocketJS (`/pocket/LICENSE.txt`), Inter (`/pocket/fonts/LICENSE.txt`), Press
-Start 2P (`/fonts/OFL-PressStart2P.txt`), and the Pocket Retro SDK and games
-(`/retro/LICENSE.txt`, `/retro/THIRD_PARTY_NOTICES.md`).
+Start 2P (`/fonts/OFL-PressStart2P.txt`), the Pocket Retro SDK and games
+(`/retro/LICENSE.txt`, `/retro/THIRD_PARTY_NOTICES.md`), and the device
+pictures (`/shells/ATTRIBUTION.md`, `/shells/LICENSE-Pocket3D.txt`).

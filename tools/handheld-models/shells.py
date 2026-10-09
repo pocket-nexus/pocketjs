@@ -1,26 +1,32 @@
 """Render the handhelds' front shells for a page, in two passes each.
 
-Run: Blender --background --python tools/handheld-models/shells.py -- [psp|vita|3ds|ipod|android|all] [--samples 96]
+Run: Blender --background --python tools/handheld-models/shells.py -- [psp|vita|3ds|ipod|android|gba|iphone-4s|ipod-touch-5|bb-classic|ipod-nano|all] [--samples 96]
 
 A shell is the device seen straight from the front by an orthographic camera,
 on a transparent film, at a whole number of pixels a millimetre:
 
   dist/handheld-shells/<id>/base.png     the case with its moving parts taken out: sockets, wells, the screens' glass
   dist/handheld-shells/<id>/parts.png    the moving parts, each rendered alone, on one sheet: keys, pads, stick caps
-  dist/handheld-shells/<id>/profile.json where the screens, each control and each part are, in the frame's pixels,
-                                         and where each part is on the sheet
+  dist/handheld-shells/<id>/profile.json where the screens, each control, each part and the keys the device keeps
+                                         for itself (`system`) are, in the frame's pixels, and where each part is
+                                         on the sheet
 
-`bun tools/pocket3d-shells.ts` runs this and encodes the pictures for
-devices/web/pocket-web-wgpu/web/shells. A page lays `parts` over `base`, so a
-key that is held goes down into its socket and a stick's cap slides in its well.
+`bun tools/handheld-shells.ts` runs this and encodes the pictures for the
+Pocket3D player (devices/web/pocket-web-wgpu/web/shells) and the MicroTS
+playground (site/microts/shells). A page lays `parts` over `base`, so a key
+that is held goes down into its socket and a stick's cap slides in its well.
 
 No wordmark and no logo is rendered: the objects a device lists under `hide`
 are left out. Legends a player needs stay (the face symbols, START, SELECT,
 the d-pad's arrows).
 
-The PS Vita and the 3DS are this repository's own models. The PSP is Dibad's
-(CC BY 4.0, assets/dibad-psp/ATTRIBUTION.md), split into its parts here. The
-iPod touch and the Android phone are drawn in this file.
+The PS Vita, the 3DS and the iPod nano are this repository's own models. The
+PSP is Dibad's (CC BY 4.0, assets/dibad-psp/ATTRIBUTION.md), split into its
+parts here. The GBA, the iPhone 4S, the iPod touch of the fifth generation (a
+white iPhone 5) and the BlackBerry Classic are other authors' models under
+CC BY 4.0 that this repository does not carry (downloads.json): the tool
+downloads them into dist/handheld-sources/. The fourth-generation iPod touch
+and the Android phone are drawn in this file.
 """
 import bpy
 import json
@@ -31,6 +37,8 @@ from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / 'engine/pocket3d/examples/handheld/assets'
+# Models of other authors that this repository does not carry (downloads.json): tools/handheld-shells.ts fetches them here.
+SOURCES = ROOT / 'dist/handheld-sources'
 OUT = ROOT / 'dist/handheld-shells'
 MARGIN = 1.0  # millimetres of film around the case
 
@@ -142,7 +150,66 @@ ANDROID = {
     'buttons': {},
 }
 
-DEVICES = {'psp': PSP, 'vita': VITA, '3ds': N3DS, 'ipod': IPOD, 'android': ANDROID}
+NANO = {
+    'name': 'iPod nano',
+    'source': 'ipod-nano-2/source/ipod.blend',
+    'pixels_per_mm': 18,
+    'hide': [],
+    'screens': {'upper': 'Screen'},
+    'buttons': {'select': named('IPOD_CenterSelectButton')},
+    # The wheel's ring is read by where a finger goes round it: a place for a pointer, not a key that moves.
+    'zones': {'wheel': named('IPOD_ClickWheel')},
+}
+
+DPAD = named('D-pad')
+
+# LightningGrey's model, downloads.json. Its L and R wrap the case's ends behind the face: rendered alone they would
+# cover the face, so they stay in the case's picture and are places for a pointer (`zones`, from gba_parts).
+GBA = {
+    'name': 'Game Boy Advance',
+    'download': True,
+    'pixels_per_mm': 14,
+    'hide': [],
+    'screens': {'upper': 'Screen'},
+    'buttons': {
+        'up': DPAD, 'down': DPAD, 'left': DPAD, 'right': DPAD,
+        'a': named('A button'), 'b': named('B button'),
+        'start': named('START button'), 'select': named('SELECT button'),
+    },
+}
+
+IPHONE_4S = {
+    'name': 'iPhone 4S',
+    'download': True,
+    'pixels_per_mm': 16,
+    'hide': [],
+    'screens': {'upper': 'Screen'},
+    'buttons': {},
+    'system': {'home': named('Home button')},
+}
+
+IPOD_TOUCH_5 = {
+    'name': 'iPod touch',
+    'download': True,
+    'pixels_per_mm': 16,
+    'hide': [],
+    'screens': {'upper': 'Screen'},
+    'buttons': {},
+    'system': {'home': named('Home button')},
+}
+
+# The keys of the row under the screen are printed on the face: their places come from bb_parts (`zones`, `system`).
+BB_CLASSIC = {
+    'name': 'BlackBerry Classic',
+    'download': True,
+    'pixels_per_mm': 14,
+    'hide': [],
+    'screens': {'upper': 'Screen'},
+    'buttons': {'space': named('Space key'), 'enter': named('Enter key')},
+}
+
+DEVICES = {'psp': PSP, 'vita': VITA, '3ds': N3DS, 'ipod': IPOD, 'android': ANDROID, 'ipod-nano': NANO,
+           'gba': GBA, 'iphone-4s': IPHONE_4S, 'ipod-touch-5': IPOD_TOUCH_5, 'bb-classic': BB_CLASSIC}
 
 
 def psp_parts(path):
@@ -473,7 +540,381 @@ def android_parts(_path):
     studio(scene)
 
 
+def linear(rgb):
+    """A colour as a picture stores it (sRGB, 0 to 1), in the linear values a material takes."""
+    return tuple(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb)
+
+
+def srgb(hex_value):
+    """A colour as it is written for a page (`#rrggbb`), in the linear values a material takes."""
+    return linear(int(hex_value.lstrip('#')[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+
+def nano_parts(path):
+    """The iPod nano of the second generation that this repository models (assets/ipod-nano-2), in pink:
+    its case, its dark lens and its click wheel. The menu the file draws on its screen is left out, and so
+    are its studio, lights and cameras."""
+    bpy.ops.wm.open_mainfile(filepath=str(path))
+    scene = bpy.context.scene
+    for name in ['IPOD_SCREEN_UI', 'STUDIO', 'LIGHTS', 'CAMERA']:
+        for o in list(bpy.data.collections[name].objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+    for light in list(bpy.data.lights):
+        bpy.data.lights.remove(light)
+    # The file is in centimetres with its front toward -Y: millimetres, with the front toward the camera.
+    from mathutils import Matrix
+    turn = Matrix.Scale(10, 4) @ Matrix.Rotation(math.radians(-90), 4, 'X')
+    for o in scene.objects:
+        if o.parent is None:
+            o.matrix_world = turn @ o.matrix_world
+    scene.unit_settings.scale_length = 1.0
+    shader = bpy.data.materials['MAT_AnodizedSilver'].node_tree.nodes['Principled BSDF']
+    shader.inputs['Base Color'].default_value = (*srgb('#f27aa8'), 1)
+    lcd = bpy.data.materials['MAT_ScreenGlow'].node_tree.nodes['Principled BSDF']
+    lcd.inputs['Base Color'].default_value = (.012, .014, .016, 1)
+    lcd.inputs['Emission Strength'].default_value = 0.0
+    bpy.data.objects['IPOD_LCD'].name = 'Screen'
+    # Behind the centre button, which is a part of its own: a dark floor in the wheel's middle.
+    wheel = bpy.data.objects['IPOD_ClickWheel']
+    lo, hi = bounds([wheel])
+    centre = ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2)
+    slab('Socket floor', disc(6.7), lo[2] - 0.05, lo[2], paint('Socket floor', (.004, .004, .005), .9), at=centre)
+    studio(scene)
+
+
+def glb(path, axes, length, along):
+    """Another author's model (a GLB) in this script's axes, in millimetres. `axes` names the file's axis that
+    becomes X, Y and Z ('-y': the file's y the other way round), and the model's extent along `along` (0: X,
+    1: Y) becomes `length` millimetres. The middle of the case is on the Z axis and the front of its face at
+    Z = 0. Each mesh carries its place in its vertices, so a split or a join keeps the pieces where they are."""
+    from mathutils import Matrix
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.import_scene.gltf(filepath=str(path))
+    scene = bpy.context.scene
+    rows = [[(-1 if a.startswith('-') else 1) if 'xyz'[i] == a[-1] else 0 for i in range(3)] + [0] for a in axes]
+    turn = Matrix(rows + [[0, 0, 0, 1]])
+    meshes = [o for o in scene.objects if o.type == 'MESH' and o.data.polygons]
+    for o in meshes:
+        world = turn @ o.matrix_world
+        o.parent = None
+        if o.data.users > 1:
+            o.data = o.data.copy()
+        o.data.transform(world)
+        o.matrix_world = Matrix.Identity(4)
+    for o in [o for o in scene.objects if o.type != 'MESH' or not o.data.polygons]:
+        bpy.data.objects.remove(o, do_unlink=True)
+    bpy.context.view_layer.update()
+    lo, hi = bounds(meshes)
+    k = length / (hi[along] - lo[along])
+    move = Matrix.Scale(k, 4) @ Matrix.Translation((-(lo[0] + hi[0]) / 2, -(lo[1] + hi[1]) / 2, -hi[2]))
+    for o in meshes:
+        o.data.transform(move)
+    bpy.context.view_layer.update()
+    return meshes
+
+
+def islands(obj):
+    """`obj`'s loose pieces, each an object of its own."""
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.separate(type='LOOSE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return list(bpy.context.selected_objects)
+
+
+def joined(name, objects):
+    """`objects` as one object called `name`."""
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in objects:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+    if len(objects) > 1:
+        bpy.ops.object.join()
+    objects[0].name = name
+    return objects[0]
+
+
+def alive(objects):
+    """The objects of a list that are still in the scene."""
+    out = []
+    for o in objects:
+        try:
+            o.name
+        except ReferenceError:
+            continue
+        out.append(o)
+    return out
+
+
+def carve(obj, x0, y0, x1, y1):
+    """Takes out the faces of `obj` that lie wholly inside a rectangle of the front, in millimetres."""
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    inside = [f for f in bm.faces if all(x0 <= v.co.x <= x1 and y0 <= v.co.y <= y1 for v in f.verts)]
+    bmesh.ops.delete(bm, geom=inside, context='FACES')
+    bm.to_mesh(obj.data)
+    bm.free()
+
+
+def within(objects, x0, y0, x1, y1):
+    """The objects that lie wholly inside a rectangle of the front, in millimetres."""
+    out = []
+    for o in objects:
+        lo, hi = bounds([o])
+        if x0 <= lo[0] and hi[0] <= x1 and y0 <= lo[1] and hi[1] <= y1:
+            out.append(o)
+    return out
+
+
+def texture(material):
+    """The picture a material takes its base colour from."""
+    shader = next(n for n in bpy.data.materials[material].node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+    return shader.inputs['Base Color'].links[0].from_node.image
+
+
+def pixels(image):
+    import numpy as np
+    w, h = image.size
+    # (rows from the top, as a picture's pixels are counted)
+    return np.array(image.pixels[:], dtype=np.float32).reshape(h, w, 4)[::-1]
+
+
+def repaint(image, grid):
+    image.pixels.foreach_set(grid[::-1].ravel())
+    image.update()
+    image.pack()
+
+
+def on_front(objects, image, px, py):
+    """Where a pixel of `image` (counted from its top left) is drawn on the front: on the front-most face whose
+    texture coordinates hold it, as (x, y) in millimetres."""
+    u, v = px / image.size[0], 1 - py / image.size[1]
+    best = None
+    for o in objects:
+        mesh = o.data
+        mesh.calc_loop_triangles()
+        uv = mesh.uv_layers.active.data
+        for t in mesh.loop_triangles:
+            if t.normal.z < 0.9:
+                continue
+            a, b, c = (uv[i].uv for i in t.loops)
+            d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y)
+            if abs(d) < 1e-12:
+                continue
+            w0 = ((b.y - c.y) * (u - c.x) + (c.x - b.x) * (v - c.y)) / d
+            w1 = ((c.y - a.y) * (u - c.x) + (a.x - c.x) * (v - c.y)) / d
+            w2 = 1 - w0 - w1
+            if min(w0, w1, w2) < -1e-6:
+                continue
+            p = sum((mesh.vertices[i].co * w for i, w in zip(t.vertices, (w0, w1, w2))), Vector())
+            if best is None or p.z > best.z:
+                best = p
+    if best is None:
+        raise SystemExit(f'shells: no face of the front shows pixel {px}, {py} of {image.name}')
+    return best.x, best.y
+
+
+def on_front_box(objects, image, rect):
+    """A rectangle of `image` (x0, y0, x1, y1 in its pixels) where it is on the front: (x0, y0, x1, y1) in millimetres."""
+    corners = [on_front(objects, image, x, y) for x in (rect[0], rect[2]) for y in (rect[1], rect[3])]
+    return (min(c[0] for c in corners), min(c[1] for c in corners), max(c[0] for c in corners), max(c[1] for c in corners))
+
+
+def panel(box, z):
+    """A dark panel where the screen is, for the screen's rectangle in the profile and a quiet picture under the page's."""
+    x0, y0, x1, y1 = box
+    return slab('Screen', [(x1, y1), (x0, y1), (x0, y0), (x1, y0)], z, z + 0.02, paint('Screen_Primary', (.012, .014, .016), .12))
+
+
+INDIGO = '#4a2cbc'
+
+
+def gba_parts(path):
+    """LightningGrey's Game Boy Advance (downloads.json), 144.5 mm across, its case in indigo. The maker's name in the badge over
+    the screen is taken out of the case's mesh, and the console's name under the screen (paint on the lens's
+    picture) is painted over in the lens's colour. The keys are pieces of one mesh: those that are a key's
+    are joined into the key, and a dark floor stands under each. L and R wrap the case's ends behind the
+    face, so they stay in the case's picture; their places are returned as zones."""
+    import numpy as np
+    meshes = glb(path, ('y', 'z', 'x'), 144.5, 0)
+    by = {o.data.materials[0].name: o for o in meshes if o.data.materials}
+    # The maker's name: everything inside the oval badge over the screen goes but the badge's rim (the strips
+    # that run its length and the caps at its ends), and a floor in the case's colour closes the badge.
+    pieces = islands(by['Controller'])
+    badge = within(pieces, -8.8, 33.4, 9.3, 37.5)
+    for o in badge:
+        lo, hi = bounds([o])
+        middle = (lo[0] + hi[0]) / 2
+        rim = min(hi[0] - lo[0], hi[1] - lo[1]) < 0.7 and (hi[0] - lo[0] > 12.0 or middle < -7.7 or middle > 8.2)
+        if not rim:
+            bpy.data.objects.remove(o, do_unlink=True)
+    # (the letters are faces of the case's own mesh too)
+    for o in alive(pieces):
+        if o not in alive(badge):
+            carve(o, -8.4, 33.6, 9.1, 37.3)
+    # The case in indigo, the colour the console was first sold in, a little lighter so it stands out on a dark
+    # page: the model's own case colour (a pale silver) becomes indigo, shade for shade.
+    picture = texture('Controller')
+    case = pixels(picture)
+    lightness = case[:, :, :3].mean(axis=2)
+    silver = np.median(case[lightness > 0.3][:, :3], axis=0)
+    near = np.abs(case[:, :, :3] - silver).max(axis=2) < 0.15
+    indigo = np.array([int(INDIGO[i:i + 2], 16) / 255 for i in (1, 3, 5)])
+    case[near, :3] = np.clip(indigo * (lightness[near] / silver.mean())[:, None], 0, 1)
+    repaint(picture, case)
+    slab('Badge floor', outline(18.0, 4.1, 2.05, 10), -3.3, -3.15, paint('Case', srgb(INDIGO), .5), at=(0.25, 35.45))
+    lens = texture('border')
+    grid = pixels(lens)
+    light = grid[:, :, :3].mean(axis=2)
+    glass = np.median(grid[(light > 0.05) & (light < 0.3)][:, :3], axis=0)
+    grid[light > glass.mean() + 0.02, :3] = glass
+    repaint(lens, grid)
+    # The screen: the larger piece of the screen-and-lamp paint, an octagon over a window in the lens. The window
+    # is closed in the lens's colour and a 3:2 panel stands in its middle. The smaller piece is the power lamp, lit.
+    lcd, lamp = sorted(islands(by['power']), key=lambda o: -sum(p.area for p in o.data.polygons))[:2]
+    lo, hi = bounds([lcd])
+    bpy.data.objects.remove(lcd, do_unlink=True)
+    lens_z = bounds([by['border']])[1][2]
+    slab('Lens window', [(hi[0], hi[1]), (lo[0], hi[1]), (lo[0], lo[1]), (hi[0], lo[1])], lens_z - 0.03, lens_z - 0.005, paint('Lens', linear(glass), .3))
+    lit = paint('Power lamp', srgb('#3ddc2a'), .3)
+    lit.node_tree.nodes['Principled BSDF'].inputs['Emission Color'].default_value = (*srgb('#3ddc2a'), 1)
+    lit.node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = 2.5
+    lamp.data.materials[0] = lit
+    w, h = hi[0] - lo[0], hi[1] - lo[1]
+    k = min(w / 3, h / 2)
+    cx, cy = (lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2
+    panel((cx - 1.5 * k, cy - k, cx + 1.5 * k, cy + k), hi[2] + 0.01)
+    floor = paint('Socket floor', (.004, .004, .005), .9)
+    rest = islands(by['Buttons'])
+    for name, box in [('D-pad', (-64.0, -2.0, -41.0, 21.0)), ('A button', (53.5, 4.5, 64.8, 15.9)), ('B button', (41.0, 0.5, 51.5, 11.5)),
+                      ('START button', (-46.2, -11.8, -42.2, -8.4)), ('SELECT button', (-46.6, -19.8, -42.6, -16.4))]:
+        pieces = within(rest, *box)
+        rest = [o for o in rest if o not in pieces]
+        part = joined(name, pieces)
+        lo, hi = bounds([part])
+        slab(f'{name} socket floor', disc(min(hi[0] - lo[0], hi[1] - lo[1]) * 0.47), lo[2] - 0.2, lo[2] - 0.1, floor, at=((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2))
+    joined('Shoulder keys', rest)
+    studio(bpy.context.scene)
+    return {'zones': {'l': (-70.0, 21.0, -42.0, 40.0), 'r': (42.0, 21.0, 70.0, 40.0)}}
+
+
+def iphone_parts(path):
+    """EwanLejkowski's iPhone 4S (downloads.json), 115.2 mm tall. The sheet of glass over its face is left out
+    (seen straight on it greys the face) and the black under it is given the glass's polish. The screen's
+    picture (a lock screen) gives way to a dark panel, and the home button's picture to a dark dish with its
+    square, as the drawn iPod touch has."""
+    meshes = glb(path, ('y', 'z', 'x'), 115.2, 1)
+    for o in [o for o in meshes if o.data.materials and o.data.materials[0].name == 'Glass']:
+        if bounds([o])[1][2] > -0.5:
+            bpy.data.objects.remove(o, do_unlink=True)
+    # (the camera's glass is white in the file: dark glass, as the drawn phones' cameras are)
+    for name, colour, rough, coat in [('Black_Frit', (.004, .004, .005), .07, .6), ('black', (.004, .004, .005), .07, .6), ('Black_Plastic', (.004, .004, .005), .07, .6),
+                                      ('Lens', (.01, .012, .02), .05, 1.0), ('Lens_Back', (.006, .008, .02), .2, 0.0), ('material_0', (.01, .012, .02), .05, 1.0)]:
+        shader = next(n for n in bpy.data.materials[name].node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+        shader.inputs['Base Color'].default_value = (*colour, 1)
+        shader.inputs['Roughness'].default_value = rough
+        shader.inputs['Coat Weight'].default_value = coat
+        shader.inputs['Transmission Weight'].default_value = 0.0
+    by = {o.data.materials[0].name: o for o in alive(meshes) if o.data.materials}
+    screen = by['Screen']
+    lo, hi = bounds([screen])
+    bpy.data.objects.remove(screen, do_unlink=True)
+    panel((lo[0], lo[1], hi[0], hi[1]), hi[2])
+    home = by['Home_Button']
+    home.name = 'Home button'
+    home.data.materials[0] = paint('Home button dish', (.006, .006, .007), .32)
+    lo, hi = bounds([home])
+    r = (hi[0] - lo[0]) / 2
+    at = ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2)
+    ring('Home button square', outline(r * .8, r * .8, r * .19, 8), outline(r * .68, r * .68, r * .13, 8), hi[2] + 0.01, paint('Home button mark', (.075, .075, .08), .5), at=at)
+    studio(bpy.context.scene)
+
+
+def ipod_touch_parts(path):
+    """thethieme's white iPhone 5 (downloads.json) as the iPod touch of the fifth generation, which has its
+    face: 123.4 mm tall. The earpiece and the sensor beside it, which an iPod touch does not have, are taken
+    out, and the opening is closed in the face's white. The screen's piece becomes a dark panel."""
+    import numpy as np
+    meshes = glb(path, ('x', 'z', '-y'), 123.4, 1)
+    pieces = islands(meshes[0])
+    face = texture(meshes[0].data.materials[0].name)
+    # (the screen: the largest flat piece inside the face's border)
+    screen = max((o for o in within(pieces, -27.0, -50.0, 27.0, 50.0) if bounds([o])[1][2] - bounds([o])[0][2] < 0.05), key=lambda o: sum(p.area for p in o.data.polygons))
+    lo, hi = bounds([screen])
+    bpy.data.objects.remove(screen, do_unlink=True)
+    panel((lo[0], lo[1], hi[0], hi[1]), hi[2])
+    pieces = alive(pieces)
+    for o in within(pieces, -10.0, 48.0, -5.0, 53.0) + within(pieces, -6.0, 48.5, 6.5, 52.0):
+        bpy.data.objects.remove(o, do_unlink=True)
+    pieces = alive(pieces)
+    joined('Home button', within(pieces, -7.0, -60.0, 7.0, -46.0))
+    # (the face's white, from its picture about the screen's top)
+    grid = pixels(face)
+    white = np.median(grid[300:318, 60:340, :3].reshape(-1, 3), axis=0)
+    cover = paint('Face', linear(white), .25, coat=.4)
+    slab('Earpiece cover', outline(17.0, 4.6, 2.3, 8), -0.01, 0.012, cover, at=(-1.5, 50.2))
+    studio(bpy.context.scene)
+
+
+def bb_parts(path):
+    """Jakub Proszowski's BlackBerry Classic (downloads.json), 131 mm tall. Its face is one picture: the maker's
+    mark on the Menu key is painted over, with three bars in its place, and the screen's part of the picture
+    gives way to a dark panel. Space and Enter are pieces of the mesh, joined into keys. The row under the
+    screen is printed on the face: the places of Menu and the trackpad are returned as zones, those of Call,
+    Back and End as keys the device keeps for itself."""
+    import numpy as np
+    meshes = glb(path, ('x', 'z', '-y'), 131.0, 1)
+    body = meshes[0]
+    face = texture(body.data.materials[0].name)
+    grid = pixels(face)
+    # (the picture lies upside down on the face; the rectangles are in the picture's pixels)
+    grid[320:347, 645:676, :3] = grid[326:340, 630:640, :3].reshape(-1, 3).mean(axis=0)
+    ink = grid[322:342, 810:832, :3].reshape(-1, 3).max(axis=0)
+    for top in (325, 331, 337):
+        grid[top:top + 3, 649:672, :3] = ink
+    repaint(face, grid)
+    front = [body]
+    place = lambda rect: on_front_box(front, face, rect)
+    screen = place((558, 371, 926, 741))
+    zones = {'menu': place((628, 310, 692, 358)), 'trackpad': place((718, 312, 763, 355))}
+    system = {'call': place((548, 310, 612, 358)), 'back': place((788, 310, 852, 358)), 'end': place((868, 310, 932, 358))}
+    panel(screen, 0.0)
+    # A key is its top and the four walls about it: a wall belongs to the top it is nearest.
+    pieces = islands(body)
+    def extent(o):
+        lo, hi = bounds([o])
+        return lo, hi
+    tops = []
+    for o in pieces:
+        lo, hi = extent(o)
+        if 3 < hi[0] - lo[0] < 25 and 3 < hi[1] - lo[1] < 8 and hi[2] - lo[2] < 0.15 and hi[1] < -27:
+            tops.append((o, lo, hi))
+    def gap(point, lo, hi):
+        return math.hypot(max(lo[0] - point[0], 0, point[0] - hi[0]), max(lo[1] - point[1], 0, point[1] - hi[1]))
+    keys = {id(t[0]): [t[0]] for t in tops}
+    for o in pieces:
+        lo, hi = extent(o)
+        if any(o is t[0] for t in tops) or min(hi[0] - lo[0], hi[1] - lo[1]) > 1.0 or hi[1] > -26:
+            continue
+        mid = ((lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2)
+        top, d = min(((t, gap(mid, t[1], t[2])) for t in tops), key=lambda td: td[1])
+        if d < 1.0:
+            keys[id(top[0])].append(o)
+    def key_at(x, y):
+        return next(t[0] for t in tops if t[1][0] <= x <= t[2][0] and t[1][1] <= y <= t[2][1])
+    joined('Space key', keys[id(key_at(0.0, -54.9))])
+    joined('Enter key', keys[id(key_at(31.2, -47.5))])
+    studio(bpy.context.scene)
+    return {'zones': zones, 'system': system}
+
+
 DRAWN = {'ipod': ipod_parts, 'android': android_parts}
+# Devices read from a file that is not a scene of this script's: each brought to its axes, in millimetres.
+READ = {'psp': psp_parts, 'ipod-nano': nano_parts, 'gba': gba_parts, 'iphone-4s': iphone_parts, 'ipod-touch-5': ipod_touch_parts, 'bb-classic': bb_parts}
 
 
 def centre(o):
@@ -507,12 +948,14 @@ def use_gpu():
 
 
 def shell(key, spec, samples):
+    # (a reader may return places that are no object of the scene: rectangles of the front, in millimetres)
+    places = {}
     if key in DRAWN:
         DRAWN[key](None)
-    elif spec['source'].endswith('.blend'):
-        bpy.ops.wm.open_mainfile(filepath=str(ASSETS / spec['source']))
+    elif key in READ:
+        places = READ[key](SOURCES / f'{key}.glb' if spec.get('download') else ASSETS / spec['source']) or {}
     else:
-        psp_parts(ASSETS / spec['source'])
+        bpy.ops.wm.open_mainfile(filepath=str(ASSETS / spec['source']))
     scene = bpy.context.scene
     if spec.get('hinge'):
         hinge = bpy.data.objects[spec['hinge']]
@@ -548,7 +991,11 @@ def shell(key, spec, samples):
 
     def box(objects, pad=0.0):
         lo, hi = bounds(objects)
-        return [round((lo[0] - pad - x0) * ppm, 1), round((y1 - hi[1] - pad) * ppm, 1), round((hi[0] - lo[0] + 2 * pad) * ppm, 1), round((hi[1] - lo[1] + 2 * pad) * ppm, 1)]
+        return rect((lo[0] - pad, lo[1] - pad, hi[0] + pad, hi[1] + pad))
+
+    def rect(place):
+        left, bottom, right, top = place
+        return [round((left - x0) * ppm, 1), round((y1 - top) * ppm, 1), round((right - left) * ppm, 1), round((top - bottom) * ppm, 1)]
 
     parts, seen = [], {}
     def part(objects):
@@ -574,6 +1021,11 @@ def shell(key, spec, samples):
         profile['sticks'].append({'id': stick, 'centre': [round(rest[0] + rest[2] / 2, 1), round(rest[1] + rest[3] / 2, 1)], 'radius': round(rest[2] / 2, 1), 'travel': round(picks['travel'] * ppm, 1), 'part': part(cap)})
     for button, pick in spec.get('zones', {}).items():
         profile['controls'].append({'button': button, 'rect': box(pick(shown)), 'part': None})
+    for button, place in places.get('zones', {}).items():
+        profile['controls'].append({'button': button, 'rect': rect(place), 'part': None})
+    # (a key the device keeps for itself, such as a phone's home button: drawn, and read by no app)
+    profile['system'] = {name: box(pick(shown)) for name, pick in spec.get('system', {}).items()}
+    profile['system'].update({name: rect(place) for name, place in places.get('system', {}).items()})
     moving = {o.name for p in parts for o in p['objects']}
 
     out = OUT / key

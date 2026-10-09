@@ -1,0 +1,35 @@
+{
+  "about": "Models of other authors that shells.py renders and this repository does not carry. tools/handheld-shells.ts downloads each GLB from Sketchfab (a token in SKETCHFAB_TOKEN or ~/.sketchfab-token) into dist/handheld-sources/<shell>.glb and checks its SHA-256.",
+  "gba": {
+    "title": "Modelling II - A2 - Game Boy Advance Model",
+    "author": "LightningGrey",
+    "url": "https://sketchfab.com/3d-models/modelling-ii-a2-game-boy-advance-model-277bb8afe48149699141f05a733c2daf",
+    "uid": "277bb8afe48149699141f05a733c2daf",
+    "license": "CC BY 4.0",
+    "sha256": "220b8132be122260625c4644323fd920dce1b224782e60e718238ba0c24561b3"
+  },
+  "iphone-4s": {
+    "title": "iPhone 4S",
+    "author": "EwanLejkowski",
+    "url": "https://sketchfab.com/3d-models/iphone-4s-cdae5d59cc60402e800ce7ca23ac42d6",
+    "uid": "cdae5d59cc60402e800ce7ca23ac42d6",
+    "license": "CC BY 4.0",
+    "sha256": "cd5d2e7d7595b34e08a2299d30242b49f776396d4e1b5334374a279801c7fe64"
+  },
+  "ipod-touch-5": {
+    "title": "iPhone 5 White/Silver",
+    "author": "thethieme",
+    "url": "https://sketchfab.com/3d-models/iphone-5-whitesilver-3a2fd2a665534ebf8c181a4cdcc33b7e",
+    "uid": "3a2fd2a665534ebf8c181a4cdcc33b7e",
+    "license": "CC BY 4.0",
+    "sha256": "0619b8d29af063f22564f2350619db586e56e4d7365b6092445c08843057fbf3"
+  },
+  "bb-classic": {
+    "title": "Blackberry Classic Q20",
+    "author": "Jakub Proszowski (ozogonkiem)",
+    "url": "https://sketchfab.com/3d-models/blackberry-classic-q20-7dfee55039a94e07969e3efccbbbd78b",
+    "uid": "7dfee55039a94e07969e3efccbbbd78b",
+    "license": "CC BY 4.0",
+    "sha256": "ee445a9236708a1b824d3389470d21f8bd5defc22575bce1f365ccc8dc404d74"
+  }
+}
