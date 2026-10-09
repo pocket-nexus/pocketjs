@@ -3,6 +3,7 @@
 //   bun tools/icons.ts          pocketjs.dev, from site/assets/favicon.svg
 //   bun tools/icons.ts nexus    pocket.nexus, from site/nexus/mark.svg
 //   bun tools/icons.ts pocket3d 3d.pocket.nexus, from site/pocket3d/mark.svg
+//   bun tools/icons.ts microts  microts.pocket.nexus, from site/microts/mark.svg
 //
 // For pocketjs.dev, site/assets/favicon.svg is the only drawing. Everything a browser or a phone
 // home screen asks for is rasterized from it here, so the mark can never drift
@@ -25,6 +26,9 @@
 // 3d.pocket.nexus follows pocket.nexus. Its social card is captured from
 // site/pocket3d/og-card.html, a page beside public/ that draws the mark and the
 // wordmark and is not deployed.
+//
+// microts.pocket.nexus gets the icon family of pocket.nexus and no social card.
+// Its favicon.svg is also the image the site's nav, footer and home draw.
 //
 // iOS picks the apple-touch-icon whose `sizes` is closest to what it wants and
 // ignores the manifest when one exists, so the ladder below is what actually
@@ -117,6 +121,13 @@ FAMILIES.pocket3d = {
   favicon: "favicon.svg",
   pngs: FAMILIES.nexus.pngs,
   cards: [{ file: "og-image.png", page: `${ROOT}site/pocket3d/og-card.html`, prepare: POCKET3D_CARD, width: 1200, height: 630 }],
+};
+FAMILIES.microts = {
+  out: `${ROOT}site/microts/public/`,
+  source: `${ROOT}site/microts/mark.svg`,
+  favicon: "favicon.svg",
+  pngs: FAMILIES.nexus.pngs,
+  cards: [],
 };
 const familyName = process.argv[2] ?? "pocketjs";
 const family = FAMILIES[familyName];

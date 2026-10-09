@@ -92,3 +92,7 @@ without a file serve `index.html`, as the `microts` Worker does
 (`not_found_handling: single-page-application`). `bun run microts:preview`
 serves an existing `site/microts/dist/` without rebuilding. The build steps are
 in `site/microts/README.md`.
+
+After editing `site/microts/mark.svg`, run `bun run microts:icons`. It copies
+the mark to `site/microts/public/favicon.svg` and rasterizes the favicon family
+from it. The pocket.nexus homepage inlines the same shapes in `<symbol id="mts">`.
