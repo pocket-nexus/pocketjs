@@ -56,3 +56,30 @@ declare module "microts:build" {
   export const RETRO_WORKER_URL: string;
   export const RETRO_MIXER_URL: string;
 }
+
+declare module "microts:shells" {
+  /** [x, y, width, height] from the top left of a shell's picture, in its pixels. */
+  export type Rect = [number, number, number, number];
+  /** A device seen from the front (tools/handheld-shells.ts): the case with its keys taken out, a sheet of the keys, and where things are. */
+  export interface Shell {
+    name: string;
+    /** URL of the case's picture */
+    art: string;
+    /** URL of the sheet of moving parts */
+    partsArt?: string;
+    width: number;
+    height: number;
+    pixelsPerMm: number;
+    partsWidth?: number;
+    partsHeight?: number;
+    screens: { upper: Rect; lower?: Rect };
+    /** A part's rectangle in the picture, then its place on the sheet: [x, y, width, height, sheetX, sheetY] */
+    parts: [number, number, number, number, number, number][];
+    /** A control, the place a finger takes it, and the part that moves with it (null: a place with no part of its own) */
+    controls: { button: string; rect: Rect; part: number | null }[];
+    sticks: { id: string; centre: [number, number]; radius: number; travel: number; part: number }[];
+    /** Keys the device keeps for itself: drawn, and read by no app */
+    system?: Record<string, Rect>;
+  }
+  export const SHELLS: Record<string, Shell>;
+}

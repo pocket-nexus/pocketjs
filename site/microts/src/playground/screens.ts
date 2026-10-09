@@ -18,7 +18,6 @@ export const SCREENS: ScreenPreset[] = [
   { id: "ipod-touch", label: "iPod touch", width: 320, height: 568 },
   { id: "bb-classic", label: "BlackBerry Classic", width: 360, height: 360 },
   { id: "ipod-nano", label: "iPod nano", width: 176, height: 132 },
-  { id: "meizu-m8", label: "Meizu M8", width: 480, height: 720 },
 ];
 
 export const DEFAULT_VIEWPORT: Viewport = { width: 480, height: 272 };

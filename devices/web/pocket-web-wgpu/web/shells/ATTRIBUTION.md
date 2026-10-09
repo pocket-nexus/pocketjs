@@ -1,7 +1,7 @@
 # The shells
 
 Pictures of five devices from the front, for the Pocket3D player
-(`../pocket3d-stage.js`). `bun tools/pocket3d-shells.ts` renders them in
+(`../pocket3d-stage.js`). `bun tools/handheld-shells.ts pocket3d` renders them in
 Blender (`tools/handheld-models/shells.py`) and writes `profiles.js`.
 No picture carries a wordmark or a logo: the objects that are one are left
 out of the render.

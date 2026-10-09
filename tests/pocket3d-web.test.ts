@@ -121,7 +121,8 @@ test("the kernel names no game, and its manifest and documents name its license"
 test("each shell has its pictures, its screens in the device's shape, and controls that are in the picture", async () => {
   const web = ROOT + "devices/web/pocket-web-wgpu/web/";
   const { SHELLS } = await import(pathToFileURL(web + "shells/profiles.js").href);
-  const { SHELL_IDS } = await import("../tools/pocket3d-shells.ts");
+  const { SHELL_SETS } = await import("../tools/handheld-shells.ts");
+  const SHELL_IDS = SHELL_SETS.pocket3d.ids;
   expect(Object.keys(SHELLS)).toEqual([...SHELL_IDS]);
   // The screens of the devices, in their own pixels (a device's profile under contracts/ and the 3DS's two).
   const screens: Record<string, Record<string, [number, number]>> = { psp: { upper: [480, 272] }, vita: { upper: [960, 544] }, "3ds": { upper: [400, 240], lower: [320, 240] }, ipod: { upper: [480, 320] }, android: { upper: [1280, 720] } };

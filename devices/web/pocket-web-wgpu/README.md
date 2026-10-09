@@ -200,7 +200,7 @@ own" when there is not. The other door is hidden there.
 
 ## The shells
 
-`bun tools/pocket3d-shells.ts` renders the five shells with Blender
+`bun tools/handheld-shells.ts pocket3d` renders the five shells with Blender
 (`tools/handheld-models/shells.py`) and encodes them with `cwebp`. Each is the
 device seen from the front by an orthographic camera at 14 pixels a
 millimetre (20 for the iPod touch, 16 for the Android phone), on a

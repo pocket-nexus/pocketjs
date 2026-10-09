@@ -8,6 +8,7 @@
 //   /index.html, /assets/*       the SPA (src/), its stylesheet and the retro worker + audio worklet
 //   /pocket/*                    the UI preview kit, bundled from this checkout (lib/kit.ts)
 //   /retro/<id>/*                Pocket Retro game assets and posters (lib/retro.ts)
+//   /shells/*                    the playground devices' pictures (lib/shells.ts)
 //
 // The docs pages render from site/content/docs/ at build time (src/docs/catalog.ts
 // picks the pages from site/nav.ts). The playground's MicroTS examples come
@@ -17,8 +18,9 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { basename, join, relative } from "node:path";
 import { buildKit } from "./lib/kit.ts";
 import { ROOT, SITE, OUT, CACHE, RETRO_OUT } from "./lib/paths.ts";
-import { constantsPlugin, filesPlugin, markdownPlugin, retroPlugin, vuePlugin } from "./lib/plugins.ts";
+import { constantsPlugin, filesPlugin, markdownPlugin, retroPlugin, shellsPlugin, vuePlugin } from "./lib/plugins.ts";
 import { prepareRetro } from "./lib/retro.ts";
+import { copyShells } from "./lib/shells.ts";
 
 export function sourceCommit(): string {
   if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
@@ -75,6 +77,7 @@ export async function buildApp(opts: { dev: boolean; commit: string }): Promise<
       markdownPlugin(),
       filesPlugin(),
       retroPlugin(),
+      shellsPlugin(),
       constantsPlugin("build", { COMMIT: opts.commit, RETRO_WORKER_URL, RETRO_MIXER_URL }),
     ],
   });
@@ -110,12 +113,13 @@ export async function buildApp(opts: { dev: boolean; commit: string }): Promise<
   );
 }
 
-/** Static files: the site's public/, shared Pocket brand assets and the generated retro assets. */
-export function copyStatic(): void {
+/** Static files: the site's public/, shared Pocket brand assets, the devices' shells and the generated retro assets. */
+export async function copyStatic(): Promise<void> {
   cpSync(join(SITE, "public"), OUT, { recursive: true });
   for (const f of ["press-start-2p-latin.woff2", "OFL-PressStart2P.txt"]) cpSync(join(ROOT, "site/assets/fonts", f), join(OUT, "fonts", f));
   cpSync(join(ROOT, "site/pocket3d/mark.svg"), join(OUT, "pocket3d-mark.svg"));
   cpSync(join(RETRO_OUT, "public"), join(OUT, "retro"), { recursive: true });
+  await copyShells(OUT);
 }
 
 export function buildWasm(): void {
@@ -134,7 +138,7 @@ if (import.meta.main) {
     buildWasm();
     await buildKit(OUT, commit);
     await buildApp({ dev: false, commit });
-    copyStatic();
+    await copyStatic();
     if (!existsSync(join(OUT, "index.html"))) throw new Error("index.html was not written");
   }
 }

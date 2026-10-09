@@ -156,7 +156,7 @@ const retroCanvasStyle = computed(() => {
   return { width: `${pw}%`, height: `${ph}%`, left: `${(100 - pw) / 2}%`, top: `${(100 - ph) / 2}%` };
 });
 /** Retro examples show each game's own controls; everything else shows the device's key map */
-const keysHint = computed(() => (isRetro.value && ws.value?.preset ? ws.value.controls : device.value.keys));
+const keysHint = computed(() => (isRetro.value && ws.value?.preset ? ws.value.controls : device.value.legend));
 const stateLabel = computed(
   () =>
     ({
