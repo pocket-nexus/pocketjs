@@ -8,6 +8,8 @@
 //                                 example = apps/<name>, retro = a generated Pocket Retro game)
 //   microts:retro-catalog         the generated Pocket Retro game list
 //   microts:retro-sources         { id: () => import(game sources) } for every game in the list
+//   microts:retro-code            { id: () => import(code tabs) } for every game in the list: game.ts and
+//                                 the tabs of content/home/retro.md, rendered at build time
 //   microts:build                 build constants (source commit, worker URLs)
 //   retro, retro-sdk/*            the generated Pocket Retro SDK
 import type { BunPlugin } from "bun";
@@ -15,7 +17,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { compileScript, compileStyle, parse } from "@vue/compiler-sfc";
 import { MICROTS_DOCS } from "../src/docs/catalog.ts";
-import { renderMarkdown, renderTabs } from "./markdown.ts";
+import { getHighlighter, highlight, renderMarkdown, renderTabs } from "./markdown.ts";
 import { ROOT, SITE, RETRO_OUT } from "./paths.ts";
 
 const js = (contents: string) => ({ contents, loader: "js" as const });
@@ -114,6 +116,13 @@ export function filesPlugin(): BunPlugin {
   };
 }
 
+/** `export default { id: () => import(spec(id)) }` for every game in the generated catalog. */
+function lazyGames(spec: (id: string) => string): string {
+  const { games } = JSON.parse(readFileSync(join(RETRO_OUT, "catalog.json"), "utf8")) as { games: { id: string }[] };
+  const load = (id: string) => `  ${JSON.stringify(id)}: () => import(${JSON.stringify(spec(id))}),`;
+  return `export default {\n${games.map((g) => load(g.id)).join("\n")}\n};`;
+}
+
 export function retroPlugin(): BunPlugin {
   const sdk = join(RETRO_OUT, "sdk");
   return {
@@ -123,10 +132,16 @@ export function retroPlugin(): BunPlugin {
       b.onResolve({ filter: /^retro-sdk\// }, (a) => ({ path: join(sdk, a.path.slice("retro-sdk/".length) + ".ts") }));
       b.onResolve({ filter: /^microts:retro-catalog$/ }, () => ({ path: join(RETRO_OUT, "catalog.json") }));
       b.onResolve({ filter: /^microts:retro-sources$/ }, () => ({ path: "retro-sources", namespace: "microts-retro-sources" }));
-      b.onLoad({ filter: /.*/, namespace: "microts-retro-sources" }, () => {
-        const { games } = JSON.parse(readFileSync(join(RETRO_OUT, "catalog.json"), "utf8")) as { games: { id: string }[] };
-        const load = (id: string) => `  ${JSON.stringify(id)}: () => import(${JSON.stringify(`microts:files/retro/${id}`)}),`;
-        return js(`export default {\n${games.map((g) => load(g.id)).join("\n")}\n};`);
+      b.onLoad({ filter: /.*/, namespace: "microts-retro-sources" }, () => js(lazyGames((id) => `microts:files/retro/${id}`)));
+      // The home page code panel: one chunk per game, loaded when the game is picked.
+      b.onResolve({ filter: /^microts:retro-code$/ }, () => ({ path: "retro-code", namespace: "microts-retro-code" }));
+      b.onLoad({ filter: /.*/, namespace: "microts-retro-code" }, () => js(lazyGames((id) => `microts-retro-code:${id}`)));
+      b.onResolve({ filter: /^microts-retro-code:/ }, (a) => ({ path: a.path.slice("microts-retro-code:".length), namespace: "microts-retro-game-code" }));
+      b.onLoad({ filter: /.*/, namespace: "microts-retro-game-code" }, async ({ path: id }) => {
+        const source = readFileSync(join(RETRO_OUT, "games", id, "game.ts"), "utf8");
+        const extra = await renderTabs(readFileSync(join(SITE, "content/home/retro.md"), "utf8").replaceAll("{{game}}", id));
+        const tabs = [{ title: "game.ts", html: highlight(await getHighlighter(), source, "ts") }, ...extra.map(({ title, html }) => ({ title, html }))];
+        return js(`export default ${JSON.stringify(tabs)};`);
       });
     },
   };

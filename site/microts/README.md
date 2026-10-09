@@ -5,8 +5,8 @@ PocketJS that compiles Vue single-file components, Solid TSX views and
 TypeScript models into Rust. Deployed to `microts.pocket.nexus` by the
 `microts` job in `.github/workflows/deploy.yml`.
 
-- **Home**: what MicroTS compiles and how, with the counter from the guide and
-  the Pocket Retro games.
+- **Home**: what you can write, build and run with MicroTS, with the counter
+  from the guide and the Pocket Retro games; picking a game shows its source.
 - **Docs**: the MicroTS section of `site/nav.ts` plus `typescript-support`,
   rendered at build time from `site/content/docs/` with marked and Shiki. The
   same Markdown files build the pocketjs.dev pages; links to pages this site
@@ -52,7 +52,7 @@ and the router renders the 404 page.
 
 | Output | Source |
 |---|---|
-| `index.html`, `assets/main-*.js`, `assets/chunk-*.js` | `src/`; `.vue` files compile through `@vue/compiler-sfc` in `lib/plugins.ts`; each page and each preset's sources are a separate chunk |
+| `index.html`, `assets/main-*.js`, `assets/chunk-*.js` | `src/`; `.vue` files compile through `@vue/compiler-sfc` in `lib/plugins.ts`; each page, each preset's sources and each game's home page code panel are a separate chunk |
 | `assets/site-*.css` | `src/styles/main.css` through `bunx @tailwindcss/cli`, followed by the SFC `<style>` blocks |
 | `assets/retro-worker.js`, `assets/retro-mixer.js` | the retro game worker and the audio worklet |
 | `pocket/` | the UI preview kit (`lib/kit.ts`): `kit/` compiler worker and preview iframe, the framework subpaths, Vue Vapor and Solid runtimes, `hosts/web/pocketjs.wasm`, Inter |
@@ -62,7 +62,9 @@ and the router renders the 404 page.
 
 The app imports build-time data through virtual modules (`src/env.d.ts` has
 their types): `microts:docs`, `microts:files/<kind>/<name>`,
-`microts:retro-catalog`, `microts:retro-sources` and `microts:build`.
+`microts:retro-catalog`, `microts:retro-sources`, `microts:retro-code` (the
+home page code panel for each game, highlighted at build time) and
+`microts:build`.
 
 ### Pocket Retro
 
@@ -83,7 +85,7 @@ runs it first because `retro` resolves to the generated SDK.
 build.ts, serve.ts     build and dev server
 lib/                   Bun plugins, Markdown rendering, preview kit and Pocket Retro builders
 kit/                   browser compiler and preview runtime, bundled into /pocket/
-content/home/          code snippets shown on the home page
+content/home/          code snippets shown on the home page; retro.md is the Build tab for every game
 mark.svg               the MicroTS mark; every icon of the site is generated from it
 public/                favicon, icon family and manifest, copied to the site root
 src/docs/              which docs pages render (catalog.ts) and the sidebar (nav.ts)

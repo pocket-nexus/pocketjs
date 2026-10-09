@@ -153,13 +153,15 @@ All component classes are defined in `@layer components` in `src/styles/main.css
 | `.plate` | Dark glass plate with a 4px hue border | Home page main title |
 | `.bulbs` | Row of small bulbs in four colors (yellow, pink, cyan, lilac) with gaps between them | Marquee along the bottom of the plate |
 | `.spark` / `.heart` | Pixel sprites drawn through a mask: the spark in the current hue, the heart in pink | Decoration, list markers |
-| `CodeTabs` | Code panel with arcade keys as tabs (pre-rendered with Shiki) | Home page code samples |
+| `CodeTabs` | Code panel with arcade keys as tabs (pre-rendered with Shiki); a new tab list returns to the first tab and the top, and `fill` makes the screen take the remaining height and scroll | Home page code samples |
 | `.doc` | Docs body typography: cyan links, yellow inline code, pink square list bullets, lilac-bordered tables | Rendered Markdown |
 | `.code-block` | Shiki screen with a 3px translucent cyan border | Docs code blocks |
 
 **Code highlighting** uses Shiki `one-dark-pro` for all code (the same theme as the PocketJS docs and the playground editor) and is rendered at build time. The editor is CodeMirror 6 with the one-dark theme, the background changed to `screen`, and a yellow cursor and selection.
 
-**Handheld shell** (right side of the home page): lilac body, `shade` screen bezel, `out` D-pad, pink/yellow A and B buttons. The screen cycles through Pocket Retro game screenshots (the posters at `/retro/<id>/poster.png`, `image-rendering: pixelated`), and the whole device is a link to the matching playground preset.
+**Handheld shell** (right side of the home page): lilac body, `shade` screen bezel, `out` D-pad, pink/yellow A and B buttons. The screen cycles through Pocket Retro game screenshots (the posters at `/retro/<id>/poster.png`, `image-rendering: pixelated`) every 2.6 s, with a row of pellets in the bezel marking the current one. The device is not a link.
+
+**Made with MicroTS** (home page): the six games from the handheld are buttons. Picking one marks its card yellow and shows its `game.ts` and a Build tab for that game in the code panel; the page does not navigate. Each game's highlighted source is a separate chunk, loaded on hover, focus or pick, and the panel keeps the previous game on screen under `LOADING` until it arrives. From the `lg` breakpoint the panel takes the height of the card grid and its screen scrolls; below it the panel has a fixed height, and a pick scrolls it into view. A text link in the panel's tab bar opens the picked game in the playground.
 
 ---
 

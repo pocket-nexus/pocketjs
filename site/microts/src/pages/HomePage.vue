@@ -1,36 +1,67 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useTemplateRef } from "vue";
 import CandyText from "../components/CandyText.vue";
 import CodeTabs from "../components/CodeTabs.vue";
 import SectionHead from "../components/SectionHead.vue";
 import MicroTSMark from "../components/MicroTSMark.vue";
 import counterTabs from "../../content/home/counter.md?tabs";
-import retroTabs from "../../content/home/retro.md?tabs";
 import startTabs from "../../content/home/start.md?tabs";
 import { DOC_ITEMS } from "../docs/nav";
 import retroCatalog from "microts:retro-catalog";
+import retroCode from "microts:retro-code";
 import { GITHUB_MICROTS, GITHUB_RETRO, ICON_RETRO } from "../site";
 
 document.title = "MicroTS · TypeScript compiled ahead of time to native code";
 
-// The home page handheld cycles through retro game screenshots
+// The hero handheld cycles through these retro game screenshots; the Made with
+// MicroTS grid shows the same games, and picking one loads its code panel.
 const showcase = ["mega_wing", "platformer", "daylight", "cursed_caverns", "jump", "laser_jetman"];
 const games = retroCatalog.games;
 const shown = ref(0);
 let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => {
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) timer = setInterval(() => (shown.value = (shown.value + 1) % showcase.length), 2600);
+  void load(picked.value);
 });
 onBeforeUnmount(() => clearInterval(timer));
 const gameById = (id: string) => games.find((g) => g.id === id)!;
 const presetId = (id: string) => `retro-${id.replace(/_/g, "-")}`;
 
+type Tabs = { title: string; html: string }[];
+const picked = ref(showcase[0]!);
+const code = reactive<Record<string, Tabs>>({});
+// The panel keeps the last loaded game on screen until the picked one arrives.
+const lastShown = ref<Tabs>([{ title: "game.ts", html: "" }]);
+const pickedTabs = computed(() => code[picked.value] ?? lastShown.value);
+// A failed chunk load leaves the game unloaded, so the next hover or pick retries it.
+async function load(id: string) {
+  if (code[id]) return;
+  try {
+    const tabs = (await retroCode[id]!()).default;
+    code[id] = tabs;
+    if (id === picked.value) lastShown.value = tabs;
+  } catch (e) {
+    console.error(`MicroTS home: could not load the code for ${id}`, e);
+  }
+}
+const codePanel = useTemplateRef<HTMLElement>("codePanel");
+function pick(id: string) {
+  picked.value = id;
+  if (code[id]) lastShown.value = code[id];
+  else void load(id);
+  // Below the lg breakpoint the panel sits under the grid
+  if (!matchMedia("(min-width: 64rem)").matches) {
+    const smooth = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    codePanel.value?.scrollIntoView({ block: "nearest", behavior: smooth ? "smooth" : "auto" });
+  }
+}
+
 const pipeline = [
-  { n: "01", title: "Parse", body: "Vue's template parser and Vapor transforms, or the Solid front end, find the elements, bindings, conditions and loops." },
-  { n: "02", title: "Type", body: "The TypeScript checker supplies each value's type: <code>ref&lt;i32&gt;(0)</code> exposes an <code>i32</code> named <code>count</code>." },
-  { n: "03", title: "View IR", body: "Both front ends produce one typed View IR. Admission rejects syntax outside the supported subset." },
-  { n: "04", title: "Rust", body: "The IR becomes a Rust syntax tree, printed to <code>gen/*.rs</code> with a compiled style table in <code>styles.bin</code>." },
-  { n: "05", title: "Cargo", body: "Cargo builds the generated view with your model and the <code>microts</code> crate. The host owns input, fonts and presentation." },
+  { n: "01", title: "Write", body: "Write Vue templates with <code>v-if</code>, <code>v-for</code> and <code>@press</code>, or Solid TSX with <code>&lt;Show&gt;</code> and <code>&lt;For&gt;</code>." },
+  { n: "02", title: "Type", body: "Type state with <code>i32</code>, <code>f32</code>, <code>string</code>, arrays and interfaces. <code>ref&lt;i32&gt;(0)</code> becomes a Rust <code>i32</code>." },
+  { n: "03", title: "Check", body: "Run <code>check</code> to find syntax outside the supported subset, reported with its source location." },
+  { n: "04", title: "Generate", body: "Run <code>build</code> to write the view to <code>gen/*.rs</code> and the styles to <code>gen/styles.bin</code>." },
+  { n: "05", title: "Cargo", body: "Build the generated view with your model and the <code>microts</code> crate. Your host supplies input, fonts and presentation." },
 ];
 
 const bindings = [
@@ -72,13 +103,9 @@ const bindings = [
       </div>
 
       <!-- Handheld: cycles Pocket Retro screenshots -->
-      <RouterLink
-        :to="`/playground/${presetId(showcase[shown]!)}`"
-        class="group mx-auto block w-full max-w-[420px]"
-        :aria-label="`Play ${gameById(showcase[shown]!).title} in the playground`"
-      >
+      <figure class="mx-auto w-full max-w-[420px]" aria-label="Pocket Retro game screenshots">
         <div
-          class="hue-lilac relative rounded-[34px] border-[3px] border-out px-5 pt-5 pb-6 transition-transform duration-200 group-hover:-translate-y-1 group-hover:-rotate-1"
+          class="hue-lilac relative rounded-[34px] border-[3px] border-out px-5 pt-5 pb-6"
           style="
             background: linear-gradient(180deg, #3a2d63, #2b2148 60%);
             box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.12), inset 0 -6px 0 rgba(0, 0, 0, 0.25), 0 8px 0 #7155d8, 0 8px 0 3px #0a0614, 0 30px 50px -20px rgba(0, 0, 0, 0.8);
@@ -87,7 +114,9 @@ const bindings = [
           <div class="rounded-[18px] bg-shade p-3 shadow-[inset_0_0_0_2px_#0a0614]">
             <div class="mb-2 flex items-center justify-between px-1">
               <span class="font-px text-[0.5rem] tracking-[0.08em] text-muted">POCKET RETRO</span>
-              <span class="flex items-center gap-1.5 font-mono text-[0.62rem] text-muted"><i class="blink inline-block size-1.5 rounded-full bg-pink" />LIVE IN PLAYGROUND</span>
+              <span class="flex items-center gap-1.5" aria-hidden="true">
+                <i v-for="(id, i) in showcase" :key="id" class="inline-block size-1.5 rounded-[1px] transition-colors" :class="i === shown ? 'bg-pink' : 'bg-out'" />
+              </span>
             </div>
             <div class="scanlines relative overflow-hidden rounded-[10px] bg-black shadow-[0_0_0_2px_#0a0614]" style="aspect-ratio: 4 / 3">
               <img
@@ -95,6 +124,7 @@ const bindings = [
                 :key="id"
                 :src="`/retro/${id}/poster.png`"
                 :alt="gameById(id).title"
+                :aria-hidden="i !== shown"
                 class="absolute inset-0 h-full w-full object-contain [image-rendering:pixelated] transition-opacity duration-300"
                 :class="i === shown ? 'opacity-100' : 'opacity-0'"
               />
@@ -115,8 +145,7 @@ const bindings = [
             </div>
           </div>
         </div>
-        <p class="mt-6 text-center font-round text-[0.86rem] font-semibold text-soft group-hover:text-yellow">Press start → play it in the browser</p>
-      </RouterLink>
+      </figure>
     </section>
 
     <!-- ================= write ================= -->
@@ -124,14 +153,14 @@ const bindings = [
       <SectionHead
         title="One source"
         :start="2"
-        lede="A template describes nodes, the values they display and the actions that change them. <b>The TypeScript checker gives every binding a Rust type</b>; the generated view calls your model through a Rust trait."
+        lede="Write a screen as a Vue single-file component or a Solid TSX view, with its state and actions typed in a TypeScript module. <b>The same source runs in a browser, in QuickJS on a device, or as native Rust.</b>"
       />
       <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div class="grid gap-4">
           <div v-for="(row, i) in [
-            { k: 'Browser preview', v: 'The Vue or Solid build runs as JavaScript against the PocketJS web host. This is what the playground runs.' },
-            { k: 'QuickJS guest', v: 'The same source bundled for an embedded JavaScript engine on the device.' },
-            { k: 'Native AOT', v: 'The compiler writes gen/*.rs. Cargo links it with your model; no JavaScript engine ships.' },
+            { k: 'Browser preview', v: 'Edit the view and run it in a browser on the PocketJS web host. The playground on this site runs this build.' },
+            { k: 'QuickJS guest', v: 'Bundle the same source as JavaScript for a device that runs the QuickJS engine.' },
+            { k: 'Native AOT', v: 'Compile the view to Rust and build it with Cargo, together with your model. The app ships without a JavaScript engine.' },
           ]" :key="row.k" class="shell px-5 py-4" :class="['hue-cyan', 'hue-lilac', 'hue-yellow'][i]">
             <div class="label mb-2">{{ row.k }}</div>
             <p class="text-[0.95rem] leading-relaxed text-soft">{{ row.v }}</p>
@@ -146,7 +175,7 @@ const bindings = [
       <SectionHead
         title="How it compiles"
         :start="4"
-        lede="Build time does the work a JavaScript framework does at run time. <b>The native view stores node IDs and previous binding values</b>; it runs without refs, effects or a render function."
+        lede="The MicroTS compiler turns each component into Rust source and a compiled style table, and Cargo builds them into your native app. <b>You edit the TypeScript; the compiler maintains <code>gen/</code>.</b>"
       />
       <ol class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <li v-for="(step, i) in pipeline" :key="step.n" class="shell card-hover relative px-4 pt-4 pb-5" :class="['hue-pink', 'hue-yellow', 'hue-cyan', 'hue-lilac', 'hue-orange'][i]">
@@ -187,7 +216,7 @@ const bindings = [
       <SectionHead
         title="Pick a model"
         :start="1"
-        lede="<code>app.model</code> in <code>pocket.json</code> chooses who implements the generated view-model trait. The view compiler emits the same calls either way."
+        lede="Write the app logic in Rust, or write it in TypeScript and compile it to Rust as well. <code>app.model</code> in <code>pocket.json</code> selects the mode; the view stays the same."
       />
       <div class="grid gap-6 md:grid-cols-2">
         <div class="shell hue-yellow px-6 pt-5 pb-6">
@@ -197,8 +226,8 @@ const bindings = [
           </div>
           <h3 class="mt-4 font-round text-[1.3rem] font-semibold">Handwritten Rust model</h3>
           <p class="mt-2 leading-relaxed text-soft">
-            You implement each trait method and computed getter in Rust. The <code class="font-mono text-[0.85em] text-yellow-l">.ts</code> module supplies the
-            browser preview, so the template and types are shared while the native business logic stays in Rust.
+            Implement the generated trait's methods and computed getters in Rust. The <code class="font-mono text-[0.85em] text-yellow-l">.ts</code> module runs the
+            browser preview, and its types define the native contract.
           </p>
         </div>
         <div class="shell hue-cyan px-6 pt-5 pb-6">
@@ -208,9 +237,9 @@ const bindings = [
           </div>
           <h3 class="mt-4 font-round text-[1.3rem] font-semibold">TypeScript model, compiled</h3>
           <p class="mt-2 leading-relaxed text-soft">
-            Model AOT translates state seeds, computed values, reactions and tasks from the
-            <code class="font-mono text-[0.85em] text-cyan-l">.ts</code> module. The same bodies run in the browser preview.
-            <b class="font-semibold text-ink">An admission failure does not fall back</b> to the Rust mode.
+            Write state, computed values, reactions and tasks in the <code class="font-mono text-[0.85em] text-cyan-l">.ts</code> module. Model AOT compiles
+            them to <code class="font-mono text-[0.85em] text-cyan-l">gen/app_model.rs</code>, and the browser preview runs the same bodies.
+            <b class="font-semibold text-ink">Admission errors report <code class="font-mono text-[0.85em]">file:line:column</code></b> and do not fall back to the Rust mode.
           </p>
         </div>
       </div>
@@ -221,16 +250,20 @@ const bindings = [
       <SectionHead
         title="Made with MicroTS"
         :start="0"
-        lede="<b>Pocket Retro</b> runs Pyxel games on a Game Boy Advance. Each game is TypeScript against a Pyxel-compatible SDK; MicroTS compiles the game, the SDK and a root module into one Rust model, linked with a bare-metal runtime into a ROM. No Python or JavaScript runs on the console."
+        lede="<b>Pocket Retro</b> builds Game Boy Advance ROMs from games written in TypeScript against a Pyxel-compatible SDK. MicroTS compiles each game and the SDK into one Rust model, and <b>no Python or JavaScript runs on the console</b>. Pick a game to read its source."
       />
-      <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      <div class="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <RouterLink
+          <button
             v-for="(id, i) in showcase"
             :key="id"
-            :to="`/playground/${presetId(id)}`"
-            class="shell card-hover block overflow-hidden"
-            :class="['hue-pink', 'hue-cyan', 'hue-yellow', 'hue-lilac', 'hue-orange', 'hue-pink'][i]"
+            type="button"
+            class="shell card-hover block cursor-pointer overflow-hidden text-left"
+            :class="id === picked ? 'hue-yellow -translate-y-1' : ['hue-pink', 'hue-cyan', 'hue-lilac', 'hue-orange', 'hue-pink', 'hue-cyan'][i]"
+            :aria-pressed="id === picked"
+            @click="pick(id)"
+            @pointerenter="load(id)"
+            @focus="load(id)"
           >
             <div class="scanlines relative m-2 overflow-hidden rounded-[12px] bg-black shadow-[0_0_0_2px_#0a0614]" style="aspect-ratio: 1">
               <img :src="`/retro/${id}/poster.png`" :alt="gameById(id).title" loading="lazy" class="h-full w-full object-contain [image-rendering:pixelated]" />
@@ -242,23 +275,33 @@ const bindings = [
                 <span class="badge">{{ gameById(id).lines }} lines</span>
               </div>
             </div>
-          </RouterLink>
+          </button>
         </div>
-        <div class="grid gap-5">
-          <CodeTabs :tabs="retroTabs" />
-          <a
-            :href="GITHUB_RETRO"
-            target="_blank"
-            rel="noopener"
-            class="flex items-center gap-4 rounded-2xl border-2 border-[rgba(255,95,158,0.6)] bg-[rgba(255,95,158,0.09)] px-4 py-3.5 shadow-[0_4px_0_#0a0614] transition hover:-translate-y-0.5"
-          >
-            <span class="grid size-11 flex-none place-items-center rounded-xl bg-bg-2 [&_svg]:size-9" v-html="ICON_RETRO" />
-            <span class="grid gap-0.5">
-              <strong class="font-round text-[1.08rem] font-semibold">pocket-nexus/pocket-retro</strong>
-              <span class="text-[0.9rem] text-soft">{{ games.length }} games in the playground, each one editable. The ROM build needs Bun and Rust nightly.</span>
-            </span>
-          </a>
+        <!-- From lg up the panel takes the grid's height, so a long game.ts does not stretch the row -->
+        <div ref="codePanel" class="relative h-[30rem] scroll-mb-6 lg:h-auto">
+          <CodeTabs class="absolute inset-0" fill :tabs="pickedTabs" :loading="!code[picked]">
+            <template #actions>
+              <RouterLink
+                :to="`/playground/${presetId(picked)}`"
+                class="ml-auto font-round text-[0.84rem] font-semibold text-soft underline decoration-dotted underline-offset-4 hover:text-yellow"
+              >
+                Edit {{ gameById(picked).title }} in the playground
+              </RouterLink>
+            </template>
+          </CodeTabs>
         </div>
+        <a
+          :href="GITHUB_RETRO"
+          target="_blank"
+          rel="noopener"
+          class="flex items-center gap-4 rounded-2xl border-2 border-[rgba(255,95,158,0.6)] bg-[rgba(255,95,158,0.09)] px-4 py-3.5 shadow-[0_4px_0_#0a0614] transition hover:-translate-y-0.5 lg:col-span-2"
+        >
+          <span class="grid size-11 flex-none place-items-center rounded-xl bg-bg-2 [&_svg]:size-9" v-html="ICON_RETRO" />
+          <span class="grid gap-0.5">
+            <strong class="font-round text-[1.08rem] font-semibold">pocket-nexus/pocket-retro</strong>
+            <span class="text-[0.9rem] text-soft">{{ games.length }} games in the playground, each one editable. The ROM build needs Bun and Rust nightly.</span>
+          </span>
+        </a>
       </div>
     </section>
 
