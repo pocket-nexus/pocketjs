@@ -1,19 +1,18 @@
 // The player of a Pocket3D game in a browser tab: one page chrome for every
 // game. The game's name, the choice of device as text, the device's shell
 // with the game's screens in it and its own keys as the controls, a mark that
-// says the picture is simulated, the keys as a list, and the way to the game
-// in Pocket Studio. Nothing here knows a game: a game says its name, its
-// devices and one sentence a device where its picture differs, and draws into
-// the canvas it is handed.
+// says the picture is simulated, the keys as a list, and a dock with the two
+// things a visitor does with the game: download it, remix it. Nothing here
+// knows a game: a game says its name and its devices, and draws into the
+// canvas it is handed.
 //
 //   const player = createPlayer({
 //     title: "My Game",
 //     tagline: { en: "One sentence about it.", ja: "ゲームを一文で。" },
-//     devices: [{ id: "vita", label: "PS Vita", note: "…" }, …],   // ids of ./shells/profiles.js
+//     devices: [{ id: "vita", label: "PS Vita" }, …],              // ids of ./shells/profiles.js
 //                                                                  // (`mark`: the trademark in a label that is more than one,
 //                                                                  //  { id: "android", label: "Android phone", mark: "Android" })
 //     runsOn: ["psp", "vita", "3ds", "ipod-touch", "android"],     // what the game has packages for
-//     withoutPackages: { heading: "…", sentence: "…" },            // the dock's words when a visitor can get none
 //     about: "This is the Pocket3D web player.",                   // what the About panel says this player is
 //     pick: (id) => present(id),                                   // another device was chosen
 //   });
@@ -31,17 +30,41 @@
 //
 // Languages (pocket3d-words.js): the player speaks English and Japanese, chosen by the address
 // (`?lang=ja`), the visitor's saved choice, then the browser's language, and offers the other one in
-// its bar. A game's words — `tagline`, a device's `label`, `note` and `mark`, `withoutPackages`,
-// `about`, what it hands `say` — are a string, said in every language, or one string per language:
+// its bar. A game's words — `tagline`, a device's `label` and `mark`, `about`, what it hands
+// `say` — are a string, said in every language, or one string per language:
 // `{ en: "…", ja: "…" }`. Where a game gives no Japanese, the player's own words are Japanese and the
 // game's are its English; a device's `label` given as a string is the player's own name for that
 // device in a language other than English.
 //
 // What the player knows of the game in Pocket Studio comes from `/app.json`
-// on the page's own host, which a game's host answers (`id`, `title`,
-// `tagline`, `author`, `packages`). A host that has none leaves the page's own
-// words: `<meta name="pocket-app" content="<id>">` and
+// on the page's own host, which a game's host answers (`id`, `slug`, `title`,
+// `tagline`, `author`, `packages`, `remixable`). A host that has none leaves
+// the page's own words: `<meta name="pocket-app" content="<id>">` and
 // `<meta name="pocket-studio" content="<origin>">`, then the Studio's front door.
+//
+// The dock (`<aside data-pocket-studio>`) holds links of an icon and one word
+// (the words are pocket3d-words.js's `get`, `remix` and `make`): the first
+// where a visitor may have the game's packages, to the game's page in Pocket
+// Studio with its files open (`/games/<slug>?get`); the second where the host
+// says the game is `remixable` (`/games/<slug>?remix`); and, where neither is
+// so, the third alone, to the Studio's front door.
+//
+// A host may draw the dock itself. When `/app.json` has `chrome`, a path under
+// `/play/` that ends in `.js` (`^/play/[A-Za-z0-9._/-]+\.js$`, no `..`), the
+// player imports that module from the page's own origin and calls
+//
+//   mount({ dock, frame, app, studio, lang, title })
+//
+// `dock` is the aside, emptied and marked `data-pocket-hosted`; `frame` the
+// player's root (`[data-pocket-player]`), for what stands beside the dock;
+// `app` what `/app.json` said; `studio` the Studio's origin; `lang` the
+// language the player speaks ("en" or "ja"); `title` the game's title as
+// shown. `mount` may return `{ speak(lang) }`, called each time the visitor
+// chooses another language. An import or a mount that throws leaves the
+// player's own dock: its links are put back and the mark is taken off. The
+// player's stylesheet styles the dock's own links only while the dock is not
+// hosted; a host's stylesheet owns a hosted one
+// (`[data-pocket-studio][data-pocket-hosted]`).
 //
 // The host may also name an address that counts the players that open
 // (`opened` in `/app.json`, or `<meta name="pocket-opened">`): the player asks
@@ -64,7 +87,42 @@ const make = (tag, attributes = {}, ...children) => {
   el.append(...children);
   return el;
 };
-const megabytes = (bytes) => `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+
+/** The dock's icons: the paths of a 24 unit box, drawn with the text's colour. */
+const ICONS = {
+  get: [["path", { d: "M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14" }]],
+  remix: [
+    ["circle", { cx: 7, cy: 6, r: 2.2 }],
+    ["circle", { cx: 17, cy: 6, r: 2.2 }],
+    ["circle", { cx: 12, cy: 18, r: 2.2 }],
+    ["path", { d: "M7 8.2v1.3a3 3 0 0 0 3 3h4a3 3 0 0 0 3-3V8.2M12 12.5v3.3" }],
+  ],
+};
+const SVG = "http://www.w3.org/2000/svg";
+/** One of `ICONS` as an element, or null for a door that has none. The link's word names it. */
+const icon = (name) => {
+  if (!ICONS[name]) return null;
+  const drawn = document.createElementNS(SVG, "svg");
+  for (const [key, value] of Object.entries({ viewBox: "0 0 24 24", width: 18, height: 18, fill: "none", stroke: "currentColor", "stroke-width": 2.4, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", focusable: "false" })) drawn.setAttribute(key, value);
+  for (const [tag, attributes] of ICONS[name]) {
+    const shape = document.createElementNS(SVG, tag);
+    for (const [key, value] of Object.entries(attributes)) shape.setAttribute(key, value);
+    drawn.append(shape);
+  }
+  return drawn;
+};
+
+/** The address of a host's own dock (`chrome` in `/app.json`): a script under `/play/` on the page's own origin. */
+const CHROME = /^\/play\/[A-Za-z0-9._/-]+\.js$/;
+/** `chrome` as an address to import, or null for a value that is none: another kind, another directory, a way up out of it. */
+export function chromeAddress(chrome, origin = globalThis.location?.origin) {
+  if (typeof chrome !== "string" || !CHROME.test(chrome) || chrome.includes("..") || chrome.includes("//")) return null;
+  try {
+    return new URL(chrome, origin).href;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * A link into Pocket Studio that says its visitor comes from a player, with what the address already had,
@@ -105,49 +163,48 @@ export function reportOpened(address, app, layout, send = (...request) => fetch(
 }
 
 /**
- * What the dock says, and its doors, from what the game and its host say. `packages` is what the host
- * lists (leave it out for a host that said nothing) and `allowNative` whether a visitor may have them
- * (`false` when the host says no; a host that does not say lets them). With packages a visitor may get,
- * the dock says where they are and has two doors, "get" first; with none it says what the page is
- * (`withoutPackages.heading`, `withoutPackages.sentence`) and has the one door "make". A host that said
- * nothing leaves the game's own word: `runsOn`.
+ * The dock's doors, in order, from what the game and its host say: "get" where a visitor may have the
+ * game's packages, "remix" where the host says a game of one's own can start from this one, and "make"
+ * alone where neither is so. `packages` is what the host lists (leave it out for a host that said
+ * nothing) and `allowNative` whether a visitor may have them (`false` when the host says no; a host that
+ * does not say lets them). A host that said nothing leaves the game's own word: `runsOn`. The first door
+ * is the dock's own action.
  */
-export function dockWords({ title, runsOn = [], packages, allowNative, withoutPackages = {}, lang = DEFAULT_LANGUAGE }) {
+export function dockWords({ runsOn = [], packages, allowNative, remixable = false, lang = DEFAULT_LANGUAGE } = {}) {
   const w = catalog(lang);
   const targets = runsOn.filter((t) => t in w.targets);
-  const built = targets.length ? w.builtFor({ title, targets: w.list(targets.map((t) => w.targets[t])) }) : "";
   const held = (packages ?? []).filter((p) => p && p.target in w.targets);
   const may = packages ? held.length > 0 && allowNative !== false : targets.length > 0;
-  if (!may) {
-    return {
-      heading: withoutPackages.heading == null ? w.madeFor : wordsIn(withoutPackages.heading, lang),
-      sentence: withoutPackages.sentence == null ? w.sentences(built || w.runsHere({ title }), w.noPackagesYet) : wordsIn(withoutPackages.sentence, lang),
-      doors: ["make"],
-    };
-  }
-  return {
-    heading: w.playReal,
-    sentence: w.sentences(
-      built || w.builtForReal({ title }),
-      held.length
-        ? w.packagesHeld({ count: held.length, list: w.list(held.map((p) => (p.size > 0 ? w.sized({ name: w.targets[p.target], size: megabytes(p.size) }) : w.targets[p.target]))) })
-        : w.packagesIn,
-    ),
-    doors: ["get", "make"],
-  };
+  const doors = [...(may ? ["get"] : []), ...(remixable ? ["remix"] : [])];
+  return { doors: doors.length ? doors : ["make"] };
 }
 
 /**
- * The dock's second door: the Studio's front door, or, for a game whose host says it is `remixable`, the
- * Studio's way to start a game of one's own from a copy of this one (`/studio/?remix=<id>`). In a
- * language other than English the front door is that language's (`/ja/`). `carry` is the language the
- * links into the room carry (`lang`), or null: the visitor's choice, or a language that is not English.
+ * The door to the game's files: its page in Pocket Studio with them open (`/games/<slug>?get`), or the
+ * Studio's front door for a game whose host named no `slug`. `carry` is the language the link carries
+ * (`lang`), or null.
  */
-export function makeDoor({ studio = STUDIO, id = "", remixable = false, lang = DEFAULT_LANGUAGE, carry = null } = {}) {
-  const w = catalog(lang);
-  if (remixable && id) return { text: w.remix, href: fromPlayer(`${studio}/studio/?remix=${encodeURIComponent(id)}`, carry) };
+export function getDoor({ studio = STUDIO, slug = "", lang = DEFAULT_LANGUAGE, carry = null } = {}) {
+  return { text: catalog(lang).get, href: fromPlayer(slug ? `${studio}/games/${encodeURIComponent(slug)}?get` : `${studio}/`, carry) };
+}
+
+/**
+ * The door to a game of one's own from a copy of this one: the game's page in Pocket Studio with its
+ * remix open (`/games/<slug>?remix`), or, for a game whose host named no `slug`, the room's own way to
+ * start one (`/studio/?remix=<id>`).
+ */
+export function remixDoor({ studio = STUDIO, id = "", slug = "", lang = DEFAULT_LANGUAGE, carry = null } = {}) {
+  return { text: catalog(lang).remix, href: fromPlayer(slug ? `${studio}/games/${encodeURIComponent(slug)}?remix` : `${studio}/studio/?remix=${encodeURIComponent(id)}`, carry) };
+}
+
+/**
+ * The door a dock has when it has no other: the Studio's front door. In a language other than English
+ * the front door is that language's (`/ja/`). `carry` is the language the links into the Studio carry
+ * (`lang`), or null: the visitor's choice, or a language that is not English.
+ */
+export function makeDoor({ studio = STUDIO, lang = DEFAULT_LANGUAGE, carry = null } = {}) {
   // (the front door has a page in each language: its path says which, so only an English choice is carried)
-  return { text: w.make, href: fromPlayer(lang === DEFAULT_LANGUAGE ? `${studio}/` : `${studio}/${lang}/`, lang === DEFAULT_LANGUAGE ? carry : null) };
+  return { text: catalog(lang).make, href: fromPlayer(lang === DEFAULT_LANGUAGE ? `${studio}/` : `${studio}/${lang}/`, lang === DEFAULT_LANGUAGE ? carry : null) };
 }
 
 /** A panel under the control that opens it: one open at a time, closed by Escape, by a press outside it, or by its control. */
@@ -242,18 +299,19 @@ async function readApp() {
 }
 
 /**
- * Builds the player in `root` (the page's body) and returns it. `devices` are `{ id, label, note }`: `id`
- * names a shell, `note` is the game's sentence on how its picture on that device differs from this one.
- * A device whose label is more than a trademark says which word is one (`mark`: "Android" for an
- * "Android phone"); About names that word among the marks.
+ * Builds the player in `root` (the page's body) and returns it. `devices` are `{ id, label }`: `id`
+ * names a shell. A device whose label is more than a trademark says which word is one (`mark`:
+ * "Android" for an "Android phone"); About names that word among the marks.
  * `runsOn` are the targets the game has packages for, as Pocket Studio names them, for a host that lists
- * none. `withoutPackages` (`{ heading, sentence }`) are the dock's words when a visitor can get no package.
- * `about` is the first sentence of the About panel: what this player is (the player's own sentence when
- * a page gives none). `pick(id)` is called when another device is chosen. Every one of the game's words
- * but `title` is a string or one string per language (`{ en, ja }`); the top of this file says how
- * each one is read.
+ * none. `about` is the first sentence of the About panel: what this player is (the player's own
+ * sentence when a page gives none). `pick(id)` is called when another device is chosen. Every one of the
+ * game's words but `title` is a string or one string per language (`{ en, ja }`); the top of this file
+ * says how each one is read.
+ *
+ * Two things a page of an earlier player gave are taken and not shown: a device's `note` (the mark says
+ * one sentence for every game and every device) and `withoutPackages` (the dock has no sentence).
  */
-export function createPlayer({ root = document.body, title, tagline = "", devices, device, runsOn = [], withoutPackages = {}, about = null, pick }) {
+export function createPlayer({ root = document.body, title, tagline = "", devices, device, runsOn = [], about = null, pick }) {
   let { lang, from } = readLanguage({ studio: new URL(document.querySelector('meta[name="pocket-studio"]')?.content || STUDIO, location.href).origin });
   // (a language the visitor chose is carried into the room; so is any that is not English)
   let chosen = from === "address" || from === "cookie" || from === "stored";
@@ -274,11 +332,15 @@ export function createPlayer({ root = document.body, title, tagline = "", device
   const speech = make("button", { type: "button", "data-pocket-language": true });
   const stageRoot = make("main");
   const status = make("p", { "data-pocket-say": true, role: "status" });
-  const heading = make("h2");
-  const pitch = make("p");
-  const get = make("a", { "data-pocket-action": "get", href: STUDIO });
-  const own = make("a", { "data-pocket-action": "make", href: STUDIO });
-  const dock = make("aside", { "data-pocket-studio": true, "aria-label": "Pocket Studio" }, make("div", { "data-pocket-pitch": true }, heading, pitch), make("div", { "data-pocket-actions": true }, get, own));
+  // The dock's own links: each an icon, where it has one, and a word.
+  const door = (action) => {
+    const word = make("span");
+    const link = make("a", { "data-pocket-action": action, href: STUDIO }, ...[icon(action)].filter(Boolean), word);
+    return { link, word };
+  };
+  const doors = { get: door("get"), remix: door("remix"), make: door("make") };
+  const actions = make("div", { "data-pocket-actions": true }, doors.get.link, doors.remix.link, doors.make.link);
+  const dock = make("aside", { "data-pocket-studio": true, "aria-label": "Pocket Studio" }, actions);
   const frame = make(
     "div",
     { "data-pocket-player": true },
@@ -309,7 +371,9 @@ export function createPlayer({ root = document.body, title, tagline = "", device
 
   // What is said of the game, until the host says more.
   // (`packages` is what the host lists: none is known until it has answered)
-  let game = { title, packages: undefined, allowNative: undefined, studio: STUDIO, id: "", remixable: false };
+  let game = { title, packages: undefined, allowNative: undefined, studio: STUDIO, id: "", slug: "", remixable: false };
+  /** What a host's own dock returned (`mount`), while the dock is hosted: null while it is the player's own. */
+  let hostDock = null;
   /** What the host said of the game (`/app.json`), for its tagline in each language. */
   let hosted = null;
   let current = devices.find((d) => d.id === device) ?? devices[0];
@@ -346,23 +410,23 @@ export function createPlayer({ root = document.body, title, tagline = "", device
     speech.lang = next;
     speech.title = w.switchTo({ name: w.names[next] });
 
-    // What the game says it is built for, then what the Studio holds of it today when the host has said;
-    // or, where a visitor can get no package, what the page is. The first door is the dock's own action.
-    const dockSays = dockWords({ title: game.title, runsOn, packages: game.packages, allowNative: game.allowNative, withoutPackages, lang });
-    heading.textContent = dockSays.heading;
-    pitch.textContent = dockSays.sentence;
-    get.hidden = !dockSays.doors.includes("get");
-    get.toggleAttribute("data-pocket-primary", dockSays.doors[0] === "get");
-    own.toggleAttribute("data-pocket-primary", dockSays.doors[0] === "make");
-    get.textContent = w.get;
-    get.href = fromPlayer(game.id ? `${game.studio}/studio/?app=${encodeURIComponent(game.id)}` : `${game.studio}/`, carry());
-    const door = makeDoor({ ...game, lang, carry: carry() });
-    own.textContent = door.text;
-    own.href = door.href;
+    // The dock's own doors, where no host draws it: which ones the game and its host give, the first as
+    // the dock's own action, and where each leads.
+    if (!dock.hasAttribute("data-pocket-hosted")) {
+      const dockSays = dockWords({ runsOn, packages: game.packages, allowNative: game.allowNative, remixable: game.remixable && Boolean(game.slug || game.id), lang });
+      const leads = { get: getDoor, remix: remixDoor, make: makeDoor };
+      for (const [action, { link, word }] of Object.entries(doors)) {
+        const shown = dockSays.doors.includes(action);
+        link.hidden = !shown;
+        link.toggleAttribute("data-pocket-primary", dockSays.doors[0] === action);
+        const to = leads[action]({ ...game, lang, carry: carry() });
+        word.textContent = to.text;
+        link.href = to.href;
+      }
+    }
 
-    // The mark's words: what every game's picture here is, then the game's own sentence for this device.
-    const note = wordsIn(current.note, lang);
-    tip.replaceChildren(make("p", { text: w.simulatedSays({ device: label(current), title: game.title }) }), ...(note ? [make("p", { text: note })] : []));
+    // The mark's words: what every game's picture here is. One sentence, the same for every game.
+    tip.replaceChildren(make("p", { text: w.simulatedSays({ device: label(current), title: game.title }) }));
 
     const keys = legend(shape, w);
     const face = FACES[shape.glyphs] ?? FACES.playstation;
@@ -406,7 +470,38 @@ export function createPlayer({ root = document.body, title, tagline = "", device
     stage.speak(w.shell);
     picker.name(labels());
     write();
+    try {
+      hostDock?.speak?.(lang);
+    } catch {
+      // (a host's dock that cannot change its language keeps the one it has)
+    }
     for (const heard of listeners) heard(lang);
+  };
+
+  /**
+   * The host's own dock, when `/app.json` names one (`chrome`): its module is imported from the page's
+   * own origin and handed the dock, emptied and marked. One that cannot be read, or that throws, leaves
+   * the player's own dock as it was.
+   */
+  const hostTheDock = async (app, studio) => {
+    const address = chromeAddress(app?.chrome);
+    if (!address) return;
+    try {
+      const module = await import(address);
+      if (typeof module.mount !== "function") return;
+      dock.replaceChildren();
+      dock.setAttribute("data-pocket-hosted", "");
+      const told = lang;
+      const handle = await module.mount({ dock, frame, app, studio, lang: told, title: game.title });
+      hostDock = handle && typeof handle === "object" ? handle : {};
+      // (the visitor chose another language while the dock was being drawn)
+      if (lang !== told) hostDock.speak?.(lang);
+    } catch {
+      hostDock = null;
+      dock.removeAttribute("data-pocket-hosted");
+      dock.replaceChildren(actions);
+      write();
+    }
   };
   speech.addEventListener("click", () => {
     chosen = true;
@@ -429,10 +524,13 @@ export function createPlayer({ root = document.body, title, tagline = "", device
       allowNative: typeof app?.allowNative === "boolean" ? app.allowNative : undefined,
       studio,
       id: app?.id ?? "",
+      // (the label of the game's own address, which its page in Pocket Studio is named by)
+      slug: typeof app?.slug === "string" ? app.slug : "",
       // (a host says it when a game of one's own can start from a copy of this one)
       remixable: app?.remixable === true,
     };
     write();
+    void hostTheDock(app, studio);
   });
 
   return {

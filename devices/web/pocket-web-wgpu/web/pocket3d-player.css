@@ -1,7 +1,12 @@
 /* The look of the player pocket3d-player.js builds: the bar with the game's
  * name, the choice of device and the mark beside it, the panels its controls
- * open, and the way to Pocket Studio under the stage. A page links this file
- * after pocket3d-stage.css.
+ * open, and the dock under the stage: a bar with the game's two doors,
+ * Download and Remix. A page links this file after pocket3d-stage.css.
+ *
+ * A host may draw the dock itself (pocket3d-player.js, `chrome`): the dock is
+ * then marked `data-pocket-hosted`, and the rules for the dock's own links
+ * below do not apply. The bar's place, its line and its ground stay; a host's
+ * stylesheet changes them with `[data-pocket-studio][data-pocket-hosted]`.
  *
  * The colours are Pocket Studio's own player's, as custom properties a page
  * may set on `:root`:
@@ -14,9 +19,9 @@
  *   --pocket3d-muted   what waits to be chosen        #8f7fb0
  *   --pocket3d-accent  the one action                 #ffd23f
  *
- * Gabarito (SIL Open Font License, ./fonts/OFL.txt) sets the game's name and
- * the dock's heading; everything else is the system's own face. The page
- * draws with the system's face until the file has come.
+ * Gabarito (SIL Open Font License, ./fonts/OFL.txt) sets the game's name;
+ * everything else is the system's own face. The page draws with the system's
+ * face until the file has come.
  *
  * Japanese is in the system's Japanese face (Hiragino Sans, Yu Gothic, Meiryo,
  * Noto Sans JP) after the Latin ones, headings too: a heading can hold a
@@ -59,7 +64,6 @@
 /* Japanese: taller lines, breaks between phrases, and no tightened tracking on its headings. */
 [data-pocket-player]:lang(ja) { line-height: 1.7; }
 [data-pocket-player]:lang(ja) :is(p, dd, h2) { word-break: auto-phrase; overflow-wrap: anywhere; }
-[data-pocket-player]:lang(ja) [data-pocket-pitch] h2 { letter-spacing: 0; line-height: 1.4; }
 
 /* The bar: the game at the left, the device in the middle, the player's own controls at the right. */
 [data-pocket-bar] { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px 24px; padding: max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 6px max(20px, env(safe-area-inset-left)); }
@@ -78,7 +82,7 @@
 [data-pocket-open]:hover, [data-pocket-open][aria-expanded="true"], [data-pocket-language]:hover { color: var(--ink); }
 /* (the other language, after the panels' controls: a hairline sets it apart, as the mark is from the devices) */
 [data-pocket-language]::before { content: ""; display: inline-block; width: 1px; height: 1em; margin-right: 20px; vertical-align: -0.15em; background: var(--line); }
-:is([data-pocket-mark], [data-pocket-open], [data-pocket-language], [data-pocket-action]):focus-visible { outline: 1px solid var(--muted); outline-offset: 4px; border-radius: 2px; }
+:is([data-pocket-mark], [data-pocket-open], [data-pocket-language]):focus-visible { outline: 1px solid var(--muted); outline-offset: 4px; border-radius: 2px; }
 
 /* A sentence in place of the game. */
 [data-pocket-say] { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--ink-2); pointer-events: none; }
@@ -92,20 +96,20 @@
 [data-pocket-panel] dt { color: var(--ink); font: 12px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; }
 [data-pocket-panel] dd { color: var(--ink-2); }
 
-/* The way to Pocket Studio: what the game is built for, and the door. */
-[data-pocket-studio] { display: flex; align-items: center; justify-content: space-between; gap: 16px 32px; padding: 14px max(20px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); border-top: 1px solid var(--line); background: linear-gradient(color-mix(in srgb, var(--panel) 55%, var(--ground)), var(--ground)); }
-[data-pocket-pitch] { min-width: 0; flex: 1; display: grid; gap: 2px; }
-[data-pocket-pitch] h2 { color: var(--ink); font: 800 20px/1.2 var(--display); letter-spacing: -0.02em; }
-[data-pocket-pitch] p { max-width: 64ch; color: var(--ink-2); }
-[data-pocket-actions] { flex: none; display: flex; align-items: center; gap: 20px; }
-[data-pocket-action] { color: var(--ink-2); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent); text-underline-offset: 4px; white-space: nowrap; }
-[data-pocket-action]:hover { color: var(--ink); }
-/* (the dock's first door is its action: the one to the packages, or the only one it has) */
-[data-pocket-action][data-pocket-primary] { padding: 9px 16px; border-radius: 8px; background: var(--accent); color: #1c1503; font-weight: 600; text-decoration: none; }
-[data-pocket-action][data-pocket-primary]:hover { color: #1c1503; filter: brightness(1.06); }
+/* The dock: a bar under the stage with the game's doors at its right, each an icon and a word. */
+[data-pocket-studio] { display: flex; align-items: center; justify-content: flex-end; gap: 12px 20px; padding: 10px max(20px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); border-top: 1px solid var(--line); background: linear-gradient(color-mix(in srgb, var(--panel) 55%, var(--ground)), var(--ground)); }
+/* The dock's own doors. A dock a host draws (`data-pocket-hosted`) is the host's stylesheet's. */
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-actions] { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 12px; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action] { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-weight: 600; line-height: 1.3; text-decoration: none; white-space: nowrap; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action] svg { flex: none; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action][hidden] { display: none; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action]:focus-visible { outline: 1px solid var(--muted); outline-offset: 3px; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action]:hover { border-color: var(--muted); }
+/* (the dock's first door is its action: the one to the game's files, or the only one it has) */
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action][data-pocket-primary] { border-color: var(--accent); background: var(--accent); color: #1c1503; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action][data-pocket-primary]:hover { filter: brightness(1.06); }
 
-/* A window narrower than its bar: the game and the controls on one line, the devices under them; the
- * dock's words above its door. */
+/* A window narrower than its bar: the game and the controls on one line, the devices under them. */
 @media (max-width: 760px) {
   [data-pocket-bar] { grid-template-columns: minmax(0, 1fr) auto; }
   [data-pocket-device] { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; gap: 4px 14px; }
@@ -114,18 +118,11 @@
   [data-pocket-mark]::before { display: none; }
   [data-pocket-tools] { gap: 16px; }
   [data-pocket-language]::before { margin-right: 16px; }
-  [data-pocket-studio] { flex-direction: column; align-items: stretch; gap: 12px; }
-  [data-pocket-actions] { flex-wrap: wrap; justify-content: space-between; gap: 12px 14px; }
-  [data-pocket-action][data-pocket-primary] { padding: 9px 14px; }
 }
-/* A window too low for the dock's sentences (a phone on its side): its heading and its door on one line. */
+/* A low window (a phone on its side): a thinner bar and a thinner dock. Both doors stay: each is one word. */
 @media (max-height: 560px) {
   [data-pocket-bar] { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 2px; }
   [data-pocket-game] p { display: none; }
-  [data-pocket-studio] { flex-direction: row; align-items: center; padding-top: 6px; padding-bottom: max(6px, env(safe-area-inset-bottom)); }
-  [data-pocket-pitch] p { display: none; }
-  [data-pocket-pitch] h2 { font-size: 15px; }
-  /* (one door stays: the dock's first) */
-  [data-pocket-action][data-pocket-primary] { padding: 5px 12px; }
-  [data-pocket-action]:not([data-pocket-primary]) { display: none; }
+  [data-pocket-studio] { padding-top: 5px; padding-bottom: max(5px, env(safe-area-inset-bottom)); }
+  [data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action] { padding: 4px 12px; }
 }

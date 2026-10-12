@@ -117,11 +117,11 @@ game**. The game's page has an empty body and no line of its own.
 | --- | --- |
 | Reads the screens, the raster density and the surface that takes touch from the plan | `screens(plan)` in `pocket3d-interface.js`. The page keeps no table of device sizes |
 | Starts the device's guest in a realm of its own | `openInterface`: `hosts/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared. **`simHz` is the turns a second the game gives the guest** (30 where the device's host sets `__simHz` to 30); each turn then advances `ticks` sixtieths |
-| Builds the page: the bar, the device's shell, the dock that leads to Pocket Studio | `createPlayer({ title, tagline, devices, runsOn, pick })`. The page links `pocket3d-stage.css` and `pocket3d-player.css` |
+| Builds the page: the bar, the device's shell, the dock with the game's Download and Remix links | `createPlayer({ title, tagline, devices, runsOn, pick })`. The page links `pocket3d-stage.css` and `pocket3d-player.css` |
 | Shows a device: its shell with one or two screens in it | `player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`, from `screens(plan)` and the renderer's shape. The scene is drawn into `player.canvas`; the lower screen is `player.stage.second` |
 | Reads the device's buttons and sticks | `player.controls.read()`: the keyboard and the shell's own keys, d-pad and sticks under a pointer or a finger. The bits are PocketJS's, so one mask goes to the guest and to the game's pad mapping |
 | Hands a pointer to the guest as a contact on the surface that takes touch | `player.show` binds it from `touch` and `viewport`, in the surface's logical pixels |
-| Says how the tab's picture differs from the device's | `note` on each device: one or two sentences the mark **Simulated** opens, after the player's own |
+| Says that the tab's picture differs from the device's | Nothing: the mark **Simulated** opens the player's own sentence, the same for every game and device. A `note` on a device is not shown |
 | Tells the player the first frame is drawn | `player.ready()`: it then reads the other devices' shells |
 
 **Changing device replaces the guest and keeps the game.** The page removes
