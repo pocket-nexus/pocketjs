@@ -1,0 +1,16 @@
+[package]
+name = "pocket3d-packs"
+description = "A game's packs as content-addressed pieces: the manifest every device reads, and a reader of a pack's bytes from its pieces"
+readme = "README.md"
+version = "0.1.0"
+edition = "2021"
+license-file = "../../../../pocket3d/LICENSE"
+
+[features]
+default = []
+# `std::error::Error` for the crate's errors, and a store of pieces in a directory of the build machine.
+std = []
+# The same reader for a host written in C: `pocket3d_packs.h` beside this file declares it.
+cabi = []
+
+[dependencies]

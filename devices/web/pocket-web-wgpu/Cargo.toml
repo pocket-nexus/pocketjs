@@ -6,6 +6,8 @@ license-file = "../../../pocket3d/LICENSE"
 description = "Browser device mechanisms for a Pocket3D game drawn with wgpu: device and screens, an interface overlay pass, 16-bit pictures, ranged pack reads"
 
 [dependencies]
+# A game's packs as pieces named by their bytes: the manifest a handheld reads too.
+pocket3d-packs = { path = "../../../engine/pocket3d/crates/pocket3d-packs" }
 wgpu = { version = "25", default-features = false, features = ["webgpu", "wgsl", "metal"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

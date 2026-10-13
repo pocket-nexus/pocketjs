@@ -1928,6 +1928,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket3d-packs"
+version = "0.1.0"
+
+[[package]]
 name = "pocket3d-world"
 version = "0.1.0"
 dependencies = [

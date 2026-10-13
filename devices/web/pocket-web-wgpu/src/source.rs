@@ -7,13 +7,20 @@
 //! - **The file itself.** In a tab each read is a request with a `Range`
 //!   header, so the server must answer ranges (status 206). On the build
 //!   machine it is a read of the file.
-//! - **The file cut into pieces of one size**, each a file of its own, with a
-//!   manifest that lists them (a place that ends in `.json`; [`Manifest`]).
-//!   This is the form a host serves that limits the size of a file. A read
-//!   fetches the pieces it lies in, whole and with plain requests, so the
-//!   browser's own cache keeps them and the host needs no ranges. The last
-//!   pieces read stay in memory, up to [`HELD`] bytes; two reads that need one
-//!   piece at the same moment share one request.
+//! - **The file cut into pieces**, each a file of its own, with a manifest
+//!   that lists them ([`Manifest`]). This is the form a host serves that
+//!   limits the size of a file. A read fetches the pieces it lies in, whole
+//!   and with plain requests, so the browser's own cache keeps them and the
+//!   host needs no ranges. The last pieces read stay in memory, up to
+//!   [`HELD`] bytes; two reads that need one piece at the same moment share
+//!   one request. Two manifests are read:
+//!   - a place that ends in `.packs`: **a game's packs as pieces named by
+//!     their bytes** (`pocket3d_packs`, `tools/pocket3d-packs.ts`), cut where
+//!     a pack's sections begin, so packs share the pieces they have in common
+//!     and a handheld reads the same manifest. The pack is named after `#`
+//!     (`packs/1f2e….packs#yards`); without a name it is the first.
+//!   - a place that ends in `.json`: one pack in pieces of one size
+//!     (`pocket-pack-pieces/1`, `cutPack` of `tools/pocket3d-web.ts`).
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -37,11 +44,15 @@ pub struct Read {
 /// ```
 ///
 /// Every piece is `piece` bytes but the last, and their names are relative to the manifest's own place.
+/// A pack of a `.packs` manifest ([`Manifest::of_packs`]) is the same thing with pieces of any size.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Manifest {
     pub bytes: u64,
+    /// The size of the largest piece (of every piece but the last, in a `pocket-pack-pieces/1`).
     pub piece: u64,
     pub pieces: Vec<String>,
+    /// Where each piece starts in the pack.
+    pub starts: Vec<u64>,
 }
 
 pub const MANIFEST: &str = "pocket-pack-pieces/1";
@@ -59,16 +70,32 @@ impl Manifest {
         }
         let list = after("pieces").and_then(|v| v.strip_prefix('[')).and_then(|v| v.split(']').next()).ok_or("the manifest has no \"pieces\"")?;
         let pieces: Vec<String> = list.split(',').map(|name| name.trim().trim_matches('"').to_string()).filter(|name| !name.is_empty()).collect();
-        let manifest = Manifest { bytes: number("bytes")?, piece: number("piece")?, pieces };
-        if manifest.piece == 0 || manifest.pieces.len() as u64 != manifest.bytes.div_ceil(manifest.piece) {
+        let (bytes, piece) = (number("bytes")?, number("piece")?);
+        if piece == 0 || pieces.len() as u64 != bytes.div_ceil(piece) {
             return Err("the manifest's pieces do not make up its bytes".into());
         }
-        Ok(manifest)
+        let starts = (0..pieces.len() as u64).map(|index| index * piece).collect();
+        Ok(Manifest { bytes, piece, pieces, starts })
+    }
+
+    /// One pack of a game's packs (`pocket-pack-pieces/2`): the one of that name, or the first.
+    pub fn of_packs(text: &str, name: Option<&str>) -> Result<Manifest, String> {
+        let packs = pocket3d_packs::Manifest::parse(text).map_err(|e| e.to_string())?;
+        let pack = match name {
+            Some(name) => packs.pack(name).ok_or_else(|| format!("the manifest has no pack \"{name}\" (it has {})", packs.packs.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")))?,
+            None => packs.packs.first().ok_or("the manifest has no pack")?,
+        };
+        Ok(Manifest {
+            bytes: pack.bytes,
+            piece: pack.pieces.iter().map(|p| p.bytes as u64).max().unwrap_or(1),
+            pieces: pack.pieces.iter().map(|p| format!("{}.bin", p.name())).collect(),
+            starts: (0..pack.pieces.len()).map(|index| pack.start(index)).collect(),
+        })
     }
 
     /// Bytes of piece `index`.
     pub fn size(&self, index: u64) -> u64 {
-        (self.bytes - index * self.piece).min(self.piece)
+        self.starts.get(index as usize + 1).copied().unwrap_or(self.bytes) - self.starts[index as usize]
     }
 
     /// The parts of the pieces a range lies in: each piece's index, and the bytes of it the range takes.
@@ -77,12 +104,18 @@ impl Manifest {
             return Err(format!("a read of {size} bytes at {offset} runs past the pack's {}", self.bytes));
         }
         let mut parts = Vec::new();
+        if size == 0 {
+            return Ok(parts);
+        }
         let mut at = offset;
+        // The last piece that starts at or before the offset.
+        let mut index = (self.starts.partition_point(|&start| start <= offset) - 1) as u64;
         while at < offset + size {
-            let index = at / self.piece;
-            let to = (offset + size).min((index + 1) * self.piece);
-            parts.push((index, (at - index * self.piece) as usize..(to - index * self.piece) as usize));
+            let start = self.starts[index as usize];
+            let to = (offset + size).min(start + self.size(index));
+            parts.push((index, (at - start) as usize..(to - start) as usize));
             at = to;
+            index += 1;
         }
         Ok(parts)
     }
@@ -172,10 +205,15 @@ mod tab {
 }
 
 impl Source {
-    /// Opens a pack: the file at `place`, or, when `place` ends in `.json`, the pieces its manifest lists.
+    /// Opens a pack: the file at `place`, or the pieces a manifest lists: one of a game's packs when
+    /// `place` ends in `.packs` (named after `#`), one pack in pieces of one size when it ends in `.json`.
     pub async fn open(place: &str) -> Result<Source, String> {
         let mut inner = Inner { place: place.to_string(), pieces: None, read: Cell::new(Read::default()), length: Cell::new(None) };
-        if place.split(['?', '#']).next().is_some_and(|path| path.ends_with(".json")) {
+        let path = place.split(['?', '#']).next().unwrap_or(place);
+        let (packs, named) = (path.ends_with(".packs"), place.split_once('#').map(|(_, name)| name).filter(|name| !name.is_empty()));
+        if packs || path.ends_with(".json") {
+            // (a fragment is the page's own: a server is asked for the manifest's file)
+            let place = if packs { path } else { place };
             #[cfg(target_arch = "wasm32")]
             let text = {
                 let response = tab::fetch(place, None).await?;
@@ -186,7 +224,7 @@ impl Source {
             };
             #[cfg(not(target_arch = "wasm32"))]
             let text = std::fs::read_to_string(place).map_err(|e| format!("{place}: {e}"))?;
-            let manifest = Manifest::parse(&text).map_err(|e| format!("{place}: {e}"))?;
+            let manifest = if packs { Manifest::of_packs(&text, named) } else { Manifest::parse(&text) }.map_err(|e| format!("{place}: {e}"))?;
             inner.pieces = Some(Pieces {
                 manifest,
                 held: RefCell::new(Vec::new()),
@@ -201,7 +239,7 @@ impl Source {
         &self.inner.place
     }
 
-    /// The size of a piece, when the pack is in pieces.
+    /// The size of the largest piece, when the pack is in pieces.
     pub fn piece(&self) -> Option<u64> {
         self.inner.pieces.as_ref().map(|p| p.manifest.piece)
     }
@@ -439,6 +477,39 @@ mod tests {
         assert_eq!(m.parts(2499, 1).unwrap(), [(2, 499..500)]);
         assert!(m.parts(2400, 101).is_err());
         assert!(m.parts(10, 0).unwrap().is_empty());
+    }
+
+    /// Two packs of one manifest read as their files do, and the piece they share is one file.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_games_packs_read_as_their_files_do() {
+        let directory = std::env::temp_dir().join(format!("pocket-web-wgpu-packs-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let bytes = |seed: u32, n: usize| -> Vec<u8> { (0..n as u32).map(|i| ((i ^ seed).wrapping_mul(2_654_435_761) >> 24) as u8).collect() };
+        // Pieces of any size, named by 20 hexadecimal digits; the second is in both packs.
+        let pieces = [("0000000000000000000a", bytes(1, 1000)), ("0000000000000000000b", bytes(2, 70_000)), ("0000000000000000000c", bytes(3, 333)), ("0000000000000000000d", bytes(4, 5000))];
+        for (name, piece) in &pieces {
+            std::fs::write(directory.join(format!("{name}.bin")), piece).unwrap();
+        }
+        let sha = "0".repeat(64);
+        let list = |which: &[usize]| which.iter().map(|&i| format!("{} {}\n", pieces[i].0, pieces[i].1.len())).collect::<String>();
+        let whole = |which: &[usize]| which.iter().flat_map(|&i| pieces[i].1.clone()).collect::<Vec<u8>>();
+        let (street, yards) = (whole(&[0, 1, 2]), whole(&[3, 1]));
+        std::fs::write(directory.join("game.packs"), format!("pocket-pack-pieces/2\npack street {} {sha}\n{}pack yards {} {sha}\n{}", street.len(), list(&[0, 1, 2]), yards.len(), list(&[3, 1]))).unwrap();
+        let place = directory.join("game.packs").to_string_lossy().into_owned();
+        let open = |tail: &str| pollster::block_on(Source::open(&format!("{place}{tail}")));
+        let (first, named, other) = (open("").unwrap(), open("#street").unwrap(), open("#yards").unwrap());
+        assert_eq!(pollster::block_on(first.all()).unwrap(), street);
+        assert_eq!(pollster::block_on(named.all()).unwrap(), street);
+        assert_eq!(pollster::block_on(other.all()).unwrap(), yards);
+        for (offset, size) in [(0u64, 16u64), (990, 20), (70_990, 20), (1000, 70_000), (71_332, 1)] {
+            assert_eq!(pollster::block_on(named.range(offset, size)).unwrap(), street[offset as usize..(offset + size) as usize], "{size} bytes at {offset}");
+        }
+        assert_eq!(pollster::block_on(other.range(4990, 20)).unwrap(), yards[4990..5010]);
+        assert!(pollster::block_on(other.range(74_999, 2)).is_err());
+        assert_eq!((pollster::block_on(named.length()).unwrap(), named.piece()), (71_333, Some(70_000)));
+        assert!(open("#nowhere").is_err_and(|e| e.contains("no pack \"nowhere\"")));
+        std::fs::remove_dir_all(&directory).unwrap();
     }
 
     /// A pack in pieces reads as the file does, whatever the pieces' size; the pieces kept are the last read.

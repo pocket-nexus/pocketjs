@@ -420,12 +420,17 @@ name = "pocket-web-wgpu"
 version = "0.1.0"
 dependencies = [
  "js-sys",
+ "pocket3d-packs",
  "pollster",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
 ]
+
+[[package]]
+name = "pocket3d-packs"
+version = "0.1.0"
 
 [[package]]
 name = "pollster"
