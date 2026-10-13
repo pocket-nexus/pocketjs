@@ -198,6 +198,17 @@ impl Manifest {
     }
 }
 
+/// The packs a manifest's text names, with their sizes, in its order. It allocates nothing: for a
+/// thread that has no allocator yet, or may not use one. A text `Manifest::parse` refuses can still
+/// name packs here.
+pub fn names(text: &str) -> impl Iterator<Item = (&str, u64)> {
+    text.lines().filter_map(|line| {
+        let mut words = line.trim_end().strip_prefix("pack ")?.split(' ');
+        let name = words.next()?;
+        Some((name, words.next()?.parse().ok()?))
+    })
+}
+
 impl Pack {
     /// Where piece `index` starts in the pack.
     pub fn start(&self, index: usize) -> u64 {
@@ -319,6 +330,13 @@ mod tests {
             }
             Ok(())
         }
+    }
+
+    #[test]
+    fn the_packs_of_a_text_are_named_without_a_parse() {
+        let text = "pocket-pack-pieces/2\npack street 5 00\n0123456789abcdef0123 5\npack yards 7 00\n";
+        let named: Vec<(&str, u64)> = names(text).collect();
+        assert_eq!(named, [("street", 5), ("yards", 7)]);
     }
 
     #[test]
