@@ -477,11 +477,13 @@ bool p3d_delivery(const char *line, const char *directory, char *reply,
   if (value_of(line, "piece")) {
     bool ok = false, cached = false;
     if (!asked || !text_of(line, "name", name, sizeof name) ||
-        !hex(name, NAME_DIGITS) ||
-        (size_t)snprintf(path, sizeof path, "%s/%s.bin", directory, name) >=
-            sizeof path) {
-      name[hex(name, NAME_DIGITS) ? NAME_DIGITS : 0] = 0;
+        !hex(name, NAME_DIGITS)) {
+      name[0] = 0;
       fail(error, sizeof error, "the request names no piece");
+    } else if ((size_t)snprintf(path, sizeof path, "%s/%s.bin", directory,
+                                name) >= sizeof path) {
+      fail(error, sizeof error, "the directory's path is longer than %u bytes",
+           PATH_BYTES - NAME_DIGITS - 6);
     } else {
       int had = there(path, bytes, strstr(line, "\"verify\":true") != NULL, crc,
                       error, sizeof error);
