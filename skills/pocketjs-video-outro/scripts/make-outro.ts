@@ -1,9 +1,12 @@
 #!/usr/bin/env bun
-// make-outro.ts — append a PocketJS-branded, animated end card to a local video.
+// make-outro.ts — append a PocketJS or Pocket3D end card to a local video.
 //
-// Renders a dark brand card (logo glyph + wordmark + tagline + url) with headless
-// Chrome, then composites it onto the input with a crossfade and a staggered text
-// entrance (logo -> tagline -> url, each fades in and eases up). The source plays
+// Renders the card in the Arcade look of pocketjs.dev and 3d.pocket.nexus (the
+// mark and wordmark, the headline as candy pixel letters on the hero's marquee
+// plate, the url) with headless Chrome, one transparent layer per element, then
+// composites it onto the input with a crossfade and a staggered entrance: logo,
+// plate, each headline line, url, each dropping in three steps as the sites'
+// headline letters do. The source plays
 // in full before its held final frame dissolves into the card. The input's primary
 // audio track is preserved and faded out by the source's end; the card itself is
 // silent (no voiceover). HLG/PQ sources are tone-mapped to BT.709 SDR so the SDR
@@ -11,12 +14,13 @@
 //
 // Usage:
 //   bun skills/pocketjs-video-outro/scripts/make-outro.ts -i input.mov [-o out.mp4]
-//        [--tagline STR] [--brand STR] [--url STR] [--outro SECS] [--xfade SECS]
-//        [--crf N] [--preset P] [--x]
+//        [--brand pocketjs|pocket3d] [--tagline STR] [--url STR] [--outro SECS]
+//        [--xfade SECS] [--crf N] [--preset P] [--x]
 //
-// Defaults: brand "PocketJS", tagline "Create UI on / every screen / you love.",
-// url "pocketjs.dev", outro 2s, xfade 0.35s, crf 18, preset medium. Pass
-// --url "" to hide the url.
+// Defaults: brand pocketjs ("Create UI on / every screen / you love",
+// pocketjs.dev); pocket3d is "Create 3D on / every screen / you love",
+// 3d.pocket.nexus. outro 2s, xfade 0.35s, crf 18, preset medium. Pass --url ""
+// to hide the url.
 
 import { $ } from "bun";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -26,22 +30,51 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML = resolve(HERE, "..", "assets", "outro.html");
-const FONT = resolve(HERE, "..", "assets", "VT323-Regular.ttf");
-export const DEFAULT_TAGLINE = "Create UI on\nevery screen\nyou love.";
+// The template loads these beside itself; nothing is fetched from the network.
+export const ASSETS = ["press-start-2p-latin.woff2", "Fredoka.ttf", "pocketjs-mark.svg", "pocket3d-mark.svg"]
+  .map((name) => resolve(HERE, "..", "assets", name));
+
+/** Each product's wordmark, headline and url, as its site's hero and bar set them. */
+export const BRANDS = {
+  pocketjs: { word: "PocketJS", tagline: "Create UI on\nevery screen\nyou love", url: "pocketjs.dev" },
+  pocket3d: { word: "Pocket3D", tagline: "Create 3D on\nevery screen\nyou love", url: "3d.pocket.nexus" },
+} as const;
+export type Brand = keyof typeof BRANDS;
+export const DEFAULT_TAGLINE = BRANDS.pocketjs.tagline;
 export const DEFAULT_OUTRO = 2;
 export const DEFAULT_XFADE = 0.35;
 
-/** Keep a readable hold after the stagger, including on shorter custom cards. */
-export function resolveOutroTiming(outro: number, xfade: number) {
+/**
+ * Keep a readable hold after the stagger, including on shorter custom cards.
+ * The plate takes the tagline slot; its lines drop in one after another inside
+ * the same window, and the last one lands when the url does.
+ */
+export function resolveOutroTiming(outro: number, xfade: number, lineCount = 3) {
   if (!Number.isFinite(outro) || outro <= 0) throw new Error("--outro must be a positive number");
   if (!Number.isFinite(xfade) || xfade < 0) throw new Error("--xfade must be a non-negative number");
   if (xfade >= outro) throw new Error("--xfade must be shorter than --outro so the card can appear");
   const pace = Math.min(1, (outro - xfade) / 0.88);
+  const step = lineCount > 1 ? (0.12 * pace) / (lineCount - 1) : 0;
   return {
     logo: { start: xfade, duration: 0.25 * pace },
     tagline: { start: xfade + 0.12 * pace, duration: 0.25 * pace },
+    lines: Array.from({ length: Math.max(1, lineCount) }, (_, i) => ({
+      start: xfade + 0.12 * pace + i * step,
+      duration: 0.20 * pace,
+    })),
     url: { start: xfade + 0.24 * pace, duration: 0.20 * pace },
   };
+}
+
+/**
+ * The y offset of a layer dropping in, as an FFmpeg expression of t: three held
+ * steps like arcade.css's ar-drop-in (steps(3)): above by `rise`, halfway, a
+ * small overshoot below, then rest.
+ */
+export function dropIn(start: number, duration: number, rise: number): string {
+  const p = `clip((t-${start.toFixed(6)})/${duration.toFixed(6)},0,1)`;
+  const over = Math.round(rise / 5);
+  return `if(lt(${p},1/3),${-rise},if(lt(${p},2/3),${-Math.round(rise / 2)},if(lt(${p},1),${over},0)))`;
 }
 
 /** Append the transition after the source, without dimming its final frames. */
@@ -59,7 +92,7 @@ export function sourceOutroTransition(duration: number, xfade: number, outputCol
 type Args = {
   input: string;
   output: string;
-  brand: string;
+  brand: Brand;
   tagline: string;
   url: string;
   outro: number;
@@ -77,9 +110,9 @@ function usage(): never {
       "",
       "options:",
       "  -o, --output <path>   output file (default: <input>_outro[_x].mp4 next to input)",
-      '  --tagline <str>       hero line (default: "Create UI on / every screen / you love.")',
-      '  --brand <str>         wordmark (default: "PocketJS")',
-      '  --url <str>           footer line (default: "pocketjs.dev"; "" hides it)',
+      "  --brand <name>        pocketjs or pocket3d: mark, wordmark, headline and url (default: pocketjs)",
+      "  --tagline <str>       headline; newlines break it (default: the brand's own)",
+      '  --url <str>           footer line (default: the brand\'s site; "" hides it)',
       `  --outro <secs>        appended end-card length including transition (default: ${DEFAULT_OUTRO})`,
       `  --xfade <secs>        crossfade length (default: ${DEFAULT_XFADE})`,
       "  --crf <n>             x264 quality (default: 18)",
@@ -99,9 +132,9 @@ export function parseArgs(argv: string[]): Args {
   if (argv.includes("-h") || argv.includes("--help")) usage();
   let input: string | undefined;
   let output: string | undefined;
-  let brand = "PocketJS";
-  let tagline = DEFAULT_TAGLINE;
-  let url = "pocketjs.dev";
+  let brand: Brand = "pocketjs";
+  let tagline: string | undefined;
+  let url: string | undefined;
   let outro = DEFAULT_OUTRO;
   let xfade = DEFAULT_XFADE;
   let crf = 18;
@@ -112,7 +145,11 @@ export function parseArgs(argv: string[]): Args {
     const a = argv[i];
     if (a === "-i" || a === "--input") input = need(argv[++i], a);
     else if (a === "-o" || a === "--output") output = need(argv[++i], a);
-    else if (a === "--brand") brand = need(argv[++i], a);
+    else if (a === "--brand") {
+      const name = need(argv[++i], a).toLowerCase();
+      if (!(name in BRANDS)) throw new Error(`--brand must be one of: ${Object.keys(BRANDS).join(", ")}`);
+      brand = name as Brand;
+    }
     else if (a === "--tagline") tagline = need(argv[++i], a);
     else if (a === "--url") url = argv[++i] ?? ""; // allow empty to hide
     else if (a === "--outro") outro = Number(need(argv[++i], a));
@@ -125,7 +162,9 @@ export function parseArgs(argv: string[]): Args {
 
   if (!input) usage();
   if (!existsSync(input)) throw new Error(`input not found: ${input}`);
-  resolveOutroTiming(outro, xfade);
+  tagline ??= BRANDS[brand].tagline;
+  url ??= BRANDS[brand].url;
+  resolveOutroTiming(outro, xfade, tagline.split("\n").length);
 
   if (!output) {
     const dir = resolve(dirname(input));
@@ -281,7 +320,7 @@ function hdrColorValue(value: string, supported: readonly string[], fallback: st
 async function main() {
   const a = parseArgs(process.argv.slice(2));
   if (!existsSync(HTML)) throw new Error(`template missing: ${HTML}`);
-  if (!existsSync(FONT)) throw new Error(`font missing: ${FONT}`);
+  for (const asset of ASSETS) if (!existsSync(asset)) throw new Error(`asset missing: ${asset}`);
   await $`command -v ffmpeg`.quiet().then(undefined, () => { throw new Error("ffmpeg not found on PATH"); });
   await $`command -v ffprobe`.quiet().then(undefined, () => { throw new Error("ffprobe not found on PATH"); });
 
@@ -307,12 +346,15 @@ async function main() {
 
   // type tracks resolution across landscape & portrait
   const scale = Math.min(w, h) / 1080;
-  const slideL = round(16 * scale);
-  const slideT = round(20 * scale);
-  const slideU = round(12 * scale);
+  const lineCount = a.tagline.split("\n").length;
+  // the logo and url drop 16 and 12px at 1080p; a headline line drops 0.6em of its 56px face
+  const riseLogo = round(16 * scale);
+  const risePlate = round(20 * scale);
+  const riseLine = round(34 * scale);
+  const riseUrl = round(12 * scale);
   const xfade = a.xfade;
   const offset = dur;
-  const timing = resolveOutroTiming(a.outro, xfade);
+  const timing = resolveOutroTiming(a.outro, xfade, lineCount);
 
   // gentle audio fade fully completing at the original end
   let afadeDur = xfade + 0.15;
@@ -333,9 +375,17 @@ async function main() {
       tagline: a.tagline,
       url: a.url,
     });
-    const layers = { bg: join(tmp, "l_bg.png"), logo: join(tmp, "l_logo.png"), tag: join(tmp, "l_tag.png"), url: join(tmp, "l_url.png") };
-    for (const [layer, out] of Object.entries(layers)) await shotLayer(chrome, layer, out, w, h, params);
-    console.error(`rendered card layers (${w}x${h})`);
+    // every layer after bg enters with a fade of a third of its slot and a stepped drop
+    const entering = [
+      { layer: "logo", ...timing.logo, rise: riseLogo },
+      { layer: "plate", ...timing.tagline, rise: risePlate },
+      ...timing.lines.map((line, i) => ({ layer: `line-${i}`, ...line, rise: riseLine })),
+      ...(a.url ? [{ layer: "url", ...timing.url, rise: riseUrl }] : []),
+    ];
+    const bgPath = join(tmp, "l_bg.png");
+    await shotLayer(chrome, "bg", bgPath, w, h, params);
+    for (const e of entering) await shotLayer(chrome, e.layer, join(tmp, `l_${e.layer}.png`), w, h, params);
+    console.error(`rendered card layers (${w}x${h}): bg, ${entering.map((e) => e.layer).join(", ")}`);
 
     const f = (n: number) => n.toFixed(6);
     const bt709 = "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709";
@@ -349,12 +399,10 @@ async function main() {
     const outputColor = isHdr ? `,${bt709}` : "";
     const graphLines = [
       `[1:v]${cardColor}setsar=1,fps=${fpsRate},format=yuv420p${outputColor},setpts=PTS-STARTPTS[bg];`,
-      `[2:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(timing.logo.start)}:d=${f(timing.logo.duration)}:alpha=1,setpts=PTS-STARTPTS[lg];`,
-      `[3:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(timing.tagline.start)}:d=${f(timing.tagline.duration)}:alpha=1,setpts=PTS-STARTPTS[tg];`,
-      `[4:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(timing.url.start)}:d=${f(timing.url.duration)}:alpha=1,setpts=PTS-STARTPTS[ur];`,
-      `[bg][lg]overlay=x=0:y='${slideL}*pow(1-clip((t-${f(timing.logo.start)})/${f(timing.logo.duration)},0,1),3)'[o1];`,
-      `[o1][tg]overlay=x=0:y='${slideT}*pow(1-clip((t-${f(timing.tagline.start)})/${f(timing.tagline.duration)},0,1),3)'[o2];`,
-      `[o2][ur]overlay=x=0:y='${slideU}*pow(1-clip((t-${f(timing.url.start)})/${f(timing.url.duration)},0,1),3)',format=yuv420p${outputColor},trim=duration=${a.outro},setpts=PTS-STARTPTS[outro];`,
+      ...entering.map((e, i) =>
+        `[${i + 2}:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(e.start)}:d=${f(e.duration / 3)}:alpha=1,setpts=PTS-STARTPTS[l${i}];`),
+      ...entering.map((e, i) =>
+        `[${i ? `o${i - 1}` : "bg"}][l${i}]overlay=x=0:y='${dropIn(e.start, e.duration, e.rise)}'${i === entering.length - 1 ? `,format=yuv420p${outputColor},trim=duration=${a.outro},setpts=PTS-STARTPTS[outro]` : `[o${i}]`};`),
       `[0:v]fps=${fpsRate},${mainColor},setpts=PTS-STARTPTS[main];`,
       ...sourceOutroTransition(dur, xfade, outputColor),
     ];
@@ -378,10 +426,8 @@ async function main() {
     const args = [
       "-y", "-hide_banner", "-loglevel", "error",
       "-i", a.input,
-      "-loop", "1", "-t", String(a.outro), "-i", layers.bg,
-      "-loop", "1", "-t", String(a.outro), "-i", layers.logo,
-      "-loop", "1", "-t", String(a.outro), "-i", layers.tag,
-      "-loop", "1", "-t", String(a.outro), "-i", layers.url,
+      "-loop", "1", "-t", String(a.outro), "-i", bgPath,
+      ...entering.flatMap((e) => ["-loop", "1", "-t", String(a.outro), "-i", join(tmp, `l_${e.layer}.png`)]),
       "-filter_complex_script", graphPath,
       ...maps,
       "-c:v", "libx264", "-profile:v", "high", "-crf", String(a.crf), "-preset", a.preset, "-pix_fmt", "yuv420p",
