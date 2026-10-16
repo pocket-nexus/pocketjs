@@ -1,10 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import {
+  hashPocketIdfHostProfile,
+  pocketIdfHostExtension,
+  pocketIdfHostRegistry,
+  validatePocketIdfHostProfile,
+} from "../framework/src/manifest/idf-host.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { FRAMEWORK_DEPENDENCIES } from "../tools/cli/create.mjs";
 
 const root = new URL("..", import.meta.url).pathname;
 const cli = join(root, "tools/cli/bin.mjs");
+const cliVersion = JSON.parse(readFileSync(join(root, "tools/cli/package.json"), "utf8")).version as string;
 const temporary: string[] = [];
 
 afterEach(() => {
@@ -17,6 +25,29 @@ function checkout(): string {
   writeFileSync(join(path, "package.json"), JSON.stringify({ name: "@pocketjs/framework" }));
   temporary.push(path);
   return path;
+}
+
+/** A directory no PocketJS checkout owns: `pocket create` writes a standalone project here. */
+function scratch(): string {
+  const path = `/tmp/pocketjs-cli-standalone-${process.pid}-${Math.random().toString(16).slice(2)}`;
+  mkdirSync(path, { recursive: true });
+  temporary.push(path);
+  return path;
+}
+
+const readJson = (path: string) => JSON.parse(readFileSync(path, "utf8"));
+
+/** Resolve a manifest against an ESP-IDF host profile the way tools/pocket.ts does. */
+function resolveAgainstProfile(manifest: unknown, profile: unknown) {
+  const validated = validatePocketIdfHostProfile(profile);
+  expect(validated.ok, JSON.stringify(validated)).toBe(true);
+  if (!validated.ok) throw new Error("unreachable");
+  const host = validated.value;
+  return validateAndResolveBuildPlan(
+    manifest,
+    { target: host.id, hostExtension: pocketIdfHostExtension(hashPocketIdfHostProfile(host), host.tickHz) },
+    pocketIdfHostRegistry(host),
+  );
 }
 
 function runCli(cwd: string, args: string[], env: Record<string, string> = {}) {
@@ -128,4 +159,152 @@ describe("published PocketJS CLI", () => {
       cwd: realpathSync(cwd),
     });
   });
+
+  test("runs on Bun and says so under Node", () => {
+    const node = Bun.which("node");
+    if (!node) return;
+    const result = Bun.spawnSync({ cmd: [node, cli, "doctor"], stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("runs on Bun");
+    expect(readJson(join(root, "tools/cli/package.json")).engines).toEqual({ bun: ">=1.2" });
+  });
+
+  test("standalone create writes a project that depends on the published framework", () => {
+    const cwd = scratch();
+    const result = runCli(cwd, ["create", "counter", "--target", "vita", "--framework", "vue-vapor"]);
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(result.stdout.toString()).toContain("bun install");
+
+    const app = join(cwd, "counter");
+    for (const file of ["package.json", "tsconfig.json", "pocket.json", "main.tsx", "app.tsx", "README.md", ".gitignore"]) {
+      expect(existsSync(join(app, file)), file).toBe(true);
+    }
+    expect(existsSync(join(app, "pocket.host.json"))).toBe(false);
+
+    const pkg = readJson(join(app, "package.json"));
+    expect(pkg.dependencies).toEqual({ "@pocketjs/framework": `^${cliVersion}`, vue: FRAMEWORK_DEPENDENCIES["vue-vapor"].vue });
+    expect(pkg.devDependencies).toEqual({ "@pocketjs/cli": `^${cliVersion}` });
+    expect(pkg.scripts).toEqual({
+      check: "pocket check --target vita",
+      compile: "pocket compile --target vita",
+      build: "pocket build --target vita -- --release",
+    });
+    expect(readFileSync(join(app, "main.tsx"), "utf8")).toContain('from "@pocketjs/framework/vue-vapor"');
+    expect(readFileSync(join(app, "app.tsx"), "utf8")).toContain('from "@pocketjs/framework/vue-vapor/lifecycle"');
+    expect(readJson(join(app, "tsconfig.json")).include).toEqual([
+      "*.ts",
+      "*.tsx",
+      "node_modules/@pocketjs/framework/framework/src/jsx.d.ts",
+      "node_modules/@pocketjs/framework/framework/src/vue-sfc.d.ts",
+    ]);
+
+    const manifest = readJson(join(app, "pocket.json"));
+    expect(manifest.app.framework).toBe("vue-vapor");
+    expect(validateAndResolveBuildPlan(manifest, { target: "vita" }).ok).toBe(true);
+  });
+
+  test("standalone dependency pins match the framework package.json", () => {
+    const framework = readJson(join(root, "package.json")).dependencies as Record<string, string>;
+    for (const dependencies of Object.values(FRAMEWORK_DEPENDENCIES)) {
+      for (const [name, version] of Object.entries(dependencies)) {
+        expect(framework[name], name).toBe(version);
+      }
+    }
+  });
+
+  test("create --host-profile derives the manifest from the ESP-IDF host contract", () => {
+    const cwd = scratch();
+    mkdirSync(join(cwd, "firmware"));
+    const profile = readJson(join(root, "hosts/esp-idf/examples/smoke/pocket.host.json"));
+    writeFileSync(join(cwd, "firmware/pocket.host.json"), JSON.stringify(profile));
+
+    const result = runCli(cwd, ["create", "app", "--host-profile", "firmware/pocket.host.json"]);
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    const app = join(cwd, "app");
+    const manifest = readJson(join(app, "pocket.json"));
+    expect(manifest.app.viewport).toEqual({ logical: [320, 240], presentation: "native" });
+    expect(manifest.engine.capabilities.requires).toEqual(["text.glyphs.baked", "input.buttons"]);
+    expect(resolveAgainstProfile(manifest, profile).ok).toBe(true);
+    expect(readFileSync(join(app, "app.tsx"), "utf8")).toContain("onButtonPress(BTN.CROSS");
+
+    const pkg = readJson(join(app, "package.json"));
+    expect(pkg.scripts.check).toBe("pocket check --host-profile ../firmware/pocket.host.json");
+    expect(pkg.scripts.build).toBe("pocket build --host-profile ../firmware/pocket.host.json --output dist/app.pocket");
+    const readme = readFileSync(join(app, "README.md"), "utf8");
+    expect(readme).toContain("pocketjs_compile_app(");
+    expect(readme).toContain("pocketjs_embed_package(");
+    expect(readme).toContain('HOST_PROFILE "${CMAKE_SOURCE_DIR}/firmware/pocket.host.json"');
+    expect(readme).toContain('PACKAGE "${CMAKE_SOURCE_DIR}/app/dist/app.pocket"');
+
+    // A touch-only panel: no button handler, the host's own viewport and presentation.
+    const touch = {
+      ...profile,
+      id: "touch-panel",
+      display: { ...profile.display, physicalViewport: [240, 320], logicalViewports: [[240, 320]], presentations: ["fit"] },
+      capabilities: ["input.touch", "text.glyphs.baked"],
+    };
+    writeFileSync(join(cwd, "firmware/touch.host.json"), JSON.stringify(touch));
+    const touchResult = runCli(cwd, ["create", "touch-app", "--host-profile", "firmware/touch.host.json", "--framework", "octane"]);
+    expect(touchResult.exitCode, touchResult.stderr.toString()).toBe(0);
+    const touchManifest = readJson(join(cwd, "touch-app/pocket.json"));
+    expect(touchManifest.app.viewport).toEqual({ logical: [240, 320], presentation: "fit" });
+    expect(touchManifest.engine.capabilities.requires).toEqual(["text.glyphs.baked"]);
+    expect(resolveAgainstProfile(touchManifest, touch).ok).toBe(true);
+    expect(readFileSync(join(cwd, "touch-app/app.tsx"), "utf8")).not.toContain("useButtonPress");
+  });
+
+  test("create --target esp-idf writes a starting host profile the manifest resolves against", () => {
+    const cwd = scratch();
+    const result = runCli(cwd, ["create", "a-very-long-product-name", "--target", "esp-idf"]);
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    const app = join(cwd, "a-very-long-product-name");
+    const profile = readJson(join(app, "pocket.host.json"));
+    expect(profile.id).toBe("a-very-long-pro");
+    const manifest = readJson(join(app, "pocket.json"));
+    expect(manifest.app.viewport).toEqual({ logical: [320, 240], presentation: "native" });
+    expect(resolveAgainstProfile(manifest, profile).ok).toBe(true);
+    expect(readJson(join(app, "package.json")).scripts.check).toBe("pocket check --host-profile pocket.host.json");
+  });
+
+  test("create rejects a target that needs a dynamic viewport and a mixed selector", () => {
+    const cwd = scratch();
+    for (const args of [
+      ["create", "Widget"],
+      ["create", "widget", "--target", "macos-widget"],
+      ["create", "widget", "--target", "psp", "--host-profile", "pocket.host.json"],
+      ["create", "widget", "--framework", "react"],
+    ]) {
+      const result = runCli(cwd, args);
+      expect(result.exitCode, args.join(" ")).toBe(1);
+      expect(result.stderr.toString()).toContain("usage: pocket create");
+    }
+    expect(existsSync(join(cwd, "widget"))).toBe(false);
+  });
+
+  test("scaffolded projects pass `pocket check` against a linked framework", () => {
+    const cwd = scratch();
+    mkdirSync(join(cwd, "node_modules/@pocketjs"), { recursive: true });
+    symlinkSync(root, join(cwd, "node_modules/@pocketjs/framework"), "dir");
+    for (const dependency of ["solid-js", "vue", "octane"]) {
+      symlinkSync(join(root, "node_modules", dependency), join(cwd, "node_modules", dependency), "dir");
+    }
+    mkdirSync(join(cwd, "firmware"));
+    cpSync(join(root, "hosts/esp-idf/examples/smoke/pocket.host.json"), join(cwd, "firmware/pocket.host.json"));
+
+    const projects = [
+      ["solid-psp", "--target", "psp"],
+      ["vue-vita", "--target", "vita", "--framework", "vue-vapor"],
+      ["octane-web", "--target", "web-app", "--framework", "octane"],
+      ["idf-app", "--host-profile", "firmware/pocket.host.json"],
+    ];
+    for (const [name, ...flags] of projects) {
+      const created = runCli(cwd, ["create", name, ...flags]);
+      expect(created.exitCode, created.stderr.toString()).toBe(0);
+      const app = join(cwd, name);
+      const check = (readJson(join(app, "package.json")).scripts.check as string).split(" ").slice(1);
+      const result = runCli(app, check);
+      expect(result.exitCode, `${name}: ${result.stdout}${result.stderr}`).toBe(0);
+      expect(result.stdout.toString()).toContain("✓ TypeScript");
+    }
+  }, 180_000);
 });

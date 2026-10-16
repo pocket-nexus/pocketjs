@@ -330,6 +330,7 @@ describe("published npm artifacts", () => {
     expect(packedFiles(`${root}tools/cli`)).toEqual([
       "README.md",
       "bin.mjs",
+      "create.mjs",
       "package.json",
       "psp-toolchain.json",
       "symbian-toolchain.json",
