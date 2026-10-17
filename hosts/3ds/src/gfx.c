@@ -889,13 +889,32 @@ void gfx_finish_frame(void) {
   GSPGPU_FlushDataCache(vertices, vertex_count * sizeof *vertices);
 }
 
-void gfx_draw_surface(uint32_t surface) {
+/**
+ * Render a prepared surface with horizontal stereoscopic parallax (in pixels).
+ * Modifies the projection matrix bounds: negative offset for left eye, positive for right eye.
+ */
+void gfx_draw_surface_stereo(uint32_t surface, float eye_offset) {
   if (!initialized || surface >= MAX_SURFACES) return;
   const SurfaceBatch *batch = &surfaces[surface];
   if (!batch->prepared || batch->command_count == 0) return;
 
   C3D_BindProgram(&shader_program);
-  C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &batch->projection);
+  if (eye_offset != 0.0f) {
+    C3D_Mtx proj;
+    Mtx_OrthoTilt(
+      &proj,
+      0.0f + eye_offset,
+      (float)batch->width + eye_offset,
+      (float)batch->height,
+      0.0f,
+      0.0f,
+      1.0f,
+      true
+    );
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &proj);
+  } else {
+    C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &batch->projection);
+  }
   C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_CullFace(GPU_CULL_NONE);
   C3D_AlphaBlend(
@@ -941,6 +960,10 @@ void gfx_draw_surface(uint32_t surface) {
     C3D_DrawArrays(GPU_TRIANGLES, (int)command->first, (int)command->count);
   }
   if (scissored) C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
+}
+
+void gfx_draw_surface(uint32_t surface) {
+  gfx_draw_surface_stereo(surface, 0.0f);
 }
 
 // ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@
 #include "pocket_core.h"
 #include "quickjs.h"
 #include "svcwire.h"
+#include "input.h"
 
 #ifndef POCKETJS_TARGET_ID
 #error "POCKETJS_TARGET_ID must come from the verified ResolvedBuildPlan"
@@ -100,6 +101,7 @@ typedef enum {
   HostPhysicsDestroy,
   HostPhysicsEvents,
   HostPhysicsQuery,
+  HostGetSlider3D,
 } HostOperation;
 
 static JSRuntime *runtime;
@@ -599,6 +601,9 @@ static JSValue host_operation(
         JS_FreeCString(ctx, text);
       }
       return JS_UNDEFINED;
+    case HostGetSlider3D:
+      /* Returns hardware 3D depth slider value [0.0 = 2D, 1.0 = max 3D] to JS (ui.slider3D). */
+      return JS_NewFloat64(ctx, (double)input_slider3d());
   }
   return JS_UNDEFINED;
 }
@@ -711,6 +716,8 @@ static void install_host(void) {
   add_operation(ui, "physicsDestroy", 1, HostPhysicsDestroy);
   add_operation(ui, "physicsEvents", 0, HostPhysicsEvents);
   add_operation(ui, "physicsQuery", 6, HostPhysicsQuery);
+  /* 3DS stereoscopic depth slider reading [0.0, 1.0]. */
+  add_operation(ui, "slider3D", 0, HostGetSlider3D);
 
   /* Framework-owned host identity, from the build's -D defines rather than
    * literals that can drift. Bundles refuse to mount when they disagree. */
