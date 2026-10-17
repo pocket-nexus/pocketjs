@@ -22,10 +22,16 @@ afterEach(() => {
 function checkout(): string {
   const path = `/tmp/pocketjs-cli-${process.pid}-${Math.random().toString(16).slice(2)}`;
   mkdirSync(path, { recursive: true });
-  writeFileSync(join(path, "package.json"), JSON.stringify({ name: "@pocketjs/framework" }));
+  writeFileSync(join(path, "package.json"), JSON.stringify({ name: "@pocketjs/framework", pocketjs: { protocol: 1 } }));
   temporary.push(path);
   return path;
 }
+
+// Every CLI run gets its own settings directory and no POCKET_TARGET, so the
+// machine's settings never reach a test.
+const settingsHome = `/tmp/pocketjs-cli-settings-${process.pid}`;
+mkdirSync(settingsHome, { recursive: true });
+temporary.push(settingsHome);
 
 /** A directory no PocketJS checkout owns: `pocket create` writes a standalone project here. */
 function scratch(): string {
@@ -54,7 +60,7 @@ function runCli(cwd: string, args: string[], env: Record<string, string> = {}) {
   return Bun.spawnSync({
     cmd: [process.execPath, cli, ...args],
     cwd,
-    env: { ...process.env, ...env },
+    env: { ...process.env, XDG_CONFIG_HOME: settingsHome, POCKET_TARGET: "", ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -81,7 +87,7 @@ describe("published PocketJS CLI", () => {
         viewport: { logical: [480, 272], presentation: "integer-fit" },
       },
     });
-    expect(existsSync(join(app, "pocket.config.ts"))).toBe(false);
+    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: ["psp"]');
     expect(readFileSync(join(app, "main.tsx"), "utf8"))
       .toContain('from "@pocketjs/framework/solid"');
 
@@ -96,7 +102,11 @@ describe("published PocketJS CLI", () => {
     const scripts = join(cwd, "tools");
     const log = join(cwd, "cli-log.json");
     mkdirSync(scripts);
-    const recorder = `await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
+    const recorder = `if (Bun.argv[2] === "project") {
+  console.log(JSON.stringify({ ok: true, project: { config: null, targets: [] } }));
+  process.exit(0);
+}
+await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
   script: import.meta.url,
   args: Bun.argv.slice(2),
 }));\n`;
@@ -105,9 +115,9 @@ describe("published PocketJS CLI", () => {
     }
 
     const cases = [
-      { cliArgs: ["check", "--target", "psp"], script: "pocket.ts", args: ["check", "--target", "psp"] },
-      { cliArgs: ["compile", "--target", "vita"], script: "pocket.ts", args: ["compile", "--target", "vita"] },
-      { cliArgs: ["build", "--target", "vita", "--", "--release"], script: "pocket.ts", args: ["build", "--target", "vita", "--", "--release"] },
+      { cliArgs: ["check", "--target", "psp"], script: "pocket.ts", args: ["check", "--target", "psp", "--cli-protocol", "1"] },
+      { cliArgs: ["compile", "--target", "vita"], script: "pocket.ts", args: ["compile", "--target", "vita", "--cli-protocol", "1"] },
+      { cliArgs: ["build", "--target", "vita", "--", "--release"], script: "pocket.ts", args: ["build", "--target", "vita", "--cli-protocol", "1", "--", "--release"] },
       { cliArgs: ["play", "vita", "hero"], script: "play.ts", args: ["vita", "hero"] },
       { cliArgs: ["vita", "hero", "--release"], script: "vita.ts", args: ["hero", "--release"] },
       { cliArgs: ["symbian", "doctor", "--device"], script: "symbian.ts", args: ["doctor", "--device"] },
@@ -133,8 +143,12 @@ describe("published PocketJS CLI", () => {
     const log = join(cwd, "cli-log.json");
     mkdirSync(join(framework, "tools"), { recursive: true });
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "external-pocket-app" }));
-    writeFileSync(join(framework, "package.json"), JSON.stringify({ name: "@pocketjs/framework" }));
-    writeFileSync(join(framework, "tools/pocket.ts"), `await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
+    writeFileSync(join(framework, "package.json"), JSON.stringify({ name: "@pocketjs/framework", pocketjs: { protocol: 1 } }));
+    writeFileSync(join(framework, "tools/pocket.ts"), `if (Bun.argv[2] === "project") {
+  console.log(JSON.stringify({ ok: true, project: { config: null, targets: [] } }));
+  process.exit(0);
+}
+await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
   args: Bun.argv.slice(2),
   cwd: process.cwd(),
 }));\n`);
@@ -153,6 +167,8 @@ describe("published PocketJS CLI", () => {
         "build",
         "--host-profile",
         "firmware/pocket.host.json",
+        "--cli-protocol",
+        "1",
         "--manifest",
         "app/pocket.json",
       ],
@@ -176,7 +192,7 @@ describe("published PocketJS CLI", () => {
     expect(result.stdout.toString()).toContain("bun install");
 
     const app = join(cwd, "counter");
-    for (const file of ["package.json", "tsconfig.json", "pocket.json", "main.tsx", "app.tsx", "README.md", ".gitignore"]) {
+    for (const file of ["package.json", "tsconfig.json", "pocket.json", "pocket.config.ts", "main.tsx", "app.tsx", "README.md", ".gitignore"]) {
       expect(existsSync(join(app, file)), file).toBe(true);
     }
     expect(existsSync(join(app, "pocket.host.json"))).toBe(false);
@@ -185,10 +201,11 @@ describe("published PocketJS CLI", () => {
     expect(pkg.dependencies).toEqual({ "@pocketjs/framework": `^${cliVersion}`, vue: FRAMEWORK_DEPENDENCIES["vue-vapor"].vue });
     expect(pkg.devDependencies).toEqual({ "@pocketjs/cli": `^${cliVersion}` });
     expect(pkg.scripts).toEqual({
-      check: "pocket check --target vita",
-      compile: "pocket compile --target vita",
-      build: "pocket build --target vita -- --release",
+      check: "pocket check",
+      compile: "pocket compile",
+      build: "pocket build -- --release",
     });
+    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: ["vita"]');
     expect(readFileSync(join(app, "main.tsx"), "utf8")).toContain('from "@pocketjs/framework/vue-vapor"');
     expect(readFileSync(join(app, "app.tsx"), "utf8")).toContain('from "@pocketjs/framework/vue-vapor/lifecycle"');
     expect(readJson(join(app, "tsconfig.json")).include).toEqual([
@@ -228,8 +245,9 @@ describe("published PocketJS CLI", () => {
     expect(readFileSync(join(app, "app.tsx"), "utf8")).toContain("onButtonPress(BTN.CROSS");
 
     const pkg = readJson(join(app, "package.json"));
-    expect(pkg.scripts.check).toBe("pocket check --host-profile ../firmware/pocket.host.json");
-    expect(pkg.scripts.build).toBe("pocket build --host-profile ../firmware/pocket.host.json --output dist/app.pocket");
+    expect(pkg.scripts.check).toBe("pocket check");
+    expect(pkg.scripts.build).toBe("pocket build --output dist/app.pocket");
+    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: [{ hostProfile: "../firmware/pocket.host.json" }]');
     const readme = readFileSync(join(app, "README.md"), "utf8");
     expect(readme).toContain("pocketjs_compile_app(");
     expect(readme).toContain("pocketjs_embed_package(");
@@ -263,7 +281,8 @@ describe("published PocketJS CLI", () => {
     const manifest = readJson(join(app, "pocket.json"));
     expect(manifest.app.viewport).toEqual({ logical: [320, 240], presentation: "native" });
     expect(resolveAgainstProfile(manifest, profile).ok).toBe(true);
-    expect(readJson(join(app, "package.json")).scripts.check).toBe("pocket check --host-profile pocket.host.json");
+    expect(readJson(join(app, "package.json")).scripts.check).toBe("pocket check");
+    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: [{ hostProfile: "pocket.host.json" }]');
   });
 
   test("create rejects a target that needs a dynamic viewport and a mixed selector", () => {
@@ -308,3 +327,216 @@ describe("published PocketJS CLI", () => {
     }
   }, 180_000);
 });
+
+describe("target selection", () => {
+  const catalog = [
+    { id: "psp", title: "PlayStation Portable", contract: { kind: "registry", target: "psp" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] },
+    { id: "vita", title: "PlayStation Vita", contract: { kind: "registry", target: "vita" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] },
+    { id: "web-app", title: "Browser", contract: { kind: "registry", target: "web-app" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] },
+    { id: "moto-g-play", title: "Moto G Play", contract: { kind: "profile", target: "moto-g-play-dev" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64"] },
+  ];
+
+  /** A framework whose tools/pocket.ts answers `project` and `catalog` from
+   *  the environment and appends every other invocation to a log. */
+  function fakeFramework(protocol = 1) {
+    const cwd = checkout();
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "@pocketjs/framework", version: "9.9.9", pocketjs: { protocol } }));
+    mkdirSync(join(cwd, "tools"));
+    writeFileSync(join(cwd, "tools/pocket.ts"), `const command = Bun.argv[2];
+if (command === "project") { console.log(process.env.FAKE_PROJECT); process.exit(0); }
+if (command === "catalog") { console.log(process.env.FAKE_CATALOG); process.exit(0); }
+const log = process.env.POCKET_CLI_TEST_LOG;
+const previous = (await Bun.file(log).exists()) ? await Bun.file(log).json() : [];
+await Bun.write(log, JSON.stringify([...previous, Bun.argv.slice(2)]));\n`);
+    const settings = join(cwd, "settings");
+    mkdirSync(settings);
+    return { cwd, log: join(cwd, "log.json"), settings };
+  }
+
+  function pocket(
+    framework: ReturnType<typeof fakeFramework>,
+    args: string[],
+    project: { config: string | null; targets: unknown[] } = { config: null, targets: [] },
+    env: Record<string, string> = {},
+  ) {
+    rmSync(framework.log, { force: true });
+    const result = runCli(framework.cwd, args, {
+      POCKET_CLI_TEST_LOG: framework.log,
+      XDG_CONFIG_HOME: framework.settings,
+      FAKE_PROJECT: JSON.stringify({ ok: true, project }),
+      FAKE_CATALOG: JSON.stringify(catalog),
+      ...env,
+    });
+    const calls: string[][] = existsSync(framework.log) ? readJson(framework.log) : [];
+    return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString(), calls };
+  }
+
+  const project = (targets: unknown[]) => ({ config: "/work/game/pocket.config.ts", targets });
+
+  test("no source names a target", () => {
+    const framework = fakeFramework();
+    const result = pocket(framework, ["check"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("no target selected");
+    expect(result.calls).toEqual([]);
+  });
+
+  test("each source overrides the ones after it", () => {
+    const framework = fakeFramework();
+    const targetOf = (result: ReturnType<typeof pocket>) => result.calls[0]?.slice(1, 3);
+
+    expect(pocket(framework, ["default", "psp"]).code).toBe(0);
+    let result = pocket(framework, ["check"]);
+    expect(targetOf(result)).toEqual(["--target", "psp"]);
+    expect(result.err).toContain("pocket: target psp · user default");
+
+    result = pocket(framework, ["check"], project([{ id: "vita" }]));
+    expect(targetOf(result)).toEqual(["--target", "vita"]);
+    expect(result.err).toContain("pocket: target vita · /work/game/pocket.config.ts");
+
+    expect(pocket(framework, ["override", "set", "web-app"]).code).toBe(0);
+    result = pocket(framework, ["check"], project([{ id: "vita" }]));
+    expect(targetOf(result)).toEqual(["--target", "web-app"]);
+    expect(result.err).toContain(`pocket: target web-app · directory override ${realpathSync(framework.cwd)}`);
+
+    result = pocket(framework, ["check"], project([{ id: "vita" }]), { POCKET_TARGET: "moto-g-play" });
+    expect(targetOf(result)).toEqual(["--target", "moto-g-play"]);
+
+    for (const args of [["+psp", "check"], ["check", "+psp"], ["check", "--target", "psp"], ["check", "--target=psp"]]) {
+      result = pocket(framework, args, project([{ id: "vita" }]), { POCKET_TARGET: "moto-g-play" });
+      expect(targetOf(result), args.join(" ")).toEqual(["--target", "psp"]);
+    }
+
+    expect(pocket(framework, ["override", "unset"]).code).toBe(0);
+    expect(pocket(framework, ["default", "--unset"]).code).toBe(0);
+    expect(pocket(framework, ["check"]).code).toBe(1);
+  });
+
+  test("an override applies below its directory", () => {
+    const framework = fakeFramework();
+    const nested = join(framework.cwd, "apps", "game");
+    mkdirSync(nested, { recursive: true });
+    expect(pocket(framework, ["override", "set", "vita", "--path", framework.cwd]).code).toBe(0);
+    rmSync(framework.log, { force: true });
+    const result = runCli(nested, ["check"], {
+      POCKET_CLI_TEST_LOG: framework.log,
+      XDG_CONFIG_HOME: framework.settings,
+      FAKE_PROJECT: JSON.stringify({ ok: true, project: { config: null, targets: [] } }),
+      FAKE_CATALOG: JSON.stringify(catalog),
+    });
+    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(readJson(framework.log)[0].slice(1, 3)).toEqual(["--target", "vita"]);
+  });
+
+  test("conflicting and misplaced selections are errors", () => {
+    const framework = fakeFramework();
+    let result = pocket(framework, ["+psp", "check", "--target", "vita"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("conflicting targets: +psp and --target vita");
+
+    result = pocket(framework, ["check", "--manifest", "pocket.json", "+psp"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("+psp must come right after `pocket` or right after the command");
+
+    result = pocket(framework, ["check", "--target", "psp", "--", "+vita"]);
+    expect(result.code).toBe(0);
+    expect(result.calls[0]).toEqual(["check", "--target", "psp", "--cli-protocol", "1", "--", "+vita"]);
+
+    result = pocket(framework, ["+psp", "create", "x"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("+psp selects a target for check, compile, build or show");
+  });
+
+  test("a project entry's manifest and host profile reach tools/pocket.ts", () => {
+    const framework = fakeFramework();
+    const entries = project([
+      { id: "moto-g-play", manifest: "/work/game/pocket.android.json" },
+      { id: "idf-panel", hostProfile: "/work/firmware/pocket.host.json" },
+    ]);
+    let result = pocket(framework, ["build"], entries);
+    expect(result.calls[0]).toEqual(["build", "--target", "moto-g-play", "--manifest", "/work/game/pocket.android.json", "--cli-protocol", "1"]);
+
+    result = pocket(framework, ["build", "--manifest", "other.json"], entries);
+    expect(result.calls[0]).toEqual(["build", "--target", "moto-g-play", "--cli-protocol", "1", "--manifest", "other.json"]);
+
+    result = pocket(framework, ["+idf-panel", "build", "--output", "dist/panel.pocket"], entries);
+    expect(result.calls[0]).toEqual(["build", "--host-profile", "/work/firmware/pocket.host.json", "--cli-protocol", "1", "--output", "dist/panel.pocket"]);
+  });
+
+  test("build --all builds every project target in order", () => {
+    const framework = fakeFramework();
+    const result = pocket(framework, ["build", "--all", "--", "--release"], project([{ id: "psp" }, { id: "vita" }]));
+    expect(result.code, result.err).toBe(0);
+    expect(result.calls).toEqual([
+      ["build", "--target", "psp", "--cli-protocol", "1", "--", "--release"],
+      ["build", "--target", "vita", "--cli-protocol", "1", "--", "--release"],
+    ]);
+    expect(pocket(framework, ["build", "--all"]).err).toContain("lists none");
+    expect(pocket(framework, ["+psp", "build", "--all"], project([{ id: "psp" }])).err).toContain("drop the explicit target");
+  });
+
+  test("a framework on another protocol stops the CLI", () => {
+    const framework = fakeFramework(2);
+    const result = pocket(framework, ["check", "--target", "psp"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("speaks protocol 1");
+    expect(result.err).toContain("speaks protocol 2");
+    expect(result.calls).toEqual([]);
+  });
+
+  test("default and override reject an id outside the catalog and the project", () => {
+    const framework = fakeFramework();
+    const result = pocket(framework, ["default", "gba"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("unknown target gba");
+  });
+
+  test("show reports the framework, the project and the selection with its source", () => {
+    const framework = fakeFramework();
+    const result = pocket(framework, ["show", "--json"], project([{ id: "vita" }]));
+    expect(result.code, result.err).toBe(0);
+    const report = JSON.parse(result.out);
+    expect(report.framework).toMatchObject({ version: "9.9.9", source: "checkout", protocol: 1, root: realpathSync(framework.cwd) });
+    expect(report.selection).toEqual({ id: "vita", source: "project", origin: "/work/game/pocket.config.ts" });
+    expect(report.targets.map((target: { id: string }) => target.id)).toEqual(["psp", "vita", "web-app", "moto-g-play"]);
+
+    const explicit = JSON.parse(pocket(framework, ["+psp", "show", "--json"], project([{ id: "vita" }])).out);
+    expect(explicit.selection).toEqual({ id: "psp", source: "explicit", origin: "+psp" });
+  });
+});
+
+describe("framework resolution", () => {
+  test("the marker identifies a framework under any package name, and the nearest candidate wins", async () => {
+    const { resolveFramework } = await import("../tools/cli/framework.mjs");
+    const base = scratch();
+    const fork = join(base, "fork");
+    mkdirSync(fork);
+    writeFileSync(join(fork, "package.json"), JSON.stringify({ name: "@me/pocketjs-fork", version: "1.0.0", pocketjs: { protocol: 1 } }));
+    expect(resolveFramework({ cwd: fork, env: {} })).toMatchObject({ root: fork, source: "checkout", name: "@me/pocketjs-fork" });
+
+    const app = join(fork, "apps", "game");
+    mkdirSync(join(app, "node_modules/@pocketjs/framework"), { recursive: true });
+    writeFileSync(join(app, "node_modules/@pocketjs/framework/package.json"), JSON.stringify({ name: "@pocketjs/framework", version: "2.0.0", pocketjs: { protocol: 1 } }));
+    expect(resolveFramework({ cwd: app, env: {} })).toMatchObject({ source: "project", version: "2.0.0", origin: "registry" });
+
+    const unmarked = join(base, "unmarked");
+    mkdirSync(join(unmarked, "node_modules/@pocketjs/framework"), { recursive: true });
+    writeFileSync(join(unmarked, "node_modules/@pocketjs/framework/package.json"), JSON.stringify({ name: "@pocketjs/framework", version: "0.14.0" }));
+    expect(resolveFramework({ cwd: unmarked, env: {} }).error).toContain("no \"pocketjs\": { \"protocol\": … } marker");
+
+    expect(resolveFramework({ cwd: base, env: { POCKETJS_FRAMEWORK_ROOT: unmarked } }).error).toContain("is not a PocketJS framework");
+  });
+
+  test("a linked install reports where it points", async () => {
+    const { resolveFramework } = await import("../tools/cli/framework.mjs");
+    const base = scratch();
+    const fork = join(base, "fork");
+    mkdirSync(fork);
+    writeFileSync(join(fork, "package.json"), JSON.stringify({ name: "@me/fork", version: "1.0.0", pocketjs: { protocol: 1 } }));
+    const app = join(base, "app");
+    mkdirSync(join(app, "node_modules/@pocketjs"), { recursive: true });
+    symlinkSync(fork, join(app, "node_modules/@pocketjs/framework"), "dir");
+    expect(resolveFramework({ cwd: app, env: {} })).toMatchObject({ root: realpathSync(fork), source: "project", origin: `link → ${realpathSync(fork)}` });
+  });
+});
+

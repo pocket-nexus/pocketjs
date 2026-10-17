@@ -163,6 +163,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "pocketjs": {
+    "protocol": 1
+  },
   "exports": {
     ".": "./framework/src/index.ts",
     "./animation": "./framework/src/animation.ts",

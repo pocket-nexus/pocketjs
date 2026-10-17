@@ -10,6 +10,8 @@
   "files": [
     "bin.mjs",
     "create.mjs",
+    "framework.mjs",
+    "select.mjs",
     "psp-toolchain.json",
     "symbian-toolchain.json",
     "README.md"
