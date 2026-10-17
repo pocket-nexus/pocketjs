@@ -434,19 +434,29 @@ const targetBackends = {
   psp: async ({ planPath, projectRoot, outdir, args }) => { /* tools/psp.ts */ },
   vita: async ({ planPath, projectRoot, outdir, args }) => { /* tools/vita.ts */ },
   pocketbook: async ({ outdir }) => { /* bundle only; the host ELF is cross-compiled */ },
-};
+  "web-app": async ({ plan, outdir }) => compiledBundle(/* hosts/web */),
+  "macos-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
+  "linux-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
+  "macos-widget": async ({ plan, outdir }) => compiledBundle(/* note-widget */),
+} satisfies Record<PocketTargetId, TargetBackend>;
 
-await targetBackends[target as PocketTargetId](context);
+const backend = targetBackends[target as PocketTargetId];
+if (!backend) usage(`no build backend for target ${target}; …`);
+await backend(context);
 ```
 
-**That table holds three of the seven registered targets.** The desktop targets
-build through their own tools instead — `macos-app` through `tools/macos.ts`,
-`macos-widget` through `tools/note.ts` and `tools/widget.ts` — and `linux-app`
-and `web-app` have no `pocket build` path today: the plan resolves and then the
-index throws a TypeError on an undefined backend. The table carries a
-`satisfies Record<PocketTargetId, TargetBackend>` annotation it does not meet,
-and `tools/` sits outside the `tsconfig.json` include list, so no typecheck
-reports the gap.
+**The table has one entry per registered target, seven in all.** `psp` and
+`vita` are the two backends that package a platform binary. The `pocketbook`,
+`web-app`, `macos-app`, `linux-app` and `macos-widget` hosts load
+`<output>.js` and `<output>.pak` from a filesystem, so their entries print the
+bundle `compile` wrote and the host that loads it. The native desktop hosts
+build through their own tools — `macos-app` through `tools/macos.ts`,
+`macos-widget` through `tools/note.ts`, which builds
+`engine/pocket3d/examples/note-widget`. A target id
+without an entry stops with a usage error that points at `pocket compile`.
+`tools/` sits outside the `tsconfig.json` include list, so `bunx tsc` does not
+check the `satisfies` annotation. [CLI](/docs/cli/#check-compile-build) lists
+the `build` output of each target.
 
 After dispatch, a backend reads resolved fields; it does not recalculate
 physical dimensions or output names from the target id. The serialized plan

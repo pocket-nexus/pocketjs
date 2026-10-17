@@ -249,9 +249,26 @@ const targetBackends = {
         `(hosts/pocketbook, cargo zigbuild) and copy both to the device.`,
     );
   },
+  "web-app": async ({ plan, outdir }) =>
+    compiledBundle("web-app", plan, outdir, "the browser host (hosts/web; `bun hosts/web/serve.ts` in a checkout)"),
+  "macos-app": async ({ plan, outdir }) =>
+    compiledBundle("macos-app", plan, outdir, "the desktop host (hosts/desktop; `bun run macos <app>` in a checkout)"),
+  "linux-app": async ({ plan, outdir }) =>
+    compiledBundle("linux-app", plan, outdir, "the desktop host (hosts/desktop)"),
+  "macos-widget": async ({ plan, outdir }) =>
+    compiledBundle("macos-widget", plan, outdir, "the note-widget host (engine/pocket3d/examples/note-widget; `bun run note` in a checkout)"),
 } satisfies Record<PocketTargetId, TargetBackend>;
 
-await targetBackends[target as PocketTargetId]({
+// Targets whose host loads <output>.js + <output>.pak from a filesystem have no
+// platform binary to package: `compile` produced the deliverable, so `build`
+// reports where it is and which host consumes it.
+function compiledBundle(target: string, plan: ResolvedBuildPlan, outdir: string, host: string): void {
+  console.log(`✓ ${target} bundle ready: ${resolve(outdir, `${plan.app.output}.js`)} + .pak — loaded by ${host}.`);
+}
+
+const backend = targetBackends[target as PocketTargetId];
+if (!backend) usage(`no build backend for target ${target}; \`pocket compile\` emits dist/${plan.app.output}.js and .pak`);
+await backend({
   plan,
   planPath,
   projectRoot,

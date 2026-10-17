@@ -13,7 +13,7 @@ component that creates an owner task.
 | ESP-IDF | `>=6.0,<6.2` |
 | JavaScript engine | `espressif/quickjs-ng` 0.14.0, pulled by `pocketjs_guest` |
 | Prebuilt `.pocket` | Python 3 for the embed step; no Bun and no `pocket` CLI during `idf.py build` |
-| Source application | Installed `pocket` CLI and Bun |
+| Source application | Installed [`pocket` CLI](/docs/cli/) and Bun |
 | Native core | Prebuilt in Registry releases; Rust is optional for consumers |
 
 P4 and S3 share the same package, guest, UI, and renderer interfaces. P4 may
@@ -71,6 +71,19 @@ whose target, HostOps ABI, tick rate, viewport, density, presentation, or
 profile hash differs from the compiled host contract.
 
 ## Build an application package
+
+### Scaffold
+
+From the firmware root:
+
+```sh
+pocket create app --host-profile pocket.host.json
+```
+
+**`app/pocket.json` takes its viewport, presentation and button requirement
+from the profile**, and `app/README.md` carries the two integrations below with
+the paths filled in. [ESP-IDF scaffold](/docs/cli/#esp-idf-scaffold) lists the
+derivation rules and the starting profile for a firmware without one.
 
 ### Prebuilt package
 

@@ -46,36 +46,21 @@ bun install
 bun run bootstrap   # one-time PSP setup; omit for browser-only development
 ```
 
-The [`@pocketjs/cli`](https://www.npmjs.com/package/@pocketjs/cli) package can
-check (and mostly install) the toolchain for you, flutter-doctor style:
-
-```sh
-npm install -g @pocketjs/cli
-pocket doctor   # diagnoses bun, the Rust targets, and the PSP toolchain
-pocket setup    # runs the checkout's pinned, idempotent bootstrap
-```
-
-The PSP setup is self-contained in PocketJS; it does not inspect DreamCart or
-any sibling source checkout. Its exact revisions and SDK checksum live in
-`tools/cli/psp-toolchain.json`. Artifacts are shared through
-`${XDG_CACHE_HOME:-~/.cache}/pocket-nexus`; `POCKET_NEXUS_CACHE_DIR` overrides
-that root. For a custom SDK, set `PSP_SDK` or `PSPDEV` (in that precedence
-order). The build validates an explicit path and then exports both names to the
-selected SDK, so a typo fails instead of falling through to a different cached
-toolchain.
-
-It also wraps the day-to-day commands. `pocket create <name>` scaffolds a
-manifest-first demo; `pocket check|compile|build --target psp|vita` delegate to
-the canonical resolver; `pocket dev|psp|vita|hw|psplink` retain the low-level
-host-development paths; and `pocket devtools [app]` opens the
-[DevTools](/docs/devtools/) panel with the USB debug bridge.
-
 That pulls `solid-js`, the Vue Vapor and Octane dependencies, and the
 build-time tooling (the
 Babel + Tailwind-subset compiler, the font baker, and the dev host). There is no
 separate runtime to install — the framework is the `@pocketjs/framework` package
 in this repo, exposed through subpath imports like
 `@pocketjs/framework/components`.
+
+This guide uses the `pocket` command from `@pocketjs/cli`, which runs on Bun:
+
+```sh
+bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
+```
+
+The [CLI reference](/docs/cli/) lists every command, the checks of
+`pocket doctor`, and the toolchain cache and SDK variables.
 
 Create an app and validate it against both stock profiles:
 
@@ -84,6 +69,9 @@ pocket create my-app
 pocket check --target psp --manifest apps/my-app/pocket.json
 pocket check --target vita --manifest apps/my-app/pocket.json
 ```
+
+Outside a checkout, `pocket create` writes a standalone project with its own
+`package.json`; see [create](/docs/cli/#create).
 
 The generated `pocket.json` is strict application intent:
 
@@ -128,8 +116,9 @@ Solid is the default low-level framework. Manifest builds select Solid, Vue
 Vapor, or Octane with `app.framework` in `pocket.json`; see
 [Frameworks](/docs/frameworks/) for the full selection model.
 
-`pocket create` writes an `apps/my-app/app.tsx` that counts CROSS presses
-through `onButtonPress` from `@pocketjs/framework/lifecycle`. Replace it with
+`pocket create` writes an `app.tsx` that counts CROSS presses through
+`onButtonPress` from `@pocketjs/framework/solid/lifecycle` (or the
+`vue-vapor`/`octane` subpath for `--framework`). Replace it with
 this focusable counter, which routes the same increment through d-pad focus and
 `onPress`:
 
@@ -238,8 +227,8 @@ What's happening:
 
 `app.tsx` exports a component but doesn't put anything on screen. The **mount
 entry** does that. Keep it small — this is app bootstrap. `pocket create`
-writes the Solid spelling to `apps/my-app/main.tsx`; the other two differ in
-the import:
+writes the spelling for its `--framework` (Solid by default) to `main.tsx`; the
+three differ in the import:
 
 :::framework-code
 ```tsx solid
@@ -261,13 +250,19 @@ mount(App);
 ```tsx octane
 // @title PocketJS: My App
 import App from "./app.tsx";
-import { mount } from "@pocketjs/framework/octane";
+import { mount } from "@pocketjs/framework";
 
 // Pass the component itself: in Octane, JSX inside a call-argument arrow
 // (mount(() => <App />)) is a compile error.
 mount(App);
 ```
 :::
+
+The Octane entry imports `mount` from the generic root: the build resolves
+`@pocketjs/framework` to the framework named in `pocket.json`, and the root's
+`mount` type accepts a JSX component. `@pocketjs/framework/octane` types `mount`
+for compiled universal components, which `pocket check` does not see in app
+sources.
 
 `mount` comes from the selected framework runtime subpath. It handles host
 detection (native PSP/Vita vs. injected browser/headless hosts), wiring the generated style table,
@@ -298,9 +293,8 @@ a blank bubble or generic launch gate. Custom native hosts call
 assets override matching defaults while missing artwork continues to inherit
 PocketJS's complete set.
 
-`pocket compile --target …` stops after the JS/pak artifacts for a custom native
-host. `pocket check --target …` is read-only. Arguments after `--` belong to the
-selected native backend.
+[check, compile, build](/docs/cli/#check-compile-build) lists the options of
+the three commands and the `build` output of each target.
 
 For framework work, the lower-level compiler remains available:
 
