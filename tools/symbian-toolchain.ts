@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import manifestJson from "./cli/symbian-toolchain.json";
-import { pocketNexusCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
+import { pocketNexusCacheRoot } from "./targets/cache.ts";
+import { withArtifactLock } from "./targets/lock.ts";
 
 export interface PinnedDownload {
   readonly asset: string;

@@ -1,7 +1,7 @@
 {
   "name": "@pocketjs/cli",
   "version": "0.14.0",
-  "description": "The PocketJS CLI — manifest-first handheld and ESP-IDF builds, app scaffolding, and pinned native toolchain setup. Runs on Bun.",
+  "description": "The PocketJS CLI — manifest-first handheld and ESP-IDF builds, app scaffolding, and installs of the target toolchains the framework pins. Runs on Bun.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -12,7 +12,6 @@
     "create.mjs",
     "framework.mjs",
     "select.mjs",
-    "psp-toolchain.json",
     "symbian-toolchain.json",
     "README.md"
   ],
@@ -33,8 +32,7 @@
     "symbian",
     "bun",
     "cli",
-    "toolchain",
-    "doctor"
+    "toolchain"
   ],
   "publishConfig": {
     "access": "public"

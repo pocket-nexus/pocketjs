@@ -6,6 +6,14 @@
 //   bun pocket catalog [--json]      the targets --target accepts
 //   bun pocket project [--manifest pocket.json]
 //                                    the project configuration as JSON
+//   bun pocket target add [<id> …] | list [--check] [--json] | remove <id> …
+//                                    install target toolchains (tools/targets/commands.ts)
+//   bun pocket status --json         install state of every target, for `pocket show`
+//
+// `build` for a target with a toolchain manifest stops before anything else
+// unless the toolchain the framework pins is installed, and holds the target's
+// install record shared until the backend finishes, so `pocket target remove`
+// waits for it.
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -14,7 +22,10 @@ import { depfile } from "../framework/compiler/build-inputs.ts";
 import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
 import type { PlatformContractRegistry } from "../contracts/spec/platforms.ts";
 import { CATALOG, catalogEntry, catalogEntryForContract } from "./targets/index.ts";
+import { statusRows, targetCommand } from "./targets/commands.ts";
+import { withSharedLock } from "./targets/lock.ts";
 import { loadProject } from "./targets/project.ts";
+import { stateMessage, storeLayout, targetLock, targetState } from "./targets/store.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { canonicalJson, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import {
@@ -53,6 +64,16 @@ function takeOption(name: string): string | undefined {
   return value;
 }
 
+// The CLI states the protocol it speaks; a framework that speaks another one
+// stops before reading anything else.
+const cliProtocol = takeOption("cli-protocol");
+if (cliProtocol !== undefined) {
+  const frameworkProtocol = JSON.parse(readFileSync(resolve(frameworkRoot, "package.json"), "utf8")).pocketjs?.protocol;
+  if (String(frameworkProtocol) !== cliProtocol) {
+    usage(`the CLI speaks protocol ${cliProtocol} and the framework at ${frameworkRoot} speaks protocol ${frameworkProtocol}`);
+  }
+}
+
 if (command === "catalog") {
   const json = argv.includes("--json");
   const rows = CATALOG.map((descriptor) => ({
@@ -72,17 +93,16 @@ if (command === "project") {
   console.log(JSON.stringify(result, null, 2));
   process.exit(result.ok ? 0 : 1);
 }
+if (command === "target") {
+  process.exit(await targetCommand(argv));
+}
+if (command === "status") {
+  const project = await loadProject(process.cwd());
+  console.log(JSON.stringify(statusRows(project.ok ? project.project : null), null, 2));
+  process.exit(0);
+}
 if (command !== "check" && command !== "compile" && command !== "build") {
   usage(`unknown command ${command ?? "<missing>"}`);
-}
-// The CLI states the protocol it speaks; a framework that speaks another one
-// stops before reading anything else.
-const cliProtocol = takeOption("cli-protocol");
-if (cliProtocol !== undefined) {
-  const frameworkProtocol = JSON.parse(readFileSync(resolve(frameworkRoot, "package.json"), "utf8")).pocketjs?.protocol;
-  if (String(frameworkProtocol) !== cliProtocol) {
-    usage(`the CLI speaks protocol ${cliProtocol} and the framework at ${frameworkRoot} speaks protocol ${frameworkProtocol}`);
-  }
 }
 const targetOption = takeOption("target");
 const hostProfileOption = takeOption("host-profile");
@@ -131,6 +151,13 @@ if (targetOption) {
   catalogId = descriptor.id;
   target = descriptor.contract.target;
   registry = descriptor.contract.registry();
+  if (command === "build") {
+    const notReady = stateMessage(descriptor, targetState(descriptor));
+    if (notReady) {
+      console.error(`pocket: ${notReady}`);
+      process.exit(1);
+    }
+  }
 }
 if (hostProfileOption) {
   const hostProfilePath = resolve(hostProfileOption);
@@ -337,10 +364,11 @@ if (!backend) {
       `\`pocket compile\` wrote ${resolve(outdir, `${plan.app.output}.js`)} and .pak`,
   );
 }
-await backend({
-  plan,
-  planPath,
-  projectRoot,
-  outdir,
-  args: backendArgs,
-});
+await withSharedLock(targetLock(storeLayout(), catalogId!), () =>
+  backend({
+    plan,
+    planPath,
+    projectRoot,
+    outdir,
+    args: backendArgs,
+  }));

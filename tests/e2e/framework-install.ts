@@ -4,8 +4,10 @@
 //
 // Packs @pocketjs/framework with `npm pack`, scaffolds standalone projects with
 // `pocket create` (Solid, Vue Vapor and Octane for web-app, and an ESP-IDF
-// host-profile project), installs the tarball into each with `bun install`, and
-// runs each project's `build` script through this checkout's CLI. A symlinked
+// host-profile project), installs the tarball into each with `bun install`,
+// runs each project's `build` script through this checkout's CLI, and checks
+// with `pocket target list --check` that the installed framework reports every
+// target of pocket.config.ts ready to build. A symlinked
 // checkout carries devDependencies and the checkout's node_modules; a tarball
 // install carries `dependencies` alone and hoists them beside the framework,
 // which is the layout this script checks. The installed framework is made
@@ -58,6 +60,7 @@ for (const project of projects) {
       const script: string = JSON.parse(readFileSync(join(directory, "package.json"), "utf8")).scripts.build;
       return run([process.execPath, cli, ...script.split(" ").slice(1)], directory);
     }],
+    ["target list --check", () => run([process.execPath, cli, "target", "list", "--check"], directory)],
   ];
   let status = "ok";
   for (const [label, step] of steps) {

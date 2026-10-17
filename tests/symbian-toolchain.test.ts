@@ -28,7 +28,7 @@ import {
   withSymbianGuestBuildLock,
   withSymbianRuntimeBuildLock,
 } from "../tools/symbian-toolchain.ts";
-import { withArtifactLock } from "../tools/psp-toolchain.ts";
+import { withArtifactLock } from "../tools/targets/lock.ts";
 
 const repository = new URL("..", import.meta.url).pathname;
 const temporary: string[] = [];

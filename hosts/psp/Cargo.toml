@@ -4,10 +4,13 @@
 # workspace (do NOT add a workspace Cargo.toml at PocketJS/).
 #
 # Build via tools/psp.ts: `rustup run nightly-2026-05-28 cargo psp` with the
-# environment resolved from tools/cli/psp-toolchain.json (llvm-ar, RUSTFLAGS
-# -A linker-messages, RUST_PSP_TARGET=targets/mipsel-sony-psp.json,
-# RUST_PSP_ABORT_ONLY=1, TARGET_CFLAGS). `bun run bootstrap` installs the
-# pinned cargo tools and verified SDK in the shared pocket-nexus cache.
+# toolchain `pocket target add psp` installs from tools/targets/psp.toolchain.json
+# (PSP_SDK, cargo-psp, QUICKJS_PREBUILT_LIB) plus RUSTFLAGS -A linker-messages,
+# RUST_PSP_TARGET=targets/mipsel-sony-psp.json and RUST_PSP_ABORT_ONLY=1.
+#
+# libquickjs-sys links the prebuilt archive QUICKJS_PREBUILT_LIB names. The
+# manifest's `quickjs` component is the archive pocket-nexus/quickjs-rs
+# publishes as prebuilt-psp-<commit> for the revision below; move both together.
 #
 # Memory (docs/DESIGN.md "Memory (the blocker fix)" [R]): the psp crate is built
 # with `external-global-alloc` (gates out rust-psp's one-kernel-object-per-
@@ -23,7 +26,7 @@ edition = "2021"
 [dependencies]
 pocket-psp-ge = { path = "../../devices/psp/pocket-psp-ge" }
 psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
-libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b" }
+libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
 pocketjs-core = { path = "../../engine/core" }
 
 [features]

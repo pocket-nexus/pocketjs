@@ -347,8 +347,8 @@ describe("published npm artifacts", () => {
     expect(files.some((file) => file.startsWith("engine/backends/"))).toBe(false);
     expect(files.some((file) => file.startsWith("hosts/esp-idf/"))).toBe(false);
     expect(files).not.toContain("docs/SYMBIAN_E7.md");
-    // The CLI toolchain pin still ships via the wholesale "tools" entry.
-    expect(files).toContain("tools/cli/psp-toolchain.json");
+    // Toolchain manifests travel with the framework that pins them.
+    expect(files).toContain("tools/targets/psp.toolchain.json");
 
     expect(files).toContain("devices/psp/pocket-psp-ge/src/lib.rs");
     expect(files).toContain("devices/psp/pocket-psp-ge/Cargo.lock");
@@ -375,7 +375,6 @@ describe("published npm artifacts", () => {
       "create.mjs",
       "framework.mjs",
       "package.json",
-      "psp-toolchain.json",
       "select.mjs",
       "symbian-toolchain.json",
     ]);

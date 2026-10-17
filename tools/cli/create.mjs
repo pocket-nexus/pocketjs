@@ -281,7 +281,7 @@ export default definePocketConfig({
 }
 
 const ARTIFACT = {
-  psp: "an EBOOT.PBP from the pinned PSP toolchain (`pocket doctor` lists what it needs)",
+  psp: "an EBOOT.PBP from the pinned PSP toolchain (`pocket target add psp` installs it)",
   vita: "a VPK; needs VitaSDK (`VITASDK`) and cargo-vita",
   pocketbook: "dist/<output>.js + .pak, loaded by the PocketBook host",
   "web-app": "dist/<output>.js + .pak, served by the browser host",
