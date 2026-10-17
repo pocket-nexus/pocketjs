@@ -6,10 +6,11 @@ import solidPreset from "babel-preset-solid";
 import tsPreset from "@babel/preset-typescript"; // untyped - see framework/compiler/ambient.d.ts
 import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
 import { compilerPackageDirectory, findPackageDirectory, packageVersion } from "./runtime-packages.ts";
+import { pocketNexusCacheRoot } from "../../tools/targets/cache.ts";
 import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../microts/compiler/aot-solid-browser.ts";
 import { normalizeSolidAotSemantics } from "../../microts/compiler/aot-solid-semantics.ts";
 import { transformCompiledModel } from "../../microts/compiler/aot-model-build.ts";
@@ -72,6 +73,12 @@ const OCTANE_PROFILING_STUB_PATH = fileURLToPath(
 const GENERATED_STYLES_PATH = fileURLToPath(
   new URL("../src/styles.generated.ts", import.meta.url),
 );
+/** The absolute path a relative import names; bare specifiers stay bare. */
+function resolveImport(importer: string, specifier: string): string {
+  if (!specifier.startsWith(".")) return specifier;
+  const absolute = join(dirname(importer), specifier);
+  return absolute.endsWith(".ts") ? absolute : `${absolute}.ts`;
+}
 const SOLID_DIRECTORY = compilerPackageDirectory("solid-js");
 const VUE_VAPOR_RUNTIME_PATH = join(compilerPackageDirectory("vue"), "dist/vue.runtime-with-vapor.esm-browser.prod.js");
 const SOLID_RUNTIME_PATH = join(SOLID_DIRECTORY, "dist/solid.js");
@@ -87,7 +94,9 @@ const SOLID_JSX_PLUGIN_DIRECTORY = findPackageDirectory(
 const SOLID_JSX_PLUGIN_VERSION = SOLID_JSX_PLUGIN_DIRECTORY ? packageVersion(SOLID_JSX_PLUGIN_DIRECTORY) : "absent";
 
 const PACKAGE_NAME = "@pocketjs/framework";
-const CACHE_DIR = fileURLToPath(new URL("../../.cache/transforms/", import.meta.url));
+// Content-addressed by compiler sources, dependency versions, path and source
+// text, so checkouts, forks and installed frameworks share it safely.
+const CACHE_DIR = join(pocketNexusCacheRoot(), "transforms") + "/";
 const CACHE_VERSION = "3"; // manual backstop; compiler sources are hashed in below
 const COMPILER_DIR = new URL("./", import.meta.url).pathname;
 
@@ -692,6 +701,22 @@ export function jsxPlugin(
       build.onResolve({ filter: /^solid-js\/universal$/ }, () => ({
         path: SOLID_UNIVERSAL_RUNTIME_PATH,
       }));
+      // The framework's style table is this build's, served from memory:
+      // nothing is written into the framework directory, which an installed
+      // framework may not allow, and concurrent builds share nothing. A
+      // plugin user without a table bundles the committed empty one.
+      if (opts.generatedStyles !== undefined) {
+        const generatedStyles = opts.generatedStyles;
+        build.onResolve({ filter: /(?:^|\/)styles\.generated(?:\.ts)?$/ }, (args) =>
+          resolveImport(args.importer, args.path) === GENERATED_STYLES_PATH
+            ? { path: GENERATED_STYLES_PATH, namespace: "pocketjs-generated-styles" }
+            : undefined,
+        );
+        build.onLoad({ filter: /.*/, namespace: "pocketjs-generated-styles" }, () => ({
+          contents: generatedStyles,
+          loader: "ts",
+        }));
+      }
       build.onResolve({ filter: /^@pocketjs\/framework(?:\/.*)?$/ }, (args) => {
         const path = packagePath(args.path, framework);
         return path ? { path } : undefined;
@@ -762,10 +787,7 @@ export function jsxPlugin(
       }
       build.onLoad({ filter: /\.tsx?$/ }, async (args) => {
         if (isNodeModuleFile(args.path) || args.path.endsWith(".d.ts")) return undefined;
-        let src = args.path === GENERATED_STYLES_PATH &&
-            opts.generatedStyles !== undefined
-          ? opts.generatedStyles
-          : await Bun.file(args.path).text();
+        let src = await Bun.file(args.path).text();
         if (framework === "vue-vapor" && args.path === opts.entry) {
           src = `import "@pocketjs/framework/prelude";\n${src}`;
         }

@@ -30,8 +30,8 @@ frozen at build time.
 4. Pass 2 (`Bun.build`) bundles the app, with the JSX plugin serving that
    generated module **from memory** — two target builds running at once cannot
    read each other's table. `tools/build.ts` writes
-   `framework/src/styles.generated.ts` as a mirror for inspection; the bundle
-   does not read that file from disk, and pass 1 skips it.
+   `<outdir>/<output>.styles.ts` as a copy for inspection; the bundle does not
+   read it, and nothing is written into the framework directory.
 
 `styles.bin` ships in the `.pak`. On PSP the native pak walker feeds it to the
 core; on the browser and headless Bun hosts it arrives through the `loadStyles`

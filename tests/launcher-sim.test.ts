@@ -331,12 +331,8 @@ describe("launcher registry admission", () => {
       "apps/launcher/registry.generated.ts",
     );
     const imagesSource = join(repository, "apps/launcher/images.json");
-    const stylesSource = join(repository, "framework/src/styles.generated.ts");
     const registryBefore = readFileSync(registrySource);
     const imagesBefore = readFileSync(imagesSource);
-    const stylesBefore = existsSync(stylesSource)
-      ? readFileSync(stylesSource)
-      : undefined;
     try {
       const targetRegistry = scanRegistry(
         new Set(),
@@ -425,8 +421,6 @@ describe("launcher registry admission", () => {
       expect(readFileSync(registrySource)).toEqual(registryBefore);
       expect(readFileSync(imagesSource)).toEqual(imagesBefore);
     } finally {
-      if (stylesBefore) writeFileSync(stylesSource, stylesBefore);
-      else rmSync(stylesSource, { force: true });
       rmSync(testRoot, { recursive: true, force: true });
     }
   });

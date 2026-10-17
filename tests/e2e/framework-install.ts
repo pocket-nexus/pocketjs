@@ -8,7 +8,9 @@
 // runs each project's `build` script through this checkout's CLI. A symlinked
 // checkout carries devDependencies and the checkout's node_modules; a tarball
 // install carries `dependencies` alone and hoists them beside the framework,
-// which is the layout this script checks. Needs the npm registry.
+// which is the layout this script checks. The installed framework is made
+// read-only before the build: a build writes nothing into it. Needs the npm
+// registry.
 
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,7 +50,9 @@ for (const project of projects) {
       pkg.dependencies["@pocketjs/framework"] = `file:${tarball}`;
       delete pkg.devDependencies; // the CLI under test is this checkout's
       writeFileSync(join(directory, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
-      return run([process.execPath, "install"], directory);
+      const installed = run([process.execPath, "install"], directory);
+      if (installed.ok) run(["chmod", "-R", "a-w", join(directory, "node_modules/@pocketjs/framework")], scratch);
+      return installed;
     }],
     ["build", () => {
       const script: string = JSON.parse(readFileSync(join(directory, "package.json"), "utf8")).scripts.build;
@@ -69,5 +73,8 @@ for (const project of projects) {
 }
 
 if (keep) console.log(`kept ${scratch}`);
-else rmSync(scratch, { recursive: true, force: true });
+else {
+  run(["chmod", "-R", "u+w", scratch], tmpdir());
+  rmSync(scratch, { recursive: true, force: true });
+}
 process.exit(failed === 0 ? 0 : 1);
