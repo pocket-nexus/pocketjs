@@ -17,7 +17,7 @@ export const TARGETS = ["psp", "vita", "pocketbook", "web-app", "macos-app", "li
 // Runtime dependencies a standalone project declares next to the framework.
 // tests/cli.test.ts keeps these equal to the framework package.json.
 export const FRAMEWORK_DEPENDENCIES = {
-  solid: { "solid-js": "^1.9" },
+  solid: { "solid-js": "1.9.14" },
   "vue-vapor": { vue: "3.6.0-rc.1" },
   octane: { octane: "0.1.26" },
 };

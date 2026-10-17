@@ -6,9 +6,10 @@ import solidPreset from "babel-preset-solid";
 import tsPreset from "@babel/preset-typescript"; // untyped - see framework/compiler/ambient.d.ts
 import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
+import { compilerPackageDirectory, findPackageDirectory, packageVersion } from "./runtime-packages.ts";
 import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../microts/compiler/aot-solid-browser.ts";
 import { normalizeSolidAotSemantics } from "../../microts/compiler/aot-solid-semantics.ts";
 import { transformCompiledModel } from "../../microts/compiler/aot-model-build.ts";
@@ -71,21 +72,19 @@ const OCTANE_PROFILING_STUB_PATH = fileURLToPath(
 const GENERATED_STYLES_PATH = fileURLToPath(
   new URL("../src/styles.generated.ts", import.meta.url),
 );
-/** The installed directory of package `name`, found by walking `node_modules`
- *  upward from the compiler as Node resolution does: a checkout keeps the
- *  package under the framework, an application install hoists it beside the
- *  framework. Package `exports` maps do not expose these dist files, so the
- *  lookup stops at the package directory. */
-function packageDirectory(name: string): string {
-  for (let directory = fileURLToPath(new URL(".", import.meta.url)); ; directory = dirname(directory)) {
-    const candidate = join(directory, "node_modules", name);
-    if (existsSync(join(candidate, "package.json"))) return candidate;
-    if (dirname(directory) === directory) throw new Error(`PocketJS build: package ${name} is not installed`);
-  }
-}
-const VUE_VAPOR_RUNTIME_PATH = join(packageDirectory("vue"), "dist/vue.runtime-with-vapor.esm-browser.prod.js");
-const SOLID_RUNTIME_PATH = join(packageDirectory("solid-js"), "dist/solid.js");
-const SOLID_UNIVERSAL_RUNTIME_PATH = join(packageDirectory("solid-js"), "universal/dist/universal.js");
+const SOLID_DIRECTORY = compilerPackageDirectory("solid-js");
+const VUE_VAPOR_RUNTIME_PATH = join(compilerPackageDirectory("vue"), "dist/vue.runtime-with-vapor.esm-browser.prod.js");
+const SOLID_RUNTIME_PATH = join(SOLID_DIRECTORY, "dist/solid.js");
+const SOLID_UNIVERSAL_RUNTIME_PATH = join(SOLID_DIRECTORY, "universal/dist/universal.js");
+/** Versions whose code or output enters the bundle without a package.json
+ *  import below: the Solid runtime, and the JSX plugin babel-preset-solid
+ *  resolves from its own directory. */
+const SOLID_RUNTIME_VERSION = packageVersion(SOLID_DIRECTORY);
+const SOLID_JSX_PLUGIN_DIRECTORY = findPackageDirectory(
+  "babel-plugin-jsx-dom-expressions",
+  compilerPackageDirectory("babel-preset-solid"),
+);
+const SOLID_JSX_PLUGIN_VERSION = SOLID_JSX_PLUGIN_DIRECTORY ? packageVersion(SOLID_JSX_PLUGIN_DIRECTORY) : "absent";
 
 const PACKAGE_NAME = "@pocketjs/framework";
 const CACHE_DIR = fileURLToPath(new URL("../../.cache/transforms/", import.meta.url));
@@ -417,6 +416,10 @@ async function hashKey(
       framework +
       "\0" +
       solidPresetPkg.version +
+      "\0" +
+      SOLID_JSX_PLUGIN_VERSION +
+      "\0" +
+      SOLID_RUNTIME_VERSION +
       "\0" +
       compilerSfcPkg.version +
       "\0" +
