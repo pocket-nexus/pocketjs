@@ -252,22 +252,32 @@ function readHostProfile(path) {
 }
 
 /** The `pocket` invocations for a scaffolded app; `manifest` is set when they run from outside its directory. */
-export function pocketCommands({ name, target, hostProfilePath, manifest: manifestPath }) {
+/** The `pocket` invocations for a scaffolded app. pocket.config.ts names the
+ *  target, so they carry no selection; `manifest` is set when they run from
+ *  outside the app directory. */
+export function pocketCommands({ name, target, manifest: manifestPath }) {
   const manifestFlag = manifestPath ? ` --manifest ${manifestPath}` : "";
-  if (target === "esp-idf") {
-    const selector = `--host-profile ${hostProfilePath}${manifestFlag}`;
-    return {
-      check: `pocket check ${selector}`,
-      compile: `pocket compile ${selector}`,
-      build: `pocket build ${selector} --output dist/${name}.pocket`,
-    };
-  }
-  const release = target === "psp" || target === "vita" ? " -- --release" : "";
+  const build = target === "esp-idf"
+    ? ` --output dist/${name}.pocket`
+    : target === "psp" || target === "vita" ? " -- --release" : "";
   return {
-    check: `pocket check --target ${target}${manifestFlag}`,
-    compile: `pocket compile --target ${target}${manifestFlag}`,
-    build: `pocket build --target ${target}${manifestFlag}${release}`,
+    check: `pocket check${manifestFlag}`,
+    compile: `pocket compile${manifestFlag}`,
+    build: `pocket build${manifestFlag}${build}`,
   };
+}
+
+/** pocket.config.ts listing the app's target: a catalog id, or the host profile. */
+function pocketConfig({ target, hostProfilePath }) {
+  const entry = target === "esp-idf" ? `{ hostProfile: ${JSON.stringify(hostProfilePath)} }` : JSON.stringify(target);
+  return `import { definePocketConfig } from "@pocketjs/framework/config";
+
+// The first entry of \`targets\` is the target \`pocket check\`, \`compile\` and
+// \`build\` use when the command names none.
+export default definePocketConfig({
+  targets: [${entry}],
+});
+`;
 }
 
 const ARTIFACT = {
@@ -412,6 +422,7 @@ export function create(argv, { checkoutRoot, cliVersion, cwd = process.cwd() }) 
   const requires = ["text.glyphs.baked", ...(buttons ? ["input.buttons"] : [])];
 
   const files = {
+    "pocket.config.ts": pocketConfig({ target, hostProfilePath }),
     "app.tsx": APP[framework]({ title, buttons }),
     "main.tsx": MAIN[framework](title),
     "pocket.json": json(manifest({ name, title, framework, viewport, requires })),

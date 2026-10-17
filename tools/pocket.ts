@@ -4,6 +4,8 @@
 //   bun pocket compile --target psp
 //   bun pocket build --target psp -- --release
 //   bun pocket catalog [--json]      the targets --target accepts
+//   bun pocket project [--manifest pocket.json]
+//                                    the project configuration as JSON
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -12,6 +14,7 @@ import { depfile } from "../framework/compiler/build-inputs.ts";
 import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
 import type { PlatformContractRegistry } from "../contracts/spec/platforms.ts";
 import { CATALOG, catalogEntry, catalogEntryForContract } from "./targets/index.ts";
+import { loadProject } from "./targets/project.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { canonicalJson, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import {
@@ -62,8 +65,24 @@ if (command === "catalog") {
   else for (const row of rows) console.log(`${row.id.padEnd(20)} ${row.title}`);
   process.exit(0);
 }
+if (command === "project") {
+  const manifestOption = takeOption("manifest");
+  const manifestDirectory = dirname(resolve(manifestOption ?? "pocket.json"));
+  const result = await loadProject(manifestDirectory);
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.ok ? 0 : 1);
+}
 if (command !== "check" && command !== "compile" && command !== "build") {
   usage(`unknown command ${command ?? "<missing>"}`);
+}
+// The CLI states the protocol it speaks; a framework that speaks another one
+// stops before reading anything else.
+const cliProtocol = takeOption("cli-protocol");
+if (cliProtocol !== undefined) {
+  const frameworkProtocol = JSON.parse(readFileSync(resolve(frameworkRoot, "package.json"), "utf8")).pocketjs?.protocol;
+  if (String(frameworkProtocol) !== cliProtocol) {
+    usage(`the CLI speaks protocol ${cliProtocol} and the framework at ${frameworkRoot} speaks protocol ${frameworkProtocol}`);
+  }
 }
 const targetOption = takeOption("target");
 const hostProfileOption = takeOption("host-profile");

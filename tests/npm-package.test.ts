@@ -373,8 +373,10 @@ describe("published npm artifacts", () => {
       "README.md",
       "bin.mjs",
       "create.mjs",
+      "framework.mjs",
       "package.json",
       "psp-toolchain.json",
+      "select.mjs",
       "symbian-toolchain.json",
     ]);
   });

@@ -29,7 +29,6 @@ export interface PocketCommands {
 export function pocketCommands(input: {
   readonly name: string;
   readonly target: CreateTarget;
-  readonly hostProfilePath?: string;
   readonly manifest?: string;
 }): PocketCommands;
 
