@@ -23,9 +23,77 @@ pub use crate::package_format::{POCKET_MAGIC as MAGIC, POCKET_VERSION as VERSION
 /// Section kinds (append-only; skip what you do not know).
 pub mod section {
     pub use crate::package_format::{
-        SECTION_COVER as COVER, SECTION_IDENTITY as IDENTITY, SECTION_JS as JS, SECTION_PAK as PAK,
-        SECTION_PLAN as PLAN,
+        SECTION_BYTECODE as BYTECODE, SECTION_COVER as COVER, SECTION_IDENTITY as IDENTITY,
+        SECTION_JS as JS, SECTION_PAK as PAK, SECTION_PLAN as PLAN,
     };
+}
+
+pub const BYTECODE_MAGIC: u32 = 0x4342_4a51; // "QJBC" as LE u32
+pub const BYTECODE_VERSION: u32 = 1;
+pub const BYTECODE_HEADER_SIZE: u32 = 48;
+pub const BYTECODE_FLAGS: u32 = 0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BytecodeEnvelopeError {
+    TruncatedHeader,
+    BadMagic,
+    UnsupportedVersion(u32),
+    InvalidHeaderSize(u32),
+    UnsupportedFlags(u32),
+    EmptyPayload,
+}
+
+/// A validated section-6 header and its still-untrusted QuickJS payload.
+/// Hosts compare `engine_abi` with their build identity before QuickJS reads
+/// `bytecode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BytecodeEnvelope<'a> {
+    pub engine_abi: &'a [u8; 32],
+    pub bytecode: &'a [u8],
+}
+
+/// Validate the versioned section-6 envelope without interpreting bytecode.
+/// A loader can treat any error as a request to evaluate the source section.
+pub fn parse_bytecode_envelope(
+    bytes: &[u8],
+) -> Result<BytecodeEnvelope<'_>, BytecodeEnvelopeError> {
+    if bytes.len() < 16 {
+        return Err(BytecodeEnvelopeError::TruncatedHeader);
+    }
+    let field = |offset: usize| {
+        let raw = &bytes[offset..offset + 4];
+        u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])
+    };
+    if field(0) != BYTECODE_MAGIC {
+        return Err(BytecodeEnvelopeError::BadMagic);
+    }
+    let version = field(4);
+    if version != BYTECODE_VERSION {
+        return Err(BytecodeEnvelopeError::UnsupportedVersion(version));
+    }
+    let header_size = field(8);
+    if header_size != BYTECODE_HEADER_SIZE {
+        return Err(BytecodeEnvelopeError::InvalidHeaderSize(header_size));
+    }
+    let flags = field(12);
+    if flags != BYTECODE_FLAGS {
+        return Err(BytecodeEnvelopeError::UnsupportedFlags(flags));
+    }
+    let header_size = BYTECODE_HEADER_SIZE as usize;
+    if bytes.len() < header_size {
+        return Err(BytecodeEnvelopeError::TruncatedHeader);
+    }
+    let engine_abi = bytes[16..header_size]
+        .try_into()
+        .map_err(|_| BytecodeEnvelopeError::TruncatedHeader)?;
+    let bytecode = &bytes[header_size..];
+    if bytecode.is_empty() {
+        return Err(BytecodeEnvelopeError::EmptyPayload);
+    }
+    Ok(BytecodeEnvelope {
+        engine_abi,
+        bytecode,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +151,9 @@ pub struct Identity<'a> {
 pub struct Guest<'a> {
     /// The variant identity's application id (`app.id` of its plan).
     pub id: &'a str,
+    /// Raw optional section-6 envelope. Hosts validate it and fall back to
+    /// `js` when it is absent, invalid or built for another engine ABI.
+    pub bytecode: Option<&'a [u8]>,
     pub js: &'a [u8],
     pub pak: &'a [u8],
     pub plan: &'a [u8],
@@ -260,8 +331,10 @@ pub fn select_guest<'a>(
         return Err(GuestError::JavaScriptNotTerminated);
     }
     let pak = variant.section(section::PAK)?.unwrap_or(&[]);
+    let bytecode = variant.section(section::BYTECODE)?;
     Ok(Guest {
         id: identity.id,
+        bytecode,
         js,
         pak,
         plan,
@@ -376,6 +449,73 @@ mod tests {
     }
 
     #[test]
+    fn parses_the_shared_fixture_bytecode_envelope() {
+        let pkg = Package::parse(FIXTURE, false).unwrap();
+        let psp = pkg.find_variant("psp").unwrap().unwrap();
+        let envelope =
+            parse_bytecode_envelope(psp.section(section::BYTECODE).unwrap().unwrap()).unwrap();
+        assert_eq!(envelope.engine_abi, &[0xab; 32]);
+        assert_eq!(envelope.bytecode, &[0x26, 0, 10, 0xff]);
+
+        let vita = pkg.find_variant("vita").unwrap().unwrap();
+        assert_eq!(vita.section(section::BYTECODE).unwrap(), None);
+    }
+
+    #[test]
+    fn rejects_invalid_bytecode_envelopes() {
+        let valid = {
+            let mut bytes = alloc::vec![0u8; BYTECODE_HEADER_SIZE as usize + 1];
+            bytes[0..4].copy_from_slice(&BYTECODE_MAGIC.to_le_bytes());
+            bytes[4..8].copy_from_slice(&BYTECODE_VERSION.to_le_bytes());
+            bytes[8..12].copy_from_slice(&BYTECODE_HEADER_SIZE.to_le_bytes());
+            bytes[12..16].copy_from_slice(&BYTECODE_FLAGS.to_le_bytes());
+            bytes
+        };
+
+        assert_eq!(
+            parse_bytecode_envelope(&valid[..15]),
+            Err(BytecodeEnvelopeError::TruncatedHeader)
+        );
+
+        let mut bad_magic = valid.clone();
+        bad_magic[0..4].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(
+            parse_bytecode_envelope(&bad_magic),
+            Err(BytecodeEnvelopeError::BadMagic)
+        );
+
+        let mut bad_version = valid.clone();
+        bad_version[4..8].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(
+            parse_bytecode_envelope(&bad_version),
+            Err(BytecodeEnvelopeError::UnsupportedVersion(2))
+        );
+
+        let mut bad_header_size = valid.clone();
+        bad_header_size[8..12].copy_from_slice(&32u32.to_le_bytes());
+        assert_eq!(
+            parse_bytecode_envelope(&bad_header_size),
+            Err(BytecodeEnvelopeError::InvalidHeaderSize(32))
+        );
+
+        let mut bad_flags = valid.clone();
+        bad_flags[12..16].copy_from_slice(&1u32.to_le_bytes());
+        assert_eq!(
+            parse_bytecode_envelope(&bad_flags),
+            Err(BytecodeEnvelopeError::UnsupportedFlags(1))
+        );
+
+        assert_eq!(
+            parse_bytecode_envelope(&valid[..BYTECODE_HEADER_SIZE as usize - 1]),
+            Err(BytecodeEnvelopeError::TruncatedHeader)
+        );
+        assert_eq!(
+            parse_bytecode_envelope(&valid[..BYTECODE_HEADER_SIZE as usize]),
+            Err(BytecodeEnvelopeError::EmptyPayload)
+        );
+    }
+
+    #[test]
     fn tamper_trips_the_footer_hash() {
         let mut evil = FIXTURE.to_vec();
         let n = evil.len();
@@ -404,12 +544,35 @@ mod tests {
     #[test]
     fn admits_a_complete_guest_for_an_exact_host() {
         let guest = select_guest(FIXTURE, "psp", 1, false).unwrap();
+        assert!(guest.bytecode.is_some());
         assert_eq!(guest.js.last(), Some(&0));
         assert!(!guest.id.is_empty());
         assert!(!guest.plan.is_empty());
         assert_eq!(guest.pak[0], 10);
         assert_ne!(guest.package_hash, 0);
         assert_ne!(guest.variant_hash, 0);
+    }
+
+    #[test]
+    fn keeps_source_mandatory_when_bytecode_is_optional() {
+        let vita = select_guest(FIXTURE, "vita", 1, false).unwrap();
+        assert_eq!(vita.bytecode, None);
+        assert_eq!(vita.js.last(), Some(&0));
+
+        let mut without_source = FIXTURE.to_vec();
+        let js_entry = {
+            let package = Package::parse(&without_source, true).unwrap();
+            let psp = package.find_variant("psp").unwrap().unwrap();
+            (0..psp.section_count)
+                .map(|index| psp.sections_off + index * SECTION_SIZE)
+                .find(|entry| u32_at(&without_source, *entry).unwrap() == section::JS)
+                .unwrap()
+        };
+        without_source[js_entry..js_entry + 4].copy_from_slice(&999u32.to_le_bytes());
+        assert!(matches!(
+            select_guest(&without_source, "psp", 1, true),
+            Err(GuestError::MissingJavaScript)
+        ));
     }
 
     #[test]

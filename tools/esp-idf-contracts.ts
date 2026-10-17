@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { IDF_NATIVE_CALLBACKS, IDF_NATIVE_STRUCTS } from "../contracts/spec/idf-native.ts";
 import * as pocket from "../contracts/spec/pocket-package.ts";
+import {
+  DESKTOP_QUICKJS_ENGINE_ABI,
+  PSP_QUICKJS_ENGINE_ABI,
+} from "../contracts/spec/quickjs-bytecode.ts";
 import { PAK_MAGIC, PAK_VERSION, PAK_HEADER_SIZE, PAK_ENTRY_SIZE } from "../contracts/spec/spec.ts";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -96,10 +100,22 @@ export function generatedIdfContracts(): Map<string, string> {
     `HOST_PRESENTATIONS = ${JSON.stringify(pocket.HOST_PRESENTATIONS)}\n`;
   const rustConstants = "// Generated from contracts/spec/pocket-package.ts. Do not edit.\n#![allow(dead_code)]\n" +
     Object.entries(constants).map(([key, value]) => `pub const ${key}: ${key.includes("MAGIC") || key.includes("VERSION") || key.startsWith("SECTION_") ? "u32" : "usize"} = ${value};\n`).join("");
+  const rustAbi = (name: string, value: string) => {
+    const bytes = value.slice("sha256:".length).match(/../g)!
+      .map((byte) => `0x${byte}`).join(", ");
+    return `pub const ${name}: [u8; 32] = [${bytes}];\n`;
+  };
+  const quickJsAbi = "// Generated from contracts/spec/quickjs-bytecode.ts. Do not edit.\n" +
+    rustAbi("PSP_32_LE", PSP_QUICKJS_ENGINE_ABI.sha256) +
+    rustAbi("DESKTOP_64_LE", DESKTOP_QUICKJS_ENGINE_ABI.sha256) +
+    "pub const PSP: [u8; 32] = PSP_32_LE;\n" +
+    "pub const PSP_QUICKJS_ENGINE_ABI: [u8; 32] = PSP_32_LE;\n" +
+    "pub const DESKTOP_QUICKJS_ENGINE_ABI: [u8; 32] = DESKTOP_64_LE;\n";
   return new Map([
     ["hosts/esp-idf/components/pocketjs_package/include/pocketjs/package_format.h", cConstants],
     ["hosts/esp-idf/components/pocketjs_package/tools/package_format.py", pyConstants],
     ["engine/core/src/package_format.rs", rustConstants],
+    ["engine/core/src/quickjs_abi.rs", quickJsAbi],
     ["hosts/esp-idf/components/pocketjs_ui_qjs/include/pocketjs/pak_format.h",
       "/* Generated from contracts/spec/spec.ts. Do not edit. */\n#pragma once\n" +
       Object.entries({ PAK_MAGIC, PAK_VERSION, PAK_HEADER_SIZE, PAK_ENTRY_SIZE }).map(([key, value]) => `#define ${key} ${value}U\n`).join("")],

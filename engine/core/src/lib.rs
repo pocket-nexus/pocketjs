@@ -53,6 +53,7 @@ mod fmath;
 pub mod layout;
 pub mod package;
 pub mod pak;
+pub mod quickjs_abi;
 pub mod physics;
 pub mod plan_facts;
 pub mod raster;

@@ -155,12 +155,14 @@ fn main() {
         let read_pocket = |output: &str| -> Vec<u8> {
             let path = packages_dir.join(format!("{output}.pocket"));
             println!("cargo:rerun-if-changed={}", path.display());
-            fs::read(&path).unwrap_or_else(|e| {
+            let bytes = fs::read(&path).unwrap_or_else(|e| {
                 panic!(
                     "could not read {} (run: bun tools/launcher.ts pack): {e}",
                     path.display()
                 )
-            })
+            });
+            validate_pocket_footer(&path, &bytes);
+            bytes
         };
         pockets.push((app.clone(), String::new(), String::new(), read_pocket(&app)));
         let tsv = fs::read_to_string(&registry)
@@ -343,6 +345,10 @@ fn main() {
 /// FNV-1a 64 as 16 hex digits — keep in lockstep with tools/bundle-hash.ts
 /// (test vectors asserted there: "" = cbf29ce484222325, "a" = af63dc4c8601ec8c).
 fn fnv1a64(chunks: &[&[u8]]) -> String {
+    format!("{:016x}", fnv1a64_value(chunks))
+}
+
+fn fnv1a64_value(chunks: &[&[u8]]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for chunk in chunks {
         for &b in *chunk {
@@ -350,5 +356,24 @@ fn fnv1a64(chunks: &[&[u8]]) -> String {
             h = h.wrapping_mul(0x0000_0100_0000_01b3);
         }
     }
-    format!("{h:016x}")
+    h
+}
+
+/// Embedded packages skip the footer walk on the PSP, so the build must
+/// reject a damaged package before its sections become trusted EBOOT data.
+fn validate_pocket_footer(path: &Path, bytes: &[u8]) {
+    assert!(
+        bytes.len() >= 8,
+        "{}: truncated .pocket package footer",
+        path.display()
+    );
+    let payload_len = bytes.len() - 8;
+    let stored = u64::from_le_bytes(bytes[payload_len..].try_into().unwrap());
+    let actual = fnv1a64_value(&[&bytes[..payload_len]]);
+    assert_eq!(
+        stored,
+        actual,
+        "{}: .pocket package footer hash mismatch",
+        path.display()
+    );
 }

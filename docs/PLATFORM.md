@@ -56,9 +56,8 @@ designed moment:
   untouched.
 - Budget: one 128×128 RGBA texture (64 KB rodata) + ~100 lines of GE code.
 
-Two refinements stack on top later, both cheap: the launcher can play a
-200 ms card-zoom before calling `appLaunch` (pure JS, no host change), and
-qjsc bytecode (below) shrinks the hold the veil is papering over.
+The launcher can add a 200 ms card zoom before calling `appLaunch` (pure JS,
+no host change). qjsc bytecode (below) reduces the eval portion of the hold.
 
 ## `.pocket` — the package format (SHIPPED, v1)
 
@@ -73,7 +72,7 @@ variants TARGET VARIANTS — dist bundles are target-flavored (psp density 1,
          vita density 2, a desktop widget's live viewport…), so the app is
          manifest × variants. Each variant: target id + hostAbi + a typed,
          APPEND-ONLY section table (1 identity, 2 plan, 3 js — NUL-included
-         for zero-copy device eval, 4 pak, 5 cover, 6 reserved qjsc,
+         for zero-copy device eval, 4 pak, 5 cover, 6 QuickJS bytecode,
          7 fixed-width ESP-IDF host inputs; unknown kinds skip).
          Per-variant FNV-1a64: `thin` extracts a device subset from a
          universal file without changing any variant's identity.
@@ -81,10 +80,12 @@ footer   FNV-1a64 over the whole file (the stale-embed tripwire, now a
          file format)
 ```
 
-Tools: `bun run pocket:pack build --manifest … --target psp --target vita`
-(each target compiles into its own outdir — the stale-dist lesson,
-institutionalized), plus `inspect`, `thin`, `verify` (footer + per-variant
-re-admission of the embedded manifest). The launcher chain
+Tools: `pocket pack --manifest … --target psp` and
+`pocket pack --bytecode --manifest … --target psp` invoke the package builder;
+the low-level form is `bun run pocket:pack build …`. Each target compiles into
+its own output directory. The package tool also provides `inspect`, `thin`,
+and `verify` (footer + per-variant re-admission of the embedded manifest). The
+launcher chain
 (`tools/launcher.ts pack --target psp|vita`) emits target-thinned packages
 into separate trees. Both native binaries embed the `.pocket` files verbatim
 and boot guests zero-copy out of them; the site serves the PSP packages to the
@@ -189,14 +190,41 @@ PPSSPP. `MEMSIZE = 1` gives a PSP-2000 or 3000 started from the XMB the
 
 ## Bytecode (the eval wall)
 
-QuickJS evals ~100 KB of source in ~0.3–0.5 s at 333 MHz; that is the
-whole switch latency. qjsc bytecode loads 5–10× faster and shrinks
-bundles. Plan: `pocket pack --bytecode` emits qjsc output alongside source
-(sim keeps evaling source — the wasm core has no qjsc), the PSP host
-prefers bytecode when the package carries it, and the bundle hash covers
-whichever form is embedded. Risk to manage: bytecode pins the exact
-QuickJS version — the package header gains an engine-abi field, and a
-mismatch falls back to source.
+QuickJS evals ~100 KB of source in ~0.3–0.5 s at 333 MHz; source compilation
+can dominate switch latency. `pocket pack --bytecode` compiles the target bundle
+with a host-native compiler built from that host's pinned QuickJS source.
+**Section 6 contains a 48-byte `QJBC` envelope: format version, flags, a
+32-byte engine-ABI digest, then raw `JS_WriteObject` bytecode.** Section 3
+remains present and NUL-terminated.
+
+The engine-ABI descriptor covers the QuickJS family, source revision and
+version, bytecode format version, serialization flags, bytecode-affecting
+defines, value representation, endianness, and pointer width. PSP uses its
+`quickjs-rs` pin and desktop uses the `rquickjs-sys` source from the desktop
+lockfile, so one package can carry target variants with different bytecode.
+The canonical source filename is `app.js`; identical source and ABI inputs
+produce identical section bytes.
+
+**PSP and the macOS/Linux desktop host read bytecode after package admission
+and an exact engine-ABI match.** They call `JS_ReadObject` followed by
+`JS_EvalFunction`. A missing section, invalid envelope, ABI mismatch, or
+bytecode read error produces one trace diagnostic and evaluates section 3.
+An exception from the evaluated program remains an application error; the
+host does not execute the source a second time in the same realm. The sim,
+web, Vita, and other readers skip section 6 and evaluate source.
+
+Filesystem packages pass the existing footer check before a host inspects
+section 6. The PSP build rejects an embedded package whose footer hash does
+not match and binds the package bytes into the native build identity.
+**QuickJS bytecode has the trust level of native code.** FNV-1a64 detects
+damage and stale copies but does not authenticate a publisher.
+Bytecode-bearing packages require a trusted build or distribution channel;
+untrusted input uses source-only packages.
+
+Package variant and footer hashes cover both source and bytecode. Keeping
+source for compatibility means a bytecode package is larger than its
+source-only form; the bytecode option reduces startup compilation time, not
+the complete `.pocket` file size.
 
 ## Memory governance
 

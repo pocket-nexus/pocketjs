@@ -9,6 +9,7 @@ import { dirname, resolve } from "node:path";
 import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { depfile } from "../framework/compiler/build-inputs.ts";
 import type { PocketTargetId } from "../contracts/spec/platforms.ts";
+import { quickJsEngineAbiForTarget } from "../contracts/spec/quickjs-bytecode.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { canonicalJson, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import {
@@ -19,6 +20,7 @@ import {
 } from "../framework/src/manifest/idf-host.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { makeVariant } from "./pocket-pack.ts";
+import { compileQuickJsBytecode } from "./quickjs-bytecode.ts";
 
 import { fileURLToPath } from "node:url";
 
@@ -31,7 +33,7 @@ function usage(message?: string): never {
   console.error(
     "usage: bun pocket <check|compile|build> (--target <target> | --host-profile <pocket.host.json>) " +
       "[--manifest pocket.json] [--project-root .] [--outdir dist] [--plan-dir .pocket] " +
-      "[--output app.pocket] [-- backend args]",
+      "[--output app.pocket] [--bytecode] [-- backend args]",
   );
   process.exit(1);
 }
@@ -45,6 +47,13 @@ function takeOption(name: string): string | undefined {
   if (!value || value.startsWith("--")) usage(`--${name} requires a value`);
   argv.splice(index, 2);
   return value;
+}
+
+function takeFlag(name: string): boolean {
+  const index = argv.indexOf(`--${name}`);
+  if (index < 0) return false;
+  argv.splice(index, 1);
+  return true;
 }
 
 if (command !== "check" && command !== "compile" && command !== "build") {
@@ -62,10 +71,14 @@ const planRoot = resolve(projectRoot, takeOption("plan-dir") ?? ".pocket");
 const outputOption = takeOption("output");
 const depfileOption = takeOption("depfile");
 const compilerReceipt = takeOption("compiler-receipt");
+const bytecodeOption = takeFlag("bytecode");
 if (depfileOption && (!hostProfileOption || command !== "build")) usage("--depfile requires build --host-profile");
 if (compilerReceipt && !existsSync(resolve(compilerReceipt))) usage("compiler receipt does not exist");
 if (outputOption && (!hostProfileOption || command !== "build")) {
   usage("--output is only valid with build --host-profile");
+}
+if (bytecodeOption && (!hostProfileOption || command !== "build")) {
+  usage("--bytecode is only valid with build --host-profile; use pocket pack for target packages");
 }
 // Backend args live strictly AFTER `--`; anything else left over is a typo.
 // (Without the separator check-first split, `argv.splice(0)` would swallow
@@ -173,6 +186,16 @@ if (hostProfileOption) {
   const js = new Uint8Array(readFileSync(resolve(outdir, `${plan.app.output}.js`)));
   const pakPath = resolve(outdir, `${plan.app.output}.pak`);
   const pak = existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0);
+  let bytecode: Uint8Array | undefined;
+  if (bytecodeOption) {
+    if (!quickJsEngineAbiForTarget(target)) {
+      console.warn(`PocketJS: ${target} has no QuickJS bytecode ABI; source retained`);
+    } else {
+      bytecode = compileQuickJsBytecode(target, js, {
+        buildDirectory: resolve(projectRoot, ".pocket-build/quickjs-bytecode"),
+      }).section;
+    }
+  }
   const variant = makeVariant({
     target,
     hostAbi: plan.target.hostAbi,
@@ -180,6 +203,7 @@ if (hostProfileOption) {
     identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },
     js,
     pak,
+    bytecode,
   });
   const output = outputOption
     ? resolve(projectRoot, outputOption)

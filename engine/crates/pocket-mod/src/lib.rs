@@ -21,7 +21,9 @@
 //! express.
 
 use anyhow::{Result, anyhow};
-use rquickjs::{CatchResultExt, Context, Ctx, Function, Object, Runtime};
+use rquickjs::{
+    CatchResultExt, Context, Ctx, Error as QuickJsError, Function, Object, Runtime, qjs as raw_qjs,
+};
 
 // Surface crates implement ops against the same rquickjs the guest uses.
 pub use rquickjs as qjs;
@@ -31,6 +33,29 @@ pub struct Guest {
     rt: Runtime,
     ctx: Context,
 }
+
+/// Failure stage for trusted bytecode evaluation.
+///
+/// A host may fall back to source after [`BytecodeEvalError::Read`], because
+/// QuickJS has not executed the program. An [`BytecodeEvalError::Execute`]
+/// means the program started and may have mutated the realm; evaluating source
+/// afterward would run application initialization twice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BytecodeEvalError {
+    Read(String),
+    Execute(String),
+}
+
+impl std::fmt::Display for BytecodeEvalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read(error) => write!(f, "reading QuickJS bytecode failed: {error}"),
+            Self::Execute(error) => write!(f, "executing QuickJS bytecode failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for BytecodeEvalError {}
 
 impl Guest {
     /// Create an empty realm with `console.*` installed. Mount surfaces and
@@ -87,6 +112,54 @@ impl Guest {
             ctx.eval::<(), _>(source.as_bytes())
                 .catch(&ctx)
                 .map_err(|e| anyhow!("pocket-mod: eval '{label}' failed: {e}"))?;
+            Ok(())
+        })?;
+        self.drain_jobs();
+        Ok(())
+    }
+
+    /// Evaluate trusted QuickJS bytecode for a global strict-mode script.
+    ///
+    /// The caller must establish that `bytecode` came from the same QuickJS
+    /// source and build configuration as this runtime. QuickJS bytecode is not
+    /// a safe interchange format; malformed or incompatible input can violate
+    /// engine invariants before an exception can be reported.
+    ///
+    /// # Safety
+    ///
+    /// `bytecode` must have passed the host's package integrity and exact
+    /// engine-ABI checks before this method is called.
+    pub unsafe fn eval_trusted_bytecode(
+        &self,
+        label: &str,
+        bytecode: &[u8],
+    ) -> std::result::Result<(), BytecodeEvalError> {
+        self.ctx.with(|ctx| {
+            let raw_ctx = ctx.as_raw().as_ptr();
+            let function = unsafe {
+                raw_qjs::JS_ReadObject(
+                    raw_ctx,
+                    bytecode.as_ptr(),
+                    bytecode.len() as _,
+                    raw_qjs::JS_READ_OBJ_BYTECODE as i32,
+                )
+            };
+            if unsafe { raw_qjs::JS_VALUE_GET_NORM_TAG(function) } == raw_qjs::JS_TAG_EXCEPTION {
+                return Err(QuickJsError::Exception)
+                    .catch(&ctx)
+                    .map_err(|e| BytecodeEvalError::Read(format!("'{label}': {e}")));
+            }
+
+            // JS_EvalFunction consumes the compiled function. Unlike rquickjs'
+            // module loader, this is a global-script object and needs no module
+            // resolution or promise conversion.
+            let value = unsafe { raw_qjs::JS_EvalFunction(raw_ctx, function) };
+            if unsafe { raw_qjs::JS_VALUE_GET_NORM_TAG(value) } == raw_qjs::JS_TAG_EXCEPTION {
+                return Err(QuickJsError::Exception)
+                    .catch(&ctx)
+                    .map_err(|e| BytecodeEvalError::Execute(format!("'{label}': {e}")));
+            }
+            unsafe { raw_qjs::JS_FreeValue(raw_ctx, value) };
             Ok(())
         })?;
         self.drain_jobs();
@@ -294,6 +367,42 @@ fn install_console(ctx: &Ctx) -> rquickjs::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{ffi::CString, slice};
+
+    fn compile_global_bytecode(source: &str, label: &str) -> Vec<u8> {
+        let compiler = Guest::new().unwrap();
+        compiler.with(|ctx| unsafe {
+            let source = CString::new(source).unwrap();
+            let label = CString::new(label).unwrap();
+            let raw_ctx = ctx.as_raw().as_ptr();
+            let function = raw_qjs::JS_Eval(
+                raw_ctx,
+                source.as_ptr(),
+                source.as_bytes().len() as _,
+                label.as_ptr(),
+                (raw_qjs::JS_EVAL_TYPE_GLOBAL
+                    | raw_qjs::JS_EVAL_FLAG_STRICT
+                    | raw_qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32,
+            );
+            assert_ne!(
+                raw_qjs::JS_VALUE_GET_NORM_TAG(function),
+                raw_qjs::JS_TAG_EXCEPTION
+            );
+            let mut len = 0;
+            let bytes = raw_qjs::JS_WriteObject(
+                raw_ctx,
+                &mut len,
+                function,
+                raw_qjs::JS_WRITE_OBJ_BYTECODE as i32,
+            );
+            raw_qjs::JS_FreeValue(raw_ctx, function);
+            assert!(!bytes.is_null());
+            assert_ne!(len, 0);
+            let bytecode = slice::from_raw_parts(bytes, len as usize).to_vec();
+            raw_qjs::js_free(raw_ctx, bytes.cast());
+            bytecode
+        })
+    }
 
     #[test]
     fn eval_and_frame_turn() {
@@ -308,6 +417,41 @@ mod tests {
         g.frame(4).unwrap();
         let n: i32 = g.with(|ctx| ctx.globals().get("n").unwrap());
         assert_eq!(n, 7);
+    }
+
+    #[test]
+    fn trusted_global_bytecode_eval_and_frame_turn() {
+        let bytecode = compile_global_bytecode(
+            "globalThis.n = 0; globalThis.frame = (b) => { globalThis.n += b; };",
+            "bytecode-boot",
+        );
+        let g = Guest::new().unwrap();
+        unsafe { g.eval_trusted_bytecode("bytecode-boot", &bytecode) }.unwrap();
+        assert!(g.has_frame());
+        g.frame(7).unwrap();
+        let n: i32 = g.with(|ctx| ctx.globals().get("n").unwrap());
+        assert_eq!(n, 7);
+    }
+
+    #[test]
+    fn trusted_bytecode_eval_reports_js_stack() {
+        let bytecode = compile_global_bytecode(
+            "function inner(){ throw new Error('bytecode kaboom'); } inner();",
+            "bytecode-boom",
+        );
+        let g = Guest::new().unwrap();
+        let error = unsafe { g.eval_trusted_bytecode("bytecode-boom", &bytecode) }.unwrap_err();
+        assert!(matches!(error, BytecodeEvalError::Execute(_)));
+        let message = format!("{error:#}");
+        assert!(message.contains("bytecode kaboom"), "got: {message}");
+        assert!(message.contains("inner"), "got: {message}");
+    }
+
+    #[test]
+    fn invalid_bytecode_is_a_read_error() {
+        let g = Guest::new().unwrap();
+        let error = unsafe { g.eval_trusted_bytecode("broken", &[0xff]) }.unwrap_err();
+        assert!(matches!(error, BytecodeEvalError::Read(_)));
     }
 
     #[test]

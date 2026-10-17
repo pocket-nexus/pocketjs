@@ -7,6 +7,8 @@
 //   pocket create <name>   scaffold a manifest-first demo app
 //   pocket check|compile|build --target <psp|vita> [...args]
 //                            resolve pocket.json once, then build from its plan
+//   pocket pack [--bytecode] --target <target> --manifest <pocket.json>
+//                            compile one or more target package variants
 //   pocket play vita <demo> build, install and launch a demo in Vita3K
 //   pocket play ios <demo>  build, stage and launch a demo on the iOS simulator
 //   pocket dev|psp|vita|hw|psplink|devtools|tape [...args]
@@ -417,6 +419,27 @@ function manifestCommand(cmd, args) {
   process.exit(r.status ?? 1);
 }
 
+function packCommand(args) {
+  const root = process.env.POCKETJS_FRAMEWORK_ROOT?.trim()
+    ? findFrameworkInstallation()
+    : findCheckout() ?? findFrameworkInstallation();
+  if (!root) {
+    console.error(C.bad(
+      "PocketJS framework not found — install @pocketjs/framework in this project or set POCKETJS_FRAMEWORK_ROOT",
+    ));
+    process.exit(1);
+  }
+  if (!which("bun")) {
+    console.error(C.bad("bun not found — install Bun to compile an application package"));
+    process.exit(1);
+  }
+  const r = spawnSync("bun", [join(root, "tools/pocket-pack.ts"), "build", ...args], {
+    stdio: "inherit",
+    cwd: process.cwd(),
+  });
+  process.exit(r.status ?? 1);
+}
+
 function passthrough(cmd, args) {
   passthroughScript(cmd, SCRIPTS[cmd], args);
 }
@@ -453,6 +476,8 @@ const HELP = `${C.bold("pocket")} — the PocketJS toolchain CLI
   pocket build --target T  check + compile + package PSP or Vita artifacts
   pocket build --host-profile FILE
                            build a .pocket for an ESP-IDF product host
+  pocket pack [--bytecode] --target T --manifest FILE
+                           compile a source-preserving .pocket package
   pocket play vita <app>   build, install and launch a demo in Vita3K
   pocket play ios <app>    build, stage and launch a demo on the iOS simulator
   pocket dev <app>-main    build + serve an app in the browser
@@ -480,6 +505,9 @@ switch (cmd) {
   case "compile":
   case "build":
     manifestCommand(cmd, rest);
+    break;
+  case "pack":
+    packCommand(rest);
     break;
   case "dev":
   case "psp":

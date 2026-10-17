@@ -47,6 +47,8 @@ import {
 import {
   withArtifactLock,
 } from "./psp-toolchain.ts";
+import { quickJsEngineAbiForTarget } from "../contracts/spec/quickjs-bytecode.ts";
+import { compileQuickJsBytecode } from "./quickjs-bytecode.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const APPS_DIR = join(ROOT, "apps");
@@ -207,7 +209,7 @@ class LauncherUsageError extends Error {}
 function usage(message?: string): never {
   if (message) console.error(`launcher: ${message}`);
   console.error(
-    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita|symbian] [--exclude <output>]... [--include-manifest <external/pocket.json>]... [--force] [-- backend args]",
+    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita|symbian] [--bytecode] [--exclude <output>]... [--include-manifest <external/pocket.json>]... [--force] [-- backend args]",
   );
   throw new LauncherUsageError(message);
 }
@@ -997,6 +999,7 @@ async function packPackages(
   target: LauncherTarget,
   paths: LauncherPaths,
   launcher: Pick<LauncherRegistryEntry, "manifest" | "projectRoot">,
+  includeBytecode: boolean,
 ): Promise<void> {
   const { makeVariant } = await import("./pocket-pack.ts");
   const { encodePocketPackage } = await import("../contracts/spec/pocket-package.ts");
@@ -1025,6 +1028,11 @@ async function packPackages(
       ? new Uint8Array(readFileSync(pakPath))
       : new Uint8Array(0);
     const coverPath = join(COVERS_DIR, `cover-${plan.app.output}.png`);
+    const compiledBytecode = includeBytecode
+      ? compileQuickJsBytecode(target, js, {
+          buildDirectory: join(ROOT, ".pocket-build/quickjs-bytecode"),
+        })
+      : undefined;
     const bytes = encodePocketPackage({
       manifest: new Uint8Array(manifestBytes),
       variants: [
@@ -1042,6 +1050,7 @@ async function packPackages(
           cover: existsSync(coverPath)
             ? new Uint8Array(readFileSync(coverPath))
             : undefined,
+          bytecode: compiledBytecode?.section,
         }),
       ],
     });
@@ -1238,6 +1247,7 @@ async function main(): Promise<void> {
   const exclude = new Set<string>();
   const externalManifests: string[] = [];
   let force = false;
+  let bytecode = false;
   let target: LauncherTarget = "psp";
   const separator = argv.indexOf("--");
   const backendArgs = separator >= 0 ? argv.splice(separator + 1) : [];
@@ -1278,12 +1288,21 @@ async function main(): Promise<void> {
       target = value === "symbian" ? SYMBIAN_E7_DEV_TARGET_ID : value;
     } else if (arg === "--force") {
       force = true;
+    } else if (arg === "--bytecode") {
+      bytecode = true;
     } else {
       usage(`unknown option ${arg}`);
     }
   }
 
   const paths = launcherPaths(target);
+  if (bytecode && command !== "pack" && command !== "build") {
+    usage("--bytecode is only valid with pack or build");
+  }
+  const includeBytecode = bytecode && quickJsEngineAbiForTarget(target) !== undefined;
+  if (bytecode && !includeBytecode) {
+    console.warn(`launcher: ${target} has no QuickJS bytecode ABI; source retained`);
+  }
   if (
     externalManifests.length > 0 &&
     target !== SYMBIAN_E7_DEV_TARGET_ID
@@ -1361,7 +1380,7 @@ async function main(): Promise<void> {
     console.log(`launcher: compiling the ${target} launcher app`);
     await compileApp(launcher, target, paths.output);
     console.log(`launcher: packing ${target} .pocket files`);
-    await packPackages(registry, target, paths, launcher);
+    await packPackages(registry, target, paths, launcher, includeBytecode);
     if (target === SYMBIAN_E7_DEV_TARGET_ID) {
       console.log("launcher: assembling the Symbian package catalog");
       await writeSymbianCatalog(registry, paths, launcher);

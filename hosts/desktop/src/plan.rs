@@ -221,6 +221,8 @@ impl ResolvedSystemPlan {
 
 struct Args {
     app: String,
+    /// Fully packaged guest. Mutually exclusive with loose --js/--pak inputs.
+    pocket: Option<PathBuf>,
     js: Option<PathBuf>,
     pak: Option<PathBuf>,
     /// Editor-protocol document file (note-widget's --file).
@@ -255,8 +257,13 @@ struct Args {
 }
 
 fn parse_args() -> Result<Args> {
+    parse_args_from(std::env::args().skip(1))
+}
+
+fn parse_args_from(values: impl IntoIterator<Item = String>) -> Result<Args> {
     let mut args = Args {
         app: "note-main".into(),
+        pocket: None,
         js: None,
         pak: None,
         file: None,
@@ -276,13 +283,14 @@ fn parse_args() -> Result<Args> {
         trace_frames: false,
     };
     let mut system_plan_path = None;
-    let mut it = std::env::args().skip(1);
+    let mut it = values.into_iter();
     while let Some(a) = it.next() {
         let mut val = |name: &str| -> Result<String> {
             it.next().ok_or_else(|| anyhow!("{name} needs a value"))
         };
         match a.as_str() {
             "--app" => args.app = val("--app")?,
+            "--pocket" => args.pocket = Some(PathBuf::from(val("--pocket")?)),
             "--js" => args.js = Some(PathBuf::from(val("--js")?)),
             "--pak" => args.pak = Some(PathBuf::from(val("--pak")?)),
             "--file" => args.file = Some(PathBuf::from(val("--file")?)),
@@ -410,6 +418,12 @@ fn parse_args() -> Result<Args> {
             other => return Err(anyhow!("unknown flag {other}")),
         }
     }
+    if args.pocket.is_some() && (args.js.is_some() || args.pak.is_some()) {
+        return Err(anyhow!("--pocket cannot be combined with --js or --pak"));
+    }
+    if args.pocket.is_some() && system_plan_path.is_some() {
+        return Err(anyhow!("--pocket cannot be combined with --system-plan"));
+    }
     if let Some(path) = system_plan_path {
         let bytes = std::fs::read(&path)
             .with_context(|| format!("reading Pocket System plan {}", path.display()))?;
@@ -436,9 +450,48 @@ fn parse_args() -> Result<Args> {
         // command-line bundle overrides cannot replace the System UI shell.
         args.js = None;
         args.pak = None;
+        args.pocket = None;
         args.system = Some(system);
     }
     Ok(args)
+}
+
+#[cfg(test)]
+mod package_argument_tests {
+    use super::*;
+
+    fn parse(values: &[&str]) -> Result<Args> {
+        parse_args_from(values.iter().map(|value| (*value).to_owned()))
+    }
+
+    #[test]
+    fn pocket_is_a_standalone_guest_input() {
+        let args = parse(&["--pocket", "game.pocket"]).unwrap();
+        assert_eq!(args.pocket, Some(PathBuf::from("game.pocket")));
+        assert!(args.js.is_none());
+        assert!(args.pak.is_none());
+    }
+
+    #[test]
+    fn pocket_rejects_loose_and_system_inputs() {
+        let error = parse(&["--pocket", "game.pocket", "--js", "game.js"])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("--pocket cannot be combined"));
+
+        let error = parse(&["--pocket", "game.pocket", "--pak", "game.pak"])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("--pocket cannot be combined"));
+
+        let error = parse(&["--pocket", "game.pocket", "--system-plan", "system.json"])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("--pocket cannot be combined with --system-plan"));
+    }
 }
 
 /// `<repo>/dist` — relative to this crate in the source tree, or

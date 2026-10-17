@@ -46,6 +46,7 @@ export const POCKET_LAYOUT = {
   header: { magic: 0, version: 4, manifestSize: 8, variantCount: 12 },
   variant: { hostAbi: 16, sectionCount: 20, sectionsOffset: 24, hash: 32 },
   section: { kind: 0, offset: 8, size: 12 },
+  bytecode: { engineAbi: 16, payload: 48 },
   hostInputs: { profileHash: 40, planHash: 72 },
 } as const;
 
@@ -65,11 +66,18 @@ export const POCKET_SECTION = {
   pak: 4,
   /** Cover PNG for launcher decks (256×128 full-frame, docs/LAUNCHER.md). */
   cover: 5,
-  // 6 = qjsc bytecode (docs/PLATFORM.md roadmap) — reserved, not yet emitted.
+  /** Versioned QuickJS bytecode envelope. Source remains in section 3 so a
+   * host can fall back when the engine ABI differs or the envelope is invalid. */
+  bytecode: 6,
   /** Fixed-width ESP-IDF host admission data. Device readers validate this
    * without parsing the JSON build plan. */
   hostInputs: 7,
 } as const;
+
+export const POCKET_BYTECODE_MAGIC = 0x43424a51; // "QJBC" as LE u32
+export const POCKET_BYTECODE_VERSION = 1;
+export const POCKET_BYTECODE_HEADER_SIZE = 48;
+export const POCKET_BYTECODE_FLAGS = 0;
 
 export const POCKET_HOST_INPUTS_MAGIC = 0x54534850; // "PHST" as LE u32
 export const POCKET_HOST_INPUTS_VERSION = 1;
@@ -97,6 +105,66 @@ function hashBytes(hash: string, field: string): Uint8Array {
 
 function readHash(bytes: Uint8Array, offset: number): string {
   return `sha256:${[...bytes.subarray(offset, offset + 32)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+export interface PocketBytecodeEnvelope {
+  /** SHA-256 digest of the exact QuickJS source, bytecode format and build ABI. */
+  readonly engineAbi: string;
+  /** Raw output accepted by the matching engine's JS_ReadObject. */
+  readonly bytecode: Uint8Array;
+}
+
+/** Encode the section-6 envelope. The raw bytecode must come from the engine
+ * build identified by `engineAbi`; this function validates the wire shape. */
+export function encodeBytecodeEnvelope(input: PocketBytecodeEnvelope): Uint8Array {
+  if (input.bytecode.length === 0) {
+    throw new Error("pocket package: bytecode payload must not be empty");
+  }
+  const bytes = new Uint8Array(POCKET_BYTECODE_HEADER_SIZE + input.bytecode.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, POCKET_BYTECODE_MAGIC, true);
+  view.setUint32(4, POCKET_BYTECODE_VERSION, true);
+  view.setUint32(8, POCKET_BYTECODE_HEADER_SIZE, true);
+  view.setUint32(12, POCKET_BYTECODE_FLAGS, true);
+  bytes.set(hashBytes(input.engineAbi, "bytecode engine ABI"), POCKET_LAYOUT.bytecode.engineAbi);
+  bytes.set(input.bytecode, POCKET_LAYOUT.bytecode.payload);
+  return bytes;
+}
+
+/** Decode and validate a section-6 envelope without interpreting its QuickJS
+ * payload. Hosts compare `engineAbi` before passing `bytecode` to QuickJS. */
+export function decodeBytecodeEnvelope(bytes: Uint8Array): PocketBytecodeEnvelope {
+  if (bytes.length < 16) {
+    throw new Error("pocket package: truncated bytecode envelope header");
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== POCKET_BYTECODE_MAGIC) {
+    throw new Error("pocket package: invalid bytecode envelope magic");
+  }
+  const version = view.getUint32(4, true);
+  if (version !== POCKET_BYTECODE_VERSION) {
+    throw new Error(`pocket package: unsupported bytecode envelope version ${version}`);
+  }
+  const headerSize = view.getUint32(8, true);
+  if (headerSize !== POCKET_BYTECODE_HEADER_SIZE) {
+    throw new Error(
+      `pocket package: invalid bytecode envelope header size ${headerSize} (expected ${POCKET_BYTECODE_HEADER_SIZE})`,
+    );
+  }
+  const flags = view.getUint32(12, true);
+  if (flags !== POCKET_BYTECODE_FLAGS) {
+    throw new Error(`pocket package: unsupported bytecode envelope flags 0x${flags.toString(16)}`);
+  }
+  if (bytes.length < POCKET_BYTECODE_HEADER_SIZE) {
+    throw new Error("pocket package: truncated bytecode envelope header");
+  }
+  if (bytes.length === POCKET_BYTECODE_HEADER_SIZE) {
+    throw new Error("pocket package: bytecode envelope payload is empty");
+  }
+  return {
+    engineAbi: readHash(bytes, POCKET_LAYOUT.bytecode.engineAbi),
+    bytecode: bytes.subarray(POCKET_LAYOUT.bytecode.payload),
+  };
 }
 
 export function encodeHostInputs(input: PocketHostInputs): Uint8Array {

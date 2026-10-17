@@ -15,7 +15,7 @@ use alloc::string::String;
 
 use psp::sys::{self, DisplayPixelFormat, DisplaySetBufSync};
 
-use pocketjs_core::package::{self, Package};
+use pocketjs_core::package;
 use pocketjs_core::{spec, Ui};
 
 // $OUT_DIR/apps.rs — `EmbeddedApp` + `APPS` (build.rs generates both).
@@ -26,6 +26,9 @@ include!(concat!(env!("OUT_DIR"), "/apps.rs"));
 /// (the generic runtime, feature `runtime`), or the classic inline embed.
 /// `js` includes its NUL terminator (eval with len - 1).
 pub struct GuestBytes {
+    /// Raw optional section-6 envelope. `main.rs` validates its engine ABI
+    /// before passing the payload to QuickJS and falls back to `js`.
+    pub bytecode: Option<&'static [u8]>,
     pub js: &'static [u8],
     pub pak: &'static [u8],
 }
@@ -39,6 +42,14 @@ pub enum GuestFault {
     /// The generic runtime's `app.pocket` (package_file.rs).
     #[cfg(feature = "runtime")]
     File(crate::package_file::Fault),
+}
+
+fn host_abi() -> u32 {
+    let mut value = 0u32;
+    for b in env!("POCKETJS_HOST_ABI").bytes() {
+        value = value * 10 + (b - b'0') as u32;
+    }
+    value
 }
 
 impl GuestFault {
@@ -57,20 +68,30 @@ pub fn guest_bytes(index: usize) -> Result<GuestBytes, GuestFault> {
         // SAFETY: package_file::load ran on the main thread before the
         // worker started, and nothing writes its state again.
         let game = unsafe { crate::package_file::game() }.map_err(GuestFault::File)?;
-        return Ok(GuestBytes { js: game.js, pak: game.pak });
+        return Ok(GuestBytes {
+            bytecode: game.bytecode,
+            js: game.js,
+            pak: game.pak,
+        });
     }
     let app = &APPS[index];
     if app.pocket.is_empty() {
-        return Ok(GuestBytes { js: app.js.as_bytes(), pak: app.pak });
+        return Ok(GuestBytes {
+            bytecode: None,
+            js: app.js.as_bytes(),
+            pak: app.pak,
+        });
     }
     // Embedded packages were hashed into the build identity at pack time —
     // skip the footer walk at boot (filesystem loads must NOT skip it).
     let embedded = || -> Option<GuestBytes> {
-        let pkg = Package::parse(app.pocket, true).ok()?;
-        let variant = pkg.find_variant(env!("POCKETJS_TARGET")).ok()??;
-        let js = variant.section(package::section::JS).ok()??;
-        let pak = variant.section(package::section::PAK).ok()?.unwrap_or(&[]);
-        Some(GuestBytes { js, pak })
+        let guest =
+            package::select_guest(app.pocket, env!("POCKETJS_TARGET"), host_abi(), true).ok()?;
+        Some(GuestBytes {
+            bytecode: guest.bytecode,
+            js: guest.js,
+            pak: guest.pak,
+        })
     };
     embedded().ok_or(GuestFault::Embedded)
 }

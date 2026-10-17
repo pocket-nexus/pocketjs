@@ -5,6 +5,7 @@ import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 //
 //   bun tools/pocket-pack.ts build --manifest apps/hero/pocket.json \
 //       --target psp --target vita [-o dist/packages/hero.pocket]
+//   bun tools/pocket-pack.ts build --bytecode --manifest apps/hero/pocket.json --target psp
 //   bun tools/pocket-pack.ts build --manifest ... --all-targets
 //   bun tools/pocket-pack.ts build --manifest game/pocket.json --project-root game --target psp
 //   bun tools/pocket-pack.ts inspect <file.pocket>
@@ -21,6 +22,7 @@ import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
+import { quickJsEngineAbiForTarget } from "../contracts/spec/quickjs-bytecode.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import {
   canonicalJson,
@@ -35,6 +37,7 @@ import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "./redmi-1s-profile.ts";
 import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "./moto-g-play-profile.ts";
 import {
   POCKET_SECTION,
+  decodeBytecodeEnvelope,
   decodePocketPackage,
   decodeHostInputs,
   encodeHostInputs,
@@ -46,6 +49,7 @@ import {
   type PocketPackageSection,
   type PocketPackageVariant,
 } from "../contracts/spec/pocket-package.ts";
+import { compileQuickJsBytecode } from "./quickjs-bytecode.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
@@ -53,7 +57,7 @@ function usage(message?: string): never {
   if (message) console.error(`pocket-pack: ${message}`);
   console.error(
     "usage:\n" +
-      "  bun tools/pocket-pack.ts build --manifest <pocket.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
+      "  bun tools/pocket-pack.ts build [--bytecode] --manifest <pocket.json> (--target <t>)+ | --all-targets [--project-root <dir>] [-o <file>]\n" +
       "  bun tools/pocket-pack.ts inspect <file.pocket>\n" +
       "  bun tools/pocket-pack.ts thin <file.pocket> --target <t> [-o <file>]\n" +
       "  bun tools/pocket-pack.ts verify <file.pocket>",
@@ -71,6 +75,8 @@ export function makeVariant(input: {
   js: Uint8Array;
   pak: Uint8Array;
   cover?: Uint8Array;
+  /** Complete QJBC envelope for section 6. Source remains in section 3. */
+  bytecode?: Uint8Array;
 }): PocketPackageVariant {
   const plan = JSON.parse(input.planJson) as ResolvedBuildPlan;
   if (!verifyPlanHash(plan) || plan.target.id !== input.target ||
@@ -88,6 +94,12 @@ export function makeVariant(input: {
     { kind: POCKET_SECTION.pak, bytes: input.pak },
   ];
   if (input.cover) sections.push({ kind: POCKET_SECTION.cover, bytes: input.cover });
+  if (input.bytecode) {
+    // Reject a malformed envelope at its first assembly boundary. Target ABI
+    // admission remains verifyCommand's responsibility.
+    decodeBytecodeEnvelope(input.bytecode);
+    sections.push({ kind: POCKET_SECTION.bytecode, bytes: input.bytecode });
+  }
   const idfHost = readIdfHostExtension(plan.hostExtension);
   if (idfHost) {
     sections.push({
@@ -169,6 +181,7 @@ async function buildCommand(argv: string[]): Promise<void> {
   let projectRoot = ROOT;
   let output = "";
   let allTargets = false;
+  let bytecode = false;
   const targets: string[] = [];
   while (argv.length) {
     const a = argv.shift()!;
@@ -176,6 +189,7 @@ async function buildCommand(argv: string[]): Promise<void> {
     else if (a === "--target") targets.push(argv.shift() ?? usage("--target needs a value"));
     else if (a === "--project-root") projectRoot = resolve(argv.shift() ?? usage("--project-root needs a value"));
     else if (a === "--all-targets") allTargets = true;
+    else if (a === "--bytecode") bytecode = true;
     else if (a === "-o" || a === "--output") output = resolve(argv.shift() ?? usage("-o needs a value"));
     else usage(`unknown option ${a}`);
   }
@@ -202,6 +216,21 @@ async function buildCommand(argv: string[]): Promise<void> {
     const pakPath = join(outdir, `${plan.app.output}.pak`);
     const pak = existsSync(pakPath) ? new Uint8Array(readFileSync(pakPath)) : new Uint8Array(0);
     const coverPath = join(ROOT, "apps/launcher/covers", `cover-${plan.app.output}.png`);
+    let bytecodeSection: Uint8Array | undefined;
+    if (bytecode) {
+      const engineAbi = quickJsEngineAbiForTarget(target);
+      if (!engineAbi) {
+        console.warn(`  bytecode ${target}: unsupported; source retained`);
+      } else {
+        const compiled = compileQuickJsBytecode(target, js, {
+          buildDirectory: join(projectRoot, ".pocket-build/quickjs-bytecode"),
+        });
+        bytecodeSection = compiled.section;
+        console.log(
+          `  bytecode ${target}: ${compiled.bytecode.length}B ${compiled.engineAbi.sha256}`,
+        );
+      }
+    }
     variants.push(
       makeVariant({
         target,
@@ -211,6 +240,7 @@ async function buildCommand(argv: string[]): Promise<void> {
         js,
         pak,
         cover: existsSync(coverPath) ? new Uint8Array(readFileSync(coverPath)) : undefined,
+        bytecode: bytecodeSection,
       }),
     );
     console.log(`  variant ${target}: js ${js.length}B pak ${pak.length}B`);
@@ -243,10 +273,19 @@ function inspectCommand(file: string): void {
       3: "js",
       4: "pak",
       5: "cover",
+      6: "bytecode",
       7: "hostInputs",
     };
     for (const s of v.sections) {
-      console.log(`    ${(names[s.kind] ?? `kind${s.kind}`).padEnd(8)} ${s.bytes.length}B`);
+      const name = names[s.kind] ?? `kind${s.kind}`;
+      if (s.kind === POCKET_SECTION.bytecode) {
+        const envelope = decodeBytecodeEnvelope(s.bytes);
+        console.log(
+          `    ${name.padEnd(10)} ${s.bytes.length}B (${envelope.bytecode.length}B payload, ${envelope.engineAbi})`,
+        );
+      } else {
+        console.log(`    ${name.padEnd(10)} ${s.bytes.length}B`);
+      }
     }
   }
 }
@@ -320,6 +359,17 @@ function verifyCommand(file: string): void {
     const js = findSection(v, POCKET_SECTION.js);
     if (!js || js[js.length - 1] !== 0) {
       throw new Error(`verify: variant ${v.target} js section is not NUL-terminated`);
+    }
+    const bytecode = findSection(v, POCKET_SECTION.bytecode);
+    if (bytecode) {
+      const envelope = decodeBytecodeEnvelope(bytecode);
+      const engineAbi = quickJsEngineAbiForTarget(v.target);
+      if (!engineAbi) {
+        throw new Error(`verify: variant ${v.target} carries unsupported QuickJS bytecode`);
+      }
+      if (envelope.engineAbi !== engineAbi.sha256) {
+        throw new Error(`verify: variant ${v.target} QuickJS engine ABI drifted`);
+      }
     }
   }
   console.log(`verify: OK — footer hash, ${pkg.variants.length} variant(s) re-admitted`);

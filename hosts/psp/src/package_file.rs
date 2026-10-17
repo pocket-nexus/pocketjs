@@ -11,7 +11,7 @@
 //!
 //! The footer hash, the variant for this target and its host ABI are checked
 //! here (`pocketjs_core::package::select_guest`). The block is never freed,
-//! so the js and pak slices stay valid for the life of the process.
+//! so the bytecode, js and pak slices stay valid for the life of the process.
 
 use alloc::format;
 use alloc::string::String;
@@ -47,6 +47,7 @@ pub enum Fault {
 /// The admitted game: zero-copy slices of the loaded block.
 #[derive(Clone, Copy)]
 pub struct Game {
+    pub bytecode: Option<&'static [u8]>,
     pub js: &'static [u8],
     pub pak: &'static [u8],
     /// Bytes of the whole file (its kernel block).
@@ -120,7 +121,12 @@ unsafe fn read_and_admit() -> Result<Game, Fault> {
     let bytes: &'static [u8] = core::slice::from_raw_parts(base, size);
     let target = env!("POCKETJS_TARGET");
     match package::select_guest(bytes, target, host_abi(), false) {
-        Ok(guest) => Ok(Game { js: guest.js, pak: guest.pak, file_bytes: size }),
+        Ok(guest) => Ok(Game {
+            bytecode: guest.bytecode,
+            js: guest.js,
+            pak: guest.pak,
+            file_bytes: size,
+        }),
         Err(error) => {
             let abi = Package::parse(bytes, true)
                 .ok()

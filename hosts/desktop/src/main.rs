@@ -3,8 +3,9 @@
 //! Text capabilities run in separately budgeted io.offload workers. No platform
 //! text system participates in layout, shaping or drawing.
 use anyhow::{Context as _, Result, anyhow};
-use pocket_mod::Guest;
+use pocket_mod::{BytecodeEvalError, Guest};
 use pocket_ui_surface::{UiSurface, offload::OffloadWorker};
+use pocketjs_core::{package, quickjs_abi::DESKTOP_64_LE};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -39,6 +40,198 @@ fn text_worker(pak: Vec<u8>) -> OffloadWorker {
         engine.load_pak(&pak);
         move |record: &str| engine.reply(record)
     })
+}
+
+enum GuestAssets {
+    Loose {
+        label: String,
+        source: String,
+        pak: Vec<u8>,
+    },
+    Package {
+        label: String,
+        source: String,
+        pak: Vec<u8>,
+        bytecode: Option<Vec<u8>>,
+    },
+}
+
+struct AdmittedGuest<'a> {
+    label: &'a str,
+    source: &'a str,
+    pak: &'a [u8],
+    bytecode: Option<&'a [u8]>,
+}
+
+impl GuestAssets {
+    fn load(args: &mut Args) -> Result<Self> {
+        if let Some(path) = args.pocket.clone() {
+            let bytes = std::fs::read(&path)
+                .with_context(|| format!("reading Pocket package {}", path.display()))?;
+            let admitted =
+                package::select_guest(&bytes, HOST_ID, HOST_ABI, false).map_err(|error| {
+                    anyhow!("admitting Pocket package {}: {error:?}", path.display())
+                })?;
+            let plan: ResolvedPackagePlan = serde_json::from_slice(admitted.plan)
+                .with_context(|| format!("decoding Pocket package plan from {}", path.display()))?;
+            apply_package_plan(args, admitted.id, &plan)?;
+            let source = admitted
+                .js
+                .strip_suffix(&[0])
+                .expect("select_guest enforces the source terminator");
+            let source = std::str::from_utf8(source)
+                .with_context(|| format!("Pocket package {} has non-UTF-8 source", path.display()))?
+                .to_owned();
+            return Ok(Self::Package {
+                label: admitted.id.to_owned(),
+                source,
+                pak: admitted.pak.to_vec(),
+                bytecode: admitted.bytecode.map(<[u8]>::to_vec),
+            });
+        }
+        let pak_path = resolve_asset(args.pak.clone(), &args.app, "pak")?;
+        let js_path = resolve_asset(args.js.clone(), &args.app, "js")?;
+        Ok(Self::Loose {
+            label: args.app.clone(),
+            pak: std::fs::read(&pak_path)
+                .with_context(|| format!("reading {}", pak_path.display()))?,
+            source: std::fs::read_to_string(&js_path)
+                .with_context(|| format!("reading {}", js_path.display()))?,
+        })
+    }
+
+    fn admitted(&self) -> AdmittedGuest<'_> {
+        match self {
+            Self::Loose { label, source, pak } => AdmittedGuest {
+                label,
+                source,
+                pak,
+                bytecode: None,
+            },
+            Self::Package {
+                label,
+                source,
+                pak,
+                bytecode,
+            } => AdmittedGuest {
+                label,
+                source,
+                pak,
+                bytecode: bytecode.as_deref(),
+            },
+        }
+    }
+}
+
+fn apply_package_plan(
+    args: &mut Args,
+    admitted_id: &str,
+    plan: &ResolvedPackagePlan,
+) -> Result<()> {
+    if plan.target.id != HOST_ID || plan.target.host_abi != HOST_ABI {
+        return Err(anyhow!(
+            "Pocket package plan targets {} ABI {}, host is {} ABI {}",
+            plan.target.id,
+            plan.target.host_abi,
+            HOST_ID,
+            HOST_ABI
+        ));
+    }
+    if plan.app.id != admitted_id {
+        return Err(anyhow!(
+            "Pocket package identity is {admitted_id}, plan is for {}",
+            plan.app.id
+        ));
+    }
+    args.app = plan.app.output.clone();
+    args.title = plan.app.title.clone();
+    args.viewport = (plan.viewport.logical[0], plan.viewport.logical[1]);
+    args.fixed = plan.viewport.policy == "fixed";
+    args.native_text = plan
+        .features
+        .get("text.layout.native")
+        .copied()
+        .unwrap_or(false);
+    args.companions = plan.companions.clone();
+    args.editor = args.companions.iter().any(|companion| companion == "note");
+    args.density = plan.viewport.raster_density.clamp(1, 4);
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SourceFallback {
+    Absent,
+    Malformed(String),
+    EngineAbiMismatch,
+    ReadFailed(String),
+}
+
+impl std::fmt::Display for SourceFallback {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Absent => f.write_str("package has no bytecode"),
+            Self::Malformed(error) => write!(f, "invalid bytecode envelope ({error})"),
+            Self::EngineAbiMismatch => f.write_str("bytecode engine ABI does not match this host"),
+            Self::ReadFailed(error) => write!(f, "QuickJS rejected bytecode ({error})"),
+        }
+    }
+}
+
+enum BytecodeSelection<'a> {
+    Use(&'a [u8]),
+    Source(SourceFallback),
+}
+
+fn select_bytecode_for_abi<'a>(
+    section: Option<&'a [u8]>,
+    engine_abi: &[u8; 32],
+) -> BytecodeSelection<'a> {
+    let Some(section) = section else {
+        return BytecodeSelection::Source(SourceFallback::Absent);
+    };
+    let envelope = match package::parse_bytecode_envelope(section) {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            return BytecodeSelection::Source(SourceFallback::Malformed(format!("{error:?}")));
+        }
+    };
+    if envelope.engine_abi != engine_abi {
+        return BytecodeSelection::Source(SourceFallback::EngineAbiMismatch);
+    }
+    BytecodeSelection::Use(envelope.bytecode)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum GuestProgramPath {
+    Bytecode,
+    Source(SourceFallback),
+}
+
+fn eval_guest_program(
+    guest: &Guest,
+    label: &str,
+    source: &str,
+    bytecode_section: Option<&[u8]>,
+) -> Result<GuestProgramPath> {
+    let fallback = match select_bytecode_for_abi(bytecode_section, &DESKTOP_64_LE) {
+        BytecodeSelection::Use(bytecode) => {
+            match unsafe { guest.eval_trusted_bytecode(label, bytecode) } {
+                Ok(()) => {
+                    log::debug!("pocket-desktop-host: loaded {label} from bytecode");
+                    return Ok(GuestProgramPath::Bytecode);
+                }
+                Err(BytecodeEvalError::Read(error)) => SourceFallback::ReadFailed(error),
+                Err(error @ BytecodeEvalError::Execute(_)) => {
+                    log::error!("pocket-desktop-host: {label} {error}");
+                    return Err(error.into());
+                }
+            }
+        }
+        BytecodeSelection::Source(fallback) => fallback,
+    };
+    log::debug!("pocket-desktop-host: {label}: {fallback}; evaluating source");
+    guest.eval(label, source)?;
+    Ok(GuestProgramPath::Source(fallback))
 }
 
 enum Input {
@@ -93,14 +286,14 @@ struct Runtime {
     wire: Option<net::SvcWire>,
 }
 impl Runtime {
-    fn boot(args: Args) -> Result<Self> {
+    fn boot(args: Args, assets: GuestAssets) -> Result<Self> {
         if args.native_text {
             return Err(anyhow!(
                 "text.layout.native is unavailable; use the portable text offload capability"
             ));
         }
-        let pak = std::fs::read(resolve_asset(args.pak.clone(), &args.app, "pak")?)?;
-        let source = std::fs::read_to_string(resolve_asset(args.js.clone(), &args.app, "js")?)?;
+        let admitted = assets.admitted();
+        let pak = admitted.pak.to_vec();
         let surface = UiSurface::new_with_density(
             (args.viewport.0 as f32, args.viewport.1 as f32),
             args.density,
@@ -108,13 +301,13 @@ impl Runtime {
         surface.set_identity(HOST_ID, HOST_ABI);
         surface.set_tick_rate(60);
         surface.set_svc_allowlist(args.companions.clone());
-        surface.feed_pak(&pak);
+        surface.feed_pak(admitted.pak);
         let supervisor = AppSupervisor::new(args.system.as_ref(), &surface)?;
         let guest = Guest::new()?;
         surface.mount(&guest)?;
         let offload = text_worker(pak);
         offload.mount(&guest)?;
-        guest.eval(&args.app, &source)?;
+        eval_guest_program(&guest, admitted.label, admitted.source, admitted.bytecode)?;
         if !guest.has_frame() {
             return Err(anyhow!("bundle installed no frame handler"));
         }
@@ -318,6 +511,7 @@ impl Runtime {
 }
 fn run_runtime(
     args: Args,
+    assets: GuestAssets,
     inputs: Receiver<Input>,
     outputs: SyncSender<Output>,
     proxy: EventLoopProxy<Wake>,
@@ -325,7 +519,7 @@ fn run_runtime(
 ) -> Result<()> {
     let available = Arc::new(AtomicBool::new(true));
     let mut renderer = gpu::Renderer::new(gpu);
-    let mut runtime = Runtime::boot(args)?;
+    let mut runtime = Runtime::boot(args, assets)?;
     let mut hash = None;
     let mut intents = Vec::new();
     let mut deadline = Instant::now();
@@ -397,6 +591,7 @@ fn run_runtime(
 }
 struct RuntimeStartup {
     args: Args,
+    assets: GuestAssets,
     inputs: Receiver<Input>,
     outputs: SyncSender<Output>,
     proxy: EventLoopProxy<Wake>,
@@ -525,6 +720,7 @@ impl ApplicationHandler<Wake> for Host {
         self.surface = Some(presentation);
         let RuntimeStartup {
             args,
+            assets,
             inputs,
             outputs,
             proxy,
@@ -533,7 +729,7 @@ impl ApplicationHandler<Wake> for Host {
             .name("pocket-runtime".into())
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    run_runtime(args, inputs, outputs, proxy.clone(), gpu)
+                    run_runtime(args, assets, inputs, outputs, proxy.clone(), gpu)
                 }))
                 .unwrap_or_else(|_| Err(anyhow!("Runtime worker panicked")));
                 let _ = proxy.send_event(Wake::Exit(result.err().map(|e| format!("{e:#}"))));
@@ -718,7 +914,8 @@ impl ApplicationHandler<Wake> for Host {
 }
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let args = parse_args()?;
+    let mut args = parse_args()?;
+    let assets = GuestAssets::load(&mut args)?;
     let event_loop = EventLoop::<Wake>::with_user_event().build()?;
     let (tx, inputs) = sync_channel(256);
     let (outputs, rx) = sync_channel(1);
@@ -745,6 +942,7 @@ fn main() -> Result<()> {
     };
     host.startup = Some(RuntimeStartup {
         args,
+        assets,
         inputs,
         outputs,
         proxy: event_loop.create_proxy(),
@@ -765,6 +963,214 @@ fn trace_frame(enabled: bool, stage: &str, tick: u64, start: Instant) {
             .unwrap_or_default()
             .as_micros();
         eprintln!("FRAME_TRACE,{stage},{tick},{wall},{elapsed}");
+    }
+}
+
+#[cfg(test)]
+mod package_loader_tests {
+    use super::*;
+    use pocket_mod::qjs::qjs as raw_qjs;
+    use std::{ffi::CString, slice};
+
+    fn envelope(engine_abi: &[u8; 32], bytecode: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0; package::BYTECODE_HEADER_SIZE as usize + bytecode.len()];
+        bytes[0..4].copy_from_slice(&package::BYTECODE_MAGIC.to_le_bytes());
+        bytes[4..8].copy_from_slice(&package::BYTECODE_VERSION.to_le_bytes());
+        bytes[8..12].copy_from_slice(&package::BYTECODE_HEADER_SIZE.to_le_bytes());
+        bytes[12..16].copy_from_slice(&package::BYTECODE_FLAGS.to_le_bytes());
+        bytes[16..48].copy_from_slice(engine_abi);
+        bytes[48..].copy_from_slice(bytecode);
+        bytes
+    }
+
+    fn source_ran(guest: &Guest) -> bool {
+        guest.with(|ctx| ctx.globals().get("sourceRan").unwrap_or(false))
+    }
+
+    fn compile_global_bytecode(source: &str, label: &str) -> Vec<u8> {
+        let compiler = Guest::new().unwrap();
+        compiler.with(|ctx| unsafe {
+            let source = CString::new(source).unwrap();
+            let label = CString::new(label).unwrap();
+            let raw_ctx = ctx.as_raw().as_ptr();
+            let function = raw_qjs::JS_Eval(
+                raw_ctx,
+                source.as_ptr(),
+                source.as_bytes().len() as _,
+                label.as_ptr(),
+                (raw_qjs::JS_EVAL_TYPE_GLOBAL
+                    | raw_qjs::JS_EVAL_FLAG_STRICT
+                    | raw_qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32,
+            );
+            assert_ne!(
+                raw_qjs::JS_VALUE_GET_NORM_TAG(function),
+                raw_qjs::JS_TAG_EXCEPTION
+            );
+            let mut len = 0;
+            let bytes = raw_qjs::JS_WriteObject(
+                raw_ctx,
+                &mut len,
+                function,
+                raw_qjs::JS_WRITE_OBJ_BYTECODE as i32,
+            );
+            raw_qjs::JS_FreeValue(raw_ctx, function);
+            assert!(!bytes.is_null());
+            assert_ne!(len, 0);
+            let bytecode = slice::from_raw_parts(bytes, len as usize).to_vec();
+            raw_qjs::js_free(raw_ctx, bytes.cast());
+            bytecode
+        })
+    }
+
+    #[test]
+    fn package_plan_drives_desktop_launch_metadata() {
+        let mut args = parse_args_from(std::iter::empty()).unwrap();
+        let plan: ResolvedPackagePlan = serde_json::from_value(serde_json::json!({
+            "app": {
+                "id": "dev.pocket-nexus.packaged",
+                "output": "packaged-main",
+                "title": "Packaged App",
+                "version": "1.0.0",
+                "entry": "src/main.tsx",
+                "framework": "solid"
+            },
+            "target": { "id": HOST_ID, "hostAbi": HOST_ABI },
+            "viewport": {
+                "logical": [480, 272],
+                "physical": [960, 544],
+                "presentation": "fit",
+                "rasterDensity": 2,
+                "policy": "fixed"
+            },
+            "features": { "text.layout.native": false },
+            "companions": ["note"],
+            "planHash": "sha256:test"
+        }))
+        .unwrap();
+
+        apply_package_plan(&mut args, "dev.pocket-nexus.packaged", &plan).unwrap();
+        assert_eq!(args.app, "packaged-main");
+        assert_eq!(args.title, "Packaged App");
+        assert_eq!(args.viewport, (480, 272));
+        assert_eq!(args.density, 2);
+        assert!(args.fixed);
+        assert!(args.editor);
+        assert_eq!(args.companions, ["note"]);
+    }
+
+    #[test]
+    fn matched_engine_abi_evaluates_bytecode_without_source() {
+        let bytecode = compile_global_bytecode(
+            "globalThis.bytecodeRan = true; globalThis.sourceRan = false; \
+             globalThis.frame = (buttons) => { globalThis.lastButtons = buttons; };",
+            "matched",
+        );
+        let section = envelope(&DESKTOP_64_LE, &bytecode);
+        let guest = Guest::new().unwrap();
+        let path = eval_guest_program(
+            &guest,
+            "matched",
+            "globalThis.sourceRan = true;",
+            Some(&section),
+        )
+        .unwrap();
+
+        assert_eq!(path, GuestProgramPath::Bytecode);
+        assert!(guest.has_frame());
+        assert!(!source_ran(&guest));
+        let bytecode_ran: bool = guest.with(|ctx| ctx.globals().get("bytecodeRan").unwrap());
+        assert!(bytecode_ran);
+        guest.frame(0x42).unwrap();
+        let last_buttons: u32 = guest.with(|ctx| ctx.globals().get("lastButtons").unwrap());
+        assert_eq!(last_buttons, 0x42);
+    }
+
+    #[test]
+    fn bytecode_execution_error_does_not_run_source_again() {
+        let bytecode = compile_global_bytecode(
+            "globalThis.bytecodeStarted = true; throw new Error('startup failed');",
+            "execute-error",
+        );
+        let section = envelope(&DESKTOP_64_LE, &bytecode);
+        let guest = Guest::new().unwrap();
+        let error = eval_guest_program(
+            &guest,
+            "execute-error",
+            "globalThis.sourceRan = true;",
+            Some(&section),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("executing QuickJS bytecode failed"));
+        let bytecode_started: bool =
+            guest.with(|ctx| ctx.globals().get("bytecodeStarted").unwrap());
+        assert!(bytecode_started);
+        assert!(!source_ran(&guest));
+    }
+
+    #[test]
+    fn absent_bytecode_falls_back_to_source() {
+        let guest = Guest::new().unwrap();
+        let path = eval_guest_program(&guest, "source-only", "globalThis.sourceRan = true;", None)
+            .unwrap();
+        assert_eq!(path, GuestProgramPath::Source(SourceFallback::Absent));
+        assert!(source_ran(&guest));
+    }
+
+    #[test]
+    fn malformed_envelope_falls_back_to_source() {
+        let guest = Guest::new().unwrap();
+        let path = eval_guest_program(
+            &guest,
+            "malformed",
+            "globalThis.sourceRan = true;",
+            Some(&[0xff]),
+        )
+        .unwrap();
+        assert!(matches!(
+            path,
+            GuestProgramPath::Source(SourceFallback::Malformed(_))
+        ));
+        assert!(source_ran(&guest));
+    }
+
+    #[test]
+    fn engine_abi_mismatch_falls_back_to_source() {
+        let guest = Guest::new().unwrap();
+        let mut other_abi = DESKTOP_64_LE;
+        other_abi[0] ^= 0xff;
+        let section = envelope(&other_abi, &[0xff]);
+        let path = eval_guest_program(
+            &guest,
+            "mismatch",
+            "globalThis.sourceRan = true;",
+            Some(&section),
+        )
+        .unwrap();
+        assert_eq!(
+            path,
+            GuestProgramPath::Source(SourceFallback::EngineAbiMismatch)
+        );
+        assert!(source_ran(&guest));
+    }
+
+    #[test]
+    fn unreadable_matching_bytecode_falls_back_to_source() {
+        let guest = Guest::new().unwrap();
+        let section = envelope(&DESKTOP_64_LE, &[0xff]);
+        let path = eval_guest_program(
+            &guest,
+            "unreadable",
+            "globalThis.sourceRan = true;",
+            Some(&section),
+        )
+        .unwrap();
+        assert!(matches!(
+            path,
+            GuestProgramPath::Source(SourceFallback::ReadFailed(_))
+        ));
+        assert!(source_ran(&guest));
     }
 }
 

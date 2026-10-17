@@ -16,6 +16,8 @@ pocket check --target psp --manifest apps/my-app/pocket.json
 pocket compile --target psp --manifest apps/my-app/pocket.json
 pocket build --target psp --manifest apps/my-app/pocket.json -- --release
 pocket build --target vita --manifest apps/my-app/pocket.json -- --release
+pocket pack --bytecode --target psp --manifest apps/my-app/pocket.json \
+  --project-root . --output dist/my-app.pocket
 pocket build --host-profile firmware/pocket.host.json \
   --manifest app/pocket.json --project-root app --output dist/app.pocket
 pocket play vita hero    # build, install and launch a stock demo in Vita3K
@@ -48,12 +50,14 @@ cd pocketjs && bun install
 pocket doctor
 ```
 
-`check`, `compile`, and `build` delegate to PocketJS's canonical manifest
-resolver. `pocket.json` owns the framework, entry, output, viewport and API
-requirements; the target backend consumes the resulting build plan. Arguments
-after `--` go to the selected PSP or Vita backend. The low-level `dev`, `psp`,
-`vita`, `hw`, `psplink`, `devtools`, and `tape` commands remain available for
-framework demos and host development.
+`check`, `compile`, `build`, and `pack` delegate to PocketJS's canonical
+manifest and package tools. `pocket.json` owns the framework, entry, output,
+viewport and API requirements; the target backend consumes the resulting
+build plan. `pocket pack --bytecode` retains source and adds target-matched
+QuickJS bytecode for supported hosts. Arguments after `--` go to the selected
+PSP or Vita backend. The low-level `dev`, `psp`, `vita`, `hw`, `psplink`,
+`devtools`, and `tape` commands remain available for framework demos and host
+development.
 
 Manifest commands also run from an external application project that installs
 `@pocketjs/framework`. The CLI resolves the compiler from the nearest project

@@ -26,7 +26,7 @@ use psp::sys::DisplaySetBufSync;
 use psp::sys::DisplayPixelFormat;
 use psp::sys::{self, CtrlMode, GuContextType, GuSyncBehavior, GuSyncMode, IoOpenFlags, SceCtrlData};
 
-use pocketjs_core::spec;
+use pocketjs_core::{package, spec};
 use pocketjs_psp::{arena, audio_mod, dbg, ffi, ge, host, pak, svc, switch, veil, vid};
 
 psp::module!("pocketjs", 1, 1);
@@ -50,12 +50,15 @@ static POCKETJS_TRACE: &str = env!("POCKETJS_TRACE");
 // arena-pressure GC below). Single-threaded QuickJS worker.
 static mut LAST_GC_BUMP: usize = 0;
 
-// libquickjs-sys omits JS_RunGC; the linked QuickJS C library provides it
+// libquickjs-sys omits these APIs; the linked QuickJS C library provides them
 // (local-extern pattern, same as host.rs JS_ExecutePendingJob).
 extern "C" {
     fn JS_RunGC(rt: *mut JSRuntime);
+    fn JS_ReadObject(ctx: *mut JSContext, buf: *const u8, len: usize, flags: i32) -> JSValue;
+    fn JS_EvalFunction(ctx: *mut JSContext, object: JSValue) -> JSValue;
 }
 
+const JS_READ_OBJ_BYTECODE: i32 = 1 << 0;
 
 // Build-time scripted input for deterministic PPSSPPHeadless captures
 // (tests/e2e/ppsspp.ts). Baked by build.rs from the POCKETJS_CAPTURE_INPUT env;
@@ -500,7 +503,7 @@ unsafe fn run_guest(
     last_present_vcount: &mut u32,
 ) -> usize {
     switch::set_current(app_index);
-    // Package mode extracts js/pak zero-copy from the entry's embedded
+    // Package mode extracts bytecode/js/pak zero-copy from the entry's embedded
     // `.pocket`; single-app mode reads the classic inline embed. A package
     // that fails to parse routes through the broken-guest rule.
     let guest = match switch::guest_bytes(app_index) {
@@ -565,7 +568,7 @@ unsafe fn run_guest(
     ffi::register(ctx, global, &textures, &sprites);
     trace("run: register ui ok");
 
-    // The bundle mounts synchronously during JS_Eval, and resetClock() latches
+    // The bundle mounts synchronously during guest evaluation, and resetClock() latches
     // this value at mount. Install it for every fresh guest realm beforehand.
     JS_SetPropertyStr(
         ctx,
@@ -591,28 +594,75 @@ unsafe fn run_guest(
         trace("run: __pak installed");
     }
 
-    trace("run: JS_Eval begin");
+    trace("run: guest eval begin");
     #[cfg(feature = "bench")]
     bench_eval_begin();
-    let res = JS_Eval(
-        ctx,
-        app_js.as_ptr() as *const _,
-        app_js.len() - 1, // exclude the trailing NUL
-        b"app.js\0".as_ptr() as *const _,
-        JS_EVAL_TYPE_GLOBAL as i32,
-    );
-    if JS_ValueGetTag(res) == JS_TAG_EXCEPTION {
-        log_exception(ctx);
-        JS_FreeValue(ctx, res);
-        JS_FreeValue(ctx, global);
-        JS_FreeContext(ctx);
-        JS_FreeRuntime(rt);
-        return guest_fail(app_index, "JS_Eval threw");
+    let mut evaluated = false;
+    match guest.bytecode {
+        None => trace("run: source fallback (bytecode absent)"),
+        Some(envelope_bytes) => match package::parse_bytecode_envelope(envelope_bytes) {
+            Err(_) => trace("run: source fallback (bytecode malformed)"),
+            Ok(envelope) if envelope.engine_abi != &pocketjs_core::quickjs_abi::PSP => {
+                trace("run: source fallback (bytecode ABI mismatch)")
+            }
+            Ok(envelope) => {
+                let object = JS_ReadObject(
+                    ctx,
+                    envelope.bytecode.as_ptr(),
+                    envelope.bytecode.len(),
+                    JS_READ_OBJ_BYTECODE as i32,
+                );
+                if JS_ValueGetTag(object) == JS_TAG_EXCEPTION {
+                    log_exception(ctx);
+                    JS_FreeValue(ctx, object);
+                    trace("run: source fallback (bytecode read failed)");
+                } else {
+                    // JS_EvalFunction consumes `object`, including when it
+                    // returns an exception. Only its result is ours to free.
+                    let result = JS_EvalFunction(ctx, object);
+                    if JS_ValueGetTag(result) == JS_TAG_EXCEPTION {
+                        log_exception(ctx);
+                        JS_FreeValue(ctx, result);
+                        trace("run: bytecode eval failed");
+                        #[cfg(feature = "bench")]
+                        bench_eval_end();
+                        JS_FreeValue(ctx, global);
+                        JS_FreeContext(ctx);
+                        JS_FreeRuntime(rt);
+                        return guest_fail(app_index, "JS_EvalFunction threw");
+                    } else {
+                        JS_FreeValue(ctx, result);
+                        evaluated = true;
+                        trace("run: bytecode");
+                    }
+                }
+            }
+        },
     }
-    JS_FreeValue(ctx, res);
+
+    if !evaluated {
+        let result = JS_Eval(
+            ctx,
+            app_js.as_ptr() as *const _,
+            app_js.len() - 1, // exclude the trailing NUL
+            b"app.js\0".as_ptr() as *const _,
+            JS_EVAL_TYPE_GLOBAL as i32,
+        );
+        if JS_ValueGetTag(result) == JS_TAG_EXCEPTION {
+            log_exception(ctx);
+            JS_FreeValue(ctx, result);
+            #[cfg(feature = "bench")]
+            bench_eval_end();
+            JS_FreeValue(ctx, global);
+            JS_FreeContext(ctx);
+            JS_FreeRuntime(rt);
+            return guest_fail(app_index, "JS_Eval threw");
+        }
+        JS_FreeValue(ctx, result);
+    }
     #[cfg(feature = "bench")]
     bench_eval_end();
-    trace("run: JS_Eval ok");
+    trace("run: guest eval ok");
 
     let frame_fn = JS_GetPropertyStr(ctx, global, b"frame\0".as_ptr() as *const _);
     if JS_IsUndefined(frame_fn) {
