@@ -3,13 +3,15 @@
 //   bun pocket check --target psp
 //   bun pocket compile --target psp
 //   bun pocket build --target psp -- --release
+//   bun pocket catalog [--json]      the targets --target accepts
 
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { depfile } from "../framework/compiler/build-inputs.ts";
 import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
-import type { PocketTargetId } from "../contracts/spec/platforms.ts";
+import type { PlatformContractRegistry } from "../contracts/spec/platforms.ts";
+import { CATALOG, catalogEntry, catalogEntryForContract } from "./targets/index.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { canonicalJson, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import {
@@ -48,6 +50,18 @@ function takeOption(name: string): string | undefined {
   return value;
 }
 
+if (command === "catalog") {
+  const json = argv.includes("--json");
+  const rows = CATALOG.map((descriptor) => ({
+    id: descriptor.id,
+    title: descriptor.title,
+    contract: { kind: descriptor.contract.kind, target: descriptor.contract.target },
+    hosts: descriptor.hosts,
+  }));
+  if (json) console.log(JSON.stringify(rows, null, 2));
+  else for (const row of rows) console.log(`${row.id.padEnd(20)} ${row.title}`);
+  process.exit(0);
+}
 if (command !== "check" && command !== "compile" && command !== "build") {
   usage(`unknown command ${command ?? "<missing>"}`);
 }
@@ -78,10 +92,27 @@ if (argv.length > 0) usage(`unknown option ${argv[0]}`);
 
 if (!existsSync(manifestPath)) usage(`manifest not found: ${manifestPath}`);
 const manifestInput: unknown = await Bun.file(manifestPath).json();
-let target = targetOption ?? "";
+// `--target` names a catalog entry; plans and native hosts carry its contract
+// target id, which differs for device profiles (`3ds` → `3ds-dev`).
+let catalogId: string | undefined;
+let target = "";
 let tickHz = 60;
 let profileHash: string | undefined;
-let registry = undefined;
+let registry: PlatformContractRegistry | undefined;
+if (targetOption) {
+  const descriptor = catalogEntry(targetOption);
+  if (!descriptor) {
+    const named = catalogEntryForContract(targetOption);
+    usage(
+      named
+        ? `unknown target ${targetOption}; the catalog names this target ${named.id}`
+        : `unknown target ${targetOption}; targets: ${CATALOG.map((entry) => entry.id).join(", ")}`,
+    );
+  }
+  catalogId = descriptor.id;
+  target = descriptor.contract.target;
+  registry = descriptor.contract.registry();
+}
 if (hostProfileOption) {
   const hostProfilePath = resolve(hostProfileOption);
   if (!existsSync(hostProfilePath)) usage(`host profile not found: ${hostProfilePath}`);
@@ -271,7 +302,7 @@ const targetBackends = {
     compiledBundle("linux-app", plan, outdir, "the desktop host (hosts/desktop)"),
   "macos-widget": async ({ plan, outdir }) =>
     compiledBundle("macos-widget", plan, outdir, "the note-widget host (engine/pocket3d/examples/note-widget; `bun run note` in a checkout)"),
-} satisfies Record<PocketTargetId, TargetBackend>;
+} satisfies Partial<Record<string, TargetBackend>>;
 
 // Targets whose host loads <output>.js + <output>.pak from a filesystem have no
 // platform binary to package: `compile` produced the deliverable, so `build`
@@ -280,8 +311,13 @@ function compiledBundle(target: string, plan: ResolvedBuildPlan, outdir: string,
   console.log(`✓ ${target} bundle ready: ${resolve(outdir, `${plan.app.output}.js`)} + .pak — loaded by ${host}.`);
 }
 
-const backend = targetBackends[target as PocketTargetId];
-if (!backend) usage(`no build backend for target ${target}; \`pocket compile\` emits dist/${plan.app.output}.js and .pak`);
+const backend = (targetBackends as Partial<Record<string, TargetBackend>>)[catalogId ?? ""];
+if (!backend) {
+  usage(
+    `target ${catalogId} has no build backend in tools/pocket.ts yet; ` +
+      `\`pocket compile\` wrote ${resolve(outdir, `${plan.app.output}.js`)} and .pak`,
+  );
+}
 await backend({
   plan,
   planPath,

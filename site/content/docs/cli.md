@@ -166,7 +166,7 @@ pocket <check|compile|build> (--target <id> | --host-profile <file>) [options] [
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--target <id>` | — | a target registered in `contracts/spec/platforms.ts` |
+| `--target <id>` | — | a target of the [catalog](#targets) |
 | `--host-profile <file>` | — | an ESP-IDF host profile; the command takes exactly one of `--target` and `--host-profile` |
 | `--manifest <file>` | `pocket.json` | the application manifest |
 | `--project-root <dir>` | the manifest's directory | base for the entry, `tsconfig.json`, `--outdir`, `--plan-dir`, `--output` and `--depfile` |
@@ -183,7 +183,7 @@ An unrecognized option before `--` is an error.
   target's capabilities against `requires`, the viewport, and the TypeScript of
   the entry and its reachable imports, using the project's `tsconfig.json` when
   one exists. It prints the plan hash.
-- **`compile`** runs `check`, writes `<plan-dir>/<target>/plan.json`, and
+- **`compile`** runs `check`, writes `<plan-dir>/<contract target>/plan.json`, and
   compiles `<outdir>/<output>.js` and `<outdir>/<output>.pak` from that plan.
 - **`build`** runs `compile` and hands the plan to the target's backend:
 
@@ -192,6 +192,7 @@ An unrecognized option before `--` is an error.
 | `psp` | `tools/psp.ts` links the EBOOT with the pinned PSP toolchain: `<framework>/hosts/psp/target/mipsel-sony-psp/<profile>/EBOOT.PBP`, where `<profile>` is `release` with `-- --release` and `debug` otherwise |
 | `vita` | `tools/vita.ts` builds with `cargo vita` and writes `<outdir>/vita/<output>.vpk`, `.self` and `.runtime.json`; requires VitaSDK in `VITASDK` or `~/vitasdk` |
 | `pocketbook`, `web-app`, `macos-app`, `linux-app`, `macos-widget` | the `compile` output; `build` prints the bundle path and the host that loads it |
+| device targets (`3ds`, `moto-g-play`, `nokia-e7`, …) | `check` and `compile`; `build` stops with the path `compile` wrote, because these targets build through their own scripts |
 | `--host-profile` | a `.pocket` package holding the manifest and one variant: the target id, HostOps ABI, canonical plan, JS and pak |
 
 `pocketjs_compile_app` in the ESP-IDF component runs
@@ -200,6 +201,30 @@ when an imported module, asset or the profile changes.
 [Platform contracts](/docs/platform-contracts/) describes the plan and the
 backend table; [Build pipeline](/docs/build-pipeline/) describes the compiler
 that `compile` runs.
+
+## Targets
+
+`--target` takes a catalog id. Registered targets keep the id of
+`contracts/spec/platforms.ts`; a device target is named after the device and
+resolves against its profile module, whose contract id the plan and the native
+host carry. A contract id given to `--target` stops with the catalog id it
+belongs to.
+
+| Catalog id | Contract target | Toolchain hosts |
+| --- | --- | --- |
+| `psp`, `vita`, `pocketbook`, `web-app` | the same id | macOS, Linux |
+| `macos-app`, `macos-widget` | the same id | macOS |
+| `linux-app` | the same id | Linux |
+| `3ds` | `3ds-dev` | macOS, Linux |
+| `moto-g-play`, `redmi-1s` | `moto-g-play-dev`, `redmi-1s-dev` | macOS, Linux x64 |
+| `blackberry-classic` | `blackberry-qnx-dev` | macOS, Linux |
+| `meizu-m8` | `meizu-m8-dev` | macOS, Linux |
+| `nokia-e7` | `symbian-e7-dev` | macOS, Linux |
+| `ios-simulator` | `ios-dev` | macOS on Apple silicon |
+| `iphone2g`, `iphone4s`, `ipodtouch6`, `ipodtouch4` | `iphone2g-dev`, `iphone4s-dev`, `ipodtouch-dev`, `ipodtouch4-dev` | macOS |
+
+`bun tools/pocket.ts catalog --json` prints the catalog with each target's
+contract and hosts.
 
 ## Host-development commands
 

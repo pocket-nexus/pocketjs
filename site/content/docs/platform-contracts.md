@@ -426,7 +426,8 @@ of keeping a per-demo target table.
 
 ## Consumers and backend dispatch
 
-`bun pocket build` reads the plan and indexes one table of native backends:
+`bun pocket build` reads the plan and indexes one table of native backends by
+catalog id ([CLI › Targets](/docs/cli/#targets)):
 
 ```ts
 // tools/pocket.ts
@@ -438,24 +439,24 @@ const targetBackends = {
   "macos-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
   "linux-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
   "macos-widget": async ({ plan, outdir }) => compiledBundle(/* note-widget */),
-} satisfies Record<PocketTargetId, TargetBackend>;
+} satisfies Partial<Record<string, TargetBackend>>;
 
-const backend = targetBackends[target as PocketTargetId];
-if (!backend) usage(`no build backend for target ${target}; …`);
+const backend = targetBackends[catalogId];
+if (!backend) usage(`target ${catalogId} has no build backend in tools/pocket.ts yet; …`);
 await backend(context);
 ```
 
-**The table has one entry per registered target, seven in all.** `psp` and
+**The table has one entry per registered target, seven in all; device targets
+of the catalog resolve and compile through it and build through their own
+scripts.** `psp` and
 `vita` are the two backends that package a platform binary. The `pocketbook`,
 `web-app`, `macos-app`, `linux-app` and `macos-widget` hosts load
 `<output>.js` and `<output>.pak` from a filesystem, so their entries print the
 bundle `compile` wrote and the host that loads it. The native desktop hosts
 build through their own tools — `macos-app` through `tools/macos.ts`,
 `macos-widget` through `tools/note.ts`, which builds
-`engine/pocket3d/examples/note-widget`. A target id
-without an entry stops with a usage error that points at `pocket compile`.
-`tools/` sits outside the `tsconfig.json` include list, so `bunx tsc` does not
-check the `satisfies` annotation. [CLI](/docs/cli/#check-compile-build) lists
+`engine/pocket3d/examples/note-widget`. A catalog id
+without an entry stops with a usage error naming the files `compile` wrote. [CLI](/docs/cli/#check-compile-build) lists
 the `build` output of each target.
 
 After dispatch, a backend reads resolved fields; it does not recalculate
