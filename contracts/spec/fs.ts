@@ -6,7 +6,8 @@
 // in its own op space, and a host adopts it independently of the UI surface
 // (capability id `data.fs` in contracts/spec/platforms.ts).
 //
-// The module is a per-app file tree behind nine synchronous ops. The SDK
+// The module is a per-app file tree behind nine required synchronous ops and
+// one optional text-read acceleration op. The SDK
 // (@pocketjs/framework/fs) is the Bun shape — `file()`/`write()` plus the
 // node:fs sync subset Bun implements — so file code written against Bun runs
 // against the mounted module with the async wrappers dropped.
@@ -56,6 +57,24 @@
 //                     or the op fails. `size` is the file's total byte size,
 //                     `eof` is true when offset+data reaches it. Reading a
 //                     directory fails]
+//   readText(path) -> string
+//                    [OPTIONAL acceleration op. Reads the complete file,
+//                     validates UTF-8, and returns the decoded text as a raw
+//                     string. A successful empty file returns "" and clears
+//                     lastError(); failure also returns "" but sets
+//                     lastError(), so callers MUST sample lastError()
+//                     immediately after the call. Missing paths, directories,
+//                     invalid paths, and malformed UTF-8 fail. There is no
+//                     offset/eof envelope: success always means the complete
+//                     file reached EOF. FS_MAX_IO_BYTES does not apply because
+//                     chunking can split a UTF-8 sequence and would recreate
+//                     guest-side joining. Files above FS_MAX_TEXT_BYTES fail
+//                     with "readText exceeds FS_MAX_TEXT_BYTES"; the SDK then
+//                     falls back to paged read(). A host may omit this optional
+//                     op and receive the same fallback. The raw string avoids
+//                     JSON escaping/parsing and a second full-size copy;
+//                     lastError() supplies the otherwise ambiguous error
+//                     channel]
 //   write(path, data:string, mode:number) -> 0 | 1
 //                    [data is the payload encoding below, decoded byte length
 //                     <= FS_MAX_IO_BYTES per call (the SDK chunks larger
@@ -119,6 +138,7 @@ export const FS_OP = {
   rename: 7,
   usage: 8,
   lastError: 9,
+  readText: 10,
 } as const;
 
 /** write() modes. */
@@ -134,8 +154,9 @@ export const FS_WRITE_APPEND = 1;
 //   bytes  <-> { "$b": "<base64>" } [the db module's blob spelling]
 //
 // write() accepts either; read() always returns bytes — the file does not
-// remember which spelling wrote it, and the SDK's .text() decodes UTF-8
-// guest-side (QuickJS has no TextDecoder; the SDK carries the codec).
+// remember which spelling wrote it. When readText() is absent, the SDK's
+// .text() decodes UTF-8 guest-side (QuickJS has no TextDecoder; the SDK
+// carries the codec).
 //
 // A text payload must be well-formed Unicode, like a path segment: an
 // unpaired surrogate has no UTF-8 spelling, so what happens to one is
@@ -238,6 +259,14 @@ export function fsValidPath(path: string): boolean {
  * the ceiling bounds marshaling, not file size.
  */
 export const FS_MAX_IO_BYTES = 65536;
+
+/** Whole-file ceiling for the optional readText() acceleration. This permits
+ *  enough read() chunks to amortize the native crossing while keeping one
+ *  host allocation and one guest string bounded. Larger files use read(). */
+export const FS_MAX_TEXT_BYTES = FS_MAX_IO_BYTES * 16;
+
+/** Stable error used by the SDK to fall back from readText() to read(). */
+export const FS_READ_TEXT_TOO_LARGE = "readText exceeds FS_MAX_TEXT_BYTES";
 
 /**
  * Entries per list() call. list() pages (offset + eof), so a big directory

@@ -1,7 +1,8 @@
 # The FS Module
 
 FS is PocketJS's fifth module (after `ui`, `strike`, `audio` and `db`): a
-per-app file tree mounted as `globalThis.fs` behind nine synchronous ops.
+per-app file tree mounted as `globalThis.fs` behind nine required synchronous
+ops and an optional whole-file text-read acceleration.
 Like db it was written spec-first — the boundary existed before any host
 code, every host implements the same pinned protocol, and a developer
 adding a storage feature extends the spec instead of forking a host.
@@ -12,7 +13,7 @@ platform storage (POSIX dir · LittleFS · memory)                Host / substra
     ↑ the app's own data root is the port point
 fs core: path grammar + confinement + atomic writes             the module
 fs spec: ops (read, write, remove, list, stat, mkdir,
-              rename, usage, lastError)
+              rename, usage, lastError; optional readText)
          events (none — every op is synchronous)
          data contract (path grammar · payload encoding · ceilings)
          frame contract (no module clock; no mtime; ops complete in the turn)
@@ -35,12 +36,17 @@ one JSON line (`{data:{"$b":…}, size, eof}`), `write(path, data, mode)`
 with truncate/append modes, `remove(path, recursive)`, `list(path, offset)`
 → name-sorted, paged entries, `stat(path)` → `{kind, size}`,
 `mkdir(path)` (recursive, idempotent), `rename(from, to)`, `usage()` →
-`{usedBytes, quotaBytes}`, and `lastError()`.
+`{usedBytes, quotaBytes}`, and `lastError()`. Hosts may expose
+`readText(path)`, which validates and returns one complete UTF-8 file as a raw
+string. It returns `""` on error and sets `lastError()`; a successful empty file
+returns `""` but clears `lastError()`. The SDK probes for the method and
+falls back to `read` when it is absent.
 
 **Payloads** cross as one JSON value: text as a JSON string (stored as its
 UTF-8 bytes), bytes as `{"$b": "<base64>"}` — the db module's blob
-spelling. `read` always returns bytes; the SDK's `.text()` decodes UTF-8
-guest-side (QuickJS has no TextDecoder; the SDK carries the codec).
+spelling. `read` always returns bytes. `readText`, where present, returns raw
+text to avoid a base64 and JSON round trip. The SDK's `.text()` decodes UTF-8
+guest-side when the optional method is absent.
 
 **The storage rule — isolation by construction.** Every path is relative
 and resolves under the app's own data root, bound by the host at mount.
@@ -81,7 +87,10 @@ whole-file atomicity above 64 KiB writes to a sibling name and
 `rename`s over the target — the same move the module itself makes.
 
 **Ceilings.** `FS_MAX_IO_BYTES` (64 KiB) per read/write payload — the SDK
-chunks larger files, so the ceiling bounds marshaling, not file size.
+chunks larger files, so the ceiling bounds marshaling, not file size. It does
+not apply to optional `readText`, whose successful return holds the complete
+file up to `FS_MAX_TEXT_BYTES` (1 MiB). Larger files fall back to paged binary
+reads, and memory-constrained hosts may omit the method.
 `FS_MAX_DIR_ENTRIES` (256) per `list()` call, paged via offset + eof — a
 big directory is slower to enumerate, never impossible. Paths:
 `FS_MAX_DEPTH` (8) segments of `FS_MAX_SEGMENT_BYTES` (64) each,
@@ -157,7 +166,7 @@ the spec, the SDK, or any app:
    `pocket_fs::FsModule::new(Storage::Dir { root, tmp })`, one instance
    per app;
 2. mount the namespace beside `ui` — `pocket_fs::mount(&guest, module)` on
-   `pocket-mod` hosts, or the raw-QuickJS spelling of the same nine
+   `pocket-mod` hosts, or the raw-QuickJS spelling of the nine required
    functions elsewhere (depend with `default-features = false` to drop the
    pocket-mod dependency; verified to `cargo check` clean for
    `riscv32imafc-esp-espidf`);

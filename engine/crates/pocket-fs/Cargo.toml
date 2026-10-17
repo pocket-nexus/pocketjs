@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The fs module's reference core: a per-app file tree behind the nine-op contracts/spec/fs.ts boundary, mountable as globalThis.fs via pocket-mod"
+description = "The fs module's reference core: a per-app file tree behind the contracts/spec/fs.ts boundary, mountable as globalThis.fs via pocket-mod"
 
 [features]
 # `mount` brings pocket-mod (and its QuickJS embedding) for the one-line

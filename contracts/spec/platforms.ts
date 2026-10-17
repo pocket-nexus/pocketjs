@@ -199,7 +199,8 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // ships the module.
   "data.sqlite",
   // A per-app file tree behind the fs module's own namespace
-  // (`globalThis.fs`, contracts/spec/fs.ts): nine synchronous ops, every
+  // (`globalThis.fs`, contracts/spec/fs.ts): nine required synchronous ops
+  // plus optional readText acceleration, every
   // path confined to the app's own data root — apps cannot name, let alone
   // reach, each other's trees. Registered ahead of any stock TARGET
   // advertising it: the sim host and the engine/crates/pocket-fs reference
