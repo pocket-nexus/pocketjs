@@ -38,7 +38,8 @@ import {
   withSymbianGuestBuildLock,
   withSymbianRuntimeBuildLock,
 } from "./symbian-toolchain.ts";
-import { pocketNexusCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
+import { pocketNexusCacheRoot } from "./targets/cache.ts";
+import { withArtifactLock } from "./targets/lock.ts";
 import {
   assertSymbianMassStorageDataStageSeparation,
   resolveSymbianMassStorageDataRoot,

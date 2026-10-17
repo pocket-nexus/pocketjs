@@ -44,9 +44,7 @@ import {
   SYMBIAN_TOOLCHAIN,
   withSymbianGuestBuildLock,
 } from "./symbian-toolchain.ts";
-import {
-  withArtifactLock,
-} from "./psp-toolchain.ts";
+import { withArtifactLock } from "./targets/lock.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const APPS_DIR = join(ROOT, "apps");

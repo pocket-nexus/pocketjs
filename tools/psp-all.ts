@@ -36,14 +36,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { parse as parseFont, type Font, type Path } from "opentype.js";
-import { cachedCargoPspBin } from "./psp-toolchain.ts";
+import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
 
 const pspUiDir = fileURLToPath(new URL("..", import.meta.url));
 const demosDir = join(pspUiDir, "apps");
 const outRoot = join(pspUiDir, "dist/psp");
 const pspGameRoot = join(outRoot, "PSP/GAME");
 const workRoot = join(outRoot, ".work");
-const cargoPspBin = cachedCargoPspBin();
 
 const argv = Bun.argv.slice(2);
 const release = !argv.includes("--debug"); // memory-stick packaging defaults to --release
@@ -82,7 +81,7 @@ async function demoTitle(name: string): Promise<string> {
 }
 
 function commandPath(name: string): string | null {
-  const path = join(cargoPspBin, name);
+  const path = join(resolvePspBuildToolchain().cargoPspBin, name);
   return existsSync(path) ? path : null;
 }
 
@@ -556,7 +555,7 @@ async function repackEboot(name: string, title: string, eboot: string, destDir: 
   const mksfo = commandPath("mksfo");
   const packPbp = commandPath("pack-pbp");
   if (!mksfo || !packPbp) {
-    throw new Error("pinned mksfo/pack-pbp not found; run `bun run bootstrap`");
+    throw new Error("pinned mksfo/pack-pbp not found; run `pocket target add psp`");
   }
   await $`${mksfo} ${title} ${paramPath}`;
   await $`${packPbp} ${destEboot} ${paramPath} ${iconPath} NULL NULL ${picPath} NULL ${dataPspPath} ${dataPsar.length > 0 ? dataPsarPath : "NULL"}`;

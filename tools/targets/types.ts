@@ -1,6 +1,7 @@
 // tools/targets/types.ts — the shape of a catalog entry.
 
 import type { PlatformContractRegistry } from "../../contracts/spec/platforms.ts";
+import type { ToolchainManifest } from "./toolchain.ts";
 
 /** A machine a target's toolchain installs on. Windows hosts are unsupported. */
 export type HostId = "darwin-arm64" | "darwin-x64" | "linux-x64" | "linux-arm64";
@@ -21,6 +22,10 @@ export interface TargetDescriptor {
   };
   /** Machines the target's toolchain installs on. */
   readonly hosts: readonly HostId[];
+  /** The pinned components `pocket target add` installs. Absent for a target
+   *  whose build script finds its own tools; empty for a target whose build is
+   *  the compiler alone. */
+  readonly toolchain?: ToolchainManifest;
 }
 
 /** The host this process runs on, or null for an unsupported machine. */

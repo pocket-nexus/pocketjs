@@ -17,6 +17,8 @@ import { IPHONE2G_DEV_CONTRACTS, IPHONE2G_DEV_TARGET_ID } from "../iphone2g-prof
 import { IPHONE4S_DEV_CONTRACTS, IPHONE4S_DEV_TARGET_ID } from "../iphone4s-profile.ts";
 import { IPODTOUCH_DEV_CONTRACTS, IPODTOUCH_DEV_TARGET_ID } from "../ipodtouch-profile.ts";
 import { IPODTOUCH4_DEV_CONTRACTS, IPODTOUCH4_DEV_TARGET_ID } from "../ipodtouch4-profile.ts";
+import pspToolchain from "./psp.toolchain.json";
+import { TOOLCHAIN_SCHEMA, type ToolchainManifest } from "./toolchain.ts";
 import { HOST_IDS, type HostId, type TargetDescriptor } from "./types.ts";
 
 const MACOS: readonly HostId[] = ["darwin-arm64", "darwin-x64"];
@@ -25,8 +27,24 @@ const LINUX: readonly HostId[] = ["linux-x64", "linux-arm64"];
 // Apple silicon runs the macOS ones under Rosetta.
 const ANDROID_NDK: readonly HostId[] = ["darwin-arm64", "darwin-x64", "linux-x64"];
 
-function registered(id: string, title: string, hosts: readonly HostId[] = HOST_IDS): TargetDescriptor {
-  return { id, title, contract: { kind: "registry", target: id, registry: () => POCKET_PLATFORM_CONTRACTS }, hosts };
+function registered(
+  id: string,
+  title: string,
+  hosts: readonly HostId[] = HOST_IDS,
+  toolchain?: ToolchainManifest,
+): TargetDescriptor {
+  return {
+    id,
+    title,
+    contract: { kind: "registry", target: id, registry: () => POCKET_PLATFORM_CONTRACTS },
+    hosts,
+    ...(toolchain ? { toolchain } : {}),
+  };
+}
+
+/** The manifest of a target whose `pocket build` runs the compiler and nothing else. */
+function compilerOnly(target: string): ToolchainManifest {
+  return { schema: TOOLCHAIN_SCHEMA, target, components: [] };
 }
 
 function profile(
@@ -40,14 +58,14 @@ function profile(
 }
 
 export const CATALOG: readonly TargetDescriptor[] = [
-  registered("psp", "PlayStation Portable"),
+  registered("psp", "PlayStation Portable", HOST_IDS, pspToolchain as ToolchainManifest),
   registered("vita", "PlayStation Vita"),
   profile("3ds", "Nintendo 3DS", THREE_DS_DEV_TARGET_ID, THREE_DS_DEV_CONTRACTS, HOST_IDS),
   registered("pocketbook", "PocketBook e-reader"),
-  registered("web-app", "Browser"),
-  registered("macos-app", "macOS app", MACOS),
-  registered("linux-app", "Linux app", LINUX),
-  registered("macos-widget", "macOS widget", MACOS),
+  registered("web-app", "Browser", HOST_IDS, compilerOnly("web-app")),
+  registered("macos-app", "macOS app", MACOS, compilerOnly("macos-app")),
+  registered("linux-app", "Linux app", LINUX, compilerOnly("linux-app")),
+  registered("macos-widget", "macOS widget", MACOS, compilerOnly("macos-widget")),
   profile("moto-g-play", "Moto G Play (Android)", MOTO_G_PLAY_TARGET, MOTO_G_PLAY_CONTRACTS, ANDROID_NDK),
   profile("redmi-1s", "Redmi 1S (Android)", REDMI_1S_TARGET, REDMI_1S_CONTRACTS, ANDROID_NDK),
   profile("blackberry-classic", "BlackBerry Classic (QNX)", BLACKBERRY_QNX_DEV_TARGET_ID, BLACKBERRY_CLASSIC_DEV_CONTRACTS, HOST_IDS),

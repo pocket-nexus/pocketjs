@@ -1,0 +1,74 @@
+name: PSP build
+
+# Installs the PSP toolchain the framework pins with `pocket target add psp`
+# into an empty cache, checks that a second add downloads nothing, and builds
+# the hero EBOOT through `pocket +psp build`. The target C compiler and archiver
+# are `false`: a PSP build compiles no C, QuickJS arrives as a prebuilt archive.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/psp-build.yml"
+      - "tools/targets/**"
+      - "tools/psp.ts"
+      - "tools/psp-toolchain.ts"
+      - "tools/pocket.ts"
+      - "tools/cli/**"
+      - "hosts/psp/**"
+      - "devices/psp/**"
+      - "engine/core/**"
+      - "package.json"
+      - "bun.lock"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/psp-build.yml"
+      - "tools/targets/**"
+      - "tools/psp.ts"
+      - "tools/psp-toolchain.ts"
+      - "tools/pocket.ts"
+      - "tools/cli/**"
+      - "hosts/psp/**"
+      - "devices/psp/**"
+      - "engine/core/**"
+      - "package.json"
+      - "bun.lock"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: psp-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eboot:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Empty cache
+        run: echo "POCKET_NEXUS_CACHE_DIR=$RUNNER_TEMP/pocket-nexus" >> "$GITHUB_ENV"
+      - name: pocket target add psp
+        run: bun tools/cli/bin.mjs target add psp
+      - name: A second add downloads nothing
+        run: |
+          bun tools/cli/bin.mjs target add psp | tee second-add.log
+          ! grep -q downloading second-add.log
+      - name: pocket +psp build
+        env:
+          TARGET_CC: /usr/bin/false
+          TARGET_AR: /usr/bin/false
+          CC_mipsel_sony_psp: /usr/bin/false
+          AR_mipsel_sony_psp: /usr/bin/false
+        run: bun tools/cli/bin.mjs +psp build --manifest apps/hero/pocket.json --project-root . -- --release
+      - run: test -s hosts/psp/target/mipsel-sony-psp/release/EBOOT.PBP

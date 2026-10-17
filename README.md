@@ -353,11 +353,11 @@ bun run dev                    # build WASM + the Hero app, then serve the brows
 
 The `pocket` CLI runs on Bun. The
 [CLI reference](https://pocketjs.pocket.nexus/docs/cli/) lists its commands,
-scaffolding options and toolchain checks:
+scaffolding options and target toolchains:
 
 ```sh
 bun add -g @pocketjs/cli       # or: npm install -g @pocketjs/cli
-pocket doctor                  # report missing host and target tooling
+pocket target add psp          # install the PSP toolchain the framework pins
 pocket create my-app
 pocket check --target psp --manifest apps/my-app/pocket.json
 pocket build --target psp --manifest apps/my-app/pocket.json -- --release

@@ -1,7 +1,7 @@
 # @pocketjs/cli
 
-The [PocketJS](https://pocketjs.dev) toolchain CLI — `doctor`/`setup` for the
-Bun + Rust + PSP toolchain (flutter-doctor style), manifest-first app
+The [PocketJS](https://pocketjs.dev) toolchain CLI — target selection and
+installs of the target toolchains the framework pins, manifest-first app
 scaffolding for consoles and ESP-IDF products, build passthrough for PSP and
 PS Vita, an isolated Nokia E7 / Symbian development toolchain, and an Apple
 iOS flow that stages guests into a NativeScript shell and launches them on the
@@ -16,10 +16,10 @@ command and option.
 
 ```sh
 bun add -g @pocketjs/cli      # or: npm install -g @pocketjs/cli
-bunx @pocketjs/cli doctor     # one-off, no global install
+bunx @pocketjs/cli show       # one-off, no global install
 
-pocket doctor            # Bun, pinned Rust + PSP toolchain, resolved framework
-pocket setup             # run PocketJS's pinned, idempotent bootstrap (checkout only)
+pocket show              # framework, project, selected target, install states
+pocket target add psp    # install the PSP toolchain the framework pins
 pocket create my-app     # scaffold an app (see below)
 pocket check --target psp --manifest my-app/pocket.json
 pocket compile --target psp --manifest my-app/pocket.json
@@ -100,14 +100,14 @@ directory.
 
 ## Resolution
 
-Host-development commands (`setup`, `dev`, `psp`, `vita`, `hw`, `psplink`,
-`devtools`, `tape`, `play`, `symbian`, `ios`) run inside a PocketJS checkout;
-the CLI finds it by walking up from the current directory:
+Host-development commands (`dev`, `psp`, `vita`, `hw`, `psplink`, `devtools`,
+`tape`, `play`, `symbian`, `ios`) run inside a PocketJS checkout; the CLI finds
+it by walking up from the current directory:
 
 ```sh
 git clone https://github.com/pocket-nexus/pocketjs
 cd pocketjs && bun install
-pocket doctor
+pocket show
 ```
 
 `check`, `compile`, and `build` delegate to PocketJS's canonical manifest
@@ -119,8 +119,8 @@ compiler from the nearest project `node_modules`. `POCKETJS_FRAMEWORK_ROOT` is
 an explicit development override. `pocket --version` prints the CLI version
 and the framework it resolved.
 
-`pocket setup` installs the exact toolchain described by the CLI's bundled
-`psp-toolchain.json` into the shared pocket-nexus cache. PSPLINK is diagnosed
-as an optional real-hardware hot-reload tool; it is not required to build a PSP
-EBOOT. See the [repository](https://github.com/pocket-nexus/pocketjs) and
-[pocketjs.dev](https://pocketjs.dev) for the framework docs.
+`pocket target add <id>` installs the toolchain the resolved framework pins in
+`tools/targets/<id>.toolchain.json` into the shared pocket-nexus cache; the CLI
+carries no pins. A PSP build runs no C compiler: QuickJS arrives as a pinned
+prebuilt archive. See the [repository](https://github.com/pocket-nexus/pocketjs)
+and [pocketjs.dev](https://pocketjs.dev) for the framework docs.

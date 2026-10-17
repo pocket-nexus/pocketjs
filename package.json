@@ -290,7 +290,6 @@
   },
   "description": "A portable application runtime that turns modern component code into native pixels across radically different hardware: Solid, Vue Vapor and Octane over a native Rust core, with build-time Tailwind styling and 60 FPS animation under an 8 MB memory budget.",
   "scripts": {
-    "bootstrap": "bun tools/bootstrap.ts",
     "pocket": "bun tools/pocket.ts",
     "build": "bun tools/build.ts",
     "play": "bun tools/play.ts",

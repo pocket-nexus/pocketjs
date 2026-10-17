@@ -27,7 +27,7 @@ the targets that compile the core natively — you don't need them to write UI.
 | ------------------------------------- | --------------------------------------------------------------- |
 | Write components, build bundles       | [Bun](https://bun.sh) (drives the build, tests, and dev host)   |
 | Run the local **browser** dev host    | Bun + Rust with the wasm target (`rustup target add wasm32-unknown-unknown`) |
-| Ship a **PSP EBOOT** | `bun run bootstrap` (pinned Rust, [`cargo-psp`](https://github.com/pocket-nexus/rust-psp), LLVM, and verified SDK) |
+| Ship a **PSP EBOOT** | rustup, then `bun run pocket target add psp` (pinned Rust, [`cargo-psp`](https://github.com/pocket-nexus/rust-psp), the verified SDK and a prebuilt QuickJS) |
 | Ship a **PS Vita VPK** | [VitaSDK](https://vitasdk.org/), `cargo-vita` 0.2.2, and Rust nightly `2026-05-28` with `rust-src` |
 | Embed PocketJS in **ESP-IDF** | ESP-IDF 6.0 or 6.1; Registry releases include the P4/S3 native core archives |
 | Hot-reload on **real PSP hardware** | The build toolchain above + optional [PSPLINK](https://github.com/pspdev/psplinkusb) host tools |
@@ -43,7 +43,7 @@ Existing P4 and S3 firmware projects use the independent workflow in the
 git clone https://github.com/pocket-nexus/pocketjs
 cd pocketjs
 bun install
-bun run bootstrap   # one-time PSP setup; omit for browser-only development
+bun run pocket target add psp   # one-time PSP setup; omit for browser-only development
 ```
 
 That pulls `solid-js`, the Vue Vapor and Octane dependencies, and the
@@ -59,8 +59,8 @@ This guide uses the `pocket` command from `@pocketjs/cli`, which runs on Bun:
 bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
 ```
 
-The [CLI reference](/docs/cli/) lists every command, the checks of
-`pocket doctor`, and the toolchain cache and SDK variables.
+The [CLI reference](/docs/cli/) lists every command, the target toolchains
+`pocket target add` installs, and the cache they live in.
 
 Create an app and validate it against both stock profiles:
 

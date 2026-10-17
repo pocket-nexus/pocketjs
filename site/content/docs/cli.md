@@ -8,18 +8,17 @@ exits with status 1.
 
 ```sh
 bun add -g @pocketjs/cli    # or: npm install -g @pocketjs/cli
-bunx @pocketjs/cli doctor   # one invocation without a global install
+bunx @pocketjs/cli show     # one invocation without a global install
 ```
 
 ## Commands
 
 | Command | Runs | Where |
 | --- | --- | --- |
-| `pocket doctor` | toolchain report, in the CLI | any directory |
-| `pocket setup [--yes]` | `tools/bootstrap.ts` | checkout |
 | `pocket create <name> [options]` | scaffold, in the CLI | any directory |
 | `pocket [+<id>] check`, `compile`, `build` | [target selection](#target-selection), then `tools/pocket.ts` | checkout or project |
-| `pocket [+<id>] show [--json]` | the framework, project, selection and catalog | any directory |
+| `pocket [+<id>] show [--json]` | the framework, project, selection, and the install state of every target | any directory |
+| `pocket target add`, `list`, `remove` | [target toolchains](#target-toolchains), in `tools/pocket.ts` | checkout or project |
 | `pocket default`, `pocket override` | the user default and directory overrides | any directory |
 | `pocket dev`, `psp`, `vita`, `hw`, `psplink`, `devtools`, `tape`, `play`, `symbian`, `ios` | `tools/<command>.ts` | checkout |
 | `pocket --version` | CLI version and resolved framework version | any directory |
@@ -31,7 +30,7 @@ bunx @pocketjs/cli doctor   # one invocation without a global install
 **A framework is a directory whose `package.json` carries
 `"pocketjs": { "protocol": <n> }`.** The package name is not read, so a fork
 published under another name is recognized. `check`, `compile`, `build`,
-`show`, `doctor` and `--version` take:
+`show`, `target` and `--version` take:
 
 1. `POCKETJS_FRAMEWORK_ROOT`, when set. A directory without the marker fails
    the command.
@@ -59,8 +58,8 @@ dependency from the lockfile, a `file:` or `link:` dependency, or
 **Manifest commands run in the current directory.** `--manifest`,
 `--host-profile`, `--project-root` and `--compiler-receipt` resolve against it;
 `--outdir`, `--plan-dir`, `--output` and `--depfile` resolve against the
-project root. `setup` and the host-development commands use step 2 alone and
-run with the checkout root as their working directory.
+project root. The host-development commands use step 2 alone and run with the
+checkout root as their working directory.
 
 ## Target selection
 
@@ -118,7 +117,7 @@ project without `node_modules`.
 
 | Command | Effect |
 | --- | --- |
-| `pocket show [--json] [--manifest <file>]` | the framework with its source, the project configuration and its targets, the selected target with its source, the host, and the catalog with the targets this host cannot install marked; exits 0 |
+| `pocket show [--json] [--manifest <file>]` | the framework with its source, the project configuration and its targets, the selected target with its source, the host, and every catalog target with its [install state](#install-states); exits 0 |
 | `pocket default` | prints the user default |
 | `pocket default <id>`, `pocket default --unset` | sets or removes it |
 | `pocket override set <id> [--path <dir>]` | selects `<id>` for `<dir>` (default the current directory) and every directory below it |
@@ -128,51 +127,90 @@ project without `node_modules`.
 current project. Both live in `<config>/pocket-nexus/settings.json`, where
 `<config>` is `XDG_CONFIG_HOME` or `~/.config`; the file is written by rename.
 
-## doctor
+## Target toolchains
 
-`doctor` prints three groups and **exits with status 1 when a Core or PSP item
-fails**. Optional items print a warning.
+**The framework pins each target's native toolchain** in
+`tools/targets/<id>.toolchain.json`; the CLI holds no pins. `pocket target add`
+installs the pinned components into the cache, and `pocket build` reads every
+tool path from the install record of the toolchain the framework pins.
 
-| Group | Item | Passes when |
-| --- | --- | --- |
-| Core | Bun | always; prints the running version and executable |
-| Core | `rustup` | on `PATH` |
-| Core | Rust stable + `wasm32-unknown-unknown` | the stable toolchain has the target (browser host) |
-| Core | `@pocketjs/framework` | [resolution](#framework-resolution) finds a framework; prints its version, source and directory |
-| PSP | Rust `nightly-2026-05-28` + `rust-src` | toolchain and component installed |
-| PSP | cargo-psp tools | the tools of the pinned rust-psp revision exist in the cache with an install receipt for the host triple |
-| PSP | LLVM | `clang` and `llvm-ar` exist in `POCKETJS_LLVM_BIN`, in Homebrew's `llvm/bin`, or in one `PATH` directory |
-| PSP | PSP SDK | the SDK marker exists; a cached SDK needs a receipt matching the pinned tag, asset, URL and SHA-256 |
-| Optional | PSPLINK host tools | `usbhostfs_pc` and `pspsh` on `PATH`; used by `pocket hw` and `pocket psplink` |
-| Optional | PPSSPPHeadless | `~/ppsspp-src/build/PPSSPPHeadless` exists or `PPSSPP_HEADLESS` is set |
-| Optional | ImageMagick | `magick` on `PATH` |
-
-**The LLVM check does not read the LLVM version.** `doctor` does not check
-VitaSDK, cargo-vita or ESP-IDF; `pocket symbian doctor` and `pocket ios doctor`
-check the Symbian and iOS toolchains.
-
-## setup
-
-`setup` runs inside a checkout. After a confirmation prompt, which `--yes` or
-`-y` skips, it runs `tools/bootstrap.ts` from the checkout root and prints the
-`doctor` report. The bootstrap is idempotent and records each step as ok,
-skip or fail:
-
-| Step | Action |
+| Command | Effect |
 | --- | --- |
-| dependencies | `bun install --frozen-lockfile` |
-| LLVM | resolves `clang` and `llvm-ar`; on macOS with Homebrew and no LLVM, `brew install llvm` |
-| Rust | installs the stable toolchain with `wasm32-unknown-unknown`, and `nightly-2026-05-28` with `rust-src` |
-| cargo-psp tools | installs the rust-psp revision pinned in `tools/cli/psp-toolchain.json` |
-| PSP SDK | downloads the pinned SDK release and verifies its SHA-256; an SDK in `PSP_SDK` or `PSPDEV` skips the step |
+| `pocket target add [<id> …]` | installs each target's components; with no id, the targets of the project configuration. A second run downloads nothing |
+| `pocket target list [--json]` | every catalog target and every host profile of the project, with its install state |
+| `pocket target list --check` | exits 1 unless every target of the project configuration is ready to build |
+| `pocket target remove <id> …` | deletes the target's install records and the store entries no other record names, after running builds of the target finish |
 
-**The toolchain lives in `${XDG_CACHE_HOME:-~/.cache}/pocket-nexus`**;
-`POCKET_NEXUS_CACHE_DIR` replaces that root. The bootstrap writes
-`<cache>/psp/env.sh`, which exports `PSP_SDK`, `PSPDEV` and a `PATH` with the
-cargo-psp and LLVM directories. For a custom SDK, set `PSP_SDK` or `PSPDEV`;
-`PSP_SDK` takes precedence. A PSP build validates an explicit SDK path and
-exports both names to it, so a wrong path fails instead of selecting a cached
-SDK. The bootstrap reads no sibling source checkout.
+In a checkout, `bun run pocket target add psp` runs the same command without
+the CLI.
+
+### Install states
+
+| State | Meaning |
+| --- | --- |
+| `installed` | the record for the toolchain digest the framework pins exists, and every component it names is present |
+| `not installed` | no record on this host |
+| `outdated` | a record for another toolchain digest, written by another framework version |
+| `broken` | the record names a component that is gone: a deleted store entry, or a rustup toolchain, component or target that was uninstalled |
+| `unsupported` | the toolchain does not install on this host |
+| `nothing to install` | `pocket build` runs the compiler alone: `web-app`, `macos-app`, `linux-app`, `macos-widget` |
+| `no manifest` | the framework carries no toolchain manifest for the target; its build script finds its own tools |
+| `host profile` | an ESP-IDF host profile of the project; the compiler builds it |
+
+**`pocket build` for a target that is not ready stops before type checking**,
+naming the command that installs it:
+
+```text
+pocket: target psp is not installed for @pocketjs/framework 0.14.0 (toolchain 3f9a12c0)
+        run: pocket target add psp
+```
+
+A build holds the target's install record shared until its backend finishes;
+`target add` and `target remove` hold it exclusive.
+
+### Components
+
+| Kind | Pin | Install | Verification |
+| --- | --- | --- | --- |
+| `rustup` | a version or a dated channel, never `stable`; components; targets | `rustup toolchain install --profile minimal`, `component add`, `target add` | the toolchain, its components and its targets in rustup's lists |
+| `archive` | URL and SHA-256, one source or one per host; `zip`, `tar.gz` or `tar.xz`; the directory that becomes the tree; marker files | download, then `unzip` or `tar` | SHA-256 before extraction; entries and symbolic links that leave the directory are rejected; the markers after |
+| `file` | URL and SHA-256, one source or one per host; the file name | download | SHA-256 |
+| `cargo-install` | git repository and full revision, package, binaries, a rustup toolchain of the same manifest | `cargo install --locked --root` | the binaries exist |
+
+**rustup is a requirement, not a component.** `pocket target add` finds rustup
+on `PATH` or in `$CARGO_HOME/bin` and never uninstalls a rustup toolchain,
+which other projects share. Backends run Rust with `RUSTUP_AUTO_INSTALL=0`, so
+a `rust-toolchain.toml` cannot install a toolchain the record does not name.
+
+### PSP
+
+| Component | Pin |
+| --- | --- |
+| `rust` | `nightly-2026-05-28` with `rust-src` |
+| `cargo-psp` | `cargo-psp`, `prxgen`, `prxmin`, `pack-pbp` and `mksfo` from pocket-nexus/rust-psp at the revision `hosts/psp` links |
+| `sdk` | the pocket-nexus/pspdev release `sdk-noabicalls-normalized-2026-06-19`: headers and the libraries the EBOOT links |
+| `quickjs` | `libquickjs-mipsel-sony-psp.a`, which pocket-nexus/quickjs-rs publishes as `prebuilt-psp-<commit>` for the revision `hosts/psp` links |
+
+**A PSP build runs no C compiler.** QuickJS is the PSP host's one C dependency,
+and `libquickjs-sys` links the archive `QUICKJS_PREBUILT_LIB` names. The PSP
+toolchain installs on macOS and Linux, arm64 and x64.
+
+### Cache
+
+```text
+<cache>/store/<component digest>/receipt.json   a published component
+<cache>/store/<component digest>/tree/          its files
+<cache>/targets/<id>/<toolchain digest>.json     an install record
+<cache>/locks/  <cache>/tmp/
+```
+
+`<cache>` is `POCKET_NEXUS_CACHE_DIR`, or `pocket-nexus` under `XDG_CACHE_HOME`
+or `~/.cache`. **A component digest is the SHA-256 of the component's pin**, so
+two targets or two framework versions with equal pins share one store entry. A
+toolchain digest covers a target's components for one host; a pin change gives
+a new digest and a new record, and the previous record stays until
+`pocket target remove`. Every install stages under `tmp/` and publishes by
+rename, so an interrupted install leaves no store entry and no record.
 
 ## create
 
@@ -273,7 +311,7 @@ An unrecognized option before `--` is an error.
 
 | Target | `build` result |
 | --- | --- |
-| `psp` | `tools/psp.ts` links the EBOOT with the pinned PSP toolchain: `<framework>/hosts/psp/target/mipsel-sony-psp/<profile>/EBOOT.PBP`, where `<profile>` is `release` with `-- --release` and `debug` otherwise |
+| `psp` | `tools/psp.ts` links the EBOOT with the [installed PSP toolchain](#psp): `<framework>/hosts/psp/target/mipsel-sony-psp/<profile>/EBOOT.PBP`, where `<profile>` is `release` with `-- --release` and `debug` otherwise |
 | `vita` | `tools/vita.ts` builds with `cargo vita` and writes `<outdir>/vita/<output>.vpk`, `.self` and `.runtime.json`; requires VitaSDK in `VITASDK` or `~/vitasdk` |
 | `pocketbook`, `web-app`, `macos-app`, `linux-app`, `macos-widget` | the `compile` output; `build` prints the bundle path and the host that loads it |
 | device targets (`3ds`, `moto-g-play`, `nokia-e7`, …) | `check` and `compile`; `build` stops with the path `compile` wrote, because these targets build through their own scripts |
@@ -308,7 +346,7 @@ belongs to.
 | `iphone2g`, `iphone4s`, `ipodtouch6`, `ipodtouch4` | `iphone2g-dev`, `iphone4s-dev`, `ipodtouch-dev`, `ipodtouch4-dev` | macOS |
 
 `bun tools/pocket.ts catalog --json` prints the catalog with each target's
-contract and hosts.
+contract and hosts; `pocket target list` adds the install state.
 
 ## Host-development commands
 
@@ -333,13 +371,11 @@ directory, and pass their arguments to the script unchanged.
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
-| `POCKETJS_FRAMEWORK_ROOT` | manifest commands, `show`, `doctor`, `--version` | the framework directory; step 1 of [resolution](#framework-resolution) |
+| `POCKETJS_FRAMEWORK_ROOT` | manifest commands, `show`, `target`, `--version` | the framework directory; step 1 of [resolution](#framework-resolution) |
 | `POCKET_TARGET` | manifest commands, `show` | the target; step 2 of [selection](#target-selection) |
 | `XDG_CONFIG_HOME` | `show`, `default`, `override`, manifest commands | parent of `pocket-nexus/settings.json`; `~/.config` when unset |
-| `POCKET_NEXUS_CACHE_DIR` | `doctor`, `setup`, PSP builds | the toolchain cache root |
-| `XDG_CACHE_HOME` | `doctor`, `setup`, PSP builds | parent of `pocket-nexus/` when `POCKET_NEXUS_CACHE_DIR` is unset |
-| `PSP_SDK`, `PSPDEV` | `doctor`, PSP builds | an explicit PSP SDK; `PSP_SDK` takes precedence |
-| `POCKETJS_LLVM_BIN` | `doctor`, `setup`, PSP builds | a directory containing `clang` and `llvm-ar` |
-| `PPSSPP_HEADLESS` | `doctor` | the PPSSPPHeadless executable |
+| `POCKET_NEXUS_CACHE_DIR` | `target`, `show`, `build` | the [cache](#cache) root |
+| `XDG_CACHE_HOME` | `target`, `show`, `build` | parent of `pocket-nexus/` when `POCKET_NEXUS_CACHE_DIR` is unset |
+| `CARGO_HOME` | `target`, `show`, `build` | `bin/rustup` there when rustup is not on `PATH`; `~/.cargo` when unset |
 | `VITASDK` | Vita builds | the VitaSDK root; `~/vitasdk` when unset |
 | `PORT` | `pocket dev`, `pocket devtools` | the dev server port; `8130` when unset |
