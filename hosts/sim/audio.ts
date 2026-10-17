@@ -2,8 +2,10 @@
 // the audio module (contracts/spec/audio.ts) for the headless sim host.
 //
 // Where the browser host's worklet consumes on the device clock, this sink
-// consumes EXACTLY audioFramesForTick(rate, n) source frames on each core
-// tick a stream spends playing — the formula pinned in the spec. Everything
+// consumes EXACTLY audioFramesForTick(rate, n, ticksPerSecond) source frames
+// on each core tick a stream spends playing — the formula pinned in the
+// spec, at the realm's declared rate (default 60; a runner driving a non-60
+// realm must construct the sink at that rate). Everything
 // downstream is therefore a pure function of (tick index, op stream): the
 // consumed PCM byte-stream, the credit/underrun/ended event log, all of it
 // byte-reproducible. tests/audio-sim.test.ts runs the music demo through two
@@ -49,7 +51,7 @@ export interface SimAudioSink {
   log: string[];
 }
 
-export function createSimAudioSink(): SimAudioSink {
+export function createSimAudioSink(ticksPerSecond = 60): SimAudioSink {
   const streams = new Map<number, SimStream>();
   const events: string[] = [];
   const log: string[] = [];
@@ -149,7 +151,7 @@ export function createSimAudioSink(): SimAudioSink {
       // and event order are stable by construction.
       for (const [handle, s] of streams) {
         if (s.playing) {
-          const want = audioFramesForTick(s.rate, s.playedTicks);
+          const want = audioFramesForTick(s.rate, s.playedTicks, ticksPerSecond);
           s.playedTicks++;
           const avail = s.writePos - s.readPos;
           const take = Math.min(want, avail);
