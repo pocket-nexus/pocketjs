@@ -5,6 +5,10 @@ edition = "2024"
 license = "MIT"
 description = "PocketJS portable Rust renderer and worker-owned desktop runtime"
 
+[features]
+default = ["audio-output"]
+audio-output = ["dep:cpal"]
+
 [dependencies]
 pocketjs-core = { path = "../../engine/core" }
 pocket-mod = { path = "../../engine/crates/pocket-mod" }
@@ -20,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 log = "0.4"
 env_logger = "0.11"
+cpal = { version = "0.18.2", optional = true, default-features = false }
 
 [profile.release]
 debug = false

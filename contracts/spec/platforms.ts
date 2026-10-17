@@ -364,6 +364,7 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
     },
     capabilities: [
       "input.buttons",
+      "audio.pcm",
       "display.viewport.live",
       "text.glyphs.baked",
       "io.offload",
@@ -387,6 +388,7 @@ export const POCKET_TARGETS = defineTargetRegistry<PocketCapabilityId, {
     },
     capabilities: [
       "input.buttons",
+      "audio.pcm",
       "display.viewport.live",
       "text.glyphs.baked",
       "io.offload",

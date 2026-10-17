@@ -69,14 +69,33 @@ purpose — a bundle that plays anywhere plays everywhere.
 |---|---|---|
 | web (`hosts/web/audio.js` + `audio-worklet.js`) | AudioWorklet ring on the render thread, main-thread credit mirror, gesture-deferred `AudioContext` | audible, ships with the dev host |
 | sim (`hosts/sim/audio.ts`) | virtual-clock sink, `audioFramesForTick` consumption, PCM FNV-1a + op/event log | deterministic tests (`tests/audio.test.ts`, `tests/audio-sim.test.ts`) |
-| psp / vita | not mounted yet — `engine/core/src/spec.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy already exists in `hosts/psp/src/audio.rs` + `hosts/vita/src/audio.rs` (built for the video plane) | seam documented, capability not advertised |
+| desktop (`hosts/desktop/src/audio.rs`) | default `audio-output` feature: one CPAL output callback, per-realm four-stream rings, integer resampling into a 44.1 kHz mix | audible through a 44.1 kHz Linux or macOS device; `--no-default-features` omits device output and uses the clocked null sink |
+| psp (`hosts/psp/src/audio_mod.rs`) | four-stream atomic ring mixer on one 44.1 kHz hardware channel | audible, capability advertised |
+| vita | `hosts/vita/src/audio.rs` provides the video plane audio path; the PCM module is not mounted | capability not advertised |
 | macos-widget / pocketbook | not mounted | capability not advertised |
 
-Consoles adopt the module by implementing the namespace in their FFI table
-(`hosts/psp/src/ffi.rs` registration pattern), reusing their existing audio
-threads, then appending `audio.pcm` to their target profile in
-`contracts/spec/platforms.ts`. No spec change, no framework change, no app
-change.
+The desktop host preallocates one audio client for the shell and each package
+in the System catalog. **All desktop clients share one device callback, while
+stream handles, credit and event queues remain scoped to one guest realm.** Set
+`POCKETJS_AUDIO=null` to select the clocked null sink for headless validation.
+The host parks this sink while the device callback is healthy and wakes it if
+CPAL reports a device failure, so the module clock and event flow continue.
+If the sink worker cannot be created, the 60 Hz host loop advances one
+process-wide mixer by 735 frames before the guest turns. This fallback covers
+all realms and preserves credit and ended events after device loss.
+
+The desktop crate enables its `audio-output` Cargo feature by default. This
+feature links CPAL; Linux builds require the ALSA development package at build
+time and `libasound.so.2` at runtime. Build the desktop crate with
+`--no-default-features` to omit CPAL and the ALSA link. The resulting host keeps
+`globalThis.audio` mounted and runs its rings on the clocked null sink, but it
+produces no audible output.
+
+Other consoles adopt the module by implementing the namespace in their FFI
+table (`hosts/psp/src/ffi.rs` registration pattern), reusing their existing
+audio threads, then appending `audio.pcm` to their target profile in
+`contracts/spec/platforms.ts`. No spec change, framework change or app change
+is required.
 
 ## Assets
 
@@ -105,6 +124,6 @@ break exactly this; don't.
 
 ## Deferred (triggers in the ontology doc)
 
-Host-level mixing across runtimes, codec registration, raw-PCM pak entries,
-and any runtime capability negotiation are all deferred until their trigger
+Cross-runtime priority and ducking, codec registration, raw-PCM pak entries,
+and runtime capability negotiation are deferred until their trigger
 conditions exist. The spec grows append-only when they do.

@@ -27,6 +27,7 @@ use winit::{
     keyboard::{Key, ModifiersState, NamedKey},
     window::{CursorIcon, Window, WindowId},
 };
+mod audio;
 mod gpu;
 mod net;
 include!("plan.rs");
@@ -82,6 +83,9 @@ struct Runtime {
     guest: Guest,
     supervisor: AppSupervisor,
     offload: OffloadWorker,
+    audio: audio::AudioSurface,
+    /// Owns the one device callback shared by the shell and child realms.
+    _audio_host: audio::AudioHost,
     viewport: (u32, u32),
     ticks: u64,
     buttons: u32,
@@ -109,11 +113,19 @@ impl Runtime {
         surface.set_tick_rate(60);
         surface.set_svc_allowlist(args.companions.clone());
         surface.feed_pak(&pak);
-        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface)?;
+        let audio_host = audio::AudioHost::new(
+            1 + args
+                .system
+                .as_ref()
+                .map_or(0, |system| system.applications.len()),
+        );
+        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface, &audio_host)?;
         let guest = Guest::new()?;
         surface.mount(&guest)?;
         let offload = text_worker(pak);
         offload.mount(&guest)?;
+        let audio = audio::AudioSurface::new(audio_host.client(0));
+        audio.mount(&guest)?;
         guest.eval(&args.app, &source)?;
         if !guest.has_frame() {
             return Err(anyhow!("bundle installed no frame handler"));
@@ -139,6 +151,8 @@ impl Runtime {
             guest,
             supervisor,
             offload,
+            audio,
+            _audio_host: audio_host,
             ticks: 0,
             buttons: 0,
             script_buttons: 0,
@@ -213,6 +227,8 @@ impl Runtime {
                 self.svc(json!({"t":"ch","s":"x".repeat(n.min(512) as usize)}));
             }
         }
+        self._audio_host.begin_tick();
+        self.audio.begin_tick();
         self.offload.begin_frame();
         let buttons = if self.args.editor {
             if self.mouse_down || self.script_mouse || self.click_edge {
