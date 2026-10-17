@@ -188,10 +188,14 @@ so the transform **throws with a code frame** rather than miscompiling:
 
 ### The transform cache
 
-Each transform result is cached in `.cache/transforms/`, keyed by a SHA‑256 of
-the file contents **plus** the toolchain identity — the selected framework, the
-versions of the JSX/compiler packages, the renderer path, and an internal cache
-version. Bumping any dependency invalidates
+Each transform result is cached in `transforms/` under the PocketJS cache root
+(`POCKET_NEXUS_CACHE_DIR`, else `$XDG_CACHE_HOME/pocket-nexus`, else
+`~/.cache/pocket-nexus`), keyed by a SHA‑256 of the file path and contents
+**plus** the toolchain identity — the selected framework, the versions of the
+JSX/compiler packages and of the Solid runtime, the renderer path, the compiler
+sources, and an internal cache version. Checkouts, forks and installed
+frameworks share the cache; a build writes nothing into the framework
+directory. Bumping any dependency invalidates
 the cache automatically. Because pass 2 loads through the *same* `transformFile`,
 the expensive Babel work runs once per file per build and pass 2 gets it for
 free.
@@ -224,8 +228,10 @@ compiler emits:
   an `animate-<name>` class are baked into it too, as frame-precise
   per-property segment timelines (the ANIM TABLE) — see
   [Animation → baked keyframe timelines](/docs/animation/#baked-keyframe-timelines).
-- **`framework/src/styles.generated.ts`** — a TypeScript module the renderer imports,
-  mapping each source class literal to its styleId, plus the font‑slot metadata
+- **The style module** — the framework imports `framework/src/styles.generated.ts`;
+  in a build, the JSX plugin serves this build's module for that path from
+  memory, and `tools/build.ts` writes a copy to `<outdir>/<output>.styles.ts`.
+  It maps each source class literal to its styleId, plus the font‑slot metadata
   and record count:
 
 ```ts
@@ -250,7 +256,7 @@ both `w-N` and `h-N` (the radius must be build‑time bakeable), and any `hover:
 variant (the PSP has no pointer — use `focus:`/`active:`).
 
 ```
-  tailwind: 48 style record(s), 0 baked timeline(s), 48 literal(s) -> framework/src/styles.generated.ts
+  tailwind: 48 style record(s), 0 baked timeline(s), 48 literal(s) -> dist/hero.styles.ts
 ```
 
 ## Bake fonts
@@ -403,10 +409,12 @@ Bun.build({
 
 The plugin's `onLoad` hook intercepts every project `.ts`/`.tsx` file and serves
 the **cached pass‑1 transform** (`node_modules` and `.d.ts` fall through to
-Bun). It also serves this build's generated style module directly from memory;
-the ignored `framework/src/styles.generated.ts` file is only a human-readable
-mirror. Parallel target builds therefore cannot consume one another's transient
-style table. The bundle is built from *exactly* the code the class/charset scan
+Bun). It also serves this build's generated style module from memory for the
+framework's `styles.generated.ts` import. The committed file at that path holds
+the empty table that code importing framework sources without a build receives;
+`<outdir>/<output>.styles.ts` is a copy for inspection. Parallel target builds
+therefore cannot consume one another's style table, and no build writes into
+the framework directory. The bundle is built from *exactly* the code the class/charset scan
 saw — the two passes agree on the module graph by construction, so a style can
 never be shipped that the bundle doesn't use, or vice versa.
 

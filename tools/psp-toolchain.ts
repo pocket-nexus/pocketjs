@@ -11,6 +11,7 @@ import {
 import { homedir, hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import manifestJson from "tools/cli/psp-toolchain.json";
+import { pocketNexusCacheRoot } from "./targets/cache.ts";
 
 export interface PspToolchainManifest {
   readonly schemaVersion: 1;
@@ -203,13 +204,7 @@ export function publishStagedDirectory(staging: string, destination: string): vo
   if (hadPrevious) rmSync(previous, { recursive: true, force: true });
 }
 
-export function pocketNexusCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.POCKET_NEXUS_CACHE_DIR?.trim()) return resolve(env.POCKET_NEXUS_CACHE_DIR.trim());
-  const cacheHome = env.XDG_CACHE_HOME?.trim()
-    ? resolve(env.XDG_CACHE_HOME.trim())
-    : join(env.HOME || homedir(), ".cache");
-  return join(cacheHome, "pocket-nexus");
-}
+export { pocketNexusCacheRoot };
 
 export function cachedPspSdk(env: NodeJS.ProcessEnv = process.env): string {
   return join(pocketNexusCacheRoot(env), PSP_TOOLCHAIN.sdk.cachePath);
