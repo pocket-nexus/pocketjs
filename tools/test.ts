@@ -27,6 +27,14 @@ interface Stage {
 
 const SUITE: readonly Stage[] = [
   {
+    // On a clean checkout the generated styles module does not exist yet;
+    // this stage runs before any prep build emits it and pins the contract
+    // that pass 2 serves it from memory. It is a single-test stage so the
+    // test's temporary rename of the mirror cannot race a parallel import.
+    name: "generated styles virtual",
+    tests: ["tests/styles-generated-virtual.test.ts"],
+  },
+  {
     name: "compiler smoke",
     prep: [["bun", "tools/build.ts", "hero"]],
   },
