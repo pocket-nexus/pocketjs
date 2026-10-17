@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { checkAppTypes } from "../framework/compiler/app-check.ts";
 import { depfile } from "../framework/compiler/build-inputs.ts";
+import { runtimeVersionMismatch } from "../framework/compiler/runtime-packages.ts";
 import type { PocketTargetId } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { canonicalJson, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
@@ -113,6 +114,19 @@ if (!resolution.ok) {
 const plan = resolution.plan;
 const entry = resolve(projectRoot, plan.app.entry);
 if (!existsSync(entry)) usage(`app entry not found: ${entry}`);
+
+// The application type-checks against the runtime its own resolution finds;
+// the bundle carries the compiler's copy. Check against the one that runs.
+const runtimeMismatch = runtimeVersionMismatch(plan.app.framework, projectRoot);
+if (runtimeMismatch) {
+  const { name, application, bundled } = runtimeMismatch;
+  console.error(
+    `PocketJS: the application resolves ${name} ${application.version} (${application.directory}) and the ` +
+      `compiler bundles ${name} ${bundled.version} (${bundled.directory}); declare "${name}": "${bundled.version}" ` +
+      `in the application's package.json`,
+  );
+  process.exit(1);
+}
 
 const typeResult = checkAppTypes({
   entry,
