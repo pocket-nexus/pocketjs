@@ -205,8 +205,9 @@ PocketJS/
    plugin collects per-file: (a) candidate class strings, (b) text codepoints
    — both from AST literals *and template quasis*, never regex over quotes.
 2. **Compile styles & fonts.** `tailwind.ts` validates tokens (all-or-nothing
-   per literal), assigns styleIds, writes `styles.bin`, and keeps an ignored
-   `styles.generated.ts` mirror for inspection (excluded from future scans).
+   per literal), assigns styleIds, writes `styles.bin`, and writes the style
+   module to `<outdir>/<output>.styles.ts` for inspection; pass 2 serves the
+   module from memory for `framework/src/styles.generated.ts`.
    `bake-font.ts` bakes atlas slots for the collected charset. `pak.ts` packs
    styles.bin + atlases + images → `<app>.pak`.
 3. **Pass 2 — bundle.** `Bun.build` with an onLoad plugin that serves the
