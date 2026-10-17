@@ -1,6 +1,6 @@
 ---
 name: pocket3d-interface
-description: Build the 2D interface of a Pocket3D game (title, HUD, menus, settings, touch controls, a second screen) as one PocketJS app drawn over the scene, with one presentation per device shape (PSP, PS Vita, Nintendo 3DS, iPod touch), and show every presentation on one browser page that changes device. Use when a Pocket3D game draws text, gauges or menus from its renderer, when debug text or a status line is what a player sees, when adding a console target, a browser tab, a menu, a setting or a touch control to a game, or when reviewing a game's HUD.
+description: Build the 2D interface of a Pocket3D game (title, HUD, menus, settings, touch controls, a second screen) as one PocketJS app drawn over the scene, with one presentation per device shape (PSP, PS Vita, Nintendo 3DS, iPod touch), and show every presentation on one browser page that changes device. Use when a Pocket3D game draws text, gauges or menus from its renderer, when debug text or a status line is what a player sees, when adding a console target, a browser tab, a menu, a setting, a touch control or the title's Demo row (a scripted run for filming) to a game, or when reviewing a game's HUD.
 ---
 
 # Pocket3D interface
@@ -141,6 +141,28 @@ interface.** Credits, sources and a control legend of the game's own belong
 to a sheet of the interface (an About list reached from the title), where
 every device shows them. The page carries no footer, no attribution line and
 no key legend of a game: the player lists the keys and the notices itself.
+
+## The title's Demo
+
+Every Pocket3D game's title ends with a **Demo** row. It plays a fixed script
+of pad presses (`engine/pocket3d/crates/pocket3d-demo`) from a fixed scene and
+random seed, with the interface drawn and the sound on, so a console can be
+filmed playing the same run every time with nobody holding it. The first real
+press ends it and the title comes back.
+
+- The script lives with the game's content (`demo/` beside the maps) and is
+  handed to the flow with the rest of the content. `call <words>` sets up a
+  scene; `until <mark>` waits for the flow, so no press lands while an
+  animation plays.
+- The flow owns the demo: `input(pad)` returns the buttons the frame plays
+  with, and every host passes that to the simulation and to the guest, in
+  place of the pad. The guest's lists are worked by those presses; the
+  interface has no demo code beyond the row.
+- A demo writes no save and puts the player's choices back when it ends.
+- The flow test plays the whole script with the game's AI and a stand-in for
+  the guest's lists in the order the host runs a frame, asserts it finishes,
+  and plays it twice to compare the state lines. Then play it once on a
+  console from the title.
 
 ## The protocol
 
@@ -296,6 +318,8 @@ after, as a renderer change does.
 - [ ] Previews looked at for every device; the flow test passes on every
       bundle; the frame bench is reported before and after.
 - [ ] Developer statistics are a setting inside the interface.
+- [ ] The title's last row is Demo; the flow test plays its whole script
+      twice with the same state lines, and it was played once on a console.
 - [ ] A browser page loads each device's own bundle and plan; every device
       was flown from its title there, and another device was picked in a
       flight.
@@ -322,6 +346,11 @@ after, as a renderer change does.
   The menu's pixels are the GPU's work too.
 - A `setTimeout`-style timer for a toast or a hint. It holds `idle` off for
   its whole length.
+- A demo script timed in frames alone. A press made while an animation plays
+  is dropped and the script drifts off the board; wait for a mark after
+  every action that plays out.
+- A list stand-in in the demo's flow test that takes the press that opened
+  the list. The guest's list ignores the buttons held on its first turn.
 - Letting each device keep its own title / play / pause switch. Two devices
   then disagree about what START does.
 - A `web` presentation, or a table of screen sizes in the page. The page

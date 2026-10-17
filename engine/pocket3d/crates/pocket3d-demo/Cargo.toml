@@ -1,0 +1,14 @@
+[package]
+name = "pocket3d-demo"
+version = "0.1.0"
+edition = "2021"
+license-file = "../../../../pocket3d/LICENSE"
+description = "A Pocket3D game's demo: a fixed script of pad presses, played from the title's Demo row on every device, ended by the first real press"
+
+# Standalone crate with no dependencies: a game's flow crate depends on it by
+# path, the way a console binary depends on pocket3d-title. It is not a member
+# of the engine workspace.
+[workspace]
+resolver = "2"
+
+[dependencies]
