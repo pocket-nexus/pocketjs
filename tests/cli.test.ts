@@ -179,7 +179,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
   test("runs on Bun and says so under Node", () => {
     const node = Bun.which("node");
     if (!node) return;
-    const result = Bun.spawnSync({ cmd: [node, cli, "doctor"], stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync({ cmd: [node, cli, "show"], stdout: "pipe", stderr: "pipe" });
     expect(result.exitCode).toBe(1);
     expect(result.stderr.toString()).toContain("runs on Bun");
     expect(readJson(join(root, "tools/cli/package.json")).engines).toEqual({ bun: ">=1.2" });
@@ -336,8 +336,15 @@ describe("target selection", () => {
     { id: "moto-g-play", title: "Moto G Play", contract: { kind: "profile", target: "moto-g-play-dev" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64"] },
   ];
 
-  /** A framework whose tools/pocket.ts answers `project` and `catalog` from
-   *  the environment and appends every other invocation to a log. */
+  const status = [
+    { id: "psp", title: "PlayStation Portable", hosts: catalog[0]!.hosts, state: "not installed", digest: "3f9a12c0".padEnd(64, "0"), detail: "pocket target add psp" },
+    { id: "vita", title: "PlayStation Vita", hosts: catalog[1]!.hosts, state: "no manifest", detail: "its build script finds its own tools" },
+    { id: "web-app", title: "Browser", hosts: catalog[2]!.hosts, state: "nothing to install", detail: "the compiler builds it" },
+    { id: "moto-g-play", title: "Moto G Play", hosts: catalog[3]!.hosts, state: "no manifest", detail: "its build script finds its own tools" },
+  ];
+
+  /** A framework whose tools/pocket.ts answers `project`, `catalog` and
+   *  `status` from the environment and appends every other invocation to a log. */
   function fakeFramework(protocol = 1) {
     const cwd = checkout();
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "@pocketjs/framework", version: "9.9.9", pocketjs: { protocol } }));
@@ -345,6 +352,7 @@ describe("target selection", () => {
     writeFileSync(join(cwd, "tools/pocket.ts"), `const command = Bun.argv[2];
 if (command === "project") { console.log(process.env.FAKE_PROJECT); process.exit(0); }
 if (command === "catalog") { console.log(process.env.FAKE_CATALOG); process.exit(0); }
+if (command === "status") { console.log(process.env.FAKE_STATUS); process.exit(0); }
 const log = process.env.POCKET_CLI_TEST_LOG;
 const previous = (await Bun.file(log).exists()) ? await Bun.file(log).json() : [];
 await Bun.write(log, JSON.stringify([...previous, Bun.argv.slice(2)]));\n`);
@@ -365,6 +373,7 @@ await Bun.write(log, JSON.stringify([...previous, Bun.argv.slice(2)]));\n`);
       XDG_CONFIG_HOME: framework.settings,
       FAKE_PROJECT: JSON.stringify({ ok: true, project }),
       FAKE_CATALOG: JSON.stringify(catalog),
+      FAKE_STATUS: JSON.stringify(status),
       ...env,
     });
     const calls: string[][] = existsSync(framework.log) ? readJson(framework.log) : [];
@@ -498,10 +507,33 @@ await Bun.write(log, JSON.stringify([...previous, Bun.argv.slice(2)]));\n`);
     const report = JSON.parse(result.out);
     expect(report.framework).toMatchObject({ version: "9.9.9", source: "checkout", protocol: 1, root: realpathSync(framework.cwd) });
     expect(report.selection).toEqual({ id: "vita", source: "project", origin: "/work/game/pocket.config.ts" });
-    expect(report.targets.map((target: { id: string }) => target.id)).toEqual(["psp", "vita", "web-app", "moto-g-play"]);
+    expect(report.targets.map((target: { id: string; state: string }) => [target.id, target.state])).toEqual([
+      ["psp", "not installed"],
+      ["vita", "no manifest"],
+      ["web-app", "nothing to install"],
+      ["moto-g-play", "no manifest"],
+    ]);
 
     const explicit = JSON.parse(pocket(framework, ["+psp", "show", "--json"], project([{ id: "vita" }])).out);
     expect(explicit.selection).toEqual({ id: "psp", source: "explicit", origin: "+psp" });
+
+    const text = pocket(framework, ["show"], project([{ id: "vita" }])).out;
+    expect(text).toContain("targets for this framework");
+    expect(text).toMatch(/psp\s+.*not installed.*pocket target add psp/);
+  });
+
+  test("target commands run in the framework, which holds the pins", () => {
+    const framework = fakeFramework();
+    let result = pocket(framework, ["target", "add", "psp", "vita"]);
+    expect(result.code, result.err).toBe(0);
+    expect(result.calls).toEqual([["target", "add", "psp", "vita", "--cli-protocol", "1"]]);
+
+    result = pocket(framework, ["target", "list", "--check"]);
+    expect(result.calls).toEqual([["target", "list", "--check", "--cli-protocol", "1"]]);
+
+    result = pocket(fakeFramework(2), ["target", "add", "psp"]);
+    expect(result.code).toBe(1);
+    expect(result.calls).toEqual([]);
   });
 });
 

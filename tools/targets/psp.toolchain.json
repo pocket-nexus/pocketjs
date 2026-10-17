@@ -1,0 +1,48 @@
+{
+  "schema": "pocket-toolchain/2",
+  "target": "psp",
+  "components": [
+    {
+      "name": "rust",
+      "role": "toolchain",
+      "kind": "rustup",
+      "toolchain": "nightly-2026-05-28",
+      "components": ["rust-src"],
+      "targets": []
+    },
+    {
+      "name": "cargo-psp",
+      "role": "toolchain",
+      "kind": "cargo-install",
+      "source": {
+        "git": "https://github.com/pocket-nexus/rust-psp.git",
+        "revision": "2cbaf8c9bc72569c76240a1d9743de10731e5f6b"
+      },
+      "package": "cargo-psp",
+      "binaries": ["cargo-psp", "prxgen", "prxmin", "pack-pbp", "mksfo"],
+      "toolchain": "nightly-2026-05-28"
+    },
+    {
+      "name": "sdk",
+      "role": "toolchain",
+      "kind": "archive",
+      "source": {
+        "url": "https://github.com/pocket-nexus/pspdev/releases/download/sdk-noabicalls-normalized-2026-06-19/mipsel-sony-psp.zip",
+        "sha256": "fc7d7d502d53987f356871bc8c58396fb0f2a6eb6f5828b16c3bc3f22991a273"
+      },
+      "format": "zip",
+      "root": "mipsel-sony-psp",
+      "markers": ["psp/lib/libc.a", "psp/include/stdio.h", "psp/sdk/include/pspkernel.h", "psp/sdk/lib/libpspkernel.a"]
+    },
+    {
+      "name": "quickjs",
+      "role": "toolchain",
+      "kind": "file",
+      "source": {
+        "url": "https://github.com/pocket-nexus/quickjs-rs/releases/download/prebuilt-psp-a5cac5d8631b/libquickjs-mipsel-sony-psp.a",
+        "sha256": "338297293dfad165ca3d095a7f6aedf5a7e2043b5d17f6ab4ed5b99665a6dc12"
+      },
+      "file": "libquickjs-mipsel-sony-psp.a"
+    }
+  ]
+}

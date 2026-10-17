@@ -1,11 +1,11 @@
 // tools/psp.ts <app> [cargo args…] — build the app JS+pak (tools/
 // build.ts), then the EBOOT:
 //   POCKETJS_APP_OUTPUT=<app> POCKETJS_EMBED_APP=1 cargo psp
-// inside hosts/psp/, with the canonical env from tools/psp-toolchain.ts
-// (LLVM PATH, TARGET_CFLAGS, AR_mipsel_sony_psp=llvm-ar,
-//  RUST_PSP_TARGET=hosts/psp/targets/mipsel-sony-psp.json, RUST_PSP_ABORT_ONLY=1,
-//  RUSTFLAGS "-A linker-messages …"). `bun run bootstrap` installs the exact
-//  Rust, cargo-psp and SDK revisions into the shared pocket-nexus cache.
+// inside hosts/psp/, with the environment tools/psp-toolchain.ts reads from the
+// installed toolchain (PSP_SDK, QUICKJS_PREBUILT_LIB, cargo-psp on PATH) plus
+// RUST_PSP_TARGET=hosts/psp/targets/mipsel-sony-psp.json, RUST_PSP_ABORT_ONLY=1
+// and RUSTFLAGS "-A linker-messages …". `pocket target add psp` installs the
+// pinned Rust, cargo-psp, SDK and prebuilt QuickJS.
 //
 // Demo entries: `bun tools/psp.ts hero` prefers apps/hero/main.tsx (the
 // mounting entry — apps/hero/app.tsx only exports the component) when it exists.
@@ -104,15 +104,14 @@ if (!appArg && !planPath && !runtime) {
   process.exit(1);
 }
 
-// Prereqs (fail fast with one PocketJS-owned setup path).
+// The installed toolchain, or a diagnostic naming `pocket target add psp`.
 let toolchain: ReturnType<typeof resolvePspBuildToolchain>;
 try {
   toolchain = resolvePspBuildToolchain();
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(`PocketJS psp: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 }
-const sdk = toolchain.sdk.path;
 
 // A bare component demo (apps/<app>/app.tsx exporting the component) needs
 // the mounting entry apps/<app>/main.tsx (imports mount() + STYLE_IDS).
@@ -323,20 +322,6 @@ const env = {
   POCKETJS_OFFLOAD_SLOT: buildPlan?.features["io.offload"] ? createHash("sha256").update(buildPlan.app.id).digest("hex").slice(0, 16) : "",
   ...toolchain.environment,
   RUSTFLAGS: rustflags,
-  CRATE_CC_NO_DEFAULTS: "1",
-  TARGET_CC: "clang",
-  TARGET_AR: `${toolchain.llvmBin}/llvm-ar`,
-  // Match the Rust PSP target's +noabicalls mode. -G0 avoids clang's MIPS
-  // backend selecting unsupported GP-relative accesses for large C sources.
-  // -O2 must live HERE: CRATE_CC_NO_DEFAULTS=1 makes the cc crate drop its
-  // synthesized flags, including the -O from build.rs opt_level() — without
-  // it every C dependency (QuickJS!) silently compiles at -O0.
-  TARGET_CFLAGS:
-    `-target mipsel-sony-psp -mcpu=mips2 -msingle-float -mlittle-endian -mno-abicalls -fno-pic -G0 -mno-check-zero-division ` +
-    `-fno-stack-protector -O2 -I${sdk}/psp/include -I${sdk}/psp/sdk/include`,
-  // CRITICAL: archive MIPS objects with llvm-ar (Apple ar drops them -> undefined JS_*).
-  AR_mipsel_sony_psp: `${toolchain.llvmBin}/llvm-ar`,
-  RANLIB_mipsel_sony_psp: `${toolchain.llvmBin}/llvm-ranlib`,
   RUST_PSP_TARGET: pspTarget,
   // panic-abort EBOOTs: no panic_unwind/libunwind in build-std.
   RUST_PSP_ABORT_ONLY: "1",
@@ -380,7 +365,7 @@ function outputProfile(args: string[]): string {
 }
 
 console.log(`PocketJS psp: cargo psp (app=${runtime ? "none, runtime" : outputApp})`);
-await $`${toolchain.rustup} run ${toolchain.manifest.rust.toolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
+await $`${toolchain.rustup} run ${toolchain.rustToolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
 
 const profile = outputProfile(cargoArgs);
 const { verifyPspPrx } = await import("./psp-prx.ts");
