@@ -256,7 +256,7 @@ const targetBackends = {
   "linux-app": async ({ plan, outdir }) =>
     compiledBundle("linux-app", plan, outdir, "the desktop host (hosts/desktop)"),
   "macos-widget": async ({ plan, outdir }) =>
-    compiledBundle("macos-widget", plan, outdir, "the widget host (hosts/desktop; `bun run widget` in a checkout)"),
+    compiledBundle("macos-widget", plan, outdir, "the note-widget host (engine/pocket3d/examples/note-widget; `bun run note` in a checkout)"),
 } satisfies Record<PocketTargetId, TargetBackend>;
 
 // Targets whose host loads <output>.js + <output>.pak from a filesystem have no

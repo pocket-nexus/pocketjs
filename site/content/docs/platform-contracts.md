@@ -437,7 +437,7 @@ const targetBackends = {
   "web-app": async ({ plan, outdir }) => compiledBundle(/* hosts/web */),
   "macos-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
   "linux-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
-  "macos-widget": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
+  "macos-widget": async ({ plan, outdir }) => compiledBundle(/* note-widget */),
 } satisfies Record<PocketTargetId, TargetBackend>;
 
 const backend = targetBackends[target as PocketTargetId];
@@ -451,7 +451,8 @@ await backend(context);
 `<output>.js` and `<output>.pak` from a filesystem, so their entries print the
 bundle `compile` wrote and the host that loads it. The native desktop hosts
 build through their own tools — `macos-app` through `tools/macos.ts`,
-`macos-widget` through `tools/note.ts` and `tools/widget.ts`. A target id
+`macos-widget` through `tools/note.ts`, which builds
+`engine/pocket3d/examples/note-widget`. A target id
 without an entry stops with a usage error that points at `pocket compile`.
 `tools/` sits outside the `tsconfig.json` include list, so `bunx tsc` does not
 check the `satisfies` annotation. [CLI](/docs/cli/#check-compile-build) lists
