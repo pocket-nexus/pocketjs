@@ -294,7 +294,28 @@ The charset baked into every slot is the union of:
 
 - **ASCII 32–126, always** — so basic text never depends on the scan;
 - the **codepoints collected in pass 1** (printable, excluding DEL);
+- the `characters`, UTF-8 `characterFiles`, and Unicode `ranges` declared in
+  **`fonts.json` beside the app entry**;
 - anything passed via **`--extra-chars`**.
+
+`fonts.json` declares fallback faces for codepoints missing from the slot's
+primary face. A path string applies to every used slot. An object scopes the
+face to logical pixel sizes:
+
+```json
+{
+  "fallback": [
+    "fonts/Icons.otf",
+    { "path": "fonts/NotoSansCJK.otf", "sizes": [16] }
+  ],
+  "characters": "你好気迫"
+}
+```
+
+**A size matches each regular, bold, and monospace slot with that logical pixel
+size.** In this example, CJK outlines enter the used 16px atlases and stay out
+of other sizes. A missing codepoint at an excluded size uses that slot's hollow
+tofu glyph. Existing string entries retain the all-size behavior.
 
 Codepoints the font does not map are left out of the atlas. **On a target whose
 profile carries only `text.glyphs.baked`, a codepoint missing from the atlas
