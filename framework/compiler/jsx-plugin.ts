@@ -6,6 +6,7 @@ import solidPreset from "babel-preset-solid";
 import tsPreset from "@babel/preset-typescript"; // untyped - see framework/compiler/ambient.d.ts
 import { transformVueJsxVapor } from "vue-jsx-vapor/api";
 import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileVueSfc } from "./vue-sfc-compile.ts";
 import { getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../../microts/compiler/aot-solid-browser.ts";
@@ -70,15 +71,21 @@ const OCTANE_PROFILING_STUB_PATH = fileURLToPath(
 const GENERATED_STYLES_PATH = fileURLToPath(
   new URL("../src/styles.generated.ts", import.meta.url),
 );
-const VUE_VAPOR_RUNTIME_PATH = fileURLToPath(
-  new URL("../../node_modules/vue/dist/vue.runtime-with-vapor.esm-browser.prod.js", import.meta.url),
-);
-const SOLID_RUNTIME_PATH = fileURLToPath(
-  new URL("../../node_modules/solid-js/dist/solid.js", import.meta.url),
-);
-const SOLID_UNIVERSAL_RUNTIME_PATH = fileURLToPath(
-  new URL("../../node_modules/solid-js/universal/dist/universal.js", import.meta.url),
-);
+/** The installed directory of package `name`, found by walking `node_modules`
+ *  upward from the compiler as Node resolution does: a checkout keeps the
+ *  package under the framework, an application install hoists it beside the
+ *  framework. Package `exports` maps do not expose these dist files, so the
+ *  lookup stops at the package directory. */
+function packageDirectory(name: string): string {
+  for (let directory = fileURLToPath(new URL(".", import.meta.url)); ; directory = dirname(directory)) {
+    const candidate = join(directory, "node_modules", name);
+    if (existsSync(join(candidate, "package.json"))) return candidate;
+    if (dirname(directory) === directory) throw new Error(`PocketJS build: package ${name} is not installed`);
+  }
+}
+const VUE_VAPOR_RUNTIME_PATH = join(packageDirectory("vue"), "dist/vue.runtime-with-vapor.esm-browser.prod.js");
+const SOLID_RUNTIME_PATH = join(packageDirectory("solid-js"), "dist/solid.js");
+const SOLID_UNIVERSAL_RUNTIME_PATH = join(packageDirectory("solid-js"), "universal/dist/universal.js");
 
 const PACKAGE_NAME = "@pocketjs/framework";
 const CACHE_DIR = fileURLToPath(new URL("../../.cache/transforms/", import.meta.url));
@@ -470,10 +477,20 @@ export function packagePath(spec: string, framework: PocketFramework): string | 
   return RESOLVED[framework][subpath] ?? null;
 }
 
-/** Bun reports native paths (`\` separators on Windows); normalize before
- *  matching the `/node_modules/` prefix written in source specifiers. */
+/** The framework's own directory. An application install places it under
+ *  `node_modules/@pocketjs/framework`; its sources still compile as
+ *  framework sources. */
+const FRAMEWORK_ROOT = fileURLToPath(new URL("../../", import.meta.url)).replace(/\\/g, "/");
+
+/** A file of a third-party package. Inside the framework directory that is a
+ *  path through the framework's own `node_modules` (a checkout); elsewhere,
+ *  any path through `node_modules`. Bun reports native paths (`\` separators
+ *  on Windows); normalize before matching. */
 function isNodeModuleFile(path: string): boolean {
-  return path.replace(/\\/g, "/").includes("/node_modules/");
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.startsWith(FRAMEWORK_ROOT)
+    ? normalized.slice(FRAMEWORK_ROOT.length).includes("node_modules/")
+    : normalized.includes("/node_modules/");
 }
 
 export function frameworkVariantPath(path: string, framework: PocketFramework): string {
