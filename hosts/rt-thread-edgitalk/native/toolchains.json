@@ -1,0 +1,17 @@
+{
+  "edgitalk-m55": {
+    "rustTarget": "thumbv8m.main-none-eabihf",
+    "arch": "arm",
+    "cpu": "cortex-m55",
+    "abi": "eabihf",
+    "pointerWidth": 32,
+    "officialRegistry": false,
+    "pinnedRustc": null,
+    "recommendedRustc": ">=1.75",
+    "notes": [
+      "Not an official pocket-nexus Registry target (P4/S3 only today).",
+      "Build with: bun tools/rt-thread-edgitalk-native.ts",
+      "Requires rustc that knows thumbv8m.main-none-eabihf (rustup target add …)."
+    ]
+  }
+}

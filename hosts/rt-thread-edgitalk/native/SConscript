@@ -1,0 +1,114 @@
+# PocketJS RT-Thread / Edgi-Talk host fragment.
+# Include from the product project when POCKETJS_ROOT points at this monorepo:
+#   Import('POCKETJS_ROOT')  # or set env
+#   SConscript(os.path.join(POCKETJS_ROOT, 'hosts/rt-thread-edgitalk/native/SConscript'))
+#
+# Modeled on PocketJS_for_Edgi-Talk/.../applications/pocketjs/SConscript but with
+# paths relative to the pocketjs repo root (no absolute /home/... paths).
+# Product modules (wifi/bt/game/synth/music/dashboard) and BT firmware stay in
+# the overlay — do not add them here.
+
+import os
+from building import *
+
+cwd = GetCurrentDir()
+
+# Repo root: hosts/rt-thread-edgitalk/native -> ../../..
+repo_root = os.path.abspath(os.path.join(cwd, '..', '..', '..'))
+
+# Optional overrides from the product build (sibling quickjs-ng / custom package).
+quickjs_root = os.environ.get('POCKETJS_QUICKJS_ROOT',
+                              os.path.abspath(os.path.join(repo_root, '..', 'quickjs-ng')))
+smoke_package = os.environ.get(
+    'POCKETJS_SMOKE_PACKAGE',
+    os.path.join(repo_root, 'apps/edgitalk-m55-smoke/dist/edgitalk-m55-smoke.pocket'))
+
+idf_root = os.path.join(repo_root, 'hosts/esp-idf/components')
+rust_lib_dir = os.path.join(
+    repo_root,
+    'hosts/esp-idf/native/ui-core/target/thumbv8m.main-none-eabihf/release')
+renderer_rust_lib_dir = os.path.join(
+    repo_root,
+    'hosts/esp-idf/native/render-rgb565/target/thumbv8m.main-none-eabihf/release')
+
+# Set POCKETJS_NATIVE_HOST_LOOP=0 when the product still compiles its own
+# pocketjs_app.c (avoids duplicate pocketjs_app_start) but wants shared
+# shims + IDF components + QuickJS from this tree.
+_include_host_loop = os.environ.get('POCKETJS_NATIVE_HOST_LOOP', '1') != '0'
+
+host_src = [
+    os.path.join(cwd, 'pocketjs_rt_compat.c'),
+    os.path.join(cwd, 'quickjs_compat.c'),
+    os.path.join(idf_root, 'pocketjs_guest/src/guest.c'),
+    os.path.join(idf_root, 'pocketjs_package/src/package.c'),
+    os.path.join(idf_root, 'pocketjs_ui_qjs/src/ui_qjs.c'),
+    os.path.join(idf_root, 'pocketjs_ui_core/src/ui_core.c'),
+    os.path.join(idf_root, 'pocketjs_render_rgb565/src/render_rgb565.c'),
+]
+if _include_host_loop:
+    host_src.insert(0, os.path.join(cwd, 'pocketjs_host_loop.c'))
+
+# Optional stub embed (default on). Product trees with their own generated
+# package should set POCKETJS_NATIVE_PACKAGE_STUB=0.
+if os.environ.get('POCKETJS_NATIVE_PACKAGE_STUB', '1') != '0':
+    host_src.append(os.path.join(cwd, 'generated/pocketjs_package_stub.c'))
+
+
+# Product-generated blob (optional). When present, prefer it over the stub.
+_blob = os.path.join(cwd, 'generated/pocketjs_package_edgitalk_smoke_blob.S')
+_gen_c = os.path.join(cwd, 'generated/pocketjs_package_edgitalk_smoke.c')
+if os.path.isfile(_gen_c) and os.path.isfile(_blob):
+    host_src = [s for s in host_src
+                if not s.endswith('generated/pocketjs_package_stub.c')]
+    host_src += [_gen_c, _blob]
+
+quickjs_src = [
+    os.path.join(quickjs_root, 'quickjs.c'),
+    os.path.join(quickjs_root, 'libregexp.c'),
+    os.path.join(quickjs_root, 'libunicode.c'),
+    os.path.join(quickjs_root, 'dtoa.c'),
+]
+
+path = [
+    os.path.join(cwd, 'include'),
+    os.path.join(cwd, 'generated'),
+    quickjs_root,
+    os.path.join(idf_root, 'pocketjs_guest/include'),
+    os.path.join(idf_root, 'pocketjs_package/include'),
+    os.path.join(idf_root, 'pocketjs_ui_qjs/include'),
+    os.path.join(idf_root, 'pocketjs_ui_core/include'),
+    os.path.join(idf_root, 'pocketjs_render_rgb565/include'),
+]
+
+debug_flags = ' -DPOCKETJS_DEBUG_TOUCH' if os.environ.get('POCKETJS_DEBUG_TOUCH') else ''
+
+host_group = DefineGroup(
+    'PocketJS',
+    host_src,
+    depend=[''],
+    LOCAL_CPPPATH=path,
+    LOCAL_CFLAGS=' -std=gnu11 -Wno-unused-function -Wno-unused-variable -Wno-format -include ' +
+                 os.path.join(cwd, 'include/pocketjs_qjs_ng_compat.h') + debug_flags,
+    LIBPATH=[renderer_rust_lib_dir, rust_lib_dir],
+    LIBS=['pocketjs_idf_render_rgb565', 'pocketjs_idf_ui_core'],
+)
+
+if os.path.isfile(_blob):
+    AlwaysBuild(_blob.replace('.S', '.o'))
+    Depends(host_group, smoke_package)
+
+quickjs_group = DefineGroup(
+    'PocketJSQuickJS',
+    quickjs_src,
+    depend=[''],
+    LOCAL_CPPPATH=[quickjs_root],
+    LOCAL_CPPDEFINES=[
+        'EMSCRIPTEN',
+        'alloca=__builtin_alloca',
+        'CONFIG_VERSION="edgitalk-m55"',
+    ],
+    LOCAL_CFLAGS=' -std=gnu11 -Wno-unused-function -Wno-unused-variable -Wno-format -include ' +
+                 os.path.join(cwd, 'include/quickjs_platform.h'),
+)
+
+Return('host_group', 'quickjs_group')
