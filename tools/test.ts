@@ -115,6 +115,7 @@ const SUITE: readonly Stage[] = [
       "tests/runtime-packages.test.ts",
       "tests/build-writes.test.ts",
       "tests/targets-catalog.test.ts",
+      "tests/targets-project.test.ts",
       "tests/class-diagnostics.test.ts",
       "tests/vue-sfc.test.ts",
       "tests/font-bake.test.ts",

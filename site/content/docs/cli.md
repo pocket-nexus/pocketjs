@@ -18,7 +18,9 @@ bunx @pocketjs/cli doctor   # one invocation without a global install
 | `pocket doctor` | toolchain report, in the CLI | any directory |
 | `pocket setup [--yes]` | `tools/bootstrap.ts` | checkout |
 | `pocket create <name> [options]` | scaffold, in the CLI | any directory |
-| `pocket check`, `compile`, `build` | `tools/pocket.ts` | checkout or project |
+| `pocket [+<id>] check`, `compile`, `build` | [target selection](#target-selection), then `tools/pocket.ts` | checkout or project |
+| `pocket [+<id>] show [--json]` | the framework, project, selection and catalog | any directory |
+| `pocket default`, `pocket override` | the user default and directory overrides | any directory |
 | `pocket dev`, `psp`, `vita`, `hw`, `psplink`, `devtools`, `tape`, `play`, `symbian`, `ios` | `tools/<command>.ts` | checkout |
 | `pocket --version` | CLI version and resolved framework version | any directory |
 
@@ -26,20 +28,105 @@ bunx @pocketjs/cli doctor   # one invocation without a global install
 
 ## Framework resolution
 
-`check`, `compile`, `build`, `doctor` and `--version` take the first match:
+**A framework is a directory whose `package.json` carries
+`"pocketjs": { "protocol": <n> }`.** The package name is not read, so a fork
+published under another name is recognized. `check`, `compile`, `build`,
+`show`, `doctor` and `--version` take:
 
-1. `POCKETJS_FRAMEWORK_ROOT`, when set. The directory must contain
-   `tools/pocket.ts`; a directory without it fails the command.
-2. A PocketJS checkout: the nearest ancestor of the current directory whose
-   `package.json` names `@pocketjs/framework`.
-3. The nearest `node_modules/@pocketjs/framework` containing `tools/pocket.ts`,
-   searched from the current directory upward.
+1. `POCKETJS_FRAMEWORK_ROOT`, when set. A directory without the marker fails
+   the command.
+2. Otherwise the nearest of these above the current directory: an ancestor
+   that carries the marker (a checkout), or an ancestor's
+   `node_modules/@pocketjs/framework`. When one directory is both, the checkout
+   wins and `show` names the install it passed over.
+
+The CLI speaks protocol 1. **A framework on another protocol stops every
+command that runs it**, with both versions named. `show` reports the
+framework's source: `POCKETJS_FRAMEWORK_ROOT`, `checkout`, `registry`, a git
+dependency from the lockfile, a `file:` or `link:` dependency, or
+`link → <path>` for a symlinked install.
+
+### Switching to a fork
+
+| Situation | Operation |
+| --- | --- |
+| develop a fork against an application | `bun link` in the fork, then `bun link @pocketjs/framework` in the application; `package.json` is not edited, and `bun install` restores the registry version |
+| a fork with another package name | `"@pocketjs/framework": "link:<fork-name>"` |
+| pin a fork commit for a team or CI | `"@pocketjs/framework": "github:<owner>/pocketjs#<ref>"` |
+| a fork published under another name | `"@pocketjs/framework": "npm:<name>@<range>"` |
+| one command | `POCKETJS_FRAMEWORK_ROOT=<dir> pocket …` |
 
 **Manifest commands run in the current directory.** `--manifest`,
 `--host-profile`, `--project-root` and `--compiler-receipt` resolve against it;
 `--outdir`, `--plan-dir`, `--output` and `--depfile` resolve against the
 project root. `setup` and the host-development commands use step 2 alone and
 run with the checkout root as their working directory.
+
+## Target selection
+
+`check`, `compile`, `build` and `show` act on one target, the first of these
+that is present:
+
+1. **Explicit**: `pocket +<id> <command>`, `pocket <command> +<id>`,
+   `--target <id>`, or `--host-profile <file>`. Two that differ are an error;
+   `+<id>` anywhere else before `--` is an error.
+2. **`POCKET_TARGET`**.
+3. **A directory override** of the current directory or its nearest ancestor
+   that has one (`pocket override`).
+4. **The project**: the first entry of `targets` in the project configuration.
+5. **The user default** (`pocket default`).
+
+None present stops the command with the five ways to name a target. A command
+prints the target and its source before it runs:
+
+```text
+pocket: target vita · directory override /work/game
+```
+
+`pocket build --all` builds every target of the project configuration in
+order and stops at the first failure.
+
+### Project configuration
+
+`targets` in `pocket.config.ts` lists the targets a project ships to:
+
+```ts
+import { definePocketConfig } from "@pocketjs/framework/config";
+
+export default definePocketConfig({
+  targets: [
+    "psp",
+    "vita",
+    { target: "moto-g-play", manifest: "pocket.android.json" },
+    { hostProfile: "../firmware/pocket.host.json" },
+  ],
+});
+```
+
+**The project configuration is the nearest `pocket.config.ts` above the
+manifest's directory**, the file `tools/build.ts` reads `theme` from; the
+lookup stops there, and a file without `targets` names no project default.
+`manifest` and `hostProfile` resolve against the file's directory. An entry's
+`manifest` replaces the default `pocket.json` when the command names no
+`--manifest`. A `hostProfile` entry is a target named by the profile's `id`,
+which may not equal a catalog id or a `pocket` command word. An unknown id, a
+missing profile and a duplicate entry are errors. The file is bundled with
+`@pocketjs/framework` mapped to the resolved framework, so it evaluates in a
+project without `node_modules`.
+
+### show, default, override
+
+| Command | Effect |
+| --- | --- |
+| `pocket show [--json] [--manifest <file>]` | the framework with its source, the project configuration and its targets, the selected target with its source, the host, and the catalog with the targets this host cannot install marked; exits 0 |
+| `pocket default` | prints the user default |
+| `pocket default <id>`, `pocket default --unset` | sets or removes it |
+| `pocket override set <id> [--path <dir>]` | selects `<id>` for `<dir>` (default the current directory) and every directory below it |
+| `pocket override unset [--path <dir>]`, `pocket override list` | removes one, or lists them with the one active here |
+
+`default` and `override set` accept a catalog id or a host profile id of the
+current project. Both live in `<config>/pocket-nexus/settings.json`, where
+`<config>` is `XDG_CONFIG_HOME` or `~/.config`; the file is written by rename.
 
 ## doctor
 
@@ -108,13 +195,14 @@ error.
 ### Output
 
 Inside a checkout, `create` writes `apps/<name>/` with `pocket.json`,
-`main.tsx` and `app.tsx`, and prints the `check` and `build` commands with
-`--manifest apps/<name>/pocket.json`. Anywhere else it writes a standalone
+`pocket.config.ts`, `main.tsx` and `app.tsx`, and prints the `check` and
+`build` commands with `--manifest apps/<name>/pocket.json`. Anywhere else it writes a standalone
 project at `./<name>/`:
 
 | File | Content |
 | --- | --- |
 | `pocket.json` | manifest v2: id `dev.example.<name>` with dots for hyphens, version `0.1.0`, entry `main.tsx`, output `<name>-main`, the framework, viewport and `requires` |
+| `pocket.config.ts` | `targets` with the target, or the host profile for `esp-idf` |
 | `main.tsx` | the mount entry for the framework (Octane imports `mount` from `@pocketjs/framework`) |
 | `app.tsx` | a counter component; CROSS increments it when the target has buttons |
 | `package.json` | `@pocketjs/framework` `^<CLI version>`, the framework's runtime package (`solid-js`, `vue` or `octane`) at the version the framework pins, `@pocketjs/cli` as a dev dependency, and `check`, `compile`, `build` scripts |
@@ -124,16 +212,10 @@ project at `./<name>/`:
 | `pocket.host.json` | `esp-idf` without `--host-profile` |
 
 Outside ESP-IDF the manifest declares a **480×272 `integer-fit` viewport** and
-requires `text.glyphs.baked` and `input.buttons`. The `package.json` scripts
-depend on the target:
-
-| Target | `check` | `build` |
-| --- | --- | --- |
-| `psp`, `vita` | `pocket check --target <target>` | `pocket build --target <target> -- --release` |
-| `pocketbook`, `web-app`, `macos-app`, `linux-app` | `pocket check --target <target>` | `pocket build --target <target>` |
-| `esp-idf` | `pocket check --host-profile <profile>` | `pocket build --host-profile <profile> --output dist/<name>.pocket` |
-
-`compile` has the arguments of `check`. A standalone project builds with
+requires `text.glyphs.baked` and `input.buttons`. `pocket.config.ts` names the
+target, so the `package.json` scripts carry none: `pocket check`,
+`pocket compile`, and `pocket build`, with `-- --release` for `psp` and `vita`
+and `--output dist/<name>.pocket` for `esp-idf`. A standalone project builds with
 `bun install`, `bun run check` and `bun run build`.
 
 ### ESP-IDF scaffold
@@ -147,7 +229,8 @@ from it:
 | `app.viewport.presentation` | `native` when `display.presentations` lists it; the first entry otherwise |
 | `input.buttons` in `requires`, and the CROSS handler | present when `capabilities` lists `input.buttons` |
 
-The scripts record the profile path relative to the application directory.
+`pocket.config.ts` records the profile path relative to the application
+directory.
 `create` reads the three fields above; **`pocket check` validates the full
 profile schema.** `--target esp-idf` without `--host-profile` writes a starting
 `pocket.host.json` for the firmware repository to own: id `<name>` cut to 15
@@ -161,13 +244,14 @@ for an application directory at `<firmware root>/<name>/`. See
 ## check, compile, build
 
 ```sh
-pocket <check|compile|build> (--target <id> | --host-profile <file>) [options] [-- <backend args>]
+pocket [+<id>] <check|compile|build> [+<id>] [--target <id> | --host-profile <file>] [options] [-- <backend args>]
 ```
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--target <id>` | — | a target of the [catalog](#targets) |
-| `--host-profile <file>` | — | an ESP-IDF host profile; the command takes exactly one of `--target` and `--host-profile` |
+| `--target <id>` | [selection](#target-selection) | a target of the [catalog](#targets) |
+| `--host-profile <file>` | [selection](#target-selection) | an ESP-IDF host profile |
+| `--all` | — | `build` every target of the project configuration |
 | `--manifest <file>` | `pocket.json` | the application manifest |
 | `--project-root <dir>` | the manifest's directory | base for the entry, `tsconfig.json`, `--outdir`, `--plan-dir`, `--output` and `--depfile` |
 | `--outdir <dir>` | `dist` | compiled output |
@@ -249,7 +333,9 @@ directory, and pass their arguments to the script unchanged.
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
-| `POCKETJS_FRAMEWORK_ROOT` | manifest commands, `doctor`, `--version` | the framework directory; step 1 of [resolution](#framework-resolution) |
+| `POCKETJS_FRAMEWORK_ROOT` | manifest commands, `show`, `doctor`, `--version` | the framework directory; step 1 of [resolution](#framework-resolution) |
+| `POCKET_TARGET` | manifest commands, `show` | the target; step 2 of [selection](#target-selection) |
+| `XDG_CONFIG_HOME` | `show`, `default`, `override`, manifest commands | parent of `pocket-nexus/settings.json`; `~/.config` when unset |
 | `POCKET_NEXUS_CACHE_DIR` | `doctor`, `setup`, PSP builds | the toolchain cache root |
 | `XDG_CACHE_HOME` | `doctor`, `setup`, PSP builds | parent of `pocket-nexus/` when `POCKET_NEXUS_CACHE_DIR` is unset |
 | `PSP_SDK`, `PSPDEV` | `doctor`, PSP builds | an explicit PSP SDK; `PSP_SDK` takes precedence |
