@@ -188,8 +188,10 @@ function llvmResolution() {
 
 function checks() {
   const root = findCheckout();
-  const installation = root ? null : findFrameworkInstallation();
-  const framework = root ?? installation;
+  const framework = frameworkRoot();
+  const frameworkSource = !framework
+    ? undefined
+    : process.env.POCKETJS_FRAMEWORK_ROOT?.trim() ? "POCKETJS_FRAMEWORK_ROOT" : framework === root ? "checkout" : "project";
   const isMac = platform() === "darwin";
   const llvm = llvmResolution();
   const toolchains = run("rustup", ["toolchain", "list"]) ?? "";
@@ -218,7 +220,7 @@ function checks() {
           : "@pocketjs/framework",
         ok: !!framework,
         hint: "git clone https://github.com/pocket-nexus/pocketjs, or add @pocketjs/framework to this project",
-        detail: root ? `checkout ${root}` : installation ? `project ${installation}` : undefined,
+        detail: framework ? `${frameworkSource} ${framework}` : undefined,
       },
     ],
     psp: [

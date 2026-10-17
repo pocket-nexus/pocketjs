@@ -9,8 +9,10 @@ simulator.
 
 **The CLI runs on Bun.** The framework's compiler and host scripts are Bun
 programs; the CLI launches them with its own executable, so a machine without
-Bun cannot build a PocketJS application. Install Bun (https://bun.sh) first,
-then the CLI through either package manager:
+Bun cannot build a PocketJS application. Install Bun (https://bun.sh), then the
+CLI through either package manager. The
+[CLI reference](https://pocketjs.pocket.nexus/docs/cli/) documents every
+command and option.
 
 ```sh
 bun add -g @pocketjs/cli      # or: npm install -g @pocketjs/cli

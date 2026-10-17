@@ -46,41 +46,21 @@ bun install
 bun run bootstrap   # one-time PSP setup; omit for browser-only development
 ```
 
-The [`@pocketjs/cli`](https://www.npmjs.com/package/@pocketjs/cli) package
-checks (and installs most of) the toolchain, flutter-doctor style. **The CLI
-runs on Bun**: it launches the framework's compiler and host scripts with its
-own Bun executable, so Bun is installed before the CLI, through either package
-manager:
-
-```sh
-bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
-pocket doctor   # reports Bun, the Rust targets, the PSP toolchain and the resolved framework
-pocket setup    # runs the checkout's pinned, idempotent bootstrap
-```
-
-The PSP setup is self-contained in PocketJS; it does not inspect DreamCart or
-any sibling source checkout. Its exact revisions and SDK checksum live in
-`tools/cli/psp-toolchain.json`. Artifacts are shared through
-`${XDG_CACHE_HOME:-~/.cache}/pocket-nexus`; `POCKET_NEXUS_CACHE_DIR` overrides
-that root. For a custom SDK, set `PSP_SDK` or `PSPDEV` (in that precedence
-order). The build validates an explicit path and then exports both names to the
-selected SDK, so a typo fails instead of falling through to a different cached
-toolchain.
-
-It also wraps the day-to-day commands. `pocket create <name>` scaffolds a
-manifest-first app — `apps/<name>` inside a checkout, a standalone project with
-its own `package.json` anywhere else — with `--target`, `--framework` and
-`--host-profile` flags; `pocket check|compile|build --target psp|vita` delegate
-to the canonical resolver; `pocket dev|psp|vita|hw|psplink` retain the
-low-level host-development paths; and `pocket devtools [app]` opens the
-[DevTools](/docs/devtools/) panel with the USB debug bridge.
-
 That pulls `solid-js`, the Vue Vapor and Octane dependencies, and the
 build-time tooling (the
 Babel + Tailwind-subset compiler, the font baker, and the dev host). There is no
 separate runtime to install — the framework is the `@pocketjs/framework` package
 in this repo, exposed through subpath imports like
 `@pocketjs/framework/components`.
+
+This guide uses the `pocket` command from `@pocketjs/cli`, which runs on Bun:
+
+```sh
+bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
+```
+
+The [CLI reference](/docs/cli/) lists every command, the checks of
+`pocket doctor`, and the toolchain cache and SDK variables.
 
 Create an app and validate it against both stock profiles:
 
@@ -90,11 +70,8 @@ pocket check --target psp --manifest apps/my-app/pocket.json
 pocket check --target vita --manifest apps/my-app/pocket.json
 ```
 
-Outside a checkout the same command writes `my-app/` with a `package.json` that
-depends on `@pocketjs/framework` and pins `@pocketjs/cli`, a `tsconfig.json`
-for the editor, and `check`/`compile`/`build` scripts for the selected
-`--target`; `bun install` in that directory, then `bun run check`. The CLI
-resolves the compiler from the project's `node_modules/@pocketjs/framework`.
+Outside a checkout, `pocket create` writes a standalone project with its own
+`package.json`; see [create](/docs/cli/#create).
 
 The generated `pocket.json` is strict application intent:
 
@@ -316,9 +293,8 @@ a blank bubble or generic launch gate. Custom native hosts call
 assets override matching defaults while missing artwork continues to inherit
 PocketJS's complete set.
 
-`pocket compile --target …` stops after the JS/pak artifacts for a custom native
-host. `pocket check --target …` is read-only. Arguments after `--` belong to the
-selected native backend.
+[check, compile, build](/docs/cli/#check-compile-build) lists the options of
+the three commands and the `build` output of each target.
 
 For framework work, the lower-level compiler remains available:
 

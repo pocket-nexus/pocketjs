@@ -454,7 +454,8 @@ build through their own tools — `macos-app` through `tools/macos.ts`,
 `macos-widget` through `tools/note.ts` and `tools/widget.ts`. A target id
 without an entry stops with a usage error that points at `pocket compile`.
 `tools/` sits outside the `tsconfig.json` include list, so `bunx tsc` does not
-check the `satisfies` annotation.
+check the `satisfies` annotation. [CLI](/docs/cli/#check-compile-build) lists
+the `build` output of each target.
 
 After dispatch, a backend reads resolved fields; it does not recalculate
 physical dimensions or output names from the target id. The serialized plan

@@ -9,8 +9,9 @@ application code, AOT views and compiled model bodies; the rules for one mode
 do not define the source subset for another.
 
 This page describes the low-level bundle/style/font/pak compiler. Product builds
-should first resolve `pocket.json` through `bun pocket check`, `compile`, or
-`build`; see [Platform contracts](/docs/platform-contracts/) for how one small,
+resolve `pocket.json` through `pocket check`, `compile`, or `build`
+([CLI](/docs/cli/#check-compile-build)) before this pipeline runs; see
+[Platform contracts](/docs/platform-contracts/) for how one small,
 checksummed target plan becomes the authoritative input to this pipeline and
 native packaging.
 
@@ -29,21 +30,10 @@ host packaging. See [TypeScript models to Rust](/docs/microts-model/).
 Admission and generation commands for both paths are listed in
 [Checking an application](/docs/typescript-support/#checking-an-application).
 
-The manifest-first compiler resolves the target before producing its bundle:
-
-```sh
-bun pocket check --target psp
-bun pocket compile --target psp
-bun pocket build --target psp -- --release
-
-bun pocket check --target vita
-bun pocket build --target vita -- --release
-```
-
-`check` validates the schema, capabilities, viewport, and reachable TypeScript.
-`compile` also writes `.pocket/<target>/plan.json` plus the target-specific JS
-and pak. `build` dispatches that same plan to the matching native backend —
-`tools/pocket.ts` registers one for `psp`, `vita`, and `pocketbook`.
+**The manifest-first compiler resolves the target before producing its
+bundle.** `pocket compile` writes `.pocket/<target>/plan.json` and runs this
+compiler with `--plan`, which yields the target-specific JS and pak;
+`pocket build` hands the same plan to the target's native backend.
 
 The lower-level compiler can still turn one entry into two files directly:
 
@@ -88,16 +78,9 @@ A bare name resolves against `apps/`: `hero` finds `apps/hero/app.tsx`, and a
 name ending in `-main` finds `apps/hero/main.tsx`.
 
 An external ESP-IDF product supplies its host profile instead of selecting a
-stock target:
-
-```sh
-pocket build --manifest app/pocket.json \
-  --host-profile firmware/pocket.host.json \
-  --project-root app --output dist/app.pocket
-```
-
-The package carries the JSON plan and a fixed-width binary `hostInputs`
-section. Device admission reads the binary section and does not run a JSON
+stock target, through `pocket build --host-profile`
+([CLI](/docs/cli/#check-compile-build)). The package carries the JSON plan and
+a fixed-width binary `hostInputs` section. Device admission reads the binary section and does not run a JSON
 parser in QuickJS. See [ESP-IDF](/docs/esp-idf/#build-an-application-package).
 
 | Flag | Effect |

@@ -13,7 +13,7 @@ component that creates an owner task.
 | ESP-IDF | `>=6.0,<6.2` |
 | JavaScript engine | `espressif/quickjs-ng` 0.14.0, pulled by `pocketjs_guest` |
 | Prebuilt `.pocket` | Python 3 for the embed step; no Bun and no `pocket` CLI during `idf.py build` |
-| Source application | Installed `pocket` CLI and Bun |
+| Source application | Installed [`pocket` CLI](/docs/cli/) and Bun |
 | Native core | Prebuilt in Registry releases; Rust is optional for consumers |
 
 P4 and S3 share the same package, guest, UI, and renderer interfaces. P4 may
@@ -74,24 +74,16 @@ profile hash differs from the compiled host contract.
 
 ### Scaffold
 
-`pocket create` derives a manifest from the firmware's host profile. From the
-firmware root:
+From the firmware root:
 
 ```sh
 pocket create app --host-profile pocket.host.json
 ```
 
-The result is a standalone `app/` directory. `pocket.json` takes the profile's
-first logical viewport, its `native` presentation when the profile lists one,
-and declares `input.buttons` under `requires` when the profile advertises it;
-the template drops the button handler otherwise. `package.json` depends on
-`@pocketjs/framework`, pins `@pocketjs/cli`, and records the `pocket build
---host-profile` invocation below as its `build` script with
-`--output dist/app.pocket`. `app/README.md` carries the `pocketjs_compile_app`
-and `pocketjs_embed_package` snippets with the paths filled in. Without
-`--host-profile`, `--target esp-idf` writes a starting `pocket.host.json`
-(320×240, `native`, buttons and baked glyphs) into the app directory for the
-firmware repository to take over.
+**`app/pocket.json` takes its viewport, presentation and button requirement
+from the profile**, and `app/README.md` carries the two integrations below with
+the paths filled in. [ESP-IDF scaffold](/docs/cli/#esp-idf-scaffold) lists the
+derivation rules and the starting profile for a firmware without one.
 
 ### Prebuilt package
 
