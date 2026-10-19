@@ -112,6 +112,10 @@ describe("private Nintendo 3DS build profile", () => {
         "display.auxiliary",
         "text.glyphs.baked",
         "ui.physics",
+        "net.http",
+        "link.companion",
+        "system.wifi",
+        "camera.qr",
       ],
     });
     expect(validatePlatformContractRegistry(THREE_DS_DEV_CONTRACTS)).toEqual([]);

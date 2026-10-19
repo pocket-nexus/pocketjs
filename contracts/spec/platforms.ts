@@ -189,6 +189,17 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // core exercise the contract without granting network access to every host.
   "io.offload",
   "net.http",
+  // The console's system link to a paired companion computer
+  // (`globalThis.link`, contracts/spec/link.ts): pairing, link status, the
+  // companion's app catalog and app installs. The 3ds-dev host owns the link
+  // and also routes net.http over it.
+  "link.companion",
+  // The console's wireless radio and saved connections (`globalThis.wifi`,
+  // contracts/spec/wifi.ts). Reads and selects; never writes a connection.
+  "system.wifi",
+  // Outer-camera preview texture plus an on-device QR decoder
+  // (`globalThis.camera`, contracts/spec/camera.ts).
+  "camera.qr",
   // SQLite behind the db module's own namespace (`globalThis.db`,
   // contracts/spec/db.ts): five synchronous ops, rows as one JSON line per
   // query() call, per-app storage the host confines. Registered ahead of any
