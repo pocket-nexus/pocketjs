@@ -163,9 +163,10 @@ export const LINK_FEATURE = {
 //                    &s=<secret hex32>&n=<percent-encoded companion name>
 //
 // `h` lists up to LINK_PAIR_MAX_HOSTS addresses; the console tries them in
-// order. The URI stays under LINK_PAIR_URI_MAX bytes so a version-6 QR code
-// at ECC level M holds it, which a 3DS outer camera reads from a laptop
-// screen at arm's length.
+// order. The URI stays under LINK_PAIR_URI_MAX bytes, so a QR code at ECC
+// level M needs at most version 9 (180 bytes); a URI with one address is
+// version 7 or 8 (122 / 152 bytes), which a 3DS outer camera reads from a
+// laptop screen at arm's length.
 
 export const LINK_PAIR_SCHEME = "pocketlink://pair";
 export const LINK_PAIR_SECRET_BYTES = 16;

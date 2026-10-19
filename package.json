@@ -322,6 +322,8 @@
     "e2e:3ds-dev": "bun tests/e2e/azahar-devserver.ts",
     "e2e:install": "bun tests/e2e/framework-install.ts",
     "3ds:dev": "bun tools/3ds-dev.ts",
+    "companion": "bun tools/companion.ts",
+    "companion:app": "bun tools/companion-app.ts",
     "hw": "bun tools/hw.ts",
     "dev": "bun tools/dev.ts",
     "wasm": "bun tools/wasm.ts",
