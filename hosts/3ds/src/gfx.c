@@ -29,6 +29,7 @@
 
 #include "gfx.h"
 #include "media.h"
+#include "camera.h"
 
 #include <3ds.h>
 #include <citro3d.h>
@@ -453,6 +454,8 @@ static void sync_resources(void) {
 #ifdef POCKETJS_MEDIA
       if (media_texture(source.handle)) { release_image(entry); continue; }
 #endif
+      /* The camera preview is drawn from camera.c's own texture. */
+      if (camera_texture(source.handle)) { release_image(entry); continue; }
       if (entry->live && entry->handle == source.handle && entry->revision == source.revision) {
         continue;
       }
@@ -500,6 +503,11 @@ static C3D_Tex *image_texture(int32_t handle, float *u_scale, float *v_scale) {
   C3D_Tex *native_media=media_texture(handle);
   if(native_media) { *u_scale=*v_scale=1; return native_media; }
 #endif
+  C3D_Tex *native_camera = camera_texture(handle);
+  if (native_camera != NULL) {
+    *u_scale = *v_scale = 1;
+    return native_camera;
+  }
   size_t slot = (size_t)((uint32_t)handle & ui_texture_slot_mask());
   if (slot >= image_capacity) return NULL;
   ImageTexture *entry = &images[slot];

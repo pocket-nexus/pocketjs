@@ -97,7 +97,11 @@ LDFLAGS := -specs=3dsx.specs $(ARCH) -Wl,--gc-sections -Wl,-Map,$(BUILD)/pocketj
 LIBPATHS := -L$(DEVKITPRO)/libctru/lib
 LIBS := -lcitro3d -lctru -lm
 
-OBJECTS := $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/vshader_shbin.o
+# quirc (vendored, ISC; src/quirc/VENDORED.txt) decodes QR codes for camera.c.
+QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
+OBJECTS := $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o \
+  $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/wifi.o $(BUILD)/camera.o \
+  $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o
 ELF := $(BUILD)/pocketjs-3ds.elf
 SMDH := $(BUILD)/pocketjs-3ds.smdh
 
@@ -141,7 +145,17 @@ $(FLAGS_STAMP): $(FLAGS_STAMP).probe ;
 $(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Third-party code keeps its own warnings out of the host's build log.
+$(BUILD)/quirc/%.o: $(SOURCE)/quirc/%.c $(wildcard $(SOURCE)/quirc/*.h) $(FLAGS_STAMP) | $(BUILD)
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -w -c $< -o $@
+
 $(BUILD)/offload.o: $(SOURCE)/offload.h $(SOURCE)/offload_queue.h
+$(BUILD)/link.o $(BUILD)/link_proto.o $(BUILD)/launcher.o $(BUILD)/qjs.o $(BUILD)/main.o $(BUILD)/devmenu.o: \
+  $(SOURCE)/link.h $(SOURCE)/link_proto.h $(SOURCE)/launcher.h $(SOURCE)/jscan.h $(SOURCE)/sha256.h $(SOURCE)/runtime.h
+$(BUILD)/camera.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/camera.h
+$(BUILD)/wifi.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/wifi.h
+$(BUILD)/runtime.o: $(SOURCE)/runtime.h
 $(BUILD)/qjs.o: $(SOURCE)/offload.h $(SOURCE)/offload_coverage.h
 $(BUILD)/media.o: $(SOURCE)/media.h $(SOURCE)/media_wire.h $(SOURCE)/media_adpcm.h
 $(BUILD)/main.o $(BUILD)/qjs.o $(BUILD)/gfx.o: $(SOURCE)/media.h

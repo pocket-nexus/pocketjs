@@ -25,6 +25,8 @@ static bool visible;
 static bool link_state_known;
 static bool last_connected;
 static char notice[32] = "WAITING FOR CLIENT";
+/* The Pocket Link's state line (link_describe), handed in by main.c. */
+static char link_line[48] = "NOT PAIRED";
 
 /* Five-bit rows for 0-9 then A-Z. Lowercase input maps to uppercase so native
  * Runtime phases can be printed without carrying a second alphabet. */
@@ -164,6 +166,10 @@ void devmenu_hide(void) {
   visible = false;
 }
 
+void devmenu_set_link_line(const char *value) {
+  snprintf(link_line, sizeof link_line, "%s", value == NULL ? "" : value);
+}
+
 void devmenu_set_notice(const char *value) {
   snprintf(notice, sizeof notice, "%s", value == NULL ? "" : value);
 }
@@ -249,6 +255,8 @@ const uint32_t *devmenu_draw_list(size_t *length) {
     (unsigned long)(state.auth_failures + state.timeouts)
   );
   text(14, 119, 1, muted, line);
+  snprintf(line, sizeof line, "POCKET LINK %s", link_line);
+  text(14, 131, 1, cyan, line);
 
   rect(12, 143, 296, 58, ABGR(15, 23, 42, 255));
   text(20, 151, 1, cyan, "ON YOUR MAC AUTO DISCOVERY");

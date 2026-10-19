@@ -13,6 +13,13 @@
  * each surface's guest coordinates landscape. Touch belongs only to the
  * auxiliary surface.
  *
+ * The embedded guest is also the LAUNCHER (docs/LAUNCHER.md "3DS"): every
+ * other runtime slot with a committed active package is an installed app it
+ * can switch to (launcher.c). A switch happens at the top of a frame, after
+ * the previous one presented: teardown, select the target slot, boot its
+ * active package. An installed app's failure is reported to the launcher
+ * (appTable().lastError) and never walks the launcher's recovery chain.
+ *
  * Building with -DPOCKETJS_CAPTURE turns this into the deterministic e2e
  * binary: input comes from a baked tape instead of the hardware, the listed
  * frames are read back off the render target into sdmc:/fNNNN.raw, and the
@@ -41,6 +48,10 @@
 #include "runtime.h"
 #include "soc.h"
 #include "svcwire.h"
+#include "camera.h"
+#include "launcher.h"
+#include "link.h"
+#include "wifi.h"
 
 /* The guest surfaces come from the plan of the package in the .3dsx's RomFS
  * (pocket_package_open reads them), never from a literal or a compile flag:
@@ -119,8 +130,9 @@ static bool surfaces_admit(
   return true;
 }
 
-/* contracts/spec/spec.ts ANALOG_CENTER. */
+/* contracts/spec/spec.ts ANALOG_CENTER and BTN.SELECT. */
 #define ANALOG_CENTER 0x8080
+#define BTN_SELECT 0x0001
 
 /*
  * devkitPro's 3dsx crt0 gives the main thread 32 KiB of stack. QuickJS's
@@ -494,6 +506,10 @@ static bool boot_guest(
 
 /* Call only after C3D_FrameBegin has retired the previous GPU command list. */
 static void teardown_guest(void) {
+  /* Host services keep their process-wide state (the link's connection, an
+   * install still streaming) and drop what belonged to this guest. */
+  camera_teardown();
+  link_reset_guest();
   qjs_shutdown();
   gfx_reset_resources();
   ui_shutdown();
@@ -711,6 +727,19 @@ static void recover_running_guest(
   C3D_FrameEnd(0);
 }
 
+#ifdef POCKETJS_LINK
+static void switch_guest(
+  GuestChoice *choice,
+  PocketRuntimeState *state,
+  PocketRuntimePackage *embedded,
+  PocketRuntimeFailureLineage *failures,
+  const LauncherTarget *target,
+  PocketRuntimePackage *candidate,
+  uint64_t report_hash,
+  uint32_t *run_frame
+);
+#endif
+
 /* Swap a fully admitted candidate inside a GPU-idle C3D frame. This is the
  * one path used by the boot-time FTP chord and the in-process TCP transport. */
 static void install_candidate(
@@ -724,6 +753,20 @@ static void install_candidate(
   size_t error_length
 ) {
   uint64_t candidate_hash = candidate->guest.package_hash;
+#ifdef POCKETJS_LINK
+  if (!launcher_home_running()) {
+    /* A candidate for the running installed app: its failure goes back to
+     * the launcher, never down the launcher's recovery chain. */
+    LauncherTarget target;
+    memset(&target, 0, sizeof target);
+    snprintf(target.slot, sizeof target.slot, "%s", runtime_slot());
+    snprintf(target.output, sizeof target.output, "%s", launcher_current_output());
+    switch_guest(choice, state, embedded, failures, &target, candidate, candidate_hash, run_frame);
+    (void)error;
+    (void)error_length;
+    return;
+  }
+#endif
   begin_frame_wait(*run_frame);
   accept_guest(choice, state, failures, *run_frame);
   teardown_guest();
@@ -746,6 +789,202 @@ static void install_candidate(
   C3D_FrameEnd(0);
   *run_frame += 1;
 }
+
+#ifdef POCKETJS_LINK
+// ---------------------------------------------------------------------------
+// app switching (launcher.c owns the table; this owns the swap)
+// ---------------------------------------------------------------------------
+
+/* The SELECT summon edge (docs/LAUNCHER.md). Latched at every boot, as on
+ * the PSP host: a SELECT still held from dismissing the launcher must be
+ * released before it can summon the launcher again. */
+static bool select_latched = true;
+
+/* The launcher's guest when it comes back: its active package, then its own
+ * recovery chain, then the embedded package. No embedded-install check: that
+ * belongs to a cold boot (startup_choice). */
+static GuestChoice home_choice(
+  PocketRuntimeState *state,
+  PocketRuntimePackage *embedded,
+  PocketRuntimeFailureLineage *failures
+) {
+  /* The embedded bytes are already in memory: no SD read for the same
+   * package (a pushed launcher that equals the one in the .3dsx). */
+  if (state->active_hash != 0 && state->active_hash == embedded->guest.package_hash) {
+    return package_choice(embedded, state->active_hash, state);
+  }
+  if (state->active_hash != 0) {
+    char error[256] = {0};
+    PocketRuntimePackage *active = runtime_package_load_hash(state->active_hash, error, sizeof error);
+    if (active != NULL) return package_choice(active, state->active_hash, state);
+    runtime_write_error("load-active", error);
+    if (runtime_failure_lineage_add(failures, state->active_hash)) {
+      return recovery_choice(state, embedded, failures);
+    }
+  }
+  return package_choice(embedded, 0, state);
+}
+
+static void boot_home(
+  GuestChoice *choice,
+  PocketRuntimeState *state,
+  PocketRuntimePackage *embedded,
+  PocketRuntimeFailureLineage *failures
+) {
+  char error[256] = {0};
+  if (!runtime_select_slot(launcher_home_slot()) ||
+      !runtime_storage_init(state, error, sizeof error)) {
+    fail(error[0] != '\0' ? error : "the launcher's runtime slot is unusable");
+  }
+  runtime_failure_lineage_reset(failures);
+  *choice = home_choice(state, embedded, failures);
+  if (!boot_with_recovery(choice, state, embedded, failures, error, sizeof error)) fail(error);
+  launcher_set_current(launcher_home_slot(), choice->package);
+}
+
+/* Boot an installed app from its own slot: `candidate` when one was just
+ * admitted, else the slot's active package. False leaves `error`; the
+ * package is released and nothing is committed. */
+static bool boot_app(
+  GuestChoice *choice,
+  PocketRuntimeState *state,
+  const LauncherTarget *target,
+  PocketRuntimePackage *candidate,
+  char *error,
+  size_t error_length
+) {
+  if (!runtime_select_slot(target->slot) || !runtime_storage_init(state, error, error_length)) {
+    runtime_package_free(candidate);
+    return false;
+  }
+  if (candidate != NULL) {
+    *choice = package_choice(candidate, candidate->guest.package_hash, state);
+  } else {
+    if (state->active_hash == 0) {
+      snprintf(error, error_length, "%s has no installed package", target->output);
+      return false;
+    }
+    PocketRuntimePackage *active = runtime_package_load_hash(state->active_hash, error, error_length);
+    if (active == NULL) return false;
+    *choice = package_choice(active, state->active_hash, state);
+  }
+  if (!boot_guest(choice->package, error, error_length)) {
+    release_choice(choice, NULL);
+    return false;
+  }
+  runtime_write_status(state, choice->package, choice->commit_on_accept ? "candidate" : "booted");
+  launcher_set_current(target->slot, choice->package);
+  return true;
+}
+
+/* The whole-guest swap, inside one GPU-idle C3D frame. `report_hash` names a
+ * dev-wire package whose verdict this switch decides (0: none). */
+static void switch_guest(
+  GuestChoice *choice,
+  PocketRuntimeState *state,
+  PocketRuntimePackage *embedded,
+  PocketRuntimeFailureLineage *failures,
+  const LauncherTarget *target,
+  PocketRuntimePackage *candidate,
+  uint64_t report_hash,
+  uint32_t *run_frame
+) {
+  begin_frame_wait(*run_frame);
+  accept_guest(choice, state, failures, *run_frame);
+  teardown_guest();
+  release_choice(choice, embedded);
+  runtime_failure_lineage_reset(failures);
+  if (target->home) {
+    runtime_package_free(candidate);
+    boot_home(choice, state, embedded, failures);
+    if (report_hash != 0) devserver_report_install("accepted", report_hash, "launcher package committed and booted");
+  } else {
+    char error[256] = {0};
+    if (boot_app(choice, state, target, candidate, error, sizeof error)) {
+      if (report_hash != 0) {
+        if (choice->commit_on_accept) {
+          devserver_report_install("staged", report_hash, "app booted in its own slot; waiting for retired frame");
+        } else {
+          devserver_report_install("accepted", report_hash, "app committed in its own slot and launched");
+        }
+      }
+    } else {
+      /* The app's slot is still selected when boot_app got that far. */
+      if (strcmp(runtime_slot(), target->slot) == 0) runtime_write_error("boot-guest", error);
+      launcher_report_failure(target->output, error);
+      if (report_hash != 0) devserver_report_install("rejected", report_hash, error);
+      boot_home(choice, state, embedded, failures);
+    }
+  }
+  select_latched = true;
+  devserver_set_runtime(state, choice->package, choice->commit_on_accept ? "candidate" : "booted", *run_frame);
+  C3D_FrameEnd(0);
+  *run_frame += 1;
+}
+
+/* An installed app threw from a frame or failed to render: record it in its
+ * own slot, show it to the launcher once, and go home. */
+static void fail_to_home(
+  GuestChoice *choice,
+  PocketRuntimeState *state,
+  PocketRuntimePackage *embedded,
+  PocketRuntimeFailureLineage *failures,
+  uint32_t *run_frame,
+  const char *phase,
+  const char *message
+) {
+  runtime_write_error(phase, message);
+  launcher_report_failure(launcher_current_output(), message);
+  bool candidate = choice->commit_on_accept;
+  uint64_t rejected = choice->state_hash;
+  /* A failing candidate is never accepted on the way out. */
+  choice->commit_on_accept = false;
+  LauncherTarget home;
+  memset(&home, 0, sizeof home);
+  snprintf(home.slot, sizeof home.slot, "%s", launcher_home_slot());
+  home.home = true;
+  switch_guest(choice, state, embedded, failures, &home, NULL, 0, run_frame);
+  if (candidate) devserver_report_install("rejected", rejected, message);
+}
+
+/* A dev-wire package for an app other than the running one: commit it in
+ * the app's own slot and launch it there (`bun run 3ds:dev push --app hn`
+ * while the launcher runs). True when it was handled here. */
+static bool route_upload(
+  GuestChoice *choice,
+  PocketRuntimeState *state,
+  PocketRuntimePackage *embedded,
+  PocketRuntimeFailureLineage *failures,
+  uint64_t upload_hash,
+  uint32_t *run_frame
+) {
+  char error[256] = {0};
+  PocketRuntimePackage *peek = runtime_package_load(POCKET_RUNTIME_UPLOAD, error, sizeof error);
+  if (peek == NULL) return false; /* the ordinary path reports the error */
+  char slot[17];
+  snprintf(slot, sizeof slot, "%s", peek->guest.slot);
+  runtime_package_free(peek);
+  if (strcmp(slot, runtime_slot()) == 0) return false;
+  PocketRuntimePackage *installed = runtime_slot_install(slot, POCKET_RUNTIME_UPLOAD, upload_hash, state, error, sizeof error);
+  if (installed == NULL) {
+    runtime_write_error("network-package", error);
+    devserver_report_install("rejected", upload_hash, error);
+    return true;
+  }
+  launcher_note_installed(slot, installed);
+  LauncherTarget target;
+  memset(&target, 0, sizeof target);
+  snprintf(target.slot, sizeof target.slot, "%s", slot);
+  target.home = strcmp(slot, launcher_home_slot()) == 0;
+  if (!launcher_package_output(installed, target.output, sizeof target.output)) target.output[0] = '\0';
+  if (target.home) {
+    runtime_package_free(installed);
+    installed = NULL;
+  }
+  switch_guest(choice, state, embedded, failures, &target, installed, upload_hash, run_frame);
+  return true;
+}
+#endif /* POCKETJS_LINK */
 
 // ---------------------------------------------------------------------------
 // boot
@@ -823,6 +1062,8 @@ int main(void) {
      * while WiFi is still re-associating (e.g. right after ftpd exits). */
     runtime_write_error("devserver-init", runtime_error);
   }
+  launcher_init(embedded);
+  link_init(&runtime_state);
 #endif
   PocketRuntimeFailureLineage failures = {0};
   input_init();
@@ -853,6 +1094,7 @@ int main(void) {
     guest.commit_on_accept ? "candidate" : "booted",
     0
   );
+  launcher_set_current(runtime_slot(), guest.package);
 #endif
 #endif /* ordinary recovery boot */
 
@@ -900,6 +1142,8 @@ int main(void) {
     }
     devserver_poll();
     svcwire_pump();
+    link_pump();
+    wifi_pump();
     {
       /* An installed or named .3dsx starts when this process exits: the same
        * hand-off the Homebrew Launcher makes, so the loop ends here. */
@@ -924,6 +1168,7 @@ int main(void) {
     bool devmenu_blocks_guest = input_devmenu_blocks_guest(devmenu_visible());
     uint64_t upload_hash = 0;
     if (devserver_take_upload(&upload_hash)) {
+      if (route_upload(&guest, &runtime_state, embedded, &failures, upload_hash, &run_frame)) continue;
       PocketRuntimePackage *uploaded = NULL;
       RuntimePendingResult result = runtime_prepare_file(
         POCKET_RUNTIME_UPLOAD,
@@ -980,7 +1225,22 @@ int main(void) {
         continue;
       }
     }
+    {
+      LauncherTarget target;
+      if (launcher_take_request(&target)) {
+        switch_guest(&guest, &runtime_state, embedded, &failures, &target, NULL, 0, &run_frame);
+        continue;
+      }
+    }
     int32_t buttons = devmenu_blocks_guest ? 0 : input_buttons();
+    if (!launcher_home_running()) {
+      /* SELECT belongs to the system while an installed app runs: its press
+       * edge summons the launcher and the app never sees the bit. */
+      bool select_now = (buttons & BTN_SELECT) != 0;
+      if (select_now && !select_latched) launcher_summon();
+      select_latched = select_now;
+      buttons &= ~BTN_SELECT;
+    }
     int32_t analog = devmenu_blocks_guest ? ANALOG_CENTER : input_analog();
     int32_t right_analog = devmenu_blocks_guest ? ANALOG_CENTER : input_right_analog();
     uint32_t touch = 0;
@@ -1002,6 +1262,10 @@ int main(void) {
       fail(qjs_last_error());
 #else
       snprintf(runtime_error, sizeof runtime_error, "%s", qjs_last_error());
+      if (!launcher_home_running()) {
+        fail_to_home(&guest, &runtime_state, embedded, &failures, &run_frame, "guest-frame", runtime_error);
+        continue;
+      }
       recover_running_guest(
         &guest,
         &runtime_state,
@@ -1026,6 +1290,9 @@ int main(void) {
     const uint32_t *auxiliary_list = ui_draw_auxiliary_list_ptr();
 #ifndef POCKETJS_CAPTURE
     if (devmenu_visible()) {
+      char link_line[48];
+      link_describe(link_line, sizeof link_line);
+      devmenu_set_link_line(link_line);
       auxiliary_list = devmenu_draw_list(&auxiliary_words);
     }
 #endif
@@ -1050,6 +1317,7 @@ int main(void) {
 #ifdef POCKETJS_MEDIA
     media_present();
 #endif
+    camera_present();
     if (!gfx_prepare_surface(0, ui_draw_list_ptr(), words, VIEW_W, VIEW_H) ||
         !gfx_prepare_surface(
           1,
@@ -1062,6 +1330,19 @@ int main(void) {
       fail("PICA200 surface preparation failed");
 #else
       C3D_FrameEnd(0);
+      if (!launcher_home_running()) {
+        run_frame += 1;
+        fail_to_home(
+          &guest,
+          &runtime_state,
+          embedded,
+          &failures,
+          &run_frame,
+          "guest-render",
+          "PICA200 surface preparation failed"
+        );
+        continue;
+      }
       recover_running_guest(
         &guest,
         &runtime_state,
@@ -1192,6 +1473,8 @@ int main(void) {
   release_choice(&guest, embedded);
   runtime_package_free(embedded);
 #ifndef POCKETJS_CAPTURE
+  link_shutdown();
+  wifi_shutdown();
   svcwire_shutdown();
   devserver_shutdown();
   soc_shutdown();

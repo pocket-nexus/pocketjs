@@ -18,7 +18,9 @@
  * the package in the .3dsx's RomFS (PocketGuestPackage.slot, the first 16 hex
  * digits of SHA-256 of its app id), so one runtime binary serves every game.
  * runtime_select_slot accepts exactly 16 lowercase hex digits; the paths
- * below are empty strings until it succeeds. */
+ * below are empty strings until it succeeds. The upload path is the dev
+ * wire's staging file and keeps the first selected slot for the process
+ * lifetime; the others follow the selected slot. */
 bool runtime_select_slot(const char *slot);
 const char *runtime_slot(void);
 const char *runtime_app_root(void);
@@ -135,5 +137,41 @@ void runtime_write_status(
   const char *phase
 );
 void runtime_write_error(const char *phase, const char *message);
+
+/*
+ * Other slots. The launcher lists every slot under POCKET_RUNTIME_APPS that
+ * has a committed active package; Pocket Link installs and dev pushes of
+ * another app write into the app's OWN slot, never the running one's.
+ */
+/* POCKET_RUNTIME_APPS/<slot>[/leaf]; false for a malformed slot. */
+bool runtime_slot_path(const char *slot, const char *leaf, char *out, size_t length);
+/* The newest committed generation of `slot` (zeroed when none). */
+bool runtime_slot_state(const char *slot, PocketRuntimeState *state);
+PocketRuntimePackage *runtime_slot_package_load(
+  const char *slot,
+  uint64_t hash,
+  char *error,
+  size_t error_length
+);
+/*
+ * Admit the completed file `path` (runtime_prepare_file rules), require that
+ * its app id names `slot`, and commit it as that slot's active package (the
+ * previous active becomes last-good). When `slot` is the selected one,
+ * `current_state` is the caller's live state and is updated in place, so the
+ * running guest's next commit continues the same generation sequence.
+ * Returns the admitted package (caller frees) or NULL with `error`.
+ */
+PocketRuntimePackage *runtime_slot_install(
+  const char *slot,
+  const char *path,
+  uint64_t expected_hash,
+  PocketRuntimeState *current_state,
+  char *error,
+  size_t error_length
+);
+/* Delete a slot's whole directory. Refuses the selected (running) slot. */
+bool runtime_slot_remove(const char *slot, char *error, size_t error_length);
+/* runtime_write_error into another slot's last-error.txt. */
+void runtime_slot_write_error(const char *slot, const char *phase, const char *message);
 
 #endif
