@@ -332,6 +332,9 @@ export interface BundleOptions {
   viewport?: SimViewportOptions;
   /** The wasm core. Default: hosts/web/pocketjs.wasm of this PocketJS root. */
   wasm?: string;
+  /** Host-flavored op extensions (appTable/appLaunch, …), installed on the ui
+   *  namespace before the bundle evaluates — bootWorld's `mutateOps`. */
+  ops?: (ops: Record<string, unknown>) => void;
 }
 
 /** A guest exception: thrown while the bundle evaluated (`boot`) or inside a frame. */
@@ -504,6 +507,7 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
     fonts.sort((a, b) => a.slot - b.slot);
   }
   g.ui = wasm.ops;
+  options.ops?.(wasm.ops as unknown as Record<string, unknown>);
   g.__pak = pak;
   g.frame = undefined;
   g.offload = undefined;

@@ -1,0 +1,8 @@
+<svg width="256" height="32" viewBox="0 0 256 32">
+  <path d="M12 0 L244 0 L256 21 L0 21 Z" fill="#dfe8f5" fill-opacity="0.30" />
+  <path d="M12 0 L244 0 L244.6 1 L11.4 1 Z" fill="#ffffff" fill-opacity="0.75" />
+  <path d="M6 10 L250 10 L256 21 L0 21 Z" fill="#ffffff" fill-opacity="0.10" />
+  <rect x="0" y="21" width="256" height="1" fill="#ffffff" fill-opacity="0.85" />
+  <rect x="0" y="22" width="256" height="10" fill="#c9d3e0" fill-opacity="0.38" />
+  <rect x="0" y="31" width="256" height="1" fill="#000000" fill-opacity="0.35" />
+</svg>

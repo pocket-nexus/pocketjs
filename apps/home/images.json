@@ -1,0 +1,62 @@
+{
+  "art/apps.svg": {
+    "linear": true
+  },
+  "art/camera.svg": {
+    "linear": true
+  },
+  "art/check-white.svg": {
+    "linear": true
+  },
+  "art/check.svg": {
+    "linear": true
+  },
+  "art/checkmark-big.svg": {
+    "linear": true
+  },
+  "art/chevron-white.svg": {
+    "linear": true
+  },
+  "art/chevron.svg": {
+    "linear": true
+  },
+  "art/clock.svg": {
+    "linear": true
+  },
+  "art/delete-badge.svg": {
+    "linear": true
+  },
+  "art/dock.svg": {
+    "linear": true
+  },
+  "art/download.svg": {
+    "linear": true
+  },
+  "art/gear.svg": {
+    "linear": true
+  },
+  "art/gloss.svg": {
+    "linear": true
+  },
+  "art/glow-teal.svg": {
+    "linear": true
+  },
+  "art/glow-violet.svg": {
+    "linear": true
+  },
+  "art/glow-white.svg": {
+    "linear": true
+  },
+  "art/info.svg": {
+    "linear": true
+  },
+  "art/laptop.svg": {
+    "linear": true
+  },
+  "art/stripes.svg": {
+    "linear": true
+  },
+  "art/wifi.svg": {
+    "linear": true
+  }
+}

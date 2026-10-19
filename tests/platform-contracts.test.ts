@@ -532,6 +532,8 @@ describe("semantic resolution", () => {
       gallery: [true, true, false, true],
       "gba-hero": [false, false, false, false], // built by hosts/gba/build.ts; no public profile hosts its fixed 240x160 viewport
       hero: [true, true, true, true],
+      hn: [false, false, false, false], // Hacker News for Pocket Home: the private 3ds-dev profile's auxiliary display and touch, net.http over the Pocket Link
+      home: [false, false, false, false], // Pocket Home, the 3DS launcher: requires the private 3ds-dev profile's auxiliary display and touch
       im: [true, true, false, true],
       "iphone16-demo": [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
       "iphone2g-demo": [false, false, false, false], // admitted only by the private iphone2g-dev profile

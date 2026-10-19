@@ -1,0 +1,12 @@
+<svg width="64" height="64" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="20" fill="#ffffff" />
+  <path d="M27.00 5.00 L37.00 5.00 L37.00 17.00 L27.00 17.00 Z" fill="#ffffff" />
+  <path d="M47.56 9.37 L54.63 16.44 L46.14 24.93 L39.07 17.86 Z" fill="#ffffff" />
+  <path d="M59.00 27.00 L59.00 37.00 L47.00 37.00 L47.00 27.00 Z" fill="#ffffff" />
+  <path d="M54.63 47.56 L47.56 54.63 L39.07 46.14 L46.14 39.07 Z" fill="#ffffff" />
+  <path d="M37.00 59.00 L27.00 59.00 L27.00 47.00 L37.00 47.00 Z" fill="#ffffff" />
+  <path d="M16.44 54.63 L9.37 47.56 L17.86 39.07 L24.93 46.14 Z" fill="#ffffff" />
+  <path d="M5.00 37.00 L5.00 27.00 L17.00 27.00 L17.00 37.00 Z" fill="#ffffff" />
+  <path d="M9.37 16.44 L16.44 9.37 L24.93 17.86 L17.86 24.93 Z" fill="#ffffff" />
+  <circle cx="32" cy="32" r="9" fill="hole" />
+</svg>
