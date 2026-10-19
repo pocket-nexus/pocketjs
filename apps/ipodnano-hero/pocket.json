@@ -1,0 +1,26 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.ipodnano.hero",
+  "name": "pocketjs-ipodnano-hero",
+  "title": "PocketJS: iPod nano MicroTS Hero",
+  "version": "0.6.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["text.glyphs.baked", "input.buttons"]
+    }
+  },
+  "app": {
+    "entry": "apps/ipodnano-hero/main.tsx",
+    "output": "ipodnano-hero-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [176, 132],
+        "presentation": "native"
+      }
+    },
+    "aot": true,
+    "model": "compiled"
+  }
+}

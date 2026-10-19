@@ -23,7 +23,6 @@
 //! the widget looks in `<repo>/dist` (override: POCKETJS_DIST or --js/--pak).
 
 mod device;
-mod media;
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -45,7 +44,6 @@ use pocket3d::scene::Scene;
 use winit::keyboard::KeyCode;
 
 use device::Device;
-use media::MediaService;
 
 /// Keys the widget polls for held state (the shared uihost map + I/J/K/L
 /// as a keyboard nub).
@@ -429,8 +427,6 @@ struct StageGame {
     guest: Guest,
     profile_path: PathBuf,
     settings: device::StageSettings,
-    media: Option<MediaService>,
-    svc_booted: bool,
     last_unknown_svc_warning_tick: Option<u64>,
 
     embedded: Option<EmbeddedUi>,
@@ -480,7 +476,6 @@ impl StageGame {
         hold_mask: u32,
         profile_path: PathBuf,
         settings: device::StageSettings,
-        media: Option<MediaService>,
     ) -> Self {
         let initial_window = settings.window_size;
         let scene = Scene {
@@ -500,8 +495,6 @@ impl StageGame {
             guest,
             profile_path,
             settings,
-            media,
-            svc_booted: false,
             last_unknown_svc_warning_tick: None,
             embedded: None,
             dev: None,
@@ -800,14 +793,6 @@ impl WidgetGame for StageGame {
             key_nub
         };
         let analog = analog_pack(nub.x, nub.y);
-        if !self.svc_booted {
-            if let Some(media) = &self.media
-                && let Some(embedded) = self.embedded.as_ref()
-            {
-                embedded.surface().svc_push(media.hello_line());
-            }
-            self.svc_booted = true;
-        }
         self.guest.frame_with_analog(buttons, analog)?;
         if let Some(embedded) = self.embedded.as_mut()
             && embedded.tick()
@@ -816,24 +801,9 @@ impl WidgetGame for StageGame {
         }
         if let Some(embedded) = self.embedded.as_ref() {
             let surface = embedded.surface();
-            if let Some(media) = self.media.as_mut() {
-                // Each registered adapter selectively takes its namespace in
-                // FIFO order. `svc_push` is the opposite (host → guest) path.
-                for line in surface.svc_drain_matching(MediaService::is_guest_line) {
-                    match media.handle_guest_line(&line) {
-                        Ok(true) => {}
-                        Ok(false) => unreachable!("media predicate and handler disagree"),
-                        Err(error) => log::warn!("pocket-stage: bad media svc line: {error:#}"),
-                    }
-                }
-                if let Some(line) = media.tick(self.ticks) {
-                    surface.svc_push(line);
-                }
-            }
-
-            // This is deliberately last: future adapters select before the
-            // final unknown drain. Dropping here bounds a malformed/noisy
-            // guest while preserving every registered namespace above.
+            // Stage packages register no svc adapters; a future adapter
+            // selects its namespace with `svc_drain_matching` before this
+            // drain. Dropping here bounds a malformed or noisy guest.
             let unknown = surface.svc_drain();
             if !unknown.is_empty()
                 && unknown_svc_warning_due(self.last_unknown_svc_warning_tick, self.ticks)
@@ -909,10 +879,7 @@ impl WidgetGame for StageGame {
     }
 }
 
-/// Terminal signals must exit through the event loop so Drop still runs: a
-/// paused afplay child is SIGSTOP'd, and only [`media::MediaService`]'s Drop
-/// resumes and kills it. Dying inside the handler would orphan it as a
-/// permanently stopped process.
+/// Terminal signals exit through the event loop so every Drop runs.
 static SIGNAL_EXIT: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn request_exit_on_signal(_signal: libc::c_int) {
@@ -1122,10 +1089,6 @@ fn boot(args: &Args, settings: &device::StageSettings) -> Result<(Guest, UiSurfa
     // profile. The outer OS window is widget-shaped; the mounted screen is a
     // fixed embedded target (contracts/spec/platforms.ts), so macos-widget is wrong.
     surface.set_identity("macos-embedded", 3);
-    // A package declares both its host adapter contract and the guest-facing
-    // channel name. Only that exact channel may open; a typo or unrelated app
-    // cannot discover the media companion accidentally.
-    surface.set_svc_allowlist(settings.media.iter().map(|media| media.channel.as_str()));
     surface.feed_pak(&pak);
     let guest = Guest::new()?;
     surface.mount(&guest)?;
@@ -1208,7 +1171,6 @@ fn main() -> Result<()> {
             "--expect-ui-hash requires --screenshot"
         );
     }
-    let media = settings.media.clone().map(MediaService::new).transpose()?;
     let (guest, surface) = boot(&args, &settings)?;
     let mut game = StageGame::new(
         guest,
@@ -1216,7 +1178,6 @@ fn main() -> Result<()> {
         args.hold,
         args.profile.clone(),
         settings.clone(),
-        media,
     );
     game.orbit = OrbitState::new(args.orbit.map(f32::to_radians));
     game.quit_after = args.auto_quit.map(|s| (s * 60.0) as u64);

@@ -55,7 +55,6 @@ const SUITE: readonly Stage[] = [
       "tests/idf-release.test.ts",
       "tests/idf-package-corpus.test.ts",
       "tests/widget-args.test.ts",
-      "tests/ipod-nano.test.ts",
       "tests/note.test.ts",
       "tests/pocket-system.test.ts",
       "tests/site-stage.test.ts",

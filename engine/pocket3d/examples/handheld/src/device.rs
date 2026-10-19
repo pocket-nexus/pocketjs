@@ -39,8 +39,6 @@ struct DeviceProfile {
     view: ViewProfile,
     #[serde(default)]
     rotary: Option<RotaryProfile>,
-    #[serde(default)]
-    media: Option<MediaProfile>,
 }
 
 /// Every package states its own display facts; the runtime carries no
@@ -89,24 +87,6 @@ struct RotarySectorProfile {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MediaProfile {
-    service: String,
-    channel: String,
-    tracks: Vec<MediaTrackProfile>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct MediaTrackProfile {
-    id: String,
-    title: String,
-    artist: String,
-    file: String,
-    duration_ms: u64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct LodProfile {
     settled: String,
     orbit: String,
@@ -149,29 +129,12 @@ pub struct ViewSettings {
 }
 
 #[derive(Clone, Debug)]
-pub struct MediaTrack {
-    pub id: String,
-    pub title: String,
-    pub artist: String,
-    pub path: PathBuf,
-    pub duration_ms: u64,
-}
-
-#[derive(Clone, Debug)]
-pub struct MediaSettings {
-    pub service: String,
-    pub channel: String,
-    pub tracks: Vec<MediaTrack>,
-}
-
-#[derive(Clone, Debug)]
 pub struct StageSettings {
     pub logical_size: (u32, u32),
     pub raster_density: u32,
     pub physical_size: (u32, u32),
     pub window_size: (u32, u32),
     pub view: ViewSettings,
-    pub media: Option<MediaSettings>,
 }
 
 #[derive(Clone, Debug)]
@@ -272,7 +235,6 @@ pub fn load_settings(profile_path: &Path) -> Result<StageSettings> {
         .with_context(|| format!("missing stage profile {}", profile_path.display()))?;
     let profile = read_profile(&profile_path)?;
     validate_profile(&profile)?;
-    let profile_dir = profile_path.parent().expect("profile has a parent");
     let logical = profile.display.logical_size;
     let density = profile.display.raster_density;
     let physical = (
@@ -283,34 +245,6 @@ pub fn load_settings(profile_path: &Path) -> Result<StageSettings> {
             .checked_mul(density)
             .ok_or_else(|| anyhow!("display height overflows"))?,
     );
-    let media = profile
-        .media
-        .map(|media| -> Result<MediaSettings> {
-            let tracks = media
-                .tracks
-                .into_iter()
-                .map(|track| -> Result<MediaTrack> {
-                    let path = canonical_package_file(
-                        profile_dir,
-                        Path::new(&track.file),
-                        &format!("media track {}", track.id),
-                    )?;
-                    Ok(MediaTrack {
-                        id: track.id,
-                        title: track.title,
-                        artist: track.artist,
-                        path,
-                        duration_ms: track.duration_ms,
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            Ok(MediaSettings {
-                service: media.service,
-                channel: media.channel,
-                tracks,
-            })
-        })
-        .transpose()?;
     Ok(StageSettings {
         logical_size: (logical[0], logical[1]),
         raster_density: density,
@@ -325,7 +259,6 @@ pub fn load_settings(profile_path: &Path) -> Result<StageSettings> {
             focus_distance: profile.view.focus_distance_mm,
             fov_y: profile.view.fov_y_degrees.to_radians(),
         },
-        media,
     })
 }
 
@@ -752,36 +685,6 @@ fn validate_profile(profile: &DeviceProfile) -> Result<()> {
             button_bits(Some(&sector.button))?;
         }
     }
-    if let Some(media) = &profile.media {
-        ensure!(
-            media.service == "audio-playlist@1",
-            "unsupported media service {}",
-            media.service
-        );
-        ensure!(
-            !media.channel.trim().is_empty(),
-            "media service channel is empty"
-        );
-        ensure!(!media.tracks.is_empty(), "media playlist is empty");
-        for track in &media.tracks {
-            ensure!(
-                !track.id.trim().is_empty()
-                    && !track.title.trim().is_empty()
-                    && !track.file.trim().is_empty()
-                    && track.duration_ms > 0,
-                "media track is incomplete"
-            );
-            let path = Path::new(&track.file);
-            ensure!(
-                !path.is_absolute()
-                    && !path
-                        .components()
-                        .any(|part| matches!(part, std::path::Component::ParentDir)),
-                "media track {} escapes the stage package",
-                track.id
-            );
-        }
-    }
     Ok(())
 }
 
@@ -802,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_ipod_profile_media_and_display_are_valid() {
+    fn bundled_ipod_profile_display_is_valid() {
         let path =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/ipod-nano-2/profile.json");
         let profile = read_profile(&path).unwrap();
@@ -811,11 +714,7 @@ mod tests {
         assert_eq!(settings.logical_size, (176, 132));
         assert_eq!(settings.physical_size, (176, 132));
         assert_eq!(settings.window_size, (320, 600));
-        let media = settings.media.unwrap();
-        assert_eq!(media.service, "audio-playlist@1");
-        assert_eq!(media.channel, "ipod-nano");
-        assert_eq!(media.tracks.len(), 3);
-        assert!(media.tracks.iter().all(|track| track.path.is_file()));
+        assert!(profile.rotary.is_some());
     }
 
     #[test]
@@ -867,19 +766,19 @@ mod tests {
             .unwrap()
             .as_nanos();
         let sandbox = std::env::temp_dir().join(format!(
-            "pocket-stage-media-path-{}-{nonce}",
+            "pocket-stage-package-path-{}-{nonce}",
             std::process::id()
         ));
         let package = sandbox.join("package");
         let outside = sandbox.join("outside");
         std::fs::create_dir_all(&package).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
-        let outside_track = outside.join("track.aiff");
-        std::fs::write(&outside_track, b"not audio").unwrap();
-        symlink(&outside_track, package.join("track.aiff")).unwrap();
+        let outside_model = outside.join("model.glb");
+        std::fs::write(&outside_model, b"not a model").unwrap();
+        symlink(&outside_model, package.join("model.glb")).unwrap();
 
         let error =
-            canonical_package_file(&package, Path::new("track.aiff"), "test track").unwrap_err();
+            canonical_package_file(&package, Path::new("model.glb"), "test LOD").unwrap_err();
         assert!(error.to_string().contains("outside the stage package"));
 
         std::fs::remove_dir_all(&sandbox).unwrap();

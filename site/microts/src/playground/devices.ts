@@ -3,7 +3,7 @@
 // device hosts:
 //   GBA        hosts/gba/src/main.rs           A → CIRCLE, B → CROSS
 //   3DS        hosts/3ds/src/input.c           A → CIRCLE, B → CROSS, X → TRIANGLE, Y → SQUARE
-//   iPod nano  apps/ipod-nano/app.tsx          wheel UP/DOWN, center CIRCLE, MENU TRIANGLE, ⏮⏭ LEFT/RIGHT, ⏯ START
+//   iPod nano  hosts/ipodnano/src/lib.rs       wheel UP/DOWN, center CIRCLE, MENU TRIANGLE, ⏮⏭ LEFT/RIGHT, ⏯ START
 //   BlackBerry docs/BLACKBERRY_CLASSIC.md      trackpad move → direction pulses, press → CIRCLE, Menu → TRIANGLE, Space → START
 //   iPhone / iPod touch                        touch screen only; Home belongs to the system
 // ui: PSP button names a UI app receives (contracts/spec/spec.ts BTN); retro: Pocket Retro GBA button names.

@@ -73,10 +73,9 @@ packages prove that `EmbeddedUi` + `PartMap` carry real weight:
   quantized to ordinary UP/DOWN BTN edges, while tap sectors deliver MENU,
   previous, next, and play/pause. No iPod-only guest ABI or native process
   exists.
-- Its music demo uses the existing svc queue as a companion boundary. The
-  guest owns navigation and displays metadata; the macOS host owns local WAV
-  paths and playback. Paused audio and a settled DrawList produce no periodic
-  GPU work. Launch the complete package with `bun run widget:ipod`.
+- Its default app is the 176×132 iPod nano Hero that also runs on the device
+  as a Rockbox plugin (`hosts/ipodnano`). A settled DrawList produces no
+  periodic GPU work. Launch the package with `bun run widget:ipod`.
 
 The source remains in the historical `engine/pocket3d/examples/handheld` directory
 but the Cargo package, binary, process, and window title are `pocket-stage`.
@@ -497,9 +496,8 @@ Landed in this repo:
 4. `examples/handheld`: the first `pocket-stage` package and transitional
    host — profile-driven authored glTF shells for PSP and iPod nano, semantic
    live screens, quality/orbit LOD switching, mouse/keyboard input, desk/focus/orbit
-   framings, per-package viewport/camera facts, click-wheel detents, optional
-   host-side audio playlists, embedded-target app admission/build plans, and
-   headless scripting (`--screenshot/--click/--drag/--tap/--hold/--focus/--orbit/--auto-quit`).
+   framings, per-package viewport/camera facts, click-wheel detents,
+   embedded-target app admission/build plans, and headless scripting (`--screenshot/--click/--drag/--tap/--hold/--focus/--orbit/--auto-quit`).
 5. The flat form (§2b): `shell::run_flat` + `FlatWidget` + resizable
    windows; `UiRenderer::render_words_scaled` (density-N presentation);
    `UiSurface::new_with_density` + in-process svc queues; `Input` edit

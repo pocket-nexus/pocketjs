@@ -3,7 +3,7 @@
 //
 //   bun run widget                # the hero demo inside the widget
 //   bun run widget im             # any demo (name resolves to <name>-main)
-//   bun run widget --stage ipod   # iPod nano demo + authored nano profile
+//   bun run widget --stage ipod   # iPod nano Hero + authored nano profile
 //   bun run widget -- --focus     # extra flags pass through to the binary
 //   bun run widget im --auto-quit 5
 //   bun run widget --proof        # headless acceptance: a scripted D-pad
@@ -55,7 +55,7 @@ const STAGE_REGISTRY: Record<WidgetStage, { defaultApp: string; profile: string 
     profile: resolvePath(root, "engine/pocket3d/examples/handheld/assets/dibad-psp/profile.json"),
   },
   ipod: {
-    defaultApp: "ipod-nano-main",
+    defaultApp: "ipodnano-hero-main",
     profile: resolvePath(root, "engine/pocket3d/examples/handheld/assets/ipod-nano-2/profile.json"),
   },
 };

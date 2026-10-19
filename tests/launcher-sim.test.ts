@@ -63,7 +63,7 @@ describe("launcher registry admission", () => {
   test("admits every PSP-compatible demo, excludes the rest", () => {
     const outputs = registry.apps.map((a) => a.output);
     // The two structurally incompatible demos (docs/LAUNCHER.md "Admission").
-    expect(outputs).not.toContain("ipod-nano-main");
+    expect(outputs).not.toContain("ipodnano-hero-main");
     expect(outputs).not.toContain("note-main");
     // The launcher never lists itself.
     expect(outputs).not.toContain("launcher-main");
