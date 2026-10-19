@@ -183,7 +183,11 @@ export function createHomeSystem(): HomeSystem {
     requestCatalog().then(
       (apps) => {
         if (request !== catalogRequest) return;
-        setCatalog(apps.map((app) => ({ ...app, title: toAscii(app.title), version: toAscii(app.version), summary: toAscii(app.summary) })));
+        // Home never offers itself: the launcher is the .3dsx, not a catalog app.
+        const launcher = table().launcher;
+        setCatalog(apps
+          .filter((app) => app.output !== launcher)
+          .map((app) => ({ ...app, title: toAscii(app.title), version: toAscii(app.version), summary: toAscii(app.summary) })));
         setCatalogState("ready");
       },
       (error: Error) => {

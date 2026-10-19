@@ -43,8 +43,10 @@ describe("toAscii", () => {
     expect(toAscii("Café naïve Ångström Straße æsir")).toBe("Cafe naive Angstrom Strasse aesir");
   });
 
-  test("anything else becomes ?; emoji variation selectors drop", () => {
-    expect(toAscii("東京 ❤️")).toBe("?? ?");
+  test("anything else becomes a word break, or ? when nothing is left; emoji variation selectors drop", () => {
+    expect(toAscii("東京 ❤️")).toBe("?");
+    expect(toAscii("evan的MacBook Pro")).toBe("evan MacBook Pro");
+    expect(toAscii("Show HN: 東京 maps")).toBe("Show HN: maps");
     expect(toAscii("tab\there\nline")).toBe("tab here\nline");
   });
 });

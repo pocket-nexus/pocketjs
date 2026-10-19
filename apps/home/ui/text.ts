@@ -59,9 +59,12 @@ export function toAscii(text: string): string {
     else if (code >= 0x0300 && code <= 0x036f) continue; // combining accent
     else if (FOLD.has(code)) out += FOLD.get(code);
     else if (code >= 0xfe00 && code <= 0xfe0f) continue; // variation selector
-    else out += "?";
+    // A character outside the baked face (CJK, emoji) becomes a word break:
+    // "evan的MacBook Pro" reads "evan MacBook Pro", not "evan?MacBook Pro".
+    else if (!out.endsWith(" ")) out += " ";
   }
-  return out;
+  const folded = out.replace(/ {2,}/g, " ").trim();
+  return folded === "" && text.trim() !== "" ? "?" : folded;
 }
 
 const widths = new Map<string, number>();

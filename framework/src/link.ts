@@ -77,6 +77,12 @@ export function linkStatus(): LinkStatus {
   }
 }
 
+/** Epoch milliseconds by the linked companion's clock, or the console's own
+ *  when no companion has linked since boot (a 3DS clock is often unset). */
+export function companionNow(): number {
+  return linkHost() ? linkStatus().clock?.utc ?? Date.now() : Date.now();
+}
+
 /** Whether a scanned code is a Pocket Link pairing URI. */
 export function isPairingUri(text: string): boolean {
   return text.startsWith(`${LINK_PAIR_SCHEME}?`);
