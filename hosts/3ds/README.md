@@ -279,11 +279,17 @@ message, and a combined top/bottom PNG. `dev` keeps the DevTools panel attached;
 captures both screens, and `o` opens the panel.
 
 **`devStats` carries `timingUs`: the mean and maximum microseconds of each
-frame phase over the last complete 60-frame window** — guest JS, core tick
-(animation and physics), the two DrawList builds, PICA200 preparation and
-submission, and the frame interval — plus `slowFrames`, the count of intervals
-above 25 ms since boot. A frame after a recovery or a package reload starts a
-new interval and is not sampled.
+frame phase over the last complete 60-frame window** — the loop's system work
+before the guest runs (`pre`: sockets, the link, input), guest JS, core tick
+(animation and physics), layout, the two DrawList builds, PICA200 preparation
+and submission, the wait for the vblank and the GPU (`wait`), and the frame
+interval — plus `slowFrames`, the count of intervals above 25 ms since boot,
+and `gpuLate`, the count of frames whose previous GPU work outlasted a
+vblank. A frame after a recovery or a package reload starts a new interval
+and is not sampled. **`ui.__dbgFrames()` returns the same phases for each of
+the last 64 frames** (`pre,js,layout,draw,gpu,wait,frame` in 0.1 ms units,
+oldest first), for finding the frame that missed its vblank rather than a
+window mean.
 
 **One authenticated, ordered TCP connection carries every development
 message.** JSON frames contain only Pocket DevTools control and logs. Package

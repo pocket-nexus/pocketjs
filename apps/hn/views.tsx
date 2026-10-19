@@ -1,19 +1,23 @@
 // apps/hn/views.tsx — the touch-screen pages of Hacker News: the story list
 // under a Top/New/Best/Ask/Show segmented control, and a story's comment
 // thread. Rows have measured heights (two-line titles, wrapped comment
-// previews), are placed by offset and only the ones near the visible band
-// are mounted.
+// previews) and are placed by offset; a fixed pool of slots draws the ones
+// near the visible band (ui/slots.ts).
 
-import { createEffect, createMemo, For, Show, type Accessor } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, For, onMount, Show, type Accessor } from "solid-js";
+import { jump } from "@pocketjs/framework/animation";
+import { onFrame } from "@pocketjs/framework/lifecycle";
 import { Text, View } from "@pocketjs/framework/components";
 import { ClassicSpinner } from "@pocketjs/framework/classic";
+import type { NodeMirror } from "@pocketjs/framework/renderer";
 import { BTN } from "@pocketjs/framework/input";
 import type { LayerContext, NavStack, PageContent, PageSpec } from "../home/ui/nav.tsx";
-import { ellipsize, FONT, measure, toAscii, wrap } from "../home/ui/text.ts";
+import { ellipsize, FONT, toAscii, wrap } from "../home/ui/text.ts";
+import { createSlotPool, paintText, type SlotPool } from "../home/ui/slots.ts";
 import type { Press, Target } from "../home/ui/touch.ts";
 import { FEEDS, type Item } from "./api.ts";
 import { ageText, domainOf, htmlToText } from "./html.ts";
-import { flattenThread, MAX_COMMENTS, type FlatComment, type HnModel } from "./model.ts";
+import { flattenThread, MAX_COMMENTS, type HnModel } from "./model.ts";
 
 const W = 320;
 const VIEW_H = 204;
@@ -24,6 +28,8 @@ const TITLE_W = W - TITLE_X - BUBBLE_W - 14;
 const TITLE_LINE = 17;
 const META_H = 15;
 const MORE_H = 44;
+/** The shortest story row: a one-line title. */
+const STORY_MIN_H = 8 + TITLE_LINE + META_H + 6;
 
 export interface HnEnv {
   model: HnModel;
@@ -36,7 +42,7 @@ export interface HnEnv {
 }
 
 /** A rect is in the mounted band around the visible content. */
-const near = (y: number, h: number, offset: number) => y + h > offset - OVERSCAN && y < offset + VIEW_H + OVERSCAN;
+const NO_ROWS: never[] = [];
 
 // ---- the segmented control -------------------------------------------------------
 
@@ -93,6 +99,7 @@ export interface StoryRow {
 }
 
 const titleCache = new Map<number, string[]>();
+const NO_TITLE = [""];
 
 function titleLines(item: Item): string[] {
   let lines = titleCache.get(item.id);
@@ -112,6 +119,20 @@ export function storyMeta(item: Item, now: number): string {
   return parts.join("  ");
 }
 
+/** Meta lines by story, kept until the item or the minute changes: the
+ *  list re-lays out once per arriving story, and building and fitting every
+ *  row's line each time cost tens of milliseconds on an Old 3DS. */
+const metaCache = new Map<number, { item: Item; now: number; line: string }>();
+
+function storyMetaLine(item: Item, now: number): string {
+  const cached = metaCache.get(item.id);
+  if (cached && cached.item === item && cached.now === now) return cached.line;
+  const line = ellipsize(storyMeta(item, now), FONT.xs, TITLE_W);
+  if (metaCache.size > 600) metaCache.clear();
+  metaCache.set(item.id, { item, now, line });
+  return line;
+}
+
 /** Rows by id from the last layout: an unchanged row keeps its object, so
  *  the list keeps its nodes while other stories arrive around it. */
 const previousRows = new Map<number, StoryRow>();
@@ -123,9 +144,9 @@ function storyRows(env: HnEnv): { rows: StoryRow[]; height: number } {
   let y = 0;
   const rows = state.ids.slice(0, state.shown).map((id, index) => {
     const item = env.model.client.cached(id);
-    const title = item ? titleLines(item) : [""];
+    const title = item ? titleLines(item) : NO_TITLE;
     const h = 8 + title.length * TITLE_LINE + META_H + 6;
-    const meta = item ? ellipsize(storyMeta(item, now), FONT.xs, TITLE_W) : "";
+    const meta = item ? storyMetaLine(item, now) : "";
     const before = previousRows.get(id);
     const row: StoryRow = before && before.item === item && before.y === y && before.h === h && before.rank === index + 1 && before.meta === meta
       ? before
@@ -139,55 +160,109 @@ function storyRows(env: HnEnv): { rows: StoryRow[]; height: number } {
   return { rows, height: y + (more ? MORE_H : 0) };
 }
 
-function bubbleWidth(count: number): number {
-  return Math.max(24, Math.ceil(measure(String(count), FONT.xsBold)) + 12);
+/** Focus keys and rows by key for a layout, built when the d-pad first asks
+ *  after the layout changed. Scanning the rows with a key built per row
+ *  cost milliseconds per d-pad step on an Old 3DS. */
+function keyIndex<R extends { id: number }>(rows: () => readonly R[], prefix: string) {
+  let built: readonly R[] | null = null;
+  let order: string[] = [];
+  let byKey = new Map<string, R>();
+  return () => {
+    const list = rows();
+    if (list !== built) {
+      built = list;
+      order = list.map((row) => prefix + row.id);
+      byKey = new Map(list.map((row, index) => [order[index]!, row]));
+    }
+    return { order, byKey };
+  };
 }
 
-function StoryRowView(props: { row: StoryRow; env: HnEnv; lit: Accessor<boolean> }) {
-  const row = props.row;
-  const item = row.item;
-  const count = item?.descendants ?? 0;
-  const bubble = bubbleWidth(count);
+/** Whether row `id` is lit: pressed, or focused by the d-pad. Pressed and
+ *  focused resolve to ids once per change, so a slot that takes a new row
+ *  compares numbers instead of building keys. */
+function highlight(env: HnEnv, layer: LayerContext, prefix: string): (id: number) => boolean {
+  const idOf = (key: string) => (key.startsWith(prefix) ? Number(key.slice(prefix.length)) : 0);
+  const pressed = createMemo(() => idOf(env.press.id()));
+  const focused = createMemo(() => (env.keys() ? idOf(layer.focus()) : 0));
+  return (id) => id === pressed() || id === focused();
+}
+
+/** One slot of the story list's pool (ui/slots.ts). Its nodes mount once;
+ *  the painter moves the slot, rewrites its texts and recolors it for each
+ *  new row, and the highlight recolors it in place. Positions inside the slot
+ *  are static classes and flex layout, so a new row costs a few writes and
+ *  the slot's own relayout. */
+function StorySlot(props: { pool: SlotPool<StoryRow>; slot: number; lit: (id: number) => boolean }) {
+  let box!: NodeMirror;
+  let wash!: NodeMirror;
+  let rank!: NodeMirror;
+  let title!: NodeMirror;
+  let meta!: NodeMirror;
+  let bubble!: NodeMirror;
+  let count!: NodeMirror;
+  const [id, setId] = createSignal(0);
+  const [loaded, setLoaded] = createSignal(false);
+  const [counted, setCounted] = createSignal(false);
+  const lit = createMemo(() => id() !== 0 && props.lit(id()));
+  let hot = false;
+  let y = -1;
+  let h = -1;
+  const recolor = () => {
+    const on = lit();
+    jump(wash, "opacity", on ? 1 : 0);
+    jump(rank, "textColor", on ? "#ffffff" : "#a0a6ae");
+    jump(title, "textColor", on ? "#ffffff" : "#111111");
+    jump(meta, "textColor", on ? "#d6e6ff" : "#8a9099");
+    jump(bubble, "bgColor", on ? "#ffffff" : hot ? "#ff7a1a" : "#b8bec6");
+    jump(count, "textColor", on ? "#1466e0" : "#ffffff");
+  };
+  onMount(() => {
+    createEffect(recolor);
+    props.pool.attach(props.slot, (row) => batch(() => {
+      if (!row) {
+        // An empty slot keeps no stale text, drawn or read.
+        if (y >= 0) jump(box, "opacity", 0);
+        y = -1;
+        for (const text of [rank, title, meta, count]) paintText(text, "");
+        setId(0);
+        return;
+      }
+      if (y < 0) jump(box, "opacity", 1);
+      if (row.y !== y) jump(box, "translateY", (y = row.y));
+      if (row.h !== h) jump(box, "height", (h = row.h));
+      paintText(rank, String(row.rank));
+      paintText(title, row.title.join("\n"));
+      paintText(meta, row.meta);
+      const item = row.item;
+      const total = item?.descendants ?? 0;
+      paintText(count, String(total));
+      setLoaded(item !== undefined);
+      setCounted(!!item && item.type !== "job");
+      if (hot !== total > 0) {
+        hot = total > 0;
+        if (!lit()) jump(bubble, "bgColor", hot ? "#ff7a1a" : "#b8bec6");
+      }
+      setId(row.id);
+    }));
+  });
   return (
-    <>
-      <View class={props.lit() ? "absolute left-0 w-[320] bg-gradient-to-b from-[#058cf5] to-[#015ee6]" : "hidden"} style={{ insetT: row.y, height: row.h }} />
-      <View class="absolute h-[1] bg-[#e0e0e0]" style={{ insetL: TITLE_X, insetT: row.y + row.h - 1, width: W - TITLE_X }} />
-      <Text class={props.lit() ? "absolute left-0 w-[26] text-xs text-white font-bold text-right" : "absolute left-0 w-[26] text-xs text-[#a0a6ae] font-bold text-right"} style={{ insetT: row.y + 8 }}>
-        {String(row.rank)}
-      </Text>
-      <Show
-        when={item}
-        fallback={
-          <>
-            <View class="absolute h-[9] rounded-[4] bg-[#e4e7eb]" style={{ insetL: TITLE_X, insetT: row.y + 11, width: TITLE_W - 30 }} />
-            <View class="absolute h-[7] rounded-[3] bg-[#eef0f2]" style={{ insetL: TITLE_X, insetT: row.y + 28, width: 120 }} />
-          </>
-        }
-      >
-        <For each={row.title}>
-          {(line, index) => (
-            <Text class={props.lit() ? "absolute text-sm text-white font-bold" : "absolute text-sm text-[#111111] font-bold"} style={{ insetL: TITLE_X, insetT: row.y + 6 + index() * TITLE_LINE }}>
-              {line}
-            </Text>
-          )}
-        </For>
-        <Text class={props.lit() ? "absolute text-xs text-[#d6e6ff]" : "absolute text-xs text-[#8a9099]"} style={{ insetL: TITLE_X, insetT: row.y + 8 + row.title.length * TITLE_LINE }}>
-          {row.meta}
-        </Text>
-        <Show when={item?.type !== "job"}>
-          <View
-            class={props.lit() ? "absolute h-[18] rounded-[9] bg-white" : count > 0 ? "absolute h-[18] rounded-[9] bg-[#ff7a1a]" : "absolute h-[18] rounded-[9] bg-[#b8bec6]"}
-            style={{ insetL: W - 10 - bubble, insetT: row.y + (row.h - 18) / 2, width: bubble }}
-          />
-          <Text
-            class={props.lit() ? "absolute text-xs text-[#1466e0] font-bold text-center" : "absolute text-xs text-white font-bold text-center"}
-            style={{ insetL: W - 10 - bubble, insetT: row.y + (row.h - 18) / 2 + 2, width: bubble }}
-          >
-            {String(count)}
-          </Text>
-        </Show>
-      </Show>
-    </>
+    <View ref={box} class="absolute left-0 top-0 w-[320] h-[46] opacity-0 contain-strict">
+      <View ref={wash} class="absolute inset-0 opacity-0 bg-gradient-to-b from-[#058cf5] to-[#015ee6]" />
+      <View class="absolute left-[32] right-0 bottom-0 h-[1] bg-[#e0e0e0]" />
+      <Text ref={rank} class="absolute left-0 top-[8] w-[26] text-xs text-[#a0a6ae] font-bold text-right">{" "}</Text>
+      <View class={loaded() ? "hidden" : "absolute left-[32] top-[11] w-[208] h-[9] rounded-[4] bg-[#e4e7eb]"} />
+      <View class={loaded() ? "hidden" : "absolute left-[32] top-[28] w-[120] h-[7] rounded-[3] bg-[#eef0f2]"} />
+      <View class="absolute left-[32] top-[6] flex-col">
+        <Text ref={title} class="text-sm text-[#111111] font-bold leading-[17]">{" "}</Text>
+        <Text ref={meta} class="mt-[2] text-xs text-[#8a9099]">{" "}</Text>
+      </View>
+      <View class={counted() ? "absolute right-[10] top-0 bottom-0 flex-col justify-center" : "hidden"}>
+        <View ref={bubble} class="h-[18] min-w-[24] px-[6] rounded-[9] bg-[#b8bec6] flex-col justify-center items-center">
+          <Text ref={count} class="text-xs text-white font-bold">{" "}</Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -223,9 +298,12 @@ function Centered(props: { title: string; detail: string; spinner?: boolean; but
 export function listPage(env: HnEnv, stack: NavStack, layer: LayerContext): PageSpec {
   const { model, press } = env;
   const layout = createMemo(() => storyRows(env));
-  const visible = createMemo(() => layout().rows.filter((row) => near(row.y, row.h, layer.offset())), undefined, {
-    equals: (a, b) => a.length === b.length && a.every((row, index) => row === b[index]),
-  });
+  const listed = () => model.state().status === "ready" && model.state().ids.length > 0;
+  // The pool stays mounted across feed changes and reloads; it shows no rows
+  // while the list is not ready.
+  const pool = createSlotPool(() => (listed() ? layout().rows : NO_ROWS), layer.offset, { view: VIEW_H, overscan: OVERSCAN, minRowH: STORY_MIN_H });
+  const lit = highlight(env, layer, "story.");
+  const keys = keyIndex(() => layout().rows, "story.");
   const open = (row: StoryRow) => {
     if (!row.item) return;
     env.select(row.id);
@@ -241,40 +319,39 @@ export function listPage(env: HnEnv, stack: NavStack, layer: LayerContext): Page
   // The d-pad focus is the story the top screen reads; nearing the end of
   // the list, by focus or by scrolling, pages in the next stories.
   createEffect(() => {
-    const row = layout().rows.find((entry) => `story.${entry.id}` === layer.focus());
+    const focused = layer.focus();
+    if (!focused) return;
+    const row = keys().byKey.get(focused);
     if (!row) return;
     env.select(row.id);
     if (row.rank >= model.state().shown - 3) model.more();
   });
-  createEffect(() => {
-    const height = layout().height;
-    if (model.state().status === "ready" && layer.offset() + VIEW_H > height - MORE_H - 40) model.more();
+  // Checked per frame rather than as an effect on the offset, which would
+  // rerun on every scrolled frame.
+  onFrame(() => {
+    if (model.state().status === "ready" && layer.offset() + VIEW_H > layout().height - MORE_H - 40) model.more();
   });
   const content: PageContent = {
     view: () => (
-      <Show
-        when={model.state().status === "ready" && model.state().ids.length > 0}
-        fallback={
-          model.state().status === "error"
+      <>
+        <For each={pool.slots}>{(slot) => <StorySlot pool={pool} slot={slot} lit={lit} />}</For>
+        <Show when={!listed()}>
+          {model.state().status === "error"
             ? <Centered title={model.state().error!.title} detail={model.state().error!.detail} button={{ id: "feed.retry", label: "Try Again" }} press={press} />
             : model.state().status === "ready"
               ? <Centered title="No Stories" detail="This list is empty right now." press={press} />
-              : <Centered title="Loading" detail="Fetching the front page through your Mac." spinner press={press} />
-        }
-      >
-        <For each={visible()}>
-          {(row) => <StoryRowView row={row} env={env} lit={() => press.is(`story.${row.id}`) || (env.keys() && layer.focus() === `story.${row.id}`)} />}
-        </For>
-        <Show when={model.state().shown < model.state().ids.length}>
+              : <Centered title="Loading" detail="Fetching the front page through your Mac." spinner press={press} />}
+        </Show>
+        <Show when={listed() && model.state().shown < model.state().ids.length}>
           <View class="absolute left-[118]" style={{ insetT: layout().height - MORE_H + 13 }}>
             <ClassicSpinner size={18} color={"#8a9099"} />
           </View>
           <Text class="absolute left-[144] text-sm text-[#8a9099] font-bold" style={{ insetT: layout().height - MORE_H + 13 }}>Loading...</Text>
         </Show>
-      </Show>
+      </>
     ),
     height: () => layout().height,
-    focusOrder: () => layout().rows.map((row) => `story.${row.id}`),
+    focusOrder: () => keys().order,
     targets(top, offset, bottom) {
       const state = model.state();
       if (state.status === "error") return [{ id: "feed.retry", x: 100, y: top + 160 - offset, w: 120, h: 30, run: () => model.reload() }];
@@ -287,11 +364,11 @@ export function listPage(env: HnEnv, stack: NavStack, layer: LayerContext): Page
       return out;
     },
     span(id) {
-      const row = layout().rows.find((entry) => `story.${entry.id}` === id);
+      const row = keys().byKey.get(id);
       return row ? [row.y, row.y + row.h] : null;
     },
     activate(id) {
-      const row = layout().rows.find((entry) => `story.${entry.id}` === id);
+      const row = keys().byKey.get(id);
       if (row) open(row);
       else if (id === "feed.retry") model.reload();
     },
@@ -320,11 +397,16 @@ export function listPage(env: HnEnv, stack: NavStack, layer: LayerContext): Page
 
 const BODY_LINE = 14;
 const PREVIEW_LINES = 4;
+/** The shortest comment row: one line of text. */
+const COMMENT_MIN_H = 7 + 15 + BODY_LINE + 7;
 const INDENT = 11;
 
 export interface CommentRow {
   id: number;
-  comment: FlatComment | null;
+  /** Nesting depth, capped at 5. */
+  depth: number;
+  /** The row stands for collapsed replies, drawn dimmed. */
+  dim: boolean;
   x: number;
   y: number;
   h: number;
@@ -349,6 +431,13 @@ export function commentLines(item: Item, width: number, maxLines: number): strin
   return lines;
 }
 
+const previousComments = new Map<number, CommentRow>();
+
+function sameComment(a: CommentRow, b: CommentRow): boolean {
+  return a.depth === b.depth && a.dim === b.dim && a.x === b.x && a.y === b.y && a.h === b.h && a.author === b.author &&
+    a.age === b.age && a.op === b.op && a.body.length === b.body.length && a.body.every((line, index) => line === b.body[index]);
+}
+
 function threadRows(env: HnEnv): { header: { title: string[]; meta: string; h: number } | null; rows: CommentRow[]; height: number; footer: string } {
   env.model.version();
   const thread = env.model.thread();
@@ -365,9 +454,10 @@ function threadRows(env: HnEnv): { header: { title: string[]; meta: string; h: n
       ? [`${comment.hidden} ${comment.hidden === 1 ? "reply" : "replies"} hidden`]
       : commentLines(comment.item, W - x - 10, PREVIEW_LINES);
     const h = 7 + 15 + body.length * BODY_LINE + 7;
-    const row: CommentRow = {
+    const next: CommentRow = {
       id: comment.id,
-      comment,
+      depth,
+      dim: comment.hidden > 0,
       x,
       y,
       h,
@@ -376,9 +466,14 @@ function threadRows(env: HnEnv): { header: { title: string[]; meta: string; h: n
       body,
       op: !!story?.by && comment.item.by === story.by,
     };
+    // An unchanged row keeps its object, so the slot showing it keeps its nodes as they are.
+    const before = previousComments.get(comment.id);
+    const row = before && sameComment(before, next) ? before : next;
+    previousComments.set(comment.id, row);
     y += h;
     return row;
   });
+  if (previousComments.size > 600) previousComments.clear();
   const total = story?.descendants ?? 0;
   const loading = thread.pending > 0;
   const footer = thread.error
@@ -398,52 +493,93 @@ function threadRows(env: HnEnv): { header: { title: string[]; meta: string; h: n
   };
 }
 
-const DEPTH_LINES = ["", "absolute w-[2] bg-[#ff9a52]", "absolute w-[2] bg-[#7fb0e8]", "absolute w-[2] bg-[#8fd18f]", "absolute w-[2] bg-[#d59be0]", "absolute w-[2] bg-[#c9b37a]"] as const;
+const DEPTH_COLORS = ["#ff9a52", "#7fb0e8", "#8fd18f", "#d59be0", "#c9b37a"];
 
-function CommentRowView(props: { row: CommentRow; lit: Accessor<boolean>; selected: Accessor<boolean> }) {
-  const row = props.row;
-  const depth = Math.min(row.comment?.depth ?? 0, 5);
+/** One slot of the thread's pool (ui/slots.ts); painted like StorySlot. */
+function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id: number) => boolean; selected: (id: number) => boolean }) {
+  let box!: NodeMirror;
+  let wash!: NodeMirror;
+  let tint!: NodeMirror;
+  let bar!: NodeMirror;
+  let frame!: NodeMirror;
+  let rule!: NodeMirror;
+  let author!: NodeMirror;
+  let age!: NodeMirror;
+  let body!: NodeMirror;
+  const [id, setId] = createSignal(0);
+  const lit = createMemo(() => id() !== 0 && props.lit(id()));
+  const selected = createMemo(() => id() !== 0 && props.selected(id()));
+  let op = false;
+  let dim = false;
+  let depth = -1;
+  let y = -1;
+  let h = -1;
+  let x = -1;
+  const recolor = () => {
+    const on = lit();
+    const chosen = selected() && !on;
+    jump(wash, "opacity", on ? 1 : 0);
+    jump(tint, "opacity", chosen ? 1 : 0);
+    jump(bar, "opacity", chosen ? 1 : 0);
+    jump(author, "textColor", on ? "#ffffff" : op ? "#e05d00" : "#3b4a60");
+    jump(age, "textColor", on ? "#d6e6ff" : "#a0a6ae");
+    jump(body, "textColor", on ? "#ffffff" : dim ? "#8a9099" : "#222222");
+  };
+  onMount(() => {
+    createEffect(recolor);
+    props.pool.attach(props.slot, (row) => batch(() => {
+      if (!row) {
+        if (y >= 0) jump(box, "opacity", 0);
+        y = -1;
+        for (const text of [author, age, body]) paintText(text, "");
+        setId(0);
+        return;
+      }
+      if (y < 0) jump(box, "opacity", 1);
+      if (row.y !== y) jump(box, "translateY", (y = row.y));
+      if (row.h !== h) jump(box, "height", (h = row.h));
+      if (row.x !== x) jump(frame, "insetL", (x = row.x));
+      if (row.depth !== depth) {
+        depth = row.depth;
+        jump(rule, "opacity", depth === 0 ? 0 : 1);
+        if (depth > 0) jump(rule, "bgColor", DEPTH_COLORS[depth - 1]!);
+      }
+      paintText(author, row.author);
+      paintText(age, row.age);
+      paintText(body, row.body.join("\n"));
+      const recolorNow = row.op !== op || row.dim !== dim;
+      op = row.op;
+      dim = row.dim;
+      setId(row.id);
+      // A highlight change recolors through the effect; a new tone does here.
+      if (recolorNow) recolor();
+    }));
+  });
   return (
-    <>
-      <View
-        class={props.lit() ? "absolute left-0 w-[320] bg-gradient-to-b from-[#058cf5] to-[#015ee6]" : props.selected() ? "absolute left-0 w-[320] bg-[#fff0e0]" : "hidden"}
-        style={{ insetT: row.y, height: row.h }}
-      />
-      <View class={props.selected() && !props.lit() ? "absolute left-0 w-[3] bg-[#ff7a1a]" : "hidden"} style={{ insetT: row.y, height: row.h }} />
-      <View class="absolute h-[1] bg-[#e6e6e6]" style={{ insetL: row.x, insetT: row.y + row.h - 1, width: W - row.x }} />
-      <Show when={depth > 0}>
-        <View
-          class={depth === 1 ? DEPTH_LINES[1] : depth === 2 ? DEPTH_LINES[2] : depth === 3 ? DEPTH_LINES[3] : depth === 4 ? DEPTH_LINES[4] : DEPTH_LINES[5]}
-          style={{ insetL: row.x - 6, insetT: row.y + 4, height: row.h - 8 }}
-        />
-      </Show>
-      <Text
-        class={props.lit() ? "absolute text-xs text-white font-bold" : row.op ? "absolute text-xs text-[#e05d00] font-bold" : "absolute text-xs text-[#3b4a60] font-bold"}
-        style={{ insetL: row.x, insetT: row.y + 6 }}
-      >
-        {row.author}
-      </Text>
-      <Text class={props.lit() ? "absolute text-xs text-[#d6e6ff]" : "absolute text-xs text-[#a0a6ae]"} style={{ insetL: row.x + measure(row.author, FONT.xsBold) + 6, insetT: row.y + 6 }}>
-        {row.age}
-      </Text>
-      <For each={row.body}>
-        {(line, index) => (
-          <Text
-            class={props.lit() ? "absolute text-xs text-white" : (row.comment?.hidden ?? 0) > 0 ? "absolute text-xs text-[#8a9099]" : "absolute text-xs text-[#222222]"}
-            style={{ insetL: row.x, insetT: row.y + 22 + index() * BODY_LINE }}
-          >
-            {line}
-          </Text>
-        )}
-      </For>
-    </>
+    <View ref={box} class="absolute left-0 top-0 w-[320] h-[43] opacity-0 contain-strict">
+      <View ref={wash} class="absolute inset-0 opacity-0 bg-gradient-to-b from-[#058cf5] to-[#015ee6]" />
+      <View ref={tint} class="absolute inset-0 opacity-0 bg-[#fff0e0]" />
+      <View ref={bar} class="absolute left-0 top-0 bottom-0 w-[3] opacity-0 bg-[#ff7a1a]" />
+      <View ref={frame} class="absolute left-[10] top-0 right-0 bottom-0">
+        <View class="absolute left-0 right-0 bottom-0 h-[1] bg-[#e6e6e6]" />
+        <View ref={rule} class="absolute left-[-6] top-[4] bottom-[4] w-[2] opacity-0 bg-[#ff9a52]" />
+        <View class="absolute left-0 top-[6] flex-row">
+          <Text ref={author} class="text-xs text-[#3b4a60] font-bold">{" "}</Text>
+          <Text ref={age} class="ml-[6] text-xs text-[#a0a6ae]">{" "}</Text>
+        </View>
+        <Text ref={body} class="absolute left-0 top-[22] text-xs text-[#222222] leading-[14]">{" "}</Text>
+      </View>
+    </View>
   );
 }
 
 export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext): PageSpec {
   const { model, press } = env;
   const layout = createMemo(() => threadRows(env));
-  const visible = createMemo(() => layout().rows.filter((row) => near(row.y, row.h, layer.offset())));
+  const pool = createSlotPool(() => layout().rows, layer.offset, { view: VIEW_H, overscan: OVERSCAN, minRowH: COMMENT_MIN_H });
+  const lit = highlight(env, layer, "comment.");
+  const keys = keyIndex(() => layout().rows, "comment.");
+  const selected = (id: number) => env.selected() === id;
   const story = () => {
     const thread = model.thread();
     return thread ? model.client.cached(thread.story) : undefined;
@@ -471,15 +607,7 @@ export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext):
             </>
           )}
         </Show>
-        <For each={visible()}>
-          {(row) => (
-            <CommentRowView
-              row={row}
-              lit={() => press.is(`comment.${row.id}`) || (env.keys() && layer.focus() === `comment.${row.id}`)}
-              selected={() => env.selected() === row.id}
-            />
-          )}
-        </For>
+        <For each={pool.slots}>{(slot) => <CommentSlot pool={pool} slot={slot} lit={lit} selected={selected} />}</For>
         <Show when={layout().footer}>
           <Show when={model.thread()?.pending}>
             <View class="absolute left-[92]" style={{ insetT: layout().height - 32 }}>
@@ -491,7 +619,7 @@ export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext):
       </>
     ),
     height: () => layout().height,
-    focusOrder: () => layout().rows.map((row) => `comment.${row.id}`),
+    focusOrder: () => keys().order,
     targets(top, offset, bottom) {
       const out: Target[] = [];
       for (const row of layout().rows) {
@@ -502,11 +630,11 @@ export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext):
       return out;
     },
     span(id) {
-      const row = layout().rows.find((entry) => `comment.${entry.id}` === id);
+      const row = keys().byKey.get(id);
       return row ? [row.y, row.y + row.h] : null;
     },
     activate(id) {
-      const row = layout().rows.find((entry) => `comment.${entry.id}` === id);
+      const row = keys().byKey.get(id);
       if (row) model.toggle(row.id);
     },
   };

@@ -9,12 +9,15 @@
 // Every request rides @pocketjs/framework/net, which on the 3DS goes through
 // the linked Mac, two at a time.
 
-import { createMemo, createSignal, For, Show } from "solid-js";
-import { AuxiliarySurface, Text, View } from "@pocketjs/framework/components";
+import { batch, createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { jump } from "@pocketjs/framework/animation";
+import { AuxiliarySurface, Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import { BTN } from "@pocketjs/framework/input";
 import { onButtonPress, onFrame } from "@pocketjs/framework/lifecycle";
+import { companionNow } from "@pocketjs/framework/link";
 import { createNavStack } from "../home/ui/nav.tsx";
 import { ellipsize, FONT, toAscii, wrap } from "../home/ui/text.ts";
+import { paintText } from "../home/ui/slots.ts";
 import { createPress, createTouchRouter } from "../home/ui/touch.ts";
 import { FEEDS, type Item } from "./api.ts";
 import { ageLong, domainOf, htmlToText } from "./html.ts";
@@ -25,10 +28,30 @@ const ALL_BUTTONS = 0xffff;
 const PANE_TOP = 26;
 const PANE_H = 240 - PANE_TOP;
 const PANE_W = 372;
+/** Line nodes in the pane's pool: more than the pane shows at once. */
+const LINE_SLOTS = Array.from({ length: 18 }, (_, index) => index);
 
 interface PaneLine {
   text: string;
   kind: "title" | "meta" | "body" | "author" | "rule" | "context" | "hint";
+}
+
+function sameLines(a: PaneLine[], b: PaneLine[]): boolean {
+  return a.length === b.length && a.every((line, index) => line.text === b[index]!.text && line.kind === b[index]!.kind);
+}
+
+/** Pane lines by item, kept while the item, its story and the minute hold:
+ *  the d-pad revisits rows, and wrapping a pane costs milliseconds on an
+ *  Old 3DS. */
+const paneCache = new Map<number, { item: Item; story: Item | undefined; now: number; lines: PaneLine[] }>();
+
+function paneLinesOf(item: Item, story: Item | undefined, now: number): PaneLine[] {
+  const cached = paneCache.get(item.id);
+  if (cached && cached.item === item && cached.story === story && cached.now === now) return cached.lines;
+  const lines = item.type === "comment" ? commentPaneLines(item, story, now) : storyLines(item, now);
+  if (paneCache.size > 200) paneCache.clear();
+  paneCache.set(item.id, { item, story, now, lines });
+  return lines;
 }
 
 function storyLines(item: Item, now: number): PaneLine[] {
@@ -65,12 +88,12 @@ export default function HackerNews() {
   const press = createPress();
   const [keys, setKeys] = createSignal(false);
   // Ages need minutes, not frames: the clock signal changes once a minute.
-  const [now, setNow] = createSignal(Math.floor(Date.now() / 60000) * 60000);
+  const [now, setNow] = createSignal(Math.floor(companionNow() / 60000) * 60000);
   const [selected, setSelected] = createSignal(0);
   const [paneScroll, setPaneScroll] = createSignal(0);
   let frames = 0;
   onFrame(() => {
-    if (++frames % 60 === 0) setNow(Math.floor(Date.now() / 60000) * 60000);
+    if (++frames % 60 === 0) setNow(Math.floor(companionNow() / 60000) * 60000);
   });
 
   const env: HnEnv = {
@@ -108,11 +131,14 @@ export default function HackerNews() {
 
   const inThread = () => stack.top()?.page === "comments";
 
+  // The pane follows the model only while what it shows is still arriving:
+  // every story that arrives bumps the version, and re-wrapping the pane for
+  // each was a long frame on an Old 3DS. Equal lines do not redraw.
   const pane = createMemo((): PaneLine[] => {
-    model.version();
     const id = selected();
     const item = id ? model.client.cached(id) : undefined;
     if (!item) {
+      model.version();
       const state = model.state();
       if (state.status === "error") return [{ text: state.error!.title, kind: "title" }, { text: "", kind: "rule" }, ...wrap(state.error!.detail, FONT.sm, PANE_W).map((text) => ({ text, kind: "body" as const }))];
       return [
@@ -125,10 +151,12 @@ export default function HackerNews() {
     }
     if (item.type === "comment") {
       const thread = model.thread();
-      return commentPaneLines(item, thread ? model.client.cached(thread.story) : undefined, now());
+      const story = thread ? model.client.cached(thread.story) : undefined;
+      if (thread && !story) model.version();
+      return paneLinesOf(item, story, now());
     }
-    return storyLines(item, now());
-  });
+    return paneLinesOf(item, undefined, now());
+  }, undefined, { equals: sameLines });
   const placed = createMemo(() => {
     let y = 8;
     return pane().map((line) => {
@@ -145,6 +173,28 @@ export default function HackerNews() {
   const maxScroll = () => Math.max(0, paneHeight() - PANE_H);
   const visibleLines = () => placed().filter((line) => line.y - paneScroll() > -24 && line.y - paneScroll() < PANE_H);
 
+  // The pane is a fixed pool of line nodes written in place: a new story or
+  // comment rewrites texts and offsets, and only a line whose kind changed
+  // restyles. Mounting a fresh set per selection cost most of a d-pad step's
+  // 60-90 ms on an Old 3DS.
+  const lineNodes: NodeMirror[] = [];
+  const lineKinds = LINE_SLOTS.map(() => createSignal<PaneLine["kind"]>("body"));
+  const lineTops: number[] = LINE_SLOTS.map(() => -1);
+  createEffect(() => {
+    const lines = visibleLines();
+    batch(() => {
+      for (const index of LINE_SLOTS) {
+        const node = lineNodes[index];
+        if (!node) continue;
+        const line = lines[index];
+        lineKinds[index]![1](line ? line.kind : "body");
+        paintText(node, line ? line.text : "");
+        const top = line ? (line.kind === "rule" ? line.y + 4 : line.y) : 0;
+        if (top !== lineTops[index]) jump(node, "insetT", (lineTops[index] = top));
+      }
+    });
+  });
+
   onButtonPress(ALL_BUTTONS, (pressed) => {
     if (inThread() && pressed & (BTN.LTRIGGER | BTN.RTRIGGER)) {
       const step = pressed & BTN.LTRIGGER ? -PANE_H + 34 : PANE_H - 34;
@@ -160,28 +210,30 @@ export default function HackerNews() {
     <>
       <View class="relative w-full h-full overflow-hidden bg-[#f6f6ef]">
         <View class="absolute left-0 top-[26] w-[400]" style={{ height: PANE_H, translateY: -paneScroll() }}>
-          <For each={visibleLines()}>
-            {(line) =>
-              line.kind === "rule"
-                ? <View class="absolute left-[14] w-[372] h-[1] bg-[#e2dccb]" style={{ insetT: line.y + 4 }} />
-                : (
-                  <Text
-                    class={line.kind === "title"
-                      ? "absolute left-[14] text-lg text-black font-bold"
-                      : line.kind === "meta"
-                        ? "absolute left-[14] text-xs text-[#828282]"
-                        : line.kind === "context"
-                          ? "absolute left-[14] text-xs text-[#ff6600] font-bold"
-                          : line.kind === "author"
-                            ? "absolute left-[14] text-sm text-[#3b4a60] font-bold"
-                            : line.kind === "hint"
-                              ? "absolute left-[14] text-sm text-[#a0a6ae]"
+          <For each={LINE_SLOTS}>
+            {(index) => {
+              const kind = lineKinds[index]![0];
+              return (
+                <Text
+                  ref={(node) => (lineNodes[index] = node)}
+                  class={kind() === "title"
+                    ? "absolute left-[14] text-lg text-black font-bold"
+                    : kind() === "meta"
+                      ? "absolute left-[14] text-xs text-[#828282]"
+                      : kind() === "context"
+                        ? "absolute left-[14] text-xs text-[#ff6600] font-bold"
+                        : kind() === "author"
+                          ? "absolute left-[14] text-sm text-[#3b4a60] font-bold"
+                          : kind() === "hint"
+                            ? "absolute left-[14] text-sm text-[#a0a6ae]"
+                            : kind() === "rule"
+                              ? "absolute left-[14] w-[372] h-[1] bg-[#e2dccb]"
                               : "absolute left-[14] text-sm text-[#222222]"}
-                    style={{ insetT: line.y }}
-                  >
-                    {line.text}
-                  </Text>
-                )}
+                >
+                  {" "}
+                </Text>
+              );
+            }}
           </For>
         </View>
         <Show when={maxScroll() > 0}>

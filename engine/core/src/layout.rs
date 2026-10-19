@@ -140,6 +140,9 @@ pub struct Region {
     origin: (f32, f32),
     /// Unrounded box of the root node from the parent projection's readback.
     unrounded_box: (f32, f32),
+    /// Origin bits the region's rects were last read back at; a region that
+    /// neither re-solved nor moved keeps its rects.
+    read_origin: Option<(u32, u32)>,
 }
 
 /// The layout engine: one TaffyTree (primary root plus one root per region)
@@ -168,6 +171,10 @@ pub struct LayoutEngine {
     environment_epoch: u64,
     other_output_root: Option<i32>,
     solved_viewport: Option<(u32, u32)>,
+    /// The root projection's rects are read back for its current solve. A
+    /// relayout that only touched regions leaves them as they are instead of
+    /// walking every node.
+    root_read: bool,
     #[cfg(feature = "counters")]
     reference_rebuild: bool,
     #[cfg(feature = "counters")]
@@ -271,6 +278,7 @@ impl LayoutEngine {
                 solved_box: None,
                 origin: (0.0, 0.0),
                 unrounded_box: (0.0, 0.0),
+                read_origin: None,
             });
         }
     }
@@ -310,6 +318,7 @@ impl LayoutEngine {
             environment_epoch: 0,
             other_output_root: None,
             solved_viewport: None,
+            root_read: false,
             #[cfg(feature = "counters")]
             reference_rebuild: false,
             #[cfg(feature = "counters")]
@@ -992,6 +1001,7 @@ fn compute(tree: &mut Tree, eng: &mut LayoutEngine, root_slot: u32, root_nid: ta
     // Rounding is cumulative: a cached child's pixel rounding can change when
     // an ancestor moves, so every owned node reads back.
     readback_scope(tree, eng, root_slot, true, (0.0, 0.0));
+    eng.root_read = true;
 }
 
 pub fn relayout(tree: &mut Tree, styles: &StyleTable, fonts: &Fonts, eng: &mut LayoutEngine) {
@@ -1090,6 +1100,7 @@ pub fn relayout_root(
         }
         eng.built = true;
         eng.dirty = false;
+        eng.root_read = false;
     } else {
         dirty.sort_unstable();
         dirty.dedup();
@@ -1137,11 +1148,15 @@ pub fn relayout_root(
                     || eng.solved_viewport != Some((eng.viewport.0.to_bits(), eng.viewport.1.to_bits()))
                 {
                     compute(tree, eng, root_slot, root);
-                } else {
+                } else if !eng.root_read {
                     readback_scope(tree, eng, root_slot, true, (0.0, 0.0));
+                    eng.root_read = true;
                 }
             }
-            None => readback_scope(tree, eng, root_slot, true, (0.0, 0.0)),
+            None => {
+                readback_scope(tree, eng, root_slot, true, (0.0, 0.0));
+                eng.root_read = false;
+            }
         }
     }
     solve_regions(tree, eng);
@@ -1303,7 +1318,12 @@ fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine) {
             }
         }
         let origin = eng.regions[index].origin;
-        if box_changed || eng.taffy.dirty(region_root).unwrap_or(true) {
+        let solve = box_changed || eng.taffy.dirty(region_root).unwrap_or(true);
+        let origin_bits = (origin.0.to_bits(), origin.1.to_bits());
+        if !solve && eng.regions[index].read_origin == Some(origin_bits) {
+            continue;
+        }
+        if solve {
             #[cfg(feature = "counters")]
             {
                 eng.counters.layout_passes = eng.counters.layout_passes.saturating_add(1);
@@ -1331,6 +1351,7 @@ fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine) {
             eng.regions[index].solved_box = Some(key);
         }
         readback_scope(tree, eng, slot, false, origin);
+        eng.regions[index].read_origin = Some(origin_bits);
     }
 }
 

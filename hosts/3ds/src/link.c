@@ -1406,6 +1406,14 @@ void link_pump(void) {
   if (us > pump_max_us) pump_max_us = us;
 }
 
+/* Beacons only matter while searching. In the other phases they are drained
+ * every 30 frames (a beacon comes once a second) instead of costing a
+ * socket call (an IPC round trip) on every frame. */
+static void drain_beacons(void) {
+  static uint32_t drains;
+  if (drains++ % 30 == 0) poll_beacons(false);
+}
+
 static void pump(void) {
   if (!initialized) return;
   if (companion_count == 0 && !pair_active) {
@@ -1421,7 +1429,7 @@ static void pump(void) {
       break;
     case PHASE_SEARCH:
       if (pair_active) {
-        poll_beacons(false);
+        drain_beacons();
         pair_host = 0;
         start_next_pair_host();
       } else if (!poll_beacons(true) && since(phase_since_ms) > LINK_SEARCH_DIRECT_MS) {
@@ -1429,12 +1437,12 @@ static void pump(void) {
       }
       break;
     case PHASE_CONNECTING:
-      poll_beacons(false);
+      drain_beacons();
       pump_connecting();
       break;
     case PHASE_CHALLENGE:
     case PHASE_AUTH:
-      poll_beacons(false);
+      drain_beacons();
       pump_tx();
       pump_rx();
       if ((phase == PHASE_CHALLENGE || phase == PHASE_AUTH) && since(phase_since_ms) > LINK_HANDSHAKE_TIMEOUT_MS) {
@@ -1442,7 +1450,7 @@ static void pump(void) {
       }
       break;
     case PHASE_UP:
-      poll_beacons(false);
+      drain_beacons();
       pump_rx();
       expire_requests();
       pump_tx();
@@ -1450,7 +1458,7 @@ static void pump(void) {
       break;
     case PHASE_BACKOFF:
       if (pair_active) {
-        poll_beacons(false);
+        drain_beacons();
         pair_host = 0;
         start_next_pair_host();
       } else if (!poll_beacons(false) && since(phase_since_ms) > backoff_ms) {

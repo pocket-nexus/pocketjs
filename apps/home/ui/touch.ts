@@ -8,9 +8,12 @@
 // scroller and the vertical band it occupies; a page that pages sideways
 // (the springboard) hands over a horizontal pan.
 //
-// Every painted target answers the stylus: the pressed id is set on the down
-// edge and held for PRESS_LINGER frames after the release, so a tap shorter
-// than a frame still shows its highlight.
+// Every painted target answers the stylus. The pressed id is set PRESS_DELAY
+// frames after the down edge, unless the contact has started a pan by then,
+// and held for PRESS_LINGER frames after the release; a tap shorter than the
+// delay sets it at the release. A scroll that starts on a row never lights
+// it (UITableView's delayed highlight), which on an Old 3DS also saves the
+// two restyles of a row that lit and unlit within a few frames.
 
 import { createSignal, type Accessor } from "solid-js";
 import { createGesture } from "@pocketjs/framework/gesture";
@@ -18,6 +21,7 @@ import { onFrame } from "@pocketjs/framework/lifecycle";
 import type { Scroller } from "@pocketjs/framework/kinetics";
 
 export const PRESS_LINGER = 5;
+export const PRESS_DELAY = 5;
 
 export interface Target {
   id: string;
@@ -98,12 +102,17 @@ export function createTouchRouter(options: TouchRouterOptions): void {
   let downTarget: Target | null = null;
   let mode: "" | "x" | "y" = "";
   let scrolled: Scroller | null = null;
+  let highlightIn = 0;
   const active = () => options.active?.() ?? true;
   const finish = () => {
     downTarget = null;
     mode = "";
     scrolled = null;
+    highlightIn = 0;
   };
+  onFrame(() => {
+    if (highlightIn > 0 && --highlightIn === 0 && downTarget) options.press.down(downTarget.id);
+  });
 
   createGesture({
     surface: options.surface,
@@ -115,11 +124,12 @@ export function createTouchRouter(options: TouchRouterOptions): void {
       if (!page) return;
       if (page.scroll && contact.y >= page.scroll.top && contact.y < page.scroll.bottom) page.scroll.scroller.stop();
       downTarget = hitAt(page, contact.x, contact.y);
-      if (downTarget) options.press.down(downTarget.id);
+      if (downTarget) highlightIn = PRESS_DELAY;
     },
     onPanStart(contact) {
       options.press.clear();
       downTarget = null;
+      highlightIn = 0;
       if (!active()) return;
       const page = options.page();
       if (!page) return;
@@ -145,6 +155,7 @@ export function createTouchRouter(options: TouchRouterOptions): void {
     },
     onTap(contact) {
       const pressed = downTarget;
+      if (pressed && highlightIn > 0) options.press.down(pressed.id);
       options.press.release();
       finish();
       if (!active()) return;

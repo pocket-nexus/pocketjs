@@ -672,10 +672,13 @@ static uint32_t ticks_to_us(u64 ticks) {
 }
 #endif
 
-static void begin_frame_wait(uint32_t run_frame) {
+/* Returns the vblanks waited beyond the first: nonzero when the previous
+ * frame's GPU work was still running at the vblank. */
+static uint32_t begin_frame_wait(uint32_t run_frame) {
 #ifdef POCKETJS_CAPTURE
   (void)run_frame;
   C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+  return 0;
 #else
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
   gspWaitForVBlank();
@@ -696,6 +699,7 @@ static void begin_frame_wait(uint32_t run_frame) {
       fail(verdict);
     }
   }
+  return waited;
 #endif
 }
 
@@ -1110,6 +1114,7 @@ int main(void) {
 #endif
 
   while (aptMainLoop()) {
+    u64 phase_loop __attribute__((unused)) = svcGetSystemTick();
     hidScanInput();
 #ifdef POCKETJS_CAPTURE
     /* The tapes have no analog track: pin the stick to centre so scripted
@@ -1283,6 +1288,8 @@ int main(void) {
      * presents at the same rate, so it is one tick per frame. */
     u64 phase_tick __attribute__((unused)) = svcGetSystemTick();
     ui_tick();
+    u64 phase_layout __attribute__((unused)) = svcGetSystemTick();
+    ui_relayout();
     u64 phase_draw __attribute__((unused)) = svcGetSystemTick();
     size_t words = ui_draw();
     size_t auxiliary_words = ui_draw_auxiliary();
@@ -1298,7 +1305,8 @@ int main(void) {
 #endif
 
     u64 offload_ui_ticks = svcGetSystemTick() - offload_cpu_start;
-    begin_frame_wait(
+    u64 phase_wait __attribute__((unused)) = svcGetSystemTick();
+    uint32_t gpu_late __attribute__((unused)) = begin_frame_wait(
 #ifdef POCKETJS_CAPTURE
       frame
 #else
@@ -1381,10 +1389,14 @@ int main(void) {
       if (previous_frame != UINT32_MAX && run_frame == previous_frame + 1) {
         devserver_set_frame_timing(
           ticks_to_us(phase_tick - phase_js),
-          ticks_to_us(phase_draw - phase_tick),
+          ticks_to_us(phase_layout - phase_tick),
           ticks_to_us(phase_draw_end - phase_draw),
           ticks_to_us(phase_end - phase_gpu),
-          ticks_to_us(phase_js - previous_js)
+          ticks_to_us(phase_js - previous_js),
+          ticks_to_us(phase_js - phase_loop),
+          ticks_to_us(phase_gpu - phase_wait),
+          ticks_to_us(phase_draw - phase_layout),
+          gpu_late > 0
         );
       }
       previous_js = phase_js;

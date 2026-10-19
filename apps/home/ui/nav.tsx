@@ -215,8 +215,14 @@ function LayerView(props: {
   const content = spec.content;
   const [hidden, setHidden] = createSignal(false);
   const isTop = () => props.stack.top()?.key === props.entry.key;
+  // The canvas follows the scroller by a direct write: a style binding on the
+  // offset reran a Solid effect on every scrolled frame.
+  let canvas: NodeMirror | undefined;
+  let canvasY = 0;
   onFrame(() => {
     scroller.step();
+    const y = -scroller.offset();
+    if (canvas && y !== canvasY) jump(canvas, "translateY", (canvasY = y));
     if (!isTop() || !content) return;
     const nub = analogY();
     if (nub !== 0) scroller.nudge(nub * 8);
@@ -314,7 +320,7 @@ function LayerView(props: {
       <Show when={content}>
         {(body) => (
           <View class="absolute left-0 top-[36] w-[320] h-[204] overflow-hidden">
-            <View class="absolute left-0 top-0 w-[320]" style={{ translateY: -scroller.offset(), height: Math.max(VIEW_H, body().height()) }}>
+            <View ref={(el) => ((canvas = el), (canvasY = 0))} class="absolute left-0 top-0 w-[320]" style={{ height: Math.max(VIEW_H, body().height()) }}>
               {body().view()}
             </View>
           </View>

@@ -80,9 +80,14 @@ function locateText(node: SimNode | null, text: string, size: [number, number], 
   if (!node || node.hidden) return null;
   const rect = node.rect ?? box;
   let found: SimNode["rect"] = null;
-  if (node.text === text && rect) {
-    const [x, y, w, h] = rect;
-    if (x < size[0] && y < size[1] && x + w > 0 && y + h > 0) found = rect;
+  // A multi-line text is located by its line: an even share of its box.
+  const lines = node.text?.split("\n") ?? [];
+  const line = lines.indexOf(text);
+  if (line >= 0 && rect) {
+    const [x, y0, w, h0] = rect;
+    const h = h0 / lines.length;
+    const y = y0 + line * h;
+    if (x < size[0] && y < size[1] && x + w > 0 && y + h > 0) found = [x, y, w, h];
   }
   for (const child of node.children) found = locateText(child, text, size, rect) ?? found;
   return found;
@@ -90,14 +95,18 @@ function locateText(node: SimNode | null, text: string, size: [number, number], 
 
 /** Painted texts in tree order: a <Text> element carries the box, the run
  *  under it the characters. Boxes wholly off the surface are skipped, and an
- *  embossed label (the same text twice in a row) is listed once. */
+ *  embossed label (the same text twice in a row) is listed once. A text of
+ *  several lines is listed line by line. */
 function flatTexts(node: SimNode | null, size: [number, number], out: string[], box: SimNode["rect"] = null): string[] {
   if (!node || node.hidden) return out;
   const rect = node.rect ?? box;
   if (node.text && rect) {
     const [x, y, w, h] = rect;
     const onScreen = x < size[0] && y < size[1] && x + w > 0 && y + h > 0;
-    if (onScreen && out[out.length - 1] !== node.text) out.push(node.text);
+    if (onScreen && out[out.length - 1] !== node.text) {
+      if (node.text.includes("\n")) out.push(...node.text.split("\n"));
+      else out.push(node.text);
+    }
   }
   for (const child of node.children) flatTexts(child, size, out, rect);
   return out;

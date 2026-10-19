@@ -55,6 +55,10 @@ size_t devserver_recv_ctrl(char *out, size_t capacity);
 void devserver_send_ctrl(const char *line, size_t length);
 bool devserver_request_screenshot(void);
 const char *devserver_debug_stats(void);
+/* ui.__dbgFrames: the last 64 frames, oldest first, one
+ * "pre,js,layout,draw,gpu,wait,frame" group of 0.1 ms units per frame
+ * separated by ";". */
+const char *devserver_debug_frames(void);
 
 /* Completed binary upload. The caller admits POCKET_RUNTIME_UPLOAD, then
  * reports staged/rejected/accepted at the same lifecycle boundaries used by
@@ -85,14 +89,21 @@ void devserver_set_runtime(
   uint32_t frame
 );
 /* One frame's CPU phases in microseconds: guest JS, core tick (animation and
- * physics), DrawList builds, PICA200 preparation and submission, and the
- * interval since the previous frame began. Aggregated per 60-frame window. */
+ * physics), DrawList builds, PICA200 preparation and submission, the
+ * interval since the previous frame began, the loop's system work before the
+ * guest runs (sockets, link, input), the wait for the vblank and the GPU, and
+ * layout. `late` is true when the previous frame's GPU work outlasted a
+ * vblank. Aggregated per 60-frame window. */
 void devserver_set_frame_timing(
   uint32_t js_us,
   uint32_t tick_us,
   uint32_t draw_us,
   uint32_t gpu_us,
-  uint32_t frame_us
+  uint32_t frame_us,
+  uint32_t pre_us,
+  uint32_t wait_us,
+  uint32_t layout_us,
+  bool late
 );
 
 void devserver_set_frame_stats(

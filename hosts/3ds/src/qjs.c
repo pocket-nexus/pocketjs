@@ -98,6 +98,7 @@ typedef enum {
   HostDebugPause,
   HostDebugStep,
   HostDebugStats,
+  HostDebugFrames,
   HostDbgActive,
   HostDbgConnected,
   HostDbgPoll,
@@ -546,6 +547,8 @@ static JSValue host_operation(
       return JS_UNDEFINED;
     case HostDebugStats:
       return JS_NewString(ctx, devserver_debug_stats());
+    case HostDebugFrames:
+      return JS_NewString(ctx, devserver_debug_frames());
     case HostDbgActive:
       return JS_NewBool(ctx, devserver_active());
     case HostDbgConnected:
@@ -813,6 +816,7 @@ static void install_host(void) {
   add_operation(ui, "debugPause", 1, HostDebugPause);
   add_operation(ui, "debugStep", 0, HostDebugStep);
   add_operation(ui, "debugStats", 0, HostDebugStats);
+  add_operation(ui, "__dbgFrames", 0, HostDebugFrames);
   add_operation(ui, "__dbgActive", 0, HostDbgActive);
   add_operation(ui, "__dbgConnected", 0, HostDbgConnected);
   add_operation(ui, "__dbgPoll", 0, HostDbgPoll);

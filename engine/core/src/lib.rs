@@ -766,6 +766,42 @@ impl Ui {
             if previous != 0 && previous != parent {
                 self.mark_layout_structure_under(previous);
             }
+            self.rehome_regions(child);
+        }
+    }
+
+    /// A region belongs to the engine of the output its node is in. A node
+    /// contained while detached (a renderer sets the class before it inserts)
+    /// registered with the primary engine; inserting it, or an ancestor, under
+    /// the auxiliary surface moves its region to the auxiliary engine, and
+    /// moving it back moves the region back.
+    fn rehome_regions(&mut self, id: i32) {
+        let Some(auxiliary) = self.auxiliary.as_mut() else {
+            return;
+        };
+        if self.layout.regions.is_empty() && auxiliary.layout.regions.is_empty() {
+            return;
+        }
+        let in_auxiliary = self.tree.is_in_subtree(auxiliary.root, id);
+        let (from, to) = if in_auxiliary {
+            (&mut self.layout, &mut auxiliary.layout)
+        } else {
+            (&mut auxiliary.layout, &mut self.layout)
+        };
+        if from.regions.is_empty() {
+            return;
+        }
+        let mut pending = alloc::vec![id];
+        while let Some(current) = pending.pop() {
+            let Some(slot) = self.tree.resolve(current) else {
+                continue;
+            };
+            let node = &self.tree.slots[slot as usize];
+            if node.region_root && from.is_region(current) {
+                from.unregister_region(current);
+                to.register_region(current);
+            }
+            pending.extend_from_slice(&node.children);
         }
     }
 
@@ -1824,6 +1860,26 @@ impl Ui {
                     clock: 0,
                     loop_frames: animation.loop_frames,
                 });
+            }
+        }
+    }
+
+    /// Solve pending layout for both outputs now. `draw` and `draw_auxiliary`
+    /// solve on demand; a host that times layout apart from the DrawList
+    /// build calls this first.
+    pub fn relayout_outputs(&mut self) {
+        if self.layout.needs() {
+            layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
+        }
+        if let Some(auxiliary) = self.auxiliary.as_mut() {
+            if auxiliary.layout.needs() {
+                layout::relayout_root(
+                    &mut self.tree,
+                    &self.styles,
+                    &self.fonts,
+                    &mut auxiliary.layout,
+                    auxiliary.root,
+                );
             }
         }
     }

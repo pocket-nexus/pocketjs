@@ -366,3 +366,50 @@ fn nested_and_static_region_roots_take_their_box_from_the_chain() {
     solved(&mut ui);
     assert_eq!(rect(&ui, label), (80.0, 0.0, 10.0, 60.0));
 }
+
+#[test]
+fn regions_contained_while_detached_follow_their_node_to_the_auxiliary_surface() {
+    let mut ui = ui();
+    let surface = ui.create_auxiliary_surface(120.0, 80.0);
+    let none = spec::Display::None as u8 as f64;
+    let flex = spec::Display::Flex as u8 as f64;
+    // Containment set while detached (a renderer sets the class before it
+    // inserts), then inserted under the auxiliary root: the region must solve
+    // in the auxiliary engine, or its children keep their hidden zero rects.
+    let region = ui.create_node(spec::NodeType::View as u8);
+    set(
+        &mut ui,
+        region,
+        &[
+            (prop::WIDTH, 100.0),
+            (prop::HEIGHT, 50.0),
+            (prop::CONTAIN, STRICT),
+        ],
+    );
+    let fill = ui.create_node(spec::NodeType::View as u8);
+    set(
+        &mut ui,
+        fill,
+        &[
+            (prop::POS_TYPE, ABS),
+            (prop::INSET_T, 0.0),
+            (prop::INSET_R, 0.0),
+            (prop::INSET_B, 0.0),
+            (prop::INSET_L, 0.0),
+            (prop::DISPLAY, none),
+        ],
+    );
+    ui.insert_before(region, fill, 0);
+    ui.insert_before(surface, region, 0);
+    ui.tick();
+    ui.draw_auxiliary();
+    assert_eq!(rect(&ui, fill), (0.0, 0.0, 0.0, 0.0));
+    ui.set_prop(fill, prop::DISPLAY, flex);
+    ui.tick();
+    ui.draw_auxiliary();
+    assert_eq!(
+        rect(&ui, fill).2,
+        100.0,
+        "shown fill takes the region's box"
+    );
+}

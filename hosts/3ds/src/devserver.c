@@ -106,17 +106,23 @@ static uint32_t discoveries;
 static uint32_t frame_commands;
 static uint32_t frame_vertices;
 static uint32_t frame_dropped_vertices;
-static char stats_json[1024];
+static char stats_json[1536];
 
 /* Frame phase timing: the last complete 60-frame window's means and maxima,
- * plus a running count of frame intervals above 25 ms (1.5 vblanks at 60 Hz). */
-enum { TIMING_PHASES = 5, TIMING_WINDOW = 60 };
+ * plus running counts of frame intervals above 25 ms (1.5 vblanks at 60 Hz)
+ * and of frames whose GPU work outlasted a vblank. */
+enum { TIMING_PHASES = 8, TIMING_WINDOW = 60 };
 static uint32_t timing_sum[TIMING_PHASES];
 static uint32_t timing_max[TIMING_PHASES];
 static uint32_t timing_count;
 static uint32_t timing_mean_out[TIMING_PHASES];
 static uint32_t timing_max_out[TIMING_PHASES];
 static uint32_t timing_slow_frames;
+static uint32_t timing_gpu_late;
+enum { FRAME_RING = 64 };
+static uint32_t frame_ring[FRAME_RING][7];
+static uint32_t frame_ring_next;
+static char frames_text[FRAME_RING * 7 * 6];
 
 static bool would_block(void) {
   return errno == EAGAIN || errno == EWOULDBLOCK;
@@ -489,9 +495,18 @@ void devserver_set_frame_timing(
   uint32_t tick_us,
   uint32_t draw_us,
   uint32_t gpu_us,
-  uint32_t frame_us
+  uint32_t frame_us,
+  uint32_t pre_us,
+  uint32_t wait_us,
+  uint32_t layout_us,
+  bool late
 ) {
-  const uint32_t values[TIMING_PHASES] = { js_us, tick_us, draw_us, gpu_us, frame_us };
+  const uint32_t values[TIMING_PHASES] = { js_us, tick_us, draw_us, gpu_us, frame_us, pre_us, wait_us, layout_us };
+  if (late) timing_gpu_late += 1;
+  uint32_t *ring = frame_ring[frame_ring_next % FRAME_RING];
+  ring[0] = pre_us; ring[1] = js_us; ring[2] = layout_us; ring[3] = draw_us; ring[4] = gpu_us; ring[5] = wait_us;
+  ring[6] = frame_us;
+  frame_ring_next += 1;
   for (int i = 0; i < TIMING_PHASES; i += 1) {
     timing_sum[i] += values[i];
     if (values[i] > timing_max[i]) timing_max[i] = values[i];
@@ -533,7 +548,8 @@ const char *devserver_debug_stats(void) {
     "\"connects\":%lu,\"authFailures\":%lu,\"timeouts\":%lu,"
     "\"discoveries\":%lu,\"uploads\":%lu,\"screenshots\":%lu},"
     "\"timingUs\":{\"js\":[%lu,%lu],\"tick\":[%lu,%lu],\"draw\":[%lu,%lu],"
-    "\"gpu\":[%lu,%lu],\"frame\":[%lu,%lu],\"slowFrames\":%lu}}",
+    "\"gpu\":[%lu,%lu],\"frame\":[%lu,%lu],\"pre\":[%lu,%lu],\"wait\":[%lu,%lu],\"layout\":[%lu,%lu],"
+    "\"slowFrames\":%lu,\"gpuLate\":%lu}}",
     POCKETJS_TARGET_ID,
     (unsigned)POCKETJS_HOST_ABI,
     (unsigned long long)running_hash,
@@ -557,9 +573,29 @@ const char *devserver_debug_stats(void) {
     (unsigned long)timing_mean_out[2], (unsigned long)timing_max_out[2],
     (unsigned long)timing_mean_out[3], (unsigned long)timing_max_out[3],
     (unsigned long)timing_mean_out[4], (unsigned long)timing_max_out[4],
-    (unsigned long)timing_slow_frames
+    (unsigned long)timing_mean_out[5], (unsigned long)timing_max_out[5],
+    (unsigned long)timing_mean_out[6], (unsigned long)timing_max_out[6],
+    (unsigned long)timing_mean_out[7], (unsigned long)timing_max_out[7],
+    (unsigned long)timing_slow_frames,
+    (unsigned long)timing_gpu_late
   );
   return stats_json;
+}
+
+const char *devserver_debug_frames(void) {
+  size_t used = 0;
+  frames_text[0] = '\0';
+  uint32_t count = frame_ring_next < FRAME_RING ? frame_ring_next : FRAME_RING;
+  for (uint32_t i = 0; i < count; i += 1) {
+    const uint32_t *f = frame_ring[(frame_ring_next - count + i) % FRAME_RING];
+    int n = snprintf(frames_text + used, sizeof frames_text - used, "%s%lu,%lu,%lu,%lu,%lu,%lu,%lu", i ? ";" : "",
+      (unsigned long)(f[0] / 100), (unsigned long)(f[1] / 100), (unsigned long)(f[2] / 100),
+      (unsigned long)(f[3] / 100), (unsigned long)(f[4] / 100), (unsigned long)(f[5] / 100),
+      (unsigned long)(f[6] / 100));
+    if (n < 0 || (size_t)n >= sizeof frames_text - used) break;
+    used += (size_t)n;
+  }
+  return frames_text;
 }
 
 static void accept_client(void) {
@@ -1024,8 +1060,14 @@ static void send_client(void) {
 
 void devserver_poll(void) {
   if (!initialized) return;
-  poll_discovery();
-  accept_client();
+  /* Each socket call is an IPC round trip (about 0.2 ms on an Old 3DS).
+   * Discovery and new connections wait at most 8 frames; the connected
+   * client is read every frame. */
+  static uint32_t polls;
+  if (polls++ % 8 == 0) {
+    poll_discovery();
+    accept_client();
+  }
   receive_client();
   if (client_fd >= 0 && osGetTime() - client_last_rx_ms > 15u * 1000u) {
     timeouts += 1;

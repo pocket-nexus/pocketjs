@@ -565,6 +565,12 @@ pub extern "C" fn ui_tick() {
     ui().tick();
 }
 
+/// Solve pending layout for both screens (timed apart from the builds).
+#[no_mangle]
+pub extern "C" fn ui_relayout() {
+    ui().relayout_outputs();
+}
+
 /// Build this frame's DrawList and return its length in words.
 ///
 /// Call exactly once per presented frame: the build is not idempotent (it

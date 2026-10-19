@@ -141,6 +141,29 @@ static Command commands[MAX_COMMANDS];
 static uint32_t command_count;
 static SurfaceBatch surfaces[MAX_SURFACES];
 
+/* Any texture uploaded, freed or moved since: a kept batch's texture
+ * pointers are only valid within one epoch. */
+static uint32_t resource_epoch;
+/* The build in progress drew a camera or media texture, whose lifetime
+ * gfx.c does not track. */
+static bool built_native_texture;
+
+/* The primary surface's last DrawList and the batch built from it. The
+ * primary surface builds first, so its vertices and commands open the arena;
+ * when the next frame brings the same words in the same resource epoch, the
+ * batch is reused as it stands (a scrolling bottom screen leaves the top
+ * screen's list unchanged frame after frame). */
+static struct {
+  uint32_t *words;
+  size_t length;
+  size_t capacity;
+  SurfaceBatch batch;
+  uint32_t vertex_count;
+  uint32_t command_count;
+  uint32_t epoch;
+  bool valid;
+} kept;
+
 static C3D_Tex white;
 static ImageTexture *images;
 static size_t image_capacity;
@@ -425,6 +448,7 @@ static void release_image(ImageTexture *entry) {
   if (entry->live) {
     pocket_pica_texture_destroy(&entry->texture);
     entry->live = false;
+    resource_epoch += 1;
   }
 }
 
@@ -432,6 +456,7 @@ static void release_font(FontTexture *entry) {
   if (entry->live) {
     pocket_pica_texture_destroy(&entry->texture);
     entry->live = false;
+    resource_epoch += 1;
   }
 }
 
@@ -439,6 +464,7 @@ static void sync_resources(void) {
   size_t slots = ui_texture_slot_count();
   if (slots > image_capacity) {
     ImageTexture *grown = realloc(images, slots * sizeof *images);
+    resource_epoch += 1;
     if (grown != NULL) {
       memset(grown + image_capacity, 0, (slots - image_capacity) * sizeof *grown);
       images = grown;
@@ -464,6 +490,7 @@ static void sync_resources(void) {
         entry->handle = source.handle;
         entry->revision = source.revision;
         entry->live = true;
+        resource_epoch += 1;
       }
     } else {
       release_image(entry);
@@ -473,6 +500,7 @@ static void sync_resources(void) {
   size_t font_slots = ui_font_slot_count();
   if (font_slots > font_capacity) {
     FontTexture *grown = realloc(fonts, font_slots * sizeof *fonts);
+    resource_epoch += 1;
     if (grown != NULL) {
       memset(grown + font_capacity, 0, (font_slots - font_capacity) * sizeof *grown);
       fonts = grown;
@@ -491,6 +519,7 @@ static void sync_resources(void) {
       }
       release_font(entry);
       entry->live = upload_font(entry, &atlas);
+      if (entry->live) resource_epoch += 1;
     } else {
       release_font(entry);
     }
@@ -501,11 +530,12 @@ static C3D_Tex *image_texture(int32_t handle, float *u_scale, float *v_scale) {
   if (handle < 0) return NULL;
 #ifdef POCKETJS_MEDIA
   C3D_Tex *native_media=media_texture(handle);
-  if(native_media) { *u_scale=*v_scale=1; return native_media; }
+  if(native_media) { *u_scale=*v_scale=1; built_native_texture = true; return native_media; }
 #endif
   C3D_Tex *native_camera = camera_texture(handle);
   if (native_camera != NULL) {
     *u_scale = *v_scale = 1;
+    built_native_texture = true;
     return native_camera;
   }
   size_t slot = (size_t)((uint32_t)handle & ui_texture_slot_mask());
@@ -844,6 +874,24 @@ static bool apply_clip(Clip clip, uint32_t viewport_width, uint32_t viewport_hei
   return true;
 }
 
+static void keep(const uint32_t *words, size_t length, const SurfaceBatch *batch, bool reusable) {
+  kept.valid = false;
+  if (!reusable) return;
+  if (length > kept.capacity) {
+    uint32_t *grown = realloc(kept.words, length * sizeof *grown);
+    if (grown == NULL) return;
+    kept.words = grown;
+    kept.capacity = length;
+  }
+  memcpy(kept.words, words, length * sizeof *words);
+  kept.length = length;
+  kept.batch = *batch;
+  kept.vertex_count = vertex_count;
+  kept.command_count = command_count;
+  kept.epoch = resource_epoch;
+  kept.valid = true;
+}
+
 void gfx_begin_frame(void) {
   if (!initialized) return;
   sync_resources();
@@ -866,6 +914,17 @@ bool gfx_prepare_surface(
   }
   SurfaceBatch *batch = &surfaces[surface];
   if (batch->prepared) return false;
+  bool opens_arena = vertex_count == 0 && command_count == 0;
+  if (surface == 0 && opens_arena && kept.valid && kept.epoch == resource_epoch &&
+      kept.length == length && kept.batch.width == logical_width &&
+      kept.batch.height == logical_height &&
+      memcmp(kept.words, words, length * sizeof *words) == 0) {
+    *batch = kept.batch;
+    vertex_count = kept.vertex_count;
+    command_count = kept.command_count;
+    return true;
+  }
+  built_native_texture = false;
   uint32_t vertices_dropped_before = dropped_vertices;
   uint32_t commands_dropped_before = dropped_commands;
   batch->command_first = command_count;
@@ -884,8 +943,10 @@ bool gfx_prepare_surface(
   build(words, length, logical_width, logical_height);
   batch->command_count = command_count - batch->command_first;
   batch->prepared = true;
-  return dropped_vertices == vertices_dropped_before &&
-         dropped_commands == commands_dropped_before;
+  bool complete = dropped_vertices == vertices_dropped_before &&
+                  dropped_commands == commands_dropped_before;
+  if (surface == 0) keep(words, length, batch, opens_arena && complete && !built_native_texture);
+  return complete;
 }
 
 void gfx_finish_frame(void) {
@@ -1017,6 +1078,7 @@ void gfx_reset_resources(void) {
   dropped_vertices = 0;
   dropped_commands = 0;
   memset(surfaces, 0, sizeof surfaces);
+  kept.valid = false;
 }
 
 void gfx_shutdown(void) {
@@ -1025,6 +1087,8 @@ void gfx_shutdown(void) {
   pocket_pica_texture_destroy(&white);
   linearFree(vertices);
   vertices = NULL;
+  free(kept.words);
+  memset(&kept, 0, sizeof kept);
   shaderProgramFree(&shader_program);
   DVLB_Free(shader_blob);
   shader_blob = NULL;

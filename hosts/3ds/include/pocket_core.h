@@ -150,6 +150,10 @@ const uint32_t *ui_draw_list_ptr(void);
 size_t ui_draw_list_len(void);
 uint64_t ui_draw_hash(void);
 size_t ui_draw_auxiliary(void);
+/* Solve pending layout for both screens now; ui_draw and ui_draw_auxiliary
+ * solve on demand. Called first so the frame timing separates layout from
+ * the DrawList builds. */
+void ui_relayout(void);
 const uint32_t *ui_draw_auxiliary_list_ptr(void);
 size_t ui_draw_auxiliary_list_len(void);
 
