@@ -111,8 +111,9 @@ export const LINK_HANDSHAKE_TIMEOUT_MS = 6_000;
 //               "name":"<console name>","model":"<model>","target":"3ds-dev"}
 //   companion -> {"t":"challenge","nonce":"<hex32>","proof":"<hex64>"}
 //   console -> {"t":"auth","proof":"<hex64>"}
-//   companion -> {"t":"ready","name":"<companion name>","features":[...]}
-//             or {"t":"paired","name":"…","key":"<hex64>","features":[...]}
+//   companion -> {"t":"ready","name":"<companion name>","features":[...],
+//                 "clock":{"utc":<epoch ms>,"local":<epoch ms>}}
+//             or {"t":"paired","name":"…","key":"<hex64>","features":[...],"clock":{…}}
 //             or {"t":"refused","code":"<LINK_REFUSAL>","message":"…"}
 //
 // The secret is the pairing key for mode "connect" and the pairing secret
@@ -128,6 +129,11 @@ export const LINK_HANDSHAKE_TIMEOUT_MS = 6_000;
 //   paired.key = key XOR HMAC(secret, "pocket-link/1/key\n" + nD + "\n" + nC)
 //
 // A pairing secret is single-use and expires with its pairing window.
+//
+// `clock` is the companion's wall clock when it sent the message: `utc` and
+// the same instant in its local zone (`local - utc` is its UTC offset). A
+// console whose own clock is unset or wrong keeps the difference and shows
+// the companion's time, also after the link drops.
 
 export const LINK_LABEL = {
   companion: "pocket-link/1/companion",
@@ -280,6 +286,9 @@ export interface LinkStatus {
   error: string;
   /** Features the linked companion offered. */
   features: string[];
+  /** The companion's clock as of this status read: `utc` epoch ms and its
+   *  zone's offset. Null until a companion has linked since boot. */
+  clock: { utc: number; offsetMinutes: number } | null;
 }
 
 export type LinkEvent =

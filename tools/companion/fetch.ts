@@ -224,12 +224,12 @@ const RESPONSE_PRIORITY = ["content-type", "location", "etag", "last-modified", 
 
 function responseHeaders(headers: Headers, decoded: boolean): Record<string, string> {
   const all: [string, string][] = [];
-  for (const [name, value] of headers) {
-    if (HOP_BY_HOP.has(name) || name === "set-cookie") continue;
+  headers.forEach((value, name) => {
+    if (HOP_BY_HOP.has(name) || name === "set-cookie") return;
     // fetch() already decoded the body: the encoding and the wire length no longer describe it.
-    if (decoded && (name === "content-encoding" || name === "content-length")) continue;
+    if (decoded && (name === "content-encoding" || name === "content-length")) return;
     all.push([name, value]);
-  }
+  });
   const cookies = headers.getSetCookie();
   if (cookies.length) all.push(["set-cookie", cookies.join("\n")]);
   all.sort((a, b) => rank(a[0]) - rank(b[0]));
@@ -292,7 +292,7 @@ export async function performNet(request: NetRequest, options: NetOptions = {}):
     }
     let response: Response;
     try {
-      response = await fetch(url, { method, headers, body, redirect: "manual", signal });
+      response = await fetch(url, { method, headers, body: body as BodyInit | undefined, redirect: "manual", signal });
     } catch (error) {
       return fail(error);
     }

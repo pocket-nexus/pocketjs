@@ -42,6 +42,14 @@ import {
 } from "./protocol.ts";
 import { CompanionStore, defaultCompanionName } from "./store.ts";
 
+/** The companion's wall clock for the console (link.ts `clock`): UTC and
+ *  local time in epoch milliseconds, so the offset never goes negative on
+ *  the wire. */
+function linkClock(): { utc: number; local: number } {
+  const utc = Date.now();
+  return { utc, local: utc - new Date(utc).getTimezoneOffset() * 60_000 };
+}
+
 export const LINK_FEATURES = [LINK_FEATURE.net, LINK_FEATURE.catalog, LINK_FEATURE.install];
 /** Concurrent net requests one connection may hold open. */
 export const LINK_MAX_NET = 8;
@@ -516,14 +524,14 @@ class LinkConnection {
     if (mode === "connect") {
       store.touch(this.device.id, this.address, { name: this.device.name, model: this.device.model });
       this.becomeReady();
-      this.send({ t: "ready", name: this.companion.name, features: LINK_FEATURES });
+      this.send({ t: "ready", name: this.companion.name, features: LINK_FEATURES, clock: linkClock() });
       this.companion.log(`link: ${this.address} "${this.device.name}" (${this.device.model} ${this.device.id}) linked`);
     } else {
       if (!this.companion.consumePairing(secret)) return this.refuse(LINK_REFUSAL.pairingClosed, "the pairing secret expired or was used");
       const key = newKey();
       store.upsert({ id: this.device.id, name: this.device.name, model: this.device.model, key, lastAddress: this.address, lastSeen: Date.now() });
       this.becomeReady();
-      this.send({ t: "paired", name: this.companion.name, key: maskKey(key, secret, nD, nC), features: LINK_FEATURES });
+      this.send({ t: "paired", name: this.companion.name, key: maskKey(key, secret, nD, nC), features: LINK_FEATURES, clock: linkClock() });
       this.companion.log(`pair: ${this.address} "${this.device.name}" (${this.device.model} ${this.device.id}) paired`);
     }
     this.handshake = undefined;

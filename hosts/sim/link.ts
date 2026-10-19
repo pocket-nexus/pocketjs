@@ -38,6 +38,8 @@ export interface SimLinkFixture {
   refusePairing?: string;
   /** install(appId) fails with this message. */
   installErrors?: Record<string, string>;
+  /** The companion's UTC offset in the status clock. Default 480. */
+  clockOffsetMinutes?: number;
 }
 
 /** What install.done hands the console's app table. */
@@ -101,6 +103,8 @@ export function createSimLinkHost(fixture: SimLinkFixture = {}, hooks: SimLinkHo
   const log: string[] = [];
 
   const schedule = (ticks: number, run: () => void) => queue.push({ at: now + Math.max(1, ticks), run });
+  // The console keeps the companion's clock once one has linked (link.ts).
+  let everLinked = state === LINK_STATE.linked;
   const features = () => (state === LINK_STATE.linked ? [LINK_FEATURE.net, LINK_FEATURE.catalog, LINK_FEATURE.install] : []);
 
   const status = (): LinkStatus => ({
@@ -111,6 +115,7 @@ export function createSimLinkHost(fixture: SimLinkFixture = {}, hooks: SimLinkHo
     pairing,
     error,
     features: features(),
+    clock: everLinked ? { utc: Date.now(), offsetMinutes: fixture.clockOffsetMinutes ?? 480 } : null,
   });
 
   const ns: LinkOps = {
@@ -131,6 +136,7 @@ export function createSimLinkHost(fixture: SimLinkFixture = {}, hooks: SimLinkHo
         pairing = LINK_PAIRING.paired;
         companion = target;
         state = LINK_STATE.linked;
+        everLinked = true;
       });
       return true;
     },

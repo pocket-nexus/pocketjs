@@ -78,9 +78,10 @@ describe("springboard", () => {
     const home = await boot();
     await home.run(30);
     const bottom = home.texts("auxiliary");
-    for (const label of ["Hacker News", "Pocket Nexus", "Contacts", "Settings", "Mac"]) expect(bottom).toContain(label);
+    // Labels keep a gap between neighbours, so long titles end in an ellipsis, as on iOS.
+    for (const label of ["Hacker Ne...", "Pocket Ne...", "Contacts", "Settings", "Mac"]) expect(bottom).toContain(label);
     const top = home.texts("primary");
-    // 01:41 UTC at the default UTC+8.
+    // 01:41 UTC in the linked Mac's zone (UTC+8).
     expect(top).toContain("9:41");
     expect(top).toContain("Monday, October 19");
     expect(top).toContain("Linked to Evan's MacBook Pro");
@@ -175,7 +176,7 @@ describe("settings", () => {
     expect(home.texts("auxiliary")).not.toContain("Saved Networks");
   });
 
-  test("Time Zone moves the clock", async () => {
+  test("the linked Mac's clock sets the time and zone", async () => {
     const home = await boot();
     await home.run(10);
     await openSettings(home);
@@ -183,11 +184,23 @@ describe("settings", () => {
     await home.run(24);
     await home.tapText("Time Zone");
     await home.run(24);
-    // The list opens scrolled to the zone in use (UTC+8); its neighbour is on screen.
-    await home.tapText("UTC+9");
+    expect(home.texts("auxiliary")).toContain("From the Mac");
+    expect(home.texts("primary")).toContain("9:41 AM");
+  });
+
+  test("without a Mac, Time Zone moves the console's clock", async () => {
+    const home = await boot({ link: { paired: [], catalog: CATALOG } });
+    await home.run(10);
+    await openSettings(home);
+    await home.tapText("General");
+    await home.run(24);
+    await home.tapText("Time Zone");
+    await home.run(24);
+    // The console clock reads local time as UTC; the list opens on UTC.
+    await home.tapText("UTC+1");
     await home.run(2);
-    expect(home.texts("primary")).toContain("10:41 AM");
-    expect(home.texts("primary")).toContain("UTC+9");
+    expect(home.texts("primary")).toContain("2:41 AM");
+    expect(home.texts("primary")).toContain("UTC+1");
   });
 
   test("B walks back up the stack and closes Settings", async () => {

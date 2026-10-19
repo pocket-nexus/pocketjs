@@ -97,4 +97,5 @@ export const TIME_ZONES: readonly { offset: number; place: string }[] = [
   { offset: 720, place: "Auckland" },
 ];
 
-export const DEFAULT_OFFSET = 480;
+/** The console's clock already reads local time, so its fallback offset is 0. */
+export const DEFAULT_OFFSET = 0;

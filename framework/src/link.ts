@@ -53,6 +53,7 @@ const UNAVAILABLE: LinkStatus = {
   pairing: LINK_PAIRING.idle,
   error: "this console has no Pocket Link",
   features: [],
+  clock: null,
 };
 
 /** A snapshot of the link, read from the host on every call. */
@@ -69,6 +70,7 @@ export function linkStatus(): LinkStatus {
       pairing: parsed.pairing ?? LINK_PAIRING.idle,
       error: parsed.error ?? "",
       features: parsed.features ?? [],
+      clock: parsed.clock ?? null,
     };
   } catch {
     return { ...UNAVAILABLE, error: "link: malformed status" };

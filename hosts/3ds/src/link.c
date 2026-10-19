@@ -179,6 +179,11 @@ static const char *pairing = "idle";
 
 static char last_error[160];
 static char features_json[256] = "[]";
+/* The companion's clock (link.ts `clock`): its UTC minus this console's
+ * epoch at receipt, and its zone offset. Kept after the link drops. */
+static bool clock_known;
+static int64_t clock_skew_ms;
+static int32_t clock_offset_min;
 static uint32_t connect_ms;
 static uint32_t rtt_ms;
 /* Diagnostics: where install streams spend their time (microseconds). */
@@ -217,6 +222,11 @@ static bool set_nonblocking(int fd) {
 }
 
 /* Milliseconds since `then`; 0 when `then` was taken after a stale `now`. */
+/* osGetTime() counts milliseconds from 1900-01-01; the epoch is 1970. */
+static uint64_t console_epoch_ms(void) {
+  return osGetTime() - 2208988800000ULL;
+}
+
 static uint64_t since(uint64_t then) {
   uint64_t now = osGetTime();
   return now > then ? now - then : 0;
@@ -819,6 +829,14 @@ static void become_linked(JsonSpan message, Companion *companion) {
     features_json[features.length] = '\0';
   } else {
     snprintf(features_json, sizeof features_json, "[]");
+  }
+  JsonSpan clock;
+  uint64_t utc = 0, local = 0;
+  if (json_find(message, "clock", &clock) && json_is_object(clock) &&
+      json_find_u64(clock, "utc", &utc) && json_find_u64(clock, "local", &local) && utc > 0) {
+    clock_skew_ms = (int64_t)utc - (int64_t)console_epoch_ms();
+    clock_offset_min = (int32_t)(((int64_t)local - (int64_t)utc) / 60000);
+    clock_known = true;
   }
   char name[LINK_NAME_BYTES];
   if (json_find_string(message, "name", name, sizeof name) && name[0] != '\0') {
@@ -1539,6 +1557,16 @@ const char *link_status_json(void) {
   jbuf_cstring(out, last_error);
   jbuf_text(out, ",\"features\":");
   jbuf_text(out, phase == PHASE_UP ? features_json : "[]");
+  jbuf_text(out, ",\"clock\":");
+  if (clock_known) {
+    jbuf_text(out, "{\"utc\":");
+    jbuf_i64(out, (int64_t)console_epoch_ms() + clock_skew_ms);
+    jbuf_text(out, ",\"offsetMinutes\":");
+    jbuf_i64(out, clock_offset_min);
+    jbuf_text(out, "}");
+  } else {
+    jbuf_text(out, "null");
+  }
   /* Host diagnostics beyond LinkStatus: the last handshake's duration and
    * the last ping round trip, both in milliseconds. */
   jbuf_text(out, ",\"connectMs\":");

@@ -25,7 +25,7 @@ export const PER_PAGE = COLS * ROWS;
 const ICON = 46;
 const CELL_W = 80;
 const ROW_Y = [10, 88];
-const DOCK_Y = 178;
+const DOCK_Y = 174;
 const DOTS_Y = 168;
 
 export interface DockItem {
@@ -243,8 +243,8 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
               class={env.keys() && focus() === item.key ? "absolute w-[54] h-[54] rounded-[13] border-[#ffffff] border-2" : "hidden"}
               style={{ insetL: DOCK_X[index()]! - 4, insetT: DOCK_Y - 4 }}
             />
-            <Text class="absolute text-xs text-[#00000099] font-bold text-center" style={{ insetL: DOCK_X[index()]! - 17, insetT: 227, width: ICON + 34 }}>{item.title}</Text>
-            <Text class="absolute text-xs text-white font-bold text-center" style={{ insetL: DOCK_X[index()]! - 17, insetT: 226, width: ICON + 34 }}>{item.title}</Text>
+            <Text class="absolute text-xs text-[#00000099] font-bold text-center" style={{ insetL: DOCK_X[index()]! - 17, insetT: 223, width: ICON + 34 }}>{item.title}</Text>
+            <Text class="absolute text-xs text-white font-bold text-center" style={{ insetL: DOCK_X[index()]! - 17, insetT: 222, width: ICON + 34 }}>{item.title}</Text>
           </>
         )}
       </For>
@@ -325,8 +325,8 @@ function AppIcon(props: {
       <Show when={props.editing()}>
         <Image class="absolute left-[-9] top-[-9] w-[22] h-[22]" src="art/delete-badge.svg" />
       </Show>
-      <Text class="absolute left-[-17] top-[50] w-[80] text-xs text-[#00000099] font-bold text-center">{ellipsize(props.app.title, FONT.xsBold, 80)}</Text>
-      <Text class="absolute left-[-17] top-[49] w-[80] text-xs text-white font-bold text-center">{ellipsize(props.app.title, FONT.xsBold, 80)}</Text>
+      <Text class="absolute left-[-16] top-[50] w-[78] text-xs text-[#00000099] font-bold text-center">{ellipsize(props.app.title, FONT.xsBold, 77)}</Text>
+      <Text class="absolute left-[-16] top-[49] w-[78] text-xs text-white font-bold text-center">{ellipsize(props.app.title, FONT.xsBold, 77)}</Text>
     </View>
   );
 }

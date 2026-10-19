@@ -96,7 +96,17 @@ function readLink(): LinkStatus {
     paired: status.paired.map((entry) => ({ ...entry, name: toAscii(entry.name) })),
     device: { ...status.device, name: toAscii(status.device.name), model: toAscii(status.device.model) },
     error: toAscii(status.error),
+    // The clock moves on every read; Home keeps it apart as a skew (below) so
+    // an unchanged link stays equal and nothing redraws for it.
+    clock: null,
   };
+}
+
+/** The Mac's clock as a whole-second skew from Date.now(), and its offset. */
+function readClock(): { skew: number; offset: number } | null {
+  const clock = linkStatus().clock;
+  if (!clock) return null;
+  return { skew: Math.round((clock.utc - Date.now()) / 1000) * 1000, offset: clock.offsetMinutes };
 }
 
 function readWifi(): WifiStatus | null {
@@ -113,6 +123,8 @@ function readWifi(): WifiStatus | null {
 export interface HomeSystem {
   now: Accessor<number>;
   offset: Accessor<number>;
+  /** True while the time comes from the paired Mac's clock. */
+  macClock: Accessor<boolean>;
   setOffset(minutes: number): void;
   table: Accessor<HomeTable>;
   link: Accessor<LinkStatus>;
@@ -137,10 +149,14 @@ export interface HomeSystem {
 }
 
 export function createHomeSystem(): HomeSystem {
-  const [now, setNow] = createSignal(Date.now());
-  const [offset, setOffset] = createSignal(DEFAULT_OFFSET);
+  // Wall time: the paired Mac's clock once one has linked (the 3DS clock is
+  // often unset), otherwise the console's own clock, which reads local time
+  // as if it were UTC; the Time Zone page shifts only that fallback.
+  const [tick, setTick] = createSignal(Date.now());
+  const [manualOffset, setOffset] = createSignal(DEFAULT_OFFSET);
   const [table, setTable] = createSignal(readAppTable(), { equals: sameJson });
   const [link, setLink] = createSignal(readLink(), { equals: sameJson });
+  const [clock, setClock] = createSignal(readClock(), { equals: sameJson });
   const [wifi, setWifiStatus] = createSignal(readWifi(), { equals: sameJson });
   const [catalog, setCatalog] = createSignal<LinkCatalogApp[]>([], { equals: sameJson });
   const [catalogState, setCatalogState] = createSignal<CatalogState>("idle");
@@ -151,6 +167,7 @@ export function createHomeSystem(): HomeSystem {
 
   const refresh = () => {
     setLink(readLink());
+    setClock(readClock());
     setWifiStatus(readWifi());
   };
 
@@ -194,7 +211,7 @@ export function createHomeSystem(): HomeSystem {
   onFrame(() => {
     frames++;
     if (frames % POLL_FRAMES === 0) {
-      setNow(Date.now());
+      setTick(Date.now());
       refresh();
       if (frames % (POLL_FRAMES * 4) === 0) setTable(readAppTable());
     } else if (frames % BUSY_POLL_FRAMES === 0 && busy()) {
@@ -217,9 +234,16 @@ export function createHomeSystem(): HomeSystem {
     setInstalls(next);
   };
 
+  const now = () => {
+    tick();
+    return Date.now() + (clock()?.skew ?? 0);
+  };
+  const offset = () => clock()?.offset ?? manualOffset();
+
   return {
     now,
     offset,
+    macClock: () => clock() !== null,
     setOffset,
     table,
     link,

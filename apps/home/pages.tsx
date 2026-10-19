@@ -280,7 +280,12 @@ function aboutPage(env: PageEnv, _stack: NavStack, layer: LayerContext): PageSpe
 
 function timezonePage(env: PageEnv, _stack: NavStack, layer: LayerContext): PageSpec {
   const { sys } = env;
-  const content = table(env, layer, () => [
+  const content = table(env, layer, () => sys.macClock() ? [
+      {
+        cells: [{ id: `tz.${sys.offset()}`, label: offsetText(sys.offset()), value: "From the Mac", accessory: "check" as const, on: true }],
+        footer: "Home shows the paired Mac's time and time zone. The console's own clock is not used.",
+      },
+    ] : [
       {
         header: "Offset from UTC",
         cells: TIME_ZONES.map((zone) => ({
@@ -291,7 +296,7 @@ function timezonePage(env: PageEnv, _stack: NavStack, layer: LayerContext): Page
           on: sys.offset() === zone.offset,
           run: () => sys.setOffset(zone.offset),
         })),
-        footer: "The console reports no time zone. Home shows the time at this offset from UTC.",
+        footer: "No Mac has linked since the console started, so Home shows the console's clock. Pair a Mac to take its time.",
       },
     ]);
   // Open on the zone in use.
