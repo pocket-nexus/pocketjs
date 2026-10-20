@@ -230,17 +230,31 @@ function saverHeader(): { text: string; rgba: Uint8Array; width: number; height:
   return { text: header, rgba, width: SAVER_W, height: SAVER_H };
 }
 
+/** Skia rounds coverage differently on x86-64 and ARM, so the saver baked on
+ *  one differs from the other by one step of a channel at a few edge texels.
+ *  Its text outside the pixel words must match; each word may differ by one
+ *  step per RGB565 channel. */
+export function saverMatches(committed: string, baked: string): boolean {
+  const word = /0x[0-9a-f]{4}\b/g;
+  if (committed.replace(word, "") !== baked.replace(word, "")) return false;
+  const a = committed.match(word)!, b = baked.match(word)!;
+  return a.every((hex, i) => {
+    const x = parseInt(hex, 16), y = parseInt(b[i]!, 16);
+    return Math.abs((x >> 11) - (y >> 11)) <= 1 && Math.abs(((x >> 5) & 63) - ((y >> 5) & 63)) <= 1 && Math.abs((x & 31) - (y & 31)) <= 1;
+  });
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const outputs = [
-    { path: HINT_OUT, name: "hint", ...hintHeader() },
-    { path: SAVER_OUT, name: "saver", ...saverHeader() },
+    { path: HINT_OUT, name: "hint", matches: (a: string, b: string) => a === b, ...hintHeader() },
+    { path: SAVER_OUT, name: "saver", matches: saverMatches, ...saverHeader() },
   ];
   const png = args.indexOf("--png");
   for (const output of outputs) {
     if (png >= 0) writeFileSync(join(args[png + 1]!, `stage-${output.name}.png`), encodePNG(output.rgba, output.width, output.height));
     if (args.includes("--check")) {
-      if (readFileSync(output.path, "utf8") !== output.text) {
+      if (!output.matches(readFileSync(output.path, "utf8"), output.text)) {
         console.error(`${output.path} is stale: run bun tools/3ds-stage-art.ts`);
         process.exit(1);
       }
