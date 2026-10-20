@@ -340,7 +340,7 @@ const SUITE: readonly Stage[] = [
     name: "agent overlay sim",
     prep: [
       ["bun", "tools/wasm.ts"],
-      ["bun", "tools/3ds-stage-hint.ts", "--check"],
+      ["bun", "tools/3ds-stage-art.ts", "--check"],
     ],
     browser: true,
     tests: ["tests/agent-layer.test.ts"],

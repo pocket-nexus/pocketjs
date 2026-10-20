@@ -49,7 +49,10 @@ an orange block with two upright eyes, two arm stubs and four legs.
   `C3D_SyncTextureCopy` of the auxiliary render target's tiles into a 256×512
   RGBA8 texture, every second frame while it is shown), the agent's own screen
   (RGB565 frames from `agent.screen`, tiled by a display transfer) or the
-  mascot's desktop (a terminal drawn once at init and scrolled). A texture
+  screensaver (the Pocket3D mark and its name on the title card's plum
+  `#171226`, a 128×128 RGB565 texture from `stage_saver.h`, drifting at a
+  constant speed and turning back where it meets an edge; the clamped
+  texture edge fills the rest of the screen with plum). A texture
   matrix uniform maps the quad's coordinates to the source's layout.
 - **The mascot animates in C**, one step a frame (`stage_tick`): a pose target
   from the mode, eased every frame, with breathing, blinks, hops (a spring on
@@ -60,12 +63,12 @@ an orange block with two upright eyes, two arm stubs and four legs.
 
 **The hint.** While the mode is `idle`, a pill in the bottom-right corner
 shows two key caps, L and R, and "Ask Claude". It is a 128×32 RGBA8 texture
-baked from Inter Bold by `tools/3ds-stage-hint.ts` into
+baked from Inter Bold by `tools/3ds-stage-art.ts` into
 `hosts/3ds/src/stage_hint.h`, drawn after each eye with an orthographic
 projection at the screen's pixels (zero parallax), its opacity in the texture
 combiner's constant colour. It fades out in **about 0.2 s** when the mode
-leaves `idle` and back in over **about 0.6 s**. `bun tools/3ds-stage-hint.ts
---check` fails when the header is stale.
+leaves `idle` and back in over **about 0.6 s**. `bun tools/3ds-stage-art.ts
+--check` fails when either header is stale.
 
 On an Old 3DS the stage adds about **0.4 ms** to the frame's GPU phase (3.0 ms
 against 2.6 ms), and the Hacker News app (pocket-shell `shells/3ds/hn`) still
@@ -117,7 +120,7 @@ running while `suspendApp(true)` stops the app's.
 
 | State | Touch screen | Mascot (mode, monitor) |
 | --- | --- | --- |
-| closed | the app | idle, desktop |
+| closed | the app | idle, screensaver |
 | L+R (`choose`) | scrim, a card with two tiles: Talk (A) and Type (X) | attend, mirror |
 | Talk (`listening`) | scrim, a card with the microphone, the live transcript and Send (A) | listen, mirror |
 | Type (`compose`) | scrim, a card with the request field, the system keyboard (`Osk`, contact layout) | attend, mirror |

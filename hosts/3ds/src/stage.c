@@ -19,11 +19,12 @@
  * The monitor shows one of three textures: the touch screen (copied from its
  * render target with a raw texture copy each second frame), the agent's own
  * screen (RGB565 frames from the companion, tiled by the transfer engine) or
- * the mascot's desktop (drawn once at init, scrolled).
+ * the screensaver (the Pocket3D mark on plum, stage_saver.h, drifting about
+ * the screen and turning back at its edges).
  *
  * Over both eyes, at the screen's own pixels, a pill in the bottom-right
  * corner says that L+R asks Claude (stage_hint.h, baked by
- * tools/3ds-stage-hint.ts). It shows while the mascot is idle.
+ * tools/3ds-stage-art.ts). It shows while the mascot is idle.
  */
 
 #include "stage.h"
@@ -36,6 +37,7 @@
 
 #include "link.h"
 #include "stage_hint.h"
+#include "stage_saver.h"
 #include "stage_shbin.h"
 
 /* contracts/spec/agent.ts */
@@ -106,7 +108,7 @@ static Range lit, outlined, unlit, screen, shadows, hint;
 
 static C3D_Tex mirror_tex;
 static C3D_Tex own_tex;
-static C3D_Tex desk_tex;
+static C3D_Tex saver_tex;
 static C3D_Tex hint_tex;
 /* The hint's opacity, 0 to 1, eased toward 1 while idle. */
 static float hint_alpha;
@@ -134,7 +136,10 @@ static uint32_t act_until;
 static uint32_t blink_at = 90, blink_end;
 static bool watching_user;
 static float typing_phase;
-static float desk_scroll;
+/* The screensaver's centre on the screen (0..1 across and down) and its
+ * velocity a frame. */
+static float saver_x = 0.5f, saver_y = 0.45f;
+static float saver_vx = 0.0021f, saver_vy = 0.0016f;
 static uint32_t mode_since;
 
 enum { ACT_REST, ACT_LOOK, ACT_WATCH, ACT_KICK, ACT_STRETCH, ACT_HOP, ACT_SLEEP };
@@ -472,6 +477,12 @@ static void end_group(Range *range) {
 #define SCREEN_H 0.9f
 #define SCREEN_Y (DESK_H + 0.14f + 0.5f)
 
+/* The screensaver's square as a fraction of the screen's height, and the
+ * half extents of its content (the mark and its name) in screen fractions. */
+#define SAVER_SPAN 0.8f
+#define SAVER_HALF_W (0.31f * SAVER_SPAN * SCREEN_H / SCREEN_W)
+#define SAVER_HALF_H (0.39f * SAVER_SPAN)
+
 /* The wall clock. */
 #define CLOCK_X 1.65f
 #define CLOCK_Y 2.3f
@@ -765,47 +776,6 @@ static void build_shadows(void) {
    GX_TRANSFER_IN_FORMAT(fmt) | GX_TRANSFER_OUT_FORMAT(fmt) |                         \
    GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO))
 
-static uint16_t rgb565(uint32_t hex) {
-  uint32_t r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
-  return (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-}
-
-static void fill(uint16_t *image, int width, int x0, int y0, int x1, int y1, uint16_t color) {
-  for (int y = y0; y < y1; y += 1) {
-    for (int x = x0; x < x1; x += 1) image[y * width + x] = color;
-  }
-}
-
-/* The mascot's desktop: a terminal of code-coloured lines under a title bar
- * with Claude's spark, 256x256, drawn once. */
-static void draw_desktop(uint16_t *image) {
-  const int size = 256;
-  fill(image, size, 0, 0, size, size, rgb565(0x23211f));
-  static const uint32_t palette[] = {0xd97757, 0xe9e5da, 0x8fb8de, 0xb5d99c, 0xe8c26a, 0x9d9a92};
-  int y = 6;
-  while (y < size - 6) {
-    uint32_t pick = random_next();
-    int indent = 8 + (int)((pick >> 3) % 4) * 10;
-    int x = indent;
-    int words = 1 + (int)((pick >> 8) % 5);
-    if ((pick >> 13) % 6 == 0) {
-      y += 10;
-      continue;
-    }
-    for (int w = 0; w < words && x < size - 12; w += 1) {
-      uint32_t word = random_next();
-      int length = 10 + (int)(word % 34);
-      if (x + length > size - 8) length = size - 8 - x;
-      fill(image, size, x, y, x + length, y + 4, rgb565(palette[(word >> 7) % 6]));
-      x += length + 6;
-    }
-    y += 10;
-  }
-  /* A prompt line with the spark's colour. */
-  fill(image, size, 8, size - 16, 16, size - 8, rgb565(0xd97757));
-  fill(image, size, 22, size - 14, 70, size - 10, rgb565(0xe9e5da));
-}
-
 static void upload_rgb565(C3D_Tex *texture, const uint16_t *linear) {
   GSPGPU_FlushDataCache(linear, texture->width * texture->height * 2);
   C3D_SyncDisplayTransfer(
@@ -884,14 +854,15 @@ bool stage_init(void) {
   if (!C3D_TexInit(&own_tex, 512, 256, GPU_RGB565)) return false;
   C3D_TexSetFilter(&own_tex, GPU_LINEAR, GPU_LINEAR);
   C3D_TexSetWrap(&own_tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
-  if (!C3D_TexInit(&desk_tex, 256, 256, GPU_RGB565)) return false;
-  C3D_TexSetFilter(&desk_tex, GPU_LINEAR, GPU_LINEAR);
-  C3D_TexSetWrap(&desk_tex, GPU_REPEAT, GPU_REPEAT);
+  /* The clamped edge repeats the saver's plum border around the mark. */
+  if (!C3D_TexInit(&saver_tex, STAGE_SAVER_SIZE, STAGE_SAVER_SIZE, GPU_RGB565)) return false;
+  C3D_TexSetFilter(&saver_tex, GPU_LINEAR, GPU_LINEAR);
+  C3D_TexSetWrap(&saver_tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
 
   staging = linearAlloc(512 * 256 * sizeof *staging);
   if (staging == NULL) return false;
-  draw_desktop(staging);
-  upload_rgb565(&desk_tex, staging);
+  memcpy(staging, stage_saver_pixels, sizeof stage_saver_pixels);
+  upload_rgb565(&saver_tex, staging);
 
   if (!C3D_TexInit(&hint_tex, STAGE_HINT_TEX_W, STAGE_HINT_TEX_H, GPU_RGBA8)) return false;
   C3D_TexSetFilter(&hint_tex, GPU_NEAREST, GPU_NEAREST);
@@ -917,7 +888,7 @@ void stage_shutdown(void) {
   if (!initialized) return;
   C3D_TexDelete(&mirror_tex);
   C3D_TexDelete(&own_tex);
-  C3D_TexDelete(&desk_tex);
+  C3D_TexDelete(&saver_tex);
   C3D_TexDelete(&hint_tex);
   linearFree(staging);
   linearFree(vertices);
@@ -1180,8 +1151,17 @@ void stage_tick(void) {
     }
   }
 
-  desk_scroll += 0.0009f;
-  if (desk_scroll > 1.0f) desk_scroll -= 1.0f;
+  /* The screensaver drifts and turns back where its content meets an edge. */
+  saver_x += saver_vx;
+  saver_y += saver_vy;
+  if (saver_x < SAVER_HALF_W || saver_x > 1.0f - SAVER_HALF_W) {
+    saver_vx = -saver_vx;
+    saver_x = clampf(saver_x, SAVER_HALF_W, 1.0f - SAVER_HALF_W);
+  }
+  if (saver_y < SAVER_HALF_H || saver_y > 1.0f - SAVER_HALF_H) {
+    saver_vy = -saver_vy;
+    saver_y = clampf(saver_y, SAVER_HALF_H, 1.0f - SAVER_HALF_H);
+  }
 
   hint_alpha = ease(hint_alpha, mode == MODE_IDLE ? 1.0f : 0.0f, mode == MODE_IDLE ? 0.08f : 0.3f);
 }
@@ -1332,9 +1312,13 @@ static void bind_screen(void) {
     C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvs, 320.0f / 512.0f, 0.0f, 0.0f, 0.0f);
     C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvt, 0.0f, -240.0f / 256.0f, 1.0f, 0.0f);
   } else {
-    C3D_TexBind(0, &desk_tex);
-    C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvs, 1.0f, 0.0f, 0.0f, 0.0f);
-    C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvt, 0.0f, -0.75f, 1.0f - desk_scroll, 0.0f);
+    /* The saver's square spans SAVER_SPAN of the screen's height; the
+     * screen's (u, v) maps to the square's (x, y) about the saver's centre. */
+    const float sv = 1.0f / SAVER_SPAN;
+    const float su = sv * SCREEN_W / SCREEN_H;
+    C3D_TexBind(0, &saver_tex);
+    C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvs, su, 0.0f, 0.5f - saver_x * su, 0.0f);
+    C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvt, 0.0f, sv, 0.5f - saver_y * sv, 0.0f);
   }
 }
 
