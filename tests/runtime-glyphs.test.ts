@@ -97,8 +97,8 @@ describe("runtime glyphs: the core lays them out", () => {
     const plain = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
     plain.init(1);
     const installed = glyphs.installRuntimeGlyphs(wasm.ops, { rasterize: boxes(10), now: () => 0 });
-    wasm.ops.loadFontAtlas(bake(2, 16));
-    plain.ops.loadFontAtlas(bake(2, 16));
+    wasm.ops.loadFontAtlas!(bake(2, 16));
+    plain.ops.loadFontAtlas!(bake(2, 16));
 
     const tofu = plain.ops.measureText("日本語", 2);
     expect(wasm.ops.measureText("日本語", 2)).toBe(3 * 11);
@@ -112,9 +112,9 @@ describe("runtime glyphs: the core lays them out", () => {
     const wasm = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
     wasm.init(1);
     const installed = glyphs.installRuntimeGlyphs(wasm.ops, { rasterize: boxes(8), now: () => 0 });
-    wasm.ops.loadFontAtlas(bake(2, 16));
+    wasm.ops.loadFontAtlas!(bake(2, 16));
     installed.ensure("かな");
-    wasm.ops.loadFontAtlas(bake(9, 16));
+    wasm.ops.loadFontAtlas!(bake(9, 16));
     expect(wasm.ops.measureText("かな", 9)).toBe(2 * 9);
     expect(wasm.ops.measureText("かな", 2)).toBe(2 * 9);
     expect(installed.stats().cells).toBe(4);
@@ -125,7 +125,7 @@ describe("runtime glyphs: the core lays them out", () => {
     wasm.init(1);
     let drawn = 0;
     const installed = glyphs.installRuntimeGlyphs(wasm.ops, { rasterize: (cp: number, atlas: { density: number; cellH: number }) => (drawn++, boxes(6)(cp, atlas)), now: () => 0 });
-    wasm.ops.loadFontAtlas(bake(2, 16));
+    wasm.ops.loadFontAtlas!(bake(2, 16));
     wasm.ops.measureText("Plain ASCII, 123.", 2);
     installed.flush();
     expect(drawn).toBe(0);

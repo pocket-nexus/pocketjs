@@ -87,7 +87,7 @@ test("an Android build finds one file per density", () => {
   const sides = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144 };
   expect(Object.keys(POCKET3D_ICON_ANDROID)).toEqual(Object.keys(sides));
   for (const [density, side] of Object.entries(sides)) {
-    const file = POCKET3D_ICON_ANDROID[density as keyof typeof sides];
+    const file: string = POCKET3D_ICON_ANDROID[density as keyof typeof sides];
     expect(file).toBe(`${DIRECTORY}android/${density}.png`);
     // a launcher icon is 48 dp: 48 pixels at 160 dpi, scaled by the density
     expect(readFileSync(file).readUInt32BE(16)).toBe(side);
