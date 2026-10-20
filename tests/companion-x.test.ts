@@ -51,7 +51,7 @@ function homeTimeline() {
           {
             type: "TimelineAddEntries",
             entries: [
-              item(tweet("101", "Hello from the 3DS &amp; friends https://t.co/abc", {}, { entities: { urls: [{ url: "https://t.co/abc", display_url: "pocket.dev/x" }], media: [] } })),
+              item(tweet("101", "Hello from the 3DS &amp; friends https://t.co/abc", {}, { favorited: true, entities: { urls: [{ url: "https://t.co/abc", display_url: "pocket.dev/x" }], media: [] } })),
               item(tweet("999", "Buy this"), { promotedMetadata: { advertiser: "ad" } }),
               item(tweet("102", "RT @user103: original", {}, { retweeted_status_result: { result: tweet("103", "original words") } })),
               item({ __typename: "TweetWithVisibilityResults", tweet: tweet("104", "wrapped post", { quoted_status_result: { result: tweet("105", "the quoted one") } }) }),
@@ -88,6 +88,8 @@ let origin = "";
 let store = "";
 const logs: string[] = [];
 const seen: { path: string; headers: Headers }[] = [];
+/** Mutations the stand-in received: their operation name and JSON body. */
+const mutations: { name: string; body: Record<string, unknown> }[] = [];
 /** The Relay id the scripts name for the following timeline; the API knows only `liveId`. */
 let scriptId = "RELAY-OLD";
 let liveId = "RELAY-OLD";
@@ -112,7 +114,14 @@ beforeAll(() => {
         );
       }
       if (url.pathname === "/assets/chunk-post.js") {
-        return new Response(`e.exports={queryId:"CLASSIC-TD",operationName:"TweetDetail",operationType:"query",metadata:{featureSwitches:["view_counts_everywhere_api_enabled","longform_notetweets_consumption_enabled"],fieldToggles:["withArticleRichContentState"]}}`);
+        return new Response(
+          `e.exports={queryId:"CLASSIC-TD",operationName:"TweetDetail",operationType:"query",metadata:{featureSwitches:["view_counts_everywhere_api_enabled","longform_notetweets_consumption_enabled"],fieldToggles:["withArticleRichContentState"]}}` +
+            `f.exports={queryId:"FAV",operationName:"FavoriteTweet",operationType:"mutation",metadata:{featureSwitches:[],fieldToggles:[]}}` +
+            `g.exports={queryId:"UNFAV",operationName:"UnfavoriteTweet",operationType:"mutation",metadata:{featureSwitches:[],fieldToggles:[]}}` +
+            `h.exports={queryId:"RT",operationName:"CreateRetweet",operationType:"mutation",metadata:{featureSwitches:[],fieldToggles:[]}}` +
+            `i.exports={queryId:"UNRT",operationName:"DeleteRetweet",operationType:"mutation",metadata:{featureSwitches:[],fieldToggles:[]}}` +
+            `j.exports={queryId:"POST",operationName:"CreateTweet",operationType:"mutation",metadata:{featureSwitches:["view_counts_everywhere_api_enabled"],fieldToggles:[]}}`,
+        );
       }
       const auth = request.headers.get("authorization") ?? "";
       const cookie = request.headers.get("cookie") ?? "";
@@ -132,6 +141,15 @@ beforeAll(() => {
         const features = JSON.parse(url.searchParams.get("features") ?? "{}");
         if (variables.focalTweetId !== "201" || features.view_counts_everywhere_api_enabled !== true) return Response.json({ errors: [{ message: "bad variables" }] }, { status: 400 });
         return Response.json({ data: conversation() });
+      }
+      const mutation = url.pathname.match(/^\/i\/api\/graphql\/(FAV|UNFAV|RT|UNRT|POST)\/(\w+)$/);
+      if (mutation && request.method === "POST") {
+        if (!signed) return Response.json({ errors: [{ code: 32, message: "Could not authenticate you." }] }, { status: 401 });
+        return request.json().then((body: Record<string, unknown>) => {
+          mutations.push({ name: mutation[2]!, body });
+          if (mutation[2] === "CreateTweet") return Response.json({ data: { create_tweet: { tweet_results: { result: tweet("300", String((body.variables as { tweet_text: string }).tweet_text)) } } } });
+          return Response.json({ data: { ok: "Done" } });
+        });
       }
       if (url.pathname.startsWith("/profile_images/")) return new Response(new Uint8Array([1, 2, 3]));
       return new Response("not here", { status: 404 });
@@ -163,12 +181,12 @@ function service(): ServiceProvider {
   );
 }
 
-const request = (path: string, query = "", method = "GET"): ServiceRequest => ({
+const request = (path: string, query = "", method = "GET", body = ""): ServiceRequest => ({
   method,
   path,
   query: new URLSearchParams(query),
   headers: {},
-  body: new Uint8Array(),
+  body: new TextEncoder().encode(body),
   console: { id: "c", name: "3DS", model: "3ds", target: "3ds-dev", address: "127.0.0.1" },
   signal: AbortSignal.timeout(10_000),
 });
@@ -221,7 +239,7 @@ describe("the X service", () => {
     const posts = body.posts as XPost[];
     expect(posts.map((post) => post.id)).toEqual(["101", "103", "104", "106"]);
     expect(posts[0]!.text).toBe("Hello from the 3DS & friends pocket.dev/x");
-    expect(posts[0]).toMatchObject({ name: "Name 101", handle: "user101", replies: 2, reposts: 4, likes: 10, views: 1200 });
+    expect(posts[0]).toMatchObject({ name: "Name 101", handle: "user101", replies: 2, reposts: 4, likes: 10, views: 1200, liked: true, reposted: false });
     expect(posts[0]!.time).toBe(Date.parse("Mon Oct 19 01:00:00 +0000 2026"));
     expect(posts[0]!.avatar).toBe("https://pbs.twimg.com/profile_images/1/user101_bigger.jpg");
     expect(posts[1]).toMatchObject({ id: "103", text: "original words", repostedBy: "Name 102" });
@@ -233,6 +251,40 @@ describe("the X service", () => {
     expect(call.path).toBe("/graphql/RELAY-OLD/HomeLatestTimelineQuery");
     expect(call.headers.get("x-twitter-auth-type")).toBe("OAuth2Session");
     expect(call.headers.get("x-csrf-token")).toBe(CT0);
+  });
+
+  test("like, unlike, repost and unrepost send the web client's mutations with their variables alone", async () => {
+    const x = service();
+    mutations.length = 0;
+    for (const [path, id] of [["/like", "101"], ["/unlike", "101"], ["/repost", "103"], ["/unrepost", "103"]] as const) {
+      expect(await json(x, path, `id=${id}`, "POST")).toEqual({ status: 200, body: { ok: true } });
+    }
+    expect(mutations).toEqual([
+      { name: "FavoriteTweet", body: { variables: { tweet_id: "101" }, queryId: "FAV" } },
+      { name: "UnfavoriteTweet", body: { variables: { tweet_id: "101" }, queryId: "UNFAV" } },
+      { name: "CreateRetweet", body: { variables: { tweet_id: "103", dark_request: false }, queryId: "RT" } },
+      { name: "DeleteRetweet", body: { variables: { source_tweet_id: "103", dark_request: false }, queryId: "UNRT" } },
+    ]);
+    expect((await json(x, "/like", "id=abc", "POST")).status).toBe(400);
+    // A read is not an action.
+    expect((await json(x, "/like", "id=101", "GET")).status).toBe(404);
+  });
+
+  test("a reply sends CreateTweet aimed at the post and answers the new post", async () => {
+    const x = service();
+    mutations.length = 0;
+    const response = await x.handle(request("/reply", "", "POST", JSON.stringify({ id: "101", text: "hello from a 3DS" })));
+    const body = JSON.parse(new TextDecoder().decode(response.body)) as { ok: boolean; post: XPost };
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.post).toMatchObject({ id: "300", text: "hello from a 3DS" });
+    expect(mutations).toHaveLength(1);
+    expect(mutations[0]!.name).toBe("CreateTweet");
+    expect(mutations[0]!.body.variables).toMatchObject({ tweet_text: "hello from a 3DS", reply: { in_reply_to_tweet_id: "101", exclude_reply_user_ids: [] }, dark_request: false });
+    expect(mutations[0]!.body.features).toEqual({ view_counts_everywhere_api_enabled: true });
+    for (const bad of [{ id: "101", text: "  " }, { id: "x", text: "hi" }, { id: "101", text: "y".repeat(281) }]) {
+      expect((await x.handle(request("/reply", "", "POST", JSON.stringify(bad)))).status).toBe(400);
+    }
   });
 
   test("a thread through the classic operation: before, the post, replies and the cursor", async () => {

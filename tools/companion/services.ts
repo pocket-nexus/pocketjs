@@ -16,6 +16,7 @@
 import { LINK_SERVICES_HOST } from "../../contracts/spec/link.ts";
 import type { NetRequest, NetResponse } from "./fetch.ts";
 import { createDiscordService } from "./services/discord.ts";
+import { createGlyphsService } from "./services/glyphs.ts";
 import { createXService } from "./services/x.ts";
 import { createYoutubeService } from "./services/youtube.ts";
 
@@ -72,6 +73,7 @@ export const SERVICE_FACTORIES: Record<string, (context: ServiceContext) => Serv
   youtube: createYoutubeService,
   x: createXService,
   discord: createDiscordService,
+  glyphs: createGlyphsService,
 };
 
 export class ServiceHost {

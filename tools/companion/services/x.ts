@@ -27,7 +27,9 @@
 //   GET /x/timeline?kind=following|foryou&cursor=…   {posts, cursor}
 //   GET /x/post/<id>[?cursor=…]   {post, before, replies, cursor}
 //   GET /x/avatar?u=<image url>   an IMG entry (32x32 RGB565, round on white)
-//   POST /x/like?id=<post id>     {ok}
+//   POST /x/like?id=…, /x/unlike?id=…            {ok}  (FavoriteTweet, UnfavoriteTweet)
+//   POST /x/repost?id=…, /x/unrepost?id=…        {ok}  (CreateRetweet, DeleteRetweet)
+//   POST /x/reply {id, text}                     {ok, post?}  (CreateTweet)
 // A failure is {error, message}: error "signed-out" (status 401) when there
 // is no session or X refused it, "api" (502) when X answered with an error.
 
@@ -69,6 +71,9 @@ export interface XPost {
   replies: number;
   reposts: number;
   likes: number;
+  /** The signed-in account liked or reposted it. */
+  liked: boolean;
+  reposted: boolean;
   views?: number;
   /** The handle this post answers. */
   replyTo?: string;
@@ -240,11 +245,26 @@ class XService implements ServiceProvider {
       const post = path.match(/^\/post\/(\d{1,25})$/);
       if (post) return jsonResponse(200, await this.thread(post[1]!, request.query.get("cursor") ?? undefined, request.signal));
       if (path === "/avatar") return await this.avatar(request.query.get("u") ?? "", request.signal);
-      if (path === "/like" && request.method === "POST") {
+      const action = path.match(/^\/(like|unlike|repost|unrepost)$/);
+      if (action && request.method === "POST") {
         const id = request.query.get("id") ?? "";
-        if (!/^\d{1,25}$/.test(id)) throw new XFailure(400, "bad-request", "like needs a post id");
-        await this.like(id, request.signal);
+        if (!/^\d{1,25}$/.test(id)) throw new XFailure(400, "bad-request", `${action[1]} needs a post id`);
+        await this.act(action[1] as Action, id, request.signal);
         return jsonResponse(200, { ok: true });
+      }
+      if (path === "/reply" && request.method === "POST") {
+        let body: { id?: unknown; text?: unknown };
+        try {
+          body = JSON.parse(new TextDecoder().decode(request.body)) as { id?: unknown; text?: unknown };
+        } catch {
+          throw new XFailure(400, "bad-request", "reply needs JSON {id, text}");
+        }
+        const id = typeof body.id === "string" ? body.id : "";
+        const text = typeof body.text === "string" ? body.text.trim() : "";
+        if (!/^\d{1,25}$/.test(id) || !text || [...text].length > 280) {
+          throw new XFailure(400, "bad-request", "reply needs a post id and 1 to 280 characters");
+        }
+        return jsonResponse(200, { ok: true, ...(await this.reply(id, text, request.signal)) });
       }
       return jsonResponse(404, { error: "bad-request", message: `no X endpoint ${path}` });
     } catch (error) {
@@ -436,6 +456,10 @@ class XService implements ServiceProvider {
     const features = Object.fromEntries((op.features?.length ? op.features : CLASSIC_FEATURES).map((name) => [name, true]));
     const toggles = Object.fromEntries((op.toggles ?? []).map((name) => [name, false]));
     const url = new URL(`${this.origin}/i/api/graphql/${op.id}/${op.name}`);
+    if (op.type === "mutation" && !op.features?.length) {
+      // FavoriteTweet and its kin take their variables and nothing else.
+      return this.fetcher(url, { method: "POST", headers, body: JSON.stringify({ variables, queryId: op.id }), signal });
+    }
     if (op.type === "mutation" || op.name.startsWith("Home")) {
       return this.fetcher(url, { method: "POST", headers, body: JSON.stringify({ variables, features, fieldToggles: toggles, queryId: op.id }), signal });
     }
@@ -492,13 +516,32 @@ class XService implements ServiceProvider {
     return { post: found.posts[at]!, before: found.posts.slice(0, at), replies: found.posts.slice(at + 1), cursor: found.bottom };
   }
 
-  private async like(id: string, signal: AbortSignal) {
+  private async act(action: Action, id: string, signal: AbortSignal) {
+    const { names, pattern, variables } = ACTIONS[action];
     await this.run(
-      (ops) => ops.get("FavoriteTweet") ?? findByPattern(ops, /^(use)?favoriteTweet\w*Mutation$/i),
-      () => ({ tweet_id: id, tweetId: id }),
+      (ops) => names.map((name) => ops.get(name)).find(Boolean) ?? findByPattern(ops, pattern),
+      () => variables(id),
       signal,
-      "like",
+      action,
     );
+  }
+
+  private async reply(id: string, text: string, signal: AbortSignal): Promise<{ post?: XPost }> {
+    const data = await this.run(
+      (ops) => ops.get("CreateTweet") ?? findByPattern(ops, /^(use)?createTweet\w*Mutation$/i),
+      () => ({
+        tweet_text: text,
+        reply: { in_reply_to_tweet_id: id, exclude_reply_user_ids: [] },
+        dark_request: false,
+        media: { media_entities: [], possibly_sensitive: false },
+        semantic_annotation_ids: [],
+        disallowed_reply_options: null,
+      }),
+      signal,
+      "reply",
+    );
+    const post = collect(data).posts[0];
+    return post ? { post } : {};
   }
 
   private async avatar(url: string, signal: AbortSignal) {
@@ -553,6 +596,16 @@ export function webpackChunks(html: string, pageUrl: string): string[] {
 }
 
 // ---- operations in a script -------------------------------------------------------
+
+type Action = "like" | "unlike" | "repost" | "unrepost";
+/** The mutations behind the console's buttons, with the variables the web
+ *  client sends. */
+const ACTIONS: Record<Action, { names: string[]; pattern: RegExp; variables: (id: string) => Record<string, unknown> }> = {
+  like: { names: ["FavoriteTweet"], pattern: /^(use)?favoriteTweet\w*Mutation$/i, variables: (id) => ({ tweet_id: id }) },
+  unlike: { names: ["UnfavoriteTweet"], pattern: /^(use)?unfavoriteTweet\w*Mutation$/i, variables: (id) => ({ tweet_id: id }) },
+  repost: { names: ["CreateRetweet"], pattern: /^(use)?createRetweet\w*Mutation$/i, variables: (id) => ({ tweet_id: id, dark_request: false }) },
+  unrepost: { names: ["DeleteRetweet"], pattern: /^(use)?deleteRetweet\w*Mutation$/i, variables: (id) => ({ source_tweet_id: id, dark_request: false }) },
+};
 
 const TIMELINE_NAMES = {
   following: ["HomeLatestTimelineQuery", "HomeLatestTimeline"],
@@ -679,6 +732,8 @@ export function normalize(raw: Json): XPost {
     replies: count(legacy.reply_count),
     reposts: count(legacy.retweet_count) + count(legacy.quote_count),
     likes: count(legacy.favorite_count),
+    liked: legacy.favorited === true,
+    reposted: legacy.retweeted === true,
   };
   if (views) post.views = views;
   const replyTo = text(legacy.in_reply_to_screen_name);
