@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { MEDIA, validMediaSource } from "../contracts/spec/media.ts";
 import { encodeMediaAudio } from "../contracts/spec/media-adpcm.ts";
 import { createMediaScrubber, mediaPlayer } from "../framework/src/media.ts";
-import { createMediaStreamServer, mediaHeader, mediaPacket } from "../tools/media-stream.ts";
+import { createMediaStreamServer, createPal8Encoder, mediaHeader, mediaPacket, PAL8_CUBE, quantizeCube } from "../tools/media-stream.ts";
 
 test("native and companion validate the same media bytes and reject malformed lengths", () => {
   const directory=mkdtempSync(join(tmpdir(),"pocket-media-"));
@@ -29,6 +29,61 @@ int main(int argc,char **argv) {
     expect(Bun.spawnSync([join(directory,"check"),join(directory,"wire.bin")]).exitCode).toBe(0);
     expect(()=>mediaPacket({kind:1,ptsMs:0,data:new Uint8Array(MEDIA.packetBytes+1)})).toThrow();
     expect(()=>mediaPacket({kind:2,ptsMs:0,data:new Uint8Array(3)})).toThrow();
+  } finally { rmSync(directory,{recursive:true,force:true}); }
+});
+
+test("PAL8 deltas rebuild the producer's picture natively, frame after frame, and bad packets are refused",()=>{
+  const directory=mkdtempSync(join(tmpdir(),"pocket-pal8-"));
+  try {
+    const w=37,h=11,encoder=createPal8Encoder(w,h);
+    const frames:Uint8Array[]=[];
+    const first=new Uint8Array(w*h); for(let i=0;i<first.length;i++) first[i]=(i*7)%252;
+    const second=first.slice(); for(let i=40;i<52;i++) second[i]=(second[i]!+1)%252; second[w*h-1]=3;
+    const third=second.slice();
+    frames.push(first,second,third);
+    const packets=frames.map(frame=>encoder.encode(frame));
+    expect(new DataView(packets[0]!.buffer).getUint16(4,true)).toBe(252);
+    expect(new DataView(packets[1]!.buffer).getUint16(4,true)).toBe(0);
+    expect(packets[1]!.length).toBeLessThan(40);
+    expect(packets[2]!.length).toBe(8+3);
+    const blob=Buffer.concat(packets.flatMap(p=>[Buffer.from(Uint32Array.of(p.length).buffer),Buffer.from(p)]));
+    writeFileSync(join(directory,"pal8.bin"),blob);
+    writeFileSync(join(directory,"expect.bin"),Buffer.concat(frames.map(f=>Buffer.from(f))));
+    writeFileSync(join(directory,"header.bin"),mediaHeader(0,1000,12,"pal8"));
+    writeFileSync(join(directory,"pal8.c"),`#include "media_wire.h"
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+static uint8_t ref[MEDIA_WIDTH*MEDIA_HEIGHT]; static uint16_t out[MEDIA_WIDTH*MEDIA_HEIGHT];
+static const uint16_t cube[252]={${[...PAL8_CUBE].join(",")}};
+int main(int argc,char **argv) {
+  uint8_t h[32],expect[3][${w*h}],p[4096]; FILE *f=fopen(argv[3],"rb"); assert(fread(h,1,32,f)==32); fclose(f);
+  assert(media_header_valid(h)); assert(media_u16(h+14)==MEDIA_CODEC_PAL8);
+  f=fopen(argv[2],"rb"); assert(fread(expect,1,sizeof expect,f)==sizeof expect); fclose(f);
+  MediaPal8 state={0}; f=fopen(argv[1],"rb");
+  for (int k=0;k<3;k++) {
+    uint32_t n; assert(fread(&n,4,1,f)==1); assert(n<=sizeof p); assert(fread(p,1,n,f)==n);
+    if (k==1) { assert(!media_pal8_apply(&(MediaPal8){0},ref,p,n)); }
+    if (k==0) { assert(!media_pal8_apply(&(MediaPal8){0},ref,p,n-1)); memset(ref,0,sizeof ref); }
+    assert(media_pal8_apply(&state,ref,p,n));
+    assert(memcmp(ref,expect[k],${w*h})==0);
+    media_pal8_expand(&state,ref,out,MEDIA_WIDTH);
+    for (int y=0;y<${h};y++) for (int x=0;x<${w};x++) assert(out[y*MEDIA_WIDTH+x]==cube[expect[k][y*${w}+x]]);
+    assert(out[${w}]==out[${w-1}]); assert(out[${h}*MEDIA_WIDTH+3]==out[${h-1}*MEDIA_WIDTH+3]);
+  }
+  fclose(f);
+  MediaPal8 other=state; other.width=36; assert(!media_pal8_apply(&other,ref,p,10));
+  h[14]=3; assert(!media_header_valid(h));
+  return 0;
+}`);
+    const compile=Bun.spawnSync(["cc","-std=c11","-I",resolve("hosts/3ds/src"),join(directory,"pal8.c"),"-o",join(directory,"pal8")]);
+    expect(compile.exitCode,compile.stderr.toString()).toBe(0);
+    const run=Bun.spawnSync([join(directory,"pal8"),join(directory,"pal8.bin"),join(directory,"expect.bin"),join(directory,"header.bin")]);
+    expect(run.exitCode,run.stderr.toString()).toBe(0);
+    expect(()=>createPal8Encoder(600,3)).toThrow();
+    expect(()=>encoder.encode(new Uint8Array(3))).toThrow();
+    const rgb=new Uint8Array(4*4*3).fill(255);
+    expect([...quantizeCube(rgb,4,4)]).toEqual(new Array(16).fill(251));
   } finally { rmSync(directory,{recursive:true,force:true}); }
 });
 

@@ -10,8 +10,9 @@ handle for an ordinary `Image`; its placement can use either display.
 
 `status` reports phase, media position, buffered audio duration, decoded,
 presented and dropped frames, received bytes, maximum decoder call duration,
-audio underruns, hardware availability and an error. **Position follows the
-audio output sample clock.** A rejected source, unavailable decoder, lost
+audio underruns, hardware availability, `h264` (the console has the H.264
+decoder, known before any open), `audio` (false while a stream plays muted)
+and an error. **Position follows the audio output sample clock.** A rejected source, unavailable decoder, lost
 connection or malformed stream produces an error. Applications must display it
 and offer recovery. Opening a new source cancels the previous generation.
 
@@ -30,6 +31,23 @@ pixels before mapping into the decoder plane. They can choose bitrate within
 the native packet limit. This format is an implementation of the generic
 playback capability, not a capability ID.
 
+The header's video codec field (offset 14) selects the picture format: **1 is
+H.264 for the MVD decoder, 2 is PAL8 for consoles without one.** A PAL8
+stream is a palettized picture of at most 512×256 at the texture's top-left
+corner that both ends keep. Each packet carries a width, height, colour count
+and zero, an RGB565 palette when the colour count is not zero (the first
+packet must carry one), then runs that cover every pixel in row order: a
+varint of unchanged pixels, a varint of changed pixels, and that many colour
+indices. Varints hold 7 bits a byte, low bits first, at most three bytes. The
+worker applies a packet to its reference picture, then expands the picture
+into the frame ring, repeating the last column and row once for filtered
+reads. When the ring is full it drops the expansion and keeps the reference,
+so the next frame shown is exact. `createPal8Encoder`, `quantizeCube` and
+`PAL8_CUBE` in the provider module produce such packets from RGB24 frames
+with a fixed 252-colour cube and a 4×4 ordered dither, which keeps still
+pixels identical between frames: **240×136 at 12 frames a second took 58 to
+215 KB/s on an Old 3DS**, against 390 KB/s for whole frames.
+
 Providers using x264's zero-latency tune must disable sliced threading and
 select one encoder thread to preserve this frame boundary. `slices=1` alone
 can produce several slices per frame. The 3DS adapter submits each slice to
@@ -40,6 +58,7 @@ MVD as a complete frame; partial frame slices are outside this wire profile.
 | Header | 32 bytes, little-endian PKMV version 1 |
 | Packet header | 16 bytes: kind, zero flags/reserved, byte length, PTS in milliseconds, zero reserved |
 | H.264 access unit | 128 KiB; Annex B NAL delimiters |
+| PAL8 packet | 128 KiB; picture at most 512×256, palette at most 256 RGB565 entries |
 | Stereo ADPCM block | 1,024 sample frames, 1,031 bytes maximum |
 | Producer credits | 8 packets; consumer acknowledges each processed packet with byte 1 |
 | Native video queue | 16 decoded RGB565 frames |
@@ -65,9 +84,12 @@ MVD video processing is available on New 3DS. The host requests CPU speedup,
 uses MVD for H.264 and color conversion, PICA for scaling, and NDSP for audio
 output. See the [devkitPro MVD example](https://github.com/devkitPro/3ds-examples/tree/master/mvd)
 and [libctru MVD interface](https://github.com/devkitPro/libctru/blob/master/libctru/include/3ds/services/mvd.h).
-Unavailable MVD or DSP firmware yields a playback error. **NDSP requires a DSP
+An H.264 stream on a console without MVD yields a playback error; the
+`h264` status field lets an app ask for PAL8 instead. **NDSP requires a DSP
 component from `/3ds/dspfirm.cdc` or the Homebrew Launcher `hb:ndsp` handle.**
-If neither is available, status identifies the missing firmware. Luma3DS users
+Without either, the stream plays muted: audio packets are dropped, the clock
+is the system timer from the first decoded frame (stopped while paused), and
+`audio` in the status is false so the app can name the fix. Luma3DS users
 can press L + D-pad Down + SELECT, choose Miscellaneous options → Dump DSP
 firmware in Rosalina, then reopen the media source. The dump reads firmware
 from the console; the application does not distribute firmware. See the
