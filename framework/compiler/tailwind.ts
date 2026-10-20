@@ -49,12 +49,16 @@ const LARGE_FONT_BOLD_SLOT = 15;
  *  request under font-mono still lands on the mono slot for its size. */
 export const MONO_FONT_PX = [12, 14, 16] as const;
 const MONO_SLOT_BASE = 16;
+/** The small pair (`text-2xs`): labels under icons on low-density screens. */
+const SMALL_FONT_PX = 10;
+const SMALL_FONT_REGULAR_SLOT = 19;
+const SMALL_FONT_BOLD_SLOT = 20;
 const TEXT_SIZE_PX: Record<string, number> = {
-  xs: 12, sm: 14, base: 16, lg: 18, xl: 20, "2xl": 24, "4xl": 36, "5xl": 54,
+  "2xs": 10, xs: 12, sm: 14, base: 16, lg: 18, xl: 20, "2xl": 24, "4xl": 36, "5xl": 54,
 };
 
 /** Slot index for a (px, weight, family) triple: 0..6 regular, 7..13 bold,
- *  14/15 the 54 px pair, 16..18 monospace. */
+ *  14/15 the 54 px pair, 16..18 monospace, 19/20 the 10 px pair. */
 export function fontSlotFor(px: number, bold: boolean, mono = false): number {
   if (mono) {
     const i = (MONO_FONT_PX as readonly number[]).indexOf(px);
@@ -64,6 +68,9 @@ export function fontSlotFor(px: number, bold: boolean, mono = false): number {
   if (px === LARGE_FONT_PX) {
     return bold ? LARGE_FONT_BOLD_SLOT : LARGE_FONT_REGULAR_SLOT;
   }
+  if (px === SMALL_FONT_PX) {
+    return bold ? SMALL_FONT_BOLD_SLOT : SMALL_FONT_REGULAR_SLOT;
+  }
   const i = (FONT_PX as readonly number[]).indexOf(px);
   if (i < 0) throw new Error(`PocketJS tailwind: no font slot for ${px}px`);
   return bold ? 7 + i : i;
@@ -71,6 +78,8 @@ export function fontSlotFor(px: number, bold: boolean, mono = false): number {
 
 /** (px, bold, mono) for a slot index — inverse of fontSlotFor. */
 export function fontSlotInfo(slot: number): { px: number; bold: boolean; mono: boolean } {
+  if (slot === SMALL_FONT_REGULAR_SLOT) return { px: SMALL_FONT_PX, bold: false, mono: false };
+  if (slot === SMALL_FONT_BOLD_SLOT) return { px: SMALL_FONT_PX, bold: true, mono: false };
   if (slot >= MONO_SLOT_BASE) {
     const px = MONO_FONT_PX[slot - MONO_SLOT_BASE];
     if (px === undefined) throw new Error(`PocketJS tailwind: bad font slot ${slot}`);

@@ -6,6 +6,7 @@ import {
   DEFAULT_FONT_SLOT,
   compileClasses,
   fontSlotFor,
+  fontSlotInfo,
   paletteColor,
   parseClassLiteral,
   suspectClassLiteral,
@@ -200,6 +201,14 @@ describe("text", () => {
     expect(m.get(PROP.fontSlot)).toBe(fontSlotFor(24, true));
     expect(m.get(PROP.textColor)).toBe(abgr(255, 255, 255));
   });
+  test("text-2xs is the 10px pair at slots 19 and 20, after monospace", () => {
+    expect(fontSlotFor(10, false)).toBe(19);
+    expect(fontSlotFor(10, true)).toBe(20);
+    expect(fontSlotInfo(20)).toEqual({ px: 10, bold: true, mono: false });
+    expect(props(parseClassLiteral("text-2xs font-bold")).get(PROP.fontSlot)).toBe(20);
+    expect(fontSlotFor(12, false)).toBe(0);
+  });
+
   test("appends 54px regular and bold slots without renumbering legacy slots", () => {
     expect(fontSlotFor(36, true)).toBe(13);
     expect(fontSlotFor(54, false)).toBe(14);
