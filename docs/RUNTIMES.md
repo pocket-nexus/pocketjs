@@ -97,6 +97,63 @@ surfaces they were given. QuickJS because it is embeddable everywhere Pocket
 targets (it already runs on a 333 MHz PSP), deterministic, small, and fast
 enough when the boundary is designed correctly (see the laws below).
 
+QuickJS frees most garbage by reference count. Its cycle collector
+(`JS_RunGC`) runs when an **object allocation** finds `malloc_size` above
+`malloc_gc_threshold`, so the pause lands inside whichever guest turn crosses
+the threshold — and only an object allocation checks the threshold: one turn
+can grow the heap past it with a single large backing-store allocation. A
+realm created with `Guest::new_with_idle_gc` moves that collection to the
+tick boundary: the host calls `Guest::idle_gc` after the turn and its job
+drain, passing the time left before the next tick. The collector runs once
+heap growth since the last collection exceeds **max(256 KiB, half the
+surviving heap)** (the engine's own 1.5× rule) and waits up to **30
+boundaries** for a tick with room for the last measured pause.
+
+The policy writes two limits into QuickJS. The **GC threshold** is **2× the
+surviving heap** (`malloc_gc_threshold`): a turn that allocates past it
+through object allocations collects inside the turn, as an unmodified
+QuickJS runtime would. The **memory limit** is **GC threshold + max(8 MiB,
+the surviving heap)** (`JS_SetMemoryLimit`), armed by `Guest::arm_idle_gc`
+after the product bundle is evaluated and before the first product frame:
+a turn whose growth is one large backing store — which never checks the GC
+threshold — fails the allocation with a JS out-of-memory exception instead
+of growing the heap without bound. Bundle evaluation itself is unbounded,
+like a plain QuickJS runtime; a host that never arms gets the cap at the
+first `idle_gc` boundary, with its first frame unbounded. The heap size is
+read from a counting allocator that mirrors the engine's `malloc_state`
+(one header per block, `usable_size + MALLOC_OVERHEAD`), so the policy reads
+it in constant time through the public allocator trait.
+
+The desktop host uses this path for the top-level guest and for
+`AppSupervisor` child realms: both call `arm_idle_gc` after the bundle is
+evaluated, before the first frame, and the supervisor calls `idle_gc` after
+each child turn, with no per-app deadline. The PSP host keeps its
+arena-pressure collection after `drain_jobs` (`hosts/psp/src/main.rs`).
+
+**Weak-reference timing.** QuickJS frees most garbage by reference count and
+runs `JS_RunGC` only for cycles, so when a `WeakRef` clears depends on how
+its target became unreachable:
+
+- **Reference-counted release.** A target not in a cycle is freed the moment
+  its last strong reference drops, inside the turn: `deref()` returns
+  `undefined` at once, and the `FinalizationRegistry` cleanup callback is
+  queued as a job then, running at that turn's job drain (before `frame`
+  returns).
+- **Hard-threshold collection.** A turn that allocates past the GC threshold
+  through object allocations runs `JS_RunGC` inside the turn. A cyclic
+  target unreachable in that turn is reclaimed mid-turn: `deref()` may
+  return `undefined` before the turn ends, and the cleanup job runs at the
+  turn's own job drain.
+- **Boundary collection (the idle-GC path).** A cyclic target that stays
+  below the hard threshold until the tick boundary stays live through its
+  turn; the first boundary `JS_RunGC` clears it (`deref()` returns
+  `undefined`), and the cleanup callback is queued as a job by that
+  collection and runs at the next job drain — `idle_gc` does not drain jobs.
+
+Guests that observe this timing can see collection move between frames; the
+PocketJS framework, the RPG Kit and Tuxemon bundles do not use `WeakRef` or
+`FinalizationRegistry`.
+
 ### SDK — the idiomatic algebra per domain
 
 Raw surfaces are wire protocols. Each surface ships an SDK that expresses it
