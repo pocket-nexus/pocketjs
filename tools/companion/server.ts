@@ -22,6 +22,7 @@ import { NET_ERROR } from "../../contracts/spec/net.ts";
 import { AgentService, AGENT_LINK_FEATURE, type AgentLink, type AgentServiceOptions, type AgentSession } from "./agent.ts";
 import { AppCatalog, PackageReader } from "./catalog.ts";
 import { NetFailure, normalizeNetRequest, performNet, type NetRequest } from "./fetch.ts";
+import { ServiceHost } from "./services.ts";
 import {
   LinkFrameDecoder,
   LinkProtocolError,
@@ -122,6 +123,7 @@ export class Companion {
   readonly name: string;
   readonly catalog: AppCatalog;
   readonly agent: AgentService | null;
+  readonly services: ServiceHost;
   private server: Server | undefined;
   private beaconSocket: UdpSocket | undefined;
   private beaconTimer: ReturnType<typeof setInterval> | undefined;
@@ -139,6 +141,11 @@ export class Companion {
     this.agent = options.agent
       ? new AgentService({ ...options.agent, storeDir: this.store.dir, catalog: this.catalog, log: (line) => this.log(line) })
       : null;
+    this.services = new ServiceHost({
+      storeDir: this.store.dir,
+      log: (line) => this.log(line),
+      advertiseHost: () => lanInterfaces()[0]?.address ?? "127.0.0.1",
+    });
   }
 
   /** The features a linked console is offered: the agent only when codex is usable. */
@@ -197,6 +204,7 @@ export class Companion {
     this.catalog.close();
     for (const connection of this.connections) connection.close("companion stopping");
     this.agent?.stop();
+    this.services.close();
     this.beaconSocket?.close();
     this.beaconSocket = undefined;
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
@@ -644,10 +652,17 @@ class LinkConnection {
     const started = Date.now();
     const label = `net ${pending.meta.method} ${pending.meta.url}`;
     try {
-      const response = await performNet(
-        { ...pending.meta, body },
-        { allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal, resolve: this.companion.options.resolve },
-      );
+      const device = this.device ?? { id: "", name: "", model: "", target: "" };
+      const response =
+        (await this.companion.services.handle(
+          { ...pending.meta, body },
+          { ...device, address: this.address },
+          pending.abort.signal,
+        )) ??
+        (await performNet(
+          { ...pending.meta, body },
+          { allowPrivate: this.companion.options.allowPrivate, signal: pending.abort.signal, resolve: this.companion.options.resolve },
+        ));
       if (this.net.get(id) !== pending) return;
       this.companion.log(`${label} ${response.status} ${response.body.length}B ${Date.now() - started}ms`);
       this.send({ t: "net.head", id, status: response.status, url: response.url, headers: response.headers, bytes: response.body.length });

@@ -13,6 +13,7 @@ import {
   type LinkCompanion,
   type LinkEvent,
   type LinkStatus,
+  LINK_SERVICES_ORIGIN,
 } from "../../contracts/spec/link.ts";
 import { registerServicePump } from "./services.ts";
 
@@ -95,6 +96,13 @@ export function pairCompanion(uri: string): boolean {
 
 export function forgetCompanion(id: string): boolean {
   return linkHost()?.forget(id) ?? false;
+}
+
+/** The URL of a companion service (tools/companion/services.ts): `fetch` it
+ *  like any other. The linked companion answers it with the owner's
+ *  accounts and tools; the console never holds their credentials. */
+export function companionService(service: string, path = "/"): string {
+  return `${LINK_SERVICES_ORIGIN}/${service}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 /** Delete an installed app. The host refuses the running app and the launcher. */

@@ -332,6 +332,20 @@ describe("link", () => {
 
   const linked = () => LinkConsoleClient.connect({ host: "127.0.0.1", port: companion.port, device: DEVICE, companion: companion.id, key, ping: false });
 
+  test("net: companion.pocket is answered by the companion's services, never fetched", async () => {
+    const client = await linked();
+    try {
+      const unknown = await client.net({ url: "https://companion.pocket/nothing/here" }).done;
+      expect(unknown.status).toBe(404);
+      expect(JSON.parse(new TextDecoder().decode(unknown.body)).error).toContain("nothing");
+      const youtube = await client.net({ url: "https://companion.pocket/youtube/search?q=pocket" }).done;
+      expect([200, 501, 502, 503]).toContain(youtube.status);
+      expect(youtube.headers["content-type"]).toContain("json");
+    } finally {
+      client.close();
+    }
+  });
+
   test("net: GET, POST with a body, headers lowercased", async () => {
     const client = await linked();
     try {
