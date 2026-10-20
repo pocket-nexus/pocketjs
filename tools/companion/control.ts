@@ -7,6 +7,8 @@
 //   DELETE /pair           close the pairing window
 //   DELETE /consoles/:id   forget a console (delete its key, close its link)
 //   POST   /apps-dir       {path} -> set the owner's apps folder
+//   POST   /service        {name, args} -> run a service's owner command
+//                          (sign in, set a token) -> {output}
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -55,6 +57,21 @@ export function startControl(companion: Companion, storeDir: string): { info: Co
         if (!existsSync(path) || !statSync(path).isDirectory()) return json({ error: `${path} is not a directory` }, 400);
         companion.setAppsDir(path);
         return json({ appsDir: path, apps: companion.status().apps });
+      }
+      if (method === "POST" && pathname === "/service") {
+        let body: { name?: unknown; args?: unknown };
+        try {
+          body = (await request.json()) as { name?: unknown; args?: unknown };
+        } catch {
+          return json({ error: "expected JSON {name, args}" }, 400);
+        }
+        const args = Array.isArray(body.args) ? body.args.map(String) : [];
+        if (typeof body.name !== "string") return json({ error: "expected JSON {name, args}" }, 400);
+        try {
+          return json({ output: await companion.services.command(body.name, args) });
+        } catch (error) {
+          return json({ error: (error as Error).message }, 400);
+        }
       }
       return json({ error: "not found" }, 404);
     },

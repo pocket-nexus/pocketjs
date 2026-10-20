@@ -51,6 +51,10 @@ export interface ServiceContext {
 export interface ServiceProvider {
   readonly name: string;
   handle(request: ServiceRequest): Promise<Omit<NetResponse, "url">>;
+  /** An owner command from the Mac (`bun tools/companion.ts service <name>
+   *  <args>`, or the menu bar app): sign in, set a token, report status.
+   *  Returns the text to show. */
+  command?(args: string[]): Promise<string>;
   close?(): void;
 }
 
@@ -75,18 +79,32 @@ export class ServiceHost {
 
   constructor(private readonly context: ServiceContext) {}
 
-  /** The response when `request` names a service, else null. */
-  async handle(request: Pick<NetRequest, "url" | "method" | "headers"> & { body: Uint8Array }, console: ServiceConsole, signal: AbortSignal): Promise<NetResponse | null> {
-    const url = new URL(request.url);
-    if (url.hostname !== LINK_SERVICES_HOST) return null;
-    const [, name = "", ...rest] = url.pathname.split("/");
+  private provider(name: string): ServiceProvider | undefined {
     const factory = SERVICE_FACTORIES[name];
-    if (!factory) return { ...jsonResponse(404, { error: `no service named ${name}` }), url: request.url };
+    if (!factory) return undefined;
     let provider = this.providers.get(name);
     if (!provider) {
       provider = factory(this.context);
       this.providers.set(name, provider);
     }
+    return provider;
+  }
+
+  /** Run an owner command of service `name`. */
+  async command(name: string, args: string[]): Promise<string> {
+    const provider = this.provider(name);
+    if (!provider) throw new Error(`no service named ${name}`);
+    if (!provider.command) throw new Error(`the ${name} service takes no commands`);
+    return await provider.command(args);
+  }
+
+  /** The response when `request` names a service, else null. */
+  async handle(request: Pick<NetRequest, "url" | "method" | "headers"> & { body: Uint8Array }, console: ServiceConsole, signal: AbortSignal): Promise<NetResponse | null> {
+    const url = new URL(request.url);
+    if (url.hostname !== LINK_SERVICES_HOST) return null;
+    const [, name = "", ...rest] = url.pathname.split("/");
+    const provider = this.provider(name);
+    if (!provider) return { ...jsonResponse(404, { error: `no service named ${name}` }), url: request.url };
     try {
       const response = await provider.handle({
         method: request.method,
