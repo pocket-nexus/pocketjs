@@ -4,8 +4,9 @@
 //   stage_hint.h   the "L+R Ask Claude" pill, drawn at the top screen's own
 //                  pixels after both eyes while the mascot is idle. RGBA8 in
 //                  the byte order the GPU reads (A, B, G, R).
-//   stage_saver.h  the monitor's screensaver: the Pocket3D mark and its name
-//                  on the title card's plum, RGB565. The stage moves it about
+//   stage_saver.h  the monitor's screensaver: the PocketJS mark, the
+//                  wordmark in Fredoka and the line "Create UI on every
+//                  screen you love" on the brand's plum, RGB565. The stage moves it about
 //                  the monitor with the texture matrix; its plum border is
 //                  what the clamped texture shows around it.
 //
@@ -17,7 +18,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createCanvas, Image } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts, Image } from "@napi-rs/canvas";
 import opentype from "opentype.js";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import { encodePNG } from "./png.ts";
@@ -27,10 +28,20 @@ const HINT_OUT = join(ROOT, "hosts/3ds/src/stage_hint.h");
 const SAVER_OUT = join(ROOT, "hosts/3ds/src/stage_saver.h");
 const TEX_W = 128;
 const TEX_H = 32;
-const SAVER = 128;
-/** The Pocket3D mark (engine/pocket3d/icon) and the title card's plum. */
-const MARK_SVG = join(ROOT, "skills/pocketjs-video-outro/assets/pocket3d-mark.svg");
+/** The lockup is laid out on a 256x128 grid, drawn at four times that and
+ *  reduced to the texture: 128x64, about the size the monitor shows it, so
+ *  the GPU's linear filter does not minify it. */
+const LAYOUT_W = 256;
+const LAYOUT_H = 128;
+const SAVER_W = 128;
+const SAVER_H = 64;
+/** The PocketJS mark (the drawing tools/icons.ts rasterizes), the sites'
+ *  wordmark face and the brand's plum. */
+const BRAND = join(ROOT, "skills/pocketjs-video-outro/assets");
+const MARK_SVG = join(BRAND, "pocketjs-mark.svg");
 const PLUM = "#171226";
+/** The lockup's box on the layout grid: x0, y0, x1, y1. */
+const SAVER_CONTENT = [8, 12, 248, 118] as const;
 
 const bold = opentype.parse(readFileSync(join(ROOT, "assets/fonts/Inter-Bold.ttf")).buffer as ArrayBuffer);
 
@@ -147,28 +158,47 @@ function hintHeader(): { text: string; rgba: Uint8Array; width: number; height: 
   return { text, rgba: image.rgba, width: TEX_W, height: TEX_H };
 }
 
-/** The screensaver: the mark, and "Pocket3D" under it, centred on plum. The
- *  content keeps a plum margin, so the clamped edge is plum. */
+/** The screensaver: the mark and the wordmark on one line, the tagline under
+ *  them, centred on plum. The plum margin is what the clamped edge repeats. */
 function saverHeader(): { text: string; rgba: Uint8Array; width: number; height: number } {
-  // Rasterize the SVG at its drawn size, not at its viewBox's 33 units.
-  const svg = readFileSync(MARK_SVG, "utf8").replace("<svg ", '<svg width="512" height="512" ');
+  GlobalFonts.registerFromPath(join(BRAND, "Fredoka.ttf"), "Fredoka");
+  // Rasterize the SVG at its drawn size, not at its viewBox's 32 units.
+  const svg = readFileSync(MARK_SVG, "utf8").replace("<svg ", '<svg width="256" height="256" ');
   const mark = new Image();
   mark.src = Buffer.from(svg);
-  const canvas = createCanvas(SAVER, SAVER);
-  const g = canvas.getContext("2d");
+  const big = createCanvas(LAYOUT_W * 4, LAYOUT_H * 4);
+  const g = big.getContext("2d");
+  g.scale(4, 4);
   g.fillStyle = PLUM;
-  g.fillRect(0, 0, SAVER, SAVER);
-  const size = 76;
-  g.drawImage(mark, (SAVER - size) / 2, 14, size, size);
-  const label = "Pocket3D";
-  const labelSize = 15;
-  const path = textPath(label, (SAVER - advance(label, labelSize)) / 2, 108, labelSize);
-  const text = bakeSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="${SAVER}" height="${SAVER}"><path fill="#f7f3eb" d="${path}"/></svg>`);
-  const rgba = new Uint8Array(g.getImageData(0, 0, SAVER, SAVER).data);
-  for (let i = 0; i < rgba.length; i += 4) {
-    const a = text.rgba[i + 3]! / 255;
-    for (let c = 0; c < 3; c += 1) rgba[i + c] = Math.round(rgba[i + c]! * (1 - a) + text.rgba[i + c]! * a);
-    rgba[i + 3] = 255;
+  g.fillRect(0, 0, LAYOUT_W, LAYOUT_H);
+  g.font = "600 40px Fredoka";
+  const name = "PocketJS";
+  const markSize = 48;
+  const gap = 8;
+  const left = (LAYOUT_W - (markSize + gap + g.measureText(name).width)) / 2;
+  g.drawImage(mark, left, 18, markSize, markSize);
+  g.fillStyle = "#ffffff";
+  g.textBaseline = "middle";
+  g.fillText(name, left + markSize + gap, 43);
+  g.font = "500 21px Fredoka";
+  g.fillStyle = "#d9d2ee";
+  g.textAlign = "center";
+  g.fillText("Create UI on every screen", LAYOUT_W / 2, 86);
+  g.fillText("you love", LAYOUT_W / 2, 107);
+  // A box filter: each texel is the mean of its 4x4 block.
+  const source = g.getImageData(0, 0, LAYOUT_W * 4, LAYOUT_H * 4).data;
+  const rgba = new Uint8Array(SAVER_W * SAVER_H * 4);
+  const ratio = (LAYOUT_W * 4) / SAVER_W;
+  for (let y = 0; y < SAVER_H; y += 1) {
+    for (let x = 0; x < SAVER_W; x += 1) {
+      for (let c = 0; c < 4; c += 1) {
+        let sum = 0;
+        for (let dy = 0; dy < ratio; dy += 1) {
+          for (let dx = 0; dx < ratio; dx += 1) sum += source[((y * ratio + dy) * LAYOUT_W * 4 + x * ratio + dx) * 4 + c]!;
+        }
+        rgba[(y * SAVER_W + x) * 4 + c] = Math.round(sum / (ratio * ratio));
+      }
+    }
   }
   const words: string[] = [];
   for (let i = 0; i < rgba.length; i += 4) {
@@ -182,17 +212,22 @@ function saverHeader(): { text: string; rgba: Uint8Array; width: number; height:
     "",
     "#include <stdint.h>",
     "",
-    `#define STAGE_SAVER_SIZE ${SAVER}`,
+    `#define STAGE_SAVER_W ${SAVER_W}`,
+    `#define STAGE_SAVER_H ${SAVER_H}`,
+    "/* Half the lockup's extent about the texture's centre, as fractions of",
+    " * the texture's width and height. */",
+    `#define STAGE_SAVER_HALF_X ${((SAVER_CONTENT[2] - SAVER_CONTENT[0]) / 2 / LAYOUT_W).toFixed(4)}f`,
+    `#define STAGE_SAVER_HALF_Y ${((SAVER_CONTENT[3] - SAVER_CONTENT[1]) / 2 / LAYOUT_H).toFixed(4)}f`,
     "",
     "/* RGB565, rows top to bottom. */",
-    `static const uint16_t stage_saver_pixels[${SAVER * SAVER}] __attribute__((aligned(4))) = {`,
+    `static const uint16_t stage_saver_pixels[${SAVER_W * SAVER_H}] __attribute__((aligned(4))) = {`,
     ...byteRows(words, 16),
     "};",
     "",
     "#endif",
     "",
   ].join("\n");
-  return { text: header, rgba, width: SAVER, height: SAVER };
+  return { text: header, rgba, width: SAVER_W, height: SAVER_H };
 }
 
 if (import.meta.main) {

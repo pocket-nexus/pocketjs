@@ -19,8 +19,8 @@
  * The monitor shows one of three textures: the touch screen (copied from its
  * render target with a raw texture copy each second frame), the agent's own
  * screen (RGB565 frames from the companion, tiled by the transfer engine) or
- * the screensaver (the Pocket3D mark on plum, stage_saver.h, drifting about
- * the screen and turning back at its edges).
+ * the screensaver (the PocketJS mark, name and line on plum, stage_saver.h,
+ * drifting about the screen and turning back at its edges).
  *
  * Over both eyes, at the screen's own pixels, a pill in the bottom-right
  * corner says that L+R asks Claude (stage_hint.h, baked by
@@ -139,7 +139,7 @@ static float typing_phase;
 /* The screensaver's centre on the screen (0..1 across and down) and its
  * velocity a frame. */
 static float saver_x = 0.5f, saver_y = 0.45f;
-static float saver_vx = 0.0021f, saver_vy = 0.0016f;
+static float saver_vx = 0.0006f, saver_vy = 0.0011f;
 static uint32_t mode_since;
 
 enum { ACT_REST, ACT_LOOK, ACT_WATCH, ACT_KICK, ACT_STRETCH, ACT_HOP, ACT_SLEEP };
@@ -477,11 +477,12 @@ static void end_group(Range *range) {
 #define SCREEN_H 0.9f
 #define SCREEN_Y (DESK_H + 0.14f + 0.5f)
 
-/* The screensaver's square as a fraction of the screen's height, and the
- * half extents of its content (the mark and its name) in screen fractions. */
-#define SAVER_SPAN 0.8f
-#define SAVER_HALF_W (0.31f * SAVER_SPAN * SCREEN_H / SCREEN_W)
-#define SAVER_HALF_H (0.39f * SAVER_SPAN)
+/* The screensaver's texture as fractions of the screen's width and height
+ * (its aspect kept), and the half extents of its lockup in screen fractions. */
+#define SAVER_SPAN_W 0.95f
+#define SAVER_SPAN_H (SAVER_SPAN_W * SCREEN_W * STAGE_SAVER_H / (SCREEN_H * STAGE_SAVER_W))
+#define SAVER_HALF_W (STAGE_SAVER_HALF_X * SAVER_SPAN_W)
+#define SAVER_HALF_H (STAGE_SAVER_HALF_Y * SAVER_SPAN_H)
 
 /* The wall clock. */
 #define CLOCK_X 1.65f
@@ -855,7 +856,7 @@ bool stage_init(void) {
   C3D_TexSetFilter(&own_tex, GPU_LINEAR, GPU_LINEAR);
   C3D_TexSetWrap(&own_tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
   /* The clamped edge repeats the saver's plum border around the mark. */
-  if (!C3D_TexInit(&saver_tex, STAGE_SAVER_SIZE, STAGE_SAVER_SIZE, GPU_RGB565)) return false;
+  if (!C3D_TexInit(&saver_tex, STAGE_SAVER_W, STAGE_SAVER_H, GPU_RGB565)) return false;
   C3D_TexSetFilter(&saver_tex, GPU_LINEAR, GPU_LINEAR);
   C3D_TexSetWrap(&saver_tex, GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
 
@@ -1312,10 +1313,9 @@ static void bind_screen(void) {
     C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvs, 320.0f / 512.0f, 0.0f, 0.0f, 0.0f);
     C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvt, 0.0f, -240.0f / 256.0f, 1.0f, 0.0f);
   } else {
-    /* The saver's square spans SAVER_SPAN of the screen's height; the
-     * screen's (u, v) maps to the square's (x, y) about the saver's centre. */
-    const float sv = 1.0f / SAVER_SPAN;
-    const float su = sv * SCREEN_W / SCREEN_H;
+    /* The screen's (u, v) maps to the saver's (x, y) about its centre. */
+    const float su = 1.0f / SAVER_SPAN_W;
+    const float sv = 1.0f / SAVER_SPAN_H;
     C3D_TexBind(0, &saver_tex);
     C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvs, su, 0.0f, 0.5f - saver_x * su, 0.0f);
     C3D_FVUnifSet(GPU_VERTEX_SHADER, u_uvt, 0.0f, sv, 0.5f - saver_y * sv, 0.0f);
