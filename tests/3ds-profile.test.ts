@@ -118,6 +118,7 @@ describe("private Nintendo 3DS build profile", () => {
         "camera.qr",
         "camera.photo",
         "system.agent",
+        "data.fs",
       ],
     });
     expect(validatePlatformContractRegistry(THREE_DS_DEV_CONTRACTS)).toEqual([]);

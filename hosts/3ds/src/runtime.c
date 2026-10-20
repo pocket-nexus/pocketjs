@@ -603,7 +603,8 @@ static bool remove_tree(const char *path, unsigned depth) {
   struct stat info;
   if (stat(path, &info) != 0) return errno == ENOENT;
   if (!S_ISDIR(info.st_mode)) return remove(path) == 0;
-  if (depth > 8) return false;
+  /* A slot holds data/ (fs.c), whose tree is up to FS_MAX_DEPTH (8) deep. */
+  if (depth > 10) return false;
   DIR *directory = opendir(path);
   if (directory == NULL) return false;
   bool ok = true;

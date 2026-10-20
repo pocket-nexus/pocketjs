@@ -518,6 +518,27 @@ pixel conversion, box filters) run natively in `tests/camera-photo.test.ts`.
 Capture and offload builds compile link, net, wifi and camera to inert stubs
 and leave the app switching ops out, so goldens stay deterministic.
 
+## Files
+
+A guest that declares `data.fs` gets `globalThis.fs`
+([contracts/spec/fs.ts](../../contracts/spec/fs.ts)) from `src/fs.c`: the nine
+synchronous ops over **its own slot's `data` directory**,
+`sdmc:/pocketjs/runtime/apps/<slot>/data`. `main.c` binds the tree before
+`qjs_boot` and unbinds it at a guest switch; no op names a path outside it,
+and an uninstall deletes it with the slot. The quota is the plan's
+`applet.store.maxBytes` (contracts/spec/applet.ts), else **4 MiB**; `usage()`
+walks the tree once per binding and keeps the sum current after that.
+
+FAT refuses a rename onto an existing name, so a truncating write over an
+existing file stages the bytes in the slot's `fs-tmp` directory, records the
+destination in `fs-tmp/write.dest`, removes the old file and renames the
+staged one into place. The next binding finishes a replacement a power loss
+cut between the two: the guest reads the old content or the new.
+`tests/fs-3ds.test.ts` compiles `src/fs.c` natively under ASan and UBSan and
+runs each scenario against it and the sim's fs host (`hosts/sim/fs.ts`), op by
+op, result and `lastError` both, plus the FAT path and that recovery. Capture
+builds leave the tree unbound.
+
 ## The agent stage
 
 A guest that declares `system.agent` gets the top screen drawn by the host:

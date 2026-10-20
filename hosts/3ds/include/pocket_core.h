@@ -43,6 +43,7 @@ typedef struct {
 #define POCKET_GUEST_FEATURE_OFFLOAD 1u /* features["io.offload"] */
 #define POCKET_GUEST_FEATURE_MEDIA 2u   /* features["media.playback"] */
 #define POCKET_GUEST_FEATURE_AGENT 4u   /* features["system.agent"] */
+#define POCKET_GUEST_FEATURE_FS 8u      /* features["data.fs"] */
 
 /* 0 = admitted. The package footer, target, host ABI, identity, plan and
  * NUL-terminated JS section are all checked before success; 13, 14 and 15

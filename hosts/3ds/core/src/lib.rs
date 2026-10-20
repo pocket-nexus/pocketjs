@@ -89,6 +89,8 @@ pub const POCKET_GUEST_FEATURE_OFFLOAD: u32 = 1;
 pub const POCKET_GUEST_FEATURE_MEDIA: u32 = 2;
 /// `features.system.agent` is true in the plan: the top screen is the agent stage.
 pub const POCKET_GUEST_FEATURE_AGENT: u32 = 4;
+/// `features.data.fs` is true in the plan: the guest gets `globalThis.fs`.
+pub const POCKET_GUEST_FEATURE_FS: u32 = 8;
 
 struct PakSprite {
     name: String,
@@ -222,7 +224,8 @@ pub unsafe extern "C" fn pocket_package_open(
         aux_raster_density: auxiliary.map_or(0, |surface| surface.raster_density),
         features: if facts.feature("io.offload") { POCKET_GUEST_FEATURE_OFFLOAD } else { 0 }
             | if facts.feature("media.playback") { POCKET_GUEST_FEATURE_MEDIA } else { 0 }
-            | if facts.feature("system.agent") { POCKET_GUEST_FEATURE_AGENT } else { 0 },
+            | if facts.feature("system.agent") { POCKET_GUEST_FEATURE_AGENT } else { 0 }
+            | if facts.feature("data.fs") { POCKET_GUEST_FEATURE_FS } else { 0 },
         slot,
     });
     0

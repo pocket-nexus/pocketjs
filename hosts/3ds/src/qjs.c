@@ -31,6 +31,7 @@
 #include "media.h"
 #include "offload_coverage.h"
 #include "camera.h"
+#include "fs.h"
 #include "photos.h"
 #include "launcher.h"
 #include "link.h"
@@ -154,6 +155,15 @@ typedef enum {
   HostAgentStatus,
   HostAgentDisplay,
   HostAgentSetDisplay,
+  HostFsRead,
+  HostFsWrite,
+  HostFsRemove,
+  HostFsList,
+  HostFsStat,
+  HostFsMkdir,
+  HostFsRename,
+  HostFsUsage,
+  HostFsLastError,
 } HostOperation;
 
 static JSRuntime *runtime;
@@ -235,6 +245,21 @@ static double argument_float(JSContext *ctx, int argc, JSValueConst *argv, int i
   double value = 0.0;
   if (index < argc) JS_ToFloat64(ctx, &value, argv[index]);
   return value;
+}
+
+/* A string argument as UTF-8 for fs.c; NO_TEXT when absent. Release with
+ * free_text. */
+static const char NO_TEXT[] = "";
+
+static const char *argument_text(JSContext *ctx, int argc, JSValueConst *argv, int index, size_t *length) {
+  *length = 0;
+  if (index >= argc) return NO_TEXT;
+  const char *text = JS_ToCStringLen2(ctx, length, argv[index], 0);
+  return text != NULL ? text : NO_TEXT;
+}
+
+static void free_text(JSContext *ctx, const char *text) {
+  if (text != NO_TEXT) JS_FreeCString(ctx, text);
 }
 
 /* An optional number: missing or undefined reads as 0, as in the wasm host. */
@@ -792,6 +817,52 @@ static JSValue host_operation(
       return JS_NewString(ctx, agent_status_json());
     case HostAgentDisplay:
       return JS_NewString(ctx, agent_display_mode() == AGENT_DISPLAY_SINGLE ? "single" : "dual");
+    case HostFsRead:
+    case HostFsList:
+    case HostFsStat: {
+      size_t length = 0;
+      const char *path = argument_text(ctx, argc, argv, 0, &length);
+      const char *line = magic == HostFsRead ? fs_read(path, length, argument_float(ctx, argc, argv, 1), argument_float(ctx, argc, argv, 2))
+                         : magic == HostFsList ? fs_list(path, length, argument_float(ctx, argc, argv, 1))
+                                               : fs_stat(path, length);
+      JSValue out = JS_NewString(ctx, line != NULL ? line : "{\"error\":\"out of memory\"}");
+      free_text(ctx, path);
+      return out;
+    }
+    case HostFsWrite: {
+      size_t path_length = 0;
+      size_t data_length = 0;
+      const char *path = argument_text(ctx, argc, argv, 0, &path_length);
+      const char *data = argument_text(ctx, argc, argv, 1, &data_length);
+      int result = fs_write(path, path_length, data, data_length, argument_int(ctx, argc, argv, 2));
+      free_text(ctx, path);
+      free_text(ctx, data);
+      return JS_NewInt32(ctx, result);
+    }
+    case HostFsRemove:
+    case HostFsMkdir: {
+      size_t length = 0;
+      const char *path = argument_text(ctx, argc, argv, 0, &length);
+      int result = magic == HostFsRemove ? fs_remove(path, length, argument_int(ctx, argc, argv, 1)) : fs_mkdir(path, length);
+      free_text(ctx, path);
+      return JS_NewInt32(ctx, result);
+    }
+    case HostFsRename: {
+      size_t from_length = 0;
+      size_t to_length = 0;
+      const char *from = argument_text(ctx, argc, argv, 0, &from_length);
+      const char *to = argument_text(ctx, argc, argv, 1, &to_length);
+      int result = fs_rename(from, from_length, to, to_length);
+      free_text(ctx, from);
+      free_text(ctx, to);
+      return JS_NewInt32(ctx, result);
+    }
+    case HostFsUsage: {
+      const char *line = fs_usage();
+      return JS_NewString(ctx, line != NULL ? line : "{\"error\":\"out of memory\"}");
+    }
+    case HostFsLastError:
+      return JS_NewString(ctx, fs_last_error());
     case HostAgentSetDisplay: {
       if (argc < 1 || !JS_IsString(argv[0])) return JS_FALSE;
       const char *mode = JS_ToCString(ctx, argv[0]);
@@ -1041,6 +1112,21 @@ static void install_host(void) {
   add_operation(camera, "remove", 1, HostCameraRemove);
   add_operation(camera, "events", 0, HostCameraEvents);
   JS_SetPropertyStr(context, global, "camera", camera);
+
+  /* Only a guest that declared "data.fs" has a bound tree (main.c). */
+  if (fs_bound()) {
+    JSValue fs = JS_NewObject(context);
+    add_operation(fs, "read", 3, HostFsRead);
+    add_operation(fs, "write", 3, HostFsWrite);
+    add_operation(fs, "remove", 2, HostFsRemove);
+    add_operation(fs, "list", 2, HostFsList);
+    add_operation(fs, "stat", 1, HostFsStat);
+    add_operation(fs, "mkdir", 1, HostFsMkdir);
+    add_operation(fs, "rename", 2, HostFsRename);
+    add_operation(fs, "usage", 0, HostFsUsage);
+    add_operation(fs, "lastError", 0, HostFsLastError);
+    JS_SetPropertyStr(context, global, "fs", fs);
+  }
 
   /* Only a guest that declared "system.agent" sees the namespace. */
   if (agent_enabled()) {

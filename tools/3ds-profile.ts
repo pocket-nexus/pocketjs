@@ -58,6 +58,7 @@ export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
         "camera.qr",
         "camera.photo",
         "system.agent",
+        "data.fs",
       ],
     },
   }),

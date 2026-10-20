@@ -51,6 +51,7 @@
 #include "soc.h"
 #include "svcwire.h"
 #include "camera.h"
+#include "fs.h"
 #include "launcher.h"
 #include "link.h"
 #include "wifi.h"
@@ -484,6 +485,21 @@ static bool boot_guest(
     return false;
   }
   if (!surfaces_admit(package, error, error_length)) return false;
+  /* data.fs: the guest's tree is its own slot's data directory, bound before
+   * qjs_boot publishes `globalThis.fs`. A card that cannot hold it leaves
+   * the namespace out, as on a host without the capability; so does a
+   * capture build, whose goldens must not read an earlier run's files. */
+  fs_unbind();
+#ifndef POCKETJS_CAPTURE
+  if ((package->guest.features & POCKET_GUEST_FEATURE_FS) != 0) {
+    char root[128];
+    char temp[128];
+    if (runtime_slot_path(package->guest.slot, "data", root, sizeof root) &&
+        runtime_slot_path(package->guest.slot, "fs-tmp", temp, sizeof temp)) {
+      fs_bind(root, temp, fs_plan_quota((const char *)package->guest.plan, package->guest.plan_length));
+    }
+  }
+#endif
   /* The guest's capability decides who owns the top screen; it must be set
    * before qjs_boot, which publishes `globalThis.agent` only for it. */
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
@@ -509,6 +525,7 @@ static bool boot_guest(
     qjs_shutdown();
     gfx_reset_resources();
     ui_shutdown();
+    fs_unbind();
     return false;
   }
   return true;
@@ -520,6 +537,7 @@ static void teardown_guest(void) {
    * install still streaming) and drop what belonged to this guest. */
   camera_teardown();
   link_reset_guest();
+  fs_unbind();
   agent_set_enabled(false);
   qjs_shutdown();
   gfx_reset_resources();
