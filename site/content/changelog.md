@@ -3,6 +3,88 @@
 Engine and site milestones, newest first. Versions track the
 `@pocketjs/framework` npm package.
 
+## 0.15.0 — October 20, 2026
+
+**One runtime per console runs any game's .pocket, and `pocket` installs the toolchains and selects the target it builds for.**
+The PSP, PS Vita, Nintendo 3DS, iPod touch 4 and Android each get a generic
+runtime built once, and a TypeScript repack writes a game's console package
+from it. The CLI runs on Bun, creates standalone projects and resolves
+targets from one catalog. MicroTS gains a site and a playground, and the
+Nintendo 3DS gains the Pocket Link to a Mac.
+
+- **A generic runtime per console, and repacks in TypeScript.**
+  `bun tools/runtime.ts <target>` builds a runtime with no game in it;
+  `bun tools/repack.ts --target <target>` turns it and a game's `.pocket`
+  into a `.3dsx`, a PSP Memory Stick zip, a `.vpk`, an `.ipa` or an APK. At
+  boot each runtime reads `app.pocket`, checks its footer hash, its variant
+  and its host ABI, and takes the surfaces and raster density from the plan.
+  The `.3dsx` and PARAM.SFO writers are byte-identical to `3dsxtool` and
+  `vita-mksfoex` for the same inputs. The Android repack rewrites the binary
+  manifest and resource table, aligns as `zipalign -p 4` does and signs v1 +
+  v2 with Web Crypto, with no SDK tool. `tools/repack/index.ts` gives Pocket
+  Studio's Worker one row per target.
+- **`pocket` selects targets from one catalog.** `tools/targets/index.ts`
+  lists the eighteen targets by the names commands use. A verb acts on the
+  first of `+<id>`, `--target` or `--host-profile`, `POCKET_TARGET`, a
+  directory override, the first of `targets` in `pocket.config.ts`, and the
+  user default, and prints the target and its source. `pocket build --all`
+  builds every project target.
+- **`pocket target add|list|remove` installs the pinned toolchains.** Pins
+  live in `tools/targets/<id>.toolchain.json`; each component is checked
+  against its SHA-256 and stored under its digest, so equal pins share one
+  entry. `pocket doctor` checks the framework's pins instead of the CLI's.
+- **Breaking: the CLI runs on Bun.** `@pocketjs/cli` declares
+  `#!/usr/bin/env bun` and `engines.bun`; under Node it prints the install
+  hint and exits. `pocket create` writes a standalone project outside a
+  checkout, with `--framework solid|vue-vapor|octane`, and derives the
+  manifest of an ESP-IDF project from its host contract.
+- **Builds write nothing under the framework directory.** The style module is
+  served from memory and copied to `<outdir>/<output>.styles.ts`; the
+  transform cache moves to `transforms/` under the PocketJS cache root. A
+  read-only `node_modules` and concurrent builds work.
+- **The guest runtime's dependencies are exact versions.** `solid-js`,
+  `@solid-primitives/keyed`, the Babel presets, `opentype.js` and
+  `babel-plugin-jsx-dom-expressions` are pinned to the versions the goldens
+  use, and the build checks the application's installed copy.
+- **Layout regions and build-time rects.** `contain-strict` (prop 33) makes a
+  definite-size node its own solver root, so a change reconciles and solves
+  only its region. `layout-baked` asserts every rect in a subtree is a
+  build-time constant; MicroTS solves it once in the `no_std` core and emits
+  the rects into the mount code. Readback rounds with Taffy's `round_layout`
+  on unrounded origins, so a region yields the bits the full tree would.
+- **The compiler reports class literals it drops.** Each JSX `class` literal
+  with unsupported tokens is reported with file, line and column; it is an
+  error under `--strict-classes`. The simulator boots any built bundle.
+- **The Nintendo 3DS links to a Mac.** `@pocketjs/framework/link` and Pocket
+  Companion on the Mac carry net requests and the Mac's clock
+  (`companionNow()`), beside the Wi-Fi and QR camera modules. Pocket Home and
+  a Hacker News app run on it, and their lists scroll at 58 to 61 fps on an
+  Old 3DS through fixed row slots in `contain-strict` regions.
+- **Pocket3D games ship as content-addressed packs and play in one browser
+  player.** A game's packs are pieces named by their bytes under one
+  manifest for every device, and a 3DS fetches the pieces it lacks over the
+  LAN. The browser player shows each handheld in its shell, speaks English
+  and Japanese, keeps the interface's alpha over the scene, and offers
+  Download and Remix in a dock a host may draw. Every Pocket3D game shows
+  the Pocket3D icon in each console's launcher. See
+  [Introducing Pocket3D](/blog/introducing-pocket3d/).
+- **MicroTS has a site and a playground, and drives two more devices.**
+  [microts.pocket.nexus](https://microts.pocket.nexus/) carries its docs and a browser playground drawn as the
+  real devices. The GBA sprite presenter is generated from the layout and
+  paint plan. MicroTS Hero runs as a Rockbox plugin on the iPod nano 2G.
+- **Breaking: the iPod nano music player is removed** (`apps/ipod-nano`, the
+  Pocket Stage `audio-playlist@1` service and its tracks); the iPod package
+  runs Hero.
+- **Android builds one APK for any plan**, with a Redmi 1S profile
+  (360x640 at density 2) carrying armeabi-v7a and arm64-v8a, and a release
+  build.
+- **The browser realm draws glyphs at runtime.** `text.glyphs.runtime` draws
+  codepoints no atlas holds with the browser and adds them to the atlases.
+- **Device fixes.** The PSP's GE display list gets cache lines of its own; a
+  shared line's write-back had replaced the first commands of the first list
+  and drawn 16-bit pixels into the 32-bit display. The PS Vita keeps a font
+  atlas as one byte a texel, 1 MiB instead of 4 MiB for the 36 px page.
+
 ## 0.14.0 — October 5, 2026
 
 **Pocket3D gets a homepage, a title card and its own license, and the PS Vita and Nintendo 3DS replace native builds over their development connections.**
