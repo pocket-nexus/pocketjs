@@ -8,6 +8,7 @@
 // Contents/MacOS/pocket-companion  the daemon, `bun build --compile tools/companion.ts`
 // Contents/MacOS/pocket-transcribe the agent's speech helper (tools/companion/macos/Transcribe.swift)
 // Contents/MacOS/pocket-glyphs     the agent's glyph rasterizer (tools/companion/macos/Glyphs.swift)
+// Contents/MacOS/pocket-websignin  a service's sign-in window (tools/companion/macos/WebSignIn.swift)
 // Contents/Resources/AppIcon.icns  drawn here, no image assets
 //
 // The bundle is signed ad hoc (`codesign -s -`). Info.plist names this
@@ -126,6 +127,7 @@ const daemon = join(work, "pocket-companion");
 const swiftBinary = join(work, "PocketCompanion");
 const transcriber = join(work, "pocket-transcribe");
 const glyphs = join(work, "pocket-glyphs");
+const webSignIn = join(work, "pocket-websignin");
 const arch = process.arch === "arm64" ? "arm64" : "x86_64";
 
 console.log("companion-app: compiling the daemon");
@@ -135,6 +137,7 @@ await $`swiftc -O -parse-as-library -swift-version 5 -target ${arch}-apple-macos
 console.log("companion-app: compiling the speech and glyph helpers");
 await $`swiftc -O -parse-as-library -swift-version 5 -target ${arch}-apple-macos15.0 ${join(root, "tools", "companion", "macos", "Transcribe.swift")} -o ${transcriber}`;
 await $`swiftc -O -swift-version 5 -target ${arch}-apple-macos15.0 ${join(root, "tools", "companion", "macos", "Glyphs.swift")} -o ${glyphs}`;
+await $`swiftc -O -swift-version 5 -target ${arch}-apple-macos15.0 ${join(root, "tools", "companion", "macos", "WebSignIn.swift")} -o ${webSignIn}`;
 console.log("companion-app: drawing the icon");
 const icns = await buildIcon(work);
 
@@ -145,6 +148,7 @@ cpSync(swiftBinary, join(app, "Contents", "MacOS", "PocketCompanion"));
 cpSync(daemon, join(app, "Contents", "MacOS", "pocket-companion"));
 cpSync(transcriber, join(app, "Contents", "MacOS", "pocket-transcribe"));
 cpSync(glyphs, join(app, "Contents", "MacOS", "pocket-glyphs"));
+cpSync(webSignIn, join(app, "Contents", "MacOS", "pocket-websignin"));
 cpSync(icns, join(app, "Contents", "Resources", "AppIcon.icns"));
 writeFileSync(join(app, "Contents", "Info.plist"), infoPlist());
 writeFileSync(join(app, "Contents", "PkgInfo"), "APPL????");
@@ -152,6 +156,7 @@ writeFileSync(join(app, "Contents", "PkgInfo"), "APPL????");
 await $`codesign --force -s - ${join(app, "Contents", "MacOS", "pocket-companion")}`.quiet();
 await $`codesign --force -s - ${join(app, "Contents", "MacOS", "pocket-transcribe")}`.quiet();
 await $`codesign --force -s - ${join(app, "Contents", "MacOS", "pocket-glyphs")}`.quiet();
+await $`codesign --force -s - ${join(app, "Contents", "MacOS", "pocket-websignin")}`.quiet();
 await $`codesign --force -s - ${app}`.quiet();
 await $`codesign --verify --strict ${app}`.quiet();
 if (!existsSync(join(app, "Contents", "MacOS", "PocketCompanion"))) throw new Error("bundle incomplete");
