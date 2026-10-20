@@ -161,8 +161,6 @@ const SUITE: readonly Stage[] = [
       "tests/physics.test.ts",
       "tests/nexus-3ds.test.ts",
       "tests/nexus-touch.test.ts",
-      "tests/home-clock.test.ts",
-      "tests/hn-html.test.ts",
       "tests/vita-package.test.ts",
       "tests/vita-dev.test.ts",
       "tests/targets-psp.test.ts",
@@ -335,17 +333,17 @@ const SUITE: readonly Stage[] = [
     tests: ["tests/launcher-sim.test.ts"],
   },
   {
-    // Pocket Home and the Hacker News mini-app on the 3DS geometry, with the
-    // Pocket Link, Wi-Fi, camera, NET and agent fakes (hosts/sim/console-3ds.ts),
-    // and the system agent's overlay inside the Hacker News app.
-    // Each test builds its guest with `bun tools/3ds.ts <app> --pocket-only`.
-    name: "pocket home sim",
+    // The system agent's overlay over a fixture app on the 3DS geometry, with
+    // the agent fake (hosts/sim/console-3ds.ts). The test builds its guest
+    // with `bun tools/3ds.ts --plan=... --pocket-only`. Pocket Home and the
+    // Hacker News app live in pocket-shell (shells/3ds) with their own sims.
+    name: "agent overlay sim",
     prep: [
       ["bun", "tools/wasm.ts"],
       ["bun", "tools/3ds-stage-hint.ts", "--check"],
     ],
     browser: true,
-    tests: ["tests/home-sim.test.ts", "tests/hn-sim.test.ts", "tests/agent-layer.test.ts"],
+    tests: ["tests/agent-layer.test.ts"],
   },
 ];
 

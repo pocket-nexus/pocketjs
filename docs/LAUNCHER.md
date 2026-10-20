@@ -262,7 +262,9 @@ Vita VPK carries PocketJS's validated default LiveArea asset set.
 ## Nintendo 3DS: installed apps
 
 **The 3DS catalog is the SD card.** The `.3dsx` embeds one package, the
-launcher (Pocket Home, `dev.pocket-nexus.home`). Every other directory under
+launcher (Pocket Home, `dev.pocket-nexus.home`, maintained in
+[pocket-shell](https://github.com/pocket-nexus/pocket-shell) `shells/3ds`).
+Every other directory under
 `sdmc:/pocketjs/runtime/apps/<slot>/` (slot = the first 16 hex digits of
 SHA-256 of the app id) whose state names a committed active package is an
 installed app. Apps arrive there through a Pocket Link install

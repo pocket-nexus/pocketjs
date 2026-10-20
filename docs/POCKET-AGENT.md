@@ -68,7 +68,8 @@ leaves `idle` and back in over **about 0.6 s**. `bun tools/3ds-stage-hint.ts
 --check` fails when the header is stale.
 
 On an Old 3DS the stage adds about **0.4 ms** to the frame's GPU phase (3.0 ms
-against 2.6 ms) and the HN list still scrolls at 59 to 61 frames a second.
+against 2.6 ms), and the Hacker News app (pocket-shell `shells/3ds/hn`) still
+scrolls its list at 59 to 61 frames a second.
 
 ## The host's agent channel
 

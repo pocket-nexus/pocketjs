@@ -428,7 +428,7 @@ frozen frame.
 
 **A dev-wire push of another app installs into that app's own slot**, commits
 it as the slot's active package and launches it, so
-`bun run 3ds:dev push --app hn` works while the launcher runs. A push of the
+`bun run 3ds:dev push --app nexus` works while the launcher runs. A push of the
 running app keeps the candidate → accepted lifecycle; when that app is not the
 launcher, a failing candidate returns to the launcher instead of a rollback.
 
