@@ -11,7 +11,7 @@
 //   mirror   the touch screen, copied into a texture every frame
 //   own      frames the companion streams from the agent's own screen, a
 //            headless copy of a Pocket app on the computer
-//   idle     the screensaver: the PocketJS mark and line, drawn by the host
+//   idle     the screensaver: the PocketJS mark, drawn by the host
 //
 // Summoning. Pressing L and R together (each within AGENT_CHORD_FRAMES of the
 // other) is the system chord. The host holds back a shoulder's down edge for

@@ -49,8 +49,8 @@ an orange block with two upright eyes, two arm stubs and four legs.
   `C3D_SyncTextureCopy` of the auxiliary render target's tiles into a 256×512
   RGBA8 texture, every second frame while it is shown), the agent's own screen
   (RGB565 frames from `agent.screen`, tiled by a display transfer) or the
-  screensaver (the flat PocketJS mark, the wordmark and "Create UI on every
-  screen you love" on the brand's plum `#171226`: a 128×64 RGB565 texture
+  screensaver (the flat PocketJS mark and the wordmark on the brand's plum
+  `#171226`: a 128×64 RGB565 texture
   from `stage_saver.h`, laid out on a 256×128 grid, drawn at four times that
   and box-filtered to about the size the monitor shows, so the GPU's linear
   filter does not minify it; it drifts at a constant speed and turns back

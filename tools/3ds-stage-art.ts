@@ -4,9 +4,8 @@
 //   stage_hint.h   the "L+R Ask Claude" pill, drawn at the top screen's own
 //                  pixels after both eyes while the mascot is idle. RGBA8 in
 //                  the byte order the GPU reads (A, B, G, R).
-//   stage_saver.h  the monitor's screensaver: the PocketJS mark, the
-//                  wordmark in Fredoka and the line "Create UI on every
-//                  screen you love" on the brand's plum, RGB565. The stage moves it about
+//   stage_saver.h  the monitor's screensaver: the PocketJS mark and the
+//                  wordmark in Fredoka on the brand's plum, RGB565. The stage moves it about
 //                  the monitor with the texture matrix; its plum border is
 //                  what the clamped texture shows around it.
 //
@@ -41,7 +40,7 @@ const BRAND = join(ROOT, "skills/pocketjs-video-outro/assets");
 const MARK_SVG = join(BRAND, "pocketjs-mark.svg");
 const PLUM = "#171226";
 /** The lockup's box on the layout grid: x0, y0, x1, y1. */
-const SAVER_CONTENT = [8, 12, 248, 118] as const;
+const SAVER_CONTENT = [6, 36, 250, 92] as const;
 
 const bold = opentype.parse(readFileSync(join(ROOT, "assets/fonts/Inter-Bold.ttf")).buffer as ArrayBuffer);
 
@@ -158,8 +157,8 @@ function hintHeader(): { text: string; rgba: Uint8Array; width: number; height: 
   return { text, rgba: image.rgba, width: TEX_W, height: TEX_H };
 }
 
-/** The screensaver: the mark and the wordmark on one line, the tagline under
- *  them, centred on plum. The plum margin is what the clamped edge repeats. */
+/** The screensaver: the mark and the wordmark on one line, centred on
+ *  plum. The plum margin is what the clamped edge repeats. */
 function saverHeader(): { text: string; rgba: Uint8Array; width: number; height: number } {
   GlobalFonts.registerFromPath(join(BRAND, "Fredoka.ttf"), "Fredoka");
   // Rasterize the SVG at its drawn size, not at its viewBox's 32 units.
@@ -171,20 +170,15 @@ function saverHeader(): { text: string; rgba: Uint8Array; width: number; height:
   g.scale(4, 4);
   g.fillStyle = PLUM;
   g.fillRect(0, 0, LAYOUT_W, LAYOUT_H);
-  g.font = "600 40px Fredoka";
+  g.font = "600 44px Fredoka";
   const name = "PocketJS";
-  const markSize = 48;
-  const gap = 8;
+  const markSize = 54;
+  const gap = 9;
   const left = (LAYOUT_W - (markSize + gap + g.measureText(name).width)) / 2;
-  g.drawImage(mark, left, 18, markSize, markSize);
+  g.drawImage(mark, left, LAYOUT_H / 2 - markSize / 2, markSize, markSize);
   g.fillStyle = "#ffffff";
   g.textBaseline = "middle";
-  g.fillText(name, left + markSize + gap, 43);
-  g.font = "500 21px Fredoka";
-  g.fillStyle = "#d9d2ee";
-  g.textAlign = "center";
-  g.fillText("Create UI on every screen", LAYOUT_W / 2, 86);
-  g.fillText("you love", LAYOUT_W / 2, 107);
+  g.fillText(name, left + markSize + gap, LAYOUT_H / 2 + 1);
   // A box filter: each texel is the mean of its 4x4 block.
   const source = g.getImageData(0, 0, LAYOUT_W * 4, LAYOUT_H * 4).data;
   const rgba = new Uint8Array(SAVER_W * SAVER_H * 4);

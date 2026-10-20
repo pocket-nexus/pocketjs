@@ -263,23 +263,24 @@ function Mic(props: { cx: number; y: number; color: string }) {
   });
   return (
     <>
-      <View style={at(-6, 0, 12, 20, 6)} />
-      <View style={at(-1, 22, 2, 5)} />
-      <View style={at(-7, 27, 14, 2, 1)} />
+      <View style={at(-5, 0, 10, 16, 5)} />
+      <View style={at(-1, 18, 2, 4)} />
+      <View style={at(-6, 22, 12, 2, 1)} />
     </>
   );
 }
 
-/** A keyboard: a slab with two rows of keys and a space bar. */
+/** A keyboard, 30x20 from (cx - 15, y): a slab with two rows of five keys
+ *  and a space bar, a 3 px margin around the keys. */
 function Keys(props: { cx: number; y: number; color: string; keyColor: string }) {
   const key = (x: number, y: number, w: number) => (
     <View
       style={{
         posType: ENUMS.PosType.Absolute,
-        insetL: props.cx - 19 + x,
+        insetL: props.cx - 15 + x,
         insetT: props.y + y,
         width: w,
-        height: 4,
+        height: 3,
         radius: 1,
         bgColor: props.keyColor,
       }}
@@ -290,25 +291,25 @@ function Keys(props: { cx: number; y: number; color: string; keyColor: string })
       <View
         style={{
           posType: ENUMS.PosType.Absolute,
-          insetL: props.cx - 19,
-          insetT: props.y + 3,
-          width: 38,
-          height: 24,
-          radius: 4,
+          insetL: props.cx - 15,
+          insetT: props.y,
+          width: 30,
+          height: 20,
+          radius: 3,
           bgColor: props.color,
         }}
       />
-      {key(4, 7, 4)}
-      {key(10, 7, 4)}
-      {key(16, 7, 4)}
-      {key(22, 7, 4)}
-      {key(28, 7, 6)}
-      {key(4, 13, 6)}
-      {key(12, 13, 4)}
-      {key(18, 13, 4)}
-      {key(24, 13, 4)}
-      {key(30, 13, 4)}
-      {key(10, 19, 18)}
+      {key(4, 4, 3)}
+      {key(9, 4, 3)}
+      {key(14, 4, 3)}
+      {key(19, 4, 3)}
+      {key(24, 4, 3)}
+      {key(4, 9, 3)}
+      {key(9, 9, 3)}
+      {key(14, 9, 3)}
+      {key(19, 9, 3)}
+      {key(24, 9, 3)}
+      {key(9, 14, 13)}
     </>
   );
 }
@@ -990,9 +991,9 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
       >
         <View style={{ ...absolute(tileProps.rect.w / 2 - 22, 8, 44, 44), radius: 22, bgColor: down() ? "#b85f42" : ORANGE }} />
         {tileProps.target === "talk" ? (
-          <Mic cx={tileProps.rect.w / 2} y={15} color="#ffffff" />
+          <Mic cx={tileProps.rect.w / 2} y={18} color="#ffffff" />
         ) : (
-          <Keys cx={tileProps.rect.w / 2} y={12} color="#ffffff" keyColor={ORANGE} />
+          <Keys cx={tileProps.rect.w / 2} y={20} color="#ffffff" keyColor={ORANGE} />
         )}
         <View style={{ ...absolute(tileProps.rect.w / 2 - 30, 58, 16, 16), radius: 8, bgColor: INK }} />
         <Label text={tileProps.button} color="#ffffff" x={tileProps.rect.w / 2 - 30} y={57} w={16} align="center" />
