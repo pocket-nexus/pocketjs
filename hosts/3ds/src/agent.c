@@ -20,6 +20,7 @@
 #include "jscan.h"
 #include "link.h"
 #include "pocket_core.h"
+#include "runtime.h"
 #include "stage.h"
 
 /* contracts/spec/agent.ts */
@@ -297,6 +298,90 @@ static void drain_shot(void) {
 }
 
 // ---------------------------------------------------------------------------
+// display mode
+// ---------------------------------------------------------------------------
+//
+// "dual" (the default): the stage owns the top screen. "single": the top
+// screen is dark — no stage draw, 3D off, its backlight powered off — and the
+// overlay summons the agent from a notch on the touch screen, the layout a
+// single-screen device uses. The mode is the console's, not an app's: it
+// lives in POCKET_RUNTIME_ROOT/display.txt and outlasts reboots. The
+// backlight is powered off only while an agent guest runs in single mode; an
+// APT hook powers it on before the HOME Menu, sleep or exit and powers it off
+// again on return, so no other program inherits a dark screen.
+
+#define DISPLAY_FILE POCKET_RUNTIME_ROOT "/display.txt"
+
+static int display_mode = -1; /* AGENT_DISPLAY_DUAL / _SINGLE, -1 unread */
+static bool lcd_ready;
+static bool backlight_off;
+static bool apt_hooked;
+static aptHookCookie apt_cookie;
+
+static void set_backlight(bool on) {
+  if (!lcd_ready) {
+    if (R_FAILED(gspLcdInit())) return;
+    lcd_ready = true;
+  }
+  if (on == !backlight_off) return;
+  Result result = on ? GSPLCD_PowerOnBacklight(GSPLCD_SCREEN_TOP) : GSPLCD_PowerOffBacklight(GSPLCD_SCREEN_TOP);
+  if (R_SUCCEEDED(result)) backlight_off = !on;
+}
+
+static bool top_dark(void) {
+  return enabled && agent_display_mode() == AGENT_DISPLAY_SINGLE;
+}
+
+static void apt_changed(APT_HookType hook, void *param) {
+  (void)param;
+  if (hook == APTHOOK_ONSUSPEND || hook == APTHOOK_ONSLEEP || hook == APTHOOK_ONEXIT) set_backlight(true);
+  else if ((hook == APTHOOK_ONRESTORE || hook == APTHOOK_ONWAKEUP) && top_dark()) set_backlight(false);
+}
+
+/* 3D and the top backlight follow the guest's capability and the mode. */
+static void apply_display(void) {
+  if (!apt_hooked) {
+    aptHook(&apt_cookie, apt_changed, NULL);
+    apt_hooked = true;
+  }
+  gfxSet3D(enabled && agent_display_mode() == AGENT_DISPLAY_DUAL);
+  set_backlight(!top_dark());
+}
+
+int agent_display_mode(void) {
+  if (display_mode < 0) {
+    display_mode = AGENT_DISPLAY_DUAL;
+    FILE *file = fopen(DISPLAY_FILE, "r");
+    if (file != NULL) {
+      char text[16] = {0};
+      size_t length = fread(text, 1, sizeof text - 1, file);
+      fclose(file);
+      text[length] = '\0';
+      if (strncmp(text, "single", 6) == 0) display_mode = AGENT_DISPLAY_SINGLE;
+    }
+  }
+  return display_mode;
+}
+
+bool agent_set_display_mode(int mode) {
+  if (mode != AGENT_DISPLAY_DUAL && mode != AGENT_DISPLAY_SINGLE) return false;
+  if (mode == agent_display_mode()) return true;
+  FILE *file = fopen(DISPLAY_FILE, "w");
+  if (file == NULL) return false;
+  bool written = fputs(mode == AGENT_DISPLAY_SINGLE ? "single\n" : "dual\n", file) >= 0;
+  written = fclose(file) == 0 && written;
+  if (!written) return false;
+  display_mode = mode;
+  apply_display();
+  event_text(mode == AGENT_DISPLAY_SINGLE ? "{\"t\":\"display\",\"mode\":\"single\"}" : "{\"t\":\"display\",\"mode\":\"dual\"}");
+  return true;
+}
+
+bool agent_stage_shown(void) {
+  return enabled && agent_display_mode() == AGENT_DISPLAY_DUAL;
+}
+
+// ---------------------------------------------------------------------------
 // lifecycle and the chord
 // ---------------------------------------------------------------------------
 
@@ -319,6 +404,7 @@ void agent_set_enabled(bool on) {
   held_back = 0;
   pulse_out = 0;
   chord = false;
+  apply_display();
 }
 
 bool agent_enabled(void) {
@@ -326,6 +412,11 @@ bool agent_enabled(void) {
 }
 
 void agent_shutdown(void) {
+  set_backlight(true);
+  if (apt_hooked) aptUnhook(&apt_cookie);
+  apt_hooked = false;
+  if (lcd_ready) gspLcdExit();
+  lcd_ready = false;
   stop_listening(false);
   closing = false;
   mic_close();
@@ -568,6 +659,7 @@ const char *agent_status_json(void) {
   jbuf_u64(&status_out, (uint64_t)mic_peak);
   jbuf_text(&status_out, ",\"gain\":");
   jbuf_u64(&status_out, mic_gain);
-  jbuf_text(&status_out, "}");
+  jbuf_text(&status_out, agent_display_mode() == AGENT_DISPLAY_SINGLE ? ",\"display\":\"single\"" : ",\"display\":\"dual\"");
+  jbuf_text(&status_out, backlight_off ? ",\"topBacklight\":false}" : ",\"topBacklight\":true}");
   return jbuf_cstr(&status_out);
 }

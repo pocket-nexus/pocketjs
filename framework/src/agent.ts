@@ -11,6 +11,7 @@ import {
   AGENT_MODE,
   AGENT_SCREEN,
   type AgentButton,
+  type AgentDisplay,
   type AgentClientMessage,
   type AgentEvent,
   type AgentMode,
@@ -22,7 +23,7 @@ import { BTN } from "../../contracts/spec/spec.ts";
 import { __packTouch } from "./touch.ts";
 
 export { AGENT_MODE, AGENT_SCREEN };
-export type { AgentEvent, AgentStatus, AgentText };
+export type { AgentDisplay, AgentEvent, AgentStatus, AgentText };
 
 export interface AgentHostOps {
   poll(): string | undefined;
@@ -32,6 +33,9 @@ export interface AgentHostOps {
   level(): number;
   shot(): number;
   status(): string;
+  /** Hosts with a display mode (contracts/spec/agent.ts AGENT_DISPLAY). */
+  display?(): string;
+  setDisplay?(mode: string): boolean;
 }
 
 export function agentHost(): AgentHostOps | null {
@@ -54,6 +58,19 @@ export function agentStatus(host: AgentHostOps | null = agentHost()): AgentStatu
   } catch {
     return OFFLINE;
   }
+}
+
+/** The console's display mode: "dual" when the stage owns a second screen,
+ *  "single" when the agent comes out of a notch on the touch screen. A host
+ *  without the mode is dual. */
+export function displayMode(host: AgentHostOps | null = agentHost()): AgentDisplay {
+  return host?.display?.() === "single" ? "single" : "dual";
+}
+
+/** Set and persist the console's display mode (Settings' Dual Screen
+ *  switch). False when the host has no display mode or could not save it. */
+export function setDisplayMode(mode: AgentDisplay, host: AgentHostOps | null = agentHost()): boolean {
+  return host?.setDisplay?.(mode) ?? false;
 }
 
 export function sendAgent(host: AgentHostOps, message: AgentClientMessage): boolean {

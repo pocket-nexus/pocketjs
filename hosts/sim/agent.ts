@@ -1,14 +1,15 @@
 // hosts/sim/agent.ts — a fake `globalThis.agent` (contracts/spec/agent.ts)
 // for the 3DS console sim: the companion's messages are what a test pushes,
 // the guest's are recorded, the stage keeps its last mode and screen, and the
-// microphone and the shot are counters.
+// microphone and the shot are counters. The display mode starts as the option
+// says (dual by default) and setDisplay changes it as the host does.
 //
 //   const agent = createSimAgentHost();
 //   agent.chord(400);                      // hold L+R 400 ms
 //   agent.push({ t: "agent.delta", id, text: "Hi" });
 //   agent.sent                             // every message the guest sent
 
-import type { AgentClientMessage, AgentEvent, AgentStatus } from "../../contracts/spec/agent.ts";
+import type { AgentClientMessage, AgentDisplay, AgentEvent, AgentStatus } from "../../contracts/spec/agent.ts";
 
 export interface SimAgentHost {
   ns: Record<string, (...args: never[]) => unknown>;
@@ -27,9 +28,11 @@ export interface SimAgentHost {
   listenEnds: { id: number; send: boolean }[];
   shots: number;
   level: number;
+  /** The console's display mode. */
+  display: AgentDisplay;
 }
 
-export function createSimAgentHost(options: { available?: boolean } = {}): SimAgentHost {
+export function createSimAgentHost(options: { available?: boolean; display?: AgentDisplay } = {}): SimAgentHost {
   let available = options.available ?? true;
   let queue: AgentEvent[] = [];
   let nextStream = 100;
@@ -55,6 +58,7 @@ export function createSimAgentHost(options: { available?: boolean } = {}): SimAg
     listenEnds: [],
     shots: 0,
     level: 0,
+    display: options.display ?? "dual",
   };
   host.ns = {
     poll: () => {
@@ -89,9 +93,18 @@ export function createSimAgentHost(options: { available?: boolean } = {}): SimAg
       return nextStream++;
     },
     status: () => {
-      const status: AgentStatus = { available, listening: host.listening !== 0, recordedMs: 0, chord: false };
+      const status: AgentStatus = { available, listening: host.listening !== 0, recordedMs: 0, chord: false, display: host.display };
       return JSON.stringify(status);
     },
+    display: () => host.display,
+    setDisplay: ((mode: string) => {
+      if (mode !== "dual" && mode !== "single") return false;
+      if (mode !== host.display) {
+        host.display = mode;
+        queue.push({ t: "display", mode });
+      }
+      return true;
+    }) as never,
   };
   return host;
 }

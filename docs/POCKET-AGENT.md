@@ -64,18 +64,45 @@ an orange block with two upright eyes, two arm stubs and four legs.
   falls asleep after 75 s without input; input wakes it and now and then
   sends it to watch the touch screen on its monitor.
 
-**The hint.** While the mode is `idle`, a pill in the bottom-right corner
-shows two key caps, L and R, and "Ask Claude". It is a 128×32 RGBA8 texture
-baked from Inter Bold by `tools/3ds-stage-art.ts` into
-`hosts/3ds/src/stage_hint.h`, drawn after each eye with an orthographic
-projection at the screen's pixels (zero parallax), its opacity in the texture
-combiner's constant colour. It fades out in **about 0.2 s** when the mode
+**The hints.** While the mode is `idle`, a pill in the bottom-right corner
+shows two key caps, L and R, and "Ask Claude". While an applet other than the
+launcher runs (`launcher_home_running()` is false), a second pill 6 px above
+it shows a SELECT key cap and "Home": SELECT returns to the launcher. Both
+pills are one 128×64 RGBA8 texture baked from Inter Bold by
+`tools/3ds-stage-art.ts` into `hosts/3ds/src/stage_hint.h` (the L+R pill in
+the top half, the SELECT pill from row `STAGE_SELECT_Y`), drawn as two quads
+after each eye with an orthographic projection at the screen's pixels (zero
+parallax), each with its own opacity in the texture combiner's constant
+colour. It fades out in **about 0.2 s** when the mode
 leaves `idle` and back in over **about 0.6 s**. `bun tools/3ds-stage-art.ts
 --check` fails when either header is stale.
 
 On an Old 3DS the stage adds about **0.4 ms** to the frame's GPU phase (3.0 ms
 against 2.6 ms), and the Hacker News app (pocket-shell `shells/3ds/hn`) still
 scrolls its list at 59 to 61 frames a second.
+
+## Display mode
+
+The console has a display mode, `"dual"` or `"single"`
+(`AGENT_DISPLAY`). A 3DS starts in dual: the stage owns the top screen.
+Single is the layout of a device with one screen (an iPod touch, a phone):
+the top screen is dark and the agent comes out of a notch on the touch
+screen.
+
+- **The host** (`agent.c`) keeps the mode in
+  `sdmc:/pocketjs/runtime/display.txt` (`dual` or `single`), read on first
+  use and written by `agent.setDisplay(mode)`, so it **outlasts reboots and
+  app switches**; `agent.display()` reads it and `status()` reports it. A
+  change queues a `{"t":"display","mode":…}` event.
+- **In single mode, while an agent guest runs,** `main.c` skips the stage's
+  draw (the top screen is cleared to black), 3D is off, and the top
+  backlight is powered off through `GSPLCD_PowerOffBacklight`. An APT hook
+  powers it on before the HOME Menu, sleep or exit and off again on return,
+  and a guest without the capability or `agent_shutdown` powers it on, so no
+  other program inherits a dark top screen. The chord, the microphone and
+  the mirror capture work as in dual mode.
+- **The framework** exports `displayMode()` and `setDisplayMode(mode)` from
+  `@pocketjs/framework/agent`; Pocket Home's Settings has the switch.
 
 ## The host's agent channel
 
@@ -131,6 +158,16 @@ running while `suspendApp(true)` stops the app's.
 | acting on the user's screen | the app, running, and a banner with the step | act, mirror |
 | tucked (B while the agent works on its own screen) | the app, running, and a banner | think or act, own |
 | reply | scrim, the reply, the token count, Talk (A) and Type (X) for the next request | happy, then attend; mirror |
+
+**The notch.** In single mode the overlay draws a black notch over every
+app at `AGENT_NOTCH` (x 124, 72×14, bottom corners rounded 7). A gesture
+whose region is the notch takes its taps, and the app keeps every other
+touch. A tap makes a 2D Clawd (an orange block with two eyes and two arm
+stubs, drawn with Views) spring down from under the notch to peek out below
+it, blink at 0.3 s, and at 0.5 s the choice opens as L+R opens it. Clawd stays
+out while a card is up and slides back under the notch when it closes. A tap
+on the notch with a card up closes it; with a tucked turn, it brings the
+turn back. While the agent works, an orange dot pulses in the notch.
 
 The overlay ignores how long the chord is held: `chord.down` opens the choice,
 closes an open card, sends a recording in progress or brings a tucked

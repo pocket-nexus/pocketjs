@@ -44,7 +44,7 @@ afterAll(() => {
   rmSync(OUT, { recursive: true, force: true });
 });
 
-async function boot(available = true): Promise<Console3ds> {
+async function boot(available = true, display: "dual" | "single" = "dual"): Promise<Console3ds> {
   const app = await bootConsole3ds({
     js: `${GUEST}.js`,
     pak: `${GUEST}.pak`,
@@ -53,11 +53,21 @@ async function boot(available = true): Promise<Console3ds> {
     link: null,
     wifi: null,
     camera: false,
-    agent: { available },
+    agent: { available, display },
   });
   await app.run(80);
   return app;
 }
+
+/** The touch screen's pixel at (x, y), as [r, g, b]. */
+function pixel(app: Console3ds, x: number, y: number): [number, number, number] {
+  const { width, rgba } = app.world.pixels("auxiliary");
+  const at = (y * width + x) * 4;
+  return [rgba[at]!, rgba[at + 1]!, rgba[at + 2]!];
+}
+const isBlack = (rgb: [number, number, number]) => rgb.every((c) => c < 8);
+/** Clawd's orange (#d97757) where its body shows below the notch. */
+const isClawd = (rgb: [number, number, number]) => Math.abs(rgb[0] - 0xd9) < 24 && Math.abs(rgb[1] - 0x77) < 24 && Math.abs(rgb[2] - 0x57) < 24;
 
 function shot(app: Console3ds, name: string): void {
   if (!SHOTS) return;
@@ -278,3 +288,58 @@ describe("tools on the user's screen", () => {
     expect(sentOf(app, "agent.result").find((message) => message.call === "l3")).toBeUndefined();
   });
 });
+
+describe("display mode", () => {
+  test("dual draws no notch; a tap at the top centre reaches the app, not the agent", async () => {
+    const app = await boot(true, "dual");
+    expect(isBlack(pixel(app, 160, 4))).toBe(false);
+    await app.tap(160, 6);
+    await app.run(50);
+    expect(app.texts("auxiliary")).not.toContain(AGENT_LABELS.choose);
+  });
+
+  test("single draws the notch; a tap on it peeks Clawd out, then opens the choice; B sends both back", async () => {
+    const app = await boot(true, "single");
+    expect(isBlack(pixel(app, 160, 4))).toBe(true);
+    expect(isClawd(pixel(app, 160, 24))).toBe(false);
+    await app.tap(160, 6);
+    await app.run(12);
+    expect(isClawd(pixel(app, 160, 24))).toBe(true);
+    expect(app.texts("auxiliary")).not.toContain(AGENT_LABELS.choose);
+    await app.run(40);
+    expect(app.texts("auxiliary")).toContain(AGENT_LABELS.choose);
+    expect(lastStage(app)).toEqual([AGENT_MODE.attend, AGENT_SCREEN.mirror]);
+    shot(app, "notch-choose");
+    await app.press(BTN.CROSS, 30);
+    expect(app.texts("auxiliary")).not.toContain(AGENT_LABELS.choose);
+    expect(isClawd(pixel(app, 160, 24))).toBe(false);
+    // The app keeps every other touch.
+    await app.tap(40, 40);
+    await app.run(10);
+    expect(app.texts("auxiliary")).toContain("Opened Message 1");
+  });
+
+  test("L+R opens the choice in single mode too, with Clawd out of the notch", async () => {
+    const app = await boot(true, "single");
+    app.agent!.chordDown();
+    app.agent!.chordUp(100);
+    await app.run(30);
+    expect(app.texts("auxiliary")).toContain(AGENT_LABELS.choose);
+    expect(isClawd(pixel(app, 160, 24))).toBe(true);
+  });
+
+  test("the mode round-trips through the host and the notch follows it", async () => {
+    const app = await boot(true, "dual");
+    const ns = (globalThis as unknown as { agent: { display(): string; setDisplay(mode: string): boolean } }).agent;
+    expect(ns.display()).toBe("dual");
+    expect(ns.setDisplay("single")).toBe(true);
+    await app.run(4);
+    expect(ns.display()).toBe("single");
+    expect(isBlack(pixel(app, 160, 4))).toBe(true);
+    expect(ns.setDisplay("dual")).toBe(true);
+    await app.run(4);
+    expect(isBlack(pixel(app, 160, 4))).toBe(false);
+    expect(ns.setDisplay("triple")).toBe(false);
+  });
+});
+

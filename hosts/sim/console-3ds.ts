@@ -15,7 +15,7 @@
 import { bootBundle, type BundleWorld, type SimNode, type SimSurface } from "./sim.ts";
 import { createSimLinkHost, type SimInstalledApp, type SimLinkFixture, type SimLinkHost } from "./link.ts";
 import { createSimWifiHost, type SimWifiFixture, type SimWifiHost } from "./wifi.ts";
-import { createSimCameraHost, type SimCameraHost } from "./camera.ts";
+import { createSimCameraHost, type SimCameraHost, type SimCameraOptions } from "./camera.ts";
 import { createSimNetHost, type SimNetHost, type SimNetRoute } from "./net.ts";
 import { createSimAgentHost, type SimAgentHost } from "./agent.ts";
 
@@ -37,12 +37,12 @@ export interface Console3dsOptions {
   lastError?: { output: string; message: string } | null;
   link?: SimLinkFixture | null;
   wifi?: SimWifiFixture | null;
-  /** Mount the camera module. Default true. */
-  camera?: boolean;
+  /** Mount the camera module (default true); an object seeds its photos. */
+  camera?: boolean | SimCameraOptions;
   /** NET routes; omitted = no NET module. */
   net?: Readonly<Record<string, SimNetRoute>>;
   /** Mount the agent namespace (contracts/spec/agent.ts); omitted = none. */
-  agent?: { available?: boolean };
+  agent?: { available?: boolean; display?: "dual" | "single" };
   /** Virtual epoch at boot, ms. Default 2026-10-19T01:41:00Z. */
   epochMs?: number;
 }
@@ -135,7 +135,7 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
     },
   });
   const wifiHost = options.wifi === null ? null : createSimWifiHost(options.wifi ?? {});
-  const cameraHost = options.camera === false ? null : createSimCameraHost();
+  const cameraHost = options.camera === false ? null : createSimCameraHost(typeof options.camera === "object" ? options.camera : {});
   const netHost = options.net ? createSimNetHost(options.net) : null;
   const agentHost = options.agent ? createSimAgentHost(options.agent) : null;
 

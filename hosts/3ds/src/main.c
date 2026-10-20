@@ -487,8 +487,8 @@ static bool boot_guest(
   /* The guest's capability decides who owns the top screen; it must be set
    * before qjs_boot, which publishes `globalThis.agent` only for it. */
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
+  /* Also sets 3D and the top backlight from the console's display mode. */
   agent_set_enabled(agent);
-  gfxSet3D(agent);
   ui_init(raster_density);
   ui_set_viewport((float)VIEW_W, (float)VIEW_H);
   if (ui_create_auxiliary_surface((float)AUX_VIEW_W, (float)AUX_VIEW_H) == 0) {
@@ -1397,9 +1397,11 @@ int main(void) {
     C3D_RenderTargetClear(primary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
     if (agent_enabled()) {
       /* The top screen is the agent stage's; the guest's primary surface is
-       * laid out but not shown. */
-      if (osGet3DSliderState() > 0.0f) C3D_RenderTargetClear(right_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-      stage_render(primary_target, right_target);
+       * laid out but not shown. In single display mode it stays black. */
+      if (agent_stage_shown()) {
+        if (osGet3DSliderState() > 0.0f) C3D_RenderTargetClear(right_target, C3D_CLEAR_ALL, 0x000000ff, 0);
+        stage_render(primary_target, right_target);
+      }
     } else {
       C3D_FrameDrawOn(primary_target);
       /* C3D_FrameDrawOn resets the viewport, so this comes after it. */

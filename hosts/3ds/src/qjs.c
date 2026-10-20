@@ -31,6 +31,7 @@
 #include "media.h"
 #include "offload_coverage.h"
 #include "camera.h"
+#include "photos.h"
 #include "launcher.h"
 #include "link.h"
 #include "agent.h"
@@ -136,6 +137,12 @@ typedef enum {
   HostCameraClose,
   HostCameraPoll,
   HostCameraInfo,
+  HostCameraCapture,
+  HostCameraPhotos,
+  HostCameraLoad,
+  HostCameraFree,
+  HostCameraRemove,
+  HostCameraEvents,
   HostCaptureTexts,
   HostCapturedTexts,
   HostAgentPoll,
@@ -145,6 +152,8 @@ typedef enum {
   HostAgentLevel,
   HostAgentShot,
   HostAgentStatus,
+  HostAgentDisplay,
+  HostAgentSetDisplay,
 } HostOperation;
 
 static JSRuntime *runtime;
@@ -717,7 +726,7 @@ static JSValue host_operation(
     case HostWifiConnect:
       return JS_NewBool(ctx, wifi_connect(argument_int(ctx, argc, argv, 0)));
     case HostCameraOpen:
-      return JS_NewInt32(ctx, camera_open());
+      return JS_NewInt32(ctx, camera_open(argc > 0 && JS_IsNumber(argv[0]) ? argument_int(ctx, argc, argv, 0) : 0));
     case HostCameraClose:
       camera_close();
       return JS_UNDEFINED;
@@ -728,6 +737,26 @@ static JSValue host_operation(
     }
     case HostCameraInfo:
       return JS_NewString(ctx, camera_info_json());
+    case HostCameraCapture:
+      return JS_NewInt32(ctx, camera_capture());
+    case HostCameraPhotos:
+      return JS_NewString(ctx, photos_list_json());
+    case HostCameraLoad:
+    case HostCameraRemove: {
+      const char *name = argc > 0 ? JS_ToCString(ctx, argv[0]) : NULL;
+      JSValue out = magic == HostCameraLoad
+        ? JS_NewInt32(ctx, photos_load(name, argument_int(ctx, argc, argv, 1)))
+        : JS_NewBool(ctx, photos_remove(name));
+      if (name != NULL) JS_FreeCString(ctx, name);
+      return out;
+    }
+    case HostCameraFree:
+      photos_free(argument_int(ctx, argc, argv, 0));
+      return JS_UNDEFINED;
+    case HostCameraEvents: {
+      const char *events = photos_events_json();
+      return events == NULL ? JS_UNDEFINED : JS_NewString(ctx, events);
+    }
     case HostCaptureTexts:
       return JS_NewBool(
         ctx,
@@ -761,6 +790,16 @@ static JSValue host_operation(
       return JS_NewInt32(ctx, agent_shot());
     case HostAgentStatus:
       return JS_NewString(ctx, agent_status_json());
+    case HostAgentDisplay:
+      return JS_NewString(ctx, agent_display_mode() == AGENT_DISPLAY_SINGLE ? "single" : "dual");
+    case HostAgentSetDisplay: {
+      if (argc < 1 || !JS_IsString(argv[0])) return JS_FALSE;
+      const char *mode = JS_ToCString(ctx, argv[0]);
+      if (mode == NULL) return JS_FALSE;
+      int value = strcmp(mode, "single") == 0 ? AGENT_DISPLAY_SINGLE : strcmp(mode, "dual") == 0 ? AGENT_DISPLAY_DUAL : -1;
+      JS_FreeCString(ctx, mode);
+      return JS_NewBool(ctx, agent_set_display_mode(value));
+    }
     default:
       break;
   }
@@ -995,6 +1034,12 @@ static void install_host(void) {
   add_operation(camera, "close", 0, HostCameraClose);
   add_operation(camera, "poll", 0, HostCameraPoll);
   add_operation(camera, "info", 0, HostCameraInfo);
+  add_operation(camera, "capture", 0, HostCameraCapture);
+  add_operation(camera, "photos", 0, HostCameraPhotos);
+  add_operation(camera, "load", 2, HostCameraLoad);
+  add_operation(camera, "free", 1, HostCameraFree);
+  add_operation(camera, "remove", 1, HostCameraRemove);
+  add_operation(camera, "events", 0, HostCameraEvents);
   JS_SetPropertyStr(context, global, "camera", camera);
 
   /* Only a guest that declared "system.agent" sees the namespace. */
@@ -1007,6 +1052,8 @@ static void install_host(void) {
     add_operation(agent, "level", 0, HostAgentLevel);
     add_operation(agent, "shot", 0, HostAgentShot);
     add_operation(agent, "status", 0, HostAgentStatus);
+    add_operation(agent, "display", 0, HostAgentDisplay);
+    add_operation(agent, "setDisplay", 1, HostAgentSetDisplay);
     JS_SetPropertyStr(context, global, "agent", agent);
   }
 }

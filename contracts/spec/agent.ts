@@ -17,8 +17,8 @@
 // other) is the system chord. The host holds back a shoulder's down edge for
 // that window, so a guest sees neither half of the chord; a lone L or R
 // reaches the guest AGENT_CHORD_FRAMES late. The chord's down and up edges
-// arrive as host events. Holding the chord is push-to-talk; a short press
-// opens the keyboard.
+// arrive as host events; the overlay opens its choice of Talk or Type on
+// the down edge, however long the chord is held.
 //
 // The agent runs on the companion (contracts/spec/link.ts): the companion
 // owns the model session, spends the tokens and asks the console to act. The
@@ -40,6 +40,15 @@
 //   shot() -> id | 0          capture the touch screen once and stream it on
 //                             a new stream (returns its id)
 //   status() -> string        JSON AgentStatus
+//   display() -> "dual" | "single"
+//                             the console's display mode (AGENT_DISPLAY)
+//   setDisplay(mode) -> bool  set and persist it; a "display" event follows
+//
+// Display mode. "dual" (the default on a 3DS): the stage owns the top screen.
+// "single": the top screen is dark and the overlay draws a notch at the top
+// of the touch screen (AGENT_NOTCH); a tap on it summons the agent, the
+// layout a single-screen device uses. The mode belongs to the console, not
+// to an app, and outlasts reboots.
 //
 // The microphone stream opens with
 //   {"t":"agent.audio","id":n,"rate":AGENT_MIC_RATE,"format":"s16le"}
@@ -85,6 +94,14 @@ export const AGENT_MODE = {
 } as const;
 export type AgentMode = (typeof AGENT_MODE)[keyof typeof AGENT_MODE];
 
+/** The console's display modes. */
+export const AGENT_DISPLAY = ["dual", "single"] as const;
+export type AgentDisplay = (typeof AGENT_DISPLAY)[number];
+
+/** The notch the overlay draws in single display mode, in touch-screen
+ *  pixels: centred, hanging from the top edge, bottom corners rounded. */
+export const AGENT_NOTCH = { x: 124, y: 0, w: 72, h: 14, radius: 7 } as const;
+
 /** What the mascot's monitor shows. */
 export const AGENT_SCREEN = {
   idle: 0,
@@ -105,6 +122,11 @@ export interface AgentStatus {
    *  microphone's gain: what a quiet recording is checked against. */
   peak?: number;
   gain?: number;
+  /** The console's display mode; absent on hosts without one (dual). */
+  display?: AgentDisplay;
+  /** The top screen's backlight is on (off in single mode while an agent
+   *  guest runs). */
+  topBacklight?: boolean;
 }
 
 /** Host events from poll(). */
@@ -116,6 +138,8 @@ export type AgentEvent =
   /** A new atlas for AGENT_FONT_SLOT is loaded: measured widths are stale. */
   | { t: "glyphs" }
   | { t: "link"; available: boolean }
+  /** The display mode changed (setDisplay). */
+  | { t: "display"; mode: AgentDisplay }
   | AgentServerMessage;
 
 // ---------------------------------------------------------------------------

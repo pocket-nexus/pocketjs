@@ -12,6 +12,12 @@
 //
 // A reply offers the same two choices for the next request.
 //
+// In single display mode (contracts/spec/agent.ts AGENT_DISPLAY) the top
+// screen is dark, and a notch hangs from the top edge of the touch screen
+// over every app. A tap on it makes a small Clawd peek out of the notch and
+// opens the same choice; closing the card sends Clawd back in. While the
+// agent works, a dot pulses in the notch.
+//
 // While the overlay is open the app under it is paused: its frame callbacks
 // and button handlers stop (frame.ts suspendApp), its gestures are cancelled
 // and a scrim takes the stylus. When the agent operates the app on the
@@ -31,6 +37,7 @@ import {
   AGENT_FONT_SLOT,
   AGENT_LABELS,
   AGENT_MODE,
+  AGENT_NOTCH,
   AGENT_SCREEN,
   AGENT_SETTLE_FRAMES,
   type AgentApp,
@@ -43,6 +50,7 @@ import { BTN, ENUMS } from "../../contracts/spec/spec.ts";
 import {
   agentHost,
   agentStatus,
+  displayMode,
   BUTTON_BITS,
   dragFrames,
   idleFrames,
@@ -61,7 +69,7 @@ import { after } from "./clock.ts";
 import { FocusScope, Text, View } from "./components.ts";
 import { getAuxiliarySurfaceRoots, hasAuxiliarySurface } from "./display.ts";
 import { onButtonPress, onFrame, pushButtonHandlerBlock, suspendApp, SystemFrameContext } from "./frame.ts";
-import { pushTouchBlock } from "./gesture.ts";
+import { createGesture, pushTouchBlock } from "./gesture.ts";
 import type { HostOps } from "./host.ts";
 import { appTable, launchApp } from "./launcher.ts";
 import { createOsk, Osk, oskHeight } from "./osk.tsx";
@@ -357,6 +365,9 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
   const [celebrate, setCelebrate] = createSignal(false);
   /** Tucked into the banner while the agent works on its own screen. */
   const [tucked, setTucked] = createSignal(false);
+  /** The console's display mode, and Clawd out of the notch (single mode). */
+  const [display, setDisplay] = createSignal(displayMode(host));
+  const [peeking, setPeeking] = createSignal(false);
 
   let turn = 0;
   let listenId = 0;
@@ -466,6 +477,7 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
       setPhase("closed");
       setActing(false);
       setTucked(false);
+      setPeeking(false);
     });
     played = [];
     jobs.length = 0;
@@ -662,6 +674,9 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
         widths.clear();
         setGlyphs(glyphs() + 1);
         return;
+      case "display":
+        setDisplay(event.mode);
+        return;
       case "link":
         setAvailable(event.available);
         if (event.available) hello();
@@ -836,6 +851,11 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
       return;
     }
     const p = phase();
+    // The notch summoned the card; a tap on it sends both away again.
+    if (display() === "single" && inside(AGENT_NOTCH, at.x, at.y + 1) && p !== "working" && p !== "compose") {
+      close();
+      return;
+    }
     if (p === "compose") {
       if (at.y >= keyboardTop) return;
       if (at.x >= CARD.x + CARD.w - 64 && at.y >= keyboardTop - 40) submit(draft());
@@ -1001,6 +1021,54 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
       </View>
     );
   };
+
+  // -- the notch (single display mode) ----------------------------------------
+  // Clawd waits above the screen's top edge, under the notch, and springs
+  // down to peek out while the card is open. The notch draws over it.
+  const CLAWD = { x: 160 - 18, w: 36, h: 24, hidden: -26, out: 8 };
+  const [blink, setBlink] = createSignal(false);
+  const clawdOut = createMemo(
+    () => display() === "single" && (peeking() || (phase() !== "closed" && !tucked() && !(phase() === "working" && acting()))),
+  );
+  let clawd: NodeMirror | undefined;
+  let dot: NodeMirror | undefined;
+  createEffect(() => {
+    const out = clawdOut();
+    if (clawd) animate(clawd, "translateY", out ? CLAWD.out : CLAWD.hidden, out ? { easing: "spring-bouncy" } : { dur: 180, easing: "in" });
+  });
+
+  /** A tap on the notch: Clawd peeks out, blinks, and the choice opens as
+   *  L+R opens it. A tucked turn comes back instead. */
+  const peek = () => {
+    if (tucked()) {
+      setTucked(false);
+      return;
+    }
+    if (phase() !== "closed" || peeking()) return;
+    setPeeking(true);
+    after(0.3, () => {
+      setBlink(true);
+      after(0.12, () => setBlink(false));
+    });
+    after(0.5, () => {
+      if (peeking() && phase() === "closed") choose();
+    });
+  };
+  createGesture({
+    surface: "auxiliary",
+    region: { rect: () => (display() === "single" && !modal() ? AGENT_NOTCH : null) },
+    onTap: () => peek(),
+  });
+
+  // A dot pulses in the notch while the agent works.
+  let dotShown = false;
+  onFrame(() => {
+    if (!dot) return;
+    const busy = display() === "single" && phase() === "working";
+    if (!busy && !dotShown) return;
+    dotShown = busy;
+    jump(dot, "opacity", busy ? 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(frameCount * 0.15)) : 0);
+  });
 
   return (
     <>
@@ -1171,6 +1239,37 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
             align="right"
           />
         </View>
+      </Show>
+
+      <Show when={display() === "single"}>
+        <View
+          ref={(node: NodeMirror) => {
+            clawd = node;
+            jump(node, "translateY", clawdOut() ? CLAWD.out : CLAWD.hidden);
+          }}
+          style={absolute(CLAWD.x, 0, CLAWD.w, CLAWD.h)}
+        >
+          <View style={{ ...absolute(0, 10, 5, 6), radius: 2, bgColor: ORANGE }} />
+          <View style={{ ...absolute(CLAWD.w - 5, 10, 5, 6), radius: 2, bgColor: ORANGE }} />
+          <View style={{ ...absolute(4, 2, CLAWD.w - 8, 20), radius: 3, bgColor: ORANGE }} />
+          <View style={{ ...absolute(12, blink() ? 13 : 10, 3, blink() ? 1 : 6), bgColor: "#1d1a17" }} />
+          <View style={{ ...absolute(21, blink() ? 13 : 10, 3, blink() ? 1 : 6), bgColor: "#1d1a17" }} />
+        </View>
+        <View style={{ ...absolute(AGENT_NOTCH.x, AGENT_NOTCH.y, AGENT_NOTCH.w, AGENT_NOTCH.radius), bgColor: "#000000" }} />
+        <View
+          style={{
+            ...absolute(AGENT_NOTCH.x, AGENT_NOTCH.y, AGENT_NOTCH.w, AGENT_NOTCH.h),
+            bgColor: "#000000",
+            radius: AGENT_NOTCH.radius,
+          }}
+        />
+        <View
+          ref={(node: NodeMirror) => {
+            dot = node;
+            jump(node, "opacity", 0);
+          }}
+          style={{ ...absolute(AGENT_NOTCH.x + AGENT_NOTCH.w - 14, 4, 6, 6), radius: 3, bgColor: ORANGE }}
+        />
       </Show>
     </>
   );
