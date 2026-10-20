@@ -30,6 +30,8 @@ export interface SimAgentHost {
   level: number;
   /** The console's display mode. */
   display: AgentDisplay;
+  /** The launcher's request for the SELECT Home hint. */
+  homeHint: boolean;
 }
 
 export function createSimAgentHost(options: { available?: boolean; display?: AgentDisplay } = {}): SimAgentHost {
@@ -59,6 +61,7 @@ export function createSimAgentHost(options: { available?: boolean; display?: Age
     shots: 0,
     level: 0,
     display: options.display ?? "dual",
+    homeHint: false,
   };
   host.ns = {
     poll: () => {
@@ -97,6 +100,9 @@ export function createSimAgentHost(options: { available?: boolean; display?: Age
       return JSON.stringify(status);
     },
     display: () => host.display,
+    homeHint: ((on: boolean) => {
+      host.homeHint = on === true;
+    }) as never,
     setDisplay: ((mode: string) => {
       if (mode !== "dual" && mode !== "single") return false;
       if (mode !== host.display) {

@@ -155,6 +155,7 @@ typedef enum {
   HostAgentStatus,
   HostAgentDisplay,
   HostAgentSetDisplay,
+  HostAgentHomeHint,
   HostFsRead,
   HostFsWrite,
   HostFsRemove,
@@ -863,6 +864,9 @@ static JSValue host_operation(
     }
     case HostFsLastError:
       return JS_NewString(ctx, fs_last_error());
+    case HostAgentHomeHint:
+      agent_set_home_hint(argc > 0 && JS_ToBool(ctx, argv[0]));
+      return JS_UNDEFINED;
     case HostAgentSetDisplay: {
       if (argc < 1 || !JS_IsString(argv[0])) return JS_FALSE;
       const char *mode = JS_ToCString(ctx, argv[0]);
@@ -1140,6 +1144,7 @@ static void install_host(void) {
     add_operation(agent, "status", 0, HostAgentStatus);
     add_operation(agent, "display", 0, HostAgentDisplay);
     add_operation(agent, "setDisplay", 1, HostAgentSetDisplay);
+    add_operation(agent, "homeHint", 1, HostAgentHomeHint);
     JS_SetPropertyStr(context, global, "agent", agent);
   }
 }

@@ -36,6 +36,8 @@ export interface AgentHostOps {
   /** Hosts with a display mode (contracts/spec/agent.ts AGENT_DISPLAY). */
   display?(): string;
   setDisplay?(mode: string): boolean;
+  /** Hosts with the stage's SELECT Home hint. */
+  homeHint?(on: boolean): void;
 }
 
 export function agentHost(): AgentHostOps | null {
@@ -69,6 +71,12 @@ export function displayMode(host: AgentHostOps | null = agentHost()): AgentDispl
 
 /** Set and persist the console's display mode (Settings' Dual Screen
  *  switch). False when the host has no display mode or could not save it. */
+/** For the launcher: while it shows a page other than its first, the stage
+ *  shows the SELECT Home hint as it does in an applet. */
+export function setHomeHint(on: boolean, host: AgentHostOps | null = agentHost()): void {
+  host?.homeHint?.(on);
+}
+
 export function setDisplayMode(mode: AgentDisplay, host: AgentHostOps | null = agentHost()): boolean {
   return host?.setDisplay?.(mode) ?? false;
 }

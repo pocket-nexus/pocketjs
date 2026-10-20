@@ -38,6 +38,7 @@
 #include <string.h>
 
 #include "launcher.h"
+#include "agent.h"
 #include "link.h"
 #include "stage_hint.h"
 #include "stage_saver.h"
@@ -1187,7 +1188,8 @@ void stage_tick(void) {
   }
 
   hint_alpha = ease(hint_alpha, mode == MODE_IDLE ? 1.0f : 0.0f, mode == MODE_IDLE ? 0.08f : 0.3f);
-  bool in_applet = mode == MODE_IDLE && !launcher_home_running();
+  /* In an applet, or in the launcher away from its first page. */
+  bool in_applet = mode == MODE_IDLE && (!launcher_home_running() || agent_home_hint());
   select_alpha = ease(select_alpha, in_applet ? 1.0f : 0.0f, in_applet ? 0.08f : 0.3f);
 }
 

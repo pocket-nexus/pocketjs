@@ -66,8 +66,11 @@ an orange block with two upright eyes, two arm stubs and four legs.
 
 **The hints.** While the mode is `idle`, a pill in the bottom-right corner
 shows two key caps, L and R, and "Ask Claude". While an applet other than the
-launcher runs (`launcher_home_running()` is false), a second pill 6 px above
-it shows a SELECT key cap and "Home": SELECT returns to the launcher. Both
+launcher runs (`launcher_home_running()` is false), or while the launcher
+shows a page other than its first and has said so with `agent.homeHint(true)`
+(`setHomeHint` in `@pocketjs/framework/agent`; every guest boot clears it), a
+second pill 6 px above it shows a SELECT key cap and "Home": SELECT returns to
+the launcher, or to the launcher's first page. Both
 pills are one 128×64 RGBA8 texture baked from Inter Bold by
 `tools/3ds-stage-art.ts` into `hosts/3ds/src/stage_hint.h` (the L+R pill in
 the top half, the SELECT pill from row `STAGE_SELECT_Y`), drawn as two quads

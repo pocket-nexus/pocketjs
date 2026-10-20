@@ -43,6 +43,10 @@
 //   display() -> "dual" | "single"
 //                             the console's display mode (AGENT_DISPLAY)
 //   setDisplay(mode) -> bool  set and persist it; a "display" event follows
+//   homeHint(on)              the launcher shows a page other than its first
+//                             (Settings, the Mac): the stage shows the SELECT
+//                             Home hint as it does in an applet. Cleared at
+//                             every guest boot.
 //
 // Display mode. "dual" (the default on a 3DS): the stage owns the top screen.
 // "single": the top screen is dark and the overlay draws a notch at the top

@@ -385,7 +385,18 @@ bool agent_stage_shown(void) {
 // lifecycle and the chord
 // ---------------------------------------------------------------------------
 
+static bool home_hint;
+
+void agent_set_home_hint(bool on) {
+  home_hint = on;
+}
+
+bool agent_home_hint(void) {
+  return home_hint;
+}
+
 void agent_set_enabled(bool on) {
+  home_hint = false;
   if (!on) {
     stop_listening(false);
     jbuf_reset(&events);
