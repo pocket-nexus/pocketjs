@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 
+#include "photos.h"
+
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
 
 #include <3ds.h>
@@ -20,6 +22,15 @@
 #define CAMERA_TEXTURE_WIDTH 512u
 #define CAMERA_TEXTURE_HEIGHT 256u
 #define CAMERA_QR_MAX_BYTES 512u
+#define CAMERA_OPEN_INNER 1
+#define CAMERA_OPEN_NO_SCAN 2
+#define PHOTO_WIDTH 640u
+#define PHOTO_HEIGHT 480u
+#define PHOTO_BYTES (PHOTO_WIDTH * PHOTO_HEIGHT * 2u)
+/* A still is the second frame after the switch to context B: the first can
+ * hold the tail of the previous size. */
+#define STILL_FRAMES 2
+#define STILL_WAIT_NS 1000000000LL
 
 #define CAMERA_FRAME_BYTES (CAMERA_WIDTH * CAMERA_HEIGHT * 2u)
 #define CAMERA_STAGING_BYTES (CAMERA_TEXTURE_WIDTH * CAMERA_TEXTURE_HEIGHT * 2u)
@@ -57,6 +68,10 @@ static _Atomic uint32_t restarts;
 static _Atomic bool camera_service;
 static uint64_t last_scan_ms;
 static char error[160];
+/* The open camera: CAMERA_OPEN flags, and a still asked for (its job). */
+static int32_t open_flags;
+static _Atomic int32_t still_wanted;
+static _Atomic uint32_t stills;
 
 /* Buffer hand-off between the capture thread and the main thread. */
 static LightLock buffer_lock;
@@ -71,13 +86,24 @@ static uint32_t polled_sequence;
 static char poll_out[CAMERA_QR_MAX_BYTES + 1];
 static char info_out[448];
 
+static u32 camera_select(void) {
+  return (open_flags & CAMERA_OPEN_INNER) ? SELECT_IN1 : SELECT_OUT1;
+}
+
+/* Context A is the preview (QVGA; the inner camera mirrored, as a mirror
+ * reads), context B the still (VGA, never mirrored). Both cameras share
+ * port CAM1. */
 static Result start_camera(u32 *transfer_bytes) {
   Result result = camInit();
   if (R_FAILED(result)) return result;
   atomic_store(&camera_service, true);
-  u32 select = SELECT_OUT1;
+  u32 select = camera_select();
   if (R_FAILED(result = CAMU_SetSize(select, SIZE_QVGA, CONTEXT_A))) return result;
   if (R_FAILED(result = CAMU_SetOutputFormat(select, OUTPUT_RGB_565, CONTEXT_A))) return result;
+  if (R_FAILED(result = CAMU_SetSize(select, SIZE_VGA, CONTEXT_B))) return result;
+  if (R_FAILED(result = CAMU_SetOutputFormat(select, OUTPUT_RGB_565, CONTEXT_B))) return result;
+  CAMU_FlipImage(select, (open_flags & CAMERA_OPEN_INNER) ? FLIP_HORIZONTAL : FLIP_NONE, CONTEXT_A);
+  CAMU_FlipImage(select, FLIP_NONE, CONTEXT_B);
   if (R_FAILED(result = CAMU_SetFrameRate(select, FRAME_RATE_30))) return result;
   CAMU_SetNoiseFilter(select, true);
   CAMU_SetAutoExposure(select, true);
@@ -88,8 +114,51 @@ static Result start_camera(u32 *transfer_bytes) {
     return result;
   }
   if (R_FAILED(result = CAMU_Activate(select))) return result;
+  CAMU_SwitchContext(select, CONTEXT_A);
   CAMU_ClearBuffer(PORT_CAM1);
   return CAMU_StartCapture(PORT_CAM1);
+}
+
+/* Take one VGA still on context B and hand it to photos.c, then return to
+ * the preview. Runs on the capture thread with no receive armed. */
+static void take_still(int32_t job, u32 preview_bytes) {
+  u32 select = camera_select();
+  uint16_t *still = linearAlloc(PHOTO_BYTES);
+  if (still == NULL) {
+    photos_fail(job, "no memory for a photo");
+    return;
+  }
+  CAMU_StopCapture(PORT_CAM1);
+  CAMU_SwitchContext(select, CONTEXT_B);
+  u32 still_bytes = 0;
+  CAMU_GetMaxBytes(&still_bytes, PHOTO_WIDTH, PHOTO_HEIGHT);
+  CAMU_SetTransferBytes(PORT_CAM1, still_bytes, PHOTO_WIDTH, PHOTO_HEIGHT);
+  CAMU_ClearBuffer(PORT_CAM1);
+  CAMU_StartCapture(PORT_CAM1);
+  bool taken = true;
+  for (int shot = 0; shot < STILL_FRAMES && taken; shot += 1) {
+    Handle event = 0;
+    taken = R_SUCCEEDED(CAMU_SetReceiving(&event, still, PORT_CAM1, PHOTO_BYTES, (s16)still_bytes)) &&
+      R_SUCCEEDED(svcWaitSynchronization(event, STILL_WAIT_NS));
+    if (event != 0) svcCloseHandle(event);
+  }
+  CAMU_StopCapture(PORT_CAM1);
+  CAMU_SwitchContext(select, CONTEXT_A);
+  CAMU_SetTransferBytes(PORT_CAM1, preview_bytes, CAMERA_WIDTH, CAMERA_HEIGHT);
+  CAMU_ClearBuffer(PORT_CAM1);
+  CAMU_StartCapture(PORT_CAM1);
+  uint16_t *pixels = taken ? malloc(PHOTO_BYTES) : NULL;
+  if (pixels != NULL) {
+    GSPGPU_InvalidateDataCache(still, PHOTO_BYTES);
+    memcpy(pixels, still, PHOTO_BYTES);
+  }
+  linearFree(still);
+  if (pixels == NULL) {
+    photos_fail(job, taken ? "no memory for a photo" : "the camera did not deliver a photo");
+    return;
+  }
+  atomic_fetch_add(&stills, 1);
+  photos_save(job, pixels, PHOTO_WIDTH, PHOTO_HEIGHT);
 }
 
 /* A buffer neither newest nor being read. */
@@ -120,13 +189,20 @@ static void capture_run(void *argument) {
   Handle events[2] = { 0, 0 };
   if (R_SUCCEEDED(result)) result = CAMU_GetBufferErrorInterruptEvent(&events[1], PORT_CAM1);
   if (R_FAILED(result)) {
-    snprintf(error, sizeof error, "the outer camera did not start (0x%08lx)", (unsigned long)result);
+    snprintf(error, sizeof error, "the %s camera did not start (0x%08lx)", (open_flags & CAMERA_OPEN_INNER) ? "inner" : "outer", (unsigned long)result);
     atomic_store(&capture_state, CAPTURE_FAILED);
     return;
   }
   atomic_store(&capture_state, CAPTURE_RUNNING);
   int writing = 0;
   while (!atomic_load(&stopping)) {
+    int32_t job = atomic_exchange(&still_wanted, 0);
+    if (job != 0) {
+      if (events[0] != 0) svcCloseHandle(events[0]);
+      events[0] = 0;
+      take_still(job, transfer_bytes);
+      continue;
+    }
     if (events[0] == 0) {
       writing = pick_write_buffer(writing);
       if (writing < 0 ||
@@ -251,21 +327,63 @@ static void release_texture(void) {
   staging = NULL;
 }
 
-int32_t camera_open(void) {
-  if (open_now) return texture_handle;
-  /* A close earlier this frame left the texture for the GPU to retire. */
-  if (texture_retire) return -1;
-  error[0] = '\0';
-  bool allocated = (staging = linearAlloc(CAMERA_STAGING_BYTES)) != NULL;
+/* Frame buffers and the two threads for the camera `open_flags` names. */
+static bool start_capture(void) {
+  bool allocated = true;
   for (int i = 0; i < CAMERA_BUFFERS; i += 1) {
     buffers[i] = linearAlloc(CAMERA_FRAME_BYTES);
     if (buffers[i] == NULL) allocated = false;
   }
   scan_frame = malloc(CAMERA_FRAME_BYTES);
-  if (!allocated || scan_frame == NULL ||
-      !C3D_TexInit(&texture, CAMERA_TEXTURE_WIDTH, CAMERA_TEXTURE_HEIGHT, GPU_RGB565)) {
+  if (!allocated || scan_frame == NULL) {
     snprintf(error, sizeof error, "camera buffers did not fit in memory");
+    return false;
+  }
+  LightEvent_Init(&decode_wake, RESET_ONESHOT);
+  LightLock_Init(&payload_lock);
+  LightLock_Init(&buffer_lock);
+  latest = -1;
+  reading = -1;
+  atomic_store(&stopping, false);
+  atomic_store(&capture_state, CAPTURE_STARTING);
+  atomic_store(&still_wanted, 0);
+  atomic_store(&frames, 0);
+  atomic_store(&scans, 0);
+  atomic_store(&restarts, 0);
+  payload_sequence = 0;
+  polled_sequence = 0;
+  last_scan_ms = 0;
+  /* Capture re-arms within microseconds of a frame landing, so it runs just
+   * above the main thread; decoding takes whatever time is left over. */
+  capture_thread = threadCreate(capture_run, NULL, CAMERA_THREAD_STACK, 0x2f, -2, false);
+  decode_thread = (open_flags & CAMERA_OPEN_NO_SCAN) ? NULL : threadCreate(decode_run, NULL, CAMERA_THREAD_STACK, 0x3f, -2, false);
+  if (capture_thread == NULL || (decode_thread == NULL && !(open_flags & CAMERA_OPEN_NO_SCAN))) {
+    snprintf(error, sizeof error, "camera thread allocation failed");
+    return false;
+  }
+  return true;
+}
+
+int32_t camera_open(int32_t flags) {
+  flags &= CAMERA_OPEN_INNER | CAMERA_OPEN_NO_SCAN;
+  if (open_now) {
+    if (flags == open_flags) return texture_handle;
+    /* Another camera or decoding choice: restart capture behind the same
+     * texture, so the guest's handle stays. */
     stop_threads_and_camera();
+    open_flags = flags;
+    error[0] = '\0';
+    if (start_capture()) return texture_handle;
+    camera_close();
+    return -1;
+  }
+  /* A close earlier this frame left the texture for the GPU to retire. */
+  if (texture_retire) return -1;
+  error[0] = '\0';
+  open_flags = flags;
+  staging = linearAlloc(CAMERA_STAGING_BYTES);
+  if (staging == NULL || !C3D_TexInit(&texture, CAMERA_TEXTURE_WIDTH, CAMERA_TEXTURE_HEIGHT, GPU_RGB565)) {
+    snprintf(error, sizeof error, "camera buffers did not fit in memory");
     release_texture();
     return -1;
   }
@@ -289,30 +407,10 @@ int32_t camera_open(void) {
   free(blank);
   if (texture_handle < 0) {
     snprintf(error, sizeof error, "camera texture registration failed");
-    stop_threads_and_camera();
     release_texture();
     return -1;
   }
-
-  LightEvent_Init(&decode_wake, RESET_ONESHOT);
-  LightLock_Init(&payload_lock);
-  LightLock_Init(&buffer_lock);
-  latest = -1;
-  reading = -1;
-  atomic_store(&stopping, false);
-  atomic_store(&capture_state, CAPTURE_STARTING);
-  atomic_store(&frames, 0);
-  atomic_store(&scans, 0);
-  atomic_store(&restarts, 0);
-  payload_sequence = 0;
-  polled_sequence = 0;
-  last_scan_ms = 0;
-  /* Capture re-arms within microseconds of a frame landing, so it runs just
-   * above the main thread; decoding takes whatever time is left over. */
-  capture_thread = threadCreate(capture_run, NULL, CAMERA_THREAD_STACK, 0x2f, -2, false);
-  decode_thread = threadCreate(decode_run, NULL, CAMERA_THREAD_STACK, 0x3f, -2, false);
-  if (capture_thread == NULL || decode_thread == NULL) {
-    snprintf(error, sizeof error, "camera thread allocation failed");
+  if (!start_capture()) {
     ui_free_texture(texture_handle);
     texture_handle = -1;
     stop_threads_and_camera();
@@ -321,6 +419,15 @@ int32_t camera_open(void) {
   }
   open_now = true;
   return texture_handle;
+}
+
+int32_t camera_capture(void) {
+  static int32_t next_job = 1;
+  if (!open_now || atomic_load(&capture_state) != CAPTURE_RUNNING || atomic_load(&still_wanted) != 0) return -1;
+  int32_t job = next_job++;
+  if (next_job <= 0) next_job = 1;
+  atomic_store(&still_wanted, job);
+  return job;
 }
 
 void camera_close(void) {
@@ -337,9 +444,11 @@ void camera_teardown(void) {
   stop_threads_and_camera();
   texture_handle = -1;
   release_texture();
+  photos_teardown();
 }
 
 void camera_present(void) {
+  photos_present();
   if (texture_retire) {
     release_texture();
     return;
@@ -369,7 +478,7 @@ void camera_present(void) {
       GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO)
   );
   uint64_t now = osGetTime();
-  if (!atomic_load(&scan_busy) && now - last_scan_ms >= CAMERA_SCAN_MS) {
+  if (decode_thread != NULL && !atomic_load(&scan_busy) && now - last_scan_ms >= CAMERA_SCAN_MS) {
     memcpy(scan_frame, pixels, CAMERA_FRAME_BYTES);
     last_scan_ms = now;
     atomic_store(&scan_busy, true);
@@ -409,19 +518,25 @@ const char *camera_info_json(void) {
   snprintf(
     info_out,
     sizeof info_out,
-    "{\"open\":%s,\"frames\":%lu,\"scans\":%lu,\"error\":\"%s\",\"restarts\":%lu}",
+    "{\"open\":%s,\"frames\":%lu,\"scans\":%lu,\"error\":\"%s\",\"restarts\":%lu,\"inner\":%s,\"stills\":%lu}",
     open_now ? "true" : "false",
     (unsigned long)atomic_load(&frames),
     (unsigned long)atomic_load(&scans),
     escaped,
-    (unsigned long)atomic_load(&restarts)
+    (unsigned long)atomic_load(&restarts),
+    (open_flags & CAMERA_OPEN_INNER) ? "true" : "false",
+    (unsigned long)atomic_load(&stills)
   );
   return info_out;
 }
 
 #else /* capture and offload builds: no camera */
 
-int32_t camera_open(void) { return -1; }
+int32_t camera_open(int32_t flags) {
+  (void)flags;
+  return -1;
+}
+int32_t camera_capture(void) { return -1; }
 void camera_close(void) {}
 const char *camera_poll(size_t *length) {
   (void)length;
@@ -435,6 +550,6 @@ C3D_Tex *camera_texture(int32_t handle) {
   (void)handle;
   return NULL;
 }
-void camera_teardown(void) {}
+void camera_teardown(void) { photos_teardown(); }
 
 #endif

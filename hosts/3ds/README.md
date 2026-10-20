@@ -43,7 +43,9 @@ src/link_proto.c      Pocket Link wire facts without sockets (URI, beacon, proof
 src/sha256.c          SHA-256 / HMAC-SHA256 (handshake proofs, app-id slots)
 src/jscan.c           bounded JSON reader/writer for the host's own records
 src/wifi.c            globalThis.wifi over AC and nwm::EXT
-src/camera.c          globalThis.camera: outer-camera texture + QR decode
+src/camera.c          globalThis.camera: camera texture, QR decode, stills
+src/photos.c          camera.photo: JPEG save, list, decode, thumbnails
+src/stb/              vendored stb_image + stb_image_write (JPEG only)
 src/quirc/            vendored quirc (ISC), the QR decoder camera.c runs
 src/input.c           3DS keys and circle pad -> the PSP BTN bitmask
 src/vshader.v.pica    the PICA200 vertex shader
@@ -494,6 +496,24 @@ a frame is handed to a low-priority thread that runs quirc. The camera
 service starts on `open()` and stops on `close()` or a guest switch. Measured
 on an Old 3DS: 30 frames and 4 decode passes a second with the guest still at
 60 fps.
+
+`open(flags)` selects the inner camera (`CAMERA_OPEN.inner`, previewed
+mirrored) and drops QR decoding (`noScan`); a reopen with other flags restarts
+capture behind the same texture handle. **camera.photo** adds stills on the
+SD card. `capture()` stops the stream, switches the camera to its second
+context (`CONTEXT_B`, 640x480, never mirrored), keeps the second frame, and
+returns to the preview. `src/photos.c` encodes the still on a worker with
+the vendored stb (`src/stb/`) as a JPEG under `sdmc:/DCIM/100POCKT/PKT_nnnn.JPG`,
+the DCF names cameras use, so the console's own camera application and a
+computer reading the card see it; `photos()` lists every `DCIM` JPEG and MPO,
+theirs included. `load(name, kind)` decodes on the same worker into a 78 px
+centre thumbnail (cached under `sdmc:/pocketjs/photos/thumbs`) or the photo
+fitted to 320x240, and `camera_present` uploads the pixels as a core texture
+and publishes a "loaded" event. Measured on an Old 3DS: the preview at 30 fps
+with the guest at 16.9 ms a frame; a photo saved 3.3 s after the press
+(0.7 s for the still, 2.6 s to encode and write it behind the 60 fps UI); a
+full 640x480 decode in 0.64 s. The pure parts (`src/photos_image.c`: names,
+pixel conversion, box filters) run natively in `tests/camera-photo.test.ts`.
 
 Capture and offload builds compile link, net, wifi and camera to inert stubs
 and leave the app switching ops out, so goldens stay deterministic.

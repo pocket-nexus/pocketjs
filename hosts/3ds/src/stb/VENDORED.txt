@@ -1,0 +1,4 @@
+stb_image.h v2.30 and stb_image_write.h v1.16 from https://github.com/nothings/stb
+at commit a7d4c2175630e1ea5b6f8dd00ab96fed0b97b96d, unmodified. Each file ends
+with its license: public domain (Unlicense) or MIT, at the user's choice.
+stb.c compiles both for photos.c (JPEG decode and encode).

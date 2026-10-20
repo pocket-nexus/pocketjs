@@ -116,6 +116,7 @@ describe("private Nintendo 3DS build profile", () => {
         "link.companion",
         "system.wifi",
         "camera.qr",
+        "camera.photo",
         "system.agent",
       ],
     });
