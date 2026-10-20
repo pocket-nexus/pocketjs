@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PSM } from "../contracts/spec/spec.ts";
 import type { ServiceProvider, ServiceRequest } from "../tools/companion/services.ts";
-import { collect, createXService, operationsIn, X_AVATAR_SIZE, type XPost } from "../tools/companion/services/x.ts";
+import { collect, createXService, operationsIn, X_AVATAR_SIZE, type XPost, webpackChunks } from "../tools/companion/services/x.ts";
 
 const AUTH = "auth-secret-0123456789";
 const CT0 = "csrf-secret-abcdef";
@@ -301,5 +301,16 @@ describe("collect", () => {
   test("an unknown wrapper around posts still reads, in document order", () => {
     const found = collect({ data: { something: [{ deep: tweet("1", "one") }, { deeper: { list: [tweet("2", "two")] } }], cursor_type: "Bottom", value: "C" } });
     expect(found.posts.map((post) => post.id)).toEqual(["1", "2"]);
+  });
+});
+
+describe("the signed-in webpack client", () => {
+  test("chunks come from the inline runtime's table, likely ones first, locale data skipped", () => {
+    const html = `<script src="https://abs.twimg.com/responsive-web/client-web/main.abc.js"></script><script>t.u=e=>(({1:"bundle.Settings",2:"bundle.FollowerRequests",3:"i18n/emoji-bn"})[e]||e)+"."+({1:"aaa",2:"bbb",3:"ccc"})[e]+"a.js",t.hmd=1</script>`;
+    expect(webpackChunks(html, "https://x.com/home")).toEqual([
+      "https://abs.twimg.com/responsive-web/client-web/bundle.FollowerRequests.bbba.js",
+      "https://abs.twimg.com/responsive-web/client-web/bundle.Settings.aaaa.js",
+    ]);
+    expect(webpackChunks("<html></html>", "https://x.com/home")).toEqual([]);
   });
 });

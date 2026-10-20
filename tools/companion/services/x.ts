@@ -349,6 +349,9 @@ class XService implements ServiceProvider {
     if (!page.ok) throw new XFailure(502, "api", `x.com answered ${page.status} for its home page`);
     const html = await page.text();
     const queue = [...new Set([...html.matchAll(/src="([^"]+\.js)"/g)].map((m) => new URL(m[1]!, page.url || `${this.origin}/home`).href))];
+    // Signed in, x.com serves its webpack client, whose operations sit in
+    // chunks only the inline runtime's table names. Likely ones go first.
+    queue.push(...webpackChunks(html, page.url || `${this.origin}/home`));
     const seen = new Set<string>();
     const operations = new Map<string, XOperation>();
     let timelineAt = 0;
@@ -520,6 +523,33 @@ class XService implements ServiceProvider {
     writeFileSync(file, entry);
     return bytesResponse(entry, "application/x-pocket-img");
   }
+}
+
+// ---- webpack chunks ----------------------------------------------------------------
+
+const LIKELY_CHUNK = /Home|Timeline|Tweet|Conversation|Follower|Trial/i;
+
+/** The chunk URLs an inline webpack runtime names: `t.u=e=>(({id:"name"…})[e]
+ *  …)+"."+({id:"hash"…})[e]+"a.js"`, under the main script's folder. Named
+ *  bundles that look like timelines or posts first; locale data skipped. */
+export function webpackChunks(html: string, pageUrl: string): string[] {
+  const at = html.indexOf("t.u=e=>");
+  if (at < 0) return [];
+  const tables = [...html.slice(at, at + 400_000).matchAll(/\(\{([^}]*)\}\)\[e\]/g)].map((m) => m[1]!);
+  if (tables.length < 2) return [];
+  const read = (body: string) => new Map([...body.matchAll(/(\d+):"([^"]+)"/g)].map((m) => [m[1]!, m[2]!]));
+  const names = read(tables[0]!);
+  const hashes = read(tables[1]!);
+  const main = html.match(/src="([^"]*\/client-web\/)main\.[^"]+\.js"/)?.[1];
+  if (!main) return [];
+  const base = new URL(main, pageUrl).href;
+  const urls: { url: string; likely: boolean }[] = [];
+  for (const [id, hash] of hashes) {
+    const name = names.get(id);
+    if (!name || /^i18n|emoji|countries/.test(name)) continue;
+    urls.push({ url: `${base}${name}.${hash}a.js`, likely: LIKELY_CHUNK.test(name) });
+  }
+  return [...urls.filter((u) => u.likely), ...urls.filter((u) => !u.likely)].map((u) => u.url);
 }
 
 // ---- operations in a script -------------------------------------------------------
