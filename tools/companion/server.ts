@@ -19,6 +19,7 @@ import {
   LINK_VERSION,
 } from "../../contracts/spec/link.ts";
 import { NET_ERROR } from "../../contracts/spec/net.ts";
+import { AgentService, AGENT_LINK_FEATURE, type AgentLink, type AgentServiceOptions, type AgentSession } from "./agent.ts";
 import { AppCatalog, PackageReader } from "./catalog.ts";
 import { NetFailure, normalizeNetRequest, performNet, type NetRequest } from "./fetch.ts";
 import {
@@ -77,6 +78,8 @@ export interface CompanionOptions {
   /** Test seam for the net destination check. */
   resolve?: (host: string) => Promise<string[]>;
   log?: (line: string) => void;
+  /** The console agent (contracts/spec/agent.ts); absent or false: off. */
+  agent?: false | Partial<Omit<AgentServiceOptions, "storeDir" | "catalog" | "log">>;
 }
 
 export interface PairingWindow {
@@ -118,6 +121,7 @@ export class Companion {
   readonly store: CompanionStore;
   readonly name: string;
   readonly catalog: AppCatalog;
+  readonly agent: AgentService | null;
   private server: Server | undefined;
   private beaconSocket: UdpSocket | undefined;
   private beaconTimer: ReturnType<typeof setInterval> | undefined;
@@ -132,6 +136,14 @@ export class Companion {
     this.name = options.name || defaultCompanionName();
     this.cliDirs = options.appsDirs ?? [];
     this.catalog = new AppCatalog(this.appsDirs(), () => this.catalogChanged(), (line) => this.log(line));
+    this.agent = options.agent
+      ? new AgentService({ ...options.agent, storeDir: this.store.dir, catalog: this.catalog, log: (line) => this.log(line) })
+      : null;
+  }
+
+  /** The features a linked console is offered: the agent only when codex is usable. */
+  features(): string[] {
+    return this.agent?.available ? [...LINK_FEATURES, AGENT_LINK_FEATURE] : LINK_FEATURES;
   }
 
   log(line: string) {
@@ -184,6 +196,7 @@ export class Companion {
     clearTimeout(this.pairTimer);
     this.catalog.close();
     for (const connection of this.connections) connection.close("companion stopping");
+    this.agent?.stop();
     this.beaconSocket?.close();
     this.beaconSocket = undefined;
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
@@ -378,6 +391,8 @@ class LinkConnection {
   private net = new Map<number, NetPending>();
   private installs = new Map<number, { cancelled: boolean }>();
   private drainWaiters: (() => void)[] = [];
+  private agentSession: AgentSession | undefined;
+  private agentLink: AgentLink | undefined;
 
   constructor(
     private readonly companion: Companion,
@@ -406,6 +421,14 @@ class LinkConnection {
   send(message: LinkCtrl) {
     if (this.stage === "closed") return;
     this.socket.write(encodeCtrl(message));
+  }
+
+  /** Bytes on a data stream in LINK_MAX_DATA chunks, waiting on the socket. */
+  async sendData(stream: number, bytes: Uint8Array): Promise<boolean> {
+    for (let at = 0; at < bytes.length; at += LINK_MAX_DATA) {
+      if (!(await this.write(encodeData(stream, bytes.subarray(at, at + LINK_MAX_DATA))))) return false;
+    }
+    return true;
   }
 
   /** Write a frame and wait while the socket buffer is full. */
@@ -440,6 +463,7 @@ class LinkConnection {
     this.net.clear();
     for (const install of this.installs.values()) install.cancelled = true;
     this.installs.clear();
+    if (this.agentLink) this.agentSession?.detach(this.agentLink);
     const waiters = this.drainWaiters;
     this.drainWaiters = [];
     for (const wake of waiters) wake();
@@ -524,14 +548,14 @@ class LinkConnection {
     if (mode === "connect") {
       store.touch(this.device.id, this.address, { name: this.device.name, model: this.device.model });
       this.becomeReady();
-      this.send({ t: "ready", name: this.companion.name, features: LINK_FEATURES, clock: linkClock() });
+      this.send({ t: "ready", name: this.companion.name, features: this.companion.features(), clock: linkClock() });
       this.companion.log(`link: ${this.address} "${this.device.name}" (${this.device.model} ${this.device.id}) linked`);
     } else {
       if (!this.companion.consumePairing(secret)) return this.refuse(LINK_REFUSAL.pairingClosed, "the pairing secret expired or was used");
       const key = newKey();
       store.upsert({ id: this.device.id, name: this.device.name, model: this.device.model, key, lastAddress: this.address, lastSeen: Date.now() });
       this.becomeReady();
-      this.send({ t: "paired", name: this.companion.name, key: maskKey(key, secret, nD, nC), features: LINK_FEATURES, clock: linkClock() });
+      this.send({ t: "paired", name: this.companion.name, key: maskKey(key, secret, nD, nC), features: this.companion.features(), clock: linkClock() });
       this.companion.log(`pair: ${this.address} "${this.device.name}" (${this.device.model} ${this.device.id}) paired`);
     }
     this.handshake = undefined;
@@ -542,6 +566,10 @@ class LinkConnection {
     this.stage = "ready";
     this.ready = true;
     this.companion.linked(this);
+    const device = this.device!;
+    const link: AgentLink = { device, send: (message) => this.send(message), sendData: (stream, bytes) => this.sendData(stream, bytes) };
+    this.agentLink = link;
+    this.agentSession = this.companion.agent?.attach(link);
     this.silenceTimer = setInterval(() => {
       if (Date.now() - this.lastRx > LINK_SILENCE_MS) this.close(`silent for ${LINK_SILENCE_MS} ms`);
     }, 1_000);
@@ -572,7 +600,8 @@ class LinkConnection {
         if (!validId) return;
         return void this.install(id as number, message.app);
       default:
-        return; // unknown ctrl types are ignored
+        if (typeof message.t === "string" && message.t.startsWith("agent.")) this.agentSession?.handle(message);
+        return; // other unknown ctrl types are ignored
     }
   }
 
@@ -594,6 +623,7 @@ class LinkConnection {
   }
 
   private data(stream: number, bytes: Uint8Array) {
+    if (!this.net.has(stream) && this.agentSession?.data(stream, bytes)) return;
     const pending = this.net.get(stream);
     if (!pending || pending.started) return; // a cancelled or unknown stream
     pending.received += bytes.length;

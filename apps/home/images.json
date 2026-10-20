@@ -1,7 +1,4 @@
 {
-  "art/apps.svg": {
-    "linear": true
-  },
   "art/camera.svg": {
     "linear": true
   },
@@ -20,22 +17,7 @@
   "art/chevron.svg": {
     "linear": true
   },
-  "art/clock.svg": {
-    "linear": true
-  },
   "art/delete-badge.svg": {
-    "linear": true
-  },
-  "art/dock.svg": {
-    "linear": true
-  },
-  "art/download.svg": {
-    "linear": true
-  },
-  "art/gear.svg": {
-    "linear": true
-  },
-  "art/gloss.svg": {
     "linear": true
   },
   "art/glow-teal.svg": {
@@ -47,16 +29,55 @@
   "art/glow-white.svg": {
     "linear": true
   },
-  "art/info.svg": {
+  "art/icons/apps-24.png": {
     "linear": true
   },
-  "art/laptop.svg": {
+  "art/icons/dock.png": {
+    "linear": false
+  },
+  "art/icons/hn-24.png": {
+    "linear": true
+  },
+  "art/icons/hn-46.png": {
+    "linear": true
+  },
+  "art/icons/hn-64.png": {
+    "linear": true
+  },
+  "art/icons/mac-24.png": {
+    "linear": true
+  },
+  "art/icons/mac-46.png": {
+    "linear": true
+  },
+  "art/icons/nexus-24.png": {
+    "linear": true
+  },
+  "art/icons/nexus-46.png": {
+    "linear": true
+  },
+  "art/icons/nexus-64.png": {
+    "linear": true
+  },
+  "art/icons/plain-24.png": {
+    "linear": true
+  },
+  "art/icons/plain-46.png": {
+    "linear": true
+  },
+  "art/icons/plain-64.png": {
+    "linear": true
+  },
+  "art/icons/settings-24.png": {
+    "linear": true
+  },
+  "art/icons/settings-46.png": {
+    "linear": true
+  },
+  "art/icons/wifi-24.png": {
     "linear": true
   },
   "art/stripes.svg": {
-    "linear": true
-  },
-  "art/wifi.svg": {
     "linear": true
   }
 }

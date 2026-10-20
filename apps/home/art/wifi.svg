@@ -1,8 +1,0 @@
-<svg width="64" height="64" viewBox="0 0 64 64">
-  <circle cx="32" cy="50" r="40" fill="#ffffff" />
-  <circle cx="32" cy="50" r="32" fill="hole" />
-  <circle cx="32" cy="50" r="25" fill="#ffffff" />
-  <circle cx="32" cy="50" r="17" fill="hole" />
-  <circle cx="32" cy="50" r="9" fill="#ffffff" />
-  <path d="M32 50 L-30 -12 L-30 70 L94 70 L94 -12 Z" fill="hole" />
-</svg>

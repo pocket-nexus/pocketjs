@@ -11,88 +11,88 @@ export const LETTER_ART: readonly LetterArt[] = [
     "ch": "P",
     "src": "art/letter-0.png",
     "shadow": "art/shadow-0.png",
-    "w": 46.22,
-    "ih": 51.84,
+    "w": 32.1,
+    "ih": 36,
     "rcK": 0.26
   },
   {
     "ch": "O",
     "src": "art/o-open.png",
     "shadow": "art/shadow-1.png",
-    "w": 50.83,
-    "ih": 52.49,
+    "w": 35.3,
+    "ih": 36.45,
     "rcK": 0.96
   },
   {
     "ch": "C",
     "src": "art/letter-2.png",
     "shadow": "art/shadow-2.png",
-    "w": 42.91,
-    "ih": 52.49,
+    "w": 29.8,
+    "ih": 36.45,
     "rcK": 0.5
   },
   {
     "ch": "K",
     "src": "art/letter-3.png",
     "shadow": "art/shadow-3.png",
-    "w": 47.09,
-    "ih": 52.42,
+    "w": 32.7,
+    "ih": 36.4,
     "rcK": 0.26
   },
   {
     "ch": "E",
     "src": "art/letter-4.png",
     "shadow": "art/shadow-4.png",
-    "w": 38.88,
-    "ih": 51.12,
+    "w": 27,
+    "ih": 35.5,
     "rcK": 0.26
   },
   {
     "ch": "T",
     "src": "art/letter-5.png",
     "shadow": "art/shadow-5.png",
-    "w": 43.99,
-    "ih": 51.12,
+    "w": 30.55,
+    "ih": 35.5,
     "rcK": 0.26
   },
   {
     "ch": "N",
     "src": "art/letter-6.png",
     "shadow": "art/shadow-6.png",
-    "w": 47.09,
-    "ih": 51.12,
+    "w": 32.7,
+    "ih": 35.5,
     "rcK": 0.26
   },
   {
     "ch": "E",
     "src": "art/letter-7.png",
     "shadow": "art/shadow-7.png",
-    "w": 38.88,
-    "ih": 51.12,
+    "w": 27,
+    "ih": 35.5,
     "rcK": 0.26
   },
   {
     "ch": "X",
     "src": "art/letter-8.png",
     "shadow": "art/shadow-8.png",
-    "w": 50.47,
-    "ih": 51.12,
+    "w": 35.05,
+    "ih": 35.5,
     "rcK": 0.26
   },
   {
     "ch": "U",
     "src": "art/letter-9.png",
     "shadow": "art/shadow-9.png",
-    "w": 46.51,
-    "ih": 51.77,
+    "w": 32.3,
+    "ih": 35.95,
     "rcK": 0.5
   },
   {
     "ch": "S",
     "src": "art/letter-10.png",
     "shadow": "art/shadow-10.png",
-    "w": 43.49,
-    "ih": 52.49,
+    "w": 30.2,
+    "ih": 36.45,
     "rcK": 0.5
   }
 ];
@@ -165,7 +165,6 @@ export const POCKET_ART = {
 } as const;
 
 export const BACKDROP_ART = {
-  "top": "art/top.png",
   "haze": "art/haze.png",
   "bottom": "art/bottom.png",
   "glow": "art/glow.png"
@@ -174,7 +173,7 @@ export const BACKDROP_ART = {
 export const HINT_ART = "art/hint.png";
 export const COPY_ART = "art/copy.png";
 export const LEDE_ART = "art/lede.png";
-/** The lede's ink box inside its 512x64 sprite. */
-export const LEDE_BOX = {"l":78,"t":1,"r":434,"b":54.09};
+/** The lede's ink box inside its sprite. */
+export const LEDE_BOX = {"l":108,"t":0,"r":404,"b":45.06};
 /** The wordmark block measured from the metrics above. */
-export const WORD_BOX = {"w":284.32,"h":112.18,"rowH":52.49};
+export const WORD_BOX = {"w":197.45,"h":77.9,"rowH":36.45};

@@ -32,7 +32,7 @@ import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 //                                that does not compile; without it the build
 //                                prints the same finding as a warning
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
@@ -319,7 +319,16 @@ async function walk(file: string): Promise<void> {
   }
 }
 
+// System layers the plan's capabilities bring (framework/src/system-layers.ts):
+// a Solid app that declares "system.agent" gets the agent's overlay. It is
+// walked here so pass 1 compiles its classes and glyphs, and imported ahead
+// of the app's entry in pass 2 so it registers before the app mounts.
+const systemLayers: string[] = [];
+if (framework === "solid" && buildPlan?.features["system.agent"] === true) {
+  systemLayers.push(join(ROOT, "framework/src/agent-layer.tsx"));
+}
 await walk(entry);
+for (const layer of systemLayers) await walk(layer);
 console.log(`  pass 1: ${visited.size} module(s), ${classStrings.length} candidate literal(s), ${codepoints.size} codepoint(s)`);
 
 // ---------------------------------------------------------------------------
@@ -547,8 +556,15 @@ console.log(`  pak: ${blobs.length} entries, ${pak.length} bytes -> ${DIST}${out
 // jsxPlugin owns dependency identity as well as framework aliases. In
 // particular, external apps and renderer-solid.ts must share PocketJS's
 // browser-mode Solid runtime even when the app has its own node_modules.
+let bundleEntry = entry;
+if (systemLayers.length > 0) {
+  const entries = join(DIST, ".entries");
+  mkdirSync(entries, { recursive: true });
+  bundleEntry = join(entries, `${outName}.ts`);
+  writeFileSync(bundleEntry, [...systemLayers, entry].map((file) => `import ${JSON.stringify(file)};\n`).join(""));
+}
 const result = await Bun.build({
-  entrypoints: [entry],
+  entrypoints: [bundleEntry],
   root: process.cwd(),
   outdir: DIST,
   naming: `${outName}.js`,

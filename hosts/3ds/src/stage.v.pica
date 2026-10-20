@@ -1,0 +1,126 @@
+; The agent stage (stage.c): the mascot's room on the top screen.
+;
+; Every vertex belongs to one bone, a 3x4 world matrix in `bones`. The room's
+; static geometry uses bone 0 (identity); the clock hands, the plant and each
+; part of the mascot have their own, so the whole scene draws from one vertex
+; buffer with a handful of draws.
+;
+; Light is toon-like: two flat tones split at a threshold on N.L, plus a
+; little of N.L itself so curved parts read as round. The outline pass draws
+; the same vertices again with front faces culled, pushed out along the normal
+; and filled with one colour (the inverted-hull outline).
+;
+; The outline pushes along a second, smooth normal (a box's corner
+; direction): pushing each face along its own normal would open the hull at
+; every edge.
+;
+; A uniform is always the first source operand: the PICA200 takes a uniform
+; only there (picasso swaps nothing for us).
+
+.fvec proj[4]
+; 16 bones, three rows each
+.fvec bones[48]
+; xyz: unit vector toward the light, w: unused
+.fvec light
+; x: dark tone, y: lit tone, z: N.L threshold, w: N.L gradient
+.fvec tone
+; x: outline width, y: 1 for the outline colour, 0 for the lit colour
+.fvec outline
+.fvec outcol
+; the texture matrix: s = dot(uvs, (u, v, 1, 0)), t = dot(uvt, ...)
+.fvec uvs
+.fvec uvt
+
+; 0, 1, 1/127 (a normal byte's unit), 1/255 (a colour byte's unit)
+.constf k(0.0, 1.0, 0.007874016, 0.003921569)
+; 3 (rows per bone)
+.constf k3(3.0, 0.5, 0.0, 0.0)
+
+.in inpos v0
+.in innb v1
+.in inclr v2
+.in intex v3
+.in insm v4
+
+.out outpos position
+.out outclr color
+.out outtex texcoord0
+
+.entry vmain
+.proc vmain
+    ; a0.x = bone * 3
+    mul r0.x, k3.x, innb.w
+    mova a0.x, r0.x
+
+    mov r1.xyz, inpos.xyz
+    mov r1.w, k.y
+
+    ; normal: bytes to a vector, then through the bone's 3x3
+    mul r2.xyz, k.zzz, innb.xyz
+    mov r2.w, k.x
+    dp3 r3.x, bones[a0.x], r2
+    dp3 r3.y, bones[a0.x+1], r2
+    dp3 r3.z, bones[a0.x+2], r2
+    mov r3.w, k.x
+    dp3 r4.x, r3, r3
+    rsq r4.x, r4.x
+    mul r3.xyz, r4.xxx, r3.xyz
+
+    ; the outline's direction: the smooth normal through the bone's 3x3
+    mul r15.xyz, k.zzz, insm.xyz
+    mov r15.w, k.x
+    dp3 r6.x, bones[a0.x], r15
+    dp3 r6.y, bones[a0.x+1], r15
+    dp3 r6.z, bones[a0.x+2], r15
+    mov r6.w, k.x
+    dp3 r4.y, r6, r6
+    rsq r4.y, r4.y
+    mul r6.xyz, r4.yyy, r6.xyz
+
+    ; position: through the bone, then out along it by the outline width
+    dp4 r5.x, bones[a0.x], r1
+    dp4 r5.y, bones[a0.x+1], r1
+    dp4 r5.z, bones[a0.x+2], r1
+    mov r5.w, k.y
+    mul r6.xyz, outline.xxx, r6.xyz
+    add r5.xyz, r5.xyz, r6.xyz
+
+    dp4 outpos.x, proj[0], r5
+    dp4 outpos.y, proj[1], r5
+    dp4 outpos.z, proj[2], r5
+    dp4 outpos.w, proj[3], r5
+
+    ; tone: dark + (lit - dark) * (N.L > threshold) + gradient * max(N.L, 0)
+    dp3 r7.x, light, r3
+    max r7.x, k.x, r7.x
+    slt r8.x, tone.z, r7.x
+    mov r9.x, tone.x
+    mov r9.y, tone.y
+    add r9.z, r9.y, -r9.x
+    mul r8.x, r8.x, r9.z
+    add r8.x, r8.x, r9.x
+    mul r7.x, tone.w, r7.x
+    add r8.x, r8.x, r7.x
+
+    mul r10, k.wwww, inclr
+    mul r11.xyz, r8.xxx, r10.xyz
+    mov r11.w, r10.w
+
+    ; outline: blend toward the outline colour by outline.y
+    mov r12, outcol
+    add r12, r12, -r11
+    mul r12, outline.yyyy, r12
+    add r11, r11, r12
+    mov outclr, r11
+
+    ; texture coordinates through the texture matrix
+    mov r13.xy, intex.xy
+    mov r13.z, k.y
+    mov r13.w, k.x
+    dp4 r14.x, uvs, r13
+    dp4 r14.y, uvt, r13
+    mov r14.z, k.x
+    mov r14.w, k.y
+    mov outtex, r14
+    end
+.end

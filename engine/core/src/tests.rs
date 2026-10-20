@@ -4598,3 +4598,49 @@ fn node_inspection_rejects_stale_generation_ids() {
     assert_eq!(ui.node_text(text), None);
     assert_eq!(ui.node_text(replacement), Some(""));
 }
+
+#[test]
+fn text_capture_reports_painted_runs_with_their_visible_boxes() {
+    let mut ui = Ui::new();
+    assert!(ui.load_font_atlas(&encode_atlas(
+        0,
+        8,
+        8,
+        7,
+        10,
+        3,
+        &[(0xfffd, 0, 8), ('A' as u32, 1, 6), ('B' as u32, 2, 5)],
+    )));
+    ui.set_prop(spec::ROOT_ID, spec::prop::ALIGN, spec::Align::Start as u32 as f64);
+    let shown = ui.create_node(spec::NodeType::Text as u8);
+    ui.insert_before(spec::ROOT_ID, shown, 0);
+    ui.replace_text(shown, "AB");
+    // A run moved past the screen's right edge is not painted, so not read.
+    let gone = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(gone, spec::prop::POS_TYPE, spec::PosType::Absolute as u32 as f64);
+    ui.set_prop(gone, spec::prop::INSET_L, 900.0);
+    ui.insert_before(spec::ROOT_ID, gone, 0);
+    ui.replace_text(gone, "BA");
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.captured_texts(0), "", "nothing is captured until armed");
+    assert!(ui.capture_texts(0, 0));
+    assert!(!ui.capture_texts(1, 0), "no auxiliary surface");
+    ui.draw();
+    assert_eq!(ui.captured_texts(0), "0,0,11,10\tAB\n");
+    // The capture disarms itself: the next draw keeps the last result.
+    ui.replace_text(shown, "A");
+    ui.tick();
+    ui.draw();
+    assert_eq!(ui.captured_texts(0), "0,0,11,10\tAB\n");
+    // A capture rooted at a node reads that subtree only.
+    let group = ui.create_node(0);
+    ui.insert_before(spec::ROOT_ID, group, 0);
+    let inside = ui.create_node(spec::NodeType::Text as u8);
+    ui.insert_before(group, inside, 0);
+    ui.replace_text(inside, "BB");
+    ui.tick();
+    assert!(ui.capture_texts(0, group));
+    ui.draw();
+    assert_eq!(ui.captured_texts(0), "0,10,10,10\tBB\n");
+}

@@ -152,6 +152,12 @@ export interface HostOps {
   fontStreamStats?(): string;
   /** PFB1 batch lease: 1 ready, 0 pending, -1 missing, -2 budget, -3 stale. */
   fontStreamBatch?(descriptor: Uint8Array): number;
+  /** Arm a capture of the text runs painted inside node `root` (0: the
+   *  whole surface) on the next draw of `surface` (0 primary, 1 auxiliary).
+   *  The agent reads a screen this way (contracts/spec/agent.ts). */
+  captureTexts?(surface: number, root: number): boolean;
+  /** The last capture: one run per line, "x,y,w,h", a tab, the text. */
+  capturedTexts?(surface: number): string;
   /** JS-side convenience; layout measures natively. → width in px. */
   measureText(str: string, fontSlot: number): number;
   /** Soft-wrap break columns for ONE line under maxW px (spec op 43):

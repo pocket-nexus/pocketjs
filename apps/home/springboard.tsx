@@ -1,20 +1,27 @@
-// apps/home/springboard.tsx — the Home screen on the touch screen (a page
-// of glossy icons over the wallpaper, page dots and the glass dock holding
-// Settings and Mac) and the lock-screen-style top screen above it.
+// apps/home/springboard.tsx — the Home screen on the touch screen: the
+// status bar (time, Wi-Fi, the linked Mac), pages of glossy icons over the
+// wallpaper, page dots and the glass dock holding Settings and Mac.
+//
+// The pages sit side by side in one row that a drag moves sideways, as on
+// SpringBoard: the row follows the finger, resists past the first and last
+// page, and on release settles on the page the drag or the flick points to.
+// The D-pad pages at the grid's left and right edges.
 //
 // Installed mini-apps come from the launcher's app table. Tapping one zooms
 // the screen and asks the host to switch to it; holding one (or Y) starts
-// edit mode, where icons wiggle and a badge deletes an app.
+// edit mode, where icons wiggle and a badge deletes an app. An app the host
+// interrupted, or one that stopped with an error, is announced by an iOS 6
+// banner that slides over the status bar.
 
 import { createMemo, createSignal, For, Show, type Accessor } from "solid-js";
 import { Image, Text, View, type NodeMirror } from "@pocketjs/framework/components";
-import { animate, jump } from "@pocketjs/framework/animation";
+import { animate, cancelAnim, jump } from "@pocketjs/framework/animation";
 import { after } from "@pocketjs/framework/clock";
 import { BTN } from "@pocketjs/framework/input";
 import { onFrame } from "@pocketjs/framework/lifecycle";
-import { civilFromEpoch, clockText, dateText, statusTime } from "./clock.ts";
+import { civilFromEpoch, statusTime } from "./clock.ts";
 import { ICONS, linkSummary } from "./pages.tsx";
-import { LINK_STATE, sizeText, type HomeApp, type HomeSystem } from "./system.ts";
+import { LINK_STATE, type HomeApp, type HomeSystem } from "./system.ts";
 import { appTint, StatusBar, Tile, Wallpaper } from "./ui/chrome.tsx";
 import { ellipsize, FONT } from "./ui/text.ts";
 import type { Press, Target, TouchPage } from "./ui/touch.ts";
@@ -24,9 +31,19 @@ export const ROWS = 2;
 export const PER_PAGE = COLS * ROWS;
 const ICON = 46;
 const CELL_W = 80;
-const ROW_Y = [10, 88];
+const ROW_Y = [26, 100];
+const BANNER_H = 36;
+/** Seconds a banner stays before it slides away. */
+const BANNER_SECONDS = 6;
 const DOCK_Y = 174;
 const DOTS_Y = 168;
+const PAGE_W = 320;
+/** A release faster than this (px/s) turns the page toward the flick. */
+const FLICK = 250;
+/** UIScrollView's rubber band: the row moves (1 - 1/(over*k/w + 1))*w. */
+const RUBBER = 0.55;
+
+const rubber = (over: number) => (1 - 1 / ((Math.abs(over) * RUBBER) / PAGE_W + 1)) * PAGE_W * Math.sign(over);
 
 export interface DockItem {
   key: "dock:settings" | "dock:mac";
@@ -54,10 +71,28 @@ export interface Springboard {
   view: () => ReturnType<typeof View>;
   touch(): TouchPage;
   key(pressed: number): boolean;
-  /** The app the top screen describes (focused or last pressed). */
-  selected: Accessor<HomeApp | DockItem | null>;
   editing: Accessor<boolean>;
   launching: Accessor<string>;
+}
+
+/** The banner over the status bar: an app to go back to, or one that stopped. */
+interface Banner {
+  app: HomeApp | null;
+  title: string;
+  line: string;
+  /** Tapping the banner: go back to the app, or dismiss. */
+  resume: boolean;
+}
+
+function bannerFor(sys: HomeSystem): Banner | null {
+  const table = sys.table();
+  if (table.lastError) {
+    const failed = table.apps.find((app) => app.output === table.lastError!.output) ?? null;
+    return { app: failed, title: `${failed?.title ?? table.lastError.output} stopped`, line: table.lastError.message, resume: false };
+  }
+  const resume = table.resume ? table.apps.find((app) => app.output === table.resume) ?? null : null;
+  if (resume) return { app: resume, title: resume.title, line: "Tap here or press SELECT to go back to it.", resume: true };
+  return null;
 }
 
 const iconX = (slot: number) => (slot % COLS) * CELL_W + (CELL_W - ICON) / 2;
@@ -69,8 +104,9 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
   const pages = () => Math.max(1, Math.ceil(apps().length / PER_PAGE));
   const [page, setPage] = createSignal(0);
   const [focus, setFocus] = createSignal<string>("");
-  const [lastPressed, setLastPressed] = createSignal<string>("");
   const [editing, setEditing] = createSignal(false);
+  const [banner, setBanner] = createSignal<Banner | null>(bannerFor(sys));
+  const time = createMemo(() => civilFromEpoch(sys.now(), sys.offset()));
   const [launching, setLaunching] = createSignal("");
   const [wiggle, setWiggle] = createSignal(0);
   let gridNode: NodeMirror | undefined;
@@ -81,23 +117,74 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
     if (key.startsWith("app:")) return apps().find((app) => `app:${app.output}` === key) ?? null;
     return DOCK.find((item) => item.key === key) ?? null;
   };
-  const selected = () => lookup(env.keys() ? focus() : press.id().startsWith("app:") || press.id().startsWith("dock:") ? press.id() : lastPressed());
 
+  let bannerNode: NodeMirror | undefined;
+  const hideBanner = () => {
+    if (!banner()) return;
+    if (bannerNode) animate(bannerNode, "translateY", -BANNER_H, { dur: 220, easing: "in" });
+    after(0.24, () => setBanner(null));
+  };
+  if (banner()) after(BANNER_SECONDS, hideBanner);
+  const tapBanner = () => {
+    const current = banner();
+    if (current?.resume && current.app) sys.launch(current.app.output);
+    else hideBanner();
+  };
+
+  // The row's offset in px (0 = first page) as last written, and the
+  // settle animation that may be moving it: its ease-out cubic is evaluated
+  // here too, so a finger that lands mid-settle picks the row up where it is.
+  let rowX = 0;
+  let settle = { id: -1, from: 0, to: 0, frame: 0, frames: 0 };
   let frames = 0;
   onFrame(() => {
     frames++;
     if (editing() && frames % 5 === 0) setWiggle((wiggle() + 1) % 4);
     // Keep the page index inside the table after a removal.
-    if (page() > pages() - 1) setPage(pages() - 1);
+    if (page() > pages() - 1) showPage(pages() - 1);
   });
 
+  const clampPage = (next: number) => Math.max(0, Math.min(pages() - 1, next));
+  const settledX = () => {
+    if (settle.id < 0) return rowX;
+    const t = Math.min(1, (frames - settle.frame) / settle.frames);
+    return settle.from + (settle.to - settle.from) * (1 - (1 - t) ** 3);
+  };
+  const stopSettle = () => {
+    if (settle.id < 0) return;
+    rowX = settledX();
+    cancelAnim(settle.id);
+    settle.id = -1;
+    if (gridNode) jump(gridNode, "translateX", rowX);
+  };
+  const placeRow = (x: number) => {
+    rowX = x;
+    if (gridNode) jump(gridNode, "translateX", x);
+  };
+
   const showPage = (next: number, animated = true) => {
-    const target = Math.max(0, Math.min(pages() - 1, next));
+    const target = clampPage(next);
     setPage(target);
-    if (gridNode) {
-      if (animated) animate(gridNode, "translateX", -target * 320, { dur: 260, easing: "out" });
-      else jump(gridNode, "translateX", -target * 320);
-    }
+    stopSettle();
+    const to = -target * PAGE_W;
+    if (!gridNode || !animated || rowX === to) return placeRow(to);
+    const ms = Math.max(180, Math.min(340, 150 + Math.abs(to - rowX) * 0.6));
+    settle = { id: animate(gridNode, "translateX", to, { dur: ms, easing: "out" }), from: rowX, to, frame: frames, frames: ms / (1000 / 60) };
+    rowX = to;
+  };
+
+  // A drag: the row follows the finger from where it was picked up.
+  let dragFrom = 0;
+  const dragTo = (dx: number) => {
+    const x = dragFrom + dx;
+    const min = -(pages() - 1) * PAGE_W;
+    placeRow(x > 0 ? rubber(x) : x < min ? min + rubber(x - min) : x);
+    const live = clampPage(Math.round(-rowX / PAGE_W));
+    if (live !== page()) setPage(live);
+  };
+  const release = (vx: number) => {
+    const at = -rowX / PAGE_W;
+    showPage(vx < -FLICK ? Math.floor(at) + 1 : vx > FLICK ? Math.ceil(at) - 1 : Math.round(at));
   };
 
   const launch = (app: HomeApp) => {
@@ -119,7 +206,6 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
   };
 
   const activate = (key: string) => {
-    setLastPressed(key);
     if (key === "dock:settings") env.openApp("settings");
     else if (key === "dock:mac") env.openApp("store");
     else {
@@ -155,6 +241,7 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
     DOCK.forEach((item, index) => {
       out.push({ id: item.key, x: DOCK_X[index]! - 10, y: DOCK_Y - 4, w: ICON + 20, h: ICON + 20, run: () => !editing() && activate(item.key) });
     });
+    if (banner()) out.push({ id: "banner", x: 0, y: 0, w: 320, h: BANNER_H, run: tapBanner });
     return out;
   };
 
@@ -225,7 +312,7 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
           )}
         </For>
       </Show>
-      <Image class="absolute left-0 top-[200] w-[320] h-[40]" src="art/dock.svg" />
+      <Image class="absolute left-0 top-[200] w-[512] h-[64]" src="art/icons/dock.png" />
       <For each={DOCK}>
         {(item, index) => (
           <>
@@ -233,11 +320,8 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
               x={DOCK_X[index()]!}
               y={DOCK_Y}
               size={ICON}
-              from={item.key === "dock:settings" ? ICONS.general.from : ICONS.store.from}
-              to={item.key === "dock:settings" ? ICONS.general.to : ICONS.store.to}
-              glyph={item.key === "dock:settings" ? ICONS.general.glyph : ICONS.mac.glyph}
+              art={item.key === "dock:settings" ? ICONS.general.art : ICONS.mac.art}
               dim={() => press.is(item.key)}
-              shadow
             />
             <View
               class={env.keys() && focus() === item.key ? "absolute w-[54] h-[54] rounded-[13] border-[#ffffff] border-2" : "hidden"}
@@ -248,26 +332,57 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
           </>
         )}
       </For>
+      <StatusBar
+        width={320}
+        carrier="Pocket"
+        bars={() => {
+          const wifi = sys.wifi();
+          return !wifi || wifi.state === "off" ? -1 : wifi.state === "connected" ? wifi.strength : 0;
+        }}
+        time={() => statusTime(time())}
+        right={() => (sys.link().state === LINK_STATE.linked ? ellipsize(linkSummary(sys), FONT.xsBold, 104) : "")}
+      />
+      <Show when={banner()}>
+        {(current) => (
+          <View
+            ref={(node) => {
+              bannerNode = node;
+              jump(node, "translateY", -BANNER_H);
+              animate(node, "translateY", 0, { dur: 260, easing: "out" });
+            }}
+            class="absolute left-0 top-0 w-[320] h-[36] bg-gradient-to-b from-[#3a3a3a] to-[#0c0c0c]"
+          >
+            <View class="absolute left-0 bottom-0 w-[320] h-[1] bg-[#000000]" />
+            <View class="absolute left-0 top-0 w-[320] h-[1] bg-[#ffffff30]" />
+            <Show
+              when={current().app}
+              fallback={<Tile x={7} y={6} size={24} art={ICONS.general.art} />}
+            >
+              {(app) => <Tile x={7} y={6} size={24} {...appTint(app().id, app().title)} />}
+            </Show>
+            <Text class="absolute left-[38] top-[3] text-xs text-white font-bold">{ellipsize(current().title, FONT.xsBold, 272)}</Text>
+            <Text class="absolute left-[38] top-[18] text-xs text-[#ffffffb8]">{ellipsize(current().line, FONT.xs, 272)}</Text>
+          </View>
+        )}
+      </Show>
     </View>
   ) as unknown as ReturnType<typeof View>;
 
   return {
     view,
-    selected,
     editing,
     launching,
     touch: () => ({
       targets,
       background: () => setEditing(false),
-      panX: pages() > 1
-        ? {
-            start: () => undefined,
-            move: (dx) => {
-              if (gridNode) jump(gridNode, "translateX", -page() * 320 + dx);
-            },
-            end: (dx, vx) => showPage(dx < -60 || vx < -300 ? page() + 1 : dx > 60 || vx > 300 ? page() - 1 : page()),
-          }
-        : undefined,
+      panX: {
+        start: () => {
+          stopSettle();
+          dragFrom = rowX;
+        },
+        move: dragTo,
+        end: (_dx, vx) => release(vx),
+      },
     }),
     key(pressed) {
       if (!env.active()) return false;
@@ -277,14 +392,6 @@ export function createSpringboard(env: SpringboardEnv): Springboard {
       }
       if (pressed & (BTN.CROSS | BTN.START) && editing()) {
         setEditing(false);
-        return true;
-      }
-      if (pressed & BTN.LTRIGGER) {
-        showPage(page() - 1);
-        return true;
-      }
-      if (pressed & BTN.RTRIGGER) {
-        showPage(page() + 1);
         return true;
       }
       if (pressed & (BTN.UP | BTN.DOWN | BTN.LEFT | BTN.RIGHT)) {
@@ -320,110 +427,13 @@ function AppIcon(props: {
   const angle = () => (props.editing() ? ([-2, 0, 2, 0][(props.wiggle() + props.index) % 4] ?? 0) : 0);
   return (
     <View class="absolute w-[46] h-[46]" style={{ insetL: x, insetT: y, rotate: angle() }}>
-      <Tile x={0} y={0} size={ICON} from={tint.from} to={tint.to} letters={tint.letters} dim={() => props.env.press.is(key)} shadow />
+      <Tile x={0} y={0} size={ICON} {...tint} dim={() => props.env.press.is(key)} />
       <View class={props.env.keys() && props.focus() === key ? "absolute left-[-4] top-[-4] w-[54] h-[54] rounded-[13] border-[#ffffff] border-2" : "hidden"} />
       <Show when={props.editing()}>
         <Image class="absolute left-[-9] top-[-9] w-[22] h-[22]" src="art/delete-badge.svg" />
       </Show>
       <Text class="absolute left-[-16] top-[50] w-[78] text-xs text-[#00000099] font-bold text-center">{ellipsize(props.app.title, FONT.xsBold, 77)}</Text>
       <Text class="absolute left-[-16] top-[49] w-[78] text-xs text-white font-bold text-center">{ellipsize(props.app.title, FONT.xsBold, 77)}</Text>
-    </View>
-  );
-}
-
-// ---- top screen -------------------------------------------------------------------
-
-export interface LockEnv {
-  sys: HomeSystem;
-  board: Springboard;
-  keys: Accessor<boolean>;
-}
-
-/** The top screen over the Home screen: status bar, clock and date in a
- *  glass band, a card with the link state, and a bar describing the
- *  selected app (or what the buttons do). */
-export function LockScreen(props: { env: LockEnv }) {
-  const { sys, board } = props.env;
-  const time = createMemo(() => civilFromEpoch(sys.now(), sys.offset()));
-  const linkTitle = () => {
-    const link = sys.link();
-    if (!sys.hasLink) return "Pocket Link unavailable";
-    if (link.state === LINK_STATE.linked) return `Linked to ${link.companion?.name ?? "Mac"}`;
-    if (link.state === LINK_STATE.unpaired) return "No Mac paired";
-    return `Looking for ${link.companion?.name ?? link.paired[0]?.name ?? "your Mac"}...`;
-  };
-  const linkLine = () => {
-    const link = sys.link();
-    if (link.state === LINK_STATE.linked) {
-      const count = sys.catalog().length;
-      return sys.catalogState() === "ready" ? `${count} ${count === 1 ? "app" : "apps"} offered. Open Mac below.` : "Asking the Mac for its apps...";
-    }
-    if (link.state === LINK_STATE.unpaired) return "Open Settings > Mac to pair one.";
-    return "Open Pocket Companion on the Mac.";
-  };
-  const selection = () => board.selected();
-  const appLine = (): { title: string; line: string } => {
-    const item = selection();
-    const table = sys.table();
-    if (board.editing()) return { title: "Editing Home", line: "Tap x to delete an app. B when done." };
-    if (item && "output" in item) return { title: item.title, line: `${item.version ? `Version ${item.version}  ` : ""}${sizeText(item.bytes)}` };
-    if (item && item.key === "dock:settings") return { title: "Settings", line: "Wi-Fi, Mac, Apps and General" };
-    if (item && item.key === "dock:mac") return { title: "Mac", line: "Apps your Mac offers this console" };
-    if (table.lastError) {
-      const failed = table.apps.find((app) => app.output === table.lastError!.output);
-      return { title: `${failed?.title ?? table.lastError.output} stopped`, line: table.lastError.message };
-    }
-    const resume = table.resume ? table.apps.find((app) => app.output === table.resume) : null;
-    if (resume) return { title: resume.title, line: "Press SELECT to go back to it." };
-    return { title: "Pocket", line: "Tap an app to open it. Hold one to edit." };
-  };
-  const tile = () => {
-    const item = selection();
-    if (item && "output" in item) return appTint(item.id, item.title);
-    return null;
-  };
-  return (
-    <View class="relative w-full h-full overflow-hidden bg-black">
-      <Wallpaper screen="top" />
-      <View class="absolute left-0 top-[16] w-[400] h-[90] bg-gradient-to-b from-[#00000070] to-[#00000040]" />
-      <View class="absolute left-0 top-[16] w-[400] h-[45] bg-gradient-to-b from-[#ffffff26] to-[#ffffff0a]" />
-      <View class="absolute left-0 top-[105] w-[400] h-[1] bg-[#ffffff30]" />
-      <Text class="absolute left-0 top-[15] w-[400] text-5xl text-[#00000060] text-center">{clockText(time())}</Text>
-      <Text class="absolute left-0 top-[14] w-[400] text-5xl text-white text-center">{clockText(time())}</Text>
-      <Text class="absolute left-0 top-[80] w-[400] text-sm text-[#ffffffd8] text-center">{dateText(time())}</Text>
-
-      <View class="absolute left-[40] top-[118] w-[320] h-[50] rounded-[10] bg-[#00000055] border border-[#ffffff30]" />
-      <Tile x={50} y={125} size={36} from={ICONS.mac.from} to={ICONS.mac.to} glyph={ICONS.mac.glyph} />
-      <View
-        class={sys.link().state === LINK_STATE.linked ? "absolute left-[80] top-[154] w-[9] h-[9] rounded-[5] bg-[#4cd964] border border-[#ffffff]" : "absolute left-[80] top-[154] w-[9] h-[9] rounded-[5] bg-[#a0a6ae] border border-[#ffffff]"}
-      />
-      <Text class="absolute left-[96] top-[126] text-sm text-white font-bold">{ellipsize(linkTitle(), FONT.smBold, 254)}</Text>
-      <Text class="absolute left-[96] top-[145] text-xs text-[#ffffffb8]">{ellipsize(linkLine(), FONT.xs, 254)}</Text>
-
-      <View class="absolute left-0 top-[186] w-[400] h-[54] bg-gradient-to-b from-[#00000080] to-[#000000b0]" />
-      <View class="absolute left-0 top-[186] w-[400] h-[1] bg-[#ffffff38]" />
-      <Show
-        when={tile()}
-        fallback={<Tile x={12} y={195} size={36} from={ICONS.general.from} to={ICONS.general.to} glyph={selection() && !("output" in selection()!) && (selection() as DockItem).key === "dock:mac" ? ICONS.mac.glyph : ICONS.general.glyph} />}
-      >
-        {(tint) => <Tile x={12} y={195} size={36} from={tint().from} to={tint().to} letters={tint().letters} />}
-      </Show>
-      <Text class="absolute left-[58] top-[196] text-sm text-white font-bold">{ellipsize(appLine().title, FONT.smBold, 240)}</Text>
-      <Text class="absolute left-[58] top-[215] text-xs text-[#ffffffb0]">{ellipsize(appLine().line, FONT.xs, 240)}</Text>
-      <Text class="absolute left-[300] top-[205] w-[92] text-xs text-[#ffffff90] text-right">
-        {board.editing() ? "B  Done" : selection() ? "A  Open" : "Y  Edit"}
-      </Text>
-
-      <StatusBar
-        width={400}
-        carrier="Pocket"
-        bars={() => {
-          const wifi = sys.wifi();
-          return !wifi || wifi.state === "off" ? -1 : wifi.state === "connected" ? wifi.strength : 0;
-        }}
-        time={() => statusTime(time())}
-        right={() => (sys.link().state === LINK_STATE.linked ? linkSummary(sys) : "")}
-      />
     </View>
   );
 }

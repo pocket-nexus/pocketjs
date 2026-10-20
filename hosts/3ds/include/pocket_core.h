@@ -42,6 +42,7 @@ typedef struct {
 
 #define POCKET_GUEST_FEATURE_OFFLOAD 1u /* features["io.offload"] */
 #define POCKET_GUEST_FEATURE_MEDIA 2u   /* features["media.playback"] */
+#define POCKET_GUEST_FEATURE_AGENT 4u   /* features["system.agent"] */
 
 /* 0 = admitted. The package footer, target, host ABI, identity, plan and
  * NUL-terminated JS section are all checked before success; 13, 14 and 15
@@ -235,6 +236,11 @@ uint32_t ui_pak_sprite_step(size_t index);
 
 /* DevTools (spec ops 18..22, docs/DEVTOOLS.md). All default-off. */
 void ui_debug_inspect(int32_t id);
+/* The agent's screen reading (contracts/spec/agent.ts): arm a capture of the
+ * text runs painted inside node `root` (0: the whole surface) on the next
+ * draw of a surface, then read it as lines of "x,y,w,h<TAB>text". */
+int32_t ui_capture_texts(uint32_t surface, int32_t root);
+const uint8_t *ui_captured_texts(uint32_t surface, size_t *length);
 int32_t ui_debug_rect_xy(void);
 int32_t ui_debug_rect_wh(void);
 void ui_debug_pause(int32_t paused);

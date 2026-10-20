@@ -200,6 +200,11 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   // Outer-camera preview texture plus an on-device QR decoder
   // (`globalThis.camera`, contracts/spec/camera.ts).
   "camera.qr",
+  // The system mascot on the top screen and the agent channel to the
+  // companion (`globalThis.agent`, contracts/spec/agent.ts): a guest that
+  // declares it hands the top screen to the host's 3D stage and keeps its
+  // whole interface on the auxiliary surface.
+  "system.agent",
   // SQLite behind the db module's own namespace (`globalThis.db`,
   // contracts/spec/db.ts): five synchronous ops, rows as one JSON line per
   // query() call, per-app storage the host confines. Registered ahead of any

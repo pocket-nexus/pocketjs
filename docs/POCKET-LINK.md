@@ -136,6 +136,12 @@ and hash come from the open file descriptor, so a file replaced mid-install
 streams one consistent version. At most **4 installs** run per connection;
 files above **24 MiB** are not offered.
 
+**agent.** A companion that runs the console agent lists the feature `agent`
+in `ready`. Its messages are ctrl frames whose `t` starts with `agent.`, and
+its streams carry microphone audio and touch-screen shots from the console,
+glyph atlases and own-screen frames from the companion (stream ids from the
+companion have bit 31 set). [POCKET-AGENT.md](POCKET-AGENT.md) describes them.
+
 ## Running the companion
 
 ```

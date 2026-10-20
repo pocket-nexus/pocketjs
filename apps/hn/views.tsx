@@ -1,8 +1,9 @@
-// apps/hn/views.tsx — the touch-screen pages of Hacker News: the story list
-// under a Top/New/Best/Ask/Show segmented control, and a story's comment
-// thread. Rows have measured heights (two-line titles, wrapped comment
-// previews) and are placed by offset; a fixed pool of slots draws the ones
-// near the visible band (ui/slots.ts).
+// apps/hn/views.tsx — the pages of Hacker News, all on the touch screen: the
+// story list under a Top/New/Best/Ask/Show segmented control, and a story's
+// thread: the story in full (title, site, points, its text for Ask HN) over
+// every comment in full. Rows have measured heights and are placed by
+// offset; a fixed pool of slots draws the ones near the visible band
+// (ui/slots.ts).
 
 import { batch, createEffect, createMemo, createSignal, For, onMount, Show, type Accessor } from "solid-js";
 import { jump } from "@pocketjs/framework/animation";
@@ -36,9 +37,6 @@ export interface HnEnv {
   press: Press;
   keys: Accessor<boolean>;
   now: Accessor<number>;
-  /** The item the top screen reads (story or comment id). */
-  selected: Accessor<number>;
-  select(id: number): void;
 }
 
 /** A rect is in the mounted band around the visible content. */
@@ -306,7 +304,6 @@ export function listPage(env: HnEnv, stack: NavStack, layer: LayerContext): Page
   const keys = keyIndex(() => layout().rows, "story.");
   const open = (row: StoryRow) => {
     if (!row.item) return;
-    env.select(row.id);
     model.openThread(row.id);
     stack.push("comments");
   };
@@ -316,15 +313,13 @@ export function listPage(env: HnEnv, stack: NavStack, layer: LayerContext): Page
     model.setFeed(next.id);
   };
 
-  // The d-pad focus is the story the top screen reads; nearing the end of
-  // the list, by focus or by scrolling, pages in the next stories.
+  // Nearing the end of the list, by d-pad focus or by scrolling, pages in
+  // the next stories.
   createEffect(() => {
     const focused = layer.focus();
     if (!focused) return;
     const row = keys().byKey.get(focused);
-    if (!row) return;
-    env.select(row.id);
-    if (row.rank >= model.state().shown - 3) model.more();
+    if (row && row.rank >= model.state().shown - 3) model.more();
   });
   // Checked per frame rather than as an effect on the offset, which would
   // rerun on every scrolled frame.
@@ -393,13 +388,19 @@ export function listPage(env: HnEnv, stack: NavStack, layer: LayerContext): Page
   };
 }
 
-// ---- comment rows -----------------------------------------------------------------
+// ---- the thread -----------------------------------------------------------------
 
-const BODY_LINE = 14;
-const PREVIEW_LINES = 4;
+/** Comment text: 13 px type on 16 px lines. */
+const BODY_LINE = 16;
+const AUTHOR_H = 15;
+const ROW_PAD = 7;
 /** The shortest comment row: one line of text. */
-const COMMENT_MIN_H = 7 + 15 + BODY_LINE + 7;
+const COMMENT_MIN_H = ROW_PAD + AUTHOR_H + BODY_LINE + ROW_PAD;
 const INDENT = 11;
+const HEADER_X = 12;
+const HEADER_W = W - HEADER_X * 2;
+const HEADER_TITLE_LINE = 19;
+const HEADER_TEXT_LINE = 17;
 
 export interface CommentRow {
   id: number;
@@ -407,63 +408,114 @@ export interface CommentRow {
   depth: number;
   /** The row stands for collapsed replies, drawn dimmed. */
   dim: boolean;
+  /** Tapping collapses or expands the replies under it. */
+  folds: boolean;
   x: number;
   y: number;
   h: number;
   author: string;
   age: string;
-  body: string[];
+  body: string;
   op: boolean;
 }
 
-const bodyCache = new Map<string, string[]>();
+const bodyCache = new Map<number, { item: Item; width: number; lines: string[] }>();
 
-/** A comment's text as plain ASCII lines `width` wide. */
-export function commentLines(item: Item, width: number, maxLines: number): string[] {
-  const key = `${item.id}|${width}|${maxLines}`;
-  let lines = bodyCache.get(key);
-  if (!lines) {
-    const text = item.deleted ? "[deleted]" : item.dead ? "[flagged]" : toAscii(htmlToText(item.text ?? ""));
-    lines = wrap(text, FONT.xs, width, maxLines);
-    if (bodyCache.size > 600) bodyCache.clear();
-    bodyCache.set(key, lines);
-  }
+/** A comment's whole text as plain ASCII lines `width` wide, wrapped once
+ *  per item: wrapping a long comment costs milliseconds on an Old 3DS. */
+export function commentLines(item: Item, width: number): string[] {
+  const cached = bodyCache.get(item.id);
+  if (cached && cached.item === item && cached.width === width) return cached.lines;
+  const text = item.deleted ? "[deleted]" : item.dead ? "[flagged]" : toAscii(htmlToText(item.text ?? ""));
+  const lines = wrap(text, FONT.sm, width);
+  if (bodyCache.size > 600) bodyCache.clear();
+  bodyCache.set(item.id, { item, width, lines });
   return lines;
+}
+
+/** The story at the head of its thread: every line laid out once. */
+export interface StoryHeader {
+  title: string;
+  /** The site, or "" for a text post. */
+  site: string;
+  meta: string;
+  /** The text of an Ask or Show HN post, wrapped; "" when it has none. */
+  text: string;
+  siteY: number;
+  metaY: number;
+  textY: number;
+  h: number;
+}
+
+const headerCache = new Map<number, { item: Item; now: number; header: StoryHeader }>();
+
+export function storyHeader(story: Item, now: number): StoryHeader {
+  const cached = headerCache.get(story.id);
+  if (cached && cached.item === story && cached.now === now) return cached.header;
+  const title = wrap(toAscii(story.title ?? (story.deleted ? "[deleted]" : "Untitled")), FONT.baseBold, HEADER_W);
+  const site = story.url ? toAscii(domainOf(story.url)) : "";
+  const parts = [`${story.score ?? 0} ${story.score === 1 ? "point" : "points"}`];
+  if (story.by) parts.push(`by ${toAscii(story.by)}`);
+  if (story.time) parts.push(ageText(story.time, now));
+  const count = story.descendants ?? 0;
+  parts.push(`${count} ${count === 1 ? "comment" : "comments"}`);
+  const text = story.text ? wrap(toAscii(htmlToText(story.text)), FONT.sm, HEADER_W) : [];
+  let y = 8 + title.length * HEADER_TITLE_LINE + 2;
+  const siteY = y;
+  if (site) y += 15;
+  const metaY = y;
+  y += 15;
+  const textY = y + 8;
+  if (text.length) y = textY + text.length * HEADER_TEXT_LINE;
+  const header: StoryHeader = {
+    title: title.join("\n"),
+    site,
+    meta: ellipsize(parts.join("  |  "), FONT.xs, HEADER_W),
+    text: text.join("\n"),
+    siteY,
+    metaY,
+    textY,
+    h: y + 10,
+  };
+  if (headerCache.size > 200) headerCache.clear();
+  headerCache.set(story.id, { item: story, now, header });
+  return header;
 }
 
 const previousComments = new Map<number, CommentRow>();
 
 function sameComment(a: CommentRow, b: CommentRow): boolean {
-  return a.depth === b.depth && a.dim === b.dim && a.x === b.x && a.y === b.y && a.h === b.h && a.author === b.author &&
-    a.age === b.age && a.op === b.op && a.body.length === b.body.length && a.body.every((line, index) => line === b.body[index]);
+  return a.depth === b.depth && a.dim === b.dim && a.folds === b.folds && a.x === b.x && a.y === b.y && a.h === b.h &&
+    a.author === b.author && a.age === b.age && a.op === b.op && a.body === b.body;
 }
 
-function threadRows(env: HnEnv): { header: { title: string[]; meta: string; h: number } | null; rows: CommentRow[]; height: number; footer: string } {
+function threadRows(env: HnEnv): { header: StoryHeader | null; rows: CommentRow[]; height: number; footer: string } {
   env.model.version();
   const thread = env.model.thread();
   if (!thread) return { header: null, rows: [], height: 0, footer: "" };
   const story = env.model.client.cached(thread.story);
   const now = env.now();
-  const title = story ? wrap(toAscii(story.title ?? ""), FONT.baseBold, W - 24, 3) : [];
-  const headerH = 10 + title.length * 19 + META_H + 10;
-  let y = headerH;
+  const header = story ? storyHeader(story, now) : null;
+  let y = header ? header.h : 0;
   const rows: CommentRow[] = flattenThread(story, thread).map((comment) => {
     const depth = Math.min(comment.depth, 5);
     const x = 10 + depth * INDENT;
-    const body = comment.hidden > 0 || thread.collapsed.has(comment.id)
+    const collapsed = comment.hidden > 0 || thread.collapsed.has(comment.id);
+    const lines = collapsed
       ? [`${comment.hidden} ${comment.hidden === 1 ? "reply" : "replies"} hidden`]
-      : commentLines(comment.item, W - x - 10, PREVIEW_LINES);
-    const h = 7 + 15 + body.length * BODY_LINE + 7;
+      : commentLines(comment.item, W - x - 10);
+    const h = ROW_PAD + AUTHOR_H + lines.length * BODY_LINE + ROW_PAD;
     const next: CommentRow = {
       id: comment.id,
       depth,
       dim: comment.hidden > 0,
+      folds: collapsed || (comment.item.kids?.length ?? 0) > 0,
       x,
       y,
       h,
       author: toAscii(comment.item.by ?? "[deleted]"),
       age: comment.item.time ? ageText(comment.item.time, now) : "",
-      body,
+      body: collapsed ? lines[0]! : lines.join("\n"),
       op: !!story?.by && comment.item.by === story.by,
     };
     // An unchanged row keeps its object, so the slot showing it keeps its nodes as they are.
@@ -485,22 +537,15 @@ function threadRows(env: HnEnv): { header: { title: string[]; meta: string; h: n
         : thread.requested >= MAX_COMMENTS && rows.length < total
           ? `Showing ${rows.length} of ${total} comments.`
           : "";
-  return {
-    header: story ? { title, meta: ellipsize(storyMeta(story, now), FONT.xs, W - 24), h: headerH } : null,
-    rows,
-    height: y + (footer ? 44 : 8),
-    footer,
-  };
+  return { header, rows, height: y + (footer ? 44 : 8), footer };
 }
 
 const DEPTH_COLORS = ["#ff9a52", "#7fb0e8", "#8fd18f", "#d59be0", "#c9b37a"];
 
 /** One slot of the thread's pool (ui/slots.ts); painted like StorySlot. */
-function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id: number) => boolean; selected: (id: number) => boolean }) {
+function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id: number) => boolean }) {
   let box!: NodeMirror;
   let wash!: NodeMirror;
-  let tint!: NodeMirror;
-  let bar!: NodeMirror;
   let frame!: NodeMirror;
   let rule!: NodeMirror;
   let author!: NodeMirror;
@@ -508,7 +553,6 @@ function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id
   let body!: NodeMirror;
   const [id, setId] = createSignal(0);
   const lit = createMemo(() => id() !== 0 && props.lit(id()));
-  const selected = createMemo(() => id() !== 0 && props.selected(id()));
   let op = false;
   let dim = false;
   let depth = -1;
@@ -517,10 +561,7 @@ function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id
   let x = -1;
   const recolor = () => {
     const on = lit();
-    const chosen = selected() && !on;
     jump(wash, "opacity", on ? 1 : 0);
-    jump(tint, "opacity", chosen ? 1 : 0);
-    jump(bar, "opacity", chosen ? 1 : 0);
     jump(author, "textColor", on ? "#ffffff" : op ? "#e05d00" : "#3b4a60");
     jump(age, "textColor", on ? "#d6e6ff" : "#a0a6ae");
     jump(body, "textColor", on ? "#ffffff" : dim ? "#8a9099" : "#222222");
@@ -546,7 +587,7 @@ function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id
       }
       paintText(author, row.author);
       paintText(age, row.age);
-      paintText(body, row.body.join("\n"));
+      paintText(body, row.body);
       const recolorNow = row.op !== op || row.dim !== dim;
       op = row.op;
       dim = row.dim;
@@ -556,10 +597,8 @@ function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id
     }));
   });
   return (
-    <View ref={box} class="absolute left-0 top-0 w-[320] h-[43] opacity-0 contain-strict">
+    <View ref={box} class="absolute left-0 top-0 w-[320] h-[45] opacity-0 contain-strict">
       <View ref={wash} class="absolute inset-0 opacity-0 bg-gradient-to-b from-[#058cf5] to-[#015ee6]" />
-      <View ref={tint} class="absolute inset-0 opacity-0 bg-[#fff0e0]" />
-      <View ref={bar} class="absolute left-0 top-0 bottom-0 w-[3] opacity-0 bg-[#ff7a1a]" />
       <View ref={frame} class="absolute left-[10] top-0 right-0 bottom-0">
         <View class="absolute left-0 right-0 bottom-0 h-[1] bg-[#e6e6e6]" />
         <View ref={rule} class="absolute left-[-6] top-[4] bottom-[4] w-[2] opacity-0 bg-[#ff9a52]" />
@@ -567,47 +606,49 @@ function CommentSlot(props: { pool: SlotPool<CommentRow>; slot: number; lit: (id
           <Text ref={author} class="text-xs text-[#3b4a60] font-bold">{" "}</Text>
           <Text ref={age} class="ml-[6] text-xs text-[#a0a6ae]">{" "}</Text>
         </View>
-        <Text ref={body} class="absolute left-0 top-[22] text-xs text-[#222222] leading-[14]">{" "}</Text>
+        <Text ref={body} class="absolute left-0 top-[22] text-sm text-[#222222] leading-[16]">{" "}</Text>
       </View>
     </View>
   );
 }
 
+function Header(props: { header: Accessor<StoryHeader> }) {
+  const header = props.header;
+  return (
+    <>
+      <View class="absolute left-0 top-0 w-[320] bg-[#f6f6ef]" style={{ height: header().h }} />
+      <View class="absolute left-0 w-[320] h-[1] bg-[#e2dccb]" style={{ insetT: header().h - 1 }} />
+      <Text class="absolute left-[12] top-[8] text-base text-black font-bold leading-[19]">{header().title}</Text>
+      <Show when={header().site}>
+        <Text class="absolute left-[12] text-xs text-[#ff6600] font-bold" style={{ insetT: header().siteY }}>{header().site}</Text>
+      </Show>
+      <Text class="absolute left-[12] text-xs text-[#828282]" style={{ insetT: header().metaY }}>{header().meta}</Text>
+      <Show when={header().text}>
+        <Text class="absolute left-[12] text-sm text-[#222222] leading-[17]" style={{ insetT: header().textY }}>{header().text}</Text>
+      </Show>
+    </>
+  );
+}
+
 export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext): PageSpec {
-  const { model, press } = env;
+  const { model } = env;
   const layout = createMemo(() => threadRows(env));
+  const header = createMemo(() => layout().header);
   const pool = createSlotPool(() => layout().rows, layer.offset, { view: VIEW_H, overscan: OVERSCAN, minRowH: COMMENT_MIN_H });
   const lit = highlight(env, layer, "comment.");
   const keys = keyIndex(() => layout().rows, "comment.");
-  const selected = (id: number) => env.selected() === id;
   const story = () => {
     const thread = model.thread();
     return thread ? model.client.cached(thread.story) : undefined;
   };
-  createEffect(() => {
-    const focused = layer.focus();
-    if (focused.startsWith("comment.")) env.select(Number(focused.slice("comment.".length)));
-  });
-  const tap = (row: CommentRow) => {
-    if (env.selected() === row.id) model.toggle(row.id);
-    else env.select(row.id);
+  const fold = (row: CommentRow) => {
+    if (row.folds) model.toggle(row.id);
   };
   const content: PageContent = {
     view: () => (
       <>
-        <Show when={layout().header}>
-          {(header) => (
-            <>
-              <View class="absolute left-0 w-[320] bg-[#f6f6ef]" style={{ insetT: 0, height: header().h }} />
-              <View class="absolute left-0 w-[320] h-[1] bg-[#e2dccb]" style={{ insetT: header().h - 1 }} />
-              <For each={header().title}>
-                {(line, index) => <Text class="absolute left-[12] text-base text-black font-bold" style={{ insetT: 8 + index() * 19 }}>{line}</Text>}
-              </For>
-              <Text class="absolute left-[12] text-xs text-[#828282]" style={{ insetT: 10 + header().title.length * 19 }}>{header().meta}</Text>
-            </>
-          )}
-        </Show>
-        <For each={pool.slots}>{(slot) => <CommentSlot pool={pool} slot={slot} lit={lit} selected={selected} />}</For>
+        <Show when={header()}>{(current) => <Header header={current} />}</Show>
+        <For each={pool.slots}>{(slot) => <CommentSlot pool={pool} slot={slot} lit={lit} />}</For>
         <Show when={layout().footer}>
           <Show when={model.thread()?.pending}>
             <View class="absolute left-[92]" style={{ insetT: layout().height - 32 }}>
@@ -625,7 +666,7 @@ export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext):
       for (const row of layout().rows) {
         const y = top + row.y - offset;
         if (y + row.h <= top || y >= bottom) continue;
-        out.push({ id: `comment.${row.id}`, x: 0, y, w: W, h: row.h, run: () => tap(row), hold: () => model.toggle(row.id) });
+        out.push({ id: `comment.${row.id}`, x: 0, y, w: W, h: row.h, run: () => fold(row) });
       }
       return out;
     },
@@ -635,7 +676,7 @@ export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext):
     },
     activate(id) {
       const row = keys().byKey.get(id);
-      if (row) model.toggle(row.id);
+      if (row) fold(row);
     },
   };
   return {
@@ -647,6 +688,10 @@ export function commentsPage(env: HnEnv, _stack: NavStack, layer: LayerContext):
     bare: "white",
     content,
     key(pressed) {
+      if (pressed & (BTN.LTRIGGER | BTN.RTRIGGER)) {
+        layer.scrollBy(pressed & BTN.LTRIGGER ? -(VIEW_H - 34) : VIEW_H - 34);
+        return true;
+      }
       if (pressed & BTN.TRIANGLE) {
         const thread = model.thread();
         if (thread) model.openThread(thread.story);

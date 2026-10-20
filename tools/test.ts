@@ -150,6 +150,7 @@ const SUITE: readonly Stage[] = [
       "tests/offload-provider.test.ts",
       "tests/companion-session.test.ts",
       "tests/pocket-link.test.ts",
+      "tests/pocket-agent.test.ts",
       "tests/resource-cache.test.ts",
       "tests/font-config.test.ts",
       "tests/font-archive.test.ts",
@@ -335,12 +336,16 @@ const SUITE: readonly Stage[] = [
   },
   {
     // Pocket Home and the Hacker News mini-app on the 3DS geometry, with the
-    // Pocket Link, Wi-Fi, camera and NET fakes (hosts/sim/console-3ds.ts).
+    // Pocket Link, Wi-Fi, camera, NET and agent fakes (hosts/sim/console-3ds.ts),
+    // and the system agent's overlay inside the Hacker News app.
     // Each test builds its guest with `bun tools/3ds.ts <app> --pocket-only`.
     name: "pocket home sim",
-    prep: [["bun", "tools/wasm.ts"]],
+    prep: [
+      ["bun", "tools/wasm.ts"],
+      ["bun", "tools/3ds-stage-hint.ts", "--check"],
+    ],
     browser: true,
-    tests: ["tests/home-sim.test.ts", "tests/hn-sim.test.ts"],
+    tests: ["tests/home-sim.test.ts", "tests/hn-sim.test.ts", "tests/agent-layer.test.ts"],
   },
 ];
 

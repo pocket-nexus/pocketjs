@@ -1,9 +1,8 @@
 // apps/home/app.tsx — Pocket Home, the 3DS system launcher.
 //
 // The touch screen holds the Home screen; Settings and the Mac store open
-// over it with a zoom, each as a navigation stack. The top screen follows
-// what the touch screen shows: the lock-screen clock over the Home screen,
-// a page header over Settings, the selected app over the store.
+// over it with a zoom, each as a navigation stack. The top screen belongs to
+// the system (capability "system.agent"), so Home draws nothing there.
 //
 // Input: the stylus goes through one router that asks the visible layer for
 // its targets; the buttons go to the alert, then the open stack, then the
@@ -18,10 +17,9 @@ import { BTN } from "@pocketjs/framework/input";
 import { onButtonPress } from "@pocketjs/framework/lifecycle";
 import { SETTINGS_PAGES, type PageEnv } from "./pages.tsx";
 import { scannerPage, type ScanState } from "./scanner.tsx";
-import { createSpringboard, LockScreen } from "./springboard.tsx";
-import { storePage } from "./store.tsx";
+import { createSpringboard } from "./springboard.tsx";
+import { storeAppPage, storePage } from "./store.tsx";
 import { createHomeSystem } from "./system.ts";
-import { SettingsTop, StoreTop } from "./top.tsx";
 import { createAlerts } from "./ui/alert.tsx";
 import { Pinstripes } from "./ui/chrome.tsx";
 import { createNavStack } from "./ui/nav.tsx";
@@ -46,7 +44,6 @@ export default function Home() {
   const [keys, setKeys] = createSignal(false);
   const alerts = createAlerts(press);
   const [scan, setScan] = createSignal<ScanState>({ t: "scanning", hint: "" });
-  const [storeSelected, setStoreSelected] = createSignal("");
   const [app, setApp] = createSignal<"settings" | "store" | null>(null);
   const [zooming, setZooming] = createSignal(false);
   let appNode: NodeMirror | undefined;
@@ -77,7 +74,8 @@ export default function Home() {
     background: () => <Pinstripes width={320} height={240} />,
     page(id, nav, layer) {
       if (id === "scan") return scannerPage(sys, nav, setScan, scan);
-      if (id === "store") return storePage({ sys, press, keys, selected: storeSelected, select: setStoreSelected }, nav, layer);
+      if (id === "store") return storePage({ sys, press, keys }, nav, layer);
+      if (id.startsWith("store.app:")) return storeAppPage({ sys, press, keys }, id.slice("store.app:".length), nav, layer);
       return SETTINGS_PAGES[id]!(env, nav, layer);
     },
   });
@@ -127,37 +125,25 @@ export default function Home() {
     board.key(pressed);
   });
 
-  const topPage = () => stack.top()?.page ?? "";
-
   return (
-    <>
-      <Show
-        when={app()}
-        fallback={<LockScreen env={{ sys, board, keys }} />}
-      >
-        <Show when={topPage() === "store"} fallback={<SettingsTop page={topPage} sys={sys} scan={scan} />}>
-          <StoreTop sys={sys} selected={storeSelected} />
+    <AuxiliarySurface>
+      <View class="relative w-full h-full bg-black overflow-hidden">
+        {board.view()}
+        <Show when={app()}>
+          <AppFrame
+            onReady={(node) => {
+              appNode = node;
+              jump(node, "scale", 0.3);
+              jump(node, "opacity", 0);
+              animate(node, "scale", 1, { dur: ZOOM_MS, easing: "out" });
+              animate(node, "opacity", 1, { dur: ZOOM_MS, easing: "out" });
+            }}
+          >
+            {stack.view()}
+          </AppFrame>
         </Show>
-      </Show>
-      <AuxiliarySurface>
-        <View class="relative w-full h-full bg-black overflow-hidden">
-          {board.view()}
-          <Show when={app()}>
-            <AppFrame
-              onReady={(node) => {
-                appNode = node;
-                jump(node, "scale", 0.3);
-                jump(node, "opacity", 0);
-                animate(node, "scale", 1, { dur: ZOOM_MS, easing: "out" });
-                animate(node, "opacity", 1, { dur: ZOOM_MS, easing: "out" });
-              }}
-            >
-              {stack.view()}
-            </AppFrame>
-          </Show>
-          {alerts.view()}
-        </View>
-      </AuxiliarySurface>
-    </>
+        {alerts.view()}
+      </View>
+    </AuxiliarySurface>
   );
 }

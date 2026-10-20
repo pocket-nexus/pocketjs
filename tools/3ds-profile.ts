@@ -56,6 +56,7 @@ export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
         "link.companion",
         "system.wifi",
         "camera.qr",
+        "system.agent",
       ],
     },
   }),

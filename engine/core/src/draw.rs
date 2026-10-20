@@ -37,11 +37,27 @@ use crate::tree::Tree;
 /// so snapshots, hashes and damage diffs never need side data.
 pub struct DrawList {
     pub words: Vec<u32>,
+    /// Armed by `Ui::capture_texts` with a node id: the next build of this
+    /// list records every text run painted inside that node's subtree, with
+    /// its visible world box, into `texts`, then disarms (0). The agent reads
+    /// a screen this way (contracts/spec/agent.ts).
+    pub capture_texts: i32,
+    pub texts: Vec<TextBox>,
+}
+
+/// One painted text run: its visible box (clipped, world px) and its text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextBox {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub text: alloc::string::String,
 }
 
 impl DrawList {
     pub fn new() -> Self {
-        DrawList { words: Vec::new() }
+        DrawList { words: Vec::new(), capture_texts: 0, texts: Vec::new() }
     }
 }
 
@@ -1023,6 +1039,11 @@ struct Walker<'a> {
     inspect_slot: u32,
     /// World AABB of `inspect_slot`, set when the walk reaches it.
     inspect_hit: Option<Clip>,
+    /// Painted text runs, while a capture is armed (DrawList::capture_texts).
+    texts: Option<Vec<TextBox>>,
+    /// The capture's subtree root, and whether the walk is inside it.
+    capture_slot: u32,
+    capturing: bool,
 }
 
 /// Build the full DrawList for the current (laid-out) tree. `frame` is the
@@ -1109,6 +1130,9 @@ pub fn build_root(
         raster_density,
         inspect_slot,
         inspect_hit: None,
+        texts: if dl.capture_texts != 0 { Some(Vec::new()) } else { None },
+        capture_slot: if dl.capture_texts != 0 { tree.resolve(dl.capture_texts).unwrap_or(u32::MAX) } else { u32::MAX },
+        capturing: false,
         in_3d: false,
         provider_stale: false,
     };
@@ -1117,6 +1141,13 @@ pub fn build_root(
     };
     w.paint(root_slot, Affine::IDENTITY, 1.0, Clip::viewport(screen), false, dl);
     let provider_stale = w.provider_stale;
+    // A stale provider repaints this list; the capture waits for that pass.
+    if let Some(texts) = w.texts.take() {
+        if !provider_stale {
+            dl.texts = texts;
+            dl.capture_texts = 0;
+        }
+    }
     let target = w.inspect_hit.map(|c| (c.x0, c.y0, c.x1 - c.x0, c.y1 - c.y0));
     // Highlight glide: the drawn box exponentially approaches the target
     // (~0.35/draw ≈ converged in 6 draws), so switching the inspected node
@@ -1166,6 +1197,26 @@ pub fn build_root(
 
 impl<'a> Walker<'a> {
     fn paint(
+        &mut self,
+        slot: u32,
+        parent_world: Affine,
+        opacity: f32,
+        clip: Clip,
+        in_transform: bool,
+        dl: &mut DrawList,
+    ) {
+        // A text capture reads one subtree: the walk is inside it from its
+        // root down.
+        if slot == self.capture_slot && !self.capturing {
+            self.capturing = true;
+            self.paint_node(slot, parent_world, opacity, clip, in_transform, dl);
+            self.capturing = false;
+            return;
+        }
+        self.paint_node(slot, parent_world, opacity, clip, in_transform, dl);
+    }
+
+    fn paint_node(
         &mut self,
         slot: u32,
         parent_world: Affine,
@@ -2760,6 +2811,16 @@ impl<'a> Walker<'a> {
         collect_run_of(self.tree, node, &mut run);
         if run.is_empty() {
             return;
+        }
+        if let (true, Some(texts)) = (self.capturing, self.texts.as_mut()) {
+            let mut b = world_aabb_of(self.screen, world, box_w, node.layout.h);
+            b.x0 = b.x0.max(clip.x0);
+            b.y0 = b.y0.max(clip.y0);
+            b.x1 = b.x1.min(clip.x1);
+            b.y1 = b.y1.min(clip.y1);
+            if b.x1 > b.x0 && b.y1 > b.y0 {
+                texts.push(TextBox { x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0, text: run.clone() });
+            }
         }
         // The node's measurement provider was RECORDED at layout time
         // (layout.rs build(): native iff a measurer is installed, tracking

@@ -1,5 +1,0 @@
-<svg width="64" height="64" viewBox="0 0 64 64">
-  <rect x="12" y="14" width="40" height="28" fill="#ffffff" />
-  <rect x="16" y="18" width="32" height="20" fill="hole" />
-  <path d="M6 45 L58 45 L54 51 L10 51 Z" fill="#ffffff" />
-</svg>

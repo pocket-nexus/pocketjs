@@ -895,6 +895,24 @@ mod tests {
     }
 }
 
+static mut CAPTURED_TEXTS: String = String::new();
+#[no_mangle]
+pub extern "C" fn ui_capture_texts(surface: u32, root: i32) -> i32 {
+    ui().capture_texts(surface, root) as i32
+}
+/// Stage the last capture; returns its byte length (ui_captured_texts_ptr).
+#[no_mangle]
+pub extern "C" fn ui_captured_texts(surface: u32) -> usize {
+    unsafe {
+        CAPTURED_TEXTS = ui().captured_texts(surface);
+        (&*core::ptr::addr_of!(CAPTURED_TEXTS)).len()
+    }
+}
+#[no_mangle]
+pub extern "C" fn ui_captured_texts_ptr() -> *const u8 {
+    unsafe { (&*core::ptr::addr_of!(CAPTURED_TEXTS)).as_ptr() }
+}
+
 // One bounded JSON staging buffer; callers copy before the next stream query.
 static mut FONT_STREAM_JSON: String = String::new();
 #[no_mangle]

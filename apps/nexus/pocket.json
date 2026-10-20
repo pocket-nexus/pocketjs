@@ -13,6 +13,9 @@
         "display.auxiliary",
         "input.touch.auxiliary",
         "ui.physics"
+      ],
+      "enhances": [
+        "system.agent"
       ]
     }
   },

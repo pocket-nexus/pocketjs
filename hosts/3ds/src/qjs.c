@@ -19,7 +19,8 @@
  *
  * Host services beside `ui` (their contracts are in contracts/spec/):
  * `link` (link.ts) and `net` (net.ts), both served by link.c over the Pocket
- * Link; `wifi` (wifi.ts, wifi.c); `camera` (camera.ts, camera.c). The app
+ * Link; `wifi` (wifi.ts, wifi.c); `camera` (camera.ts, camera.c); `agent`
+ * (agent.ts, agent.c) for a guest that declared "system.agent". The app
  * switching ops 39..41 hang on `ui` (docs/LAUNCHER.md, launcher.c). Capture
  * and offload builds compile those services to inert stubs and leave the
  * app switching ops out.
@@ -32,6 +33,7 @@
 #include "camera.h"
 #include "launcher.h"
 #include "link.h"
+#include "agent.h"
 #include "wifi.h"
 
 #include <stdlib.h>
@@ -134,6 +136,15 @@ typedef enum {
   HostCameraClose,
   HostCameraPoll,
   HostCameraInfo,
+  HostCaptureTexts,
+  HostCapturedTexts,
+  HostAgentPoll,
+  HostAgentSend,
+  HostAgentStage,
+  HostAgentListen,
+  HostAgentLevel,
+  HostAgentShot,
+  HostAgentStatus,
 } HostOperation;
 
 static JSRuntime *runtime;
@@ -717,6 +728,39 @@ static JSValue host_operation(
     }
     case HostCameraInfo:
       return JS_NewString(ctx, camera_info_json());
+    case HostCaptureTexts:
+      return JS_NewBool(
+        ctx,
+        ui_capture_texts((uint32_t)argument_int(ctx, argc, argv, 0), argument_int(ctx, argc, argv, 1)) != 0
+      );
+    case HostCapturedTexts: {
+      size_t length = 0;
+      const uint8_t *texts = ui_captured_texts((uint32_t)argument_int(ctx, argc, argv, 0), &length);
+      return JS_NewStringLen(ctx, (const char *)texts, length);
+    }
+    case HostAgentPoll: {
+      const char *batch = agent_poll();
+      return batch == NULL ? JS_UNDEFINED : JS_NewString(ctx, batch);
+    }
+    case HostAgentSend: {
+      if (argc < 1 || !JS_IsString(argv[0])) return JS_FALSE;
+      text = JS_ToCStringLen2(ctx, &text_length, argv[0], 0);
+      if (text == NULL) return JS_FALSE;
+      bool sent = agent_send(text, text_length);
+      JS_FreeCString(ctx, text);
+      return JS_NewBool(ctx, sent);
+    }
+    case HostAgentStage:
+      agent_stage(argument_int(ctx, argc, argv, 0), argument_int(ctx, argc, argv, 1));
+      return JS_UNDEFINED;
+    case HostAgentListen:
+      return JS_NewInt32(ctx, agent_listen(argument_int(ctx, argc, argv, 0)));
+    case HostAgentLevel:
+      return JS_NewInt32(ctx, agent_level());
+    case HostAgentShot:
+      return JS_NewInt32(ctx, agent_shot());
+    case HostAgentStatus:
+      return JS_NewString(ctx, agent_status_json());
     default:
       break;
   }
@@ -804,6 +848,8 @@ static void install_host(void) {
   add_operation(ui, "setCursorPos", 2, HostSetCursorPos);
   add_operation(ui, "loadStyles", 1, HostLoadStyles);
   add_operation(ui, "loadFontAtlas", 1, HostLoadFontAtlas);
+  add_operation(ui, "captureTexts", 2, HostCaptureTexts);
+  add_operation(ui, "capturedTexts", 1, HostCapturedTexts);
   add_operation(ui, "measureText", 2, HostMeasureText);
   /* Texture streaming ops (spec ops 23..25: deep-zoom tiles + dynamic IMGs). */
   add_operation(ui, "loadTileTexture", 2, HostLoadTileTexture);
@@ -950,6 +996,19 @@ static void install_host(void) {
   add_operation(camera, "poll", 0, HostCameraPoll);
   add_operation(camera, "info", 0, HostCameraInfo);
   JS_SetPropertyStr(context, global, "camera", camera);
+
+  /* Only a guest that declared "system.agent" sees the namespace. */
+  if (agent_enabled()) {
+    JSValue agent = JS_NewObject(context);
+    add_operation(agent, "poll", 0, HostAgentPoll);
+    add_operation(agent, "send", 1, HostAgentSend);
+    add_operation(agent, "stage", 2, HostAgentStage);
+    add_operation(agent, "listen", 1, HostAgentListen);
+    add_operation(agent, "level", 0, HostAgentLevel);
+    add_operation(agent, "shot", 0, HostAgentShot);
+    add_operation(agent, "status", 0, HostAgentStatus);
+    JS_SetPropertyStr(context, global, "agent", agent);
+  }
 }
 
 static bool drain_jobs(void) {

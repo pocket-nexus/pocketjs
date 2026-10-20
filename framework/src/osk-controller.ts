@@ -34,6 +34,14 @@ export interface OskController {
   openedFrame(): number;
 }
 
+/** The keyboard opened last and still open: where typed text goes when no
+ * finger types it (the agent's `type` tool, contracts/spec/agent.ts). */
+let openController: OskController | null = null;
+
+export function openOsk(): OskController | null {
+  return openController !== null && openController.isOpen() ? openController : null;
+}
+
 export function createOsk(opts: CreateOskOptions): OskController {
   const [isOpen, setOpen] = createSignal(false);
   const [caretRaw, setCaretRaw] = createSignal(0);
@@ -46,9 +54,11 @@ export function createOsk(opts: CreateOskOptions): OskController {
       setCaretRaw(opts.value().length);
       opened = virtualFrame();
       setOpen(true);
+      openController = controller;
     },
     close() {
       setOpen(false);
+      if (openController === controller) openController = null;
     },
     isOpen,
     caret,

@@ -17,7 +17,8 @@
         "link.companion",
         "system.wifi",
         "camera.qr",
-        "input.analog.left"
+        "input.analog.left",
+        "system.agent"
       ]
     }
   },

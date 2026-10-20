@@ -132,6 +132,10 @@ typedef struct {
 static DVLB_s *shader_blob;
 static shaderProgram_s shader_program;
 static int projection_uniform;
+/* The DrawList's vertex layout. Another drawer (the agent stage) binds its
+ * own, so every surface draw sets this one again. */
+static C3D_AttrInfo draw_attributes;
+static C3D_BufInfo draw_buffers;
 
 static Vertex *vertices;
 static uint32_t vertex_count;
@@ -964,6 +968,8 @@ void gfx_draw_surface(uint32_t surface) {
   if (!batch->prepared || batch->command_count == 0) return;
 
   C3D_BindProgram(&shader_program);
+  C3D_SetAttrInfo(&draw_attributes);
+  C3D_SetBufInfo(&draw_buffers);
   C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, projection_uniform, &batch->projection);
   C3D_DepthTest(false, GPU_ALWAYS, GPU_WRITE_COLOR);
   C3D_CullFace(GPU_CULL_NONE);
@@ -1042,6 +1048,8 @@ bool gfx_init(uint32_t logical_width, uint32_t logical_height) {
   C3D_BufInfo *buffer = C3D_GetBufInfo();
   BufInfo_Init(buffer);
   if (BufInfo_Add(buffer, vertices, sizeof *vertices, 3, 0x210) < 0) return false;
+  draw_attributes = *attributes;
+  draw_buffers = *buffer;
 
   uint8_t opaque[8 * 8 * 4];
   memset(opaque, 0xff, sizeof opaque);

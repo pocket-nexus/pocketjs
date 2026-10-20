@@ -1,7 +1,8 @@
 // tests/hn-sim.test.ts — the Hacker News mini-app (apps/hn) headless on the
 // wasm core with the 3DS geometry and a fixture-routed NET module
 // (hosts/sim/net.ts, tests/hn-fixture.ts): the story list, paging, feeds,
-// a comment thread with collapse, the reading pane, and the error states.
+// a story's thread (the story and every comment in full) with collapse, and
+// the error states. The app draws nothing on the top screen.
 //
 // POCKET_HOME_SHOTS=<dir> also writes top/bottom PNGs of the list and thread.
 
@@ -61,6 +62,29 @@ function peakInflight(hn: Console3ds): number {
   return peak;
 }
 
+/** Every text of the thread in reading order: R pages down until the end. */
+async function readThread(hn: Console3ds): Promise<string> {
+  const seen: string[] = [];
+  let last = "";
+  for (let page = 0; page < 12; page++) {
+    const texts = hn.texts("auxiliary").filter((line) => line.trim() !== "");
+    const key = texts.join("\n");
+    if (key === last) break;
+    last = key;
+    // Pages overlap: keep the lines after the longest prefix already seen.
+    let overlap = 0;
+    for (let size = Math.min(texts.length, seen.length); size > 0; size--) {
+      if (texts.slice(0, size).join("\n") === seen.slice(seen.length - size).join("\n")) {
+        overlap = size;
+        break;
+      }
+    }
+    seen.push(...texts.slice(overlap));
+    await hn.press(BTN.RTRIGGER, 30);
+  }
+  return seen.join(" ");
+}
+
 describe("stories", () => {
   test("the front page loads its ids, then 20 stories, never more than two requests at once", async () => {
     const hn = await boot();
@@ -75,15 +99,18 @@ describe("stories", () => {
     shot(hn, "list");
   });
 
-  test("the d-pad selects a story and the top screen reads it", async () => {
+  test("the d-pad walks the stories and A opens the one it lit", async () => {
     const hn = await boot();
     await hn.run(80);
     await hn.press(BTN.DOWN);
     await hn.press(BTN.DOWN);
-    const top = hn.texts("primary");
-    expect(top).toContain("The quiet engineering behind resistive");
-    expect(top).toContain("example1.com");
-    expect(top.some((line) => line.startsWith("393 points  |  by pocketdev"))).toBe(true);
+    await hn.press(BTN.CIRCLE);
+    await hn.run(40);
+    const bottom = hn.texts("auxiliary");
+    expect(bottom.join(" ")).toContain("The quiet engineering behind resistive");
+    expect(bottom).toContain("example1.com");
+    expect(bottom.some((line) => line.startsWith("393 points  |  by pocketdev"))).toBe(true);
+    expect(hn.texts("primary")).toEqual([]);
   });
 
   test("scrolling to the end pages in the next 20", async () => {
@@ -101,51 +128,82 @@ describe("stories", () => {
     await hn.tapText("New");
     await hn.run(40);
     expect(started(hn)).toContain(`${HN_API}/newstories.json`);
-    expect(hn.texts("primary")).toContain("New");
+    expect(hn.texts("primary")).toEqual([]);
   });
 
-  test("Ask HN stories show their text in the reading pane", async () => {
+  test("an Ask HN thread opens with the post's text in full", async () => {
     const hn = await boot();
     await hn.run(60);
     await hn.tapText("Ask");
     await hn.run(40);
     await hn.press(BTN.DOWN);
-    expect(hn.texts("primary").join(" ")).toContain("Mine is a 3DS running PocketJS. I'd love to hear about yours & why.");
+    await hn.press(BTN.CIRCLE);
+    await hn.run(40);
+    expect(hn.texts("auxiliary").join(" ")).toContain("Mine is a 3DS running PocketJS. I'd love to hear about yours & why.");
   });
 });
 
 describe("comments", () => {
-  test("a story opens its thread depth-first; tapping a comment reads it, tapping again collapses it", async () => {
+  test("a story opens its thread depth-first with every comment in full; tapping one collapses its replies", async () => {
     const hn = await boot();
     await hn.run(80);
     await hn.tapText("Show HN: A dual-screen Hacker");
     await hn.run(60);
     const bottom = hn.texts("auxiliary");
+    const all = bottom.join(" ");
     expect(bottom).toContain("7 Comments");
-    expect(bottom).toContain("ruthk");
-    expect(bottom).toContain("This is great. The top screen as a reading pane is");
+    expect(bottom.some((line) => line.startsWith("ruthk"))).toBe(true);
+    // The whole comment, its second paragraph included.
+    expect(all).toContain("Does it cache stories between launches?");
+    expect(all).toContain("how the hardware wants to be used.");
+    expect(hn.texts("primary")).toEqual([]);
+    shot(hn, "comments");
     // Depth-first: the reply to the first comment comes before the second top-level comment.
-    expect(bottom.indexOf("Not yet. Items live in memory while the app runs;")).toBeLessThan(bottom.indexOf("kestrel") === -1 ? Infinity : bottom.indexOf("kestrel"));
+    const thread = await readThread(hn);
+    expect(thread.indexOf("Not yet. Items live in memory")).toBeGreaterThan(0);
+    expect(thread.indexOf("Not yet. Items live in memory")).toBeLessThan(thread.indexOf("How does it reach the API?"));
+    expect(thread).toContain("fetch(url) -> link -> Mac -> https");
     // The deleted leaf (5004) is not shown; no comment is fetched twice.
     const items = started(hn).filter((url) => /item\/50\d\d/.test(url));
     expect(new Set(items).size).toBe(items.length);
     expect(items).toHaveLength(7);
     expect(peakInflight(hn)).toBeLessThanOrEqual(2);
+    // Back to the top for the collapse.
+    for (let page = 0; page < 8; page++) await hn.press(BTN.LTRIGGER, 20);
 
-    await hn.tapText("This is great. The top screen as a reading pane is");
-    const top = hn.texts("primary");
-    expect(top).toContain("Does it cache stories between launches?");
-    expect(top.some((line) => line.startsWith("ruthk"))).toBe(true);
-    shot(hn, "comments");
-
-    await hn.tapText("This is great. The top screen as a reading pane is");
+    const first = bottom.find((line) => line.startsWith("This is great."))!;
+    await hn.tapText(first);
     await hn.run(4);
     expect(hn.texts("auxiliary")).toContain("2 replies hidden");
-    expect(hn.texts("auxiliary")).not.toContain("Not yet. Items live in memory while the app runs;");
+    expect(hn.texts("auxiliary").join(" ")).not.toContain("Not yet. Items live in memory");
+
+    await hn.tapText("2 replies hidden");
+    await hn.run(4);
+    expect(hn.texts("auxiliary")).not.toContain("2 replies hidden");
 
     await hn.press(BTN.CROSS);
     await hn.run(24);
     expect(hn.texts("auxiliary")).toContain("Top");
+  });
+
+  test("R pages down the thread, and a comment without replies does not collapse", async () => {
+    const hn = await boot();
+    await hn.run(80);
+    await hn.tapText("Show HN: A dual-screen Hacker");
+    await hn.run(60);
+    const before = hn.locate("pocketdev")![1];
+    await hn.press(BTN.RTRIGGER, 30);
+    expect(hn.locate("pocketdev")?.[1] ?? -Infinity).toBeLessThan(before);
+    shot(hn, "comments-page2");
+    let leaf: string | undefined;
+    for (let page = 0; page < 8 && !leaf; page++) {
+      leaf = hn.texts("auxiliary").find((line) => line.startsWith("Makes sense."));
+      if (!leaf) await hn.press(BTN.RTRIGGER, 30);
+    }
+    await hn.tapText(leaf!);
+    await hn.run(4);
+    expect(hn.texts("auxiliary")).not.toContain("0 replies hidden");
+    expect(hn.texts("auxiliary")).toContain(leaf!);
   });
 
   test("code blocks and links in comments read as text", async () => {
@@ -155,7 +213,7 @@ describe("comments", () => {
     await hn.run(60);
     // The fifth comment in reading order holds the link and the code block.
     for (let step = 0; step < 5; step++) await hn.press(BTN.DOWN);
-    const all = [...hn.texts("auxiliary"), ...hn.texts("primary")].join("\n");
+    const all = hn.texts("auxiliary").join("\n");
     expect(all).toContain("fetch(url) -> link -> Mac -> https");
     expect(all).toContain("https://example.com/tls");
   });

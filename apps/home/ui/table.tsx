@@ -9,7 +9,7 @@
 import { createMemo, For, Show, type Accessor } from "solid-js";
 import { Image, Text, View } from "@pocketjs/framework/components";
 import { ClassicSpinner } from "@pocketjs/framework/classic";
-import { Bars, Switch, SWITCH_H, SWITCH_W, Tile, type Glyph } from "./chrome.tsx";
+import { Bars, Switch, SWITCH_H, SWITCH_W, Tile, type AppTint, type IconArt } from "./chrome.tsx";
 import { ellipsize, FONT, measure, wrap } from "./text.ts";
 import type { Press, Target } from "./touch.ts";
 
@@ -21,9 +21,7 @@ const GAP = 14;
 const FOOTER_LINE = 15;
 
 export interface CellIcon {
-  glyph: Glyph;
-  from: string;
-  to: string;
+  art: IconArt;
 }
 
 export interface Cell {
@@ -33,8 +31,8 @@ export interface Cell {
   /** Second line under the label (smaller, grey). */
   detail?: string;
   icon?: CellIcon;
-  /** Letters tile (generated app icon) instead of a glyph tile. */
-  tile?: { from: string; to: string; letters: string };
+  /** An app's icon (appTint) instead of a system icon. */
+  tile?: AppTint;
   accessory?: "chevron" | "check" | "switch" | "spinner" | "bars";
   /** Switch position or check visibility. */
   on?: boolean;
@@ -181,10 +179,10 @@ function CellView(props: { placed: PlacedCell; width: number; lit: Accessor<bool
         <View class="absolute h-[1] bg-[#d9dce0]" style={{ insetL: 0, insetT: y + h - 1, width: groupW }} />
       </Show>
       <Show when={cell.icon}>
-        {(icon) => <Tile x={6} y={y + (h - 24) / 2} size={24} from={icon().from} to={icon().to} glyph={icon().glyph} />}
+        {(icon) => <Tile x={6} y={y + (h - 24) / 2} size={24} art={icon().art} />}
       </Show>
       <Show when={cell.tile}>
-        {(tile) => <Tile x={6} y={y + (h - 24) / 2} size={24} from={tile().from} to={tile().to} letters={tile().letters} />}
+        {(tile) => <Tile x={6} y={y + (h - 24) / 2} size={24} art={tile().art} from={tile().from} to={tile().to} letters={tile().letters} />}
       </Show>
       <Text
         class={cell.tone === "action"

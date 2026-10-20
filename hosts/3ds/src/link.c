@@ -28,6 +28,7 @@
  */
 
 #include "link.h"
+#include "agent.h"
 #include "link_proto.h"
 
 #include <stdio.h>
@@ -617,6 +618,7 @@ static void finish_pairing(bool paired, const char *message) {
 static void drop(const char *reason) {
   bool was_up = phase == PHASE_UP;
   close_connection();
+  if (was_up) agent_link_changed(false);
   if (was_up || phase == PHASE_AUTH || phase == PHASE_CHALLENGE) fail_requests(reason);
   set_error(reason);
   if (attempt.pair && pair_active) {
@@ -853,6 +855,7 @@ static void become_linked(JsonSpan message, Companion *companion) {
   last_ping_ms = now;
   ping_sent_ms = 0;
   enter(PHASE_UP);
+  agent_link_changed(true);
 }
 
 static void handle_auth_reply(JsonSpan message) {
@@ -1110,6 +1113,7 @@ static void handle_data(const uint8_t *payload, uint32_t length) {
   uint32_t id = link_read_u32(payload);
   const uint8_t *bytes = payload + 4;
   size_t count = length - 4;
+  if (agent_link_data(id, bytes, count)) return;
   NetRequest *net = find_net(id);
   if (net != NULL) {
     if (net->phase != NET_BODY || count > net->response_length - net->response_received) {
@@ -1160,6 +1164,7 @@ static void handle_ctrl(const uint8_t *payload, uint32_t length) {
     handle_auth_reply(message);
     return;
   }
+  if (agent_link_ctrl((const char *)payload, length)) return;
   char type[24];
   if (!json_find_string(message, "t", type, sizeof type)) return;
   uint64_t id = 0;
@@ -1834,6 +1839,32 @@ const char *link_net_last_error(void) {
   return net_error;
 }
 
+bool link_agent_ready(void) {
+  return phase == PHASE_UP && has_feature("agent");
+}
+
+bool link_send_ctrl(const char *json, size_t length) {
+  return phase == PHASE_UP && queue_ctrl(json, length);
+}
+
+bool link_send_data(uint32_t stream, const uint8_t *bytes, size_t length) {
+  if (phase != PHASE_UP || length > LINK_MAX_DATA) return false;
+  uint8_t prefix[4];
+  link_write_u32(prefix, stream);
+  return queue_frame(LINK_FRAME_DATA, prefix, 4, bytes, length);
+}
+
+uint32_t link_new_stream(void) {
+  return take_id();
+}
+
+bool link_clock_now(int64_t *utc_ms, int32_t *offset_min) {
+  if (!clock_known) return false;
+  *utc_ms = (int64_t)console_epoch_ms() + clock_skew_ms;
+  *offset_min = clock_offset_min;
+  return true;
+}
+
 void link_describe(char *out, size_t capacity) {
   const char *state = state_name();
   if (strcmp(state, "linked") == 0) snprintf(out, capacity, "LINKED %s", attempt.name);
@@ -1900,6 +1931,24 @@ int32_t link_net_take(int32_t handle, uint8_t *into, size_t length) {
 void link_net_cancel(int32_t handle) { (void)handle; }
 const char *link_net_poll(void) { return NULL; }
 const char *link_net_last_error(void) { return "unavailable: this build has no Pocket Link"; }
+bool link_agent_ready(void) { return false; }
+bool link_send_ctrl(const char *json, size_t length) {
+  (void)json;
+  (void)length;
+  return false;
+}
+bool link_send_data(uint32_t stream, const uint8_t *bytes, size_t length) {
+  (void)stream;
+  (void)bytes;
+  (void)length;
+  return false;
+}
+uint32_t link_new_stream(void) { return 0; }
+bool link_clock_now(int64_t *utc_ms, int32_t *offset_min) {
+  (void)utc_ms;
+  (void)offset_min;
+  return false;
+}
 
 void link_describe(char *out, size_t capacity) {
   snprintf(out, capacity, "NO LINK");

@@ -2144,6 +2144,49 @@ impl Ui {
         }
     }
 
+    /// Arm a capture of the text runs painted inside node `root`'s subtree
+    /// on the next draw of `surface` (0 the primary output, 1 the auxiliary
+    /// one); `root` 0 reads the whole surface. Returns false for a surface
+    /// this Ui does not have or a node it does not hold.
+    pub fn capture_texts(&mut self, surface: u32, root: i32) -> bool {
+        if root != 0 && self.tree.resolve(root).is_none() {
+            return false;
+        }
+        match surface {
+            0 => self.draw_list.capture_texts = if root == 0 { spec::ROOT_ID } else { root },
+            1 => match self.auxiliary.as_mut() {
+                Some(auxiliary) => auxiliary.draw_list.capture_texts = if root == 0 { auxiliary.root } else { root },
+                None => return false,
+            },
+            _ => return false,
+        }
+        true
+    }
+
+    /// The last capture of `surface`, one painted text run per line:
+    /// `x,y,w,h` (whole px of its visible box), a tab, then the text with
+    /// tabs and line breaks as spaces. Empty until a capture completes.
+    pub fn captured_texts(&self, surface: u32) -> alloc::string::String {
+        use core::fmt::Write;
+        let list = match surface {
+            0 => &self.draw_list,
+            1 => match self.auxiliary.as_ref() {
+                Some(auxiliary) => &auxiliary.draw_list,
+                None => return alloc::string::String::new(),
+            },
+            _ => return alloc::string::String::new(),
+        };
+        let mut out = alloc::string::String::new();
+        for text in &list.texts {
+            let _ = write!(out, "{},{},{},{}\t", text.x as i32, text.y as i32, (text.w + 0.999) as i32, (text.h + 0.999) as i32);
+            for ch in text.text.chars() {
+                out.push(if ch == '\t' || ch == '\n' || ch == '\r' { ' ' } else { ch });
+            }
+            out.push('\n');
+        }
+        out
+    }
+
     /// Packed `x | y << 16` (i16 halves) of the inspected node's last-drawn
     /// world AABB; -1 if it hasn't been painted since `debug_inspect`.
     pub fn debug_rect_xy(&self) -> i32 {

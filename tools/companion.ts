@@ -4,20 +4,24 @@
 //
 //   bun tools/companion.ts serve [--apps <dir>]... [--name <n>] [--port <p>]
 //                                [--allow-private] [--store <dir>] [--unicast <ip>]...
+//                                [--no-agent] [--agent-model <id>] [--agent-effort <level>]
 //   bun tools/companion.ts pair [--wait]     open a pairing window, print the QR code
 //   bun tools/companion.ts status [--json]
 //   bun tools/companion.ts forget <console id>
 //   bun tools/companion.ts apps-dir <path>
 //
-// `serve` runs the daemon: the link listener (TCP 8628), the beacon (UDP 8627)
-// and the local control API the other commands and the menu-bar app use.
+// `serve` runs the daemon: the link listener (TCP 8628), the beacon (UDP 8627),
+// the console agent (docs/POCKET-AGENT.md) and the local control API the
+// other commands and the menu-bar app use.
 
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { LINK_PORT } from "../contracts/spec/link.ts";
 import { controlRequest, readControl, startControl, type ControlInfo } from "./companion/control.ts";
 import { adoptSystemProxy } from "./companion/fetch.ts";
 import { encodeQr, renderQrTerminal } from "./companion/qr.ts";
+import { OWN_SCREEN_SCRIPT } from "./companion/own-screen.ts";
 import { Companion } from "./companion/server.ts";
 import { CompanionStore, defaultStoreDir } from "./companion/store.ts";
 
@@ -25,6 +29,7 @@ const USAGE = `usage: bun tools/companion.ts <command>
 
   serve [--apps <dir>]... [--name <name>] [--port <port>] [--allow-private]
         [--store <dir>] [--unicast <ip>]... [--parent-pid <pid>]
+        [--no-agent] [--agent-model <id>] [--agent-effort <level>]
   pair [--wait]          open a pairing window and print its QR code
   status [--json]        the running daemon's state
   forget <console id>    delete a console's key and close its link
@@ -46,6 +51,20 @@ function repoAppsDir(): string | null {
   return existsSync(join(root, "contracts", "spec", "link.ts")) ? join(root, "dist", "3ds") : null;
 }
 
+/** How the agent starts its own screen: this checkout's script, or the
+ *  checkout an apps directory belongs to (the app bundle names the
+ *  checkout's dist/3ds), run with Bun. Null when there is no checkout. */
+function ownScreenCommand(appsDirs: string[]): string[] | null {
+  if (existsSync(OWN_SCREEN_SCRIPT)) return [process.execPath, OWN_SCREEN_SCRIPT];
+  const bun = Bun.which("bun") ?? [join(homedir(), ".bun", "bin", "bun"), "/opt/homebrew/bin/bun"].find((path) => existsSync(path));
+  if (!bun) return null;
+  for (const dir of appsDirs) {
+    const script = join(dir, "..", "..", "tools", "companion", "own-screen.ts");
+    if (existsSync(script)) return [bun, script];
+  }
+  return null;
+}
+
 interface Args {
   command: string;
   positional: string[];
@@ -56,7 +75,7 @@ interface Args {
 
 function parseArgs(argv: string[]): Args {
   const args: Args = { command: argv[0] ?? "", positional: [], apps: [], unicast: [], flags: new Map() };
-  const valued = new Set(["--apps", "--name", "--port", "--store", "--unicast", "--parent-pid"]);
+  const valued = new Set(["--apps", "--name", "--port", "--store", "--unicast", "--parent-pid", "--agent-model", "--agent-effort"]);
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith("--")) {
@@ -97,6 +116,8 @@ async function serve(args: Args) {
   const apps = args.apps.length ? args.apps : [repoAppsDir()].filter((d): d is string => !!d);
   const port = args.flags.get("--port");
   const name = args.flags.get("--name");
+  const agentModel = args.flags.get("--agent-model");
+  const agentEffort = args.flags.get("--agent-effort");
   const companion = new Companion({
     store,
     name: typeof name === "string" ? name : undefined,
@@ -104,6 +125,13 @@ async function serve(args: Args) {
     appsDirs: apps,
     allowPrivate: args.flags.has("--allow-private"),
     unicast: args.unicast,
+    agent: args.flags.has("--no-agent")
+      ? false
+      : {
+          model: typeof agentModel === "string" ? agentModel : undefined,
+          effort: typeof agentEffort === "string" ? agentEffort : undefined,
+          ownScreenCommand: ownScreenCommand(apps),
+        },
     log,
   });
   await companion.start();
@@ -112,6 +140,7 @@ async function serve(args: Args) {
   log(`catalog: ${companion.catalog.directories.join(", ")}`);
   if (proxy) log(`net: via proxy ${proxy}`);
   if (args.flags.has("--allow-private")) log("net: private destinations allowed");
+  if (companion.agent?.available) log(`agent: codex${companion.agent.model ? ` model ${companion.agent.model}` : ""}, CODEX_HOME ${join(dir, "codex")}`);
 
   let stopping = false;
   const stop = async (reason: string) => {

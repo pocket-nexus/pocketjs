@@ -146,6 +146,14 @@ export async function createWasmUi(wasm, options = {}) {
     ops.fontStreamRequests = () => streamJSON(ex.ui_font_stream_requests);
     ops.fontStreamStats = () => streamJSON(ex.ui_font_stream_stats);
   }
+  // The agent's screen reading (contracts/spec/agent.ts): feature-detected.
+  if (ex.ui_capture_texts) {
+    ops.captureTexts = (surface, root) => !!ex.ui_capture_texts(surface, root ?? 0);
+    ops.capturedTexts = (surface) => {
+      const n = ex.ui_captured_texts(surface);
+      return new TextDecoder().decode(new Uint8Array(ex.memory.buffer, ex.ui_captured_texts_ptr(), n));
+    };
+  }
   // 2D bodies (spec ops 52..56, ui.physics) — feature-detected so a stale
   // pocketjs.wasm still boots; @pocketjs/framework/physics reports the gap.
   if (ex.ui_physics_create) {

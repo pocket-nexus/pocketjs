@@ -81,8 +81,11 @@ export interface LayerContext {
   setFocus(id: string): void;
   /** The content scroll offset (for windowing long lists). */
   offset: Accessor<number>;
-  /** Scroll content so [top, bottom) is in view. */
+  /** Scroll content so [top, bottom) is in view; a span taller than the
+   *  view shows its top. */
   reveal(top: number, bottom: number): void;
+  /** Scroll by `delta` px from where the scroll is heading, within the content. */
+  scrollBy(delta: number): void;
 }
 
 interface Layer {
@@ -205,12 +208,14 @@ function LayerView(props: {
     max: () => Math.max(0, (contentRef?.height() ?? 0) - VIEW_H),
     extent: () => VIEW_H,
   });
+  const maxOffset = () => Math.max(0, (contentRef?.height() ?? 0) - VIEW_H);
   const reveal = (top: number, bottom: number) => {
     const offset = scroller.intent();
-    if (top - 8 < offset) scroller.chaseTo(Math.max(0, top - 8));
-    else if (bottom + 8 > offset + VIEW_H) scroller.chaseTo(Math.min(bottom + 8 - VIEW_H, Math.max(0, (contentRef?.height() ?? 0) - VIEW_H)));
+    if (top - 8 < offset || bottom - top > VIEW_H - 16) scroller.chaseTo(Math.max(0, Math.min(maxOffset(), top - 8)));
+    else if (bottom + 8 > offset + VIEW_H) scroller.chaseTo(Math.min(bottom + 8 - VIEW_H, maxOffset()));
   };
-  const spec = props.options.page(props.entry.page, props.stack, { focus, setFocus, offset: scroller.offset, reveal });
+  const scrollBy = (delta: number) => scroller.chaseTo(Math.max(0, Math.min(maxOffset(), scroller.intent() + delta)));
+  const spec = props.options.page(props.entry.page, props.stack, { focus, setFocus, offset: scroller.offset, reveal, scrollBy });
   contentRef = spec.content;
   const content = spec.content;
   const [hidden, setHidden] = createSignal(false);

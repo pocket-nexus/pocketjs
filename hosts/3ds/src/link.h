@@ -62,6 +62,18 @@ void link_net_cancel(int32_t handle);
 const char *link_net_poll(void);
 const char *link_net_last_error(void);
 
+/* The agent channel (agent.c, contracts/spec/agent.ts). Ready when the
+ * link is up and the companion offered the "agent" feature. The send calls
+ * queue whole frames or nothing; false means no room (or no link) now. */
+bool link_agent_ready(void);
+bool link_send_ctrl(const char *json, size_t length);
+bool link_send_data(uint32_t stream, const uint8_t *bytes, size_t length);
+/* A stream id from the console's request numbering. */
+uint32_t link_new_stream(void);
+/* The companion's clock: epoch ms (UTC) and its zone's offset. False until
+ * a companion has linked since boot. */
+bool link_clock_now(int64_t *utc_ms, int32_t *offset_min);
+
 /* One line for the development menu, e.g. "LINKED MACBOOK". */
 void link_describe(char *out, size_t capacity);
 

@@ -1,7 +1,8 @@
 // tests/home-sim.test.ts — Pocket Home (apps/home) headless on the wasm core
 // with the 3DS geometry, the 3DS app table and the Pocket Link, Wi-Fi and
 // camera fakes (hosts/sim/console-3ds.ts). Each journey drives the stylus and
-// the buttons and checks what the screens show and what the host was asked.
+// the buttons and checks what the touch screen shows and what the host was
+// asked. Home draws nothing on the top screen: it belongs to the system.
 //
 // POCKET_HOME_SHOTS=<dir> also writes top/bottom PNGs of each main screen.
 
@@ -67,6 +68,12 @@ function shot(console3ds: Console3ds, name: string): void {
   }
 }
 
+/** Close the open app (Settings or the store) back to the springboard. */
+async function closeApp(console3ds: Console3ds): Promise<void> {
+  await console3ds.press(BTN.START);
+  await console3ds.run(24);
+}
+
 /** Open Settings from the dock and let the zoom finish. */
 async function openSettings(console3ds: Console3ds): Promise<void> {
   await console3ds.tapText("Settings");
@@ -74,19 +81,18 @@ async function openSettings(console3ds: Console3ds): Promise<void> {
 }
 
 describe("springboard", () => {
-  test("installed apps fill the grid, the dock holds Settings and Mac, the top screen is the lock screen", async () => {
+  test("installed apps fill the grid under the status bar, the dock holds Settings and Mac", async () => {
     const home = await boot();
     await home.run(30);
+    shot(home, "springboard");
     const bottom = home.texts("auxiliary");
     // Labels keep a gap between neighbours, so long titles end in an ellipsis, as on iOS.
     for (const label of ["Hacker Ne...", "Pocket Ne...", "Contacts", "Settings", "Mac"]) expect(bottom).toContain(label);
-    const top = home.texts("primary");
-    // 01:41 UTC in the linked Mac's zone (UTC+8).
-    expect(top).toContain("9:41");
-    expect(top).toContain("Monday, October 19");
-    expect(top).toContain("Linked to Evan's MacBook Pro");
-    expect(top).toContain("3 apps offered. Open Mac below.");
-    shot(home, "springboard");
+    // The status bar: 01:41 UTC in the linked Mac's zone (UTC+8), and the Mac.
+    expect(bottom).toContain("Pocket");
+    expect(bottom).toContain("9:41 AM");
+    expect(bottom).toContain("Evan's MacBoo...");
+    expect(home.texts("primary")).toEqual([]);
   });
 
   test("tapping an icon zooms and asks the host to launch it", async () => {
@@ -103,7 +109,6 @@ describe("springboard", () => {
     await home.press(BTN.RIGHT); // first press: focus the first icon
     await home.press(BTN.RIGHT);
     await home.run(2);
-    expect(home.texts("primary")).toContain("Pocket Nexus");
     await home.press(BTN.CIRCLE);
     await home.run(30);
     expect(home.launches).toEqual(["nexus-main"]);
@@ -114,9 +119,8 @@ describe("springboard", () => {
     await home.run(10);
     await home.press(BTN.SQUARE);
     await home.run(6);
-    expect(home.texts("primary")).toContain("Editing Home");
     // The badge sits on the first icon's top-left corner.
-    await home.tap(18, 12);
+    await home.tap(18, 28);
     await home.run(4);
     expect(home.texts("auxiliary")).toContain('Delete "Hacker News"?');
     shot(home, "delete-alert");
@@ -127,12 +131,137 @@ describe("springboard", () => {
     expect(home.texts("auxiliary")).not.toContain("Hacker News");
   });
 
-  test("SELECT goes back to the app the host interrupted", async () => {
+  test("a banner names the app the host interrupted; SELECT goes back to it", async () => {
     const home = await boot({ resume: "hn-main" });
     await home.run(10);
-    expect(home.texts("primary")).toContain("Press SELECT to go back to it.");
+    expect(home.texts("auxiliary")).toContain("Tap here or press SELECT to go back to it.");
+    shot(home, "banner");
     await home.press(BTN.SELECT);
     expect(home.launches).toEqual(["hn-main"]);
+  });
+
+  test("tapping the banner goes back to the interrupted app; it slides away by itself", async () => {
+    const home = await boot({ resume: "hn-main" });
+    await home.run(10);
+    await home.tap(160, 18);
+    expect(home.launches).toEqual(["hn-main"]);
+    const later = await boot({ resume: "hn-main" });
+    await later.run(7 * 60);
+    expect(later.texts("auxiliary")).not.toContain("Tap here or press SELECT to go back to it.");
+    expect(later.texts("auxiliary")).toContain("9:41 AM");
+  });
+
+  test("an app that stopped with an error is announced by the banner", async () => {
+    const home = await boot({ lastError: { output: "nexus-main", message: "ReferenceError: frame is not defined" } });
+    await home.run(10);
+    const bottom = home.texts("auxiliary");
+    expect(bottom).toContain("Pocket Nexus stopped");
+    expect(bottom).toContain("ReferenceError: frame is not defined");
+    await home.tap(160, 18);
+    await home.run(20);
+    expect(home.launches).toEqual([]);
+    expect(home.texts("auxiliary")).not.toContain("Pocket Nexus stopped");
+  });
+});
+
+describe("springboard pages", () => {
+  // Eleven apps: eight on the first page, three on the second.
+  const MANY = Array.from({ length: 11 }, (_, index) => ({
+    output: `app${index + 1}-main`,
+    id: `dev.example.app${index + 1}`,
+    title: `App ${index + 1}`,
+    version: "1.0.0",
+    bytes: 40_000,
+  }));
+  const bootMany = () => boot({ apps: MANY });
+  // Measured on the second column: a label cut by the screen edge reports its clipped box.
+  const x = (home: Console3ds, title: string) => home.locate(title)?.[0] ?? null;
+  /** The brightness of page dot `index` of `count` (springboard DOTS_Y). */
+  const dot = (home: Console3ds, index: number, count: number) => {
+    const { width, rgba } = home.world.pixels("auxiliary");
+    const at = (168 + 3) * width + 160 - count * 6 + index * 12 + 3;
+    return rgba[at * 4]!;
+  };
+  /** Hold the stylus along a straight line, without lifting it. */
+  const hold = async (home: Console3ds, x0: number, x1: number, frames: number) => {
+    for (let frame = 0; frame <= frames; frame++) {
+      await home.step({ touches: [{ x: x0 + ((x1 - x0) * frame) / frames, y: 80 }], surface: "auxiliary" });
+    }
+  };
+
+  test("the row follows the finger, a slow short drag settles back, a flick turns the page", async () => {
+    const home = await bootMany();
+    await home.run(20);
+    expect(x(home, "App 1")).not.toBeNull();
+    expect(x(home, "App 9")).toBeNull();
+    expect(dot(home, 0, 2)).toBeGreaterThan(dot(home, 1, 2) + 60);
+    const start = x(home, "App 2")!;
+    await hold(home, 250, 150, 40);
+    expect(x(home, "App 2")! - start).toBeGreaterThan(-104);
+    expect(x(home, "App 2")! - start).toBeLessThan(-80);
+    shot(home, "page-drag");
+    await home.run(30);
+    expect(x(home, "App 2")).toBe(start);
+    await home.drag(250, 80, 190, 80, 3);
+    await home.run(30);
+    expect(x(home, "App 1")).toBeNull();
+    expect(x(home, "App 10")).toBe(start);
+    expect(dot(home, 1, 2)).toBeGreaterThan(dot(home, 0, 2) + 60);
+    shot(home, "page-2");
+    await home.tapText("App 9");
+    await home.run(30);
+    expect(home.launches).toEqual(["app9-main"]);
+  });
+
+  test("a slow drag past half a page turns it; past the last page the row resists", async () => {
+    const home = await bootMany();
+    await home.run(20);
+    const start = x(home, "App 2")!;
+    await home.drag(300, 80, 100, 80, 60);
+    await home.run(30);
+    expect(x(home, "App 10")).toBe(start);
+    // 160 px past the last page moves the row 69 px (the rubber band).
+    await hold(home, 260, 100, 40);
+    const pulled = x(home, "App 10")! - start;
+    expect(pulled).toBeLessThan(-60);
+    expect(pulled).toBeGreaterThan(-75);
+    await home.run(30);
+    expect(x(home, "App 10")).toBe(start);
+    // And past the first page the same way.
+    await home.drag(60, 80, 300, 80, 4);
+    await home.run(30);
+    expect(x(home, "App 2")).toBe(start);
+    await hold(home, 60, 220, 40);
+    expect(x(home, "App 2")! - start).toBeGreaterThan(60);
+    expect(x(home, "App 2")! - start).toBeLessThan(75);
+    await home.run(30);
+    expect(x(home, "App 2")).toBe(start);
+  });
+
+  test("the d-pad pages at the grid's edges", async () => {
+    const home = await bootMany();
+    await home.run(20);
+    await home.press(BTN.RIGHT); // focus App 1
+    for (let step = 0; step < 4; step++) await home.press(BTN.RIGHT);
+    await home.run(30);
+    expect(x(home, "App 9")).not.toBeNull();
+    expect(x(home, "App 1")).toBeNull();
+    await home.press(BTN.LEFT);
+    await home.run(30);
+    expect(x(home, "App 1")).not.toBeNull();
+    await home.press(BTN.CIRCLE);
+    await home.run(30);
+    expect(home.launches).toEqual(["app8-main"]);
+  });
+
+  test("one page still rubber-bands and settles", async () => {
+    const home = await boot();
+    await home.run(20);
+    const start = x(home, "Contacts")!;
+    await hold(home, 280, 120, 40);
+    expect(x(home, "Contacts")! - start).toBeLessThan(-60);
+    await home.run(30);
+    expect(x(home, "Contacts")).toBe(start);
   });
 });
 
@@ -142,8 +271,7 @@ describe("settings", () => {
     await home.run(10);
     await openSettings(home);
     const bottom = home.texts("auxiliary");
-    for (const label of ["Wi-Fi", "PocketNet", "Evan's MacBook Pro", "Apps", "3", "General"]) expect(bottom).toContain(label);
-    expect(home.texts("primary")).toContain("Settings");
+    for (const label of ["Settings", "Wi-Fi", "PocketNet", "Evan's MacBook Pro", "Apps", "3", "General"]) expect(bottom).toContain(label);
     shot(home, "settings");
   });
 
@@ -160,7 +288,9 @@ describe("settings", () => {
     expect(home.wifi!.log).toContain("connect 1");
     await home.run(40);
     expect(home.wifi!.status().ssid).toBe("Studio 5G");
-    expect(home.texts("primary")).toContain("Studio 5G");
+    await home.press(BTN.CROSS);
+    await home.run(24);
+    expect(home.texts("auxiliary")).toContain("Studio 5G");
   });
 
   test("the Wi-Fi switch turns the radio off", async () => {
@@ -185,7 +315,9 @@ describe("settings", () => {
     await home.tapText("Time Zone");
     await home.run(24);
     expect(home.texts("auxiliary")).toContain("From the Mac");
-    expect(home.texts("primary")).toContain("9:41 AM");
+    expect(home.texts("auxiliary")).toContain("UTC+8");
+    await closeApp(home);
+    expect(home.texts("auxiliary")).toContain("9:41 AM");
   });
 
   test("without a Mac, Time Zone moves the console's clock", async () => {
@@ -199,8 +331,8 @@ describe("settings", () => {
     // The console clock reads local time as UTC; the list opens on UTC.
     await home.tapText("UTC+1");
     await home.run(2);
-    expect(home.texts("primary")).toContain("2:41 AM");
-    expect(home.texts("primary")).toContain("UTC+1");
+    await closeApp(home);
+    expect(home.texts("auxiliary")).toContain("2:41 AM");
   });
 
   test("B walks back up the stack and closes Settings", async () => {
@@ -214,7 +346,7 @@ describe("settings", () => {
     expect(home.texts("auxiliary")).toContain("Wi-Fi");
     await home.press(BTN.CROSS);
     await home.run(24);
-    expect(home.texts("primary")).toContain("9:41");
+    expect(home.texts("auxiliary")).toContain("9:41 AM");
   });
 });
 
@@ -226,10 +358,10 @@ describe("pairing a Mac", () => {
     expect(home.texts("auxiliary")).toContain("Not Paired");
     await home.tapText("Mac");
     await home.run(24);
+    expect(home.texts("auxiliary").join(" ")).toContain("On your Mac, open Pocket Companion and choose Pair a Console...");
     await home.tapText("Pair a Mac...");
     await home.run(24);
     expect(home.camera!.log).toContain("open");
-    expect(home.texts("primary")).toContain("On your Mac, open Pocket Companion.");
     shot(home, "scanner");
 
     home.camera!.show("https://example.com/not-a-pairing-code");
@@ -293,6 +425,33 @@ describe("the Mac store", () => {
     expect(home.texts("auxiliary")).toContain("Weather");
     await home.tapText("Weather");
     await home.run(30);
+    expect(home.launches).toEqual(["weather-main"]);
+  });
+
+  test("a row opens the app's page; its button installs the app", async () => {
+    const home = await boot();
+    await home.run(10);
+    await home.tapText("Mac");
+    await home.run(24);
+    expect(home.texts("auxiliary")).toContain("3 apps offered by Evan's MacBook Pro");
+    await home.tapText("Weather");
+    await home.run(24);
+    shot(home, "store-detail");
+    const page = home.texts("auxiliary");
+    for (const label of ["Weather", "Version 1.0.0  94 KB", "GET", "Description", "Forecasts for your saved cities.", "Information"]) expect(page).toContain(label);
+    await home.drag(160, 200, 160, 80, 8);
+    await home.run(40);
+    const info = home.texts("auxiliary");
+    for (const label of ["Identifier", "dev.pocket-nexus.weather", "Installed", "No"]) expect(info).toContain(label);
+    await home.drag(160, 80, 160, 220, 8);
+    await home.run(40);
+    await home.tapText("GET");
+    expect(home.link!.log).toContain("install 2 dev.pocket-nexus.weather");
+    await home.run(40);
+    expect(home.texts("auxiliary")).toContain("OPEN");
+    expect(home.apps.map((app) => app.output)).toContain("weather-main");
+    await home.tapText("OPEN");
+    await home.run(4);
     expect(home.launches).toEqual(["weather-main"]);
   });
 

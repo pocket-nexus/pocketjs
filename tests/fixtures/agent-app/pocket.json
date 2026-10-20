@@ -1,0 +1,40 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.agent-fixture",
+  "name": "agent-fixture",
+  "title": "Agent Fixture",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": [
+        "text.glyphs.baked",
+        "input.buttons",
+        "display.auxiliary",
+        "input.touch.auxiliary"
+      ],
+      "enhances": [
+        "system.agent"
+      ]
+    }
+  },
+  "app": {
+    "entry": "tests/fixtures/agent-app/main.tsx",
+    "output": "agent-fixture-main",
+    "framework": "solid",
+    "surfaces": {
+      "auxiliary": {
+        "fixed": {
+          "logical": [320, 240],
+          "presentation": "native"
+        }
+      }
+    },
+    "viewport": {
+      "fixed": {
+        "logical": [400, 240],
+        "presentation": "native"
+      }
+    }
+  }
+}

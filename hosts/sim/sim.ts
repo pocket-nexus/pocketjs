@@ -473,7 +473,19 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
     hitTestBoundsAuxiliary?: (x: number, y: number) => number;
     __viewport: { w: number; h: number };
     __auxiliarySurface?: { root: number; w: number; h: number };
+    captureTexts?: (surface: number, root: number) => boolean;
   };
+  // A device draws every frame; this host draws only when asked. A text
+  // capture is read from a draw, so the frame that arms one draws its surface.
+  const armedCaptures = new Set<number>();
+  const captureTexts = ops.captureTexts;
+  if (captureTexts) {
+    ops.captureTexts = (surface: number, root: number) => {
+      const armed = captureTexts(surface, root);
+      if (armed) armedCaptures.add(surface);
+      return armed;
+    };
+  }
 
   const logs: GuestLog[] = [];
   const effects: EffectEvent[] = [];
@@ -605,6 +617,11 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
         guest(() => {
           appFrame(input.buttons ?? 0, input.analog ?? 0x8080, touches, hitFacts(touches), touches?.map(() => surface));
           for (let t = 0; t < ticksPerFrame; t++) wasm.tick();
+          for (const armed of armedCaptures) {
+            if (armed === 1) wasm.drawHashAuxiliary?.();
+            else wasm.drawHash?.();
+          }
+          armedCaptures.clear();
         });
       } catch (error) {
         failure = failureOf(error, "frame", frames);

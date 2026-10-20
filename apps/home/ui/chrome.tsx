@@ -102,61 +102,90 @@ export function StatusBar(props: StatusBarProps) {
 
 // ---- icon tiles ------------------------------------------------------------------
 
-export type Glyph =
-  | "art/gear.svg" | "art/wifi.svg" | "art/laptop.svg" | "art/apps.svg" | "art/info.svg"
-  | "art/clock.svg" | "art/camera.svg" | "art/download.svg";
+/** Icons rendered in Blender (art/icons/icons.py) and finished by
+ *  art/icons/bake.ts: the picture, the gloss, the rim and, at 46, the drop
+ *  shadow are all in the texture. */
+export type IconArt = "settings" | "mac" | "wifi" | "apps" | "hn" | "nexus";
+
+/** Corner radius as a fraction of the side (art/icons/bake.ts ICON_RADIUS). */
+const ICON_RADIUS = 0.2;
+
+/** Each icon's textures: [icon side, texture side, path]. The icon sits in
+ *  the middle of its texture, which leaves room for the shadow. */
+type Variant = readonly [icon: number, tex: number, src: string];
+const ART: Record<IconArt | "plain", readonly Variant[]> = {
+  settings: [[24, 32, "art/icons/settings-24.png"], [46, 64, "art/icons/settings-46.png"]],
+  mac: [[24, 32, "art/icons/mac-24.png"], [46, 64, "art/icons/mac-46.png"]],
+  wifi: [[24, 32, "art/icons/wifi-24.png"]],
+  apps: [[24, 32, "art/icons/apps-24.png"]],
+  hn: [[24, 32, "art/icons/hn-24.png"], [46, 64, "art/icons/hn-46.png"], [64, 64, "art/icons/hn-64.png"]],
+  nexus: [[24, 32, "art/icons/nexus-24.png"], [46, 64, "art/icons/nexus-46.png"], [64, 64, "art/icons/nexus-64.png"]],
+  /** The finish alone, over the tint of an app that ships no icon. */
+  plain: [[24, 32, "art/icons/plain-24.png"], [46, 64, "art/icons/plain-46.png"], [64, 64, "art/icons/plain-64.png"]],
+};
+
+/** The texture drawn for a tile `size` px wide: the smallest one that is not
+ *  magnified by more than 5%, else the largest. */
+function variant(art: IconArt | "plain", size: number): Variant {
+  const list = ART[art];
+  return list.find(([icon]) => icon >= size * 0.95) ?? list[list.length - 1]!;
+}
+
+/** Icon art by app id, for the apps that ship a picture. */
+const APP_ART: Record<string, IconArt> = {
+  "dev.pocket-nexus.hn": "hn",
+  "dev.pocket-nexus.nexus": "nexus",
+};
 
 export interface TileProps {
   x: number;
   y: number;
   size: number;
-  from: string;
-  to: string;
-  glyph?: Glyph;
-  /** Letters drawn when there is no glyph (generated app icons). */
+  /** A baked icon; without one the tile is the tint gradient and letters. */
+  art?: IconArt;
+  from?: string;
+  to?: string;
   letters?: string;
   /** Darkened while pressed. */
   dim?: Accessor<boolean>;
-  shadow?: boolean;
 }
 
-/** A glossy rounded-square icon: a vertical tint gradient, the iOS 6 gloss
- *  arc over the top half, a white glyph or letters, a darkening wash while
- *  pressed. */
+/** An iOS 6 icon: a baked picture, or a tint gradient with letters under the
+ *  same baked gloss, rim and shadow; a darkening wash while pressed. */
 export function Tile(props: TileProps) {
-  const r = Math.round(props.size * 0.22);
-  const glyph = Math.round(props.size * 0.72);
+  const r = Math.round(props.size * ICON_RADIUS);
+  const finish = (art: IconArt | "plain") => {
+    const [icon, tex, src] = variant(art, props.size);
+    const scale = props.size / icon;
+    const pad = ((tex - icon) / 2) * scale;
+    return <Image class="absolute" src={src} style={{ insetL: props.x - pad, insetT: props.y - pad, width: tex * scale, height: tex * scale }} />;
+  };
   const letterSlot = props.size >= 40 ? "large" : "small";
   return (
     <>
-      <View
-        class={props.shadow ? "absolute shadow" : "absolute"}
-        style={{ insetL: props.x, insetT: props.y, width: props.size, height: props.size, radius: r, gradDir: 1, gradFrom: props.from, gradTo: props.to }}
-      />
-      <Show when={props.glyph}>
-        {(src) => (
-          <Image
+      <Show when={props.art} fallback={
+        <>
+          <View
             class="absolute"
-            src={src()}
-            style={{ insetL: props.x + (props.size - glyph) / 2, insetT: props.y + (props.size - glyph) / 2, width: glyph, height: glyph }}
+            style={{ insetL: props.x, insetT: props.y, width: props.size, height: props.size, radius: r, gradDir: 1, gradFrom: props.from ?? "#a9b0b9", gradTo: props.to ?? "#5b636d" }}
           />
-        )}
+          <Text
+            class={letterSlot === "large" ? "absolute text-xl text-[#00000040] font-bold text-center" : "absolute text-sm text-[#00000040] font-bold text-center"}
+            style={{ insetL: props.x, insetT: props.y + (letterSlot === "large" ? props.size / 2 - 12 + 1 : props.size / 2 - 9 + 1), width: props.size }}
+          >
+            {props.letters ?? ""}
+          </Text>
+          <Text
+            class={letterSlot === "large" ? "absolute text-xl text-white font-bold text-center" : "absolute text-sm text-white font-bold text-center"}
+            style={{ insetL: props.x, insetT: props.y + (letterSlot === "large" ? props.size / 2 - 12 : props.size / 2 - 9), width: props.size }}
+          >
+            {props.letters ?? ""}
+          </Text>
+          {finish("plain")}
+        </>
+      }>
+        {(art) => finish(art())}
       </Show>
-      <Show when={!props.glyph && props.letters}>
-        <Text
-          class={letterSlot === "large" ? "absolute text-xl text-[#00000040] font-bold text-center" : "absolute text-sm text-[#00000040] font-bold text-center"}
-          style={{ insetL: props.x, insetT: props.y + (letterSlot === "large" ? props.size / 2 - 12 + 1 : props.size / 2 - 9 + 1), width: props.size }}
-        >
-          {props.letters}
-        </Text>
-        <Text
-          class={letterSlot === "large" ? "absolute text-xl text-white font-bold text-center" : "absolute text-sm text-white font-bold text-center"}
-          style={{ insetL: props.x, insetT: props.y + (letterSlot === "large" ? props.size / 2 - 12 : props.size / 2 - 9), width: props.size }}
-        >
-          {props.letters}
-        </Text>
-      </Show>
-      <Image class="absolute" src="art/gloss.svg" style={{ insetL: props.x, insetT: props.y, width: props.size, height: props.size }} />
       <View
         class={props.dim?.() ? "absolute bg-[#00000070]" : "hidden"}
         style={{ insetL: props.x, insetT: props.y, width: props.size, height: props.size, radius: r }}
@@ -165,8 +194,16 @@ export function Tile(props: TileProps) {
   );
 }
 
-/** Deterministic icon tint and letters for an app that ships no icon. */
-export function appTint(id: string, title: string): { from: string; to: string; letters: string } {
+export interface AppTint {
+  art?: IconArt;
+  from: string;
+  to: string;
+  letters: string;
+}
+
+/** An app's icon: its baked art when Home has one, else a deterministic tint
+ *  and letters. */
+export function appTint(id: string, title: string): AppTint {
   let hash = 0x811c9dc5;
   for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193) >>> 0;
   const hue = hash % 360;
@@ -177,7 +214,7 @@ export function appTint(id: string, title: string): { from: string; to: string; 
     .slice(0, 2)
     .map((word) => word[0]!.toUpperCase())
     .join("") || "?";
-  return { from: hsl(hue, 0.62, 0.62), to: hsl(hue, 0.7, 0.36), letters };
+  return { art: APP_ART[id], from: hsl(hue, 0.62, 0.62), to: hsl(hue, 0.7, 0.36), letters };
 }
 
 function hsl(h: number, s: number, l: number): string {

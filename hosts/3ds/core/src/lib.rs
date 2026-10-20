@@ -87,6 +87,8 @@ pub struct PocketGuestPackage {
 pub const POCKET_GUEST_FEATURE_OFFLOAD: u32 = 1;
 /// `features.media.playback` is true in the plan.
 pub const POCKET_GUEST_FEATURE_MEDIA: u32 = 2;
+/// `features.system.agent` is true in the plan: the top screen is the agent stage.
+pub const POCKET_GUEST_FEATURE_AGENT: u32 = 4;
 
 struct PakSprite {
     name: String,
@@ -219,7 +221,8 @@ pub unsafe extern "C" fn pocket_package_open(
         aux_height: auxiliary.map_or(0, |surface| surface.height),
         aux_raster_density: auxiliary.map_or(0, |surface| surface.raster_density),
         features: if facts.feature("io.offload") { POCKET_GUEST_FEATURE_OFFLOAD } else { 0 }
-            | if facts.feature("media.playback") { POCKET_GUEST_FEATURE_MEDIA } else { 0 },
+            | if facts.feature("media.playback") { POCKET_GUEST_FEATURE_MEDIA } else { 0 }
+            | if facts.feature("system.agent") { POCKET_GUEST_FEATURE_AGENT } else { 0 },
         slot,
     });
     0
@@ -904,6 +907,26 @@ pub extern "C" fn ui_pak_sprite_step(index: usize) -> u32 {
 #[no_mangle]
 pub extern "C" fn ui_debug_inspect(id: i32) {
     ui().debug_inspect(id);
+}
+
+static mut CAPTURED_TEXTS: String = String::new();
+
+/// Arm a capture of the text runs painted inside `root` (0: the whole
+/// surface) on the next draw of `surface` (0 primary, 1 auxiliary).
+#[no_mangle]
+pub extern "C" fn ui_capture_texts(surface: u32, root: i32) -> i32 {
+    ui().capture_texts(surface, root) as i32
+}
+
+/// The last capture (Ui::captured_texts), valid until the next call.
+#[no_mangle]
+pub extern "C" fn ui_captured_texts(surface: u32, length: *mut usize) -> *const u8 {
+    let texts = unsafe { &mut *core::ptr::addr_of_mut!(CAPTURED_TEXTS) };
+    *texts = ui().captured_texts(surface);
+    if !length.is_null() {
+        unsafe { *length = texts.len() };
+    }
+    texts.as_ptr()
 }
 
 #[no_mangle]

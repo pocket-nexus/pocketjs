@@ -1,5 +1,6 @@
 // Reference CONSOLE side of Pocket Link (contracts/spec/link.ts) in TS: the
-// handshake in both modes, ping, net / catalog / install requests, and a beacon
+// handshake in both modes, ping, net / catalog / install requests, the agent
+// channel's raw messages and streams (contracts/spec/agent.ts), and a beacon
 // listener. The tests drive the companion through it; a desktop or sim host
 // can use it as its link.
 
@@ -108,6 +109,7 @@ export class LinkConsoleClient {
   private pending = new Map<number, Pending>();
   private streams = new Map<number, Stream>();
   private listeners = new Set<(message: LinkCtrl) => void>();
+  private dataListeners = new Set<(stream: number, bytes: Uint8Array) => void>();
   private closeListeners = new Set<(reason: string) => void>();
   private pingTimer: ReturnType<typeof setInterval> | undefined;
   private closedReason: string | undefined;
@@ -248,7 +250,10 @@ export class LinkConsoleClient {
   private dispatch(frame: LinkFrame) {
     if (frame.type === "data") {
       const stream = this.streams.get(frame.stream);
-      if (!stream) return;
+      if (!stream) {
+        for (const listener of this.dataListeners) listener(frame.stream, frame.bytes);
+        return;
+      }
       stream.chunks.push(frame.bytes);
       stream.received += frame.bytes.length;
       stream.progress?.(stream.received, stream.expected);
@@ -282,6 +287,27 @@ export class LinkConsoleClient {
   onMessage(listener: (message: LinkCtrl) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Data frames on streams this client did not open (agent.screen). */
+  onData(listener: (stream: number, bytes: Uint8Array) => void): () => void {
+    this.dataListeners.add(listener);
+    return () => this.dataListeners.delete(listener);
+  }
+
+  /** One ctrl message as is (the agent channel's messages). */
+  sendCtrl(message: LinkCtrl) {
+    this.socket.write(encodeCtrl(message));
+  }
+
+  /** A fresh console-side id for a request or a stream. */
+  takeId(): number {
+    return this.nextId++;
+  }
+
+  /** Bytes on stream `stream`, in LINK_MAX_DATA chunks. */
+  sendStream(stream: number, bytes: Uint8Array) {
+    for (let at = 0; at < bytes.length; at += LINK_MAX_DATA) this.socket.write(encodeData(stream, bytes.subarray(at, at + LINK_MAX_DATA)));
   }
 
   onClose(listener: (reason: string) => void): () => void {

@@ -17,6 +17,7 @@ import { createSimLinkHost, type SimInstalledApp, type SimLinkFixture, type SimL
 import { createSimWifiHost, type SimWifiFixture, type SimWifiHost } from "./wifi.ts";
 import { createSimCameraHost, type SimCameraHost } from "./camera.ts";
 import { createSimNetHost, type SimNetHost, type SimNetRoute } from "./net.ts";
+import { createSimAgentHost, type SimAgentHost } from "./agent.ts";
 
 export const TOP_SCREEN: [number, number] = [400, 240];
 export const BOTTOM_SCREEN: [number, number] = [320, 240];
@@ -40,6 +41,8 @@ export interface Console3dsOptions {
   camera?: boolean;
   /** NET routes; omitted = no NET module. */
   net?: Readonly<Record<string, SimNetRoute>>;
+  /** Mount the agent namespace (contracts/spec/agent.ts); omitted = none. */
+  agent?: { available?: boolean };
   /** Virtual epoch at boot, ms. Default 2026-10-19T01:41:00Z. */
   epochMs?: number;
 }
@@ -50,6 +53,7 @@ export interface Console3ds {
   wifi: SimWifiHost | null;
   camera: SimCameraHost | null;
   net: SimNetHost | null;
+  agent: SimAgentHost | null;
   /** The table appTable() reports. */
   apps: Console3dsApp[];
   /** Every appLaunch() call, in order. */
@@ -133,6 +137,7 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
   const wifiHost = options.wifi === null ? null : createSimWifiHost(options.wifi ?? {});
   const cameraHost = options.camera === false ? null : createSimCameraHost();
   const netHost = options.net ? createSimNetHost(options.net) : null;
+  const agentHost = options.agent ? createSimAgentHost(options.agent) : null;
 
   let epoch = options.epochMs ?? DEFAULT_EPOCH;
   const realNow = Date.now;
@@ -150,6 +155,7 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
   g.wifi = wifiHost?.ns;
   g.camera = cameraHost?.ns;
   g.net = netHost?.ns;
+  g.agent = agentHost?.ns;
 
   // The bundle evaluates after bootBundle's first await, so the virtual
   // clock covers the whole boot, not just its synchronous start.
@@ -209,6 +215,7 @@ export async function bootConsole3ds(options: Console3dsOptions): Promise<Consol
     wifi: wifiHost,
     camera: cameraHost,
     net: netHost,
+    agent: agentHost,
     apps,
     launches,
     step,

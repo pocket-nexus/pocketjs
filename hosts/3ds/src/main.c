@@ -36,6 +36,8 @@
 #include <sys/stat.h>
 
 #include "gfx.h"
+#include "stage.h"
+#include "agent.h"
 #include "input.h"
 #include "pocket_core.h"
 #include "qjs.h"
@@ -148,6 +150,9 @@ extern char **__system_argv;
 
 static C3D_RenderTarget *primary_target;
 static C3D_RenderTarget *auxiliary_target;
+/* The top screen's right eye: only the agent stage draws in stereo. */
+static C3D_RenderTarget *right_target;
+static bool stage_ready;
 
 static const u32 DISPLAY_TRANSFER_FLAGS =
   GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
@@ -479,6 +484,11 @@ static bool boot_guest(
     return false;
   }
   if (!surfaces_admit(package, error, error_length)) return false;
+  /* The guest's capability decides who owns the top screen; it must be set
+   * before qjs_boot, which publishes `globalThis.agent` only for it. */
+  bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
+  agent_set_enabled(agent);
+  gfxSet3D(agent);
   ui_init(raster_density);
   ui_set_viewport((float)VIEW_W, (float)VIEW_H);
   if (ui_create_auxiliary_surface((float)AUX_VIEW_W, (float)AUX_VIEW_H) == 0) {
@@ -510,6 +520,7 @@ static void teardown_guest(void) {
    * install still streaming) and drop what belonged to this guest. */
   camera_teardown();
   link_reset_guest();
+  agent_set_enabled(false);
   qjs_shutdown();
   gfx_reset_resources();
   ui_shutdown();
@@ -1047,6 +1058,12 @@ int main(void) {
   C3D_RenderTargetSetOutput(auxiliary_target, GFX_BOTTOM, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
   if (!gfx_init(VIEW_W, VIEW_H)) fail("PICA200 backend failed to initialize");
+  /* A missing stage leaves the top screen to the guest, never a failed boot. */
+  right_target = C3D_RenderTargetCreate(VIEW_H, VIEW_W, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
+  if (right_target != NULL) {
+    C3D_RenderTargetSetOutput(right_target, GFX_TOP, GFX_RIGHT, DISPLAY_TRANSFER_FLAGS);
+    stage_ready = stage_init();
+  }
 
   PocketRuntimeState runtime_state = {0};
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
@@ -1251,6 +1268,12 @@ int main(void) {
     uint32_t touch = 0;
     size_t touch_count = devmenu_blocks_guest ? 0 : input_touch(&touch);
 #endif
+    if (agent_enabled()) {
+      if (buttons != 0 || touch_count > 0) stage_note_activity();
+      buttons = agent_filter_buttons(buttons);
+      agent_pump();
+      stage_tick();
+    }
 
     u64 offload_cpu_start = svcGetSystemTick();
     int32_t touch_hit = 0;
@@ -1326,6 +1349,11 @@ int main(void) {
     media_present();
 #endif
     camera_present();
+    if (agent_enabled()) {
+      /* The touch screen's last frame: the monitor's mirror and any shot. */
+      stage_capture_mirror(auxiliary_target);
+      agent_capture(auxiliary_target);
+    }
     if (!gfx_prepare_surface(0, ui_draw_list_ptr(), words, VIEW_W, VIEW_H) ||
         !gfx_prepare_surface(
           1,
@@ -1367,10 +1395,17 @@ int main(void) {
     gfx_finish_frame();
 
     C3D_RenderTargetClear(primary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-    C3D_FrameDrawOn(primary_target);
-    /* C3D_FrameDrawOn resets the viewport, so this comes after it. */
-    C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
-    gfx_draw_surface(0);
+    if (agent_enabled()) {
+      /* The top screen is the agent stage's; the guest's primary surface is
+       * laid out but not shown. */
+      if (osGet3DSliderState() > 0.0f) C3D_RenderTargetClear(right_target, C3D_CLEAR_ALL, 0x000000ff, 0);
+      stage_render(primary_target, right_target);
+    } else {
+      C3D_FrameDrawOn(primary_target);
+      /* C3D_FrameDrawOn resets the viewport, so this comes after it. */
+      C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
+      gfx_draw_surface(0);
+    }
 
     C3D_RenderTargetClear(auxiliary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
     C3D_FrameDrawOn(auxiliary_target);
@@ -1482,6 +1517,8 @@ int main(void) {
   input_shutdown();
   teardown_guest();
   C3D_FrameEnd(0);
+  agent_shutdown();
+  stage_shutdown();
   release_choice(&guest, embedded);
   runtime_package_free(embedded);
 #ifndef POCKETJS_CAPTURE

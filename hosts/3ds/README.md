@@ -498,6 +498,20 @@ on an Old 3DS: 30 frames and 4 decode passes a second with the guest still at
 Capture and offload builds compile link, net, wifi and camera to inert stubs
 and leave the app switching ops out, so goldens stay deterministic.
 
+## The agent stage
+
+A guest that declares `system.agent` gets the top screen drawn by the host:
+`src/stage.c` and `src/stage.v.pica` draw the mascot's room in stereo (a
+right-eye target `GFX_RIGHT`, `gfxSet3D` on while such a guest runs), and
+`src/agent.c` serves `globalThis.agent`: the L+R chord, the microphone (MICU
+at 16,360 Hz), touch-screen shots, and the companion's glyph atlases and
+own-screen frames, all over the Pocket Link. `main.c` filters the chord out of
+the guest's buttons, copies the touch screen into the monitor's texture at
+the start of the frame and calls `stage_render` in place of the primary
+surface's draw. `ui.captureTexts` / `ui.capturedTexts` read the texts a
+surface painted. The mechanism, the overlay and the companion side are in
+[docs/POCKET-AGENT.md](../../docs/POCKET-AGENT.md).
+
 ## ZL and ZR
 
 The New 3DS has four shoulder buttons and the PSP had two, so `BTN.ZL` /

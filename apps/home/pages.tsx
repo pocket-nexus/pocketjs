@@ -15,14 +15,10 @@ import type { Press } from "./ui/touch.ts";
 export const HOME_VERSION = "0.1.0";
 
 export const ICONS = {
-  wifi: { glyph: "art/wifi.svg", from: "#5aaaf8", to: "#1c62cf" },
-  mac: { glyph: "art/laptop.svg", from: "#b4bcc6", to: "#5f6874" },
-  apps: { glyph: "art/apps.svg", from: "#c08cf5", to: "#6b33c4" },
-  general: { glyph: "art/gear.svg", from: "#a9b0b9", to: "#5b636d" },
-  about: { glyph: "art/info.svg", from: "#6db3f6", to: "#2a6ccd" },
-  clock: { glyph: "art/clock.svg", from: "#ffad4a", to: "#e2620b" },
-  camera: { glyph: "art/camera.svg", from: "#7d8794", to: "#3b434d" },
-  store: { glyph: "art/download.svg", from: "#62b6fb", to: "#1460d6" },
+  wifi: { art: "wifi" },
+  mac: { art: "mac" },
+  apps: { art: "apps" },
+  general: { art: "settings" },
 } satisfies Record<string, CellIcon>;
 
 export interface PageEnv {
@@ -183,7 +179,10 @@ function macPage(env: PageEnv, stack: NavStack, layer: LayerContext): PageSpec {
           })),
         });
       }
-      sections.push({ cells: [{ id: "mac.pair", label: link.paired.length ? "Pair Another Mac..." : "Pair a Mac...", tone: "action", run: () => stack.push("scan") }] });
+      sections.push({
+        cells: [{ id: "mac.pair", label: link.paired.length ? "Pair Another Mac..." : "Pair a Mac...", tone: "action", run: () => stack.push("scan") }],
+        footer: "On your Mac, open Pocket Companion and choose Pair a Console... to show a code. Then hold the outer camera up to it.",
+      });
       return sections;
     }),
   };

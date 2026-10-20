@@ -15,7 +15,8 @@
         "net.http"
       ],
       "enhances": [
-        "input.analog.left"
+        "input.analog.left",
+        "system.agent"
       ]
     }
   },
