@@ -19,7 +19,7 @@
  * The monitor shows one of three textures: the touch screen (copied from its
  * render target with a raw texture copy each second frame), the agent's own
  * screen (RGB565 frames from the companion, tiled by the transfer engine) or
- * the screensaver (the PocketJS mark, name and line on plum, stage_saver.h,
+ * the screensaver (the PocketJS mark and its name on plum, stage_saver.h,
  * drifting about the screen and turning back at its edges).
  *
  * Over both eyes, at the screen's own pixels, a pill in the bottom-right
@@ -139,7 +139,7 @@ static float typing_phase;
 /* The screensaver's centre on the screen (0..1 across and down) and its
  * velocity a frame. */
 static float saver_x = 0.5f, saver_y = 0.45f;
-static float saver_vx = 0.0006f, saver_vy = 0.0011f;
+static float saver_vx = 0.0012f, saver_vy = 0.0009f;
 static uint32_t mode_since;
 
 enum { ACT_REST, ACT_LOOK, ACT_WATCH, ACT_KICK, ACT_STRETCH, ACT_HOP, ACT_SLEEP };

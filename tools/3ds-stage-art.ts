@@ -4,8 +4,8 @@
 //   stage_hint.h   the "L+R Ask Claude" pill, drawn at the top screen's own
 //                  pixels after both eyes while the mascot is idle. RGBA8 in
 //                  the byte order the GPU reads (A, B, G, R).
-//   stage_saver.h  the monitor's screensaver: the PocketJS mark and the
-//                  wordmark in Fredoka on the brand's plum, RGB565. The stage moves it about
+//   stage_saver.h  the monitor's screensaver: the PocketJS mark with a small
+//                  "PocketJS" in Fredoka under it, on the brand's plum, RGB565. The stage moves it about
 //                  the monitor with the texture matrix; its plum border is
 //                  what the clamped texture shows around it.
 //
@@ -39,8 +39,9 @@ const SAVER_H = 64;
 const BRAND = join(ROOT, "skills/pocketjs-video-outro/assets");
 const MARK_SVG = join(BRAND, "pocketjs-mark.svg");
 const PLUM = "#171226";
-/** The lockup's box on the layout grid: x0, y0, x1, y1. */
-const SAVER_CONTENT = [6, 36, 250, 92] as const;
+/** The mark's side and the name's size on the layout grid. */
+const SAVER_MARK = 60;
+const SAVER_NAME_PX = 20;
 
 const bold = opentype.parse(readFileSync(join(ROOT, "assets/fonts/Inter-Bold.ttf")).buffer as ArrayBuffer);
 
@@ -157,8 +158,8 @@ function hintHeader(): { text: string; rgba: Uint8Array; width: number; height: 
   return { text, rgba: image.rgba, width: TEX_W, height: TEX_H };
 }
 
-/** The screensaver: the mark and the wordmark on one line, centred on
- *  plum. The plum margin is what the clamped edge repeats. */
+/** The screensaver: the mark, and the name in small type under it, centred
+ *  on plum. The plum margin is what the clamped edge repeats. */
 function saverHeader(): { text: string; rgba: Uint8Array; width: number; height: number } {
   GlobalFonts.registerFromPath(join(BRAND, "Fredoka.ttf"), "Fredoka");
   // Rasterize the SVG at its drawn size, not at its viewBox's 32 units.
@@ -170,15 +171,20 @@ function saverHeader(): { text: string; rgba: Uint8Array; width: number; height:
   g.scale(4, 4);
   g.fillStyle = PLUM;
   g.fillRect(0, 0, LAYOUT_W, LAYOUT_H);
-  g.font = "600 44px Fredoka";
+  g.font = `500 ${SAVER_NAME_PX}px Fredoka`;
   const name = "PocketJS";
-  const markSize = 54;
-  const gap = 9;
-  const left = (LAYOUT_W - (markSize + gap + g.measureText(name).width)) / 2;
-  g.drawImage(mark, left, LAYOUT_H / 2 - markSize / 2, markSize, markSize);
-  g.fillStyle = "#ffffff";
+  const nameWidth = g.measureText(name).width;
+  const gap = 6;
+  const top = (LAYOUT_H - (SAVER_MARK + gap + SAVER_NAME_PX)) / 2;
+  g.drawImage(mark, (LAYOUT_W - SAVER_MARK) / 2, top, SAVER_MARK, SAVER_MARK);
+  g.fillStyle = "#d9d2ee";
+  g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillText(name, left + markSize + gap, LAYOUT_H / 2 + 1);
+  g.fillText(name, LAYOUT_W / 2, top + SAVER_MARK + gap + SAVER_NAME_PX / 2);
+  // The lockup's half extents: the wider of the mark and the name, and the
+  // whole column's height (the mark's drawing spans its square's width).
+  const halfX = Math.max(SAVER_MARK, nameWidth) / 2 / LAYOUT_W;
+  const halfY = (SAVER_MARK + gap + SAVER_NAME_PX) / 2 / LAYOUT_H;
   // A box filter: each texel is the mean of its 4x4 block.
   const source = g.getImageData(0, 0, LAYOUT_W * 4, LAYOUT_H * 4).data;
   const rgba = new Uint8Array(SAVER_W * SAVER_H * 4);
@@ -210,8 +216,8 @@ function saverHeader(): { text: string; rgba: Uint8Array; width: number; height:
     `#define STAGE_SAVER_H ${SAVER_H}`,
     "/* Half the lockup's extent about the texture's centre, as fractions of",
     " * the texture's width and height. */",
-    `#define STAGE_SAVER_HALF_X ${((SAVER_CONTENT[2] - SAVER_CONTENT[0]) / 2 / LAYOUT_W).toFixed(4)}f`,
-    `#define STAGE_SAVER_HALF_Y ${((SAVER_CONTENT[3] - SAVER_CONTENT[1]) / 2 / LAYOUT_H).toFixed(4)}f`,
+    `#define STAGE_SAVER_HALF_X ${halfX.toFixed(4)}f`,
+    `#define STAGE_SAVER_HALF_Y ${halfY.toFixed(4)}f`,
     "",
     "/* RGB565, rows top to bottom. */",
     `static const uint16_t stage_saver_pixels[${SAVER_W * SAVER_H}] __attribute__((aligned(4))) = {`,
