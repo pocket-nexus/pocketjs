@@ -15,6 +15,7 @@ pocketjs/
 ├─ engine/
 │  ├─ spec/                 generated no_std constants and ABI records
 │  ├─ drivers/              resource views and device-class contracts
+│  ├─ driver-kit/           Rust and C driver conformance checks
 │  ├─ core/                 retained UI tree, layout, text and animation
 │  ├─ render/               operation decoding, glyph pages, batches and caches
 │  ├─ raster/               software rendering

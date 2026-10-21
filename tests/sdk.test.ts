@@ -79,6 +79,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     expect(readFileSync(join(external, "build/compile_commands.json"), "utf8")).not.toContain(root);
     expect(readFileSync(join(external, "build/CMakeFiles/consumer.dir/link.txt"), "utf8")).not.toContain(root);
     expect(run([join(external, "build/consumer")], external)).toContain("one Rust archive, C guest, six hooks, zero leaks");
+    expect(run([join(external, "build/driver-kit")], external)).toContain("source/input negative controls passed");
     verifySdk(sdk);
     const manifestPath = join(sdk, "sdk-manifest.json");
     const originalManifest = readFileSync(manifestPath, "utf8");

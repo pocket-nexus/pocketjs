@@ -4,11 +4,12 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const DIRECT_CRATES = [
   "pocket-drivers", "pocket-runtime", "pocket-present", "pocket-package",
-  "pocket-spec", "pocket-draw-ops", "pocket-tex-cache",
+  "pocket-spec", "pocket-draw-ops", "pocket-tex-cache", "pocket-driver-kit",
 ] as const;
 interface CargoPackage {
   id: string;
@@ -94,14 +95,23 @@ export async function runOutOfTreeRust(options: {
     } else {
       cpSync(join(ROOT, "tests/fixtures/packages/corpus"), join(consumer, "corpus"), { recursive: true });
     }
+    const hasKit = Bun.spawnSync(["git", "-C", repository, "cat-file", "-e", revision + ":engine/driver-kit/Cargo.toml"], { stdout: "pipe", stderr: "pipe" }).success;
+    const directCrates = DIRECT_CRATES.filter(name => hasKit || name !== "pocket-driver-kit");
+    if (!hasKit) {
+      // Historical replay keeps that revision's fixture instead of importing
+      // a new test library into an older public dependency graph.
+      const support = await command(["git", "-C", repository, "show", revision + ":tests/fixtures/out-of-tree-rust/tests/support/mod.rs"]);
+      writeFileSync(join(consumer, "tests/support/mod.rs"), support);
+    }
     const manifest = readFileSync(join(consumer, "Cargo.toml.in"), "utf8")
+      .replace(/^pocket-driver-kit = .*\n/m, hasKit ? "$&" : "")
       .replaceAll("@GIT_URL@", JSON.stringify(gitUrl))
       .replaceAll("@REVISION@", JSON.stringify(revision));
     writeFileSync(join(consumer, "Cargo.toml"), manifest);
     writeFileSync(join(output, "Cargo.toml"), manifest);
-    const compiler = (await command(["rustc", "+stable", "-Vv"])).trim();
-    await command(["cargo", "+stable", "generate-lockfile", "--manifest-path", join(consumer, "Cargo.toml")]);
-    const json = await command(["cargo", "+stable", "metadata", "--locked", "--offline", "--format-version=1"]);
+    const compiler = (await command(["rustc", "+" + STABLE_RUST_TOOLCHAIN, "-Vv"])).trim();
+    await command(["cargo", "+" + STABLE_RUST_TOOLCHAIN, "generate-lockfile", "--manifest-path", join(consumer, "Cargo.toml")]);
+    const json = await command(["cargo", "+" + STABLE_RUST_TOOLCHAIN, "metadata", "--locked", "--offline", "--format-version=1"]);
     writeFileSync(join(output, "cargo-metadata.json"), json);
     const metadata = JSON.parse(json) as CargoMetadata;
     const root = metadata.packages.find(pkg => pkg.id === metadata.resolve.root);
@@ -111,7 +121,7 @@ export async function runOutOfTreeRust(options: {
     }
     const expectedSource = "git+" + gitUrl + "?rev=" + revision + "#" + revision;
     const direct = root.dependencies.map(dep => dep.name).sort();
-    if (JSON.stringify(direct) !== JSON.stringify([...DIRECT_CRATES].sort()) ||
+    if (JSON.stringify(direct) !== JSON.stringify([...directCrates].sort()) ||
         root.dependencies.some(dep => dep.path !== undefined || dep.source !== "git+" + gitUrl + "?rev=" + revision)) {
       throw new Error("consumer direct dependencies must be the public git crates");
     }
@@ -125,12 +135,12 @@ export async function runOutOfTreeRust(options: {
     if (metadata.packages.some(pkg => pkg.id !== root.id && pkg.source === null)) {
       throw new Error("consumer resolved a local path dependency");
     }
-    const tests = await command(["cargo", "+stable", "test", "--locked", "--offline", "--", "--nocapture"]);
+    const tests = await command(["cargo", "+" + STABLE_RUST_TOOLCHAIN, "test", "--locked", "--offline", "--", "--nocapture"]);
     if (!tests.includes("6 passed; 0 failed")) throw new Error("all six independent consumer cases must execute");
     cpSync(join(consumer, "Cargo.lock"), join(output, "Cargo.lock"));
     const receipt: RustConsumerReceipt = {
       schemaVersion: 1, revision, gitUrl, consumerOutsideRepository: true,
-      directCrates: DIRECT_CRATES,
+      directCrates,
       gitCrates: gitCrates.filter(pkg => pkg.id !== root.id).map(pkg => ({ name: pkg.name, source: pkg.source! })).sort((a, b) => a.name.localeCompare(b.name)),
       lockSha256: createHash("sha256").update(readFileSync(join(consumer, "Cargo.lock"))).digest("hex"),
       compiler,

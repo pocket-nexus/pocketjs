@@ -15,7 +15,7 @@ const hash = (data: Uint8Array | string) => createHash("sha256").update(data).di
 const roots = ["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime", "runtime-cabi", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"];
 
 function sourceHash(root: string): string {
-  const inputs = ["LICENSE", "Cargo.toml", "Cargo.lock", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "contracts/spec/binding-generation.ts", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "tools/sdk.ts", "tools/release", "tools/packaging/cmake", ...roots.flatMap(name => [`engine/${name}/Cargo.toml`, `engine/${name}/src`])];
+  const inputs = ["LICENSE", "Cargo.toml", "Cargo.lock", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "contracts/spec/binding-generation.ts", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "engine/driver-kit/c", "tools/sdk.ts", "tools/release", "tools/packaging/cmake", ...roots.flatMap(name => [`engine/${name}/Cargo.toml`, `engine/${name}/src`])];
   const digest = createHash("sha256");
   for (const file of inputs.flatMap(path => filesUnder(join(root, path))).sort()) {
     digest.update(relative(root, file).split(sep).join("/")); digest.update("\0"); digest.update(readFileSync(file)); digest.update("\0");
@@ -138,6 +138,8 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
       // existing C glue and generated nested includes use prefixed names.
       writeFileSync(join(staging, `include/pocket/pocket_${name}.h`), `#pragma once\n#include "${name}.h"\n`);
     }
+    copy("engine/driver-kit/c/pocket_driver_kit.h", "include/pocket/pocket_driver_kit.h");
+    copy("engine/driver-kit/c/pocket_driver_kit.c", "src/driver-kit/pocket_driver_kit.c");
     copy("engine/guest-quickjs/include/pocket_guest_quickjs.h", "include/pocket/pocket_guest_quickjs.h");
     for (const name of ["guest.c", "generated_ops.h"]) copy(`engine/guest-quickjs/src/${name}`, `src/guest-quickjs/${name}`);
     copy("tools/packaging/cmake/PocketConfig.cmake", "lib/cmake/Pocket/PocketConfig.cmake");

@@ -19,3 +19,8 @@ endif()
 add_executable(consumer main.c)
 target_compile_options(consumer PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(consumer PRIVATE Pocket::guest_quickjs)
+
+find_package(Pocket CONFIG REQUIRED COMPONENTS driver_kit)
+add_executable(driver-kit driver-kit.c)
+target_compile_options(driver-kit PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(driver-kit PRIVATE Pocket::driver_kit)

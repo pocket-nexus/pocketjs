@@ -1,0 +1,19 @@
+[package]
+name = "pocket-driver-kit"
+edition = "2021"
+description = "Reusable driver conformance probes and delayed-device fixtures for PocketJS"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license-file = "../../LICENSE"
+
+[dependencies]
+pocket-drivers.workspace = true
+pocket-spec.workspace = true
+pocket-package.workspace = true
+pocket-draw-ops.workspace = true
+pocket-tex-cache.workspace = true
+
+[dev-dependencies]
+pocket-present.workspace = true
+pocket-raster.workspace = true

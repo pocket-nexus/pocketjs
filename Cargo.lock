@@ -4917,6 +4917,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-driver-kit"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-package",
+ "pocket-present",
+ "pocket-raster",
+ "pocket-spec",
+ "pocket-tex-cache",
+]
+
+[[package]]
 name = "pocket-drivers"
 version = "0.1.0"
 dependencies = [

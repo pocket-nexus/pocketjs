@@ -29,10 +29,19 @@ if(DEFINED Pocket_QUICKJS_TARGET)
     set_property(TARGET Pocket::guest_quickjs APPEND PROPERTY INTERFACE_LINK_LIBRARIES "${Pocket_QUICKJS_TARGET}")
   endif()
 endif()
+# Portable test utility: no Rust archive, allocator, or device dependencies.
+if(NOT TARGET Pocket::driver_kit)
+  add_library(Pocket::driver_kit INTERFACE IMPORTED GLOBAL)
+  set_target_properties(Pocket::driver_kit PROPERTIES
+    INTERFACE_SOURCES "${_Pocket_ROOT}/src/driver-kit/pocket_driver_kit.c"
+    INTERFACE_INCLUDE_DIRECTORIES "${_Pocket_ROOT}/include;${_Pocket_ROOT}/include/pocket"
+    INTERFACE_COMPILE_FEATURES c_std_11)
+endif()
+set(Pocket_driver_kit_FOUND TRUE)
 set(Pocket_runtime_FOUND TRUE)
 set(Pocket_guest_quickjs_FOUND TRUE)
 foreach(_Pocket_COMPONENT IN LISTS Pocket_FIND_COMPONENTS)
-  if(NOT _Pocket_COMPONENT STREQUAL "runtime" AND NOT _Pocket_COMPONENT STREQUAL "guest_quickjs")
+  if(NOT _Pocket_COMPONENT STREQUAL "runtime" AND NOT _Pocket_COMPONENT STREQUAL "guest_quickjs" AND NOT _Pocket_COMPONENT STREQUAL "driver_kit")
     set(Pocket_FOUND FALSE)
     set(Pocket_NOT_FOUND_MESSAGE "Unknown Pocket component: ${_Pocket_COMPONENT}")
   endif()
