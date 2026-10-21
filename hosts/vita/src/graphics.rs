@@ -1,6 +1,7 @@
 //! Vita host registration and shared-scene compatibility for pocket-vita-render.
 //! The driver owns geometry, resource versions and GPU completion; this layer
 //! supplies the fixed display plan and adapts retained Ui resources.
+use crate::registered_renderer::RegisteredRenderer;
 use pocket_drivers::{DrawList, FrameInput, Renderer, Target};
 use pocket_vita_render::{native::VitaDevice, Config, GxmRenderer};
 #[cfg(feature = "capture")]
@@ -160,31 +161,6 @@ pub(crate) unsafe fn register(
         Ok(())
     } else {
         Err(format!("Vita display registration: {status}"))
-    }
-}
-struct RegisteredRenderer(SharedRenderer);
-impl pocket_drivers::Renderer for RegisteredRenderer {
-    type Submission = pocket_vita_render::Submission;
-    fn descriptor(&self) -> pocket_drivers::RendererDescriptor {
-        self.0.borrow().descriptor()
-    }
-    fn render(
-        &mut self,
-        frame: &mut FrameInput<'_>,
-    ) -> Result<Self::Submission, pocket_drivers::RenderError> {
-        self.0.borrow_mut().render(frame)
-    }
-    unsafe fn render_zero_copy(
-        &mut self,
-        _: &mut FrameInput<'_>,
-    ) -> Result<Self::Submission, pocket_drivers::RenderError> {
-        Err(pocket_drivers::RenderError::Unsupported)
-    }
-    fn wait(&mut self, token: &Self::Submission) -> Result<(), pocket_drivers::RenderError> {
-        self.0.borrow_mut().wait(token)
-    }
-    fn retire(&mut self, token: Self::Submission) {
-        self.0.borrow_mut().retire(token)
     }
 }
 struct RegisteredDisplay {

@@ -26,6 +26,7 @@ pub mod net;
 #[cfg(feature = "runtime")]
 pub mod package_file;
 pub mod pak;
+mod registered_renderer;
 pub mod stats;
 pub mod svc;
 pub mod switch;
@@ -180,18 +181,32 @@ impl Runtime {
     /// Call once on the owning thread before any shared native scene opens.
     /// Package construction retains the old JS/pak embedding entry point.
     pub unsafe fn eval(&mut self, source: &str) -> Result<(), String> {
+        let pak = self.pak.clone();
+        self.eval_raw(source, &pak)
+    }
+    /// Boot a caller's raw JS/pak input through the embedding compatibility
+    /// encoder. A .pocket input must use eval_package to retain its plan.
+    /// # Safety
+    /// Same requirements as eval().
+    pub unsafe fn eval_raw(&mut self, source: &str, pak: &[u8]) -> Result<(), String> {
         if self.booted {
             return Err("Vita guest already booted".into());
         }
         if source.as_bytes().last() != Some(&0) {
             return Err("PocketJS Vita bundle must be NUL-terminated".into());
         }
-        let package = instance::package(source.as_bytes(), &self.pak)?;
-        self.check(embed::set_package_source(
-            self.handle,
-            Box::new(pocket_package::source::MemorySource(package)),
-        ))?;
-        self.check(embed::boot_deferred(self.handle))?;
+        let package = instance::package(source.as_bytes(), pak)?;
+        self.eval_package(package)
+    }
+    /// Boot the original .pocket bytes, including its admission facts. Runtime
+    /// owns the source and retains its selected package through guest shutdown.
+    /// # Safety
+    /// Same requirements as eval().
+    pub unsafe fn eval_package(&mut self, bytes: impl AsRef<[u8]> + 'static) -> Result<(), String> {
+        if self.booted {
+            return Err("Vita guest already booted".into());
+        }
+        self.check(instance::boot_package(self.handle, bytes))?;
         // Native hosts may install their 3D scene after eval. Match the old
         // embedding boundary: no GPU command is submitted by eval itself.
         self.check(embed::skip_presentation(self.handle))?;

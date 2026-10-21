@@ -190,6 +190,6 @@ test("device Rust admission consumes the TypeScript package format", async () =>
   const child = Bun.spawn(["cargo", "test", "--locked", "--manifest-path", "tests/fixtures/vita-dev/Cargo.toml", "--target-dir", ".pocket-build/validation/vita-usb-contract/target"],
     { env: { ...process.env, VITA_DEV_FIXTURES: directory }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  if (code !== 0) throw new Error(stdout + stderr);
+  if (code !== 0 || child.signalCode !== null) throw new Error(stdout + stderr);
   expect(stdout).toContain("9 passed");
 }, 120_000);

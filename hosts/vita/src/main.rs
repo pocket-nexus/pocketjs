@@ -110,15 +110,17 @@ fn fail(message: &str) -> ! {
 /// Boot one embedded guest, drive it until an app switch is requested, then
 /// retire it at a closed-scene boundary and return the next table index.
 unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<Runtime, String> {
-    let (mut runtime, js) = if let Some(bundle) = active {
-        (Runtime::with_owned_pak(bundle.pak.clone())?, bundle.js.as_str())
+    let mut runtime = Runtime::new(&[])?;
+    let started = if let Some(bundle) = active {
+        runtime.eval_package(bundle.package.clone())
     } else {
-        // Embedded bytes, or the generic runtime's app0:app.pocket; a file
-        // the runtime refuses returns the line the screen shows.
-        let guest = switch::guest(app_index)?;
-        (Runtime::new(guest.pak)?, guest.js)
+        match switch::guest(app_index) {
+            Ok(switch::GuestBytes::Package(bytes)) => runtime.eval_package(bytes),
+            Ok(switch::GuestBytes::Raw { js, pak }) => runtime.eval_raw(js, pak),
+            Err(error) => Err(error),
+        }
     };
-    if let Err(error) = runtime.eval(js) {
+    if let Err(error) = started {
         runtime.shutdown();
         return Err(error);
     }
@@ -127,10 +129,22 @@ unsafe fn boot_guest(app_index: usize, active: &Option<Arc<Bundle>>) -> Result<R
 
 fn embedded_hash(app_index: usize) -> String {
     switch::guest_bytes(app_index)
-        .map(|guest| {
-            let js = guest.js.as_bytes();
+        .and_then(|guest| {
+            // The development protocol identifies content by JS/pak. Reading
+            // them here does not select the bytes used for runtime admission.
+            let (js, pak) = match guest {
+                switch::GuestBytes::Raw { js, pak } => (js.as_bytes(), pak),
+                switch::GuestBytes::Package(bytes) => {
+                    let guest =
+                        pocketjs_core::package::select_guest(bytes, "vita", 2, false).ok()?;
+                    (guest.js, guest.pak)
+                }
+            };
             let js = js.strip_suffix(&[0]).unwrap_or(js);
-            format!("{:016x}", pocketjs_core::package::fnv1a64(&[js, guest.pak]))
+            Some(format!(
+                "{:016x}",
+                pocketjs_core::package::fnv1a64(&[js, pak])
+            ))
         })
         .unwrap_or_else(|| "unavailable".into())
 }

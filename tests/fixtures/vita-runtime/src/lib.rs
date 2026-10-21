@@ -6,6 +6,9 @@
 mod ffi;
 #[path = "../../../../hosts/vita/src/instance.rs"]
 mod instance;
+#[path = "../../../../hosts/vita/src/registered_renderer.rs"]
+mod registered_renderer;
+mod renderer_drop;
 mod dbg {
     pub fn active() -> bool {
         false
@@ -139,6 +142,18 @@ impl Drop for Program {
 }
 impl Program {
     unsafe fn new(code: &[u8]) -> Self {
+        let p = Self::unbooted();
+        assert_eq!(
+            instance::boot_package(p.runtime, instance::package(code, &[]).unwrap()),
+            0,
+            "{}",
+            p.guest.error()
+        );
+        assert!(p.events.borrow().is_empty());
+        assert_eq!(embed::skip_presentation(p.runtime), 0);
+        p
+    }
+    unsafe fn unbooted() -> Self {
         let profile = instance::profile();
         let mut config = PocketRuntimeConfig::empty();
         config.profile_hash = pocket_package::sha256::sha256(&profile);
@@ -181,17 +196,6 @@ impl Program {
             ),
             0
         );
-        let package = instance::package(code, &[]).unwrap();
-        assert_eq!(
-            embed::set_package_source(
-                runtime,
-                Box::new(pocket_package::source::MemorySource(package))
-            ),
-            0
-        );
-        assert_eq!(embed::boot_deferred(runtime), 0, "{}", p.guest.error());
-        assert!(p.events.borrow().is_empty());
-        assert_eq!(embed::skip_presentation(runtime), 0);
         p
     }
     unsafe fn assert_js(&self, source: &str) {
@@ -212,6 +216,82 @@ impl Program {
             panic!("{message}");
         }
         JS_FreeValue(self.guest.context, v);
+    }
+}
+
+fn original_package(target: &str, abi: u32, plan: &[u8]) -> Vec<u8> {
+    let identity =
+        pocket_package::embedded::identity("fixture", "vita.original", "Original plan").unwrap();
+    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+        target,
+        host_abi: abi,
+        identity: &identity,
+        plan,
+        code: br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#,
+        pak: &[],
+    }).unwrap()
+}
+
+const ORIGINAL_PLAN: &[u8] =
+    br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{"ui.physics":true}}"#;
+
+#[test]
+fn original_package_plan_controls_generated_capability_namespaces() {
+    unsafe {
+        let p = Program::unbooted();
+        let package = std::sync::Arc::<[u8]>::from(original_package("vita", 2, ORIGINAL_PLAN));
+        assert_eq!(
+            instance::boot_package(p.runtime, package.clone()),
+            0,
+            "{}",
+            p.guest.error()
+        );
+        drop(package);
+        assert_eq!(embed::skip_presentation(p.runtime), 0);
+        p.assert_js("if(!started||typeof ui.physicsCreate!=='function')throw Error('original plan or lifetime lost')");
+        assert!(p.events.borrow().is_empty());
+    }
+}
+
+#[test]
+fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
+    let mut corrupt = original_package("vita", 2, ORIGINAL_PLAN);
+    *corrupt.last_mut().unwrap() ^= 1;
+    for (reason, package) in [
+        ("footer", corrupt),
+        ("ABI", original_package("vita", 99, ORIGINAL_PLAN)),
+        ("target", original_package("psp", 2, ORIGINAL_PLAN)),
+        (
+            "viewport",
+            original_package(
+                "vita",
+                2,
+                br#"{"viewport":{"logical":[240,136],"rasterDensity":2}}"#,
+            ),
+        ),
+        (
+            "density",
+            original_package(
+                "vita",
+                2,
+                br#"{"viewport":{"logical":[480,272],"rasterDensity":1}}"#,
+            ),
+        ),
+        ("plan", original_package("vita", 2, b"{}")),
+    ] {
+        unsafe {
+            let p = Program::unbooted();
+            assert_ne!(
+                instance::boot_package(p.runtime, package),
+                0,
+                "accepted {reason}"
+            );
+            p.assert_js("if(typeof started!=='undefined'||typeof ui!=='undefined')throw Error('guest ran before admission')");
+            assert!(
+                p.events.borrow().is_empty(),
+                "submitted GPU work for {reason}"
+            );
+        }
     }
 }
 #[test]

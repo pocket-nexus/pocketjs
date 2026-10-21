@@ -58,9 +58,14 @@ mod tests {
     }
 
     #[test]
-    fn admits_js_and_assets_with_verified_package_identity() {
-        let bundle = admit(&fixture("good.pocket"), &plan()).unwrap();
-        assert_eq!(bundle.js, "globalThis.frame = () => {};\0");
+    fn admits_original_package_with_verified_identity_and_plan() {
+        let bytes = fixture("good.pocket");
+        let bundle = admit(&bytes, &plan()).unwrap();
+        assert_eq!(bundle.package.as_ref(), bytes);
+        let guest =
+            pocketjs_core::package::select_guest(&bundle.package, "vita", 2, false).unwrap();
+        assert_eq!(guest.js, b"globalThis.frame = () => {};\0");
+        assert_eq!(serde_json::from_slice::<Value>(guest.plan).unwrap(), plan());
         assert_eq!(bundle.hash.len(), 16);
     }
     #[test]
@@ -134,10 +139,16 @@ mod tests {
         };
         let card = stage("twenty48-vita.vpk", "card", 3);
         card.validate(&session).unwrap();
-        assert_eq!(stage_path(&card, "PABCDEF12"), "ux0:/data/pocket-runtime/twenty48-vita.vpk");
+        assert_eq!(
+            stage_path(&card, "PABCDEF12"),
+            "ux0:/data/pocket-runtime/twenty48-vita.vpk"
+        );
         let app = stage("app.pocket", "app", 3);
         app.validate(&session).unwrap();
-        assert_eq!(stage_path(&app, "PABCDEF12"), "ux0:/app/PABCDEF12/app.pocket");
+        assert_eq!(
+            stage_path(&app, "PABCDEF12"),
+            "ux0:/app/PABCDEF12/app.pocket"
+        );
         for (name, into, size) in [
             ("../eboot.bin", "card", 3),
             ("eboot.bin", "app", 3),
@@ -146,7 +157,10 @@ mod tests {
             ("x.vpk", "card", 0),
             ("x.vpk", "card", MAX_STAGE + 1),
         ] {
-            assert!(stage(name, into, size).validate(&session).is_err(), "accepted {name} into {into}");
+            assert!(
+                stage(name, into, size).validate(&session).is_err(),
+                "accepted {name} into {into}"
+            );
         }
     }
 }

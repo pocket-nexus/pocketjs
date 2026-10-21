@@ -236,3 +236,19 @@ pub(crate) fn package(code: &[u8], pak: &[u8]) -> Result<Vec<u8>, String> {
     .map_err(|e| format!("{e:?}"))?;
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"vita",host_abi:2,identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{"input.buttons":true,"input.analog.left":true,"input.touch":true,"text.glyphs.baked":true}}"#,code,pak}).map_err(|e|format!("{e:?}"))
 }
+
+/// Preserve the supplied package as the source for canonical admission. This
+/// path is shared by catalog packages, runtime files and USB replacements.
+pub(crate) unsafe fn boot_package(
+    runtime: *mut PocketRuntime,
+    bytes: impl AsRef<[u8]> + 'static,
+) -> i32 {
+    let status = pocket_runtime_cabi::embedding::set_package_source(
+        runtime,
+        Box::new(pocket_package::source::MemorySource(bytes)),
+    );
+    if status != 0 {
+        return status;
+    }
+    pocket_runtime_cabi::embedding::boot_deferred(runtime)
+}

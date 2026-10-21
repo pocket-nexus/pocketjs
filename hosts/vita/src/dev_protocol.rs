@@ -104,7 +104,9 @@ impl Command {
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
             let into_ok = self.into == "card" || (self.into == "app" && self.name == "app.pocket");
             if !name_ok || !into_ok {
-                return Err("stage needs a plain file name, into card, or app.pocket into app".into());
+                return Err(
+                    "stage needs a plain file name, into card, or app.pocket into app".into(),
+                );
             }
         }
         if self.op == Op::Native
@@ -148,8 +150,7 @@ pub fn native_contract(plan: &Value) -> Value {
 
 #[derive(Debug)]
 pub struct Bundle {
-    pub js: String,
-    pub pak: std::sync::Arc<[u8]>,
+    pub package: std::sync::Arc<[u8]>,
     pub hash: String,
 }
 
@@ -171,25 +172,23 @@ pub fn admit(bytes: &[u8], plan: &Value) -> Result<Bundle, String> {
     // The generic runtime (feature `runtime`) was built without an app, so a
     // push is held to the target, host ABI and footer that select_guest
     // checked, as app0:app.pocket is (package_file.rs).
-    if !cfg!(feature = "runtime") && (plan.get("app").is_none()
-        || identity.id != plan["app"]["id"].as_str().unwrap_or("")
-        || identity.output != plan["app"]["output"].as_str().unwrap_or("")
-        || native_contract(&next) != native_contract(plan))
+    if !cfg!(feature = "runtime")
+        && (plan.get("app").is_none()
+            || identity.id != plan["app"]["id"].as_str().unwrap_or("")
+            || identity.output != plan["app"]["output"].as_str().unwrap_or("")
+            || native_contract(&next) != native_contract(plan))
     {
         return Err(
             "native contract or application identity changed; rebuild and push native runtime"
                 .into(),
         );
     }
-    let js = std::str::from_utf8(guest.js)
-        .map_err(|_| "JavaScript is not UTF-8")?
-        .to_string();
+    let js = std::str::from_utf8(guest.js).map_err(|_| "JavaScript is not UTF-8")?;
     if js[..js.len() - 1].contains('\0') {
         return Err("JavaScript contains an interior NUL".into());
     }
     Ok(Bundle {
-        js,
-        pak: guest.pak.into(),
+        package: bytes.into(),
         hash: format!(
             "{:016x}",
             package::fnv1a64(&[&guest.js[..guest.js.len() - 1], guest.pak])

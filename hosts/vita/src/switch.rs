@@ -9,20 +9,21 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use pocketjs_core::package::{self, Package};
+use pocketjs_core::package::Package;
 use pocketjs_core::{spec, Ui};
 
 // $OUT_DIR/apps.rs -- `EmbeddedApp` + `APPS` (hosts/vita/build.rs).
 include!(concat!(env!("OUT_DIR"), "/apps.rs"));
 
-/// Zero-copy bytes for one guest: embedded, or (feature `runtime`) the
-/// app0:app.pocket the process loaded. Package JS includes the trailing NUL
-/// required by `Runtime::eval`; classic single-app JS is generated with the
-/// same terminator.
+/// Keep packages intact so Runtime admits their original plan and footer.
+/// Raw inputs belong to the single-app JS/pak embedding compatibility path.
 #[derive(Clone, Copy)]
-pub struct GuestBytes {
-    pub js: &'static str,
-    pub pak: &'static [u8],
+pub enum GuestBytes {
+    Package(&'static [u8]),
+    Raw {
+        js: &'static str,
+        pak: &'static [u8],
+    },
 }
 
 /// The guest at `index`, or the line that says why it cannot start.
@@ -41,21 +42,12 @@ pub fn guest_bytes(index: usize) -> Option<GuestBytes> {
     }
     let app = APPS.get(index)?;
     if app.pocket.is_empty() {
-        return Some(GuestBytes {
+        return Some(GuestBytes::Raw {
             js: app.js,
             pak: app.pak,
         });
     }
-    // Embedded packages are build inputs of the signed VPK, so the device can
-    // skip the package footer walk. Filesystem-loaded packages must not.
-    let package = Package::parse(app.pocket, true).ok()?;
-    let variant = package.find_variant(env!("POCKETJS_TARGET")).ok()??;
-    let js = variant.section(package::section::JS).ok()??;
-    let pak = variant.section(package::section::PAK).ok()?.unwrap_or(&[]);
-    Some(GuestBytes {
-        js: core::str::from_utf8(js).ok()?,
-        pak,
-    })
+    Some(GuestBytes::Package(app.pocket))
 }
 
 pub const SHOT_W: u32 = 256;
