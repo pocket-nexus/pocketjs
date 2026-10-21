@@ -360,7 +360,8 @@ bun add -g @pocketjs/cli       # or: npm install -g @pocketjs/cli
 pocket target add psp          # install the PSP toolchain the framework pins
 pocket create my-app
 pocket check --target psp --manifest apps/my-app/pocket.json
-pocket build --target psp --manifest apps/my-app/pocket.json -- --release
+pocket compile --target psp --manifest apps/my-app/pocket.json
+pocket psp my-app --release
 ```
 
 Vita packaging additionally requires VitaSDK and the pinned Rust toolchain

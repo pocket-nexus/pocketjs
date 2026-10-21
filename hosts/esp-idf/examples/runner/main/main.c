@@ -1,3 +1,4 @@
+#include "pocket_profile.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -21,13 +22,13 @@ void app_main(void) {
                                      host->physical_height, 16, 2));
   pocket_runtime_config config = {
       .struct_size = sizeof(config),
-      .host_abi = host->host_abi,
-      .tick_hz = host->tick_hz,
+      .host_abi = pocket_profile.host_abi,
+      .tick_hz = pocket_profile.tick_hz,
       .heap_limit = 4 * 1024 * 1024,
       .frame_buffer_budget = output.capacity * output.count,
-      .profile_json = pocketjs_package_runner_profile_json,
-      .profile_json_length = pocketjs_package_runner_profile_json_length};
-  memcpy(config.profile_hash, pocketjs_package_runner_runtime_profile_hash, 32);
+      .profile_json = pocket_profile.profile_json,
+      .profile_json_length = pocket_profile.profile_json_length};
+  memcpy(config.profile_hash, pocket_profile.profile_hash, 32);
   pocket_runtime *runtime = pocket_runtime_create(&config);
   assert(runtime);
   const pocket_guest_idf_config guest_config = {4 * 1024 * 1024, 256 * 1024,

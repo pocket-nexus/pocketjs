@@ -463,7 +463,7 @@ Fairness notes:
   QuickJS interpreter on every keystroke — an app-level O(n) the web
   editors' native contenteditable machinery does not pay. The caret is a
   square wave demand rendering skips between edges (apps/note/
-  pocket.config.ts), so idle repaints are ~2/s, not 60.
+  pocket.json app.theme), so idle repaints are ~2/s, not 60.
 `;
 
 await Bun.write(`${base}.md`, md);

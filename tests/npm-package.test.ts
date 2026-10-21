@@ -25,7 +25,7 @@ function packedFiles(cwd: string): string[] {
 /** Every bare package specifier reachable from `entries` through relative
  *  imports, with the first file that imports it. */
 function reachablePackages(entries: readonly string[]): Map<string, string> {
-  const transpiler = new Bun.Transpiler({ loader: "tsx" });
+  const transpilers = { ts: new Bun.Transpiler({ loader: "ts" }), tsx: new Bun.Transpiler({ loader: "tsx" }) };
   const seen = new Set<string>();
   const packages = new Map<string, string>();
   const pending = entries.map((entry) => join(root, entry));
@@ -39,7 +39,7 @@ function reachablePackages(entries: readonly string[]): Map<string, string> {
     if (seen.has(file) || !/\.(?:ts|tsx|js|mjs)$/.test(file)) continue;
     seen.add(file);
     const source = readFileSync(file, "utf8").replace(/^#!.*\n/, "");
-    for (const { path: specifier } of transpiler.scanImports(source)) {
+    for (const { path: specifier } of transpilers[file.endsWith(".tsx") ? "tsx" : "ts"].scanImports(source)) {
       if (specifier.startsWith(".")) {
         const next = resolveRelative(file, specifier);
         if (next) pending.push(next);
@@ -251,7 +251,6 @@ describe("published npm artifacts", () => {
       "engine/pocket3d/crates/pocket3d-world/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-world/README.md",
       "engine/pocket3d/crates/pocket3d-world/src",
-      "pocket.config.ts",
       "pocket.json",
       "tsconfig.json",
       "engine/crates/pocket-text/src",

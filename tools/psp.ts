@@ -23,21 +23,20 @@
 
 import { $ } from "bun";
 import { createHash } from "node:crypto";
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   FRAMEWORKS,
   parseFramework,
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
-import type { PocketConfig } from "../framework/src/config.ts";
 import {
   extractHostBuildInputs,
   hostBuildEnvironment,
 } from "../framework/src/manifest/host-build-inputs.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
+import { mountedSourceApp, resolveSourceEntry, sourceAppContent, sourceOutputName } from "./source-app.ts";
 import softwareProfile from "../profiles/psp.ts";
 import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 
@@ -54,9 +53,6 @@ let appArg = "";
 let capture = false;
 let bench = false;
 let frameworkFlag: string | undefined;
-let configPath = pspUiDir + "pocket.config.ts";
-let configFlagged = false;
-let useConfig = true;
 let planPath: string | undefined;
 let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
@@ -75,16 +71,9 @@ for (const a of argv) {
     frameworkFlag = a.slice("--framework=".length);
     buildFlags.push(a);
   }
-  else if (a.startsWith("--config=")) {
-    configPath = resolvePath(pspUiDir, a.slice("--config=".length));
-    configFlagged = true;
-    buildFlags.push(a);
-  }
-  else if (a === "--no-config") {
-    useConfig = false;
-    buildFlags.push(a);
-  }
-  else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
+  else if (a.startsWith("--config=") || a === "--no-config") {
+    throw new Error("pocket.config.ts was removed; use pocket.json app.framework and app.theme");
+  } else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
   // Multi-app embed (docs/LAUNCHER.md): the TSV registry tools/launcher.ts
   // emits; build.rs appends one embedded bundle per line after app 0.
   else if (a.startsWith("--launcher-registry=")) launcherRegistry = resolvePath(a.slice("--launcher-registry=".length));
@@ -117,48 +106,33 @@ try {
 
 // A bare component demo (apps/<app>/app.tsx exporting the component) needs
 // the mounting entry apps/<app>/main.tsx (imports mount() + STYLE_IDS).
-function mountedAppName(arg: string): string {
-  const bare = arg.replace(/\.tsx?$/, "").replace(/-main$/, "");
-  if (existsSync(`${pspUiDir}apps/${bare}/main.tsx`) || existsSync(`${pspUiDir}apps/${bare}-main.tsx`)) {
-    return `${bare}-main`;
-  }
-  return arg;
-}
-
 let buildPlan: ResolvedBuildPlan | undefined;
 if (planPath) {
   buildPlan = await Bun.file(planPath).json() as ResolvedBuildPlan;
   if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== "psp") {
     throw new Error(`PocketJS psp: invalid PSP ResolvedBuildPlan at ${planPath}`);
   }
-  if (frameworkFlag || configFlagged) {
-    throw new Error("PocketJS psp: framework/config overrides are forbidden with --plan");
+  if (frameworkFlag) {
+    throw new Error("PocketJS psp: framework overrides are forbidden with --plan");
   }
 }
 
 const app = buildPlan
   ? resolvePath(projectRoot, buildPlan.app.entry)
   : appArg
-    ? mountedAppName(appArg)
+    ? mountedSourceApp(appArg, pspUiDir)
     : "";
 
-async function loadConfig(): Promise<PocketConfig> {
-  if (!useConfig || !existsSync(configPath)) return {};
-  const url = pathToFileURL(configPath);
-  url.searchParams.set("mtime", String(statSync(configPath).mtimeMs));
-  const mod = await import(url.href) as { default?: PocketConfig; config?: PocketConfig };
-  return mod.default ?? mod.config ?? {};
-}
-
-const config = buildPlan || runtime ? {} : await loadConfig();
+const sourceEntry = !buildPlan && !runtime ? resolveSourceEntry(app, pspUiDir, projectRoot) : undefined;
+const sourceContent = sourceEntry ? sourceAppContent(sourceEntry, { frameworkRoot: pspUiDir, projectRoot }) : {};
 const framework: PocketFramework = buildPlan
   ? parseFramework(buildPlan.app.framework, "ResolvedBuildPlan")
   : frameworkFlag
     ? parseFramework(frameworkFlag, "--framework")
-    : parseFramework(config.framework, "pocket.config.ts");
+    : parseFramework(sourceContent.framework, "pocket.json");
 const outputApp = buildPlan
   ? buildPlan.app.output
-  : `${app}${FRAMEWORKS[framework].outputSuffix}`;
+  : `${sourceEntry ? sourceOutputName(sourceEntry, pspUiDir) : app}${FRAMEWORKS[framework].outputSuffix}`;
 
 // ---------------------------------------------------------------------------
 // 1. Build the app bundle + pak -> dist/<app>.js + dist/<app>.pak
@@ -170,7 +144,7 @@ if (!skipBuild && !runtime) {
   if (buildPlan) {
     await $`bun tools/build.ts --plan=${planPath!} --project-root=${projectRoot} --outdir=${outputDir}`.cwd(pspUiDir);
   } else {
-    await $`bun tools/build.ts ${app} ${buildFlags}`.cwd(pspUiDir);
+    await $`bun tools/build.ts ${sourceEntry!} --project-root=${projectRoot} --outdir=${outputDir} ${buildFlags}`.cwd(pspUiDir);
   }
 }
 cargoArgs.push("--bin", "pocketjs-psp");
@@ -189,7 +163,7 @@ cargoArgs.push("--bin", "pocketjs-psp");
 const GENERATED_MARK = "# GENERATED by tools/psp.ts";
 const fragmentBase = buildPlan
   ? resolvePath(projectRoot, buildPlan.app.entry, "..", "psp")
-  : `${pspUiDir}apps/${app.replace(/-main$/, "")}/psp`;
+  : sourceEntry ? resolvePath(sourceEntry, "..", "psp") : `${pspUiDir}apps/${app.replace(/-main$/, "")}/psp`;
 // A demo built through a non-default framework may ship its own cover set so
 // the XMB tells the twins apart (<app>/psp/<framework>/); the shared fragment
 // one level up stays the default when there is no such variant.

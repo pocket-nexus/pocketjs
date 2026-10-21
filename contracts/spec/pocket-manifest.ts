@@ -4,7 +4,7 @@ import {
   type ExecutionClass,
   type PresentationMode,
   type Viewport,
-} from "./platforms.ts";
+} from "./platform-types.ts";
 import { modalityRequirementSchema, type ModalityRequirement } from "./modality.ts";
 
 export const POCKET_MANIFEST_VERSION = 2 as const;
@@ -40,6 +40,15 @@ export interface JsonSchemaObject {
 
 export type JsonSchema = boolean | JsonSchemaObject;
 
+export type PocketFramework = "solid" | "vue-vapor" | "octane";
+export type KeyframeProps = Record<string, string | number>;
+export type Keyframes = Record<string, KeyframeProps>;
+/** Application animation content baked into the style table. */
+export interface AnimationTheme {
+  keyframes?: Record<string, Keyframes>;
+  animation?: Record<string, string | { value: string; loop?: string | number }>;
+}
+
 export interface PocketManifestV2 {
   readonly $schema: typeof POCKET_MANIFEST_SCHEMA_ID;
   readonly pocket: typeof POCKET_MANIFEST_VERSION;
@@ -67,7 +76,8 @@ export interface PocketManifestV2 {
   readonly app: {
     readonly entry: string;
     readonly output?: string;
-    readonly framework: "solid" | "vue-vapor" | "octane";
+    readonly framework: PocketFramework;
+    readonly theme?: AnimationTheme;
     /** Admit the complete Solid component graph to the AOT view subset. */
     readonly aot?: boolean;
     readonly model?: "rust" | "compiled";
@@ -153,6 +163,29 @@ export type ManifestViewport =
       readonly fixed?: FixedViewportSpec;
       readonly dynamic?: DynamicViewportSpec;
     };
+
+export const animationThemeSchema = {
+  type: "object", additionalProperties: false,
+  properties: {
+    keyframes: {
+      type: "object", additionalProperties: {
+        type: "object", additionalProperties: {
+          type: "object", additionalProperties: { anyOf: [{ type: "string" }, { type: "number" }] },
+        },
+      },
+    },
+    animation: {
+      type: "object", additionalProperties: {
+        anyOf: [
+          { type: "string" },
+          { type: "object", additionalProperties: false, required: ["value"], properties: {
+            value: { type: "string" }, loop: { anyOf: [{ type: "string" }, { type: "number" }] },
+          } },
+        ],
+      },
+    },
+  },
+} as const satisfies JsonSchema;
 
 const capabilityIdSchema = {
   type: "string",
@@ -327,6 +360,7 @@ export const pocketManifestV2Schema = {
         entry: entrySchema,
         output: outputSchema,
         framework: { enum: ["solid", "vue-vapor", "octane"] },
+        theme: animationThemeSchema,
         aot: { type: "boolean" },
         model: { enum: ["rust", "compiled"] },
         recursionLimit: { type: "integer", minimum: 1, default: 256 },

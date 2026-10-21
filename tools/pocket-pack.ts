@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 
 // `.pocket` packaging (docs/PLATFORM.md L2; format in contracts/spec/pocket-package.ts).
 //
@@ -34,6 +33,7 @@ import {
 } from "./3ds-profile.ts";
 import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "./redmi-1s-profile.ts";
 import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "./moto-g-play-profile.ts";
+import { profileRegistry } from "./profile-resolver.ts";
 import {
   POCKET_SECTION,
   decodePocketPackage,
@@ -89,16 +89,12 @@ export function makeVariant(input: {
     { kind: POCKET_SECTION.pak, bytes: input.pak },
   ];
   if (input.cover) sections.push({ kind: POCKET_SECTION.cover, bytes: input.cover });
-  const idfHost = readIdfHostExtension(plan.hostExtension);
-  if (idfHost) {
-    if (idfHost.profileHash !== plan.profileHash || idfHost.tickHz !== plan.profile.tickHz) {
-      throw new Error(`pocket-pack: ${input.target} host extension and profile identity differ`);
-    }
+  if (plan.profile.platform === "esp-idf") {
     sections.push({
       kind: POCKET_SECTION.hostInputs,
       bytes: encodeHostInputs({
         hostAbi: input.hostAbi,
-        tickHz: idfHost.tickHz,
+        tickHz: plan.profile.tickHz,
         logicalWidth: plan.viewport.logical[0],
         logicalHeight: plan.viewport.logical[1],
         physicalWidth: plan.viewport.physical[0],
@@ -279,53 +275,36 @@ function verifyCommand(file: string): void {
   const pkg = decodePocketPackage(bytes); // footer hash checked here
   const manifest: unknown = JSON.parse(new TextDecoder().decode(pkg.manifest));
   for (const v of pkg.variants) {
-    // Re-run the admission the pack claims: the embedded manifest must
-    // still resolve for the variant's target — platform review as a pure
-    // function, on the artifact itself.
+    // Re-run the compilation claimed by the package, including external
+    // profiles. This checks internal consistency; a Runtime must compare the
+    // variant with its independently compiled profile hash before loading it.
+    const embeddedPlan = findSection(v, POCKET_SECTION.plan);
+    if (!embeddedPlan) throw new Error(`verify: variant ${v.target} plan section is missing`);
+    let plan: ResolvedBuildPlan;
+    try { plan = JSON.parse(new TextDecoder().decode(embeddedPlan)) as ResolvedBuildPlan; }
+    catch { throw new Error(`verify: variant ${v.target} plan section is not JSON`); }
+    if (!verifyPlanHash(plan) || !verifyPlanProfile(plan) || plan.target.id !== v.target ||
+      plan.target.hostAbi !== v.hostAbi || plan.profileHash !== v.profileHash) {
+      throw new Error(`verify: variant ${v.target} has inconsistent plan identity`);
+    }
+    const resolution = validateAndResolveBuildPlan(manifest, { target: v.target, hostExtension: plan.hostExtension }, profileRegistry(plan.profile));
+    if (!resolution.ok) throw new Error(`verify: variant ${v.target} is no longer admitted by its own manifest`);
+    if (canonicalJson(plan) !== canonicalJson(resolution.plan)) {
+      throw new Error(`verify: variant ${v.target} resolved plan drifted from its manifest`);
+    }
     const hostInputs = findSection(v, POCKET_SECTION.hostInputs);
-    let expectedPlan: ResolvedBuildPlan;
+    if (Boolean(hostInputs) !== (plan.profile.platform === "esp-idf")) {
+      throw new Error(`verify: variant ${v.target} host inputs do not match its platform`);
+    }
     if (hostInputs) {
-      const planBytes = findSection(v, POCKET_SECTION.plan);
-      if (!planBytes) throw new Error(`verify: ESP-IDF variant ${v.target} has no plan`);
-      const plan = JSON.parse(new TextDecoder().decode(planBytes)) as ResolvedBuildPlan;
-      const idfHost = readIdfHostExtension(plan.hostExtension);
-      if (!verifyPlanHash(plan) || !verifyPlanProfile(plan) || plan.target.id !== v.target ||
-        plan.target.hostAbi !== v.hostAbi || plan.profileHash !== v.profileHash || !idfHost) {
-        throw new Error(`verify: ESP-IDF variant ${v.target} has inconsistent plan identity`);
-      }
       const inputs = decodeHostInputs(hostInputs);
-      if (inputs.hostAbi !== v.hostAbi || inputs.tickHz !== idfHost.tickHz ||
+      if (inputs.hostAbi !== v.hostAbi || inputs.tickHz !== plan.profile.tickHz ||
         inputs.logicalWidth !== plan.viewport.logical[0] || inputs.logicalHeight !== plan.viewport.logical[1] ||
         inputs.physicalWidth !== plan.viewport.physical[0] || inputs.physicalHeight !== plan.viewport.physical[1] ||
         inputs.rasterDensity !== plan.viewport.rasterDensity || inputs.presentation !== plan.viewport.presentation ||
-        inputs.profileHash !== idfHost.profileHash || inputs.profileHash !== plan.profileHash ||
-        inputs.tickHz !== plan.profile.tickHz || inputs.planHash !== plan.planHash) {
+        inputs.profileHash !== plan.profileHash || inputs.planHash !== plan.planHash) {
         throw new Error(`verify: ESP-IDF variant ${v.target} host inputs drifted`);
       }
-      expectedPlan = plan;
-    } else {
-      const resolution = resolveTarget(manifest, v.target);
-      if (!resolution.ok) {
-        throw new Error(`verify: variant ${v.target} is no longer admitted by its own manifest`);
-      }
-      if (resolution.plan.target.hostAbi !== v.hostAbi) {
-        throw new Error(`verify: variant ${v.target} hostAbi drifted`);
-      }
-      if (resolution.plan.profileHash !== v.profileHash) {
-        throw new Error(`verify: variant ${v.target} profileHash drifted`);
-      }
-      expectedPlan = resolution.plan;
-    }
-    const embeddedPlan = findSection(v, POCKET_SECTION.plan);
-    if (!embeddedPlan) throw new Error(`verify: variant ${v.target} plan section is missing`);
-    let plan: unknown;
-    try {
-      plan = JSON.parse(new TextDecoder().decode(embeddedPlan));
-    } catch {
-      throw new Error(`verify: variant ${v.target} plan section is not JSON`);
-    }
-    if (canonicalJson(plan) !== canonicalJson(expectedPlan)) {
-      throw new Error(`verify: variant ${v.target} resolved plan drifted from its manifest`);
     }
     const js = findSection(v, POCKET_SECTION.js);
     if (!js || js[js.length - 1] !== 0) {

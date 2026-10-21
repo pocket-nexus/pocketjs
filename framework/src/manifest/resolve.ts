@@ -27,6 +27,8 @@ const AUXILIARY_TOUCH = "input.touch.auxiliary";
 
 export interface ResolveBuildRequest {
   readonly target: string;
+  /** Artifact selected by the caller. Omitted retains JavaScript guest plans. */
+  readonly executionClass?: "guest" | "aot";
   /** Defaults to an ordinary application. System resolution assigns the
    *  System UI role before capability admission. */
   readonly role?: "application" | "systemUI";
@@ -440,16 +442,17 @@ export function resolveBuildPlan(
     return { ok: false, diagnostics };
   }
 
-  // This resolver only produces guest-class plans. AOT-class packages are
-  // admitted at compile time by their compiler family;
-  // a manifest that ships no guest artifact has nothing for us to build.
-  const executionClasses = manifest.execution?.classes ?? ["guest"];
-  if (!executionClasses.includes("guest")) {
+  const executionClass = request.executionClass ?? "guest";
+  const executionClasses = manifest.execution?.classes;
+  if (executionClasses && !executionClasses.includes(executionClass)) {
     diagnostics.push({
-      code: "execution.guestExcluded",
+      code: `execution.${executionClass}Excluded`,
       path: "/execution/classes",
-      message: "manifest declares no guest execution class; this resolver only builds guest plans",
+      message: `manifest declares no ${executionClass} execution class`,
     });
+  }
+  if (executionClass === "aot" && manifest.app.aot !== true) {
+    diagnostics.push({ code: "execution.aotDisabled", path: "/app/aot", message: "AOT compilation requires app.aot to be true" });
   }
 
   // The device's modality selects the presentation; the first declared
@@ -667,6 +670,7 @@ export function resolveBuildPlan(
       entry: presentation.entry,
       output,
       framework: manifest.app.framework,
+      ...(manifest.app.theme !== undefined ? { theme: manifest.app.theme } : {}),
       ...(manifest.app.aot !== undefined ? { aot: manifest.app.aot } : {}),
       ...(manifest.app.model !== undefined ? { model: manifest.app.model } : {}),
       ...(manifest.app.recursionLimit !== undefined ? { recursionLimit: manifest.app.recursionLimit } : {}),

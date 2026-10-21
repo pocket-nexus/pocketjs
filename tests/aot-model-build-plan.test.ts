@@ -31,7 +31,7 @@ test.each([
   mkdirSync(directory, { recursive: true });
   writeFileSync(resolve(directory, "plan.json"), JSON.stringify(plan({ aot: true, model: "compiled", recursionLimit: 32 })));
   writeFileSync(resolve(directory, "pocket.json"), JSON.stringify({ ...baseline, app: { ...baseline.app, ...changed } }));
-  const run = Bun.spawnSync([process.execPath, resolve("tools/build.ts"), `--plan=${resolve(directory, "plan.json")}`, `--project-root=${directory}`, "--no-config"], { stdout: "pipe", stderr: "pipe" });
+  const run = Bun.spawnSync([process.execPath, resolve("tools/build.ts"), `--plan=${resolve(directory, "plan.json")}`, `--project-root=${directory}`], { stdout: "pipe", stderr: "pipe" });
   expect(run.exitCode).not.toBe(0);
   expect(run.stderr.toString()).toContain("model settings differ from the ResolvedBuildPlan");
 });

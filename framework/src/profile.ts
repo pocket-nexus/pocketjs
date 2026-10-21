@@ -21,7 +21,7 @@ export function validatePocketProfile(input: unknown, options: { builtin?: boole
   const problem = (code: string, path: string, message: string) => diagnostics.push({ code: `profile.${code}`, path, message });
   const idLength = new TextEncoder().encode(profile.id).length;
   if (!idLength || idLength > 65535 || profile.id.includes("\0")) problem("id", "/id", "profile id must contain 1..65535 UTF-8 bytes without NUL");
-  if (PROFILE_COMMAND_WORDS.includes(profile.id)) problem("reservedId", "/id", "profile id conflicts with a pocket command");
+  if (PROFILE_COMMAND_WORDS.includes(profile.id) && !(options.builtin && BUILTIN_PROFILE_IDS.includes(profile.id))) problem("reservedId", "/id", "profile id conflicts with a pocket command");
   if (!options.builtin && BUILTIN_PROFILE_IDS.includes(profile.id)) problem("reservedId", "/id", "profile id conflicts with a built-in profile; import that profile instead");
   if (profile.platform.includes("\0")) problem("platform", "/platform", "platform must not contain NUL");
   const known = new Set<string>(POCKET_CAPABILITIES);

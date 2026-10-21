@@ -2,11 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   canonicalProfileJson, pocketProfileSchema, PROFILE_HASH_BYTES, PROFILE_HASH_FIELDS,
-  profileHashProjection, type PocketProfile,
+  profileHashProjection, PROFILE_CAPABILITY_BITS, PROFILE_PRESENTATION_BITS, type PocketProfile,
 } from "../contracts/spec/profile.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/validate.ts";
 import { defineProfile, hashPocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../profiles/index.ts";
+import { POCKET_CAPABILITIES } from "../contracts/spec/platform-types.ts";
 
 const profile: PocketProfile = {
   id: "my-board", platform: "esp-idf", form: "takeover", tickHz: 60,
@@ -24,6 +25,16 @@ const diagnostics = (input: unknown) => {
 };
 
 describe("profile identity contract", () => {
+  test("native convenience masks cover the registered vocabulary with fixed bits", () => {
+    expect(Object.keys(PROFILE_CAPABILITY_BITS).sort()).toEqual([...POCKET_CAPABILITIES].sort());
+    const bits = Object.values(PROFILE_CAPABILITY_BITS);
+    expect(new Set(bits).size).toBe(bits.length);
+    expect(bits.every(bit => bit > 0n && bit < (1n << 64n) && (bit & (bit - 1n)) === 0n)).toBe(true);
+    expect(PROFILE_CAPABILITY_BITS["input.buttons"]).toBe(0x00000004n);
+    expect(PROFILE_CAPABILITY_BITS["text.layout.offload"]).toBe(0x10000000n);
+    expect(PROFILE_PRESENTATION_BITS).toEqual({ fill: 1, fit: 2, "integer-fit": 4, native: 8, stretch: 16 });
+  });
+
   test("canonical projection has seven permitted fields and UTF-8 hash input", () => {
     expect(PROFILE_HASH_FIELDS).toEqual(["id", "platform", "form", "tickHz", "display", "capabilities", "roleCapabilities"]);
     expect(canonicalProfileJson(profile)).toBe('{"capabilities":["input.buttons","text.glyphs.baked"],"display":{"logicalViewports":[[480,320]],"physicalViewport":[480,320],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"my-board","platform":"esp-idf","tickHz":60}');

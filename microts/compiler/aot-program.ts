@@ -1,10 +1,10 @@
 /** Shared program finalization: resolve context, bake styles and collect host demands. */
-import { withIsolatedAnimationBake } from "../../framework/compiler/animation.ts";
+import { withIsolatedAnimationBake, type AnimationTheme } from "../../framework/compiler/animation.ts";
 import { compileClasses } from "../../framework/compiler/tailwind.ts";
 import { resolveProvidedContext } from "./aot-provide-inject.ts";
 import type { AotProgram, AotComponent, AotNode, AotExpr } from "./aot-ir.ts";
 import { fail, location, type TypeMapper } from "./aot-types.ts";
-export function finalizeAotProgram(root: string, components: AotComponent[], mapper: TypeMapper, classLiterals: Set<string>): AotProgram {
+export function finalizeAotProgram(root: string, components: AotComponent[], mapper: TypeMapper, classLiterals: Set<string>, animation?: { theme?: AnimationTheme; tickHz?: number }): AotProgram {
   resolveProvidedContext(components);
   function collectStyle(value: AotExpr, allowForward = true): void {
     if (value.kind === "literal" && typeof value.value === "string") { if (value.value) classLiterals.add(value.value); }
@@ -26,7 +26,7 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
   for (const component of components) walk(component.nodes, node => {
     if (node.kind === "component") for (const prop of node.props) if (prop.value.type.kind === "style") collectStyle(prop.value);
   });
-  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals));
+  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals), animation);
   for (const classes of classLiterals) if (styles.ids[classes] === undefined) fail(components.find(c => c.root)?.nodes[0]?.loc ?? location(root, ""), `Unsupported class literal ${JSON.stringify(classes)}`);
   function finalize(nodes: AotNode[]) {
     for (const node of nodes) {

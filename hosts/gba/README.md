@@ -6,6 +6,18 @@ This experimental host builds the 240 × 160 [`apps/gba-hero`](../../apps/gba-he
 
 **The generated app is an AOT guest of Runtime; no `.pocket` reader or script VM runs at boot.** The main program registers button input, the compiled renderer and the LCD output. Runtime advances the guest and core once per tick. The program prepares the native BG/OBJ frame from its baked layer plan and binds it to the current DrawList and resource revision. The renderer rejects unmatched frames; the LCD waits for VBlank, submits the tile and OAM DMA, and returns after the transfers complete.
 
+## Generate application sources
+
+**`pocket compile --aot` emits application sources and assets without running Cargo.** From a checkout:
+
+```sh
+bun tools/pocket.ts compile --manifest apps/gba-hero/pocket.json --project-root . --target gba --aot --out .pocket-build/generated/gba
+```
+
+The directory contains `mod.rs`, the generated model and view modules, `include.rs`, font atlases, RGBA images, `styles.bin`, and `layers.json`. `include.rs` uses paths relative to its own directory, so the directory can move before a firmware build. `dependencies.json` maps outputs to their input files and records SHA-256 hashes; `dependencies.d` provides Make-compatible inputs, including the profile, configuration, source graph, fonts, images, and compiler layout oracle.
+
+The compiler consumes the distribution's prebuilt `hosts/web/pocketjs.wasm` for layout baking. A missing oracle is an error; source generation does not install or build a toolchain. `build.ts` uses this generator, then performs the program's native build.
+
 ## Build
 
 Run from a repository checkout with Bun and Rustup installed:

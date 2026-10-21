@@ -58,18 +58,33 @@ pocketjs_embed_package(
     TARGET ${COMPONENT_LIB}
     NAME dashboard
     PACKAGE "../dashboard.pocket"
-    HOST_PROFILE "../pocket.host.json")
+    PROFILE_EXPORT_DIR "../profile-export")
 ```
 
-`pocketjs_compile_app` accepts `MANIFEST`, `HOST_PROFILE` and `PROJECT_ROOT`
-for source compilation. It records compiler inputs in a dependency file so
-changes to imported application files trigger recompilation.
+The firmware root contains `pocket.runtime-config.ts`, which imports the
+program's `defineProfile()` module. Generate the trusted profile before an
+offline build:
 
-The embed step generates `pocketjs_package_dashboard.h`. It exports the package
-bytes, host contract, runtime profile JSON and runtime profile hash.
-**The runtime profile hash covers the public profile projection.** The legacy
-host-input hash covers the complete `pocket.host.json`; the two hashes serve
-different checks and are not interchangeable.
+```sh
+pocket profile export --config pocket.runtime-config.ts --out profile-export
+```
+
+**The embed step uses Python and prebuilt artifacts; it does not invoke Bun.**
+The sidecar's exact canonical JSON, binding generation and profile hash must
+match the package. The generated `pocketjs_package_dashboard.h` exports package
+storage and admitted application geometry. `pocket_profile.h` supplies the
+independent program configuration.
+
+`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <file>)` compiles an
+application and exports the profile. `pocketjs_profile_header(TARGET <target>
+NAME <name>)` exports the profile without an application. These two helpers
+require the Pocket CLI. Their dependency files track application imports and
+profile/configuration imports, including new modules learned on a rebuild.
+
+All three helpers accept `RUNTIME_CONFIG`, defaulting to the project root's
+`pocket.runtime-config.ts`. `PROFILE_EXPORT_DIR` defaults to
+`<current-binary-directory>/pocketjs/<name>/profile`. Offline embedding requires
+`pocket-profile.json` and `pocket_profile.h` to exist there before configuration.
 
 ## Register a runtime
 
@@ -81,20 +96,21 @@ release every object created before a failed registration.
 #include "pocket/package_source.h"
 #include "pocket/display_esp_lcd.h"
 #include "pocketjs_package_dashboard.h"
+#include "pocket_profile.h"
 #include <string.h>
 
 const pocketjs_package_host_contract_t *host =
     &pocketjs_package_dashboard_contract;
 pocket_runtime_config config = {
     .struct_size = sizeof(config),
-    .host_abi = host->host_abi,
-    .tick_hz = host->tick_hz,
+    .host_abi = pocket_profile.host_abi,
+    .tick_hz = pocket_profile.tick_hz,
     .heap_limit = 4 * 1024 * 1024,
     .frame_buffer_budget = pocket_display_esp_lcd_buffer_bytes(display),
-    .profile_json = pocketjs_package_dashboard_profile_json,
-    .profile_json_length = pocketjs_package_dashboard_profile_json_length,
+    .profile_json = pocket_profile.profile_json,
+    .profile_json_length = pocket_profile.profile_json_length,
 };
-memcpy(config.profile_hash, pocketjs_package_dashboard_runtime_profile_hash, 32);
+memcpy(config.profile_hash, pocket_profile.profile_hash, 32);
 pocket_runtime *runtime = pocket_runtime_create(&config);
 
 pocket_guest_idf_config guest_config = {

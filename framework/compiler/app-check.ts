@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import ts from "typescript";
-import type { PocketFramework } from "../src/config.ts";
+import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
 import { POCKET_FRAMEWORKS, SUBPATHS } from "./subpaths.ts";
 
 export interface AppCheckOptions {

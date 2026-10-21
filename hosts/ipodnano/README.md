@@ -16,6 +16,18 @@ The pre-Runtime build measured 786 KB (419 KB code, 366 KB read-only data, inclu
 
 **A plugin runs only on the Rockbox build whose plugin API it was compiled against.** Build against the source revision named by `Version:` in the iPod's `.rockbox/rockbox-info.txt`; `--install` refuses a volume whose version differs.
 
+## Generate application sources
+
+**`pocket compile --aot` emits application sources and assets without running Cargo.** From a checkout:
+
+```sh
+bun tools/pocket.ts compile --manifest apps/ipodnano-hero/pocket.json --project-root . --target ipodnano --aot --out .pocket-build/generated/ipodnano
+```
+
+The directory contains `mod.rs`, the generated model and view modules, `include.rs`, font atlases, RGBA images, `styles.bin`, and `layers.json`. `include.rs` uses paths relative to its own directory, so the directory can move before a firmware build. `dependencies.json` maps outputs to their input files and records SHA-256 hashes; `dependencies.d` provides Make-compatible inputs, including the profile, configuration, source graph, fonts, images, and compiler layout oracle.
+
+The compiler consumes the distribution's prebuilt `hosts/web/pocketjs.wasm` for layout baking. A missing oracle is an error; source generation does not install or build a toolchain. `build.ts` uses this generator, then performs the program's native build.
+
 ## Build
 
 Run from a repository checkout with Bun, Rustup and an ARM EABI GCC installed:

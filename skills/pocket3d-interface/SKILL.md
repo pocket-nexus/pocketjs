@@ -239,9 +239,9 @@ entry.
 
 | Device | PocketJS piece | Where the interface is drawn |
 | --- | --- | --- |
-| PSP | `hosts/psp` as a library: `ffi::init_ui`, `pak::feed`, `ffi::register`, `ge::render_over`; its arena is the program's allocator | The last pass of the frame's GE list |
+| PSP | `hosts/psp` as a library: `Runtime::new`, `boot`, `advance`, `present` in `hosts/psp/src/program.rs`; the runtime owns guest bindings and assets, and its arena is the program's allocator | The last pass of the frame's GE list |
 | PS Vita | `hosts/vita` as a library: `Runtime::new`, `eval`, `frame_with_input`, `tick`, `render_over` | The display scene, after the game's composite |
-| Nintendo 3DS | `hosts/3ds/src` (`qjs.c`, `gfx.c`) and the 3DS UI core compiled in: `qjs_boot`, `qjs_frame`, `gfx_prepare_surface`, `gfx_draw_surface` | The upper surface over the scene every frame; the lower surface as its own target |
+| Nintendo 3DS | `hosts/3ds/src` composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
 | iPod touch 4 | `engine/quickjs-c/pocket_runtime.c` with the UI core's OpenGL ES 2 backend | A texture redrawn when the draw hash changes, laid over the scene |
 | Browser tab | `hosts/web/app-instance.js` in a hidden frame of the page, driven through `openInterface` of the browser kernel; the UI core is `hosts/web/pocketjs.wasm` | `renderPremultiplied` when `drawHash` changes: one software drawing with its alpha, uploaded and laid over the scene in a pass of its own (`pocket_web_wgpu::overlay`). A second screen from `renderAuxiliary` into its own canvas when `drawHashAuxiliary` changes |
 

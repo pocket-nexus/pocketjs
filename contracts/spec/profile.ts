@@ -4,6 +4,8 @@ import {
   PRESENTATION_MODES,
   TARGET_FORMS,
   type DisplayProfile,
+  type PocketCapabilityId,
+  type PresentationMode,
   type TargetForm,
 } from "./platform-types.ts";
 
@@ -26,6 +28,46 @@ export const PROFILE_HASH_BYTES = 32;
 export const PROFILE_HASH_FIELDS = [
   "id", "platform", "form", "tickHz", "display", "capabilities", "roleCapabilities",
 ] as const;
+
+/** Native profile export masks. Assignments are append-only and do not follow
+ * the capability registry's display order. These masks are derived convenience
+ * data; canonical JSON remains the profile identity and admission contract. */
+export const PROFILE_CAPABILITY_BITS = {
+  "input.analog.left": 0x00000001n,
+  "input.analog.right": 0x00000002n,
+  "input.buttons": 0x00000004n,
+  "input.cursor": 0x00000008n,
+  "input.ime": 0x00000010n,
+  "input.pointer": 0x00000020n,
+  "input.text": 0x00000040n,
+  "input.touch": 0x00000080n,
+  "input.touch.auxiliary": 0x00000100n,
+  "ui.compositor-surfaces": 0x00000200n,
+  "ui.physics": 0x00000400n,
+  "audio.pcm": 0x00000800n,
+  "media.playback": 0x00001000n,
+  "io.offload": 0x00002000n,
+  "net.http": 0x00004000n,
+  "link.companion": 0x00008000n,
+  "system.wifi": 0x00010000n,
+  "camera.qr": 0x00020000n,
+  "system.agent": 0x00040000n,
+  "data.sqlite": 0x00080000n,
+  "data.fs": 0x00100000n,
+  "host.clipboard": 0x00200000n,
+  "display.viewport.live": 0x00400000n,
+  "display.auxiliary": 0x00800000n,
+  "text.glyphs.baked": 0x01000000n,
+  "text.glyphs.streamed": 0x02000000n,
+  "text.glyphs.runtime": 0x04000000n,
+  "text.layout.native": 0x08000000n,
+  "text.layout.offload": 0x10000000n,
+} as const satisfies Readonly<Record<PocketCapabilityId, bigint>>;
+
+/** Append-only native presentation mask assignments. */
+export const PROFILE_PRESENTATION_BITS = {
+  fill: 0x01, fit: 0x02, "integer-fit": 0x04, native: 0x08, stretch: 0x10,
+} as const satisfies Readonly<Record<PresentationMode, number>>;
 
 const viewport = {
   type: "array", items: { type: "integer", minimum: 1, maximum: 65535 },

@@ -24,7 +24,7 @@ function project(files: Record<string, string>): string {
 
 function build(directory: string, ...flags: string[]): { code: number; out: string; err: string } {
   const run = Bun.spawnSync(
-    [process.execPath, "tools/build.ts", join(directory, "main.tsx"), "--no-config", `--project-root=${directory}`, `--outdir=${join(directory, "out")}`, ...flags],
+    [process.execPath, "tools/build.ts", join(directory, "main.tsx"), `--project-root=${directory}`, `--outdir=${join(directory, "out")}`, ...flags],
     { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
   );
   return { code: run.exitCode, out: run.stdout.toString(), err: run.stderr.toString() };

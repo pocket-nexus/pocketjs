@@ -9,15 +9,13 @@
 
 import { $ } from "bun";
 import { createHash, randomBytes } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
-import { pathToFileURL } from "node:url";
 import {
   FRAMEWORKS,
   parseFramework,
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
-import type { PocketConfig } from "../framework/src/config.ts";
 import {
   extractHostBuildInputs,
   hostBuildEnvironment,
@@ -32,6 +30,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import { demoIdentity, demoManifestFor } from "./demo-identity.ts";
 import { packageVitaVpk } from "./vita-package.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
+import { mountedSourceApp, resolveSourceEntry, sourceAppContent, sourceOutputName } from "./source-app.ts";
 import softwareProfile from "../profiles/vita.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 
@@ -47,9 +46,6 @@ const argv = Bun.argv.slice(2);
 let appArg = "";
 let capture = false;
 let frameworkFlag: string | undefined;
-let configPath = pspUiDir + "pocket.config.ts";
-let configFlagged = false;
-let useConfig = true;
 let planPath: string | undefined;
 let projectRoot = process.cwd();
 let outputDir = pspUiDir + "dist/";
@@ -71,13 +67,8 @@ for (const a of argv) {
   } else if (a.startsWith("--framework=")) {
     frameworkFlag = a.slice("--framework=".length);
     buildFlags.push(a);
-  } else if (a.startsWith("--config=")) {
-    configPath = resolvePath(pspUiDir, a.slice("--config=".length));
-    configFlagged = true;
-    buildFlags.push(a);
-  } else if (a === "--no-config") {
-    useConfig = false;
-    buildFlags.push(a);
+  } else if (a.startsWith("--config=") || a === "--no-config") {
+    throw new Error("pocket.config.ts was removed; use pocket.json app.framework and app.theme");
   } else if (a.startsWith("--plan=")) {
     planPath = resolvePath(a.slice("--plan=".length));
   } else if (a.startsWith("--project-root=")) {
@@ -154,17 +145,6 @@ if (!existsSync(`${vitasdk}/bin/arm-vita-eabi-gcc`)) {
   process.exit(1);
 }
 
-function mountedAppName(arg: string): string {
-  const bare = arg.replace(/\.tsx?$/, "").replace(/-main$/, "");
-  if (
-    existsSync(`${pspUiDir}apps/${bare}/main.tsx`) ||
-    existsSync(`${pspUiDir}apps/${bare}-main.tsx`)
-  ) {
-    return `${bare}-main`;
-  }
-  return arg;
-}
-
 let buildPlan: ResolvedBuildPlan | undefined;
 let hostBuildInputs: HostBuildInputs | undefined;
 if (planPath) {
@@ -177,9 +157,9 @@ if (planPath) {
   hostBuildInputs = extractHostBuildInputs(buildPlan, {
     expectedTarget: "vita",
   });
-  if (frameworkFlag || configFlagged) {
+  if (frameworkFlag) {
     throw new Error(
-      "PocketJS vita: framework/config overrides are forbidden with --plan",
+      "PocketJS vita: framework overrides are forbidden with --plan",
     );
   }
 }
@@ -187,36 +167,26 @@ if (planPath) {
 const app = buildPlan
   ? resolvePath(projectRoot, buildPlan.app.entry)
   : appArg
-    ? mountedAppName(appArg)
+    ? mountedSourceApp(appArg, pspUiDir)
     : "";
 
-async function loadConfig(): Promise<PocketConfig> {
-  if (!useConfig || !existsSync(configPath)) return {};
-  const url = pathToFileURL(configPath);
-  url.searchParams.set("mtime", String(statSync(configPath).mtimeMs));
-  const mod = (await import(url.href)) as {
-    default?: PocketConfig;
-    config?: PocketConfig;
-  };
-  return mod.default ?? mod.config ?? {};
-}
-
-const config = buildPlan || runtime ? {} : await loadConfig();
+const sourceEntry = !buildPlan && !runtime ? resolveSourceEntry(app, pspUiDir, projectRoot) : undefined;
+const sourceContent = sourceEntry ? sourceAppContent(sourceEntry, { frameworkRoot: pspUiDir, projectRoot }) : {};
 const framework: PocketFramework = buildPlan
   ? parseFramework(buildPlan.app.framework, "ResolvedBuildPlan")
   : frameworkFlag
     ? parseFramework(frameworkFlag, "--framework")
-    : parseFramework(config.framework, "pocket.config.ts");
+    : parseFramework(sourceContent.framework, "pocket.json");
 // A resolved plan owns the exact artifact name. Low-level demo builds keep the
 // framework suffix so multiple variants can still coexist in dist/.
 const outputApp = runtime
   ? "pocket-runtime"
   : buildPlan
     ? buildPlan.app.output
-    : `${app}${FRAMEWORKS[framework].outputSuffix}`;
+    : `${sourceEntry ? sourceOutputName(sourceEntry, pspUiDir) : app}${FRAMEWORKS[framework].outputSuffix}`;
 const stockDemoName = !buildPlan && appArg ? appArg.replace(/-main$/, "") : "";
 const stockDemo =
-  stockDemoName && existsSync(`${pspUiDir}apps/${stockDemoName}/main.tsx`)
+  stockDemoName && ["main.tsx", "main.ts"].some(file => existsSync(`${pspUiDir}apps/${stockDemoName}/${file}`))
     ? demoIdentity(stockDemoName)
     : undefined;
 
@@ -238,6 +208,10 @@ if (!buildPlan && stockDemo) {
     );
   }
   buildPlan = resolution.plan;
+  if (buildPlan.app.framework !== framework) {
+    throw new Error("PocketJS vita: --framework differs from the application manifest; use a matching manifest/plan");
+  }
+  projectRoot = pspUiDir;
   hostBuildInputs = extractHostBuildInputs(buildPlan, {
     expectedTarget: "vita",
   });
@@ -267,7 +241,7 @@ if (!skipBuild && !runtime) {
   if (buildPlan) {
     await $`bun tools/build.ts --plan=${planPath!} --project-root=${projectRoot} --outdir=${outputDir}`.cwd(pspUiDir);
   } else {
-    await $`bun tools/build.ts ${app} ${buildFlags}`.cwd(pspUiDir);
+    await $`bun tools/build.ts ${sourceEntry!} --project-root=${projectRoot} --outdir=${outputDir} ${buildFlags}`.cwd(pspUiDir);
   }
 }
 
@@ -370,11 +344,9 @@ await $`${vitasdk}/bin/vita-mksfoex -d ATTRIBUTE2=12 -s TITLE_ID=${titleId} ${pa
 // overlays the framework's LiveArea defaults.
 const entryFile = runtime
   ? undefined
-  : stockDemo
-    ? resolvePath(pspUiDir, `apps/${stockDemoName}/main.tsx`)
-    : buildPlan
-      ? resolvePath(projectRoot, buildPlan.app.entry)
-      : undefined;
+  : buildPlan
+    ? resolvePath(projectRoot, buildPlan.app.entry)
+    : sourceEntry;
 const vitaAssets = entryFile ? resolvePath(dirname(entryFile), "vita") : undefined;
 await packageVitaVpk({
   tool: `${vitasdk}/bin/vita-pack-vpk`,

@@ -3,17 +3,15 @@
 // compiler and host scripts are Bun programs, so the CLI is one too and
 // launches them with its own executable. No dependencies.
 //
-//   pocket create <name> [--target T] [--framework F] [--host-profile FILE]
+//   pocket create <name> [--target T] [--framework F]
 //                            scaffold an app: apps/<name> inside a checkout, a
 //                            standalone project anywhere else
-//   pocket [+<id>] check|compile|build [+<id>] [--target <id> | --host-profile FILE] [...args]
+//   pocket [+<id>] check|compile|build [+<id>] [--target <id|module>] [...args]
 //                            select a target, resolve pocket.json once, build from its plan
 //   pocket show [--json]     framework, project, selected target and the catalog
 //                            with each target's install state
 //   pocket target add [<id> …] | list [--check] [--json] | remove <id> …
 //                            install the toolchains the framework pins
-//   pocket default [<id> | --unset]
-//   pocket override set <id> [--path DIR] | unset [--path DIR] | list
 //   pocket play vita <demo> build, install and launch a demo in Vita3K
 //   pocket play ios <demo>  build, stage and launch a demo on the iOS simulator
 //   pocket dev|psp|vita|hw|psplink|devtools|tape [...args]
@@ -30,15 +28,7 @@ import { platform } from "node:os";
 import { join, posix, relative, resolve } from "node:path";
 import { CREATE_USAGE, CreateUsageError, create, pocketCommands } from "./create.mjs";
 import { CLI_PROTOCOL, protocolMismatch, resolveFramework } from "./framework.mjs";
-import {
-  NO_SELECTION,
-  overrideFor,
-  readSettings,
-  select,
-  settingsPath,
-  takeExplicitSelection,
-  writeSettings,
-} from "./select.mjs";
+import { select, takeExplicitSelection } from "./select.mjs";
 
 if (typeof Bun === "undefined") {
   console.error(
@@ -100,9 +90,9 @@ function scaffold(args) {
     console.error(C.dim(CREATE_USAGE));
     process.exit(1);
   }
-  const { name, target, framework, hostProfilePath } = result;
+  const { name, target, framework, manifestPath } = result;
   if (result.standalone) {
-    const commands = pocketCommands({ name, target, hostProfilePath });
+    const commands = pocketCommands({ name, target });
     console.log(C.ok(`${relative(process.cwd(), result.directory) || "."}/ scaffolded (${framework}, ${target})`));
     console.log(C.dim(`  cd ${relative(process.cwd(), result.directory)}`));
     console.log(C.dim("  bun install"));
@@ -110,11 +100,10 @@ function scaffold(args) {
     console.log(C.dim(`  bun run build     # ${commands.build}`));
     return;
   }
-  const manifest = `apps/${name}/pocket.json`;
+  const manifest = `apps/${name}/${manifestPath}`;
   const commands = pocketCommands({
     name,
     target,
-    hostProfilePath: hostProfilePath && posix.normalize(`apps/${name}/${hostProfilePath}`),
     manifest,
   });
   console.log(C.ok(`apps/${name} scaffolded (${framework}, ${target})`));
@@ -166,37 +155,19 @@ function frameworkQuery(framework, args) {
   }
 }
 
-/** The project configuration for the manifest the command names. */
-function projectFor(framework, manifest) {
-  const result = frameworkQuery(framework, ["project", ...(manifest ? ["--manifest", manifest] : [])]);
+/** Ask the framework to find the config above the selected manifest. */
+function projectFor(framework, manifest, config) {
+  const result = frameworkQuery(framework, ["project", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--runtime-config", config] : [])]);
   if (!result.ok) fail(result.diagnostics.join("\n"));
   return result.project;
 }
 
-/** tools/pocket.ts arguments for a selection: a catalog id, or a host profile;
- *  a project entry's manifest applies unless the command names one. */
-function selectionArgs(selection, project, args) {
-  if (selection.hostProfile) return ["--host-profile", selection.hostProfile];
-  const entry = project.targets.find((target) => target.id === selection.id);
-  const manifest = entry?.manifest && optionValue(args, "manifest") === undefined ? ["--manifest", entry.manifest] : [];
-  if (entry?.hostProfile) return ["--host-profile", entry.hostProfile, ...manifest];
-  return ["--target", selection.id, ...manifest];
-}
-
 function runVerb(framework, cmd, selection, project, args) {
-  console.error(C.dim(`pocket: target ${selection.id ?? selection.hostProfile} · ${selection.origin}`));
-  const result = spawnSync(
-    process.execPath,
-    [
-      join(framework.root, "tools/pocket.ts"),
-      cmd,
-      ...selectionArgs(selection, project, args),
-      "--cli-protocol",
-      String(CLI_PROTOCOL),
-      ...args,
-    ],
-    { stdio: "inherit", cwd: process.cwd() },
-  );
+  if (selection) console.error(C.dim(`pocket: target ${selection.id} · ${selection.origin}`));
+  const selected = selection ? ["--target", selection.id] : [];
+  if (selection?.source === "project" && project.config && optionValue(args, "runtime-config") === undefined && optionValue(args, "config") === undefined) selected.push("--runtime-config", project.config);
+  const result = spawnSync(process.execPath, [join(framework.root, "tools/pocket.ts"), cmd, ...selected,
+    "--cli-protocol", String(CLI_PROTOCOL), ...args], { stdio: "inherit", cwd: process.cwd() });
   return result.status ?? 1;
 }
 
@@ -215,34 +186,15 @@ function verb(cmd, args, leading) {
   const framework = requireFramework();
   const taken = takeExplicitSelection(args, leading);
   if (taken.error) fail(taken.error);
-  let rest = taken.args;
-  const separator = rest.indexOf("--");
-  const allIndex = rest.indexOf("--all");
-  const all = allIndex >= 0 && (separator < 0 || allIndex < separator);
-  if (all) {
-    if (cmd !== "build") fail("--all applies to `pocket build`");
-    if (taken.explicit) fail("--all builds the targets of pocket.config.ts; drop the explicit target");
-    rest = rest.filter((_, index) => index !== allIndex);
-  }
-  const project = projectFor(framework, optionValue(rest, "manifest"));
-  if (all) {
-    if (project.targets.length === 0) {
-      fail(`--all builds the targets of pocket.config.ts, and ${project.config ?? "no pocket.config.ts"} lists none`);
-    }
-    for (const target of project.targets) {
-      const status = runVerb(framework, cmd, { id: target.id, source: "project", origin: project.config }, project, rest);
-      if (status !== 0) process.exit(status);
-    }
-    process.exit(0);
-  }
-  const selection = select({ explicit: taken.explicit, settings: readSettings(), project });
-  if (!selection) fail(NO_SELECTION);
-  process.exit(runVerb(framework, cmd, selection, project, rest));
+  if (taken.args.includes("--all")) fail("--all is not supported; enumerate profiles in scripts or CI");
+  if (taken.args.some(arg => arg === "--host-profile" || arg.startsWith("--host-profile="))) fail("--host-profile was replaced by profile modules and --runtime-config");
+  const config = optionValue(taken.args, "runtime-config") ?? optionValue(taken.args, "config");
+  const project = !taken.explicit && !process.env.POCKET_TARGET?.trim()
+    ? projectFor(framework, optionValue(taken.args, "manifest"), config)
+    : { config: null, profiles: [], build: false };
+  const selection = select({ explicit: taken.explicit, project });
+  process.exit(runVerb(framework, cmd, selection, project, taken.args));
 }
-
-// ---------------------------------------------------------------------------
-// show, default, override
-// ---------------------------------------------------------------------------
 
 function currentHostId() {
   const os = platform() === "darwin" ? "darwin" : platform() === "linux" ? "linux" : null;
@@ -254,12 +206,13 @@ function show(args, leading) {
   const json = args.includes("--json");
   const resolved = resolveFramework();
   const problem = resolved.error ?? protocolMismatch(resolved, cliVersion());
-  const settings = readSettings();
   const host = currentHostId();
-  const project = problem ? null : projectFor(resolved, optionValue(args, "manifest"));
-  const status = problem ? [] : frameworkQuery(resolved, ["status", "--json"]);
+  const manifest = optionValue(args, "manifest");
+  const config = optionValue(args, "runtime-config");
+  const project = problem ? null : projectFor(resolved, manifest, config);
+  const status = problem ? [] : frameworkQuery(resolved, ["status", "--json", ...(manifest ? ["--manifest", manifest] : []), ...(config ? ["--runtime-config", config] : [])]);
   const explicit = leading ? { id: leading, origin: `+${leading}` } : null;
-  const selection = select({ explicit, settings, project });
+  const selection = select({ explicit, project });
   const report = {
     framework: problem
       ? { error: problem }
@@ -267,7 +220,6 @@ function show(args, leading) {
     project: project ?? null,
     selection,
     host: host ?? `${platform()}-${process.arch} (unsupported)`,
-    settings: settingsPath(),
     targets: status,
   };
   if (json) {
@@ -277,9 +229,9 @@ function show(args, leading) {
   const row = (label, value) => console.log(`${label.padEnd(11)} ${value}`);
   row("framework", problem ? C.bad(problem) : `${resolved.name ?? "@pocketjs/framework"} ${resolved.version ?? ""}   ${resolved.origin} ${resolved.root}`);
   row("project", project?.config
-    ? `${project.config}${project.targets.length ? `   (targets: ${project.targets.map((target) => target.id).join(", ")})` : "   (no targets)"}`
-    : "no pocket.config.ts");
-  row("target", selection ? `${selection.id ?? selection.hostProfile}   ${selection.origin}` : C.dim("none — `pocket default <id>`, `pocket override set <id>`, or `targets` in pocket.config.ts"));
+    ? `${project.config}${project.profiles.length ? `   (profiles: ${project.profiles.map((target) => target.id).join(", ")})` : "   (no profiles)"}`
+    : "no pocket.runtime-config.ts");
+  row("target", selection ? `${selection.id}   ${selection.origin}` : C.dim("none — --target, POCKET_TARGET or pocket.runtime-config.ts"));
   row("host", report.host);
   if (report.targets.length === 0) return;
   console.log("\ntargets for this framework");
@@ -289,69 +241,6 @@ function show(args, leading) {
     const actionable = target.state === "not installed" || target.state === "outdated" || target.state === "broken";
     const state = actionable ? C.bold(target.state) : target.state;
     console.log(` ${marker} ${target.id.padEnd(20)} ${state}${" ".repeat(Math.max(1, 19 - target.state.length))}${C.dim(target.detail)}`);
-  }
-}
-
-/** Fails unless `id` names a catalog target or a host profile of this project; skipped without a framework. */
-function requireKnownTarget(id) {
-  const resolved = resolveFramework();
-  if (resolved.error || protocolMismatch(resolved, cliVersion())) return;
-  const catalog = frameworkQuery(resolved, ["catalog", "--json"]);
-  if (catalog.some((target) => target.id === id)) return;
-  const project = projectFor(resolved, undefined);
-  if (project.targets.some((target) => target.id === id)) return;
-  fail(`unknown target ${id}; targets: ${catalog.map((target) => target.id).join(", ")}`);
-}
-
-function defaultCommand(args) {
-  const settings = readSettings();
-  if (args.length === 0) {
-    console.log(settings.default ?? "no user default");
-    return;
-  }
-  if (args[0] === "--unset") {
-    delete settings.default;
-    writeSettings(settings);
-    console.log(C.ok("user default removed"));
-    return;
-  }
-  requireKnownTarget(args[0]);
-  writeSettings({ ...settings, default: args[0] });
-  console.log(C.ok(`user default: ${args[0]}`));
-}
-
-function overrideCommand(args) {
-  const [action, ...rest] = args;
-  const settings = readSettings();
-  // Real paths: the current directory a later command compares against is one.
-  const requested = resolve(optionValue(rest, "path") ?? process.cwd());
-  const path = existsSync(requested) ? realpathSync(requested) : requested;
-  switch (action) {
-    case "set": {
-      const id = rest.find((value, index) => !value.startsWith("--") && rest[index - 1] !== "--path");
-      if (!id) fail("usage: pocket override set <id> [--path DIR]");
-      requireKnownTarget(id);
-      writeSettings({ ...settings, overrides: { ...settings.overrides, [path]: id } });
-      console.log(C.ok(`override: ${path} → ${id}`));
-      return;
-    }
-    case "unset": {
-      if (!(path in settings.overrides)) fail(`no override for ${path}`);
-      const { [path]: _removed, ...overrides } = settings.overrides;
-      writeSettings({ ...settings, overrides });
-      console.log(C.ok(`override removed: ${path}`));
-      return;
-    }
-    case "list": {
-      const entries = Object.entries(settings.overrides);
-      if (entries.length === 0) console.log("no overrides");
-      for (const [directory, id] of entries) console.log(`${directory}  ${id}`);
-      const active = overrideFor(process.cwd(), settings);
-      if (active) console.log(C.dim(`active here: ${active.directory} → ${active.id}`));
-      return;
-    }
-    default:
-      fail("usage: pocket override set <id> [--path DIR] | unset [--path DIR] | list");
   }
 }
 
@@ -379,48 +268,21 @@ const leading = argvAfterPocket[0]?.startsWith("+") ? argvAfterPocket.shift().sl
 const [cmd, ...rest] = argvAfterPocket;
 const SELECTING = new Set(["check", "compile", "build", "show"]);
 if (leading !== undefined && !SELECTING.has(cmd)) fail(`+${leading} selects a target for check, compile, build or show`);
-const HELP = `${C.bold("pocket")} — the PocketJS toolchain CLI (runs on Bun)
+const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
 
-  pocket create <name>     scaffold a pocket.json v2 app: apps/<name> inside a
-                           checkout, a standalone project anywhere else
-      --target T           psp (default) | vita | pocketbook | web-app |
-                           macos-app | linux-app | esp-idf
-      --framework F        solid (default) | vue-vapor | octane
-      --host-profile FILE  derive the manifest from an ESP-IDF host profile
-  pocket [+id] check       validate pocket.json, target APIs and app types
-  pocket [+id] compile     check + emit JS/pak from one resolved build plan
-  pocket [+id] build       check + compile + package the target's artifacts
-      --target ID          the same as +ID
-      --host-profile FILE  an ESP-IDF product host
-      --all                (build) every target of pocket.config.ts
-  pocket show [--json]     framework, project, selected target and why, and
-                           the install state of every target
-  pocket target add [ID …] install the toolchains the framework pins; with no
-                           ID, the targets of pocket.config.ts
-  pocket target list [--check] [--json]
-                           install states; --check exits 1 unless every
-                           target of pocket.config.ts is ready to build
-  pocket target remove ID …
-                           delete the install records and prune the store
-  pocket sdk export --triple T --out DIR
-                           build a relocatable candidate C SDK
-  pocket sdk verify --dir DIR
-                           verify every exported file against its manifest
-  pocket default [ID | --unset]
-                           the user default target
-  pocket override set ID [--path DIR] | unset [--path DIR] | list
-                           a target for a directory and everything below it
-  pocket play vita <app>   build, install and launch a demo in Vita3K
-  pocket play ios <app>    build, stage and launch a demo on the iOS simulator
-  pocket dev <app>-main    build + serve an app in the browser
-  pocket psp <app>         build the PSP EBOOT
-  pocket vita <app>        build the PS Vita VPK
-  pocket symbian <cmd>      Nokia E7 doctor/setup/build-probe/deploy
-  pocket ios <cmd>         Apple iOS doctor/setup/build/play on the simulator
-  pocket hw <app>          build + run on a real PSP over PSPLINK
-  pocket psplink           interactive multi-app switcher on a real PSP
-  pocket devtools [app]    DevTools panel + USB debug bridge (one command)
-  pocket tape <cmd> …      record / replay / inspect input tapes headlessly
+  pocket create <name> [--target ID]
+  pocket [+id] check|compile [--manifest pocket.json] [--target ID|MODULE]
+      --runtime-config FILE  choose the program configuration
+      --output FILE          compile a .pocket package
+      --aot --out DIR        compile native guest sources
+      --depfile FILE         emit build dependencies
+  pocket build [--config pocket.runtime-config.ts] [--target ID] [--out DIR]
+  pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]
+  pocket show [--json]       profile selection and toolchain status
+  pocket target add [ID…] | list [--check] [--json] | remove ID…
+  pocket sdk export         export a relocatable C SDK
+  pocket dev|psp|vita|hw|psplink|devtools|tape|play [...args]
+  pocket --version
 `;
 
 switch (cmd) {
@@ -441,11 +303,8 @@ switch (cmd) {
   case "sdk":
     targetCommand(rest, "sdk");
     break;
-  case "default":
-    defaultCommand(rest);
-    break;
-  case "override":
-    overrideCommand(rest);
+  case "profile":
+    targetCommand(rest, "profile");
     break;
   case "dev":
   case "psp":

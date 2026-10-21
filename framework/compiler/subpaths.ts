@@ -21,7 +21,7 @@
 // per-framework shim for solid and vue-vapor (octane still does not resolve
 // them).
 
-import type { PocketFramework } from "../src/config.ts";
+import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
 
 export const POCKET_FRAMEWORKS = ["solid", "vue-vapor", "octane"] as const;
 
@@ -80,8 +80,8 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "media/provider": { file: "tools/media-stream.ts" },
   "media/audio": { file: "contracts/spec/media-adpcm.ts" },
   clock: { file: "framework/src/clock.ts", aliases: TWINS },
-  config: { file: "framework/src/config.ts" },
   profile: { file: "framework/src/profile.ts" },
+  "runtime-config": { file: "framework/src/runtime-config.ts" },
   profiles: { file: "profiles/index.ts" },
   "profiles/psp": { file: "profiles/psp.ts" },
   "profiles/vita": { file: "profiles/vita.ts" },
@@ -155,7 +155,6 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   },
   launcher: { file: "framework/src/launcher.ts" },
   manifest: { file: "framework/src/manifest/index.ts" },
-  "idf-host": { file: "framework/src/manifest/idf-host.ts" },
   net: { file: "framework/src/net-api.ts", aliases: TWINS },
   osk: { file: { solid: "framework/src/osk.tsx" } },
   package: { file: "contracts/spec/pocket-package.ts" },

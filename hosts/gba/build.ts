@@ -1,14 +1,10 @@
 #!/usr/bin/env bun
 /** Experimental bare-metal MicroTS Hero ROM; no JavaScript VM or OS. */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { analyzeAot, buildAot } from "../../microts/compiler/aot-build.ts";
-import { bakeAtlases } from "../../framework/compiler/bake-font.ts";
-import { bakeSvg } from "../../framework/compiler/bake-svg.ts";
-import { decodePng } from "../../framework/compiler/pak.ts";
+import { compileBuiltinAot } from "../../tools/aot-compile.ts";
 import { packLayers } from "./assets.ts";
-import type { LayerDeclarations } from "../../microts/compiler/aot-paint-plan.ts";
 
 const root = resolve(import.meta.dir, "../..");
 export const GBA_TOOLCHAIN = "nightly-2026-07-01";
@@ -57,35 +53,7 @@ async function main() {
   const out = resolve(options.find(arg => arg.startsWith("--outdir="))?.slice(9) ?? resolve(root, "dist/gba"));
   const gen = resolve(out, "generated");
   mkdirSync(out, { recursive: true });
-  // The hero's `layout-baked` page is solved at build time in the no_std wasm
-  // core: the same crate and float math the cartridge runs. Fonts come first
-  // because text leaves measure during that solve.
-  const entry = resolve(root, "apps/gba-hero/app.tsx");
-  const fonts = await bakeAtlases({ codepoints: [], slots: analyzeAot(entry, { strict: true }).styles.usedFontSlots });
-  const wasm = resolve(root, "hosts/web/pocketjs.wasm");
-  const wasmBuild = Bun.spawnSync([process.execPath, resolve(root, "tools/wasm.ts")], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (!wasmBuild.success) throw new Error(`pocketjs.wasm build failed: ${wasmBuild.stderr.toString()}`);
-  // Optional per-layer declarations (size ranges, glyph sets, text lengths)
-  // the recipes cannot infer from literals and types.
-  const declarationsPath = resolve(root, "apps/gba-hero/gba-layers.json");
-  const declarations: LayerDeclarations = existsSync(declarationsPath) ? JSON.parse(readFileSync(declarationsPath, "utf8")) : {};
-  const result = await buildAot(entry, { outDir: gen, strict: true, format: false, layoutEnvironment: {
-    viewport: [240, 160], fontAtlases: fonts.map(font => font.bytes), wasm: readFileSync(wasm), spriteLayers: true, tickRate: 30, declarations,
-  } });
-  for (const region of result.layout.regions) console.log(`layout-baked ${region.name}: ${region.nodes} nodes, ${region.formulas} formula leaves, ${region.islands} live islands, ${region.layers.length} sprite layers`);
-  // The sprite layer plan drives the desktop baker and the packer.
-  const layers = result.layout.regions.flatMap(region => region.layers);
-  writeFileSync(resolve(gen, "layers.json"), JSON.stringify({ viewport: [240, 160], tickRate: 30, settleFrames: 40, layers }, null, 2) + "\n");
-  for (const font of fonts) writeFileSync(resolve(gen, `font-${font.slot}.bin`), font.bytes);
-  const images: string[] = [];
-  for (const name of ["logo.png", ...Array.from({ length: 8 }, (_, index) => `spinner-0${index}.svg`)]) {
-    const bytes = readFileSync(resolve(root, "assets/images", name));
-    const image = name.endsWith(".svg") ? bakeSvg(bytes.toString()) : decodePng(bytes);
-    const path = resolve(gen, `${name}.rgba`);
-    writeFileSync(path, image.rgba);
-    images.push(`{ let id = ui.core_mut().upload_texture(include_bytes!(${JSON.stringify(path)}), ${image.width}, ${image.height}, microts::pocketjs_core::spec::psm::PSM_8888); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
-  }
-  writeFileSync(resolve(gen, "include.rs"), `#[path = ${JSON.stringify(resolve(gen, "mod.rs"))}]\nmod generated;\n#[allow(dead_code)]\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!(${JSON.stringify(resolve(gen, `font-${font.slot}.bin`))})));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(ui: &mut microts::Ui) {\n${images.join("\n")}\n}\n`);
+  const { result } = await compileBuiltinAot("gba", gen);
   const bakeDirectory = resolve(out, "baked");
   mkdirSync(bakeDirectory, { recursive: true });
   const bakeCommand = ["cargo", "+stable", "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/gba/bake/Cargo.toml"), "--target-dir", resolve(out, "bake-target"), "--", bakeDirectory];

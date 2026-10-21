@@ -5,7 +5,7 @@
 // Four pages mirror the original portfolio pages — motions/53, /56, /30 and
 // /64 — each a grid of SIX tiles playing together (3x2 here for the PSP's
 // landscape screen; the originals are 2x3 portrait). Every animation is a
-// `theme.keyframes` + `theme.animation` entry in ./pocket.config.ts applied
+// `theme.keyframes` + `theme.animation` entry in ./pocket.json app.theme applied
 // through static `animate-<name>` utilities; a page-wide `loop` period
 // replays all six tiles in sync, like the original page remount. The /64
 // page runs on the 3D pipeline (`perspective-[N]` roots + rotate-x/y +

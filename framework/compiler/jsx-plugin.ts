@@ -35,7 +35,7 @@ import vueJsxVaporPkg from "vue-jsx-vapor/package.json";
 import octanePkg from "octane/package.json";
 import babelCorePkg from "@babel/core/package.json";
 import tsPresetPkg from "@babel/preset-typescript/package.json";
-import type { PocketFramework } from "../src/config.ts";
+import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
 import { POCKET_FRAMEWORKS, SUBPATHS } from "./subpaths.ts";
 
 export type { PocketFramework };

@@ -35,8 +35,8 @@ ports. The showcase demos each ship an `app.octane.tsx` and a
 the current set.
 
 There is no environment-variable switch for framework selection. Product
-builds declare it in `pocket.json`; low-level compiler work can still use a
-project config or one-command override.
+builds declare it in `pocket.json`; low-level compiler work can use a
+`--framework` override for one invocation.
 
 ## Manifest selection
 
@@ -49,36 +49,52 @@ project config or one-command override.
 ```
 
 Use `"vue-vapor"` for the Vue adapter and `"octane"` for Octane.
-`pocket check|compile|build --target …`
-resolves this value once and all framework/compiler/native stages consume the same plan.
-Do not also put `framework` in `pocket.config.ts` for a manifest build.
+**`pocket check` and `pocket compile` resolve the framework from `pocket.json`.**
+The compiler passes that selection through the resolved build plan. Animation
+keyframes and shorthand definitions belong beside it in `app.theme`.
 
-## Low-level project config
-
-`pocket.config.ts` is the low-level script default:
-
-```ts
-import { definePocketConfig } from "@pocketjs/framework/config";
-
-export default definePocketConfig({
-  framework: "solid",
-});
-```
-
-`framework` takes the same three build ids as the manifest.
-
-The direct framework/compiler/dev scripts read the config by default. Use
-`--framework=solid`, `--framework=vue-vapor`, or `--framework=octane` to
-override it for one invocation. `--config=<path>` selects a different config
-file, and `--no-config` ignores config entirely.
-
-The same flag works through the dev and PSP entry points:
+The software profile is selected by the caller:
 
 ```sh
-bun tools/dev.ts --framework=vue-vapor hero-main
-bun tools/dev.ts --framework=octane hero-main
-bun tools/psp.ts hero --framework=vue-vapor --release
+pocket compile --manifest pocket.json --target psp
+pocket compile --manifest pocket.json --target ./profiles/my-board.ts
+pocket compile --manifest pocket.json
 ```
+
+`--target` accepts a built-in profile id or an exported profile module, including
+an npm package. `POCKET_TARGET` provides the default for that option. Without a
+target, the compiler searches upward from the manifest directory for
+`pocket.runtime-config.ts` and uses its single profile. A configuration with
+multiple profiles requires a profile ID.
+
+A program can declare its profile without assigning a native build to PocketJS:
+
+```ts
+// pocket.runtime-config.ts
+import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
+import psp from "@pocketjs/framework/profiles/psp";
+
+export default defineRuntimeConfig({ profile: psp });
+```
+
+The profile supplies display geometry, capabilities and `tickHz`.
+**`pocket build` consumes the runtime configuration's `build` recipe** to build
+the native program. The recipe uses `cargo()`, `cmake()`, `make()` or
+`compilerOnly()` from `@pocketjs/framework/runtime-config`; application framework
+and theme settings stay in `pocket.json`.
+
+## Low-level compiler overrides
+
+Direct compiler and development scripts accept `--framework=solid`,
+`--framework=vue-vapor`, or `--framework=octane` for a single invocation:
+
+```sh
+bun tools/build.ts hero-main --framework=vue-vapor
+bun tools/dev.ts --framework=octane hero-main
+```
+
+These overrides support framework compiler work. Manifest-based application
+builds use `app.framework`.
 
 ## Framework app imports
 
@@ -214,7 +230,7 @@ Authoring rules specific to Octane apps:
   multi-frame stall. The showcase demos put every continuous visual on a native
   channel instead: `<Sprite>` atlases for the hero/gallery/library spinners
   (`sprites.json`), a baked keyframe timeline for the music equalizer
-  (`apps/music/pocket.config.ts`), `animate()`/`jump()` for the stats bars and
+  (`apps/music/pocket.json`, `app.theme`), `animate()`/`jump()` for the stats bars and
   notification rows, and `setTextContent` for count-ups and percentages
   (`StatTiles`, `ProgressLine`).
 - **Frame counters that only time a phase live in refs**, committing state
@@ -231,8 +247,9 @@ Authoring rules specific to Octane apps:
 
 All three frameworks use the same Tailwind-subset compiler, generated style
 table, font atlas baker, `.pak` asset container, host detection, button/focus
-input, overlay layer, animation API, and every native build and capture path a
-target registers in `contracts/spec/platforms.ts`. Switching frameworks changes
+input, overlay layer, animation API, and the native rendering and capture paths
+provided by the selected program. Profiles declare software capabilities;
+`pocket.runtime-config.ts` declares the program build. Switching frameworks changes
 the JS component/reactivity layer and the renderer adapter.
 
 One exception: **touch under Octane is raw contacts only.** The Solid and Vue

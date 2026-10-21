@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { POCKET_TARGETS, type TargetProfile } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { CATALOG, COMMAND_WORDS, catalogEntry, catalogEntryForContract } from "../tools/targets/index.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 import { HOST_IDS, currentHost } from "../tools/targets/types.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
 import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
@@ -43,12 +44,12 @@ function resolveThroughCatalog(id: string, manifest: unknown) {
 }
 
 describe("target catalog", () => {
-  test("ids are unique kebab-case names that are not command words", () => {
+  test("toolchain ids are unique kebab-case names; PSP and Vita also have deployment commands", () => {
     const ids = CATALOG.map((descriptor) => descriptor.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) {
       expect(id).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-      expect(COMMAND_WORDS).not.toContain(id);
+      if (COMMAND_WORDS.includes(id)) expect(["psp", "vita"]).toContain(id);
     }
   });
 
@@ -115,26 +116,25 @@ describe("tools/pocket.ts and the catalog", () => {
     return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
   };
 
-  test("catalog --json lists every target with its contract", () => {
+  test("catalog --json lists software profile ids and platforms", () => {
     const result = pocket(["catalog", "--json"]);
     expect(result.code).toBe(0);
     const rows = JSON.parse(result.out);
-    expect(rows.map((row: { id: string }) => row.id)).toEqual(CATALOG.map((descriptor) => descriptor.id));
-    expect(rows.find((row: { id: string }) => row.id === "nokia-e7")).toEqual({
-      id: "nokia-e7",
+    expect(rows.map((row: { id: string }) => row.id)).toEqual(Object.keys(POCKET_PROFILES));
+    expect(rows.find((row: { id: string }) => row.id === "symbian-e7-dev")).toEqual({
+      id: "symbian-e7-dev",
       title: "Nokia E7 (Symbian)",
-      contract: { kind: "profile", target: "symbian-e7-dev" },
-      hosts: ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"],
+      platform: "symbian",
     });
   });
 
-  test("a device target checks through its catalog id; its contract id points at the catalog id", () => {
-    const checked = pocket(["check", "--target", "3ds", "--manifest", "apps/3ds-demo/pocket.json", "--project-root", "."]);
+  test("application compilation selects the actual profile id, not a toolchain alias", () => {
+    const checked = pocket(["check", "--target", "3ds-dev", "--manifest", "apps/3ds-demo/pocket.json", "--project-root", "."]);
     expect(checked.code, checked.err).toBe(0);
     expect(checked.out).toContain("✓ 3ds-dev satisfies pocket.json capabilities");
 
-    const contract = pocket(["check", "--target", "3ds-dev", "--manifest", "apps/3ds-demo/pocket.json", "--project-root", "."]);
+    const contract = pocket(["check", "--target", "3ds", "--manifest", "apps/3ds-demo/pocket.json", "--project-root", "."]);
     expect(contract.code).toBe(1);
-    expect(contract.err).toContain("unknown target 3ds-dev; the catalog names this target 3ds");
+    expect(contract.err).toContain("unknown profile or module 3ds");
   });
 });

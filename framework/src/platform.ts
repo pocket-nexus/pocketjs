@@ -1,4 +1,4 @@
-import type { PocketCapabilityId } from "../../contracts/spec/platforms.ts";
+import type { PocketCapabilityId } from "../../contracts/spec/platform-types.ts";
 
 // Replaced by tools/build.ts for manifest-driven bundles. `typeof` keeps
 // legacy and test builds valid until they opt into pocket.json.

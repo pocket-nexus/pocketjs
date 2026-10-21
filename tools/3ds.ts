@@ -148,10 +148,7 @@ export interface ThreeDsArguments {
   readonly capture: boolean;
   /** Also package the ELF as an installable CIA title. */
   readonly cia: boolean;
-  readonly configFlagged: boolean;
-  readonly useConfig: boolean;
   /** Forwarded to tools/build.ts. */
-  readonly buildFlags: readonly string[];
   /** Everything unrecognized, forwarded to cargo. */
   readonly cargoArgs: readonly string[];
 }
@@ -176,9 +173,6 @@ export function parse3dsArguments(
   let pocketOnly = false;
   let capture = false;
   let cia = false;
-  let configFlagged = false;
-  let useConfig = true;
-  const buildFlags: string[] = [];
   const cargoArgs: string[] = [];
 
   for (const a of argv) {
@@ -191,12 +185,8 @@ export function parse3dsArguments(
     else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
     else if (a.startsWith("--outdir=")) outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
     else if (a.startsWith("--package-outdir=")) packageDir = resolvePath(a.slice("--package-outdir=".length));
-    else if (a.startsWith("--config=")) {
-      configFlagged = true;
-      buildFlags.push(a);
-    } else if (a === "--no-config") {
-      useConfig = false;
-      buildFlags.push(a);
+    else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
+      throw new Error("PocketJS 3ds: application configuration belongs in pocket.json");
     } else if (!app && !a.startsWith("-")) app = a;
     else cargoArgs.push(a);
   }
@@ -212,9 +202,6 @@ export function parse3dsArguments(
     pocketOnly,
     capture,
     cia,
-    configFlagged,
-    useConfig,
-    buildFlags,
     cargoArgs,
   };
 }
@@ -572,9 +559,6 @@ async function loadBuildPlan(
   args: ThreeDsArguments,
 ): Promise<{ plan: ResolvedBuildPlan; planPath: string; manifestPath: string }> {
   if (args.planPath) {
-    if (args.configFlagged || !args.useConfig) {
-      throw new Error("PocketJS 3ds: config overrides are forbidden with --plan");
-    }
     const plan = (await Bun.file(args.planPath).json()) as ResolvedBuildPlan;
     const checked = assert3dsPlan(plan, args.planPath);
     const entry = resolvePath(args.projectRoot, checked.app.entry);
@@ -735,7 +719,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   console.log(`PocketJS 3ds: building app "${plan.app.output}" (${plan.app.framework})`);
   mkdirSync(args.outputDir, { recursive: true });
   if (!args.skipBuild) {
-    await $`bun tools/build.ts --plan=${planPath} --project-root=${args.projectRoot} --outdir=${args.outputDir} ${args.buildFlags}`
+    await $`bun tools/build.ts --plan=${planPath} --project-root=${args.projectRoot} --outdir=${args.outputDir}`
       .cwd(repository);
   }
   const guestJavaScript = join(args.outputDir, `${inputs.appOutput}.js`);

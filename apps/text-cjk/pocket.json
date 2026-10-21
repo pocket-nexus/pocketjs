@@ -27,6 +27,27 @@
         ],
         "presentation": "integer-fit"
       }
+    },
+    "theme": {
+      "keyframes": {
+        "skeleton-pulse": {
+          "from": {
+            "opacity": 0.35
+          },
+          "50%": {
+            "opacity": 0.9
+          },
+          "to": {
+            "opacity": 0.35
+          }
+        }
+      },
+      "animation": {
+        "skeleton-pulse": {
+          "value": "skeleton-pulse 1600ms linear both",
+          "loop": "1600ms"
+        }
+      }
     }
   }
 }

@@ -89,15 +89,18 @@ jobs:
           bun tools/esp-idf-native.ts --target esp32s3
           --cargo "$RUNNER_TEMP/esp-rust/bin/cargo"
 
-      - name: Build deterministic smoke package
-        run: >-
-          bun tools/pocket.ts build
-          --manifest hosts/esp-idf/examples/smoke/pocket.json
-          --host-profile hosts/esp-idf/examples/smoke/pocket.host.json
-          --project-root hosts/esp-idf/examples/smoke
-          --plan-dir "$RUNNER_TEMP/pocketjs-plans"
-          --outdir .pocket-build
-          --output idf-smoke.pocket
+      - name: Compile deterministic smoke package and export its program profile
+        run: |
+          bun tools/pocket.ts compile \
+            --manifest hosts/esp-idf/examples/smoke/pocket.json \
+            --runtime-config hosts/esp-idf/examples/smoke/pocket.runtime-config.ts \
+            --project-root hosts/esp-idf/examples/smoke \
+            --plan-dir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/plans" \
+            --outdir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/app" \
+            --output "$GITHUB_WORKSPACE/hosts/esp-idf/examples/smoke/idf-smoke.pocket"
+          bun tools/pocket.ts profile export \
+            --config hosts/esp-idf/examples/smoke/pocket.runtime-config.ts \
+            --out "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/profile"
 
       - name: Verify committed prebuilt package
         run: >-
@@ -110,7 +113,24 @@ jobs:
           esp_idf_version: ${{ matrix.idf }}
           target: ${{ matrix.target }}
           path: hosts/esp-idf/examples/smoke
-          command: idf.py -DPOCKETJS_RUST_FROM_SOURCE=OFF build
+          # The action mounts the checkout at its own container path. Resolve
+          # exported artifacts from this example's working directory.
+          command: >-
+            idf.py -DPOCKETJS_RUST_FROM_SOURCE=OFF
+            -DPOCKETJS_PROFILE_EXPORT_DIR="$PWD/../../../../.pocket-build/validation/idf-ci/profile"
+            build
+
+      - name: Build offline prebuilt firmware
+        if: matrix.idf == 'release-v6.0'
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ matrix.idf }}
+          target: ${{ matrix.target }}
+          path: hosts/esp-idf/examples/prebuilt
+          command: >-
+            idf.py -DPOCKETJS_RUST_FROM_SOURCE=OFF
+            -DPOCKETJS_PROFILE_EXPORT_DIR="$PWD/../../../../.pocket-build/validation/idf-ci/profile"
+            build
 
       - name: Build optional runner firmware
         if: matrix.idf == 'release-v6.0'
@@ -119,4 +139,7 @@ jobs:
           esp_idf_version: ${{ matrix.idf }}
           target: ${{ matrix.target }}
           path: hosts/esp-idf/examples/runner
-          command: idf.py -DPOCKETJS_RUST_FROM_SOURCE=OFF build
+          command: >-
+            idf.py -DPOCKETJS_RUST_FROM_SOURCE=OFF
+            -DPOCKETJS_PROFILE_EXPORT_DIR="$PWD/../../../../.pocket-build/validation/idf-ci/profile"
+            build

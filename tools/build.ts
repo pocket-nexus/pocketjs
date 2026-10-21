@@ -1,6 +1,6 @@
+import { resolveSourceEntry, sourceAppContent, sourceOutputName } from "./source-app.ts";
 import { resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
 import { modelConfiguration } from "../microts/compiler/aot-model-build.ts";
-import { readIdfHostExtension } from "../framework/src/manifest/idf-host.ts";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 // tools/build.ts <app> — the TWO-PASS app build (docs/DESIGN.md "Build pipeline").
 //
@@ -19,8 +19,6 @@ import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 //
 // Flags:
 //   --framework=solid|vue-vapor|octane  select the framework for this build
-//   --config=<path>              load a Pocket config file (default: pocket.config.ts)
-//   --no-config                  ignore pocket.config.ts
 //   --extra-chars=<string>       force extra codepoints into every atlas
 //   --density=<integer>          low-level target sampling density (default 1)
 //   --font-regular=<path>        override the regular font source
@@ -32,9 +30,9 @@ import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 //                                that does not compile; without it the build
 //                                prints the same finding as a warning
 
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
 import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
 import {
   FRAMEWORKS,
@@ -46,7 +44,8 @@ import {
   type LiteralSite,
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
-import type { PocketConfig } from "../framework/src/config.ts";
+import { animationThemeSchema } from "../contracts/spec/pocket-manifest.ts";
+import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
 import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
@@ -91,9 +90,6 @@ let regularFontPath: string | undefined;
 let boldFontPath: string | undefined;
 let appArg = "";
 let frameworkFlag: string | undefined;
-let configPath = join(ROOT, "pocket.config.ts");
-let configFlagged = false;
-let useConfig = true;
 let planPath: string | undefined;
 let densityFlag: number | undefined;
 let hzFlag: number | undefined;
@@ -106,8 +102,9 @@ for (const a of args) {
   else if (a.startsWith("--font-regular=")) regularFontPath = resolvePath(a.slice("--font-regular=".length));
   else if (a.startsWith("--font-bold=")) boldFontPath = resolvePath(a.slice("--font-bold=".length));
   else if (a.startsWith("--framework=")) frameworkFlag = a.slice("--framework=".length);
-  else if (a.startsWith("--config=")) { configPath = resolvePath(ROOT, a.slice("--config=".length)); configFlagged = true; }
-  else if (a === "--no-config") useConfig = false;
+  else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
+    throw new Error("PocketJS build: application configuration belongs in pocket.json; --config and --no-config were removed");
+  }
   else if (a.startsWith("--plan=")) planPath = resolvePath(a.slice("--plan=".length));
   else if (a.startsWith("--project-root=")) projectRoot = resolvePath(a.slice("--project-root=".length));
   else if (a.startsWith("--outdir=")) DIST = resolvePath(a.slice("--outdir=".length)) + "/";
@@ -138,7 +135,6 @@ if (planPath) {
     || model.mode === "compiled" && currentApp.framework !== buildPlan.app.framework) {
     throw new Error("PocketJS build: model settings differ from the ResolvedBuildPlan; resolve a new plan before building");
   }
-  if (!configFlagged) configPath = resolvePath(projectRoot, "pocket.config.ts");
 }
 
 if (!appArg) {
@@ -146,81 +142,25 @@ if (!appArg) {
   process.exit(1);
 }
 
-async function loadConfig(): Promise<PocketConfig> {
-  if (!useConfig || !existsSync(configPath)) return {};
-  const url = pathToFileURL(configPath);
-  url.searchParams.set("mtime", String(statSync(configPath).mtimeMs));
-  const mod = await import(url.href) as { default?: PocketConfig; config?: PocketConfig };
-  return mod.default ?? mod.config ?? {};
-}
-
-function resolveEntry(arg: string): string {
-  const normalized = arg.replace(/\\/g, "/").replace(/\.tsx?$/, "");
-  const bare = normalized.includes("/") ? normalized.slice(normalized.lastIndexOf("/") + 1) : normalized;
-  const isBareName = !arg.includes("/") && !arg.startsWith(".");
-  const demoRel = normalized.replace(/^.*?apps\//, "");
-  const demoName =
-    demoRel.endsWith("/main")
-      ? demoRel.slice(0, -"/main".length)
-      : demoRel.endsWith("/app")
-        ? demoRel.slice(0, -"/app".length)
-        : bare.endsWith("-main")
-          ? bare.slice(0, -"-main".length)
-          : bare;
-  const wantsMain = demoRel.endsWith("/main") || bare.endsWith("-main");
-  const tries = [
-    resolvePath(arg),
-    resolvePath(ROOT, arg),
-    wantsMain ? resolvePath(ROOT, "apps", demoName, "main.tsx") : "",
-    wantsMain ? resolvePath(ROOT, "apps", demoName, "main.ts") : "",
-    !wantsMain ? resolvePath(ROOT, "apps", demoName, "app.tsx") : "",
-    isBareName && !wantsMain ? resolvePath(ROOT, "apps", demoName, "main.tsx") : "",
-    isBareName && !wantsMain ? resolvePath(ROOT, "apps", demoName, "main.ts") : "",
-    resolvePath(ROOT, "apps", arg),
-    resolvePath(ROOT, "apps", arg + ".tsx"),
-    resolvePath(ROOT, "apps", arg + ".ts"),
-  ].filter(Boolean);
-  for (const t of tries) {
-    if (/\.tsx?$/.test(t) && existsSync(t) && statSync(t).isFile()) return t;
-  }
-  console.error(`PocketJS build: cannot resolve app "${arg}" (tried:\n  ${tries.join("\n  ")})`);
-  process.exit(1);
-}
-
-const requestedEntry = resolveEntry(appArg);
-buildInputs.optional(configPath);
-buildInputs.optional(join(dirname(requestedEntry), "pocket.config.ts"));
+const requestedEntry = resolveSourceEntry(appArg, ROOT);
 buildInputs.optional(join(projectRoot, "tsconfig.json"));
-// An app directory can carry its own pocket.config.ts (theme/keyframes local
-// to the app); it wins over the repo root config unless --config was given.
-if (!configFlagged && useConfig) {
-  const appConfig = join(dirname(requestedEntry), "pocket.config.ts");
-  if (existsSync(appConfig)) configPath = appConfig;
-}
-const config = await loadConfig();
-if (buildPlan && config.framework !== undefined) {
-  throw new Error(
-    "PocketJS build: framework belongs to pocket.json in manifest builds; remove it from pocket.config.ts",
-  );
+// The public compiler passes a frozen plan. Low-level source builds read the
+// matching application manifest so they bake the same application theme.
+if (!buildPlan) modelConfiguration(requestedEntry);
+const appContent = buildPlan ? buildPlan.app : sourceAppContent(requestedEntry, {
+  frameworkRoot: ROOT, projectRoot, onRead: path => buildInputs.add(path),
+});
+if (appContent.theme !== undefined) {
+  const diagnostics: ContractDiagnostic[] = [];
+  validateSchema(appContent.theme, animationThemeSchema, "/app/theme", diagnostics);
+  if (diagnostics.length) throw new Error(diagnostics.map(item => `${item.path}: ${item.message}`).join("; "));
 }
 const framework: PocketFramework = frameworkFlag
   ? parseFramework(frameworkFlag, "--framework")
-  : buildPlan
-    ? parseFramework(buildPlan.app.framework, "ResolvedBuildPlan")
-  : parseFramework(config.framework, "pocket.config.ts");
+  : parseFramework(appContent.framework, buildPlan ? "ResolvedBuildPlan" : "pocket.json");
 const frameworkConfig = FRAMEWORKS[framework];
 const entry = frameworkVariantPath(requestedEntry, framework);
-function outputName(file: string): string {
-  const normalizedFile = file.replace(/\\/g, "/");
-  const normalizedRoot = ROOT.replace(/\\/g, "/");
-  const prefix = normalizedRoot.endsWith("/") ? normalizedRoot : normalizedRoot + "/";
-  const rel = normalizedFile.startsWith(prefix) ? normalizedFile.slice(prefix.length) : normalizedFile;
-  const demo = rel.match(/^apps\/([^/]+)\/(app|main)\.tsx?$/);
-  if (demo) return demo[2] === "main" ? `${demo[1]}-main` : demo[1];
-  return normalizedFile.split("/").pop()!.replace(/\.tsx?$/, "");
-}
-
-const appName = buildPlan?.app.output ?? outputName(requestedEntry);
+const appName = buildPlan?.app.output ?? sourceOutputName(requestedEntry, ROOT);
 // A resolved plan names the exact artifact. Low-level demo builds retain the
 // framework suffix so multiple framework variants can coexist in dist/.
 const outName = buildPlan ? appName : `${appName}${frameworkConfig.outputSuffix}`;
@@ -241,12 +181,8 @@ const rasterDensity = buildPlan?.viewport.rasterDensity ?? densityFlag ?? 1;
 if (hzFlag !== undefined && (!Number.isInteger(hzFlag) || hzFlag < 1 || hzFlag > 240)) {
   throw new Error("PocketJS build: --hz wants an integer from 1 through 240");
 }
-const idfHost = readIdfHostExtension(buildPlan?.hostExtension);
 if (buildPlan && hzFlag !== undefined && hzFlag !== buildPlan.profile.tickHz) {
   throw new Error("PocketJS build: --hz cannot override the resolved software profile");
-}
-if (idfHost && (idfHost.tickHz !== buildPlan!.profile.tickHz || idfHost.profileHash !== buildPlan!.profileHash)) {
-  throw new Error("PocketJS build: ESP-IDF host extension and software profile differ");
 }
 const tickHz = buildPlan?.profile.tickHz ?? hzFlag ?? 60;
 console.log(
@@ -338,7 +274,7 @@ console.log(`  pass 1: ${visited.size} module(s), ${classStrings.length} candida
 // compile styles + fonts + images
 // ---------------------------------------------------------------------------
 
-registerAnimationTheme(config.theme);
+registerAnimationTheme(appContent.theme);
 // Keyframe timelines are frame-baked; they must count frames at the same
 // rate the realm ticks (transition-* stays in ms and converts at runtime).
 setAnimationTickRate(tickHz);
@@ -612,8 +548,7 @@ if (!result.success) {
 const bundle = result.outputs.find((o) => o.path.endsWith(".js"));
 if (inputsFile) {
   buildInputs.metafile(result.metafile);
-  await buildInputs.compiler([join(ROOT, "tools/build.ts"), join(ROOT, "tools/pocket.ts"),
-    ...(useConfig && existsSync(configPath) ? [configPath] : [])], ROOT);
+  await buildInputs.compiler([join(ROOT, "tools/build.ts"), join(ROOT, "tools/pocket.ts")], ROOT);
   await Bun.write(inputsFile, JSON.stringify(buildInputs.paths(), null, 2) + "\n");
 }
 console.log(`  pass 2: ${DIST}${outName}.js (${bundle ? (await bundle.arrayBuffer()).byteLength : 0} bytes)`);

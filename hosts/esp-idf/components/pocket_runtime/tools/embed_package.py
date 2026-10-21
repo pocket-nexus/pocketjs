@@ -117,30 +117,63 @@ def escaped(path: Path) -> str:
     return str(path.resolve()).replace("\\", "\\\\").replace('"', '\\"')
 
 
+def read_profile(profile_path: Path) -> dict:
+    sidecar = json.loads(profile_path.read_text(encoding="utf-8"))
+    if not isinstance(sidecar, dict) or sidecar.get("format") != "pocket-profile/1":
+        raise ValueError("unsupported pocket-profile.json format")
+    canonical = sidecar.get("canonicalProfileJson")
+    profile = sidecar.get("profile")
+    if not isinstance(canonical, str) or not isinstance(profile, dict):
+        raise ValueError("profile export is missing canonicalProfileJson/profile")
+    # Hash the exporter's exact UTF-8 bytes. Python must not invent a second
+    # canonical serializer (number and Unicode spellings belong to the exporter).
+    if json.loads(canonical) != profile:
+        raise ValueError("profile export JSON differs from canonicalProfileJson")
+    expected_hash = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if sidecar.get("profileHash") != expected_hash:
+        raise ValueError("profile export hash does not match canonicalProfileJson")
+    abi = sidecar.get("hostAbi")
+    if type(abi) is not int or not 1 <= abi <= 0xFFFFFFFF:
+        raise ValueError("profile export hostAbi is invalid")
+    return sidecar
+
+
 def validate_profile(
     profile_path: Path,
     target: str,
     fields: tuple[int, ...],
     profile_hash: bytes,
 ) -> None:
-    profile = json.loads(profile_path.read_text(encoding="utf-8"))
-    projection = {key: profile[key] for key in fmt.PROFILE_HASH_FIELDS if key in profile}
-    canonical = json.dumps(projection, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False)
-    if hashlib.sha256(canonical.encode("utf-8")).digest() != profile_hash:
-        raise ValueError("package host profile hash does not match HOST_PROFILE")
+    sidecar = read_profile(profile_path)
+    if sidecar["profileHash"] != "sha256:" + profile_hash.hex():
+        raise ValueError("package profile hash does not match profile export")
+    if sidecar["hostAbi"] != fields[2]:
+        raise ValueError("package host ABI does not match profile export")
+    profile = sidecar["profile"]
     display = profile.get("display", {})
+    logical = [fields[4], fields[5]]
+    dynamic = display.get("dynamicViewport")
+    admitted = logical in display.get("logicalViewports", [])
+    if isinstance(dynamic, dict):
+        low, high = dynamic.get("min", []), dynamic.get("max", [])
+        admitted = admitted or (len(low) == len(high) == 2 and
+            all(low[index] <= logical[index] <= high[index] for index in range(2)))
+    physical = display.get("physicalViewport", [])
+    physical_options = [physical, list(reversed(physical))]
+    if dynamic:
+        physical_options.append([n * display.get("rasterDensity", 0) for n in logical])
     presentations = fmt.HOST_PRESENTATIONS
     if (
         profile.get("id") != target
         or profile.get("platform") != "esp-idf"
         or profile.get("tickHz") != fields[3]
-        or [fields[4], fields[5]] not in display.get("logicalViewports", [])
-        or display.get("physicalViewport") != [fields[6], fields[7]]
+        or not admitted
+        or [fields[6], fields[7]] not in physical_options
         or display.get("rasterDensity") != fields[8]
         or fields[9] >= len(presentations)
         or presentations[fields[9]] not in display.get("presentations", [])
     ):
-        raise ValueError("package host inputs are not admitted by HOST_PROFILE")
+        raise ValueError("package host inputs are not admitted by profile export")
 
 
 def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
@@ -153,30 +186,17 @@ def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
     validate_profile(profile.resolve(), target, host_fields, profile_hash)
     output_dir.mkdir(parents=True, exist_ok=True)
     symbol = f"pocketjs_package_{name}"
-    full_profile = json.loads(profile.read_text(encoding="utf-8"))
-    projection = {key: full_profile[key] for key in fmt.PROFILE_HASH_FIELDS if key in full_profile}
-    runtime_json = json.dumps(projection, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    runtime_hash = hashlib.sha256(runtime_json).digest()
     (output_dir / f"{symbol}.h").write_text(
         "#pragma once\n\n"
         '#include "pocket/package.h"\n\n'
         "#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n"
         f"extern const pocketjs_embedded_package_t {symbol};\n"
-        f"extern const uint8_t {symbol}_profile_json[];\n"
-        f"extern const uint8_t {symbol}_runtime_profile_hash[32];\n"
-        f"extern const size_t {symbol}_profile_json_length;\n"
         f"extern const pocketjs_package_host_contract_t {symbol}_contract;\n\n"
         "#ifdef __cplusplus\n}\n#endif\n",
         encoding="utf-8",
     )
     (output_dir / f"{symbol}.c").write_text(
         f'#include "{symbol}.h"\n\n'
-        f"const uint8_t {symbol}_profile_json[] = {{"
-        + ",".join(str(b) for b in runtime_json)
-        + "};\n"
-        + f"const uint8_t {symbol}_runtime_profile_hash[32] = {{" + ",".join(str(b) for b in runtime_hash) + "};\n"
-        + f"const size_t {symbol}_profile_json_length = sizeof({symbol}_profile_json);\n"
-        +
         f"extern const uint8_t {symbol}_start[];\n\n"
         f"const pocketjs_embedded_package_t {symbol} = {{\n"
         f"    .data = {symbol}_start,\n"
@@ -216,13 +236,13 @@ def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--package", type=Path, required=True)
-    parser.add_argument("--host-profile", type=Path, required=True)
+    parser.add_argument("--profile", type=Path, required=True, help="exported pocket-profile.json")
     parser.add_argument("--name", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     try:
-        generate(args.package, args.host_profile, args.name, args.output_dir)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+        generate(args.package, args.profile, args.name, args.output_dir)
+    except (OSError, ValueError, UnicodeError, TypeError, AttributeError, json.JSONDecodeError) as error:
         parser.error(str(error))
 
 

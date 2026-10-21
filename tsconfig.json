@@ -19,7 +19,6 @@
     "paths": {
       "@pocketjs/framework": ["./framework/src/index.ts"],
       "@pocketjs/framework/animation": ["./framework/src/animation.ts"],
-      "@pocketjs/framework/config": ["./framework/src/config.ts"],
       "@pocketjs/framework/components": ["./framework/src/components.ts"],
       "@pocketjs/framework/gesture": ["./framework/src/gesture.ts"],
       "@pocketjs/framework/input": ["./framework/src/input-api.ts"],

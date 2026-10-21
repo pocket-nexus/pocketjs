@@ -1,4 +1,5 @@
 /** Public Vue SFC / Solid TSX -> generated Rust build entry. */
+import type { AnimationTheme } from "../../framework/compiler/animation.ts";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { analyzeSolidAot } from "./aot-solid-frontend.ts";
@@ -11,10 +12,12 @@ import { attachCompiledModel } from "./aot-model-build.ts";
 import { generateModelRust } from "./aot-model-codegen.ts";
 import { replayModelTape } from "./aot-model-tape.ts";
 
-export function analyzeAot(entry: string, options: { strict?: boolean } = {}): AotProgram {
+export function analyzeAot(entry: string, options: { strict?: boolean; theme?: AnimationTheme; tickHz?: number } = {}): AotProgram {
   return attachCompiledModel(entry.endsWith(".tsx") ? analyzeSolidAot(entry, options) : analyzeVueAot(entry, options), entry, options.strict);
 }
 export interface AotBuildOptions {
+  theme?: AnimationTheme;
+  tickHz?: number;
   strict?: boolean;
   outDir?: string;
   format?: boolean;
@@ -57,7 +60,7 @@ export function resolveAotEntry(app: string): string {
 
 export async function buildAot(app: string, options: AotBuildOptions = {}): Promise<AotBuildResult> {
   const entry = resolveAotEntry(app);
-  const program = analyzeAot(entry, { strict: options.strict });
+  const program = analyzeAot(entry, { strict: options.strict, theme: options.theme, tickHz: options.tickHz });
   if (options.board) requireAotBoard(program, options.board);
   const output = emitAot(program, { layoutEnvironment: options.layoutEnvironment });
   if (program.model) {

@@ -49,6 +49,8 @@ const SUITE: readonly Stage[] = [
       "tests/release-notes.test.ts",
       "tests/platform-contracts.test.ts",
       "tests/profile-contract.test.ts",
+      "tests/manifest-theme.test.ts",
+      "tests/source-app.test.ts",
       "tests/driver-contracts.test.ts",
       "tests/guest-web-bindings.test.ts",
       "tests/embedded-package.test.ts",
@@ -244,7 +246,7 @@ const SUITE: readonly Stage[] = [
   },
   {
     name: "AOT frontends and execution parity",
-    prep: [["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"]],
+    prep: [["bun", "tools/build.ts", "solid-aot-lab-main"]],
     browser: true,
     tests: [
       "tests/aot-admission.test.ts",
@@ -267,7 +269,7 @@ const SUITE: readonly Stage[] = [
     prep: [
       ["bun", "tools/wasm.ts"],
       // The view oracles import the generated default styles on a clean checkout.
-      ["bun", "tools/build.ts", "solid-aot-lab-main", "--no-config"],
+      ["bun", "tools/build.ts", "solid-aot-lab-main"],
     ],
     tests: [
       "tests/aot-model-animation.test.ts",
@@ -275,6 +277,7 @@ const SUITE: readonly Stage[] = [
       "tests/aot-model-async-view.test.ts",
       "tests/aot-model-await-order.test.ts",
       "tests/aot-model-build-plan.test.ts",
+      "tests/aot-compile.test.ts",
       "tests/aot-model-capacity.test.ts",
       "tests/aot-model-codegen.test.ts",
       "tests/aot-model-differential.test.ts",

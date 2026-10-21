@@ -1,4 +1,5 @@
 import ts from "typescript";
+import type { AnimationTheme } from "../../framework/compiler/animation.ts";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
 import { parse as parseSfc, type SFCDescriptor } from "@vue/compiler-sfc";
@@ -24,7 +25,7 @@ const LIFECYCLE = "@pocketjs/framework/vue-vapor/lifecycle";
 const camelize = (name: string) => name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
 const COMPONENTS = "@pocketjs/framework/vue-vapor/components", STD = "@pocketjs/framework/vue-vapor/std", INPUT = "@pocketjs/framework/vue-vapor/input";
 interface ParsedComponent { file: string; source: string; descriptor: SFCDescriptor; script: ts.SourceFile; imports: Map<string, string>; contextImports: Map<string, string>; children: Map<string, string>; hosts: Map<string, "View" | "Text" | "Image">; inputHosts: Map<string, keyof typeof MICROTS_INPUT_ELEMENTS>; buttonNames: Set<string>; name: string }
-export interface AnalyzeVueAotOptions { strict?: boolean; source?: string; sources?: ReadonlyMap<string, string>; root?: boolean }
+export interface AnalyzeVueAotOptions { theme?: AnimationTheme; tickHz?: number; strict?: boolean; source?: string; sources?: ReadonlyMap<string, string>; root?: boolean }
 export interface AotDependencyVersion { file: string; mtimeMs: number; size: number }
 const dependencyVersions = new WeakMap<AotProgram, readonly AotDependencyVersion[]>();
 /** Filesystem versions for cache invalidation; compiler sources and ASTs stay outside the View IR. */
@@ -732,7 +733,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
   }
   if (root.descriptor.scriptSetup!.attrs.generic !== undefined) fail(location(entry, root.source), "A generic component requires a parent that supplies concrete props");
   for (const item of parsed.values()) if (item.descriptor.scriptSetup!.attrs.generic === undefined) analyzeComponent(item);
-  const program = finalizeAotProgram(root.name, components, mapper, classLiterals);
+  const program = finalizeAotProgram(root.name, components, mapper, classLiterals, options.theme !== undefined || options.tickHz !== undefined ? options : undefined);
   if (model) attachAotModel(program, model);
   validateViewModelBindings(program);
   validateVueAotSemantics(program, new Map([...parsed].map(([file, item]) => [file, item.source])));

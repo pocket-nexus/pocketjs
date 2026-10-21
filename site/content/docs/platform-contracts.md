@@ -1,26 +1,25 @@
 # Platform contracts
 
-PocketJS keeps application intent separate from host facts. An app writes
-`pocket.json`; PocketJS owns a profile for each stock target. The resolver
-combines them once, writes a small target-specific `ResolvedBuildPlan`, and all
-later build stages consume that answer.
+**A profile describes the software behavior a program provides.** An
+application declares requirements in `pocket.json`; a program selects its
+profile in `pocket.runtime-config.ts`. The resolver combines the manifest and
+profile into a `ResolvedBuildPlan` for application compilation.
 
 ```text
-  pocket.json           target profile
-  (app intent)          (host facts)
+  pocket.json           profile module
+  (application)         (program behavior)
        └──────── resolve ────────┘
                     │
                     ▼
-       .pocket/<target>/plan.json
-          small ResolvedBuildPlan
-             ┌──────┴──────┐
-             ▼             ▼
-        JS compiler    native backend
+       .pocket/<profile-id>/plan.json
+                    │
+                    ▼
+          compiler → .pocket package
 ```
 
-This is a build-contract boundary, not a general-purpose platform type system.
-It prevents platform decisions from being rediscovered in the compiler,
-Cargo, packagers, and custom hosts.
+The program exports the same profile as a C header or build environment.
+Runtime package admission compares the package's profile hash and binding
+generation with the program's compiled values.
 
 ## Ownership
 
@@ -28,9 +27,9 @@ Cargo, packagers, and custom hosts.
 | -------------------- | ------------------------- | ----------------------------------------------------------------- |
 | `pocket.json`        | App                       | Entry, framework, logical viewport, required and optional APIs    |
 | Capability registry  | PocketJS                  | Names of framework APIs that can be requested                     |
-| Target profile       | Stock host                | Host ABI, display facts, and APIs implemented and tested          |
+| Software profile     | Program                   | Display facts, tick rate and implemented APIs                      |
 | `ResolvedBuildPlan`  | Resolver                  | One build's target-specific inputs                                |
-| Backend              | PocketJS or custom host   | How those inputs become an EBOOT, VPK, or another package         |
+| Runtime config       | Program                   | Profile selection and an optional native build recipe              |
 
 ## Application manifest
 
@@ -60,7 +59,7 @@ Format 2 is strict JSON data. A PSP-shaped portable app can say:
 ```
 
 The manifest contains no physical resolution, scale factor, Vita flag, native
-crate path, or host ABI. Those are framework-owned facts.
+crate path, or binding generation. The program owns those inputs.
 
 `requires` is the compatibility floor. Resolution fails before compilation if
 the selected host does not provide one of those APIs. `enhances` declares an
@@ -262,9 +261,11 @@ keep the d-pad focus walk unchanged.
 
 ## Target profiles
 
-`POCKET_TARGETS` in `contracts/spec/platforms.ts` registers the stock targets —
-an inventory of hosts whose profile is golden-tested, not a row for every
-directory in `hosts/`:
+Built-in software records live in `profiles/<id>.ts` and are exported by
+`profiles/index.ts`. `POCKET_TARGETS` in `contracts/spec/platforms.ts` is a
+compatibility adapter for this subset. The binding numbers below retain their
+legacy values; `profiles/legacy-abi.ts` keeps them separate from profile
+content.
 
 | Target         | hostAbi | platform / form   | Logical viewport                         | Density | Capabilities |
 | -------------- | ------- | ----------------- | ---------------------------------------- | ------- | ------------ |
@@ -282,14 +283,15 @@ is the API a shell uses to place other installed packages into native
 compositor surfaces, so an ordinary application requiring it against the same
 target fails resolution.
 
-Read those facts from the registry rather than from a copy of this table: a
-target id is a label, and `platform`, `form`, and the display facts are the
-queryable fields no tooling may reconstruct by parsing an id. One profile is a
-small record:
+Read software facts from the profile module. The id is a label; tooling reads
+`platform`, `form`, `display` and `capabilities` as fields. A profile module has
+this shape:
 
 ```ts
-pocketbook: {
-  hostAbi: 5,
+import { defineProfile } from "@pocketjs/framework/profile";
+
+export default defineProfile({
+  id: "reader-panel",
   platform: "pocketbook",
   form: "takeover",
   display: {
@@ -299,15 +301,30 @@ pocketbook: {
     rasterDensity: 2,
   },
   capabilities: ["input.buttons", "input.touch", "text.glyphs.baked"],
-}
+  tickHz: 60,
+});
 ```
 
-An ESP-IDF library cannot enumerate every product board. Its firmware project
-therefore supplies a schema-validated `pocket.host.json` containing the same
-display and capability fields plus the exact tick rate. The resolver treats
-that single record as the selected target and embeds its canonical SHA-256 in
-the build plan. **The device rejects a package when the compiled host contract
-and package profile hash differ.** See [ESP-IDF](/docs/esp-idf/#host-profile).
+An ESP-IDF firmware project defines its software promises in a profile module
+and imports that module from `pocket.runtime-config.ts`:
+
+```ts
+import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
+import profile from "./profiles/panel.ts";
+
+export default defineRuntimeConfig({ profile });
+```
+
+`pocket compile --manifest app/pocket.json --runtime-config
+pocket.runtime-config.ts` resolves the application against that profile.
+`pocket profile export --config pocket.runtime-config.ts --out profile-export`
+writes `pocket_profile.h` for the program and `pocket-profile.json` for offline
+package embedding. The sidecar preserves the exact canonical JSON bytes and
+SHA-256; the Python embedding tool checks the package against that independent
+identity. **The runtime rejects a package whose profile hash or binding
+generation differs from the compiled program.** IDF CMake helpers accept
+`RUNTIME_CONFIG` and default to the firmware root's config. See
+[ESP-IDF](/docs/esp-idf/#embed-an-application).
 
 DrawList is absent from the registry. It is PocketJS's internal core-to-backend
 IR, not behavior an application can observe or request. GE, GXM, WGPU, and
@@ -320,31 +337,13 @@ core masks, and target-selected image variants use that many raster samples per
 logical pixel. Dynamic texture producers receive the same resolved value as
 `platform.pixelRatio`; neither compiler nor application needs a Vita branch.
 
-### Transitional dev targets
+### Program build wrappers
 
-`hosts/` holds more host directories than the registry holds targets. A host
-still working toward its acceptance receipt keeps its profile in its own module
-under `tools/`, builds through its own command, and stays out of
-`POCKET_TARGETS`:
-
-| Target id                | Command                      | What holds it out |
-| ------------------------ | ---------------------------- | ----------------- |
-| `3ds-dev`                | `bun run 3ds`                | the host suite leaves the cursor, sprite, streamed-texture and large-atlas paths uncovered |
-| `ios-dev`                | `bun run ios`                | the Apple host has no device acceptance suite yet |
-| `iphone2g-dev`           | `bun run iphone2g`           | the iPhone OS 3.1.3 host has not passed the hardware suite |
-| `iphone4s-dev`           | `bun run iphone4s`           | a private exact-device profile (iOS 6.1.3) |
-| `ipodtouch-dev`          | `bun run ipodtouch`          | no repeatable build, deploy, launch, frame and touch receipt yet |
-| `ipodtouch4-dev`         | `bun run ipodtouch4`         | a private exact-device profile (iOS 6.1.6; the 4S display tuple and ABI) |
-| `symbian-e7-dev`         | `bun run symbian`            | the E7 host has not passed the hardware acceptance suite |
-| `meizu-m8-dev`           | `bun run meizu-m8`           | the Windows CE 6 acceptance receipt has not passed |
-| `blackberry-qnx-dev`     | `bun run blackberry-qnx`     | a private exact-device profile (Classic SQC100, Core Native) |
-| `moto-g-play-dev`        | `bun run moto-g-play`        | a private exact-device profile (Android 14, arm64) |
-| `redmi-1s-dev`           | `bun run redmi-1s`           | a private exact-device profile (Android 4.3; one APK with ARMv7 and arm64 libraries) |
-
-Each module builds its own `definePlatformContractRegistry` and passes it to
-`validateAndResolveBuildPlan`, so the resolver, compiler, and plan format are
-the same as for a stock target. **Nothing generic may assume these ids exist**:
-code that walks targets walks `POCKET_TARGETS`.
+Device programs also have profiles under `profiles/`. Existing
+`tools/*-profile.ts` exports adapt those records for the target-specific build
+wrappers; they do not define another copy of the display or capability data.
+`pocket catalog` lists built-in profile ids. A product may supply its own
+profile module without adding a built-in id.
 
 ## Resolution and PSP-to-Vita compatibility
 
@@ -373,10 +372,10 @@ viewport rules, not by a target allowlist. A Vita app that treats touch as an
 enhancement retains its button fallback for PSP; if it makes touch a
 requirement, the PSP build fails during resolution.
 
-## The small build plan
+## The build plan
 
 The generated plan is cross-process build IR, not public app configuration.
-This is what the manifest above resolves to for `vita`:
+This excerpt shows the application and viewport fields resolved for `vita`:
 
 ```json
 {
@@ -411,9 +410,10 @@ requirement is true by construction, an enhancement reflects target
 availability — and the keys are sorted by codepoint so the pretty plan matches
 the canonical JSON the hash is taken over.
 
-Serialization matters because PocketJS crosses Bun, the JS compiler, Cargo,
-stock native crates, and downstream custom hosts. `.pocket/<target>/plan.json`
-gives each stage the same debuggable input.
+The full plan also carries `profile` and `profileHash`. **`profileHash` is the
+SHA-256 of the canonical software profile.** The `.pocket` variant stores that
+hash for runtime admission. `.pocket/<profile-id>/plan.json` records the
+compiler inputs for inspection and reuse.
 
 `planHash` is only a checksum of this generated build IR. It detects an edited
 or partially copied plan and can support build caching. It is not a runtime
@@ -424,45 +424,23 @@ in the plan merely to make its hash look comprehensive. The Vita backend
 derives a nine-character title id from the portable reverse-DNS app id instead
 of keeping a per-demo target table.
 
-## Consumers and backend dispatch
+## Application and program builds
 
-`bun pocket build` reads the plan and indexes one table of native backends by
-catalog id ([CLI › Targets](/docs/cli/#targets)):
+`pocket compile` consumes the resolved plan and emits a `.pocket` application.
+It accepts a built-in profile id, a profile module path or a package subpath as
+`--target`; without that option, it reads the nearest runtime config.
 
-```ts
-// tools/pocket.ts
-const targetBackends = {
-  psp: async ({ planPath, projectRoot, outdir, args }) => { /* tools/psp.ts */ },
-  vita: async ({ planPath, projectRoot, outdir, args }) => { /* tools/vita.ts */ },
-  pocketbook: async ({ outdir }) => { /* bundle only; the host ELF is cross-compiled */ },
-  "web-app": async ({ plan, outdir }) => compiledBundle(/* hosts/web */),
-  "macos-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
-  "linux-app": async ({ plan, outdir }) => compiledBundle(/* hosts/desktop */),
-  "macos-widget": async ({ plan, outdir }) => compiledBundle(/* note-widget */),
-} satisfies Partial<Record<string, TargetBackend>>;
+`pocket build` reads `pocket.runtime-config.ts`. Its optional `build` field
+contains `cargo`, `cmake`, `make` or `compilerOnly` steps and an optional
+`run(context)` hook. Each step receives the selected profile's canonical JSON,
+hash, binding generation and tick rate through `POCKETJS_*` environment
+variables. Build tools and drivers are program dependencies; the software
+profile contains neither a compiler selection nor a renderer selection.
 
-const backend = targetBackends[catalogId];
-if (!backend) usage(`target ${catalogId} has no build backend in tools/pocket.ts yet; …`);
-await backend(context);
-```
-
-**The table has one entry per registered target, seven in all; device targets
-of the catalog resolve and compile through it and build through their own
-scripts.** `psp` and
-`vita` are the two backends that package a platform binary. The `pocketbook`,
-`web-app`, `macos-app`, `linux-app` and `macos-widget` hosts load
-`<output>.js` and `<output>.pak` from a filesystem, so their entries print the
-bundle `compile` wrote and the host that loads it. The native desktop hosts
-build through their own tools — `macos-app` through `tools/macos.ts`,
-`macos-widget` through `tools/note.ts`, which builds
-`engine/pocket3d/examples/note-widget`. A catalog id
-without an entry stops with a usage error naming the files `compile` wrote. [CLI](/docs/cli/#check-compile-build) lists
-the `build` output of each target.
-
-After dispatch, a backend reads resolved fields; it does not recalculate
-physical dimensions or output names from the target id. The serialized plan
-keeps its cross-process target id as a string rather than pretending arbitrary
-custom-host plans share the stock target union.
+A config without `build` exports the profile for an external build system.
+`pocket profile export --config <file> --out <directory>` performs that export
+without running a build recipe. C programs include `pocket_profile.h`; tools
+that do not execute TypeScript consume `pocket-profile.json`.
 
 The complete `ResolvedBuildPlan` is internal and may evolve. Custom hosts use
 the smaller stable boundary instead:
@@ -480,8 +458,8 @@ const env = hostBuildEnvironment(inputs, {
 });
 ```
 
-This verifies the plan checksum, exposes only host build inputs, and produces
-the shared Cargo environment without downstream code duplicating Plan parsing.
+This verifies the plan checksum and profile hash, extracts host build inputs,
+and produces the Cargo environment used by existing program wrappers.
 
 ## Runtime and TypeScript checks
 

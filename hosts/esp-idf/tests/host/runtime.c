@@ -1,3 +1,4 @@
+#include "pocket_profile.h"
 #include "pocket/guest_idf.h"
 #include "pocket/package_source.h"
 #include "pocketjs_package_host.h"
@@ -62,13 +63,13 @@ static void scenario(const char *extra, bool invalid, int32_t first,
                              host->physical_height, 16, 2) == 0);
   pocket_runtime_config config = {
       .struct_size = sizeof(config),
-      .host_abi = host->host_abi,
-      .tick_hz = host->tick_hz,
+      .host_abi = pocket_profile.host_abi,
+      .tick_hz = pocket_profile.tick_hz,
       .heap_limit = 8 * 1024 * 1024,
       .frame_buffer_budget = display.capacity * display.count,
-      .profile_json = pocketjs_package_host_profile_json,
-      .profile_json_length = pocketjs_package_host_profile_json_length};
-  memcpy(config.profile_hash, pocketjs_package_host_runtime_profile_hash, 32);
+      .profile_json = pocket_profile.profile_json,
+      .profile_json_length = pocket_profile.profile_json_length};
+  memcpy(config.profile_hash, pocket_profile.profile_hash, 32);
   pocket_runtime *runtime = pocket_runtime_create(&config);
   assert(runtime);
   const pocket_guest_idf_config gc = {8 * 1024 * 1024, 512 * 1024, true};

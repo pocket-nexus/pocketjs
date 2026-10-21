@@ -70,8 +70,9 @@ pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARC
       mkdirSync(app); mkdirSync(bin);
       mkdirSync(join(app, "node_modules/@pocketjs"), { recursive: true });
       symlinkSync(root, join(app, "node_modules/@pocketjs/framework"), "dir");
-      for (const file of ["pocket.json", "pocket.host.json", "main.tsx"])
+      for (const file of ["pocket.json", "pocket.runtime-config.ts", "main.tsx"])
         cpSync(join(root, "hosts/esp-idf/examples/smoke", file), join(app, file));
+      cpSync(join(root, "hosts/esp-idf/examples/smoke/profiles"), join(app, "profiles"), {recursive:true});
       const source = (imported: boolean) =>
         'import {Text, View, Image} from "@pocketjs/framework/solid/components";\n' +
         (imported ? 'import {message} from "./new-module";\n' : 'const message="initial";\n') +
@@ -83,15 +84,17 @@ pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARC
       const cli = join(bin, "pocket");
       writeFileSync(cli, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(root, "tools/pocket.ts"))} "$@"\n`);
       chmodSync(cli, 0o755);
+      writeFileSync(join(app, "dummy.c"), "int dummy(void) { return 0; }\n");
       writeFileSync(join(app, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
-project(incremental NONE)
+project(incremental C)
+add_library(app STATIC dummy.c)
 include("${join(root, "hosts/esp-idf/components/pocket_runtime/project_include.cmake")}")
 # Exercise the real compile helper; embedding/firmware linking is tested separately.
 function(_pocketjs_package_attach target name package profile)
   add_custom_target(package ALL DEPENDS "\${package}")
 endfunction()
 pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
-  HOST_PROFILE "${join(app, "pocket.host.json")}" PROJECT_ROOT "${app}"
+  PROJECT_ROOT "${app}"
   COMPILER_RECEIPT "${join(app, "compiler-receipt.json")}")
 `);
       const run = (args: string[]) => {
@@ -120,7 +123,7 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       const pakPath = join(build, "pocketjs/app/idf-smoke.pak");
 
       run(["cmake", "-S", app, "-B", build, "-G", "Ninja"]);
-      expect(ninja()).toContain("ESP-IDF package");
+      expect(ninja()).toContain("app.pocket");
       // The cold depfile tracks the static graph only; the new module is unknown.
       expect(readFileSync(depPath, "utf8")).not.toContain("new-module.ts");
       expectClean(explain());
@@ -129,7 +132,7 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       // import costs one genuine rebuild; no cmake reconfigure is involved.
       writeFileSync(join(app, "new-module.ts"), 'export const message="first new module";\n');
       writeFileSync(join(app, "app.tsx"), source(true));
-      expect(ninja()).toContain("ESP-IDF package");
+      expect(ninja()).toContain("app.pocket");
       expect(readFileSync(depPath, "utf8")).toContain("new-module.ts");
       const firstPackage = readFileSync(output);
       const firstJs = sha256(jsPath);
@@ -146,14 +149,22 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       expectDirty(explain(), join(app, "compiler-receipt.json"));
 
       // One real build consumes the three pending dirty inputs.
-      expect(ninja()).toContain("ESP-IDF package");
+      expect(ninja()).toContain("app.pocket");
       expect(readFileSync(output).equals(firstPackage)).toBe(false);
       // Channel attribution: the module edit reaches the JS bundle, the asset
       // edit reaches the PAK; they are independent build outputs.
       expect(sha256(jsPath)).not.toBe(firstJs);
       expect(sha256(pakPath)).not.toBe(firstPak);
+      const exportedProfile = join(build, "pocketjs/app/profile/pocket-profile.json");
+      const beforeProfile = readFileSync(exportedProfile, "utf8");
+      const profileSource = join(app, "profiles/idf-smoke.ts");
+      writeFileSync(profileSource, readFileSync(profileSource, "utf8").replace('"tickHz": 60', '"tickHz": 30'));
+      const profileBuild = ninja();
+      expect(profileBuild).toContain("pocket_profile.h");
+      expect(profileBuild).toContain("app.pocket");
+      expect(readFileSync(exportedProfile, "utf8")).not.toBe(beforeProfile);
       // After consuming every pending edge, ninja has no work left.
-      expect(ninja()).not.toContain("ESP-IDF package");
+      expect(ninja()).not.toContain("app.pocket");
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 120_000);
 });

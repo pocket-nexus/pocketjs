@@ -1,3 +1,4 @@
+set(POCKETJS_PROFILE_EXPORT_DIR "" CACHE PATH "Existing pocket profile export for offline package embedding")
 set(pocketjs_smoke_requires pocket_runtime pocket_guest_quickjs)
 if(IDF_TARGET STREQUAL "esp32p4")
     list(APPEND pocketjs_smoke_requires pocket_render_esp_ppa)
@@ -21,12 +22,11 @@ if(POCKETJS_SMOKE_PREBUILT_PACKAGE)
         TARGET ${COMPONENT_LIB}
         NAME smoke
         PACKAGE "${POCKETJS_SMOKE_PREBUILT_PACKAGE}"
-        HOST_PROFILE "../pocket.host.json")
+        PROFILE_EXPORT_DIR "${POCKETJS_PROFILE_EXPORT_DIR}")
 else()
     pocketjs_compile_app(
         TARGET ${COMPONENT_LIB}
         NAME smoke
         MANIFEST "../pocket.json"
-        HOST_PROFILE "../pocket.host.json"
         PROJECT_ROOT "..")
 endif()

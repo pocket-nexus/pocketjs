@@ -3,16 +3,12 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { analyzeAot, buildAot } from "../../microts/compiler/aot-build.ts";
-import { bakeAtlases } from "../../framework/compiler/bake-font.ts";
-import { bakeSvg } from "../../framework/compiler/bake-svg.ts";
-import { decodePng } from "../../framework/compiler/pak.ts";
+import { compileBuiltinAot } from "../../tools/aot-compile.ts";
 
 const root = resolve(import.meta.dir, "../..");
 export const IPODNANO_TOOLCHAIN = "nightly-2026-07-01";
 export const IPODNANO_TARGET = "armv4t-none-eabi";
 const VIEWPORT: [number, number] = [176, 132];
-const IMAGES = ["logo.png", ...Array.from({ length: 8 }, (_, index) => `spinner-0${index}.svg`)];
 
 const USAGE = `bun hosts/ipodnano/build.ts [--outdir=<directory>] [--rockbox=<rockbox-source>] [--compiler-prefix=<prefix>] [--install=<ipod-volume>]
 
@@ -36,29 +32,6 @@ function compilerPrefix(): string {
   return Bun.which("arm-elf-eabi-gcc") ? "arm-elf-eabi-" : "arm-none-eabi-";
 }
 
-/** Solve the layout-baked page and write the generated Rust, fonts and images. */
-async function generate(gen: string) {
-  const entry = resolve(root, "apps/ipodnano-hero/app.tsx");
-  const fonts = await bakeAtlases({ codepoints: [], slots: analyzeAot(entry, { strict: true }).styles.usedFontSlots });
-  await run([process.execPath, resolve(root, "tools/wasm.ts")]);
-  const wasm = readFileSync(resolve(root, "hosts/web/pocketjs.wasm"));
-  const result = await buildAot(entry, { outDir: gen, strict: true, format: false, layoutEnvironment: {
-    viewport: VIEWPORT, fontAtlases: fonts.map(font => font.bytes), wasm, tickRate: 30,
-  } });
-  for (const region of result.layout.regions) console.log(`layout-baked ${region.name}: ${region.nodes} nodes, ${region.formulas} formula leaves, ${region.islands} live islands`);
-  for (const font of fonts) writeFileSync(resolve(gen, `font-${font.slot}.bin`), font.bytes);
-  const images: string[] = [];
-  for (const name of IMAGES) {
-    const bytes = readFileSync(resolve(root, "assets/images", name));
-    const image = name.endsWith(".svg") ? bakeSvg(bytes.toString()) : decodePng(bytes);
-    const path = resolve(gen, `${name}.rgba`);
-    writeFileSync(path, image.rgba);
-    images.push(`{ let id = ui.core_mut().upload_texture(include_bytes!(${JSON.stringify(path)}), ${image.width}, ${image.height}, microts::pocketjs_core::spec::psm::PSM_8888); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
-  }
-  writeFileSync(resolve(gen, "include.rs"), `#[path = ${JSON.stringify(resolve(gen, "mod.rs"))}]\nmod generated;\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!(${JSON.stringify(resolve(gen, `font-${font.slot}.bin`))})));`).join("\n")}\n}\nfn load_images(ui: &mut microts::Ui) {\n${images.join("\n")}\n}\n`);
-  return { result, fonts };
-}
-
 async function main() {
   if (process.argv.includes("--help")) {
     console.log(USAGE);
@@ -69,7 +42,7 @@ async function main() {
   const out = resolve(option("outdir") ?? resolve(root, "dist/ipodnano"));
   const gen = resolve(out, "generated");
   mkdirSync(gen, { recursive: true });
-  const { result } = await generate(gen);
+  const { result } = await compileBuiltinAot("ipodnano", gen);
   const env = { IPODNANO_GENERATED: gen };
 
   // The preview runs the same crate on the host with the layout oracle and

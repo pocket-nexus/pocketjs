@@ -78,14 +78,7 @@ export const CATALOG: readonly TargetDescriptor[] = [
   profile("ipodtouch4", "iPod touch (4th generation)", IPODTOUCH4_DEV_TARGET_ID, IPODTOUCH4_DEV_CONTRACTS, MACOS),
 ];
 
-/** Words `pocket` uses for its own commands; a catalog id or a host profile id
- *  may not be one of them. */
-export const COMMAND_WORDS: readonly string[] = [
-  "build", "check", "compile", "component", "create", "default", "deploy", "devtools", "exec", "help",
-  "override", "run", "show", "tape", "target", "which",
-  // commands of the baseline CLI that are not target names
-  "dev", "doctor", "hw", "play", "psplink", "setup",
-];
+export { PROFILE_COMMAND_WORDS as COMMAND_WORDS } from "../../profiles/ids.ts";
 
 export function catalogEntry(id: string): TargetDescriptor | undefined {
   return CATALOG.find((descriptor) => descriptor.id === id);

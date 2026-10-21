@@ -15,7 +15,6 @@ export interface CreateOptions {
   readonly name: string;
   readonly framework: CreateFramework;
   readonly target: CreateTarget;
-  readonly hostProfile: string | undefined;
 }
 
 export function parseCreateArgs(argv: readonly string[]): CreateOptions;
@@ -38,7 +37,8 @@ export interface CreateResult {
   readonly standalone: boolean;
   readonly target: CreateTarget;
   readonly framework: CreateFramework;
-  readonly hostProfilePath: string | undefined;
+  readonly runtimeConfigPath: string | undefined;
+  readonly manifestPath: string;
   readonly files: readonly string[];
 }
 

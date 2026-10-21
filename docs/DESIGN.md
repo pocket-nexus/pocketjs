@@ -198,6 +198,22 @@ PocketJS/
 
 ## Build pipeline (two-pass — fixes the scan cycle [R])
 
+**`pocket.json` owns the application's framework and animation theme.**
+`app.framework` chooses the frontend; `app.theme` supplies keyframes and animation
+shorthands. `pocket compile --target` selects a built-in profile id or an exported
+profile module. `POCKET_TARGET` provides the option's default. With neither,
+compilation searches upward from the manifest for `pocket.runtime-config.ts`.
+
+**`pocket.runtime-config.ts` selects the program's profile and native build.**
+`defineRuntimeConfig()` from `@pocketjs/framework/runtime-config` accepts a
+`profile` or a `profiles` list, plus an optional `build` recipe. A configuration
+with multiple profiles requires a profile ID. The profile supplies capabilities,
+display geometry and `tickHz`; it does not select an
+application framework. `pocket build` executes the declared native build recipe.
+`pocket compile` produces a `.pocket` application, while `--aot --out <directory>`
+produces generated Rust, baked assets and a dependency manifest without invoking
+Cargo. Both compiler paths bake `app.theme` at the selected profile's tick rate.
+
 `tools/build.ts <app>`:
 
 1. **Pass 1 — transform & collect.** For every `.tsx`/`.ts` source reachable
@@ -369,16 +385,16 @@ widths):
 - **motion**: `transition[-transform|colors|opacity|all]`, `duration-N`,
   `ease-linear|in|out|in-out|spring|out-back`, `delay-N`
 - **keyframe animations (baked)**: `animate-<name>` resolves against
-  `theme.keyframes`/`theme.animation` in pocket.config.ts (Tailwind config
-  shape; built-ins `spin|ping|pulse|bounce`). The compiler bakes every CSS
-  `animation` shorthand (comma lists, `cubic-bezier(…)`, named easings as
+  `app.theme.keyframes` and `app.theme.animation` in `pocket.json` (Tailwind
+  keyframe and animation shape; built-ins `spin|ping|pulse|bounce`). The compiler
+  bakes every CSS `animation` shorthand (comma lists, `cubic-bezier(…)`, named easings as
   their canonical beziers, delays, `forwards|backwards|both` fills,
   `reverse`, `infinite`) into frame-precise per-prop segment timelines in
   styles.bin — the core plays them at fixed dt with zero per-frame JS.
   Keyframe values must be build-time absolute (px/deg/colors; percentages,
   `calc()`, `var()` are loud errors **[R]**), and every animated prop must be
   pinned at 0% and 100%. `animate-loop-[4s]` (or `{ value, loop }` in the
-  config) replays the node's whole choreography — delays included — every N
+  manifest) replays the node's whole choreography — delays included — every N
   ms: the style-level loop plain CSS can't express without a remount.
 - **variants**: `focus:`, `active:` — variant blocks in the style record,
   switched natively (zero JS on focus change)

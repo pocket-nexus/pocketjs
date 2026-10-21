@@ -1,56 +1,72 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { canonicalProfileJson } from "../contracts/spec/profile.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const tool = join(root, "hosts/esp-idf/components/pocket_runtime/tools/embed_package.py");
 const pkg = join(root, "hosts/esp-idf/examples/prebuilt/idf-smoke.pocket");
-const profilePath = join(root, "hosts/esp-idf/examples/smoke/pocket.host.json");
+const runtimeConfig = join(root, "hosts/esp-idf/examples/smoke/pocket.runtime-config.ts");
 const temporary: string[] = [];
-
-afterEach(() => {
-  for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
-});
+afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
+function directory() {
+  const path = join(root, `.pocket-build/validation/idf-embed/${process.pid}-${Math.random().toString(16).slice(2)}`);
+  mkdirSync(path, { recursive: true }); temporary.push(path); return path;
+}
 function run(profile: string, output: string) {
-  return Bun.spawnSync({
-    cmd: [
-      "python3",
-      tool,
-      "--package",
-      pkg,
-      "--host-profile",
-      profile,
-      "--name",
-      "smoke",
-      "--output-dir",
-      output,
-    ],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  return Bun.spawnSync(["python3", tool, "--package", pkg, "--profile", profile, "--name", "smoke", "--output-dir", output], { stdout: "pipe", stderr: "pipe" });
+}
+function exportProfile(path: string) {
+  const result = Bun.spawnSync([process.execPath, join(root, "tools/pocket.ts"), "profile", "export", "--config", runtimeConfig, "--out", path], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
+  return join(path, "pocket-profile.json");
 }
 
 describe("ESP-IDF package embedding", () => {
-  test("requires an independent matching host profile", () => {
-    const directory = `/tmp/pocketjs-idf-embed-${process.pid}-${Math.random().toString(16).slice(2)}`;
-    mkdirSync(directory, { recursive: true });
-    temporary.push(directory);
-    const accepted = run(profilePath, join(directory, "accepted"));
+  test("requires the independent exported identity, ABI and exact canonical JSON", () => {
+    const path = directory();
+    const profilePath = exportProfile(join(path, "profile"));
+    const accepted = run(profilePath, join(path, "accepted"));
     expect(accepted.success, accepted.stderr.toString()).toBe(true);
-    const generated = readFileSync(join(directory,"accepted/pocketjs_package_smoke.c"),"utf8");
-    const bytes = (name: string) => Buffer.from(generated.match(new RegExp(`const uint8_t ${name}\\[[^\\]]*\\] = \\{([^}]+)\\}`))![1].split(",").map(Number));
-    const canonical = canonicalProfileJson(JSON.parse(readFileSync(profilePath,"utf8")));
-    expect(bytes("pocketjs_package_smoke_profile_json").toString("utf8")).toBe(canonical);
-    expect(bytes("pocketjs_package_smoke_runtime_profile_hash")).toEqual(createHash("sha256").update(canonical).digest());
-
-    const rejectedProfile = JSON.parse(readFileSync(profilePath, "utf8"));
-    rejectedProfile.tickHz = 61;
-    const rejectedPath = join(directory, "rejected.host.json");
-    writeFileSync(rejectedPath, JSON.stringify(rejectedProfile));
-    const rejected = run(rejectedPath, join(directory, "rejected"));
-    expect(rejected.success).toBe(false);
-    expect(rejected.stderr.toString()).toContain("host profile hash does not match");
+    const sidecar = JSON.parse(readFileSync(profilePath, "utf8"));
+    expect(sidecar.profileHash).toBe("sha256:" + createHash("sha256").update(sidecar.canonicalProfileJson).digest("hex"));
+    const generated = readFileSync(join(path,"accepted/pocketjs_package_smoke.c"),"utf8");
+    expect(generated).not.toContain("_profile_json");
+    const reject = (value: unknown, expected: string) => {
+      const file = join(path, "rejected.json"); writeFileSync(file, JSON.stringify(value));
+      const result = run(file, join(path, "rejected"));
+      expect(result.success).toBe(false); expect(result.stderr.toString()).toContain(expected);
+    };
+    reject({ ...sidecar, hostAbi: sidecar.hostAbi + 1 }, "host ABI does not match");
+    reject({ ...sidecar, profileHash: "sha256:" + "00".repeat(32) }, "export hash does not match");
+    reject({ ...sidecar, profile: { ...sidecar.profile, tickHz: 61 } }, "differs from canonicalProfileJson");
+    const canonicalProfileJson = sidecar.canonicalProfileJson + "\n";
+    reject({ ...sidecar, canonicalProfileJson, profileHash: "sha256:" + createHash("sha256").update(canonicalProfileJson).digest("hex") }, "package profile hash does not match");
+    reject({ ...sidecar, format: "pocket-profile/999" }, "unsupported");
   });
+
+  test("CMake embeds a prebuilt package without invoking Pocket or Bun", () => {
+    const path = directory();
+    const exported = join(path, "exported"); exportProfile(exported);
+    const bin = join(path, "bin"); mkdirSync(bin);
+    const invoked = join(path, "unexpected-cli");
+    for (const name of ["pocket", "bun"]) {
+      const file = join(bin, name); writeFileSync(file, `#!/bin/sh\ntouch '${invoked}'\nexit 99\n`); chmodSync(file, 0o755);
+    }
+    writeFileSync(join(path, "dummy.c"), "int offline_fixture(void) { return 0; }\n");
+    writeFileSync(join(path, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
+project(offline C)
+add_library(app STATIC dummy.c)
+target_include_directories(app PRIVATE "${join(root, "hosts/esp-idf/components/pocket_runtime/include")}" "${join(root, "contracts/generated")}")
+include("${join(root, "hosts/esp-idf/components/pocket_runtime/project_include.cmake")}")
+pocketjs_embed_package(TARGET app NAME offline PACKAGE "${pkg}" PROFILE_EXPORT_DIR "${exported}")
+`);
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };
+    for (const args of [["cmake", "-S", path, "-B", join(path, "build"), "-G", "Ninja"], ["cmake", "--build", join(path, "build")]]) {
+      const result = Bun.spawnSync(args, { env, stdout: "pipe", stderr: "pipe" });
+      expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
+    }
+    expect(existsSync(invoked)).toBe(false);
+    expect(readFileSync(join(path, "build/pocketjs/offline/pocketjs_package_offline.c"), "utf8")).toContain("pocketjs_package_offline_contract");
+  }, 60_000);
 });

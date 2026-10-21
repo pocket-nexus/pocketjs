@@ -1,3 +1,4 @@
+set(POCKETJS_PROFILE_EXPORT_DIR "" CACHE PATH "Existing pocket profile export for offline package embedding")
 idf_component_register(
     SRCS "main.c" "../../common/sample_io.c"
     INCLUDE_DIRS "../../common"
@@ -14,12 +15,11 @@ if(POCKETJS_RUNNER_PREBUILT_PACKAGE)
         TARGET ${COMPONENT_LIB}
         NAME runner
         PACKAGE "${POCKETJS_RUNNER_PREBUILT_PACKAGE}"
-        HOST_PROFILE "../../smoke/pocket.host.json")
+        PROFILE_EXPORT_DIR "${POCKETJS_PROFILE_EXPORT_DIR}")
 else()
     pocketjs_compile_app(
         TARGET ${COMPONENT_LIB}
         NAME runner
         MANIFEST "../../smoke/pocket.json"
-        HOST_PROFILE "../../smoke/pocket.host.json"
         PROJECT_ROOT "../../smoke")
 endif()

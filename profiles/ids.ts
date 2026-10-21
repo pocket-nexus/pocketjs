@@ -8,7 +8,7 @@ export const BUILTIN_PROFILE_IDS: readonly string[] = [
 
 /** CLI command words cannot identify a profile. */
 export const PROFILE_COMMAND_WORDS: readonly string[] = [
-  "build", "check", "compile", "component", "create", "default", "deploy", "devtools", "exec", "help",
-  "override", "run", "show", "tape", "target", "which", "dev", "doctor", "hw", "play", "psplink", "setup",
-  "profile", "pack", "sdk",
+  "build", "check", "compile", "create", "devtools", "help", "show", "tape", "target",
+  "dev", "hw", "play", "psplink", "profile", "sdk", "catalog", "project", "status",
+  "psp", "vita", "symbian", "ios", "pack",
 ];

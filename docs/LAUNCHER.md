@@ -61,7 +61,7 @@ operable without an on-screen controller.
 
 The launcher scans `apps/*/pocket.json` and includes manifests admitted by
 `validateAndResolveBuildPlan` for the selected target. Admission checks
-capabilities and viewport fit, using the same resolver as `pocket build`.
+capabilities and viewport fit, using the same resolver as `pocket compile`.
 **PSP and Vita select separate app sets from their target profiles.** The
 registry tool prints each skipped app's diagnostics and each admitted app's
 bundle size. `--exclude <output>` removes an app from the selected set for

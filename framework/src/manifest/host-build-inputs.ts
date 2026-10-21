@@ -1,3 +1,4 @@
+import type { AnimationTheme } from "../../../contracts/spec/pocket-manifest.ts";
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
 import { canonicalJson } from "./plan.ts";
 import {
@@ -19,6 +20,7 @@ export interface HostBuildInputs {
     readonly id: string;
     readonly title: string;
     readonly version: string;
+    readonly theme?: AnimationTheme;
   };
   readonly target: string;
   readonly hostAbi: number;
@@ -138,6 +140,7 @@ export function extractHostBuildInputs(
       id: plan.app.id,
       title: plan.app.title,
       version: plan.app.version,
+      ...(plan.app.theme !== undefined ? { theme: plan.app.theme } : {}),
     },
     target: plan.target.id,
     hostAbi: plan.target.hostAbi,

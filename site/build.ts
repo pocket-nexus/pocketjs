@@ -575,7 +575,6 @@ async function main() {
   // validator. The deployed path is POCKET_MANIFEST_SCHEMA_ID —
   // /schema/pocket-2.json, independent of where the repo keeps the file.
   copy(ROOT + "contracts/schema/pocket-2.json", "schema/pocket-2.json");
-  copy(ROOT + "contracts/schema/pocket-idf-host-1.json", "schema/pocket-idf-host-1.json");
   copy(ROOT + "hosts/web/pocketjs.wasm", "pg/pocketjs.wasm");
   // The AppInstance realm a docs demo boots into: one hidden same-origin
   // iframe per demo, so several demos on one page never share globals.

@@ -2,9 +2,9 @@
 
 PocketJS has three ways to move things:
 
-- **Baked keyframe timelines** — CSS-grade `keyframes` / `animation` choreography
-  authored in `pocket.config.ts` and applied with `animate-<name>` classes. Compiled
-  into binary timelines at build time; the richest option.
+- **Baked keyframe timelines** — `keyframes` and `animation` declared in
+  `pocket.json` under `app.theme` and applied with `animate-<name>` classes.
+  The compiler turns them into binary timelines at build time.
 - **Transition utilities** — Tailwind-subset classes (`transition`, `duration-N`,
   `ease-*`, `delay-N`) that tween a node whenever its style is swapped.
 - **The imperative API** — `animate()`, `spring()` and `cancelAnim()` from
@@ -15,14 +15,14 @@ Rust core owns every frame from there.**
 
 ## How native animation works
 
-Tweens and springs tick in the Rust core, one step per `tick()`. The step is
-**`dt = 1 / tickHz`**, and `tickHz` is a per-realm declaration, not the constant
-60: `engine/core/src/lib.rs` defaults to `DEFAULT_TICK_HZ` 60 and caps at
-`MAX_TICK_HZ` 240, `tools/build.ts --hz=N` bakes the rate into the bundle
-(1 through 240), and `Ui::set_tick_rate` is refused once the first `tick()` has
-run. So `dt` is constant for a whole run, whatever its rate. Durations you write
-are milliseconds and convert against `tickHz`, so a `dur: 700` tween lasts 700 ms
-at 60 Hz and at 120 Hz. See [Architecture](/docs/architecture/) for the clock.
+Tweens and springs tick in the Rust core, one step per `tick()`. **The step is
+`dt = 1 / tickHz`, with `tickHz` declared by the selected profile.** Application
+compilation bakes that rate into the animation tables; the runtime uses the same
+rate to advance them. The core accepts 1 through 240 Hz and refuses
+`Ui::set_tick_rate` after the first tick, so the step stays constant for a run.
+Durations are written in milliseconds and converted against `tickHz`: a
+`dur: 700` tween lasts 700 ms at 60 Hz and at 120 Hz. See
+[Architecture](/docs/architecture/) for the clock.
 
 Two consequences:
 
@@ -183,34 +183,34 @@ for how focus moves between nodes.
 
 ## Baked keyframe timelines
 
-For anything richer than a single tween — multi-stop choreography, staggered
-sequences, loops — author `keyframes` and `animation` in `pocket.config.ts`, in the
-exact shape of a `tailwind.config.js` theme:
+For multi-stop animations, staggered sequences and loops, declare `keyframes`
+and `animation` in **`pocket.json` → `app.theme`**. The fields use the Tailwind
+keyframe and animation shape:
 
-```ts
-// apps/<app>/pocket.config.ts
-import { definePocketConfig } from "@pocketjs/framework/config";
-
-export default definePocketConfig({
-  theme: {
-    keyframes: {
-      "menu-open":  { from: { width: 38 }, "60%": { width: 144 }, to: { width: 141 } },
-      "menu-close": { from: { width: 141 }, "60%": { width: 31 }, to: { width: 38 } },
-    },
-    animation: {
-      "menu-pill": {
-        value: "menu-open 0.6s ease-in-out 0.2s both, menu-close 0.6s ease-in-out 1.2s forwards",
-        loop: "4000ms",
+```json
+{
+  "app": {
+    "theme": {
+      "keyframes": {
+        "menu-open":  { "from": { "width": 38 }, "60%": { "width": 144 }, "to": { "width": 141 } },
+        "menu-close": { "from": { "width": 141 }, "60%": { "width": 31 }, "to": { "width": 38 } }
       },
-    },
-  },
-});
+      "animation": {
+        "menu-pill": {
+          "value": "menu-open 0.6s ease-in-out 0.2s both, menu-close 0.6s ease-in-out 1.2s forwards",
+          "loop": "4000ms"
+        }
+      }
+    }
+  }
+}
 ```
 
-An app directory's own `pocket.config.ts` wins over the repo-root one. Keep the
-theme in it and nothing else: a `framework` key makes a manifest build throw
-`framework belongs to pocket.json in manifest builds`, because the app's
-`pocket.json` owns that choice.
+The theme belongs to the application manifest. The selected profile supplies
+`tickHz`; `pocket.runtime-config.ts` selects that profile and can declare the
+program's native build. Both guest compilation and `pocket compile --aot` bake
+the theme at the profile's tick rate. See [Frameworks](/docs/frameworks/#manifest-selection)
+for profile selection.
 
 ```tsx
 <View class="w-[38] h-[38] rounded-[19px] bg-white overflow-hidden animate-menu-pill" />

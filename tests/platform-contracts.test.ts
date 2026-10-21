@@ -425,7 +425,7 @@ describe("semantic resolution", () => {
     expect(result.diagnostics).toContainEqual({
       code: "execution.guestExcluded",
       path: "/execution/classes",
-      message: "manifest declares no guest execution class; this resolver only builds guest plans",
+      message: "manifest declares no guest execution class",
     });
   });
 

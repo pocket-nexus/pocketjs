@@ -1,12 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import {
-  hashPocketIdfHostProfile,
-  pocketIdfHostExtension,
-  pocketIdfHostRegistry,
-  validatePocketIdfHostProfile,
-} from "../framework/src/manifest/idf-host.ts";
+import { validatePocketProfile } from "../framework/src/profile.ts";
+import { profileRegistry } from "../tools/profile-resolver.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { FRAMEWORK_DEPENDENCIES } from "../tools/cli/create.mjs";
 
@@ -43,17 +39,12 @@ function scratch(): string {
 
 const readJson = (path: string) => JSON.parse(readFileSync(path, "utf8"));
 
-/** Resolve a manifest against an ESP-IDF host profile the way tools/pocket.ts does. */
+/** Resolve an application against the generated product's software profile. */
 function resolveAgainstProfile(manifest: unknown, profile: unknown) {
-  const validated = validatePocketIdfHostProfile(profile);
+  const validated = validatePocketProfile(profile);
   expect(validated.ok, JSON.stringify(validated)).toBe(true);
   if (!validated.ok) throw new Error("unreachable");
-  const host = validated.value;
-  return validateAndResolveBuildPlan(
-    manifest,
-    { target: host.id, hostExtension: pocketIdfHostExtension(hashPocketIdfHostProfile(host), host.tickHz) },
-    pocketIdfHostRegistry(host),
-  );
+  return validateAndResolveBuildPlan(manifest, { target: validated.value.id }, profileRegistry(validated.value));
 }
 
 function runCli(cwd: string, args: string[], env: Record<string, string> = {}) {
@@ -87,7 +78,7 @@ describe("published PocketJS CLI", () => {
         viewport: { logical: [480, 272], presentation: "integer-fit" },
       },
     });
-    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: ["psp"]');
+    expect(existsSync(join(app, "pocket.config.ts"))).toBe(false);
     expect(readFileSync(join(app, "main.tsx"), "utf8"))
       .toContain('from "@pocketjs/framework/solid"');
 
@@ -157,8 +148,8 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
 
     const result = runCli(cwd, [
       "build",
-      "--host-profile",
-      "firmware/pocket.host.json",
+      "--runtime-config",
+      "firmware/pocket.runtime-config.ts",
       "--manifest",
       "app/pocket.json",
     ], { POCKET_CLI_TEST_LOG: log });
@@ -166,10 +157,10 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     expect(JSON.parse(readFileSync(log, "utf8"))).toEqual({
       args: [
         "build",
-        "--host-profile",
-        "firmware/pocket.host.json",
         "--cli-protocol",
         "1",
+        "--runtime-config",
+        "firmware/pocket.runtime-config.ts",
         "--manifest",
         "app/pocket.json",
       ],
@@ -193,7 +184,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     expect(result.stdout.toString()).toContain("bun install");
 
     const app = join(cwd, "counter");
-    for (const file of ["package.json", "tsconfig.json", "pocket.json", "pocket.config.ts", "main.tsx", "app.tsx", "README.md", ".gitignore"]) {
+    for (const file of ["package.json", "tsconfig.json", "pocket.json", "main.tsx", "app.tsx", "README.md", ".gitignore"]) {
       expect(existsSync(join(app, file)), file).toBe(true);
     }
     expect(existsSync(join(app, "pocket.host.json"))).toBe(false);
@@ -202,11 +193,11 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     expect(pkg.dependencies).toEqual({ "@pocketjs/framework": `^${cliVersion}`, vue: FRAMEWORK_DEPENDENCIES["vue-vapor"].vue });
     expect(pkg.devDependencies).toEqual({ "@pocketjs/cli": `^${cliVersion}` });
     expect(pkg.scripts).toEqual({
-      check: "pocket check",
-      compile: "pocket compile",
-      build: "pocket build -- --release",
+      check: "pocket check --target vita --manifest pocket.json --project-root .",
+      compile: "pocket compile --target vita --manifest pocket.json --project-root . --output dist/counter.pocket",
+      build: "pocket compile --target vita --manifest pocket.json --project-root . --output dist/counter.pocket",
     });
-    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: ["vita"]');
+    expect(existsSync(join(app, "pocket.config.ts"))).toBe(false);
     expect(readFileSync(join(app, "main.tsx"), "utf8")).toContain('from "@pocketjs/framework/vue-vapor"');
     expect(readFileSync(join(app, "app.tsx"), "utf8")).toContain('from "@pocketjs/framework/vue-vapor/lifecycle"');
     expect(readJson(join(app, "tsconfig.json")).include).toEqual([
@@ -230,60 +221,55 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     }
   });
 
-  test("create --host-profile derives the manifest from the ESP-IDF host contract", () => {
+  test("create --target esp-idf writes a product profile, runtime config and application", () => {
     const cwd = scratch();
-    mkdirSync(join(cwd, "firmware"));
-    const profile = readJson(join(root, "hosts/esp-idf/examples/smoke/pocket.host.json"));
-    writeFileSync(join(cwd, "firmware/pocket.host.json"), JSON.stringify(profile));
-
-    const result = runCli(cwd, ["create", "app", "--host-profile", "firmware/pocket.host.json"]);
-    expect(result.exitCode, result.stderr.toString()).toBe(0);
-    const app = join(cwd, "app");
-    const manifest = readJson(join(app, "pocket.json"));
+    const name = "a-very-long-product-name";
+    const result = runCli(cwd, ["create", name, "--target", "esp-idf"]);
+    expect(result.success, result.stderr.toString()).toBe(true);
+    const app = join(cwd, name);
+    for (const file of ["pocket.runtime-config.ts", "profiles/" + name + ".ts", "app/pocket.json", "app/main.tsx", "app/app.tsx"]) {
+      expect(existsSync(join(app, file)), file).toBe(true);
+    }
+    expect(existsSync(join(app, "pocket.config.ts"))).toBe(false);
+    expect(existsSync(join(app, "pocket.host.json"))).toBe(false);
+    const exported = runCli(app, ["profile", "export", "--out", "exported"], { POCKETJS_FRAMEWORK_ROOT: root });
+    expect(exported.success, exported.stderr.toString()).toBe(true);
+    const sidecar = readJson(join(app, "exported/pocket-profile.json"));
+    expect(sidecar.profile.id).toBe(`product-${name}`);
+    const manifest = readJson(join(app, "app/pocket.json"));
+    expect(manifest.app.entry).toBe("app/main.tsx");
     expect(manifest.app.viewport).toEqual({ logical: [320, 240], presentation: "native" });
-    expect(manifest.engine.capabilities.requires).toEqual(["text.glyphs.baked", "input.buttons"]);
-    expect(resolveAgainstProfile(manifest, profile).ok).toBe(true);
-    expect(readFileSync(join(app, "app.tsx"), "utf8")).toContain("onButtonPress(BTN.CROSS");
-
+    expect(resolveAgainstProfile(manifest, sidecar.profile).ok).toBe(true);
     const pkg = readJson(join(app, "package.json"));
-    expect(pkg.scripts.check).toBe("pocket check");
-    expect(pkg.scripts.build).toBe("pocket build --output dist/app.pocket");
-    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: [{ hostProfile: "../firmware/pocket.host.json" }]');
+    expect(pkg.scripts.check).toBe("pocket check --manifest app/pocket.json --project-root .");
+    expect(pkg.scripts.compile).toBe("pocket compile --manifest app/pocket.json --project-root . --output dist/" + name + ".pocket");
+    expect(pkg.scripts.profile).toBe("pocket profile export --out dist/profile");
     const readme = readFileSync(join(app, "README.md"), "utf8");
     expect(readme).toContain("pocketjs_compile_app(");
     expect(readme).toContain("pocketjs_embed_package(");
-    expect(readme).toContain('HOST_PROFILE "${CMAKE_SOURCE_DIR}/firmware/pocket.host.json"');
-    expect(readme).toContain('PACKAGE "${CMAKE_SOURCE_DIR}/app/dist/app.pocket"');
-
-    // A touch-only panel: no button handler, the host's own viewport and presentation.
-    const touch = {
-      ...profile,
-      id: "touch-panel",
-      display: { ...profile.display, physicalViewport: [240, 320], logicalViewports: [[240, 320]], presentations: ["fit"] },
-      capabilities: ["input.touch", "text.glyphs.baked"],
-    };
-    writeFileSync(join(cwd, "firmware/touch.host.json"), JSON.stringify(touch));
-    const touchResult = runCli(cwd, ["create", "touch-app", "--host-profile", "firmware/touch.host.json", "--framework", "octane"]);
-    expect(touchResult.exitCode, touchResult.stderr.toString()).toBe(0);
-    const touchManifest = readJson(join(cwd, "touch-app/pocket.json"));
-    expect(touchManifest.app.viewport).toEqual({ logical: [240, 320], presentation: "fit" });
-    expect(touchManifest.engine.capabilities.requires).toEqual(["text.glyphs.baked"]);
-    expect(resolveAgainstProfile(touchManifest, touch).ok).toBe(true);
-    expect(readFileSync(join(cwd, "touch-app/app.tsx"), "utf8")).not.toContain("useButtonPress");
+    expect(readme).toContain('RUNTIME_CONFIG "' + String.fromCharCode(36) + '{PROJECT_DIR}/pocket.runtime-config.ts"');
+    expect(readme).toContain('PROFILE_EXPORT_DIR "' + String.fromCharCode(36) + '{PROJECT_DIR}/dist/profile"');
+    expect(readme).not.toContain("HOST_PROFILE");
   });
 
-  test("create --target esp-idf writes a starting host profile the manifest resolves against", () => {
+  test("ESP product profile ids cannot collide with commands or built-ins", () => {
     const cwd = scratch();
-    const result = runCli(cwd, ["create", "a-very-long-product-name", "--target", "esp-idf"]);
-    expect(result.exitCode, result.stderr.toString()).toBe(0);
-    const app = join(cwd, "a-very-long-product-name");
-    const profile = readJson(join(app, "pocket.host.json"));
-    expect(profile.id).toBe("a-very-long-pro");
-    const manifest = readJson(join(app, "pocket.json"));
-    expect(manifest.app.viewport).toEqual({ logical: [320, 240], presentation: "native" });
-    expect(resolveAgainstProfile(manifest, profile).ok).toBe(true);
-    expect(readJson(join(app, "package.json")).scripts.check).toBe("pocket check");
-    expect(readFileSync(join(app, "pocket.config.ts"), "utf8")).toContain('targets: [{ hostProfile: "pocket.host.json" }]');
+    for (const name of ["build", "psp"]) {
+      const created = runCli(cwd, ["create", name, "--target", "esp-idf"]);
+      expect(created.success, created.stderr.toString()).toBe(true);
+      const app = join(cwd, name);
+      const exported = runCli(app, ["profile", "export", "--out", "exported"], { POCKETJS_FRAMEWORK_ROOT: root });
+      expect(exported.success, exported.stderr.toString()).toBe(true);
+      expect(readJson(join(app, "exported/pocket-profile.json")).profile.id).toBe(`product-${name}`);
+    }
+  });
+
+  test("create rejects the removed JSON host profile selector before writing files", () => {
+    const cwd = scratch();
+    const result = runCli(cwd, ["create", "app", "--host-profile", "firmware/pocket.host.json"]);
+    expect(result.success).toBe(false);
+    expect(result.stderr.toString()).toContain("unknown option --host-profile");
+    expect(existsSync(join(cwd, "app"))).toBe(false);
   });
 
   test("create rejects a target that needs a dynamic viewport and a mixed selector", () => {
@@ -308,14 +294,12 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     for (const dependency of ["solid-js", "vue", "octane"]) {
       symlinkSync(join(root, "node_modules", dependency), join(cwd, "node_modules", dependency), "dir");
     }
-    mkdirSync(join(cwd, "firmware"));
-    cpSync(join(root, "hosts/esp-idf/examples/smoke/pocket.host.json"), join(cwd, "firmware/pocket.host.json"));
 
     const projects = [
       ["solid-psp", "--target", "psp"],
       ["vue-vita", "--target", "vita", "--framework", "vue-vapor"],
       ["octane-web", "--target", "web-app", "--framework", "octane"],
-      ["idf-app", "--host-profile", "firmware/pocket.host.json"],
+      ["idf-app", "--target", "esp-idf"],
     ];
     for (const [name, ...flags] of projects) {
       const created = runCli(cwd, ["create", name, ...flags]);
@@ -329,212 +313,74 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
   }, 180_000);
 });
 
-describe("target selection", () => {
-  const catalog = [
-    { id: "psp", title: "PlayStation Portable", contract: { kind: "registry", target: "psp" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] },
-    { id: "vita", title: "PlayStation Vita", contract: { kind: "registry", target: "vita" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] },
-    { id: "web-app", title: "Browser", contract: { kind: "registry", target: "web-app" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"] },
-    { id: "moto-g-play", title: "Moto G Play", contract: { kind: "profile", target: "moto-g-play-dev" }, hosts: ["darwin-arm64", "darwin-x64", "linux-x64"] },
-  ];
-
-  const status = [
-    { id: "psp", title: "PlayStation Portable", hosts: catalog[0]!.hosts, state: "not installed", digest: "3f9a12c0".padEnd(64, "0"), detail: "pocket target add psp" },
-    { id: "vita", title: "PlayStation Vita", hosts: catalog[1]!.hosts, state: "no manifest", detail: "its build script finds its own tools" },
-    { id: "web-app", title: "Browser", hosts: catalog[2]!.hosts, state: "nothing to install", detail: "the compiler builds it" },
-    { id: "moto-g-play", title: "Moto G Play", hosts: catalog[3]!.hosts, state: "no manifest", detail: "its build script finds its own tools" },
-  ];
-
-  /** A framework whose tools/pocket.ts answers `project`, `catalog` and
-   *  `status` from the environment and appends every other invocation to a log. */
+describe("profile selection", () => {
   function fakeFramework(protocol = 1) {
     const cwd = checkout();
     writeFileSync(join(cwd, "package.json"), JSON.stringify({ name: "@pocketjs/framework", version: "9.9.9", pocketjs: { protocol } }));
     mkdirSync(join(cwd, "tools"));
-    writeFileSync(join(cwd, "tools/pocket.ts"), `const command = Bun.argv[2];
-if (command === "project") { console.log(process.env.FAKE_PROJECT); process.exit(0); }
-if (command === "catalog") { console.log(process.env.FAKE_CATALOG); process.exit(0); }
-if (command === "status") { console.log(process.env.FAKE_STATUS); process.exit(0); }
-const log = process.env.POCKET_CLI_TEST_LOG;
-const previous = (await Bun.file(log).exists()) ? await Bun.file(log).json() : [];
-await Bun.write(log, JSON.stringify([...previous, Bun.argv.slice(2)]));\n`);
-    const settings = join(cwd, "settings");
-    mkdirSync(settings);
-    return { cwd, log: join(cwd, "log.json"), settings };
+    writeFileSync(join(cwd, "tools/pocket.ts"), `const command=Bun.argv[2];
+if(command==="project"){console.log(process.env.FAKE_PROJECT);process.exit(0);}
+if(command==="status"){console.log("[]");process.exit(0);}
+const log=process.env.POCKET_CLI_TEST_LOG;const previous=(await Bun.file(log).exists())?await Bun.file(log).json():[];
+await Bun.write(log,JSON.stringify([...previous,Bun.argv.slice(2)]));`);
+    return {cwd,log:join(cwd,"log.json")};
   }
-
-  function pocket(
-    framework: ReturnType<typeof fakeFramework>,
-    args: string[],
-    project: { config: string | null; targets: unknown[] } = { config: null, targets: [] },
-    env: Record<string, string> = {},
-  ) {
-    rmSync(framework.log, { force: true });
-    const result = runCli(framework.cwd, args, {
-      POCKET_CLI_TEST_LOG: framework.log,
-      XDG_CONFIG_HOME: framework.settings,
-      FAKE_PROJECT: JSON.stringify({ ok: true, project }),
-      FAKE_CATALOG: JSON.stringify(catalog),
-      FAKE_STATUS: JSON.stringify(status),
-      ...env,
-    });
-    const calls: string[][] = existsSync(framework.log) ? readJson(framework.log) : [];
-    return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString(), calls };
+  const project = (profiles: {id:string}[]) => ({config:"/work/game/pocket.runtime-config.ts",profiles,build:false});
+  function pocket(framework: ReturnType<typeof fakeFramework>, args:string[], configuration: {config:string|null;profiles:{id:string}[];build:boolean}={config:null,profiles:[],build:false}, env:Record<string,string>={}) {
+    rmSync(framework.log,{force:true});
+    const result=runCli(framework.cwd,args,{POCKET_CLI_TEST_LOG:framework.log,FAKE_PROJECT:JSON.stringify({ok:true,project:configuration}),...env});
+    return {code:result.exitCode,out:result.stdout.toString(),err:result.stderr.toString(),calls:existsSync(framework.log)?readJson(framework.log) as string[][]:[]};
   }
-
-  const project = (targets: unknown[]) => ({ config: "/work/game/pocket.config.ts", targets });
-
-  test("no source names a target", () => {
-    const framework = fakeFramework();
-    const result = pocket(framework, ["check"]);
-    expect(result.code).toBe(1);
-    expect(result.err).toContain("no target selected");
-    expect(result.calls).toEqual([]);
+  test("missing or multiple profiles are delegated to the resolver without choosing a first entry",()=>{
+    const framework=fakeFramework();
+    expect(pocket(framework,["check"]).calls).toEqual([["check","--cli-protocol","1"]]);
+    expect(pocket(framework,["compile"],project([{id:"psp"},{id:"vita"}])).calls).toEqual([["compile","--cli-protocol","1"]]);
   });
-
-  test("each source overrides the ones after it", () => {
-    const framework = fakeFramework();
-    const targetOf = (result: ReturnType<typeof pocket>) => result.calls[0]?.slice(1, 3);
-
-    expect(pocket(framework, ["default", "psp"]).code).toBe(0);
-    let result = pocket(framework, ["check"]);
-    expect(targetOf(result)).toEqual(["--target", "psp"]);
-    expect(result.err).toContain("pocket: target psp · user default");
-
-    result = pocket(framework, ["check"], project([{ id: "vita" }]));
-    expect(targetOf(result)).toEqual(["--target", "vita"]);
-    expect(result.err).toContain("pocket: target vita · /work/game/pocket.config.ts");
-
-    expect(pocket(framework, ["override", "set", "web-app"]).code).toBe(0);
-    result = pocket(framework, ["check"], project([{ id: "vita" }]));
-    expect(targetOf(result)).toEqual(["--target", "web-app"]);
-    expect(result.err).toContain(`pocket: target web-app · directory override ${realpathSync(framework.cwd)}`);
-
-    result = pocket(framework, ["check"], project([{ id: "vita" }]), { POCKET_TARGET: "moto-g-play" });
-    expect(targetOf(result)).toEqual(["--target", "moto-g-play"]);
-
-    for (const args of [["+psp", "check"], ["check", "+psp"], ["check", "--target", "psp"], ["check", "--target=psp"]]) {
-      result = pocket(framework, args, project([{ id: "vita" }]), { POCKET_TARGET: "moto-g-play" });
-      expect(targetOf(result), args.join(" ")).toEqual(["--target", "psp"]);
+  test("CLI overrides env, which overrides the single runtime profile",()=>{
+    const framework=fakeFramework();
+    const first=pocket(framework,["check"],project([{id:"vita"}]));
+    expect(first.calls[0]).toEqual(["check","--target","vita","--runtime-config","/work/game/pocket.runtime-config.ts","--cli-protocol","1"]);
+    expect(pocket(framework,["check"],project([{id:"vita"}]),{POCKET_TARGET:"psp"}).calls[0]?.slice(1,3)).toEqual(["--target","psp"]);
+    for(const args of [["+psp","check"],["check","+psp"],["check","--target","psp"],["check","--target=psp"]]) {
+      expect(pocket(framework,args,project([{id:"vita"}]),{POCKET_TARGET:"web-app"}).calls[0]?.slice(1,3)).toEqual(["--target","psp"]);
     }
-
-    expect(pocket(framework, ["override", "unset"]).code).toBe(0);
-    expect(pocket(framework, ["default", "--unset"]).code).toBe(0);
-    expect(pocket(framework, ["check"]).code).toBe(1);
   });
-
-  test("an override applies below its directory", () => {
-    const framework = fakeFramework();
-    const nested = join(framework.cwd, "apps", "game");
-    mkdirSync(nested, { recursive: true });
-    expect(pocket(framework, ["override", "set", "vita", "--path", framework.cwd]).code).toBe(0);
-    rmSync(framework.log, { force: true });
-    const result = runCli(nested, ["check"], {
-      POCKET_CLI_TEST_LOG: framework.log,
-      XDG_CONFIG_HOME: framework.settings,
-      FAKE_PROJECT: JSON.stringify({ ok: true, project: { config: null, targets: [] } }),
-      FAKE_CATALOG: JSON.stringify(catalog),
-    });
-    expect(result.exitCode, result.stderr.toString()).toBe(0);
-    expect(readJson(framework.log)[0].slice(1, 3)).toEqual(["--target", "vita"]);
+  test("module paths and explicit config options are forwarded unchanged",()=>{
+    const framework=fakeFramework();
+    expect(pocket(framework,["compile","--target","../board.ts","--manifest","app/pocket.json","--output","out/app.pocket"]).calls).toEqual([["compile","--target","../board.ts","--cli-protocol","1","--manifest","app/pocket.json","--output","out/app.pocket"]]);
+    expect(pocket(framework,["compile","--runtime-config","firmware/pocket.runtime-config.ts"],project([{id:"board"}])).calls).toEqual([["compile","--target","board","--cli-protocol","1","--runtime-config","firmware/pocket.runtime-config.ts"]]);
   });
-
-  test("conflicting and misplaced selections are errors", () => {
-    const framework = fakeFramework();
-    let result = pocket(framework, ["+psp", "check", "--target", "vita"]);
-    expect(result.code).toBe(1);
-    expect(result.err).toContain("conflicting targets: +psp and --target vita");
-
-    result = pocket(framework, ["check", "--manifest", "pocket.json", "+psp"]);
-    expect(result.code).toBe(1);
-    expect(result.err).toContain("+psp must come right after `pocket` or right after the command");
-
-    result = pocket(framework, ["check", "--target", "psp", "--", "+vita"]);
-    expect(result.code).toBe(0);
-    expect(result.calls[0]).toEqual(["check", "--target", "psp", "--cli-protocol", "1", "--", "+vita"]);
-
-    result = pocket(framework, ["+psp", "create", "x"]);
-    expect(result.code).toBe(1);
-    expect(result.err).toContain("+psp selects a target for check, compile, build or show");
+  test("conflicting, empty and misplaced selections fail",()=>{
+    const framework=fakeFramework();
+    expect(pocket(framework,["+psp","check","--target","vita"]).err).toContain("conflicting targets");
+    expect(pocket(framework,["check","--target=psp","--target=vita"]).err).toContain("conflicting targets");
+    expect(pocket(framework,["check","--target="]).err).toContain("requires a value");
+    expect(pocket(framework,["check","--manifest","pocket.json","+psp"]).err).toContain("must come right after");
+    expect(pocket(framework,["+psp","create","x"]).err).toContain("selects a target for check, compile, build or show");
   });
-
-  test("a project entry's manifest and host profile reach tools/pocket.ts", () => {
-    const framework = fakeFramework();
-    const entries = project([
-      { id: "moto-g-play", manifest: "/work/game/pocket.android.json" },
-      { id: "idf-panel", hostProfile: "/work/firmware/pocket.host.json" },
-    ]);
-    let result = pocket(framework, ["build"], entries);
-    expect(result.calls[0]).toEqual(["build", "--target", "moto-g-play", "--manifest", "/work/game/pocket.android.json", "--cli-protocol", "1"]);
-
-    result = pocket(framework, ["build", "--manifest", "other.json"], entries);
-    expect(result.calls[0]).toEqual(["build", "--target", "moto-g-play", "--cli-protocol", "1", "--manifest", "other.json"]);
-
-    result = pocket(framework, ["+idf-panel", "build", "--output", "dist/panel.pocket"], entries);
-    expect(result.calls[0]).toEqual(["build", "--host-profile", "/work/firmware/pocket.host.json", "--cli-protocol", "1", "--output", "dist/panel.pocket"]);
+  test("retired matrix and JSON host-profile options fail before execution",()=>{
+    const framework=fakeFramework();
+    expect(pocket(framework,["build","--all"]).err).toContain("enumerate profiles in scripts or CI");
+    expect(pocket(framework,["check","--host-profile","old.json"]).err).toContain("replaced by profile modules");
+    expect(pocket(framework,["default","psp"]).code).toBe(1);
+    expect(pocket(framework,["override","set","psp"]).code).toBe(1);
   });
-
-  test("build --all builds every project target in order", () => {
-    const framework = fakeFramework();
-    const result = pocket(framework, ["build", "--all", "--", "--release"], project([{ id: "psp" }, { id: "vita" }]));
-    expect(result.code, result.err).toBe(0);
-    expect(result.calls).toEqual([
-      ["build", "--target", "psp", "--cli-protocol", "1", "--", "--release"],
-      ["build", "--target", "vita", "--cli-protocol", "1", "--", "--release"],
-    ]);
-    expect(pocket(framework, ["build", "--all"]).err).toContain("lists none");
-    expect(pocket(framework, ["+psp", "build", "--all"], project([{ id: "psp" }])).err).toContain("drop the explicit target");
+  test("a different framework protocol stops before execution",()=>{
+    const result=pocket(fakeFramework(2),["check","--target","psp"]);
+    expect(result.code).toBe(1);expect(result.err).toContain("speaks protocol 2");expect(result.calls).toEqual([]);
   });
-
-  test("a framework on another protocol stops the CLI", () => {
-    const framework = fakeFramework(2);
-    const result = pocket(framework, ["check", "--target", "psp"]);
-    expect(result.code).toBe(1);
-    expect(result.err).toContain("speaks protocol 1");
-    expect(result.err).toContain("speaks protocol 2");
-    expect(result.calls).toEqual([]);
+  test("show reports the runtime profile and source",()=>{
+    const framework=fakeFramework();
+    const result=pocket(framework,["show","--json"],project([{id:"vita"}]));
+    expect(result.code,result.err).toBe(0);
+    expect(JSON.parse(result.out).selection).toEqual({id:"vita",source:"project",origin:"/work/game/pocket.runtime-config.ts"});
+    expect(JSON.parse(pocket(framework,["+psp","show","--json"],project([{id:"vita"}])).out).selection.source).toBe("explicit");
   });
-
-  test("default and override reject an id outside the catalog and the project", () => {
-    const framework = fakeFramework();
-    const result = pocket(framework, ["default", "gba"]);
-    expect(result.code).toBe(1);
-    expect(result.err).toContain("unknown target gba");
-  });
-
-  test("show reports the framework, the project and the selection with its source", () => {
-    const framework = fakeFramework();
-    const result = pocket(framework, ["show", "--json"], project([{ id: "vita" }]));
-    expect(result.code, result.err).toBe(0);
-    const report = JSON.parse(result.out);
-    expect(report.framework).toMatchObject({ version: "9.9.9", source: "checkout", protocol: 1, root: realpathSync(framework.cwd) });
-    expect(report.selection).toEqual({ id: "vita", source: "project", origin: "/work/game/pocket.config.ts" });
-    expect(report.targets.map((target: { id: string; state: string }) => [target.id, target.state])).toEqual([
-      ["psp", "not installed"],
-      ["vita", "no manifest"],
-      ["web-app", "nothing to install"],
-      ["moto-g-play", "no manifest"],
-    ]);
-
-    const explicit = JSON.parse(pocket(framework, ["+psp", "show", "--json"], project([{ id: "vita" }])).out);
-    expect(explicit.selection).toEqual({ id: "psp", source: "explicit", origin: "+psp" });
-
-    const text = pocket(framework, ["show"], project([{ id: "vita" }])).out;
-    expect(text).toContain("targets for this framework");
-    expect(text).toMatch(/psp\s+.*not installed.*pocket target add psp/);
-  });
-
-  test("target commands run in the framework, which holds the pins", () => {
-    const framework = fakeFramework();
-    let result = pocket(framework, ["target", "add", "psp", "vita"]);
-    expect(result.code, result.err).toBe(0);
-    expect(result.calls).toEqual([["target", "add", "psp", "vita", "--cli-protocol", "1"]]);
-
-    result = pocket(framework, ["target", "list", "--check"]);
-    expect(result.calls).toEqual([["target", "list", "--check", "--cli-protocol", "1"]]);
-
-    result = pocket(fakeFramework(2), ["target", "add", "psp"]);
-    expect(result.code).toBe(1);
-    expect(result.calls).toEqual([]);
+  test("profile export, target and SDK commands reach the framework",()=>{
+    const framework=fakeFramework();
+    for(const args of [["target","add","psp"],["target","list","--check"],["profile","export","--config","runtime.ts","--out","generated"],["sdk","export","--out","sdk"]]) {
+      const result=pocket(framework,args);expect(result.code,result.err).toBe(0);expect(result.calls).toEqual([[...args,"--cli-protocol","1"]]);
+    }
   });
 });
 

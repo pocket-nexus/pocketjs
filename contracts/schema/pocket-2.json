@@ -123,6 +123,63 @@
             "octane"
           ]
         },
+        "theme": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "keyframes": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "animation": {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "loop": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
         "aot": {
           "type": "boolean"
         },

@@ -8,12 +8,11 @@ and Vue SFC generation into Rust, including compiled TypeScript models, see
 application code, AOT views and compiled model bodies; the rules for one mode
 do not define the source subset for another.
 
-This page describes the low-level bundle/style/font/pak compiler. Product builds
-resolve `pocket.json` through `pocket check`, `compile`, or `build`
-([CLI](/docs/cli/#check-compile-build)) before this pipeline runs; see
-[Platform contracts](/docs/platform-contracts/) for how one small,
-checksummed target plan becomes the authoritative input to this pipeline and
-native packaging.
+This page describes the low-level bundle/style/font/pak compiler. Application builds resolve `pocket.json` and a software profile through
+`pocket check` or `pocket compile` ([CLI](/docs/cli/#check-and-compile))
+before this pipeline runs. The resulting plan contains the selected viewport,
+capabilities, profile hash and application options. See
+[Platform contracts](/docs/platform-contracts/) for the plan fields.
 
 With `app.aot: true` and `app.model: "compiled"`, model admission and lowering
 run before JSX transformation and transform-cache lookup. The model's signals,
@@ -23,17 +22,24 @@ model; native `async` execution and Promise microtasks do not schedule its
 task segments.
 
 The resolved build plan includes model selection and `recursionLimit`. A build
-using a frozen plan rejects a changed model configuration. `pocket compile`
-and the guest bundle command still produce guest artifacts; native AOT uses
-`bun microts/compiler/cli.ts build <app>` followed by Cargo and the target's
-host packaging. See [TypeScript models to Rust](/docs/microts-model/).
+using a frozen plan rejects a changed model configuration. `pocket compile` produces a guest package by default.
+`pocket compile --aot --out <directory>` generates Rust application code,
+font/image data and a dependency manifest for the program to compile. It does
+not invoke the native toolchain. See [TypeScript models to Rust](/docs/microts-model/).
 Admission and generation commands for both paths are listed in
 [Checking an application](/docs/typescript-support/#checking-an-application).
 
-**The manifest-first compiler resolves the target before producing its
-bundle.** `pocket compile` writes `.pocket/<target>/plan.json` and runs this
-compiler with `--plan`, which yields the target-specific JS and pak;
-`pocket build` hands the same plan to the target's native backend.
+**Application compilation and program compilation have separate commands.**
+`pocket compile --target <id-or-module> --output <file>` resolves the profile,
+writes `.pocket/<profile-id>/plan.json`, then packages the JS and assets in a
+`.pocket` file. Without `--target`, it uses the nearest
+`pocket.runtime-config.ts`. `--runtime-config <file>` selects another config.
+
+`pocket build` reads the program's `pocket.runtime-config.ts` and executes its
+`build` recipe. A config without `build` exports the profile and leaves native
+compilation to the external build system. `pocket profile export --config
+<file> --out <directory>` writes `pocket_profile.h` and `pocket-profile.json`
+without compiling an application or program.
 
 The lower-level compiler can still turn one entry into two files directly:
 
@@ -77,17 +83,32 @@ bun tools/build.ts hero-main               # the mounted entry (apps/hero/main.t
 A bare name resolves against `apps/`: `hero` finds `apps/hero/app.tsx`, and a
 name ending in `-main` finds `apps/hero/main.tsx`.
 
-An external ESP-IDF product supplies its host profile instead of selecting a
-stock target, through `pocket build --host-profile`
-([CLI](/docs/cli/#check-compile-build)). The package carries the JSON plan and
-a fixed-width binary `hostInputs` section. Device admission reads the binary section and does not run a JSON
-parser in QuickJS. See [ESP-IDF](/docs/esp-idf/#build-an-application-package).
+An ESP-IDF product imports its profile in the firmware's
+`pocket.runtime-config.ts`. Compile the application and export the program's
+trusted profile from that configuration:
+
+```sh
+pocket compile --manifest app/pocket.json \
+  --runtime-config pocket.runtime-config.ts --output dist/app.pocket
+pocket profile export --config pocket.runtime-config.ts --out profile-export
+```
+
+The package carries its profile hash, JSON plan and a fixed-width binary
+`hostInputs` section. The Python embedding tool checks those inputs against
+`profile-export/pocket-profile.json`; the program compiles
+`profile-export/pocket_profile.h`. **The package and program must have the
+same profile hash and binding generation.**
+
+IDF's `pocketjs_compile_app` and `pocketjs_profile_header` invoke these CLI
+operations and track imported modules in depfiles. Their `RUNTIME_CONFIG`
+parameter defaults to the firmware root's `pocket.runtime-config.ts`.
+`pocketjs_embed_package(... PROFILE_EXPORT_DIR <directory>)` consumes an
+existing package, header and sidecar with Python; it requires no Bun or CLI.
+See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 
 | Flag | Effect |
 |---|---|
-| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build, overriding `pocket.config.ts`. Manifest builds take it from `pocket.json`. |
-| `--config=<path>` | Load a different Pocket config file. |
-| `--no-config` | Ignore `pocket.config.ts`; defaults to Solid unless `--framework` is set. |
+| `--framework=solid\|vue-vapor\|octane` | Select the framework for this low-level build; the default is Solid. Manifest builds use `app.framework` from `pocket.json`. |
 | `--extra-chars=<string>` | Force these codepoints into **every** baked atlas, on top of the collected charset and ASCII. |
 | `--density=N` | Raster samples per logical pixel for this build — an integer 1 through 255, default 1. A resolved plan owns the density, so passing both is an error. |
 | `--hz=N` | Bake this virtual tick rate into the bundle — an integer 1 through 240, default 60. The host must drive the surface at the same rate; a bundle whose baked rate differs from the host's `ui.__tickHz` throws before it mounts. |
@@ -224,7 +245,7 @@ Two literals that produce byte‑identical records share a single styleId, so
 compiler emits:
 
 - **`styles.bin`** — the encoded style table, packed into the pak as
-  `ui:styles`. Any `theme.keyframes` / `theme.animation` entries referenced by
+  `ui:styles`. Any `app.theme.keyframes` / `app.theme.animation` entries referenced by
   an `animate-<name>` class are baked into it too, as frame-precise
   per-property segment timelines (the ANIM TABLE) — see
   [Animation → baked keyframe timelines](/docs/animation/#baked-keyframe-timelines).

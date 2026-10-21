@@ -53,12 +53,33 @@ The preparation rules participate in receipt identity.
 
 ## Package and profile boundaries
 
-The existing IDF package format is unchanged. `pocket.host.json` retains its
-schema and full-JSON hash in host-input metadata. The Python embed helper checks
-that hash and the selected host's dimensions, density, presentation and cadence.
-It emits a second JSON value containing the seven public profile identity fields
-from `contracts/spec/profile.ts`, plus a separate runtime profile hash.
-`RuntimeConfig` receives this projection; it does not receive the legacy hash.
+The product owns `pocket.runtime-config.ts` and imports a `defineProfile()`
+module. **One profile hash identifies both the program and its application
+package.** `pocket profile export --config <file> --out <directory>` writes
+`pocket_profile.h` and `pocket-profile.json`. These are build outputs, not
+checked-in platform definitions.
+
+`pocketjs_compile_app(TARGET <target> NAME <name> MANIFEST <pocket.json>)`
+compiles the application and exports its program profile.
+`pocketjs_profile_header(TARGET <target> NAME <name>)` exports a profile without
+compiling an application. Both invoke the Pocket CLI and record imported
+configuration/profile modules in depfiles. All three CMake helpers accept
+`RUNTIME_CONFIG`; its default is the IDF project root's
+`pocket.runtime-config.ts`.
+
+`pocketjs_embed_package(TARGET <target> NAME <name> PACKAGE <file>
+PROFILE_EXPORT_DIR <directory>)` consumes prebuilt artifacts using Python.
+This path requires Python, the package and exported artifacts; it does not
+require Bun, the Pocket CLI or the TypeScript config modules. `PROFILE_EXPORT_DIR`
+defaults to `<current-binary-directory>/pocketjs/<name>/profile`; export there
+before configuring an offline build. Missing exports produce a command naming
+the required config and output directory.
+
+The Python helper verifies the sidecar format, exact canonical JSON bytes,
+independent binding generation and profile hash before admitting the package.
+It does not serialize another copy of the profile identity. The generated
+`pocketjs_package_<name>.h` supplies package storage and admitted application
+geometry; the program includes `pocket_profile.h` for runtime configuration.
 
 The runtime admits `.pocket` bytes through the shared Rust package loader,
 selects target/ABI, installs assets and initializes the guest. Generated guest

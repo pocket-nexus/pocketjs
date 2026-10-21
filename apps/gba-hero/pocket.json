@@ -17,7 +17,7 @@
     "viewport": {
       "fixed": {
         "logical": [240, 160],
-        "presentation": "integer-fit"
+        "presentation": "native"
       }
     },
     "aot": true,

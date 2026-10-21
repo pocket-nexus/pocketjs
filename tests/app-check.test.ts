@@ -67,6 +67,22 @@ describe("per-app TypeScript checks", () => {
     expect(result.artifacts.tsconfig).toContain(`"extends": ${JSON.stringify(ROOT_TSCONFIG)}`);
   });
 
+  test("runtime config modules stay outside the guest graph and do not provide Node globals", () => {
+    const directory = mkdtempSync(resolve(tmpdir(), "pocketjs-guest-config-"));
+    try {
+      const platform = new URL("../framework/src/platform.ts", import.meta.url).pathname;
+      const modality = new URL("../framework/src/modality.ts", import.meta.url).pathname;
+      writeFileSync(resolve(directory, "pocket.runtime-config.ts"), 'import {createHash} from "node:crypto"; export default {profile:createHash("sha256")};');
+      const main = resolve(directory, "main.ts");
+      writeFileSync(main, `import {platform} from ${JSON.stringify(platform)};import {modality} from ${JSON.stringify(modality)};export const target=platform.target;void modality;`);
+      const result = checkAppTypes({ entry: main });
+      expect(errors(result)).toBe("");
+      expect(result.checkedFiles.some(file => file.endsWith("pocket.runtime-config.ts") || file.endsWith("framework/src/profile.ts"))).toBe(false);
+      writeFileSync(main, "export const host=process.env.HOME;");
+      expect(errors(checkAppTypes({ entry: main }))).toContain("Cannot find name 'process'");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   test("resolves the public manifest and platform subpaths from the app config", () => {
     const result = checkFixture("framework-import", ROOT_TSCONFIG);
 

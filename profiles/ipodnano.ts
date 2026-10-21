@@ -21,5 +21,5 @@ export default defineBuiltinProfile({
     ],
     "rasterDensity": 1
   },
-  "capabilities": []
+  "capabilities": ["input.buttons", "text.glyphs.baked"]
 });

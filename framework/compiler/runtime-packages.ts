@@ -10,7 +10,7 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PocketFramework } from "../src/config.ts";
+import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
 
 const COMPILER_DIRECTORY = fileURLToPath(new URL(".", import.meta.url));
 

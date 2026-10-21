@@ -16,8 +16,8 @@
 //     chosen presentation for the smaller, in-module adaptations.
 
 import type { JsonSchema } from "./pocket-manifest.ts";
-import type { TargetForm, TargetProfile, Viewport } from "./platforms.ts";
-import { DYNAMIC_FORMS, TARGET_FORMS } from "./platforms.ts";
+import type { TargetForm, TargetProfile, Viewport } from "./platform-types.ts";
+import { DYNAMIC_FORMS, TARGET_FORMS } from "./platform-types.ts";
 
 export const SCREEN_ROLES = ["primary", "auxiliary"] as const;
 export type ScreenRole = (typeof SCREEN_ROLES)[number];

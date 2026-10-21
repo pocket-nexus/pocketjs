@@ -4,12 +4,11 @@
 // framework from the checkout. Anywhere else the result is a standalone
 // project: its package.json depends on @pocketjs/framework and pins
 // @pocketjs/cli, so `bun install && bun run build` is the whole flow.
-// `--host-profile` (or `--target esp-idf`) derives the manifest from an ESP-IDF
-// host contract, so a firmware repository owns the app as a subdirectory and
-// `pocketjs_compile_app` / `pocketjs_embed_package` consume the result.
+// `--target esp-idf` creates a product-owned profile and runtime configuration,
+// with application sources in app/. Native firmware builds consume those inputs.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, posix, relative, resolve, sep } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 
 export const FRAMEWORKS = ["solid", "vue-vapor", "octane"];
 export const TARGETS = ["psp", "vita", "pocketbook", "web-app", "macos-app", "linux-app", "esp-idf"];
@@ -24,12 +23,12 @@ export const FRAMEWORK_DEPENDENCIES = {
 
 export const CREATE_USAGE =
   "usage: pocket create <kebab-case-name> [--target psp|vita|pocketbook|web-app|macos-app|linux-app|esp-idf] " +
-  "[--framework solid|vue-vapor|octane] [--host-profile pocket.host.json]";
+  "[--framework solid|vue-vapor|octane]";
 
 export class CreateUsageError extends Error {}
 
 export function parseCreateArgs(argv) {
-  const options = { name: undefined, framework: "solid", target: undefined, hostProfile: undefined };
+  const options = { name: undefined, framework: "solid", target: undefined };
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
     const value = (flag) => {
@@ -39,9 +38,7 @@ export function parseCreateArgs(argv) {
     };
     if (argument === "--framework" || argument.startsWith("--framework=")) options.framework = value("--framework");
     else if (argument === "--target" || argument.startsWith("--target=")) options.target = value("--target");
-    else if (argument === "--host-profile" || argument.startsWith("--host-profile=")) {
-      options.hostProfile = value("--host-profile");
-    } else if (argument.startsWith("-")) throw new CreateUsageError(`unknown option ${argument}`);
+    else if (argument.startsWith("-")) throw new CreateUsageError(`unknown option ${argument}`);
     else if (options.name === undefined) options.name = argument;
     else throw new CreateUsageError(`unexpected argument ${argument}`);
   }
@@ -56,10 +53,7 @@ export function parseCreateArgs(argv) {
       `--target is one of ${TARGETS.join(", ")} (macos-widget hosts dynamic viewports only; edit app.viewport after scaffolding)`,
     );
   }
-  if (options.hostProfile && options.target !== undefined && options.target !== "esp-idf") {
-    throw new CreateUsageError("--host-profile selects the ESP-IDF flow; drop --target or pass --target esp-idf");
-  }
-  return { ...options, target: options.target ?? (options.hostProfile ? "esp-idf" : "psp") };
+  return { ...options, target: options.target ?? "psp" };
 }
 
 // ---------------------------------------------------------------------------
@@ -194,14 +188,10 @@ function manifest({ name, title, framework, viewport, requires }) {
   };
 }
 
-// A starting host contract for a product that has none yet: 320×240 at native
-// scale, buttons and baked glyphs. The firmware repository owns the file from
-// here on; `id` is stored in the .pocket variant table, hence 15 bytes.
-function defaultHostProfile(name) {
+// A new product starts with a 320x240 display, buttons and baked glyphs.
+function defaultProfile(name) {
   return {
-    $schema: "https://pocketjs.dev/schema/pocket-idf-host-1.json",
-    version: 1,
-    id: name.slice(0, 15).replace(/-+$/, ""),
+    id: `product-${name}`,
     platform: "esp-idf",
     form: "takeover",
     tickHz: 60,
@@ -215,87 +205,30 @@ function defaultHostProfile(name) {
   };
 }
 
-// The manifest fields a host profile decides: the first logical viewport at
-// the host's native presentation when it has one, and whether the template
-// may register button handlers. Full schema validation stays with
-// `pocket check --host-profile`.
-function hostContract(profile, source) {
-  const logical = profile?.display?.logicalViewports?.[0];
-  const presentations = profile?.display?.presentations;
-  const capabilities = profile?.capabilities;
-  if (
-    !Array.isArray(logical) || logical.length !== 2 ||
-    !Array.isArray(presentations) || presentations.length === 0 ||
-    !Array.isArray(capabilities)
-  ) {
-    throw new CreateUsageError(
-      `${source} is not a pocket-idf-host-1 profile: display.logicalViewports, display.presentations and capabilities are required`,
-    );
-  }
-  return {
-    viewport: {
-      logical: [logical[0], logical[1]],
-      presentation: presentations.includes("native") ? "native" : presentations[0],
-    },
-    buttons: capabilities.includes("input.buttons"),
-  };
-}
-
-function readHostProfile(path) {
-  let profile;
-  try {
-    profile = JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    throw new CreateUsageError(`cannot read host profile ${path}: ${error.message}`);
-  }
-  return hostContract(profile, path);
-}
-
-/** The `pocket` invocations for a scaffolded app; `manifest` is set when they run from outside its directory. */
-/** The `pocket` invocations for a scaffolded app. pocket.config.ts names the
- *  target, so they carry no selection; `manifest` is set when they run from
- *  outside the app directory. */
+/** Application scripts select their profile; native build configuration belongs to the program. */
 export function pocketCommands({ name, target, manifest: manifestPath }) {
-  const manifestFlag = manifestPath ? ` --manifest ${manifestPath}` : "";
-  const build = target === "esp-idf"
-    ? ` --output dist/${name}.pocket`
-    : target === "psp" || target === "vita" ? " -- --release" : "";
+  const embedded = target === "esp-idf";
+  const manifest = manifestPath ?? (embedded ? "app/pocket.json" : "pocket.json");
+  const projectRoot = embedded ? posix.dirname(posix.dirname(manifest)) : posix.dirname(manifest);
+  const selection = embedded ? "" : ` --target ${target}`;
+  const input = ` --manifest ${manifest} --project-root ${projectRoot}`;
+  const compile = `pocket compile${selection}${input} --output dist/${name}.pocket`;
   return {
-    check: `pocket check${manifestFlag}`,
-    compile: `pocket compile${manifestFlag}`,
-    build: `pocket build${manifestFlag}${build}`,
+    check: `pocket check${selection}${input}`,
+    compile,
+    build: compile,
   };
 }
 
-/** pocket.config.ts listing the app's target: a catalog id, or the host profile. */
-function pocketConfig({ target, hostProfilePath }) {
-  const entry = target === "esp-idf" ? `{ hostProfile: ${JSON.stringify(hostProfilePath)} }` : JSON.stringify(target);
-  return `import { definePocketConfig } from "@pocketjs/framework/config";
-
-// The first entry of \`targets\` is the target \`pocket check\`, \`compile\` and
-// \`build\` use when the command names none.
-export default definePocketConfig({
-  targets: [${entry}],
-});
-`;
-}
-
-const ARTIFACT = {
-  psp: "an EBOOT.PBP from the pinned PSP toolchain (`pocket target add psp` installs it)",
-  vita: "a VPK; needs VitaSDK (`VITASDK`) and cargo-vita",
-  pocketbook: "dist/<output>.js + .pak, loaded by the PocketBook host",
-  "web-app": "dist/<output>.js + .pak, served by the browser host",
-  "macos-app": "dist/<output>.js + .pak, loaded by the desktop host",
-  "linux-app": "dist/<output>.js + .pak, loaded by the desktop host",
-  "esp-idf": "dist/<name>.pocket for the firmware build",
-};
-
-function packageJson({ name, framework, target, hostProfilePath, cliVersion }) {
+function packageJson({ name, framework, target, cliVersion }) {
   return {
     name,
     private: true,
     type: "module",
-    scripts: pocketCommands({ name, target, hostProfilePath }),
+    scripts: {
+      ...pocketCommands({ name, target }),
+      ...(target === "esp-idf" ? { profile: "pocket profile export --out dist/profile" } : {}),
+    },
     dependencies: {
       "@pocketjs/framework": `^${cliVersion}`,
       ...FRAMEWORK_DEPENDENCIES[framework],
@@ -304,78 +237,69 @@ function packageJson({ name, framework, target, hostProfilePath, cliVersion }) {
   };
 }
 
-// Editor typecheck only; `pocket check` extends this file and owns the
-// entry/import graph. JSX stays "preserve": the framework's Babel preset
-// performs the transform. No `lib`: TypeScript's default library for the
-// target declares the console and microtask globals the framework sources
-// use, the same environment `pocket check` has without a tsconfig.
-function tsconfig(framework) {
+function tsconfig(framework, embedded) {
   const declarations = ["node_modules/@pocketjs/framework/framework/src/jsx.d.ts"];
   if (framework === "vue-vapor") declarations.push("node_modules/@pocketjs/framework/framework/src/vue-sfc.d.ts");
   return {
     compilerOptions: {
-      target: "ESNext",
-      module: "ESNext",
-      moduleResolution: "bundler",
-      types: [],
-      jsx: "preserve",
-      strict: true,
-      noEmit: true,
-      allowImportingTsExtensions: true,
-      verbatimModuleSyntax: true,
-      skipLibCheck: true,
+      target: "ESNext", module: "ESNext", moduleResolution: "bundler", types: [],
+      jsx: "preserve", strict: true, noEmit: true, allowImportingTsExtensions: true,
+      verbatimModuleSyntax: true, skipLibCheck: true,
     },
-    include: ["*.ts", "*.tsx", ...declarations],
+    include: embedded ? ["app/**/*.ts", "app/**/*.tsx", "profiles/*.ts", "pocket.runtime-config.ts", ...declarations]
+      : ["*.ts", "*.tsx", ...declarations],
   };
 }
 
-function readme({ name, title, target, hostProfilePath }) {
-  const artifact = ARTIFACT[target].replace("<output>", `${name}-main`).replace("<name>", name);
+function readme({ name, title, target }) {
   let text = `# ${title}
 
-A PocketJS application. \`pocket.json\` declares the entry, framework, viewport and
-the engine capabilities the app requires; \`@pocketjs/framework\` compiles it and
-\`@pocketjs/cli\` (\`pocket\`) drives the build. Both run on Bun.
+\`pocket.json\` declares the application entry, framework, viewport and capabilities.
+**Application compilation produces \`dist/${name}.pocket\`.** The program's native
+build consumes that package or installs it beside a compatible runtime.
 
 \`\`\`sh
 bun install
-bun run check     # manifest, target capabilities, TypeScript
-bun run compile   # dist/${name}-main.js + dist/${name}-main.pak
-bun run build     # ${artifact}
+bun run check
+bun run compile
 \`\`\`
 `;
   if (target === "esp-idf") {
     const cmakeName = name.replace(/-/g, "_");
-    const profileFromFirmware = posix.normalize(posix.join(name, hostProfilePath));
     text += `
 ## Firmware integration
 
-The firmware repository owns \`pocket.host.json\`; this app was generated against
-\`${hostProfilePath}\` and \`pocket check\` validates the manifest against it. The
-snippets below assume this directory sits at the firmware root as \`${name}/\`.
-Both run after \`idf_component_register\` in the consumer component's
-\`CMakeLists.txt\` and generate \`pocketjs_package_${cmakeName}.h\`.
+\`profiles/${name}.ts\` declares the program's software profile.
+\`pocket.runtime-config.ts\` selects it. The application lives in \`app/\`.
+**Native firmware compilation belongs to ESP-IDF.**
 
-Compile during \`idf.py build\` (\`pocket\` and Bun in \`PATH\`):
+Run after \`idf_component_register\` in the consuming component:
 
 \`\`\`cmake
 pocketjs_compile_app(
     TARGET \${COMPONENT_LIB}
     NAME ${cmakeName}
-    MANIFEST "\${CMAKE_SOURCE_DIR}/${name}/pocket.json"
-    HOST_PROFILE "\${CMAKE_SOURCE_DIR}/${profileFromFirmware}"
-    PROJECT_ROOT "\${CMAKE_SOURCE_DIR}/${name}"
+    MANIFEST "\${PROJECT_DIR}/app/pocket.json"
+    PROJECT_ROOT "\${PROJECT_DIR}"
+    RUNTIME_CONFIG "\${PROJECT_DIR}/pocket.runtime-config.ts"
 )
 \`\`\`
 
-Embed the package from \`bun run build\` (no Bun during \`idf.py build\`):
+To embed without Bun during the firmware build, export the profile and compile
+once before invoking ESP-IDF:
+
+\`\`\`sh
+bun run profile
+bun run compile
+\`\`\`
 
 \`\`\`cmake
 pocketjs_embed_package(
     TARGET \${COMPONENT_LIB}
     NAME ${cmakeName}
-    PACKAGE "\${CMAKE_SOURCE_DIR}/${name}/dist/${name}.pocket"
-    HOST_PROFILE "\${CMAKE_SOURCE_DIR}/${profileFromFirmware}"
+    PACKAGE "\${PROJECT_DIR}/dist/${name}.pocket"
+    RUNTIME_CONFIG "\${PROJECT_DIR}/pocket.runtime-config.ts"
+    PROFILE_EXPORT_DIR "\${PROJECT_DIR}/dist/profile"
 )
 \`\`\`
 `;
@@ -383,59 +307,49 @@ pocketjs_embed_package(
   return text;
 }
 
-// ---------------------------------------------------------------------------
-// create
-// ---------------------------------------------------------------------------
-
-/**
- * Scaffold an app. `checkoutRoot` set means apps/<name> inside that checkout;
- * otherwise a standalone project under the current directory. Returns what
- * was written so the caller can print the next commands.
- */
+/** Scaffold an application, or an ESP-IDF product with its application in app/. */
 export function create(argv, { checkoutRoot, cliVersion, cwd = process.cwd() }) {
-  const options = parseCreateArgs(argv);
-  const { name, framework, target } = options;
+  const { name, framework, target } = parseCreateArgs(argv);
   const standalone = !checkoutRoot;
   const directory = standalone ? resolve(cwd, name) : join(checkoutRoot, "apps", name);
-  if (existsSync(directory)) {
-    throw new CreateUsageError(`${standalone ? directory : `apps/${name}`} already exists`);
-  }
+  if (existsSync(directory)) throw new CreateUsageError(`${directory} already exists`);
   const title = name.replace(/-/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
-
-  let viewport = { logical: [480, 272], presentation: "integer-fit" };
-  let buttons = true;
-  let hostProfilePath;
-  let hostProfile;
-  if (target === "esp-idf") {
-    let contract;
-    if (options.hostProfile) {
-      const absolute = resolve(cwd, options.hostProfile);
-      contract = readHostProfile(absolute);
-      hostProfilePath = relative(directory, absolute).split(sep).join("/");
-    } else {
-      hostProfile = defaultHostProfile(name);
-      contract = hostContract(hostProfile, "the default host profile");
-      hostProfilePath = "pocket.host.json";
-    }
-    ({ viewport, buttons } = contract);
-  }
-  const requires = ["text.glyphs.baked", ...(buttons ? ["input.buttons"] : [])];
-
+  const embedded = target === "esp-idf";
+  const appDirectory = embedded ? "app/" : "";
+  const viewport = embedded ? { logical: [320, 240], presentation: "native" }
+    : { logical: [480, 272], presentation: "integer-fit" };
+  const application = manifest({ name, title, framework, viewport, requires: ["text.glyphs.baked", "input.buttons"] });
+  application.app.entry = `${appDirectory}main.tsx`;
   const files = {
-    "pocket.config.ts": pocketConfig({ target, hostProfilePath }),
-    "app.tsx": APP[framework]({ title, buttons }),
-    "main.tsx": MAIN[framework](title),
-    "pocket.json": json(manifest({ name, title, framework, viewport, requires })),
+    [`${appDirectory}app.tsx`]: APP[framework]({ title, buttons: true }),
+    [`${appDirectory}main.tsx`]: MAIN[framework](title),
+    [`${appDirectory}pocket.json`]: json(application),
   };
-  if (hostProfile) files["pocket.host.json"] = json(hostProfile);
-  if (standalone) {
-    files["package.json"] = json(packageJson({ name, framework, target, hostProfilePath, cliVersion }));
-    files["tsconfig.json"] = json(tsconfig(framework));
-    files[".gitignore"] = "node_modules/\ndist/\n.pocket/\n";
-    files["README.md"] = readme({ name, title, target, hostProfilePath });
-  }
+  if (embedded) {
+    files[`profiles/${name}.ts`] = `import { defineProfile } from "@pocketjs/framework/profile";
 
+export default defineProfile(${json(defaultProfile(name)).trim()});
+`;
+    files["pocket.runtime-config.ts"] = `import { defineRuntimeConfig } from "@pocketjs/framework/runtime-config";
+import profile from "./profiles/${name}.ts";
+
+export default defineRuntimeConfig({ profile });
+`;
+  }
+  if (standalone) {
+    files["package.json"] = json(packageJson({ name, framework, target, cliVersion }));
+    files["tsconfig.json"] = json(tsconfig(framework, embedded));
+    files[".gitignore"] = "node_modules/\ndist/\n.pocket-build/\n";
+    files["README.md"] = readme({ name, title, target });
+  }
   mkdirSync(directory, { recursive: true });
-  for (const [file, content] of Object.entries(files)) writeFileSync(join(directory, file), content);
-  return { name, directory, standalone, target, framework, hostProfilePath, files: Object.keys(files) };
+  for (const [file, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(directory, file)), { recursive: true });
+    writeFileSync(join(directory, file), content);
+  }
+  return {
+    name, directory, standalone, target, framework,
+    runtimeConfigPath: embedded ? "pocket.runtime-config.ts" : undefined,
+    manifestPath: `${appDirectory}pocket.json`, files: Object.keys(files),
+  };
 }

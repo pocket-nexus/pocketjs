@@ -1,4 +1,5 @@
 /** Solid TSX admission. Component bodies are a view DSL; model implementations stay in TypeScript or Rust. */
+import type { AnimationTheme } from "../../framework/compiler/animation.ts";
 import ts from "typescript";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -22,7 +23,7 @@ const outside = "Only the factory call, context reads, derived expressions and t
 type Jsx = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment;
 interface Import { name: string; sourceName: string; module: string; node: ts.ImportSpecifier }
 interface Parsed { file: string; source: string; script: ts.SourceFile; declaration: ts.FunctionDeclaration; name: string; imports: Map<string, Import>; children: Map<string, string> }
-export interface AnalyzeSolidAotOptions { strict?: boolean; source?: string; sources?: ReadonlyMap<string, string>; root?: boolean }
+export interface AnalyzeSolidAotOptions { theme?: AnimationTheme; tickHz?: number; strict?: boolean; source?: string; sources?: ReadonlyMap<string, string>; root?: boolean }
 export interface SolidAotDependencyVersion { file: string; mtimeMs: number; size: number }
 const dependencies = new WeakMap<AotProgram, readonly SolidAotDependencyVersion[]>();
 export function getSolidAotDependencyVersions(program: AotProgram): readonly SolidAotDependencyVersion[] { return dependencies.get(program) ?? []; }
@@ -682,7 +683,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
   }
   if (root.declaration.typeParameters?.length) fail(location(entry, root.source), "A generic component requires a parent that supplies concrete props");
   for (const item of parsed.values()) if (!item.declaration.typeParameters?.length) analyze(item);
-  const program = finalizeAotProgram(root.name, components, mapper, classLiterals);
+  const program = finalizeAotProgram(root.name, components, mapper, classLiterals, options.theme !== undefined || options.tickHz !== undefined ? options : undefined);
   if (model) attachAotModel(program, model);
   validateViewModelBindings(program);
   const versions: SolidAotDependencyVersion[] = [];
