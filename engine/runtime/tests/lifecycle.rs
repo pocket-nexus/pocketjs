@@ -592,6 +592,13 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
         frames.borrow().last(),
         Some(&((3.5, 2.25), Rect::new(0, 0, 7, 5)))
     );
+    size.set([1, 1]);
+    rt.resize_embedded_gpu([0.5, 0.5], [1, 1]).unwrap();
+    rt.tick().unwrap();
+    assert_eq!(
+        frames.borrow().last(),
+        Some(&((1.0, 1.0), Rect::new(0, 0, 1, 1)))
+    );
     let mut cpu = runtime(facts, false, false);
     cpu.allow_embedded_viewport_changes().unwrap();
     cpu.boot().unwrap();

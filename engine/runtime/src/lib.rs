@@ -401,7 +401,8 @@ impl Runtime {
     }
     /// Resize a GPU embedding whose OS scale produces a fractional logical
     /// viewport. The program prepares its device targets and scale first and
-    /// restores them on failure. Package admission retains its original profile.
+    /// restores them on failure. The core retains its one-unit viewport minimum
+    /// for windows smaller than the OS scale. Package admission keeps its profile.
     pub fn resize_embedded_gpu(
         &mut self,
         logical: [f32; 2],
@@ -410,7 +411,7 @@ impl Runtime {
         self.validate_embedded_gpu_resize(physical)?;
         if logical
             .iter()
-            .any(|v| !v.is_finite() || *v < 1.0 || *v > 32000.0)
+            .any(|v| !v.is_finite() || *v <= 0.0 || *v > 32000.0)
         {
             return Err(RuntimeError::InvalidArgument);
         }
