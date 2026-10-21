@@ -1,9 +1,9 @@
 # ESP-IDF
 
-PocketJS supports ESP32-P4 and ESP32-S3 through ESP-IDF components.
+PocketJS supports ESP32-P4, ESP32-S3, ESP32-C3 and ESP32-C6 through ESP-IDF components.
 **One Rust archive owns package admission, UI state, frame input encoding and
 presentation.** The product registers a guest, package source, input sources
-and display outputs. ESP32-P4 can add PPA rendering; ESP32-S3 uses software
+and display outputs. ESP32-P4 can add PPA rendering; S3, C3 and C6 use software
 rasterization.
 
 ## Components
@@ -14,13 +14,15 @@ rasterization.
 | `pocket_guest_quickjs` | Generated UI bindings and espressif/quickjs-ng 0.14.0 |
 | `pocket_display_esp_lcd` | RGB565 strips for SPI/I80 panels with GRAM |
 | `pocket_render_esp_ppa` | P4 acceleration with software fallback |
+| `pocket_input_touch` | One esp_lcd_touch contact with logical coordinate scaling |
+| `pocket_input_gpio` | GPIO and ADC button masks with debounce |
 | `pocket_runner` | Optional FreeRTOS task and frame deadlines |
 
 Only `pocket_runner` creates a task. The firmware owns board initialization,
 input hardware, panel handles and component lifetimes. RGB/MIPI framebuffer
 outputs require a separate display driver.
 
-The components require ESP-IDF `>=6.0,<6.2`. A prebuilt `.pocket` requires
+The components require ESP-IDF `>=6.0,<6.3`. A prebuilt `.pocket` requires
 Python 3 at the embed step. Compiling an application from source requires Bun
 and the Pocket CLI. The default Rust archive can be built from source or
 supplied with its build receipt.
@@ -30,11 +32,13 @@ supplied with its build receipt.
 ```sh
 bun tools/esp-idf-native.ts --target esp32p4 --archiver /path/to/llvm-ar
 bun tools/esp-idf-native.ts --target esp32s3 --cargo /path/to/xtensa-rust/bin/cargo
+bun tools/esp-idf-native.ts --target esp32c3
+bun tools/esp-idf-native.ts --target esp32c6
 ```
 
 The P4 command uses the pinned RISC-V compiler. S3 requires the supplied Xtensa
 compiler. The output is `libpocket_idf_runtime.a` under
-`hosts/esp-idf/components/pocket_runtime/lib/<target>/`, beside its receipt.
+`platforms/esp-idf/pocket_runtime/lib/<target>/`, beside its receipt.
 The archive contains the runtime, software rasterizer and PPA factory. PPA's
 IDF hardware callbacks belong to `pocket_render_esp_ppa`.
 
@@ -42,6 +46,10 @@ IDF hardware callbacks belong to `pocket_render_esp_ppa`.
 With source builds disabled, `POCKET_RUNTIME_ARCHIVE` selects a prepared
 archive. The receipt identifies compiler, target, source inputs and archive
 hash; release staging checks those fields.
+
+For the generic archive without the PPA factory, `pocket sdk export` obtains
+a release SDK. `pocket sdk build` compiles it from a source checkout. A program
+links one selected archive.
 
 ## Embed an application
 

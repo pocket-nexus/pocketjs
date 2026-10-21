@@ -40,7 +40,7 @@ async function fixture() {
 describe("ESP-IDF release integrity", () => {
   test("one runtime archive serves canonical runtime and PPA factory", () => {
     expect(NATIVE_COMPONENTS).toEqual([{ component: "pocket_runtime", crate: "runtime", archive: "libpocket_idf_runtime.a" }]);
-    const renderer = readFileSync(join(root, "hosts/esp-idf/components/pocket_render_esp_ppa/CMakeLists.txt"), "utf8");
+    const renderer = readFileSync(join(root, "platforms/esp-idf/pocket_render_esp_ppa/CMakeLists.txt"), "utf8");
     expect(renderer).toContain("REQUIRES pocket_runtime");
     expect(renderer).not.toContain("pocketjs_link_native");
     expect(NATIVE_POLICY.rustArchiveLayout).toBe("single-runtime");
@@ -71,7 +71,7 @@ describe("ESP-IDF release integrity", () => {
     "engine/runtime/src/lib.rs", "engine/runtime/Cargo.toml",
     "engine/runtime-cabi/src/lib.rs", "engine/runtime-cabi/Cargo.toml",
     "platforms/esp-idf/render-ppa/src/cabi.rs",
-    "hosts/esp-idf/components/pocket_guest_quickjs/tools/prepare_quickjs.py",
+    "platforms/esp-idf/pocket_guest_quickjs/tools/prepare_quickjs.py",
     "platforms/esp-idf/render-ppa/src/lib.rs", "platforms/esp-idf/render-ppa/Cargo.toml",
     "platforms/esp-idf/render-ppa/include/pocket/render_esp_ppa.h",
     "devices/gles/pocket-gles/src/lib.rs", "devices/gles/pocket-gles/Cargo.toml",
@@ -82,10 +82,23 @@ describe("ESP-IDF release integrity", () => {
     writeFileSync(join(f.directory, path), "changed contract dependency");
     await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
   });
+  test("new path dependencies and their non-Rust assets join native source identity", async () => {
+    const f = await fixture();
+    const dependency = join(f.directory, "new-dependency"); mkdirSync(join(dependency, "src"), { recursive: true });
+    writeFileSync(join(dependency, "Cargo.toml"), '[package]\nname="new-dependency"\nversion="0.1.0"\n');
+    writeFileSync(join(dependency, "src/lib.rs"), 'pub const ASSET: &[u8] = include_bytes!("value.bin");');
+    writeFileSync(join(dependency, "src/value.bin"), "first");
+    const manifest = join(f.directory, "hosts/esp-idf/native/runtime/Cargo.toml");
+    writeFileSync(manifest, readFileSync(manifest, "utf8") + '\n[dependencies.new-dependency]\npath="../../../../new-dependency"\n');
+    f.receipt.sourceSha256 = await nativeSourceDigest(f.directory, spec); f.save();
+    await f.verify();
+    writeFileSync(join(dependency, "src/value.bin"), "changed");
+    await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
+  });
   test("staged components resolve every native path dependency outside the repository", async () => {
     const directory = mkdtempSync(join(tmpdir(), "pocketjs-release-")); temporary.push(directory);
-    const components = join(directory, "hosts/esp-idf/components");
-    cpSync(join(root, "hosts/esp-idf/components"), components, {
+    const components = join(directory, "platforms/esp-idf");
+    cpSync(join(root, "platforms/esp-idf"), components, {
       recursive: true,
       filter: path => !path.split("/").some(part => part === "lib" || part === "vendor"),
     });
@@ -96,7 +109,7 @@ describe("ESP-IDF release integrity", () => {
         cpSync(join(root, path), join(directory, path));
       }
       const pins = JSON.parse(readFileSync(join(directory, "tools/build/toolchains/esp-idf/compiler-pins.json"), "utf8"));
-      for (const target of ["esp32p4", "esp32s3"] as const) {
+      for (const target of Object.keys(RUST_TARGETS) as (keyof typeof RUST_TARGETS)[]) {
         const archive = join(components, native.component, "lib", target);
         mkdirSync(archive, { recursive: true });
         const bytes = new Uint8Array([1, 2, 3, 4]);
@@ -127,18 +140,24 @@ describe("ESP-IDF release integrity", () => {
       const result = Bun.spawnSync([
         "cargo", "metadata", "--offline", "--locked", "--format-version=1",
         "--manifest-path", join(output, native.component, "vendor/native/Cargo.toml"),
-      ], { stdout: "pipe", stderr: "pipe" });
+      ], { cwd: join(output, native.component, "vendor"), stdout: "pipe", stderr: "pipe" });
       expect(result.success, result.stderr.toString()).toBe(true);
       const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
       for (const name of ["pocket-gles", "pocket-gles1", "pocket-gles2"])
-        expect(readFileSync(join(output, native.component, "vendor", name, "Cargo.toml"), "utf8")).not.toContain("../../../engine");
+        expect(readFileSync(join(output, native.component, "vendor/packages", name, "Cargo.toml"), "utf8")).not.toContain("../../../engine");
       for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocket-render-esp-ppa"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
+      const cargoHome = join(directory, "empty-cargo-home"); mkdirSync(cargoHome, { recursive: true });
+      const offline = Bun.spawnSync(["cargo", "check", "--release", "--offline", "--locked", "--no-default-features", "-p", "pocket-idf-runtime"], {
+        cwd: join(output, native.component, "vendor"), stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, CARGO_HOME: cargoHome, CARGO_TARGET_DIR: join(directory, "cargo-target") },
+      });
+      expect(offline.success, offline.stderr.toString()).toBe(true);
     }
-  }, 30_000);
+  }, 120_000);
   test("archive preparation rules participate in source identity", async () => {
     const f = await fixture();
-    writeFileSync(join(f.directory, "hosts/esp-idf/components/pocket_runtime/prepare_archive.cmake"), "changed rules");
+    writeFileSync(join(f.directory, "platforms/esp-idf/pocket_runtime/prepare_archive.cmake"), "changed rules");
     await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
   });
   test("rejects archive tampering and size drift", async () => {
@@ -161,14 +180,14 @@ describe("ESP-IDF release integrity", () => {
   });
   test("component versions and internal dependency ranges are checked", () => {
     const names = verifyComponentVersions(root);
-    expect(names).toHaveLength(5);
+    expect(names).toHaveLength(7);
     const directory = mkdtempSync(join(tmpdir(), "pocketjs-versions-")); temporary.push(directory);
-    const components = join(directory, "hosts/esp-idf/components");
+    const components = join(directory, "platforms/esp-idf");
     mkdirSync(components, { recursive: true });
-    cpSync(join(root, "hosts/esp-idf/components/versions.json"), join(components, "versions.json"));
+    cpSync(join(root, "platforms/esp-idf/versions.json"), join(components, "versions.json"));
     for (const name of names) {
       mkdirSync(join(components, name));
-      cpSync(join(root, "hosts/esp-idf/components", name, "idf_component.yml"), join(components, name, "idf_component.yml"));
+      cpSync(join(root, "platforms/esp-idf", name, "idf_component.yml"), join(components, name, "idf_component.yml"));
     }
     expect(verifyComponentVersions(directory)).toEqual(names);
     const file = join(components, "pocket_guest_quickjs/idf_component.yml");

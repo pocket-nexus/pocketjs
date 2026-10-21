@@ -31,7 +31,7 @@ export function nativeArguments(context: RuntimeBuildContext): string[] {
 
 /** Declared source roots exclude Cargo output and per-run build directories. */
 export function nativeSources(...directories: string[]): string[] {
-  const paths = ["engine/Cargo.toml", "engine/Cargo.lock", "contracts/generated", ...directories.flatMap(directory =>
+  const paths = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "contracts/generated", ...directories.flatMap(directory =>
     ["src", "include", "build.rs", "Cargo.toml", "Cargo.lock", "Makefile"].map(name => `${directory}/${name}`))];
   return paths.map(path => resolve(repository, path)).filter(existsSync);
 }

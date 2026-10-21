@@ -22,7 +22,25 @@ permissions:
   id-token: write # npm --provenance
 
 jobs:
+  identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Require the tagged source revision
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          bun tools/release-check.ts "$RELEASE_VERSION"
+          tag="v${RELEASE_VERSION#v}"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$tag^{commit}")"
+  sdk-artifacts:
+    needs: identity
+    uses: ./.github/workflows/sdk-artifacts.yml
   publish:
+    needs: sdk-artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -52,9 +70,10 @@ jobs:
 
       # hosts/web/pocketjs.wasm is a gitignored build artifact shipped in the
       # framework tarball, so build it from engine/core/wasm. Stable Rust suffices.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
 
       - name: Cache cargo + wasm target
         uses: actions/cache@v6
@@ -62,7 +81,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            engine/wasm/target
+            target
           key: ${{ runner.os }}-wasm-${{ hashFiles('engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
@@ -87,12 +106,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
 
       - name: Test desktop 3D and widget workspace
-        run: cargo test --locked --manifest-path engine/Cargo.toml --workspace
+        run: cargo test --locked --manifest-path Cargo.toml
 
-      # The native UI C ABI is a standalone workspace because only historical
-      # device builds need nightly build-std. Host tests stay stable-compatible.
       - name: Test native UI C ABI
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
 
       - name: Test renderer goldens
         run: bun tests/golden.ts
@@ -104,6 +121,16 @@ jobs:
         run: |
           bun run site:build
           cmp contracts/schema/pocket-2.json site/dist/schema/pocket-2.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pocket-sdk-*
+          path: .pocket-build/validation/release/sdks
+      - name: Prepare verified SDK and source release assets
+        run: |
+          bun -e 'import { readdirSync } from "node:fs"; const base = ".pocket-build/validation/release"; const sdks = Object.fromEntries(readdirSync(base + "/sdks").map(name => [name.slice("pocket-sdk-".length), "sdks/" + name])); const revision = Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim(); await Bun.write(base + "/inputs.json", JSON.stringify({ version: (await Bun.file("package.json").json()).version, revision, sourceRoot: "../../..", sdks, runtimes: {} }));'
+          bun tools/release/publish.ts .pocket-build/validation/release/inputs.json .pocket-build/validation/release/assets
+          bun tools/release/crates.ts > .pocket-build/validation/release/assets/crate-release-plan.json
 
       - name: Publish @pocketjs/framework
         run: |
@@ -141,4 +168,16 @@ jobs:
             gh release create "$tag" --verify-tag --latest \
               --title "$(bun tools/release-notes.ts "$tag" --title)" \
               --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+      - name: Upload verified SDK and source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          tag="v${RELEASE_VERSION#v}"
+          mkdir -p "$RUNNER_TEMP/existing-release"
+          if gh release download "$tag" --pattern pocket-release.json --dir "$RUNNER_TEMP/existing-release"; then
+            cmp "$RUNNER_TEMP/existing-release/pocket-release.json" .pocket-build/validation/release/assets/pocket-release.json
+          else
+            gh release upload "$tag" .pocket-build/validation/release/assets/*
           fi

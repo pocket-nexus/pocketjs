@@ -570,7 +570,7 @@ export function buildIPhone2GNative(application: RuntimeApplication, outdir: str
     {
       ...process.env,
       RUSTC: rustc,
-      CARGO_TARGET_DIR: rustTarget,
+      CARGO_TARGET_DIR: rustTarget, CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort",
       IPHONEOS_DEPLOYMENT_TARGET: "10.0",
     },
   );

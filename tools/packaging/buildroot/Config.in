@@ -1,0 +1,4 @@
+menu "PocketJS"
+source "$BR2_EXTERNAL_POCKETJS_PATH/package/pocketjs/Config.in"
+source "$BR2_EXTERNAL_POCKETJS_PATH/package/pocketjs-app/Config.in"
+endmenu

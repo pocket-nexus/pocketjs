@@ -22,7 +22,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))(
     await exportSdk(parseSdkExport(["--triple", triple, "--out", sdk]));
     let quickjs = process.env.POCKET_QJS_SOURCE;
     if (!quickjs) {
-      const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "engine/Cargo.toml"], "metadata"));
+      const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "Cargo.toml"], "metadata"));
       const dependency = metadata.packages.find((pkg: { name: string }) => pkg.name === "rquickjs-sys");
       if (!dependency) throw new Error("locked workspace has no rquickjs-sys source");
       quickjs = join(dirname(dependency.manifest_path), "quickjs");

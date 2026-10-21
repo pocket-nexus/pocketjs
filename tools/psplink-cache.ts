@@ -46,7 +46,7 @@ export function psplinkPrxStale(root: string, name: string, prx: string): boolea
     join(root, "hosts/psp/src"),
     join(root, "hosts/psp/build.rs"),
     join(root, "hosts/psp/Cargo.toml"),
-    join(root, "hosts/psp/Cargo.lock"),
+    join(root, "Cargo.lock"),
     join(root, "profiles/psp.ts"),
   ];
   return inputs.some(input => {

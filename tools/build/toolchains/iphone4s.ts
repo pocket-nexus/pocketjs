@@ -1,3 +1,4 @@
+import { BUILD_STD_NIGHTLY } from "./rust.ts";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, openSync, closeSync, readFileSync, readSync } from "node:fs";
@@ -51,7 +52,7 @@ export interface IPhone4SToolchainManifest {
   };
 }
 
-export const IPHONE4S_TOOLCHAIN = manifestJson as IPhone4SToolchainManifest;
+export const IPHONE4S_TOOLCHAIN = { ...manifestJson, compiler: { ...manifestJson.compiler, rustToolchain: BUILD_STD_NIGHTLY } } as IPhone4SToolchainManifest;
 
 export function iphone4sCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
   if (env.POCKETJS_IPHONE4S_ROOT?.trim()) return resolve(env.POCKETJS_IPHONE4S_ROOT.trim());

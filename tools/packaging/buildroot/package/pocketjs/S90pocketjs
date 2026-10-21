@@ -1,0 +1,12 @@
+#!/bin/sh
+DAEMON=/usr/bin/pocket-linux-kms
+PIDFILE=/var/run/pocketjs.pid
+case "$1" in
+ start)
+  [ -f /usr/share/pocketjs/app.pocket ] || exit 0
+  start-stop-daemon -S -b -m -p "$PIDFILE" -x "$DAEMON" -- --profile /usr/share/pocketjs/pocket-profile.json
+  ;;
+ stop) start-stop-daemon -K -p "$PIDFILE" -x "$DAEMON"; rm -f "$PIDFILE" ;;
+ restart) "$0" stop; "$0" start ;;
+ *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac

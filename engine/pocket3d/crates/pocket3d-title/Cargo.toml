@@ -1,6 +1,5 @@
 [package]
 name = "pocket3d-title"
-version = "0.1.0"
 edition = "2021"
 license-file = "../../../../pocket3d/LICENSE"
 description = "The Pocket3D title card: the mark and the wordmark, drawn into a console's frame buffer before a game starts its renderer"
@@ -8,8 +7,9 @@ description = "The Pocket3D title card: the mark and the wordmark, drawn into a 
 # Standalone crate with no dependencies off the PS Vita: a game depends on it
 # by path from its console binary, the way it depends on a device kernel. It is
 # not a member of the engine workspace.
-[workspace]
-resolver = "2"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 

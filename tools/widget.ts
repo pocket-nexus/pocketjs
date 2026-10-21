@@ -262,9 +262,9 @@ async function main(): Promise<void> {
   // target-flavored bundles in dist/ proper are never picked up by mistake.
   const stageDist = resolvePath(root, "dist", `stage-${stage}`);
   await $`bun tools/build.ts --plan=${planPath} --project-root=${root} --outdir=${stageDist}`.cwd(root);
-  await $`cargo build --release -p pocket-stage`.cwd(`${root}engine`);
+  await $`cargo build --locked --release -p pocket-stage`.cwd(root);
 
-  const bin = `${root}engine/target/release/pocket-stage`;
+  const bin = `${root}target/release/pocket-stage`;
   const env = {
     ...process.env,
     RUST_LOG: process.env.RUST_LOG ?? "info",

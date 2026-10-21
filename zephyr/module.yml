@@ -1,0 +1,4 @@
+name: pocketjs
+build:
+  cmake: platforms/zephyr
+  kconfig: platforms/zephyr/Kconfig

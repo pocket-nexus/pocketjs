@@ -343,7 +343,7 @@ async function preflightContainer(): Promise<string> {
 }
 
 /**
- * The toolchain the Rust core builds with: hosts/3ds/core/rust-toolchain.toml
+ * The toolchain the Rust core builds with: BUILD_STD_NIGHTLY
  * owns the choice when it exists, otherwise plain nightly. -Z build-std needs
  * rust-src for whichever one wins.
  */
@@ -640,10 +640,14 @@ export async function prepare3dsNative(options: {
   const { rustup, toolchain, rustcPath } = await preflightRust();
 
   console.log(`PocketJS 3ds: cargo build --release (${RUST_TARGET}, ${toolchain})`);
-  if (options.context) await options.context.run([rustup, "run", toolchain, "cargo", "build", "--locked", "--release", ...options.cargoArgs], { cwd: coreDirectory, env: { RUSTC: rustcPath } });
-  else await $`${rustup} run ${toolchain} cargo build --release ${options.cargoArgs}`
-    .cwd(coreDirectory)
-    .env({ ...process.env, RUSTC: rustcPath });
+  const command = [rustup, "run", toolchain, "cargo", "build", "--locked", "--release", "-p", "pocketjs-3ds-core", "--target", RUST_TARGET,
+    "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem", ...options.cargoArgs];
+  const env = { ...process.env, RUSTC: rustcPath, CARGO_TARGET_DIR: `${coreDirectory}target`, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" };
+  if (options.context) await options.context.run(command, { cwd: coreDirectory, env });
+  else {
+    const child = Bun.spawn(command, { cwd: coreDirectory, env, stdout: "inherit", stderr: "inherit" });
+    if (await child.exited !== 0 || child.signalCode) throw new Error("3DS core compilation failed");
+  }
   const releaseDirectory = `${coreDirectory}target/${RUST_TARGET}/release`;
   const coreLibrary = join(releaseDirectory, CORE_STATIC_LIBRARY);
   if (!existsSync(coreLibrary)) {

@@ -58,7 +58,8 @@ test.skipIf(process.env.POCKETJS_TEST_PSP_LINK !== "1")("links aligned MIPS data
     const rust = [toolchain.rustup, "run", toolchain.rustToolchain, "rustc"];
     const sysroot = run([...rust, "--print", "sysroot"]);
     const host = run([...rust, "-vV"]).match(/^host: (.+)$/m)![1]!;
-    const linker = join(sysroot, "lib/rustlib", host, "bin/rust-lld");
+    const linker = new URL("../tools/psp-linker.ts", import.meta.url).pathname;
+    expect(toolchain.environment.POCKET_PSP_LLD).toBe(join(sysroot, "lib/rustlib", host, "bin/rust-lld"));
     const target = JSON.parse(readFileSync(new URL("../tools/build/toolchains/psp/mipsel-sony-psp.json", import.meta.url), "utf8"));
     const object = join(dir, "aligned.o"), elf = join(dir, "aligned.elf"), prxFile = join(dir, "aligned.prx");
     writeFileSync(join(dir, "link.ld"), target["link-script"]);

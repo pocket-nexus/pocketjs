@@ -72,14 +72,15 @@ and Wasm entry paths remain available. **Applications use package format 2
 and binding generation 12.** Profile identity, binding generation, C record
 prefixes and DrawList versions are checked as separate contracts.
 
-**`pocket sdk export --triple <rust-target> --out <directory>` builds a local
-candidate C SDK.** Its no_std archive disables legacy features and uses
+**`pocket sdk export --triple <rust-target> --out <directory>` downloads a verified
+release C SDK.** Its no_std archive disables legacy features and uses
 `panic=abort`. The export includes canonical headers, C guest source, a
 relocatable CMake package with `Pocket::runtime` and `Pocket::guest_quickjs`,
 and a manifest of source identity, build flags, and file hashes. The program
 provides the six host hooks and its QuickJS dependency. `pocket sdk verify
 --dir <directory>` checks the exported file list and hashes. Exporting does
-not publish a release or freeze the ABI.
+not publish a release or freeze the ABI. `pocket sdk build` compiles a local
+candidate from a source checkout. See `docs/SDK.md` for release and Cargo exports.
 
 `DisplayOutput` owns acquired targets and display transfers. `Renderer`
 consumes the core's DrawList and borrowed resource views. The Rust render

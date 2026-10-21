@@ -124,7 +124,8 @@ input identity, toolchain digest, native commands and artifact checksums.
 A failed command writes a failed receipt. `--deploy` invokes a configuration's
 deploy hook after the artifact check; an absent hook is an error.
 `pack` uses `build.genericRuntime.repack` and checks the runtime's own
-`runtime.json` before writing the installation package. Identity defaults to
+`runtime.json` before writing the installation package. The default runtime comes
+from the framework release; `--runtime` supplies a local build. Identity defaults to
 the compiled application's id, title and version. `--author` supplies package
 authorship; its default is `Unspecified`.
 
@@ -189,7 +190,8 @@ toolchain manifest. The cache root is `POCKET_NEXUS_CACHE_DIR`,
 `$XDG_CACHE_HOME/pocket-nexus` or `~/.cache/pocket-nexus`, in that order.
 
 For an external C consumer, `pocket sdk export --triple <rust-target> --out
-dist/sdk` exports the runtime archive, generated headers and CMake metadata.
+dist/sdk` downloads and verifies a release archive, generated headers and CMake metadata.
+`pocket sdk build` compiles a candidate from a source checkout; `pocket sdk export --cargo` creates a Cargo program template.
 `pocket sdk verify --dir dist/sdk` verifies the export. Profile export supplies
 the program-specific identity alongside this SDK.
 

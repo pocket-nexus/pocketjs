@@ -1,0 +1,9 @@
+POCKETJS_APP_VERSION = 1
+POCKETJS_APP_SITE =
+POCKETJS_APP_SOURCE =
+POCKETJS_APP_DEPENDENCIES = pocketjs
+
+define POCKETJS_APP_INSTALL_TARGET_CMDS
+	$(INSTALL) -D -m 0644 "$(call qstrip,$(BR2_PACKAGE_POCKETJS_APP_FILE))" $(TARGET_DIR)/usr/share/pocketjs/app.pocket
+endef
+$(eval $(generic-package))

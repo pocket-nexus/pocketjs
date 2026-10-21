@@ -1,14 +1,15 @@
-/** Existing compiler pins, grouped here without changing their target assignments.
- * The single-nightly migration requires cross-target validation before these
- * assignments can be merged. Directory rust-toolchain.toml entrypoints are
- * checked against these values by the toolchain definitions test.
- */
+/** Compiler used for every explicit Cargo build-std invocation. */
+export const BUILD_STD_NIGHTLY = "nightly-2026-07-02";
+/** Fixed stable compiler for mechanisms and the desktop default workspace. */
+export const STABLE_RUST_TOOLCHAIN = "1.98.1";
+
+/** Compatibility names for program adapters; the compiler identity is shared. */
 export const RUST_TOOLCHAINS = {
-  psp: "nightly-2026-05-28",
-  vita: "nightly-2026-05-28",
-  threeDs: "nightly-2026-07-02",
-  uiCabi: "nightly-2026-07-02",
-  gba: "nightly-2026-07-01",
-  ipodNano: "nightly-2026-07-01",
-  idfDataSmoke: "nightly-2026-05-01",
+  psp: BUILD_STD_NIGHTLY,
+  vita: BUILD_STD_NIGHTLY,
+  threeDs: BUILD_STD_NIGHTLY,
+  uiCabi: BUILD_STD_NIGHTLY,
+  gba: BUILD_STD_NIGHTLY,
+  ipodNano: BUILD_STD_NIGHTLY,
+  idfDataSmoke: BUILD_STD_NIGHTLY,
 } as const;

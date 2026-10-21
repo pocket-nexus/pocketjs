@@ -1,3 +1,5 @@
+import motoToolchain from "../build/toolchains/moto-g-play.ts";
+import redmiToolchain from "../build/toolchains/redmi-1s.ts";
 // The generic Android runtime: what tools/android.ts build-app compiles for
 // every game of a profile, built once, with no game in it, and linked by
 // aapt2 into one unsigned template APK.
@@ -80,7 +82,7 @@ export async function buildRuntimeAndroid(argv: readonly string[] = []): Promise
       stderr: "inherit",
     });
     if (!build.success) throw new Error(`runtime android: tools/android.ts runtime failed: ${build.signalCode ?? build.exitCode}`);
-    const toolchain = JSON.parse(readFileSync(join(repository, `tools/build/toolchains/${profile}/manifest.json`), "utf8"));
+    const toolchain = profile === "redmi-1s" ? redmiToolchain : motoToolchain;
     const sdk = {
       apiLevel: toolchain.android.apiLevel,
       buildToolsVersion: toolchain.android.buildToolsVersion,

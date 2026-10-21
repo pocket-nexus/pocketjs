@@ -1,0 +1,51 @@
+name: SDK release artifacts
+on:
+  workflow_dispatch: {}
+  workflow_call: {}
+permissions:
+  contents: read
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      rows: ${{ steps.matrix.outputs.rows }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - id: matrix
+        run: |
+          bun -e 'import { SDK_MATRIX } from "./tools/release/matrix.ts"; const rows = SDK_MATRIX.map(row => ({ ...row, runner: row.triple.includes("apple") ? "macos-latest" : "ubuntu-latest" })); console.log("rows=" + JSON.stringify({include:rows}));' >> "$GITHUB_OUTPUT"
+  sdk:
+    needs: matrix
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.rows) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Install the matrix compiler
+        env:
+          TOOLCHAIN: ${{ matrix.toolchain }}
+          TRIPLE: ${{ matrix.triple }}
+        run: |
+          if [[ "$TOOLCHAIN" == esp ]]; then
+            bun -e 'import { ESP_INSTALL_COMMANDS } from "./tools/build/toolchains/esp.ts"; for (const cmd of ESP_INSTALL_COMMANDS) { const p = Bun.spawn(cmd, {stdout:"inherit",stderr:"inherit"}); const status = await p.exited; if (status !== 0 || p.signalCode) process.exit(1); }'
+          else
+            rustup toolchain install "$TOOLCHAIN" --profile minimal --component rust-src
+            if [[ "$TOOLCHAIN" != nightly-* ]]; then rustup target add --toolchain "$TOOLCHAIN" "$TRIPLE"; fi
+          fi
+      - name: Build and verify the no_std archive
+        env:
+          TRIPLE: ${{ matrix.triple }}
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          if [[ "$TOOLCHAIN" == esp ]]; then source "$HOME/export-esp.sh"; fi
+          bun tools/release/matrix.ts "$TRIPLE" ".pocket-build/validation/sdk-release/$TRIPLE"
+          bun tools/pocket.ts sdk verify --dir ".pocket-build/validation/sdk-release/$TRIPLE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocket-sdk-${{ matrix.triple }}
+          path: .pocket-build/validation/sdk-release/${{ matrix.triple }}
+          if-no-files-found: error

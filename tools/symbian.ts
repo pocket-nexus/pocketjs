@@ -567,7 +567,7 @@ export async function buildApp(
       ], {
         inherit: true,
         cwd: coreDirectory,
-        env: { ...process.env, CARGO_TARGET_DIR: rustTarget },
+        env: { ...process.env, CARGO_TARGET_DIR: rustTarget, CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort" },
       });
       if (rustBuild.exitCode !== 0) {
         throw new Error("PocketJS Symbian Rust core build failed");

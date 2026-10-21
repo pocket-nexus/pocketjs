@@ -46,17 +46,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
 
       - name: Test UI core
-        run: cargo test --locked --manifest-path engine/core/Cargo.toml
+        run: cargo test --locked --manifest-path Cargo.toml -p pocketjs-core
 
       - name: Test extracted subsystems and rendering tools
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-raster -p pocket-present -p pocket-package -p pocket-media -p pocket-draw-ops -p pocket-glyph-pages -p pocket-tri-batch -p pocket-tex-cache
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-raster -p pocket-present -p pocket-package -p pocket-media -p pocket-draw-ops -p pocket-glyph-pages -p pocket-tri-batch -p pocket-tex-cache
 
       - name: Test retained layout against a fresh solver
-        run: cargo test --locked --manifest-path engine/core/Cargo.toml --features counters
+        run: cargo test --locked --manifest-path Cargo.toml -p pocketjs-core --features counters
 
       - name: Test ESP32-P4 DrawList backend
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-render-esp-ppa
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-render-esp-ppa

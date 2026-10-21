@@ -1,17 +1,19 @@
 [package]
 name = "microts"
-version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
 description = "MicroTS AOT models and views over the PocketJS retained UI"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-pocket-spec = { path = "../../spec" }
-pocketjs-core = { path = "../../core", default-features = false }
+pocket-spec = { workspace = true, default-features = true }
+pocketjs-core = { workspace = true }
 ryu-js = { version = "1.0.3", default-features = false }
 libm = "0.2"
-pocket-runtime = { path = "../../runtime", optional = true }
+pocket-runtime = { workspace = true, default-features = true, optional = true }
 heapless = "0.8"
 
 [target.'cfg(not(target_has_atomic = "32"))'.dependencies]
@@ -28,5 +30,5 @@ model-trace = []
 critical-section = ["portable-atomic/critical-section"]
 
 [dev-dependencies]
-pocket-drivers = { path = "../../drivers" }
-pocket-package = { path = "../../package" }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }

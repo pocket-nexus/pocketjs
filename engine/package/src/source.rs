@@ -145,7 +145,7 @@ impl<B: AsRef<[u8]>> PackageSource for MemorySource<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const FIXTURE: &[u8] = include_bytes!("../../../tests/fixtures/packages/synthetic.pocket");
+    const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/synthetic.pocket");
     struct ShortReads;
     impl PackageSource for ShortReads {
         fn length(&self) -> Result<usize, SourceError> {

@@ -1,14 +1,14 @@
 [package]
 name = "pocketjs-ipodnano-preview"
-version = "0.1.0"
 edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS ipodnano preview component"
 publish = false
 
-[workspace]
-
 [dependencies]
-pocketjs-ipodnano = { path = "..", features = ["counters"] }
+pocketjs-ipodnano = { workspace = true, default-features = true, features = ["counters"] }
 png = "0.17"
-
-[profile.release]
-opt-level = 3

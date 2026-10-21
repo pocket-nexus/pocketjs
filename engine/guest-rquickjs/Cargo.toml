@@ -1,15 +1,17 @@
 [package]
 name = "pocket-guest-rquickjs"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
 description = "Generated PocketJS UI bindings and guest lifecycle for rquickjs"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-pocket-runtime = { path = "../runtime" }
-pocket-drivers = { path = "../drivers" }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
 rquickjs = "0.12"
 
 [dev-dependencies]
-pocketjs-core = { path = "../core" }
+pocketjs-core = { workspace = true, default-features = true }

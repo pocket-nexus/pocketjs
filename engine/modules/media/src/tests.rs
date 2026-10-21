@@ -245,7 +245,7 @@ fn stream_slot_and_chunk_headers_validate() {
 /// the two suites breaks. The fixture is frozen alongside the spec.
 #[test]
 fn stream_golden_fixture_parses() {
-    let bytes: &[u8] = include_bytes!("../../../../tests/fixtures/youtube-golden.pkst");
+    let bytes: &[u8] = include_bytes!("../tests/fixtures/youtube-golden.pkst");
     let h = crate::stream::parse_header_block(bytes).expect("TS-written header parses");
     assert_eq!(h.epoch, 0);
     assert!(!h.ended);
@@ -549,7 +549,7 @@ fn ram_stream_decodes_rle_slots_and_rejects_bad_geometry() {
 #[test]
 fn ram_stream_reconstructs_the_committed_golden() {
     use crate::wire::{AudioChunkMsg, StreamMarkMsg, VideoSlotMsg};
-    let golden: &[u8] = include_bytes!("../../../../tests/fixtures/youtube-golden.pkst");
+    let golden: &[u8] = include_bytes!("../tests/fixtures/youtube-golden.pkst");
     let h = crate::stream::parse_header_block(golden).expect("golden parses");
 
     // Open from a PRISTINE header (cursors zeroed, epoch 0, flags 0) — the

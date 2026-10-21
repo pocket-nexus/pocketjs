@@ -31,8 +31,13 @@ jobs:
       # The site copies hosts/web/pocketjs.wasm (a gitignored build artifact), so
       # CI must build it from engine/core/wasm first. Stable Rust is enough (no nightly
       # features); wasm32-unknown-unknown is the target.
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
           targets: wasm32-unknown-unknown
 
       - name: Cache cargo + wasm target
@@ -42,7 +47,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             engine/wasm/target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
+          key: ${{ runner.os }}-wasm-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
       - name: Install dependencies
@@ -107,9 +112,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
           targets: wasm32-unknown-unknown
 
       - name: Cache cargo + wasm target
@@ -119,7 +128,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             engine/wasm/target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
+          key: ${{ runner.os }}-wasm-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
       - name: Install dependencies

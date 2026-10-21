@@ -40,9 +40,9 @@ mkdirSync(resolvePath(planPath, ".."), { recursive: true });
 await Bun.write(planPath, JSON.stringify(resolution.plan, null, 2) + "\n");
 
 await $`bun tools/build.ts --plan=${planPath} --project-root=${root}`.cwd(root);
-await $`cargo build --release -p note-widget`.cwd(`${root}engine`);
+await $`cargo build --locked --release -p note-widget`.cwd(root);
 
-const bin = `${root}engine/target/release/note-widget`;
+const bin = `${root}target/release/note-widget`;
 const env = { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "info" };
 
 if (proof) {

@@ -32,6 +32,7 @@ export const PROGRAMS: readonly ProgramEntry[] = [
   { id: "gba", profile: "gba", directory: "gba" },
   { id: "ipodnano", profile: "ipodnano", directory: "ipodnano" },
   { id: "sim", profile: "psp-runtime", directory: "sim" },
+  { id: "linux-kms", profile: "product-linux-kms", directory: "linux-kms" },
 ];
 
 export async function resolveRuntimeProgram(options: {

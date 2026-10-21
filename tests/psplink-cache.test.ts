@@ -40,7 +40,7 @@ test("cached PSP PRXs rebuild when extracted contract sources or dependencies ch
       "hosts/psp/src/quickjs_bridge.c", "tools/build/toolchains/psp/build.ts", "tools/psp-linker.ts", "tools/psp.ts",
       "tools/build/toolchains/psp.ts", "tools/build/toolchains/rust.ts",
       "tools/build/toolchains/psp/mipsel-sony-psp.json",
-      "engine/core/Cargo.toml", "hosts/psp/Cargo.toml", "hosts/psp/Cargo.lock",
+      "engine/core/Cargo.toml", "hosts/psp/Cargo.toml", "Cargo.lock",
     ]) {
       const changed = file(source, newer);
       expect(psplinkPrxStale(root, "demo", prx), source).toBe(true);

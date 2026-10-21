@@ -274,12 +274,16 @@ const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
 // Resolve that exact dependency before Cargo runs the native build script.
 const qjsMetadata = Bun.spawnSync([rustup, "run", RUST_TOOLCHAINS.vita, "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", `${nativeDir}Cargo.toml`], { stdout: "pipe", stderr: "pipe" });
 if (!qjsMetadata.success) throw new Error(qjsMetadata.stderr.toString() || "Vita Cargo metadata failed");
-const qjsPackage = (JSON.parse(qjsMetadata.stdout.toString()).packages as { name: string; manifest_path: string }[]).find(pkg => pkg.name === "libquickjs-sys");
+const packages = JSON.parse(qjsMetadata.stdout.toString()).packages as { name: string; manifest_path: string; source: string | null; dependencies: {name: string; source: string | null}[] }[];
+const qjsRevision = packages.find(pkg => pkg.name === "pocketjs-vita")?.dependencies.find(dep => dep.name === "libquickjs-sys")?.source;
+const qjsPackage = qjsRevision ? packages.find(pkg => pkg.name === "libquickjs-sys" && pkg.source?.startsWith(`${qjsRevision}#`)) : undefined;
 if (!qjsPackage) throw new Error("Vita dependency closure has no libquickjs-sys");
 const quickjsSource = resolvePath(dirname(qjsPackage.manifest_path), "embed/quickjs");
 
 const env = {
   ...process.env,
+  CARGO_TARGET_DIR: `${nativeDir}target`,
+  CARGO_PROFILE_RELEASE_LTO: "true",
   // cargo-vita probes `rustc` from PATH even when cargo itself was launched
   // through `rustup run`. Keep the rustup shim ahead of Homebrew's stable
   // compiler and expose VitaSDK tools without requiring shell dotfiles.
@@ -314,6 +318,7 @@ const env = {
 };
 
 const features = [capture ? "capture" : "", runtime ? "runtime" : ""].filter(Boolean);
+cargoArgs.push("-p", "pocketjs-vita");
 if (features.length > 0) cargoArgs.push("--features", features.join(","));
 if (!usbDebug) cargoArgs.push("--no-default-features");
 

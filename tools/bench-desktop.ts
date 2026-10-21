@@ -153,7 +153,7 @@ interface Launcher {
   disk: () => Promise<number>;
 }
 
-const pocketBin = `${root}hosts/desktop/target/release/pocket-desktop-host`;
+const pocketBin = `${root}target/release/pocket-desktop-host`;
 const electronDir = `${root}tools/bench-desktop/electron`;
 const electronBin = `${electronDir}/node_modules/.bin/electron`;
 const tauriBin = `${root}tools/bench-desktop/tauri/src-tauri/target/release/bench-tauri`;

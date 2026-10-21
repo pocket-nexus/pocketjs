@@ -1,3 +1,4 @@
+import { STABLE_RUST_TOOLCHAIN } from "../toolchains/rust.ts";
 import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { RuntimeBuildContext } from "../../../framework/src/runtime-config.ts";
@@ -10,8 +11,8 @@ export async function buildPocketBook(context: RuntimeBuildContext): Promise<voi
   }
   const root = resolve(import.meta.dir, "../../..");
   const target = resolve(context.outdir, "cargo-target");
-  await context.run(["cargo", "zigbuild", "--manifest-path", resolve(root, "hosts/pocketbook/Cargo.toml"), "--release", "--locked", "--target", "armv7-unknown-linux-gnueabi.2.23", ...context.args], {
-    cwd: root, env: { CARGO_TARGET_DIR: target },
+  await context.run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "zigbuild", "--manifest-path", resolve(root, "hosts/pocketbook/Cargo.toml"), "--release", "--locked", "--target", "armv7-unknown-linux-gnueabi.2.23", ...context.args], {
+    cwd: root, env: { CARGO_TARGET_DIR: target, CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort" },
   });
   const artifact = resolve(context.outdir, "application");
   const directory = resolve(artifact, context.output);

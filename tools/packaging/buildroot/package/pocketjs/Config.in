@@ -1,0 +1,35 @@
+config BR2_PACKAGE_POCKETJS
+	bool "PocketJS Linux KMS/fbdev program"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_USE_MMU
+	depends on BR2_ENDIAN = "LITTLE"
+	depends on BR2_aarch64 || BR2_arm || BR2_x86_64 || BR2_i386
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  File-package runtime with DRM/KMS, fbdev fallback, evdev input,
+	  QuickJS and the CPU renderer. Requires Rust >= 1.93 (Buildroot
+	  2026.08 ships a suitable compiler). Prepare this external tree
+	  from the release index with prepare.py before selecting it.
+
+if BR2_PACKAGE_POCKETJS
+config BR2_PACKAGE_POCKETJS_PROFILE
+	string "Exported pocket-profile.json path"
+	help
+	  Independent trusted profile exported before application compilation.
+	  This file is installed beside app.pocket; it must describe this product.
+
+config BR2_PACKAGE_POCKETJS_ALSA
+	bool "ALSA PCM component"
+	select BR2_PACKAGE_ALSA_LIB
+	help
+	  Add the optional ALSA PCM dependency and --pcm-test diagnostic.
+	  This option does not change the exported product profile.
+
+config BR2_PACKAGE_POCKETJS_PROGRAM
+	string "Program crate within the release workspace"
+	default "pocket-linux-kms"
+	help
+	  Product source distributions may select their own program crate.
+	  The crate must produce a binary of the same name.
+endif

@@ -1,20 +1,18 @@
 [package]
 name = "pocket-idf-runtime"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS idf runtime component"
 publish = false
+
 [lib]
 crate-type = ["rlib", "staticlib"]
 [dependencies]
-pocket-runtime-cabi = { path = "../../../../engine/runtime-cabi", default-features = false }
-pocket-render-esp-ppa = { path = "../../../../platforms/esp-idf/render-ppa", features = ["cabi"] }
+pocket-runtime-cabi = { workspace = true }
+pocket-render-esp-ppa = { workspace = true, default-features = true, features = ["cabi"] }
 [features]
 default = ["std"]
 std = ["pocket-runtime-cabi/std"]
-[profile.release]
-codegen-units = 16
-lto = false
-opt-level = 3
-panic = "abort"
-[workspace]

@@ -1,9 +1,3 @@
 [target.armv7-sony-vita-newlibeabihf]
 runner = "vita-parse-core"
 rustflags = ["-C", "link-arg=-Wl,--undefined=sceUserMainThreadStackSize"]
-
-[profile.dev]
-opt-level = 1
-
-[profile.release]
-lto = true

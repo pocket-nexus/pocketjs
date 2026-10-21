@@ -6,8 +6,10 @@ tools have separate directories.
 
 ```
 pocketjs/
+├─ Cargo.toml    shared workspace, versions and dependencies
+├─ Cargo.lock    lockfile for libraries and program builds
 ├─ engine/       Cores: the Rust simulation cores
-│  ├─ core/       pocketjs-core — retained UI tree, taffy layout, animation, text (standalone crate)
+│  ├─ core/       pocketjs-core — retained UI tree, taffy layout, animation, text
 │  ├─ spec/       generated no_std operation constants and formats
 │  ├─ drivers/    resource views, driver traits, and generated C ABI records
 │  ├─ render/     draw-ops, glyph-pages, tri-batch, and tex-cache utility crates
@@ -22,15 +24,12 @@ pocketjs/
 │  ├─ backends/    platform render backends (ESP32-P4 PPA is a standalone no_std
 │  │              crate; gpui is the standalone native desktop backend with native
 │  │              text layout — docs/BACKENDS.md)
-│  ├─ wasm/       core compiled to wasm32 for web/sim hosts (standalone crate)
-│  ├─ ui-cabi/    compatibility re-exports and historical allocator hooks (standalone crate)
+│  ├─ wasm/       core compiled to wasm32 for web/sim hosts
+│  ├─ ui-cabi/    compatibility re-exports and historical allocator hooks
 │  ├─ quickjs-c/  legacy guest entry points under pocket_legacy_runtime_*
 │  ├─ ios/        iOS C ABI and UIKit PocketSurfaceView
 │  ├─ pocket3d/   the 3D core family (bsp, cook, gu, vita, GLES2) + desktop examples
 │  ├─ crates/     non-3D engine crates: pocket-mod, pocket-ui-surface, pocket-ui-wgpu, pocket-vrm, pocket-widget
-│  └─ Cargo.toml  the desktop workspace root (core/, wasm/, ui-cabi/, and
-│                 console-toolchain crates are deliberately excluded and
-│                 standalone; see each crate's Cargo.toml for its toolchain)
 ├─ hosts/        Surfaces: every embedding of the cores
 │  ├─ psp/        QuickJS + rust-psp EBOOT host
 │  ├─ vita/       Vita host
@@ -41,7 +40,7 @@ pocketjs/
 │  ├─ ios-nativescript/ NativeScript iOS shell over engine/ios + @nativescript/pocketjs
 │  ├─ blackberry-classic/ input sampling shared by BlackBerry QNX and Android
 │  ├─ blackberry-classic-qnx/ BlackBerry 10 Core Native embedding
-│  ├─ desktop/    gpui window host — macos-app + linux-app (standalone lone-bin crate)
+│  ├─ desktop/    gpui window host — macos-app + linux-app
 │  ├─ web/        browser dev + Pocket System host (wasm core, isolated iframe Realms)
 │  └─ sim/        deterministic headless simulation host (docs/DETERMINISM.md)
 ├─ framework/    Guest: @pocketjs/framework
@@ -106,9 +105,10 @@ GLES and wgpu entry points adapt the old API to these drivers. The RGB565
 compatibility crate delegates rendering to PPA and damage transactions to
 `pocket-present`. Driver construction selects the implementation in code.
 
-**`tools/sdk.ts` exports a candidate C SDK from a local build.** It packages
-one no_std runtime archive, canonical headers, C guest source, and a hash
-manifest. `tools/packaging/cmake` supplies the relocatable `Pocket::runtime`
+**`tools/release` builds and verifies SDK archives, runtime bundles and source
+releases.** `pocket sdk export` downloads a verified release; `pocket sdk build`
+compiles a local candidate. Both layouts contain one no_std runtime archive,
+canonical headers, C guest source, and a hash manifest. `tools/packaging/cmake` supplies the relocatable `Pocket::runtime`
 and `Pocket::guest_quickjs` targets. [SDK.md](SDK.md) describes the export
 layout, cross compilation flags, and independent consumer test.
 
@@ -117,7 +117,7 @@ layout, cross compilation flags, and independent consumer test.
 New things go where the axis says — never invent a top-level directory:
 
 - **A new Rust simulation core** → `engine/` (workspace member if it builds on
-  desktop; excluded standalone crate if it needs a console toolchain).
+  desktop; other members are built by explicit package and toolchain selection).
 - **A new platform embedding** (ESP32, 3DS, …) → `hosts/<platform>/`.
 - **A new demo** → `apps/<name>/` with a `pocket.json`. Standalone products
   keep the `pocket-<name>` separate-repo convention and do not move in.
@@ -130,10 +130,12 @@ New things go where the axis says — never invent a top-level directory:
 
 - **npm surface is frozen**: `@pocketjs/framework/*` export *keys* never
   change; the `exports`/`files` maps in package.json absorb internal moves.
-- **Cargo stays non-workspace where toolchains demand it**: `engine/core`,
-  `engine/wasm`, `engine/ui-cabi`, `hosts/psp`,
-  `hosts/vita`, `hosts/pocketbook`, and the gu/vita 3D crates each stand alone
-  with their own lockfiles. `engine/Cargo.toml` is the one desktop workspace.
+- **One root Cargo workspace shares one lockfile.** Library, platform and program
+  crates inherit versioned dependencies. The default members build on the desktop;
+  console programs select their package and toolchain through their build recipe.
+  Isolated test fixtures and fuzz harnesses keep their own workspace and lockfile.
+  `rust-toolchain.toml` fixes stable; `tools/build/toolchains/rust.ts` provides the
+  single build-std nightly. `esp.ts` pins the separate Xtensa compiler.
 - **Moves are `git mv`** — history stays traceable.
 
 Solid AOT admission, contract mapping and JSX lowering live in `microts/compiler/aot-solid-frontend.ts`. Both front ends share `aot-contract.ts`, `aot-program.ts` and the Rust generator. The reference is `site/content/docs/microts-solid.md`; `apps/solid-aot-lab/` contains the TSX view and compiled TypeScript model example.

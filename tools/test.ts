@@ -36,7 +36,7 @@ const SUITE: readonly Stage[] = [
   },
   {
     // The C ABI allocator and PSM draw tests need the nightly toolchain
-    // pinned by engine/ui-cabi/rust-toolchain.toml. They run under
+    // selected by tools/build/toolchains/rust.ts. They run under
     // .github/workflows/native-c-harness.yml; tests/test-suite.test.ts
     // verifies these exclusions against that workflow.
     name: "unit",
@@ -59,6 +59,12 @@ const SUITE: readonly Stage[] = [
       "tests/runtime-cabi.test.ts",
       "tests/runtime-cabi-compat.test.ts",
       "tests/sdk.test.ts",
+      "tests/release-artifacts.test.ts",
+      "tests/cargo-workspace.test.ts",
+      "tests/idf-input.test.ts",
+      "tests/zephyr-contract.test.ts",
+      "tests/linux-platforms.test.ts",
+      "tests/buildroot.test.ts",
       "tests/sdk-idf.test.ts",
       "tests/out-of-tree-rust.test.ts",
       "tests/pocket-package.test.ts",

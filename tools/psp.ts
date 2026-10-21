@@ -153,7 +153,7 @@ if (!skipBuild && !runtime) {
     await $`bun tools/build.ts ${sourceEntry!} --project-root=${projectRoot} --outdir=${outputDir} ${buildFlags}`.cwd(pspUiDir);
   }
 }
-cargoArgs.push("--bin", "pocketjs-psp");
+cargoArgs.push("-p", "pocketjs-psp", "--bin", "pocketjs-psp");
 
 // ---------------------------------------------------------------------------
 // 1b. Per-app XMB metadata: <app dir>/psp/Psp.toml -> hosts/psp/Psp.toml.
@@ -311,6 +311,7 @@ const env = {
   // panic-abort EBOOTs: no panic_unwind/libunwind in build-std.
   RUST_PSP_ABORT_ONLY: "1",
   // Keep PSP dev builds fast (opt-level 0 is unusably slow on hardware).
+  CARGO_TARGET_DIR: `${nativeDir}target`,
   CARGO_PROFILE_DEV_OPT_LEVEL: process.env.CARGO_PROFILE_DEV_OPT_LEVEL ?? "3",
   ...hostEnvironment,
   POCKETJS_RESOLVED_PLAN: buildPlan ? planPath! : "",

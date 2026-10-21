@@ -84,7 +84,6 @@
   },
   "runtime": {
     "sisVersion": "1.0.0",
-    "rustToolchain": "nightly-2026-07-02",
     "frameRate": 30
   }
 }

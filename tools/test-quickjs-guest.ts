@@ -6,10 +6,11 @@ const root=resolve(import.meta.dir,"..");
 const bellard=process.argv.includes("--bellard");
 let source=process.argv.slice(2).find(arg=>arg!=="--bellard");
 if(!source) {
-  const metadata=Bun.spawnSync(["cargo","metadata","--locked","--format-version=1","--manifest-path",join(root,bellard?"hosts/vita/Cargo.toml":"engine/Cargo.toml")],{stdout:"pipe",stderr:"pipe"});
+  const metadata=Bun.spawnSync(["cargo","metadata","--locked","--format-version=1","--manifest-path",join(root,bellard?"hosts/vita/Cargo.toml":"Cargo.toml")],{stdout:"pipe",stderr:"pipe"});
   if(!metadata.success) {process.stderr.write(metadata.stderr);process.exit(metadata.exitCode || 1);}
-  const packages=JSON.parse(metadata.stdout.toString()).packages as {name:string;manifest_path:string}[];
-  const engine=packages.find(pkg=>pkg.name===(bellard?"libquickjs-sys":"rquickjs-sys"));
+  const packages=JSON.parse(metadata.stdout.toString()).packages as {name:string;manifest_path:string;source:string|null;dependencies:{name:string;source:string|null}[]}[];
+  const pinned=packages.find(pkg=>pkg.name==="pocketjs-vita")?.dependencies.find(dep=>dep.name==="libquickjs-sys")?.source;
+  const engine=packages.find(pkg=>bellard ? pkg.name==="libquickjs-sys" && !!pinned && pkg.source?.startsWith(`${pinned}#`) : pkg.name==="rquickjs-sys");
   if(!engine) throw new Error("Cargo metadata has no rquickjs-sys package");
   source=join(dirname(engine.manifest_path),...(bellard?["embed","quickjs"]:["quickjs"]));
 }

@@ -14,7 +14,7 @@ test("TS, Rust and Python consume the shared package corpus", () => {
       const result = Bun.spawnSync(cmd, { env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" }, stdout: "pipe", stderr: "pipe" });
       expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
     };
-    run(["cargo", "+stable", "test", "--locked", "--manifest-path", join(root,"engine/Cargo.toml"), "-p", "pocket-package", "shared_malformed_corpus"]);
+    run(["cargo", "+stable", "test", "--locked", "--manifest-path", join(root,"Cargo.toml"), "-p", "pocket-package", "shared_malformed_corpus"]);
     for (const [name, expected] of packageCorpus()) {
       const path = join(corpus, name), bytes = readFileSync(path);
       expect(bytes.equals(Buffer.from(expected)), name).toBe(true);
@@ -22,6 +22,6 @@ test("TS, Rust and Python consume the shared package corpus", () => {
       else expect(() => decodePocketPackage(bytes), name).toThrow();
     }
     run(["python3", join(root, "hosts/esp-idf/tests/host/package_corpus.py"),
-      join(root, "hosts/esp-idf/components/pocket_runtime/tools"), corpus]);
+      join(root, "platforms/esp-idf/pocket_runtime/tools"), corpus]);
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }, 60_000);

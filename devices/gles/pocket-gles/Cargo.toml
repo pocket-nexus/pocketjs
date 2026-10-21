@@ -1,16 +1,17 @@
 [package]
-workspace = "../../../engine"
 name = "pocket-gles"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
 description = "Instance GLES DrawList renderer with owned submission resources"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-pocket-drivers = { path = "../../../engine/drivers" }
-pocket-spec = { path = "../../../engine/spec" }
-pocket-draw-ops = { path = "../../../engine/render/draw-ops" }
-pocket-tri-batch = { path = "../../../engine/render/tri-batch" }
-pocket-glyph-pages = { path = "../../../engine/render/glyph-pages" }
-pocket-tex-cache = { path = "../../../engine/render/tex-cache" }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-draw-ops = { workspace = true, default-features = true }
+pocket-tri-batch = { workspace = true, default-features = true }
+pocket-glyph-pages = { workspace = true, default-features = true }
+pocket-tex-cache = { workspace = true, default-features = true }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,11 +14,11 @@ function run(cmd:string[],env:Record<string,string|undefined>=process.env){
 }
 const pkg=join(root,"hosts/esp-idf/examples/prebuilt/idf-smoke.pocket");
 run([process.execPath,"tools/pocket.ts","profile","export","--config","hosts/esp-idf/examples/smoke/pocket.runtime-config.ts","--out",output]);
-run(["python3","hosts/esp-idf/components/pocket_runtime/tools/embed_package.py","--package",pkg,"--profile",join(output,"pocket-profile.json"),"--name","host","--output-dir",output]);
+run(["python3","platforms/esp-idf/pocket_runtime/tools/embed_package.py","--package",pkg,"--profile",join(output,"pocket-profile.json"),"--name","host","--output-dir",output]);
 const embedded=join(output,"pocketjs_package_host.c");
 writeFileSync(embedded,readFileSync(embedded,"utf8").replace("extern const uint8_t pocketjs_package_host_start[];",`const uint8_t pocketjs_package_host_start[] = {${[...readFileSync(pkg)].join(",")}};`));
-run(["cargo","+stable","build","--locked","--release","--no-default-features","--manifest-path","hosts/esp-idf/native/runtime/Cargo.toml"],
- {...process.env,CARGO_ENCODED_RUSTFLAGS:"",RUSTFLAGS:"",RUSTC_WRAPPER:"",RUSTC_WORKSPACE_WRAPPER:"",CARGO_TARGET_DIR:join(output,"cargo")});
+run(["cargo",`+${STABLE_RUST_TOOLCHAIN}`,"build","--locked","--release","--no-default-features","--manifest-path","hosts/esp-idf/native/runtime/Cargo.toml"],
+ {...process.env,CARGO_ENCODED_RUSTFLAGS:"",RUSTFLAGS:"",RUSTC_WRAPPER:"",RUSTC_WORKSPACE_WRAPPER:"",CARGO_TARGET_DIR:join(output,"cargo"),CARGO_PROFILE_RELEASE_PANIC:"abort",CARGO_PROFILE_RELEASE_LTO:"false",CARGO_PROFILE_RELEASE_CODEGEN_UNITS:"16",CARGO_PROFILE_RELEASE_OPT_LEVEL:"3"});
 run(["cmake","-S","hosts/esp-idf/tests/host","-B",output,"-G","Ninja",`-DPOCKETJS_QUICKJS_SOURCE=${quickjs}`,`-DPOCKET_RUNTIME_ARCHIVE=${join(output,"cargo/release/libpocket_idf_runtime.a")}`]);
 run(["cmake","--build",output,"-j","4"]);
 run(["ctest","--test-dir",output,"--output-on-failure"]);

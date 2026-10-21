@@ -3,22 +3,24 @@
 # so the same crate builds for mipsel-sony-psp, wasm32-unknown-unknown and the
 # host. See ../../../docs/DESIGN.md.
 #
-# NOTE: deliberately NOT part of any cargo workspace — cargo-psp needs
-# hosts/psp to be a lone-bin standalone crate, so each crate stands alone.
-
 [package]
 name = "pocketjs-core"
-version = "0.1.0"
 edition = "2021"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Retained PocketJS UI tree, layout, animation and DrawList emission"
+
 [dependencies]
-pocket-spec = { path = "../spec" }
-pocket-drivers = { path = "../drivers" }
-pocket-raster = { path = "../raster" }
-pocket-present = { path = "../present" }
-pocket-package = { path = "../package" }
-pocket-media = { path = "../modules/media" }
-pocket-glyph-pages = { path = "../render/glyph-pages" }
+pocket-spec = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-present = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-media = { workspace = true, default-features = true }
+pocket-glyph-pages = { workspace = true, default-features = true }
 # no_std + alloc flexbox layout. Feature set verified to resolve; f32-only,
 # no libm (see docs/DESIGN.md "Why these choices").
 taffy = { version = "0.11", default-features = false, features = [

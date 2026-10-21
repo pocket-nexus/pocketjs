@@ -1,3 +1,4 @@
+import { BUILD_STD_NIGHTLY } from "./rust.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -71,7 +72,7 @@ export interface SymbianToolchainManifest {
   };
 }
 
-export const SYMBIAN_TOOLCHAIN = manifestJson as unknown as SymbianToolchainManifest;
+export const SYMBIAN_TOOLCHAIN = { ...manifestJson, runtime: { ...manifestJson.runtime, rustToolchain: BUILD_STD_NIGHTLY } } as unknown as SymbianToolchainManifest;
 export const SYMBIAN_DOWNLOADS = [
   SYMBIAN_TOOLCHAIN.gnupoc,
   SYMBIAN_TOOLCHAIN.sdk,

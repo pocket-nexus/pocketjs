@@ -1,0 +1,42 @@
+{
+  "pocket_runtime": {
+    "version": "0.1.0",
+    "requires": {}
+  },
+  "pocket_guest_quickjs": {
+    "version": "0.1.0",
+    "requires": {
+      "pocket_runtime": "0.1.0"
+    }
+  },
+  "pocket_render_esp_ppa": {
+    "version": "0.1.0",
+    "requires": {
+      "pocket_runtime": "0.1.0"
+    }
+  },
+  "pocket_runner": {
+    "version": "0.1.0",
+    "requires": {
+      "pocket_runtime": "0.1.0"
+    }
+  },
+  "pocket_display_esp_lcd": {
+    "version": "0.1.0",
+    "requires": {
+      "pocket_runtime": "0.1.0"
+    }
+  },
+  "pocket_input_touch": {
+    "version": "0.1.0",
+    "requires": {
+      "pocket_runtime": "0.1.0"
+    }
+  },
+  "pocket_input_gpio": {
+    "version": "0.1.0",
+    "requires": {
+      "pocket_runtime": "0.1.0"
+    }
+  }
+}

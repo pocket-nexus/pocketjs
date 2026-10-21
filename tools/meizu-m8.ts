@@ -1,4 +1,4 @@
-import nativeToolchain from "./build/toolchains/meizu-m8/manifest.json";
+import nativeToolchain from "./build/toolchains/meizu-m8.ts";
 import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "./host-profile.ts";
@@ -286,9 +286,9 @@ export function buildMeizuNative(application: RuntimeApplication, outputDirector
   );
 
   mustRun(
-    "cargo",
+    "rustup",
     [
-      "build",
+      "run", toolchain.compiler.rustToolchain, "cargo", "build",
       "--release",
       "--locked",
       "--no-default-features", "--features",
@@ -306,6 +306,7 @@ export function buildMeizuNative(application: RuntimeApplication, outputDirector
     {
       ...process.env,
       CARGO_TARGET_DIR: rustTarget,
+      CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort",
       RUSTFLAGS: "--emit=asm -C codegen-units=1",
     },
   );

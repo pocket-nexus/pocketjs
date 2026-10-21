@@ -22,9 +22,7 @@
     "repository": "https://github.com/pocket-nexus/quickjs-rs.git",
     "revision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
   },
-  "rust": {
-    "toolchain": "nightly-2026-07-02"
-  },
+  "rust": {},
   "app": {
     "manifest": "apps/clear/pocket.android.json",
     "output": "dist/moto-g-play/pocket-clear.apk"

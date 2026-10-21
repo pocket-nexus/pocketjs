@@ -12,11 +12,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      - run: cargo test --locked --manifest-path devices/psp/pocket-psp-ge/Cargo.toml
+      - run: cargo test --locked --manifest-path Cargo.toml -p pocket-psp-ge
       - run: bun test tests/targets-psp.test.ts
   # The title card's Rust drawer records its frames; the C header and the
   # browser module are held to them.
@@ -24,11 +30,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      - run: cargo test --locked --manifest-path engine/pocket3d/crates/pocket3d-title/Cargo.toml
+      - run: cargo test --locked --manifest-path Cargo.toml -p pocket3d-title
       - run: bun test tests/pocket3d-title.test.ts
   # The browser kernel: its Rust tests on the host and a wasm32 check, then the
   # page's modules with a guest in the realm. No GPU is reached on this
@@ -37,14 +49,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
           targets: wasm32-unknown-unknown
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: cargo test --locked --manifest-path devices/web/pocket-web-wgpu/Cargo.toml
-      - run: cargo check --locked --manifest-path devices/web/pocket-web-wgpu/Cargo.toml --target wasm32-unknown-unknown
+      - run: cargo test --locked --manifest-path Cargo.toml -p pocket-web-wgpu
+      - run: cargo check --locked --manifest-path Cargo.toml -p pocket-web-wgpu --target wasm32-unknown-unknown
       - run: bun tools/wasm.ts
       - run: bun test tests/pocket3d-web.test.ts tests/wasm-premultiplied.test.ts

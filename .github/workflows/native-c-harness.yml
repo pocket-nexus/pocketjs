@@ -5,8 +5,8 @@ on:
     paths:
       - ".github/workflows/native-c-harness.yml"
       - "engine/quickjs-c/**"
-      - "engine/Cargo.toml"
-      - "engine/Cargo.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "tools/ui-bindings.ts"
       - "tools/test-quickjs-guest.ts"
       - "tests/ui-bindings.test.ts"
@@ -39,7 +39,7 @@ on:
       - "hosts/ios-legacy/**"
       - "hosts/android/**"
       - "tests/contact-latch.test.ts"
-      - "hosts/esp-idf/components/pocket_runtime/**"
+      - "platforms/esp-idf/pocket_runtime/**"
       - "hosts/esp-idf/tests/host/*"
       - "tests/idf-package-corpus.test.ts"
       - "tests/ipodtouch4-installation.test.ts"
@@ -119,8 +119,8 @@ on:
     paths:
       - ".github/workflows/native-c-harness.yml"
       - "engine/quickjs-c/**"
-      - "engine/Cargo.toml"
-      - "engine/Cargo.lock"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - "tools/ui-bindings.ts"
       - "tools/test-quickjs-guest.ts"
       - "tests/ui-bindings.test.ts"
@@ -153,7 +153,7 @@ on:
       - "hosts/ios-legacy/**"
       - "hosts/android/**"
       - "tests/contact-latch.test.ts"
-      - "hosts/esp-idf/components/pocket_runtime/**"
+      - "platforms/esp-idf/pocket_runtime/**"
       - "hosts/esp-idf/tests/host/*"
       - "tests/idf-package-corpus.test.ts"
       - "tests/ipodtouch4-installation.test.ts"
@@ -247,18 +247,18 @@ jobs:
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-          components: llvm-tools-preview
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal --target wasm32-unknown-unknown --component llvm-tools-preview
       - run: bun install --frozen-lockfile
       - name: Install the UI C ABI's pinned nightly
         run: |
-          toolchain=$(bun -e 'console.log(Bun.TOML.parse(await Bun.file("engine/ui-cabi/rust-toolchain.toml").text()).toolchain.channel)')
+          toolchain=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).BUILD_STD_NIGHTLY)')
           rustup toolchain install "$toolchain" --profile minimal
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine/ui-cabi
+          workspaces: .
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
@@ -270,20 +270,20 @@ jobs:
       - name: Clear input and text chain
         run: bun test --conditions=browser tests/clear-text.test.ts tests/clear-ime-loading.test.ts
       - name: UI singleton access and alignment policy
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
       - name: GLES1 vertex layout and ordered batches
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-gles -p pocket-gles1 -p pocket-gles2
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-gles -p pocket-gles1 -p pocket-gles2
       - name: GE ownership and terminal completion
         run: bun test tests/ge-driver.test.ts
       - name: PSP generated guest composition
         run: bun test tests/psp-runtime.test.ts
       - name: Test GLES1 compatibility composition
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
       - name: Test shared runtime, bindings and PPA renderer
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs -p pocket-ui-surface -p pocket-present -p pocket-package -p pocket-apple -p pocket-render-esp-ppa
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs -p pocket-ui-surface -p pocket-present -p pocket-package -p pocket-apple -p pocket-render-esp-ppa
       - name: AOT guest and compiled native presentation
         run: |
-          cargo +stable test --locked --manifest-path engine/Cargo.toml -p microts --features runtime
+          cargo +stable test --locked --manifest-path Cargo.toml -p microts --features runtime
           cargo +stable test --locked --manifest-path hosts/gba/Cargo.toml --lib
       - name: Generated C guest against QuickJS-NG
         run: bun tools/test-quickjs-guest.ts

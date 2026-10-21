@@ -14,8 +14,14 @@
 
 [package]
 name = "pocketjs-ui-cabi"
-version = "0.1.0"
 edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "C compatibility embedding for PocketJS native hosts"
+publish = false
 
 [lib]
 # Compatibility name: device toolchains and custom Nokia E7 cores already
@@ -50,21 +56,13 @@ boot-stage = ["pocket-runtime-cabi/boot-stage"]
 harness-access = ["pocket-runtime-cabi/harness-access"]
 
 [dependencies]
-pocket-spec = { path = "../spec" }
-pocket-runtime-cabi = { path = "../runtime-cabi", default-features = false, features = ["legacy-ui"] }
-pocket-drivers = { path = "../drivers" }
-pocket-runtime = { path = "../runtime" }
-pocket-package = { path = "../package" }
-pocket-raster = { path = "../raster" }
-pocket-gles = { path = "../../devices/gles/pocket-gles" }
-pocket-gles1 = { path = "../../devices/gles/pocket-gles1" }
-pocket-gles2 = { path = "../../devices/gles/pocket-gles2" }
+pocket-spec = { workspace = true, default-features = true }
+pocket-runtime-cabi = { workspace = true, features = ["legacy-ui"] }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-gles = { workspace = true, default-features = true }
+pocket-gles1 = { workspace = true, default-features = true }
+pocket-gles2 = { workspace = true, default-features = true }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
-
-[profile.release]
-panic = "abort"
-opt-level = "s"
-codegen-units = 1
-lto = true
-
-[workspace]

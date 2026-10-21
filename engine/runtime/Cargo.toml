@@ -1,15 +1,17 @@
 [package]
 name = "pocket-runtime"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
 description = "PocketJS application instances, input encoding, package admission, and frame scheduling"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-pocketjs-core = { path = "../core" }
-pocket-drivers = { path = "../drivers" }
-pocket-spec = { path = "../spec" }
-pocket-package = { path = "../package" }
-pocket-present = { path = "../present" }
+pocketjs-core = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-present = { workspace = true, default-features = true }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }

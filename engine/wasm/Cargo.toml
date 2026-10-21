@@ -4,22 +4,24 @@
 
 [package]
 name = "pocketjs-wasm"
-version = "0.1.0"
 edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "WebAssembly embedding of the PocketJS runtime"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-pocketjs-core = { path = "../core" }
-pocket-runtime = { path = "../runtime" }
-pocket-runtime-cabi = { path = "../runtime-cabi" }
-pocket-drivers = { path = "../drivers" }
-pocket-raster = { path = "../raster" }
-pocket-present = { path = "../present" }
-pocket-package = { path = "../package" }
+pocketjs-core = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-runtime-cabi = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-present = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
 serde_json = "1"
-
-[profile.release]
-opt-level = "s"
-lto = true

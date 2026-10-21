@@ -1,10 +1,13 @@
 [package]
 name = "pocket3d-mesh"
 description = "Portable Pocket3D skin bindings and colored mesh assets"
-version.workspace = true
 edition.workspace = true
 license-file = "../../../../pocket3d/LICENSE"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
 [dependencies]
-pocket3d-anim = { workspace = true }
+pocket3d-anim = { workspace = true, default-features = true }
 glam = { workspace = true, features = ["libm"] }

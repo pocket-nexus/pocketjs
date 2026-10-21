@@ -1,3 +1,5 @@
+import qnxToolchain from "../tools/build/toolchains/blackberry-qnx.ts";
+import { BUILD_STD_NIGHTLY } from "../tools/build/toolchains/rust.ts";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -121,7 +123,7 @@ describe("BlackBerry Classic toolchain pins", () => {
   );
   test("the QNX host pins QuickJS, Rust, and the Hero manifest", () => {
     expect(qnx.quickjs.revision).toMatch(/^[0-9a-f]{40}$/);
-    expect(qnx.rust.toolchain).toBe("nightly-2026-07-02");
+    expect(qnxToolchain.rust.toolchain).toBe(BUILD_STD_NIGHTLY);
     expect(qnx.app.manifest).toBe("apps/blackberry-classic-demo/pocket.json");
   });
 

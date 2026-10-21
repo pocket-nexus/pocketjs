@@ -25,8 +25,8 @@ on:
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/pocket3d/crates/pocket3d/src/app.rs'
       - 'engine/pocket3d/crates/pocket3d/src/input.rs'
-      - 'engine/Cargo.toml'
-      - 'engine/Cargo.lock'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   workflow_dispatch:
 
 permissions:
@@ -47,15 +47,20 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test tests/desktop-pointer.test.ts
       - run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
-      - uses: dtolnay/rust-toolchain@1.97.0
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
-      - run: cargo fmt --manifest-path engine/Cargo.toml -p pocket3d -p pocket-ui-wgpu -- --check
-      - run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket3d -p pocket-ui-wgpu --lib
-      - run: cargo clippy --locked --manifest-path engine/Cargo.toml -p pocket3d -p pocket-ui-wgpu --all-targets -- -D warnings
-      - run: cargo fmt --manifest-path devices/web/pocket-web-render/Cargo.toml -- --check
-      - run: cargo test --locked --manifest-path devices/web/pocket-web-render/Cargo.toml
-      - run: cargo clippy --locked --manifest-path devices/web/pocket-web-render/Cargo.toml --all-targets -- -D warnings
+          workspaces: .
+      - run: cargo fmt --manifest-path Cargo.toml -p pocket3d -p pocket-ui-wgpu -- --check
+      - run: cargo test --locked --manifest-path Cargo.toml -p pocket3d -p pocket-ui-wgpu --lib
+      - run: cargo clippy --locked --manifest-path Cargo.toml -p pocket3d -p pocket-ui-wgpu --all-targets -- -D warnings
+      - run: cargo fmt --manifest-path Cargo.toml -p pocket-web-render -- --check
+      - run: cargo test --locked --manifest-path Cargo.toml -p pocket-web-render
+      - run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-web-render --all-targets -- -D warnings

@@ -119,7 +119,7 @@ if (systemPlan) {
   systemPlanPath = `${root}.pocket/macos-app/${systemPlan.system.name}.system.plan.json`;
   await Bun.write(systemPlanPath, JSON.stringify(systemPlan, null, 2) + "\n");
 }
-await $`cargo build --release`.cwd(`${root}hosts/desktop`);
+await $`cargo build --locked --release -p pocket-desktop-host`.cwd(root);
 
 if (buildOnly) {
   console.log(
@@ -131,7 +131,7 @@ if (buildOnly) {
   process.exit(0);
 }
 
-const bin = `${root}hosts/desktop/target/release/pocket-desktop-host`;
+const bin = `${root}target/release/pocket-desktop-host`;
 const env = { ...process.env, RUST_LOG: process.env.RUST_LOG ?? "info" };
 
 // Every host flag derives from the resolved plan (issue #295 landed the

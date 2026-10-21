@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn shared_malformed_corpus() {
         let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/packages/corpus");
+            .join("tests/fixtures/corpus");
         for entry in std::fs::read_dir(directory).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().and_then(|v| v.to_str()) != Some("pocket") {
@@ -427,7 +427,7 @@ mod tests {
 
     /// The SAME committed fixture tests/pocket-package.test.ts byte-compares
     /// against the TS encoder — the cross-implementation contract.
-    static FIXTURE: &[u8] = include_bytes!("../../../tests/fixtures/packages/synthetic.pocket");
+    static FIXTURE: &[u8] = include_bytes!("../tests/fixtures/synthetic.pocket");
 
     #[test]
     fn parses_the_shared_fixture() {

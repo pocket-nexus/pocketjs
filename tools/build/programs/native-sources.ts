@@ -6,14 +6,14 @@ const crate = (directory: string) => [`${directory}/Cargo.toml`, `${directory}/s
 // Only source directories and build descriptions belong here: Cargo targets,
 // generated application payloads and signed bundles are build outputs.
 const runtime = [
-  "engine/Cargo.toml", "engine/Cargo.lock", "contracts/generated",
+  "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "contracts/generated",
   ...["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime",
     "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"]
     .flatMap(name => crate(`engine/${name}`)),
 ];
 const cabi = [
   ...runtime, ...crate("engine/runtime-cabi"), ...crate("engine/ui-cabi"),
-  "engine/ui-cabi/Cargo.lock", "engine/ui-cabi/rust-toolchain.toml", "engine/ui-cabi/include",
+  "engine/ui-cabi/include",
   "engine/quickjs-c", "engine/guest-quickjs/src", "engine/guest-quickjs/include",
   ...["pocket-gles", "pocket-gles1", "pocket-gles2"].flatMap(name => crate(`devices/gles/${name}`)),
 ];

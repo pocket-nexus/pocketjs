@@ -38,7 +38,9 @@ export function resolvePspBuildToolchain(env: NodeJS.ProcessEnv = process.env): 
   const rustToolchain = toolchain.toolchain("rust");
   const metadata = Bun.spawnSync([toolchain.rustup, "run", rustToolchain, "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", resolve(import.meta.dir, "../../../../hosts/psp/Cargo.toml")], { env, stdout: "pipe", stderr: "pipe" });
   if (!metadata.success) throw new ToolchainError(`PSP QuickJS source lookup failed: ${metadata.stderr.toString()}`);
-  const dependency = (JSON.parse(metadata.stdout.toString()).packages as {name:string;manifest_path:string}[]).find(p => p.name === "libquickjs-sys");
+  const packages = JSON.parse(metadata.stdout.toString()).packages as {name: string; manifest_path: string; source: string | null; dependencies: { name: string; source: string | null }[]}[];
+  const source = packages.find(p => p.name === "pocketjs-psp")?.dependencies.find(d => d.name === "libquickjs-sys")?.source;
+  const dependency = source ? packages.find(p => p.name === "libquickjs-sys" && p.source?.startsWith(`${source}#`)) : undefined;
   if (!dependency) throw new ToolchainError("PSP's pinned QuickJS source is absent from cargo metadata");
   // The SDK's compiler binary is host-specific and dynamically linked. Use
   // Clang's MIPS backend with the pinned PSP headers on each build host.
@@ -52,6 +54,8 @@ export function resolvePspBuildToolchain(env: NodeJS.ProcessEnv = process.env): 
   if (!rustLib.success) throw new ToolchainError(`PSP linker lookup failed: ${rustLib.stderr.toString()}`);
   const linker = join(dirname(rustLib.stdout.toString().trim()), "bin/rust-lld");
   if (!existsSync(linker)) throw new ToolchainError(`PSP Rust linker is absent: ${linker}`);
+  const sysroot = Bun.spawnSync([toolchain.rustup, "run", rustToolchain, "rustc", "--print", "sysroot"], { env, stdout: "pipe", stderr: "pipe" });
+  if (!sysroot.success) throw new ToolchainError(`PSP compiler library lookup failed: ${sysroot.stderr.toString()}`);
   return {
     rustToolchain,
     rustup: toolchain.rustup,
@@ -66,6 +70,7 @@ export function resolvePspBuildToolchain(env: NodeJS.ProcessEnv = process.env): 
       POCKET_PSP_CC: compiler,
       POCKET_PSP_AR: archiver,
       POCKET_PSP_LLD: linker,
+      POCKET_PSP_LLVM_LIB: join(sysroot.stdout.toString().trim(), "lib"),
       CARGO_TARGET_MIPSEL_SONY_PSP_LINKER: resolve(import.meta.dir, "../../../psp-linker.ts"),
       QUICKJS_PREBUILT_LIB: quickjs,
       RUSTUP_TOOLCHAIN: rustToolchain,

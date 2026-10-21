@@ -44,8 +44,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.0
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
           components: rustfmt
           targets: wasm32-unknown-unknown
       - uses: oven-sh/setup-bun@v2

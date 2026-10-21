@@ -15,18 +15,22 @@
 
 [package]
 name = "pocketbook-host"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
 description = "PocketJS UI runtime host for PocketBook e-readers via the inkview SDK"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
 [dependencies]
-pocket-spec = { path = "../../engine/spec" }
-pocket-drivers = { path = "../../engine/drivers" }
-pocket-runtime = { path = "../../engine/runtime" }
-pocketjs-core = { path = "../../engine/core" }
-pocket-mod = { path = "../../engine/crates/pocket-mod" }
-pocket-ui-surface = { path = "../../engine/crates/pocket-ui-surface" }
+pocket-spec = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocketjs-core = { workspace = true, default-features = true }
+pocket-mod = { workspace = true, default-features = true }
+pocket-ui-surface = { workspace = true, default-features = true }
 
 # inkview is consumed as-is (no modifications), pinned to a git REV like the
 # PSP toolchain pins (local sibling-checkout edits are invisible until merged
@@ -48,9 +52,3 @@ rquickjs = { version = "0.12", features = ["bindgen"] }
 
 [build-dependencies]
 cc = "1"
-
-[profile.release]
-opt-level = "s" # size-optimized (e-readers have limited storage)
-lto = true
-strip = true
-panic = "abort"

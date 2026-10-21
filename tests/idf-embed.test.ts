@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 const root = new URL("..", import.meta.url).pathname;
-const tool = join(root, "hosts/esp-idf/components/pocket_runtime/tools/embed_package.py");
+const tool = join(root, "platforms/esp-idf/pocket_runtime/tools/embed_package.py");
 const pkg = join(root, "hosts/esp-idf/examples/prebuilt/idf-smoke.pocket");
 const runtimeConfig = join(root, "hosts/esp-idf/examples/smoke/pocket.runtime-config.ts");
 const temporary: string[] = [];
@@ -57,8 +57,8 @@ describe("ESP-IDF package embedding", () => {
     writeFileSync(join(path, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
 project(offline C)
 add_library(app STATIC dummy.c)
-target_include_directories(app PRIVATE "${join(root, "hosts/esp-idf/components/pocket_runtime/include")}" "${join(root, "contracts/generated")}")
-include("${join(root, "hosts/esp-idf/components/pocket_runtime/project_include.cmake")}")
+target_include_directories(app PRIVATE "${join(root, "platforms/esp-idf/pocket_runtime/include")}" "${join(root, "contracts/generated")}")
+include("${join(root, "platforms/esp-idf/pocket_runtime/project_include.cmake")}")
 pocketjs_embed_package(TARGET app NAME offline PACKAGE "${pkg}" PROFILE_EXPORT_DIR "${exported}")
 `);
     const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` };

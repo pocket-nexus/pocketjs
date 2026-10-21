@@ -11,8 +11,8 @@ const repository = resolve(import.meta.dir, "..");
 const build = join(repository, `.pocket-build/validation/native-program/${Date.now()}-${process.pid}`);
 mkdirSync(build, { recursive: true });
 let serial = 0;
-function run(args: readonly string[]): string {
-  const result = Bun.spawnSync([...args], { cwd: repository, stdout: "pipe", stderr: "pipe" });
+function run(args: readonly string[], env: NodeJS.ProcessEnv = process.env): string {
+  const result = Bun.spawnSync([...args], { cwd: repository, env, stdout: "pipe", stderr: "pipe" });
   const output = result.stdout.toString() + result.stderr.toString();
   writeFileSync(join(build, `${serial++}.log`), output);
   expect(result.success, `${args.join(" ")} (signal=${result.signalCode})\n${output.slice(-8000)}`).toBe(true);
@@ -22,12 +22,12 @@ function run(args: readonly string[]): string {
 describe("native program composition", () => {
   test("real guest uses GPU viewports, terminal waits, collect and canonical input", () => {
     const cc = Bun.which("cc"); expect(cc).not.toBeNull();
-    const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "engine/Cargo.toml"]));
+    const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "Cargo.toml"]));
     const dependency = metadata.packages.find((p: { name: string }) => p.name === "rquickjs-sys");
     expect(dependency).toBeDefined();
     const quickjs = join(dirname(dependency.manifest_path), "quickjs");
     const target = join(repository, ".pocket-build/validation/native-program/target");
-    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "engine/ui-cabi/Cargo.toml", "--no-default-features", "--features", "standalone-extension-provider", "--target-dir", target]);
+    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "engine/ui-cabi/Cargo.toml", "--no-default-features", "--features", "standalone-extension-provider", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
     const vendor = ["quickjs", "dtoa", "libregexp", "libunicode"].map(name => {
       const object = join(build, `${name}.o`);
       run([cc!, "-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"', "-I", quickjs, "-c", join(quickjs, `${name}.c`), "-o", object]);

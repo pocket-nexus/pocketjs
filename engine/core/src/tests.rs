@@ -942,7 +942,7 @@ fn tick_rate_is_fixed_even_when_every_tick_was_paused() {
 
 #[test]
 fn a_120_hz_realm_runs_a_tween_over_twice_the_frames() {
-    let mut at = |hz: u32| {
+    let at = |hz: u32| {
         let mut ui = Ui::new();
         ui.set_tick_rate(hz);
         let n = ui.create_node(0);
@@ -3258,7 +3258,7 @@ fn update_texture_t8_overwrites_in_place() {
 
 #[test]
 fn stream_golden_fixture_uploads_through_compatibility_exports() {
-    let bytes = include_bytes!("../../../tests/fixtures/youtube-golden.pkst");
+    let bytes = include_bytes!("../tests/fixtures/youtube-golden.pkst");
     let h = crate::stream::parse_header_block(bytes).expect("TS-written header parses");
     let offset = crate::stream::slot_offset(&h, 2).unwrap() as usize;
     let palette_at = offset + spec::stream::SLOT_HEADER_SIZE;

@@ -523,7 +523,7 @@ mod tests {
         let mut e = engine();
         let q=json!({"text":"office e\u{301}","family":"Inter","size":14,"width":180,"offset":0,"y":0}).to_string();
         assert!(e.dispatch("text.shape", &q).is_err());
-        assert!(e.load_font(include_bytes!("../../../../assets/fonts/Inter-Regular.ttf")));
+        assert!(e.load_font(include_bytes!("../tests/fixtures/Inter-Regular.ttf")));
         let result: Value = serde_json::from_str(&e.dispatch("text.shape", &q).unwrap()).unwrap();
         assert!(result["total"].as_u64().unwrap() > 0);
         assert!(e.dispatch("text.raster", &q).unwrap().len() < 2500);

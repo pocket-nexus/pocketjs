@@ -1,3 +1,4 @@
+import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -88,7 +89,7 @@ test("PocketBook stages the selected package and launcher after the native Cargo
       configDirectory: directory, outdir: directory, output: application.plan.app.output, args: [], env: {}, toolchainPaths: {},
       async run(command, options) {
         calls++;
-        expect(command.slice(0, 2)).toEqual(["cargo", "zigbuild"]);
+        expect(command.slice(0, 3)).toEqual(["cargo", "+" + STABLE_RUST_TOOLCHAIN, "zigbuild"]);
         expect(command).toContain("--locked");
         expect(command).toContain("armv7-unknown-linux-gnueabi.2.23");
         const artifact = join(options!.env!.CARGO_TARGET_DIR!, "armv7-unknown-linux-gnueabi/release");

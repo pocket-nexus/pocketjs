@@ -19,6 +19,7 @@ test("SDK arguments preserve fixed archive policy and permit cross compiler conf
     expect(() => parseSdkExport(["--triple=host", "--out=sdk", `--cargo-arg=${extra}`])).toThrow("package/features/profile are fixed");
   }
   expect(() => parseSdkExport(["--triple=host", "--out=sdk", "--prepare=esp32p4", "--archiver=ar"])).toThrow("requires riscv32");
+  expect(() => parseSdkExport(["--triple=host", "--out=sdk", "--cargo-arg=--config=/tmp/profile.toml"])).toThrow("inline key=value");
   expect(() => parseSdkExport(["--triple=host", "--out=sdk", "--out=other"])).toThrow("duplicate");
   expect(() => parseSdkExport(["--triple=host", "--out=sdk", '--rustflag=--cfg=feature="std"'])).toThrow("features cannot");
 });
@@ -55,7 +56,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
   expect([...symbols].filter(symbol => /^(ui_|pocketjs_native_|pocketjs_idf_|pocket_legacy_runtime_)/.test(symbol))).toEqual([]);
   await expect(exportSdk(options)).rejects.toThrow("already exists");
   for (const name of ["runtime", "drivers", "spec"]) expect(readFileSync(join(options.out, `include/pocket/${name}.h`))).toEqual(readFileSync(join(root, `contracts/generated/pocket_${name}.h`)));
-  const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "engine/Cargo.toml"], root));
+  const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "Cargo.toml"], root));
   const quickjs = metadata.packages.find((pkg: { name: string }) => pkg.name === "rquickjs-sys").manifest_path.replace(/Cargo.toml$/, "quickjs");
   const external = mkdtempSync(join(tmpdir(), "pocket-sdk-consumer-"));
   try {

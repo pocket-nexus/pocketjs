@@ -1,5 +1,0 @@
-[toolchain]
-# Pin the cross-compiled std ABI (nightly for -Zbuild-std). Newer nightlies
-# broke on ESP-IDF in 2026-08 (std began requiring libc::AT_FDCWD).
-channel = "nightly-2026-05-01"
-components = ["rust-src"]

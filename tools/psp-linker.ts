@@ -51,6 +51,12 @@ if (import.meta.main) {
     if (depth > 8) throw new Error("recursive PSP linker response files");
     return args.flatMap(arg => arg.startsWith("@") ? expand(responseWords(readFileSync(arg.slice(1), "utf8")), depth + 1) : [arg]);
   };
-  const result = Bun.spawnSync([linker, ...pspLinkArguments(expand(process.argv.slice(2)))], { stdout: "inherit", stderr: "inherit" });
+  // /usr/bin/env removes DYLD_* before starting this shebang script on macOS.
+  // Pass the selected compiler's library directory to the child itself.
+  const env = { ...process.env };
+  if (process.platform === "darwin" && env.POCKET_PSP_LLVM_LIB) {
+    env.DYLD_LIBRARY_PATH = [env.POCKET_PSP_LLVM_LIB, env.DYLD_LIBRARY_PATH].filter(Boolean).join(":");
+  }
+  const result = Bun.spawnSync([linker, ...pspLinkArguments(expand(process.argv.slice(2)))], { env, stdout: "inherit", stderr: "inherit" });
   process.exit(result.success ? 0 : result.exitCode || 1);
 }

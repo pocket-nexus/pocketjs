@@ -1,3 +1,4 @@
+import { BUILD_STD_NIGHTLY } from "../tools/build/toolchains/rust.ts";
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,9 +15,6 @@ import { fileURLToPath } from "node:url";
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const build = mkdtempSync(join(tmpdir(), "pocketjs-ui-cabi-psm-draw-"));
 const crate = join(repository, "engine/ui-cabi");
-const config = Bun.TOML.parse(readFileSync(join(crate, "rust-toolchain.toml"), "utf8")) as {
-  toolchain: { channel: string };
-};
 
 afterAll(() => rmSync(build, { recursive: true, force: true }));
 
@@ -40,16 +38,15 @@ function expectOk(result: ReturnType<typeof run>) {
 function compileAndRun(profile: "release" | "debug") {
   // A Homebrew rustc earlier on PATH must not turn the pinned nightly Cargo
   // invocation into a stable no_std build.
-  const cargo = run(["rustup", "which", "--toolchain", config.toolchain.channel, "cargo"]);
+  const cargo = run(["rustup", "which", "--toolchain", BUILD_STD_NIGHTLY, "cargo"]);
   expectOk(cargo);
-  const rustc = run(["rustup", "which", "--toolchain", config.toolchain.channel, "rustc"]);
+  const rustc = run(["rustup", "which", "--toolchain", BUILD_STD_NIGHTLY, "rustc"]);
   expectOk(rustc);
   const cc = Bun.which("cc");
   expect(cc).not.toBeNull();
 
-  // cargo build has no --debug flag: debug is the default profile. The crate
-  // pins panic="abort" only for release (engine/ui-cabi/Cargo.toml); keep the
-  // dev profile's debug_assertions/overflow checks and add abort there too.
+  // Both no_std archives need abort; debug retains its overflow checks.
+  // The root workspace keeps desktop unwind behavior, so select it here.
   const cargoArgs = [
     cargo.stdout.toString().trim(), "build", "--locked",
     "--manifest-path", join(crate, "Cargo.toml"),
@@ -59,7 +56,7 @@ function compileAndRun(profile: "release" | "debug") {
   if (profile === "release") cargoArgs.splice(2, 0, "--release");
   else cargoArgs.splice(2, 0, "--config", 'profile.dev.panic="abort"');
 
-  expectOk(run(cargoArgs, { ...process.env, RUSTC: rustc.stdout.toString().trim() }));
+  expectOk(run(cargoArgs, { ...process.env, RUSTC: rustc.stdout.toString().trim(), CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" }));
 
   const archive = join(build, `target-${profile}/${profile}/libpocketjs_symbian_core.a`);
   const binary = join(build, `psm_draw-${profile}`);

@@ -1,3 +1,4 @@
+import { BUILD_STD_NIGHTLY } from "../tools/build/toolchains/rust.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
@@ -402,22 +403,8 @@ describe("canonical Symbian E7 toolchain", () => {
     expect(status.rustSrc).toBe(true);
   });
 
-  test("keeps the Rust override synchronized with the manifest pin", () => {
-    const override = Bun.TOML.parse(readFileSync(
-      join(repository, "engine/ui-cabi/rust-toolchain.toml"),
-      "utf8",
-    )) as {
-      toolchain: {
-        channel: string;
-        components: string[];
-        profile: string;
-      };
-    };
-    expect(override.toolchain).toEqual({
-      channel: SYMBIAN_TOOLCHAIN.runtime.rustToolchain,
-      components: ["rust-src"],
-      profile: "minimal",
-    });
+  test("uses the shared explicit build-std compiler", () => {
+    expect(SYMBIAN_TOOLCHAIN.runtime.rustToolchain).toBe(BUILD_STD_NIGHTLY);
   });
 
   test("serializes the complete shared runtime payload transaction", async () => {

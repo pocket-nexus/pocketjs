@@ -75,7 +75,7 @@ export interface ToolchainManifest {
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const GIT_REVISION = /^[0-9a-f]{40}$/;
-// A version (1.93.0) or a dated channel (nightly-2026-05-28); never `stable`.
+// A fixed release version or dated nightly channel; never a floating `stable`.
 const RUSTUP_PIN = /^(?:\d+\.\d+\.\d+|(?:nightly|beta)-\d{4}-\d{2}-\d{2})$/;
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 

@@ -17,7 +17,6 @@
     "target": "armv7-apple-ios",
     "minimumVersion": "6.0",
     "linker": "ld-classic",
-    "rustToolchain": "nightly-2026-07-02",
     "sysrootFiles": {
       "usr/lib/libSystem.B.dylib": "3bfabc4ba32c378b8e3ba47df0a5ab4bdfb10eec855bcb30b006b04421e04c04",
       "usr/lib/libgcc_s.1.dylib": "81ac505082fcfded76b675ae7390f0e52c916a90b78682d1a3cad571a437b3b9",

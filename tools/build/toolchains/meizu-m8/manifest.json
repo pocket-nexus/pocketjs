@@ -8,13 +8,15 @@
     "usbProductId": "2720",
     "platform": "Windows CE 6.0",
     "cpu": "ARMV4I",
-    "physicalViewport": [480, 720]
+    "physicalViewport": [
+      480,
+      720
+    ]
   },
   "compiler": {
     "image": "ghcr.io/enlyze/windows-ce-build-environment-arm@sha256:22ea23d697accaab2b98fb12d81ccc1faade90f9fe490f554ae7c5c194dfe27c",
     "prefix": "arm-mingw32ce",
     "cpu": "arm1136jf-s",
-    "rustToolchain": "nightly-2026-07-02",
     "quickJsRepository": "https://github.com/pocket-nexus/quickjs-rs.git",
     "quickJsRevision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b",
     "quickJsVersion": "2026-06-04"

@@ -1,9 +1,6 @@
 # pocketjs-psp — the PSP EBOOT: QuickJS + pocketjs-core + sceGu backend.
 #
-# STANDALONE LONE-BIN CRATE: cargo-psp requires this crate to be outside any
-# workspace (do NOT add a workspace Cargo.toml at PocketJS/).
-#
-# Build via tools/psp.ts: `rustup run nightly-2026-05-28 cargo psp` with the
+# Build via tools/psp.ts: the selected build-std compiler with the
 # toolchain `pocket target add psp` installs from tools/build/toolchains/psp.ts
 # (PSP_SDK, cargo-psp, QUICKJS_PREBUILT_LIB) plus RUSTFLAGS -A linker-messages,
 # RUST_PSP_TARGET=targets/mipsel-sony-psp.json and RUST_PSP_ABORT_ONLY=1.
@@ -21,24 +18,30 @@
 
 [package]
 name = "pocketjs-psp"
-version = "0.1.0"
 edition = "2021"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS psp component"
+publish = false
+
 [dependencies]
-pocket-spec = { path = "../../engine/spec" }
-pocket-psp-render = { path = "../../devices/psp/pocket-psp-render" }
-pocket-psp-ge = { path = "../../devices/psp/pocket-psp-ge" }
+pocket-spec = { workspace = true, default-features = true }
+pocket-psp-render = { workspace = true, default-features = true }
+pocket-psp-ge = { workspace = true, default-features = true }
 psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
-pocketjs-core = { path = "../../engine/core" }
-pocket-runtime = { path = "../../engine/runtime" }
-pocket-runtime-cabi = { path = "../../engine/runtime-cabi", default-features = false, features = ["external-runtime"] }
-pocket-drivers = { path = "../../engine/drivers" }
-pocket-package = { path = "../../engine/package" }
+pocketjs-core = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-runtime-cabi = { workspace = true, features = ["external-runtime"] }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 
 [build-dependencies]
-pocket-spec = { path = "../../engine/spec" }
+pocket-spec = { workspace = true, default-features = true }
 cc = "1"
 
 

@@ -9,7 +9,7 @@ import { requireApplication, requireProgramProfile } from "./application.ts";
 import { nativeSources, buildHosts, handheldLock, nativeArguments } from "./handheld-common.ts";
 
 export const build: RuntimeBuild = {
-  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules", "engine/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "hosts/3ds", "hosts/3ds/core", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
+  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "hosts/3ds", "hosts/3ds/core", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
   hosts: buildHosts, input: "package", steps: compilerOnly(), artifact: "{outdir}/{output}.3dsx",
   async run(context) {
     requireProgramProfile(context, profile);
@@ -18,7 +18,7 @@ export const build: RuntimeBuild = {
   },
 };
 export const genericBuild: RuntimeBuild = {
-  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules", "engine/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "hosts/3ds", "hosts/3ds/core", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
+  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "hosts/3ds", "hosts/3ds/core", "devices/3ds/pocket-3ds-pica", "engine/guest-quickjs"),
   hosts: buildHosts, steps: compilerOnly(), artifact: "{outdir}/runtime",
   genericRuntime: { repack: repack3ds, extension: ".3dsx" },
   async run(context) {

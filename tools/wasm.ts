@@ -1,3 +1,4 @@
+import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 // tools/wasm.ts — build engine/wasm/ for the browser/Bun hosts:
 //   cargo build --release --target wasm32-unknown-unknown
 // then copy target/wasm32-unknown-unknown/release/pocketjs_wasm.wasm to
@@ -20,11 +21,13 @@ const BUILT = join(WASM_DIR, "target/wasm32-unknown-unknown/release/pocketjs_was
 // cargo lives in ~/.cargo/bin, which non-login shells may not have on PATH.
 const env = {
   ...process.env,
+  CARGO_TARGET_DIR: join(WASM_DIR, "target"),
+  CARGO_PROFILE_RELEASE_LTO: "true",
   PATH: `${join(homedir(), ".cargo/bin")}${delimiter}${process.env.PATH ?? ""}`,
 };
 
 const proc = Bun.spawnSync(
-  ["cargo", "build", "--locked", "--release", "--target", "wasm32-unknown-unknown"],
+  ["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "build", "-p", "pocketjs-wasm", "--locked", "--release", "--target", "wasm32-unknown-unknown"],
   { cwd: WASM_DIR, env, stdout: "inherit", stderr: "inherit" },
 );
 if (!proc.success) {

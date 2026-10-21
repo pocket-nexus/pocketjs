@@ -1,20 +1,18 @@
 [package]
 name = "pocketjs-gba-bake"
-version = "0.1.0"
 edition = "2021"
-publish = false
 
-[workspace]
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS gba bake component"
+publish = false
 
 [dependencies]
 # `counters` links the full-tree layout oracle: every baked frame is checked
 # against a fresh solve of the whole tree on the host (device-identical math).
-microts = { path = "../../../engine/crates/microts", features = ["counters"] }
-pocketjs-core = { path = "../../../engine/core" }
+microts = { workspace = true, default-features = true, features = ["counters"] }
+pocketjs-core = { workspace = true, default-features = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1

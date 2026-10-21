@@ -20,7 +20,6 @@
     "revision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
   },
   "rust": {
-    "toolchain": "nightly-2026-07-02",
     "target": "tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json"
   },
   "app": {

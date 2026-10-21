@@ -1,10 +1,12 @@
 [package]
 name = "pocket-db"
-version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
 description = "The db module's reference core: SQLite behind the five-op contracts/spec/db.ts boundary, mountable as globalThis.db via pocket-mod"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [features]
 # `mount` brings pocket-mod (and its QuickJS embedding) for the one-line
@@ -15,8 +17,8 @@ default = ["mount"]
 mount = ["dep:pocket-mod", "dep:anyhow"]
 
 [dependencies]
-pocketjs-core = { workspace = true }
-pocket-mod = { workspace = true, optional = true }
+pocketjs-core = { workspace = true, default-features = true }
+pocket-mod = { workspace = true, default-features = true, optional = true }
 anyhow = { workspace = true, optional = true }
 rusqlite = { workspace = true }
 serde_json = { workspace = true }

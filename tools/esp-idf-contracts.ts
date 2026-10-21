@@ -23,7 +23,7 @@ export function generatedIdfContracts(): Map<string, string> {
   const rustConstants = "// Generated from contracts/spec/pocket-package.ts. Do not edit.\n#![allow(dead_code)]\n" +
     Object.entries(constants).map(([key, value]) => `pub const ${key}: ${key.includes("MAGIC") || key.includes("VERSION") || key.startsWith("SECTION_") ? "u32" : "usize"} = ${value};\n`).join("");
   return new Map([
-    ["hosts/esp-idf/components/pocket_runtime/tools/package_format.py", pyConstants],
+    ["platforms/esp-idf/pocket_runtime/tools/package_format.py", pyConstants],
     ["engine/package/src/package_format.rs", rustConstants],
   ]);
 }

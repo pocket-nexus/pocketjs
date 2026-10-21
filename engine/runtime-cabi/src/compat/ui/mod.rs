@@ -948,7 +948,7 @@ mod tests {
     fn package_open_reports_why_a_package_is_refused() {
         let fixture = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/fixtures/packages/synthetic.pocket"),
+                .join("tests/fixtures/synthetic.pocket"),
         )
         .unwrap();
         let open_profile = |bytes: &[u8], target: &str, abi: u32, profile_hash: &[u8; 32]| unsafe {
@@ -995,7 +995,7 @@ mod tests {
         // ipodtouch4-dev plan at density 2 that requires ui.physics.
         let fixture = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../tests/fixtures/repack-ipod/landscape-physics.pocket"),
+                .join("tests/fixtures/landscape-physics.pocket"),
         )
         .unwrap();
         let target = "ipodtouch4-dev";

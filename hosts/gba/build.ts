@@ -3,7 +3,7 @@
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { RUST_TOOLCHAINS } from "../../tools/build/toolchains/rust.ts";
+import { RUST_TOOLCHAINS, STABLE_RUST_TOOLCHAIN } from "../../tools/build/toolchains/rust.ts";
 import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
 import { packLayers } from "./assets.ts";
 
@@ -60,19 +60,19 @@ export async function buildGba(args: readonly string[], context?: RuntimeBuildCo
   cpSync(resolve(input), gen, { recursive: true });
   const bakeDirectory = resolve(out, "baked");
   mkdirSync(bakeDirectory, { recursive: true });
-  const bakeCommand = ["cargo", "+stable", "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/gba/bake/Cargo.toml"), "--target-dir", resolve(out, "bake-target"), "--", bakeDirectory];
+  const bakeCommand = ["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/gba/bake/Cargo.toml"), "--target-dir", resolve(out, "bake-target"), "--", bakeDirectory];
   const run = async (command: string[], env: Record<string, string>) => {
     if (context) return context.run(command, { cwd: root, env });
     const child = Bun.spawn(command, { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env, ...env } });
     if (await child.exited !== 0 || child.signalCode) throw new Error(`GBA native command failed: ${command.join(" ")}`);
   };
-  await run(bakeCommand, { GBA_GENERATED: gen });
+  await run(bakeCommand, { GBA_GENERATED: gen, CARGO_PROFILE_RELEASE_LTO: "true" });
   const assets = packLayers(bakeDirectory, gen);
   for (const layer of assets.layers) console.log(`layer ${layer.name}: ${layer.frames} frames x ${layer.bytesPerFrame} B, crop [${layer.crop.join(", ")}], ${layer.oam} OAM, ${layer.vramBytes} B VRAM`);
   console.log(`OAM ${assets.oamSlots}/128, OBJ VRAM ${assets.vramBytes}/32768 B, frame ROM ${assets.frameBytes} B`);
   const command = ["cargo", `+${GBA_TOOLCHAIN}`, "build", "--locked", "--release", "--target", "thumbv4t-none-eabi", "-Z", "build-std=core,alloc", "--manifest-path", resolve(root, "hosts/gba/Cargo.toml"), "--target-dir", resolve(out, "target")];
   const rustflags = ["-C", `link-arg=-T${resolve(root, "hosts/gba/gba.ld")}`, "-C", "link-arg=--gc-sections"];
-  await run(command, { GBA_GENERATED: gen, CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f") });
+  await run(command, { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort", GBA_GENERATED: gen, CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f") });
   const elf = readFileSync(resolve(out, "target/thumbv4t-none-eabi/release/gba-hero"));
   const rom = gbaRom(elf);
   if (rom.length <= assets.frameBytes) throw new Error("GBA ELF omitted the compiled scene assets; inspect a constant boot failure before accepting this build");

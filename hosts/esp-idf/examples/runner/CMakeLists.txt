@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-set(pocketjs_components "../../components")
+set(pocketjs_components "../../../../platforms/esp-idf")
 list(APPEND EXTRA_COMPONENT_DIRS
     "${pocketjs_components}/pocket_guest_quickjs"
     "${pocketjs_components}/pocket_runtime"

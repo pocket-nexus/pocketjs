@@ -1,19 +1,22 @@
 [package]
 name = "uihost"
-version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
 description = "PocketJS UI demos in a native window: the PSP UI runtime on the desktop base"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
 [dependencies]
-pocket-spec = { path = "../../../spec" }
-pocket-runtime = { path = "../../../runtime" }
-pocket-drivers = { path = "../../../drivers" }
-pocket3d = { workspace = true }
-pocket-mod = { workspace = true }
-pocket-ui-wgpu = { workspace = true }
-pocketjs-core = { workspace = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket3d = { workspace = true, default-features = true }
+pocket-mod = { workspace = true, default-features = true }
+pocket-ui-wgpu = { workspace = true, default-features = true }
+pocketjs-core = { workspace = true, default-features = true }
 wgpu = { workspace = true }
 winit = { workspace = true }
 pollster = { workspace = true }

@@ -13,11 +13,12 @@ describe("ESP-IDF incremental package build", () => {
   test.each(["checkout", "vendor"])("native %s builds track extracted contract sources", (layout) => {
     const temporary = realpathSync(mkdtempSync(join(tmpdir(), "pocketjs native deps ")));
     try {
-      const component = join(temporary, "hosts/esp-idf/components/pocket_runtime");
+      const component = join(temporary, "platforms/esp-idf/pocket_runtime");
       const build = join(temporary, "build");
       mkdirSync(component, { recursive: true });
-      for (const file of ["native_archive.cmake", "prepare_archive.cmake"])
-        cpSync(join(root, "hosts/esp-idf/components/pocket_runtime", file), join(component, file));
+      mkdirSync(join(component, "tools"));
+      for (const file of ["native_archive.cmake", "prepare_archive.cmake", "tools/native_sources.py"])
+        cpSync(join(root, "platforms/esp-idf/pocket_runtime", file), join(component, file));
       const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/runtime");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
       const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi"];
@@ -28,12 +29,23 @@ describe("ESP-IDF incremental package build", () => {
         writeFileSync(join(source, "Cargo.toml"), "# build dependency fixture\n");
         writeFileSync(join(source, "src/lib.rs"), "// build dependency fixture\n");
       }
+      const packages = [native, ...crates.map(crate => join(contracts, crate)), ...extra];
+      const fakeBin = join(temporary, "bin"); mkdirSync(fakeBin);
+      const fakeMetadata = {
+        workspace_root: native,
+        packages: packages.map((directory, i) => ({ id: String(i), manifest_path: join(directory, "Cargo.toml") })),
+        resolve: { nodes: packages.map((_, i) => ({ id: String(i), deps: i === 0 ? packages.slice(1).map((_, j) => ({pkg: String(j + 1), dep_kinds: [{kind: null}]})) : [] })) },
+      };
+      const fakeCargo = join(fakeBin, "cargo");
+      writeFileSync(fakeCargo, `#!/bin/sh\nprintf '%s' ${quote(JSON.stringify(fakeMetadata))}\n`); chmodSync(fakeCargo, 0o755);
+      writeFileSync(join(fakeBin, "rustc"), "#!/bin/sh\nexit 0\n"); chmodSync(join(fakeBin, "rustc"), 0o755);
       const compatibility = join(extra[0], "src/cabi.rs");
       writeFileSync(compatibility, "// compatibility source dependency fixture\n");
       writeFileSync(join(temporary, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
 project(native_dependencies NONE)
 set(IDF_TARGET esp32s3)
 set(POCKETJS_RUST_FROM_SOURCE ON CACHE BOOL "" FORCE)
+set(POCKETJS_CARGO "${fakeCargo}" CACHE FILEPATH "" FORCE)
 # Inspect the archive build graph without linking a firmware component.
 function(target_link_libraries)
 endfunction()
@@ -88,7 +100,7 @@ pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARC
       writeFileSync(join(app, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
 project(incremental C)
 add_library(app STATIC dummy.c)
-include("${join(root, "hosts/esp-idf/components/pocket_runtime/project_include.cmake")}")
+include("${join(root, "platforms/esp-idf/pocket_runtime/project_include.cmake")}")
 # Exercise the real compile helper; embedding/firmware linking is tested separately.
 function(_pocketjs_package_attach target name package profile)
   add_custom_target(package ALL DEPENDS "\${package}")

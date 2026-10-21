@@ -125,19 +125,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
           components: clippy, rustfmt
           # note.test.ts boots the sim host, which builds the wasm core.
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            engine/crates/pocket-text
-            hosts/desktop
-            engine/wasm
+          workspaces: .
 
       - uses: oven-sh/setup-bun@v2
 
@@ -160,29 +161,29 @@ jobs:
           bun tools/build.ts --plan=.pocket/macos-app/note-main.plan.json
 
       - name: Test core (TEXT_RUN + native measure gates)
-        run: cargo test --locked --manifest-path engine/core/Cargo.toml
+        run: cargo test --locked --manifest-path Cargo.toml -p pocketjs-core
 
       - name: Test ui surface (svcOpen deny-by-default, string ops)
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-surface
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-ui-surface
 
       - name: rustfmt
         run: |
-          cargo fmt --check --manifest-path engine/crates/pocket-text/Cargo.toml
-          cargo fmt --check --manifest-path hosts/desktop/Cargo.toml
+          cargo fmt --check --manifest-path Cargo.toml -p pocket-text
+          cargo fmt --check --manifest-path Cargo.toml -p pocket-desktop-host
 
       - name: Portable text and WASM tests
         run: |
-          cargo test --locked --manifest-path engine/crates/pocket-text/Cargo.toml
-          cargo test --locked --manifest-path engine/wasm/Cargo.toml
+          cargo test --locked --manifest-path Cargo.toml -p pocket-text
+          cargo test --locked --manifest-path Cargo.toml -p pocketjs-wasm
           bun tools/text-wasm.ts
 
       - name: Clippy native desktop host
-        run: cargo clippy --locked --manifest-path hosts/desktop/Cargo.toml -- -D warnings
+        run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-desktop-host -- -D warnings
 
       - name: Test Metal DrawList rendering and frame leases
         run: |
-          cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-wgpu
-          cargo test --locked --manifest-path hosts/desktop/Cargo.toml -- --include-ignored
+          cargo test --locked --manifest-path Cargo.toml -p pocket-ui-wgpu
+          cargo test --locked --manifest-path Cargo.toml -p pocket-desktop-host -- --include-ignored
 
       - name: Build macos-app host
-        run: cargo build --locked --manifest-path hosts/desktop/Cargo.toml
+        run: cargo build --locked --manifest-path Cargo.toml -p pocket-desktop-host

@@ -1,0 +1,55 @@
+name: Zephyr driver contracts
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'platforms/zephyr/**'
+      - 'zephyr/**'
+      - 'engine/runtime-cabi/**'
+      - 'engine/raster/**'
+      - 'contracts/**'
+      - 'tools/packaging/zephyr/**'
+      - 'tools/release/**'
+      - 'tests/fixtures/zephyr/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/zephyr.yml'
+permissions:
+  contents: read
+jobs:
+  native-sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Linux native_sim dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gperf device-tree-compiler libsdl2-dev
+          git init "$RUNNER_TEMP/zephyr"
+          git -C "$RUNNER_TEMP/zephyr" remote add origin https://github.com/zephyrproject-rtos/zephyr.git
+          git -C "$RUNNER_TEMP/zephyr" fetch --depth 1 origin 684c9e8f32e4373a21098559f748f06915f950c9
+          git -C "$RUNNER_TEMP/zephyr" checkout --detach FETCH_HEAD
+          pip install west -r "$RUNNER_TEMP/zephyr/scripts/requirements-base.txt"
+      - name: Fetch the pinned consumer QuickJS engine
+        run: |
+          curl -fL https://components-file.espressif.com/components/espressif/quickjs-ng/0.14.0/espressif__quickjs-ng-v0.14.0.zip -o "$RUNNER_TEMP/quickjs.zip"
+          unzip -q "$RUNNER_TEMP/quickjs.zip" -d "$RUNNER_TEMP/quickjs"
+      - name: Build the single native SDK archive
+        run: |
+          rustup show
+          bun tools/pocket.ts sdk build --triple x86_64-unknown-linux-gnu --out "$RUNNER_TEMP/pocket-sdk"
+      - name: Run the real Zephyr kernel and subsystem contracts
+        run: >-
+          bun tools/packaging/zephyr/test-native.ts --zephyr "$RUNNER_TEMP/zephyr"
+          --sdk "$RUNNER_TEMP/pocket-sdk" --quickjs "$RUNNER_TEMP/quickjs/quickjs-ng" --out .pocket-build/validation/zephyr/ci
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: zephyr-driver-contracts
+          path: .pocket-build/validation/zephyr/ci

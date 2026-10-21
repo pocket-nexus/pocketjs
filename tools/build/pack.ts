@@ -5,12 +5,13 @@ import { readCommunitySigner } from "../community-key.ts";
 import { readRuntimeDirectory } from "../repack.ts";
 import { admitPocket, readRuntime, type RepackIdentity } from "../repack/shared/runtime.ts";
 import { admitApplication } from "./inputs.ts";
-import { expandBuildValue } from "./executor.ts";
+import { releasedRuntime } from "../release/fetch.ts";
 import { resolveRuntimeProgram } from "./programs.ts";
 
 export interface PackOptions {
   target?: string; config?: string; runtime?: string; pocket: string; output?: string;
   id?: string; title?: string; author?: string; version?: string; icon?: string;
+  releaseVersion?: string; manifestUrl?: string;
 }
 /** Repacking consumes a recipe's byte-to-byte adapter and a verified runtime. */
 export async function packRuntime(options: PackOptions, cwd = process.cwd()): Promise<string> {
@@ -21,15 +22,8 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
   const pocket = new Uint8Array(readFileSync(resolve(cwd, options.pocket)));
   const { plan } = admitApplication(selected, pocket);
   let runtimeDirectory = options.runtime ? resolve(cwd, options.runtime) : undefined;
-  if (!runtimeDirectory && recipe.artifact) {
-    const configDirectory = dirname(selected.config!.path);
-    runtimeDirectory = resolve(configDirectory, expandBuildValue(recipe.artifact, {
-      configDirectory, outdir: resolve(configDirectory, "dist/runtime"), output: selected.profile.id,
-    }));
-  }
-  if (!runtimeDirectory || !existsSync(runtimeDirectory)) throw new Error("generic runtime is unavailable; build it with pocket build --generic or supply --runtime <exported runtime directory>");
   // A build output root may hold its runtime artifact in a named subdirectory.
-  if (!existsSync(resolve(runtimeDirectory, "runtime.json")) && existsSync(resolve(runtimeDirectory, "build-receipt.json"))) {
+  if (runtimeDirectory && !existsSync(resolve(runtimeDirectory, "runtime.json")) && existsSync(resolve(runtimeDirectory, "build-receipt.json"))) {
     const receipt = JSON.parse(readFileSync(resolve(runtimeDirectory, "build-receipt.json"), "utf8"));
     if (receipt.schema !== "pocket-runtime-build/1" || receipt.success !== true || receipt.hostAbi !== POCKET_BINDING_GENERATION || receipt.profileHash !== selected.profileHash || typeof receipt.artifact !== "string")
       throw new Error("runtime build receipt does not match the selected profile");
@@ -38,8 +32,9 @@ export async function packRuntime(options: PackOptions, cwd = process.cwd()): Pr
     if (child === ".." || child.startsWith("../")) throw new Error("runtime build receipt artifact is outside the output directory");
     runtimeDirectory = artifact;
   }
-  if (!existsSync(resolve(runtimeDirectory, "runtime.json"))) throw new Error("generic runtime has no runtime.json");
-  const runtime = readRuntimeDirectory(runtimeDirectory);
+  if (runtimeDirectory && !existsSync(resolve(runtimeDirectory, "runtime.json"))) throw new Error("generic runtime has no runtime.json");
+  const runtime = runtimeDirectory ? readRuntimeDirectory(runtimeDirectory) :
+    await releasedRuntime(selected.profile.id, selected.profileHash, { version: options.releaseVersion, manifestUrl: options.manifestUrl });
   const metadata = await readRuntime(runtime, selected.profile.id);
   if (metadata.profileHash !== selected.profileHash) throw new Error("runtime profileHash differs from the runtime config");
   const identity: RepackIdentity = {

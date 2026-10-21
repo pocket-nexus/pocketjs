@@ -103,13 +103,14 @@ async function main() {
     const config = takeOption("config") ?? takeOption("runtime-config");
     const target = takeOption("target");
     const runtime = takeOption("runtime");
+    const releaseVersion = takeOption("release-version"), manifestUrl = takeOption("manifest-url");
     const output = takeOption("output") ?? takeOption("out");
     const id = takeOption("id"), title = takeOption("title"), author = takeOption("author"), version = takeOption("version"), icon = takeOption("icon");
     const pocket = takeOption("pocket") ?? argv.shift();
     noArguments();
     if (!pocket) usage("pack requires an application.pocket file");
     const { packRuntime } = await import("./build/pack.ts");
-    await packRuntime({ config, target, runtime, output, id, title, author, version, icon, pocket });
+    await packRuntime({ config, target, runtime, releaseVersion, manifestUrl, output, id, title, author, version, icon, pocket });
     return;
   }
   if (command === "build") {

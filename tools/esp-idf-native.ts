@@ -18,10 +18,10 @@ function take(name: string): string | undefined {
 const target = take("target") as IdfTarget;
 const component = take("component");
 const cargo = resolve(take("cargo") ?? Bun.which("cargo") ?? "");
-const outputRoot = resolve(take("output-root") ?? join(ROOT, "hosts/esp-idf/components"));
+const outputRoot = resolve(take("output-root") ?? join(ROOT, "platforms/esp-idf"));
 const archiver = take("archiver") ?? process.env.AR ?? [Bun.which("llvm-ar"), Bun.which("gcc-ar"),
   Bun.which("riscv32-esp-elf-ar"), "/opt/homebrew/opt/llvm/bin/llvm-ar", Bun.which("ar")].find(p => p && existsSync(p));
-if (!(target in RUST_TARGETS) || args.length) throw new Error("usage: esp-idf-native --target <esp32p4|esp32s3> [--component runtime] [--cargo path] [--archiver path] [--output-root components-dir]");
+if (!(target in RUST_TARGETS) || args.length) throw new Error("usage: esp-idf-native --target <esp32p4|esp32s3|esp32c3|esp32c6> [--component runtime] [--cargo path] [--archiver path] [--output-root components-dir]");
 const specs = NATIVE_COMPONENTS.filter(spec => !component || spec.crate === component);
 if (!specs.length) throw new Error("unknown native component " + component);
 function run(command: string[], env?: Record<string, string | undefined>): void {
@@ -49,6 +49,8 @@ for (const spec of specs) {
     "--release", "--locked", "--no-default-features", "--target", RUST_TARGETS[target],
     "--manifest-path", join(native, "Cargo.toml")], { ...process.env, RUSTC: rustc,
       RUSTFLAGS: "", CARGO_ENCODED_RUSTFLAGS: "", CARGO_TARGET_DIR: cargoTarget,
+      CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "false",
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16", CARGO_PROFILE_RELEASE_OPT_LEVEL: "3",
       RUSTC_WRAPPER: "", RUSTC_WORKSPACE_WRAPPER: "",
       PATH: dirname(cargo) + ":" + (process.env.PATH ?? "") });
   const directory = join(outputRoot, spec.component, "lib", target);
@@ -57,7 +59,7 @@ for (const spec of specs) {
   await Bun.write(archivePath, readFileSync(join(cargoTarget, RUST_TARGETS[target], "release", spec.archive)));
   if (target === "esp32p4") run(["cmake", "-DPOCKETJS_ARCHIVE=" + archivePath,
     "-DPOCKETJS_ARCHIVER=" + archiver, "-DPOCKETJS_TARGET=" + target, "-P",
-    join(ROOT, "hosts/esp-idf/components/pocket_runtime/prepare_archive.cmake")]);
+    join(ROOT, "platforms/esp-idf/pocket_runtime/prepare_archive.cmake")]);
   if (sourceSha256 !== await nativeSourceDigest(ROOT, spec)) throw new Error("native sources changed while building");
   const archive = readFileSync(archivePath);
   const receipt: NativeReceipt = { schemaVersion: 2, component: spec.component, target,

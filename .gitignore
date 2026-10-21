@@ -1,7 +1,7 @@
 # dependency and platform noise
 node_modules/
 target/
-hosts/esp-idf/components/*/lib/
+platforms/esp-idf/*/lib/
 .DS_Store
 
 # pass-1 transform cache (content-hash keyed; safe to delete any time)

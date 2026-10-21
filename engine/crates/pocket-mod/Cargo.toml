@@ -1,13 +1,15 @@
 [package]
 name = "pocket-mod"
-version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
 description = "Guest hosting for the Pocket runtime family: one QuickJS realm, mounted surfaces, one guest turn per tick (docs/RUNTIMES.md)"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-pocketjs-core = { workspace = true }
+pocketjs-core = { workspace = true, default-features = true }
 rquickjs = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }

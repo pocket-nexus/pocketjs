@@ -1,13 +1,16 @@
 [package]
 name = "pocket3d"
 description = "Pocket3D: desktop rendering mechanisms (wgpu-based)"
-version.workspace = true
 edition.workspace = true
 license-file = "../../../../pocket3d/LICENSE"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
 [dependencies]
-pocket3d-anim = { workspace = true }
-pocket3d-mesh = { workspace = true }
+pocket3d-anim = { workspace = true, default-features = true }
+pocket3d-mesh = { workspace = true, default-features = true }
 
 wgpu = { workspace = true }
 winit = { workspace = true }

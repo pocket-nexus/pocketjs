@@ -1,4 +1,4 @@
-import nativeToolchain from "./build/toolchains/blackberry-qnx/manifest.json";
+import nativeToolchain from "./build/toolchains/blackberry-qnx.ts";
 import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
 import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "./host-profile.ts";
@@ -187,6 +187,7 @@ function buildRustCore(): string {
     {
       ...process.env,
       CARGO_PROFILE_RELEASE_LTO: "false",
+      CARGO_PROFILE_RELEASE_PANIC: "abort",
       CARGO_TARGET_DIR: rustTarget,
     },
   );

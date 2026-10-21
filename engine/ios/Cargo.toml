@@ -2,22 +2,24 @@
 
 [package]
 name = "pocket-apple"
-version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
 description = "UIKit composition over the canonical PocketJS runtime and guest lifecycle"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-pocket-spec = { path = "../spec" }
-pocket-runtime-cabi = { path = "../runtime-cabi" }
-pocket-runtime = { path = "../runtime" }
-pocket-drivers = { path = "../drivers" }
-pocket-package = { path = "../package" }
-pocket-guest-rquickjs = { path = "../guest-rquickjs" }
+pocket-spec = { workspace = true, default-features = true }
+pocket-runtime-cabi = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-guest-rquickjs = { workspace = true, default-features = true }
 serde_json = "1"
 log = { workspace = true }
 

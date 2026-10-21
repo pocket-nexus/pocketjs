@@ -1,23 +1,15 @@
+import { idfProgramCrateRoots } from "./packaging/esp-idf/vendor.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const NATIVE_COMPONENTS = [
   { component: "pocket_runtime", crate: "runtime", archive: "libpocket_idf_runtime.a" },
 ] as const;
-export const NATIVE_ENGINE_CRATES = ["core", "spec", "drivers", "raster", "present", "package",
-  "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache",
-  "runtime", "runtime-cabi"] as const;
-export const NATIVE_EXTRA_CRATES = [
-  { source: "platforms/esp-idf/render-ppa", destination: "render-ppa" },
-  { source: "devices/gles/pocket-gles", destination: "pocket-gles" },
-  { source: "devices/gles/pocket-gles1", destination: "pocket-gles1" },
-  { source: "devices/gles/pocket-gles2", destination: "pocket-gles2" },
-] as const;
 export type NativeComponent = typeof NATIVE_COMPONENTS[number];
-export const RUST_TARGETS = { esp32p4: "riscv32imafc-unknown-none-elf", esp32s3: "xtensa-esp32s3-none-elf" } as const;
+export const RUST_TARGETS = { esp32p4: "riscv32imafc-unknown-none-elf", esp32s3: "xtensa-esp32s3-none-elf", esp32c3: "riscv32imc-unknown-none-elf", esp32c6: "riscv32imac-unknown-none-elf" } as const;
 export type IdfTarget = keyof typeof RUST_TARGETS;
 export const NATIVE_POLICY = { profile: "release", defaultFeatures: false, locked: true,
 codegenUnits: 16, lto: false, optLevel: 3, panic: "abort", preparationVersion: 1,
@@ -38,26 +30,27 @@ export interface NativeReceipt {
 }
 
 export async function nativeSourceFiles(root: string, spec: NativeComponent): Promise<string[]> {
-  const roots = [...NATIVE_ENGINE_CRATES.map(crate => `engine/${crate}`), ...NATIVE_EXTRA_CRATES.map(crate => crate.source),
-    `hosts/esp-idf/native/${spec.crate}`,
-    `hosts/esp-idf/components/${spec.component}/src`, `hosts/esp-idf/components/${spec.component}/include`,
-    "hosts/esp-idf/components/pocket_render_esp_ppa/src", "hosts/esp-idf/components/pocket_render_esp_ppa/include",
-    "engine/guest-quickjs/src", "engine/guest-quickjs/include", "hosts/esp-idf/components/pocket_guest_quickjs"];
+  const roots = [...idfProgramCrateRoots(root, spec.crate).map(path => relative(root, path).replaceAll("\\", "/")),
+    `platforms/esp-idf/${spec.component}/src`, `platforms/esp-idf/${spec.component}/include`,
+    "platforms/esp-idf/pocket_render_esp_ppa/src", "platforms/esp-idf/pocket_render_esp_ppa/include",
+    "engine/guest-quickjs/src", "engine/guest-quickjs/include", "platforms/esp-idf/pocket_guest_quickjs"];
   const files = new Set([
-    "tools/esp-idf-native.ts", "tools/esp-idf-release.ts",
+    "tools/esp-idf-native.ts", "tools/esp-idf-release.ts", "tools/packaging/esp-idf/stage.ts", "tools/packaging/esp-idf/vendor.ts",
     "contracts/generated/pocket_drivers.h", "contracts/generated/pocket_runtime.h", "contracts/generated/pocket_spec.h",
-    "hosts/esp-idf/components/pocket_render_esp_ppa/CMakeLists.txt", "tools/esp-idf-native-receipt.ts", "tools/build/toolchains/esp-idf/compiler-pins.json",
-    "tools/esp-idf-contracts.ts", `hosts/esp-idf/components/${spec.component}/CMakeLists.txt`,
-    "hosts/esp-idf/components/pocket_runtime/native_archive.cmake",
-    "hosts/esp-idf/components/pocket_runtime/prepare_archive.cmake",
-    "hosts/esp-idf/components/pocket_guest_quickjs/CMakeLists.txt",
-    "hosts/esp-idf/components/pocket_guest_quickjs/tools/prepare_quickjs.py",
+    "platforms/esp-idf/pocket_render_esp_ppa/CMakeLists.txt", "tools/esp-idf-native-receipt.ts", "tools/build/toolchains/esp-idf/compiler-pins.json",
+    "tools/esp-idf-contracts.ts", `platforms/esp-idf/${spec.component}/CMakeLists.txt`,
+    "platforms/esp-idf/pocket_runtime/native_archive.cmake",
+    "platforms/esp-idf/pocket_runtime/prepare_archive.cmake", "platforms/esp-idf/pocket_runtime/tools/native_sources.py",
+    "platforms/esp-idf/pocket_guest_quickjs/CMakeLists.txt",
+    "platforms/esp-idf/pocket_guest_quickjs/tools/prepare_quickjs.py",
     "contracts/spec/profile.ts", "contracts/spec/binding-generation.ts",
   ]);
+  for (const path of ["Cargo.toml", "Cargo.lock", "engine/Cargo.toml", "engine/Cargo.lock"])
+    if (existsSync(join(root, path))) files.add(path);
   for (const path of roots) {
     if (!existsSync(join(root, path))) throw new Error(`missing native source root: ${path}`);
-    for await (const file of new Bun.Glob("**/*.{rs,toml,lock,c,h,cmake,json}").scan({ cwd: join(root, path), dot: true })) {
-      if (file.split("/").some(part => part === "target" || part.startsWith("target-") || part === ".git")) continue;
+    for await (const file of new Bun.Glob("**/*").scan({ cwd: join(root, path), dot: true })) {
+      if (file.split("/").some(part => part === "target" || part.startsWith("target-") || [".git", "__pycache__", "node_modules", ".pocket-build", "dist"].includes(part))) continue;
       files.add(`${path}/${file}`);
     }
   }
@@ -83,7 +76,7 @@ export function verifyNativeCompiler(root: string, target: IdfTarget, compiler: 
 }
 
 export async function verifyNativeReceipt(root: string, spec: NativeComponent, target: IdfTarget,
-                                         directory = join(root, "hosts/esp-idf/components", spec.component, "lib", target)): Promise<NativeReceipt> {
+                                         directory = join(root, "platforms/esp-idf", spec.component, "lib", target)): Promise<NativeReceipt> {
   const receipt = JSON.parse(readFileSync(join(directory, "build-receipt.json"), "utf8")) as NativeReceipt;
   if (receipt.schemaVersion !== 2 || receipt.component !== spec.component || receipt.target !== target ||
       receipt.rustTarget !== RUST_TARGETS[target] || JSON.stringify(receipt.policy) !== JSON.stringify(NATIVE_POLICY)) {
@@ -93,11 +86,14 @@ export async function verifyNativeReceipt(root: string, spec: NativeComponent, t
   if (target === "esp32p4" && (!receipt.archiver || typeof receipt.archiver.version !== "string" ||
       !receipt.archiver.version || !/^[0-9a-f]{64}$/.test(receipt.archiver.executableSha256)))
     throw new Error("native receipt has no archive preparation tool identity");
-  if (target === "esp32s3" && receipt.archiver !== null) throw new Error("unexpected S3 archive preparation");
+  if (target !== "esp32p4" && receipt.archiver !== null) throw new Error("unexpected archive preparation for a soft-float target");
   const archive = readFileSync(join(directory, spec.archive));
   if (archive.length !== receipt.archiveBytes || sha256(archive) !== receipt.archiveSha256)
     throw new Error(`native archive digest/size mismatch: ${spec.component}/${target}`);
-  if (receipt.sourceSha256 !== await nativeSourceDigest(root, spec))
+  let source: string;
+  try { source = await nativeSourceDigest(root, spec); }
+  catch (error) { throw new Error(`native sources/build rules changed: rebuild ${spec.component}/${target}: ${error}`); }
+  if (receipt.sourceSha256 !== source)
     throw new Error(`native sources/build rules changed: rebuild ${spec.component}/${target}`);
   return receipt;
 }

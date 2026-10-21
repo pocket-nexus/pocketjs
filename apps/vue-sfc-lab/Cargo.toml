@@ -1,16 +1,13 @@
 [package]
 name = "pocket-vue-sfc-lab"
-version = "0.1.0"
 edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS vue sfc lab component"
 publish = false
 
-[workspace]
-
 [dependencies]
-microts = { path = "../../engine/crates/microts" }
-
-[profile.dev]
-overflow-checks = false
-
-[profile.release]
-overflow-checks = false
+microts = { workspace = true, default-features = true }

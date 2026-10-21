@@ -8,7 +8,6 @@ export const build: RuntimeBuild = {
   hosts: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64"],
   sourceInputs: nativeSources("pocketbook",
     "hosts/pocketbook/Cargo.toml",
-    "hosts/pocketbook/Cargo.lock",
     "hosts/pocketbook/build.rs",
     "hosts/pocketbook/src",
   ),

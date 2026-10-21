@@ -1,5 +1,5 @@
-import motoToolchain from "./build/toolchains/moto-g-play/manifest.json";
-import redmiToolchain from "./build/toolchains/redmi-1s/manifest.json";
+import motoToolchain from "./build/toolchains/moto-g-play.ts";
+import redmiToolchain from "./build/toolchains/redmi-1s.ts";
 import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
 import {
   cpSync,
@@ -532,6 +532,7 @@ function buildRustCore(abi: AndroidAbi): string {
     {
       ...process.env,
       CARGO_PROFILE_RELEASE_LTO: "false",
+      CARGO_PROFILE_RELEASE_PANIC: "abort",
       [`CARGO_TARGET_${abi.rustTarget.toUpperCase().replace(/-/g, "_")}_LINKER`]: clangFor(abi),
     },
   );

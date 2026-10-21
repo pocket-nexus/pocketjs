@@ -1,13 +1,16 @@
 [package]
 name = "pocket-web-wgpu"
-version = "0.1.0"
 edition = "2021"
 license-file = "../../../pocket3d/LICENSE"
 description = "Browser device mechanisms for a Pocket3D game drawn with wgpu: device and screens, an interface overlay pass, 16-bit pictures, ranged pack reads"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
 [dependencies]
 # A game's packs as pieces named by their bytes: the manifest a handheld reads too.
-pocket3d-packs = { path = "../../../engine/pocket3d/crates/pocket3d-packs" }
+pocket3d-packs = { workspace = true, default-features = true }
 wgpu = { version = "25", default-features = false, features = ["webgpu", "wgsl", "metal"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -19,6 +22,3 @@ web-sys = { version = "0.3", features = ["Window", "WorkerGlobalScope", "Request
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.4"
-
-[workspace]
-resolver = "2"

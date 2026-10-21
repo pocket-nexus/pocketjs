@@ -1,0 +1,6 @@
+version: "0.1.0"
+description: "PocketJS gpio input source"
+license: MIT
+dependencies:
+  idf: ">=6.0,<6.3"
+  pocket-nexus/pocket_runtime: "0.1.0"

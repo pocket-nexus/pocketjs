@@ -2,25 +2,19 @@
 # Standalone nightly workspace uses build-std core/alloc (see .cargo/config.toml).
 [package]
 name = "pocketjs-3ds-core"
-version = "0.1.0"
 edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS 3ds core component"
+publish = false
 
 [lib]
 name = "pocketjs_3ds_core"
 crate-type = ["staticlib"]
 
 [dependencies]
-pocket-runtime-cabi = { path = "../../../engine/runtime-cabi", default-features = false }
-pocket-package = { path = "../../../engine/package" }
-
-[profile.release]
-# armv6k-nintendo-3ds defaults to unwind; a staticlib linked into a libctru
-# binary has no unwinder to reach.
-panic = "abort"
-# Speed over size: opt-level 3 grows the core's text from 322 KB ("s") to
-# 393 KB, and on an Old 3DS it draws about 10% faster than opt-level 2.
-opt-level = 3
-codegen-units = 1
-lto = true
-
-[workspace]
+pocket-runtime-cabi = { workspace = true }
+pocket-package = { workspace = true, default-features = true }

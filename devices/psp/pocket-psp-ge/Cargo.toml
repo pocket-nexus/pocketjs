@@ -1,9 +1,9 @@
 [package]
 name = "pocket-psp-ge"
-version = "0.1.0"
 edition = "2021"
 license-file = "../../../pocket3d/LICENSE"
 description = "PSP GE memory lifetime, cache publication and texture layout mechanisms"
 
-[workspace]
-resolver = "2"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true

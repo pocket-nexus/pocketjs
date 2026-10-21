@@ -1,7 +1,8 @@
 [package]
 name = "pocket-spec"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
 description = "Generated PocketJS operation codes, data formats, and input constants"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true

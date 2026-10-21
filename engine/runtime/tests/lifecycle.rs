@@ -819,7 +819,7 @@ fn old_packages_are_rejected_before_guest_initialization_and_can_be_replaced() {
     use pocket_package::source::LoadError;
     use pocket_package::{GuestError, PackageError};
     let mut rejected = vec![(
-        include_bytes!("../../../tests/fixtures/packages/corpus/bad-v1.pocket").to_vec(),
+        include_bytes!("fixtures/bad-v1.pocket").to_vec(),
         GuestError::Package(PackageError::BadVersion),
     )];
     rejected.extend((1..pocket_spec::BINDING_GENERATION).map(|generation| {

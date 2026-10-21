@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -70,380 +70,18 @@ function packArchive(cwd: string, destination: string): string {
 }
 
 describe("published npm artifacts", () => {
-  // The files map is a governed surface, not a mirror of the repo tree: an
-  // entry ships ONLY when the framework runtime, the compiler, the shipped
-  // tools, or a `pocket` CLI target consumes it from the tarball. Rust
-  // sources ride along solely as build inputs for CLI-buildable targets
-  // (psp, vita, symbian, the web/sim wasm) plus the shared device kernels
-  // for out-of-tree native 3D apps. Platform source
-  // integrations without a CLI target (e.g. the ESP32-P4 PPA backend, whose
-  // ESP-IDF C component cannot ship in npm anyway) stay git-only. Adding an
-  // entry here means updating this list in the same PR — deliberately.
-  test("the files map stays exactly the governed surface", async () => {
-    const manifest = await Bun.file(`${root}package.json`).json();
-    expect(manifest.files).toEqual([
-      "framework/src",
-      "framework/compiler",
-      "contracts/schema",
-      "contracts/spec",
-      "profiles",
-      "programs/**/pocket.runtime-config.ts",
-      "programs/web/main.js",
-      "programs/web/index.html",
-      "programs/sim/main.ts",
-      "contracts/generated",
-      "tools",
-      // The desktop benchmark's Electron/Tauri comparison apps are git-only
-      // fixtures under the wholesale tools entry: their cargo target/ would
-      // otherwise pack (the v0.8.0 E415 failure mode) and nothing in the
-      // tarball consumes them.
-      "!tools/bench-desktop",
-      "apps/hero/app.tsx",
-      "apps/hero/app.ts",
-      "apps/hero/Hero.tsx",
-      "apps/hero/Hero.ts",
-      "apps/hero/main.tsx",
-      "apps/hero/pocket.json",
-      "apps/iphone2g-demo",
-      "apps/iphone4s-demo",
-      "apps/ipodtouch-demo",
-      "apps/meizu-m8-demo",
-      "apps/blackberry-classic-demo",
-      "apps/nsengine",
-      "hosts/ios-nativescript",
-      "hosts/ios-legacy",
-      "hosts/iphone2g",
-      "hosts/iphone4s",
-      "hosts/ipodtouch6",
-      "hosts/meizu-m8",
-      "hosts/blackberry-classic",
-      "hosts/blackberry-classic-qnx",
-      "hosts/web",
-      "hosts/android",
-      "hosts/shared",
-      "docs/APPLE.md",
-      "docs/IPHONE2G.md",
-      "docs/IPHONE4S.md",
-      "docs/IPODTOUCH.md",
-      "docs/MEIZU_M8.md",
-      "docs/BLACKBERRY_CLASSIC.md",
-      "docs/VITA-USB.md",
-      "assets/brand",
-      "assets/fonts",
-      "assets/images/logo.png",
-      "assets/images/spinner-00.svg",
-      "assets/images/spinner-01.svg",
-      "assets/images/spinner-02.svg",
-      "assets/images/spinner-03.svg",
-      "assets/images/spinner-04.svg",
-      "assets/images/spinner-05.svg",
-      "assets/images/spinner-06.svg",
-      "assets/images/spinner-07.svg",
-      "engine/Cargo.toml",
-      "engine/Cargo.lock",
-      "engine/ios/uikit",
-      "engine/ios/include",
-      "engine/ios/src",
-      "engine/ios/Cargo.toml",
-      "engine/quickjs-c",
-      "engine/crates/pocket-db/src",
-      "engine/crates/pocket-db/Cargo.toml",
-      "engine/crates/pocket-fs/src",
-      "engine/crates/pocket-fs/Cargo.toml",
-      "engine/crates/pocket-mod/src",
-      "engine/crates/pocket-mod/Cargo.toml",
-      "engine/crates/pocket-net/src",
-      "engine/crates/pocket-net/Cargo.toml",
-      "engine/crates/pocket-sim/src",
-      "engine/crates/pocket-sim/Cargo.toml",
-      "engine/crates/pocket-ui-surface/src",
-      "engine/crates/pocket-ui-surface/Cargo.toml",
-      "engine/crates/pocket-ui-wgpu/src",
-      "engine/crates/pocket-ui-wgpu/Cargo.toml",
-      "engine/crates/pocket-vrm/src",
-      "engine/crates/pocket-vrm/Cargo.toml",
-      "engine/crates/pocket-widget/src",
-      "engine/crates/pocket-widget/Cargo.toml",
-      "engine/runtime/src",
-      "engine/runtime/Cargo.toml",
-      "engine/runtime-cabi/src",
-      "engine/runtime-cabi/Cargo.toml",
-      "engine/guest-rquickjs/src",
-      "engine/guest-rquickjs/Cargo.toml",
-      "engine/guest-quickjs/src",
-      "engine/guest-quickjs/include",
-      "engine/core/src",
-      "engine/core/Cargo.toml",
-      "engine/spec/src",
-      "engine/spec/Cargo.toml",
-      "engine/drivers/src",
-      "engine/drivers/Cargo.toml",
-      "engine/raster/src",
-      "engine/raster/Cargo.toml",
-      "engine/present/src",
-      "engine/present/Cargo.toml",
-      "engine/package/src",
-      "engine/package/Cargo.toml",
-      "engine/modules/media/src",
-      "engine/modules/media/Cargo.toml",
-      "engine/render/draw-ops/src",
-      "engine/render/draw-ops/Cargo.toml",
-      "engine/render/glyph-pages/src",
-      "engine/render/glyph-pages/Cargo.toml",
-      "engine/render/tri-batch/src",
-      "engine/render/tri-batch/Cargo.toml",
-      "engine/render/tex-cache/src",
-      "engine/render/tex-cache/Cargo.toml",
-      "devices/gles/pocket-gles/src",
-      "devices/gles/pocket-gles/Cargo.toml",
-      "devices/gles/pocket-gles1/src",
-      "devices/gles/pocket-gles1/Cargo.toml",
-      "devices/gles/pocket-gles2/src",
-      "devices/gles/pocket-gles2/Cargo.toml",
-      "devices/web/pocket-web-render/src",
-      "devices/web/pocket-web-render/Cargo.toml",
-      "platforms/esp-idf/render-ppa/src",
-      "platforms/esp-idf/render-ppa/Cargo.toml",
-      "platforms/esp-idf/render-ppa/include",
-      "engine/wasm/src",
-      "engine/wasm/Cargo.toml",
-      "engine/ui-cabi/src",
-      "engine/ui-cabi/include",
-      "engine/ui-cabi/Cargo.toml",
-      "engine/ui-cabi/Cargo.lock",
-      "engine/ui-cabi/rust-toolchain.toml",
-      "hosts/psp/src",
-      "hosts/psp/build.rs",
-      "hosts/psp/Cargo.toml",
-      "hosts/psp/Cargo.lock",
-      "hosts/vita/.cargo",
-      "hosts/vita/assets",
-      "hosts/vita/src",
-      "hosts/vita/build.rs",
-      "hosts/vita/Cargo.toml",
-      "hosts/vita/Cargo.lock",
-      "hosts/vita/README.md",
-      "hosts/vita/rust-toolchain.toml",
-      "hosts/nokia-e7/probe",
-      "hosts/nokia-e7/runtime",
-      "devices/vita/pocket-vita-render/src",
-      "devices/vita/pocket-vita-render/Cargo.toml",
-      "devices/vita/pocket-vita-render/Cargo.lock",
-      "devices/vita/pocket-vita-render/README.md",
-      "devices/vita/pocket-vita-gxm/src",
-      "devices/vita/pocket-vita-gxm/Cargo.toml",
-      "devices/vita/pocket-vita-gxm/Cargo.lock",
-      "devices/vita/pocket-vita-gxm/build.rs",
-      "devices/vita/pocket-vita-gxm/README.md",
-      "engine/pocket3d/crates/pocket3d-anim/src",
-      "engine/pocket3d/crates/pocket3d-anim/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-mesh/src",
-      "engine/pocket3d/crates/pocket3d-mesh/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-packs/src",
-      "engine/pocket3d/crates/pocket3d-packs/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-packs/pocket3d_packs.h",
-      "engine/pocket3d/crates/pocket3d/src",
-      "engine/pocket3d/crates/pocket3d/Cargo.toml",
-      "engine/pocket3d/examples/handheld/src",
-      "engine/pocket3d/examples/handheld/Cargo.toml",
-      "engine/pocket3d/examples/note-widget/src",
-      "engine/pocket3d/examples/note-widget/Cargo.toml",
-      "engine/pocket3d/examples/uihost/src",
-      "engine/pocket3d/examples/uihost/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-world/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-world/README.md",
-      "engine/pocket3d/crates/pocket3d-world/src",
-      "pocket.json",
-      "tsconfig.json",
-      "engine/crates/pocket-text/src",
-      "engine/crates/pocket-text/Cargo.toml",
-      "engine/crates/pocket-text/Cargo.lock",
-      // tools/build.ts imports the AOT compiler; microts is both its
-      // generated Rust runtime and a member of the shipped engine workspace.
-      "microts/compiler",
-      "engine/crates/microts/src",
-      "engine/crates/microts/Cargo.toml",
-      "devices/psp/pocket-psp-render/Cargo.toml",
-      "devices/psp/pocket-psp-render/Cargo.lock",
-      "devices/psp/pocket-psp-render/src",
-      "devices/psp/pocket-psp-render/README.md",
-      "devices/psp/pocket-psp-ge/Cargo.toml",
-      "devices/psp/pocket-psp-ge/Cargo.lock",
-      "devices/psp/pocket-psp-ge/src",
-      "devices/psp/pocket-psp-ge/README.md",
-      "devices/3ds/pocket-3ds-pica/include",
-      "devices/3ds/pocket-3ds-pica/README.md",
-      "devices/LICENSE",
-      "engine/pocket3d/LICENSE",
-      "pocket3d/LICENSE",
-      "engine/guest-web/src",
-    ]);
-  });
-
-  test("framework tarball contains every locked native and standalone Pocket3D input", async () => {
+  test("framework ships compiler, framework and generated contracts without native sources", () => {
     const files = packedFiles(root);
     expect(files).toEqual(expect.arrayContaining([
-      "profiles/index.ts",
-      "profiles/psp.ts",
-      "profiles/3ds-dev.ts",
-      "framework/src/profile.ts",
-      "contracts/spec/platform-types.ts",
-      "engine/runtime/Cargo.toml",
-      "engine/runtime/src/lib.rs",
-      "engine/runtime/src/generated_ops.rs",
-      "engine/runtime-cabi/Cargo.toml",
-      "engine/runtime-cabi/src/lib.rs",
-      "engine/runtime-cabi/src/compat/ui/mod.rs",
-      "devices/gles/pocket-gles1/src/lib.rs",
-      "engine/guest-rquickjs/Cargo.toml",
-      "engine/guest-rquickjs/src/lib.rs",
-      "engine/guest-quickjs/include/pocket_guest_quickjs.h",
-      "engine/guest-quickjs/src/generated_ops.h",
-      "engine/guest-quickjs/src/guest.c",
-      "engine/spec/Cargo.toml",
-      "engine/spec/src/lib.rs",
-      "engine/drivers/Cargo.toml",
-      "engine/drivers/src/lib.rs",
-      "engine/raster/Cargo.toml",
-      "engine/raster/src/lib.rs",
-      "engine/present/Cargo.toml",
-      "engine/present/src/lib.rs",
-      "engine/package/Cargo.toml",
-      "engine/package/src/lib.rs",
-      "engine/modules/media/Cargo.toml",
-      "engine/modules/media/src/lib.rs",
-      "engine/render/draw-ops/Cargo.toml",
-      "engine/render/draw-ops/src/lib.rs",
-      "engine/render/glyph-pages/Cargo.toml",
-      "engine/render/glyph-pages/src/lib.rs",
-      "engine/render/tri-batch/Cargo.toml",
-      "engine/render/tri-batch/src/lib.rs",
-      "engine/render/tex-cache/Cargo.toml",
-      "engine/render/tex-cache/src/lib.rs",
-      "engine/pocket3d/crates/pocket3d-anim/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-anim/src/lib.rs",
-      "engine/crates/pocket-sim/src/lib.rs",
-      "tools/companion-session.ts",
-      "microts/compiler/aot-solid-browser.ts",
-      "microts/compiler/aot-model-build.ts",
-      "microts/compiler/aot-model-codegen.ts",
-      "microts/compiler/vendor/vue-vapor-ir.ts",
-      "engine/crates/microts/Cargo.toml",
-      "engine/crates/microts/src/lib.rs",
-      "engine/crates/microts/src/model.rs",
-      "engine/crates/microts/src/model_regions.rs",
-      "engine/pocket3d/crates/pocket3d-mesh/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-mesh/src/lib.rs",
-      "engine/pocket3d/crates/pocket3d-mesh/src/p3m.rs",
-      "engine/pocket3d/crates/pocket3d-mesh/src/colored.rs",
-      "engine/pocket3d/crates/pocket3d-mesh/src/rigid.rs",
-      "engine/pocket3d/crates/pocket3d-packs/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-packs/src/lib.rs",
-      "engine/pocket3d/crates/pocket3d-packs/pocket3d_packs.h",
-      "tools/build/toolchains/3ds.ts",
-      "tools/vita-dev.ts",
-      "tools/vita-dev-client.ts",
-      "tools/vita-usb.ts",
-      "tools/vita-usb/usbhostfs.patch",
-      "tools/png.ts",
-      "docs/VITA-USB.md",
-      "tools/native-source.ts",
-      "assets/brand/pocketjs-avatar-white-minimal.png",
-      "apps/hero/app.tsx",
-      "apps/hero/app.ts",
-      "apps/hero/Hero.tsx",
-      "apps/hero/Hero.ts",
-      "apps/hero/main.tsx",
-      "apps/hero/pocket.json",
-      "apps/iphone2g-demo/pocket.json",
-      "apps/iphone4s-demo/pocket.json",
-      "apps/blackberry-classic-demo/pocket.json",
-      "hosts/iphone2g/device_tool.c",
-      "tools/build/toolchains/iphone2g/armv6-apple-ios.json",
-      "tools/build/toolchains/ios/armv7-apple-ios.json",
-      "hosts/blackberry-classic-qnx/main.c",
-      "hosts/blackberry-classic-qnx/bar-descriptor.xml",
-      "tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json",
-      "docs/IPHONE2G.md",
-      "docs/IPHONE4S.md",
-      "docs/BLACKBERRY_CLASSIC.md",
-      "assets/images/logo.png",
-      "assets/images/spinner-00.svg",
-      "assets/images/spinner-01.svg",
-      "assets/images/spinner-02.svg",
-      "assets/images/spinner-03.svg",
-      "assets/images/spinner-04.svg",
-      "assets/images/spinner-05.svg",
-      "assets/images/spinner-06.svg",
-      "assets/images/spinner-07.svg",
-      "hosts/psp/Cargo.toml",
-      "hosts/psp/Cargo.lock",
-      "hosts/vita/Cargo.toml",
-      "hosts/vita/Cargo.lock",
-      "hosts/vita/assets/sce_sys/icon0.png",
-      "hosts/vita/assets/sce_sys/livearea/contents/bg.png",
-      "hosts/vita/assets/sce_sys/livearea/contents/startup.png",
-      "hosts/vita/assets/sce_sys/livearea/contents/template.xml",
-      "hosts/nokia-e7/probe/main.cpp",
-      "hosts/nokia-e7/probe/pocketjs-e7-probe.pro",
-      "hosts/nokia-e7/runtime/main.cpp",
-      "hosts/nokia-e7/runtime/pocketjs-e7-runtime.pro",
-      "hosts/nokia-e7/runtime/pocketjs_symbian_keys.h",
-      "tools/build/toolchains/symbian/armv6-symbian-eabi.json",
-      "engine/ui-cabi/Cargo.toml",
-      "engine/ui-cabi/rust-toolchain.toml",
-      "engine/ui-cabi/src/lib.rs",
-      "engine/Cargo.toml",
-      "engine/Cargo.lock",
-      "engine/ios/Cargo.toml",
-      "engine/ios/uikit/PocketSurfaceView.m",
-      "engine/ios/include/pocket_apple.h",
-      "engine/ios/src/lib.rs",
-      "engine/quickjs-c/pocket_runtime.c",
-      "hosts/blackberry-classic/pocket_input.c",
-      "hosts/blackberry-classic/pocket_input.h",
-      "contracts/generated/pocket_spec.h",
-      "engine/crates/pocket-mod/Cargo.toml",
-      "engine/crates/pocket-mod/src/lib.rs",
-      "engine/crates/pocket-ui-surface/Cargo.toml",
-      "engine/crates/pocket-ui-surface/src/lib.rs",
-      "tools/build/toolchains/symbian/manifest.json",
-      "tools/build/toolchains/blackberry-qnx/manifest.json",
-      "tools/blackberry-qnx/build.sh",
-      "tools/symbian/coda-usb-probe.c",
-      "tools/symbian/Dockerfile.dockerignore",
-      "devices/vita/pocket-vita-gxm/Cargo.toml",
-      "devices/vita/pocket-vita-gxm/Cargo.lock",
-      "devices/vita/pocket-vita-gxm/build.rs",
-      "devices/vita/pocket-vita-gxm/README.md",
-      "devices/vita/pocket-vita-gxm/src/lib.rs",
-      "engine/pocket3d/crates/pocket3d-world/Cargo.toml",
-      "engine/pocket3d/crates/pocket3d-world/README.md",
-      "engine/pocket3d/crates/pocket3d-world/src/lib.rs",
+      "framework/src/index.ts", "framework/src/profile.ts", "profiles/psp.ts",
+      "contracts/generated/pocket_runtime.h", "contracts/generated/pocket_drivers.h", "contracts/generated/pocket_spec.h",
+      "tools/pocket.ts", "tools/release/fetch.ts", "tools/build/pack.ts", "microts/compiler/aot-model-build.ts",
+      "programs/psp/runtime/pocket.runtime-config.ts",
     ]));
-    expect(files).not.toContain("engine/pocket3d/Cargo.toml");
-    // Cargo build output must never pack: directory-wholesale crate entries
-    // swallow target/ once a cargo test has run there, and cargo's hard
-    // links make the registry reject the tarball outright (E415, the
-    // v0.8.0 publish failure).
-    expect(
-      files.some((file) => /(^|\/)target\//.test(file) || file.includes(".fingerprint")),
-    ).toBe(false);
-    // The compatibility runtime resolves RGB565 as an optional path dependency.
-    // Other platform integrations remain outside the tarball.
-    expect(files.some((file) => file.startsWith("hosts/esp-idf/"))).toBe(false);
-    expect(files).not.toContain("docs/SYMBIAN_E7.md");
-    // Toolchain manifests travel with the framework that pins them.
-    expect(files).toContain("tools/build/toolchains/psp.ts");
-
-    expect(files).toContain("devices/psp/pocket-psp-render/src/lib.rs");
-    expect(files).toContain("devices/psp/pocket-psp-ge/src/lib.rs");
-    expect(files).toContain("devices/psp/pocket-psp-ge/Cargo.lock");
-    expect(files).toContain("devices/3ds/pocket-3ds-pica/include/pocket_pica.h");
-    expect(files.some((file) => /pocket3d-(bsp|cook|gu|vita|gles2)\//.test(file))).toBe(false);
-
+    expect(files.filter(file => /\.(rs|c|cpp|cc|m|mm)$/.test(file) || /(^|\/)Cargo\.(toml|lock)$/.test(file))).toEqual([]);
+    expect(files.filter(file => /(^|\/)(target|\.pocket-build)\//.test(file) || file.includes(".fingerprint"))).toEqual([]);
+    expect(files.filter(file => file.endsWith(".h") && !file.startsWith("contracts/generated/"))).toEqual([]);
   }, 60_000);
-
   test("manifest commands import only declared runtime dependencies", () => {
     // An application installs the framework with its `dependencies` alone;
     // a compiler import resolved from `devDependencies` or hoisting works in
@@ -466,115 +104,31 @@ describe("published npm artifacts", () => {
     ]);
   });
 
-  test("framework tarball resolves the iOS native workspace", () => {
-    const scratch = mkdtempSync(join(tmpdir(), "pocketjs-npm-apple-"));
+  test("extracted framework resolves profiles and generic recipes without Cargo sources", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "pocketjs-npm-consumer-"));
     try {
       const archive = packArchive(root, scratch);
-      const extract = Bun.spawnSync({
-        cmd: ["tar", "-xf", archive, "-C", scratch],
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      expect(extract.exitCode, extract.stderr.toString()).toBe(0);
-      writeFileSync(join(scratch, "package/profile-consumer.ts"), `
+      const extract = Bun.spawnSync(["tar", "-xf", archive, "-C", scratch], { stdout: "pipe", stderr: "pipe" });
+      expect(extract.success, extract.stderr.toString()).toBe(true);
+      const directory = join(scratch, "package");
+      symlinkSync(join(root, "node_modules"), join(directory, "node_modules"), "dir");
+      writeFileSync(join(directory, "consumer.ts"), `
 import { defineProfile, hashPocketProfile } from "@pocketjs/framework/profile";
-import { POCKET_PROFILES } from "@pocketjs/framework/profiles";
 import psp from "@pocketjs/framework/profiles/psp";
-if (psp !== POCKET_PROFILES.psp) throw Error("profile exports diverged");
+import { resolveRuntimeProgram } from "./tools/build/programs.ts";
+import { sdkCommand } from "./tools/sdk.ts";
 const external = defineProfile({ ...psp, id: "external-product-with-a-long-id" });
 if (hashPocketProfile(external) === hashPocketProfile(psp)) throw Error("identity omitted id");
-console.log("standalone profile definitions and hashes passed");
+const selected = await resolveRuntimeProgram({ from: ${JSON.stringify(scratch)}, target: "psp", generic: true });
+if (!selected.config.value.build.genericRuntime.repack) throw Error("missing repack adapter");
+if (await sdkCommand(["export", "--cargo", "--out", ${JSON.stringify(join(scratch, "program"))}])) throw Error("template failed");
+console.log("npm consumer passed");
 `);
-      const profileImport = Bun.spawnSync([process.execPath, "profile-consumer.ts"], {
-        cwd: join(scratch, "package"), stdout: "pipe", stderr: "pipe",
-      });
-      expect(profileImport.success, profileImport.stderr.toString()).toBe(true);
-      expect(profileImport.stdout.toString()).toContain("profile definitions and hashes passed");
-      const metadata = Bun.spawnSync({
-        cmd: [
-          "cargo",
-          "metadata",
-          "--format-version=1",
-          "--no-deps",
-          "--manifest-path",
-          join(scratch, "package/engine/Cargo.toml"),
-        ],
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      expect(metadata.exitCode, metadata.stderr.toString()).toBe(0);
-      const packages = (JSON.parse(metadata.stdout.toString()) as {
-        packages: Array<{ name: string }>;
-      }).packages.map((entry) => entry.name);
-      expect(packages).toContain("pocket-apple");
-      expect(packages).toContain("pocket-mod");
-      expect(packages).toContain("pocket-ui-surface");
-      expect(packages).toContain("microts");
-      expect(packages).toContain("pocket3d-world");
-      expect(packages).toContain("pocket3d-anim");
-      expect(packages).toContain("pocket3d-mesh");
-      expect(packages).toContain("pocket3d-packs");
-      expect(packages).toContain("pocket-spec");
-      expect(packages).toContain("pocket-drivers");
-      expect(packages).toContain("pocket-raster");
-      expect(packages).toContain("pocket-present");
-      expect(packages).toContain("pocket-package");
-      expect(packages).toContain("pocket-media");
-      expect(packages).toContain("pocket-draw-ops");
-      expect(packages).toContain("pocket-glyph-pages");
-      expect(packages).toContain("pocket-tri-batch");
-      expect(packages).toContain("pocket-tex-cache");
-      expect(packages).toContain("pocket-runtime");
-      expect(packages).toContain("pocket-runtime-cabi");
-      expect(packages).toContain("pocket-guest-rquickjs");
-      expect(existsSync(join(scratch, "package/engine/core/Cargo.toml"))).toBe(true);
-
-      // A fresh native consumer must resolve the extracted contracts using
-      // only the tarball's source paths, without a registry or this checkout.
-      const consumer = join(scratch, "native-consumer");
-      mkdirSync(join(consumer, "src"), { recursive: true });
-      writeFileSync(join(consumer, "Cargo.toml"), `[package]
-name = "packed-contract-consumer"
-version = "0.0.0"
-edition = "2021"
-[dependencies]
-pocket-spec = { path = "../package/engine/spec" }
-pocket-drivers = { path = "../package/engine/drivers" }
-pocket-raster = { path = "../package/engine/raster" }
-pocket-present = { path = "../package/engine/present" }
-pocket-package = { path = "../package/engine/package" }
-pocket-media = { path = "../package/engine/modules/media" }
-pocket-draw-ops = { path = "../package/engine/render/draw-ops" }
-pocket-glyph-pages = { path = "../package/engine/render/glyph-pages" }
-pocket-tri-batch = { path = "../package/engine/render/tri-batch" }
-pocket-tex-cache = { path = "../package/engine/render/tex-cache" }
-pocket-runtime = { path = "../package/engine/runtime" }
-pocket-runtime-cabi = { path = "../package/engine/runtime-cabi" }
-pocket-guest-rquickjs = { path = "../package/engine/guest-rquickjs" }
-`);
-      writeFileSync(join(consumer, "src/lib.rs"), `#![no_std]
-pub use pocket_drivers::{DrawList, FontView, RenderResources, TexView};
-pub use pocket_raster as raster;
-pub use pocket_present as present;
-pub use pocket_package as package;
-pub use pocket_media as media;
-pub use pocket_draw_ops as draw_ops;
-pub use pocket_glyph_pages as glyph_pages;
-pub use pocket_tri_batch as tri_batch;
-pub use pocket_tex_cache as tex_cache;
-pub use pocket_runtime as runtime;
-pub use pocket_runtime_cabi as runtime_cabi;
-pub use pocket_guest_rquickjs as guest;
-pub const ROOT_ID: i32 = pocket_spec::ROOT_ID;
-`);
-      const check = Bun.spawnSync({
-        cmd: ["cargo", "check", "--offline", "--manifest-path", join(consumer, "Cargo.toml")],
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      expect(check.exitCode, check.stderr.toString()).toBe(0);
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
+      const consumer = Bun.spawnSync([process.execPath, "consumer.ts"], { cwd: directory, stdout: "pipe", stderr: "pipe" });
+      expect(consumer.success, consumer.stderr.toString()).toBe(true);
+      expect(consumer.stdout.toString()).toContain("npm consumer passed");
+      expect(existsSync(join(directory, "Cargo.toml"))).toBe(false);
+      expect(readFileSync(join(scratch, "program/Cargo.toml"), "utf8")).toContain('version = "0.1.0", default-features = false');
+    } finally { rmSync(scratch, { recursive: true, force: true }); }
   }, 60_000);
 });

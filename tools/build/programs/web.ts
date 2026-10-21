@@ -1,3 +1,4 @@
+import { STABLE_RUST_TOOLCHAIN } from "../toolchains/rust.ts";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { cargo, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
@@ -9,11 +10,11 @@ import { requireProgramProfile, requireApplication } from "./application.ts";
 
 const webSources = programFiles("hosts/web", /\.(?:js|html)$/);
 
-export const wasmStep = cargo({ manifest: resolve(repository, "engine/wasm/Cargo.toml"), target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-target" });
+export const wasmStep = cargo({ manifest: resolve(repository, "engine/wasm/Cargo.toml"), toolchain: STABLE_RUST_TOOLCHAIN, env: { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_OPT_LEVEL: "s" }, target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-target" });
 export const build: RuntimeBuild = {
-  sourceInputs: [...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules", "engine/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "engine/wasm", "engine/crates/pocket-text", "engine/guest-web"), ...webSources, resolve(repository, "programs/web/main.js"), resolve(repository, "programs/web/index.html")],
+  sourceInputs: [...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "engine/wasm", "engine/crates/pocket-text", "engine/guest-web"), ...webSources, resolve(repository, "programs/web/main.js"), resolve(repository, "programs/web/index.html")],
   hosts: buildHosts, input: "package",
-  steps: [wasmStep, cargo({ manifest: resolve(repository, "engine/crates/pocket-text/Cargo.toml"), target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-text-target" })],
+  steps: [wasmStep, cargo({ manifest: resolve(repository, "engine/crates/pocket-text/Cargo.toml"), toolchain: STABLE_RUST_TOOLCHAIN, env: { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_OPT_LEVEL: "s" }, target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-text-target" })],
   artifact: "{outdir}/runtime",
   async run(context) {
     requireProgramProfile(context, profile);

@@ -1,9 +1,9 @@
 # ESP-IDF component maintenance
 
 **One program archive contains the canonical runtime, software renderer and
-PPA factory.** Components under `hosts/esp-idf/components` supply platform
+PPA factory.** Components under `platforms/esp-idf` supply platform
 allocation, the generated QuickJS guest, display transport and an optional
-owner task. ESP32-P4 can register PPA; ESP32-S3 uses the software renderer.
+owner task. ESP32-P4 can register PPA; S3, C3 and C6 use the software renderer.
 
 | Component | Dependencies |
 | --- | --- |
@@ -11,6 +11,8 @@ owner task. ESP32-P4 can register PPA; ESP32-S3 uses the software renderer.
 | `pocket_guest_quickjs` | runtime and espressif/quickjs-ng 0.14.0 |
 | `pocket_display_esp_lcd` | runtime and esp_lcd SPI/I80 transport |
 | `pocket_render_esp_ppa` | runtime and esp_driver_ppa |
+| `pocket_input_touch` | One esp_lcd_touch contact with logical coordinate scaling |
+| `pocket_input_gpio` | GPIO and ADC button masks with debounce |
 | `pocket_runner` | runtime, FreeRTOS and esp_timer |
 
 Only the runner creates a task. Only the PPA component includes accelerator
@@ -33,16 +35,21 @@ handler backed by the six `pocket_host_*` hooks in `pocket_runtime/src/hooks.c`.
 ```sh
 bun tools/esp-idf-native.ts --target esp32p4 --archiver /path/to/llvm-ar
 bun tools/esp-idf-native.ts --target esp32s3 --cargo /path/to/xtensa-rust/bin/cargo
+bun tools/esp-idf-native.ts --target esp32c3
+bun tools/esp-idf-native.ts --target esp32c6
 bun tools/esp-idf-release.ts --output /path/to/staged-components
 ```
 
 The script uses the supplied toolchain. Compiler commits are pinned in
 `tools/build/toolchains/esp-idf/compiler-pins.json`. Receipts record compiler, target,
 build policy, source digest, archive digest, byte size and P4 archiver identity.
-Release staging verifies these fields before copying files. Vendored sources
-resolve all path dependencies outside the checkout.
+Release staging verifies these fields before copying files. Vendoring discovers local path dependencies and expands workspace inheritance.
+`cargo vendor` includes registry dependencies; the staged workspace builds with
+network access disabled and an empty Cargo home. No crate allowlist controls
+the source closure. A component release advertises the targets whose verified
+archives it contains.
 
-`POCKETJS_RUST_FROM_SOURCE=ON` enables development builds. P4 runs a locked
+`POCKETJS_RUST_FROM_SOURCE=ON` enables development builds. RISC-V runs a locked
 `cargo build --no-default-features`; S3 adds `-Zbuild-std=core,alloc`.
 `POCKETJS_CARGO` selects Cargo and its adjacent rustc. `POCKET_RUNTIME_ARCHIVE`
 selects an existing prepared archive when source builds are disabled.
@@ -138,8 +145,8 @@ renderer/device and display in that order.
 bun tools/driver-contracts.ts --check
 bun tools/esp-idf-contracts.ts --check
 bun tools/esp-idf-host-tests.ts
-bun test tests/idf-embed.test.ts tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts
-cargo test --locked --manifest-path engine/Cargo.toml -p pocket-render-esp-ppa --features cabi
+bun test tests/idf-embed.test.ts tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts tests/idf-input.test.ts
+cargo test --locked --manifest-path Cargo.toml -p pocket-render-esp-ppa --features cabi
 ```
 
 `POCKETJS_QUICKJS_SOURCE` selects another copy of the exact pinned source.

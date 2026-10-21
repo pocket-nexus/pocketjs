@@ -1,11 +1,13 @@
 [package]
 name = "pocket-package"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
 description = "PocketJS package admission, asset pack readers, and package identity hashing"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-pocket-spec = { path = "../spec" }
-pocket-drivers = { path = "../drivers" }
+pocket-spec = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }

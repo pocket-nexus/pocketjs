@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export function verifyComponentVersions(root: string): string[] {
-  const components = join(root, "hosts/esp-idf/components");
+  const components = join(root, "platforms/esp-idf");
   const releases = JSON.parse(readFileSync(join(components, "versions.json"), "utf8")) as
     Record<string, { version: string; requires: Record<string, string> }>;
   for (const [name, release] of Object.entries(releases)) {

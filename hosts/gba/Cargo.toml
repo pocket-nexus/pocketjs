@@ -1,28 +1,23 @@
 [package]
 name = "pocketjs-gba"
-version = "0.1.0"
 edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "PocketJS gba component"
 publish = false
 
-[workspace]
-
 [dependencies]
-pocket-spec = { path = "../../engine/spec" }
-microts = { path = "../../engine/crates/microts", features = ["critical-section", "runtime"] }
-pocketjs-core = { path = "../../engine/core" }
-pocket-runtime = { path = "../../engine/runtime" }
-pocket-drivers = { path = "../../engine/drivers" }
-pocket-package = { path = "../../engine/package" }
+pocket-spec = { workspace = true, default-features = true }
+microts = { workspace = true, default-features = true, features = ["critical-section", "runtime"] }
+pocketjs-core = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
 linked_list_allocator = { version = "0.10.5", default-features = false }
 critical-section = { version = "1.2", features = ["restore-state-bool"] }
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-overflow-checks = false
-debug = 1
 
 [[bin]]
 name = "gba-hero"

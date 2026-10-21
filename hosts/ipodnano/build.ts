@@ -3,7 +3,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { RUST_TOOLCHAINS } from "../../tools/build/toolchains/rust.ts";
+import { RUST_TOOLCHAINS, STABLE_RUST_TOOLCHAIN } from "../../tools/build/toolchains/rust.ts";
 import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
 
 const root = resolve(import.meta.dir, "../..");
@@ -57,11 +57,11 @@ export async function buildIpodNano(args: readonly string[], context?: RuntimeBu
   // writes the frames a scripted session produces.
   const previewDir = resolve(out, "preview");
   mkdirSync(previewDir, { recursive: true });
-  const previewCommand = ["cargo", "+stable", "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/ipodnano/preview/Cargo.toml"), "--target-dir", resolve(out, "preview-target"), "--", previewDir];
+  const previewCommand = ["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/ipodnano/preview/Cargo.toml"), "--target-dir", resolve(out, "preview-target"), "--", previewDir];
   await execute(previewCommand, { env });
 
   const libCommand = ["cargo", `+${IPODNANO_TOOLCHAIN}`, "build", "--locked", "--release", "--lib", "--target", IPODNANO_TARGET, "-Z", "build-std=core,alloc", "-Z", "build-std-features=compiler-builtins-mem", "--manifest-path", resolve(root, "hosts/ipodnano/Cargo.toml"), "--target-dir", resolve(out, "target")];
-  await execute(libCommand, { env });
+  await execute(libCommand, { env: { ...env, CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort" } });
   const lib = resolve(out, `target/${IPODNANO_TARGET}/release/libpocketjs_ipodnano.a`);
 
   const source = resolve(rockboxSource);

@@ -1,10 +1,12 @@
 [package]
 name = "pocket-net"
-version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
 description = "Transport-neutral bounded HTTP core and PocketJS net module surface"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [features]
 # `mount` brings pocket-mod (and its QuickJS embedding) for the one-line
@@ -15,8 +17,8 @@ default = ["mount"]
 mount = ["dep:pocket-mod", "dep:anyhow"]
 
 [dependencies]
-pocket-mod = { workspace = true, optional = true }
-pocketjs-core = { workspace = true }
+pocket-mod = { workspace = true, default-features = true, optional = true }
+pocketjs-core = { workspace = true, default-features = true }
 anyhow = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

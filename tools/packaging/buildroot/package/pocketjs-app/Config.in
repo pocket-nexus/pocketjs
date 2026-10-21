@@ -1,0 +1,11 @@
+config BR2_PACKAGE_POCKETJS_APP
+	bool "Install a compiled PocketJS application"
+	depends on BR2_PACKAGE_POCKETJS
+	help
+	  Install the product CI's .pocket file without invoking Bun or an
+	  application compiler. Runtime validates its variant/profile on boot.
+
+if BR2_PACKAGE_POCKETJS_APP
+config BR2_PACKAGE_POCKETJS_APP_FILE
+	string "Compiled .pocket file"
+endif

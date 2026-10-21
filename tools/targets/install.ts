@@ -306,7 +306,7 @@ function context(options: InstallOptions): Context {
  * record. Returns the record; a second call installs nothing and fetches
  * nothing.
  */
-export async function addTarget(descriptor: TargetDescriptor, options: InstallOptions = {}): Promise<InstallRecord> {
+export async function addTarget(descriptor: Pick<TargetDescriptor, "id" | "title" | "hosts" | "toolchain">, options: InstallOptions = {}): Promise<InstallRecord> {
   const ctx = context(options);
   const manifest = descriptor.toolchain;
   if (!manifest) throw new InstallError(`${descriptor.id} has no toolchain manifest in this framework`);

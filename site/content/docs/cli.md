@@ -23,7 +23,7 @@ bunx @pocketjs/cli show
 | `pocket profile export --out <directory> [options]` | the selected profile's C header and JSON sidecar |
 | `pocket show [--json]` | framework resolution, runtime configuration, profile selection and toolchain states |
 | `pocket target add`, `list`, `remove` | native toolchain installation and status |
-| `pocket sdk export`, `verify` | export or verify a C runtime SDK |
+| `pocket sdk export`, `build`, `verify` | download, build or verify a C runtime SDK |
 | `pocket dev`, `psp`, `vita`, `hw`, `psplink`, `devtools`, `tape`, `play`, `symbian`, `ios` | host-development scripts from a checkout |
 | `pocket --version` | CLI version and the resolved framework version |
 
@@ -273,8 +273,9 @@ pocket pack --target psp --runtime dist/psp-runtime \
 ```
 
 `--runtime` accepts a runtime directory containing `runtime.json`, or a build
-output directory with a successful matching receipt. Without it, `pack` checks
-the selected recipe's default output. Native compilation and application
+output directory with a successful matching receipt. Without it, `pack` downloads
+the runtime for the installed framework release. `--release-version` selects
+an exact release version; `--manifest-url` selects a release index mirror. Native compilation and application
 compilation are separate commands. `--id`, `--title`, `--version`, `--author`
 and `--icon` supply package identity; omitted application fields come from the
 compiled plan, and an omitted author is recorded as `Unspecified`.
@@ -439,11 +440,12 @@ pocket sdk export --triple aarch64-apple-darwin --out dist/sdk
 pocket sdk verify --dir dist/sdk
 ```
 
-`sdk export` builds and exports the runtime archive, generated headers, CMake
-metadata and checksums for the requested Rust target triple. The target's
-compiler and Rust target must be available. `sdk verify` checks the exported
-files against their metadata. This SDK export is separate from a program's
-profile export; external C consumers use both when assembling a runtime.
+**`sdk export` downloads and verifies a release SDK for the requested Rust target.**
+The release defaults to the installed framework version; `--version` selects
+another version. `sdk verify` checks its file list and hashes. `sdk build`
+compiles a candidate SDK from a source checkout with the selected Rust toolchain.
+`sdk export --cargo --out native-program` creates a program crate template with
+versioned dependencies. Profile export supplies the product's software contract.
 
 ## Host-development commands
 

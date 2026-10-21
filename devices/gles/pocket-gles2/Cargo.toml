@@ -1,11 +1,12 @@
 [package]
-workspace = "../../../engine"
 name = "pocket-gles2"
-version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
 description = "OpenGL ES 2 shader pipeline for PocketJS"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
 [dependencies]
-pocket-gles = { path = "../pocket-gles" }
+pocket-gles = { workspace = true, default-features = true }

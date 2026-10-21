@@ -1,0 +1,9 @@
+/ {
+    chosen { zephyr,display = &pocket_test_display; };
+    pocket_test_display: display {
+        compatible = "pocketjs,test-display";
+        width = <8>;
+        height = <6>;
+        status = "okay";
+    };
+};

@@ -1,3 +1,4 @@
+import { BUILD_STD_NIGHTLY } from "./rust.ts";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
@@ -86,7 +87,7 @@ export interface IPhone2GToolchainManifest {
   };
 }
 
-export const IPHONE2G_TOOLCHAIN = manifestJson as IPhone2GToolchainManifest;
+export const IPHONE2G_TOOLCHAIN = { ...manifestJson, compiler: { ...manifestJson.compiler, rustToolchain: BUILD_STD_NIGHTLY } } as IPhone2GToolchainManifest;
 
 export function iphone2gCacheRoot(
   env: NodeJS.ProcessEnv = process.env,

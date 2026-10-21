@@ -1,20 +1,19 @@
 # pocket-ui-gpui — the gpui (Metal) render backend for pocketjs-core.
 #
-# Standalone on purpose (excluded from engine/Cargo.toml, own Cargo.lock,
-# same policy as backends/esp32p4-ppa): gpui builds only where a display
-# server exists, and the ubuntu release workspace build must not depend on
-# it. Built through hosts/desktop (the stock macos-app host) and by
-# .github/workflows/macos.yml.
+# Selected by the desktop host; excluded from the portable default members.
 
 [package]
 name = "pocket-ui-gpui"
-version = "0.1.0"
 edition = "2024"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "GPUI renderer adapter for the PocketJS UI core"
 
 [dependencies]
 gpui = "0.2.2"
 image = "0.25"
 smallvec = "1"
-pocketjs-core = { path = "../../core" }
+pocketjs-core = { workspace = true, default-features = true }

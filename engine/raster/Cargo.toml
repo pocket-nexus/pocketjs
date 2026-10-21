@@ -1,12 +1,14 @@
 [package]
 name = "pocket-raster"
-version = "0.1.0"
 edition = "2021"
 description = "Deterministic DrawList software rasterization for PocketJS"
-license = "MIT"
-repository = "https://github.com/pocket-nexus/pocketjs"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
-pocket-spec = { path = "../spec" }
-pocket-drivers = { path = "../drivers" }
-pocket-draw-ops = { path = "../render/draw-ops" }
+pocket-spec = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-draw-ops = { workspace = true, default-features = true }

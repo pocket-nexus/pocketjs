@@ -6,9 +6,6 @@ linker = "ldproxy"
 runner = "espflash flash --monitor"
 rustflags = ["--cfg", "espidf_time64"]
 
-[unstable]
-build-std = ["std", "panic_abort"]
-
 [env]
 MCU = "esp32p4"
 ESP_IDF_VERSION = "v5.5.3"

@@ -1,20 +1,30 @@
-# Candidate C SDK
+# C SDK and release artifacts
 
-**`pocket sdk export` builds a local candidate SDK.** It does not publish a
-release, download an archive, or freeze the C ABI. The command requires Bun,
-Cargo, and the Rust target used for the archive. A C consumer of the exported
-directory does not need Cargo or the PocketJS checkout.
+**`pocket sdk export` downloads a release SDK and verifies its file hashes.**
+The version defaults to the installed framework version. `--version` selects an
+exact release version; `--manifest-url` selects a release index mirror. Archives
+use the content-addressed toolchain store. Export requires Bun and an archive
+extractor; consuming the SDK requires the product's C compiler.
 
 ```sh
-bun tools/pocket.ts sdk export \
-  --triple aarch64-apple-darwin \
-  --out .pocket-build/validation/sdk/local
-bun tools/pocket.ts sdk verify --dir .pocket-build/validation/sdk/local
+pocket sdk export --triple aarch64-apple-darwin --out vendor/pocket
+pocket sdk verify --dir vendor/pocket
+pocket sdk export --cargo --out native-program
 ```
 
-The installed CLI exposes the same commands as `pocket sdk export` and
-`pocket sdk verify`. SDK commands do not read an application manifest or select
-an application target. `--out` must name a directory that does not exist.
+**`pocket sdk build` compiles a local candidate SDK.** Run it in a source checkout
+with Cargo and the target toolchain installed. SDK commands do not read an
+application manifest. `--out` must name a directory that does not exist.
+
+```sh
+bun tools/pocket.ts sdk build --triple aarch64-apple-darwin \
+  --out .pocket-build/validation/sdk/local
+```
+
+The Cargo template depends on a versioned `pocket-runtime-cabi` crate with
+`default-features = false`. Add Rust driver dependencies to that program crate;
+it produces the program's single Rust static archive. The `std` feature provides
+the six host hooks through the standard library. A no_std program provides them.
 
 The export contains:
 
@@ -53,17 +63,18 @@ the named QuickJS target. A program that implements its own guest links
 `Pocket::runtime`. `#include <pocket/runtime.h>` exposes the runtime contract.
 
 `--toolchain` selects the Rust toolchain through `RUSTUP_TOOLCHAIN` and defaults
-to `stable`. `--cargo` and `--rustc` select executable paths; `--toolchain none`
+to `STABLE_RUST_TOOLCHAIN` from `tools/build/toolchains/rust.ts`. `--cargo` and `--rustc` select executable paths; `--toolchain none`
 leaves toolchain selection to those executables and the environment. Repeat
-`--cargo-arg` for `-Z...`, `--offline`, `--frozen`, or `--config=...` arguments.
+`--cargo-arg` for `-Z...`, `--offline`, `--frozen`, or inline
+`--config=key=value` arguments. Configuration file arguments are rejected.
 Repeat `--rustflag` for compiler arguments; the exporter appends `-C panic=abort`.
-Ambient `RUSTFLAGS` and compiler wrappers are cleared. A custom target JSON is
+Ambient `RUSTFLAGS`, `CARGO_PROFILE_*` overrides and compiler wrappers are cleared. A custom target JSON is
 accepted by `--triple`; its content hash is included in the manifest.
 
 ESP32-P4 consumers using the IDF `ilp32f` ABI can request archive preparation:
 
 ```sh
-bun tools/pocket.ts sdk export \
+bun tools/pocket.ts sdk build \
   --triple riscv32imafc-unknown-none-elf --toolchain 1.93.0 \
   --prepare esp32p4 --archiver /path/to/llvm-ar \
   --out .pocket-build/validation/sdk/esp32p4
@@ -75,7 +86,7 @@ The manifest records the unprepared archive hash, removed member names,
 archiver version, preparation version, and prepared file hash. It is an
 explicit IDF choice; the target triple alone does not enable it.
 
-**The manifest identifies a candidate build, including dirty source state.**
+**A local build records candidate status and dirty source state.**
 It records the Git revision when available, a digest of local build inputs,
 the compiler and Cargo versions, target, features, flags, and every exported
 file. Source changes during compilation make export fail. Verification rejects
@@ -90,3 +101,23 @@ loading, JavaScript evaluation, one frame callback, software display transfers,
 destruction, and zero outstanding host allocations. It also checks canonical
 archive symbols and the absence of legacy entry points. The maintained fixture
 is `tests/fixtures/sdk/`.
+
+
+`tools/release/matrix.ts` defines targets and feature sets. `tools/release/archive.ts`
+builds each default archive; `receipt.ts` verifies its manifest. `publish.ts` takes
+an inputs JSON file with `version`, `revision`, SDK directories keyed by triple,
+and runtime directories keyed by profile id. It requires clean matching source
+identities, writes deterministic archives and `pocket-release.json`, and leaves
+uploads to CI. `sourceRoot` adds a Git source archive for Buildroot. Release status
+records distribution; `abiFrozen` records the separate ABI acceptance decision.
+
+**`pocket pack` downloads the selected program's release runtime by default.**
+It verifies archive hashes, file hashes, binding generation and profile hash
+before embedding the compiled application. `--release-version` selects a release;
+`--runtime` supplies a local runtime directory or a successful build output.
+A missing release fails with its URL and HTTP status. Run `pocket build --generic`
+from a source checkout and pass its output with `--runtime` for local development.
+
+The npm package contains the framework, TypeScript compiler and tools, profiles,
+contracts, generated headers and browser assets. Rust crates, C glue and platform
+components come from their Cargo, SDK and platform distributions.

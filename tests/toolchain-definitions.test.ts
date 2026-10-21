@@ -1,16 +1,17 @@
+import { ESPUP_VERSION, ESP_XTENSA_COMPILER, ESP_INSTALL_COMMANDS, verifyEspToolchain } from "../tools/build/toolchains/esp.ts";
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pspToolchain } from "../tools/build/toolchains/psp.ts";
-import { RUST_TOOLCHAINS } from "../tools/build/toolchains/rust.ts";
+import { RUST_TOOLCHAINS, BUILD_STD_NIGHTLY, STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import { HOST_IDS } from "../tools/targets/types.ts";
 import { TOOLCHAIN_SCHEMA, toolchainDigest, validateToolchain } from "../tools/targets/toolchain.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 
 describe("central toolchain definitions", () => {
-  test("PSP TypeScript definition preserves every installed /2 toolchain identity", () => {
+  test("PSP TypeScript definition changes the installed /2 identity when the shared compiler changes", () => {
     // Captured before the JSON-to-TypeScript move. Existing installations must
     // keep their receipt/store identity when only source locations change.
     const expected = {
@@ -21,7 +22,19 @@ describe("central toolchain definitions", () => {
 };
     expect(pspToolchain.schema).toBe(TOOLCHAIN_SCHEMA);
     expect(validateToolchain(pspToolchain, "psp")).toEqual([]);
-    for (const host of HOST_IDS) expect(toolchainDigest(pspToolchain, host), host).toBe(expected[host]);
+    for (const host of HOST_IDS) expect(toolchainDigest(pspToolchain, host), host).not.toBe(expected[host]);
+    for (const component of pspToolchain.components) {
+      if (component.kind === "rustup" || component.kind === "cargo-install") expect(component.toolchain).toBe(BUILD_STD_NIGHTLY);
+    }
+  });
+
+  test("Xtensa installation keeps its verified fork separate from the shared nightly", () => {
+    const compiler = `release: ${ESP_XTENSA_COMPILER.release}\ncommit-hash: ${ESP_XTENSA_COMPILER.commit}\n`;
+    expect(() => verifyEspToolchain(`espup ${ESPUP_VERSION}`, compiler)).not.toThrow();
+    expect(() => verifyEspToolchain("espup 0.0.0", compiler)).toThrow("espup");
+    expect(() => verifyEspToolchain(`espup ${ESPUP_VERSION}`, compiler.replace(ESP_XTENSA_COMPILER.commit, "0".repeat(40)))).toThrow("Xtensa compiler");
+    expect(ESP_INSTALL_COMMANDS[0]).toContain("--locked");
+    expect(ESP_INSTALL_COMMANDS[1]).toContain("--toolchain-version");
   });
 
   test("custom target relocation preserves compiler ABI definitions", () => {
@@ -42,17 +55,12 @@ describe("central toolchain definitions", () => {
     }
   });
 
-  test("rustup directory entrypoints retain their assigned compiler pins", () => {
-    const entrypoints = {
-      "hosts/vita/rust-toolchain.toml": RUST_TOOLCHAINS.vita,
-      "hosts/3ds/core/rust-toolchain.toml": RUST_TOOLCHAINS.threeDs,
-      "engine/ui-cabi/rust-toolchain.toml": RUST_TOOLCHAINS.uiCabi,
-      "hosts/esp-idf/tests/data-smoke/rust-toolchain.toml": RUST_TOOLCHAINS.idfDataSmoke,
-    };
-    for (const [path, expected] of Object.entries(entrypoints)) {
-      const data = Bun.TOML.parse(readFileSync(join(root, path), "utf8")) as {toolchain: {channel: string; components: string[]}};
-      expect(data.toolchain.channel, path).toBe(expected);
-      expect(data.toolchain.components, path).toContain("rust-src");
+  test("the root stable override is the only program rustup override", () => {
+    const data = Bun.TOML.parse(readFileSync(join(root, "rust-toolchain.toml"), "utf8")) as {toolchain: {channel: string}};
+    expect(data.toolchain.channel).toBe(STABLE_RUST_TOOLCHAIN);
+    for (const path of ["hosts/vita", "hosts/3ds/core", "engine/ui-cabi", "hosts/esp-idf/tests/data-smoke"]) {
+      expect(existsSync(join(root, path, "rust-toolchain.toml")), path).toBe(false);
     }
+    for (const pin of Object.values(RUST_TOOLCHAINS)) expect(pin).toBe(BUILD_STD_NIGHTLY);
   });
 });
