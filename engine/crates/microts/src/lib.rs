@@ -34,6 +34,7 @@ pub mod model_regions;
 pub mod motion;
 pub mod spec;
 mod ui;
+mod core_handle;
 
 pub use alloc::{string::String, vec::Vec};
 pub use blocks::{Block, KeyedList, KeyedRow, SlotBlock, SlotHandle, SlotRegistry};
@@ -52,6 +53,7 @@ pub use motion::{
 };
 pub use pocketjs_core;
 pub use ui::{Input, NodeId, StyleId, Ui};
+pub use core_handle::{CoreRead, CoreWrite};
 
 /// One pending update, regardless of how many handlers or host mutations occurred.
 #[derive(Clone, Copy, Debug)]
@@ -76,3 +78,7 @@ impl Invalidation {
         core::mem::take(&mut self.pending)
     }
 }
+
+/// Native AOT guests backed by the canonical application instance.
+#[cfg(feature = "runtime")]
+pub mod runtime;

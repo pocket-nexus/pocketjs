@@ -12,8 +12,11 @@ test = false
 bench = false
 
 [dependencies]
-microts = { path = "../../engine/crates/microts" }
+microts = { path = "../../engine/crates/microts", features = ["runtime"] }
 pocketjs-core = { path = "../../engine/core" }
+pocket-runtime = { path = "../../engine/runtime" }
+pocket-drivers = { path = "../../engine/drivers" }
+pocket-package = { path = "../../engine/package" }
 
 [target.'cfg(target_os = "none")'.dependencies]
 microts = { path = "../../engine/crates/microts", features = ["critical-section"] }

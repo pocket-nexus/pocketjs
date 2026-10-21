@@ -2,21 +2,24 @@
 //!
 //! The generated app, the retained core and the RGB565 rasterizer run inside
 //! one Rockbox plugin. The plugin owns a persistent 176 × 132 framebuffer;
-//! each frame the damage tracker returns the rectangles whose DrawList
-//! operations changed, and the C side copies only those to the LCD.
+//! Runtime presents through its software renderer and LCD DisplayOutput;
+//! the C side copies the resulting damage rectangles to the LCD.
 //! The host preview links this crate with `std` and the layout oracle.
 
 #![cfg_attr(target_os = "none", no_std)]
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, vec, vec::Vec};
+use core::cell::{Cell, RefCell, UnsafeCell};
 use microts::{
-    pocketjs_core::{
-        damage::{DamagePolicy, DamageRect, DamageTracker},
-        raster,
-    },
+    pocketjs_core::damage::DamageRect,
+    runtime::{AotApp, AotGuest, AppState},
     Input, Ui,
+};
+use pocket_drivers::*;
+use pocket_runtime::{
+    GuestEnvironment, GuestFrame, RendererId, Runtime, RuntimeConfig, RuntimeError,
 };
 
 include!(concat!(env!("IPODNANO_GENERATED"), "/include.rs"));
@@ -68,68 +71,212 @@ pub fn buttons(rockbox: u32) -> u32 {
     out
 }
 
-// Keep construction temporaries out of the frame loop's stack frame.
-#[inline(never)]
-fn mount() -> Box<App> {
-    let mut ui = Ui::new();
-    ui.core_mut().set_viewport(WIDTH as f32, HEIGHT as f32);
-    assert!(ui.core_mut().set_tick_rate(TICK_HZ));
-    assert!(ui.load_styles(include_bytes!(concat!(
-        env!("IPODNANO_GENERATED"),
-        "/styles.bin"
-    ))));
-    load_fonts(&mut ui);
-    load_images(&mut ui);
-    let mut app = Box::new(App::new(ui, generated::AppProps {}, generated::AppModel::default()));
-    let first = app.ui().initial_focus();
-    app.ui_mut().set_focus(first);
-    app
+impl AotApp for Box<App> {
+    #[inline(never)]
+    fn mount(mut ui: Ui, environment: &GuestEnvironment<'_>) -> Result<Self, RuntimeError> {
+        assert_eq!(environment.viewport, [WIDTH as u32, HEIGHT as u32]);
+        assert_eq!(environment.tick_hz, TICK_HZ);
+        assert!(ui.load_styles(include_bytes!(concat!(
+            env!("IPODNANO_GENERATED"),
+            "/styles.bin"
+        ))));
+        load_fonts(&mut ui);
+        load_images(&mut ui);
+        let mut app = Box::new(App::new(
+            ui,
+            generated::AppProps {},
+            generated::AppModel::default(),
+        ));
+        let first = app.ui().initial_focus();
+        app.ui_mut().set_focus(first);
+        Ok(app)
+    }
+    fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+        App::frame(self, &Input::buttons(frame.buttons));
+        Ok(())
+    }
+}
+struct Buttons(Rc<Cell<u32>>);
+impl InputSource for Buttons {
+    fn classes(&self) -> InputClasses {
+        InputClasses::BUTTONS
+    }
+    fn poll(&mut self, frame: &mut InputFrameBuilder) {
+        frame.buttons |= self.0.get();
+    }
+}
+
+// The allocation is fixed for Hero's lifetime. Its only writer is the private
+// display, called by Runtime during &mut Hero::frame. Hero::pixels borrows
+// &Hero, which excludes that call. Neither storage nor display escapes Hero.
+struct Pixels(UnsafeCell<Vec<u16>>);
+struct Lcd {
+    pixels: Rc<Pixels>,
+    damage: Rc<RefCell<Vec<DamageRect>>>,
+}
+impl DisplayOutput for Lcd {
+    type Token = ();
+    fn descriptor(&self) -> DisplayDescriptor {
+        let mut descriptor = DisplayDescriptor::new(
+            DisplayRole::Primary,
+            WIDTH as u32,
+            HEIGHT as u32,
+            PixelFormat::Rgb565,
+            WIDTH * 2,
+            TargetOwnership::CpuVisible,
+        );
+        descriptor.partial_refresh = true;
+        descriptor
+    }
+    fn frame_identity(&mut self) -> Result<Option<BufferIdentity>, DisplayError> {
+        Ok(Some(BufferIdentity {
+            buffer: 1,
+            generation: 0,
+        }))
+    }
+    fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+        if region.width == 0
+            || region.height == 0
+            || region
+                .x
+                .checked_add(region.width)
+                .is_none_or(|end| end > WIDTH as u32)
+            || region
+                .y
+                .checked_add(region.height)
+                .is_none_or(|end| end > HEIGHT as u32)
+        {
+            return Err(DisplayError::InvalidTarget);
+        }
+        let offset = region.y as usize * WIDTH + region.x as usize;
+        let pixels = unsafe { &mut *self.pixels.0.get() };
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(
+                pixels.as_mut_ptr().add(offset).cast(),
+                (pixels.len() - offset) * 2,
+            )
+        };
+        Ok(Target::CpuVisible(Surface::new(
+            bytes,
+            region,
+            WIDTH * 2,
+            PixelFormat::Rgb565,
+        )?))
+    }
+    fn flush(&mut self, regions: &[Rect]) -> Result<(), DisplayError> {
+        self.damage
+            .borrow_mut()
+            .extend(regions.iter().map(|r| DamageRect {
+                x0: r.x as i32,
+                y0: r.y as i32,
+                x1: (r.x + r.width) as i32,
+                y1: (r.y + r.height) as i32,
+            }));
+        Ok(())
+    }
+    fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+        Ok(())
+    }
+    fn vsync(&mut self) -> VsyncSource {
+        VsyncSource::None
+    }
 }
 
 pub struct Hero {
-    pub app: Box<App>,
-    pixels: Vec<u16>,
-    tracker: DamageTracker<MAX_REGIONS>,
+    runtime: Runtime,
+    app: AppState<Box<App>>,
+    buttons: Rc<Cell<u32>>,
+    pixels: Rc<Pixels>,
+    flushed: Rc<RefCell<Vec<DamageRect>>>,
     damage: [DamageRect; MAX_REGIONS],
     damage_len: usize,
 }
-
 impl Hero {
     pub fn new() -> Self {
+        let profile = br#"{"capabilities":[],"display":{"logicalViewports":[[176,132]],"physicalViewport":[176,132],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"ipodnano","platform":"rockbox","tickHz":30}"#;
+        let mut runtime = Runtime::new(RuntimeConfig {
+            profile_hash: pocket_package::sha256::sha256(profile),
+            profile_json: profile.to_vec(),
+            host_abi: 1,
+            tick_hz: TICK_HZ,
+            heap_limit: 4 * 1024 * 1024,
+            frame_buffer_budget: WIDTH * HEIGHT * 2,
+        })
+        .unwrap();
+        let (guest, app) = AotGuest::<Box<App>>::new();
+        runtime.set_guest(Box::new(guest)).unwrap();
+        let buttons = Rc::new(Cell::new(0));
+        runtime
+            .add_input_source(Box::new(Buttons(buttons.clone())))
+            .unwrap();
+        let pixels = Rc::new(Pixels(UnsafeCell::new(vec![0; WIDTH * HEIGHT])));
+        let flushed = Rc::new(RefCell::new(Vec::new()));
+        runtime
+            .add_display(
+                Lcd {
+                    pixels: pixels.clone(),
+                    damage: flushed.clone(),
+                },
+                RendererId::SOFTWARE,
+            )
+            .unwrap();
+        runtime
+            .boot_aot_deferred(
+                pocket_package::sha256::sha256(profile),
+                [WIDTH as u32, HEIGHT as u32],
+                false,
+            )
+            .unwrap();
+        runtime.skip_presentation().unwrap();
         Self {
-            app: mount(),
-            pixels: vec![0; WIDTH * HEIGHT],
-            tracker: DamageTracker::new(),
+            runtime,
+            app,
+            buttons,
+            pixels,
+            flushed,
             damage: [DamageRect::empty(); MAX_REGIONS],
             damage_len: 0,
         }
     }
-
-    /// One 30 Hz tick: model, layout, DrawList, then the changed pixels.
+    /// One 30 Hz guest turn, one core tick and a terminal presentation.
     pub fn frame(&mut self, rockbox_buttons: u32) -> &[DamageRect] {
-        self.app.frame(&Input::buttons(buttons(rockbox_buttons)));
-        let core = self.app.ui_mut().core_mut();
-        core.draw();
-        let plan = raster::render_scaled_rgb565_incremental(
-            core,
-            &core.current_draw_list().words,
-            &mut self.pixels,
-            1,
-            &mut self.tracker,
-            DamagePolicy::default(),
-        )
-        .expect("DrawList damage plan");
-        self.damage_len = plan.region_count();
-        self.damage[..self.damage_len].copy_from_slice(plan.regions());
+        self.buttons.set(buttons(rockbox_buttons));
+        self.flushed.borrow_mut().clear();
+        self.runtime.tick().expect("AOT Runtime frame");
+        let damage = self.flushed.borrow();
+        if damage.len() > MAX_REGIONS {
+            self.damage[0] = DamageRect {
+                x0: 0,
+                y0: 0,
+                x1: WIDTH as i32,
+                y1: HEIGHT as i32,
+            };
+            self.damage_len = 1;
+        } else {
+            self.damage_len = damage.len();
+            self.damage[..self.damage_len].copy_from_slice(&damage);
+        }
         &self.damage[..self.damage_len]
     }
-
     pub fn pixels(&self) -> &[u16] {
-        &self.pixels
+        unsafe { &*self.pixels.0.get() }
     }
-
     pub fn count(&self) -> i32 {
-        self.app.model.count()
+        self.app.borrow().as_ref().unwrap().model.count()
+    }
+    #[cfg(feature = "counters")]
+    pub fn assert_layout(&self) {
+        let mut state = self.app.borrow_mut();
+        let mismatches = state
+            .as_mut()
+            .unwrap()
+            .ui_mut()
+            .core_mut()
+            .layout_mismatches();
+        assert!(
+            mismatches.is_empty(),
+            "baked layout differs from full-tree solve: {mismatches:?}"
+        );
     }
 }
 
@@ -208,15 +355,23 @@ mod rockbox {
         let damage = hero.frame(buttons);
         let rects = core::slice::from_raw_parts_mut(rects, MAX_REGIONS * 4);
         for (index, rect) in damage.iter().enumerate() {
-            rects[index * 4..index * 4 + 4]
-                .copy_from_slice(&[rect.x0, rect.y0, rect.x1 - rect.x0, rect.y1 - rect.y0]);
+            rects[index * 4..index * 4 + 4].copy_from_slice(&[
+                rect.x0,
+                rect.y0,
+                rect.x1 - rect.x0,
+                rect.y1 - rect.y0,
+            ]);
         }
         damage.len() as i32
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn pockethero_pixels() -> *const u16 {
-        (*core::ptr::addr_of!(HERO)).as_ref().unwrap().pixels().as_ptr()
+        (*core::ptr::addr_of!(HERO))
+            .as_ref()
+            .unwrap()
+            .pixels()
+            .as_ptr()
     }
 
     #[no_mangle]
@@ -229,10 +384,9 @@ mod rockbox {
         PEAK as u32
     }
 
-    /// Drops the app without running destructors: the heap is the audio
-    /// buffer, which Rockbox reclaims when the plugin returns.
+    /// Stop the guest and drop Runtime while the audio-buffer heap is valid.
     #[no_mangle]
     pub unsafe extern "C" fn pockethero_stop() {
-        core::mem::forget((*core::ptr::addr_of_mut!(HERO)).take());
+        drop((*core::ptr::addr_of_mut!(HERO)).take());
     }
 }

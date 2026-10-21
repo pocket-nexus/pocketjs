@@ -12,6 +12,7 @@ pub struct RuntimeConfig {
     pub host_abi: u32,
     pub tick_hz: u32,
     pub heap_limit: usize,
+    /// CPU framebuffer bytes across all outputs; zero requires device-owned targets.
     pub frame_buffer_budget: usize,
     pub profile_json: Vec<u8>,
 }
@@ -49,11 +50,7 @@ fn viewports(value: &Value) -> Result<Vec<[u32; 2]>, RuntimeError> {
 
 impl RuntimeConfig {
     pub(crate) fn profile(&self) -> Result<Profile, RuntimeError> {
-        if !(1..=240).contains(&self.tick_hz)
-            || self.host_abi == 0
-            || self.heap_limit == 0
-            || self.frame_buffer_budget == 0
-        {
+        if !(1..=240).contains(&self.tick_hz) || self.host_abi == 0 || self.heap_limit == 0 {
             return Err(RuntimeError::InvalidConfiguration);
         }
         // The caller supplies canonical projection bytes from profile export.

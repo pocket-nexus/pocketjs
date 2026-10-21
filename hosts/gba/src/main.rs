@@ -1,16 +1,23 @@
 #![no_std]
 #![no_main]
-#![feature(alloc_error_handler)]
 
 extern crate alloc;
 
+use alloc::{boxed::Box, rc::Rc};
+use core::cell::Cell;
 use core::{
     alloc::{GlobalAlloc, Layout},
     cell::UnsafeCell,
     ptr::{addr_of_mut, read_volatile, write_volatile},
 };
 use linked_list_allocator::Heap;
-use microts::{Input, Ui};
+use microts::{
+    runtime::{AotApp, AotGuest},
+    Input, Ui,
+};
+use pocket_drivers::{InputClasses, InputFrameBuilder, InputSource};
+use pocket_runtime::{GuestEnvironment, GuestFrame, Runtime, RuntimeConfig, RuntimeError};
+mod presentation;
 mod scene;
 include!(concat!(env!("GBA_GENERATED"), "/include.rs"));
 core::arch::global_asm!(include_str!("start.s"));
@@ -40,7 +47,7 @@ unsafe impl GlobalAlloc for Allocator {
         let heap = &mut *self.0.get();
         let result = heap
             .allocate_first_fit(layout)
-            .map_or(core::ptr::null_mut(), |p| p.as_ptr());
+            .map_or_else(|_| fail(5), |p| p.as_ptr());
         diag(8, heap.used() as u32);
         diag(9, diagnostic(9).max(heap.used() as u32));
         result
@@ -91,27 +98,39 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     fail(1)
 }
 
-#[alloc_error_handler]
-fn out_of_memory(_: Layout) -> ! {
-    fail(5)
+type App = generated::AppApp<generated::AppModel>;
+impl AotApp for Box<App> {
+    #[inline(never)]
+    fn mount(mut ui: Ui, environment: &GuestEnvironment<'_>) -> Result<Self, RuntimeError> {
+        assert_eq!(environment.viewport, [240, 160]);
+        assert_eq!(environment.tick_hz, 30);
+        assert!(ui.load_styles(include_bytes!(concat!(
+            env!("GBA_GENERATED"),
+            "/styles.bin"
+        ))));
+        // Pixels are consumed by the offline BG/OBJ bake.
+        let mut app = Box::new(App::new(
+            ui,
+            generated::AppProps {},
+            generated::AppModel::default(),
+        ));
+        let first = app.ui().initial_focus();
+        app.ui_mut().set_focus(first);
+        Ok(app)
+    }
+    fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+        App::frame(self, &Input::buttons(frame.buttons));
+        Ok(())
+    }
 }
-
-// Keep construction temporaries out of the rendering loop's stack frame.
-#[inline(never)]
-fn mount() -> alloc::boxed::Box<generated::AppApp<generated::AppModel>> {
-    let mut ui = Ui::new();
-    ui.core_mut().set_viewport(240.0, 160.0);
-    assert!(ui.core_mut().set_tick_rate(30));
-    assert!(ui.load_styles(include_bytes!(concat!(
-        env!("GBA_GENERATED"),
-        "/styles.bin"
-    ))));
-    // Font pixels and metrics are consumed by the offline bake, not this presenter.
-    alloc::boxed::Box::new(generated::AppApp::new(
-        ui,
-        generated::AppProps {},
-        generated::AppModel::default(),
-    ))
+struct Buttons(Rc<Cell<u32>>);
+impl InputSource for Buttons {
+    fn classes(&self) -> InputClasses {
+        InputClasses::BUTTONS
+    }
+    fn poll(&mut self, frame: &mut InputFrameBuilder) {
+        frame.buttons |= self.0.get();
+    }
 }
 
 #[no_mangle]
@@ -141,12 +160,38 @@ pub unsafe extern "C" fn gba_main() -> ! {
     reg(0x04000104, 0);
     reg(0x04000106, 0x84);
     reg(0x04000102, 0x80);
-    let mut app = mount();
-    let first = app.ui().initial_focus();
-    app.ui_mut().set_focus(first);
-    let mut scene = alloc::boxed::Box::new(scene::Scene::new(app.ui()));
+    let profile = br#"{"capabilities":[],"display":{"logicalViewports":[[240,160]],"physicalViewport":[240,160],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"gba","platform":"gba","tickHz":30}"#;
+    let hash = pocket_package::sha256::sha256(profile);
+    let mut runtime = Runtime::new(RuntimeConfig {
+        profile_hash: hash,
+        profile_json: profile.to_vec(),
+        host_abi: 1,
+        tick_hz: 30,
+        heap_limit: length,
+        frame_buffer_budget: 0,
+    })
+    .unwrap();
+    let (guest, app) = AotGuest::<Box<App>>::new();
+    runtime.set_guest(Box::new(guest)).unwrap();
+    let input = Rc::new(Cell::new(0));
+    runtime
+        .add_input_source(Box::new(Buttons(input.clone())))
+        .unwrap();
+    let frame = presentation::PreparedFrame::new();
+    let renderer = runtime
+        .add_renderer(presentation::CompiledRenderer(frame.clone()))
+        .unwrap();
+    runtime
+        .add_display(presentation::Lcd(frame.clone()), renderer)
+        .unwrap();
+    runtime.boot_aot_deferred(hash, [240, 160], false).unwrap();
+    runtime.skip_presentation().unwrap();
+    let mut scene = Box::new(scene::Scene::new(
+        app.borrow().as_ref().unwrap().ui(),
+        frame.clone(),
+    ));
+    frame.borrow_mut().deadline = diagnostic(4).wrapping_add(2);
     diag(2, 2);
-    let mut deadline = diagnostic(4) + 2;
     let mut keys = 0;
     loop {
         let begin = cycles();
@@ -169,10 +214,17 @@ pub unsafe extern "C" fn gba_main() -> ! {
         if keys & 0x80 != 0 {
             buttons |= microts::spec::btn::DOWN;
         }
-        app.frame(&Input::buttons(buttons));
+        input.set(buttons);
+        runtime.advance().unwrap();
         let model_end = cycles();
-        diag(10, app.model.count() as u32);
-        scene.update(app.ui());
+        {
+            let mut state = app.borrow_mut();
+            let app = state.as_mut().unwrap();
+            diag(10, app.model.count() as u32);
+            app.ui_mut().core_mut().draw();
+            scene.update(app.ui());
+        }
+        scene.prepare();
         // Words 28.. publish each layer's state in plan order (branch index,
         // visibility, size value, color bits, glyph count).
         for (index, value) in scene.state.iter().enumerate().take(16) {
@@ -199,21 +251,8 @@ pub unsafe extern "C" fn gba_main() -> ! {
         diag(5, end.wrapping_sub(begin));
         diag(6, diagnostic(6).max(end.wrapping_sub(begin)));
         diag(12, scene::art::OAM_SLOTS_USED as u32);
-        // Always wait for a future VBlank edge, including an overrun.
-        if diagnostic(4).wrapping_sub(deadline) as i32 >= 0 {
-            diag(7, diagnostic(7).wrapping_add(1));
-            deadline = diagnostic(4).wrapping_add(1);
-        }
-        while (diagnostic(4).wrapping_sub(deadline) as i32) < 0 {
-            core::hint::spin_loop();
-        }
-        let transfer_begin = cycles();
-        let transferred = scene.present() as u32;
-        diag(19, cycles().wrapping_sub(transfer_begin));
-        diag(26, transferred);
-        diag(27, diagnostic(27).max(transferred));
+        runtime.present().unwrap();
         diag(3, diagnostic(3) + 1);
         diag(2, 3);
-        deadline = deadline.wrapping_add(2);
     }
 }

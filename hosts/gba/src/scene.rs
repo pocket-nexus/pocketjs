@@ -6,8 +6,11 @@
 //! the text run — picks the frame, uploads it when it changed, and places the
 //! sprites at the crop origin plus the root's translate.
 
+use crate::presentation::PreparedFrame;
+use alloc::rc::Rc;
+use core::cell::RefCell;
 use microts::{NodeId, Ui};
-use pocketjs_gba::video::{Background, OamBuffer, Presenter, Sprite, SpriteShape};
+use pocketjs_gba::video::{Background, Presenter, Sprite, SpriteShape};
 
 /// One sprite layer (see hosts/gba/assets.ts for the field contract).
 pub struct Layer {
@@ -58,8 +61,7 @@ pub const KIND_TEXT: u8 = 4;
 const NONE: usize = usize::MAX;
 
 pub struct Scene {
-    presenter: Presenter,
-    oam: OamBuffer,
+    frame: Rc<RefCell<PreparedFrame>>,
     /// Layer root and probed node ids, in `art::LAYERS` order.
     roots: [NodeId; art::LAYERS.len()],
     probes: [NodeId; art::LAYERS.len()],
@@ -89,7 +91,7 @@ impl Scene {
     ///
     /// # Safety
     /// Call once during forced blank with exclusive access to DMA3 and OAM.
-    pub unsafe fn new(ui: &Ui) -> Self {
+    pub unsafe fn new(ui: &Ui, frame: Rc<RefCell<PreparedFrame>>) -> Self {
         const _: () = assert!(art::OBJ_VRAM_WORDS * 2 <= pocketjs_gba::video::OBJ_TILE_BYTES);
         const _: () = assert!(art::OAM_SLOTS_USED <= pocketjs_gba::video::OAM_SLOTS);
         let mut presenter = Presenter::initialize(
@@ -121,9 +123,9 @@ impl Scene {
                 }
             }
         }
+        frame.borrow_mut().presenter = Some(presenter);
         Self {
-            presenter,
-            oam: OamBuffer::new(),
+            frame,
             roots,
             probes,
             resident: [NONE; art::LAYERS.len()],
@@ -151,11 +153,21 @@ impl Scene {
     /// Uploads happen in `present`, during VBlank.
     pub fn update(&mut self, ui: &Ui) {
         let core = ui.core();
+        let mut prepared = self.frame.borrow_mut();
+        prepared.words.clear();
+        prepared
+            .words
+            .extend_from_slice(&core.current_draw_list().words);
+        prepared.revision = core.raster_revision();
         for (index, layer) in art::LAYERS.iter().enumerate() {
             let root = self.roots[index];
             let probe = self.probes[index];
             let style = core.resolved_style(root.0).unwrap();
-            let (dx, dy) = if layer.translate { (style.translate_x as i32, style.translate_y as i32) } else { (0, 0) };
+            let (dx, dy) = if layer.translate {
+                (style.translate_x as i32, style.translate_y as i32)
+            } else {
+                (0, 0)
+            };
             let origin = (i32::from(layer.crop[0]) + dx, i32::from(layer.crop[1]) + dy);
             let shape = Self::shape(layer);
             let objects = usize::from(layer.columns) * usize::from(layer.rows);
@@ -209,7 +221,8 @@ impl Scene {
                             [0, 8, 16]
                                 .iter()
                                 .map(|shift| {
-                                    let d = ((color >> shift) & 255) as i32 - ((sample >> shift) & 255) as i32;
+                                    let d = ((color >> shift) & 255) as i32
+                                        - ((sample >> shift) & 255) as i32;
                                     d * d
                                 })
                                 .sum::<i32>()
@@ -227,10 +240,12 @@ impl Scene {
                         if placed >= usize::from(layer.max_glyphs) {
                             break;
                         }
-                        let Some(frame) = layer.keys.iter().position(|&key| key == glyph as u32) else {
+                        let Some(frame) = layer.keys.iter().position(|&key| key == glyph as u32)
+                        else {
                             continue;
                         };
-                        self.oam
+                        prepared
+                            .oam
                             .set_patch(
                                 first + placed * objects,
                                 Sprite {
@@ -248,7 +263,7 @@ impl Scene {
                         placed += 1;
                     }
                     for slot in placed * objects..usize::from(layer.max_glyphs) * objects {
-                        self.oam.hide(first + slot).unwrap();
+                        prepared.oam.hide(first + slot).unwrap();
                     }
                     self.state[index] = placed as u32;
                     self.chosen[index] = NONE;
@@ -259,11 +274,12 @@ impl Scene {
             self.chosen[index] = chosen;
             if chosen == NONE || origin.0 >= 240 || origin.0 + i32::from(layer.crop[2]) <= 0 {
                 for slot in 0..objects {
-                    self.oam.hide(first + slot).unwrap();
+                    prepared.oam.hide(first + slot).unwrap();
                 }
                 continue;
             }
-            self.oam
+            prepared
+                .oam
                 .set_patch(
                     first,
                     Sprite {
@@ -280,25 +296,21 @@ impl Scene {
         }
     }
 
-    /// Upload changed frames and the dirty OAM range. Returns DMA bytes.
-    ///
-    /// # Safety
-    /// Call during VBlank with exclusive access to DMA3 and OAM.
-    pub unsafe fn present(&mut self) -> usize {
-        let mut bytes = 0;
+    /// Bind the baked uploads to the prepared DrawList. Runtime's renderer
+    /// validates that list before the LCD waits for VBlank and submits DMA.
+    pub fn prepare(&mut self) {
+        let mut frame = self.frame.borrow_mut();
+        frame.uploads.clear();
         for (index, layer) in art::LAYERS.iter().enumerate() {
             let chosen = self.chosen[index];
             if layer.kind == KIND_TEXT || chosen == NONE || chosen == self.resident[index] {
                 continue;
             }
-            bytes += self
-                .presenter
-                .upload_obj_tiles(usize::from(layer.vram_words), layer.frames[chosen])
-                .unwrap();
+            frame
+                .uploads
+                .push((usize::from(layer.vram_words), layer.frames[chosen]));
             self.resident[index] = chosen;
         }
-        bytes += self.presenter.present(&mut self.oam);
-        self.presenter.enable();
-        bytes
+        frame.prepared = true;
     }
 }

@@ -1,11 +1,12 @@
+use crate::core_handle::{CoreHandle, CoreRead, CoreWrite};
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     string::String,
     vec::Vec,
 };
 use pocketjs_core::{
+    spec::{btn, Display},
     Ui as CoreUi,
-    spec::{Display, btn},
 };
 
 #[repr(transparent)]
@@ -105,7 +106,7 @@ impl Input {
 
 /// Typed direct calls into `pocketjs_core::Ui`; no op stream or mirror tree.
 pub struct Ui {
-    core: CoreUi,
+    core: CoreHandle,
     focusable: BTreeSet<NodeId>,
     images: BTreeMap<String, i32>,
     image_assets: BTreeMap<NodeId, String>,
@@ -131,6 +132,9 @@ impl Ui {
         Self::from_core(CoreUi::new())
     }
     pub fn from_core(core: CoreUi) -> Self {
+        Self::with_core(CoreHandle::owned(core))
+    }
+    fn with_core(core: CoreHandle) -> Self {
         Self {
             core,
             focusable: BTreeSet::new(),
@@ -147,78 +151,97 @@ impl Ui {
             model_logs: Vec::new(),
         }
     }
-    pub fn core(&self) -> &CoreUi {
-        &self.core
+    /// Mount generated AOT views in the application's existing Runtime core.
+    #[cfg(feature = "runtime")]
+    pub fn from_runtime(context: pocket_runtime::OpContext) -> Self {
+        Self::with_core(CoreHandle::runtime(context))
     }
-    pub fn core_mut(&mut self) -> &mut CoreUi {
-        &mut self.core
+    pub fn core(&self) -> CoreRead<'_> {
+        self.core.read()
+    }
+    pub fn core_mut(&mut self) -> CoreWrite<'_> {
+        self.core.write()
     }
     pub fn into_core(self) -> CoreUi {
-        self.core
+        self.core.into_owned()
     }
     pub fn create_node(&mut self, kind: u8) -> NodeId {
-        NodeId(self.core.create_node(kind))
+        NodeId(self.core.write().create_node(kind))
     }
     pub fn insert_before(&mut self, parent: NodeId, child: NodeId, anchor: NodeId) {
-        self.core.insert_before(parent.0, child.0, anchor.0);
+        self.core.write().insert_before(parent.0, child.0, anchor.0);
     }
     pub fn remove_child(&mut self, parent: NodeId, child: NodeId) {
-        if self.core.node_parent(child.0) == parent.0 {
+        if self.core.read().node_parent(child.0) == parent.0 {
             self.repair_focus(child);
         }
-        self.core.remove_child(parent.0, child.0);
+        self.core.write().remove_child(parent.0, child.0);
     }
     pub fn destroy_node(&mut self, node: NodeId) {
-        if node == NodeId::ROOT || node.0 == self.core.auxiliary_surface_root() {
+        if node == NodeId::ROOT || node.0 == self.core.read().auxiliary_surface_root() {
             return;
         }
         self.repair_focus(node);
-        self.core.destroy_node(node.0);
-        self.focusable.retain(|id| self.core.node_exists(id.0));
-        self.debug_names.retain(|id, _| self.core.node_exists(id.0));
-        self.image_assets.retain(|id, _| self.core.node_exists(id.0));
-        if !self.core.node_exists(self.active.0) {
+        self.core.write().destroy_node(node.0);
+        self.focusable
+            .retain(|id| self.core.read().node_exists(id.0));
+        self.debug_names
+            .retain(|id, _| self.core.read().node_exists(id.0));
+        self.image_assets
+            .retain(|id, _| self.core.read().node_exists(id.0));
+        if !self.core.read().node_exists(self.active.0) {
             self.active = NodeId::NONE;
         }
     }
     pub fn set_style(&mut self, node: NodeId, style: StyleId) {
-        self.core.set_style(node.0, style.0);
+        self.core.write().set_style(node.0, style.0);
     }
     pub fn set_prop(&mut self, node: NodeId, prop: u8, value: f64) {
-        self.core.set_prop(node.0, prop, value);
+        self.core.write().set_prop(node.0, prop, value);
     }
     pub fn set_text(&mut self, node: NodeId, text: &str) {
-        self.core.set_text(node.0, text);
+        self.core.write().set_text(node.0, text);
     }
     /// The compiler proved this node's rect at build time: assign it and keep
     /// the subtree out of every solver projection.
     pub fn set_layout_static(&mut self, node: NodeId, x: f32, y: f32, w: f32, h: f32) {
         self.core
+            .write()
             .set_layout_mode(node.0, pocketjs_core::tree::LAYOUT_STATIC, x, y, w, h);
     }
     /// An absolutely positioned leaf whose rect follows its own inset and
     /// size without a solver pass.
     pub fn set_layout_formula(&mut self, node: NodeId) {
-        self.core
-            .set_layout_mode(node.0, pocketjs_core::tree::LAYOUT_FORMULA, 0.0, 0.0, 0.0, 0.0);
+        self.core.write().set_layout_mode(
+            node.0,
+            pocketjs_core::tree::LAYOUT_FORMULA,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        );
     }
     pub fn set_focus(&mut self, node: NodeId) {
         if self.active != node {
-            self.core.set_active(self.active.0, false);
+            self.core.write().set_active(self.active.0, false);
             self.active = NodeId::NONE;
         }
-        self.core.set_focus(node.0);
+        self.core.write().set_focus(node.0);
     }
     pub fn focused(&self) -> NodeId {
-        NodeId(self.core.focused())
+        NodeId(self.core.read().focused())
     }
     /// The focusable node mounted first (ids ascend in mount order). Native
     /// hosts without a focus policy of their own start here.
     pub fn initial_focus(&self) -> NodeId {
-        self.focusable.iter().next().copied().unwrap_or(NodeId::NONE)
+        self.focusable
+            .iter()
+            .next()
+            .copied()
+            .unwrap_or(NodeId::NONE)
     }
     pub fn set_focusable(&mut self, node: NodeId, enabled: bool) {
-        if enabled && self.core.node_exists(node.0) {
+        if enabled && self.core.read().node_exists(node.0) {
             self.focusable.insert(node);
         } else {
             self.focusable.remove(&node);
@@ -238,6 +261,7 @@ impl Ui {
     }
     pub fn set_image_asset(&mut self, node: NodeId, name: &str) {
         self.core
+            .write()
             .set_image(node.0, self.images.get(name).copied().unwrap_or(-1));
         self.image_assets.insert(node, name.into());
     }
@@ -248,14 +272,19 @@ impl Ui {
         self.image_assets.get(&node).map(String::as_str)
     }
     pub fn set_image(&mut self, node: NodeId, texture: i32) {
-        self.core.set_image(node.0, texture);
+        self.core.write().set_image(node.0, texture);
     }
     pub fn load_styles(&mut self, bytes: &[u8]) -> bool {
-        self.core.load_styles(bytes)
+        self.core.write().load_styles(bytes)
     }
     pub fn tick(&mut self) {
-        self.core.tick();
-        self.model_ticks = self.model_ticks.checked_add(1).expect("model clock exhausted");
+        if !self.core.runtime_owned() {
+            self.core.write().tick();
+        }
+        self.model_ticks = self
+            .model_ticks
+            .checked_add(1)
+            .expect("model clock exhausted");
     }
 
     /// Queue a typed service completion for the next model frame boundary.
@@ -269,64 +298,120 @@ impl Ui {
         self.model_services.dedup();
     }
     pub fn model_initial_ready(&self) -> crate::Ready {
-        crate::Ready { frame: self.model_frame, now_ms: self.model_ticks as f64 / self.core.tick_rate() as f64 * 1000.0, services: self.model_services.clone(), ..crate::Ready::default() }
+        crate::Ready {
+            frame: self.model_frame,
+            now_ms: self.model_ticks as f64 / self.core.read().tick_rate() as f64 * 1000.0,
+            services: self.model_services.clone(),
+            ..crate::Ready::default()
+        }
     }
     pub fn model_ready(&mut self) -> crate::Ready {
         use crate::model::{AnimationResult, Completion, Delivery};
         use pocketjs_core::anim::CompletionReason;
         let animations = &mut self.model_animations;
         let deliveries = &mut self.model_deliveries;
-        self.core.drain_animation_completions(|completion| {
+        self.core.write().drain_animation_completions(|completion| {
             if let Some(request) = animations.remove(&completion.id) {
                 let result = match completion.reason {
                     CompletionReason::Ended => AnimationResult::Ended,
                     CompletionReason::Replaced => AnimationResult::Replaced,
                     CompletionReason::Dropped => AnimationResult::Dropped,
                 };
-                deliveries.push(Delivery { request, result: Completion::Animation(result) });
+                deliveries.push(Delivery {
+                    request,
+                    result: Completion::Animation(result),
+                });
             }
         });
-        self.model_frame = self.model_frame.checked_add(1).expect("model frame identity exhausted");
-        crate::Ready { frame: self.model_frame, now_ms: self.model_ticks as f64 / self.core.tick_rate() as f64 * 1000.0, deliveries: core::mem::take(&mut self.model_deliveries), services: self.model_services.clone() }
+        self.model_frame = self
+            .model_frame
+            .checked_add(1)
+            .expect("model frame identity exhausted");
+        crate::Ready {
+            frame: self.model_frame,
+            now_ms: self.model_ticks as f64 / self.core.read().tick_rate() as f64 * 1000.0,
+            deliveries: core::mem::take(&mut self.model_deliveries),
+            services: self.model_services.clone(),
+        }
     }
     pub fn model_command(&mut self, command: crate::Cmd) {
         use crate::model::{AnimationResult, Cmd, Completion, Delivery, Value};
         match command {
-            Cmd::Animate { node, prop, to, dur, easing, delay, request } => {
-                let id = node.map(|node| self.core.animate(node.0, prop, to as f64, dur, easing, delay)).unwrap_or(-1);
+            Cmd::Animate {
+                node,
+                prop,
+                to,
+                dur,
+                easing,
+                delay,
+                request,
+            } => {
+                let id = node
+                    .map(|node| {
+                        self.core
+                            .write()
+                            .animate(node.0, prop, to as f64, dur, easing, delay)
+                    })
+                    .unwrap_or(-1);
                 if let Some(request) = request {
-                    if id > 0 { self.model_animations.insert(id, request); }
-                    else { self.model_deliveries.push(Delivery { request, result: Completion::Animation(AnimationResult::Dropped) }); }
+                    if id > 0 {
+                        self.model_animations.insert(id, request);
+                    } else {
+                        self.model_deliveries.push(Delivery {
+                            request,
+                            result: Completion::Animation(AnimationResult::Dropped),
+                        });
+                    }
                 }
             }
-            Cmd::Jump { node, prop, value } => if let Some(node) = node { self.core.set_prop(node.0, prop, value as f64); },
+            Cmd::Jump { node, prop, value } => {
+                if let Some(node) = node {
+                    self.core.write().set_prop(node.0, prop, value as f64);
+                }
+            }
             Cmd::Request { request, .. } => self.model_deliveries.push(Delivery {
-                request, result: Completion::Value(Value::Object(alloc::vec![(String::from("kind"), Value::String(String::from("unavailable")))])),
+                request,
+                result: Completion::Value(Value::Object(alloc::vec![(
+                    String::from("kind"),
+                    Value::String(String::from("unavailable"))
+                )])),
             }),
             Cmd::Cancel { request } => {
-                let animation = self.model_animations.iter().find_map(|(id, pending)| (*pending == request).then_some(*id));
+                let animation = self
+                    .model_animations
+                    .iter()
+                    .find_map(|(id, pending)| (*pending == request).then_some(*id));
                 // Cancelling a wait drops its listener, not the motion already submitted.
-                if let Some(id) = animation { self.model_animations.remove(&id); }
-                self.model_deliveries.retain(|delivery| delivery.request != request);
+                if let Some(id) = animation {
+                    self.model_animations.remove(&id);
+                }
+                self.model_deliveries
+                    .retain(|delivery| delivery.request != request);
             }
-            Cmd::Log(message) => { if cfg!(debug_assertions) { self.model_logs.push(message); } }
+            Cmd::Log(message) => {
+                if cfg!(debug_assertions) {
+                    self.model_logs.push(message);
+                }
+            }
         }
     }
     /// Development log messages delivered by model commands, consumed by the embedding host.
-    pub fn drain_model_logs(&mut self) -> impl Iterator<Item = String> + '_ { self.model_logs.drain(..) }
-
+    pub fn drain_model_logs(&mut self) -> impl Iterator<Item = String> + '_ {
+        self.model_logs.drain(..)
+    }
 
     fn next_node(&self, node: NodeId) -> NodeId {
-        if let Some(&child) = self.core.node_children(node.0).first() {
+        if let Some(&child) = self.core.read().node_children(node.0).first() {
             return NodeId(child);
         }
         let mut current = node;
         loop {
-            let parent = self.core.node_parent(current.0);
+            let parent = self.core.read().node_parent(current.0);
             if parent == 0 {
                 return NodeId::NONE;
             }
-            let children = self.core.node_children(parent);
+            let core = self.core.read();
+            let children = core.node_children(parent);
             if let Some(index) = children.iter().position(|&child| child == current.0) {
                 if let Some(&next) = children.get(index + 1) {
                     return NodeId(next);
@@ -342,7 +427,7 @@ impl Ui {
             if current == ancestor {
                 return true;
             }
-            current = NodeId(self.core.node_parent(current.0));
+            current = NodeId(self.core.read().node_parent(current.0));
         }
         false
     }
@@ -362,8 +447,9 @@ impl Ui {
         if !self.is_within(self.focused(), removed) {
             return;
         }
-        let parent = self.core.node_parent(removed.0);
-        let siblings = self.core.node_children(parent);
+        let parent = self.core.read().node_parent(removed.0);
+        let core = self.core.read();
+        let siblings = core.node_children(parent);
         let mut target = NodeId::NONE;
         if let Some(index) = siblings.iter().position(|&node| node == removed.0) {
             for &sibling in siblings[index + 1..]
@@ -383,9 +469,11 @@ impl Ui {
                     target = ancestor;
                     break;
                 }
-                ancestor = NodeId(self.core.node_parent(ancestor.0));
+                ancestor = NodeId(self.core.read().node_parent(ancestor.0));
             }
         }
+        #[cfg(feature = "runtime")]
+        drop(core);
         self.set_focus(target);
     }
 
@@ -394,6 +482,7 @@ impl Ui {
         while current != NodeId::NONE {
             if self
                 .core
+                .read()
                 .resolved_style(current.0)
                 .is_none_or(|style| style.display == Display::None as u8)
             {
@@ -402,7 +491,7 @@ impl Ui {
             if current == NodeId::ROOT {
                 return true;
             }
-            current = NodeId(self.core.node_parent(current.0));
+            current = NodeId(self.core.read().node_parent(current.0));
         }
         false
     }
@@ -432,9 +521,17 @@ impl Ui {
             current = self.next_node(current);
         }
         let target = if !found {
-            if forward { first } else { previous }
+            if forward {
+                first
+            } else {
+                previous
+            }
         } else if forward {
-            if next == NodeId::NONE { focused } else { next }
+            if next == NodeId::NONE {
+                focused
+            } else {
+                next
+            }
         } else if before_focus == NodeId::NONE {
             focused
         } else {
@@ -450,7 +547,7 @@ impl Ui {
         let released = input.released | (self.previous_buttons & !input.buttons);
         self.previous_buttons = input.buttons;
         if released & btn::CIRCLE != 0 {
-            self.core.set_active(self.active.0, false);
+            self.core.write().set_active(self.active.0, false);
             self.active = NodeId::NONE;
         }
         for (button, forward) in [
@@ -471,9 +568,9 @@ impl Ui {
             target = NodeId::NONE;
         }
         if target != NodeId::NONE {
-            self.core.set_active(self.active.0, false);
+            self.core.write().set_active(self.active.0, false);
             self.active = target;
-            self.core.set_active(target.0, true);
+            self.core.write().set_active(target.0, true);
         }
         Input {
             target,
@@ -496,7 +593,10 @@ mod input_tests {
     fn motion_state_survives_resolution_and_gates_on_quality() {
         let state = MotionState {
             timestamp: 1_000,
-            gravity_direction: MotionVector { value: [0.0, -1.0, 0.0], quality: quality::MEDIUM },
+            gravity_direction: MotionVector {
+                value: [0.0, -1.0, 0.0],
+                quality: quality::MEDIUM,
+            },
             ..MotionState::default()
         };
         let input = Input::default().with_motion(state);
@@ -506,19 +606,42 @@ mod input_tests {
         assert!(!input.has_motion(motion::ROTATION_RATE, quality::UNRELIABLE));
         let resolved = Ui::new().resolve_input(&input);
         let sample = resolved.motion_sample(motion::GRAVITY_DIRECTION, quality::LOW);
-        assert_eq!((sample.component(1), sample.quality(), sample.timestamp()), (-1.0, quality::MEDIUM, 1_000));
-        assert!(!Input::default().motion_sample(motion::GRAVITY_DIRECTION, quality::LOW).is_present());
+        assert_eq!(
+            (sample.component(1), sample.quality(), sample.timestamp()),
+            (-1.0, quality::MEDIUM, 1_000)
+        );
+        assert!(!Input::default()
+            .motion_sample(motion::GRAVITY_DIRECTION, quality::LOW)
+            .is_present());
     }
 }
 
 #[cfg(test)]
 mod model_tests {
     use super::*;
-    use crate::{Cmd, RequestId, TaskId};
     use crate::model::{AnimationResult, Completion};
-    fn request(wait: u32) -> RequestId { RequestId { task: TaskId { region: 1, function: 1, call: 1 }, wait, member: 0 } }
+    use crate::{Cmd, RequestId, TaskId};
+    fn request(wait: u32) -> RequestId {
+        RequestId {
+            task: TaskId {
+                region: 1,
+                function: 1,
+                call: 1,
+            },
+            wait,
+            member: 0,
+        }
+    }
     fn animate(ui: &mut Ui, node: Option<NodeId>, wait: u32) {
-        ui.model_command(Cmd::Animate { node, prop: pocketjs_core::spec::prop::WIDTH, to: 50.0, dur: 1, easing: 0, delay: 0, request: Some(request(wait)) });
+        ui.model_command(Cmd::Animate {
+            node,
+            prop: pocketjs_core::spec::prop::WIDTH,
+            to: 50.0,
+            dur: 1,
+            easing: 0,
+            delay: 0,
+            request: Some(request(wait)),
+        });
     }
     #[test]
     fn animation_deliveries_retain_request_identity_and_completion_reason() {
@@ -527,14 +650,26 @@ mod model_tests {
         ui.set_prop(node, pocketjs_core::spec::prop::WIDTH, 10.0);
         animate(&mut ui, Some(node), 1);
         ui.tick();
-        assert_eq!(ui.model_ready().delivery(request(1)), Some(&Completion::Animation(AnimationResult::Ended)));
+        assert_eq!(
+            ui.model_ready().delivery(request(1)),
+            Some(&Completion::Animation(AnimationResult::Ended))
+        );
         animate(&mut ui, Some(node), 2);
         animate(&mut ui, Some(node), 3);
-        assert_eq!(ui.model_ready().delivery(request(2)), Some(&Completion::Animation(AnimationResult::Replaced)));
+        assert_eq!(
+            ui.model_ready().delivery(request(2)),
+            Some(&Completion::Animation(AnimationResult::Replaced))
+        );
         ui.destroy_node(node);
-        assert_eq!(ui.model_ready().delivery(request(3)), Some(&Completion::Animation(AnimationResult::Dropped)));
+        assert_eq!(
+            ui.model_ready().delivery(request(3)),
+            Some(&Completion::Animation(AnimationResult::Dropped))
+        );
         animate(&mut ui, None, 4);
-        assert_eq!(ui.model_ready().delivery(request(4)), Some(&Completion::Animation(AnimationResult::Dropped)));
+        assert_eq!(
+            ui.model_ready().delivery(request(4)),
+            Some(&Completion::Animation(AnimationResult::Dropped))
+        );
         assert!(ui.model_ready().deliveries.is_empty());
     }
     #[test]
@@ -542,13 +677,27 @@ mod model_tests {
         let mut ui = Ui::new();
         let node = ui.create_node(pocketjs_core::spec::NodeType::View as u8);
         ui.set_prop(node, pocketjs_core::spec::prop::WIDTH, 10.0);
-        ui.model_command(Cmd::Animate { node: Some(node), prop: pocketjs_core::spec::prop::WIDTH, to: 50.0, dur: 1000, easing: 0, delay: 0, request: Some(request(1)) });
-        for _ in 0..6 { ui.tick(); }
+        ui.model_command(Cmd::Animate {
+            node: Some(node),
+            prop: pocketjs_core::spec::prop::WIDTH,
+            to: 50.0,
+            dur: 1000,
+            easing: 0,
+            delay: 0,
+            request: Some(request(1)),
+        });
+        for _ in 0..6 {
+            ui.tick();
+        }
         let before_cancel = ui.core().resolved_style(node.0).unwrap().width;
         assert!(before_cancel > 10.0 && before_cancel < 50.0);
         assert!(ui.model_ready().deliveries.is_empty());
-        ui.model_command(Cmd::Cancel { request: request(1) });
-        for _ in 0..6 { ui.tick(); }
+        ui.model_command(Cmd::Cancel {
+            request: request(1),
+        });
+        for _ in 0..6 {
+            ui.tick();
+        }
         assert!(ui.core().resolved_style(node.0).unwrap().width > before_cancel);
         for _ in 0..60 {
             ui.tick();
@@ -569,7 +718,9 @@ mod model_tests {
     #[test]
     fn model_time_has_no_accumulated_fractional_tick_drift() {
         let mut ui = Ui::new();
-        for _ in 0..60 { ui.tick(); }
+        for _ in 0..60 {
+            ui.tick();
+        }
         assert_eq!(ui.model_ready().now_ms, 1000.0);
     }
     #[test]
@@ -578,28 +729,47 @@ mod model_tests {
         let node = ui.create_node(pocketjs_core::spec::NodeType::View as u8);
         ui.set_prop(node, pocketjs_core::spec::prop::WIDTH, 10.0);
         animate(&mut ui, Some(node), 1);
-        ui.model_command(Cmd::Jump { node: Some(node), prop: pocketjs_core::spec::prop::WIDTH, value: 20.0 });
+        ui.model_command(Cmd::Jump {
+            node: Some(node),
+            prop: pocketjs_core::spec::prop::WIDTH,
+            value: 20.0,
+        });
         animate(&mut ui, Some(node), 2);
         let ready = ui.model_ready();
-        assert_eq!(ready.delivery(request(1)), Some(&Completion::Animation(AnimationResult::Replaced)));
+        assert_eq!(
+            ready.delivery(request(1)),
+            Some(&Completion::Animation(AnimationResult::Replaced))
+        );
         assert_eq!(ready.delivery(request(2)), None);
         ui.tick();
         let ready = ui.model_ready();
         assert_eq!(ready.delivery(request(1)), None);
-        assert_eq!(ready.delivery(request(2)), Some(&Completion::Animation(AnimationResult::Ended)));
+        assert_eq!(
+            ready.delivery(request(2)),
+            Some(&Completion::Animation(AnimationResult::Ended))
+        );
     }
     #[test]
     fn readiness_owns_one_boundarys_deliveries_and_declared_capabilities() {
         use crate::model::{Delivery, Value};
         let mut ui = Ui::new();
         ui.set_model_services([String::from("net"), String::from("net")]);
-        ui.queue_model_delivery(Delivery { request: request(1), result: Completion::Value(Value::I32(3)) });
+        ui.queue_model_delivery(Delivery {
+            request: request(1),
+            result: Completion::Value(Value::I32(3)),
+        });
         let first = ui.model_ready();
-        ui.queue_model_delivery(Delivery { request: request(2), result: Completion::Value(Value::I32(4)) });
+        ui.queue_model_delivery(Delivery {
+            request: request(2),
+            result: Completion::Value(Value::I32(4)),
+        });
         assert_eq!(first.services, alloc::vec![String::from("net")]);
         assert_eq!(first.deliveries.len(), 1);
         assert!(first.delivery(request(2)).is_none());
-        assert_eq!(ui.model_ready().delivery(request(2)), Some(&Completion::Value(Value::I32(4))));
+        assert_eq!(
+            ui.model_ready().delivery(request(2)),
+            Some(&Completion::Value(Value::I32(4)))
+        );
         assert!(ui.model_ready().deliveries.is_empty());
     }
 }

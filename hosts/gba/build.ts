@@ -64,7 +64,7 @@ async function main() {
   const fonts = await bakeAtlases({ codepoints: [], slots: analyzeAot(entry, { strict: true }).styles.usedFontSlots });
   const wasm = resolve(root, "hosts/web/pocketjs.wasm");
   const wasmBuild = Bun.spawnSync([process.execPath, resolve(root, "tools/wasm.ts")], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (wasmBuild.exitCode !== 0) throw new Error(`pocketjs.wasm build failed: ${wasmBuild.stderr.toString()}`);
+  if (!wasmBuild.success) throw new Error(`pocketjs.wasm build failed: ${wasmBuild.stderr.toString()}`);
   // Optional per-layer declarations (size ranges, glyph sets, text lengths)
   // the recipes cannot infer from literals and types.
   const declarationsPath = resolve(root, "apps/gba-hero/gba-layers.json");
@@ -100,6 +100,7 @@ async function main() {
   if (await child.exited !== 0) throw new Error("GBA Rust build failed");
   const elf = readFileSync(resolve(out, "target/thumbv4t-none-eabi/release/gba-hero"));
   const rom = gbaRom(elf);
+  if (rom.length <= assets.frameBytes) throw new Error("GBA ELF omitted the compiled scene assets; inspect a constant boot failure before accepting this build");
   writeFileSync(resolve(out, "gba-hero.elf"), elf);
   writeFileSync(resolve(out, "gba-hero.gba"), rom);
   const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");

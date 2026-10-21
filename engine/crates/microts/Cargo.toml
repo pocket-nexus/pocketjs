@@ -10,6 +10,7 @@ description = "MicroTS AOT models and views over the PocketJS retained UI"
 pocketjs-core = { path = "../../core", default-features = false }
 ryu-js = { version = "1.0.3", default-features = false }
 libm = "0.2"
+pocket-runtime = { path = "../../runtime", optional = true }
 heapless = "0.8"
 
 [target.'cfg(not(target_has_atomic = "32"))'.dependencies]
@@ -18,7 +19,13 @@ portable-atomic = { version = "1.3", default-features = false, features = ["requ
 
 [features]
 default = []
+# Share the canonical instance core and let Runtime own core ticks.
+runtime = ["dep:pocket-runtime"]
 # Layout work counters and the full-tree layout oracle (`Ui::layout_mismatches`).
 counters = ["pocketjs-core/counters"]
 model-trace = []
 critical-section = ["portable-atomic/critical-section"]
+
+[dev-dependencies]
+pocket-drivers = { path = "../../drivers" }
+pocket-package = { path = "../../package" }

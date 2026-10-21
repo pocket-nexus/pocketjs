@@ -436,14 +436,7 @@ impl Runtime {
         self.configuring()?;
         Ok(self.presenter.add_display(display, renderer)?)
     }
-    pub fn boot(&mut self) -> Result<(), RuntimeError> {
-        self.boot_deferred()?;
-        self.present()
-    }
-    /// Admit and evaluate the package without presenting its initial tree.
-    /// The program must call `present` before advancing the first guest frame.
-    /// This allows a native scene to be established before its UI overlay.
-    pub fn boot_deferred(&mut self) -> Result<(), RuntimeError> {
+    fn validate_boot_drivers(&self) -> Result<(), RuntimeError> {
         self.configuring()?;
         if self.guest.is_none() {
             return Err(RuntimeError::MissingGuest);
@@ -480,6 +473,90 @@ impl Runtime {
         if !classes.contains(self.profile.required_inputs) {
             return Err(RuntimeError::MissingInput);
         }
+        Ok(())
+    }
+    /// Start code and assets linked into an AOT program. No package source or
+    /// JavaScript payload is read. The generated artifact's profile hash must
+    /// match this instance, and its viewport must be declared by that profile.
+    /// Presentation is deferred until `present` or `skip_presentation`.
+    pub fn boot_aot_deferred(
+        &mut self,
+        profile_hash: [u8; 32],
+        viewport: [u32; 2],
+        physics: bool,
+    ) -> Result<(), RuntimeError> {
+        self.validate_boot_drivers()?;
+        if profile_hash != self.config.profile_hash
+            || !self.profile.logical_viewports.contains(&viewport)
+            || self.source.is_some()
+        {
+            return Err(RuntimeError::ProfileMismatch);
+        }
+        let scale = self.profile.viewport[0] / viewport[0];
+        if !(1..=4).contains(&scale)
+            || self.profile.viewport != [viewport[0] * scale, viewport[1] * scale]
+        {
+            return Err(RuntimeError::ProfileMismatch);
+        }
+        let auxiliary_viewport = self
+            .profile
+            .auxiliary
+            .map(|physical| {
+                self.profile
+                    .auxiliary_logical
+                    .iter()
+                    .copied()
+                    .find(|size| physical == [size[0] * scale, size[1] * scale])
+                    .ok_or(RuntimeError::ProfileMismatch)
+            })
+            .transpose()?;
+        self.presenter.set_scale(scale)?;
+        let auxiliary_root = {
+            let mut state = self.ops.core_mut()?;
+            state
+                .ui
+                .set_viewport(viewport[0] as f32, viewport[1] as f32);
+            state.physics = physics;
+            if let Some(aux) = auxiliary_viewport {
+                state
+                    .ui
+                    .create_auxiliary_surface(aux[0] as f32, aux[1] as f32);
+            }
+            state.ui.auxiliary_surface_root()
+        };
+        let environment = GuestEnvironment {
+            host: &self.profile.id,
+            host_abi: self.config.host_abi,
+            tick_hz: self.config.tick_hz,
+            viewport,
+            auxiliary_viewport,
+            auxiliary_root,
+            raster_density: self.profile.density,
+            heap_limit: self.config.heap_limit,
+            pak: &[],
+            assets: None,
+        };
+        let guest = self.guest.as_mut().unwrap();
+        self.guest_initialized = true;
+        if let Err(error) = guest.initialize(self.ops.clone(), &environment) {
+            self.state = State::Failed;
+            guest.shutdown();
+            self.guest_initialized = false;
+            return Err(error);
+        }
+        self.state = State::Running;
+        self.pending_frame = true;
+        Ok(())
+    }
+    pub fn boot(&mut self) -> Result<(), RuntimeError> {
+        self.boot_deferred()?;
+        self.present()
+    }
+    /// Admit and evaluate the package without presenting its initial tree.
+    /// The program must call `present` before advancing the first guest frame.
+    /// This allows a native scene to be established before its UI overlay.
+    pub fn boot_deferred(&mut self) -> Result<(), RuntimeError> {
+        self.validate_boot_drivers()?;
         let source = self.source.as_mut().ok_or(RuntimeError::MissingPackage)?;
         let package = Rc::new(
             LoadedPackage::load(

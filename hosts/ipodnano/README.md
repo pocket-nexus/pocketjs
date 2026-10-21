@@ -12,7 +12,7 @@ This experimental host builds the 176 × 132 [`apps/ipodnano-hero`](../../apps/i
 | Plugin buffer | 512 KiB |
 | Main thread stack | 8 KiB in IRAM |
 
-**The app is 786 KB (419 KB code, 366 KB read-only data, of which 333 KB are font atlases and images), so it does not fit the plugin buffer.** `pockethero.rock` is a 1.2 KB launcher that calls Rockbox's `run_overlay`; `pockethero.ovl` is linked at the top of the audio buffer, the layout Rockbox uses for Duke3D and Quake. The overlay takes the audio buffer below its load address: a 128 KiB stack at the top, because the 8 KiB main stack does not hold a layout solve, and a heap under it. Audio playback stops while the plugin runs.
+The pre-Runtime build measured 786 KB (419 KB code, 366 KB read-only data, including 333 KB of font atlases and images). **The program uses an overlay because its linked code and assets exceed the plugin buffer.** `pockethero.rock` is a 1.2 KB launcher that calls Rockbox's `run_overlay`; `pockethero.ovl` is linked at the top of the audio buffer, the layout Rockbox uses for Duke3D and Quake. The overlay takes the audio buffer below its load address: a 128 KiB stack at the top, because the 8 KiB main stack does not hold a layout solve, and a heap under it. Audio playback stops while the plugin runs.
 
 **A plugin runs only on the Rockbox build whose plugin API it was compiled against.** Build against the source revision named by `Version:` in the iPod's `.rockbox/rockbox-info.txt`; `--install` refuses a volume whose version differs.
 
@@ -61,13 +61,13 @@ Connecting USB also leaves the plugin and hands the event to Rockbox.
 
 ## Runtime
 
-Each 30 Hz tick the plugin drains wheel events, reads the held center and Play/Pause state, and calls `pockethero_frame`. The Rust side runs the generated app, emits the DrawList and renders it with `render_scaled_rgb565_incremental` into a persistent framebuffer. **The damage tracker compares the DrawList with the previous frame's and returns at most eight rectangles; the plugin copies only those to the LCD** with `lcd_bitmap_part` and `lcd_update_rect`. A late frame moves the schedule forward instead of queueing catch-up frames.
+Each 30 Hz tick the plugin drains wheel events, reads the held center and Play/Pause state, and calls `pockethero_frame`. The Rust side registers the generated app as an AOT guest, button input and a CPU-visible RGB565 LCD output. Runtime advances the guest and the shared core once, then uses its software renderer to draw into the persistent framebuffer. Boot uses the linked generated code and assets; it reads no `.pocket` package. **The damage tracker compares the DrawList with the previous frame's and returns at most eight rectangles; the plugin copies only those to the LCD** with `lcd_bitmap_part` and `lcd_update_rect`. A late frame moves the schedule forward instead of queueing catch-up frames.
 
 On exit the plugin writes `.rockbox/pockethero.log`: frame count, missed deadlines, mount time, mean and maximum frame time from the microsecond timer, LCD copy time, damage totals and the heap peak. A Rust panic writes the log with the source line, shows it, and returns to Rockbox through the plugin runtime's `exit`.
 
 ## Measurements
 
-One 85.6-second session on hardware (Rockbox `f684d3ba6a`, `arm-none-eabi-gcc` 16.1.0), with 23 presses:
+Before the Runtime migration, one 85.6-second session on hardware (Rockbox `f684d3ba6a`, `arm-none-eabi-gcc` 16.1.0), with 23 presses:
 
 | Measure | Value |
 | --- | --- |
