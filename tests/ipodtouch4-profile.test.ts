@@ -137,7 +137,7 @@ describe("private iPod touch 4 profile", () => {
     expect(runtime).toContain('sel_registerName("setTransform:")');
     const guest = readFileSync(join(repository, "engine/quickjs-c/pocket_runtime.c"), "utf8");
     expect(guest).toContain("#ifdef POCKET_SVC_WIRE");
-    expect(guest).toContain('add_host_operation(context, ui, "svcOpen", 1, HostSvcOpen)');
+    expect(guest).toContain('pocket_runtime_add_op_provider(handle, &service_table');
     expect(guest).toContain("svcwire_pump();");
   });
 
@@ -207,9 +207,9 @@ describe("private iPod touch 4 profile", () => {
     // the shared default serves the 30 Hz original iPhone; the iPod's display
     // link runs at the guest clock's 60 Hz, so it advances one tick per frame
     expect(wrapper).toContain("#define POCKET_FRAME_TICKS 1");
-    expect(runtime).toContain("pocket_legacy_runtime_hit_test_bounds");
+    expect(runtime).toContain("pocket_legacy_runtime_last_touch_hit");
     expect(guest).toContain("POCKET_RUNTIME_MAX_CONTACTS");
-    expect(guest).toContain("pocket_legacy_runtime_pack_contact(contact)");
+    expect(guest).toContain("pocket_native_program_advance(program, &input, ticks)");
     expect(runtime).toContain("pocket_contacts_sample(&g_contacts");
     expect(runtime).toContain("pocket_touches_cancelled");
 

@@ -21,7 +21,6 @@ on:
       - 'engine/runtime-cabi/**'
       - 'engine/guest-quickjs/**'
       - 'engine/guest-rquickjs/**'
-      - 'engine/backends/rgb565/**'
       - 'engine/quickjs-c/**'
       - 'hosts/web/**'
       - 'apps/solid-aot-lab/**'

@@ -144,6 +144,7 @@ impl Guest for CGuest {
         result(unsafe { self.table.frame.unwrap()(self.context, &frame) })
     }
     fn collect(&mut self) -> Result<(), RuntimeError> {
+        let _active = self.active();
         self.table
             .collect
             .map(|callback| result(unsafe { callback(self.context) }))

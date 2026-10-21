@@ -324,6 +324,11 @@ arm-none-symbianelf-gcc \
     "-DCONFIG_VERSION=\"$quickjs_version\"" \
     -c "$quickjs_root/libquickjs-sys/embed/static-functions.c" \
     -o "$quickjs_objects/static-functions.o"
+# One generated binding implementation is shared with the canonical Runtime.
+arm-none-symbianelf-gcc "${quickjs_flags[@]}" -std=gnu99 -funsigned-char \
+    -DPOCKET_QJS_BELLARD \
+    -I/workspace/contracts/generated -I/workspace/engine/guest-quickjs/include \
+    -c /workspace/engine/guest-quickjs/src/guest.c -o "$quickjs_objects/pocket-guest.o"
 arm-none-symbianelf-ar cqs "$build/libquickjs.a" "$quickjs_objects"/*.o
 
 cp "$runtime_source"/* "$build/"
@@ -345,6 +350,7 @@ qmake \
     "POCKETJS_SYMBIAN_TARGET=$executable" \
     "POCKETJS_SYMBIAN_CAPTION=$package_title" \
     "POCKETJS_QUICKJS_INCLUDE=$quickjs_source" \
+    "POCKETJS_PROGRAM_INCLUDE=/workspace/contracts/generated /workspace/engine/ui-cabi/include /workspace/engine/guest-quickjs/include" \
     "POCKETJS_QUICKJS_LIBRARY=$build/libquickjs.a" \
     "POCKETJS_CORE_LIBRARY=$rust_library" \
     "POCKETJS_FRAME_RATE=$frame_rate" \

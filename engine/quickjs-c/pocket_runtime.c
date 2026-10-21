@@ -1,25 +1,25 @@
-#include "pocket_runtime.h"
-
+/* Portable host composition. UI coercion and numbered operations are owned by
+ * guest-quickjs; package, input, core ticks and presentation belong to Runtime. */
+#include "pocket_legacy_runtime.h"
+#include "pocket_native_program.h"
+#include "pocket_guest_quickjs.h"
 #include "pocket_ui_cabi.h"
 #include "pocket_spec.h"
-#include "quickjs.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #ifdef POCKET_RUNTIME_EXTENSION
 #include "pocketjs_symbian_extension.h"
-/* Reuse the existing native core ABI, including its compatibility name. */
 static const PocketJsSymbianExtensionV1 *native_extension;
 static int native_gl_current;
 #endif
 #ifdef POCKET_SVC_WIRE
 #include "svcwire.h"
+static char svc_poll_buffer[8193];
 #endif
-
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
 #ifdef POCKET_OFFLOAD_POSIX
 #include "offload_qjs.h"
 #endif
-
 #ifndef POCKETJS_TARGET_ID
 #error "POCKETJS_TARGET_ID must come from the verified ResolvedBuildPlan"
 #endif
@@ -29,84 +29,27 @@ static int native_gl_current;
 #ifndef POCKET_RASTER_DENSITY
 #define POCKET_RASTER_DENSITY 1
 #endif
-#define POCKETJS_SIMULATION_HZ 60
-#define POCKETJS_ACTION_NAME_CAPACITY 64
-
 #if defined(POCKET_RUNTIME_REPORT_BOOT_STAGE)
 extern void pocket_host_boot_stage(int stage);
 #define REPORT_BOOT_STAGE(stage) pocket_host_boot_stage(stage)
 #else
 #define REPORT_BOOT_STAGE(stage) ((void)(stage))
 #endif
-
-/*
- * Harness builds provide pocket_bench_stage() and opt into exact boundaries
- * around bundle evaluation, the guest turn, the job drain and core ticks.
- */
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
 #define BENCH_STAGE(stage) pocket_bench_stage(stage)
+static void profile_phase(void *unused, pocket_qjs_phase phase) {
+  (void)unused;
+  BENCH_STAGE((int)phase);
+}
 #else
 #define BENCH_STAGE(stage) ((void)(stage))
 #endif
-
-typedef enum {
-  HostCreateNode,
-  HostDestroyNode,
-  HostInsertBefore,
-  HostRemoveChild,
-  HostSetStyle,
-  HostSetProp,
-  HostSetPropBatch,
-  HostSetText,
-  HostReplaceText,
-  HostUploadTexture,
-  HostSetImage,
-  HostSetSprite,
-  HostAnimate,
-  HostCancelAnim,
-  HostTakeAnimationCompletions,
-  HostSetFocus,
-  HostSetActive,
-  HostHitTest,
-  HostHitTestBounds,
-  HostSetCursor,
-  HostSetCursorPos,
-  HostLoadStyles,
-  HostLoadFontAtlas,
-  HostMeasureText,
-  HostFreeTexture,
-  HostUploadImgEntry,
-  HostDebugInspect,
-  HostDebugRectXY,
-  HostDebugRectWH,
-  HostDebugPause,
-  HostDebugStep,
-  HostReportAppAction,
-#ifdef POCKET_SVC_WIRE
-  /* spec ops 30..32 — the host service channel over the PKNT wire
-   * (svcwire.c). Present only in builds whose companion is on the network,
-   * so every other legacy Apple op table stays byte-identical. */
-  HostSvcOpen,
-  HostSvcPoll,
-  HostSvcSend,
-#endif
-#ifdef POCKET_PHYSICS
-  /* spec ops 52..56 — 2D bodies stepped by the core (ui.physics,
-   * contracts/spec/physics.ts). Present only in builds whose profile
-   * advertises the capability, so every other legacy Apple op table stays
-   * byte-identical. */
-  HostPhysicsCreate,
-  HostPhysicsApply,
-  HostPhysicsDestroy,
-  HostPhysicsEvents,
-  HostPhysicsQuery,
-#endif
-} HostOperation;
-
+#define POCKETJS_ACTION_NAME_CAPACITY 64
+static PocketNativeProgram *program;
+static pocket_guest_quickjs *guest;
 static JSRuntime *runtime;
 static JSContext *context;
 static JSValue global;
-static JSValue frame_function;
 #if defined(POCKET_RUNTIME_HARNESS)
 static JSValue harness_function;
 #endif
@@ -114,802 +57,251 @@ static char last_error[512];
 static char reported_action_name[POCKETJS_ACTION_NAME_CAPACITY];
 static int32_t reported_action_value;
 static unsigned long reported_action_sequence;
-static int runtime_failed;
-#ifdef POCKET_SVC_WIRE
-/* spec SVC_POLL_BUF (8192) + terminator: one svcPoll batch. */
-static char svc_poll_buffer[8193];
-#endif
-
-static void clear_error(void) {
-  last_error[0] = '\0';
-}
-
-static void set_error(const char *message) {
-  size_t length = message == 0 ? 0 : strlen(message);
-  if (length >= sizeof(last_error)) length = sizeof(last_error) - 1;
-  if (length > 0) memcpy(last_error, message, length);
-  last_error[length] = '\0';
-}
-
-static void take_exception(JSContext *exception_context) {
-  JSValue exception = JS_GetException(exception_context);
-  size_t length = 0;
-  const char *message = JS_ToCStringLen2(exception_context, &length, exception, 0);
-  if (message != 0) {
-    size_t copy_length = length < sizeof(last_error) - 1 ? length : sizeof(last_error) - 1;
-    memcpy(last_error, message, copy_length);
-    last_error[copy_length] = '\0';
-    JS_FreeCString(exception_context, message);
-  } else {
-    set_error("QuickJS exception");
-  }
-  JS_FreeValue(exception_context, exception);
-}
-
-static int int_argument(
-  JSContext *ctx,
-  int argc,
-  JSValueConst *argv,
-  int index,
-  int32_t *value
-) {
-  if (index >= argc) {
-    JS_ThrowTypeError(ctx, "missing argument %d", index);
-    return 0;
-  }
-  return JS_ToInt32(ctx, value, argv[index]) == 0;
-}
-
-static int uint_argument(
-  JSContext *ctx,
-  int argc,
-  JSValueConst *argv,
-  int index,
-  uint32_t *value
-) {
-  if (index >= argc) {
-    JS_ThrowTypeError(ctx, "missing argument %d", index);
-    return 0;
-  }
-  return JS_ToUint32(ctx, value, argv[index]) == 0;
-}
-
-static int float_argument(
-  JSContext *ctx,
-  int argc,
-  JSValueConst *argv,
-  int index,
-  double *value
-) {
-  if (index >= argc) {
-    JS_ThrowTypeError(ctx, "missing argument %d", index);
-    return 0;
-  }
-  return JS_ToFloat64(ctx, value, argv[index]) == 0;
-}
-
-#ifdef POCKET_PHYSICS
-/* A trailing argument the caller may omit reads as 0. */
-static int optional_float_argument(
-  JSContext *ctx,
-  int argc,
-  JSValueConst *argv,
-  int index,
-  double *value
-) {
-  if (index >= argc || JS_IsUndefined(argv[index])) {
-    *value = 0.0;
-    return 1;
-  }
-  return JS_ToFloat64(ctx, value, argv[index]) == 0;
-}
-#endif
-
-static int non_negative_uint_argument(
-  JSContext *ctx,
-  int argc,
-  JSValueConst *argv,
-  int index,
-  uint32_t *value
-) {
-  double raw = 0.0;
-  if (!float_argument(ctx, argc, argv, index, &raw)) return 0;
-  if (raw <= 0.0) *value = 0;
-  else if (raw >= 4294967295.0) *value = 0xffffffffU;
-  else *value = (uint32_t)raw;
-  return 1;
-}
-
-static int string_argument(
-  JSContext *ctx,
-  int argc,
-  JSValueConst *argv,
-  int index,
-  const char **text,
-  size_t *length
-) {
-  if (index >= argc) {
-    JS_ThrowTypeError(ctx, "missing argument %d", index);
-    return 0;
-  }
-  *text = JS_ToCStringLen2(ctx, length, argv[index], 0);
-  return *text != 0;
-}
-
-static int valid_action_name(const char *name, size_t length) {
-  size_t index;
-  if (length == 0 || length >= POCKETJS_ACTION_NAME_CAPACITY ||
-      name[0] < 'a' || name[0] > 'z') return 0;
-  for (index = 1; index < length; index += 1) {
-    char value = name[index];
-    if ((value < 'a' || value > 'z') &&
-        (value < '0' || value > '9') &&
-        value != '_' && value != '.' && value != '-') return 0;
-  }
-  return 1;
-}
-
-static int bytes_argument(
-  JSContext *ctx,
-  int argc,
-  JSValueConst *argv,
-  int index,
-  const uint8_t **bytes,
-  size_t *length
-) {
-  if (index >= argc) {
-    JS_ThrowTypeError(ctx, "missing argument %d", index);
-    return 0;
-  }
-
-  uint8_t *direct = JS_GetArrayBuffer(ctx, length, argv[index]);
-  if (!JS_HasException(ctx)) {
-    *bytes = direct;
-    return 1;
-  }
-  JSValue direct_error = JS_GetException(ctx);
-  JS_FreeValue(ctx, direct_error);
-
-  size_t offset = 0;
-  size_t byte_length = 0;
-  size_t bytes_per_element = 0;
-  JSValue buffer = JS_GetTypedArrayBuffer(
-    ctx,
-    argv[index],
-    &offset,
-    &byte_length,
-    &bytes_per_element
-  );
-  if (JS_IsException(buffer)) return 0;
-  size_t buffer_length = 0;
-  uint8_t *base = JS_GetArrayBuffer(ctx, &buffer_length, buffer);
-  if (JS_HasException(ctx)) {
-    JS_FreeValue(ctx, buffer);
-    return 0;
-  }
-  if (offset > buffer_length || byte_length > buffer_length - offset) {
-    JS_FreeValue(ctx, buffer);
-    JS_ThrowRangeError(ctx, "typed array is outside its backing buffer");
-    return 0;
-  }
-  (void)bytes_per_element;
-  *bytes = base == 0 ? 0 : base + offset;
-  *length = byte_length;
-  JS_FreeValue(ctx, buffer);
-  return 1;
-}
-
-static JSValue host_operation(
-  JSContext *ctx,
-  JSValueConst this_value,
-  int argc,
-  JSValueConst *argv,
-  int magic
-) {
-  (void)this_value;
-  int32_t a = 0;
-  int32_t b = 0;
-  int32_t c = 0;
-  uint32_t ua = 0;
-  uint32_t ub = 0;
-  uint32_t uc = 0;
-  uint32_t ud = 0;
-  double da = 0.0;
-  double db = 0.0;
-  double dc = 0.0;
-  double dd = 0.0;
-  const uint8_t *bytes = 0;
-  size_t byte_length = 0;
-  const char *text = 0;
-  size_t text_length = 0;
-
-  switch ((HostOperation)magic) {
-    case HostCreateNode:
-      if (!uint_argument(ctx, argc, argv, 0, &ua)) return JS_EXCEPTION;
-      return JS_NewInt32(ctx, ui_create_node(ua));
-    case HostDestroyNode:
-      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
-      ui_destroy_node(a);
-      return JS_UNDEFINED;
-    case HostInsertBefore:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !int_argument(ctx, argc, argv, 1, &b) ||
-          !int_argument(ctx, argc, argv, 2, &c)) return JS_EXCEPTION;
-      ui_insert_before(a, b, c);
-      return JS_UNDEFINED;
-    case HostRemoveChild:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !int_argument(ctx, argc, argv, 1, &b)) return JS_EXCEPTION;
-      ui_remove_child(a, b);
-      return JS_UNDEFINED;
-    case HostSetStyle:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !int_argument(ctx, argc, argv, 1, &b)) return JS_EXCEPTION;
-      ui_set_style(a, b);
-      return JS_UNDEFINED;
-    case HostSetProp:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !uint_argument(ctx, argc, argv, 1, &ua) ||
-          !float_argument(ctx, argc, argv, 2, &da)) return JS_EXCEPTION;
-      ui_set_prop(a, ua, da);
-      return JS_UNDEFINED;
-    case HostSetPropBatch:
-      if (!bytes_argument(ctx, argc, argv, 0, &bytes, &byte_length)) return JS_EXCEPTION;
-      ui_set_prop_batch(bytes, byte_length);
-      return JS_UNDEFINED;
-    case HostSetText:
-    case HostReplaceText:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !string_argument(ctx, argc, argv, 1, &text, &text_length)) return JS_EXCEPTION;
-      if (magic == HostSetText) ui_set_text(a, (const uint8_t *)text, text_length);
-      else ui_replace_text(a, (const uint8_t *)text, text_length);
-      JS_FreeCString(ctx, text);
-      return JS_UNDEFINED;
-    case HostUploadTexture:
-      if (!bytes_argument(ctx, argc, argv, 0, &bytes, &byte_length) ||
-          !uint_argument(ctx, argc, argv, 1, &ua) ||
-          !uint_argument(ctx, argc, argv, 2, &ub) ||
-          !uint_argument(ctx, argc, argv, 3, &uc)) return JS_EXCEPTION;
-      return JS_NewInt32(ctx, ui_upload_texture(bytes, byte_length, ua, ub, uc));
-    case HostSetImage:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !int_argument(ctx, argc, argv, 1, &b)) return JS_EXCEPTION;
-      ui_set_image(a, b);
-      return JS_UNDEFINED;
-    case HostSetSprite:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !int_argument(ctx, argc, argv, 1, &b) ||
-          !non_negative_uint_argument(ctx, argc, argv, 2, &ua) ||
-          !non_negative_uint_argument(ctx, argc, argv, 3, &ub) ||
-          !non_negative_uint_argument(ctx, argc, argv, 4, &uc)) return JS_EXCEPTION;
-      ui_set_sprite(a, b, ua, ub, uc);
-      return JS_UNDEFINED;
-    case HostAnimate:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !uint_argument(ctx, argc, argv, 1, &ua) ||
-          !float_argument(ctx, argc, argv, 2, &da) ||
-          !non_negative_uint_argument(ctx, argc, argv, 3, &ub) ||
-          !uint_argument(ctx, argc, argv, 4, &uc) ||
-          !non_negative_uint_argument(ctx, argc, argv, 5, &ud)) return JS_EXCEPTION;
-      return JS_NewInt32(ctx, ui_animate(a, ua, da, ub, uc, ud));
-    case HostCancelAnim:
-      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
-      ui_cancel_anim(a);
-      return JS_UNDEFINED;
-    case HostTakeAnimationCompletions:
-      bytes = ui_take_animation_completions_json(&byte_length);
-      return JS_NewStringLen(ctx, (const char *)bytes, byte_length);
-    case HostSetFocus:
-      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
-      ui_set_focus(a);
-      return JS_UNDEFINED;
-    case HostSetActive:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !int_argument(ctx, argc, argv, 1, &b)) return JS_EXCEPTION;
-      ui_set_active(a, b);
-      return JS_UNDEFINED;
-    case HostHitTest:
-    case HostHitTestBounds:
-      if (!float_argument(ctx, argc, argv, 0, &da) ||
-          !float_argument(ctx, argc, argv, 1, &db)) return JS_EXCEPTION;
-      return JS_NewInt32(
-        ctx,
-        magic == HostHitTest
-          ? ui_hit_test((float)da, (float)db)
-          : ui_hit_test_bounds((float)da, (float)db)
-      );
-    case HostSetCursor:
-      if (!int_argument(ctx, argc, argv, 0, &a) ||
-          !float_argument(ctx, argc, argv, 1, &da) ||
-          !float_argument(ctx, argc, argv, 2, &db) ||
-          !float_argument(ctx, argc, argv, 3, &dc) ||
-          !float_argument(ctx, argc, argv, 4, &dd)) return JS_EXCEPTION;
-      ui_set_cursor(a, (float)da, (float)db, (float)dc, (float)dd);
-      return JS_UNDEFINED;
-    case HostSetCursorPos:
-      if (!float_argument(ctx, argc, argv, 0, &da) ||
-          !float_argument(ctx, argc, argv, 1, &db)) return JS_EXCEPTION;
-      ui_set_cursor_pos((float)da, (float)db);
-      return JS_UNDEFINED;
-    case HostLoadStyles:
-    case HostLoadFontAtlas:
-      if (!bytes_argument(ctx, argc, argv, 0, &bytes, &byte_length)) return JS_EXCEPTION;
-      return JS_NewBool(
-        ctx,
-        magic == HostLoadStyles
-          ? ui_load_styles(bytes, byte_length)
-          : ui_load_font_atlas(bytes, byte_length)
-      );
-    case HostMeasureText:
-      if (!string_argument(ctx, argc, argv, 0, &text, &text_length)) return JS_EXCEPTION;
-      if (!uint_argument(ctx, argc, argv, 1, &ua)) {
-        JS_FreeCString(ctx, text);
-        return JS_EXCEPTION;
-      }
-      da = ui_measure_text((const uint8_t *)text, text_length, ua);
-      JS_FreeCString(ctx, text);
-      return JS_NewFloat64(ctx, da);
-    case HostFreeTexture:
-      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
-      ui_free_texture(a);
-      return JS_UNDEFINED;
-    case HostUploadImgEntry:
-      if (!bytes_argument(ctx, argc, argv, 0, &bytes, &byte_length)) return JS_EXCEPTION;
-      return JS_NewInt32(ctx, ui_upload_img_entry(bytes, byte_length));
-    case HostDebugInspect:
-      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
-      ui_debug_inspect(a);
-      return JS_UNDEFINED;
-    case HostDebugRectXY:
-      return JS_NewInt32(ctx, ui_debug_rect_xy());
-    case HostDebugRectWH:
-      return JS_NewInt32(ctx, ui_debug_rect_wh());
-    case HostDebugPause:
-      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
-      ui_debug_pause(a);
-      return JS_UNDEFINED;
-    case HostDebugStep:
-      ui_debug_step();
-      return JS_UNDEFINED;
-    case HostReportAppAction:
-      if (!string_argument(ctx, argc, argv, 0, &text, &text_length)) return JS_EXCEPTION;
-      if (!int_argument(ctx, argc, argv, 1, &a)) {
-        JS_FreeCString(ctx, text);
-        return JS_EXCEPTION;
-      }
-      if (!valid_action_name(text, text_length)) {
-        JS_FreeCString(ctx, text);
-        return JS_ThrowRangeError(ctx, "invalid PocketJS app action name");
-      }
-      memcpy(reported_action_name, text, text_length);
-      reported_action_name[text_length] = '\0';
-      reported_action_value = a;
-      reported_action_sequence += 1;
-      JS_FreeCString(ctx, text);
-      return JS_UNDEFINED;
-#ifdef POCKET_SVC_WIRE
-    case HostSvcOpen: {
-      int open;
-      if (!string_argument(ctx, argc, argv, 0, &text, &text_length)) return JS_NewBool(ctx, 0);
-      open = svcwire_open(text);
-      JS_FreeCString(ctx, text);
-      return JS_NewBool(ctx, open);
-    }
-    case HostSvcPoll: {
-      size_t length = svcwire_recv_lines(svc_poll_buffer, sizeof svc_poll_buffer);
-      return length == 0 ? JS_UNDEFINED : JS_NewStringLen(ctx, svc_poll_buffer, length);
-    }
-    case HostSvcSend:
-      if (!string_argument(ctx, argc, argv, 0, &text, &text_length)) return JS_UNDEFINED;
-      svcwire_send_line(text, text_length);
-      JS_FreeCString(ctx, text);
-      return JS_UNDEFINED;
-#endif
-#ifdef POCKET_PHYSICS
-    case HostPhysicsCreate:
-      /* convert first: a conversion may allocate and move the borrowed bytes */
-      if (!uint_argument(ctx, argc, argv, 0, &ua) ||
-          !bytes_argument(ctx, argc, argv, 1, &bytes, &byte_length)) return JS_EXCEPTION;
-      return JS_NewInt32(ctx, ui_physics_create(ua, bytes, byte_length));
-    case HostPhysicsApply:
-      if (!bytes_argument(ctx, argc, argv, 0, &bytes, &byte_length)) return JS_EXCEPTION;
-      ui_physics_apply(bytes, byte_length);
-      return JS_UNDEFINED;
-    case HostPhysicsDestroy:
-      if (!int_argument(ctx, argc, argv, 0, &a)) return JS_EXCEPTION;
-      ui_physics_destroy(a);
-      return JS_UNDEFINED;
-    case HostPhysicsEvents: {
-      size_t length = 0;
-      const uint8_t *events = ui_physics_take_events(&length);
-      return length == 0 ? JS_UNDEFINED : JS_NewArrayBufferCopy(ctx, events, length);
-    }
-    case HostPhysicsQuery:
-      if (!uint_argument(ctx, argc, argv, 0, &ua) ||
-          !int_argument(ctx, argc, argv, 1, &a) ||
-          !optional_float_argument(ctx, argc, argv, 2, &da) ||
-          !optional_float_argument(ctx, argc, argv, 3, &db) ||
-          !optional_float_argument(ctx, argc, argv, 4, &dc) ||
-          !optional_float_argument(ctx, argc, argv, 5, &dd)) return JS_EXCEPTION;
-      return JS_NewFloat64(ctx, ui_physics_query(ua, a, da, db, dc, dd));
-#endif
-  }
-  return JS_ThrowInternalError(ctx, "unknown PocketJS HostOp");
-}
-
-static int add_host_operation(
-  JSContext *ctx,
-  JSValueConst object,
-  const char *name,
-  int arity,
-  HostOperation operation
-) {
-  JSValue function = JS_NewCFunctionMagic(
-    ctx,
-    host_operation,
-    name,
-    arity,
-    JS_CFUNC_generic_magic,
-    (int)operation
-  );
-  if (JS_IsException(function)) return 0;
-  return JS_SetPropertyStr(ctx, object, name, function) >= 0;
-}
-
-static int install_host(int width, int height) {
-#ifdef POCKET_OFFLOAD_POSIX
-  if (!install_offload(context, global)) return 0;
-#endif
-  JSValue ui = JS_NewObject(context);
-  if (JS_IsException(ui)) return 0;
-  if (!add_host_operation(context, ui, "createNode", 1, HostCreateNode) ||
-      !add_host_operation(context, ui, "destroyNode", 1, HostDestroyNode) ||
-      !add_host_operation(context, ui, "insertBefore", 3, HostInsertBefore) ||
-      !add_host_operation(context, ui, "removeChild", 2, HostRemoveChild) ||
-      !add_host_operation(context, ui, "setStyle", 2, HostSetStyle) ||
-      !add_host_operation(context, ui, "setProp", 3, HostSetProp) ||
-      !add_host_operation(context, ui, "setPropBatch", 1, HostSetPropBatch) ||
-      !add_host_operation(context, ui, "setText", 2, HostSetText) ||
-      !add_host_operation(context, ui, "replaceText", 2, HostReplaceText) ||
-      !add_host_operation(context, ui, "uploadTexture", 4, HostUploadTexture) ||
-      !add_host_operation(context, ui, "setImage", 2, HostSetImage) ||
-      !add_host_operation(context, ui, "setSprite", 5, HostSetSprite) ||
-      !add_host_operation(context, ui, "animate", 6, HostAnimate) ||
-      !add_host_operation(context, ui, "cancelAnim", 1, HostCancelAnim) ||
-      !add_host_operation(context, ui, "takeAnimationCompletions", 0, HostTakeAnimationCompletions) ||
-      !add_host_operation(context, ui, "setFocus", 1, HostSetFocus) ||
-      !add_host_operation(context, ui, "setActive", 2, HostSetActive) ||
-      !add_host_operation(context, ui, "hitTest", 2, HostHitTest) ||
-      !add_host_operation(context, ui, "hitTestBounds", 2, HostHitTestBounds) ||
-      !add_host_operation(context, ui, "setCursor", 5, HostSetCursor) ||
-      !add_host_operation(context, ui, "setCursorPos", 2, HostSetCursorPos) ||
-      !add_host_operation(context, ui, "loadStyles", 1, HostLoadStyles) ||
-      !add_host_operation(context, ui, "loadFontAtlas", 1, HostLoadFontAtlas) ||
-      !add_host_operation(context, ui, "measureText", 2, HostMeasureText) ||
-      !add_host_operation(context, ui, "freeTexture", 1, HostFreeTexture) ||
-      !add_host_operation(context, ui, "uploadImgEntry", 1, HostUploadImgEntry) ||
-      !add_host_operation(context, ui, "debugInspect", 1, HostDebugInspect) ||
-      !add_host_operation(context, ui, "debugRectXY", 0, HostDebugRectXY) ||
-      !add_host_operation(context, ui, "debugRectWH", 0, HostDebugRectWH) ||
-      !add_host_operation(context, ui, "debugPause", 1, HostDebugPause) ||
-      !add_host_operation(context, ui, "debugStep", 0, HostDebugStep) ||
-      !add_host_operation(context, ui, "__reportAppAction", 2, HostReportAppAction)) {
-    JS_FreeValue(context, ui);
-    return 0;
-  }
-#ifdef POCKET_SVC_WIRE
-  if (!add_host_operation(context, ui, "svcOpen", 1, HostSvcOpen) ||
-      !add_host_operation(context, ui, "svcPoll", 0, HostSvcPoll) ||
-      !add_host_operation(context, ui, "svcSend", 1, HostSvcSend)) {
-    JS_FreeValue(context, ui);
-    return 0;
-  }
-#endif
-#ifdef POCKET_PHYSICS
-  if (!add_host_operation(context, ui, "physicsCreate", 2, HostPhysicsCreate) ||
-      !add_host_operation(context, ui, "physicsApply", 1, HostPhysicsApply) ||
-      !add_host_operation(context, ui, "physicsDestroy", 1, HostPhysicsDestroy) ||
-      !add_host_operation(context, ui, "physicsEvents", 0, HostPhysicsEvents) ||
-      !add_host_operation(context, ui, "physicsQuery", 6, HostPhysicsQuery)) {
-    JS_FreeValue(context, ui);
-    return 0;
-  }
-#endif
-
-  JSValue viewport = JS_NewObject(context);
-  if (JS_IsException(viewport)) {
-    JS_FreeValue(context, ui);
-    return 0;
-  }
-  if (JS_SetPropertyStr(context, viewport, "w", JS_NewInt32(context, width)) < 0 ||
-      JS_SetPropertyStr(context, viewport, "h", JS_NewInt32(context, height)) < 0) {
-    JS_FreeValue(context, viewport);
-    JS_FreeValue(context, ui);
-    return 0;
-  }
-  if (JS_SetPropertyStr(context, ui, "__viewport", viewport) < 0) {
-    JS_FreeValue(context, ui);
-    return 0;
-  }
-  if (JS_SetPropertyStr(context, ui, "__host", JS_NewString(context, POCKETJS_TARGET_ID)) < 0 ||
-      JS_SetPropertyStr(
-        context,
-        ui,
-        "__hostAbi",
-        JS_NewInt32(context, POCKETJS_HOST_ABI)
-      ) < 0) {
-    JS_FreeValue(context, ui);
-    return 0;
-  }
-  return JS_SetPropertyStr(context, global, "ui", ui) >= 0;
-}
-
-static int drain_jobs(void) {
-  for (;;) {
-    JSContext *pending_context = 0;
-    int result = JS_ExecutePendingJob(runtime, &pending_context);
-    if (result > 0) continue;
-    if (result < 0) {
-      take_exception(pending_context == 0 ? context : pending_context);
-      return 0;
-    }
-    return 1;
-  }
-}
-
-void pocket_legacy_runtime_shutdown(void) {
-#ifdef POCKET_RUNTIME_EXTENSION
-  if (native_extension && native_extension->shutdown) native_extension->shutdown(native_gl_current);
-  native_extension = NULL;
-  native_gl_current = 0;
-#endif
-#ifdef POCKET_OFFLOAD_POSIX
-  pocket_offload_stop();
-#endif
-  if (context != 0) {
-#if defined(POCKET_RUNTIME_HARNESS)
-    if (!JS_IsUndefined(harness_function)) JS_FreeValue(context, harness_function);
-#endif
-    if (!JS_IsUndefined(frame_function)) JS_FreeValue(context, frame_function);
-    if (!JS_IsUndefined(global)) JS_FreeValue(context, global);
-    JS_FreeContext(context);
-  }
-  if (runtime != 0) JS_FreeRuntime(runtime);
-  context = 0;
-  runtime = 0;
-  runtime_failed = 0;
-  frame_function = JS_UNDEFINED;
-  global = JS_UNDEFINED;
-#if defined(POCKET_RUNTIME_HARNESS)
-  harness_function = JS_UNDEFINED;
-#endif
-  ui_shutdown();
-}
-
-/* The density the next boot passes to ui_init: the build's
- * POCKET_RASTER_DENSITY unless a host that reads it from a package's plan at
- * launch sets another. */
+static int runtime_failed, busy, shutdown_requested;
+static int last_touch_hit;
 static uint32_t boot_raster_density = POCKET_RASTER_DENSITY;
 
-void pocket_legacy_runtime_set_raster_density(uint32_t density) {
-  boot_raster_density = density == 0 ? 1u : density;
+static void set_error(const char *message) {
+  snprintf(last_error, sizeof last_error, "%s", message ? message : "");
 }
-
-int pocket_legacy_runtime_boot(
-  const char *java_script,
-  size_t java_script_length,
-  const uint8_t *pack,
-  size_t pack_length,
-  int width,
-  int height
-) {
-  clear_error();
-  pocket_legacy_runtime_shutdown();
-  REPORT_BOOT_STAGE(1);
-  reported_action_name[0] = '\0';
-  reported_action_value = 0;
-  reported_action_sequence = 0;
-  ui_init(boot_raster_density);
-  REPORT_BOOT_STAGE(2);
-  ui_set_viewport((float)width, (float)height);
-  REPORT_BOOT_STAGE(3);
-
-  runtime = JS_NewRuntime();
-  if (runtime == 0) {
-    set_error("QuickJS runtime allocation failed");
-    pocket_legacy_runtime_shutdown();
-    return 0;
+static void take_exception(JSContext *ctx) {
+  JSValue exception = JS_GetException(ctx);
+  const char *message = JS_ToCString(ctx, exception);
+  set_error(message ? message : "QuickJS exception");
+  if (message) JS_FreeCString(ctx, message);
+  JS_FreeValue(ctx, exception);
+}
+static void guest_error(void) {
+  if (!last_error[0]) {
+    const char *message = pocket_guest_quickjs_error(guest);
+    set_error(message && message[0] ? message : "PocketJS runtime operation failed");
   }
-  REPORT_BOOT_STAGE(4);
-  JS_SetMaxStackSize(runtime, 256 * 1024);
-  context = JS_NewContext(runtime);
-  if (context == 0) {
-    set_error("QuickJS context allocation failed");
-    pocket_legacy_runtime_shutdown();
-    return 0;
+}
+static int ready(void) { return program && context && !runtime_failed; }
+static int valid_action_name(const char *name, size_t length) {
+  if (!length || length >= POCKETJS_ACTION_NAME_CAPACITY || name[0] < 'a' || name[0] > 'z') return 0;
+  for (size_t i = 1; i < length; i++) {
+    char value = name[i];
+    if ((value < 'a' || value > 'z') && (value < '0' || value > '9') && value != '_' && value != '.' && value != '-') return 0;
   }
-  REPORT_BOOT_STAGE(5);
-  global = JS_GetGlobalObject(context);
-  if (!install_host(width, height)) {
-    take_exception(context);
-    pocket_legacy_runtime_shutdown();
-    return 0;
-  }
-  REPORT_BOOT_STAGE(6);
-
-#ifdef POCKET_RUNTIME_EXTENSION
-  const PocketJsSymbianExtensionV1 *candidate = pocketjs_symbian_extension_v1();
-  if (candidate == NULL || candidate->abi_version != 1 ||
-      candidate->struct_size < sizeof(PocketJsSymbianExtensionV1)) {
-    set_error("Native extension ABI mismatch");
-    pocket_legacy_runtime_shutdown();
-    return 0;
-  }
-  native_extension = candidate;
-  if (native_extension->boot && !native_extension->boot(context, pack, pack_length, width, height)) {
-    set_error("Native extension boot failed");
-    pocket_legacy_runtime_shutdown();
-    return 0;
-  }
-#endif
-
-  JSValue pack_value = JS_NewArrayBuffer(
-    context,
-    (uint8_t *)pack,
-    pack_length,
-    0,
-    0,
-    0
-  );
-  if (JS_IsException(pack_value) ||
-      JS_SetPropertyStr(context, global, "__pak", pack_value) < 0 ||
-      JS_SetPropertyStr(
-        context,
-        global,
-        "__simHz",
-        JS_NewInt32(context, POCKETJS_SIMULATION_HZ)
-      ) < 0) {
-    take_exception(context);
-    pocket_legacy_runtime_shutdown();
-    return 0;
-  }
-  REPORT_BOOT_STAGE(7);
-
-  BENCH_STAGE(POCKET_BENCH_STAGE_EVAL);
-  JSValue result = JS_Eval(
-    context,
-    java_script,
-    java_script_length,
-    "app.js",
-    JS_EVAL_TYPE_GLOBAL
-  );
-  BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
-  if (JS_IsException(result)) {
-    take_exception(context);
-    pocket_legacy_runtime_shutdown();
-    return 0;
-  }
-  REPORT_BOOT_STAGE(8);
-  JS_FreeValue(context, result);
-  frame_function = JS_GetPropertyStr(context, global, "frame");
-  if (JS_IsException(frame_function) || !JS_IsFunction(context, frame_function)) {
-    if (JS_IsException(frame_function)) take_exception(context);
-    else set_error("app.js did not install globalThis.frame");
-    pocket_legacy_runtime_shutdown();
-    return 0;
-  }
-  REPORT_BOOT_STAGE(9);
-  BENCH_STAGE(POCKET_BENCH_STAGE_JOBS);
-  int jobs_ok = drain_jobs();
-  BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
-  if (!jobs_ok) {
-    pocket_legacy_runtime_shutdown();
-    return 0;
-  }
-  REPORT_BOOT_STAGE(10);
   return 1;
 }
-
-/* One guest turn (frame call + job drain), then `tick_count` core ticks. */
-static int run_frame(
-  uint32_t buttons,
-  const PocketRuntimeContact *contacts,
-  unsigned int contact_count,
-  const int *cancelled, unsigned int cancelled_count,
-  unsigned int tick_count
-) {
-  unsigned int tick;
-  unsigned int index;
+static JSValue report_action(JSContext *ctx, JSValueConst self, int argc, JSValueConst *argv) {
+  (void)self;
+  if (argc < 2) return JS_ThrowTypeError(ctx, "missing app action arguments");
+  size_t length = 0;
+  const char *name = JS_ToCStringLen(ctx, &length, argv[0]);
+  if (!name) return JS_EXCEPTION;
+  int32_t value;
+  if (JS_ToInt32(ctx, &value, argv[1]) < 0) { JS_FreeCString(ctx, name); return JS_EXCEPTION; }
+  if (!valid_action_name(name, length)) { JS_FreeCString(ctx, name); return JS_ThrowRangeError(ctx, "invalid PocketJS app action name"); }
+  memcpy(reported_action_name, name, length); reported_action_name[length] = 0;
+  reported_action_value = value; reported_action_sequence++;
+  JS_FreeCString(ctx, name);
+  return JS_UNDEFINED;
+}
+static int32_t guest_initialize(void *opaque, pocket_runtime *handle, const pocket_guest_environment *env) {
+  (void)opaque;
+  if (env->heap_limit) JS_SetMemoryLimit(runtime, env->heap_limit);
+  if (pocket_guest_quickjs_vtable()->initialize(guest, handle, env)) return -1;
+  JSValue ui = JS_GetPropertyStr(context, global, "ui");
+  int status = JS_SetPropertyStr(context, ui, "__reportAppAction", JS_NewCFunction(context, report_action, "__reportAppAction", 2));
+  JS_FreeValue(context, ui);
+  if (status < 0) { take_exception(context); return -1; }
+#ifdef POCKET_OFFLOAD_POSIX
+  if (!install_offload(context, global)) { take_exception(context); return -1; }
+#endif
+#ifdef POCKET_RUNTIME_EXTENSION
+  const PocketJsSymbianExtensionV1 *candidate = pocketjs_symbian_extension_v1();
+  if (!candidate || candidate->abi_version != 1 || candidate->struct_size < sizeof *candidate) {
+    set_error("Native extension ABI mismatch"); return -1;
+  }
+  native_extension = candidate;
+  if (candidate->boot && !candidate->boot(context, env->pak, env->pak_length, (int32_t)env->viewport_width, (int32_t)env->viewport_height)) {
+    set_error("Native extension boot failed"); return -1;
+  }
+#endif
+  REPORT_BOOT_STAGE(6); REPORT_BOOT_STAGE(7);
+  return 0;
+}
+static int32_t guest_evaluate(void *opaque, pocket_runtime *handle, const uint8_t *code, size_t length) {
+  (void)opaque;
+  if (pocket_guest_quickjs_vtable()->evaluate(guest, handle, code, length)) return -1;
+  REPORT_BOOT_STAGE(8);
+  JSValue function = JS_GetPropertyStr(context, global, "frame");
+  int valid = JS_IsFunction(context, function);
+  if (JS_IsException(function)) take_exception(context);
+  else if (!valid) set_error("app.js did not install globalThis.frame");
+  JS_FreeValue(context, function);
+  if (!valid) return -1;
+  REPORT_BOOT_STAGE(9); REPORT_BOOT_STAGE(10);
+  return 0;
+}
+static int32_t guest_frame(void *opaque, const pocket_guest_frame *input) {
+  (void)opaque;
 #ifdef POCKET_OFFLOAD_POSIX
   offload_submissions = offload_deliveries = offload_uploads = 0;
 #endif
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
 #ifdef POCKET_SVC_WIRE
-  /* Bounded, non-blocking: discovery, connect, rx and tx progress once per
-   * guest turn, before the guest polls. */
   svcwire_pump();
 #endif
 #ifdef POCKET_RUNTIME_EXTENSION
-  if (native_extension && native_extension->before_guest &&
-      !native_extension->before_guest(context, buttons, POCKET_ANALOG_CENTER, 0)) {
-    set_error("Native extension frame failed"); runtime_failed = 1; return 0;
+  if (native_extension && native_extension->before_guest && !native_extension->before_guest(context, input->buttons, input->analog, 0)) {
+    set_error("Native extension frame failed"); return -1;
   }
 #endif
-  JSValue touch_array = JS_NewArray(context);
-  JSValue hit_array = JS_NewArray(context);
-  if (JS_IsException(touch_array) || JS_IsException(hit_array)) {
-    if (!JS_IsException(touch_array)) JS_FreeValue(context, touch_array);
-    if (!JS_IsException(hit_array)) JS_FreeValue(context, hit_array);
-    take_exception(context);
-    runtime_failed = 1;
-    return 0;
+  for (size_t i = 0; i < input->touch_count; i++) {
+    if (!(input->touches[i] & POCKET_TOUCH_CANCEL_WORD)) last_touch_hit = input->hits[i];
   }
-  if (contact_count > POCKET_RUNTIME_MAX_CONTACTS) {
-    contact_count = POCKET_RUNTIME_MAX_CONTACTS;
-  }
-  for (index = 0; index < contact_count; index += 1) {
-    const PocketRuntimeContact *contact = &contacts[index];
-    uint32_t packed = pocket_legacy_runtime_pack_contact(contact);
-    if (JS_SetPropertyUint32(
-          context,
-          touch_array,
-          index,
-          JS_NewInt32(context, (int32_t)packed)
-        ) < 0 ||
-        JS_SetPropertyUint32(
-          context,
-          hit_array,
-          index,
-          JS_NewInt32(context, contact->hit)
-        ) < 0) {
-      JS_FreeValue(context, hit_array);
-      JS_FreeValue(context, touch_array);
-      take_exception(context);
-      runtime_failed = 1;
-      return 0;
-    }
-  }
-  for (index = 0; index < cancelled_count && index < POCKET_RUNTIME_MAX_CONTACTS; index++) {
-    if (JS_SetPropertyUint32(context, touch_array, contact_count + index,
-          JS_NewInt32(context, (int32_t)pocket_legacy_runtime_pack_cancel(cancelled[index]))) < 0) {
-      JS_FreeValue(context, hit_array); JS_FreeValue(context, touch_array);
-      take_exception(context); runtime_failed = 1; return 0;
-    }
-  }
-  JSValue arguments[4] = {
-    JS_NewUint32(context, buttons),
-    JS_NewInt32(context, POCKET_ANALOG_CENTER),
-    touch_array,
-    hit_array,
-  };
-  BENCH_STAGE(POCKET_BENCH_STAGE_JS);
-  JSValue result = JS_Call(context, frame_function, global, 4, arguments);
-  JS_FreeValue(context, hit_array);
-  JS_FreeValue(context, touch_array);
-  if (JS_IsException(result)) {
-    take_exception(context);
-    runtime_failed = 1;
-    BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
-    return 0;
-  }
-  JS_FreeValue(context, result);
-  BENCH_STAGE(POCKET_BENCH_STAGE_JOBS);
-  if (!drain_jobs()) {
-    runtime_failed = 1;
-    BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
-    return 0;
-  }
+  if (pocket_guest_quickjs_vtable()->frame(guest, input)) return -1;
   BENCH_STAGE(POCKET_BENCH_STAGE_TICK);
 #ifdef POCKET_RUNTIME_EXTENSION
   if (native_extension && native_extension->after_guest && !native_extension->after_guest(context)) {
-    set_error("Native extension commands failed"); runtime_failed = 1; return 0;
+    set_error("Native extension commands failed"); return -1;
   }
 #endif
-  for (tick = 0; tick < tick_count; ++tick) ui_tick();
-  BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
-  return 1;
+  return 0;
 }
-
+static int32_t guest_collect(void *opaque) { (void)opaque; return pocket_guest_quickjs_vtable()->collect(guest); }
+static void guest_shutdown(void *opaque) {
+  (void)opaque;
+#ifdef POCKET_RUNTIME_EXTENSION
+  if (native_extension && native_extension->shutdown) native_extension->shutdown(native_gl_current);
+  native_extension = NULL;
+#endif
+  pocket_guest_quickjs_vtable()->shutdown(guest);
+}
+static const pocket_guest_v1 guest_table = {
+  sizeof(pocket_guest_v1), guest_evaluate, guest_frame, guest_collect, guest_shutdown, guest_initialize
+};
+#ifdef POCKET_SVC_WIRE
+static int32_t service_dispatch(void *opaque, uint16_t op, const pocket_op_arg *args, size_t length, pocket_result *out) {
+  (void)opaque;
+  out->tag = POCKET_RESULT_NONE;
+  if (op == 31) {
+    if (length) return POCKET_STATUS_INVALID;
+    size_t count = svcwire_recv_lines(svc_poll_buffer, sizeof svc_poll_buffer);
+    if (count) { out->tag = POCKET_RESULT_BYTES; out->bytes = (const uint8_t *)svc_poll_buffer; out->byte_length = count; }
+    return POCKET_STATUS_OK;
+  }
+  if (length != sizeof *args || args->struct_size != sizeof *args || args->tag != POCKET_ARG_BYTES) return POCKET_STATUS_INVALID;
+  if (op == 30) {
+    if (args->byte_length == SIZE_MAX) return POCKET_STATUS_INVALID;
+    char *name = malloc(args->byte_length + 1);
+    if (!name) return POCKET_STATUS_FAILED;
+    if (args->byte_length) memcpy(name, args->bytes, args->byte_length);
+    name[args->byte_length] = 0;
+    out->tag = POCKET_RESULT_I64; out->integer = svcwire_open(name);
+    free(name);
+  } else if (op == 32) svcwire_send_line((const char *)args->bytes, args->byte_length);
+  else return POCKET_STATUS_UNSUPPORTED;
+  return POCKET_STATUS_OK;
+}
+static const pocket_op_provider_v1 service_table = { sizeof(pocket_op_provider_v1), service_dispatch };
+#endif
+static void shutdown_now(void) {
+#ifdef POCKET_OFFLOAD_POSIX
+  pocket_offload_stop();
+#endif
+  /* Runtime shuts the attached guest down before releasing its package. */
+  if (program) pocket_native_program_destroy(program);
+  program = NULL;
+  if (guest) pocket_guest_quickjs_destroy(guest);
+  guest = NULL;
+  if (context) {
+#if defined(POCKET_RUNTIME_HARNESS)
+    if (!JS_IsUndefined(harness_function)) JS_FreeValue(context, harness_function);
+#endif
+    if (!JS_IsUndefined(global)) JS_FreeValue(context, global);
+    JS_FreeContext(context);
+  }
+  if (runtime) JS_FreeRuntime(runtime);
+  context = NULL; runtime = NULL; global = JS_UNDEFINED;
+#if defined(POCKET_RUNTIME_HARNESS)
+  harness_function = JS_UNDEFINED;
+#endif
+#ifdef POCKET_RUNTIME_EXTENSION
+  native_gl_current = 0; native_extension = NULL;
+#endif
+  runtime_failed = 0; shutdown_requested = 0;
+}
+static int leave(int success) {
+  if (shutdown_requested) { shutdown_now(); busy = 0; return 0; }
+  busy = 0;
+  return success;
+}
+void pocket_legacy_runtime_shutdown(void) {
+  if (busy) { shutdown_requested = 1; return; }
+  busy = 1; shutdown_now(); busy = 0;
+}
+void pocket_legacy_runtime_set_raster_density(uint32_t density) {
+  if (!busy) boot_raster_density = density ? density : 1;
+}
+int pocket_legacy_runtime_boot(const char *code, size_t length, const uint8_t *pak, size_t pak_length, int width, int height) {
+  if (busy) return 0;
+  busy = 1; shutdown_now(); last_error[0] = 0;
+  reported_action_name[0] = 0; reported_action_value = 0; reported_action_sequence = 0; last_touch_hit = 0;
+  REPORT_BOOT_STAGE(1);
+  if (width <= 0 || height <= 0) { set_error("invalid viewport"); goto failed; }
+  program = pocket_native_program_create(POCKETJS_TARGET_ID, POCKETJS_HOST_ABI, (const uint8_t *)code, length, pak, pak_length,
+    (uint32_t)width, (uint32_t)height, boot_raster_density,
+#ifdef POCKET_PHYSICS
+    1
+#else
+    0
+#endif
+  );
+  if (!program) { set_error("PocketJS program allocation or configuration failed"); goto failed; }
+  REPORT_BOOT_STAGE(2); REPORT_BOOT_STAGE(3);
+  runtime = JS_NewRuntime();
+  if (!runtime) { set_error("QuickJS runtime allocation failed"); goto failed; }
+  JS_SetMaxStackSize(runtime, 256 * 1024);
+  REPORT_BOOT_STAGE(4);
+  context = JS_NewContext(runtime);
+  if (!context) { set_error("QuickJS context allocation failed"); goto failed; }
+  global = JS_GetGlobalObject(context);
+#if defined(POCKET_RUNTIME_HARNESS)
+  harness_function = JS_UNDEFINED;
+#endif
+  REPORT_BOOT_STAGE(5);
+  guest = pocket_guest_quickjs_attach(context, POCKET_QJS_LEGACY_C);
+  if (!guest) { set_error("QuickJS adapter allocation failed"); goto failed; }
+#if defined(POCKET_RUNTIME_STAGE_HOOKS)
+  if (pocket_guest_quickjs_set_phase_hook(guest, profile_phase, NULL)) goto failed;
+#endif
+  pocket_runtime *handle = pocket_native_program_runtime(program);
+#ifdef POCKET_SVC_WIRE
+  const uint16_t service_ops[] = {30, 31, 32};
+  if (pocket_runtime_add_op_provider(handle, &service_table, NULL, service_ops, 3)) goto failed;
+#endif
+  if (pocket_runtime_set_guest(handle, &guest_table, NULL) || pocket_native_program_boot(program)) {
+    guest_error(); goto failed;
+  }
+  return leave(1);
+failed:
+  if (!last_error[0]) set_error("PocketJS boot failed");
+  shutdown_now(); BENCH_STAGE(POCKET_BENCH_STAGE_IDLE); return leave(0);
+}
+static int run_frame(uint32_t buttons, const PocketRuntimeContact *contacts, unsigned int count,
+  const int *cancelled, unsigned int cancelled_count, unsigned int ticks) {
+  if (busy || !ready() || !ticks || ticks > 60) return 0;
+  pocket_contact active[POCKET_RUNTIME_MAX_CONTACTS];
+  pocket_cancelled_contact ended[POCKET_RUNTIME_MAX_CONTACTS];
+  if (count > POCKET_RUNTIME_MAX_CONTACTS) count = POCKET_RUNTIME_MAX_CONTACTS;
+  if (cancelled_count > POCKET_RUNTIME_MAX_CONTACTS) cancelled_count = POCKET_RUNTIME_MAX_CONTACTS;
+  for (unsigned i = 0; i < count; i++) {
+    active[i] = (pocket_contact){sizeof(pocket_contact), 0, (uint32_t)(contacts[i].id & 255), (float)contacts[i].x, (float)contacts[i].y, 0};
+  }
+  for (unsigned i = 0; i < cancelled_count; i++) ended[i] = (pocket_cancelled_contact){sizeof(pocket_cancelled_contact), 0, (uint32_t)(cancelled[i] & 255)};
+  pocket_input_frame input = {0}; input.struct_size = sizeof input; input.buttons = buttons;
+  input.contacts = active; input.contact_count = count; input.cancelled = ended; input.cancelled_count = cancelled_count;
+  busy = 1;
+  last_error[0] = 0;
+  int status = pocket_native_program_advance(program, &input, ticks);
+  BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
+  if (status) { guest_error(); runtime_failed = 1; }
+  return leave(status == 0);
+}
 /* The single-touch entries pack one id-0 contact, byte-identical on the wire. */
 static unsigned int single_contact(
   PocketRuntimeContact *contact,
@@ -973,29 +365,30 @@ int pocket_legacy_runtime_frame(int touch_down, int touch_x, int touch_y, int to
 #if defined(POCKET_RUNTIME_HARNESS)
 int pocket_legacy_runtime_harness_bind(const char *global_function) {
   JSValue function;
-  if (runtime == 0 || context == 0 || runtime_failed || global_function == 0 ||
+  if (busy || !ready() || global_function == 0 ||
       global_function[0] == '\0') return 0;
+  busy = 1;
   function = JS_GetPropertyStr(context, global, global_function);
   if (JS_IsException(function)) {
     take_exception(context);
-    return 0;
+    return leave(0);
   }
   if (!JS_IsFunction(context, function)) {
     JS_FreeValue(context, function);
     set_error("harness dispatcher is not a function");
-    return 0;
+    return leave(0);
   }
   if (!JS_IsUndefined(harness_function)) JS_FreeValue(context, harness_function);
   harness_function = function;
-  return 1;
+  return leave(1);
 }
 
 int pocket_legacy_runtime_harness_call(int32_t opcode, int32_t argument, int32_t *out) {
   JSValue arguments[2];
   JSValue value;
   int32_t number = 0;
-  if (runtime == 0 || context == 0 || runtime_failed ||
-      JS_IsUndefined(harness_function)) return 0;
+  if (busy || !ready() || JS_IsUndefined(harness_function)) return 0;
+  busy = 1;
   arguments[0] = JS_NewInt32(context, opcode);
   arguments[1] = JS_NewInt32(context, argument);
   value = JS_Call(context, harness_function, global, 2, arguments);
@@ -1003,108 +396,74 @@ int pocket_legacy_runtime_harness_call(int32_t opcode, int32_t argument, int32_t
   JS_FreeValue(context, arguments[0]);
   if (JS_IsException(value)) {
     take_exception(context);
-    return 0;
+    return leave(0);
   }
   if (out != 0 && JS_ToInt32(context, &number, value) < 0) {
     JS_FreeValue(context, value);
     take_exception(context);
-    return 0;
+    return leave(0);
   }
   JS_FreeValue(context, value);
   if (out != 0) *out = number;
-  return 1;
+  return leave(1);
 }
 #endif
 
-int pocket_legacy_runtime_hit_test(float x, float y) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return ui_hit_test(x, y);
-}
-
-int pocket_legacy_runtime_hit_test_bounds(float x, float y) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return ui_hit_test_bounds(x, y);
-}
-
-const char *pocket_legacy_runtime_action_name(void) {
-  return reported_action_name;
-}
-
-int pocket_legacy_runtime_action_value(void) {
-  return (int)reported_action_value;
-}
-
-unsigned long pocket_legacy_runtime_action_sequence(void) {
-  return reported_action_sequence;
-}
-
+int pocket_legacy_runtime_last_touch_hit(void) { return last_touch_hit; }
+int pocket_legacy_runtime_hit_test(float x, float y) { return !busy && ready() ? ui_hit_test(x, y) : 0; }
+int pocket_legacy_runtime_hit_test_bounds(float x, float y) { return !busy && ready() ? ui_hit_test_bounds(x, y) : 0; }
+const char *pocket_legacy_runtime_action_name(void) { return reported_action_name; }
+int pocket_legacy_runtime_action_value(void) { return reported_action_value; }
+unsigned long pocket_legacy_runtime_action_sequence(void) { return reported_action_sequence; }
+const char *pocket_legacy_runtime_error(void) { return last_error; }
 const uint8_t *pocket_legacy_runtime_render(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return ui_render_incremental();
+  if (busy || !ready()) return NULL;
+  busy = 1;
+  const uint8_t *pixels = pocket_native_program_render_argb(program);
+  if (!pixels) guest_error();
+  return leave(pixels != NULL) ? pixels : NULL;
 }
-
-unsigned long pocket_legacy_runtime_damage_attempts(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return (unsigned long)ui_damage_attempts();
-}
-
-unsigned long pocket_legacy_runtime_damage_failures(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return (unsigned long)ui_damage_failures();
-}
-
-unsigned long pocket_legacy_runtime_damage_full_redraws(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return (unsigned long)ui_damage_full_redraws();
-}
-
-unsigned long pocket_legacy_runtime_damage_pixels(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return (unsigned long)ui_damage_pixels();
-}
-
+#define DAMAGE_GETTER(name) unsigned long pocket_legacy_runtime_damage_##name(void) { return ready() ? (unsigned long)pocket_native_program_damage_##name(program) : 0; }
+DAMAGE_GETTER(attempts)
+DAMAGE_GETTER(failures)
+DAMAGE_GETTER(full_redraws)
+DAMAGE_GETTER(pixels)
 int pocket_legacy_runtime_damage_bounds(int *bounds) {
-  int32_t packed[4];
-  if (runtime == 0 || context == 0 || runtime_failed || bounds == 0) return 0;
-  if (!ui_damage_bounds(packed)) return 0;
-  bounds[0] = (int)packed[0];
-  bounds[1] = (int)packed[1];
-  bounds[2] = (int)packed[2];
-  bounds[3] = (int)packed[3];
+  if (!ready() || !bounds) return 0;
+  int32_t values[4];
+  if (!pocket_native_program_damage_bounds(program, values)) return 0;
+  for (unsigned i = 0; i < 4; i++) bounds[i] = values[i];
   return 1;
 }
-
 int pocket_legacy_runtime_gl_initialize(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
+  if (busy || !ready()) return 0;
+  busy = 1;
 #ifdef POCKET_RUNTIME_EXTENSION
   native_gl_current = 1;
 #endif
-  return ui_gl_initialize() != 0;
+  return leave(pocket_native_program_gl_initialize(program) == 0);
 }
-
+void pocket_legacy_runtime_gl_set_trace(void (*callback)(uint32_t, uint32_t, uint32_t)) {
+  if (!busy && program) pocket_native_program_set_gl_trace(program, callback);
+}
 void pocket_legacy_runtime_gl_reset(void) {
-  if (runtime == 0 || context == 0) return;
-  ui_gl_reset_resources();
+  if (busy || !program) return;
+  busy = 1; pocket_native_program_gl_reset(program); (void)leave(1);
 }
-
 int pocket_legacy_runtime_gl_render(int width, int height) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  if (width <= 0 || height <= 0) return 0;
-  /*
-   * The drawable is exactly the app's logical viewport, so the target
-   * rectangle is the whole window and no letterboxing arithmetic applies.
-   */
+  if (busy || !ready() || width <= 0 || height <= 0) return 0;
+  busy = 1; uint32_t over = 0;
 #ifdef POCKET_RUNTIME_EXTENSION
   if (native_extension && native_extension->render) {
-    if (!native_extension->render(0, 0, width, height, width, height)) return 0;
-    return ui_gl_render_over(0, 0, width, height, width, height) != 0;
+    if (!native_extension->render(0, 0, width, height, width, height)) return leave(0);
+    over = 1;
   }
 #endif
-  return ui_gl_render(0, 0, width, height, width, height) != 0;
+  return leave(pocket_native_program_gl_render(program, (uint32_t)width, (uint32_t)height, over) == 0);
 }
-
 void pocket_legacy_runtime_gl_shutdown(void) {
-  if (runtime == 0 || context == 0) return;
+  if (busy || !program) return;
+  busy = 1;
 #ifdef POCKET_RUNTIME_EXTENSION
   if (native_extension && native_extension->struct_size >= sizeof(PocketJsSymbianGraphicsExtensionV1)) {
     const PocketJsSymbianGraphicsExtensionV1 *graphics = (const PocketJsSymbianGraphicsExtensionV1 *)native_extension;
@@ -1112,9 +471,8 @@ void pocket_legacy_runtime_gl_shutdown(void) {
   }
   native_gl_current = 0;
 #endif
-  ui_gl_shutdown();
+  pocket_native_program_gl_shutdown(program); (void)leave(1);
 }
-
 uint32_t pocket_legacy_runtime_native_flags(void) {
 #ifdef POCKET_RUNTIME_EXTENSION
   return native_extension ? native_extension->flags : 0;
@@ -1122,27 +480,7 @@ uint32_t pocket_legacy_runtime_native_flags(void) {
   return 0;
 #endif
 }
-
-uint32_t pocket_legacy_runtime_width(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return ui_framebuffer_width();
-}
-
-uint32_t pocket_legacy_runtime_height(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return ui_framebuffer_height();
-}
-
-uint32_t pocket_legacy_runtime_stride(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return ui_framebuffer_stride();
-}
-
-size_t pocket_legacy_runtime_length(void) {
-  if (runtime == 0 || context == 0 || runtime_failed) return 0;
-  return ui_framebuffer_len();
-}
-
-const char *pocket_legacy_runtime_error(void) {
-  return last_error;
-}
+uint32_t pocket_legacy_runtime_width(void) { return ready() ? pocket_native_program_width(program) : 0; }
+uint32_t pocket_legacy_runtime_height(void) { return ready() ? pocket_native_program_height(program) : 0; }
+uint32_t pocket_legacy_runtime_stride(void) { return ready() ? pocket_native_program_stride(program) : 0; }
+size_t pocket_legacy_runtime_length(void) { return ready() ? pocket_native_program_length(program) : 0; }

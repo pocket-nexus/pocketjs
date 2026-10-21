@@ -13,6 +13,12 @@ pub unsafe fn set_guest(pointer: *mut PocketRuntime, guest: Box<dyn Guest>) -> i
     unsafe { runtime::modify(pointer, |runtime| runtime.set_guest(guest)) }
 }
 
+/// # Safety
+/// `pointer` is live on its owning thread; calls on it do not overlap.
+pub unsafe fn set_native_asset_loading(pointer: *mut PocketRuntime, enabled: bool) -> i32 {
+    unsafe { runtime::modify(pointer, |runtime| runtime.set_native_asset_loading(enabled)) }
+}
+
 /// Get an operation context for native guest bindings and private host hooks.
 /// Clones become inactive when the runtime shuts down; a held core guard must
 /// be released before a runtime call that needs the core.
@@ -120,4 +126,33 @@ pub unsafe fn present_with_overlay(
 /// `pointer` is live on its owning thread; calls on it do not overlap.
 pub unsafe fn skip_presentation(pointer: *mut PocketRuntime) -> i32 {
     unsafe { runtime::modify(pointer, pocket_runtime::Runtime::skip_presentation) }
+}
+
+/// # Safety
+/// `pointer` is live on its owning thread; calls on it do not overlap.
+pub unsafe fn allow_embedded_viewport_changes(pointer: *mut PocketRuntime) -> i32 {
+    unsafe {
+        runtime::modify(
+            pointer,
+            pocket_runtime::Runtime::allow_embedded_viewport_changes,
+        )
+    }
+}
+
+/// # Safety
+/// `pointer` is live on its owning thread; calls on it do not overlap. The
+/// program prepared the display descriptors and restores them on failure.
+pub unsafe fn resize_embedded_presentation(pointer: *mut PocketRuntime, physical: [u32; 2]) -> i32 {
+    unsafe {
+        runtime::modify(pointer, |runtime| {
+            runtime.resize_embedded_presentation(physical)
+        })
+    }
+}
+
+/// # Safety
+/// `pointer` is live on its owning thread; calls on it do not overlap. The
+/// program prepared the display storage and restores it on failure.
+pub unsafe fn resize_embedded(pointer: *mut PocketRuntime, logical: [u32; 2], physical: [u32; 2]) -> i32 {
+    unsafe { runtime::modify(pointer, |runtime| runtime.resize_embedded(logical, physical)) }
 }

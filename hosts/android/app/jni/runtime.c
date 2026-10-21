@@ -9,7 +9,7 @@
 
 #include "pocket_input.h"
 #include "../../../shared/contact_latch.h"
-#include "pocket_runtime.h"
+#include "pocket_legacy_runtime.h"
 #include "pocket_spec.h"
 
 #define LOG_TAG "PocketJSAndroid"
@@ -259,7 +259,7 @@ Java_dev_pocketnexus_android_PocketActivity_nativeFrame(
   sequences = touch_sequences;
   frame.buttons = sample.buttons;
   pocket_contacts_sample(&contacts, &frame, width, height, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT,
-    pocket_legacy_runtime_hit_test_bounds);
+    NULL);
   pthread_mutex_unlock(&input_mutex);
   uint64_t started = monotonic_us();
   if (window_started_us == 0) window_started_us = started;

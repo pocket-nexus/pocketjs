@@ -90,6 +90,14 @@ int PocketJsRuntime::activateNativeApp(int index)
 
 void PocketJsRuntime::notifyNativeReturn(int index, int destination, int error)
 {
+    if (program_ == 0 || destroyingGuest_) return;
+    returnIndex_ = index; returnDestination_ = destination; returnError_ = error;
+    if (pocket_native_program_collect(program_) != POCKET_STATUS_OK && !failed_)
+        fail(QString::fromUtf8(pocket_guest_quickjs_error(guest_)));
+}
+
+void PocketJsRuntime::deliverNativeReturn(int index, int destination, int error)
+{
     if (context_ == 0 || index < 0 || index >= nativeApps_.size()) return;
     JSValue callback = JS_GetPropertyStr(context_, global_, "__pocketjsNativeReturn");
     if (JS_IsFunction(context_, callback)) {
@@ -148,8 +156,21 @@ void PocketJsRuntime::receiveNativeReturn()
             const QRgb p = shot.pixel(x, y); const int offset = (y * shot.width() + x) * 4;
             rgba[offset] = qRed(p); rgba[offset + 1] = qGreen(p); rgba[offset + 2] = qBlue(p); rgba[offset + 3] = 255;
         }
-        if (app.shot >= 0) ui_free_texture(app.shot);
-        app.shot = ui_upload_texture(reinterpret_cast<const uint8_t *>(rgba.constData()), rgba.size(), shot.width(), shot.height(), kPixelStorage8888);
+        pocket_runtime *handle = pocket_native_program_runtime(program_);
+        pocket_result result; memset(&result, 0, sizeof(result)); result.struct_size = sizeof(result);
+        pocket_op_arg args[4]; memset(args, 0, sizeof(args));
+        for (int i = 0; i < 4; ++i) args[i].struct_size = sizeof(pocket_op_arg);
+        if (app.shot >= 0) {
+            args[0].tag = POCKET_ARG_INTEGER; args[0].integer = app.shot;
+            pocket_runtime_op(handle, 24, args, sizeof(args[0]), &result);
+            app.shot = -1;
+        }
+        args[0].tag = POCKET_ARG_BYTES;
+        args[0].bytes = reinterpret_cast<const uint8_t *>(rgba.constData()); args[0].byte_length = rgba.size();
+        for (int i = 1; i < 4; ++i) args[i].tag = POCKET_ARG_INTEGER;
+        args[1].integer = shot.width(); args[2].integer = shot.height(); args[3].integer = kPixelStorage8888;
+        if (pocket_runtime_op(handle, 10, args, sizeof(args), &result) == POCKET_STATUS_OK && result.tag == POCKET_RESULT_I64)
+            app.shot = static_cast<int>(result.integer);
     }
     notifyNativeReturn(index, destination, 0);
 }
@@ -274,7 +295,7 @@ void PocketJsRuntime::suspendNativeGraphics()
             reinterpret_cast<const PocketJsSymbianGraphicsExtensionV1 *>(extension_);
         if (graphics->release_graphics) graphics->release_graphics(1);
     }
-    ui_gl_shutdown();
+    pocket_native_program_gl_shutdown(program_);
     doneCurrent();
     const_cast<QGLContext *>(context())->reset();
     // VideoCore retains per-client pools after the last context is destroyed.

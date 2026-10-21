@@ -1,4 +1,4 @@
-#include "pocket_runtime.h"
+#include "pocket_legacy_runtime.h"
 #include "../shared/contact_latch.h"
 /* The svc transport's state, for the acceptance record: "absent" on builds
  * without the network channel, else discover / connecting / hello / up /
@@ -1451,14 +1451,14 @@ static void pocket_tick(id self, SEL command, id timer) {
 
   memset(&frame_input, 0, sizeof frame_input);
   pocket_contacts_sample(&g_contacts, &frame_input, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT,
-    POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, pocket_legacy_runtime_hit_test_bounds);
-  if (frame_input.contact_count) g_last_touch_hit = frame_input.contacts[frame_input.contact_count - 1].hit;
+    POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, NULL);
   delivered_touch = frame_input.contact_count > 0;
   frame_started_us = now_us();
   if (!pocket_legacy_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)) {
     fail_runtime(pocket_legacy_runtime_error());
     return;
   }
+  if (frame_input.contact_count) g_last_touch_hit = pocket_legacy_runtime_last_touch_hit();
   present_started_us = now_us();
   g_guest_frames += 1;
   {
@@ -1611,10 +1611,6 @@ static void touch_slot_begin(PocketTouchSlot *slot, id touch, int x, int y) {
   g_touch_y = y;
   g_touch_sequences += 1;
   g_touch_awaiting_completion = 0;
-  if (g_state == POCKET_STATE_RUNNING) {
-    g_last_touch_hit = pocket_legacy_runtime_hit_test_bounds((float)x, (float)y);
-    pocket_contact_hit(&g_contacts, (int)(slot - g_touch_slots), g_last_touch_hit);
-  }
 }
 
 static PocketTouchSlot *touch_slot_allocate(void) {

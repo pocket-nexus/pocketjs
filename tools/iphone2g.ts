@@ -514,6 +514,7 @@ function buildRuntime(): void {
       `-DPOCKETJS_HOST_ABI=${hostInputs.hostAbi}`,
       "-I",
       join(repository, "engine/ui-cabi/include"),
+      "-I", join(repository, "engine/guest-quickjs/include"),
       "-I",
       join(repository, "contracts/generated"),
       "-isystem",
@@ -526,6 +527,10 @@ function buildRuntime(): void {
     firstPartyWarnings,
   );
 
+  compile(join(repository, "engine/guest-quickjs/src/guest.c"), join(build, "pocket_guest_quickjs.o"), [
+    ...firstPartyWarnings, "-I", join(repository, "engine/guest-quickjs/include"),
+    "-I", join(repository, "contracts/generated"), "-isystem", quickjs,
+  ]);
   const quickJsObjects: string[] = [];
   for (const source of [
     "quickjs.c",
@@ -633,6 +638,7 @@ function buildRuntime(): void {
     join(build, "crt_globals.o"),
     join(build, "runtime.o"),
     join(build, "pocket_runtime.o"),
+    join(build, "pocket_guest_quickjs.o"),
     join(build, "compat.o"),
     "-force_load",
     coreLibrary,

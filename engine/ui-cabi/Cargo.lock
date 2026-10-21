@@ -124,6 +124,7 @@ dependencies = [
  "pocket-gles",
  "pocket-gles1",
  "pocket-gles2",
+ "pocket-glyph-pages",
  "pocket-raster",
  "pocket-runtime",
  "pocket-spec",
@@ -160,7 +161,15 @@ dependencies = [
 name = "pocketjs-ui-cabi"
 version = "0.1.0"
 dependencies = [
+ "pocket-drivers",
+ "pocket-gles",
+ "pocket-gles1",
+ "pocket-gles2",
+ "pocket-package",
+ "pocket-raster",
+ "pocket-runtime",
  "pocket-runtime-cabi",
+ "serde_json",
 ]
 
 [[package]]

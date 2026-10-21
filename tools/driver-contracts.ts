@@ -61,7 +61,7 @@ export function abiLayout(type: string, model: AbiDataModel): AbiLayout {
 function layoutExpressions(type: string, lang: "c" | "rust"): { size: string; align: string } {
   const sizeOf = (type: string) => lang === "c" ? `sizeof(${cType(type)})` : `core::mem::size_of::<${type}>()`;
   const alignOf = (type: string) => lang === "c"
-    ? ["u64", "i64", "f64"].includes(type) ? `offsetof(pocket_abi_${type}_alignment, value)` : `POCKET_ABI_ALIGNOF(${cType(type)})`
+    ? ["u64", "i64", "f64"].includes(type) ? `POCKET_ABI_OFFSETOF(pocket_abi_${type}_alignment, value)` : `POCKET_ABI_ALIGNOF(${cType(type)})`
     : `core::mem::align_of::<${type}>()`;
   const a = array(type);
   if (a) {
@@ -90,7 +90,7 @@ function cAssertions(record: AbiRecord): string {
   lines.push(`  ${prefix}_SIZE = POCKET_ABI_ALIGN_UP(${previousEnd}, ${previousAlign})`, "};");
   lines.push(`POCKET_ABI_ASSERT(sizeof(${record.cName}) == ${prefix}_SIZE, "${record.cName} size");`);
   lines.push(`POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(${record.cName}) == ${previousAlign}, "${record.cName} alignment");`);
-  record.fields.forEach((field, index) => lines.push(`POCKET_ABI_ASSERT(offsetof(${record.cName}, ${field.name}) == ${prefix}_${index}_OFFSET, "${record.cName}.${field.name}");`));
+  record.fields.forEach((field, index) => lines.push(`POCKET_ABI_ASSERT(POCKET_ABI_OFFSETOF(${record.cName}, ${field.name}) == ${prefix}_${index}_OFFSET, "${record.cName}.${field.name}");`));
   return lines.join("\n") + "\n";
 }
 function cHeader(component: "drivers" | "runtime"): string {
@@ -110,7 +110,29 @@ function cHeader(component: "drivers" | "runtime"): string {
   }
   for (const record of ownRecords) result += `typedef struct ${record.cName} ${record.cName};\n`;
   for (const cb of ownCallbacks) result += `\n${cDoc(cb.doc)}typedef ${cType(cb.result)} (*${cb.cName})(${cb.args.map(cField).join(", ") || "void"});\n`;
-  result += "\n#ifdef __cplusplus\n#define POCKET_ABI_ASSERT static_assert\n#define POCKET_ABI_ALIGNOF alignof\n#else\n#define POCKET_ABI_ASSERT _Static_assert\n#define POCKET_ABI_ALIGNOF _Alignof\n#endif\n";
+  result += `
+#if defined(__GNUC__) || defined(__clang__)
+/* Some SDK stddef.h macros are not integral constant expressions in C++98. */
+#define POCKET_ABI_OFFSETOF(type, field) __builtin_offsetof(type, field)
+#else
+#define POCKET_ABI_OFFSETOF(type, field) offsetof(type, field)
+#endif
+#if defined(__cplusplus) && __cplusplus >= 201103L
+#define POCKET_ABI_ASSERT static_assert
+#define POCKET_ABI_ALIGNOF alignof
+#elif !defined(__cplusplus) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#define POCKET_ABI_ASSERT _Static_assert
+#define POCKET_ABI_ALIGNOF _Alignof
+#elif defined(__GNUC__) || defined(__clang__)
+/* GCCE 4.6 hosts use C++98/GNU C99; retain the same compile-time layout checks. */
+#define POCKET_ABI_JOIN_(a, b) a ## b
+#define POCKET_ABI_JOIN(a, b) POCKET_ABI_JOIN_(a, b)
+#define POCKET_ABI_ASSERT(value, message) typedef char POCKET_ABI_JOIN(pocket_${component}_assert_, __LINE__)[(value) ? 1 : -1]
+#define POCKET_ABI_ALIGNOF(type) __alignof__(type)
+#else
+#error PocketJS ABI headers require C11, C++11, or GNU alignment extensions
+#endif
+`;
   result += "#define POCKET_ABI_ALIGN_UP(size, align) (((size) + (align) - 1) / (align) * (align))\n#define POCKET_ABI_MAX(a, b) ((a) > (b) ? (a) : (b))\n";
   for (const record of ownRecords) {
     result += `\n${cDoc(record.doc)}struct ${record.cName} {\n`;
@@ -118,7 +140,7 @@ function cHeader(component: "drivers" | "runtime"): string {
     result += "};\n" + cAssertions(record);
   }
   if (component === "runtime") for (const fn of [...RUNTIME_ABI_FUNCTIONS, ...HOST_ABI_FUNCTIONS]) result += `\n${cDoc(fn.doc)}${cType(fn.result)} ${fn.name}(${fn.args.map(cField).join(", ") || "void"});\n`;
-  return result + "\n#undef POCKET_ABI_ASSERT\n#undef POCKET_ABI_ALIGNOF\n#undef POCKET_ABI_ALIGN_UP\n#undef POCKET_ABI_MAX\n#ifdef __cplusplus\n}\n#endif\n";
+  return result + "\n#undef POCKET_ABI_OFFSETOF\n#undef POCKET_ABI_JOIN_\n#undef POCKET_ABI_JOIN\n#undef POCKET_ABI_ASSERT\n#undef POCKET_ABI_ALIGNOF\n#undef POCKET_ABI_ALIGN_UP\n#undef POCKET_ABI_MAX\n#ifdef __cplusplus\n}\n#endif\n";
 }
 function rustCallback(cb: AbiCallback): string {
   return `${rustDoc(cb.doc)}pub type ${cb.name} = unsafe extern "C" fn(${cb.args.map(field => `${field.name}: ${rustType(field.type)}`).join(", ")}) -> ${rustType(cb.result)};\n`;

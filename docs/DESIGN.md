@@ -66,10 +66,10 @@ artifacts: `$JOB_TMP/map-*.json`).
   region and replay the complete DrawList under a root clip; framebuffer
   format/scale signatures and `Ui::raster_revision()` prevent stale reuse.
   Region limits and full-redraw thresholds remain backend policy.
-- **ESP32-P4 stays 16-bit**: `engine/backends/rgb565/` consumes the same
+- **ESP32-P4 stays 16-bit**: `platforms/esp-idf/render-ppa/` consumes the same
   DrawList into an opaque RGB565 target. It maps flat fills, A8 coverage
   blending, and compatible PSM 5650 texture transforms to the PPA, then
-  preserves ordering with the core RGB565 rasterizer for unsupported ops.
+  preserves ordering with `engine/raster` for unsupported ops.
   It never allocates a full-frame RGB888/ARGB8888 intermediate.
 - **Native animation**: tweens/springs tick in Rust per vblank with **fixed
   dt = 1/60 s** (frame content is a pure function of frame index — this is

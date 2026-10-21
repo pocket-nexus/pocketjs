@@ -1,9 +1,17 @@
 # Portable QuickJS C runtime
 
-`pocket_runtime.c` owns one QuickJS runtime and context, installs the native
-`ui` operations, evaluates an application bundle, and advances its frame
-function, pending jobs, and native core ticks in that order. Native C hosts
-compile this source directly against `engine/ui-cabi` and their pinned QuickJS.
+`pocket_runtime.c` composes `PocketNativeProgram` with an attached generated
+QuickJS guest. **One canonical Runtime owns package admission, the retained
+core, input encoding, core ticks and terminal presentation.** The program
+copies the input JavaScript and PAK before boot; generated `ui` functions
+coerce arguments and dispatch through the Runtime operation table.
+
+Native C hosts compile this source and `engine/guest-quickjs/src/guest.c`
+against `engine/ui-cabi` and their pinned QuickJS. `pocket_legacy_runtime.h`
+is the compatibility facade; `contracts/generated/pocket_runtime.h` is the
+instance API. Host contact samples contain positions, IDs and cancellation;
+Runtime computes down-edge hits. Private offload, native extension and
+benchmark hooks remain in the program.
 
 ## Harness integration
 
@@ -35,10 +43,15 @@ to use only the C ABI.
 ## Validation
 
 The `Native C harness` pull-request workflow runs on Linux and macOS. It builds
-and executes all four stage/dispatcher switch combinations against QuickJS/UI
-stubs, runs renderer contracts, and tests `ui-cabi` with `harness-access` enabled.
-The stubs cover runtime control flow; they do not replace a real QuickJS
-benchmark run.
+and executes seven combinations of stage, dispatcher, extension, physics and
+service support against the pinned QuickJS and the Rust Runtime archive.
+The C fixture covers argument coercion, input cancellation, one guest turn
+with bounded core steps, package lifetime and shutdown reentry.
+
+`bun test tests/native-program.test.ts` also links the generated guest with
+the no_std GPU composition and a mock GL device. It checks viewport changes,
+collect callbacks, context resets and terminal completion before resource
+release.
 
 `bun test tests/ui-cabi-allocator.test.ts` builds the real UI C ABI static library
 with `bare-platform,software-only` using the nightly pinned in

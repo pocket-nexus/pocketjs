@@ -185,7 +185,7 @@ describe("private iPhone 2G build profile", () => {
     expect(runtime).toContain("POCKET_STATUS_HEARTBEAT_FRAMES");
     expect(runtime).not.toContain("g_guest_frames == 1 || delivered_touch");
     expect(pocketRuntime).toContain('"__reportAppAction"');
-    expect(pocketRuntime).toContain("reported_action_sequence += 1");
+    expect(pocketRuntime).toContain("reported_action_sequence++");
     expect(runtime).toContain(
       'sel_registerName("application:didFinishLaunchingWithOptions:")',
     );

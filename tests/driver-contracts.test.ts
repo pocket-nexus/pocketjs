@@ -75,12 +75,12 @@ describe("candidate driver and runtime contract generation", () => {
     write("host-layouts.txt", cOutput);
   }, 60_000);
 
-  test.skipIf(!compiler)("headers compile as C11 and C++11 on 64-bit, i686, ARM and wasm targets", () => {
+  test.skipIf(!compiler)("headers compile as C99/C11 and C++98/C++11 on 64-bit, i686, ARM and wasm targets", () => {
     const source = write("cross-layouts.c", '#include "pocket_spec.h"\n#include "pocket_drivers.h"\n#include "pocket_runtime.h"\n');
     const include = ["-I", resolve(root, "contracts/generated")];
-    for (const language of ["c", "c++"]) {
+    for (const [language, standard] of [["c", "gnu99"], ["c", "c11"], ["c++", "c++98"], ["c++", "c++11"]]) {
       for (const target of [undefined, "i386-unknown-none-elf", "armv7-none-eabi", "wasm32-unknown-unknown"]) {
-        run([compiler!, "-x", language, `-std=${language === "c" ? "c11" : "c++11"}`, "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-fsyntax-only", ...include, ...(target ? ["-target", target] : []), source]);
+        run([compiler!, "-x", language, `-std=${standard}`, "-ffreestanding", "-Wall", "-Wextra", "-Werror", "-fsyntax-only", ...include, ...(target ? ["-target", target] : []), source]);
       }
     }
   }, 60_000);

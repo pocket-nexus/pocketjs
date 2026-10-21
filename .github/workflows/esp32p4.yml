@@ -1,4 +1,4 @@
-name: ESP32-P4 RGB565 backend
+name: ESP32-P4 renderer
 
 on:
   pull_request:
@@ -17,7 +17,6 @@ on:
       - "engine/render/tex-cache/**"
       - "devices/gles/**"
       - "platforms/esp-idf/**"
-      - "engine/backends/rgb565/**"
   push:
     branches: [main]
     paths:
@@ -35,7 +34,6 @@ on:
       - "engine/render/tex-cache/**"
       - "devices/gles/**"
       - "platforms/esp-idf/**"
-      - "engine/backends/rgb565/**"
   workflow_dispatch: {}
 
 permissions:
@@ -61,4 +59,4 @@ jobs:
         run: cargo test --locked --manifest-path engine/core/Cargo.toml --features counters
 
       - name: Test ESP32-P4 DrawList backend
-        run: cargo test --locked --manifest-path engine/backends/rgb565/Cargo.toml
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-render-esp-ppa

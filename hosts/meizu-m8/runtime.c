@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "pocket_runtime.h"
+#include "pocket_legacy_runtime.h"
 
 #ifndef POCKET_BUILD_ID
 #define POCKET_BUILD_ID "unknown"
@@ -239,7 +239,7 @@ static void render_frame(HWND window) {
   int bounds[4];
   RECT dirty;
   delivered_touch = touch_down;
-  if (!pocket_legacy_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 1)) {
+  if (!pocket_legacy_runtime_frame_ticks(touch_down, touch_x, touch_y, 0, 1)) {
     copy_error(pocket_legacy_runtime_error());
     write_status("failed");
     KillTimer(window, POCKET_TIMER_ID);
@@ -249,6 +249,7 @@ static void render_frame(HWND window) {
   framebuffer = pocket_legacy_runtime_render();
   frames += 1;
   if (delivered_touch) touch_was_sent = 1;
+  if (touch_down) touch_hit = pocket_legacy_runtime_last_touch_hit();
   if (touch_release_after_frame) {
     touch_down = 0;
     touch_hit = 0;
@@ -344,7 +345,7 @@ static LRESULT CALLBACK window_proc(
       SetCapture(window);
       physical_to_logical(window, parameter, &touch_x, &touch_y);
       touch_down = 1;
-      touch_hit = pocket_legacy_runtime_hit_test_bounds((float)touch_x, (float)touch_y);
+      touch_hit = 0;
       touch_was_sent = 0;
       touch_release_after_frame = 0;
       touch_sequences += 1;

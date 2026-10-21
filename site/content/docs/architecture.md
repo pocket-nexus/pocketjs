@@ -177,8 +177,8 @@ Reading it top to bottom:
 4. **`pocketjs-core`** owns the retained UI tree: it runs flexbox layout,
    ticks animations, steps 2D physics worlds, measures and lays out text, and produces a flat
    **DrawList** each frame.
-5. A thin **backend** turns the DrawList into pixels: sceGu/GE on PSP,
-   vita2d/GXM on Vita, gpui on `hosts/desktop`, wgpu in the debug uihosts, and
+5. A **renderer** consumes the DrawList and borrowed resources: sceGu/GE on PSP,
+   GXM on Vita, wgpu in the desktop host, and
    the deterministic software rasterizer in `engine/raster/src/lib.rs` behind
    the browser canvas and the byte-exact PNG goldens.
 
@@ -186,11 +186,11 @@ Everything *above* the backend follows the same contract across targets. The
 layout you see in the browser [playground](/playground/) is the same layout,
 computed by the same code, that runs on the handheld.
 
-ESP-IDF exposes the same stages through `pocketjs_guest`, `pocketjs_ui_core`,
-`pocketjs_ui_qjs`, and `pocketjs_render_rgb565`. The native compatibility
-implementations share the runtime archive. **Only the
-optional runner creates a task; the product BSP owns input, physical buffers,
-and presentation.** See [ESP-IDF](/docs/esp-idf/).
+ESP-IDF composes `pocket_runtime`, `pocket_guest_quickjs`,
+`pocket_display_esp_lcd` and `pocket_render_esp_ppa`. **One Rust archive owns
+the runtime and renderer; the product registers its input, LCD and PPA
+instances.** The optional `pocket_runner` creates the FreeRTOS task and uses
+the shared tick schedule. See [ESP-IDF](/docs/esp-idf/).
 
 ## Why these choices
 

@@ -255,6 +255,17 @@ Rust application cores should import the matching table, flags, and native-key
 bits from `pocketjs_symbian_core::extension`; that module is the Rust ABI
 authority paired with the public C header.
 
+**Each guest owns one canonical Runtime through `PocketNativeProgram`.**
+The generated QuickJS binding dispatches core operations against that instance;
+application operations 39–41 register through an operation provider when a
+launcher or native navigation registry exists. Qt owns the window and native
+extension callbacks. The runtime owns the package, input encoding, core ticks
+and presentation coordinator. **Catalog guests retain the original `.pocket`
+bytes and plan.** The shared package reader validates the hash, target, host
+ABI, catalog identity and declared viewport before guest initialization. A
+live window resize runs after evaluation at the package viewport and before
+the first frame. These C records remain a candidate ABI.
+
 The experimental host has these runtime semantics:
 
 - PocketJS uses the full native Qt window as its logical viewport: `640x360`
@@ -295,9 +306,9 @@ The experimental host has these runtime semantics:
   hosts. `symbian-e7-dev` advertises `input.touch`; the framework exposes the
   same immutable per-frame contact snapshots on both encodings.
 - **`symbian-e7-dev` advertises `ui.physics`.** For a plan that resolves it,
-  the build passes `POCKETJS_PHYSICS=1` to qmake and the host binds ops 52..56
-  to the `ui_physics_*` exports of the Rust core. Other apps keep the base op
-  table. The receipt records the choice as `runtime.physics`.
+  the build passes `POCKETJS_PHYSICS=1` to qmake and the runtime admits
+  ops 52–56. The generated binding mounts these methods after checking the
+  instance capabilities. The receipt records the choice as `runtime.physics`.
 
 ### Measure frame work
 
@@ -372,8 +383,11 @@ profiles. A caller-supplied `--core-library` retains its caller's compiler flags
 
 The frame rows contain elapsed time, frame interval, JavaScript execution,
 core ticks, GLES submission and presentation time in milliseconds.
-`hit_ms` measures native hit queries called by the guest and is included in
-`js_ms`; adding the two would double-count that work.
+`js_ms` measures the guest callback and its native extension hooks;
+`tick_ms` includes input encoding and core ticks. `hit_ms` is `-1` in the
+canonical composition because the generated binding has no per-operation
+profiler; the trace records `hit_ms_available=0`. Historical traces measured
+those queries inside `js_ms`.
 **Replay uses the framework's virtual frame clock** (`replay_ms`), so a slow
 frame cannot skip a whole press/release sequence. Phase assignment uses this
 clock; FPS and CPU durations use wall time. Without replay, both clocks use
@@ -382,12 +396,14 @@ Drawing is split into scene generation, resource synchronization, vertex
 generation, buffer upload, GLES submission and frame validation, with batch
 and vertex counts. `error_ms` is zero when frame validation is disabled, apart
 from the trace callback's clock quantization.
-The C ABI `ui_gl_set_trace` callback supplies these boundaries on the render
+The program API `pocket_native_program_set_gl_trace` supplies these boundaries on the render
 thread; a null callback disables them. Callbacks must not re-enter the UI or
 issue GL commands.
 `present_ms` includes `draw_ms` and Qt's swap. **These are CPU wall times,
-not GPU timer queries or panel scanout measurements.** The measured loop does
-not read pixels, call `glFinish`, or write files.
+not GPU timer queries or panel scanout measurements.** The GLES driver calls
+`glFinish` before the coordinator retires frame resources. The measured loop
+performs no readback or file writes. `draw_ms` includes this terminal wait;
+traces from the earlier submission-only renderer have a different boundary.
 The next completed frame after measurement is saved to
 `E:/Installs/pocketjs-perf.png` for visual inspection. This readback is outside
 the measured interval.

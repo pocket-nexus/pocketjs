@@ -34,13 +34,13 @@ int pocket_legacy_runtime_boot(
   int width,
   int height
 );
-/* `pack` is borrowed by QuickJS and must remain valid until shutdown. */
+/* Code and pack bytes are copied during boot. */
 /*
  * One guest turn followed by exactly one core tick — the frame contract
  * (docs/RUNTIMES.md, law 3). Hosts call it once per presented frame with the
  * portable button mask (pocket_spec.h) and the sampled touch contact in
- * logical pixels; `touch_hit` is the host-resolved bounds hit for that
- * contact (pocket_legacy_runtime_hit_test_bounds) or zero.
+ * logical pixels; `touch_hit` is retained for source compatibility. Runtime resolves bounds
+ * hits from its own tree at the contact down edge.
  */
 typedef struct {
   uint32_t buttons;
@@ -54,8 +54,8 @@ int pocket_legacy_runtime_tick(const PocketRuntimeInput *input);
 /*
  * Multi-contact frame entry. `id` is a host-owned contact identity (0-255, stable
  * while the finger stays down, reusable after release), `x`/`y` are logical
- * pixels, and `hit` is the bounds hit resolved once at the contact's down
- * edge (pocket_legacy_runtime_hit_test_bounds) or zero. Contacts pack into the
+ * pixels, and `hit` is retained for source compatibility; Runtime resolves it at the
+ * contact down edge. Contacts pack into the
  * frame() wire words — legacy x:9/y:9/id:8 below 512 logical pixels, the
  * wide bit-31 form above — so a single id-0 contact is byte-identical to the
  * single-touch entry points and every existing tape. The guest snapshot caps
@@ -117,6 +117,8 @@ int pocket_legacy_runtime_frame_ticks(
 int pocket_legacy_runtime_harness_bind(const char *global_function);
 int pocket_legacy_runtime_harness_call(int32_t opcode, int32_t argument, int32_t *out);
 #endif
+/* Diagnostic hit from Runtime's most recent active contact. */
+int pocket_legacy_runtime_last_touch_hit(void);
 int pocket_legacy_runtime_hit_test(float x, float y);
 int pocket_legacy_runtime_hit_test_bounds(float x, float y);
 const char *pocket_legacy_runtime_action_name(void);
@@ -149,6 +151,7 @@ int pocket_legacy_runtime_damage_bounds(int *bounds);
 int pocket_legacy_runtime_gl_initialize(void);
 /* Native extension flags: bit 0 requests a depth attachment. */
 uint32_t pocket_legacy_runtime_native_flags(void);
+void pocket_legacy_runtime_gl_set_trace(void (*callback)(uint32_t, uint32_t, uint32_t));
 void pocket_legacy_runtime_gl_reset(void);
 int pocket_legacy_runtime_gl_render(int width, int height);
 void pocket_legacy_runtime_gl_shutdown(void);

@@ -24,9 +24,12 @@ done
   -DPOCKET_RUNTIME_REPORT_BOOT_STAGE=1 \
   -DPOCKETJS_TARGET_ID=\"$POCKETJS_TARGET_ID\" \
   -DPOCKETJS_HOST_ABI=$POCKETJS_HOST_ABI \
-  -I/src/engine/quickjs-c -I/src/engine/ui-cabi/include \
+  -I/src/engine/quickjs-c -I/src/engine/guest-quickjs/include -I/src/engine/ui-cabi/include \
   -I/src/contracts/generated -I/build/qjs \
   -c /src/engine/quickjs-c/pocket_runtime.c -o /build/objects/pocket_runtime.o
+"$CC" $COMMON -Wall -Wextra -Werror -Wno-unused-parameter \
+  -I/src/engine/guest-quickjs/include -I/src/contracts/generated -I/build/qjs \
+  -c /src/engine/guest-quickjs/src/guest.c -o /build/objects/pocket_guest_quickjs.o
 "$CC" $COMMON -Wall -Wextra -Werror \
   -c /src/hosts/meizu-m8/compat.c -o /build/objects/compat.o
 "$CC" $COMMON -Wall -Wextra -Werror \
@@ -47,6 +50,7 @@ done
   -o /build/PocketJS.exe \
   /build/objects/runtime.o \
   /build/objects/pocket_runtime.o \
+  /build/objects/pocket_guest_quickjs.o \
   /build/objects/compat.o \
   /build/objects/embedded.o \
   /build/objects/qjs/*.o \

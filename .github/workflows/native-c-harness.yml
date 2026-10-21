@@ -39,8 +39,8 @@ on:
       - "hosts/ios-legacy/**"
       - "hosts/android/**"
       - "tests/contact-latch.test.ts"
-      - "hosts/esp-idf/components/pocketjs_package/**"
-      - "hosts/esp-idf/tests/host/package_corpus.*"
+      - "hosts/esp-idf/components/pocket_runtime/**"
+      - "hosts/esp-idf/tests/host/*"
       - "tests/idf-package-corpus.test.ts"
       - "tests/ipodtouch4-installation.test.ts"
       - "tools/ipodtouch4-installation.ts"
@@ -76,8 +76,10 @@ on:
       - "platforms/esp-idf/**"
       - "engine/guest-quickjs/**"
       - "engine/guest-rquickjs/**"
-      - "engine/backends/rgb565/**"
       - "engine/core/**"
+      - "engine/crates/microts/**"
+      - "hosts/gba/**"
+      - "hosts/ipodnano/**"
       - "engine/spec/**"
       - "engine/drivers/**"
       - "engine/raster/**"
@@ -95,6 +97,8 @@ on:
       - "tests/fixtures/ui-cabi-allocator/**"
       - "tests/fixtures/ui-cabi-psm-draw/**"
       - "tests/quickjs-c-harness.test.ts"
+      - "tests/native-program.test.ts"
+      - "tests/fixtures/native-program/**"
       - "tests/ui-cabi-allocator.test.ts"
       - "tests/ui-cabi-psm-draw.test.ts"
       - "tests/tape-assert.test.ts"
@@ -145,8 +149,8 @@ on:
       - "hosts/ios-legacy/**"
       - "hosts/android/**"
       - "tests/contact-latch.test.ts"
-      - "hosts/esp-idf/components/pocketjs_package/**"
-      - "hosts/esp-idf/tests/host/package_corpus.*"
+      - "hosts/esp-idf/components/pocket_runtime/**"
+      - "hosts/esp-idf/tests/host/*"
       - "tests/idf-package-corpus.test.ts"
       - "tests/ipodtouch4-installation.test.ts"
       - "tools/ipodtouch4-installation.ts"
@@ -182,8 +186,10 @@ on:
       - "platforms/esp-idf/**"
       - "engine/guest-quickjs/**"
       - "engine/guest-rquickjs/**"
-      - "engine/backends/rgb565/**"
       - "engine/core/**"
+      - "engine/crates/microts/**"
+      - "hosts/gba/**"
+      - "hosts/ipodnano/**"
       - "engine/spec/**"
       - "engine/drivers/**"
       - "engine/raster/**"
@@ -201,6 +207,8 @@ on:
       - "tests/fixtures/ui-cabi-allocator/**"
       - "tests/fixtures/ui-cabi-psm-draw/**"
       - "tests/quickjs-c-harness.test.ts"
+      - "tests/native-program.test.ts"
+      - "tests/fixtures/native-program/**"
       - "tests/ui-cabi-allocator.test.ts"
       - "tests/ui-cabi-psm-draw.test.ts"
       - "tests/tape-assert.test.ts"
@@ -246,7 +254,7 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - name: Native contacts, package corpus and device installation contracts
         run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts tests/ipodtouch4-profile.test.ts tests/ipodtouch4-resources.test.ts tests/repack-ipod.test.ts
       - name: Build Clear simulator inputs
@@ -263,6 +271,10 @@ jobs:
         run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
       - name: Test shared runtime, bindings and PPA renderer
         run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs -p pocket-ui-surface -p pocket-present -p pocket-package -p pocket-apple -p pocket-render-esp-ppa
+      - name: AOT guest and compiled native presentation
+        run: |
+          cargo +stable test --locked --manifest-path engine/Cargo.toml -p microts --features runtime
+          cargo +stable test --locked --manifest-path hosts/gba/Cargo.toml --lib
       - name: Generated C guest against QuickJS-NG
         run: bun tools/test-quickjs-guest.ts
       - name: Link and execute the C allocator and texture draw fixtures

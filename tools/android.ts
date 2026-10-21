@@ -598,6 +598,7 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
     `-DPOCKET_RASTER_DENSITY=${inputs.rasterDensity}`,
     `-I${join(repository, "engine/quickjs-c")}`,
     `-I${join(repository, "engine/ui-cabi/include")}`,
+    `-I${join(repository, "engine/guest-quickjs/include")}`,
     `-I${join(repository, "contracts/generated")}`,
     `-I${quickJs.source}`,
     "-c",
@@ -605,6 +606,11 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
     "-o",
     portableRuntime,
   ]);
+  const guestAdapter = join(objects, "pocket_guest_quickjs.o");
+  mustRun(clang, [...cFlags,
+    `-I${join(repository, "engine/guest-quickjs/include")}`,
+    `-I${join(repository, "contracts/generated")}`, `-I${quickJs.source}`,
+    "-c", join(repository, "engine/guest-quickjs/src/guest.c"), "-o", guestAdapter]);
   const androidRuntime = join(objects, "android_runtime.o");
   mustRun(clang, [
     ...cFlags,
@@ -655,6 +661,7 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
     ...(abi.linkFlags ?? []),
     androidRuntime,
     portableRuntime,
+    guestAdapter,
     ...sharedObjects,
     quickJsLibrary,
     coreLibrary,

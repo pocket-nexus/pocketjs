@@ -8,6 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#define POCKET_QJS_ALIGNOF(type) _Alignof(type)
+#else
+#define POCKET_QJS_ALIGNOF(type) __alignof__(type)
+#endif
+
 #if defined(POCKET_QJS_BELLARD)
 #define HAS_IMMUTABLE_API 0
 #elif defined(__APPLE__)
@@ -32,11 +38,16 @@ struct pocket_guest_quickjs {
   JSClassID buffer_class, uint8_class;
 #endif
   JSValue token, pak;
+  pocket_qjs_phase_hook phase_hook;
+  void *phase_context;
   char error[256];
 };
 #define HAS_FIELD(value,type,field) ((value)->struct_size >= offsetof(type,field) + sizeof((value)->field))
 #define NEXT_RECORD(value,type) ((const type *)((const uint8_t *)(value) + (value)->struct_size))
 static void shutdown(void *opaque);
+static void phase(pocket_guest_quickjs *guest, pocket_qjs_phase value) {
+  if(guest->phase_hook)guest->phase_hook(guest->phase_context,value);
+}
 static int32_t fail(pocket_guest_quickjs *guest) {
   JSValue error=JS_GetException(guest->context);
   const char *message=JS_ToCString(guest->context,error);
@@ -223,8 +234,8 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
     JSValue textures=JS_NewObjectProto(ctx,JS_NULL),sprites=JS_NewObjectProto(ctx,JS_NULL);
     const pocket_named_texture *texture=env->textures;const pocket_named_sprite *sprite_entry=env->sprites;
     if((env->texture_count&&!texture)||(env->sprite_count&&!sprite_entry)){JS_ThrowTypeError(ctx,"missing asset records");JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}
-    for(size_t i=0;i<env->texture_count;i++) {const pocket_named_texture *item=texture;if(!HAS_FIELD(item,pocket_named_texture,handle)||item->struct_size%_Alignof(pocket_named_texture)){JS_ThrowTypeError(ctx,"short texture record");JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}texture=NEXT_RECORD(item,pocket_named_texture);JSAtom key=JS_NewAtomLen(ctx,(const char*)item->name,item->name_length);int ok=JS_DefinePropertyValue(ctx,textures,key,JS_NewInt32(ctx,item->handle),JS_PROP_C_W_E);JS_FreeAtom(ctx,key);if(ok<0){JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}}
-    for(size_t i=0;i<env->sprite_count;i++) {const pocket_named_sprite *item=sprite_entry;if(!HAS_FIELD(item,pocket_named_sprite,step)||item->struct_size%_Alignof(pocket_named_sprite)){JS_ThrowTypeError(ctx,"short sprite record");JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}sprite_entry=NEXT_RECORD(item,pocket_named_sprite);JSValue sprite=JS_NewObject(ctx);if(set(ctx,sprite,"handle",JS_NewInt32(ctx,item->handle))<0||set(ctx,sprite,"frames",JS_NewUint32(ctx,item->frames))<0||set(ctx,sprite,"cols",JS_NewUint32(ctx,item->columns))<0||set(ctx,sprite,"step",JS_NewUint32(ctx,item->step))<0){JS_FreeValue(ctx,sprite);JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}JSAtom key=JS_NewAtomLen(ctx,(const char*)item->name,item->name_length);int ok=JS_DefinePropertyValue(ctx,sprites,key,sprite,JS_PROP_C_W_E);JS_FreeAtom(ctx,key);if(ok<0){JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}}
+    for(size_t i=0;i<env->texture_count;i++) {const pocket_named_texture *item=texture;if(!HAS_FIELD(item,pocket_named_texture,handle)||item->struct_size%POCKET_QJS_ALIGNOF(pocket_named_texture)){JS_ThrowTypeError(ctx,"short texture record");JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}texture=NEXT_RECORD(item,pocket_named_texture);JSAtom key=JS_NewAtomLen(ctx,(const char*)item->name,item->name_length);int ok=JS_DefinePropertyValue(ctx,textures,key,JS_NewInt32(ctx,item->handle),JS_PROP_C_W_E);JS_FreeAtom(ctx,key);if(ok<0){JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}}
+    for(size_t i=0;i<env->sprite_count;i++) {const pocket_named_sprite *item=sprite_entry;if(!HAS_FIELD(item,pocket_named_sprite,step)||item->struct_size%POCKET_QJS_ALIGNOF(pocket_named_sprite)){JS_ThrowTypeError(ctx,"short sprite record");JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}sprite_entry=NEXT_RECORD(item,pocket_named_sprite);JSValue sprite=JS_NewObject(ctx);if(set(ctx,sprite,"handle",JS_NewInt32(ctx,item->handle))<0||set(ctx,sprite,"frames",JS_NewUint32(ctx,item->frames))<0||set(ctx,sprite,"cols",JS_NewUint32(ctx,item->columns))<0||set(ctx,sprite,"step",JS_NewUint32(ctx,item->step))<0){JS_FreeValue(ctx,sprite);JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}JSAtom key=JS_NewAtomLen(ctx,(const char*)item->name,item->name_length);int ok=JS_DefinePropertyValue(ctx,sprites,key,sprite,JS_PROP_C_W_E);JS_FreeAtom(ctx,key);if(ok<0){JS_FreeValue(ctx,textures);JS_FreeValue(ctx,sprites);goto failed;}}
     if(set(ctx,ui,"__textures",textures)<0){JS_FreeValue(ctx,sprites);goto failed;}if(set(ctx,ui,"__sprites",sprites)<0||set(ctx,ui,"__surfaces",JS_NewObject(ctx))<0)goto failed;
   }
   if(env->auxiliary_width&&env->auxiliary_height) {JSValue auxiliary=viewport(ctx,env->auxiliary_width,env->auxiliary_height);if(set(ctx,auxiliary,"root",JS_NewInt32(ctx,env->auxiliary_root))<0){JS_FreeValue(ctx,auxiliary);goto failed;}if(set(ctx,ui,"__auxiliarySurface",auxiliary)<0)goto failed;}
@@ -234,13 +245,14 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
 failed:
   JS_FreeValue(ctx,ui);JS_FreeValue(ctx,global);int32_t status=fail(guest);shutdown(guest);return status;
 }
-static int32_t collect(void *opaque) {pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context)return -1;JSContext *ctx=NULL;int status;while((status=JS_ExecutePendingJob(JS_GetRuntime(guest->context),&ctx))>0){}return status<0?fail(guest):0;}
+static int32_t collect(void *opaque) {pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context)return -1;JSContext *ctx=NULL;int status;phase(guest,POCKET_QJS_PHASE_JOBS);while((status=JS_ExecutePendingJob(JS_GetRuntime(guest->context),&ctx))>0){}phase(guest,POCKET_QJS_PHASE_IDLE);return status<0?fail(guest):0;}
 static int32_t evaluate(void *opaque,pocket_runtime *runtime,const uint8_t *code,size_t length) {
   pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context||guest->runtime!=runtime||(!code&&length)||length==SIZE_MAX)return -1;
   /* Package JS sections include one terminal NUL; JS_Eval's length excludes it. */
   if(length&&code[length-1]==0)length--;
   char *source=malloc(length+1);if(!source)return -1;if(length)memcpy(source,code,length);source[length]=0;
-  JSValue result=JS_Eval(guest->context,source,length,"pocket:guest",JS_EVAL_TYPE_GLOBAL);free(source);int failed=JS_IsException(result);JS_FreeValue(guest->context,result);return failed?fail(guest):collect(guest);
+  phase(guest,POCKET_QJS_PHASE_EVAL);
+  JSValue result=JS_Eval(guest->context,source,length,"pocket:guest",JS_EVAL_TYPE_GLOBAL);phase(guest,POCKET_QJS_PHASE_IDLE);free(source);int failed=JS_IsException(result);JS_FreeValue(guest->context,result);return failed?fail(guest):collect(guest);
 }
 static JSValue motion_value(JSContext *ctx,const pocket_motion_state *motion) {
   if(!motion)return JS_NULL;
@@ -278,8 +290,9 @@ static int32_t frame(void *opaque,const pocket_guest_frame *input) {
   if((input->axis_delta_count&&!input->axis_deltas)||(input->touch_count&&(!input->touches||!input->hits||!input->touch_surfaces))){JS_ThrowTypeError(ctx,"missing frame arrays");goto done;}
   for(size_t i=0;i<input->touch_count;i++) {if(JS_DefinePropertyValueUint32(ctx,argv[2],(uint32_t)i,JS_NewUint32(ctx,input->touches[i]),JS_PROP_C_W_E)<0||JS_DefinePropertyValueUint32(ctx,argv[3],(uint32_t)i,JS_NewInt32(ctx,input->hits[i]),JS_PROP_C_W_E)<0||JS_DefinePropertyValueUint32(ctx,argv[4],(uint32_t)i,JS_NewUint32(ctx,input->touch_surfaces[i]),JS_PROP_C_W_E)<0)goto done;}
   const pocket_axis_delta *delta=input->axis_deltas;
-  for(size_t i=0;i<input->axis_delta_count;i++) {if(!HAS_FIELD(delta,pocket_axis_delta,delta)||delta->struct_size%_Alignof(pocket_axis_delta)){JS_ThrowTypeError(ctx,"short axis delta record");goto done;}JSValue pair=JS_NewObject(ctx);if(set(ctx,pair,"axis",JS_NewUint32(ctx,delta->axis))<0||set(ctx,pair,"delta",JS_NewInt32(ctx,delta->delta))<0){JS_FreeValue(ctx,pair);goto done;}if(JS_DefinePropertyValueUint32(ctx,argv[6],(uint32_t)i,pair,JS_PROP_C_W_E)<0)goto done;delta=NEXT_RECORD(delta,pocket_axis_delta);}
-  JSValue result=JS_Call(ctx,function,JS_UNDEFINED,8,argv);status=JS_IsException(result)?-1:0;JS_FreeValue(ctx,result);
+  for(size_t i=0;i<input->axis_delta_count;i++) {if(!HAS_FIELD(delta,pocket_axis_delta,delta)||delta->struct_size%POCKET_QJS_ALIGNOF(pocket_axis_delta)){JS_ThrowTypeError(ctx,"short axis delta record");goto done;}JSValue pair=JS_NewObject(ctx);if(set(ctx,pair,"axis",JS_NewUint32(ctx,delta->axis))<0||set(ctx,pair,"delta",JS_NewInt32(ctx,delta->delta))<0){JS_FreeValue(ctx,pair);goto done;}if(JS_DefinePropertyValueUint32(ctx,argv[6],(uint32_t)i,pair,JS_PROP_C_W_E)<0)goto done;delta=NEXT_RECORD(delta,pocket_axis_delta);}
+  phase(guest,POCKET_QJS_PHASE_FRAME);
+  JSValue result=JS_Call(ctx,function,JS_UNDEFINED,8,argv);phase(guest,POCKET_QJS_PHASE_IDLE);status=JS_IsException(result)?-1:0;JS_FreeValue(ctx,result);
 done:for(unsigned i=0;i<8;i++)JS_FreeValue(ctx,argv[i]);JS_FreeValue(ctx,function);return status<0?fail(guest):collect(guest);
 }
 static void shutdown(void *opaque) {
@@ -298,4 +311,5 @@ pocket_guest_quickjs *pocket_guest_quickjs_attach(JSContext *ctx,pocket_qjs_prof
 const pocket_guest_v1 *pocket_guest_quickjs_vtable(void){return &vtable;}
 const char *pocket_guest_quickjs_error(const pocket_guest_quickjs *guest){return guest?guest->error:"invalid guest";}
 JSContext *pocket_guest_quickjs_context(pocket_guest_quickjs *guest){return guest?guest->context:NULL;}
+int pocket_guest_quickjs_set_phase_hook(pocket_guest_quickjs *guest,pocket_qjs_phase_hook hook,void *context){if(!guest||guest->mounted)return -1;guest->phase_hook=hook;guest->phase_context=context;return 0;}
 void pocket_guest_quickjs_destroy(pocket_guest_quickjs *guest){if(guest){shutdown(guest);free(guest);}}

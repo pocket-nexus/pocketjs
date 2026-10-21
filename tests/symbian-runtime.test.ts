@@ -396,9 +396,9 @@ describe("experimental Nokia E7 runtime profile", () => {
     const project = readFileSync(join(repository, "hosts/nokia-e7/runtime/pocketjs-e7-runtime.pro"), "utf8");
     const buildApp = readFileSync(join(repository, "tools/symbian/container/pocketjs-symbian-build-app"), "utf8");
     const orchestrator = readFileSync(join(repository, "tools/symbian.ts"), "utf8");
-    for (const [name, arity] of [["physicsCreate", 2], ["physicsApply", 1], ["physicsDestroy", 1], ["physicsEvents", 0], ["physicsQuery", 6]] as const) {
-      expect(runtime).toContain(`addHostOperation(context, ui, "${name}", ${arity}, Host${name[0].toUpperCase()}${name.slice(1)});`);
-    }
+    expect(runtime).toContain("viewport.width(), viewport.height(), 1, POCKETJS_PHYSICS");
+    expect(runtime).toContain("pocket_guest_quickjs_attach(context_, POCKET_QJS_LEGACY_C)");
+    expect(runtime).not.toContain("addHostOperation");
     expect(runtime).toContain("if (POCKETJS_ORIENTATION_LOCK == 1) setAttribute(Qt::WA_LockPortraitOrientation, true);");
     expect(runtime.match(/WA_LockPortraitOrientation/g)).toHaveLength(2); // the perf-replay lock and this one
     expect(project).toContain("DEFINES += POCKETJS_PHYSICS=$$POCKETJS_PHYSICS");
@@ -434,7 +434,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       "utf8",
     );
     const coreHeader = readFileSync(
-      join(repository, "hosts/nokia-e7/runtime/pocketjs_symbian_core.h"),
+      join(repository, "engine/ui-cabi/include/pocket_native_program.h"),
       "utf8",
     );
     const coreCargo = readFileSync(
@@ -462,19 +462,16 @@ describe("experimental Nokia E7 runtime profile", () => {
       "utf8",
     );
 
-    expect(runtime).toContain('JS_NewString(context, "symbian-e7-dev")');
-    expect(runtime).toContain('"__hostAbi"');
-    expect(runtime).toContain("JS_NewInt32(context, POCKETJS_HOST_ABI)");
-    expect(runtime).toContain("JS_ExecutePendingJob");
+    expect(runtime).toContain('pocket_native_program_create("symbian-e7-dev", POCKETJS_HOST_ABI');
+    expect(runtime).toContain("pocket_guest_quickjs_vtable()->initialize");
+    expect(runtime).toContain("pocket_guest_quickjs_vtable()->frame");
     expect(runtime).toContain("#if POCKETJS_FRAME_RATE <= 0");
     expect(runtime).toContain("#elif (60 % POCKETJS_FRAME_RATE) != 0");
     expect(runtime).toContain(
       "const int kCoreTicksPerFrame = 60 / POCKETJS_FRAME_RATE;",
     );
-    expect(runtime).toContain(
-      "for (int tick = 0; tick < kCoreTicksPerFrame; ++tick)",
-    );
-    expect(runtime.match(/ui_tick\(\);/g)).toHaveLength(1);
+    expect(runtime).toContain("pocket_native_program_advance(program_, &input, kCoreTicksPerFrame)");
+    expect(runtime).not.toContain("ui_tick()");
     expect(runtime).toContain("#include <QtOpenGL/QGLWidget>");
     expect(runtime).toContain("class PocketJsRuntime : public QGLWidget");
     expect(runtime).toContain("QGLFormat pocketJsGlFormat()");
@@ -490,15 +487,15 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(runtime).toContain("format.setStencil(false)");
     expect(runtime).toContain("format.setSampleBuffers(false)");
     expect(runtime).toContain("QGLWidget(pocketJsGlFormat())");
-    expect(runtime).toContain("glInitialized_ = ui_gl_initialize() != 0;");
+    expect(runtime).toContain("pocket_native_program_gl_initialize(program_) == POCKET_STATUS_OK");
     expect(runtime).toContain(
       "PocketJS could not obtain a valid OpenGL ES 2 context.",
     );
     expect(runtime).toContain("PocketJS lost its OpenGL ES 2 context.");
     expect(runtime).toContain("glInitialized_ && isValid()");
     expect(runtime).toContain("void PocketJsRuntime::paintGL()");
-    expect(runtime).toContain("? ui_gl_render_over(");
-    expect(runtime).toContain(": ui_gl_render(");
+    expect(runtime).toContain("pocket_native_program_gl_render_rect(program_,");
+    expect(runtime).toContain("nativeRendered ? 1 : 0");
     expect(runtime).toContain("const QRect target = presentationRect();");
     expect(runtime).toContain("glReadPixels(");
     expect(runtime).toContain(
@@ -581,18 +578,11 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(runtime).toContain("viewportSize_.height() /");
     expect(runtime).not.toContain("kLogicalWidth");
     expect(runtime).not.toContain('"__textures"');
-    expect(runtime).toContain("const uint32_t kPakMagic = 0x4b504344U;");
-    expect(runtime).toContain("bool findPakEntry(");
-    expect(runtime).toContain("rawBlobLength > static_cast<uint32_t>(");
-    expect(runtime).toContain(
-      "memcmp(pack.constData() + nameOffset, key, keyLength)",
-    );
-    expect(runtime).toContain("case HostLoadTileTexture:");
-    expect(runtime).toContain("ui_upload_tileset_tile(");
-    expect(runtime).toContain(
-      'addHostOperation(context, ui, "loadTileTexture", 2, HostLoadTileTexture)',
-    );
-    expect(coreHeader).toContain("int32_t ui_upload_tileset_tile(");
+    expect(runtime).not.toContain("HostLoadTileTexture");
+    expect(runtime).not.toContain("findPakEntry(");
+    expect(buildApp).toContain("/workspace/engine/guest-quickjs/src/guest.c");
+    expect(buildApp).toContain("-DPOCKET_QJS_BELLARD");
+    expect(project).toContain("POCKETJS_PROGRAM_INCLUDE");
 
     expect(project).toContain("QT += core gui opengl");
     expect(project).toContain("equals(POCKETJS_PERF_TRACE, 1): DEFINES += POCKETJS_PERF_TRACE");
@@ -632,11 +622,9 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(resources).toContain('<file alias="catalog.tsv">catalog.tsv</file>');
     expect(resources).toContain('<file alias="catalog.bin">catalog.bin</file>');
 
-    expect(coreHeader).toContain("int32_t ui_gl_initialize(void);");
-    expect(coreHeader).toContain("void ui_gl_reset_resources(void);");
-    expect(coreHeader).toContain("void ui_gl_shutdown(void);");
-    expect(coreHeader).toContain("int32_t ui_gl_render(");
-    expect(coreHeader).toContain("int32_t ui_gl_render_over(");
+    expect(coreHeader).toContain("pocket_native_program_gl_initialize");
+    expect(coreHeader).toContain("pocket_native_program_gl_shutdown");
+    expect(coreHeader).toContain("pocket_native_program_gl_render_rect");
     expect(project).toContain("pocketjs_symbian_extension.h");
 
     expect(extensionHeader).toContain(
@@ -696,12 +684,12 @@ describe("experimental Nokia E7 runtime profile", () => {
     );
     expect(runtime).toContain("sizeof(JSValue) == 8");
     expect(runtime).toContain("extension_->boot(");
-    expect(runtime).toContain("JS_NewArrayBufferCopy(");
+    expect(runtime).toContain("POCKET_QJS_LEGACY_C");
     expect(runtime).toContain(
-      "extension_->shutdown(hasContext ? 1 : 0)",
+      "extension->shutdown(self->glInitialized_ && self->isValid() ? 1 : 0)",
     );
     expect(runtime).toContain("extension_->before_guest(");
-    expect(runtime).toContain("extension_->after_guest(context_)");
+    expect(runtime).toContain("extension_->after_guest(self->context_)");
     expect(runtime).toContain("extension_->resize(");
     expect(runtime).toContain("extension_->render(");
     expect(orchestrator).toContain("coreLibrary?: string;");
@@ -725,18 +713,15 @@ describe("experimental Nokia E7 runtime profile", () => {
     const applyViewport = runtime.indexOf(
       "bool PocketJsRuntime::applyPendingViewport()",
     );
-    const resizeCore = runtime.indexOf(
-      "ui_set_viewport(viewport.width(), viewport.height());",
-      applyViewport,
-    );
-    const callHook = runtime.indexOf("resizeViewport_,", resizeCore);
-    const drainJobs = runtime.indexOf("if (!drainJobs()) return false;", callHook);
-    const scheduleGl = runtime.indexOf("update();", drainJobs);
+    const resizeCore = runtime.indexOf("pocket_native_program_resize_viewport(program_", applyViewport);
+    const callHook = runtime.indexOf("pocket_native_program_collect(program_)", resizeCore);
+    const scheduleGl = runtime.indexOf("update();", callHook);
     expect(applyViewport).toBeGreaterThan(-1);
     expect(resizeCore).toBeGreaterThan(applyViewport);
     expect(callHook).toBeGreaterThan(resizeCore);
-    expect(drainJobs).toBeGreaterThan(callHook);
-    expect(scheduleGl).toBeGreaterThan(drainJobs);
+    expect(scheduleGl).toBeGreaterThan(callHook);
+    expect(runtime).toContain("self->resizeViewport_, self->global_, 2, arguments");
+
   });
 
   test("embeds validated .pocket guests and cold-switches after presentation", () => {
@@ -745,28 +730,21 @@ describe("experimental Nokia E7 runtime profile", () => {
       "utf8",
     );
 
-    expect(runtime).toContain("kPocketPackageMagic = 0x544b4350U");
-    expect(runtime).toContain('target != "symbian-e7-dev"');
-    expect(runtime).toContain(
-      "hostAbi != static_cast<uint32_t>(POCKETJS_HOST_ABI)",
-    );
-    expect(runtime).toContain(
-      "pocketHash(package, package.size() - 8) != storedHash",
-    );
-    expect(runtime).toContain(
-      "embedded .pocket identity does not match its catalog row",
-    );
-    expect(runtime).toContain('"appTable"');
-    expect(runtime).toContain('"appLaunch"');
-    expect(runtime).toContain('"appShot"');
-    expect(runtime).toContain("JS_SetContextOpaque(context, owner)");
+    expect(runtime).toContain('pocket_native_program_create_package("symbian-e7-dev", POCKETJS_HOST_ABI,');
+    expect(runtime).toContain("output.constData(), id.constData(), title.constData()");
+    expect(runtime).toContain("app.logicalViewport.width(), app.logicalViewport.height(), 1, POCKETJS_PHYSICS");
+    expect(runtime).not.toContain("parsePocketPackage");
+    expect(runtime).not.toContain("pocketHash");
+    expect(runtime).toContain("const uint16_t operations[] = {39, 40, 41}");
+    expect(runtime).toContain("pocket_runtime_add_op_provider");
+    expect(runtime).toContain("JS_SetContextOpaque(context_, this)");
     expect(runtime).toContain("frameButtons &= ~kButtonSelect");
     expect(runtime).toContain("selectPressed && !selectLatched_");
 
     const runFrame = runtime.indexOf(
       "void PocketJsRuntime::runFrame()",
     );
-    const tick = runtime.indexOf("ui_tick();", runFrame);
+    const tick = runtime.indexOf("pocket_native_program_advance(program_, &input, kCoreTicksPerFrame)", runFrame);
     const present = runtime.indexOf("updateGL();", tick);
     const finish = runtime.indexOf("finishPendingSwitch();", present);
     const teardown = runtime.indexOf("destroyGuest();", finish);
@@ -789,19 +767,16 @@ describe("experimental Nokia E7 runtime profile", () => {
       "apps_.size() <= 1 || appIndex == 0",
     );
 
-    const shutdownExtension = runtime.indexOf(
-      "extension_->shutdown(hasContext ? 1 : 0);",
-    );
-    const freeContext = runtime.indexOf("JS_FreeContext(context_);");
+    const shutdownCore = runtime.indexOf("pocket_native_program_destroy(program)");
+    const shutdownGuest = runtime.indexOf("shutdownGuest(this);", shutdownCore);
+    const freeContext = runtime.indexOf("JS_FreeContext(context_);", shutdownGuest);
     const freeRuntime = runtime.indexOf("JS_FreeRuntime(runtime_);", freeContext);
-    const shutdownCore = runtime.indexOf("ui_shutdown();", freeRuntime);
-    const clearPack = runtime.indexOf("appPack_.clear();", shutdownCore);
-    expect(shutdownExtension).toBeGreaterThan(-1);
-    expect(freeContext).toBeGreaterThan(shutdownExtension);
-    expect(freeContext).toBeGreaterThan(-1);
+    const clearPack = runtime.indexOf("appPack_.clear();", freeRuntime);
+    expect(shutdownCore).toBeGreaterThan(-1);
+    expect(shutdownGuest).toBeGreaterThan(shutdownCore);
+    expect(freeContext).toBeGreaterThan(shutdownGuest);
     expect(freeRuntime).toBeGreaterThan(freeContext);
-    expect(shutdownCore).toBeGreaterThan(freeRuntime);
-    expect(clearPack).toBeGreaterThan(shutdownCore);
+    expect(clearPack).toBeGreaterThan(freeRuntime);
 
     const launcher = readFileSync(
       join(repository, "apps/launcher/app.tsx"),

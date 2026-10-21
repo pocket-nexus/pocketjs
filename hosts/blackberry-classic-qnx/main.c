@@ -1,5 +1,5 @@
 #include "pocket_input.h"
-#include "pocket_runtime.h"
+#include "pocket_legacy_runtime.h"
 #include "pocket_spec.h"
 
 #include <bps/bps.h>
@@ -438,9 +438,7 @@ static int render_frame(void)
   frame.touch_down = sample.touch_down;
   frame.touch_x = (int)(sample.touch_x * POCKET_LOGICAL_WIDTH / (surface_width > 0 ? surface_width : 1));
   frame.touch_y = (int)(sample.touch_y * POCKET_LOGICAL_HEIGHT / (surface_height > 0 ? surface_height : 1));
-  frame.touch_hit = sample.touch_down
-    ? pocket_legacy_runtime_hit_test_bounds((float)frame.touch_x, (float)frame.touch_y)
-    : 0;
+  frame.touch_hit = 0; /* Runtime resolves the down-edge hit. */
   if (!pocket_legacy_runtime_tick(&frame)) {
     set_error(pocket_legacy_runtime_error());
     return 0;

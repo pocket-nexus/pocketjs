@@ -51,6 +51,14 @@ harness-access = ["pocket-runtime-cabi/harness-access"]
 
 [dependencies]
 pocket-runtime-cabi = { path = "../runtime-cabi", default-features = false, features = ["legacy-ui"] }
+pocket-drivers = { path = "../drivers" }
+pocket-runtime = { path = "../runtime" }
+pocket-package = { path = "../package" }
+pocket-raster = { path = "../raster" }
+pocket-gles = { path = "../../devices/gles/pocket-gles" }
+pocket-gles1 = { path = "../../devices/gles/pocket-gles1" }
+pocket-gles2 = { path = "../../devices/gles/pocket-gles2" }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
 
 [profile.release]
 panic = "abort"

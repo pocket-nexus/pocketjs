@@ -36,7 +36,7 @@ fn main() {
         { kind: 1, bytes: identity }, { kind: 2, bytes: text.encode("{}") },
         { kind: 3, bytes: text.encode(code.replace(/\0$/, "") + "\0") }, { kind: 4, bytes: pak },
       ] }] });
-      expect(new Uint8Array(readFileSync(resolve(out, "app.pocket")))).toEqual(expected);
+      expect(new Uint8Array(readFileSync(resolve(out, "app.pocket")))).toEqual(new Uint8Array(expected));
     }
   }
 }, 60_000);

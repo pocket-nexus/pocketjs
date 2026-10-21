@@ -84,6 +84,7 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
     { label: "native/crt_globals.o", path: host.crtGlobals },
     { label: "native/runtime.build-id-input.o", path: identityObject },
     { label: "native/pocket_runtime.o", path: host.pocketRuntime },
+    { label: "native/pocket_guest_quickjs.o", path: host.guestAdapter },
     { label: "native/offload_posix.o", path: host.offload },
     { label: "native/compat.o", path: host.compat },
     ...native.quickJsObjects.map((path) => ({ label: `native/${path.slice(nativeBuild.length + 1)}`, path })),

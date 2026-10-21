@@ -2,12 +2,13 @@
 #define POCKET_CONTACT_LATCH_H
 #include <math.h>
 #include <string.h>
-#include "../../engine/quickjs-c/pocket_runtime.h"
+#include "../../engine/quickjs-c/pocket_legacy_runtime.h"
 #include "../blackberry-classic/pocket_input.h"
 
 /* Platform pointer IDs identify event streams, not guest contact lifetimes.
  * A released stream can coexist with a new stream using the same platform ID.
- * The caller serializes events/sampling and supplies the native bounds hit. */
+ * The caller serializes events/sampling. Runtime owns bounds hits; the
+ * optional callback remains for consumers of this standalone latch. */
 typedef struct {
   int used, platform_id, id, ending, sampled, hit_ready;
   float x, y, start_x, start_y;
@@ -103,8 +104,8 @@ static inline void pocket_contacts_sample(PocketContactLatch *state, PocketRunti
     if (contact->ending && contact->sampled) { pocket_contact_remove(state, contact); i--; continue; }
     int x = (int)(contact->x * logical_width / width), y = (int)(contact->y * logical_height / height);
     if (!contact->hit_ready) {
-      contact->hit = hit_test((float)(int)(contact->start_x * logical_width / width),
-        (float)(int)(contact->start_y * logical_height / height));
+      contact->hit = hit_test ? hit_test((float)(int)(contact->start_x * logical_width / width),
+        (float)(int)(contact->start_y * logical_height / height)) : 0;
       contact->hit_ready = 1;
     }
     PocketRuntimeContact *out = &frame->contacts[frame->contact_count++];

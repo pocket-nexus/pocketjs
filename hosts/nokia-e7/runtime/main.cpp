@@ -41,7 +41,8 @@ extern "C" {
 #include "quickjs.h"
 }
 
-#include "pocketjs_symbian_core.h"
+#include "pocket_native_program.h"
+#include "pocket_guest_quickjs.h"
 #include "pocketjs_symbian_extension.h"
 #include "pocketjs_symbian_keys.h"
 #include "pocketjs_navigation_gesture.h"
@@ -74,27 +75,13 @@ const int kMaximumViewportExtent = 640;
 const int kAnalogCenter = 0x8080;
 const int kMaximumTouches = 8;
 const int kCoreTicksPerFrame = 60 / POCKETJS_FRAME_RATE;
-const int kPocketPackageHeaderSize = 16;
-const int kPocketPackageVariantSize = 40;
-const int kPocketPackageSectionSize = 16;
-const int kPocketPackageTargetBytes = 16;
-const int kPocketPackageAlignment = 16;
-const int kPocketSectionIdentity = 1;
-const int kPocketSectionJavaScript = 3;
-const int kPocketSectionPack = 4;
-const uint32_t kPocketPackageMagic = 0x544b4350U;
-const uint32_t kPocketPackageVersion = 1;
-const int kPakHeaderSize = 32;
-const int kPakEntrySize = 24;
-const uint32_t kPakMagic = 0x4b504344U;
-const uint16_t kPakVersion = 1;
+const int kCatalogAlignment = 16;
 const int kShotWidth = 256;
 const int kShotHeight = 128;
 const uint32_t kPixelStorage8888 = 3;
 
 #ifdef POCKETJS_PERF_TRACE
 QElapsedTimer perfGlClock;
-int perfHitMs = 0;
 int perfGlStages[7] = { 0, 0, 0, 0, 0, 0, 0 };
 uint32_t perfGlBatches = 0;
 uint32_t perfGlVertices = 0;
@@ -156,47 +143,6 @@ const int kButtonCircle = 0x2000;
 const int kButtonCross = 0x4000;
 const int kButtonSquare = 0x8000;
 
-enum HostOperation {
-    HostCreateNode,
-    HostDestroyNode,
-    HostInsertBefore,
-    HostRemoveChild,
-    HostSetStyle,
-    HostSetProp,
-    HostSetPropBatch,
-    HostSetText,
-    HostReplaceText,
-    HostUploadTexture,
-    HostSetImage,
-    HostSetSprite,
-    HostAnimate,
-    HostCancelAnim,
-    HostSetFocus,
-    HostSetActive,
-    HostHitTest,
-    HostSetCursor,
-    HostSetCursorPos,
-    HostLoadStyles,
-    HostLoadFontAtlas,
-    HostMeasureText,
-    HostLoadTileTexture,
-    HostFreeTexture,
-    HostUploadImgEntry,
-    HostDebugInspect,
-    HostDebugRectXY,
-    HostDebugRectWH,
-    HostDebugPause,
-    HostDebugStep,
-#if POCKETJS_PHYSICS
-    // spec ops 52..56, bound only for a plan that resolved ui.physics
-    HostPhysicsCreate,
-    HostPhysicsApply,
-    HostPhysicsDestroy,
-    HostPhysicsEvents,
-    HostPhysicsQuery,
-#endif
-};
-
 struct EmbeddedApp
 {
     QString output;
@@ -212,468 +158,12 @@ struct GuestPayload
 {
     QByteArray javaScript;
     QByteArray pack;
+    QByteArray package;
 };
 
 class PocketJsRuntime;
 
-bool lookupActivePackEntry(
-    PocketJsRuntime *runtime,
-    const char *key,
-    size_t keyLength,
-    const uint8_t **data,
-    size_t *length
-);
-
-JSValue hostAppTable(
-    JSContext *context,
-    JSValueConst thisValue,
-    int argc,
-    JSValueConst *argv
-);
-JSValue hostAppLaunch(
-    JSContext *context,
-    JSValueConst thisValue,
-    int argc,
-    JSValueConst *argv
-);
-JSValue hostAppShot(
-    JSContext *context,
-    JSValueConst thisValue,
-    int argc,
-    JSValueConst *argv
-);
-
-int alignPocketOffset(int value)
-{
-    if (value < 0 || value > 0x7fffffff - (kPocketPackageAlignment - 1)) {
-        return -1;
-    }
-    return (value + kPocketPackageAlignment - 1) &
-        ~(kPocketPackageAlignment - 1);
-}
-
-bool readU16(
-    const QByteArray &bytes,
-    int offset,
-    uint16_t *value
-)
-{
-    if (offset < 0 || offset > bytes.size() - 2) return false;
-    const unsigned char *data =
-        reinterpret_cast<const unsigned char *>(bytes.constData() + offset);
-    *value = static_cast<uint16_t>(
-        static_cast<uint16_t>(data[0]) |
-        (static_cast<uint16_t>(data[1]) << 8)
-    );
-    return true;
-}
-
-bool readU32(
-    const QByteArray &bytes,
-    int offset,
-    uint32_t *value
-)
-{
-    if (offset < 0 || offset > bytes.size() - 4) return false;
-    const unsigned char *data =
-        reinterpret_cast<const unsigned char *>(bytes.constData() + offset);
-    *value =
-        static_cast<uint32_t>(data[0]) |
-        (static_cast<uint32_t>(data[1]) << 8) |
-        (static_cast<uint32_t>(data[2]) << 16) |
-        (static_cast<uint32_t>(data[3]) << 24);
-    return true;
-}
-
-bool readU64(
-    const QByteArray &bytes,
-    int offset,
-    quint64 *value
-)
-{
-    uint32_t low = 0;
-    uint32_t high = 0;
-    if (!readU32(bytes, offset, &low) ||
-        !readU32(bytes, offset + 4, &high)) {
-        return false;
-    }
-    *value = static_cast<quint64>(low) |
-        (static_cast<quint64>(high) << 32);
-    return true;
-}
-
-bool findPakEntry(
-    const QByteArray &pack,
-    const char *key,
-    size_t keyLength,
-    const uint8_t **data,
-    size_t *length
-)
-{
-    *data = 0;
-    *length = 0;
-    if (key == 0 || keyLength > static_cast<size_t>(0x7fffffff) ||
-        pack.size() < kPakHeaderSize) {
-        return false;
-    }
-
-    uint32_t magic = 0;
-    uint16_t version = 0;
-    uint32_t count = 0;
-    uint32_t rawDirectoryOffset = 0;
-    uint32_t rawNamesOffset = 0;
-    if (!readU32(pack, 0, &magic) ||
-        !readU16(pack, 4, &version) ||
-        !readU32(pack, 8, &count) ||
-        !readU32(pack, 12, &rawDirectoryOffset) ||
-        !readU32(pack, 16, &rawNamesOffset) ||
-        magic != kPakMagic ||
-        version != kPakVersion ||
-        rawDirectoryOffset > static_cast<uint32_t>(pack.size()) ||
-        rawNamesOffset > static_cast<uint32_t>(pack.size())) {
-        return false;
-    }
-
-    const int directoryOffset = static_cast<int>(rawDirectoryOffset);
-    const int namesOffset = static_cast<int>(rawNamesOffset);
-    if (count > static_cast<uint32_t>(
-            (pack.size() - directoryOffset) / kPakEntrySize)) {
-        return false;
-    }
-
-    for (uint32_t index = 0; index < count; ++index) {
-        const int entry = directoryOffset +
-            static_cast<int>(index) * kPakEntrySize;
-        uint32_t rawBlobOffset = 0;
-        uint32_t rawBlobLength = 0;
-        uint32_t rawNameOffset = 0;
-        uint16_t nameLength = 0;
-        if (!readU32(pack, entry + 4, &rawBlobOffset) ||
-            !readU32(pack, entry + 8, &rawBlobLength) ||
-            !readU32(pack, entry + 12, &rawNameOffset) ||
-            !readU16(pack, entry + 16, &nameLength) ||
-            rawNameOffset > static_cast<uint32_t>(pack.size() - namesOffset) ||
-            nameLength > static_cast<uint32_t>(
-                pack.size() - namesOffset - static_cast<int>(rawNameOffset)) ||
-            rawBlobOffset > static_cast<uint32_t>(pack.size()) ||
-            rawBlobLength > static_cast<uint32_t>(
-                pack.size() - static_cast<int>(rawBlobOffset))) {
-            return false;
-        }
-
-        const int nameOffset = namesOffset + static_cast<int>(rawNameOffset);
-        if (keyLength != static_cast<size_t>(nameLength) ||
-            memcmp(pack.constData() + nameOffset, key, keyLength) != 0) {
-            continue;
-        }
-        *data = reinterpret_cast<const uint8_t *>(
-            pack.constData() + static_cast<int>(rawBlobOffset)
-        );
-        *length = static_cast<size_t>(rawBlobLength);
-        return true;
-    }
-    return false;
-}
-
-quint64 pocketHash(const QByteArray &bytes, int length)
-{
-    quint64 hash = Q_UINT64_C(0xcbf29ce484222325);
-    const quint64 prime = Q_UINT64_C(0x100000001b3);
-    const unsigned char *data =
-        reinterpret_cast<const unsigned char *>(bytes.constData());
-    for (int index = 0; index < length; ++index) {
-        hash ^= static_cast<quint64>(data[index]);
-        hash *= prime;
-    }
-    return hash;
-}
-
-bool sectionBounds(
-    const QByteArray &package,
-    int sectionEntry,
-    uint32_t *kind,
-    int *offset,
-    int *length
-)
-{
-    uint32_t rawOffset = 0;
-    uint32_t rawLength = 0;
-    if (!readU32(package, sectionEntry, kind) ||
-        !readU32(package, sectionEntry + 8, &rawOffset) ||
-        !readU32(package, sectionEntry + 12, &rawLength) ||
-        rawOffset > static_cast<uint32_t>(package.size()) ||
-        rawLength > static_cast<uint32_t>(package.size()) - rawOffset ||
-        rawOffset + rawLength > static_cast<uint32_t>(package.size() - 8)) {
-        return false;
-    }
-    *offset = static_cast<int>(rawOffset);
-    *length = static_cast<int>(rawLength);
-    return true;
-}
-
-bool decodeIdentity(
-    const QByteArray &bytes,
-    QString *output,
-    QString *id,
-    QString *title
-)
-{
-    QString *fields[3] = { output, id, title };
-    int offset = 0;
-    for (int field = 0; field < 3; ++field) {
-        uint16_t length = 0;
-        if (!readU16(bytes, offset, &length)) return false;
-        offset += 2;
-        if (offset < 0 || offset > bytes.size() - static_cast<int>(length)) {
-            return false;
-        }
-        *fields[field] = QString::fromUtf8(
-            bytes.constData() + offset,
-            static_cast<int>(length)
-        );
-        offset += static_cast<int>(length);
-    }
-    return offset == bytes.size();
-}
-
-bool parsePocketPackage(
-    const QByteArray &package,
-    const EmbeddedApp &app,
-    GuestPayload *payload,
-    QString *error
-)
-{
-    if (package.size() < kPocketPackageHeaderSize + 8) {
-        *error = "embedded .pocket is truncated";
-        return false;
-    }
-
-    uint32_t magic = 0;
-    uint32_t version = 0;
-    uint32_t manifestLength = 0;
-    uint32_t variantCount = 0;
-    if (!readU32(package, 0, &magic) ||
-        !readU32(package, 4, &version) ||
-        !readU32(package, 8, &manifestLength) ||
-        !readU32(package, 12, &variantCount) ||
-        magic != kPocketPackageMagic ||
-        version != kPocketPackageVersion) {
-        *error = "embedded .pocket has an unsupported header";
-        return false;
-    }
-
-    quint64 storedHash = 0;
-    if (!readU64(package, package.size() - 8, &storedHash) ||
-        pocketHash(package, package.size() - 8) != storedHash) {
-        *error = "embedded .pocket footer hash does not match";
-        return false;
-    }
-
-    if (manifestLength > static_cast<uint32_t>(package.size()) -
-            kPocketPackageHeaderSize) {
-        *error = "embedded .pocket manifest is out of bounds";
-        return false;
-    }
-    const int tableOffset = alignPocketOffset(
-        kPocketPackageHeaderSize + static_cast<int>(manifestLength)
-    );
-    const int packageBodyEnd = package.size() - 8;
-    if (tableOffset < 0 ||
-        tableOffset > packageBodyEnd ||
-        variantCount > static_cast<uint32_t>(
-            (packageBodyEnd - tableOffset) / kPocketPackageVariantSize)) {
-        *error = "embedded .pocket variant table is out of bounds";
-        return false;
-    }
-
-    int identityOffset = -1;
-    int identityLength = 0;
-    int javaScriptOffset = -1;
-    int javaScriptLength = 0;
-    int packOffset = -1;
-    int packLength = 0;
-    bool foundVariant = false;
-
-    for (uint32_t variant = 0; variant < variantCount; ++variant) {
-        const int entry = tableOffset +
-            static_cast<int>(variant) * kPocketPackageVariantSize;
-        int targetLength = 0;
-        while (targetLength < kPocketPackageTargetBytes &&
-               package.at(entry + targetLength) != '\0') {
-            ++targetLength;
-        }
-        const QByteArray target = package.mid(entry, targetLength);
-
-        uint32_t hostAbi = 0;
-        uint32_t sectionCount = 0;
-        uint32_t rawSectionsOffset = 0;
-        if (!readU32(package, entry + 16, &hostAbi) ||
-            !readU32(package, entry + 20, &sectionCount) ||
-            !readU32(package, entry + 24, &rawSectionsOffset)) {
-            *error = "embedded .pocket variant is truncated";
-            return false;
-        }
-        if (target != "symbian-e7-dev") continue;
-        if (hostAbi != static_cast<uint32_t>(POCKETJS_HOST_ABI)) {
-            *error = "embedded .pocket host ABI does not match this runtime";
-            return false;
-        }
-        if (rawSectionsOffset > static_cast<uint32_t>(packageBodyEnd) ||
-            sectionCount > static_cast<uint32_t>(
-                (packageBodyEnd - static_cast<int>(rawSectionsOffset)) /
-                kPocketPackageSectionSize)) {
-            *error = "embedded .pocket section table is out of bounds";
-            return false;
-        }
-
-        foundVariant = true;
-        for (uint32_t section = 0; section < sectionCount; ++section) {
-            const int sectionEntry = static_cast<int>(rawSectionsOffset) +
-                static_cast<int>(section) * kPocketPackageSectionSize;
-            uint32_t kind = 0;
-            int offset = 0;
-            int length = 0;
-            if (!sectionBounds(
-                    package,
-                    sectionEntry,
-                    &kind,
-                    &offset,
-                    &length)) {
-                *error = "embedded .pocket section is out of bounds";
-                return false;
-            }
-            if (kind == kPocketSectionIdentity) {
-                identityOffset = offset;
-                identityLength = length;
-            } else if (kind == kPocketSectionJavaScript) {
-                javaScriptOffset = offset;
-                javaScriptLength = length;
-            } else if (kind == kPocketSectionPack) {
-                packOffset = offset;
-                packLength = length;
-            }
-        }
-        break;
-    }
-
-    if (!foundVariant) {
-        *error = "embedded .pocket has no symbian-e7-dev variant";
-        return false;
-    }
-    if (identityOffset < 0 || javaScriptOffset < 0 ||
-        javaScriptLength < 1 ||
-        package.at(javaScriptOffset + javaScriptLength - 1) != '\0') {
-        *error = "embedded .pocket is missing identity or NUL-terminated JS";
-        return false;
-    }
-
-    QString output;
-    QString id;
-    QString title;
-    if (!decodeIdentity(
-            package.mid(identityOffset, identityLength),
-            &output,
-            &id,
-            &title) ||
-        output != app.output ||
-        id != app.id ||
-        title != app.title) {
-        *error = "embedded .pocket identity does not match its catalog row";
-        return false;
-    }
-
-    payload->javaScript = package.mid(
-        javaScriptOffset,
-        javaScriptLength - 1
-    );
-    payload->pack = packOffset < 0
-        ? QByteArray()
-        : package.mid(packOffset, packLength);
-    return true;
-}
-
-bool intArgument(
-    JSContext *context,
-    int argc,
-    JSValueConst *argv,
-    int index,
-    int32_t *value
-)
-{
-    if (index >= argc) {
-        JS_ThrowTypeError(context, "missing argument %d", index);
-        return false;
-    }
-    return JS_ToInt32(context, value, argv[index]) == 0;
-}
-
-bool uintArgument(
-    JSContext *context,
-    int argc,
-    JSValueConst *argv,
-    int index,
-    uint32_t *value
-)
-{
-    if (index >= argc) {
-        JS_ThrowTypeError(context, "missing argument %d", index);
-        return false;
-    }
-    return JS_ToUint32(context, value, argv[index]) == 0;
-}
-
-bool floatArgument(
-    JSContext *context,
-    int argc,
-    JSValueConst *argv,
-    int index,
-    double *value
-)
-{
-    if (index >= argc) {
-        JS_ThrowTypeError(context, "missing argument %d", index);
-        return false;
-    }
-    return JS_ToFloat64(context, value, argv[index]) == 0;
-}
-
-#if POCKETJS_PHYSICS
-// A trailing argument the caller may omit reads as 0.
-bool optionalFloatArgument(
-    JSContext *context,
-    int argc,
-    JSValueConst *argv,
-    int index,
-    double *value
-)
-{
-    if (index >= argc || JS_IsUndefined(argv[index])) {
-        *value = 0.0;
-        return true;
-    }
-    return JS_ToFloat64(context, value, argv[index]) == 0;
-}
-#endif
-
-bool nonNegativeUintArgument(
-    JSContext *context,
-    int argc,
-    JSValueConst *argv,
-    int index,
-    uint32_t *value
-)
-{
-    double raw = 0.0;
-    if (!floatArgument(context, argc, argv, index, &raw)) return false;
-    if (raw <= 0.0) {
-        *value = 0;
-    } else if (raw >= 4294967295.0) {
-        *value = 0xffffffffU;
-    } else {
-        *value = static_cast<uint32_t>(raw);
-    }
-    return true;
-}
+JSValue hostAppClose(JSContext *, JSValueConst, int, JSValueConst *);
 
 bool stringArgument(
     JSContext *context,
@@ -690,517 +180,6 @@ bool stringArgument(
     }
     *text = JS_ToCStringLen2(context, length, argv[index], 0);
     return *text != 0;
-}
-
-bool bytesArgument(
-    JSContext *context,
-    int argc,
-    JSValueConst *argv,
-    int index,
-    const uint8_t **data,
-    size_t *length
-)
-{
-    if (index >= argc) {
-        JS_ThrowTypeError(context, "missing argument %d", index);
-        return false;
-    }
-
-    uint8_t *direct = JS_GetArrayBuffer(context, length, argv[index]);
-    if (!JS_HasException(context)) {
-        *data = direct;
-        return true;
-    }
-    JSValue directError = JS_GetException(context);
-    JS_FreeValue(context, directError);
-
-    size_t offset = 0;
-    size_t byteLength = 0;
-    size_t bytesPerElement = 0;
-    JSValue buffer = JS_GetTypedArrayBuffer(
-        context,
-        argv[index],
-        &offset,
-        &byteLength,
-        &bytesPerElement
-    );
-    if (JS_IsException(buffer)) {
-        return false;
-    }
-
-    size_t bufferLength = 0;
-    uint8_t *base = JS_GetArrayBuffer(context, &bufferLength, buffer);
-    if (JS_HasException(context)) {
-        JS_FreeValue(context, buffer);
-        return false;
-    }
-
-    (void)bytesPerElement;
-    if (offset > bufferLength || byteLength > bufferLength - offset) {
-        JS_FreeValue(context, buffer);
-        JS_ThrowRangeError(context, "typed array is outside its backing buffer");
-        return false;
-    }
-
-    *data = base == 0 ? 0 : base + offset;
-    *length = byteLength;
-    JS_FreeValue(context, buffer);
-    return true;
-}
-
-JSValue hostOperation(
-    JSContext *context,
-    JSValueConst,
-    int argc,
-    JSValueConst *argv,
-    int magic
-)
-{
-    int32_t a = 0;
-    int32_t b = 0;
-    int32_t c = 0;
-    uint32_t ua = 0;
-    uint32_t ub = 0;
-    uint32_t uc = 0;
-    uint32_t ud = 0;
-    double da = 0.0;
-    double db = 0.0;
-    double dc = 0.0;
-    double dd = 0.0;
-    const uint8_t *bytes = 0;
-    size_t byteLength = 0;
-    const char *text = 0;
-    size_t textLength = 0;
-
-    switch (magic) {
-    case HostCreateNode:
-        if (!uintArgument(context, argc, argv, 0, &ua)) return JS_EXCEPTION;
-        return JS_NewInt32(context, ui_create_node(ua));
-
-    case HostDestroyNode:
-        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
-        ui_destroy_node(a);
-        return JS_UNDEFINED;
-
-    case HostInsertBefore:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !intArgument(context, argc, argv, 1, &b) ||
-            !intArgument(context, argc, argv, 2, &c)) {
-            return JS_EXCEPTION;
-        }
-        ui_insert_before(a, b, c);
-        return JS_UNDEFINED;
-
-    case HostRemoveChild:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !intArgument(context, argc, argv, 1, &b)) {
-            return JS_EXCEPTION;
-        }
-        ui_remove_child(a, b);
-        return JS_UNDEFINED;
-
-    case HostSetStyle:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !intArgument(context, argc, argv, 1, &b)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_style(a, b);
-        return JS_UNDEFINED;
-
-    case HostSetProp:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !uintArgument(context, argc, argv, 1, &ua) ||
-            !floatArgument(context, argc, argv, 2, &da)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_prop(a, ua, da);
-        return JS_UNDEFINED;
-
-    case HostSetPropBatch:
-        if (!bytesArgument(
-                context, argc, argv, 0, &bytes, &byteLength)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_prop_batch(bytes, byteLength);
-        return JS_UNDEFINED;
-
-    case HostSetText:
-    case HostReplaceText:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !stringArgument(context, argc, argv, 1, &text, &textLength)) {
-            return JS_EXCEPTION;
-        }
-        if (magic == HostSetText) {
-            ui_set_text(a, reinterpret_cast<const uint8_t *>(text), textLength);
-        } else {
-            ui_replace_text(a, reinterpret_cast<const uint8_t *>(text), textLength);
-        }
-        JS_FreeCString(context, text);
-        return JS_UNDEFINED;
-
-    case HostUploadTexture:
-        if (!bytesArgument(
-                context, argc, argv, 0, &bytes, &byteLength) ||
-            !uintArgument(context, argc, argv, 1, &ua) ||
-            !uintArgument(context, argc, argv, 2, &ub) ||
-            !uintArgument(context, argc, argv, 3, &uc)) {
-            return JS_EXCEPTION;
-        }
-        return JS_NewInt32(
-            context,
-            ui_upload_texture(bytes, byteLength, ua, ub, uc)
-        );
-
-    case HostSetImage:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !intArgument(context, argc, argv, 1, &b)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_image(a, b);
-        return JS_UNDEFINED;
-
-    case HostSetSprite:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !intArgument(context, argc, argv, 1, &b) ||
-            !nonNegativeUintArgument(context, argc, argv, 2, &ua) ||
-            !nonNegativeUintArgument(context, argc, argv, 3, &ub) ||
-            !nonNegativeUintArgument(context, argc, argv, 4, &uc)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_sprite(a, b, ua, ub, uc);
-        return JS_UNDEFINED;
-
-    case HostAnimate:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !uintArgument(context, argc, argv, 1, &ua) ||
-            !floatArgument(context, argc, argv, 2, &da) ||
-            !nonNegativeUintArgument(context, argc, argv, 3, &ub) ||
-            !uintArgument(context, argc, argv, 4, &uc) ||
-            !nonNegativeUintArgument(context, argc, argv, 5, &ud)) {
-            return JS_EXCEPTION;
-        }
-        return JS_NewInt32(context, ui_animate(a, ua, da, ub, uc, ud));
-
-    case HostCancelAnim:
-        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
-        ui_cancel_anim(a);
-        return JS_UNDEFINED;
-
-    case HostSetFocus:
-        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
-        ui_set_focus(a);
-        return JS_UNDEFINED;
-
-    case HostSetActive:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !intArgument(context, argc, argv, 1, &b)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_active(a, b);
-        return JS_UNDEFINED;
-
-    case HostHitTest: {
-        if (!floatArgument(context, argc, argv, 0, &da) ||
-            !floatArgument(context, argc, argv, 1, &db)) {
-            return JS_EXCEPTION;
-        }
-#ifdef POCKETJS_PERF_TRACE
-        QElapsedTimer hitClock;
-        hitClock.start();
-#endif
-        const int32_t hit = ui_hit_test(static_cast<float>(da), static_cast<float>(db));
-#ifdef POCKETJS_PERF_TRACE
-        perfHitMs += hitClock.elapsed();
-#endif
-        return JS_NewInt32(context, hit);
-    }
-
-    case HostSetCursor:
-        if (!intArgument(context, argc, argv, 0, &a) ||
-            !floatArgument(context, argc, argv, 1, &da) ||
-            !floatArgument(context, argc, argv, 2, &db) ||
-            !floatArgument(context, argc, argv, 3, &dc) ||
-            !floatArgument(context, argc, argv, 4, &dd)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_cursor(
-            a,
-            static_cast<float>(da),
-            static_cast<float>(db),
-            static_cast<float>(dc),
-            static_cast<float>(dd)
-        );
-        return JS_UNDEFINED;
-
-    case HostSetCursorPos:
-        if (!floatArgument(context, argc, argv, 0, &da) ||
-            !floatArgument(context, argc, argv, 1, &db)) {
-            return JS_EXCEPTION;
-        }
-        ui_set_cursor_pos(static_cast<float>(da), static_cast<float>(db));
-        return JS_UNDEFINED;
-
-    case HostLoadStyles:
-    case HostLoadFontAtlas:
-        if (!bytesArgument(
-                context, argc, argv, 0, &bytes, &byteLength)) {
-            return JS_EXCEPTION;
-        }
-        if (magic == HostLoadStyles) {
-            return JS_NewBool(context, ui_load_styles(bytes, byteLength));
-        }
-        return JS_NewBool(context, ui_load_font_atlas(bytes, byteLength));
-
-    case HostMeasureText:
-        if (!stringArgument(context, argc, argv, 0, &text, &textLength)) {
-            return JS_EXCEPTION;
-        }
-        if (!uintArgument(context, argc, argv, 1, &ua)) {
-            JS_FreeCString(context, text);
-            return JS_EXCEPTION;
-        }
-        da = ui_measure_text(
-            reinterpret_cast<const uint8_t *>(text),
-            textLength,
-            ua
-        );
-        JS_FreeCString(context, text);
-        return JS_NewFloat64(context, da);
-
-    case HostLoadTileTexture: {
-        if (!stringArgument(
-                context, argc, argv, 0, &text, &textLength)) {
-            return JS_EXCEPTION;
-        }
-        if (!intArgument(context, argc, argv, 1, &a)) {
-            JS_FreeCString(context, text);
-            return JS_EXCEPTION;
-        }
-        int32_t handle = -1;
-        const uint8_t *entry = 0;
-        size_t entryLength = 0;
-        PocketJsRuntime *runtime = static_cast<PocketJsRuntime *>(
-            JS_GetContextOpaque(context)
-        );
-        if (a >= 0 &&
-            lookupActivePackEntry(
-                runtime,
-                text,
-                textLength,
-                &entry,
-                &entryLength)) {
-            handle = ui_upload_tileset_tile(
-                entry,
-                entryLength,
-                static_cast<uint32_t>(a)
-            );
-        }
-        JS_FreeCString(context, text);
-        return JS_NewInt32(context, handle);
-    }
-
-    case HostFreeTexture:
-        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
-        ui_free_texture(a);
-        return JS_UNDEFINED;
-
-    case HostUploadImgEntry:
-        if (!bytesArgument(
-                context, argc, argv, 0, &bytes, &byteLength)) {
-            return JS_EXCEPTION;
-        }
-        return JS_NewInt32(context, ui_upload_img_entry(bytes, byteLength));
-
-    case HostDebugInspect:
-        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
-        ui_debug_inspect(a);
-        return JS_UNDEFINED;
-
-    case HostDebugRectXY:
-        return JS_NewInt32(context, ui_debug_rect_xy());
-
-    case HostDebugRectWH:
-        return JS_NewInt32(context, ui_debug_rect_wh());
-
-    case HostDebugPause:
-        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
-        ui_debug_pause(a);
-        return JS_UNDEFINED;
-
-    case HostDebugStep:
-        ui_debug_step();
-        return JS_UNDEFINED;
-
-#if POCKETJS_PHYSICS
-    case HostPhysicsCreate:
-        // convert first: a conversion may allocate and move the borrowed bytes
-        if (!uintArgument(context, argc, argv, 0, &ua) ||
-            !bytesArgument(context, argc, argv, 1, &bytes, &byteLength)) {
-            return JS_EXCEPTION;
-        }
-        return JS_NewInt32(context, ui_physics_create(ua, bytes, byteLength));
-
-    case HostPhysicsApply:
-        if (!bytesArgument(context, argc, argv, 0, &bytes, &byteLength)) {
-            return JS_EXCEPTION;
-        }
-        ui_physics_apply(bytes, byteLength);
-        return JS_UNDEFINED;
-
-    case HostPhysicsDestroy:
-        if (!intArgument(context, argc, argv, 0, &a)) return JS_EXCEPTION;
-        ui_physics_destroy(a);
-        return JS_UNDEFINED;
-
-    case HostPhysicsEvents: {
-        size_t length = 0;
-        const uint8_t *events = ui_physics_take_events(&length);
-        return length == 0
-            ? JS_UNDEFINED
-            : JS_NewArrayBufferCopy(context, events, length);
-    }
-
-    case HostPhysicsQuery:
-        if (!uintArgument(context, argc, argv, 0, &ua) ||
-            !intArgument(context, argc, argv, 1, &a) ||
-            !optionalFloatArgument(context, argc, argv, 2, &da) ||
-            !optionalFloatArgument(context, argc, argv, 3, &db) ||
-            !optionalFloatArgument(context, argc, argv, 4, &dc) ||
-            !optionalFloatArgument(context, argc, argv, 5, &dd)) {
-            return JS_EXCEPTION;
-        }
-        return JS_NewFloat64(context, ui_physics_query(ua, a, da, db, dc, dd));
-#endif
-    }
-    return JS_ThrowInternalError(context, "unknown PocketJS HostOp");
-}
-
-void addHostOperation(
-    JSContext *context,
-    JSValueConst object,
-    const char *name,
-    int arity,
-    HostOperation operation
-)
-{
-    JSValue function = JS_NewCFunctionMagic(
-        context,
-        hostOperation,
-        name,
-        arity,
-        JS_CFUNC_generic_magic,
-        static_cast<int>(operation)
-    );
-    JS_SetPropertyStr(context, object, name, function);
-}
-
-JSValue hostAppClose(JSContext *, JSValueConst, int, JSValueConst *);
-
-bool installHostOps(
-    PocketJsRuntime *owner,
-    JSContext *context,
-    JSValueConst global,
-    int viewportWidth,
-    int viewportHeight,
-    bool multiApp,
-    bool nativeNavigation
-)
-{
-    JS_SetContextOpaque(context, owner);
-    JSValue ui = JS_NewObject(context);
-    if (JS_IsException(ui)) return false;
-
-    addHostOperation(context, ui, "createNode", 1, HostCreateNode);
-    addHostOperation(context, ui, "destroyNode", 1, HostDestroyNode);
-    addHostOperation(context, ui, "insertBefore", 3, HostInsertBefore);
-    addHostOperation(context, ui, "removeChild", 2, HostRemoveChild);
-    addHostOperation(context, ui, "setStyle", 2, HostSetStyle);
-    addHostOperation(context, ui, "setProp", 3, HostSetProp);
-    addHostOperation(context, ui, "setPropBatch", 1, HostSetPropBatch);
-    addHostOperation(context, ui, "setText", 2, HostSetText);
-    addHostOperation(context, ui, "replaceText", 2, HostReplaceText);
-    addHostOperation(context, ui, "uploadTexture", 4, HostUploadTexture);
-    addHostOperation(context, ui, "setImage", 2, HostSetImage);
-    addHostOperation(context, ui, "setSprite", 5, HostSetSprite);
-    addHostOperation(context, ui, "animate", 6, HostAnimate);
-    addHostOperation(context, ui, "cancelAnim", 1, HostCancelAnim);
-    addHostOperation(context, ui, "setFocus", 1, HostSetFocus);
-    addHostOperation(context, ui, "setActive", 2, HostSetActive);
-    addHostOperation(context, ui, "hitTest", 2, HostHitTest);
-    addHostOperation(context, ui, "setCursor", 5, HostSetCursor);
-    addHostOperation(context, ui, "setCursorPos", 2, HostSetCursorPos);
-    addHostOperation(context, ui, "loadStyles", 1, HostLoadStyles);
-    addHostOperation(context, ui, "loadFontAtlas", 1, HostLoadFontAtlas);
-    addHostOperation(context, ui, "measureText", 2, HostMeasureText);
-    addHostOperation(context, ui, "loadTileTexture", 2, HostLoadTileTexture);
-    addHostOperation(context, ui, "freeTexture", 1, HostFreeTexture);
-    addHostOperation(context, ui, "uploadImgEntry", 1, HostUploadImgEntry);
-    addHostOperation(context, ui, "debugInspect", 1, HostDebugInspect);
-    addHostOperation(context, ui, "debugRectXY", 0, HostDebugRectXY);
-    addHostOperation(context, ui, "debugRectWH", 0, HostDebugRectWH);
-    addHostOperation(context, ui, "debugPause", 1, HostDebugPause);
-    addHostOperation(context, ui, "debugStep", 0, HostDebugStep);
-#if POCKETJS_PHYSICS
-    addHostOperation(context, ui, "physicsCreate", 2, HostPhysicsCreate);
-    addHostOperation(context, ui, "physicsApply", 1, HostPhysicsApply);
-    addHostOperation(context, ui, "physicsDestroy", 1, HostPhysicsDestroy);
-    addHostOperation(context, ui, "physicsEvents", 0, HostPhysicsEvents);
-    addHostOperation(context, ui, "physicsQuery", 6, HostPhysicsQuery);
-#endif
-    if (multiApp) {
-        JS_SetPropertyStr(
-            context,
-            ui,
-            "appTable",
-            JS_NewCFunction(context, hostAppTable, "appTable", 0)
-        );
-        JS_SetPropertyStr(
-            context,
-            ui,
-            "appLaunch",
-            JS_NewCFunction(context, hostAppLaunch, "appLaunch", 1)
-        );
-        JS_SetPropertyStr(
-            context,
-            ui,
-            "appShot",
-            JS_NewCFunction(context, hostAppShot, "appShot", 0)
-        );
-    }
-
-    if (nativeNavigation) JS_SetPropertyStr(context, ui, "appClose", JS_NewCFunction(context, hostAppClose, "appClose", 1));
-
-    JSValue viewport = JS_NewObject(context);
-    JS_SetPropertyStr(
-        context,
-        viewport,
-        "w",
-        JS_NewInt32(context, viewportWidth)
-    );
-    JS_SetPropertyStr(
-        context,
-        viewport,
-        "h",
-        JS_NewInt32(context, viewportHeight)
-    );
-    JS_SetPropertyStr(context, ui, "__viewport", viewport);
-
-    JS_SetPropertyStr(
-        context,
-        ui,
-        "__host",
-        JS_NewString(context, "symbian-e7-dev")
-    );
-    JS_SetPropertyStr(
-        context,
-        ui,
-        "__hostAbi",
-        JS_NewInt32(context, POCKETJS_HOST_ABI)
-    );
-
-    // Deliberately publish neither __textures nor __sprites. The target-bound
-    // native host still feeds styles, fonts, and images through global __pak.
-    return JS_SetPropertyStr(context, global, "ui", ui) >= 0;
 }
 
 int buttonForKey(int key)
@@ -1277,12 +256,6 @@ public:
     ~PocketJsRuntime();
     QByteArray appTableJson() const;
     int frozenShotHandle() const;
-    bool lookupPackEntry(
-        const char *key,
-        size_t keyLength,
-        const uint8_t **data,
-        size_t *length
-    ) const;
     bool requestAppLaunch(const QString &output);
     bool requestAppClose(const QString &output);
 
@@ -1314,6 +287,8 @@ private:
     QByteArray nativeAppTable() const;
     int activateNativeApp(int index);
     void notifyNativeReturn(int index, int destination, int error);
+    void deliverNativeReturn(int index, int destination, int error);
+    int returnIndex_, returnDestination_, returnError_;
     void receiveNativeReturn();
     void finishNativeLaunch();
     bool navigationTouch(QTouchEvent *event);
@@ -1329,7 +304,6 @@ private:
     bool loadResource(const QString &path, QByteArray *bytes);
     bool loadGuestPayload(int appIndex, GuestPayload *payload);
     bool parseCatalog(const QByteArray &index);
-    bool drainJobs();
     bool recoverGuestFailure(int appIndex);
     bool validViewport(const QSize &viewport) const;
     QRect presentationRect() const;
@@ -1341,16 +315,29 @@ private:
     void runFrame();
     void updateTouches(QTouchEvent *event);
 
+    static int32_t initializeGuest(void *, pocket_runtime *, const pocket_guest_environment *);
+    static int32_t evaluateGuest(void *, pocket_runtime *, const uint8_t *, size_t);
+    static int32_t frameGuest(void *, const pocket_guest_frame *);
+    static int32_t collectGuest(void *);
+    static void shutdownGuest(void *);
+    static int32_t dispatchService(void *, uint16_t, const pocket_op_arg *, size_t, pocket_result *);
+    PocketNativeProgram *program_;
+    pocket_guest_quickjs *guest_;
+    QByteArray serviceResult_;
+    uint32_t frameNativeKeys_;
+    bool resizingGuest_;
+    bool destroyingGuest_;
     JSRuntime *runtime_;
     JSContext *context_;
     JSValue global_;
-    JSValue frame_;
     JSValue resizeViewport_;
     QByteArray appJavaScript_;
     QByteArray appPack_;
     QByteArray catalogBlob_;
     QByteArray frozenShot_;
 #ifdef POCKETJS_PERF_TRACE
+    QElapsedTimer *framePerfTimer_;
+    int guestMs_;
     QString perfPrefix_;
     uint32_t perfTouch_;
     void recordNativeEvent(const char *action, int index, int error);
@@ -1401,37 +388,16 @@ private:
     bool glInitialized_;
 };
 
-bool lookupActivePackEntry(
-    PocketJsRuntime *runtime,
-    const char *key,
-    size_t keyLength,
-    const uint8_t **data,
-    size_t *length
-)
-{
-    return runtime != 0 &&
-        runtime->lookupPackEntry(key, keyLength, data, length);
-}
-
-bool PocketJsRuntime::lookupPackEntry(
-    const char *key,
-    size_t keyLength,
-    const uint8_t **data,
-    size_t *length
-) const
-{
-    return findPakEntry(appPack_, key, keyLength, data, length);
-}
-
 PocketJsRuntime::PocketJsRuntime()
     : QGLWidget(pocketJsGlFormat()),
       nativeSelf_(-1), pendingNativeApp_(-1), lastNativeApp_(-1), nativeReturnDestination_(1), nativeWasBackground_(true), nativeShotPending_(false), nativeIgnoreUntilRelease_(false), nativeGraphicsSuspended_(false),
       nativeActivationDeadline_(0),
       nativePoseX_(0), nativePoseY_(0), nativePoseScale_(1),
+      returnIndex_(-1), returnDestination_(0), returnError_(0),
+      program_(0), guest_(0), frameNativeKeys_(0), resizingGuest_(false), destroyingGuest_(false),
       runtime_(0),
       context_(0),
       global_(JS_UNDEFINED),
-      frame_(JS_UNDEFINED),
       resizeViewport_(JS_UNDEFINED),
       extension_(0),
       errorLabel_(new QLabel(this)),
@@ -1457,6 +423,7 @@ PocketJsRuntime::PocketJsRuntime()
       glInitialized_(false)
 {
 #ifdef POCKETJS_PERF_TRACE
+    framePerfTimer_ = 0; guestMs_ = 0;
     perfPrefix_ = "E:/Installs/pocketjs-perf";
 #ifdef POCKETJS_SYMBIAN_UID
     const QString appPrefix = QString("E:/Installs/pocketjs-perf-%1").arg(uint32_t(POCKETJS_SYMBIAN_UID), 8, 16, QChar('0'));
@@ -1546,11 +513,6 @@ PocketJsRuntime::~PocketJsRuntime()
 {
     timer_.stop();
     destroyGuest();
-    if (glInitialized_ && isValid()) {
-        makeCurrent();
-        ui_gl_shutdown();
-        doneCurrent();
-    }
     glInitialized_ = false;
 }
 
@@ -1565,43 +527,35 @@ void PocketJsRuntime::clearInput()
 
 void PocketJsRuntime::destroyGuest()
 {
+    if (destroyingGuest_) return;
+    destroyingGuest_ = true;
     initialized_ = false;
-    if (extension_ != 0) {
-        const bool hasContext = glInitialized_ && isValid();
-        if (hasContext) makeCurrent();
-        if (extension_->shutdown != 0) {
-            extension_->shutdown(hasContext ? 1 : 0);
-        }
-        if (hasContext) doneCurrent();
-        extension_ = 0;
-    }
+    const bool hasContext = glInitialized_ && isValid();
+    if (hasContext) makeCurrent();
+    PocketNativeProgram *program = program_;
+    program_ = 0;
+    if (program != 0) pocket_native_program_destroy(program);
+    // Also covers failures before the guest vtable was registered.
+    shutdownGuest(this);
+    if (guest_ != 0) { pocket_guest_quickjs_destroy(guest_); guest_ = 0; }
     if (context_ != 0) {
         JS_FreeValue(context_, resizeViewport_);
-        JS_FreeValue(context_, frame_);
         JS_FreeValue(context_, global_);
         JS_FreeContext(context_);
         context_ = 0;
     }
-    if (runtime_ != 0) {
-        JS_FreeRuntime(runtime_);
-        runtime_ = 0;
-    }
-    if (coreInitialized_) {
-        if (glInitialized_ && isValid()) {
-            makeCurrent();
-            ui_gl_reset_resources();
-            doneCurrent();
-        }
-        ui_shutdown();
-        coreInitialized_ = false;
-    }
+    if (runtime_ != 0) { JS_FreeRuntime(runtime_); runtime_ = 0; }
+    if (hasContext) doneCurrent();
+    coreInitialized_ = false;
     global_ = JS_UNDEFINED;
-    frame_ = JS_UNDEFINED;
     resizeViewport_ = JS_UNDEFINED;
     appJavaScript_.clear();
     appPack_.clear();
+    serviceResult_.clear();
     clearInput();
     frozenShotHandle_ = -1;
+    returnIndex_ = -1;
+    destroyingGuest_ = false;
 }
 
 bool PocketJsRuntime::loadResource(
@@ -1655,7 +609,7 @@ bool PocketJsRuntime::parseCatalog(const QByteArray &index)
         const QByteArray viewportMode = fields.at(7);
         if (!offsetOk || !lengthOk || !widthOk || !heightOk ||
             offset < 0 || length <= 0 ||
-            offset % kPocketPackageAlignment != 0 ||
+            offset % kCatalogAlignment != 0 ||
             offset < previousEnd ||
             offset > catalogBlob_.size() - length ||
             width <= 0 || height <= 0 ||
@@ -1766,19 +720,7 @@ bool PocketJsRuntime::loadGuestPayload(
         return true;
     }
 
-    QString error;
-    const QByteArray package = catalogBlob_.mid(
-        app.packageOffset,
-        app.packageLength
-    );
-    if (!parsePocketPackage(package, app, payload, &error)) {
-        fail(
-            QString("PocketJS cannot boot %1\n\n%2")
-                .arg(app.output)
-                .arg(error)
-        );
-        return false;
-    }
+    payload->package = catalogBlob_.mid(app.packageOffset, app.packageLength);
     return true;
 }
 
@@ -1828,130 +770,201 @@ bool PocketJsRuntime::bootGuest(
     appJavaScript_ = payload.javaScript;
     appPack_ = payload.pack;
 
-    ui_init(1);
-    coreInitialized_ = true;
-    ui_set_viewport(viewport.width(), viewport.height());
-    if (!frozenShot_.isEmpty()) {
-        frozenShotHandle_ = ui_upload_texture(
-            reinterpret_cast<const uint8_t *>(frozenShot_.constData()),
-            static_cast<size_t>(frozenShot_.size()),
-            kShotWidth,
-            kShotHeight,
-            kPixelStorage8888
-        );
+    if (app.packageOffset >= 0) {
+        const QByteArray output = app.output.toUtf8();
+        const QByteArray id = app.id.toUtf8();
+        const QByteArray title = app.title.toUtf8();
+        // Runtime owns the original package, including its declared plan.
+        program_ = pocket_native_program_create_package("symbian-e7-dev", POCKETJS_HOST_ABI,
+            reinterpret_cast<const uint8_t *>(payload.package.constData()), payload.package.size(),
+            output.constData(), id.constData(), title.constData(),
+            app.logicalViewport.width(), app.logicalViewport.height(), 1, POCKETJS_PHYSICS);
     } else {
-        frozenShotHandle_ = -1;
+        program_ = pocket_native_program_create("symbian-e7-dev", POCKETJS_HOST_ABI,
+            reinterpret_cast<const uint8_t *>(appJavaScript_.constData()), appJavaScript_.size(),
+            reinterpret_cast<const uint8_t *>(appPack_.constData()), appPack_.size(),
+            viewport.width(), viewport.height(), 1, POCKETJS_PHYSICS);
     }
-
+    if (program_ == 0) {
+        fail("PocketJS package admission or program allocation failed"); return false;
+    }
+    coreInitialized_ = true;
     runtime_ = JS_NewRuntime();
-    if (runtime_ == 0) {
-        fail("QuickJS runtime allocation failed");
-        return false;
-    }
+    if (runtime_ == 0) { fail("QuickJS runtime allocation failed"); return false; }
     JS_SetMaxStackSize(runtime_, 512 * 1024);
-
     context_ = JS_NewContext(runtime_);
-    if (context_ == 0) {
-        fail("QuickJS context allocation failed");
-        return false;
-    }
+    if (context_ == 0) { fail("QuickJS context allocation failed"); return false; }
     global_ = JS_GetGlobalObject(context_);
-
-    if (!installHostOps(
-            this,
-            context_,
-            global_,
-            viewport.width(),
-            viewport.height(),
-            apps_.size() > 1 || nativeSelf_ >= 0,
-            nativeSelf_ >= 0)) {
-        fail(takeException(context_));
+    JS_SetContextOpaque(context_, this);
+    guest_ = pocket_guest_quickjs_attach(context_, POCKET_QJS_LEGACY_C);
+    if (guest_ == 0) { fail("QuickJS guest allocation failed"); return false; }
+    const pocket_guest_v1 guest = { sizeof(pocket_guest_v1), evaluateGuest,
+        frameGuest, collectGuest, shutdownGuest, initializeGuest };
+    pocket_runtime *handle = pocket_native_program_runtime(program_);
+    if (apps_.size() > 1 || nativeSelf_ >= 0) {
+        const uint16_t operations[] = {39, 40, 41};
+        const pocket_op_provider_v1 services = {sizeof(pocket_op_provider_v1), dispatchService};
+        if (pocket_runtime_add_op_provider(handle, &services, this, operations, 3) != POCKET_STATUS_OK) {
+            fail("PocketJS application services could not register"); return false;
+        }
+    }
+    if (pocket_runtime_set_guest(handle, &guest, this) != POCKET_STATUS_OK ||
+        pocket_native_program_boot(program_) != POCKET_STATUS_OK) {
+        if (!failed_) fail(QString::fromUtf8(pocket_guest_quickjs_error(guest_)));
         return false;
     }
-
-    extension_ = pocketJsNativeExtension();
-    // A native extension may borrow appPack_ as immutable storage until
-    // shutdown. QuickJS ArrayBuffers are always writable, so an extension
-    // guest must receive an independent JS-owned copy rather than an alias
-    // that a Uint8Array could mutate behind Rust's borrowed CookedMap.
-    JSValue pack = extension_ != 0
-        ? JS_NewArrayBufferCopy(
-            context_,
-            reinterpret_cast<const uint8_t *>(appPack_.constData()),
-            static_cast<size_t>(appPack_.size())
-        )
-        : JS_NewArrayBuffer(
-            context_,
-            reinterpret_cast<uint8_t *>(appPack_.data()),
-            static_cast<size_t>(appPack_.size()),
-            0,
-            0,
-            0
-        );
-    if (JS_IsException(pack) ||
-        JS_SetPropertyStr(context_, global_, "__pak", pack) < 0 ||
-        JS_SetPropertyStr(
-            context_,
-            global_,
-            "__simHz",
-            JS_NewInt32(context_, POCKETJS_FRAME_RATE)
-        ) < 0) {
-        fail(takeException(context_));
-        return false;
+    if (app.packageOffset >= 0 && viewport != app.logicalViewport) {
+        // Admit and evaluate at the package viewport, then apply the live window
+        // through the same resize path used for later orientation changes.
+        if (pocket_native_program_resize_viewport(program_, viewport.width(), viewport.height()) != POCKET_STATUS_OK) {
+            fail("PocketJS initial live viewport could not resize"); return false;
+        }
+        resizingGuest_ = true;
+        const int status = pocket_native_program_collect(program_);
+        resizingGuest_ = false;
+        if (status != POCKET_STATUS_OK) { fail("PocketJS initial layout failed"); return false; }
     }
-
-    if (extension_ != 0 &&
-        (extension_->boot == 0 ||
-         extension_->boot(
-             context_,
-             reinterpret_cast<const uint8_t *>(appPack_.constData()),
-             static_cast<size_t>(appPack_.size()),
-             viewport.width(),
-             viewport.height()
-         ) == 0)) {
-        fail("PocketJS native extension could not initialize.");
-        return false;
+#if defined(POCKETJS_GL_STAGES) && defined(POCKETJS_PERF_TRACE)
+    pocket_native_program_set_gl_trace(program_, recordGlStage);
+#endif
+    if (glInitialized_ && isValid()) {
+        makeCurrent();
+        const int status = pocket_native_program_gl_initialize(program_);
+        doneCurrent();
+        if (status != POCKET_STATUS_OK) { fail("PocketJS GLES initialization failed"); return false; }
     }
-
-    JSValue result = JS_Eval(
-        context_,
-        appJavaScript_.constData(),
-        static_cast<size_t>(appJavaScript_.size()),
-        "app.js",
-        JS_EVAL_TYPE_GLOBAL
-    );
-    if (JS_IsException(result)) {
-        fail(takeException(context_));
-        return false;
-    }
-    JS_FreeValue(context_, result);
-
-    frame_ = JS_GetPropertyStr(context_, global_, "frame");
-    if (JS_IsException(frame_)) {
-        fail(takeException(context_));
-        return false;
-    }
-    if (!JS_IsFunction(context_, frame_)) {
-        fail("app.js did not install globalThis.frame");
-        return false;
-    }
-
-    resizeViewport_ = JS_GetPropertyStr(
-        context_,
-        global_,
-        "__pocketResizeViewport"
-    );
-    if (JS_IsException(resizeViewport_)) {
-        fail(takeException(context_));
-        return false;
-    }
-    if (!JS_IsFunction(context_, resizeViewport_)) {
-        fail("app.js did not install globalThis.__pocketResizeViewport");
-        return false;
-    }
-
     initialized_ = true;
     return true;
+}
+
+int32_t PocketJsRuntime::initializeGuest(void *opaque, pocket_runtime *handle, const pocket_guest_environment *environment)
+{
+    PocketJsRuntime *self = static_cast<PocketJsRuntime *>(opaque);
+    if (pocket_guest_quickjs_vtable()->initialize(self->guest_, handle, environment) != POCKET_STATUS_OK) return POCKET_STATUS_FAILED;
+    if (JS_SetPropertyStr(self->context_, self->global_, "__simHz",
+            JS_NewInt32(self->context_, POCKETJS_FRAME_RATE)) < 0) return POCKET_STATUS_FAILED;
+    if (self->nativeSelf_ >= 0) {
+        JSValue ui = JS_GetPropertyStr(self->context_, self->global_, "ui");
+        const int status = JS_IsException(ui) ? -1 : JS_SetPropertyStr(self->context_, ui,
+            "appClose", JS_NewCFunction(self->context_, hostAppClose, "appClose", 1));
+        JS_FreeValue(self->context_, ui);
+        if (status < 0) return POCKET_STATUS_FAILED;
+    }
+    self->frozenShotHandle_ = -1;
+    if (!self->frozenShot_.isEmpty()) {
+        pocket_op_arg arguments[4]; memset(arguments, 0, sizeof(arguments));
+        for (int i = 0; i < 4; ++i) arguments[i].struct_size = sizeof(pocket_op_arg);
+        arguments[0].tag = POCKET_ARG_BYTES;
+        arguments[0].bytes = reinterpret_cast<const uint8_t *>(self->frozenShot_.constData());
+        arguments[0].byte_length = self->frozenShot_.size();
+        for (int i = 1; i < 4; ++i) arguments[i].tag = POCKET_ARG_INTEGER;
+        arguments[1].integer = kShotWidth; arguments[2].integer = kShotHeight;
+        arguments[3].integer = kPixelStorage8888;
+        pocket_result result; memset(&result, 0, sizeof(result)); result.struct_size = sizeof(result);
+        if (pocket_runtime_op(handle, 10, arguments, sizeof(arguments), &result) != POCKET_STATUS_OK ||
+            result.tag != POCKET_RESULT_I64) return POCKET_STATUS_FAILED;
+        self->frozenShotHandle_ = static_cast<int>(result.integer);
+    }
+    self->extension_ = pocketJsNativeExtension();
+    if (self->extension_ != 0 && (self->extension_->boot == 0 ||
+        self->extension_->boot(self->context_, environment->pak, environment->pak_length,
+            environment->viewport_width, environment->viewport_height) == 0)) {
+        self->fail("PocketJS native extension could not initialize.");
+        return POCKET_STATUS_FAILED;
+    }
+    return POCKET_STATUS_OK;
+}
+
+int32_t PocketJsRuntime::evaluateGuest(void *opaque, pocket_runtime *handle, const uint8_t *code, size_t length)
+{
+    PocketJsRuntime *self = static_cast<PocketJsRuntime *>(opaque);
+    if (pocket_guest_quickjs_vtable()->evaluate(self->guest_, handle, code, length) != POCKET_STATUS_OK) return POCKET_STATUS_FAILED;
+    JSValue frame = JS_GetPropertyStr(self->context_, self->global_, "frame");
+    const bool validFrame = JS_IsFunction(self->context_, frame);
+    JS_FreeValue(self->context_, frame);
+    if (!validFrame) { self->fail("app.js did not install globalThis.frame"); return POCKET_STATUS_FAILED; }
+    self->resizeViewport_ = JS_GetPropertyStr(self->context_, self->global_, "__pocketResizeViewport");
+    if (!JS_IsFunction(self->context_, self->resizeViewport_)) {
+        self->fail("app.js did not install globalThis.__pocketResizeViewport"); return POCKET_STATUS_FAILED;
+    }
+    return POCKET_STATUS_OK;
+}
+
+int32_t PocketJsRuntime::frameGuest(void *opaque, const pocket_guest_frame *frame)
+{
+    PocketJsRuntime *self = static_cast<PocketJsRuntime *>(opaque);
+#ifdef POCKETJS_PERF_TRACE
+    const int startMs = self->framePerfTimer_ != 0 ? self->framePerfTimer_->elapsed() : 0;
+#endif
+    if (self->extension_ != 0 && self->extension_->before_guest != 0 &&
+        self->extension_->before_guest(self->context_, frame->buttons, frame->analog, self->frameNativeKeys_) == 0) {
+        self->fail("PocketJS native extension frame failed."); return POCKET_STATUS_FAILED;
+    }
+    const int status = pocket_guest_quickjs_vtable()->frame(self->guest_, frame);
+    if (status != POCKET_STATUS_OK) return status;
+    if (self->extension_ != 0 && self->extension_->after_guest != 0 &&
+        self->extension_->after_guest(self->context_) == 0) {
+        self->fail("PocketJS native extension guest handoff failed."); return POCKET_STATUS_FAILED;
+    }
+#ifdef POCKETJS_PERF_TRACE
+    if (self->framePerfTimer_ != 0) self->guestMs_ = self->framePerfTimer_->elapsed() - startMs;
+#endif
+    return POCKET_STATUS_OK;
+}
+
+int32_t PocketJsRuntime::collectGuest(void *opaque)
+{
+    PocketJsRuntime *self = static_cast<PocketJsRuntime *>(opaque);
+    if (self->returnIndex_ >= 0) {
+        const int index = self->returnIndex_; self->returnIndex_ = -1;
+        self->deliverNativeReturn(index, self->returnDestination_, self->returnError_);
+        if (self->failed_) return POCKET_STATUS_FAILED;
+    }
+    if (self->resizingGuest_) {
+        if (self->extension_ != 0 && self->extension_->resize != 0)
+            self->extension_->resize(self->viewportSize_.width(), self->viewportSize_.height());
+        JSValue arguments[2] = { JS_NewInt32(self->context_, self->viewportSize_.width()),
+            JS_NewInt32(self->context_, self->viewportSize_.height()) };
+        JSValue result = JS_Call(self->context_, self->resizeViewport_, self->global_, 2, arguments);
+        JS_FreeValue(self->context_, arguments[0]); JS_FreeValue(self->context_, arguments[1]);
+        if (JS_IsException(result)) {
+            self->fail(self->takeException(self->context_)); return POCKET_STATUS_FAILED;
+        }
+        JS_FreeValue(self->context_, result);
+    }
+    return pocket_guest_quickjs_vtable()->collect(self->guest_);
+}
+
+void PocketJsRuntime::shutdownGuest(void *opaque)
+{
+    PocketJsRuntime *self = static_cast<PocketJsRuntime *>(opaque);
+    const PocketJsSymbianExtensionV1 *extension = self->extension_;
+    self->extension_ = 0;
+    if (extension != 0 && extension->shutdown != 0)
+        extension->shutdown(self->glInitialized_ && self->isValid() ? 1 : 0);
+    if (self->guest_ != 0) pocket_guest_quickjs_vtable()->shutdown(self->guest_);
+}
+
+int32_t PocketJsRuntime::dispatchService(void *opaque, uint16_t operation,
+    const pocket_op_arg *arguments, size_t length, pocket_result *out)
+{
+    PocketJsRuntime *self = static_cast<PocketJsRuntime *>(opaque);
+    if (operation == 40) {
+        if (length < sizeof(pocket_op_arg) || arguments == 0 || arguments->struct_size != length ||
+            arguments->tag != POCKET_ARG_BYTES || arguments->byte_length > 0x7fffffffU ||
+            (arguments->byte_length != 0 && arguments->bytes == 0)) return POCKET_STATUS_INVALID;
+        out->tag = POCKET_RESULT_I64;
+        out->integer = self->requestAppLaunch(QString::fromUtf8(
+            reinterpret_cast<const char *>(arguments->bytes), arguments->byte_length)) ? 1 : 0;
+    } else if (operation == 39 && length == 0) {
+        self->serviceResult_ = self->appTableJson();
+        out->tag = POCKET_RESULT_BYTES;
+        out->bytes = reinterpret_cast<const uint8_t *>(self->serviceResult_.constData());
+        out->byte_length = self->serviceResult_.size();
+    } else if (operation == 41 && length == 0) {
+        out->tag = POCKET_RESULT_I64; out->integer = self->frozenShotHandle();
+    } else return POCKET_STATUS_INVALID;
+    return POCKET_STATUS_OK;
 }
 
 QString PocketJsRuntime::takeException(JSContext *context)
@@ -2082,60 +1095,6 @@ void PocketJsRuntime::requestSummon()
     pendingSummon_ = true;
 }
 
-JSValue hostAppTable(
-    JSContext *context,
-    JSValueConst,
-    int,
-    JSValueConst *
-)
-{
-    PocketJsRuntime *runtime = static_cast<PocketJsRuntime *>(
-        JS_GetContextOpaque(context)
-    );
-    if (runtime == 0) return JS_ThrowInternalError(
-        context,
-        "PocketJS runtime context is missing"
-    );
-    const QByteArray json = runtime->appTableJson();
-    return JS_NewStringLen(
-        context,
-        json.constData(),
-        static_cast<size_t>(json.size())
-    );
-}
-
-JSValue hostAppLaunch(
-    JSContext *context,
-    JSValueConst,
-    int argc,
-    JSValueConst *argv
-)
-{
-    PocketJsRuntime *runtime = static_cast<PocketJsRuntime *>(
-        JS_GetContextOpaque(context)
-    );
-    if (runtime == 0) return JS_ThrowInternalError(
-        context,
-        "PocketJS runtime context is missing"
-    );
-    const char *output = 0;
-    size_t outputLength = 0;
-    if (!stringArgument(
-            context,
-            argc,
-            argv,
-            0,
-            &output,
-            &outputLength)) {
-        return JS_EXCEPTION;
-    }
-    const bool scheduled = runtime->requestAppLaunch(
-        QString::fromUtf8(output, static_cast<int>(outputLength))
-    );
-    JS_FreeCString(context, output);
-    return JS_NewInt32(context, scheduled ? 1 : 0);
-}
-
 JSValue hostAppClose(JSContext *context, JSValueConst, int argc, JSValueConst *argv)
 {
     PocketJsRuntime *runtime = static_cast<PocketJsRuntime *>(JS_GetContextOpaque(context));
@@ -2144,23 +1103,6 @@ JSValue hostAppClose(JSContext *context, JSValueConst, int argc, JSValueConst *a
     const bool result = runtime->requestAppClose(QString::fromUtf8(output, length));
     JS_FreeCString(context, output);
     return JS_NewInt32(context, result ? 1 : 0);
-}
-
-JSValue hostAppShot(
-    JSContext *context,
-    JSValueConst,
-    int,
-    JSValueConst *
-)
-{
-    PocketJsRuntime *runtime = static_cast<PocketJsRuntime *>(
-        JS_GetContextOpaque(context)
-    );
-    if (runtime == 0) return JS_ThrowInternalError(
-        context,
-        "PocketJS runtime context is missing"
-    );
-    return JS_NewInt32(context, runtime->frozenShotHandle());
 }
 
 void PocketJsRuntime::fail(const QString &message)
@@ -2200,19 +1142,6 @@ bool PocketJsRuntime::recoverGuestFailure(int appIndex)
 
     timer_.start(qMax(1, 1000 / POCKETJS_FRAME_RATE), this);
     update();
-    return true;
-}
-
-bool PocketJsRuntime::drainJobs()
-{
-    JSContext *jobContext = 0;
-    int result = 0;
-    while ((result = JS_ExecutePendingJob(runtime_, &jobContext)) > 0) {
-    }
-    if (result < 0) {
-        fail(takeException(jobContext == 0 ? context_ : jobContext));
-        return false;
-    }
     return true;
 }
 
@@ -2269,31 +1198,18 @@ bool PocketJsRuntime::applyPendingViewport()
         return false;
     }
 
-    ui_set_viewport(viewport.width(), viewport.height());
+    if (pocket_native_program_resize_viewport(program_, viewport.width(), viewport.height()) != POCKET_STATUS_OK) {
+        fail("PocketJS could not resize the program viewport"); return false;
+    }
     viewportSize_ = viewport;
     clearInput();
-    if (extension_ != 0 && extension_->resize != 0) {
-        extension_->resize(viewport.width(), viewport.height());
-    }
-
-    JSValue arguments[2];
-    arguments[0] = JS_NewInt32(context_, viewport.width());
-    arguments[1] = JS_NewInt32(context_, viewport.height());
-    JSValue result = JS_Call(
-        context_,
-        resizeViewport_,
-        global_,
-        2,
-        arguments
-    );
-    JS_FreeValue(context_, arguments[0]);
-    JS_FreeValue(context_, arguments[1]);
-    if (JS_IsException(result)) {
-        fail(takeException(context_));
+    resizingGuest_ = true;
+    const int status = pocket_native_program_collect(program_);
+    resizingGuest_ = false;
+    if (status != POCKET_STATUS_OK) {
+        if (!failed_) fail(QString::fromUtf8(pocket_guest_quickjs_error(guest_)));
         return false;
     }
-    JS_FreeValue(context_, result);
-    if (!drainJobs()) return false;
 
     update();
     return true;
@@ -2379,7 +1295,6 @@ void PocketJsRuntime::runFrame()
     }
     QElapsedTimer perfTimer;
     perfTimer.start();
-    perfHitMs = 0;
 #endif
     // Preserve a quick press+release for one host frame. S60 can deliver both
     // events between two 30 Hz samples even though the core advances at 60 Hz.
@@ -2395,65 +1310,37 @@ void PocketJsRuntime::runFrame()
         frameButtons &= ~kButtonSelect;
     }
 
-    if (extension_ != 0 &&
-        extension_->before_guest != 0 &&
-        extension_->before_guest(
-            context_,
-            static_cast<uint32_t>(frameButtons),
-            static_cast<uint32_t>(kAnalogCenter),
-            frameNativeKeys
-        ) == 0) {
-        fail("PocketJS native extension frame failed.");
-        return;
+    frameNativeKeys_ = frameNativeKeys;
+    pocket_contact contacts[kMaximumTouches];
+    memset(contacts, 0, sizeof(contacts));
+    const int contactCount = qMin(touches_.size(), kMaximumTouches);
+    for (int index = 0; index < contactCount; ++index) {
+        const uint32_t packed = touches_.at(index);
+        const bool extended = (packed & 0x80000000U) != 0;
+        contacts[index].struct_size = sizeof(pocket_contact);
+        contacts[index].id = (packed >> (extended ? 20 : 18)) & 255;
+        contacts[index].x = packed & (extended ? 1023 : 511);
+        contacts[index].y = (packed >> (extended ? 10 : 9)) & (extended ? 1023 : 511);
     }
-
-    JSValue touchArray = JS_NewArray(context_);
-    for (int index = 0; index < touches_.size(); ++index) {
-        JS_SetPropertyUint32(
-            context_,
-            touchArray,
-            static_cast<uint32_t>(index),
-            JS_NewUint32(context_, touches_.at(index))
-        );
-    }
-
-    JSValue arguments[3];
-    arguments[0] = JS_NewInt32(context_, frameButtons);
-    arguments[1] = JS_NewInt32(context_, kAnalogCenter);
-    arguments[2] = touchArray;
-    JSValue result = JS_Call(
-        context_,
-        frame_,
-        global_,
-        3,
-        arguments
-    );
-    JS_FreeValue(context_, arguments[0]);
-    JS_FreeValue(context_, arguments[1]);
-    JS_FreeValue(context_, touchArray);
-
-    if (JS_IsException(result)) {
-        fail(takeException(context_));
-        return;
-    }
-    JS_FreeValue(context_, result);
-    if (!drainJobs()) return;
-    if (extension_ != 0 &&
-        extension_->after_guest != 0 &&
-        extension_->after_guest(context_) == 0) {
-        fail("PocketJS native extension guest handoff failed.");
-        return;
-    }
+    pocket_input_frame input;
+    memset(&input, 0, sizeof(input));
+    input.struct_size = sizeof(input);
+    input.buttons = frameButtons;
+    input.contacts = contacts;
+    input.contact_count = contactCount;
 #ifdef POCKETJS_PERF_TRACE
-    const int jsMs = perfTimer.elapsed();
+    framePerfTimer_ = &perfTimer;
 #endif
-
-    for (int tick = 0; tick < kCoreTicksPerFrame; ++tick) {
-        ui_tick();
-    }
+    const int status = pocket_native_program_advance(program_, &input, kCoreTicksPerFrame);
 #ifdef POCKETJS_PERF_TRACE
+    framePerfTimer_ = 0;
+    const int jsMs = guestMs_;
     const int tickEndMs = perfTimer.elapsed();
 #endif
+    if (status != POCKET_STATUS_OK) {
+        if (!failed_) fail(QString::fromUtf8(pocket_guest_quickjs_error(guest_)));
+        return;
+    }
     // QGLWidget::updateGL() is synchronous: paintGL() submits this frame and
     // auto-swaps before a pending guest switch can release its DrawList and
     // texture storage.
@@ -2473,9 +1360,10 @@ void PocketJsRuntime::runFrame()
             perfGlStages[2] - perfGlStages[1], perfGlStages[3] - perfGlStages[2],
             perfGlStages[4] - perfGlStages[3], perfGlStages[5] - perfGlStages[4],
             perfGlStages[6] - perfGlStages[5],
-            perfGlBatches, perfGlVertices, perfHitMs };
+            perfGlBatches, perfGlVertices, -1 };
         perfSamples_.append(sample);
-        // No per-frame formatting, filesystem I/O, readback or glFinish.
+        // No per-frame formatting, filesystem I/O or readback.
+        // Runtime rendering waits for terminal GPU completion before returning.
         // Write only after the bounded measurement window has ended.
         if (replayMs >= 30000 || elapsedMs >= 60000 || perfSamples_.size() >= 2048) finishPerfTrace();
     }
@@ -2489,6 +1377,7 @@ void PocketJsRuntime::finishPerfTrace()
 {
     perfDone_ = true;
     QByteArray buffer;
+    buffer.append("# runtime_composition\tcanonical-v1\n# hit_ms_available\t0\n");
     buffer.append("# frame_rate\t" + QByteArray::number(POCKETJS_FRAME_RATE) + "\n");
     buffer.append("# viewport\t" + QByteArray::number(width()) + "\t" + QByteArray::number(height()) + "\n");
     buffer.append("# replay_points\t" + QByteArray::number(perfInputs_.size()) + "\n");
@@ -2740,8 +1629,8 @@ void PocketJsRuntime::initializeGL()
         maximumTextureSize, redBits, greenBits, blueBits, alphaBits
     );
 #ifdef POCKETJS_PERF_TRACE
-#ifdef POCKETJS_GL_STAGES
-    ui_gl_set_trace(recordGlStage);
+#if defined(POCKETJS_GL_STAGES) && defined(POCKETJS_PERF_TRACE)
+    pocket_native_program_set_gl_trace(program_, recordGlStage);
 #endif
     QFile trace(perfPrefix_ + ".tsv");
     if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
@@ -2778,7 +1667,7 @@ void PocketJsRuntime::initializeGL()
         fail("PocketJS requires an OpenGL ES 2 texture size of at least 512.");
         return;
     }
-    glInitialized_ = ui_gl_initialize() != 0;
+    glInitialized_ = program_ == 0 || pocket_native_program_gl_initialize(program_) == POCKET_STATUS_OK;
     if (!glInitialized_) {
         fail("PocketJS could not initialize the OpenGL ES 2 renderer.");
     }
@@ -2813,24 +1702,10 @@ void PocketJsRuntime::paintGL()
         }
         nativeRendered = true;
     }
-    const int uiRendered = nativeRendered
-        ? ui_gl_render_over(
-            target.x(),
-            target.y(),
-            target.width(),
-            target.height(),
-            width(),
-            height()
-        )
-        : ui_gl_render(
-            target.x(),
-            target.y(),
-            target.width(),
-            target.height(),
-            width(),
-            height()
-        );
-    if (uiRendered == 0) {
+    const int uiRendered = pocket_native_program_gl_render_rect(program_,
+        target.x(), target.y(), target.width(), target.height(), width(), height(),
+        nativeRendered ? 1 : 0);
+    if (uiRendered != POCKET_STATUS_OK) {
         fail("PocketJS OpenGL ES 2 rendering failed.");
         return;
     }

@@ -8,7 +8,7 @@ CONFIG += release
 CONFIG -= debug app_bundle
 
 SOURCES += main.cpp
-HEADERS += pocketjs_native_navigation.h pocketjs_navigation_gesture.h pocketjs_symbian_core.h pocketjs_symbian_extension.h pocketjs_symbian_keys.h
+HEADERS += pocketjs_native_navigation.h pocketjs_navigation_gesture.h pocketjs_symbian_extension.h pocketjs_symbian_keys.h
 RESOURCES += pocketjs-runtime.qrc
 
 isEmpty(POCKETJS_QUICKJS_INCLUDE): error(POCKETJS_QUICKJS_INCLUDE is required)
@@ -23,7 +23,7 @@ isEmpty(POCKETJS_ORIENTATION_LOCK): POCKETJS_ORIENTATION_LOCK = 0
 # 1 binds the ui.physics ops (52..56) for a plan that resolved them.
 isEmpty(POCKETJS_PHYSICS): POCKETJS_PHYSICS = 0
 
-INCLUDEPATH += $$POCKETJS_QUICKJS_INCLUDE
+INCLUDEPATH += $$POCKETJS_QUICKJS_INCLUDE $$POCKETJS_PROGRAM_INCLUDE
 DEFINES += __STDC_LIMIT_MACROS
 DEFINES += POCKETJS_FRAME_RATE=$$POCKETJS_FRAME_RATE
 equals(POCKETJS_PERF_TRACE, 1): DEFINES += POCKETJS_PERF_TRACE
@@ -41,7 +41,7 @@ PRE_TARGETDEPS += $$POCKETJS_QUICKJS_LIBRARY
 # The no_std Rust archive contains internal registration objects that are not
 # all reached through a single object-file symbol. Keep the tested E32 link
 # shape: force one public root and retain the complete archive.
-QMAKE_LFLAGS += -u ui_init
+QMAKE_LFLAGS += -u pocket_native_program_create
 QMAKE_LFLAGS += --whole-archive
 QMAKE_LFLAGS += $$POCKETJS_CORE_LIBRARY
 QMAKE_LFLAGS += --no-whole-archive

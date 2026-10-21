@@ -682,6 +682,7 @@ async function build(): Promise<void> {
   const crtGlobalsObject = join(nativeBuild, "crt_globals.o");
   const runtimeIdentityObject = join(nativeBuild, "runtime.build-id-input.o");
   const pocketRuntimeObject = join(nativeBuild, "pocket_runtime.o");
+  const guestAdapterObject = join(nativeBuild, "pocket_guest_quickjs.o");
   const compatObject = join(nativeBuild, "compat.o");
   compile(join(REPOSITORY, "hosts/ios-legacy/crt_globals.c"), crtGlobalsObject, warnings);
   compile(join(REPOSITORY, "hosts/iphone4s/runtime.c"), runtimeIdentityObject, [
@@ -696,9 +697,14 @@ async function build(): Promise<void> {
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
     "-I", join(REPOSITORY, "engine/ui-cabi/include"),
+    "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
     "-I", join(REPOSITORY, "contracts/generated"),
     "-isystem",
     quickjs,
+  ]);
+  compile(join(REPOSITORY, "engine/guest-quickjs/src/guest.c"), guestAdapterObject, [
+    ...warnings, "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
+    "-I", join(REPOSITORY, "contracts/generated"), "-isystem", quickjs,
   ]);
   compile(join(REPOSITORY, "hosts/ios-legacy/compat.c"), compatObject, warnings);
 
@@ -728,6 +734,7 @@ async function build(): Promise<void> {
     { label: "native/crt_globals.o", path: crtGlobalsObject },
     { label: "native/runtime.build-id-input.o", path: runtimeIdentityObject },
     { label: "native/pocket_runtime.o", path: pocketRuntimeObject },
+    { label: "native/pocket_guest_quickjs.o", path: guestAdapterObject },
     { label: "native/compat.o", path: compatObject },
     ...quickJsObjects.map((path) => ({ label: `native/${path.slice(nativeBuild.length + 1)}`, path })),
     { label: "native/libpocketjs_symbian_core.a", path: rustLibrary },
@@ -754,7 +761,7 @@ async function build(): Promise<void> {
     "-no_source_version", "-no_compact_unwind", "-no_adhoc_codesign", "-no_encryption",
     "-e", "start", "-o", executable, join(nativeBuild, "csu-start.o"),
     join(nativeBuild, "csu-dyld-glue.o"), crtGlobalsObject,
-    runtimeObject, pocketRuntimeObject, compatObject,
+    runtimeObject, pocketRuntimeObject, guestAdapterObject, compatObject,
     "-force_load", rustLibrary, ...quickJsObjects,
     "-sectcreate", "__DATA", "__pocket_js", embeddedJavaScript,
     "-sectcreate", "__DATA", "__pocket_pak", guestPak,

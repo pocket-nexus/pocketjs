@@ -782,6 +782,7 @@ export interface IPodHostObjects {
   readonly offload: string;
   readonly crtGlobals: string;
   readonly pocketRuntime: string;
+  readonly guestAdapter: string;
   readonly svcWire: string | null;
   readonly compat: string;
   readonly application: readonly string[];
@@ -808,6 +809,7 @@ export function compileIPodHost(native: IPodNative, options: {
   const svcWireDefines = options.svcWire ? ["-DPOCKET_SVC_WIRE", "-I", join(REPOSITORY, "hosts/ios-legacy")] : [];
   const crtGlobals = join(nativeBuild, "crt_globals.o");
   const pocketRuntime = join(nativeBuild, "pocket_runtime.o");
+  const guestAdapter = join(nativeBuild, "pocket_guest_quickjs.o");
   const svcWire = join(nativeBuild, "svcwire.o");
   const compat = join(nativeBuild, "compat.o");
   compile(join(REPOSITORY, "hosts/ios-legacy/crt_globals.c"), crtGlobals, IPOD_WARNINGS);
@@ -821,9 +823,14 @@ export function compileIPodHost(native: IPodNative, options: {
     `-DPOCKETJS_HOST_ABI=${options.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${options.rasterDensity}`,
     "-I", join(REPOSITORY, "engine/ui-cabi/include"),
+    "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
     "-I", join(REPOSITORY, "contracts/generated"),
     "-isystem",
     quickjs,
+  ]);
+  compile(join(REPOSITORY, "engine/guest-quickjs/src/guest.c"), guestAdapter, [
+    ...IPOD_WARNINGS, "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
+    "-I", join(REPOSITORY, "contracts/generated"), "-isystem", quickjs,
   ]);
   if (options.svcWire) {
     compile(join(REPOSITORY, "hosts/ios-legacy/svcwire.c"), svcWire, [...IPOD_WARNINGS, ...svcWireDefines]);
@@ -834,7 +841,7 @@ export function compileIPodHost(native: IPodNative, options: {
     compile(resolvePath(options.appRoot ?? REPOSITORY, source), object, [...IPOD_WARNINGS, "-isystem", quickjs, "-Wno-cast-function-type-mismatch"]);
     return object;
   });
-  return { offload, crtGlobals, pocketRuntime, svcWire: options.svcWire ? svcWire : null, compat, application };
+  return { offload, crtGlobals, pocketRuntime, guestAdapter, svcWire: options.svcWire ? svcWire : null, compat, application };
 }
 
 /**
@@ -855,7 +862,7 @@ export function linkIPodExecutable(
     "-no_source_version", "-no_compact_unwind", "-no_adhoc_codesign", "-no_encryption",
     "-e", "start", "-o", executable, native.csuStart,
     native.csuDyldGlue, host.crtGlobals,
-    runtimeObject, host.pocketRuntime, host.offload, ...(host.svcWire ? [host.svcWire] : []), host.compat,
+    runtimeObject, host.pocketRuntime, host.guestAdapter, host.offload, ...(host.svcWire ? [host.svcWire] : []), host.compat,
     "-force_load", native.rustLibrary, ...host.application, ...native.quickJsObjects,
     ...(sections
       ? ["-sectcreate", "__DATA", "__pocket_js", sections.javaScript, "-sectcreate", "__DATA", "__pocket_pak", sections.pak]
@@ -957,6 +964,7 @@ async function build(): Promise<void> {
     { label: "native/crt_globals.o", path: host.crtGlobals },
     { label: "native/runtime.build-id-input.o", path: runtimeIdentityObject },
     { label: "native/pocket_runtime.o", path: host.pocketRuntime },
+    { label: "native/pocket_guest_quickjs.o", path: host.guestAdapter },
     { label: "native/offload_posix.o", path: host.offload },
     ...(host.svcWire ? [{ label: "native/svcwire.o", path: host.svcWire }] : []),
     { label: "native/compat.o", path: host.compat },
