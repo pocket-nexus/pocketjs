@@ -186,7 +186,9 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
     const pocket_ui_op_descriptor *op=&pocket_ui_ops[i];
     if((guest->profile==POCKET_QJS_IDF&&!op->idf)||(guest->profile==POCKET_QJS_LEGACY_C&&!op->legacy_c&&!(op->op>=30&&op->op<=32)&&!(op->op>=52&&op->op<=56))||!pocket_runtime_supports_op(runtime,op->op))continue;
     JSValue function=JS_NewCFunctionData(ctx,invoke,op->argc,(int)i,1,&guest->token);
-    if(JS_IsException(function))goto failed;if(JS_DefinePropertyValueStr(ctx,function,"name",JS_NewString(ctx,op->name),JS_PROP_CONFIGURABLE)<0){JS_FreeValue(ctx,function);goto failed;}if(set(ctx,ui,op->name,function)<0)goto failed;
+    if(JS_IsException(function))goto failed;
+    if(JS_DefinePropertyValueStr(ctx,function,"name",JS_NewString(ctx,op->name),JS_PROP_CONFIGURABLE)<0){JS_FreeValue(ctx,function);goto failed;}
+    if(set(ctx,ui,op->name,function)<0)goto failed;
   }
   if(set(ctx,ui,"__host",JS_NewStringLen(ctx,(const char*)env->host,env->host_length))<0||set(ctx,ui,"__hostAbi",JS_NewUint32(ctx,env->host_abi))<0||set(ctx,ui,"__viewport",viewport(ctx,env->viewport_width,env->viewport_height))<0)goto failed;
   if(guest->profile!=POCKET_QJS_LEGACY_C&&set(ctx,ui,"__tickHz",JS_NewUint32(ctx,env->tick_hz))<0)goto failed;
@@ -208,7 +210,9 @@ failed:
 static int32_t collect(void *opaque) {pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context)return -1;JSContext *ctx=NULL;int status;while((status=JS_ExecutePendingJob(JS_GetRuntime(guest->context),&ctx))>0){}return status<0?fail(guest):0;}
 static int32_t evaluate(void *opaque,pocket_runtime *runtime,const uint8_t *code,size_t length) {
   pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context||guest->runtime!=runtime||(!code&&length)||length==SIZE_MAX)return -1;
-  char *source=malloc(length+1);if(!source)return -1;memcpy(source,code,length);source[length]=0;
+  /* Package JS sections include one terminal NUL; JS_Eval's length excludes it. */
+  if(length&&code[length-1]==0)length--;
+  char *source=malloc(length+1);if(!source)return -1;if(length)memcpy(source,code,length);source[length]=0;
   JSValue result=JS_Eval(guest->context,source,length,"pocket:guest",JS_EVAL_TYPE_GLOBAL);free(source);int failed=JS_IsException(result);JS_FreeValue(guest->context,result);return failed?fail(guest):collect(guest);
 }
 static JSValue motion_value(JSContext *ctx,const pocket_motion_state *motion) {

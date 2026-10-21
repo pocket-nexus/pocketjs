@@ -32,7 +32,6 @@ void *pocket_host_realloc(void *pointer,size_t old_size,size_t alignment,size_t 
 void pocket_host_panic(const char *message,size_t length){fwrite(message,1,length,stderr);abort();}
 void pocket_host_log(int32_t level,const char *message,size_t length){(void)level;(void)message;(void)length;}
 void pocket_host_boot_stage(int32_t stage){(void)stage;}
-void rust_eh_personality(void){abort();}
 
 static pocket_runtime *instance;
 static int initialized,evaluated,frames,shutdowns,flushes,waits,failed_wait;
@@ -119,10 +118,42 @@ static void raster_test(void){
   for(int i=8;i<12;i++)assert(memory[i]==0x5a);for(int i=20;i<24;i++)assert(memory[i]==0x5a);
   operation.scale=0;assert(pocket_raster_draw_op(&surface,&operation,&resources)<0);
 }
+struct visit_state {pocket_surface *surface;const pocket_render_resources *resources;int calls;int fail_at;};
+static int32_t visit_operation(void *context,const pocket_draw_op *operation){
+  struct visit_state *state=context;state->calls++;
+  assert(operation->scale==1 && operation->clip);
+  if(state->calls<=2)assert(operation->clip->x0==1 && operation->clip->y0==1 && operation->clip->x1==3 && operation->clip->y1==3);
+  else assert(operation->clip->x0==0 && operation->clip->y0==0 && operation->clip->x1==4 && operation->clip->y1==4);
+  if(state->calls==state->fail_at)return -42;
+  return pocket_raster_draw_op(state->surface,operation,state->resources);
+}
+static void draw_list_test(void){
+  uint8_t memory[64]={0};
+  pocket_rect region={sizeof(region),0,0,4,4};
+  pocket_surface surface={sizeof(surface),memory,sizeof(memory),&region,16,POCKET_PIXEL_FORMAT_RGBA8888};
+  pocket_render_resources resources={0};resources.struct_size=sizeof(resources);resources.viewport_width=4;resources.viewport_height=4;
+  uint32_t words[]={POCKET_DRAW_OP_SCISSOR,1|(1<<16),2|(2<<16),POCKET_DRAW_OP_RECT,0,4|(4<<16),0xff0000ff,POCKET_DRAW_OP_SCISSOR_POP,POCKET_DRAW_OP_RECT,0,1|(1<<16),0xffff0000,0};
+  pocket_draw_list list={sizeof(list),words,12,POCKET_DRAW_LIST_VERSION};
+  struct visit_state state={&surface,&resources,0,0};
+  assert(pocket_draw_list_visit(&list,&resources,1,visit_operation,&state)==0 && state.calls==4);
+  assert(memory[2]==255 && memory[3]==255); /* blue after pop */
+  assert(memory[20]==255 && memory[23]==255); /* red inside inherited clip */
+  assert(memory[4]==0 && memory[63]==0); /* untouched outside both rectangles */
+  state.calls=0;state.fail_at=2;
+  assert(pocket_draw_list_visit(&list,&resources,1,visit_operation,&state)==-42 && state.calls==2);
+  state.calls=0;list.word_count=13;words[12]=0xffffffff;
+  assert(pocket_draw_list_visit(&list,&resources,1,visit_operation,&state)==POCKET_STATUS_INVALID && state.calls==0);
+  list.word_count=7; /* Missing scissor pop is rejected before any callback. */
+  assert(pocket_draw_list_visit(&list,&resources,1,visit_operation,&state)==POCKET_STATUS_INVALID && state.calls==0);
+  list.word_count=12;list.version++;
+  assert(pocket_draw_list_visit(&list,&resources,1,visit_operation,&state)==POCKET_STATUS_UNSUPPORTED);
+  list.version--;assert(pocket_draw_list_visit(&list,&resources,0,visit_operation,&state)==POCKET_STATUS_INVALID);
+  assert(pocket_draw_list_visit(&list,&resources,1,NULL,&state)==POCKET_STATUS_INVALID);
+}
 int main(void){
   pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=1;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
   instance=pocket_runtime_create(&config);assert(instance);
-  prefix_and_operation_tests();raster_test();
+  prefix_and_operation_tests();raster_test();draw_list_test();
   pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};
   pocket_guest_v1 guest={sizeof(guest),evaluate,frame,NULL,shutdown_guest,initialize};
   pocket_display_output_v1 display={sizeof(display),descriptor,acquire,flush,display_wait,NULL};

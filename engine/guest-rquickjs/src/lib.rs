@@ -77,6 +77,9 @@ impl Guest for RquickjsGuest {
     }
     fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError> {
         let context = self.context.as_ref().ok_or(RuntimeError::Guest)?;
+        // Package JS includes one terminal NUL for C consumers. The rquickjs
+        // evaluator appends its own terminator and expects a source-only span.
+        let code = code.strip_suffix(&[0]).unwrap_or(code);
         let result = context.with(|ctx| {
             ctx.eval::<(), _>(code)
                 .map_err(|error| engine_error(&ctx, error))
@@ -660,5 +663,13 @@ mod tests {
             })
             .unwrap();
         assert!(evaluate::<bool>(&guest,"received.length===8 && received[2][0]===0x40040000 && received[4][0]===1 && received[6][0].axis===1 && received[6][0].delta===-5 && received[7].timestamp===100 && drained"));
+    }
+    #[test]
+    fn evaluates_the_nul_terminated_source_span_returned_by_package_admission() {
+        let (mut guest, _) = guest(BindingProfile::Canonical);
+        guest.evaluate(b"globalThis.fromPackage=41;\0").unwrap();
+        guest.evaluate(b"globalThis.fromPackage++;").unwrap();
+        assert_eq!(evaluate::<i32>(&guest, "fromPackage"), 42);
+        assert!(guest.evaluate(b"globalThis.fromPackage=\0 1;\0").is_err());
     }
 }

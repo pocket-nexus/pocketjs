@@ -81,10 +81,6 @@ first_party_flags=(
   -o "$objects/pocket_input.o"
 
 "$qcc" "${first_party_flags[@]}" \
-  -c /repo/engine/quickjs-c/rust_eh_personality.c \
-  -o "$objects/rust_eh_personality.o"
-
-"$qcc" "${first_party_flags[@]}" \
   -DPOCKET_BUILD_ID=\""$POCKET_BUILD_ID"\" \
   -DPOCKET_LOGICAL_WIDTH="$POCKET_LOGICAL_WIDTH" \
   -DPOCKET_LOGICAL_HEIGHT="$POCKET_LOGICAL_HEIGHT" \
@@ -104,7 +100,6 @@ first_party_flags=(
   "$objects/main.o" \
   "$objects/pocket_runtime.o" \
   "$objects/pocket_input.o" \
-  "$objects/rust_eh_personality.o" \
   /build/libquickjs.a \
   /build/libpocketjs_symbian_core.a \
   -lbps \

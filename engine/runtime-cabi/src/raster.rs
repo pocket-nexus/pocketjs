@@ -3,6 +3,78 @@ use crate::adapters::{borrowed, pixel_format, rect, writable, AdapterError, CRes
 use pocket_draw_ops::Operation;
 use pocket_drivers::{abi::*, DamageRect, RenderResources, Surface};
 
+/// Visit a validated DrawList through the same decoder used by Rust drivers.
+///
+/// # Safety
+/// Record pointers and payloads remain readable and unchanged until return.
+/// The visitor observes the ABI's synchronous borrowed-operation contract.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_draw_list_visit(
+    list: *const PocketDrawList,
+    resources: *const PocketRenderResources,
+    scale: u32,
+    visitor: Option<PocketDrawOpVisitFn>,
+    context: *mut core::ffi::c_void,
+) -> i32 {
+    let Some(visitor) = visitor else {
+        return POCKET_STATUS_INVALID;
+    };
+    let Some(list) = (unsafe { PocketDrawList::read_prefix(list) }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    let Some(resources) = (unsafe { PocketRenderResources::read_prefix(resources) }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    if list.version != pocket_spec::DRAW_LIST_VERSION {
+        return POCKET_STATUS_UNSUPPORTED;
+    }
+    if scale == 0
+        || [resources.viewport_width, resources.viewport_height]
+            .iter()
+            .any(|&v| !v.is_finite() || v <= 0.0 || v as f64 > i32::MAX as f64)
+    {
+        return POCKET_STATUS_INVALID;
+    }
+    let words = match unsafe { borrowed(list.words, list.word_count) } {
+        Ok(words) => words,
+        Err(error) => return error.status(),
+    };
+    let viewport = DamageRect::new(
+        0,
+        0,
+        resources.viewport_width as i32,
+        resources.viewport_height as i32,
+    );
+    // Reject a malformed tail before a driver has submitted any hardware work.
+    if pocket_draw_ops::validate(words, viewport).is_err() {
+        return POCKET_STATUS_INVALID;
+    }
+    for operation in pocket_draw_ops::DrawOps::new(words, viewport) {
+        let Ok(operation) = operation else {
+            return POCKET_STATUS_INVALID;
+        };
+        let clip = PocketLogicalClip {
+            x0: operation.clip.x0,
+            y0: operation.clip.y0,
+            x1: operation.clip.x1,
+            y1: operation.clip.y1,
+            ..PocketLogicalClip::empty()
+        };
+        let raw = PocketDrawOp {
+            words: operation.words.as_ptr(),
+            word_count: operation.words.len(),
+            clip: &clip,
+            scale,
+            ..PocketDrawOp::empty()
+        };
+        let status = unsafe { visitor(context, &raw) };
+        if status != POCKET_STATUS_OK {
+            return status;
+        }
+    }
+    POCKET_STATUS_OK
+}
+
 /// # Safety
 /// All input pointers provide their announced prefixes and valid borrowed
 /// payloads. target grants exclusive CPU access until this function returns.

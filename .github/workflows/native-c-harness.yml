@@ -11,6 +11,21 @@ on:
       - "tools/test-quickjs-guest.ts"
       - "tests/ui-bindings.test.ts"
       - "tests/runtime-cabi.test.ts"
+      - "tests/runtime-cabi-compat.test.ts"
+      - "tests/fixtures/runtime-cabi-compat/**"
+      - "tools/test-runtime-cabi-compat.ts"
+      - "tests/sdk.test.ts"
+      - "tests/sdk-idf.test.ts"
+      - "tests/fixtures/sdk-idf/**"
+      - "tools/test-sdk-idf.ts"
+      - "tests/out-of-tree-rust.test.ts"
+      - "tests/fixtures/out-of-tree-rust/**"
+      - "tools/test-out-of-tree-rust.ts"
+      - "tests/fixtures/sdk/**"
+      - "tools/sdk.ts"
+      - "tools/packaging/cmake/**"
+      - "tools/pocket.ts"
+      - "tools/cli/**"
       - "tests/fixtures/runtime-cabi/**"
       - "hosts/shared/contact_latch.h"
       - "hosts/ios-legacy/**"
@@ -89,6 +104,21 @@ on:
       - "tools/test-quickjs-guest.ts"
       - "tests/ui-bindings.test.ts"
       - "tests/runtime-cabi.test.ts"
+      - "tests/runtime-cabi-compat.test.ts"
+      - "tests/fixtures/runtime-cabi-compat/**"
+      - "tools/test-runtime-cabi-compat.ts"
+      - "tests/sdk.test.ts"
+      - "tests/sdk-idf.test.ts"
+      - "tests/fixtures/sdk-idf/**"
+      - "tools/test-sdk-idf.ts"
+      - "tests/out-of-tree-rust.test.ts"
+      - "tests/fixtures/out-of-tree-rust/**"
+      - "tools/test-out-of-tree-rust.ts"
+      - "tests/fixtures/sdk/**"
+      - "tools/sdk.ts"
+      - "tools/packaging/cmake/**"
+      - "tools/pocket.ts"
+      - "tools/cli/**"
       - "tests/fixtures/runtime-cabi/**"
       - "hosts/shared/contact_latch.h"
       - "hosts/ios-legacy/**"
@@ -172,10 +202,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+          components: llvm-tools-preview
       - run: bun install --frozen-lockfile
       - name: Install the UI C ABI's pinned nightly
         run: |
@@ -187,7 +220,7 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/ui-bindings.test.ts tests/runtime-cabi.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/ui-bindings.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - name: Native contacts, package corpus and device installation contracts
         run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts tests/ipodtouch4-profile.test.ts tests/ipodtouch4-resources.test.ts tests/repack-ipod.test.ts
       - name: Build Clear simulator inputs

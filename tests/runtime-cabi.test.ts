@@ -29,7 +29,7 @@ function run(args: string[], env = process.env): string {
   const result = Bun.spawnSync(args, { cwd: root, env, stdout: "pipe", stderr: "pipe" });
   const output = result.stdout.toString() + result.stderr.toString();
   writeFileSync(resolve(runDir, `${args[0]!.split("/").at(-1)}-${Date.now()}.log`), output);
-  expect(result.exitCode, `${args.join(" ")}\n${output}`).toBe(0);
+  expect(result.success, `${args.join(" ")} (exit=${result.exitCode}, signal=${result.signalCode})\n${output}`).toBe(true);
   return result.stdout.toString();
 }
 test.skipIf(!cc)("a C program links the no_std archive with six hooks and exercises prefix and lifecycle contracts", () => {

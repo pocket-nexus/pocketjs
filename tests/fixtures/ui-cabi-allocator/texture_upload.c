@@ -4,10 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* The no_std archive uses panic=abort. Prebuilt liballoc can still reference
- * this symbol; an unexpected attempt to unwind must fail the C executable. */
-void rust_eh_personality(void) { abort(); }
-
 #ifdef TEST_HOST_ALLOCATOR
 static size_t allocations;
 static size_t reallocations;

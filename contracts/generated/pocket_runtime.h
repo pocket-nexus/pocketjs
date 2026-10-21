@@ -36,6 +36,9 @@ typedef struct pocket_result pocket_result;
 typedef struct pocket_guest_frame pocket_guest_frame;
 typedef struct pocket_guest_v1 pocket_guest_v1;
 
+/* Synchronous visitor. Operation, clip and words borrow until callback return; do not retain them or mutate the DrawList. Return POCKET_STATUS_OK to continue or an error to stop. */
+typedef int32_t (*pocket_draw_op_visit_fn)(void * context, const pocket_draw_op * operation);
+
 typedef int32_t (*pocket_guest_initialize_fn)(void * context, pocket_runtime * runtime, const pocket_guest_environment * environment);
 
 typedef int32_t (*pocket_guest_evaluate_fn)(void * context, pocket_runtime * runtime, const uint8_t * code, size_t length);
@@ -420,6 +423,9 @@ void pocket_runtime_destroy(pocket_runtime * runtime);
 
 /* Software fallback after accelerator completion and cache visibility, within target's acquired region. */
 int32_t pocket_raster_draw_op(pocket_surface * target, const pocket_draw_op * op, const pocket_render_resources * resources);
+
+/* Validate the complete matching-version DrawList before any callback, then visit every operation in order with inherited logical clip and positive output scale. Callback errors stop iteration and are returned unchanged. No allocation or resource lookup occurs. */
+int32_t pocket_draw_list_visit(const pocket_draw_list * list, const pocket_render_resources * resources, uint32_t scale, pocket_draw_op_visit_fn visitor, void * context);
 
 void * pocket_host_alloc(size_t size, size_t align);
 

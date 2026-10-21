@@ -36,6 +36,7 @@ import {
 } from "../framework/src/manifest/idf-host.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { makeVariant } from "./pocket-pack.ts";
+import { sdkCommand } from "./sdk.ts";
 
 import { fileURLToPath } from "node:url";
 
@@ -74,6 +75,7 @@ if (cliProtocol !== undefined) {
   }
 }
 
+if (command === "sdk") process.exit(await sdkCommand(argv));
 if (command === "catalog") {
   const json = argv.includes("--json");
   const rows = CATALOG.map((descriptor) => ({

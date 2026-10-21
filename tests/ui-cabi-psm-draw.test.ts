@@ -32,9 +32,9 @@ function run(command: string[], env: NodeJS.ProcessEnv = process.env) {
 
 function expectOk(result: ReturnType<typeof run>) {
   expect(
-    result.exitCode,
+    result.success,
     `signal=${result.signalCode}\n${result.stdout}${result.stderr}`,
-  ).toBe(0);
+  ).toBe(true);
 }
 
 function compileAndRun(profile: "release" | "debug") {

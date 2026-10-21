@@ -1,8 +1,6 @@
 #include "esp_heap_caps.h"
 #include <stdlib.h>
 #include <string.h>
-/* Host sysroot alloc can reference this symbol even with panic=abort. */
-void rust_eh_personality(void) { abort(); }
 long pocketjs_test_fail_after = -1;
 long pocketjs_test_heap_fail_after = -1;
 static int fail(void) {

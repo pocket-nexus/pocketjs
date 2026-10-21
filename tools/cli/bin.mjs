@@ -201,11 +201,11 @@ function runVerb(framework, cmd, selection, project, args) {
 }
 
 /** `pocket target …`: the framework installs its own pins. */
-function targetCommand(args) {
+function targetCommand(args, command = "target") {
   const framework = requireFramework();
   const result = spawnSync(
     process.execPath,
-    [join(framework.root, "tools/pocket.ts"), "target", ...args, "--cli-protocol", String(CLI_PROTOCOL)],
+    [join(framework.root, "tools/pocket.ts"), command, ...args, "--cli-protocol", String(CLI_PROTOCOL)],
     { stdio: "inherit", cwd: process.cwd() },
   );
   process.exit(result.status ?? 1);
@@ -402,6 +402,10 @@ const HELP = `${C.bold("pocket")} — the PocketJS toolchain CLI (runs on Bun)
                            target of pocket.config.ts is ready to build
   pocket target remove ID …
                            delete the install records and prune the store
+  pocket sdk export --triple T --out DIR
+                           build a relocatable candidate C SDK
+  pocket sdk verify --dir DIR
+                           verify every exported file against its manifest
   pocket default [ID | --unset]
                            the user default target
   pocket override set ID [--path DIR] | unset [--path DIR] | list
@@ -433,6 +437,9 @@ switch (cmd) {
     break;
   case "target":
     targetCommand(rest);
+    break;
+  case "sdk":
+    targetCommand(rest, "sdk");
     break;
   case "default":
     defaultCommand(rest);

@@ -169,6 +169,9 @@ pub type PocketClockNowFn = unsafe extern "C" fn(context: *mut c_void) -> u64;
 
 pub type PocketClockSleepUntilFn = unsafe extern "C" fn(context: *mut c_void, deadline: u64) -> ();
 
+/// Synchronous visitor. Operation, clip and words borrow until callback return; do not retain them or mutate the DrawList. Return POCKET_STATUS_OK to continue or an error to stop.
+pub type PocketDrawOpVisitFn = unsafe extern "C" fn(context: *mut c_void, operation: *const PocketDrawOp) -> i32;
+
 pub type PocketGuestInitializeFn = unsafe extern "C" fn(context: *mut c_void, runtime: *mut PocketRuntime, environment: *const PocketGuestEnvironment) -> i32;
 
 pub type PocketGuestEvaluateFn = unsafe extern "C" fn(context: *mut c_void, runtime: *mut PocketRuntime, code: *const u8, length: usize) -> i32;
@@ -4968,6 +4971,8 @@ pub fn pocket_runtime_op(runtime: *mut PocketRuntime, op: u16, args: *const c_vo
     pub fn pocket_runtime_destroy(runtime: *mut PocketRuntime) -> ();
     /// Software fallback after accelerator completion and cache visibility, within target's acquired region.
 pub fn pocket_raster_draw_op(target: *mut PocketSurface, op: *const PocketDrawOp, resources: *const PocketRenderResources) -> i32;
+    /// Validate the complete matching-version DrawList before any callback, then visit every operation in order with inherited logical clip and positive output scale. Callback errors stop iteration and are returned unchanged. No allocation or resource lookup occurs.
+pub fn pocket_draw_list_visit(list: *const PocketDrawList, resources: *const PocketRenderResources, scale: u32, visitor: Option<PocketDrawOpVisitFn>, context: *mut c_void) -> i32;
     pub fn pocket_host_alloc(size: usize, align: usize) -> *mut c_void;
     /// On allocation failure return null and preserve the original allocation.
 pub fn pocket_host_realloc(pointer: *mut c_void, old_size: usize, align: usize, new_size: usize) -> *mut c_void;

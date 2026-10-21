@@ -39,3 +39,17 @@ fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
         core::hint::spin_loop();
     }
 }
+
+// Some rustup core/alloc archives retain references to this compiler support
+// symbol even when the application uses panic=abort. Supply it in the archive
+// so a C consumer still implements only the six documented host hooks. This
+// runtime never unwinds; reaching a personality routine is a fatal error.
+#[cfg(not(feature = "std"))]
+#[no_mangle]
+pub extern "C" fn rust_eh_personality() -> ! {
+    let message = b"PocketJS runtime cannot unwind";
+    unsafe { abi::pocket_host_panic(message.as_ptr().cast(), message.len()) };
+    loop {
+        core::hint::spin_loop();
+    }
+}

@@ -627,11 +627,6 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
         `-I${join(repository, "contracts/generated")}`,
       ],
     },
-    {
-      name: "rust_eh_personality",
-      source: join(repository, "engine/quickjs-c/rust_eh_personality.c"),
-      includes: [],
-    },
     { name: "offload_posix", source: join(repository, "hosts/shared/offload_posix.c"), includes: [] },
   ];
   const sharedObjects = sharedSources.map(({ name, source, includes }) => {

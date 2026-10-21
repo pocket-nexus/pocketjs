@@ -71,6 +71,15 @@ in `engine/runtime-cabi/src/compat`. Existing QuickJS C, rquickjs `UiSurface`,
 and Wasm entry paths remain available. **The driver/runtime ABI is still a
 candidate contract**; package format and `hostAbi` retain their current meaning.
 
+**`pocket sdk export --triple <rust-target> --out <directory>` builds a local
+candidate C SDK.** Its no_std archive disables legacy features and uses
+`panic=abort`. The export includes canonical headers, C guest source, a
+relocatable CMake package with `Pocket::runtime` and `Pocket::guest_quickjs`,
+and a manifest of source identity, build flags, and file hashes. The program
+provides the six host hooks and its QuickJS dependency. `pocket sdk verify
+--dir <directory>` checks the exported file list and hashes. Exporting does
+not publish a release or freeze the ABI.
+
 `DisplayOutput` owns acquired targets and display transfers. `Renderer`
 consumes the core's DrawList and borrowed resource views. The Rust render
 method takes `&mut FrameInput` because a CPU surface grants exclusive write

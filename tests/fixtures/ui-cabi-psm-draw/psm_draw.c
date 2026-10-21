@@ -33,9 +33,6 @@ const uint8_t *ui_render_incremental_scaled(uint32_t scale);
 #include <stdio.h>
 #include <stdlib.h>
 
-/* panic=abort no_std archive: any unwinding attempt must fail the run. */
-void rust_eh_personality(void) { abort(); }
-
 enum {
   PSM_5650 = 0,
   PSM_4444 = 2,

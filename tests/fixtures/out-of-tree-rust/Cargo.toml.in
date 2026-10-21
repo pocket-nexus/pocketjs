@@ -1,0 +1,16 @@
+[package]
+name = "pocket-out-of-tree-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+pocket-drivers = { git = @GIT_URL@, rev = @REVISION@ }
+pocket-runtime = { git = @GIT_URL@, rev = @REVISION@ }
+pocket-present = { git = @GIT_URL@, rev = @REVISION@ }
+pocket-package = { git = @GIT_URL@, rev = @REVISION@ }
+pocket-spec = { git = @GIT_URL@, rev = @REVISION@ }
+pocket-draw-ops = { git = @GIT_URL@, rev = @REVISION@ }
+pocket-tex-cache = { git = @GIT_URL@, rev = @REVISION@ }
+
+[workspace]

@@ -93,6 +93,12 @@ acquired CPU region in full until display buffers have persistent identities.
 Old `quickjs-c` and `pocket-ui-surface` bindings keep their existing entry
 paths while hosts adopt the instance API.
 
+**`tools/sdk.ts` exports a candidate C SDK from a local build.** It packages
+one no_std runtime archive, canonical headers, C guest source, and a hash
+manifest. `tools/packaging/cmake` supplies the relocatable `Pocket::runtime`
+and `Pocket::guest_quickjs` targets. [SDK.md](SDK.md) describes the export
+layout, cross compilation flags, and independent consumer test.
+
 ## Placement rules
 
 New things go where the axis says — never invent a top-level directory:

@@ -21,7 +21,7 @@ function write(name: string, contents: string): string {
 }
 function run(command: string[]): string {
   const result = Bun.spawnSync(command, { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(`${command.join(" ")}\n${result.stdout.toString()}${result.stderr.toString()}`);
+  if (!result.success) throw new Error(`${command.join(" ")} (exit=${result.exitCode}, signal=${result.signalCode})\n${result.stdout.toString()}${result.stderr.toString()}`);
   return result.stdout.toString();
 }
 

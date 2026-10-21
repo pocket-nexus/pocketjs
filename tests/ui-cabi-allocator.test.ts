@@ -21,9 +21,9 @@ function run(command: string[], env: NodeJS.ProcessEnv = process.env): string {
     stderr: "pipe",
   });
   expect(
-    result.exitCode,
+    result.success,
     `${command.join(" ")} (signal=${result.signalCode})\n${result.stdout}${result.stderr}`,
-  ).toBe(0);
+  ).toBe(true);
   return result.stdout.toString().trim();
 }
 

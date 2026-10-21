@@ -82,4 +82,17 @@ static void package_source_is_read_only(void) {
   }
   assert(munmap(source,page)==0);
 }
-int main(void){canonical();idf();attached_lifetime();extensible_records();package_source_is_read_only();puts("generated QuickJS bindings: ok");return 0;}
+static void package_terminal_nul(void) {
+  static const uint8_t source[]="globalThis.packageEvaluated=42;";
+  static const uint8_t invalid[]="globalThis.packageEvaluated=1;\0";
+  for(int profile=POCKET_QJS_CANONICAL;profile<=POCKET_QJS_IDF;profile++) {
+    pocket_runtime runtime={0};pocket_guest_environment env=environment();pocket_guest_quickjs *guest=pocket_guest_quickjs_create((pocket_qjs_profile)profile);
+    assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,source,sizeof source)==0);
+    eval(guest,&runtime,"if(packageEvaluated!==42)throw new Error('terminal NUL')");
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,NULL,0)==0);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,invalid,sizeof invalid)!=0);
+    pocket_guest_quickjs_destroy(guest);
+  }
+}
+int main(void){canonical();idf();attached_lifetime();extensible_records();package_source_is_read_only();package_terminal_nul();puts("generated QuickJS bindings: ok");return 0;}

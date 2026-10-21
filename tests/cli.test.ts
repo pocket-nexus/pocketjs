@@ -115,6 +115,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     }
 
     const cases = [
+      { cliArgs: ["sdk", "export", "--triple", "aarch64-apple-darwin", "--out", "sdk"], script: "pocket.ts", args: ["sdk", "export", "--triple", "aarch64-apple-darwin", "--out", "sdk", "--cli-protocol", "1"] },
       { cliArgs: ["check", "--target", "psp"], script: "pocket.ts", args: ["check", "--target", "psp", "--cli-protocol", "1"] },
       { cliArgs: ["compile", "--target", "vita"], script: "pocket.ts", args: ["compile", "--target", "vita", "--cli-protocol", "1"] },
       { cliArgs: ["build", "--target", "vita", "--", "--release"], script: "pocket.ts", args: ["build", "--target", "vita", "--cli-protocol", "1", "--", "--release"] },
@@ -130,7 +131,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
     for (const fixture of cases) {
       rmSync(log, { force: true });
       const result = runCli(cwd, fixture.cliArgs, { POCKET_CLI_TEST_LOG: log });
-      expect(result.exitCode, `${fixture.cliArgs.join(" ")}\n${result.stderr}`).toBe(0);
+      expect(result.success, `${fixture.cliArgs.join(" ")}\n${result.stderr}`).toBe(true);
       const recorded = JSON.parse(readFileSync(log, "utf8"));
       expect(basename(new URL(recorded.script).pathname)).toBe(fixture.script);
       expect(recorded.args).toEqual(fixture.args);

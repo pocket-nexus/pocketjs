@@ -43,6 +43,7 @@ export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
 const context = f("context", "*mut c_void");
 const runtime = f("runtime", "*mut PocketRuntime");
 export const RUNTIME_ABI_CALLBACKS: readonly AbiCallback[] = [
+  callback("PocketDrawOpVisitFn", "pocket_draw_op_visit_fn", [context, f("operation", "*const PocketDrawOp")], "i32", "Synchronous visitor. Operation, clip and words borrow until callback return; do not retain them or mutate the DrawList. Return POCKET_STATUS_OK to continue or an error to stop."),
   callback("PocketGuestInitializeFn", "pocket_guest_initialize_fn", [context, runtime, f("environment", "*const PocketGuestEnvironment")]),
   callback("PocketGuestEvaluateFn", "pocket_guest_evaluate_fn", [context, runtime, f("code", "*const u8"), f("length", "usize")]),
   callback("PocketGuestFrameFn", "pocket_guest_frame_fn", [context, f("frame", "*const PocketGuestFrame")]),
@@ -63,6 +64,7 @@ export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
   { name: "pocket_runtime_op", args: [runtime, f("op", "u16"), f("args", "*const c_void"), f("length", "usize"), f("out", "*mut PocketResult")], result: "i32", doc: "Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime." },
   { name: "pocket_runtime_destroy", args: [runtime], result: "void" },
   { name: "pocket_raster_draw_op", args: [f("target", "*mut PocketSurface"), f("op", "*const PocketDrawOp"), f("resources", "*const PocketRenderResources")], result: "i32", doc: "Software fallback after accelerator completion and cache visibility, within target's acquired region." },
+  { name: "pocket_draw_list_visit", args: [f("list", "*const PocketDrawList"), f("resources", "*const PocketRenderResources"), f("scale", "u32"), f("visitor", "Option<PocketDrawOpVisitFn>"), context], result: "i32", doc: "Validate the complete matching-version DrawList before any callback, then visit every operation in order with inherited logical clip and positive output scale. Callback errors stop iteration and are returned unchanged. No allocation or resource lookup occurs." },
 ];
 
 export const HOST_ABI_FUNCTIONS: readonly AbiFunction[] = [
