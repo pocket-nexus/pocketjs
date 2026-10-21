@@ -653,7 +653,7 @@ async function build(): Promise<void> {
   const rustc = mustRun(rustup, ["which", "--toolchain", IPHONE4S_TOOLCHAIN.compiler.rustToolchain, "rustc"]);
   mustRun(
     cargo,
-    ["build", "--release", "--locked", "--features", "bare-platform,gles1", "--target",
+    ["build", "--release", "--locked", "--no-default-features", "--features", "standalone-extension-provider,bare-platform,gles1", "--target",
       join(REPOSITORY, "hosts/iphone4s/armv7-apple-ios.json"), "-Z", "json-target-spec",
       "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
     {

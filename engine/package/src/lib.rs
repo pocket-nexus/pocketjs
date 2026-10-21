@@ -15,6 +15,7 @@ pub mod package_format;
 pub mod pak;
 pub mod plan_facts;
 pub mod sha256;
+pub mod source;
 
 pub use package::{select_guest, Guest, GuestError, Identity, Package, PackageError, Variant};
 pub use plan_facts::{plan_facts, PlanFacts, PlanFactsError, PlanSurface};

@@ -171,10 +171,10 @@ describe("private Meizu M8 build profile", () => {
     expect(runtime).not.toContain("HWND_TOPMOST");
     expect(runtime).toContain("word == VK_HOME || word == VK_ESCAPE");
     expect(runtime).not.toContain("case WM_ACTIVATE:");
-    expect(guestRuntime).toContain("pocket_runtime_pack_contact(contact)");
-    expect(guestRuntime).toContain("return pocket_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 2)");
-    expect(runtime).toContain("pocket_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 1)");
-    expect(runtime).toContain("touch_hit = pocket_runtime_hit_test_bounds");
+    expect(guestRuntime).toContain("pocket_legacy_runtime_pack_contact(contact)");
+    expect(guestRuntime).toContain("return pocket_legacy_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 2)");
+    expect(runtime).toContain("pocket_legacy_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 1)");
+    expect(runtime).toContain("touch_hit = pocket_legacy_runtime_hit_test_bounds");
     expect(runtime).toContain("touch_release_after_frame = 1");
     expect(runtime).not.toContain("touch_needs_hit");
     expect(tooling).toContain('fields.logical_viewport !== receipt.hostContract.viewport.logical.join("x")');
@@ -199,8 +199,8 @@ describe("private Meizu M8 build profile", () => {
     expect(sessionScript).toContain('ifconfig "$interface"');
     expect(sessionScript).not.toContain("ifconfig ppp0");
     expect(runtime).toContain('"gdi_composites=%lu\\r\\n"');
-    expect(runtime).toContain("pocket_runtime_hit_test_bounds");
-    expect(runtime).toContain("pocket_runtime_action_sequence");
+    expect(runtime).toContain("pocket_legacy_runtime_hit_test_bounds");
+    expect(runtime).toContain("pocket_legacy_runtime_action_sequence");
     expect(runtime).toContain('L".frame.bmp"');
     expect(runtime).toContain("POCKET_WIDEN(POCKET_BUILD_ID)");
     expect(runtime).toContain('"capture_successes=%lu\\r\\n"');

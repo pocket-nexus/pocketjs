@@ -412,9 +412,9 @@ static void write_acceptance_record(void) {
     g_touch_x,
     g_touch_y,
     g_last_touch_hit,
-    pocket_runtime_action_name(),
-    pocket_runtime_action_value(),
-    pocket_runtime_action_sequence(),
+    pocket_legacy_runtime_action_name(),
+    pocket_legacy_runtime_action_value(),
+    pocket_legacy_runtime_action_sequence(),
     g_renderer,
     g_clock,
     POCKET_RASTER_DENSITY,
@@ -426,10 +426,10 @@ static void write_acceptance_record(void) {
     g_window_frames,
     g_window_us,
     g_blit_us_mean,
-    pocket_runtime_damage_attempts(),
-    pocket_runtime_damage_failures(),
-    pocket_runtime_damage_full_redraws(),
-    pocket_runtime_damage_pixels(),
+    pocket_legacy_runtime_damage_attempts(),
+    pocket_legacy_runtime_damage_failures(),
+    pocket_legacy_runtime_damage_full_redraws(),
+    pocket_legacy_runtime_damage_pixels(),
     g_composites,
     g_damage_regions_last,
     POCKET_SVC_STATE_NAME(),
@@ -677,7 +677,7 @@ static void fail_runtime(const char *message) {
   copy_status_message(message);
   g_state = POCKET_STATE_FAILED;
   stop_timer();
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
   g_framebuffer = NULL;
   g_framebuffer_width = 0;
   g_framebuffer_height = 0;
@@ -692,11 +692,11 @@ static void fail_runtime(const char *message) {
 }
 
 static int refresh_framebuffer(void) {
-  const uint8_t *framebuffer = pocket_runtime_render();
-  uint32_t width = pocket_runtime_width();
-  uint32_t height = pocket_runtime_height();
-  uint32_t stride = pocket_runtime_stride();
-  size_t length = pocket_runtime_length();
+  const uint8_t *framebuffer = pocket_legacy_runtime_render();
+  uint32_t width = pocket_legacy_runtime_width();
+  uint32_t height = pocket_legacy_runtime_height();
+  uint32_t stride = pocket_legacy_runtime_stride();
+  size_t length = pocket_legacy_runtime_length();
   size_t required;
 
   if (framebuffer == NULL || width == 0 || height == 0 || stride < width * 4U) {
@@ -1124,7 +1124,7 @@ static void teardown_gl(void) {
   /* The core's textures belong to this context, so release them while it is
    * still current — and only if it ever got as far as owning any. */
   if (g_gl_ready) {
-    pocket_runtime_gl_shutdown();
+    pocket_legacy_runtime_gl_shutdown();
   }
   if (g_gl_framebuffer != 0 && gl_delete_framebuffers != NULL) {
     gl_delete_framebuffers(1, &g_gl_framebuffer);
@@ -1222,7 +1222,7 @@ static int setup_gl(id view) {
     teardown_gl();
     return 0;
   }
-  if (pocket_runtime_native_flags() & 1U) {
+  if (pocket_legacy_runtime_native_flags() & 1U) {
     if (!gl_renderbuffer_storage) { teardown_gl(); return 0; }
     gl_gen_renderbuffers(1, &g_gl_depthbuffer);
     gl_bind_renderbuffer(POCKET_GL_RENDERBUFFER_OES, g_gl_depthbuffer);
@@ -1309,7 +1309,7 @@ static int present_gl(unsigned long *submitted_us) {
   if (!send_bool_class_object(eagl, "setCurrentContext:", g_gl_context)) return 0;
   started = now_us();
   gl_bind_framebuffer(POCKET_GL_FRAMEBUFFER_OES, g_gl_framebuffer);
-  if (!pocket_runtime_gl_render(g_gl_width, g_gl_height)) return 0;
+  if (!pocket_legacy_runtime_gl_render(g_gl_width, g_gl_height)) return 0;
   gl_bind_renderbuffer(POCKET_GL_RENDERBUFFER_OES, g_gl_renderbuffer);
   *submitted_us = now_us() - started;
   capture_frame_if_requested();
@@ -1337,7 +1337,7 @@ static int boot_embedded_runtime(void) {
     java_script_length = g_package.javascript_length;
     pack = g_package.pak;
     pack_length = g_package.pak_length;
-    pocket_runtime_set_raster_density((uint32_t)g_package_density);
+    pocket_legacy_runtime_set_raster_density((uint32_t)g_package_density);
   }
 #endif
 
@@ -1353,7 +1353,7 @@ static int boot_embedded_runtime(void) {
     fail_runtime("Mach-O section __DATA,__pocket_pak is missing or empty");
     return 0;
   }
-  if (!pocket_runtime_boot(
+  if (!pocket_legacy_runtime_boot(
     (const char *)java_script,
     java_script_length,
     pack,
@@ -1361,7 +1361,7 @@ static int boot_embedded_runtime(void) {
     POCKET_LOGICAL_WIDTH,
     POCKET_LOGICAL_HEIGHT
   )) {
-    fail_runtime(pocket_runtime_error());
+    fail_runtime(pocket_legacy_runtime_error());
     return 0;
   }
 
@@ -1372,7 +1372,7 @@ static int boot_embedded_runtime(void) {
    * succeed together or neither counts.
    */
   if (setup_gl(g_view)) {
-    if (pocket_runtime_gl_initialize()) {
+    if (pocket_legacy_runtime_gl_initialize()) {
       g_renderer = "gles1";
       copy_status_message("Running on OpenGL ES 1.1");
     } else {
@@ -1406,7 +1406,7 @@ static void invalidate_damaged_region(void) {
   if (g_view == NULL) {
     return;
   }
-  if (!pocket_runtime_damage_bounds(bounds)) {
+  if (!pocket_legacy_runtime_damage_bounds(bounds)) {
     /* Empty plan: the previous composite is still correct. */
     return;
   }
@@ -1451,12 +1451,12 @@ static void pocket_tick(id self, SEL command, id timer) {
 
   memset(&frame_input, 0, sizeof frame_input);
   pocket_contacts_sample(&g_contacts, &frame_input, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT,
-    POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, pocket_runtime_hit_test_bounds);
+    POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, pocket_legacy_runtime_hit_test_bounds);
   if (frame_input.contact_count) g_last_touch_hit = frame_input.contacts[frame_input.contact_count - 1].hit;
   delivered_touch = frame_input.contact_count > 0;
   frame_started_us = now_us();
-  if (!pocket_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)) {
-    fail_runtime(pocket_runtime_error());
+  if (!pocket_legacy_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)) {
+    fail_runtime(pocket_legacy_runtime_error());
     return;
   }
   present_started_us = now_us();
@@ -1479,8 +1479,8 @@ static void pocket_tick(id self, SEL command, id timer) {
     g_completed_touch_sequences += 1;
     g_touch_awaiting_completion = 0;
   }
-  reported_action = pocket_runtime_action_sequence() != g_observed_action_sequence;
-  g_observed_action_sequence = pocket_runtime_action_sequence();
+  reported_action = pocket_legacy_runtime_action_sequence() != g_observed_action_sequence;
+  g_observed_action_sequence = pocket_legacy_runtime_action_sequence();
   if (g_gl_ready) {
     /*
      * On the GPU path the core walks its DrawList straight into GL, so there
@@ -1612,7 +1612,7 @@ static void touch_slot_begin(PocketTouchSlot *slot, id touch, int x, int y) {
   g_touch_sequences += 1;
   g_touch_awaiting_completion = 0;
   if (g_state == POCKET_STATE_RUNNING) {
-    g_last_touch_hit = pocket_runtime_hit_test_bounds((float)x, (float)y);
+    g_last_touch_hit = pocket_legacy_runtime_hit_test_bounds((float)x, (float)y);
     pocket_contact_hit(&g_contacts, (int)(slot - g_touch_slots), g_last_touch_hit);
   }
 }
@@ -1997,7 +1997,7 @@ static void terminate_application(void) {
   copy_status_message("Application terminated");
   write_acceptance_record();
   teardown_gl();
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
   g_framebuffer = NULL;
 }
 

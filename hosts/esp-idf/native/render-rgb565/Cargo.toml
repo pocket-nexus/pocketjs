@@ -6,18 +6,14 @@ license = "MIT"
 publish = false
 
 [lib]
-crate-type = ["rlib", "staticlib"]
+crate-type = ["rlib"]
 
 [dependencies]
-pocketjs-core = { path = "../../../../engine/core" }
-pocketjs-idf-abi = { path = "../abi" }
-pocketjs-idf-runtime = { path = "../runtime" }
-pocketjs-render-rgb565 = { path = "../../../../engine/backends/rgb565" }
-
+pocket-runtime-cabi = { path = "../../../../engine/runtime-cabi", default-features = false, features = ["legacy-idf"] }
 
 [features]
 default = ["std"]
-std = ["pocketjs-idf-runtime/std"]
+std = ["pocket-runtime-cabi/std"]
 
 [profile.release]
 codegen-units = 16

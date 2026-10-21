@@ -202,14 +202,14 @@ describe("private iPod touch 4 profile", () => {
     // slots, release-latched delivery, per-contact down-edge hit facts.
     expect(runtime).toContain("#define POCKET_TOUCH_SLOT_COUNT 8");
     expect(runtime).toContain('send_void_bool(g_view, "setMultipleTouchEnabled:", YES)');
-    expect(runtime).toContain("pocket_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)");
+    expect(runtime).toContain("pocket_legacy_runtime_frame_contacts(&frame_input, POCKET_FRAME_TICKS)");
     expect(runtime).toContain("#define POCKET_FRAME_TICKS 2");
     // the shared default serves the 30 Hz original iPhone; the iPod's display
     // link runs at the guest clock's 60 Hz, so it advances one tick per frame
     expect(wrapper).toContain("#define POCKET_FRAME_TICKS 1");
-    expect(runtime).toContain("pocket_runtime_hit_test_bounds");
+    expect(runtime).toContain("pocket_legacy_runtime_hit_test_bounds");
     expect(guest).toContain("POCKET_RUNTIME_MAX_CONTACTS");
-    expect(guest).toContain("pocket_runtime_pack_contact(contact)");
+    expect(guest).toContain("pocket_legacy_runtime_pack_contact(contact)");
     expect(runtime).toContain("pocket_contacts_sample(&g_contacts");
     expect(runtime).toContain("pocket_touches_cancelled");
 

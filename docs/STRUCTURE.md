@@ -15,12 +15,16 @@ pocketjs/
 │  ├─ present/    damage history, presentation transactions, and composition
 │  ├─ package/    package admission, pak readers, build facts, and SHA-256
 │  ├─ modules/media/ stream readers, transport messages, and codecs
+│  ├─ runtime/    instance state, generated UI dispatch, package assets, and frame scheduling
+│  ├─ runtime-cabi/ instance C ABI and compatibility implementations for UI/IDF entry points
+│  ├─ guest-quickjs/ C QuickJS-NG guest lifecycle and generated operation descriptors
+│  ├─ guest-rquickjs/ Rust QuickJS guest implementing the runtime Guest trait
 │  ├─ backends/    platform render backends (ESP32-P4 PPA is a standalone no_std
 │  │              crate; gpui is the standalone native desktop backend with native
 │  │              text layout — docs/BACKENDS.md)
 │  ├─ wasm/       core compiled to wasm32 for web/sim hosts (standalone crate)
-│  ├─ ui-cabi/    no_std UI C ABI: software raster + GLES1/GLES2 backends (standalone crate)
-│  ├─ quickjs-c/  portable QuickJS guest driver used by native C hosts
+│  ├─ ui-cabi/    compatibility re-exports and historical allocator hooks (standalone crate)
+│  ├─ quickjs-c/  legacy guest entry points under pocket_legacy_runtime_*
 │  ├─ ios/        iOS C ABI and UIKit PocketSurfaceView
 │  ├─ pocket3d/   the 3D core family (bsp, cook, gu, vita, GLES2) + desktop examples
 │  ├─ crates/     non-3D engine crates: pocket-mod, pocket-ui-surface, pocket-ui-wgpu, pocket-vrm, pocket-widget
@@ -66,6 +70,28 @@ pocketjs/
 ├─ assets/       brand, fonts, shared art
 └─ README.md, CLAUDE.md, AGENTS.md — the only markdown that lives at root
 ```
+
+## Runtime migration
+
+**`engine/runtime` owns application instances and their `CoreState`.** The
+instance owns its package, guest, input encoding, and display/renderer
+registrations. `engine/runtime-cabi` exposes instance handles and retains the
+old UI and IDF implementations in `src/compat/ui` and `src/compat/idf`.
+`engine/ui-cabi` and `hosts/esp-idf/native/ui-core` keep their library names as
+compatibility wrappers. Their UI state uses the runtime's `CoreState`.
+
+`contracts/spec/ui-ops.ts` records **61 numbered public calls and six private
+host hooks**. `tools/ui-bindings.ts` generates the core dispatcher and C guest
+operation descriptors. The Rust guest consumes the same generated descriptors.
+The guest adapters perform JavaScript coercion before borrowing byte payloads;
+missing service providers leave their methods absent from `ui`.
+
+**The driver/runtime C ABI is a candidate contract.** Its generated layouts
+and consumer tests do not freeze it. This migration retains the package format
+and existing `hostAbi` meaning. The presentation coordinator redraws each
+acquired CPU region in full until display buffers have persistent identities.
+Old `quickjs-c` and `pocket-ui-surface` bindings keep their existing entry
+paths while hosts adopt the instance API.
 
 ## Placement rules
 

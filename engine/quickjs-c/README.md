@@ -14,7 +14,7 @@ It returns to `POCKET_BENCH_STAGE_IDLE` before handing control back, including
 failure paths entered after a measured stage begins.
 
 Defining the separate `POCKET_RUNTIME_HARNESS` capability exposes
-`pocket_runtime_harness_bind` and `pocket_runtime_harness_call`. A harness binds
+`pocket_legacy_runtime_harness_bind` and `pocket_legacy_runtime_harness_call`. A harness binds
 one global dispatcher after boot; subsequent calls pass an integer opcode and
 argument directly through `JS_Call`, with an optional integer result. The
 runtime caches and releases the dispatcher with the guest realm. It neither

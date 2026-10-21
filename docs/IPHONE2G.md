@@ -449,7 +449,7 @@ a from-scratch reference render will catch.
 
 ### ES 1.1 state the ES 2 pipeline does not need
 
-`engine/ui-cabi/src/gl/es1.rs` must state four things that have no ES 2
+`engine/runtime-cabi/src/compat/ui/gl/es1.rs` must state four things that have no ES 2
 equivalent, because sampling there is written into the fragment shader:
 
 - **`glEnable(GL_TEXTURE_2D)`** — texturing is a per-unit enable in ES 1.1.

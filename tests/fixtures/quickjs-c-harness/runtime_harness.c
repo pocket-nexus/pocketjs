@@ -125,7 +125,7 @@ static void reset_stubs(enum Scenario next) {
 static int boot(enum Scenario next) {
   static const uint8_t pack[1] = {0};
   reset_stubs(next);
-  return pocket_runtime_boot("bundle", 6, pack, sizeof(pack), 480, 272);
+  return pocket_legacy_runtime_boot("bundle", 6, pack, sizeof(pack), 480, 272);
 }
 
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
@@ -168,7 +168,7 @@ static int test_boot_sequences(void) {
 
   if (!boot(SCENARIO_SUCCESS) || !expect_stages("boot success", success, 4))
     return 0;
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
   if (boot(SCENARIO_BOOT_EVAL_FAILURE) ||
       !expect_stages("boot eval failure", eval_failure, 2))
     return 0;
@@ -202,26 +202,26 @@ static int test_frame_sequences(void) {
   if (!boot(SCENARIO_SUCCESS))
     return 0;
   stage_count = 0;
-  if (!pocket_runtime_tick(&input) ||
+  if (!pocket_legacy_runtime_tick(&input) ||
       !expect_stages("frame success", success, 4))
     return 0;
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
 
   if (!boot(SCENARIO_FRAME_JS_FAILURE))
     return 0;
   stage_count = 0;
-  if (pocket_runtime_tick(&input) ||
+  if (pocket_legacy_runtime_tick(&input) ||
       !expect_stages("frame JS failure", js_failure, 2))
     return 0;
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
 
   if (!boot(SCENARIO_FRAME_JOB_FAILURE))
     return 0;
   stage_count = 0;
-  if (pocket_runtime_tick(&input) ||
+  if (pocket_legacy_runtime_tick(&input) ||
       !expect_stages("frame job failure", job_failure, 3))
     return 0;
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
   return 1;
 }
 #endif
@@ -244,26 +244,26 @@ static int test_dispatcher_contract(void) {
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
   stage_count = 0;
 #endif
-  if (pocket_runtime_harness_call(7, 35, &value))
+  if (pocket_legacy_runtime_harness_call(7, 35, &value))
     return 0;
-  if (pocket_runtime_harness_bind("missing"))
+  if (pocket_legacy_runtime_harness_bind("missing"))
     return 0;
-  if (!pocket_runtime_harness_bind("__pocketHarnessDispatch"))
+  if (!pocket_legacy_runtime_harness_bind("__pocketHarnessDispatch"))
     return 0;
-  if (!pocket_runtime_harness_call(7, 35, &value) || value != 42)
+  if (!pocket_legacy_runtime_harness_call(7, 35, &value) || value != 42)
     return 0;
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
   if (!expect_stages("harness call", NULL, 0))
     return 0;
 #endif
-  if (!pocket_runtime_tick(&input))
+  if (!pocket_legacy_runtime_tick(&input))
     return 0;
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
   if (!expect_stages("dispatcher jobs", frame, 4))
     return 0;
 #endif
-  pocket_runtime_shutdown();
-  if (pocket_runtime_harness_call(7, 35, &value))
+  pocket_legacy_runtime_shutdown();
+  if (pocket_legacy_runtime_harness_call(7, 35, &value))
     return 0;
   return 1;
 }
@@ -274,18 +274,18 @@ static void test_extension(void) {
   PocketRuntimeInput input = {0};
   extension_watching = 1;
   assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
-  assert(pocket_runtime_native_flags() == POCKETJS_SYMBIAN_EXTENSION_DEPTH_BUFFER);
-  assert(pocket_runtime_gl_initialize());
-  assert(pocket_runtime_tick(&input)); expect_trace("BJAT");
-  assert(pocket_runtime_gl_render(960,544)); expect_trace("NU");
-  pocket_runtime_gl_shutdown(); expect_trace("R");
+  assert(pocket_legacy_runtime_native_flags() == POCKETJS_SYMBIAN_EXTENSION_DEPTH_BUFFER);
+  assert(pocket_legacy_runtime_gl_initialize());
+  assert(pocket_legacy_runtime_tick(&input)); expect_trace("BJAT");
+  assert(pocket_legacy_runtime_gl_render(960,544)); expect_trace("NU");
+  pocket_legacy_runtime_gl_shutdown(); expect_trace("R");
   assert(stub_context.alive);
-  assert(pocket_runtime_gl_initialize());
-  assert(pocket_runtime_tick(&input)); expect_trace("BJAT");
-  assert(pocket_runtime_gl_render(960,544)); expect_trace("NU");
-  pocket_runtime_shutdown(); expect_trace("S");
-  assert(!stub_context.alive && !pocket_runtime_native_flags());
-  pocket_runtime_shutdown(); expect_trace("");
+  assert(pocket_legacy_runtime_gl_initialize());
+  assert(pocket_legacy_runtime_tick(&input)); expect_trace("BJAT");
+  assert(pocket_legacy_runtime_gl_render(960,544)); expect_trace("NU");
+  pocket_legacy_runtime_shutdown(); expect_trace("S");
+  assert(!stub_context.alive && !pocket_legacy_runtime_native_flags());
+  pocket_legacy_runtime_shutdown(); expect_trace("");
 
   extension.base.abi_version = 2;
   assert(!boot(SCENARIO_SUCCESS)); expect_trace("");
@@ -297,16 +297,16 @@ static void test_extension(void) {
   extension_fail = 0;
   assert(!boot(SCENARIO_BOOT_EVAL_FAILURE)); expect_trace("EVs");
   assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
-  extension_fail = 'B'; assert(!pocket_runtime_tick(&input)); expect_trace("B");
-  pocket_runtime_shutdown(); expect_trace("s");
+  extension_fail = 'B'; assert(!pocket_legacy_runtime_tick(&input)); expect_trace("B");
+  pocket_legacy_runtime_shutdown(); expect_trace("s");
   extension_fail = 0; assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
-  extension_fail = 'A'; assert(!pocket_runtime_tick(&input)); expect_trace("BJA");
-  pocket_runtime_shutdown(); expect_trace("s");
+  extension_fail = 'A'; assert(!pocket_legacy_runtime_tick(&input)); expect_trace("BJA");
+  pocket_legacy_runtime_shutdown(); expect_trace("s");
   extension_fail = 0; assert(boot(SCENARIO_SUCCESS)); expect_trace("EV");
-  assert(pocket_runtime_gl_initialize());
-  extension_fail = 'N'; assert(!pocket_runtime_gl_render(960,544)); expect_trace("N");
-  pocket_runtime_gl_shutdown(); expect_trace("R");
-  pocket_runtime_shutdown(); expect_trace("s");
+  assert(pocket_legacy_runtime_gl_initialize());
+  extension_fail = 'N'; assert(!pocket_legacy_runtime_gl_render(960,544)); expect_trace("N");
+  pocket_legacy_runtime_gl_shutdown(); expect_trace("R");
+  pocket_legacy_runtime_shutdown(); expect_trace("s");
   extension_fail = 0; extension_watching = 0;
 }
 #endif
@@ -339,22 +339,22 @@ static void test_physics(void) {
   assert(physics_call(4, 4, query) == 6);
   assert(physics_handle == 5 && physics_args[0] == 3 && physics_args[1] == 1 &&
          physics_args[2] == 2 && physics_args[3] == 0 && physics_args[4] == 0);
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
 }
 #endif
 int main(void) {
   if (!boot(SCENARIO_SUCCESS) || !animation_completions) return 1;
   animation_completions(&stub_context, JS_UNDEFINED, 0, NULL, animation_completions_magic);
   if (!animation_completions_delivered) return 1;
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
 #if defined(POCKET_RUNTIME_STAGE_HOOKS)
   if (!test_boot_sequences() || !test_frame_sequences())
     return 1;
 #else
   PocketRuntimeInput input = {0};
-  if (!boot(SCENARIO_SUCCESS) || !pocket_runtime_tick(&input))
+  if (!boot(SCENARIO_SUCCESS) || !pocket_legacy_runtime_tick(&input))
     return 1;
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
 #endif
 #if defined(POCKET_RUNTIME_HARNESS)
   if (!test_dispatcher_contract())

@@ -1,4 +1,4 @@
-/* Generated from native/ui-core/src/lib.rs. Do not edit. */
+/* Generated from engine/runtime-cabi/src/compat/idf/ui.rs. Do not edit. */
 #pragma once
 #include "pocketjs/ui_core.h"
 int32_t pocketjs_native_ui_animate(pocketjs_ui_core_t * core, int32_t id, uint32_t prop, double to, uint32_t duration, uint32_t easing, uint32_t delay);

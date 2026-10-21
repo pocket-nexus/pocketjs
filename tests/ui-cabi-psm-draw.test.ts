@@ -54,7 +54,7 @@ function compileAndRun(profile: "release" | "debug") {
     cargo.stdout.toString().trim(), "build", "--locked",
     "--manifest-path", join(crate, "Cargo.toml"),
     "--target-dir", join(build, `target-${profile}`),
-    "--features", "bare-platform,software-only",
+    "--no-default-features", "--features", "standalone-extension-provider,bare-platform,software-only",
   ];
   if (profile === "release") cargoArgs.splice(2, 0, "--release");
   else cargoArgs.splice(2, 0, "--config", 'profile.dev.panic="abort"');

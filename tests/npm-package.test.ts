@@ -159,6 +159,16 @@ describe("published npm artifacts", () => {
       "engine/crates/pocket-vrm/Cargo.toml",
       "engine/crates/pocket-widget/src",
       "engine/crates/pocket-widget/Cargo.toml",
+      "engine/runtime/src",
+      "engine/runtime/Cargo.toml",
+      "engine/runtime-cabi/src",
+      "engine/runtime-cabi/Cargo.toml",
+      "engine/guest-rquickjs/src",
+      "engine/guest-rquickjs/Cargo.toml",
+      "engine/guest-quickjs/src",
+      "engine/guest-quickjs/include",
+      "engine/backends/rgb565/src",
+      "engine/backends/rgb565/Cargo.toml",
       "engine/core/src",
       "engine/core/Cargo.toml",
       "engine/spec/src",
@@ -253,6 +263,20 @@ describe("published npm artifacts", () => {
   test("framework tarball contains every locked native and standalone Pocket3D input", async () => {
     const files = packedFiles(root);
     expect(files).toEqual(expect.arrayContaining([
+      "engine/runtime/Cargo.toml",
+      "engine/runtime/src/lib.rs",
+      "engine/runtime/src/generated_ops.rs",
+      "engine/runtime-cabi/Cargo.toml",
+      "engine/runtime-cabi/src/lib.rs",
+      "engine/runtime-cabi/src/compat/ui/mod.rs",
+      "engine/runtime-cabi/src/compat/ui/gl/es1.rs",
+      "engine/guest-rquickjs/Cargo.toml",
+      "engine/guest-rquickjs/src/lib.rs",
+      "engine/guest-quickjs/include/pocket_guest_quickjs.h",
+      "engine/guest-quickjs/src/generated_ops.h",
+      "engine/guest-quickjs/src/guest.c",
+      "engine/backends/rgb565/Cargo.toml",
+      "engine/backends/rgb565/src/lib.rs",
       "engine/spec/Cargo.toml",
       "engine/spec/src/lib.rs",
       "engine/drivers/Cargo.toml",
@@ -382,9 +406,10 @@ describe("published npm artifacts", () => {
     expect(
       files.some((file) => /(^|\/)target\//.test(file) || file.includes(".fingerprint")),
     ).toBe(false);
-    // Git-only platform integrations must not leak into the tarball.
-    expect(files).not.toContain("engine/backends/rgb565/src/lib.rs");
-    expect(files.some((file) => file.startsWith("engine/backends/"))).toBe(false);
+    // The compatibility runtime resolves RGB565 as an optional path dependency.
+    // Other platform integrations remain outside the tarball.
+    expect(files).toContain("engine/backends/rgb565/src/lib.rs");
+    expect(files.some((file) => file.startsWith("engine/backends/") && !file.startsWith("engine/backends/rgb565/"))).toBe(false);
     expect(files.some((file) => file.startsWith("hosts/esp-idf/"))).toBe(false);
     expect(files).not.toContain("docs/SYMBIAN_E7.md");
     // Toolchain manifests travel with the framework that pins them.
@@ -395,7 +420,7 @@ describe("published npm artifacts", () => {
     expect(files).toContain("devices/3ds/pocket-3ds-pica/include/pocket_pica.h");
     expect(files.some((file) => /pocket3d-(bsp|cook|gu|vita|gles2)\//.test(file))).toBe(false);
 
-  }, 30_000);
+  }, 60_000);
 
   test("manifest commands import only declared runtime dependencies", () => {
     // An application installs the framework with its `dependencies` alone;
@@ -464,6 +489,9 @@ describe("published npm artifacts", () => {
       expect(packages).toContain("pocket-glyph-pages");
       expect(packages).toContain("pocket-tri-batch");
       expect(packages).toContain("pocket-tex-cache");
+      expect(packages).toContain("pocket-runtime");
+      expect(packages).toContain("pocket-runtime-cabi");
+      expect(packages).toContain("pocket-guest-rquickjs");
       expect(existsSync(join(scratch, "package/engine/core/Cargo.toml"))).toBe(true);
 
       // A fresh native consumer must resolve the extracted contracts using
@@ -485,6 +513,9 @@ pocket-draw-ops = { path = "../package/engine/render/draw-ops" }
 pocket-glyph-pages = { path = "../package/engine/render/glyph-pages" }
 pocket-tri-batch = { path = "../package/engine/render/tri-batch" }
 pocket-tex-cache = { path = "../package/engine/render/tex-cache" }
+pocket-runtime = { path = "../package/engine/runtime" }
+pocket-runtime-cabi = { path = "../package/engine/runtime-cabi" }
+pocket-guest-rquickjs = { path = "../package/engine/guest-rquickjs" }
 `);
       writeFileSync(join(consumer, "src/lib.rs"), `#![no_std]
 pub use pocket_drivers::{DrawList, FontView, RenderResources, TexView};
@@ -496,6 +527,9 @@ pub use pocket_draw_ops as draw_ops;
 pub use pocket_glyph_pages as glyph_pages;
 pub use pocket_tri_batch as tri_batch;
 pub use pocket_tex_cache as tex_cache;
+pub use pocket_runtime as runtime;
+pub use pocket_runtime_cabi as runtime_cabi;
+pub use pocket_guest_rquickjs as guest;
 pub const ROOT_ID: i32 = pocket_spec::ROOT_ID;
 `);
       const check = Bun.spawnSync({
@@ -507,5 +541,5 @@ pub const ROOT_ID: i32 = pocket_spec::ROOT_ID;
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 60_000);
 });

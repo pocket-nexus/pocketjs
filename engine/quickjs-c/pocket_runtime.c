@@ -657,7 +657,7 @@ static int drain_jobs(void) {
   }
 }
 
-void pocket_runtime_shutdown(void) {
+void pocket_legacy_runtime_shutdown(void) {
 #ifdef POCKET_RUNTIME_EXTENSION
   if (native_extension && native_extension->shutdown) native_extension->shutdown(native_gl_current);
   native_extension = NULL;
@@ -691,11 +691,11 @@ void pocket_runtime_shutdown(void) {
  * launch sets another. */
 static uint32_t boot_raster_density = POCKET_RASTER_DENSITY;
 
-void pocket_runtime_set_raster_density(uint32_t density) {
+void pocket_legacy_runtime_set_raster_density(uint32_t density) {
   boot_raster_density = density == 0 ? 1u : density;
 }
 
-int pocket_runtime_boot(
+int pocket_legacy_runtime_boot(
   const char *java_script,
   size_t java_script_length,
   const uint8_t *pack,
@@ -704,7 +704,7 @@ int pocket_runtime_boot(
   int height
 ) {
   clear_error();
-  pocket_runtime_shutdown();
+  pocket_legacy_runtime_shutdown();
   REPORT_BOOT_STAGE(1);
   reported_action_name[0] = '\0';
   reported_action_value = 0;
@@ -717,7 +717,7 @@ int pocket_runtime_boot(
   runtime = JS_NewRuntime();
   if (runtime == 0) {
     set_error("QuickJS runtime allocation failed");
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   REPORT_BOOT_STAGE(4);
@@ -725,14 +725,14 @@ int pocket_runtime_boot(
   context = JS_NewContext(runtime);
   if (context == 0) {
     set_error("QuickJS context allocation failed");
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   REPORT_BOOT_STAGE(5);
   global = JS_GetGlobalObject(context);
   if (!install_host(width, height)) {
     take_exception(context);
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   REPORT_BOOT_STAGE(6);
@@ -742,13 +742,13 @@ int pocket_runtime_boot(
   if (candidate == NULL || candidate->abi_version != 1 ||
       candidate->struct_size < sizeof(PocketJsSymbianExtensionV1)) {
     set_error("Native extension ABI mismatch");
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   native_extension = candidate;
   if (native_extension->boot && !native_extension->boot(context, pack, pack_length, width, height)) {
     set_error("Native extension boot failed");
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
 #endif
@@ -770,7 +770,7 @@ int pocket_runtime_boot(
         JS_NewInt32(context, POCKETJS_SIMULATION_HZ)
       ) < 0) {
     take_exception(context);
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   REPORT_BOOT_STAGE(7);
@@ -786,7 +786,7 @@ int pocket_runtime_boot(
   BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
   if (JS_IsException(result)) {
     take_exception(context);
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   REPORT_BOOT_STAGE(8);
@@ -795,7 +795,7 @@ int pocket_runtime_boot(
   if (JS_IsException(frame_function) || !JS_IsFunction(context, frame_function)) {
     if (JS_IsException(frame_function)) take_exception(context);
     else set_error("app.js did not install globalThis.frame");
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   REPORT_BOOT_STAGE(9);
@@ -803,7 +803,7 @@ int pocket_runtime_boot(
   int jobs_ok = drain_jobs();
   BENCH_STAGE(POCKET_BENCH_STAGE_IDLE);
   if (!jobs_ok) {
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_shutdown();
     return 0;
   }
   REPORT_BOOT_STAGE(10);
@@ -849,7 +849,7 @@ static int run_frame(
   }
   for (index = 0; index < contact_count; index += 1) {
     const PocketRuntimeContact *contact = &contacts[index];
-    uint32_t packed = pocket_runtime_pack_contact(contact);
+    uint32_t packed = pocket_legacy_runtime_pack_contact(contact);
     if (JS_SetPropertyUint32(
           context,
           touch_array,
@@ -871,7 +871,7 @@ static int run_frame(
   }
   for (index = 0; index < cancelled_count && index < POCKET_RUNTIME_MAX_CONTACTS; index++) {
     if (JS_SetPropertyUint32(context, touch_array, contact_count + index,
-          JS_NewInt32(context, (int32_t)pocket_runtime_pack_cancel(cancelled[index]))) < 0) {
+          JS_NewInt32(context, (int32_t)pocket_legacy_runtime_pack_cancel(cancelled[index]))) < 0) {
       JS_FreeValue(context, hit_array); JS_FreeValue(context, touch_array);
       take_exception(context); runtime_failed = 1; return 0;
     }
@@ -926,7 +926,7 @@ static unsigned int single_contact(
   return 1;
 }
 
-int pocket_runtime_tick(const PocketRuntimeInput *input) {
+int pocket_legacy_runtime_tick(const PocketRuntimeInput *input) {
   PocketRuntimeContact contact;
   unsigned int count;
   if (input == 0) return 0;
@@ -940,12 +940,12 @@ int pocket_runtime_tick(const PocketRuntimeInput *input) {
   return run_frame(input->buttons, &contact, count, NULL, 0, 1);
 }
 
-int pocket_runtime_tick_contacts(const PocketRuntimeContactsInput *input) {
+int pocket_legacy_runtime_tick_contacts(const PocketRuntimeContactsInput *input) {
   if (input == 0) return 0;
   return run_frame(input->buttons, input->contacts, input->contact_count, input->cancelled, input->cancelled_count, 1);
 }
 
-int pocket_runtime_frame_contacts(
+int pocket_legacy_runtime_frame_contacts(
   const PocketRuntimeContactsInput *input,
   unsigned int tick_count
 ) {
@@ -953,7 +953,7 @@ int pocket_runtime_frame_contacts(
   return run_frame(input->buttons, input->contacts, input->contact_count, input->cancelled, input->cancelled_count, tick_count);
 }
 
-int pocket_runtime_frame_ticks(
+int pocket_legacy_runtime_frame_ticks(
   int touch_down,
   int touch_x,
   int touch_y,
@@ -965,13 +965,13 @@ int pocket_runtime_frame_ticks(
   return run_frame(0, &contact, count, NULL, 0, tick_count);
 }
 
-int pocket_runtime_frame(int touch_down, int touch_x, int touch_y, int touch_hit) {
+int pocket_legacy_runtime_frame(int touch_down, int touch_x, int touch_y, int touch_hit) {
   /* The original iPhone host presents at 30 Hz and advances two 60 Hz ticks. */
-  return pocket_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 2);
+  return pocket_legacy_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 2);
 }
 
 #if defined(POCKET_RUNTIME_HARNESS)
-int pocket_runtime_harness_bind(const char *global_function) {
+int pocket_legacy_runtime_harness_bind(const char *global_function) {
   JSValue function;
   if (runtime == 0 || context == 0 || runtime_failed || global_function == 0 ||
       global_function[0] == '\0') return 0;
@@ -990,7 +990,7 @@ int pocket_runtime_harness_bind(const char *global_function) {
   return 1;
 }
 
-int pocket_runtime_harness_call(int32_t opcode, int32_t argument, int32_t *out) {
+int pocket_legacy_runtime_harness_call(int32_t opcode, int32_t argument, int32_t *out) {
   JSValue arguments[2];
   JSValue value;
   int32_t number = 0;
@@ -1016,54 +1016,54 @@ int pocket_runtime_harness_call(int32_t opcode, int32_t argument, int32_t *out) 
 }
 #endif
 
-int pocket_runtime_hit_test(float x, float y) {
+int pocket_legacy_runtime_hit_test(float x, float y) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return ui_hit_test(x, y);
 }
 
-int pocket_runtime_hit_test_bounds(float x, float y) {
+int pocket_legacy_runtime_hit_test_bounds(float x, float y) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return ui_hit_test_bounds(x, y);
 }
 
-const char *pocket_runtime_action_name(void) {
+const char *pocket_legacy_runtime_action_name(void) {
   return reported_action_name;
 }
 
-int pocket_runtime_action_value(void) {
+int pocket_legacy_runtime_action_value(void) {
   return (int)reported_action_value;
 }
 
-unsigned long pocket_runtime_action_sequence(void) {
+unsigned long pocket_legacy_runtime_action_sequence(void) {
   return reported_action_sequence;
 }
 
-const uint8_t *pocket_runtime_render(void) {
+const uint8_t *pocket_legacy_runtime_render(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return ui_render_incremental();
 }
 
-unsigned long pocket_runtime_damage_attempts(void) {
+unsigned long pocket_legacy_runtime_damage_attempts(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return (unsigned long)ui_damage_attempts();
 }
 
-unsigned long pocket_runtime_damage_failures(void) {
+unsigned long pocket_legacy_runtime_damage_failures(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return (unsigned long)ui_damage_failures();
 }
 
-unsigned long pocket_runtime_damage_full_redraws(void) {
+unsigned long pocket_legacy_runtime_damage_full_redraws(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return (unsigned long)ui_damage_full_redraws();
 }
 
-unsigned long pocket_runtime_damage_pixels(void) {
+unsigned long pocket_legacy_runtime_damage_pixels(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return (unsigned long)ui_damage_pixels();
 }
 
-int pocket_runtime_damage_bounds(int *bounds) {
+int pocket_legacy_runtime_damage_bounds(int *bounds) {
   int32_t packed[4];
   if (runtime == 0 || context == 0 || runtime_failed || bounds == 0) return 0;
   if (!ui_damage_bounds(packed)) return 0;
@@ -1074,7 +1074,7 @@ int pocket_runtime_damage_bounds(int *bounds) {
   return 1;
 }
 
-int pocket_runtime_gl_initialize(void) {
+int pocket_legacy_runtime_gl_initialize(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
 #ifdef POCKET_RUNTIME_EXTENSION
   native_gl_current = 1;
@@ -1082,12 +1082,12 @@ int pocket_runtime_gl_initialize(void) {
   return ui_gl_initialize() != 0;
 }
 
-void pocket_runtime_gl_reset(void) {
+void pocket_legacy_runtime_gl_reset(void) {
   if (runtime == 0 || context == 0) return;
   ui_gl_reset_resources();
 }
 
-int pocket_runtime_gl_render(int width, int height) {
+int pocket_legacy_runtime_gl_render(int width, int height) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   if (width <= 0 || height <= 0) return 0;
   /*
@@ -1103,7 +1103,7 @@ int pocket_runtime_gl_render(int width, int height) {
   return ui_gl_render(0, 0, width, height, width, height) != 0;
 }
 
-void pocket_runtime_gl_shutdown(void) {
+void pocket_legacy_runtime_gl_shutdown(void) {
   if (runtime == 0 || context == 0) return;
 #ifdef POCKET_RUNTIME_EXTENSION
   if (native_extension && native_extension->struct_size >= sizeof(PocketJsSymbianGraphicsExtensionV1)) {
@@ -1115,7 +1115,7 @@ void pocket_runtime_gl_shutdown(void) {
   ui_gl_shutdown();
 }
 
-uint32_t pocket_runtime_native_flags(void) {
+uint32_t pocket_legacy_runtime_native_flags(void) {
 #ifdef POCKET_RUNTIME_EXTENSION
   return native_extension ? native_extension->flags : 0;
 #else
@@ -1123,26 +1123,26 @@ uint32_t pocket_runtime_native_flags(void) {
 #endif
 }
 
-uint32_t pocket_runtime_width(void) {
+uint32_t pocket_legacy_runtime_width(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return ui_framebuffer_width();
 }
 
-uint32_t pocket_runtime_height(void) {
+uint32_t pocket_legacy_runtime_height(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return ui_framebuffer_height();
 }
 
-uint32_t pocket_runtime_stride(void) {
+uint32_t pocket_legacy_runtime_stride(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return ui_framebuffer_stride();
 }
 
-size_t pocket_runtime_length(void) {
+size_t pocket_legacy_runtime_length(void) {
   if (runtime == 0 || context == 0 || runtime_failed) return 0;
   return ui_framebuffer_len();
 }
 
-const char *pocket_runtime_error(void) {
+const char *pocket_legacy_runtime_error(void) {
   return last_error;
 }

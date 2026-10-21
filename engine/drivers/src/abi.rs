@@ -3,7 +3,7 @@ use core::ffi::{c_char, c_void};
 
 // This is a candidate ABI; out-of-tree integration must pass before v1 is frozen.
 // Every record starts with struct_size in bytes. Read only complete fields within min(struct_size, known size). Missing callbacks are unsupported; ignore unknown trailing fields. Appended fields must not increase record alignment; use a pointer for new over-aligned data. Callers initialize output struct_size to their writable capacity; callees must not write beyond it.
-// Record arrays are packed records: advance by each element's struct_size, not the consumer's sizeof. Each size includes padding to that record's alignment; validate the size, alignment and enclosing buffer bounds before reading a prefix, and never cast a short prefix into a full-sized record. A zero count permits a null pointer. A nonzero count requires valid storage for every element.
+// Record arrays are packed records: advance by each element's struct_size, not the consumer's sizeof. Each size includes padding to that record's alignment; validate the size, alignment and enclosing buffer bounds before reading a prefix, and never cast a short prefix into a full-sized record. A zero count permits a null pointer. A nonzero count requires the caller to provide valid readable storage for every element including its announced size; pointers and counts cannot prove the underlying allocation extent.
 // Status zero means success; negative values mean errors. Callback absence is unsupported. Driver context and vtables remain valid until runtime destruction, after all outstanding work has been drained. Runtime calls occur on its single owning thread.
 // Lifecycle: acquire, render, renderer wait, flush, display wait, retire. Each display has its own submission. A shared resource remains live until its last referencing submission retires.
 // CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts. Acquired regions are exclusive until flush; nobody writes them until display wait returns.
@@ -14,9 +14,9 @@ use core::ffi::{c_char, c_void};
 // DrawList has a closed operation set without per-operation lengths. Headers and the runtime archive must share the DrawList version. No unknown-operation skipping or renderer fallback chain is defined.
 // Runtime and driver records share the struct_size prefix compatibility rules in pocket_drivers.h.
 // Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.
-// Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls. The runtime owns these bytes; callers must not free them.
+// Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.
 // Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.
-// Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during evaluate/frame callbacks.
+// Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame callbacks.
 // The guest receives the existing eight frame arguments through pocket_guest_frame. Introducing this ABI does not change their wire representation, tapes, packages, or binding generation.
 // Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources.
 // An application links exactly one PocketJS Rust archive. The six pocket_host_* functions are supplied by the program and are the archive's complete host-hook contract.
@@ -108,12 +108,21 @@ pub const POCKET_STATUS_INVALID: i32 = -2;
 pub const POCKET_STATUS_FAILED: i32 = -3;
 pub const POCKET_RENDERER_SOFTWARE: u32 = 0;
 pub const POCKET_RENDERER_INVALID: u32 = 4294967295;
+pub const POCKET_ARG_INTEGER: u32 = 1;
+pub const POCKET_ARG_REAL: u32 = 2;
+pub const POCKET_ARG_BYTES: u32 = 3;
 pub const POCKET_RESULT_NONE: u32 = 0;
 pub const POCKET_RESULT_I64: u32 = 1;
 pub const POCKET_RESULT_F64: u32 = 2;
 pub const POCKET_RESULT_BYTES: u32 = 3;
 
 pub type PocketTextureFn = unsafe extern "C" fn(context: *const c_void, handle: i32, out: *mut PocketTextureView) -> i32;
+
+pub type PocketTextureRevisionFn = unsafe extern "C" fn(context: *const c_void, handle: i32, out: *mut u64) -> i32;
+
+pub type PocketFontRevisionFn = unsafe extern "C" fn(context: *const c_void, slot: u8, out: *mut u64) -> i32;
+
+pub type PocketFontTextureWidthFn = unsafe extern "C" fn(context: *const c_void, slot: u8, out: *mut u32) -> i32;
 
 pub type PocketFontAtlasFn = unsafe extern "C" fn(context: *const c_void, slot: u8, out: *mut PocketFontView) -> i32;
 
@@ -160,6 +169,8 @@ pub type PocketClockNowFn = unsafe extern "C" fn(context: *mut c_void) -> u64;
 
 pub type PocketClockSleepUntilFn = unsafe extern "C" fn(context: *mut c_void, deadline: u64) -> ();
 
+pub type PocketGuestInitializeFn = unsafe extern "C" fn(context: *mut c_void, runtime: *mut PocketRuntime, environment: *const PocketGuestEnvironment) -> i32;
+
 pub type PocketGuestEvaluateFn = unsafe extern "C" fn(context: *mut c_void, runtime: *mut PocketRuntime, code: *const u8, length: usize) -> i32;
 
 pub type PocketGuestFrameFn = unsafe extern "C" fn(context: *mut c_void, frame: *const PocketGuestFrame) -> i32;
@@ -176,6 +187,63 @@ pub struct PocketRect {
     pub y: u32,
     pub width: u32,
     pub height: u32,
+}
+impl PocketRect {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, x) + core::mem::size_of::<u32>() <= capacity {
+            value.x = unsafe { bytes.add(core::mem::offset_of!(Self, x)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, y) + core::mem::size_of::<u32>() <= capacity {
+            value.y = unsafe { bytes.add(core::mem::offset_of!(Self, y)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            value.width = unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            value.height = unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, x) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, x)).cast::<u32>().write_unaligned(self.x); }
+        }
+        if core::mem::offset_of!(Self, y) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, y)).cast::<u32>().write_unaligned(self.y); }
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().write_unaligned(self.width); }
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().write_unaligned(self.height); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -219,6 +287,69 @@ pub struct PocketSurface {
     pub region: *const PocketRect,
     pub stride_bytes: usize,
     pub pixel_format: u32,
+}
+impl PocketSurface {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, pixels) + core::mem::size_of::<*mut u8>() <= capacity {
+            value.pixels = unsafe { bytes.add(core::mem::offset_of!(Self, pixels)).cast::<*mut u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            value.byte_length = unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, region) + core::mem::size_of::<*const PocketRect>() <= capacity {
+            value.region = unsafe { bytes.add(core::mem::offset_of!(Self, region)).cast::<*const PocketRect>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, stride_bytes) + core::mem::size_of::<usize>() <= capacity {
+            value.stride_bytes = unsafe { bytes.add(core::mem::offset_of!(Self, stride_bytes)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, pixel_format) + core::mem::size_of::<u32>() <= capacity {
+            value.pixel_format = unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, pixels) + core::mem::size_of::<*mut u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pixels)).cast::<*mut u8>().write_unaligned(self.pixels); }
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().write_unaligned(self.byte_length); }
+        }
+        if core::mem::offset_of!(Self, region) + core::mem::size_of::<*const PocketRect>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, region)).cast::<*const PocketRect>().write_unaligned(self.region); }
+        }
+        if core::mem::offset_of!(Self, stride_bytes) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, stride_bytes)).cast::<usize>().write_unaligned(self.stride_bytes); }
+        }
+        if core::mem::offset_of!(Self, pixel_format) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format)).cast::<u32>().write_unaligned(self.pixel_format); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -267,6 +398,69 @@ pub struct PocketTarget {
     pub pixel_format: u32,
     pub surface: *mut PocketSurface,
     pub device_handle: u64,
+}
+impl PocketTarget {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, kind) + core::mem::size_of::<u32>() <= capacity {
+            value.kind = unsafe { bytes.add(core::mem::offset_of!(Self, kind)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, region) + core::mem::size_of::<*const PocketRect>() <= capacity {
+            value.region = unsafe { bytes.add(core::mem::offset_of!(Self, region)).cast::<*const PocketRect>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, pixel_format) + core::mem::size_of::<u32>() <= capacity {
+            value.pixel_format = unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<*mut PocketSurface>() <= capacity {
+            value.surface = unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<*mut PocketSurface>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, device_handle) + core::mem::size_of::<u64>() <= capacity {
+            value.device_handle = unsafe { bytes.add(core::mem::offset_of!(Self, device_handle)).cast::<u64>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, kind) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, kind)).cast::<u32>().write_unaligned(self.kind); }
+        }
+        if core::mem::offset_of!(Self, region) + core::mem::size_of::<*const PocketRect>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, region)).cast::<*const PocketRect>().write_unaligned(self.region); }
+        }
+        if core::mem::offset_of!(Self, pixel_format) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format)).cast::<u32>().write_unaligned(self.pixel_format); }
+        }
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<*mut PocketSurface>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<*mut PocketSurface>().write_unaligned(self.surface); }
+        }
+        if core::mem::offset_of!(Self, device_handle) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, device_handle)).cast::<u64>().write_unaligned(self.device_handle); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -322,6 +516,111 @@ pub struct PocketDisplayDescriptor {
     pub window_x_alignment: u32,
     pub window_y_alignment: u32,
     pub vsync_source: u32,
+}
+impl PocketDisplayDescriptor {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, role) + core::mem::size_of::<u32>() <= capacity {
+            value.role = unsafe { bytes.add(core::mem::offset_of!(Self, role)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            value.width = unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            value.height = unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, pixel_format) + core::mem::size_of::<u32>() <= capacity {
+            value.pixel_format = unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, stride_bytes) + core::mem::size_of::<usize>() <= capacity {
+            value.stride_bytes = unsafe { bytes.add(core::mem::offset_of!(Self, stride_bytes)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, target_kind) + core::mem::size_of::<u32>() <= capacity {
+            value.target_kind = unsafe { bytes.add(core::mem::offset_of!(Self, target_kind)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, flags) + core::mem::size_of::<u32>() <= capacity {
+            value.flags = unsafe { bytes.add(core::mem::offset_of!(Self, flags)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, refresh_width) + core::mem::size_of::<u32>() <= capacity {
+            value.refresh_width = unsafe { bytes.add(core::mem::offset_of!(Self, refresh_width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, refresh_height) + core::mem::size_of::<u32>() <= capacity {
+            value.refresh_height = unsafe { bytes.add(core::mem::offset_of!(Self, refresh_height)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, window_x_alignment) + core::mem::size_of::<u32>() <= capacity {
+            value.window_x_alignment = unsafe { bytes.add(core::mem::offset_of!(Self, window_x_alignment)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, window_y_alignment) + core::mem::size_of::<u32>() <= capacity {
+            value.window_y_alignment = unsafe { bytes.add(core::mem::offset_of!(Self, window_y_alignment)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, vsync_source) + core::mem::size_of::<u32>() <= capacity {
+            value.vsync_source = unsafe { bytes.add(core::mem::offset_of!(Self, vsync_source)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, role) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, role)).cast::<u32>().write_unaligned(self.role); }
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().write_unaligned(self.width); }
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().write_unaligned(self.height); }
+        }
+        if core::mem::offset_of!(Self, pixel_format) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format)).cast::<u32>().write_unaligned(self.pixel_format); }
+        }
+        if core::mem::offset_of!(Self, stride_bytes) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, stride_bytes)).cast::<usize>().write_unaligned(self.stride_bytes); }
+        }
+        if core::mem::offset_of!(Self, target_kind) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, target_kind)).cast::<u32>().write_unaligned(self.target_kind); }
+        }
+        if core::mem::offset_of!(Self, flags) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, flags)).cast::<u32>().write_unaligned(self.flags); }
+        }
+        if core::mem::offset_of!(Self, refresh_width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, refresh_width)).cast::<u32>().write_unaligned(self.refresh_width); }
+        }
+        if core::mem::offset_of!(Self, refresh_height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, refresh_height)).cast::<u32>().write_unaligned(self.refresh_height); }
+        }
+        if core::mem::offset_of!(Self, window_x_alignment) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, window_x_alignment)).cast::<u32>().write_unaligned(self.window_x_alignment); }
+        }
+        if core::mem::offset_of!(Self, window_y_alignment) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, window_y_alignment)).cast::<u32>().write_unaligned(self.window_y_alignment); }
+        }
+        if core::mem::offset_of!(Self, vsync_source) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, vsync_source)).cast::<u32>().write_unaligned(self.vsync_source); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -407,6 +706,75 @@ pub struct PocketRendererDescriptor {
     pub draw_list_version: u32,
     pub zero_copy: u32,
 }
+impl PocketRendererDescriptor {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, pixel_formats) + core::mem::size_of::<*const u32>() <= capacity {
+            value.pixel_formats = unsafe { bytes.add(core::mem::offset_of!(Self, pixel_formats)).cast::<*const u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, pixel_format_count) + core::mem::size_of::<usize>() <= capacity {
+            value.pixel_format_count = unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, target_kind) + core::mem::size_of::<u32>() <= capacity {
+            value.target_kind = unsafe { bytes.add(core::mem::offset_of!(Self, target_kind)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, synchronization) + core::mem::size_of::<u32>() <= capacity {
+            value.synchronization = unsafe { bytes.add(core::mem::offset_of!(Self, synchronization)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, draw_list_version) + core::mem::size_of::<u32>() <= capacity {
+            value.draw_list_version = unsafe { bytes.add(core::mem::offset_of!(Self, draw_list_version)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, zero_copy) + core::mem::size_of::<u32>() <= capacity {
+            value.zero_copy = unsafe { bytes.add(core::mem::offset_of!(Self, zero_copy)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, pixel_formats) + core::mem::size_of::<*const u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pixel_formats)).cast::<*const u32>().write_unaligned(self.pixel_formats); }
+        }
+        if core::mem::offset_of!(Self, pixel_format_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pixel_format_count)).cast::<usize>().write_unaligned(self.pixel_format_count); }
+        }
+        if core::mem::offset_of!(Self, target_kind) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, target_kind)).cast::<u32>().write_unaligned(self.target_kind); }
+        }
+        if core::mem::offset_of!(Self, synchronization) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, synchronization)).cast::<u32>().write_unaligned(self.synchronization); }
+        }
+        if core::mem::offset_of!(Self, draw_list_version) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, draw_list_version)).cast::<u32>().write_unaligned(self.draw_list_version); }
+        }
+        if core::mem::offset_of!(Self, zero_copy) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, zero_copy)).cast::<u32>().write_unaligned(self.zero_copy); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -457,6 +825,57 @@ pub struct PocketDrawList {
     pub word_count: usize,
     pub version: u32,
 }
+impl PocketDrawList {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, words) + core::mem::size_of::<*const u32>() <= capacity {
+            value.words = unsafe { bytes.add(core::mem::offset_of!(Self, words)).cast::<*const u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, word_count) + core::mem::size_of::<usize>() <= capacity {
+            value.word_count = unsafe { bytes.add(core::mem::offset_of!(Self, word_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, version) + core::mem::size_of::<u32>() <= capacity {
+            value.version = unsafe { bytes.add(core::mem::offset_of!(Self, version)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, words) + core::mem::size_of::<*const u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, words)).cast::<*const u32>().write_unaligned(self.words); }
+        }
+        if core::mem::offset_of!(Self, word_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, word_count)).cast::<usize>().write_unaligned(self.word_count); }
+        }
+        if core::mem::offset_of!(Self, version) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, version)).cast::<u32>().write_unaligned(self.version); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -484,13 +903,171 @@ const _: () = {
     assert!(core::mem::align_of::<PocketDrawList>() == align);
 };
 
-/// One complete operation from the matching DrawList generation; word layouts are defined by spec.ts.
+/// Half-open inherited clip in logical viewport coordinates.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketLogicalClip {
+    pub struct_size: usize,
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
+}
+impl PocketLogicalClip {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, x0) + core::mem::size_of::<i32>() <= capacity {
+            value.x0 = unsafe { bytes.add(core::mem::offset_of!(Self, x0)).cast::<i32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, y0) + core::mem::size_of::<i32>() <= capacity {
+            value.y0 = unsafe { bytes.add(core::mem::offset_of!(Self, y0)).cast::<i32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, x1) + core::mem::size_of::<i32>() <= capacity {
+            value.x1 = unsafe { bytes.add(core::mem::offset_of!(Self, x1)).cast::<i32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, y1) + core::mem::size_of::<i32>() <= capacity {
+            value.y1 = unsafe { bytes.add(core::mem::offset_of!(Self, y1)).cast::<i32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, x0) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, x0)).cast::<i32>().write_unaligned(self.x0); }
+        }
+        if core::mem::offset_of!(Self, y0) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, y0)).cast::<i32>().write_unaligned(self.y0); }
+        }
+        if core::mem::offset_of!(Self, x1) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, x1)).cast::<i32>().write_unaligned(self.x1); }
+        }
+        if core::mem::offset_of!(Self, y1) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, y1)).cast::<i32>().write_unaligned(self.y1); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketLogicalClip, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketLogicalClip, x0) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketLogicalClip, y0) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketLogicalClip, x1) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketLogicalClip, y1) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketLogicalClip>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketLogicalClip>() == align);
+};
+
+/// One complete operation from the matching DrawList generation. Missing/null clip uses the logical viewport; missing scale uses 1. Present scale must be positive. Word layouts are defined by spec.ts.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PocketDrawOp {
     pub struct_size: usize,
     pub words: *const u32,
     pub word_count: usize,
+    pub clip: *const PocketLogicalClip,
+    pub scale: u32,
+}
+impl PocketDrawOp {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, words) + core::mem::size_of::<*const u32>() <= capacity {
+            value.words = unsafe { bytes.add(core::mem::offset_of!(Self, words)).cast::<*const u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, word_count) + core::mem::size_of::<usize>() <= capacity {
+            value.word_count = unsafe { bytes.add(core::mem::offset_of!(Self, word_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, clip) + core::mem::size_of::<*const PocketLogicalClip>() <= capacity {
+            value.clip = unsafe { bytes.add(core::mem::offset_of!(Self, clip)).cast::<*const PocketLogicalClip>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, scale) + core::mem::size_of::<u32>() <= capacity {
+            value.scale = unsafe { bytes.add(core::mem::offset_of!(Self, scale)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, words) + core::mem::size_of::<*const u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, words)).cast::<*const u32>().write_unaligned(self.words); }
+        }
+        if core::mem::offset_of!(Self, word_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, word_count)).cast::<usize>().write_unaligned(self.word_count); }
+        }
+        if core::mem::offset_of!(Self, clip) + core::mem::size_of::<*const PocketLogicalClip>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, clip)).cast::<*const PocketLogicalClip>().write_unaligned(self.clip); }
+        }
+        if core::mem::offset_of!(Self, scale) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, scale)).cast::<u32>().write_unaligned(self.scale); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -510,6 +1087,16 @@ const _: () = {
     assert!(core::mem::offset_of!(PocketDrawOp, word_count) == size);
     size += core::mem::size_of::<usize>();
     if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const PocketLogicalClip>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketDrawOp, clip) == size);
+    size += core::mem::size_of::<*const PocketLogicalClip>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketDrawOp, scale) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
     assert!(core::mem::size_of::<PocketDrawOp>() == size.div_ceil(align) * align);
     assert!(core::mem::align_of::<PocketDrawOp>() == align);
 };
@@ -528,6 +1115,93 @@ pub struct PocketTextureView {
     pub palette_byte_length: usize,
     pub revision: u64,
     pub linear: u32,
+}
+impl PocketTextureView {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, pixels) + core::mem::size_of::<*const u8>() <= capacity {
+            value.pixels = unsafe { bytes.add(core::mem::offset_of!(Self, pixels)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            value.byte_length = unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            value.width = unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            value.height = unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, psm) + core::mem::size_of::<u32>() <= capacity {
+            value.psm = unsafe { bytes.add(core::mem::offset_of!(Self, psm)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, palette) + core::mem::size_of::<*const u8>() <= capacity {
+            value.palette = unsafe { bytes.add(core::mem::offset_of!(Self, palette)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, palette_byte_length) + core::mem::size_of::<usize>() <= capacity {
+            value.palette_byte_length = unsafe { bytes.add(core::mem::offset_of!(Self, palette_byte_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, revision) + core::mem::size_of::<u64>() <= capacity {
+            value.revision = unsafe { bytes.add(core::mem::offset_of!(Self, revision)).cast::<u64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, linear) + core::mem::size_of::<u32>() <= capacity {
+            value.linear = unsafe { bytes.add(core::mem::offset_of!(Self, linear)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, pixels) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pixels)).cast::<*const u8>().write_unaligned(self.pixels); }
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().write_unaligned(self.byte_length); }
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().write_unaligned(self.width); }
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().write_unaligned(self.height); }
+        }
+        if core::mem::offset_of!(Self, psm) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, psm)).cast::<u32>().write_unaligned(self.psm); }
+        }
+        if core::mem::offset_of!(Self, palette) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, palette)).cast::<*const u8>().write_unaligned(self.palette); }
+        }
+        if core::mem::offset_of!(Self, palette_byte_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, palette_byte_length)).cast::<usize>().write_unaligned(self.palette_byte_length); }
+        }
+        if core::mem::offset_of!(Self, revision) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, revision)).cast::<u64>().write_unaligned(self.revision); }
+        }
+        if core::mem::offset_of!(Self, linear) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, linear)).cast::<u32>().write_unaligned(self.linear); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -597,6 +1271,75 @@ pub struct PocketFontView {
     pub raster_density: u32,
     pub glyph_count: u32,
 }
+impl PocketFontView {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, bitmap) + core::mem::size_of::<*const u8>() <= capacity {
+            value.bitmap = unsafe { bytes.add(core::mem::offset_of!(Self, bitmap)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            value.byte_length = unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, cell_width) + core::mem::size_of::<u32>() <= capacity {
+            value.cell_width = unsafe { bytes.add(core::mem::offset_of!(Self, cell_width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, cell_height) + core::mem::size_of::<u32>() <= capacity {
+            value.cell_height = unsafe { bytes.add(core::mem::offset_of!(Self, cell_height)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, raster_density) + core::mem::size_of::<u32>() <= capacity {
+            value.raster_density = unsafe { bytes.add(core::mem::offset_of!(Self, raster_density)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, glyph_count) + core::mem::size_of::<u32>() <= capacity {
+            value.glyph_count = unsafe { bytes.add(core::mem::offset_of!(Self, glyph_count)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, bitmap) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, bitmap)).cast::<*const u8>().write_unaligned(self.bitmap); }
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().write_unaligned(self.byte_length); }
+        }
+        if core::mem::offset_of!(Self, cell_width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, cell_width)).cast::<u32>().write_unaligned(self.cell_width); }
+        }
+        if core::mem::offset_of!(Self, cell_height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, cell_height)).cast::<u32>().write_unaligned(self.cell_height); }
+        }
+        if core::mem::offset_of!(Self, raster_density) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, raster_density)).cast::<u32>().write_unaligned(self.raster_density); }
+        }
+        if core::mem::offset_of!(Self, glyph_count) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, glyph_count)).cast::<u32>().write_unaligned(self.glyph_count); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -639,7 +1382,7 @@ const _: () = {
     assert!(core::mem::align_of::<PocketFontView>() == align);
 };
 
-/// Read-only resource lookups; views borrow the frame's resources.
+/// Absent version callbacks use raster_revision; absent font_texture_width uses full coverage width. Read-only resource lookups; views borrow the frame's resources.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PocketRenderResources {
@@ -650,6 +1393,96 @@ pub struct PocketRenderResources {
     pub raster_revision: u64,
     pub texture: Option<PocketTextureFn>,
     pub font_atlas: Option<PocketFontAtlasFn>,
+    pub texture_revision: Option<PocketTextureRevisionFn>,
+    pub font_revision: Option<PocketFontRevisionFn>,
+    pub font_texture_width: Option<PocketFontTextureWidthFn>,
+}
+impl PocketRenderResources {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, context) + core::mem::size_of::<*const c_void>() <= capacity {
+            value.context = unsafe { bytes.add(core::mem::offset_of!(Self, context)).cast::<*const c_void>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, viewport_width) + core::mem::size_of::<f32>() <= capacity {
+            value.viewport_width = unsafe { bytes.add(core::mem::offset_of!(Self, viewport_width)).cast::<f32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, viewport_height) + core::mem::size_of::<f32>() <= capacity {
+            value.viewport_height = unsafe { bytes.add(core::mem::offset_of!(Self, viewport_height)).cast::<f32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, raster_revision) + core::mem::size_of::<u64>() <= capacity {
+            value.raster_revision = unsafe { bytes.add(core::mem::offset_of!(Self, raster_revision)).cast::<u64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, texture) + core::mem::size_of::<Option<PocketTextureFn>>() <= capacity {
+            value.texture = unsafe { bytes.add(core::mem::offset_of!(Self, texture)).cast::<Option<PocketTextureFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, font_atlas) + core::mem::size_of::<Option<PocketFontAtlasFn>>() <= capacity {
+            value.font_atlas = unsafe { bytes.add(core::mem::offset_of!(Self, font_atlas)).cast::<Option<PocketFontAtlasFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, texture_revision) + core::mem::size_of::<Option<PocketTextureRevisionFn>>() <= capacity {
+            value.texture_revision = unsafe { bytes.add(core::mem::offset_of!(Self, texture_revision)).cast::<Option<PocketTextureRevisionFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, font_revision) + core::mem::size_of::<Option<PocketFontRevisionFn>>() <= capacity {
+            value.font_revision = unsafe { bytes.add(core::mem::offset_of!(Self, font_revision)).cast::<Option<PocketFontRevisionFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, font_texture_width) + core::mem::size_of::<Option<PocketFontTextureWidthFn>>() <= capacity {
+            value.font_texture_width = unsafe { bytes.add(core::mem::offset_of!(Self, font_texture_width)).cast::<Option<PocketFontTextureWidthFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, context) + core::mem::size_of::<*const c_void>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, context)).cast::<*const c_void>().write_unaligned(self.context); }
+        }
+        if core::mem::offset_of!(Self, viewport_width) + core::mem::size_of::<f32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, viewport_width)).cast::<f32>().write_unaligned(self.viewport_width); }
+        }
+        if core::mem::offset_of!(Self, viewport_height) + core::mem::size_of::<f32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, viewport_height)).cast::<f32>().write_unaligned(self.viewport_height); }
+        }
+        if core::mem::offset_of!(Self, raster_revision) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, raster_revision)).cast::<u64>().write_unaligned(self.raster_revision); }
+        }
+        if core::mem::offset_of!(Self, texture) + core::mem::size_of::<Option<PocketTextureFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, texture)).cast::<Option<PocketTextureFn>>().write_unaligned(self.texture); }
+        }
+        if core::mem::offset_of!(Self, font_atlas) + core::mem::size_of::<Option<PocketFontAtlasFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, font_atlas)).cast::<Option<PocketFontAtlasFn>>().write_unaligned(self.font_atlas); }
+        }
+        if core::mem::offset_of!(Self, texture_revision) + core::mem::size_of::<Option<PocketTextureRevisionFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, texture_revision)).cast::<Option<PocketTextureRevisionFn>>().write_unaligned(self.texture_revision); }
+        }
+        if core::mem::offset_of!(Self, font_revision) + core::mem::size_of::<Option<PocketFontRevisionFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, font_revision)).cast::<Option<PocketFontRevisionFn>>().write_unaligned(self.font_revision); }
+        }
+        if core::mem::offset_of!(Self, font_texture_width) + core::mem::size_of::<Option<PocketFontTextureWidthFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, font_texture_width)).cast::<Option<PocketFontTextureWidthFn>>().write_unaligned(self.font_texture_width); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -689,6 +1522,21 @@ const _: () = {
     assert!(core::mem::offset_of!(PocketRenderResources, font_atlas) == size);
     size += core::mem::size_of::<Option<PocketFontAtlasFn>>();
     if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<Option<PocketTextureRevisionFn>>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketRenderResources, texture_revision) == size);
+    size += core::mem::size_of::<Option<PocketTextureRevisionFn>>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<Option<PocketFontRevisionFn>>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketRenderResources, font_revision) == size);
+    size += core::mem::size_of::<Option<PocketFontRevisionFn>>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<Option<PocketFontTextureWidthFn>>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketRenderResources, font_texture_width) == size);
+    size += core::mem::size_of::<Option<PocketFontTextureWidthFn>>();
+    if field_align > align { align = field_align; }
     assert!(core::mem::size_of::<PocketRenderResources>() == size.div_ceil(align) * align);
     assert!(core::mem::align_of::<PocketRenderResources>() == align);
 };
@@ -702,6 +1550,69 @@ pub struct PocketFrameInput {
     pub damage: *const PocketRect,
     pub damage_count: usize,
     pub target: *const PocketTarget,
+}
+impl PocketFrameInput {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, list) + core::mem::size_of::<*const PocketDrawList>() <= capacity {
+            value.list = unsafe { bytes.add(core::mem::offset_of!(Self, list)).cast::<*const PocketDrawList>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, resources) + core::mem::size_of::<*const PocketRenderResources>() <= capacity {
+            value.resources = unsafe { bytes.add(core::mem::offset_of!(Self, resources)).cast::<*const PocketRenderResources>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, damage) + core::mem::size_of::<*const PocketRect>() <= capacity {
+            value.damage = unsafe { bytes.add(core::mem::offset_of!(Self, damage)).cast::<*const PocketRect>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, damage_count) + core::mem::size_of::<usize>() <= capacity {
+            value.damage_count = unsafe { bytes.add(core::mem::offset_of!(Self, damage_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, target) + core::mem::size_of::<*const PocketTarget>() <= capacity {
+            value.target = unsafe { bytes.add(core::mem::offset_of!(Self, target)).cast::<*const PocketTarget>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, list) + core::mem::size_of::<*const PocketDrawList>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, list)).cast::<*const PocketDrawList>().write_unaligned(self.list); }
+        }
+        if core::mem::offset_of!(Self, resources) + core::mem::size_of::<*const PocketRenderResources>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, resources)).cast::<*const PocketRenderResources>().write_unaligned(self.resources); }
+        }
+        if core::mem::offset_of!(Self, damage) + core::mem::size_of::<*const PocketRect>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, damage)).cast::<*const PocketRect>().write_unaligned(self.damage); }
+        }
+        if core::mem::offset_of!(Self, damage_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, damage_count)).cast::<usize>().write_unaligned(self.damage_count); }
+        }
+        if core::mem::offset_of!(Self, target) + core::mem::size_of::<*const PocketTarget>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, target)).cast::<*const PocketTarget>().write_unaligned(self.target); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -747,6 +1658,51 @@ pub struct PocketAxisSample {
     pub axis: u32,
     pub value: f32,
 }
+impl PocketAxisSample {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, axis) + core::mem::size_of::<u32>() <= capacity {
+            value.axis = unsafe { bytes.add(core::mem::offset_of!(Self, axis)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<f32>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<f32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, axis) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, axis)).cast::<u32>().write_unaligned(self.axis); }
+        }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<f32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<f32>().write_unaligned(self.value); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -776,6 +1732,51 @@ pub struct PocketAxisDelta {
     pub struct_size: usize,
     pub axis: u32,
     pub delta: i32,
+}
+impl PocketAxisDelta {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, axis) + core::mem::size_of::<u32>() <= capacity {
+            value.axis = unsafe { bytes.add(core::mem::offset_of!(Self, axis)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, delta) + core::mem::size_of::<i32>() <= capacity {
+            value.delta = unsafe { bytes.add(core::mem::offset_of!(Self, delta)).cast::<i32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, axis) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, axis)).cast::<u32>().write_unaligned(self.axis); }
+        }
+        if core::mem::offset_of!(Self, delta) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, delta)).cast::<i32>().write_unaligned(self.delta); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -807,6 +1808,63 @@ pub struct PocketPointer {
     pub x: f32,
     pub y: f32,
     pub buttons: u32,
+}
+impl PocketPointer {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<u32>() <= capacity {
+            value.surface = unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, x) + core::mem::size_of::<f32>() <= capacity {
+            value.x = unsafe { bytes.add(core::mem::offset_of!(Self, x)).cast::<f32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, y) + core::mem::size_of::<f32>() <= capacity {
+            value.y = unsafe { bytes.add(core::mem::offset_of!(Self, y)).cast::<f32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, buttons) + core::mem::size_of::<u32>() <= capacity {
+            value.buttons = unsafe { bytes.add(core::mem::offset_of!(Self, buttons)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<u32>().write_unaligned(self.surface); }
+        }
+        if core::mem::offset_of!(Self, x) + core::mem::size_of::<f32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, x)).cast::<f32>().write_unaligned(self.x); }
+        }
+        if core::mem::offset_of!(Self, y) + core::mem::size_of::<f32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, y)).cast::<f32>().write_unaligned(self.y); }
+        }
+        if core::mem::offset_of!(Self, buttons) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, buttons)).cast::<u32>().write_unaligned(self.buttons); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -849,6 +1907,69 @@ pub struct PocketContact {
     pub x: f32,
     pub y: f32,
     pub cancelled: u32,
+}
+impl PocketContact {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<u32>() <= capacity {
+            value.surface = unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, id) + core::mem::size_of::<u32>() <= capacity {
+            value.id = unsafe { bytes.add(core::mem::offset_of!(Self, id)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, x) + core::mem::size_of::<f32>() <= capacity {
+            value.x = unsafe { bytes.add(core::mem::offset_of!(Self, x)).cast::<f32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, y) + core::mem::size_of::<f32>() <= capacity {
+            value.y = unsafe { bytes.add(core::mem::offset_of!(Self, y)).cast::<f32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, cancelled) + core::mem::size_of::<u32>() <= capacity {
+            value.cancelled = unsafe { bytes.add(core::mem::offset_of!(Self, cancelled)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<u32>().write_unaligned(self.surface); }
+        }
+        if core::mem::offset_of!(Self, id) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, id)).cast::<u32>().write_unaligned(self.id); }
+        }
+        if core::mem::offset_of!(Self, x) + core::mem::size_of::<f32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, x)).cast::<f32>().write_unaligned(self.x); }
+        }
+        if core::mem::offset_of!(Self, y) + core::mem::size_of::<f32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, y)).cast::<f32>().write_unaligned(self.y); }
+        }
+        if core::mem::offset_of!(Self, cancelled) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, cancelled)).cast::<u32>().write_unaligned(self.cancelled); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -894,6 +2015,51 @@ pub struct PocketCancelledContact {
     pub surface: u32,
     pub id: u32,
 }
+impl PocketCancelledContact {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<u32>() <= capacity {
+            value.surface = unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, id) + core::mem::size_of::<u32>() <= capacity {
+            value.id = unsafe { bytes.add(core::mem::offset_of!(Self, id)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, surface) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, surface)).cast::<u32>().write_unaligned(self.surface); }
+        }
+        if core::mem::offset_of!(Self, id) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, id)).cast::<u32>().write_unaligned(self.id); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -927,6 +2093,75 @@ pub struct PocketTextEvent {
     pub selection_start: u32,
     pub selection_end: u32,
     pub repeat: u32,
+}
+impl PocketTextEvent {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, kind) + core::mem::size_of::<u32>() <= capacity {
+            value.kind = unsafe { bytes.add(core::mem::offset_of!(Self, kind)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, text) + core::mem::size_of::<*const u8>() <= capacity {
+            value.text = unsafe { bytes.add(core::mem::offset_of!(Self, text)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            value.byte_length = unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, selection_start) + core::mem::size_of::<u32>() <= capacity {
+            value.selection_start = unsafe { bytes.add(core::mem::offset_of!(Self, selection_start)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, selection_end) + core::mem::size_of::<u32>() <= capacity {
+            value.selection_end = unsafe { bytes.add(core::mem::offset_of!(Self, selection_end)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, repeat) + core::mem::size_of::<u32>() <= capacity {
+            value.repeat = unsafe { bytes.add(core::mem::offset_of!(Self, repeat)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, kind) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, kind)).cast::<u32>().write_unaligned(self.kind); }
+        }
+        if core::mem::offset_of!(Self, text) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, text)).cast::<*const u8>().write_unaligned(self.text); }
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().write_unaligned(self.byte_length); }
+        }
+        if core::mem::offset_of!(Self, selection_start) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, selection_start)).cast::<u32>().write_unaligned(self.selection_start); }
+        }
+        if core::mem::offset_of!(Self, selection_end) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, selection_end)).cast::<u32>().write_unaligned(self.selection_end); }
+        }
+        if core::mem::offset_of!(Self, repeat) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, repeat)).cast::<u32>().write_unaligned(self.repeat); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -977,6 +2212,51 @@ pub struct PocketMotionGravityDirection {
     pub value: [f32; 3],
     pub quality: u8,
 }
+impl PocketMotionGravityDirection {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1005,6 +2285,51 @@ pub struct PocketMotionInclination {
     pub struct_size: usize,
     pub value: [f32; 1],
     pub quality: u8,
+}
+impl PocketMotionInclination {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 1]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 1]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 1]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 1]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1035,6 +2360,51 @@ pub struct PocketMotionLinearAcceleration {
     pub value: [f32; 3],
     pub quality: u8,
 }
+impl PocketMotionLinearAcceleration {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1063,6 +2433,51 @@ pub struct PocketMotionRotationRate {
     pub struct_size: usize,
     pub value: [f32; 3],
     pub quality: u8,
+}
+impl PocketMotionRotationRate {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1094,6 +2509,63 @@ pub struct PocketMotionOrientation {
     pub quality: u8,
     pub reference_frame: u8,
     pub epoch: u32,
+}
+impl PocketMotionOrientation {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 4]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 4]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, reference_frame) + core::mem::size_of::<u8>() <= capacity {
+            value.reference_frame = unsafe { bytes.add(core::mem::offset_of!(Self, reference_frame)).cast::<u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, epoch) + core::mem::size_of::<u32>() <= capacity {
+            value.epoch = unsafe { bytes.add(core::mem::offset_of!(Self, epoch)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 4]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 4]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        if core::mem::offset_of!(Self, reference_frame) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, reference_frame)).cast::<u8>().write_unaligned(self.reference_frame); }
+        }
+        if core::mem::offset_of!(Self, epoch) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, epoch)).cast::<u32>().write_unaligned(self.epoch); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1135,6 +2607,57 @@ pub struct PocketMotionHeading {
     pub quality: u8,
     pub reference_frame: u8,
 }
+impl PocketMotionHeading {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 2]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 2]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, reference_frame) + core::mem::size_of::<u8>() <= capacity {
+            value.reference_frame = unsafe { bytes.add(core::mem::offset_of!(Self, reference_frame)).cast::<u8>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 2]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 2]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        if core::mem::offset_of!(Self, reference_frame) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, reference_frame)).cast::<u8>().write_unaligned(self.reference_frame); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1169,6 +2692,51 @@ pub struct PocketMotionScreenRotation {
     pub value: [f32; 1],
     pub quality: u8,
 }
+impl PocketMotionScreenRotation {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 1]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 1]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 1]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 1]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1197,6 +2765,51 @@ pub struct PocketMotionTilt {
     pub struct_size: usize,
     pub value: [f32; 2],
     pub quality: u8,
+}
+impl PocketMotionTilt {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 2]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 2]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 2]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 2]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1228,6 +2841,63 @@ pub struct PocketMotionAngles {
     pub quality: u8,
     pub reference_frame: u8,
     pub epoch: u32,
+}
+impl PocketMotionAngles {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            value.value = unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            value.quality = unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, reference_frame) + core::mem::size_of::<u8>() <= capacity {
+            value.reference_frame = unsafe { bytes.add(core::mem::offset_of!(Self, reference_frame)).cast::<u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, epoch) + core::mem::size_of::<u32>() <= capacity {
+            value.epoch = unsafe { bytes.add(core::mem::offset_of!(Self, epoch)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, value) + core::mem::size_of::<[f32; 3]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, value)).cast::<[f32; 3]>().write_unaligned(self.value); }
+        }
+        if core::mem::offset_of!(Self, quality) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, quality)).cast::<u8>().write_unaligned(self.quality); }
+        }
+        if core::mem::offset_of!(Self, reference_frame) + core::mem::size_of::<u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, reference_frame)).cast::<u8>().write_unaligned(self.reference_frame); }
+        }
+        if core::mem::offset_of!(Self, epoch) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, epoch)).cast::<u32>().write_unaligned(self.epoch); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1276,6 +2946,99 @@ pub struct PocketMotionState {
     pub screen_rotation: *const PocketMotionScreenRotation,
     pub tilt: *const PocketMotionTilt,
     pub angles: *const PocketMotionAngles,
+}
+impl PocketMotionState {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, timestamp) + core::mem::size_of::<u64>() <= capacity {
+            value.timestamp = unsafe { bytes.add(core::mem::offset_of!(Self, timestamp)).cast::<u64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, gravity_direction) + core::mem::size_of::<*const PocketMotionGravityDirection>() <= capacity {
+            value.gravity_direction = unsafe { bytes.add(core::mem::offset_of!(Self, gravity_direction)).cast::<*const PocketMotionGravityDirection>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, inclination) + core::mem::size_of::<*const PocketMotionInclination>() <= capacity {
+            value.inclination = unsafe { bytes.add(core::mem::offset_of!(Self, inclination)).cast::<*const PocketMotionInclination>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, linear_acceleration) + core::mem::size_of::<*const PocketMotionLinearAcceleration>() <= capacity {
+            value.linear_acceleration = unsafe { bytes.add(core::mem::offset_of!(Self, linear_acceleration)).cast::<*const PocketMotionLinearAcceleration>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, rotation_rate) + core::mem::size_of::<*const PocketMotionRotationRate>() <= capacity {
+            value.rotation_rate = unsafe { bytes.add(core::mem::offset_of!(Self, rotation_rate)).cast::<*const PocketMotionRotationRate>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, orientation) + core::mem::size_of::<*const PocketMotionOrientation>() <= capacity {
+            value.orientation = unsafe { bytes.add(core::mem::offset_of!(Self, orientation)).cast::<*const PocketMotionOrientation>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, heading) + core::mem::size_of::<*const PocketMotionHeading>() <= capacity {
+            value.heading = unsafe { bytes.add(core::mem::offset_of!(Self, heading)).cast::<*const PocketMotionHeading>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, screen_rotation) + core::mem::size_of::<*const PocketMotionScreenRotation>() <= capacity {
+            value.screen_rotation = unsafe { bytes.add(core::mem::offset_of!(Self, screen_rotation)).cast::<*const PocketMotionScreenRotation>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, tilt) + core::mem::size_of::<*const PocketMotionTilt>() <= capacity {
+            value.tilt = unsafe { bytes.add(core::mem::offset_of!(Self, tilt)).cast::<*const PocketMotionTilt>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, angles) + core::mem::size_of::<*const PocketMotionAngles>() <= capacity {
+            value.angles = unsafe { bytes.add(core::mem::offset_of!(Self, angles)).cast::<*const PocketMotionAngles>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, timestamp) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, timestamp)).cast::<u64>().write_unaligned(self.timestamp); }
+        }
+        if core::mem::offset_of!(Self, gravity_direction) + core::mem::size_of::<*const PocketMotionGravityDirection>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, gravity_direction)).cast::<*const PocketMotionGravityDirection>().write_unaligned(self.gravity_direction); }
+        }
+        if core::mem::offset_of!(Self, inclination) + core::mem::size_of::<*const PocketMotionInclination>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, inclination)).cast::<*const PocketMotionInclination>().write_unaligned(self.inclination); }
+        }
+        if core::mem::offset_of!(Self, linear_acceleration) + core::mem::size_of::<*const PocketMotionLinearAcceleration>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, linear_acceleration)).cast::<*const PocketMotionLinearAcceleration>().write_unaligned(self.linear_acceleration); }
+        }
+        if core::mem::offset_of!(Self, rotation_rate) + core::mem::size_of::<*const PocketMotionRotationRate>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, rotation_rate)).cast::<*const PocketMotionRotationRate>().write_unaligned(self.rotation_rate); }
+        }
+        if core::mem::offset_of!(Self, orientation) + core::mem::size_of::<*const PocketMotionOrientation>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, orientation)).cast::<*const PocketMotionOrientation>().write_unaligned(self.orientation); }
+        }
+        if core::mem::offset_of!(Self, heading) + core::mem::size_of::<*const PocketMotionHeading>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, heading)).cast::<*const PocketMotionHeading>().write_unaligned(self.heading); }
+        }
+        if core::mem::offset_of!(Self, screen_rotation) + core::mem::size_of::<*const PocketMotionScreenRotation>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, screen_rotation)).cast::<*const PocketMotionScreenRotation>().write_unaligned(self.screen_rotation); }
+        }
+        if core::mem::offset_of!(Self, tilt) + core::mem::size_of::<*const PocketMotionTilt>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, tilt)).cast::<*const PocketMotionTilt>().write_unaligned(self.tilt); }
+        }
+        if core::mem::offset_of!(Self, angles) + core::mem::size_of::<*const PocketMotionAngles>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, angles)).cast::<*const PocketMotionAngles>().write_unaligned(self.angles); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1356,6 +3119,117 @@ pub struct PocketInputFrame {
     pub text: *const PocketTextEvent,
     pub text_count: usize,
     pub motion: *const PocketMotionState,
+}
+impl PocketInputFrame {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, buttons) + core::mem::size_of::<u32>() <= capacity {
+            value.buttons = unsafe { bytes.add(core::mem::offset_of!(Self, buttons)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, axes) + core::mem::size_of::<*const PocketAxisSample>() <= capacity {
+            value.axes = unsafe { bytes.add(core::mem::offset_of!(Self, axes)).cast::<*const PocketAxisSample>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, axis_count) + core::mem::size_of::<usize>() <= capacity {
+            value.axis_count = unsafe { bytes.add(core::mem::offset_of!(Self, axis_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, relative) + core::mem::size_of::<*const PocketAxisDelta>() <= capacity {
+            value.relative = unsafe { bytes.add(core::mem::offset_of!(Self, relative)).cast::<*const PocketAxisDelta>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, relative_count) + core::mem::size_of::<usize>() <= capacity {
+            value.relative_count = unsafe { bytes.add(core::mem::offset_of!(Self, relative_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, pointer) + core::mem::size_of::<*const PocketPointer>() <= capacity {
+            value.pointer = unsafe { bytes.add(core::mem::offset_of!(Self, pointer)).cast::<*const PocketPointer>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, contacts) + core::mem::size_of::<*const PocketContact>() <= capacity {
+            value.contacts = unsafe { bytes.add(core::mem::offset_of!(Self, contacts)).cast::<*const PocketContact>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, contact_count) + core::mem::size_of::<usize>() <= capacity {
+            value.contact_count = unsafe { bytes.add(core::mem::offset_of!(Self, contact_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, cancelled) + core::mem::size_of::<*const PocketCancelledContact>() <= capacity {
+            value.cancelled = unsafe { bytes.add(core::mem::offset_of!(Self, cancelled)).cast::<*const PocketCancelledContact>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, cancelled_count) + core::mem::size_of::<usize>() <= capacity {
+            value.cancelled_count = unsafe { bytes.add(core::mem::offset_of!(Self, cancelled_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, text) + core::mem::size_of::<*const PocketTextEvent>() <= capacity {
+            value.text = unsafe { bytes.add(core::mem::offset_of!(Self, text)).cast::<*const PocketTextEvent>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, text_count) + core::mem::size_of::<usize>() <= capacity {
+            value.text_count = unsafe { bytes.add(core::mem::offset_of!(Self, text_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, motion) + core::mem::size_of::<*const PocketMotionState>() <= capacity {
+            value.motion = unsafe { bytes.add(core::mem::offset_of!(Self, motion)).cast::<*const PocketMotionState>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, buttons) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, buttons)).cast::<u32>().write_unaligned(self.buttons); }
+        }
+        if core::mem::offset_of!(Self, axes) + core::mem::size_of::<*const PocketAxisSample>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, axes)).cast::<*const PocketAxisSample>().write_unaligned(self.axes); }
+        }
+        if core::mem::offset_of!(Self, axis_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, axis_count)).cast::<usize>().write_unaligned(self.axis_count); }
+        }
+        if core::mem::offset_of!(Self, relative) + core::mem::size_of::<*const PocketAxisDelta>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, relative)).cast::<*const PocketAxisDelta>().write_unaligned(self.relative); }
+        }
+        if core::mem::offset_of!(Self, relative_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, relative_count)).cast::<usize>().write_unaligned(self.relative_count); }
+        }
+        if core::mem::offset_of!(Self, pointer) + core::mem::size_of::<*const PocketPointer>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pointer)).cast::<*const PocketPointer>().write_unaligned(self.pointer); }
+        }
+        if core::mem::offset_of!(Self, contacts) + core::mem::size_of::<*const PocketContact>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, contacts)).cast::<*const PocketContact>().write_unaligned(self.contacts); }
+        }
+        if core::mem::offset_of!(Self, contact_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, contact_count)).cast::<usize>().write_unaligned(self.contact_count); }
+        }
+        if core::mem::offset_of!(Self, cancelled) + core::mem::size_of::<*const PocketCancelledContact>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, cancelled)).cast::<*const PocketCancelledContact>().write_unaligned(self.cancelled); }
+        }
+        if core::mem::offset_of!(Self, cancelled_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, cancelled_count)).cast::<usize>().write_unaligned(self.cancelled_count); }
+        }
+        if core::mem::offset_of!(Self, text) + core::mem::size_of::<*const PocketTextEvent>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, text)).cast::<*const PocketTextEvent>().write_unaligned(self.text); }
+        }
+        if core::mem::offset_of!(Self, text_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, text_count)).cast::<usize>().write_unaligned(self.text_count); }
+        }
+        if core::mem::offset_of!(Self, motion) + core::mem::size_of::<*const PocketMotionState>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, motion)).cast::<*const PocketMotionState>().write_unaligned(self.motion); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1442,6 +3316,51 @@ pub struct PocketInputFrameBuilder {
     pub context: *mut c_void,
     pub append: Option<PocketInputAppendFn>,
 }
+impl PocketInputFrameBuilder {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, context) + core::mem::size_of::<*mut c_void>() <= capacity {
+            value.context = unsafe { bytes.add(core::mem::offset_of!(Self, context)).cast::<*mut c_void>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, append) + core::mem::size_of::<Option<PocketInputAppendFn>>() <= capacity {
+            value.append = unsafe { bytes.add(core::mem::offset_of!(Self, append)).cast::<Option<PocketInputAppendFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, context) + core::mem::size_of::<*mut c_void>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, context)).cast::<*mut c_void>().write_unaligned(self.context); }
+        }
+        if core::mem::offset_of!(Self, append) + core::mem::size_of::<Option<PocketInputAppendFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, append)).cast::<Option<PocketInputAppendFn>>().write_unaligned(self.append); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1473,6 +3392,69 @@ pub struct PocketDisplayOutputV1 {
     pub flush: Option<PocketDisplayFlushFn>,
     pub wait: Option<PocketDisplayWaitFn>,
     pub vsync: Option<PocketDisplayVsyncFn>,
+}
+impl PocketDisplayOutputV1 {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, descriptor) + core::mem::size_of::<Option<PocketDisplayDescriptorFn>>() <= capacity {
+            value.descriptor = unsafe { bytes.add(core::mem::offset_of!(Self, descriptor)).cast::<Option<PocketDisplayDescriptorFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, acquire) + core::mem::size_of::<Option<PocketDisplayAcquireFn>>() <= capacity {
+            value.acquire = unsafe { bytes.add(core::mem::offset_of!(Self, acquire)).cast::<Option<PocketDisplayAcquireFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, flush) + core::mem::size_of::<Option<PocketDisplayFlushFn>>() <= capacity {
+            value.flush = unsafe { bytes.add(core::mem::offset_of!(Self, flush)).cast::<Option<PocketDisplayFlushFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, wait) + core::mem::size_of::<Option<PocketDisplayWaitFn>>() <= capacity {
+            value.wait = unsafe { bytes.add(core::mem::offset_of!(Self, wait)).cast::<Option<PocketDisplayWaitFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, vsync) + core::mem::size_of::<Option<PocketDisplayVsyncFn>>() <= capacity {
+            value.vsync = unsafe { bytes.add(core::mem::offset_of!(Self, vsync)).cast::<Option<PocketDisplayVsyncFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, descriptor) + core::mem::size_of::<Option<PocketDisplayDescriptorFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, descriptor)).cast::<Option<PocketDisplayDescriptorFn>>().write_unaligned(self.descriptor); }
+        }
+        if core::mem::offset_of!(Self, acquire) + core::mem::size_of::<Option<PocketDisplayAcquireFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, acquire)).cast::<Option<PocketDisplayAcquireFn>>().write_unaligned(self.acquire); }
+        }
+        if core::mem::offset_of!(Self, flush) + core::mem::size_of::<Option<PocketDisplayFlushFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, flush)).cast::<Option<PocketDisplayFlushFn>>().write_unaligned(self.flush); }
+        }
+        if core::mem::offset_of!(Self, wait) + core::mem::size_of::<Option<PocketDisplayWaitFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, wait)).cast::<Option<PocketDisplayWaitFn>>().write_unaligned(self.wait); }
+        }
+        if core::mem::offset_of!(Self, vsync) + core::mem::size_of::<Option<PocketDisplayVsyncFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, vsync)).cast::<Option<PocketDisplayVsyncFn>>().write_unaligned(self.vsync); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1521,6 +3503,69 @@ pub struct PocketRendererV1 {
     pub retire: Option<PocketRenderRetireFn>,
     pub render_zero_copy: Option<PocketRenderZeroCopyFn>,
 }
+impl PocketRendererV1 {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, descriptor) + core::mem::size_of::<Option<PocketRendererDescriptorFn>>() <= capacity {
+            value.descriptor = unsafe { bytes.add(core::mem::offset_of!(Self, descriptor)).cast::<Option<PocketRendererDescriptorFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, render) + core::mem::size_of::<Option<PocketRenderFn>>() <= capacity {
+            value.render = unsafe { bytes.add(core::mem::offset_of!(Self, render)).cast::<Option<PocketRenderFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, wait) + core::mem::size_of::<Option<PocketRenderWaitFn>>() <= capacity {
+            value.wait = unsafe { bytes.add(core::mem::offset_of!(Self, wait)).cast::<Option<PocketRenderWaitFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, retire) + core::mem::size_of::<Option<PocketRenderRetireFn>>() <= capacity {
+            value.retire = unsafe { bytes.add(core::mem::offset_of!(Self, retire)).cast::<Option<PocketRenderRetireFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, render_zero_copy) + core::mem::size_of::<Option<PocketRenderZeroCopyFn>>() <= capacity {
+            value.render_zero_copy = unsafe { bytes.add(core::mem::offset_of!(Self, render_zero_copy)).cast::<Option<PocketRenderZeroCopyFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, descriptor) + core::mem::size_of::<Option<PocketRendererDescriptorFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, descriptor)).cast::<Option<PocketRendererDescriptorFn>>().write_unaligned(self.descriptor); }
+        }
+        if core::mem::offset_of!(Self, render) + core::mem::size_of::<Option<PocketRenderFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, render)).cast::<Option<PocketRenderFn>>().write_unaligned(self.render); }
+        }
+        if core::mem::offset_of!(Self, wait) + core::mem::size_of::<Option<PocketRenderWaitFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, wait)).cast::<Option<PocketRenderWaitFn>>().write_unaligned(self.wait); }
+        }
+        if core::mem::offset_of!(Self, retire) + core::mem::size_of::<Option<PocketRenderRetireFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, retire)).cast::<Option<PocketRenderRetireFn>>().write_unaligned(self.retire); }
+        }
+        if core::mem::offset_of!(Self, render_zero_copy) + core::mem::size_of::<Option<PocketRenderZeroCopyFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, render_zero_copy)).cast::<Option<PocketRenderZeroCopyFn>>().write_unaligned(self.render_zero_copy); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1565,6 +3610,51 @@ pub struct PocketInputSourceV1 {
     pub classes: Option<PocketInputClassesFn>,
     pub poll: Option<PocketInputPollFn>,
 }
+impl PocketInputSourceV1 {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, classes) + core::mem::size_of::<Option<PocketInputClassesFn>>() <= capacity {
+            value.classes = unsafe { bytes.add(core::mem::offset_of!(Self, classes)).cast::<Option<PocketInputClassesFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, poll) + core::mem::size_of::<Option<PocketInputPollFn>>() <= capacity {
+            value.poll = unsafe { bytes.add(core::mem::offset_of!(Self, poll)).cast::<Option<PocketInputPollFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, classes) + core::mem::size_of::<Option<PocketInputClassesFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, classes)).cast::<Option<PocketInputClassesFn>>().write_unaligned(self.classes); }
+        }
+        if core::mem::offset_of!(Self, poll) + core::mem::size_of::<Option<PocketInputPollFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, poll)).cast::<Option<PocketInputPollFn>>().write_unaligned(self.poll); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1595,6 +3685,57 @@ pub struct PocketPackageSourceV1 {
     pub length: Option<PocketPackageLengthFn>,
     pub all: Option<PocketPackageAllFn>,
     pub range: Option<PocketPackageRangeFn>,
+}
+impl PocketPackageSourceV1 {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, length) + core::mem::size_of::<Option<PocketPackageLengthFn>>() <= capacity {
+            value.length = unsafe { bytes.add(core::mem::offset_of!(Self, length)).cast::<Option<PocketPackageLengthFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, all) + core::mem::size_of::<Option<PocketPackageAllFn>>() <= capacity {
+            value.all = unsafe { bytes.add(core::mem::offset_of!(Self, all)).cast::<Option<PocketPackageAllFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, range) + core::mem::size_of::<Option<PocketPackageRangeFn>>() <= capacity {
+            value.range = unsafe { bytes.add(core::mem::offset_of!(Self, range)).cast::<Option<PocketPackageRangeFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, length) + core::mem::size_of::<Option<PocketPackageLengthFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, length)).cast::<Option<PocketPackageLengthFn>>().write_unaligned(self.length); }
+        }
+        if core::mem::offset_of!(Self, all) + core::mem::size_of::<Option<PocketPackageAllFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, all)).cast::<Option<PocketPackageAllFn>>().write_unaligned(self.all); }
+        }
+        if core::mem::offset_of!(Self, range) + core::mem::size_of::<Option<PocketPackageRangeFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, range)).cast::<Option<PocketPackageRangeFn>>().write_unaligned(self.range); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1630,6 +3771,51 @@ pub struct PocketClockV1 {
     pub now: Option<PocketClockNowFn>,
     pub sleep_until: Option<PocketClockSleepUntilFn>,
 }
+impl PocketClockV1 {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, now) + core::mem::size_of::<Option<PocketClockNowFn>>() <= capacity {
+            value.now = unsafe { bytes.add(core::mem::offset_of!(Self, now)).cast::<Option<PocketClockNowFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, sleep_until) + core::mem::size_of::<Option<PocketClockSleepUntilFn>>() <= capacity {
+            value.sleep_until = unsafe { bytes.add(core::mem::offset_of!(Self, sleep_until)).cast::<Option<PocketClockSleepUntilFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, now) + core::mem::size_of::<Option<PocketClockNowFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, now)).cast::<Option<PocketClockNowFn>>().write_unaligned(self.now); }
+        }
+        if core::mem::offset_of!(Self, sleep_until) + core::mem::size_of::<Option<PocketClockSleepUntilFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, sleep_until)).cast::<Option<PocketClockSleepUntilFn>>().write_unaligned(self.sleep_until); }
+        }
+        true
+    }
+}
 const _: () = {
     let mut size = 0usize;
     let mut align = 1usize;
@@ -1664,6 +3850,81 @@ pub struct PocketRuntimeConfig {
     pub frame_buffer_budget: usize,
     pub profile_json: *const u8,
     pub profile_json_length: usize,
+}
+impl PocketRuntimeConfig {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, profile_hash) + core::mem::size_of::<[u8; 32]>() <= capacity {
+            value.profile_hash = unsafe { bytes.add(core::mem::offset_of!(Self, profile_hash)).cast::<[u8; 32]>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, host_abi) + core::mem::size_of::<u32>() <= capacity {
+            value.host_abi = unsafe { bytes.add(core::mem::offset_of!(Self, host_abi)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, tick_hz) + core::mem::size_of::<u32>() <= capacity {
+            value.tick_hz = unsafe { bytes.add(core::mem::offset_of!(Self, tick_hz)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, heap_limit) + core::mem::size_of::<usize>() <= capacity {
+            value.heap_limit = unsafe { bytes.add(core::mem::offset_of!(Self, heap_limit)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, frame_buffer_budget) + core::mem::size_of::<usize>() <= capacity {
+            value.frame_buffer_budget = unsafe { bytes.add(core::mem::offset_of!(Self, frame_buffer_budget)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, profile_json) + core::mem::size_of::<*const u8>() <= capacity {
+            value.profile_json = unsafe { bytes.add(core::mem::offset_of!(Self, profile_json)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, profile_json_length) + core::mem::size_of::<usize>() <= capacity {
+            value.profile_json_length = unsafe { bytes.add(core::mem::offset_of!(Self, profile_json_length)).cast::<usize>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, profile_hash) + core::mem::size_of::<[u8; 32]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, profile_hash)).cast::<[u8; 32]>().write_unaligned(self.profile_hash); }
+        }
+        if core::mem::offset_of!(Self, host_abi) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, host_abi)).cast::<u32>().write_unaligned(self.host_abi); }
+        }
+        if core::mem::offset_of!(Self, tick_hz) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, tick_hz)).cast::<u32>().write_unaligned(self.tick_hz); }
+        }
+        if core::mem::offset_of!(Self, heap_limit) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, heap_limit)).cast::<usize>().write_unaligned(self.heap_limit); }
+        }
+        if core::mem::offset_of!(Self, frame_buffer_budget) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, frame_buffer_budget)).cast::<usize>().write_unaligned(self.frame_buffer_budget); }
+        }
+        if core::mem::offset_of!(Self, profile_json) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, profile_json)).cast::<*const u8>().write_unaligned(self.profile_json); }
+        }
+        if core::mem::offset_of!(Self, profile_json_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, profile_json_length)).cast::<usize>().write_unaligned(self.profile_json_length); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1712,6 +3973,592 @@ const _: () = {
     assert!(core::mem::align_of::<PocketRuntimeConfig>() == align);
 };
 
+/// One borrowed operation argument; tag selects integer, real, or bytes. runtime_op length is the total byte length of these extensible records, including per-record padding.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketOpArg {
+    pub struct_size: usize,
+    pub tag: u32,
+    pub integer: i64,
+    pub real: f64,
+    pub bytes: *const u8,
+    pub byte_length: usize,
+}
+impl PocketOpArg {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, tag) + core::mem::size_of::<u32>() <= capacity {
+            value.tag = unsafe { bytes.add(core::mem::offset_of!(Self, tag)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, integer) + core::mem::size_of::<i64>() <= capacity {
+            value.integer = unsafe { bytes.add(core::mem::offset_of!(Self, integer)).cast::<i64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, real) + core::mem::size_of::<f64>() <= capacity {
+            value.real = unsafe { bytes.add(core::mem::offset_of!(Self, real)).cast::<f64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, bytes) + core::mem::size_of::<*const u8>() <= capacity {
+            value.bytes = unsafe { bytes.add(core::mem::offset_of!(Self, bytes)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            value.byte_length = unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, tag) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, tag)).cast::<u32>().write_unaligned(self.tag); }
+        }
+        if core::mem::offset_of!(Self, integer) + core::mem::size_of::<i64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, integer)).cast::<i64>().write_unaligned(self.integer); }
+        }
+        if core::mem::offset_of!(Self, real) + core::mem::size_of::<f64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, real)).cast::<f64>().write_unaligned(self.real); }
+        }
+        if core::mem::offset_of!(Self, bytes) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, bytes)).cast::<*const u8>().write_unaligned(self.bytes); }
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().write_unaligned(self.byte_length); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpArg, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpArg, tag) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i64>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpArg, integer) == size);
+    size += 8;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<f64>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpArg, real) == size);
+    size += 8;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const u8>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpArg, bytes) == size);
+    size += core::mem::size_of::<*const u8>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpArg, byte_length) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketOpArg>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketOpArg>() == align);
+};
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketNamedTexture {
+    pub struct_size: usize,
+    pub name: *const u8,
+    pub name_length: usize,
+    pub handle: i32,
+}
+impl PocketNamedTexture {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, name) + core::mem::size_of::<*const u8>() <= capacity {
+            value.name = unsafe { bytes.add(core::mem::offset_of!(Self, name)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, name_length) + core::mem::size_of::<usize>() <= capacity {
+            value.name_length = unsafe { bytes.add(core::mem::offset_of!(Self, name_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, handle) + core::mem::size_of::<i32>() <= capacity {
+            value.handle = unsafe { bytes.add(core::mem::offset_of!(Self, handle)).cast::<i32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, name) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, name)).cast::<*const u8>().write_unaligned(self.name); }
+        }
+        if core::mem::offset_of!(Self, name_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, name_length)).cast::<usize>().write_unaligned(self.name_length); }
+        }
+        if core::mem::offset_of!(Self, handle) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, handle)).cast::<i32>().write_unaligned(self.handle); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedTexture, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const u8>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedTexture, name) == size);
+    size += core::mem::size_of::<*const u8>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedTexture, name_length) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedTexture, handle) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketNamedTexture>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketNamedTexture>() == align);
+};
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketNamedSprite {
+    pub struct_size: usize,
+    pub name: *const u8,
+    pub name_length: usize,
+    pub handle: i32,
+    pub frames: u32,
+    pub columns: u32,
+    pub step: u32,
+}
+impl PocketNamedSprite {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, name) + core::mem::size_of::<*const u8>() <= capacity {
+            value.name = unsafe { bytes.add(core::mem::offset_of!(Self, name)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, name_length) + core::mem::size_of::<usize>() <= capacity {
+            value.name_length = unsafe { bytes.add(core::mem::offset_of!(Self, name_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, handle) + core::mem::size_of::<i32>() <= capacity {
+            value.handle = unsafe { bytes.add(core::mem::offset_of!(Self, handle)).cast::<i32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, frames) + core::mem::size_of::<u32>() <= capacity {
+            value.frames = unsafe { bytes.add(core::mem::offset_of!(Self, frames)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, columns) + core::mem::size_of::<u32>() <= capacity {
+            value.columns = unsafe { bytes.add(core::mem::offset_of!(Self, columns)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, step) + core::mem::size_of::<u32>() <= capacity {
+            value.step = unsafe { bytes.add(core::mem::offset_of!(Self, step)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, name) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, name)).cast::<*const u8>().write_unaligned(self.name); }
+        }
+        if core::mem::offset_of!(Self, name_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, name_length)).cast::<usize>().write_unaligned(self.name_length); }
+        }
+        if core::mem::offset_of!(Self, handle) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, handle)).cast::<i32>().write_unaligned(self.handle); }
+        }
+        if core::mem::offset_of!(Self, frames) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, frames)).cast::<u32>().write_unaligned(self.frames); }
+        }
+        if core::mem::offset_of!(Self, columns) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, columns)).cast::<u32>().write_unaligned(self.columns); }
+        }
+        if core::mem::offset_of!(Self, step) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, step)).cast::<u32>().write_unaligned(self.step); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedSprite, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const u8>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedSprite, name) == size);
+    size += core::mem::size_of::<*const u8>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedSprite, name_length) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedSprite, handle) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedSprite, frames) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedSprite, columns) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketNamedSprite, step) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketNamedSprite>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketNamedSprite>() == align);
+};
+
+/// Metadata borrows last through initialize; pak storage remains unchanged through guest shutdown. Zero auxiliary dimensions mean no auxiliary viewport.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketGuestEnvironment {
+    pub struct_size: usize,
+    pub host: *const u8,
+    pub host_length: usize,
+    pub host_abi: u32,
+    pub tick_hz: u32,
+    pub viewport_width: u32,
+    pub viewport_height: u32,
+    pub auxiliary_width: u32,
+    pub auxiliary_height: u32,
+    pub auxiliary_root: i32,
+    pub raster_density: u32,
+    pub heap_limit: usize,
+    pub pak: *const u8,
+    pub pak_length: usize,
+    pub textures: *const PocketNamedTexture,
+    pub texture_count: usize,
+    pub sprites: *const PocketNamedSprite,
+    pub sprite_count: usize,
+    pub assets_present: u32,
+}
+impl PocketGuestEnvironment {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, host) + core::mem::size_of::<*const u8>() <= capacity {
+            value.host = unsafe { bytes.add(core::mem::offset_of!(Self, host)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, host_length) + core::mem::size_of::<usize>() <= capacity {
+            value.host_length = unsafe { bytes.add(core::mem::offset_of!(Self, host_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, host_abi) + core::mem::size_of::<u32>() <= capacity {
+            value.host_abi = unsafe { bytes.add(core::mem::offset_of!(Self, host_abi)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, tick_hz) + core::mem::size_of::<u32>() <= capacity {
+            value.tick_hz = unsafe { bytes.add(core::mem::offset_of!(Self, tick_hz)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, viewport_width) + core::mem::size_of::<u32>() <= capacity {
+            value.viewport_width = unsafe { bytes.add(core::mem::offset_of!(Self, viewport_width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, viewport_height) + core::mem::size_of::<u32>() <= capacity {
+            value.viewport_height = unsafe { bytes.add(core::mem::offset_of!(Self, viewport_height)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, auxiliary_width) + core::mem::size_of::<u32>() <= capacity {
+            value.auxiliary_width = unsafe { bytes.add(core::mem::offset_of!(Self, auxiliary_width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, auxiliary_height) + core::mem::size_of::<u32>() <= capacity {
+            value.auxiliary_height = unsafe { bytes.add(core::mem::offset_of!(Self, auxiliary_height)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, auxiliary_root) + core::mem::size_of::<i32>() <= capacity {
+            value.auxiliary_root = unsafe { bytes.add(core::mem::offset_of!(Self, auxiliary_root)).cast::<i32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, raster_density) + core::mem::size_of::<u32>() <= capacity {
+            value.raster_density = unsafe { bytes.add(core::mem::offset_of!(Self, raster_density)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, heap_limit) + core::mem::size_of::<usize>() <= capacity {
+            value.heap_limit = unsafe { bytes.add(core::mem::offset_of!(Self, heap_limit)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, pak) + core::mem::size_of::<*const u8>() <= capacity {
+            value.pak = unsafe { bytes.add(core::mem::offset_of!(Self, pak)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, pak_length) + core::mem::size_of::<usize>() <= capacity {
+            value.pak_length = unsafe { bytes.add(core::mem::offset_of!(Self, pak_length)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, textures) + core::mem::size_of::<*const PocketNamedTexture>() <= capacity {
+            value.textures = unsafe { bytes.add(core::mem::offset_of!(Self, textures)).cast::<*const PocketNamedTexture>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, texture_count) + core::mem::size_of::<usize>() <= capacity {
+            value.texture_count = unsafe { bytes.add(core::mem::offset_of!(Self, texture_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, sprites) + core::mem::size_of::<*const PocketNamedSprite>() <= capacity {
+            value.sprites = unsafe { bytes.add(core::mem::offset_of!(Self, sprites)).cast::<*const PocketNamedSprite>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, sprite_count) + core::mem::size_of::<usize>() <= capacity {
+            value.sprite_count = unsafe { bytes.add(core::mem::offset_of!(Self, sprite_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, assets_present) + core::mem::size_of::<u32>() <= capacity {
+            value.assets_present = unsafe { bytes.add(core::mem::offset_of!(Self, assets_present)).cast::<u32>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, host) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, host)).cast::<*const u8>().write_unaligned(self.host); }
+        }
+        if core::mem::offset_of!(Self, host_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, host_length)).cast::<usize>().write_unaligned(self.host_length); }
+        }
+        if core::mem::offset_of!(Self, host_abi) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, host_abi)).cast::<u32>().write_unaligned(self.host_abi); }
+        }
+        if core::mem::offset_of!(Self, tick_hz) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, tick_hz)).cast::<u32>().write_unaligned(self.tick_hz); }
+        }
+        if core::mem::offset_of!(Self, viewport_width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, viewport_width)).cast::<u32>().write_unaligned(self.viewport_width); }
+        }
+        if core::mem::offset_of!(Self, viewport_height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, viewport_height)).cast::<u32>().write_unaligned(self.viewport_height); }
+        }
+        if core::mem::offset_of!(Self, auxiliary_width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, auxiliary_width)).cast::<u32>().write_unaligned(self.auxiliary_width); }
+        }
+        if core::mem::offset_of!(Self, auxiliary_height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, auxiliary_height)).cast::<u32>().write_unaligned(self.auxiliary_height); }
+        }
+        if core::mem::offset_of!(Self, auxiliary_root) + core::mem::size_of::<i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, auxiliary_root)).cast::<i32>().write_unaligned(self.auxiliary_root); }
+        }
+        if core::mem::offset_of!(Self, raster_density) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, raster_density)).cast::<u32>().write_unaligned(self.raster_density); }
+        }
+        if core::mem::offset_of!(Self, heap_limit) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, heap_limit)).cast::<usize>().write_unaligned(self.heap_limit); }
+        }
+        if core::mem::offset_of!(Self, pak) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pak)).cast::<*const u8>().write_unaligned(self.pak); }
+        }
+        if core::mem::offset_of!(Self, pak_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, pak_length)).cast::<usize>().write_unaligned(self.pak_length); }
+        }
+        if core::mem::offset_of!(Self, textures) + core::mem::size_of::<*const PocketNamedTexture>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, textures)).cast::<*const PocketNamedTexture>().write_unaligned(self.textures); }
+        }
+        if core::mem::offset_of!(Self, texture_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, texture_count)).cast::<usize>().write_unaligned(self.texture_count); }
+        }
+        if core::mem::offset_of!(Self, sprites) + core::mem::size_of::<*const PocketNamedSprite>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, sprites)).cast::<*const PocketNamedSprite>().write_unaligned(self.sprites); }
+        }
+        if core::mem::offset_of!(Self, sprite_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, sprite_count)).cast::<usize>().write_unaligned(self.sprite_count); }
+        }
+        if core::mem::offset_of!(Self, assets_present) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, assets_present)).cast::<u32>().write_unaligned(self.assets_present); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const u8>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, host) == size);
+    size += core::mem::size_of::<*const u8>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, host_length) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, host_abi) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, tick_hz) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, viewport_width) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, viewport_height) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, auxiliary_width) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, auxiliary_height) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<i32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, auxiliary_root) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, raster_density) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, heap_limit) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const u8>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, pak) == size);
+    size += core::mem::size_of::<*const u8>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, pak_length) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const PocketNamedTexture>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, textures) == size);
+    size += core::mem::size_of::<*const PocketNamedTexture>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, texture_count) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<*const PocketNamedSprite>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, sprites) == size);
+    size += core::mem::size_of::<*const PocketNamedSprite>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, sprite_count) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestEnvironment, assets_present) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketGuestEnvironment>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketGuestEnvironment>() == align);
+};
+
 /// tag selects none, integer, real, or bytes; inactive payloads are zero. Bytes are runtime-owned and borrowed until the next call on this instance.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -1722,6 +4569,69 @@ pub struct PocketResult {
     pub real: f64,
     pub bytes: *const u8,
     pub byte_length: usize,
+}
+impl PocketResult {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, tag) + core::mem::size_of::<u32>() <= capacity {
+            value.tag = unsafe { bytes.add(core::mem::offset_of!(Self, tag)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, integer) + core::mem::size_of::<i64>() <= capacity {
+            value.integer = unsafe { bytes.add(core::mem::offset_of!(Self, integer)).cast::<i64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, real) + core::mem::size_of::<f64>() <= capacity {
+            value.real = unsafe { bytes.add(core::mem::offset_of!(Self, real)).cast::<f64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, bytes) + core::mem::size_of::<*const u8>() <= capacity {
+            value.bytes = unsafe { bytes.add(core::mem::offset_of!(Self, bytes)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            value.byte_length = unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, tag) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, tag)).cast::<u32>().write_unaligned(self.tag); }
+        }
+        if core::mem::offset_of!(Self, integer) + core::mem::size_of::<i64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, integer)).cast::<i64>().write_unaligned(self.integer); }
+        }
+        if core::mem::offset_of!(Self, real) + core::mem::size_of::<f64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, real)).cast::<f64>().write_unaligned(self.real); }
+        }
+        if core::mem::offset_of!(Self, bytes) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, bytes)).cast::<*const u8>().write_unaligned(self.bytes); }
+        }
+        if core::mem::offset_of!(Self, byte_length) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, byte_length)).cast::<usize>().write_unaligned(self.byte_length); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1775,6 +4685,99 @@ pub struct PocketGuestFrame {
     pub axis_deltas: *const PocketAxisDelta,
     pub axis_delta_count: usize,
     pub motion: *const PocketMotionState,
+}
+impl PocketGuestFrame {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, buttons) + core::mem::size_of::<u32>() <= capacity {
+            value.buttons = unsafe { bytes.add(core::mem::offset_of!(Self, buttons)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, analog) + core::mem::size_of::<u32>() <= capacity {
+            value.analog = unsafe { bytes.add(core::mem::offset_of!(Self, analog)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, touches) + core::mem::size_of::<*const u32>() <= capacity {
+            value.touches = unsafe { bytes.add(core::mem::offset_of!(Self, touches)).cast::<*const u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, hits) + core::mem::size_of::<*const i32>() <= capacity {
+            value.hits = unsafe { bytes.add(core::mem::offset_of!(Self, hits)).cast::<*const i32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, touch_surfaces) + core::mem::size_of::<*const u8>() <= capacity {
+            value.touch_surfaces = unsafe { bytes.add(core::mem::offset_of!(Self, touch_surfaces)).cast::<*const u8>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, touch_count) + core::mem::size_of::<usize>() <= capacity {
+            value.touch_count = unsafe { bytes.add(core::mem::offset_of!(Self, touch_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, right_analog) + core::mem::size_of::<u32>() <= capacity {
+            value.right_analog = unsafe { bytes.add(core::mem::offset_of!(Self, right_analog)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, axis_deltas) + core::mem::size_of::<*const PocketAxisDelta>() <= capacity {
+            value.axis_deltas = unsafe { bytes.add(core::mem::offset_of!(Self, axis_deltas)).cast::<*const PocketAxisDelta>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, axis_delta_count) + core::mem::size_of::<usize>() <= capacity {
+            value.axis_delta_count = unsafe { bytes.add(core::mem::offset_of!(Self, axis_delta_count)).cast::<usize>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, motion) + core::mem::size_of::<*const PocketMotionState>() <= capacity {
+            value.motion = unsafe { bytes.add(core::mem::offset_of!(Self, motion)).cast::<*const PocketMotionState>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, buttons) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, buttons)).cast::<u32>().write_unaligned(self.buttons); }
+        }
+        if core::mem::offset_of!(Self, analog) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, analog)).cast::<u32>().write_unaligned(self.analog); }
+        }
+        if core::mem::offset_of!(Self, touches) + core::mem::size_of::<*const u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, touches)).cast::<*const u32>().write_unaligned(self.touches); }
+        }
+        if core::mem::offset_of!(Self, hits) + core::mem::size_of::<*const i32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, hits)).cast::<*const i32>().write_unaligned(self.hits); }
+        }
+        if core::mem::offset_of!(Self, touch_surfaces) + core::mem::size_of::<*const u8>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, touch_surfaces)).cast::<*const u8>().write_unaligned(self.touch_surfaces); }
+        }
+        if core::mem::offset_of!(Self, touch_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, touch_count)).cast::<usize>().write_unaligned(self.touch_count); }
+        }
+        if core::mem::offset_of!(Self, right_analog) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, right_analog)).cast::<u32>().write_unaligned(self.right_analog); }
+        }
+        if core::mem::offset_of!(Self, axis_deltas) + core::mem::size_of::<*const PocketAxisDelta>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, axis_deltas)).cast::<*const PocketAxisDelta>().write_unaligned(self.axis_deltas); }
+        }
+        if core::mem::offset_of!(Self, axis_delta_count) + core::mem::size_of::<usize>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, axis_delta_count)).cast::<usize>().write_unaligned(self.axis_delta_count); }
+        }
+        if core::mem::offset_of!(Self, motion) + core::mem::size_of::<*const PocketMotionState>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, motion)).cast::<*const PocketMotionState>().write_unaligned(self.motion); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1847,6 +4850,70 @@ pub struct PocketGuestV1 {
     pub frame: Option<PocketGuestFrameFn>,
     pub collect: Option<PocketGuestCollectFn>,
     pub shutdown: Option<PocketGuestShutdownFn>,
+    pub initialize: Option<PocketGuestInitializeFn>,
+}
+impl PocketGuestV1 {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, evaluate) + core::mem::size_of::<Option<PocketGuestEvaluateFn>>() <= capacity {
+            value.evaluate = unsafe { bytes.add(core::mem::offset_of!(Self, evaluate)).cast::<Option<PocketGuestEvaluateFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, frame) + core::mem::size_of::<Option<PocketGuestFrameFn>>() <= capacity {
+            value.frame = unsafe { bytes.add(core::mem::offset_of!(Self, frame)).cast::<Option<PocketGuestFrameFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, collect) + core::mem::size_of::<Option<PocketGuestCollectFn>>() <= capacity {
+            value.collect = unsafe { bytes.add(core::mem::offset_of!(Self, collect)).cast::<Option<PocketGuestCollectFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, shutdown) + core::mem::size_of::<Option<PocketGuestShutdownFn>>() <= capacity {
+            value.shutdown = unsafe { bytes.add(core::mem::offset_of!(Self, shutdown)).cast::<Option<PocketGuestShutdownFn>>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, initialize) + core::mem::size_of::<Option<PocketGuestInitializeFn>>() <= capacity {
+            value.initialize = unsafe { bytes.add(core::mem::offset_of!(Self, initialize)).cast::<Option<PocketGuestInitializeFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, evaluate) + core::mem::size_of::<Option<PocketGuestEvaluateFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, evaluate)).cast::<Option<PocketGuestEvaluateFn>>().write_unaligned(self.evaluate); }
+        }
+        if core::mem::offset_of!(Self, frame) + core::mem::size_of::<Option<PocketGuestFrameFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, frame)).cast::<Option<PocketGuestFrameFn>>().write_unaligned(self.frame); }
+        }
+        if core::mem::offset_of!(Self, collect) + core::mem::size_of::<Option<PocketGuestCollectFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, collect)).cast::<Option<PocketGuestCollectFn>>().write_unaligned(self.collect); }
+        }
+        if core::mem::offset_of!(Self, shutdown) + core::mem::size_of::<Option<PocketGuestShutdownFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, shutdown)).cast::<Option<PocketGuestShutdownFn>>().write_unaligned(self.shutdown); }
+        }
+        if core::mem::offset_of!(Self, initialize) + core::mem::size_of::<Option<PocketGuestInitializeFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, initialize)).cast::<Option<PocketGuestInitializeFn>>().write_unaligned(self.initialize); }
+        }
+        true
+    }
 }
 const _: () = {
     let mut size = 0usize;
@@ -1876,6 +4943,11 @@ const _: () = {
     assert!(core::mem::offset_of!(PocketGuestV1, shutdown) == size);
     size += core::mem::size_of::<Option<PocketGuestShutdownFn>>();
     if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<Option<PocketGuestInitializeFn>>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGuestV1, initialize) == size);
+    size += core::mem::size_of::<Option<PocketGuestInitializeFn>>();
+    if field_align > align { align = field_align; }
     assert!(core::mem::size_of::<PocketGuestV1>() == size.div_ceil(align) * align);
     assert!(core::mem::align_of::<PocketGuestV1>() == align);
 };
@@ -1889,6 +4961,8 @@ unsafe extern "C" {
     pub fn pocket_runtime_add_input_source(runtime: *mut PocketRuntime, source: *const PocketInputSourceV1, context: *mut c_void) -> i32;
     pub fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32;
     pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
+    /// Returns 0 or 1 without executing the operation. Does not invalidate borrowed results.
+pub fn pocket_runtime_supports_op(runtime: *const PocketRuntime, op: u16) -> u32;
     /// Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime.
 pub fn pocket_runtime_op(runtime: *mut PocketRuntime, op: u16, args: *const c_void, length: usize, out: *mut PocketResult) -> i32;
     pub fn pocket_runtime_destroy(runtime: *mut PocketRuntime) -> ();

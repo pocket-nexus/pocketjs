@@ -42,13 +42,48 @@ operation table lives in `engine/spec/src/lib.rs`. `engine/drivers` owns
 `pocketjs-core` re-exports these types under their existing paths and keeps
 the `RenderResources` implementation for `Ui`.
 
-The driver traits and generated C declarations define the next runtime's
-display, renderer, input, and package-source boundaries. Existing hosts keep
-their frame loops, bindings, and package admission. **The declarations do not
-provide a runtime implementation or change the application package format.**
-The driver ABI remains under development until the external C and Rust
-consumer tests and deferred-device lifecycle tests pass. See
-[Native contract](/docs/native-contract/#driver-contract-migration).
+The driver traits and generated C declarations define display, renderer,
+input, and package-source boundaries. **The driver/runtime ABI remains a
+candidate contract.** Layout, C/Rust consumer, and deferred-device lifecycle
+tests check the implementation; they do not freeze its interface. This
+migration retains the application package format and the existing `hostAbi`
+meaning. See [Native contract](/docs/native-contract/#driver-contract-migration).
+
+## Application instances and guests
+
+**`pocket-runtime` owns one `CoreState` per application instance.** It retains
+`Ui`, the admitted package, asset registrations, guest, input sources, and
+renderer/display registrations. Guest callbacks reach that UI through a
+cloned `OpContext`; the runtime releases its UI borrow before invoking the
+JavaScript engine.
+
+`contracts/spec/ui-ops.ts` describes **61 numbered public calls and six private
+host hooks**. Existing operation numbers 1–56 retain their values. The five
+added numbers cover property batches, animation completions, font-stream
+batches, and text capture. `tools/ui-bindings.ts` generates the dispatcher and
+operation descriptors used by `guest-quickjs` and `guest-rquickjs`. Both adapters
+perform scalar and string coercion before borrowing a JavaScript byte view.
+They omit optional service methods when no provider is registered.
+
+The C adapter provides QuickJS-NG lifecycle callbacks; the Rust adapter
+implements the runtime's `Guest` trait. Both retain the eight-argument frame
+wire, promise-job draining, host identity, tick rate, viewport, and native asset
+tables. **Absent asset tables mean JavaScript must load assets from `__pak`.**
+An empty native table means native loading completed without that asset kind.
+
+`pocket-runtime-cabi` owns the instance C entry points and the compatibility
+implementations for the old UI and IDF libraries. `engine/ui-cabi` and
+`hosts/esp-idf/native/ui-core` retain their library names and delegate to those
+implementations, whose UI state uses `CoreState`. The GLES backend now resides
+in `engine/runtime-cabi/src/compat/ui/gl`. Existing C guest entry points use
+`pocket_legacy_runtime_*` symbols; the old rquickjs `UiSurface` remains available
+while hosts migrate to instance registration.
+
+The presentation coordinator keeps borrowed resources alive until renderer
+and display work reaches a terminal state. **It redraws each acquired CPU
+region in full.** Persistent display-buffer identities are required before
+this path can reuse a previous buffer's damage history. Existing host damage
+APIs retain their compatibility paths.
 
 ## Core extraction
 
@@ -151,8 +186,9 @@ Everything *above* the backend follows the same contract across targets. The
 layout you see in the browser [playground](/playground/) is the same layout,
 computed by the same code, that runs on the handheld.
 
-ESP-IDF exposes the same stages as separate libraries — `pocketjs_guest`,
-`pocketjs_ui_core`, `pocketjs_ui_qjs`, `pocketjs_render_rgb565`. **Only the
+ESP-IDF exposes the same stages through `pocketjs_guest`, `pocketjs_ui_core`,
+`pocketjs_ui_qjs`, and `pocketjs_render_rgb565`. The native compatibility
+implementations share the runtime archive. **Only the
 optional runner creates a task; the product BSP owns input, physical buffers,
 and presentation.** See [ESP-IDF](/docs/esp-idf/).
 

@@ -66,6 +66,57 @@ pub fn find<'a>(pak: &'a [u8], key: &str) -> Option<&'a [u8]> {
         .map(|entry| entry.blob)
 }
 
+/// Validate the complete directory before native asset installation. The
+/// tolerant `entries` iterator remains available for legacy lookup callers.
+/// Empty packages contain no assets. Names follow the existing ASCII wire
+/// contract and may not contain NUL or repeat another directory entry.
+pub fn checked_entries(pak: &[u8]) -> Result<PakEntries<'_>, ()> {
+    if pak.is_empty() {
+        return Ok(entries(pak));
+    }
+    if pak.len() < 32
+        || read_u32(pak, 0) != Some(spec::pak::MAGIC)
+        || read_u16(pak, 4) != Some(spec::pak::VERSION)
+    {
+        return Err(());
+    }
+    let count = read_u32(pak, 8).ok_or(())? as usize;
+    let directory = read_u32(pak, 12).ok_or(())? as usize;
+    let names = read_u32(pak, 16).ok_or(())? as usize;
+    if directory > pak.len()
+        || names > pak.len()
+        || count > pak.len().saturating_sub(directory) / spec::pak::ENTRY_SIZE
+    {
+        return Err(());
+    }
+    let mut seen = alloc::vec::Vec::new();
+    seen.try_reserve(count).map_err(|_| ())?;
+    for i in 0..count {
+        let at = directory + i * spec::pak::ENTRY_SIZE;
+        let offset = read_u32(pak, at + 4).ok_or(())? as usize;
+        let length = read_u32(pak, at + 8).ok_or(())? as usize;
+        let start = names
+            .checked_add(read_u32(pak, at + 12).ok_or(())? as usize)
+            .ok_or(())?;
+        let name_length = read_u16(pak, at + 16).ok_or(())? as usize;
+        if offset > pak.len() || length > pak.len() - offset || name_length == 0 {
+            return Err(());
+        }
+        let name = pak
+            .get(start..start.checked_add(name_length).ok_or(())?)
+            .ok_or(())?;
+        if name.iter().any(|&c| c == 0 || c > 127) {
+            return Err(());
+        }
+        seen.push(name);
+    }
+    seen.sort_unstable();
+    if seen.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(());
+    }
+    Ok(entries(pak))
+}
+
 impl<'a> Iterator for PakEntries<'a> {
     type Item = PakEntry<'a>;
 
@@ -140,5 +191,25 @@ mod tests {
         let mut pak = fixture();
         pak[40..44].copy_from_slice(&u32::MAX.to_le_bytes());
         assert_eq!(entries(&pak).count(), 0);
+    }
+
+    #[test]
+    fn native_admission_checks_the_whole_directory_and_rejects_duplicate_names() {
+        let mut pak = fixture();
+        assert_eq!(checked_entries(&pak).unwrap().count(), 1);
+        pak[40..44].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(checked_entries(&pak).is_err());
+        let mut pak = fixture();
+        let second = 32 + spec::pak::ENTRY_SIZE;
+        let names = second + spec::pak::ENTRY_SIZE;
+        let record = pak[32..second].to_vec();
+        pak[second..names].copy_from_slice(&record);
+        pak[8..12].copy_from_slice(&2u32.to_le_bytes());
+        pak[16..20].copy_from_slice(&(names as u32).to_le_bytes());
+        pak[names..names + 3].copy_from_slice(b"map");
+        assert!(checked_entries(&pak).is_err());
+        pak[second + 12..second + 16].copy_from_slice(&3u32.to_le_bytes());
+        pak[names + 3..names + 6].copy_from_slice(b"img");
+        assert_eq!(checked_entries(&pak).unwrap().count(), 2);
     }
 }

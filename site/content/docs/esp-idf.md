@@ -117,7 +117,7 @@ the IDF `PYTHON` interpreter (or `python3`/`python` from `PATH`) and runs the
 component's `tools/embed_package.py`, which turns the `.pocket` file and the
 host profile into the generated `.h`, `.c`, and `.S`. **Neither Bun nor the
 `pocket` CLI runs**, and the native core and renderer link from the prebuilt
-archives unless `POCKETJS_RUST_FROM_SOURCE=ON`.
+runtime archive unless `POCKETJS_RUST_FROM_SOURCE=ON`.
 
 ### Compile from the IDF build
 
@@ -349,10 +349,11 @@ When using the runner, call `pocketjs_runner_stop` before step 2.
 
 ## Rust archives
 
-Registry releases contain separate core and renderer archives for P4 and S3:
-`pocketjs_ui_core` owns `libpocketjs_idf_ui_core.a`, and
-`pocketjs_render_rgb565` owns `libpocketjs_idf_render_rgb565.a`. The renderer
-uses C resource views, not the private Rust layout of the core. Set
+**Registry releases contain one Rust archive per target.**
+`pocketjs_ui_core` owns `libpocketjs_idf_ui_core.a`, which exports both UI and
+RGB565 interfaces. `pocketjs_render_rgb565` links those symbols through its
+UI component dependency. The archive contains one allocator and panic handler.
+Set
 `POCKETJS_RUST_FROM_SOURCE=ON` only when modifying the core or renderer. The
 build checks the developer-provided Cargo, compiler target, and linker and does
 not install a Rust toolchain.

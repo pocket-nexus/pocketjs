@@ -14,7 +14,7 @@ static int offload_bounded_string(JSContext *ctx, JSValueConst value) {
   JS_FreeValue(ctx, count);
   return ok;
 }
-void pocket_runtime_offload_key(const char *path) {
+void pocket_legacy_runtime_offload_key(const char *path) {
   if (path && strlen(path) < sizeof offload_key_path) strcpy(offload_key_path, path);
 }
 static JSValue offload_operation(JSContext *ctx, JSValueConst self, int argc, JSValueConst *argv, int op) {

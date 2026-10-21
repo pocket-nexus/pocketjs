@@ -59,9 +59,17 @@ device vocabulary, C records, callbacks, and runtime function declarations.
 assertions check field offsets, alignment, and record size using the target's
 primitive alignment rules.
 
-**The new runtime functions are declarations.** Existing QuickJS, rquickjs,
-Wasm, and ESP-IDF entry points remain in use. Generated bindings and runtime
-registration follow the contract extraction stage.
+**`pocket-runtime-cabi` implements the instance runtime functions.**
+`pocket-runtime` owns application state and driver registration. The C and Rust
+guest adapters use signatures from `contracts/spec/ui-ops.ts`, whose generated
+dispatcher validates argument records before calling the core. Byte arguments
+remain borrowed for the call; byte results expire at the next call on the same
+instance, including a failed call.
+
+The old UI and ESP-IDF library names delegate to compatibility implementations
+in `engine/runtime-cabi/src/compat`. Existing QuickJS C, rquickjs `UiSurface`,
+and Wasm entry paths remain available. **The driver/runtime ABI is still a
+candidate contract**; package format and `hostAbi` retain their current meaning.
 
 `DisplayOutput` owns acquired targets and display transfers. `Renderer`
 consumes the core's DrawList and borrowed resource views. The Rust render

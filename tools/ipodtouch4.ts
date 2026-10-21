@@ -762,7 +762,7 @@ export function prepareIPodNative(
   mustRun(
     cargo,
     ["build", "--release", "--locked", "--manifest-path", resolvePath(appRoot, nativeCore?.manifest ?? join(REPOSITORY, "engine/ui-cabi/Cargo.toml")),
-      "--features", nativeCore?.features.join(",") ?? "bare-platform,gles1", "--target",
+      ...(nativeCore ? [] : ["--no-default-features"]), "--features", nativeCore?.features.join(",") ?? "standalone-extension-provider,bare-platform,gles1", "--target",
       join(REPOSITORY, "hosts/ipodtouch4/armv7-apple-ios.json"), "-Z", "json-target-spec",
       "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
     {

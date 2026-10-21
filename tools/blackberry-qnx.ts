@@ -173,8 +173,8 @@ function buildRustCore(): string {
       "build",
       "--release",
       "--locked",
-      "--features",
-      "bare-platform",
+      "--no-default-features", "--features",
+      "standalone-extension-provider,bare-platform",
       "--target",
       rustTargetSpec,
       "-Z",
@@ -329,8 +329,8 @@ function buildRuntime(): void {
   }
   for (const symbol of [
     " main",
-    " pocket_runtime_boot",
-    " pocket_runtime_tick",
+    " pocket_legacy_runtime_boot",
+    " pocket_legacy_runtime_tick",
     " ui_gl_render",
   ]) {
     if (!symbols.includes(symbol)) {

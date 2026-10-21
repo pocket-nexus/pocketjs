@@ -566,6 +566,8 @@ export async function buildApp(
         "build",
         "--release",
         "--locked",
+        "--no-default-features",
+        "--features", "standalone-extension-provider",
         "--config",
         "profile.release.opt-level=3",
         "--target",

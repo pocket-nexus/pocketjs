@@ -5,6 +5,13 @@ on:
     paths:
       - ".github/workflows/native-c-harness.yml"
       - "engine/quickjs-c/**"
+      - "engine/Cargo.toml"
+      - "engine/Cargo.lock"
+      - "tools/ui-bindings.ts"
+      - "tools/test-quickjs-guest.ts"
+      - "tests/ui-bindings.test.ts"
+      - "tests/runtime-cabi.test.ts"
+      - "tests/fixtures/runtime-cabi/**"
       - "hosts/shared/contact_latch.h"
       - "hosts/ios-legacy/**"
       - "hosts/android/**"
@@ -37,6 +44,11 @@ on:
       - "tools/tape.ts"
       - "tests/fixtures/contact-latch.c"
       - "engine/ui-cabi/**"
+      - "engine/runtime/**"
+      - "engine/runtime-cabi/**"
+      - "engine/guest-quickjs/**"
+      - "engine/guest-rquickjs/**"
+      - "engine/backends/rgb565/**"
       - "engine/core/**"
       - "engine/spec/**"
       - "engine/drivers/**"
@@ -71,6 +83,13 @@ on:
     paths:
       - ".github/workflows/native-c-harness.yml"
       - "engine/quickjs-c/**"
+      - "engine/Cargo.toml"
+      - "engine/Cargo.lock"
+      - "tools/ui-bindings.ts"
+      - "tools/test-quickjs-guest.ts"
+      - "tests/ui-bindings.test.ts"
+      - "tests/runtime-cabi.test.ts"
+      - "tests/fixtures/runtime-cabi/**"
       - "hosts/shared/contact_latch.h"
       - "hosts/ios-legacy/**"
       - "hosts/android/**"
@@ -103,6 +122,11 @@ on:
       - "tools/tape.ts"
       - "tests/fixtures/contact-latch.c"
       - "engine/ui-cabi/**"
+      - "engine/runtime/**"
+      - "engine/runtime-cabi/**"
+      - "engine/guest-quickjs/**"
+      - "engine/guest-rquickjs/**"
+      - "engine/backends/rgb565/**"
       - "engine/core/**"
       - "engine/spec/**"
       - "engine/drivers/**"
@@ -163,7 +187,7 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/ui-bindings.test.ts tests/runtime-cabi.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - name: Native contacts, package corpus and device installation contracts
         run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts tests/ipodtouch4-profile.test.ts tests/ipodtouch4-resources.test.ts tests/repack-ipod.test.ts
       - name: Build Clear simulator inputs
@@ -171,9 +195,13 @@ jobs:
       - name: Clear input and text chain
         run: bun test --conditions=browser tests/clear-text.test.ts tests/clear-ime-loading.test.ts
       - name: UI singleton access and alignment policy
-        run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features harness-access
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
       - name: GLES1 vertex layout and ordered batches
-        run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features gles1 gl::tests
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
+      - name: Runtime scheduling and generated Rust guest
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs
+      - name: Generated C guest against QuickJS-NG
+        run: bun tools/test-quickjs-guest.ts
       - name: Link and execute the C allocator and texture draw fixtures
         run: bun test tests/ui-cabi-allocator.test.ts tests/ui-cabi-psm-draw.test.ts
       - name: Test suite coverage and tape assertion contracts

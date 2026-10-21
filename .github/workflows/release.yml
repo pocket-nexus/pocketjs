@@ -92,7 +92,7 @@ jobs:
       # The native UI C ABI is a standalone workspace because only historical
       # device builds need nightly build-std. Host tests stay stable-compatible.
       - name: Test native UI C ABI
-        run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
 
       - name: Test renderer goldens
         run: bun tests/golden.ts

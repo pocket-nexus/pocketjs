@@ -300,6 +300,12 @@ export const OP = {
   //                    record, at most PHYSICS_EVENT_MAX.
   physicsQuery: 56, //  (query, handle, a, b, c, d) -> f64. Picks and body
   //                    state reads (PHYSICS_QUERY).
+  // Public HostOps that predate their portable dispatcher numbers.
+  setPropBatch: 57,
+  takeAnimationCompletions: 58,
+  fontStreamBatch: 59,
+  captureTexts: 60,
+  capturedTexts: 61,
 } as const;
 
 // ---------------------------------------------------------------------------

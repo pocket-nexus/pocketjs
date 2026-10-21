@@ -25,33 +25,32 @@ name = "pocketjs_symbian_core"
 crate-type = ["rlib", "staticlib"]
 
 [features]
-default = ["standalone-extension-provider"]
-standalone-extension-provider = []
+default = ["std", "standalone-extension-provider"]
+std = ["pocket-runtime-cabi/std"]
+standalone-extension-provider = ["pocket-runtime-cabi/standalone-extension-provider"]
 # Reuse the no_std C ABI on Mach-O targets whose OS cfg is not `none`.
 bare-platform = []
 # Compile the fixed-function OpenGL ES 1.1 pipeline instead of the ES 2 one,
 # for GPUs that predate shaders (the original iPhone's PowerVR MBX Lite).
-gles1 = []
+gles1 = ["pocket-runtime-cabi/gles1"]
 # Validate the GL error queue around every frame. Debug builds do this already;
 # release builds opt in because mobile drivers can synchronize the GPU here.
-gl-frame-validation = []
+gl-frame-validation = ["pocket-runtime-cabi/gl-frame-validation"]
 # Omit the GLES backend for framebuffer-only hosts such as Windows CE/GDI.
 # The C ABI keeps its GL entry points, but they return failure without pulling
 # graphics symbols into the native link.
-software-only = []
+software-only = ["pocket-runtime-cabi/software-only"]
 # Route no_std allocations through host-owned functions. Windows CE hosts use
 # this to avoid depending on the C runtime's allocator ABI.
 host-allocator = []
 # Report native boot checkpoints to hosts that expose pocket_host_boot_stage.
-boot-stage = []
+boot-stage = ["pocket-runtime-cabi/boot-stage"]
 # Allow an in-process harness crate to access an already initialized retained Ui
 # singleton through an explicit unsafe contract. Production hosts leave this disabled.
-harness-access = []
+harness-access = ["pocket-runtime-cabi/harness-access"]
 
 [dependencies]
-pocketjs-core = { path = "../core" }
-pocket-tri-batch = { path = "../render/tri-batch" }
-pocket-tex-cache = { path = "../render/tex-cache" }
+pocket-runtime-cabi = { path = "../runtime-cabi", default-features = false, features = ["legacy-ui"] }
 
 [profile.release]
 panic = "abort"

@@ -5,8 +5,11 @@ edition = "2021"
 license = "MIT"
 publish = false
 
+[dependencies]
+pocket-runtime-cabi = { path = "../../../../engine/runtime-cabi", default-features = false, features = ["legacy-idf"] }
+
 [features]
 default = []
-std = []
+std = ["pocket-runtime-cabi/std"]
 
 [workspace]

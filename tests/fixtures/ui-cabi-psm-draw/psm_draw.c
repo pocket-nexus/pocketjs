@@ -125,7 +125,7 @@ static int run_small(uint32_t psm, const char *name) {
   ui_insert_before(root, image, 0); /* 0 = append */
 
   /* One core tick performs layout; render_incremental composites. This is
-   * the exact sequence pocket_runtime_tick runs on the d211 device. */
+   * the exact sequence pocket_legacy_runtime_tick runs on the d211 device. */
   ui_tick();
   const uint8_t *framebuffer = ui_render_incremental_scaled(1);
   if (framebuffer == NULL) {

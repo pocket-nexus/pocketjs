@@ -1,0 +1,167 @@
+//! Source-independent admission with one owned, stable package allocation.
+//!
+//! `PackageSource::all` can expire at the next mutable source call. Copying it
+//! once keeps script buffers and asset slices alive through guest shutdown.
+//! Range sources use the same parser and admission rules as embedded sources.
+
+use crate::{select_guest, GuestError};
+use alloc::{boxed::Box, vec::Vec};
+use core::ops::Range;
+use pocket_drivers::{PackageSource, SourceError};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadError {
+    Source(SourceError),
+    TooLarge,
+    NoMemory,
+    Truncated,
+    Changed,
+    Admission(GuestError),
+}
+
+pub struct LoadedPackage {
+    bytes: Box<[u8]>,
+    js: Range<usize>,
+    pak: Range<usize>,
+    plan: Range<usize>,
+    pub package_hash: u64,
+    pub variant_hash: u64,
+}
+
+impl LoadedPackage {
+    pub fn load(
+        source: &mut dyn PackageSource,
+        target: &str,
+        host_abi: u32,
+        byte_limit: usize,
+    ) -> Result<Self, LoadError> {
+        let length = source.length().map_err(LoadError::Source)?;
+        if length > byte_limit || length > isize::MAX as usize {
+            return Err(LoadError::TooLarge);
+        }
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|_| LoadError::NoMemory)?;
+        match source.all() {
+            Ok(all) => {
+                if all.len() != length {
+                    return Err(LoadError::Changed);
+                }
+                bytes.extend_from_slice(all);
+            }
+            Err(SourceError::Unsupported) => {
+                bytes.resize(length, 0);
+                let mut at = 0;
+                while at < length {
+                    let count = source
+                        .range(at, &mut bytes[at..])
+                        .map_err(LoadError::Source)?;
+                    if count == 0 {
+                        return Err(LoadError::Truncated);
+                    }
+                    if count > length - at {
+                        return Err(LoadError::Changed);
+                    }
+                    at += count;
+                }
+            }
+            Err(error) => return Err(LoadError::Source(error)),
+        }
+        // Never trust embedding as a reason to skip the footer check. All
+        // sources pass through the same admission path.
+        Self::from_bytes(bytes.into_boxed_slice(), target, host_abi)
+    }
+
+    pub fn from_bytes(bytes: Box<[u8]>, target: &str, host_abi: u32) -> Result<Self, LoadError> {
+        let guest = select_guest(&bytes, target, host_abi, false).map_err(LoadError::Admission)?;
+        let range = |part: &[u8]| {
+            if part.is_empty() {
+                return 0..0;
+            }
+            let offset = part.as_ptr() as usize - bytes.as_ptr() as usize;
+            offset..offset + part.len()
+        };
+        let (js, pak, plan) = (range(guest.js), range(guest.pak), range(guest.plan));
+        let (package_hash, variant_hash) = (guest.package_hash, guest.variant_hash);
+        Ok(Self {
+            bytes,
+            js,
+            pak,
+            plan,
+            package_hash,
+            variant_hash,
+        })
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn javascript(&self) -> &[u8] {
+        &self.bytes[self.js.clone()]
+    }
+    pub fn pak(&self) -> &[u8] {
+        &self.bytes[self.pak.clone()]
+    }
+    pub fn plan(&self) -> &[u8] {
+        &self.bytes[self.plan.clone()]
+    }
+}
+
+/// An embedded or caller-owned memory source; no I/O implementation is needed.
+pub struct MemorySource<B>(pub B);
+impl<B: AsRef<[u8]>> PackageSource for MemorySource<B> {
+    fn length(&self) -> Result<usize, SourceError> {
+        Ok(self.0.as_ref().len())
+    }
+    fn all(&mut self) -> Result<&[u8], SourceError> {
+        Ok(self.0.as_ref())
+    }
+    fn range(&mut self, offset: usize, buffer: &mut [u8]) -> Result<usize, SourceError> {
+        let remaining = self
+            .0
+            .as_ref()
+            .get(offset..)
+            .ok_or(SourceError::OutOfBounds)?;
+        let length = remaining.len().min(buffer.len());
+        buffer[..length].copy_from_slice(&remaining[..length]);
+        Ok(length)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const FIXTURE: &[u8] = include_bytes!("../../../tests/fixtures/packages/synthetic.pocket");
+    struct ShortReads;
+    impl PackageSource for ShortReads {
+        fn length(&self) -> Result<usize, SourceError> {
+            Ok(FIXTURE.len())
+        }
+        fn range(&mut self, offset: usize, output: &mut [u8]) -> Result<usize, SourceError> {
+            let count = output.len().min(7).min(FIXTURE.len() - offset);
+            output[..count].copy_from_slice(&FIXTURE[offset..offset + count]);
+            Ok(count)
+        }
+    }
+    #[test]
+    fn memory_and_short_range_reads_have_identical_admission() {
+        let memory =
+            LoadedPackage::load(&mut MemorySource(FIXTURE), "psp", 1, FIXTURE.len()).unwrap();
+        let ranges = LoadedPackage::load(&mut ShortReads, "psp", 1, FIXTURE.len()).unwrap();
+        assert_eq!(memory.bytes(), ranges.bytes());
+        assert_eq!(memory.javascript(), ranges.javascript());
+        assert_eq!(memory.pak(), ranges.pak());
+        assert!(matches!(
+            LoadedPackage::load(&mut ShortReads, "psp", 1, FIXTURE.len() - 1),
+            Err(LoadError::TooLarge)
+        ));
+    }
+    #[test]
+    fn owned_package_survives_source_mutation_and_bad_hash_is_rejected() {
+        let mut source = MemorySource(FIXTURE.to_vec());
+        let package = LoadedPackage::load(&mut source, "psp", 1, usize::MAX).unwrap();
+        source.0.fill(0);
+        assert_eq!(package.bytes(), FIXTURE);
+        assert!(LoadedPackage::load(&mut source, "psp", 1, usize::MAX).is_err());
+    }
+}

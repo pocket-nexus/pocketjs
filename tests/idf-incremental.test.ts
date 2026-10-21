@@ -16,16 +16,19 @@ describe("ESP-IDF incremental package build", () => {
       const component = join(temporary, "hosts/esp-idf/components/pocketjs_ui_core");
       const build = join(temporary, "build");
       mkdirSync(component, { recursive: true });
-      for (const file of ["native_archive.cmake", "prepare_archive.cmake", "rustc_wrapper.rs"])
+      for (const file of ["native_archive.cmake", "prepare_archive.cmake"])
         cpSync(join(root, "hosts/esp-idf/components/pocketjs_ui_core", file), join(component, file));
       const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/ui-core");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
-      const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages"];
+      const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi", "backends/rgb565"];
       for (const source of [native, ...crates.map(crate => join(contracts, crate))]) {
         mkdirSync(join(source, "src"), { recursive: true });
         writeFileSync(join(source, "Cargo.toml"), "# build dependency fixture\n");
         writeFileSync(join(source, "src/lib.rs"), "// build dependency fixture\n");
       }
+      const compatibility = join(contracts, "runtime-cabi/src/compat/idf/render.rs");
+      mkdirSync(join(contracts, "runtime-cabi/src/compat/idf"), { recursive: true });
+      writeFileSync(compatibility, "// compatibility source dependency fixture\n");
       writeFileSync(join(temporary, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
 project(native_dependencies NONE)
 set(IDF_TARGET esp32s3)
@@ -45,6 +48,7 @@ pocketjs_link_native("${component}" ui-core pocketjs_idf_ui_core POCKETJS_TEST_A
       expect(archiveEdge).toBeDefined();
       for (const crate of crates) for (const file of ["Cargo.toml", "src/lib.rs"])
         expect(archiveEdge).toContain(join(contracts, crate, file).replaceAll(" ", "$ "));
+      expect(archiveEdge).toContain(compatibility.replaceAll(" ", "$ "));
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 30_000);
 

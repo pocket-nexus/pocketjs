@@ -7,7 +7,8 @@ Instance-owned retained UI core and native frame view.
 - QuickJS dependency: none
 - Renderer dependency: none
 
-The published component contains a target-native Rust archive. Normal Registry
+The published component contains one target-native Rust archive with both the
+UI and RGB565 C interfaces, one allocator, and one panic handler. Normal Registry
 consumers do not need Rust. `POCKETJS_RUST_FROM_SOURCE=ON` rebuilds it with the
 developer's existing Cargo, compiler target, and linker; PocketJS does not
 install or select a Rust toolchain.

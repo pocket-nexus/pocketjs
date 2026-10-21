@@ -21,19 +21,19 @@ static void *aligned(void *pointer) {
   return pointer;
 }
 
-void *pocket_host_alloc(size_t size) {
+void *pocket_legacy_host_alloc(size_t size) {
   allocations++;
   live_allocations++;
   return aligned(malloc(size));
 }
 
-void *pocket_host_realloc(void *pointer, size_t size) {
+void *pocket_legacy_host_realloc(void *pointer, size_t size) {
   reallocations++;
   if (pointer == NULL) live_allocations++;
   return aligned(realloc(pointer, size));
 }
 
-void pocket_host_free(void *pointer) {
+void pocket_legacy_host_free(void *pointer) {
   if (pointer != NULL) live_allocations--;
   free(pointer);
 }

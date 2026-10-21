@@ -135,7 +135,7 @@ describe("private iPhone 2G build profile", () => {
 
   test("the ES 1.1 pipeline enables the fixed-function state ES 2 gets from its shader", () => {
     const es1 = readFileSync(
-      join(REPOSITORY, "engine/ui-cabi/src/gl/es1.rs"),
+      join(REPOSITORY, "engine/runtime-cabi/src/compat/ui/gl/es1.rs"),
       "utf8",
     );
     // Texturing is a per-unit enable in ES 1.1 and has no ES 2 equivalent, so

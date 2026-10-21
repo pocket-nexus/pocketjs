@@ -568,10 +568,11 @@ function buildRuntime(): void {
       "build",
       "--release",
       "--locked",
+      "--no-default-features",
       "--features",
       // The MBX Lite predates shaders, so this target takes the core's
       // fixed-function GL pipeline rather than Symbian's ES 2 one.
-      "bare-platform,gles1",
+      "standalone-extension-provider,bare-platform,gles1",
       "--target",
       rustTargetSpec,
       "-Z",

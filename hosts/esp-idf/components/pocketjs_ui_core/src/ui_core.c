@@ -2,6 +2,8 @@
 #include "pocketjs/native_ui.h"
 
 #include <stdlib.h>
+#include <limits.h>
+#include <string.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -17,7 +19,7 @@ esp_err_t pocketjs_ui_core_load_assets(pocketjs_ui_core_t *core,
                         : ESP_ERR_INVALID_RESPONSE;
 }
 
-void *pocketjs_idf_rust_alloc(size_t size, size_t alignment) {
+void *pocket_host_alloc(size_t size, size_t alignment) {
   if (size == 0U || alignment == 0U || (alignment & (alignment - 1U)) != 0U) {
     return NULL;
   }
@@ -32,15 +34,38 @@ void *pocketjs_idf_rust_alloc(size_t size, size_t alignment) {
   return memory;
 }
 
-void pocketjs_idf_rust_dealloc(void *pointer, size_t size, size_t alignment) {
+void *pocket_host_realloc(void *pointer, size_t old_size, size_t alignment,
+                         size_t new_size) {
+  void *memory = pocket_host_alloc(new_size, alignment);
+  if (memory == NULL)
+    return NULL;
+  if (pointer != NULL) {
+    memcpy(memory, pointer, old_size < new_size ? old_size : new_size);
+    heap_caps_free(pointer);
+  }
+  return memory;
+}
+
+void pocket_host_free(void *pointer, size_t size, size_t alignment) {
   (void)size;
   (void)alignment;
   heap_caps_free(pointer);
 }
 
-void pocketjs_idf_rust_panic(void) {
-  ESP_LOGE(TAG, "Rust core panicked");
+void pocket_host_panic(const char *message, size_t length) {
+  ESP_LOGE(TAG, "PocketJS panic: %.*s", length > INT_MAX ? INT_MAX : (int)length,
+           message != NULL ? message : "");
   abort();
+}
+
+void pocket_host_log(int level, const char *message, size_t length) {
+  ESP_LOGI(TAG, "runtime[%d] %.*s", level,
+           length > INT_MAX ? INT_MAX : (int)length,
+           message != NULL ? message : "");
+}
+
+void pocket_host_boot_stage(int stage) {
+  ESP_LOGD(TAG, "PocketJS boot stage %d", stage);
 }
 
 void pocketjs_ui_core_config_defaults(pocketjs_ui_core_config_t *config) {

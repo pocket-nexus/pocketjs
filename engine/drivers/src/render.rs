@@ -23,7 +23,8 @@ pub enum RenderError {
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub struct RendererDescriptor {
-    formats: &'static [PixelFormat],
+    formats: [PixelFormat; 7],
+    format_count: usize,
     target_ownership: TargetOwnership,
     synchronization: Synchronization,
     draw_list_version: u32,
@@ -32,21 +33,25 @@ pub struct RendererDescriptor {
 
 impl RendererDescriptor {
     pub fn new(
-        formats: &'static [PixelFormat],
+        formats: &[PixelFormat],
         target_ownership: TargetOwnership,
         synchronization: Synchronization,
         draw_list_version: u32,
         zero_copy: bool,
     ) -> Result<Self, RenderError> {
         if formats.is_empty()
+            || formats.len() > 7
             || draw_list_version == 0
             || (target_ownership == TargetOwnership::CpuVisible
                 && synchronization != Synchronization::Immediate)
         {
             return Err(RenderError::Unsupported);
         }
+        let mut copied = [PixelFormat::Rgb565; 7];
+        copied[..formats.len()].copy_from_slice(formats);
         Ok(Self {
-            formats,
+            formats: copied,
+            format_count: formats.len(),
             target_ownership,
             synchronization,
             draw_list_version,
@@ -54,8 +59,8 @@ impl RendererDescriptor {
         })
     }
 
-    pub fn formats(&self) -> &'static [PixelFormat] {
-        self.formats
+    pub fn formats(&self) -> &[PixelFormat] {
+        &self.formats[..self.format_count]
     }
     pub fn target_ownership(&self) -> TargetOwnership {
         self.target_ownership
@@ -70,7 +75,7 @@ impl RendererDescriptor {
         self.zero_copy
     }
     pub fn accepts(&self, target: &Target<'_>) -> bool {
-        self.target_ownership == target.ownership() && self.formats.contains(&target.format())
+        self.target_ownership == target.ownership() && self.formats().contains(&target.format())
     }
 }
 

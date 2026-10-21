@@ -1,7 +1,10 @@
 #include "esp_heap_caps.h"
 #include <stdlib.h>
 #include <string.h>
+/* Host sysroot alloc can reference this symbol even with panic=abort. */
+void rust_eh_personality(void) { abort(); }
 long pocketjs_test_fail_after = -1;
+long pocketjs_test_heap_fail_after = -1;
 static int fail(void) {
   if (pocketjs_test_fail_after < 0)
     return 0;
@@ -26,6 +29,10 @@ void *heap_caps_malloc(size_t size, unsigned caps) {
 }
 void *heap_caps_aligned_alloc(size_t alignment, size_t size, unsigned caps) {
   (void)caps;
+  if (pocketjs_test_heap_fail_after == 0)
+    return NULL;
+  if (pocketjs_test_heap_fail_after > 0)
+    --pocketjs_test_heap_fail_after;
   void *p = NULL;
   return posix_memalign(&p, alignment, size) == 0 ? p : NULL;
 }

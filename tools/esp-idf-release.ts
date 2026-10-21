@@ -2,7 +2,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { NATIVE_COMPONENTS, RUST_TARGETS, verifyNativeReceipt, type IdfTarget } from "./esp-idf-native-receipt.ts";
+import { NATIVE_COMPONENTS, NATIVE_ENGINE_CRATES, RUST_TARGETS, verifyNativeReceipt, type IdfTarget } from "./esp-idf-native-receipt.ts";
 import { verifyComponentVersions } from "./esp-idf-component-versions.ts";
 import { generatedIdfContracts } from "./esp-idf-contracts.ts";
 
@@ -39,31 +39,12 @@ export async function stageEspIdfComponents(root: string, output: string): Promi
     mkdirSync(vendor, { recursive: true });
     const sources = [
       [join(root, "hosts/esp-idf/native", spec.crate), "native"],
-      [join(root, "hosts/esp-idf/native/abi"), "abi"],
-      [join(root, "hosts/esp-idf/native/runtime"), "runtime"],
-      [join(root, "engine/core"), "core"],
-      [join(root, "engine/spec"), "spec"],
-      [join(root, "engine/drivers"), "drivers"],
-      [join(root, "engine/raster"), "raster"],
-      [join(root, "engine/present"), "present"],
-      [join(root, "engine/package"), "package"],
-      [join(root, "engine/modules/media"), "modules/media"],
-      [join(root, "engine/render/draw-ops"), "render/draw-ops"],
-      [join(root, "engine/render/glyph-pages"), "render/glyph-pages"],
-      ...(spec.crate === "render-rgb565" ? [[join(root, "engine/backends/rgb565"), "renderer"]] : []),
+      ...NATIVE_ENGINE_CRATES.map(crate => [join(root, "engine", crate), crate]),
     ];
     for (const [source, name] of sources) cpSync(source, join(vendor, name), { recursive: true, filter: path => !ignored(path) });
     const manifest = join(vendor, "native/Cargo.toml");
     writeFileSync(manifest, readFileSync(manifest, "utf8")
-      .replaceAll("../../../../engine/core", "../core")
-      .replaceAll("../../../../engine/backends/rgb565", "../renderer"));
-    if (spec.crate === "render-rgb565") {
-      const backendManifest = join(vendor, "renderer/Cargo.toml");
-      // The backend moves from engine/backends/rgb565 to vendor/renderer;
-      // its engine siblings are one level closer in the staged component.
-      writeFileSync(backendManifest, readFileSync(backendManifest, "utf8")
-        .replaceAll(/(\bpath\s*=\s*["'])\.\.\/\.\.\//g, "$1../"));
-    }
+      .replaceAll("../../../../engine/runtime-cabi", "../runtime-cabi"));
   }
   for (const spec of NATIVE_COMPONENTS) for (const target of Object.keys(RUST_TARGETS) as IdfTarget[])
     await verifyNativeReceipt(root, spec, target, join(output, spec.component, "lib", target));

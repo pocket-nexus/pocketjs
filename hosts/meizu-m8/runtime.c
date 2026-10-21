@@ -65,7 +65,7 @@ static void write_status(const char *state) {
   char record[1024];
   DWORD written = 0;
   HANDLE file;
-  const char *action_name = pocket_runtime_action_name();
+  const char *action_name = pocket_legacy_runtime_action_name();
   int length = snprintf(
     record,
     sizeof(record),
@@ -107,8 +107,8 @@ static void write_status(const char *state) {
     touch_y,
     touch_hit,
     action_name == NULL ? "" : action_name,
-    pocket_runtime_action_value(),
-    pocket_runtime_action_sequence(),
+    pocket_legacy_runtime_action_value(),
+    pocket_legacy_runtime_action_sequence(),
     capture_attempts,
     capture_successes,
     capture_error,
@@ -140,16 +140,16 @@ void pocket_host_boot_stage(int stage) {
   write_status("starting");
 }
 
-void *pocket_host_alloc(size_t size) {
+void *pocket_legacy_host_alloc(size_t size) {
   return HeapAlloc(GetProcessHeap(), 0, size);
 }
 
-void *pocket_host_realloc(void *pointer, size_t size) {
+void *pocket_legacy_host_realloc(void *pointer, size_t size) {
   if (pointer == NULL) return HeapAlloc(GetProcessHeap(), 0, size);
   return HeapReAlloc(GetProcessHeap(), 0, pointer, size);
 }
 
-void pocket_host_free(void *pointer) {
+void pocket_legacy_host_free(void *pointer) {
   if (pointer != NULL) HeapFree(GetProcessHeap(), 0, pointer);
 }
 
@@ -173,14 +173,14 @@ static void write_framebuffer_bmp(void) {
   if (framebuffer == NULL) return;
   capture_attempts += 1;
   capture_error = 0;
-  pixel_bytes = (DWORD)(pocket_runtime_width() * pocket_runtime_height() * 4U);
+  pixel_bytes = (DWORD)(pocket_legacy_runtime_width() * pocket_legacy_runtime_height() * 4U);
   memset(header, 0, sizeof(header));
   put_u16_le(header, 0, 0x4d42);
   put_u32_le(header, 2, (uint32_t)(sizeof(header) + pixel_bytes));
   put_u32_le(header, 10, (uint32_t)sizeof(header));
   put_u32_le(header, 14, 40);
-  put_u32_le(header, 18, (uint32_t)pocket_runtime_width());
-  put_u32_le(header, 22, (uint32_t)(-(int32_t)pocket_runtime_height()));
+  put_u32_le(header, 18, (uint32_t)pocket_legacy_runtime_width());
+  put_u32_le(header, 22, (uint32_t)(-(int32_t)pocket_legacy_runtime_height()));
   put_u16_le(header, 26, 1);
   put_u16_le(header, 28, 32);
   put_u32_le(header, 34, pixel_bytes);
@@ -239,14 +239,14 @@ static void render_frame(HWND window) {
   int bounds[4];
   RECT dirty;
   delivered_touch = touch_down;
-  if (!pocket_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 1)) {
-    copy_error(pocket_runtime_error());
+  if (!pocket_legacy_runtime_frame_ticks(touch_down, touch_x, touch_y, touch_hit, 1)) {
+    copy_error(pocket_legacy_runtime_error());
     write_status("failed");
     KillTimer(window, POCKET_TIMER_ID);
     InvalidateRect(window, NULL, FALSE);
     return;
   }
-  framebuffer = pocket_runtime_render();
+  framebuffer = pocket_legacy_runtime_render();
   frames += 1;
   if (delivered_touch) touch_was_sent = 1;
   if (touch_release_after_frame) {
@@ -254,14 +254,14 @@ static void render_frame(HWND window) {
     touch_hit = 0;
     touch_release_after_frame = 0;
   }
-  action_sequence = pocket_runtime_action_sequence();
+  action_sequence = pocket_legacy_runtime_action_sequence();
   action_advanced = action_sequence > observed_action_sequence;
   if (action_advanced) {
     observed_action_sequence = action_sequence;
     completed_touch_sequences += 1;
     capture_pending = 1;
   }
-  if (pocket_runtime_damage_bounds(bounds)) {
+  if (pocket_legacy_runtime_damage_bounds(bounds)) {
     RECT client;
     GetClientRect(window, &client);
     dirty.left = bounds[0] * client.right / POCKET_LOGICAL_WIDTH;
@@ -286,8 +286,8 @@ static void paint(HWND window) {
   if (framebuffer != NULL) {
     memset(&bitmap, 0, sizeof(bitmap));
     bitmap.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bitmap.bmiHeader.biWidth = (LONG)pocket_runtime_width();
-    bitmap.bmiHeader.biHeight = -(LONG)pocket_runtime_height();
+    bitmap.bmiHeader.biWidth = (LONG)pocket_legacy_runtime_width();
+    bitmap.bmiHeader.biHeight = -(LONG)pocket_legacy_runtime_height();
     bitmap.bmiHeader.biPlanes = 1;
     bitmap.bmiHeader.biBitCount = 32;
     bitmap.bmiHeader.biCompression = BI_RGB;
@@ -295,12 +295,12 @@ static void paint(HWND window) {
       dc,
       0,
       0,
-      (DWORD)pocket_runtime_width(),
-      (DWORD)pocket_runtime_height(),
+      (DWORD)pocket_legacy_runtime_width(),
+      (DWORD)pocket_legacy_runtime_height(),
       0,
       0,
       0,
-      (UINT)pocket_runtime_height(),
+      (UINT)pocket_legacy_runtime_height(),
       framebuffer,
       &bitmap,
       DIB_RGB_COLORS
@@ -344,7 +344,7 @@ static LRESULT CALLBACK window_proc(
       SetCapture(window);
       physical_to_logical(window, parameter, &touch_x, &touch_y);
       touch_down = 1;
-      touch_hit = pocket_runtime_hit_test_bounds((float)touch_x, (float)touch_y);
+      touch_hit = pocket_legacy_runtime_hit_test_bounds((float)touch_x, (float)touch_y);
       touch_was_sent = 0;
       touch_release_after_frame = 0;
       touch_sequences += 1;
@@ -372,7 +372,7 @@ static LRESULT CALLBACK window_proc(
     case WM_DESTROY:
       KillTimer(window, POCKET_TIMER_ID);
       write_status("terminated");
-      pocket_runtime_shutdown();
+      pocket_legacy_runtime_shutdown();
       PostQuitMessage(0);
       return 0;
     default:
@@ -429,7 +429,7 @@ int WINAPI WinMain(
   );
 
   write_status("starting");
-  if (!pocket_runtime_boot(
+  if (!pocket_legacy_runtime_boot(
         (const char *)pocket_app_js,
         pocket_app_js_len,
         pocket_app_pak,
@@ -438,7 +438,7 @@ int WINAPI WinMain(
         POCKET_LOGICAL_HEIGHT
       )) {
     WCHAR wide_error[512];
-    copy_error(pocket_runtime_error());
+    copy_error(pocket_legacy_runtime_error());
     MultiByteToWideChar(CP_ACP, 0, runtime_error, -1, wide_error, 512);
     write_status("failed");
     MessageBoxW(window_handle, wide_error, L"PocketJS failed", MB_OK | MB_ICONERROR);

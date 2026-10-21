@@ -89,7 +89,7 @@ JNIEXPORT void JNICALL Java_dev_pocketnexus_android_PocketActivity_nativeConfigu
   snprintf(receipt_path, sizeof receipt_path, "%s/runtime.txt", path);
 #ifdef POCKET_OFFLOAD_POSIX
   char key[1024]; snprintf(key, sizeof key, "%s/offload.key", path);
-  pocket_runtime_offload_key(key);
+  pocket_legacy_runtime_offload_key(key);
 #endif
   (*env)->ReleaseStringUTFChars(env, directory, path);
 }
@@ -173,8 +173,8 @@ Java_dev_pocketnexus_android_PocketActivity_nativeSurfaceCreated(
   (void)owner;
   android_error[0] = '\0';
   if (runtime_booted) {
-    pocket_runtime_gl_reset();
-    gl_initialized = pocket_runtime_gl_initialize();
+    pocket_legacy_runtime_gl_reset();
+    gl_initialized = pocket_legacy_runtime_gl_initialize();
     if (!gl_initialized) set_android_error("GLES2 backend reinitialization failed");
     return (*env)->NewStringUTF(env, gl_initialized ? "ok" : android_error);
   }
@@ -200,7 +200,7 @@ Java_dev_pocketnexus_android_PocketActivity_nativeSurfaceCreated(
   guest_js = new_guest_js;
   guest_pack = new_guest_pack;
 
-  if (!pocket_runtime_boot(
+  if (!pocket_legacy_runtime_boot(
         (const char *)guest_js,
         guest_js_length,
         guest_pack,
@@ -208,11 +208,11 @@ Java_dev_pocketnexus_android_PocketActivity_nativeSurfaceCreated(
         POCKET_LOGICAL_WIDTH,
         POCKET_LOGICAL_HEIGHT
       )) {
-    set_android_error(pocket_runtime_error());
+    set_android_error(pocket_legacy_runtime_error());
     return (*env)->NewStringUTF(env, android_error);
   }
   runtime_booted = 1;
-  gl_initialized = pocket_runtime_gl_initialize();
+  gl_initialized = pocket_legacy_runtime_gl_initialize();
   if (!gl_initialized) {
     set_android_error("PocketJS GLES2 backend initialization failed");
   }
@@ -259,16 +259,16 @@ Java_dev_pocketnexus_android_PocketActivity_nativeFrame(
   sequences = touch_sequences;
   frame.buttons = sample.buttons;
   pocket_contacts_sample(&contacts, &frame, width, height, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT,
-    pocket_runtime_hit_test_bounds);
+    pocket_legacy_runtime_hit_test_bounds);
   pthread_mutex_unlock(&input_mutex);
   uint64_t started = monotonic_us();
   if (window_started_us == 0) window_started_us = started;
-  if (!pocket_runtime_tick_contacts(&frame)) {
-    set_android_error(pocket_runtime_error());
+  if (!pocket_legacy_runtime_tick_contacts(&frame)) {
+    set_android_error(pocket_legacy_runtime_error());
     return JNI_FALSE;
   }
   uint64_t ticked = monotonic_us();
-  if (!pocket_runtime_gl_render(width, height)) {
+  if (!pocket_legacy_runtime_gl_render(width, height)) {
     set_android_error("PocketJS GLES2 frame submission failed");
     return JNI_FALSE;
   }
@@ -284,7 +284,7 @@ Java_dev_pocketnexus_android_PocketActivity_nativeFrame(
         fprintf(receipt, "state=running\nrenderer=gles2\nframes=%lu\ntouch_sequences=%lu\nlogical_width=%d\nlogical_height=%d\nsurface_width=%d\nsurface_height=%d\naction_name=%s\naction_value=%d\n"
           "tick_us=%lu\nrender_us=%lu\nframe_us_max=%lu\ninterval_us=%lu\n",
           frames, sequences, POCKET_LOGICAL_WIDTH, POCKET_LOGICAL_HEIGHT, width, height,
-          pocket_runtime_action_name(), pocket_runtime_action_value(),
+          pocket_legacy_runtime_action_name(), pocket_legacy_runtime_action_value(),
           (unsigned long)(window_tick_us / 60), (unsigned long)(window_render_us / 60),
           (unsigned long)window_worst_us, (unsigned long)((rendered - window_started_us) / 60));
         fclose(receipt);
@@ -304,7 +304,7 @@ Java_dev_pocketnexus_android_PocketActivity_nativeError(JNIEnv *env, jclass owne
   (void)owner;
   const char *message = android_error[0] != '\0'
     ? android_error
-    : pocket_runtime_error();
+    : pocket_legacy_runtime_error();
   return (*env)->NewStringUTF(env, message == NULL ? "unknown error" : message);
 }
 

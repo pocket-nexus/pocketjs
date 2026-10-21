@@ -6,7 +6,7 @@
 
 /* This is a candidate ABI; out-of-tree integration must pass before v1 is frozen. */
 /* Every record starts with struct_size in bytes. Read only complete fields within min(struct_size, known size). Missing callbacks are unsupported; ignore unknown trailing fields. Appended fields must not increase record alignment; use a pointer for new over-aligned data. Callers initialize output struct_size to their writable capacity; callees must not write beyond it. */
-/* Record arrays are packed records: advance by each element's struct_size, not the consumer's sizeof. Each size includes padding to that record's alignment; validate the size, alignment and enclosing buffer bounds before reading a prefix, and never cast a short prefix into a full-sized record. A zero count permits a null pointer. A nonzero count requires valid storage for every element. */
+/* Record arrays are packed records: advance by each element's struct_size, not the consumer's sizeof. Each size includes padding to that record's alignment; validate the size, alignment and enclosing buffer bounds before reading a prefix, and never cast a short prefix into a full-sized record. A zero count permits a null pointer. A nonzero count requires the caller to provide valid readable storage for every element including its announced size; pointers and counts cannot prove the underlying allocation extent. */
 /* Status zero means success; negative values mean errors. Callback absence is unsupported. Driver context and vtables remain valid until runtime destruction, after all outstanding work has been drained. Runtime calls occur on its single owning thread. */
 /* Lifecycle: acquire, render, renderer wait, flush, display wait, retire. Each display has its own submission. A shared resource remains live until its last referencing submission retires. */
 /* CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts. Acquired regions are exclusive until flush; nobody writes them until display wait returns. */
@@ -109,6 +109,7 @@ typedef struct pocket_target pocket_target;
 typedef struct pocket_display_descriptor pocket_display_descriptor;
 typedef struct pocket_renderer_descriptor pocket_renderer_descriptor;
 typedef struct pocket_draw_list pocket_draw_list;
+typedef struct pocket_logical_clip pocket_logical_clip;
 typedef struct pocket_draw_op pocket_draw_op;
 typedef struct pocket_texture_view pocket_texture_view;
 typedef struct pocket_font_view pocket_font_view;
@@ -139,6 +140,12 @@ typedef struct pocket_package_source_v1 pocket_package_source_v1;
 typedef struct pocket_clock_v1 pocket_clock_v1;
 
 typedef int32_t (*pocket_texture_fn)(const void * context, int32_t handle, pocket_texture_view * out);
+
+typedef int32_t (*pocket_texture_revision_fn)(const void * context, int32_t handle, uint64_t * out);
+
+typedef int32_t (*pocket_font_revision_fn)(const void * context, uint8_t slot, uint64_t * out);
+
+typedef int32_t (*pocket_font_texture_width_fn)(const void * context, uint8_t slot, uint32_t * out);
 
 typedef int32_t (*pocket_font_atlas_fn)(const void * context, uint8_t slot, pocket_font_view * out);
 
@@ -411,11 +418,42 @@ POCKET_ABI_ASSERT(offsetof(pocket_draw_list, words) == POCKET_LAYOUT_POCKET_DRAW
 POCKET_ABI_ASSERT(offsetof(pocket_draw_list, word_count) == POCKET_LAYOUT_POCKET_DRAW_LIST_2_OFFSET, "pocket_draw_list.word_count");
 POCKET_ABI_ASSERT(offsetof(pocket_draw_list, version) == POCKET_LAYOUT_POCKET_DRAW_LIST_3_OFFSET, "pocket_draw_list.version");
 
-/* One complete operation from the matching DrawList generation; word layouts are defined by spec.ts. */
+/* Half-open inherited clip in logical viewport coordinates. */
+struct pocket_logical_clip {
+  size_t struct_size;
+  int32_t x0;
+  int32_t y0;
+  int32_t x1;
+  int32_t y1;
+};
+enum {
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_0_ALIGN, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_1_OFFSET + 4, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_1_ALIGN, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_2_OFFSET + 4, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_2_ALIGN, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_3_OFFSET + 4, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_3_ALIGN, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_LOGICAL_CLIP_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_LOGICAL_CLIP_4_OFFSET + 4, POCKET_LAYOUT_POCKET_LOGICAL_CLIP_4_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_logical_clip) == POCKET_LAYOUT_POCKET_LOGICAL_CLIP_SIZE, "pocket_logical_clip size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_logical_clip) == POCKET_LAYOUT_POCKET_LOGICAL_CLIP_4_ALIGN, "pocket_logical_clip alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_logical_clip, struct_size) == POCKET_LAYOUT_POCKET_LOGICAL_CLIP_0_OFFSET, "pocket_logical_clip.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_logical_clip, x0) == POCKET_LAYOUT_POCKET_LOGICAL_CLIP_1_OFFSET, "pocket_logical_clip.x0");
+POCKET_ABI_ASSERT(offsetof(pocket_logical_clip, y0) == POCKET_LAYOUT_POCKET_LOGICAL_CLIP_2_OFFSET, "pocket_logical_clip.y0");
+POCKET_ABI_ASSERT(offsetof(pocket_logical_clip, x1) == POCKET_LAYOUT_POCKET_LOGICAL_CLIP_3_OFFSET, "pocket_logical_clip.x1");
+POCKET_ABI_ASSERT(offsetof(pocket_logical_clip, y1) == POCKET_LAYOUT_POCKET_LOGICAL_CLIP_4_OFFSET, "pocket_logical_clip.y1");
+
+/* One complete operation from the matching DrawList generation. Missing/null clip uses the logical viewport; missing scale uses 1. Present scale must be positive. Word layouts are defined by spec.ts. */
 struct pocket_draw_op {
   size_t struct_size;
   const uint32_t * words;
   size_t word_count;
+  const pocket_logical_clip * clip;
+  uint32_t scale;
 };
 enum {
   POCKET_LAYOUT_POCKET_DRAW_OP_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -424,13 +462,19 @@ enum {
   POCKET_LAYOUT_POCKET_DRAW_OP_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_DRAW_OP_0_ALIGN, POCKET_ABI_ALIGNOF(const uint32_t *)),
   POCKET_LAYOUT_POCKET_DRAW_OP_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DRAW_OP_1_OFFSET + sizeof(const uint32_t *), POCKET_ABI_ALIGNOF(size_t)),
   POCKET_LAYOUT_POCKET_DRAW_OP_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_DRAW_OP_1_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
-  POCKET_LAYOUT_POCKET_DRAW_OP_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DRAW_OP_2_OFFSET + sizeof(size_t), POCKET_LAYOUT_POCKET_DRAW_OP_2_ALIGN)
+  POCKET_LAYOUT_POCKET_DRAW_OP_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DRAW_OP_2_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const pocket_logical_clip *)),
+  POCKET_LAYOUT_POCKET_DRAW_OP_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_DRAW_OP_2_ALIGN, POCKET_ABI_ALIGNOF(const pocket_logical_clip *)),
+  POCKET_LAYOUT_POCKET_DRAW_OP_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DRAW_OP_3_OFFSET + sizeof(const pocket_logical_clip *), POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_DRAW_OP_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_DRAW_OP_3_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_DRAW_OP_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DRAW_OP_4_OFFSET + 4, POCKET_LAYOUT_POCKET_DRAW_OP_4_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_draw_op) == POCKET_LAYOUT_POCKET_DRAW_OP_SIZE, "pocket_draw_op size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_draw_op) == POCKET_LAYOUT_POCKET_DRAW_OP_2_ALIGN, "pocket_draw_op alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_draw_op) == POCKET_LAYOUT_POCKET_DRAW_OP_4_ALIGN, "pocket_draw_op alignment");
 POCKET_ABI_ASSERT(offsetof(pocket_draw_op, struct_size) == POCKET_LAYOUT_POCKET_DRAW_OP_0_OFFSET, "pocket_draw_op.struct_size");
 POCKET_ABI_ASSERT(offsetof(pocket_draw_op, words) == POCKET_LAYOUT_POCKET_DRAW_OP_1_OFFSET, "pocket_draw_op.words");
 POCKET_ABI_ASSERT(offsetof(pocket_draw_op, word_count) == POCKET_LAYOUT_POCKET_DRAW_OP_2_OFFSET, "pocket_draw_op.word_count");
+POCKET_ABI_ASSERT(offsetof(pocket_draw_op, clip) == POCKET_LAYOUT_POCKET_DRAW_OP_3_OFFSET, "pocket_draw_op.clip");
+POCKET_ABI_ASSERT(offsetof(pocket_draw_op, scale) == POCKET_LAYOUT_POCKET_DRAW_OP_4_OFFSET, "pocket_draw_op.scale");
 
 /* psm is the existing DrawList texture format, independent of display pixel_format. Borrowed pixels and palette follow the frame borrow. */
 struct pocket_texture_view {
@@ -517,7 +561,7 @@ POCKET_ABI_ASSERT(offsetof(pocket_font_view, cell_height) == POCKET_LAYOUT_POCKE
 POCKET_ABI_ASSERT(offsetof(pocket_font_view, raster_density) == POCKET_LAYOUT_POCKET_FONT_VIEW_5_OFFSET, "pocket_font_view.raster_density");
 POCKET_ABI_ASSERT(offsetof(pocket_font_view, glyph_count) == POCKET_LAYOUT_POCKET_FONT_VIEW_6_OFFSET, "pocket_font_view.glyph_count");
 
-/* Read-only resource lookups; views borrow the frame's resources. */
+/* Absent version callbacks use raster_revision; absent font_texture_width uses full coverage width. Read-only resource lookups; views borrow the frame's resources. */
 struct pocket_render_resources {
   size_t struct_size;
   const void * context;
@@ -526,6 +570,9 @@ struct pocket_render_resources {
   uint64_t raster_revision;
   pocket_texture_fn texture;
   pocket_font_atlas_fn font_atlas;
+  pocket_texture_revision_fn texture_revision;
+  pocket_font_revision_fn font_revision;
+  pocket_font_texture_width_fn font_texture_width;
 };
 enum {
   POCKET_LAYOUT_POCKET_RENDER_RESOURCES_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -542,10 +589,16 @@ enum {
   POCKET_LAYOUT_POCKET_RENDER_RESOURCES_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_4_ALIGN, POCKET_ABI_ALIGNOF(pocket_texture_fn)),
   POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_5_OFFSET + sizeof(pocket_texture_fn), POCKET_ABI_ALIGNOF(pocket_font_atlas_fn)),
   POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_5_ALIGN, POCKET_ABI_ALIGNOF(pocket_font_atlas_fn)),
-  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_OFFSET + sizeof(pocket_font_atlas_fn), POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_ALIGN)
+  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_7_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_OFFSET + sizeof(pocket_font_atlas_fn), POCKET_ABI_ALIGNOF(pocket_texture_revision_fn)),
+  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_7_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_ALIGN, POCKET_ABI_ALIGNOF(pocket_texture_revision_fn)),
+  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_8_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_7_OFFSET + sizeof(pocket_texture_revision_fn), POCKET_ABI_ALIGNOF(pocket_font_revision_fn)),
+  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_8_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_7_ALIGN, POCKET_ABI_ALIGNOF(pocket_font_revision_fn)),
+  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_9_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_8_OFFSET + sizeof(pocket_font_revision_fn), POCKET_ABI_ALIGNOF(pocket_font_texture_width_fn)),
+  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_9_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_8_ALIGN, POCKET_ABI_ALIGNOF(pocket_font_texture_width_fn)),
+  POCKET_LAYOUT_POCKET_RENDER_RESOURCES_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RENDER_RESOURCES_9_OFFSET + sizeof(pocket_font_texture_width_fn), POCKET_LAYOUT_POCKET_RENDER_RESOURCES_9_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_render_resources) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_SIZE, "pocket_render_resources size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_render_resources) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_ALIGN, "pocket_render_resources alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_render_resources) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_9_ALIGN, "pocket_render_resources alignment");
 POCKET_ABI_ASSERT(offsetof(pocket_render_resources, struct_size) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_0_OFFSET, "pocket_render_resources.struct_size");
 POCKET_ABI_ASSERT(offsetof(pocket_render_resources, context) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_1_OFFSET, "pocket_render_resources.context");
 POCKET_ABI_ASSERT(offsetof(pocket_render_resources, viewport_width) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_2_OFFSET, "pocket_render_resources.viewport_width");
@@ -553,6 +606,9 @@ POCKET_ABI_ASSERT(offsetof(pocket_render_resources, viewport_height) == POCKET_L
 POCKET_ABI_ASSERT(offsetof(pocket_render_resources, raster_revision) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_4_OFFSET, "pocket_render_resources.raster_revision");
 POCKET_ABI_ASSERT(offsetof(pocket_render_resources, texture) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_5_OFFSET, "pocket_render_resources.texture");
 POCKET_ABI_ASSERT(offsetof(pocket_render_resources, font_atlas) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_6_OFFSET, "pocket_render_resources.font_atlas");
+POCKET_ABI_ASSERT(offsetof(pocket_render_resources, texture_revision) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_7_OFFSET, "pocket_render_resources.texture_revision");
+POCKET_ABI_ASSERT(offsetof(pocket_render_resources, font_revision) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_8_OFFSET, "pocket_render_resources.font_revision");
+POCKET_ABI_ASSERT(offsetof(pocket_render_resources, font_texture_width) == POCKET_LAYOUT_POCKET_RENDER_RESOURCES_9_OFFSET, "pocket_render_resources.font_texture_width");
 
 struct pocket_frame_input {
   size_t struct_size;

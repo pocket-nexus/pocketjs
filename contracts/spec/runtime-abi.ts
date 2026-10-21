@@ -6,9 +6,9 @@ import { callback, field as f, record, type AbiCallback, type AbiFunction, type 
 export const RUNTIME_ABI_RULES = [
   "Runtime and driver records share the struct_size prefix compatibility rules in pocket_drivers.h.",
   "Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.",
-  "Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls. The runtime owns these bytes; callers must not free them.",
+  "Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.",
   "Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.",
-  "Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during evaluate/frame callbacks.",
+  "Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame callbacks.",
   "The guest receives the existing eight frame arguments through pocket_guest_frame. Introducing this ABI does not change their wire representation, tapes, packages, or binding generation.",
   "Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources.",
   "An application links exactly one PocketJS Rust archive. The six pocket_host_* functions are supplied by the program and are the archive's complete host-hook contract.",
@@ -17,6 +17,7 @@ export const RUNTIME_ABI_RULES = [
 export const RUNTIME_ABI_CONSTANTS: Readonly<Record<string, number>> = {
   POCKET_RENDERER_SOFTWARE: 0,
   POCKET_RENDERER_INVALID: 0xffffffff,
+  POCKET_ARG_INTEGER: 1, POCKET_ARG_REAL: 2, POCKET_ARG_BYTES: 3,
   POCKET_RESULT_NONE: 0, POCKET_RESULT_I64: 1, POCKET_RESULT_F64: 2, POCKET_RESULT_BYTES: 3,
 };
 
@@ -26,18 +27,23 @@ export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
     f("heap_limit", "usize"), f("frame_buffer_budget", "usize"),
     f("profile_json", "*const u8"), f("profile_json_length", "usize"),
   ], "profile_json is the canonical profile projection defined by profile.ts; profile_hash is its SHA-256. Limits are bytes; tick_hz must equal the projection's tickHz. No target or toolchain selection occurs here."),
+  record("PocketOpArg", "pocket_op_arg", [f("tag", "u32"), f("integer", "i64"), f("real", "f64"), f("bytes", "*const u8"), f("byte_length", "usize")], "One borrowed operation argument; tag selects integer, real, or bytes. runtime_op length is the total byte length of these extensible records, including per-record padding."),
+  record("PocketNamedTexture", "pocket_named_texture", [f("name", "*const u8"), f("name_length", "usize"), f("handle", "i32")]),
+  record("PocketNamedSprite", "pocket_named_sprite", [f("name", "*const u8"), f("name_length", "usize"), f("handle", "i32"), f("frames", "u32"), f("columns", "u32"), f("step", "u32")]),
+  record("PocketGuestEnvironment", "pocket_guest_environment", [f("host", "*const u8"), f("host_length", "usize"), f("host_abi", "u32"), f("tick_hz", "u32"), f("viewport_width", "u32"), f("viewport_height", "u32"), f("auxiliary_width", "u32"), f("auxiliary_height", "u32"), f("auxiliary_root", "i32"), f("raster_density", "u32"), f("heap_limit", "usize"), f("pak", "*const u8"), f("pak_length", "usize"), f("textures", "*const PocketNamedTexture"), f("texture_count", "usize"), f("sprites", "*const PocketNamedSprite"), f("sprite_count", "usize"), f("assets_present", "u32")], "Metadata borrows last through initialize; pak storage remains unchanged through guest shutdown. Zero auxiliary dimensions mean no auxiliary viewport."),
   record("PocketResult", "pocket_result", [f("tag", "u32"), f("integer", "i64"), f("real", "f64"), f("bytes", "*const u8"), f("byte_length", "usize")], "tag selects none, integer, real, or bytes; inactive payloads are zero. Bytes are runtime-owned and borrowed until the next call on this instance."),
   record("PocketGuestFrame", "pocket_guest_frame", [
     f("buttons", "u32"), f("analog", "u32"), f("touches", "*const u32"), f("hits", "*const i32"),
     f("touch_surfaces", "*const u8"), f("touch_count", "usize"), f("right_analog", "u32"),
     f("axis_deltas", "*const PocketAxisDelta"), f("axis_delta_count", "usize"), f("motion", "*const PocketMotionState"),
   ], "Legacy frame argument packet encoded by the runtime, including hit facts. touches/hits/touch_surfaces have touch_count entries. Borrowed until the guest frame callback returns."),
-  record("PocketGuestV1", "pocket_guest_v1", [f("evaluate", "Option<PocketGuestEvaluateFn>"), f("frame", "Option<PocketGuestFrameFn>"), f("collect", "Option<PocketGuestCollectFn>"), f("shutdown", "Option<PocketGuestShutdownFn>")], "Guest callbacks invoke generated bindings through pocket_runtime_op. No guest retains borrowed frame memory after frame returns."),
+  record("PocketGuestV1", "pocket_guest_v1", [f("evaluate", "Option<PocketGuestEvaluateFn>"), f("frame", "Option<PocketGuestFrameFn>"), f("collect", "Option<PocketGuestCollectFn>"), f("shutdown", "Option<PocketGuestShutdownFn>"), f("initialize", "Option<PocketGuestInitializeFn>")], "Guest callbacks invoke generated bindings through pocket_runtime_op. No guest retains borrowed frame memory after frame returns."),
 ];
 
 const context = f("context", "*mut c_void");
 const runtime = f("runtime", "*mut PocketRuntime");
 export const RUNTIME_ABI_CALLBACKS: readonly AbiCallback[] = [
+  callback("PocketGuestInitializeFn", "pocket_guest_initialize_fn", [context, runtime, f("environment", "*const PocketGuestEnvironment")]),
   callback("PocketGuestEvaluateFn", "pocket_guest_evaluate_fn", [context, runtime, f("code", "*const u8"), f("length", "usize")]),
   callback("PocketGuestFrameFn", "pocket_guest_frame_fn", [context, f("frame", "*const PocketGuestFrame")]),
   callback("PocketGuestCollectFn", "pocket_guest_collect_fn", [context]),
@@ -53,6 +59,7 @@ export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
   { name: "pocket_runtime_add_input_source", args: [runtime, f("source", "*const PocketInputSourceV1"), context], result: "i32" },
   { name: "pocket_runtime_boot", args: [runtime], result: "i32" },
   { name: "pocket_runtime_tick", args: [runtime], result: "i32" },
+  { name: "pocket_runtime_supports_op", args: [f("runtime", "*const PocketRuntime"), f("op", "u16")], result: "u32", doc: "Returns 0 or 1 without executing the operation. Does not invalidate borrowed results." },
   { name: "pocket_runtime_op", args: [runtime, f("op", "u16"), f("args", "*const c_void"), f("length", "usize"), f("out", "*mut PocketResult")], result: "i32", doc: "Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime." },
   { name: "pocket_runtime_destroy", args: [runtime], result: "void" },
   { name: "pocket_raster_draw_op", args: [f("target", "*mut PocketSurface"), f("op", "*const PocketDrawOp"), f("resources", "*const PocketRenderResources")], result: "i32", doc: "Software fallback after accelerator completion and cache visibility, within target's acquired region." },

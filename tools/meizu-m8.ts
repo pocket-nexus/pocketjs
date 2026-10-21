@@ -304,8 +304,8 @@ function buildRuntime(): void {
       "build",
       "--release",
       "--locked",
-      "--features",
-      "bare-platform,software-only,host-allocator,boot-stage",
+      "--no-default-features", "--features",
+      "standalone-extension-provider,bare-platform,software-only,host-allocator,boot-stage",
       "--target",
       join(repository, "hosts/meizu-m8/armv6-wince-asm.json"),
       "-Z",
@@ -378,7 +378,7 @@ function buildRuntime(): void {
       !objectReceipt.toLowerCase().includes("coredll.dll")) {
     throw new Error("PocketJS Meizu M8: output is not a WinCE ARM executable");
   }
-  for (const symbol of ["WinMain", "pocket_runtime_boot", "ui_hit_test_bounds"]) {
+  for (const symbol of ["WinMain", "pocket_legacy_runtime_boot", "ui_hit_test_bounds"]) {
     if (!symbols.includes(symbol)) {
       throw new Error(`PocketJS Meizu M8: linked binary is missing ${symbol}`);
     }

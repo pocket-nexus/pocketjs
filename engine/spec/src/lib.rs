@@ -111,6 +111,11 @@ pub mod op {
     pub const PHYSICS_DESTROY: u8 = 54;
     pub const PHYSICS_EVENTS: u8 = 55;
     pub const PHYSICS_QUERY: u8 = 56;
+    pub const SET_PROP_BATCH: u8 = 57;
+    pub const TAKE_ANIMATION_COMPLETIONS: u8 = 58;
+    pub const FONT_STREAM_BATCH: u8 = 59;
+    pub const CAPTURE_TEXTS: u8 = 60;
+    pub const CAPTURED_TEXTS: u8 = 61;
 }
 
 /// Property ids (u8, stable, append-only). Groups:

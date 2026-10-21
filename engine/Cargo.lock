@@ -1822,6 +1822,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-guest-rquickjs"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-runtime",
+ "pocketjs-core",
+ "rquickjs",
+]
+
+[[package]]
 name = "pocket-media"
 version = "0.1.0"
 dependencies = [
@@ -1853,6 +1863,7 @@ dependencies = [
 name = "pocket-package"
 version = "0.1.0"
 dependencies = [
+ "pocket-drivers",
  "pocket-spec",
 ]
 
@@ -1873,6 +1884,33 @@ dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
  "pocket-spec",
+]
+
+[[package]]
+name = "pocket-runtime"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-package",
+ "pocket-present",
+ "pocket-spec",
+ "pocketjs-core",
+ "serde_json",
+]
+
+[[package]]
+name = "pocket-runtime-cabi"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-raster",
+ "pocket-runtime",
+ "pocket-spec",
+ "pocket-tex-cache",
+ "pocket-tri-batch",
+ "pocketjs-core",
+ "pocketjs-render-rgb565",
 ]
 
 [[package]]
@@ -2019,6 +2057,17 @@ dependencies = [
  "pocket-raster",
  "pocket-spec",
  "taffy",
+]
+
+[[package]]
+name = "pocketjs-render-rgb565"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-present",
+ "pocket-raster",
+ "pocket-spec",
 ]
 
 [[package]]

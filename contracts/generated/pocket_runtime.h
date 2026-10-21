@@ -6,9 +6,9 @@
 
 /* Runtime and driver records share the struct_size prefix compatibility rules in pocket_drivers.h. */
 /* Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target. */
-/* Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls. The runtime owns these bytes; callers must not free them. */
+/* Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them. */
 /* Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance. */
-/* Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during evaluate/frame callbacks. */
+/* Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame callbacks. */
 /* The guest receives the existing eight frame arguments through pocket_guest_frame. Introducing this ABI does not change their wire representation, tapes, packages, or binding generation. */
 /* Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources. */
 /* An application links exactly one PocketJS Rust archive. The six pocket_host_* functions are supplied by the program and are the archive's complete host-hook contract. */
@@ -20,14 +20,23 @@ typedef struct pocket_runtime pocket_runtime;
 typedef uint32_t pocket_renderer_id;
 #define POCKET_RENDERER_SOFTWARE 0U
 #define POCKET_RENDERER_INVALID 4294967295U
+#define POCKET_ARG_INTEGER 1U
+#define POCKET_ARG_REAL 2U
+#define POCKET_ARG_BYTES 3U
 #define POCKET_RESULT_NONE 0U
 #define POCKET_RESULT_I64 1U
 #define POCKET_RESULT_F64 2U
 #define POCKET_RESULT_BYTES 3U
 typedef struct pocket_runtime_config pocket_runtime_config;
+typedef struct pocket_op_arg pocket_op_arg;
+typedef struct pocket_named_texture pocket_named_texture;
+typedef struct pocket_named_sprite pocket_named_sprite;
+typedef struct pocket_guest_environment pocket_guest_environment;
 typedef struct pocket_result pocket_result;
 typedef struct pocket_guest_frame pocket_guest_frame;
 typedef struct pocket_guest_v1 pocket_guest_v1;
+
+typedef int32_t (*pocket_guest_initialize_fn)(void * context, pocket_runtime * runtime, const pocket_guest_environment * environment);
 
 typedef int32_t (*pocket_guest_evaluate_fn)(void * context, pocket_runtime * runtime, const uint8_t * code, size_t length);
 
@@ -87,6 +96,184 @@ POCKET_ABI_ASSERT(offsetof(pocket_runtime_config, heap_limit) == POCKET_LAYOUT_P
 POCKET_ABI_ASSERT(offsetof(pocket_runtime_config, frame_buffer_budget) == POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_5_OFFSET, "pocket_runtime_config.frame_buffer_budget");
 POCKET_ABI_ASSERT(offsetof(pocket_runtime_config, profile_json) == POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_6_OFFSET, "pocket_runtime_config.profile_json");
 POCKET_ABI_ASSERT(offsetof(pocket_runtime_config, profile_json_length) == POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_7_OFFSET, "pocket_runtime_config.profile_json_length");
+
+/* One borrowed operation argument; tag selects integer, real, or bytes. runtime_op length is the total byte length of these extensible records, including per-record padding. */
+struct pocket_op_arg {
+  size_t struct_size;
+  uint32_t tag;
+  int64_t integer;
+  double real;
+  const uint8_t * bytes;
+  size_t byte_length;
+};
+enum {
+  POCKET_LAYOUT_POCKET_OP_ARG_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_OP_ARG_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_OP_ARG_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_ARG_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_OP_ARG_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_OP_ARG_0_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_OP_ARG_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_ARG_1_OFFSET + 4, offsetof(pocket_abi_i64_alignment, value)),
+  POCKET_LAYOUT_POCKET_OP_ARG_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_OP_ARG_1_ALIGN, offsetof(pocket_abi_i64_alignment, value)),
+  POCKET_LAYOUT_POCKET_OP_ARG_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_ARG_2_OFFSET + 8, offsetof(pocket_abi_f64_alignment, value)),
+  POCKET_LAYOUT_POCKET_OP_ARG_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_OP_ARG_2_ALIGN, offsetof(pocket_abi_f64_alignment, value)),
+  POCKET_LAYOUT_POCKET_OP_ARG_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_ARG_3_OFFSET + 8, POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_OP_ARG_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_OP_ARG_3_ALIGN, POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_OP_ARG_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_ARG_4_OFFSET + sizeof(const uint8_t *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_OP_ARG_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_OP_ARG_4_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_OP_ARG_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_ARG_5_OFFSET + sizeof(size_t), POCKET_LAYOUT_POCKET_OP_ARG_5_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_op_arg) == POCKET_LAYOUT_POCKET_OP_ARG_SIZE, "pocket_op_arg size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_op_arg) == POCKET_LAYOUT_POCKET_OP_ARG_5_ALIGN, "pocket_op_arg alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_op_arg, struct_size) == POCKET_LAYOUT_POCKET_OP_ARG_0_OFFSET, "pocket_op_arg.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_op_arg, tag) == POCKET_LAYOUT_POCKET_OP_ARG_1_OFFSET, "pocket_op_arg.tag");
+POCKET_ABI_ASSERT(offsetof(pocket_op_arg, integer) == POCKET_LAYOUT_POCKET_OP_ARG_2_OFFSET, "pocket_op_arg.integer");
+POCKET_ABI_ASSERT(offsetof(pocket_op_arg, real) == POCKET_LAYOUT_POCKET_OP_ARG_3_OFFSET, "pocket_op_arg.real");
+POCKET_ABI_ASSERT(offsetof(pocket_op_arg, bytes) == POCKET_LAYOUT_POCKET_OP_ARG_4_OFFSET, "pocket_op_arg.bytes");
+POCKET_ABI_ASSERT(offsetof(pocket_op_arg, byte_length) == POCKET_LAYOUT_POCKET_OP_ARG_5_OFFSET, "pocket_op_arg.byte_length");
+
+struct pocket_named_texture {
+  size_t struct_size;
+  const uint8_t * name;
+  size_t name_length;
+  int32_t handle;
+};
+enum {
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_TEXTURE_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_TEXTURE_0_ALIGN, POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_TEXTURE_1_OFFSET + sizeof(const uint8_t *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_TEXTURE_1_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_TEXTURE_2_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_TEXTURE_2_ALIGN, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_TEXTURE_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_TEXTURE_3_OFFSET + 4, POCKET_LAYOUT_POCKET_NAMED_TEXTURE_3_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_named_texture) == POCKET_LAYOUT_POCKET_NAMED_TEXTURE_SIZE, "pocket_named_texture size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_named_texture) == POCKET_LAYOUT_POCKET_NAMED_TEXTURE_3_ALIGN, "pocket_named_texture alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_named_texture, struct_size) == POCKET_LAYOUT_POCKET_NAMED_TEXTURE_0_OFFSET, "pocket_named_texture.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_named_texture, name) == POCKET_LAYOUT_POCKET_NAMED_TEXTURE_1_OFFSET, "pocket_named_texture.name");
+POCKET_ABI_ASSERT(offsetof(pocket_named_texture, name_length) == POCKET_LAYOUT_POCKET_NAMED_TEXTURE_2_OFFSET, "pocket_named_texture.name_length");
+POCKET_ABI_ASSERT(offsetof(pocket_named_texture, handle) == POCKET_LAYOUT_POCKET_NAMED_TEXTURE_3_OFFSET, "pocket_named_texture.handle");
+
+struct pocket_named_sprite {
+  size_t struct_size;
+  const uint8_t * name;
+  size_t name_length;
+  int32_t handle;
+  uint32_t frames;
+  uint32_t columns;
+  uint32_t step;
+};
+enum {
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_SPRITE_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_SPRITE_0_ALIGN, POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_SPRITE_1_OFFSET + sizeof(const uint8_t *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_SPRITE_1_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_SPRITE_2_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_SPRITE_2_ALIGN, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_SPRITE_3_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_SPRITE_3_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_SPRITE_4_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_SPRITE_4_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_6_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_SPRITE_5_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_6_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_NAMED_SPRITE_5_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_NAMED_SPRITE_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_NAMED_SPRITE_6_OFFSET + 4, POCKET_LAYOUT_POCKET_NAMED_SPRITE_6_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_named_sprite) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_SIZE, "pocket_named_sprite size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_named_sprite) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_6_ALIGN, "pocket_named_sprite alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_named_sprite, struct_size) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_0_OFFSET, "pocket_named_sprite.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_named_sprite, name) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_1_OFFSET, "pocket_named_sprite.name");
+POCKET_ABI_ASSERT(offsetof(pocket_named_sprite, name_length) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_2_OFFSET, "pocket_named_sprite.name_length");
+POCKET_ABI_ASSERT(offsetof(pocket_named_sprite, handle) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_3_OFFSET, "pocket_named_sprite.handle");
+POCKET_ABI_ASSERT(offsetof(pocket_named_sprite, frames) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_4_OFFSET, "pocket_named_sprite.frames");
+POCKET_ABI_ASSERT(offsetof(pocket_named_sprite, columns) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_5_OFFSET, "pocket_named_sprite.columns");
+POCKET_ABI_ASSERT(offsetof(pocket_named_sprite, step) == POCKET_LAYOUT_POCKET_NAMED_SPRITE_6_OFFSET, "pocket_named_sprite.step");
+
+/* Metadata borrows last through initialize; pak storage remains unchanged through guest shutdown. Zero auxiliary dimensions mean no auxiliary viewport. */
+struct pocket_guest_environment {
+  size_t struct_size;
+  const uint8_t * host;
+  size_t host_length;
+  uint32_t host_abi;
+  uint32_t tick_hz;
+  uint32_t viewport_width;
+  uint32_t viewport_height;
+  uint32_t auxiliary_width;
+  uint32_t auxiliary_height;
+  int32_t auxiliary_root;
+  uint32_t raster_density;
+  size_t heap_limit;
+  const uint8_t * pak;
+  size_t pak_length;
+  const pocket_named_texture * textures;
+  size_t texture_count;
+  const pocket_named_sprite * sprites;
+  size_t sprite_count;
+  uint32_t assets_present;
+};
+enum {
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_0_ALIGN, POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_1_OFFSET + sizeof(const uint8_t *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_1_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_2_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_2_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_3_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_3_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_4_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_4_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_6_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_5_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_6_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_5_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_7_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_6_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_7_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_6_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_8_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_7_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_8_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_7_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_9_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_8_OFFSET + 4, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_9_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_8_ALIGN, POCKET_ABI_ALIGNOF(int32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_10_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_9_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_10_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_9_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_11_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_10_OFFSET + 4, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_11_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_10_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_12_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_11_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_12_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_11_ALIGN, POCKET_ABI_ALIGNOF(const uint8_t *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_13_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_12_OFFSET + sizeof(const uint8_t *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_13_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_12_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_14_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_13_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const pocket_named_texture *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_14_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_13_ALIGN, POCKET_ABI_ALIGNOF(const pocket_named_texture *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_15_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_14_OFFSET + sizeof(const pocket_named_texture *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_15_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_14_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_16_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_15_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(const pocket_named_sprite *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_16_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_15_ALIGN, POCKET_ABI_ALIGNOF(const pocket_named_sprite *)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_17_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_16_OFFSET + sizeof(const pocket_named_sprite *), POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_17_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_16_ALIGN, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_18_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_17_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_18_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_17_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_18_OFFSET + 4, POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_18_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_guest_environment) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_SIZE, "pocket_guest_environment size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_guest_environment) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_18_ALIGN, "pocket_guest_environment alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, struct_size) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_0_OFFSET, "pocket_guest_environment.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, host) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_1_OFFSET, "pocket_guest_environment.host");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, host_length) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_2_OFFSET, "pocket_guest_environment.host_length");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, host_abi) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_3_OFFSET, "pocket_guest_environment.host_abi");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, tick_hz) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_4_OFFSET, "pocket_guest_environment.tick_hz");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, viewport_width) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_5_OFFSET, "pocket_guest_environment.viewport_width");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, viewport_height) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_6_OFFSET, "pocket_guest_environment.viewport_height");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, auxiliary_width) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_7_OFFSET, "pocket_guest_environment.auxiliary_width");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, auxiliary_height) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_8_OFFSET, "pocket_guest_environment.auxiliary_height");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, auxiliary_root) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_9_OFFSET, "pocket_guest_environment.auxiliary_root");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, raster_density) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_10_OFFSET, "pocket_guest_environment.raster_density");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, heap_limit) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_11_OFFSET, "pocket_guest_environment.heap_limit");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, pak) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_12_OFFSET, "pocket_guest_environment.pak");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, pak_length) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_13_OFFSET, "pocket_guest_environment.pak_length");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, textures) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_14_OFFSET, "pocket_guest_environment.textures");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, texture_count) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_15_OFFSET, "pocket_guest_environment.texture_count");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, sprites) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_16_OFFSET, "pocket_guest_environment.sprites");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, sprite_count) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_17_OFFSET, "pocket_guest_environment.sprite_count");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_environment, assets_present) == POCKET_LAYOUT_POCKET_GUEST_ENVIRONMENT_18_OFFSET, "pocket_guest_environment.assets_present");
 
 /* tag selects none, integer, real, or bytes; inactive payloads are zero. Bytes are runtime-owned and borrowed until the next call on this instance. */
 struct pocket_result {
@@ -181,6 +368,7 @@ struct pocket_guest_v1 {
   pocket_guest_frame_fn frame;
   pocket_guest_collect_fn collect;
   pocket_guest_shutdown_fn shutdown;
+  pocket_guest_initialize_fn initialize;
 };
 enum {
   POCKET_LAYOUT_POCKET_GUEST_V1_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -193,15 +381,18 @@ enum {
   POCKET_LAYOUT_POCKET_GUEST_V1_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_V1_2_ALIGN, POCKET_ABI_ALIGNOF(pocket_guest_collect_fn)),
   POCKET_LAYOUT_POCKET_GUEST_V1_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_3_OFFSET + sizeof(pocket_guest_collect_fn), POCKET_ABI_ALIGNOF(pocket_guest_shutdown_fn)),
   POCKET_LAYOUT_POCKET_GUEST_V1_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_V1_3_ALIGN, POCKET_ABI_ALIGNOF(pocket_guest_shutdown_fn)),
-  POCKET_LAYOUT_POCKET_GUEST_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_4_OFFSET + sizeof(pocket_guest_shutdown_fn), POCKET_LAYOUT_POCKET_GUEST_V1_4_ALIGN)
+  POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_4_OFFSET + sizeof(pocket_guest_shutdown_fn), POCKET_ABI_ALIGNOF(pocket_guest_initialize_fn)),
+  POCKET_LAYOUT_POCKET_GUEST_V1_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GUEST_V1_4_ALIGN, POCKET_ABI_ALIGNOF(pocket_guest_initialize_fn)),
+  POCKET_LAYOUT_POCKET_GUEST_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET + sizeof(pocket_guest_initialize_fn), POCKET_LAYOUT_POCKET_GUEST_V1_5_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_guest_v1) == POCKET_LAYOUT_POCKET_GUEST_V1_SIZE, "pocket_guest_v1 size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_guest_v1) == POCKET_LAYOUT_POCKET_GUEST_V1_4_ALIGN, "pocket_guest_v1 alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_guest_v1) == POCKET_LAYOUT_POCKET_GUEST_V1_5_ALIGN, "pocket_guest_v1 alignment");
 POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, struct_size) == POCKET_LAYOUT_POCKET_GUEST_V1_0_OFFSET, "pocket_guest_v1.struct_size");
 POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, evaluate) == POCKET_LAYOUT_POCKET_GUEST_V1_1_OFFSET, "pocket_guest_v1.evaluate");
 POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, frame) == POCKET_LAYOUT_POCKET_GUEST_V1_2_OFFSET, "pocket_guest_v1.frame");
 POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, collect) == POCKET_LAYOUT_POCKET_GUEST_V1_3_OFFSET, "pocket_guest_v1.collect");
 POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, shutdown) == POCKET_LAYOUT_POCKET_GUEST_V1_4_OFFSET, "pocket_guest_v1.shutdown");
+POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, initialize) == POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET, "pocket_guest_v1.initialize");
 
 pocket_runtime * pocket_runtime_create(const pocket_runtime_config * config);
 
@@ -218,6 +409,9 @@ int32_t pocket_runtime_add_input_source(pocket_runtime * runtime, const pocket_i
 int32_t pocket_runtime_boot(pocket_runtime * runtime);
 
 int32_t pocket_runtime_tick(pocket_runtime * runtime);
+
+/* Returns 0 or 1 without executing the operation. Does not invalidate borrowed results. */
+uint32_t pocket_runtime_supports_op(const pocket_runtime * runtime, uint16_t op);
 
 /* Generated bindings use this operation dispatcher. out bytes expire at the next call on runtime. */
 int32_t pocket_runtime_op(pocket_runtime * runtime, uint16_t op, const void * args, size_t length, pocket_result * out);

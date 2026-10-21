@@ -5,14 +5,16 @@ import { fileURLToPath } from "node:url";
 
 export const NATIVE_COMPONENTS = [
   { component: "pocketjs_ui_core", crate: "ui-core", archive: "libpocketjs_idf_ui_core.a" },
-  { component: "pocketjs_render_rgb565", crate: "render-rgb565", archive: "libpocketjs_idf_render_rgb565.a" },
 ] as const;
+export const NATIVE_ENGINE_CRATES = ["core", "spec", "drivers", "raster", "present", "package",
+  "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache",
+  "runtime", "runtime-cabi", "backends/rgb565"] as const;
 export type NativeComponent = typeof NATIVE_COMPONENTS[number];
 export const RUST_TARGETS = { esp32p4: "riscv32imafc-unknown-none-elf", esp32s3: "xtensa-esp32s3-none-elf" } as const;
 export type IdfTarget = keyof typeof RUST_TARGETS;
 export const NATIVE_POLICY = { profile: "release", defaultFeatures: false, locked: true,
 codegenUnits: 16, lto: false, optLevel: 3, panic: "abort", preparationVersion: 1,
-  rustSymbolNamespace: "non-stdlib-components" } as const;
+  rustArchiveLayout: "single-runtime" } as const;
 export const sha256 = (bytes: Uint8Array | string): string => createHash("sha256").update(bytes).digest("hex");
 
 export interface NativeReceipt {
@@ -29,18 +31,16 @@ export interface NativeReceipt {
 }
 
 export async function nativeSourceFiles(root: string, spec: NativeComponent): Promise<string[]> {
-  const roots = ["engine/core", "engine/spec", "engine/drivers", "engine/raster", "engine/present",
-    "engine/package", "engine/modules/media", "engine/render/draw-ops", "engine/render/glyph-pages",
+  const roots = [...NATIVE_ENGINE_CRATES.map(crate => `engine/${crate}`),
     `hosts/esp-idf/native/${spec.crate}`,
-    "hosts/esp-idf/native/abi", "hosts/esp-idf/native/runtime",
-    `hosts/esp-idf/components/${spec.component}/src`, `hosts/esp-idf/components/${spec.component}/include`];
-  if (spec.crate === "render-rgb565") roots.push("engine/backends/rgb565");
+    `hosts/esp-idf/components/${spec.component}/src`, `hosts/esp-idf/components/${spec.component}/include`,
+    "hosts/esp-idf/components/pocketjs_render_rgb565/src", "hosts/esp-idf/components/pocketjs_render_rgb565/include"];
   const files = new Set([
     "tools/esp-idf-native.ts", "tools/esp-idf-native-receipt.ts", "hosts/esp-idf/native/toolchains.json",
-    "contracts/spec/idf-native.ts", `hosts/esp-idf/components/${spec.component}/CMakeLists.txt`,
+    "contracts/spec/idf-native.ts", "tools/esp-idf-contracts.ts", `hosts/esp-idf/components/${spec.component}/CMakeLists.txt`,
+    "hosts/esp-idf/components/pocketjs_render_rgb565/CMakeLists.txt",
     "hosts/esp-idf/components/pocketjs_ui_core/native_archive.cmake",
     "hosts/esp-idf/components/pocketjs_ui_core/prepare_archive.cmake",
-    "hosts/esp-idf/components/pocketjs_ui_core/rustc_wrapper.rs",
   ]);
   for (const path of roots) {
     if (!existsSync(join(root, path))) throw new Error(`missing native source root: ${path}`);

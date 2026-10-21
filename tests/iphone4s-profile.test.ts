@@ -98,7 +98,7 @@ describe("private iPhone 4S profile", () => {
     expect(wrapper).toContain('#include "../ios-legacy/runtime.c"');
     expect(wrapper).toContain("#define POCKET_GL_DEFAULT 1");
     expect(wrapper).toContain("#define POCKET_REQUIRE_GL 1");
-    expect(runtime).toContain("pocket_runtime_hit_test_bounds");
+    expect(runtime).toContain("pocket_legacy_runtime_hit_test_bounds");
     expect(guest).toContain("hit_array");
     expect(runtime).toContain('send_void_float(g_view, "setContentScaleFactor:"');
     expect(runtime).toContain("g_gl_width != POCKET_LOGICAL_WIDTH * POCKET_RASTER_DENSITY");

@@ -36,13 +36,13 @@ test("real CAllocator uploads textures through malloc and host callbacks", () =>
   expect(cc).not.toBeNull();
 
   for (const hostAllocator of [false, true]) {
-    const features = ["bare-platform", "software-only"];
+    const features = ["standalone-extension-provider", "bare-platform", "software-only"];
     if (hostAllocator) features.push("host-allocator");
     run([
       cargo, "build", "--locked", "--release",
       "--manifest-path", join(crate, "Cargo.toml"),
       "--target-dir", join(build, "target"),
-      "--features", features.join(","),
+      "--no-default-features", "--features", features.join(","),
     ], { ...process.env, RUSTC: rustc });
 
     const binary = join(build, hostAllocator ? "host-allocator" : "malloc");

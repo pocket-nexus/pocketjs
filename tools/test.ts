@@ -50,6 +50,8 @@ const SUITE: readonly Stage[] = [
       "tests/platform-contracts.test.ts",
       "tests/profile-contract.test.ts",
       "tests/driver-contracts.test.ts",
+      "tests/ui-bindings.test.ts",
+      "tests/runtime-cabi.test.ts",
       "tests/pocket-package.test.ts",
       "tests/idf-host-profile.test.ts",
       "tests/idf-embed.test.ts",

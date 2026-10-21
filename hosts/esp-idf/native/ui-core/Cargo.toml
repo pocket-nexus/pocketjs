@@ -9,13 +9,11 @@ publish = false
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
-pocketjs-core = { path = "../../../../engine/core" }
-pocketjs-idf-abi = { path = "../abi" }
-pocketjs-idf-runtime = { path = "../runtime" }
+pocket-runtime-cabi = { path = "../../../../engine/runtime-cabi", default-features = false, features = ["legacy-idf"] }
 
 [features]
 default = ["std"]
-std = ["pocketjs-idf-runtime/std"]
+std = ["pocket-runtime-cabi/std"]
 
 [profile.release]
 codegen-units = 16

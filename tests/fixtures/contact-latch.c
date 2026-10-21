@@ -17,8 +17,8 @@ static int event(PocketContactLatch *s, PocketTouchPhase phase, int id, float x)
 static void emit(PocketContactLatch *s) {
   PocketRuntimeContactsInput f = sample(s);
   printf("{\"packed\":[");
-  for (unsigned i = 0; i < f.contact_count; i++) printf("%s%u", i ? "," : "", pocket_runtime_pack_contact(&f.contacts[i]));
-  for (unsigned i = 0; i < f.cancelled_count; i++) printf("%s%u", f.contact_count || i ? "," : "", pocket_runtime_pack_cancel(f.cancelled[i]));
+  for (unsigned i = 0; i < f.contact_count; i++) printf("%s%u", i ? "," : "", pocket_legacy_runtime_pack_contact(&f.contacts[i]));
+  for (unsigned i = 0; i < f.cancelled_count; i++) printf("%s%u", f.contact_count || i ? "," : "", pocket_legacy_runtime_pack_cancel(f.cancelled[i]));
   printf("],\"hits\":[");
   for (unsigned i = 0; i < f.contact_count; i++) printf("%s%d", i ? "," : "", f.contacts[i].hit);
   printf("]}\n");

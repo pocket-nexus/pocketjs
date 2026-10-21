@@ -21,7 +21,7 @@ const cargo = resolve(take("cargo") ?? Bun.which("cargo") ?? "");
 const outputRoot = resolve(take("output-root") ?? join(ROOT, "hosts/esp-idf/components"));
 const archiver = take("archiver") ?? process.env.AR ?? [Bun.which("llvm-ar"), Bun.which("gcc-ar"),
   Bun.which("riscv32-esp-elf-ar"), "/opt/homebrew/opt/llvm/bin/llvm-ar", Bun.which("ar")].find(p => p && existsSync(p));
-if (!(target in RUST_TARGETS) || args.length) throw new Error("usage: esp-idf-native --target <esp32p4|esp32s3> [--component ui-core|render-rgb565] [--cargo path] [--archiver path] [--output-root components-dir]");
+if (!(target in RUST_TARGETS) || args.length) throw new Error("usage: esp-idf-native --target <esp32p4|esp32s3> [--component ui-core] [--cargo path] [--archiver path] [--output-root components-dir]");
 const specs = NATIVE_COMPONENTS.filter(spec => !component || spec.crate === component);
 if (!specs.length) throw new Error("unknown native component " + component);
 function run(command: string[], env?: Record<string, string | undefined>): void {
@@ -42,18 +42,14 @@ if (target === "esp32p4") {
 }
 for (const spec of specs) {
   const sourceSha256 = await nativeSourceDigest(ROOT, spec);
-  const wrapperSource = join(ROOT, "hosts/esp-idf/components/pocketjs_ui_core/rustc_wrapper.rs");
-  const wrapperKey = sha256(readFileSync(wrapperSource)).slice(0, 16);
-  const cargoTarget = join(ROOT, "dist/esp-idf-native/cargo", spec.crate, target, wrapperKey);
+  const cargoTarget = join(ROOT, "dist/esp-idf-native/cargo", spec.crate, target);
   const native = join(ROOT, "hosts/esp-idf/native", spec.crate);
   mkdirSync(cargoTarget, { recursive: true });
-  const wrapper = join(cargoTarget, "rustc-wrapper" + (process.platform === "win32" ? ".exe" : ""));
-  run([rustc, "--edition=2021", wrapperSource, "-o", wrapper]);
   run([cargo, "build", ...(target === "esp32s3" ? ["-Zbuild-std=core,alloc"] : []),
     "--release", "--locked", "--no-default-features", "--target", RUST_TARGETS[target],
     "--manifest-path", join(native, "Cargo.toml")], { ...process.env, RUSTC: rustc,
       RUSTFLAGS: "", CARGO_ENCODED_RUSTFLAGS: "", CARGO_TARGET_DIR: cargoTarget,
-      RUSTC_WRAPPER: wrapper, POCKETJS_RUST_NAMESPACE: spec.archive.slice(3, -2),
+      RUSTC_WRAPPER: "", RUSTC_WORKSPACE_WRAPPER: "",
       PATH: dirname(cargo) + ":" + (process.env.PATH ?? "") });
   const directory = join(outputRoot, spec.component, "lib", target);
   mkdirSync(directory, { recursive: true });

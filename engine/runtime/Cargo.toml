@@ -1,0 +1,15 @@
+[package]
+name = "pocket-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+description = "PocketJS application instances, input encoding, package admission, and frame scheduling"
+
+[dependencies]
+pocketjs-core = { path = "../core" }
+pocket-drivers = { path = "../drivers" }
+pocket-spec = { path = "../spec" }
+pocket-package = { path = "../package" }
+pocket-present = { path = "../present" }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }

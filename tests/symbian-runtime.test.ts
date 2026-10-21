@@ -442,7 +442,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       "utf8",
     );
     const coreSource = readFileSync(
-      join(repository, "engine/ui-cabi/src/lib.rs"),
+      join(repository, "engine/runtime-cabi/src/compat/ui/mod.rs"),
       "utf8",
     );
     const extensionHeader = readFileSync(
@@ -659,7 +659,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       "explicit null provider avoids ELF weak relocations",
     );
     expect(coreCargo).toContain(
-      'default = ["standalone-extension-provider"]',
+      'default = ["std", "standalone-extension-provider"]',
     );
     expect(coreCargo).toContain('crate-type = ["rlib", "staticlib"]');
     expect(coreSource).toContain(
@@ -669,7 +669,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       "pub extern \"C\" fn pocketjs_symbian_extension_v1()",
     );
     const extensionRust = readFileSync(
-      join(repository, "engine/ui-cabi/src/extension.rs"),
+      join(repository, "engine/runtime-cabi/src/compat/ui/extension.rs"),
       "utf8",
     );
     for (const [cName, rustName, bit] of [

@@ -1,4 +1,4 @@
-/* Generated from native/render-rgb565/src/lib.rs. Do not edit. */
+/* Generated from engine/runtime-cabi/src/compat/idf/render.rs. Do not edit. */
 #pragma once
 #include "pocketjs/render_rgb565.h"
 int32_t pocketjs_native_render_target_create(pocketjs_rgb565_target_t * * output);

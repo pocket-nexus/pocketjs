@@ -100,7 +100,7 @@ static void write_status(void)
     fprintf(stderr, "PocketJS Classic: cannot write %s: %s\n", STATUS_PATH, strerror(errno));
     return;
   }
-  action_name = runtime_ready ? pocket_runtime_action_name() : "";
+  action_name = runtime_ready ? pocket_legacy_runtime_action_name() : "";
   fprintf(file, "schema=1\n");
   fprintf(file, "build_id=%s\n", POCKET_BUILD_ID);
   fprintf(file, "stage=%s\n", status_stage);
@@ -118,9 +118,9 @@ static void write_status(void)
   fprintf(file, "key_sym=%d\n", last_key_sym);
   fprintf(file, "key_scan=%d\n", last_key_scan);
   fprintf(file, "key_flags=%d\n", last_key_flags);
-  fprintf(file, "action_sequence=%lu\n", runtime_ready ? pocket_runtime_action_sequence() : 0UL);
+  fprintf(file, "action_sequence=%lu\n", runtime_ready ? pocket_legacy_runtime_action_sequence() : 0UL);
   fprintf(file, "action_name=%s\n", action_name == NULL ? "" : action_name);
-  fprintf(file, "action_value=%d\n", runtime_ready ? pocket_runtime_action_value() : 0);
+  fprintf(file, "action_value=%d\n", runtime_ready ? pocket_legacy_runtime_action_value() : 0);
   fclose(file);
   status_dirty = 0;
 }
@@ -439,22 +439,22 @@ static int render_frame(void)
   frame.touch_x = (int)(sample.touch_x * POCKET_LOGICAL_WIDTH / (surface_width > 0 ? surface_width : 1));
   frame.touch_y = (int)(sample.touch_y * POCKET_LOGICAL_HEIGHT / (surface_height > 0 ? surface_height : 1));
   frame.touch_hit = sample.touch_down
-    ? pocket_runtime_hit_test_bounds((float)frame.touch_x, (float)frame.touch_y)
+    ? pocket_legacy_runtime_hit_test_bounds((float)frame.touch_x, (float)frame.touch_y)
     : 0;
-  if (!pocket_runtime_tick(&frame)) {
-    set_error(pocket_runtime_error());
+  if (!pocket_legacy_runtime_tick(&frame)) {
+    set_error(pocket_legacy_runtime_error());
     return 0;
   }
-  if (!pocket_runtime_gl_render(surface_width, surface_height) ||
+  if (!pocket_legacy_runtime_gl_render(surface_width, surface_height) ||
       !eglSwapBuffers(egl_display, egl_surface)) {
     set_error("OpenGL ES frame presentation failed");
     return 0;
   }
   frame_count += 1;
-  action_sequence = pocket_runtime_action_sequence();
+  action_sequence = pocket_legacy_runtime_action_sequence();
   if (action_sequence != last_action_sequence) {
     last_action_sequence = action_sequence;
-    set_status("action", pocket_runtime_action_name());
+    set_status("action", pocket_legacy_runtime_action_name());
   }
   write_status();
   return 1;
@@ -485,7 +485,7 @@ int main(int argc, char **argv)
     set_error("cannot read packaged app.js or app.pak");
     goto cleanup_graphics;
   }
-  if (!pocket_runtime_boot(
+  if (!pocket_legacy_runtime_boot(
         (const char *)java_script.bytes,
         java_script.length,
         pack.bytes,
@@ -493,11 +493,11 @@ int main(int argc, char **argv)
         POCKET_LOGICAL_WIDTH,
         POCKET_LOGICAL_HEIGHT
       )) {
-    set_error(pocket_runtime_error());
+    set_error(pocket_legacy_runtime_error());
     goto cleanup_graphics;
   }
   runtime_ready = 1;
-  if (!pocket_runtime_gl_initialize()) {
+  if (!pocket_legacy_runtime_gl_initialize()) {
     set_error("PocketJS GLES2 backend initialization failed");
     goto cleanup_runtime;
   }
@@ -530,8 +530,8 @@ int main(int argc, char **argv)
 
 cleanup_runtime:
   if (runtime_ready) {
-    pocket_runtime_gl_shutdown();
-    pocket_runtime_shutdown();
+    pocket_legacy_runtime_gl_shutdown();
+    pocket_legacy_runtime_shutdown();
     runtime_ready = 0;
   }
 cleanup_graphics:

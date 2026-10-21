@@ -14,6 +14,9 @@ members = [
     "present",
     "package",
     "modules/media",
+    "runtime",
+    "runtime-cabi",
+    "guest-rquickjs",
     "render/draw-ops",
     "render/glyph-pages",
     "render/tri-batch",
@@ -39,6 +42,7 @@ members = [
     "pocket3d/examples/uihost",
 ]
 exclude = [
+    "backends/rgb565",
     "backends/esp32p4-ppa",
     "backends/gpui",
     "core",

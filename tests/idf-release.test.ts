@@ -38,6 +38,13 @@ async function fixture() {
 }
 
 describe("ESP-IDF release integrity", () => {
+  test("one runtime archive serves both UI and RGB565 components", () => {
+    expect(NATIVE_COMPONENTS).toEqual([{ component: "pocketjs_ui_core", crate: "ui-core", archive: "libpocketjs_idf_ui_core.a" }]);
+    const renderer = readFileSync(join(root, "hosts/esp-idf/components/pocketjs_render_rgb565/CMakeLists.txt"), "utf8");
+    expect(renderer).toContain("REQUIRES pocketjs_ui_core");
+    expect(renderer).not.toContain("pocketjs_link_native");
+    expect(NATIVE_POLICY.rustArchiveLayout).toBe("single-runtime");
+  });
   test("generated C/Rust ABI contracts match their authority", () => {
     for (const [path, contents] of generatedIdfContracts()) expect(readFileSync(join(root, path), "utf8")).toBe(contents);
   });
@@ -59,6 +66,12 @@ describe("ESP-IDF release integrity", () => {
     "engine/modules/media/src/lib.rs", "engine/modules/media/Cargo.toml",
     "engine/render/draw-ops/src/lib.rs", "engine/render/draw-ops/Cargo.toml",
     "engine/render/glyph-pages/src/lib.rs", "engine/render/glyph-pages/Cargo.toml",
+    "engine/render/tri-batch/src/lib.rs", "engine/render/tri-batch/Cargo.toml",
+    "engine/render/tex-cache/src/lib.rs", "engine/render/tex-cache/Cargo.toml",
+    "engine/runtime/src/lib.rs", "engine/runtime/Cargo.toml",
+    "engine/runtime-cabi/src/lib.rs", "engine/runtime-cabi/Cargo.toml",
+    "engine/runtime-cabi/src/compat/idf/abi.rs", "engine/runtime-cabi/src/compat/idf/render.rs",
+    "engine/backends/rgb565/src/lib.rs", "engine/backends/rgb565/Cargo.toml",
   ])("rejects old archives after contract dependency changes: %s", async (path) => {
     const f = await fixture();
     writeFileSync(join(f.directory, path), "changed contract dependency");
@@ -104,7 +117,7 @@ describe("ESP-IDF release integrity", () => {
       ], { stdout: "pipe", stderr: "pipe" });
       expect(result.exitCode, result.stderr.toString()).toBe(0);
       const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
-      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages"])
+      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocketjs-render-rgb565"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
     }
   }, 30_000);

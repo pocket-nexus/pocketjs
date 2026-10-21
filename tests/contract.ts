@@ -13,6 +13,7 @@
 
 import { generateC } from "../contracts/spec/gen-c.ts";
 import { generateRust } from "../contracts/spec/gen-rust.ts";
+import { generatedUiBindings } from "../tools/ui-bindings.ts";
 import { generatedDriverContracts } from "../tools/driver-contracts.ts";
 import { withGeneratedExports } from "../tools/gen-exports.ts";
 import {
@@ -67,6 +68,12 @@ for (const [path, contents] of generatedDriverContracts()) {
   const committed = await Bun.file(new URL(`../${path}`, import.meta.url)).text().catch(() => null);
   check(committed === contents, `${path} matches driver/runtime spec`,
     "run `bun tools/driver-contracts.ts` and commit the result");
+}
+
+for (const [path, contents] of generatedUiBindings()) {
+  const committed = await Bun.file(new URL(`../${path}`, import.meta.url)).text().catch(() => null);
+  check(committed === contents, `${path} matches UI operation schema`,
+    "run `bun tools/ui-bindings.ts` and commit the result");
 }
 
 const pkgPath = new URL("../package.json", import.meta.url).pathname;

@@ -1,12 +1,37 @@
 #include "pocketjs/guest_quickjs.h"
 #include "pocketjs/render_rgb565.h"
 #include "pocketjs/ui_qjs.h"
+#include "pocket_runtime.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 extern long pocketjs_test_fail_after;
+extern long pocketjs_test_heap_fail_after;
+
+static void test_runtime_allocator_hooks(void) {
+  assert(pocket_host_alloc(0, 8) == NULL);
+  assert(pocket_host_alloc(16, 3) == NULL);
+  unsigned char *original = pocket_host_alloc(17, 64);
+  assert(original != NULL && (uintptr_t)original % 64 == 0);
+  for (size_t i = 0; i < 17; ++i)
+    original[i] = (unsigned char)i;
+  pocketjs_test_heap_fail_after = 0;
+  assert(pocket_host_realloc(original, 17, 64, 33) == NULL);
+  pocketjs_test_heap_fail_after = -1;
+  for (size_t i = 0; i < 17; ++i)
+    assert(original[i] == i);
+  unsigned char *grown = pocket_host_realloc(original, 17, 64, 33);
+  assert(grown != NULL && (uintptr_t)grown % 64 == 0);
+  for (size_t i = 0; i < 17; ++i)
+    assert(grown[i] == i);
+  unsigned char *shrunk = pocket_host_realloc(grown, 33, 64, 7);
+  assert(shrunk != NULL && (uintptr_t)shrunk % 64 == 0);
+  for (size_t i = 0; i < 7; ++i)
+    assert(shrunk[i] == i);
+  pocket_host_free(shrunk, 7, 64);
+}
 
 static void eval(JSContext *ctx, const char *source) {
   JSValue result =
@@ -177,6 +202,7 @@ static unsigned char *read_file(const char *path, size_t *size) {
 
 int main(int argc, char **argv) {
   assert(argc == 3);
+  test_runtime_allocator_hooks();
   size_t good_size, bad_size;
   unsigned char *good = read_file(argv[1], &good_size),
                 *bad = read_file(argv[2], &bad_size);

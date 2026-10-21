@@ -23,13 +23,12 @@ must not acquire a QuickJS dependency.
 
 ## Native archives
 
-Each native component owns its implementation archive and receipt:
+**One Rust archive per target supplies the UI and RGB565 C interfaces.**
+The UI component owns that archive and its receipt:
 
 ```text
 pocketjs_ui_core/lib/<target>/libpocketjs_idf_ui_core.a
 pocketjs_ui_core/lib/<target>/build-receipt.json
-pocketjs_render_rgb565/lib/<target>/libpocketjs_idf_render_rgb565.a
-pocketjs_render_rgb565/lib/<target>/build-receipt.json
 ```
 
 Build P4 with a Rust installation that provides
@@ -50,8 +49,7 @@ bun tools/esp-idf-native.ts \
 
 The script does not download or select a toolchain. Release compiler commits
 are pinned in `hosts/esp-idf/native/toolchains.json`. Each invocation builds
-both components; `--component ui-core` or `--component render-rgb565` selects
-one. The receipt records the compiler, Rust target, build policy, source
+the shared runtime archive. The receipt records the compiler, Rust target, build policy, source
 digest, archive digest, byte size, and P4 archiver identity.
 If the host's default `ar` cannot resolve GNU archive long names, pass LLVM or
 GNU ar with `--archiver /path/to/llvm-ar`.
@@ -61,13 +59,12 @@ P4 runs a locked `cargo build --no-default-features`; S3 additionally uses
 `-Zbuild-std=core,alloc`. Missing Cargo, target support, or linker state is an
 error with no installation side effect.
 
-The two native crates have separate manifests and lockfiles under
-`hosts/esp-idf/native`. The renderer uses opaque C core handles and borrowed
-resource views. The general renderer crate is `engine/backends/rgb565`;
+The compatibility crates under `hosts/esp-idf/native` re-export
+`engine/runtime-cabi`; only `ui-core` produces a static archive. The RGB565 C
+component depends on the UI component for its native symbols. The archive
+contains one allocator and panic handler, backed by the six `pocket_host_*`
+hooks in `ui_core.c`. The general renderer crate is `engine/backends/rgb565`;
 PPA driver code remains in the optional P4 component.
-Each archive uses a component-specific Rust symbol namespace. Only the C ABI
-is shared across the archives; private Rust implementation symbols cannot be
-resolved from the other component's copy of a dependency.
 
 **Rust OOM is fatal; returned asset-loading errors are transactional.**
 Asset parsing and allocation happen before the live core is changed.
@@ -143,7 +140,7 @@ bun test tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-packa
 ```
 
 `POCKETJS_QUICKJS_SOURCE` may point at another copy of that exact component
-source. Host tests compile the real C wrappers, two Rust archives, and
+source. Host tests compile the real C wrappers, the shared Rust archive, and
 QuickJS. They inject C allocation failures, reject stale frame views, check
 Promise identity, and exercise immutable PAK writes. The package fuzz target
 and scratch-corpus instructions are in `hosts/esp-idf/tests/fuzz`.
@@ -170,15 +167,16 @@ dependency ranges. The current release uses exact dependencies; the verifier
 does not require all components to share one version. Upload components only
 after their dependency versions exist in the Registry.
 
-Before staging, `tools/esp-idf-release.ts` verifies all four archive receipts,
+Before staging, `tools/esp-idf-release.ts` verifies both target archive receipts,
 recomputes source and archive hashes, checks compiler/build policy and sizes,
 and checks generated contracts and component versions. Archive preparation
 rules participate in the source digest. **Stale archives cannot be staged
 with newer source.** The script stages files; it does not upload to Registry.
 
 Run the verifier independently with `bun tools/esp-idf-native-receipt.ts`.
-The core package contains no renderer backend or renderer native crate; each
-component's source-build vendor tree contains its own implementation.
+The UI component's source-build vendor tree includes the runtime, C ABI,
+renderer backend, and their Rust dependencies. The RGB565 component consumes
+that archive through its UI component dependency.
 
 Every component's `documentation` URL must resolve to the ESP-IDF guide. Build
 the site and the two example projects before publishing. A release is rejected

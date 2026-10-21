@@ -23,6 +23,7 @@ jobs:
       - run: bun tools/esp-idf-contracts.ts --check
       - uses: dtolnay/rust-toolchain@1.93.0
       - run: cargo test --locked --manifest-path hosts/esp-idf/native/ui-core/Cargo.toml
+      - run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-idf
       - run: cargo test --locked --manifest-path hosts/esp-idf/tests/native/Cargo.toml
       - run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-package -p pocket-media
       - name: Test C bindings with the pinned QuickJS component

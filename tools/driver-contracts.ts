@@ -128,7 +128,55 @@ function rustTypes(): string {
   for (const record of records) {
     result += `\n${rustDoc(record.doc)}#[repr(C)]\n#[derive(Clone, Copy, Debug)]\npub struct ${record.name} {\n`;
     for (const field of record.fields) result += `    ${rustDoc(field.doc)}pub ${field.name}: ${field.type},\n`;
-    result += "}\nconst _: () = {\n    let mut size = 0usize;\n    let mut align = 1usize;\n";
+    result += "}\n";
+    result += `impl ${record.name} {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+`;
+    for (const field of record.fields.slice(1)) result += `        if core::mem::offset_of!(Self, ${field.name}) + core::mem::size_of::<${field.type}>() <= capacity {
+            value.${field.name} = unsafe { bytes.add(core::mem::offset_of!(Self, ${field.name})).cast::<${field.type}>().read_unaligned() };
+        }
+`;
+    result += `        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+`;
+    for (const field of record.fields.slice(1)) result += `        if core::mem::offset_of!(Self, ${field.name}) + core::mem::size_of::<${field.type}>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, ${field.name})).cast::<${field.type}>().write_unaligned(self.${field.name}); }
+        }
+`;
+    result += `        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+`;
+
     for (const field of record.fields) {
       const child = layoutExpressions(field.type, "rust");
       result += `    let field_align = ${child.align};\n    size = size.div_ceil(field_align) * field_align;\n    assert!(core::mem::offset_of!(${record.name}, ${field.name}) == size);\n    size += ${child.size};\n    if field_align > align { align = field_align; }\n`;
