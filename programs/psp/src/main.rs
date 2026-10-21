@@ -501,8 +501,6 @@ unsafe fn run_guest(
         if let Err(error) = runtime.present() {
             trace_pair(b"[PocketJS present] ", &error);
         }
-        #[cfg(feature = "capture")]
-        cap_dump_frame(GLOBAL_FRAME);
         #[cfg(feature = "bench")]
         {
             let timing = runtime.frame_timing();
@@ -522,6 +520,10 @@ unsafe fn run_guest(
             }
             bench_maybe_flush(guest_frame, runtime.source_lengths());
         }
+        // The last capture exits the process, so record and flush benchmark
+        // results before allowing it to terminate the run.
+        #[cfg(feature = "capture")]
+        cap_dump_frame(GLOBAL_FRAME);
         if let Some((next, summon)) = switch::take_pending() {
             if summon {
                 switch::capture_shot();

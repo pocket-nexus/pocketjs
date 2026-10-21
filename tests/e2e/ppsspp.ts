@@ -25,6 +25,8 @@
 //
 // Host deps: ~/ppsspp-src/build/PPSSPPHeadless (source-built; see
 // framework/test/bsp-compare/ppsspp-capture.md on origin/main) and ImageMagick.
+// PPSSPP_HEADLESS and PPSSPP_SOURCE override the binary and source checkout;
+// the source revision must match the maintained golden stamp.
 
 import { $ } from "bun";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,6 +44,7 @@ const goldensDir =
   framework === "solid" ? `${pspUiDir}tests/goldens/psp` : `${pspUiDir}tests/goldens/psp-${framework}`;
 const outDir = evidenceDirectory(pspUiDir, `ppsspp-${framework}`);
 const headless = process.env.PPSSPP_HEADLESS || `${homedir()}/ppsspp-src/build/PPSSPPHeadless`;
+const emulatorSource = process.env.PPSSPP_SOURCE || `${homedir()}/ppsspp-src`;
 // PPSSPPHeadless maps ms0: to ~/.ppsspp — dumps land in ~/.ppsspp/dc_cap.
 // CAUTION: contents persist across runs; always clean before each run.
 const dccap = `${homedir()}/.ppsspp/dc_cap`;
@@ -249,9 +252,12 @@ function writeDemoManifest(app: string): string {
 
 // Emulator provenance: byte-exact goldens are only promised for the PPSSPP
 // build they were generated with.
-const ppssppCommit = (await $`git -C ${homedir()}/ppsspp-src rev-parse HEAD`.text()).trim();
+const ppssppCommit = (await $`git -C ${emulatorSource} rev-parse HEAD`.text()).trim();
 const commitStamp = `${goldensDir}/PPSSPP-COMMIT.txt`;
 const stampedCommit = existsSync(commitStamp) ? readFileSync(commitStamp, "utf8").trim() : null;
+if (!update && stampedCommit !== ppssppCommit) {
+  throw new Error(`PPSSPP revision must match the golden stamp: expected ${stampedCommit ?? "missing stamp"}, got ${ppssppCommit}`);
+}
 
 // Non-default frameworks cover exactly the demos that carry the sibling
 // variant; the rest stay Solid-only.
@@ -383,14 +389,6 @@ for (const spec of selectedSpecs) {
         `FAIL ${spec.app}.${shot.name}: differs from golden ` +
           `(actual -> ${outDir}/${spec.app}.${shot.name}.actual.png)`,
       );
-      if (stampedCommit && stampedCommit !== ppssppCommit) {
-        console.error(
-          `  note: PPSSPP build differs (goldens: ${stampedCommit.slice(0, 12)}, ` +
-            `local: ${ppssppCommit.slice(0, 12)}) — emulator drift, not necessarily a ` +
-            `PocketJS regression. Re-baseline with UPDATE=1, or fall back to threshold ` +
-            `compare (origin/main framework/test/bsp-compare/diff.ts: IoU>=0.995, meanRGB<=8).`,
-        );
-      }
       failed = true;
     }
   }
@@ -399,8 +397,6 @@ for (const spec of selectedSpecs) {
 if (update) {
   writeFileSync(commitStamp, `${ppssppCommit}\n`);
   console.log(`\ngoldens + PPSSPP-COMMIT.txt (${ppssppCommit.slice(0, 12)}) -> ${goldensDir}`);
-} else if (stampedCommit && stampedCommit !== ppssppCommit && !failed) {
-  console.log(`\nnote: local PPSSPP ${ppssppCommit.slice(0, 12)} != golden stamp ${stampedCommit.slice(0, 12)}, but bytes still match.`);
 }
 
 console.log(failed ? "\nE2E FAILED" : "\nE2E OK");
