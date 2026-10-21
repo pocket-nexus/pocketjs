@@ -1,0 +1,20 @@
+[package]
+name = "pocket-psp-render"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+description = "PSP GE DrawList renderer with explicit zero-copy lifetime"
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+pocket-drivers = { path = "../../../engine/drivers" }
+pocket-spec = { path = "../../../engine/spec" }
+pocket-draw-ops = { path = "../../../engine/render/draw-ops" }
+pocket-glyph-pages = { path = "../../../engine/render/glyph-pages" }
+pocket-psp-ge = { path = "../pocket-psp-ge" }
+
+[target.'cfg(target_os = "psp")'.dependencies]
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
