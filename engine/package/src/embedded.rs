@@ -60,30 +60,22 @@ pub fn encode(package: EmbeddedPackage<'_>) -> Result<Vec<u8>, EncodeError> {
     if code.contains(&0) {
         return Err(EncodeError::InvalidJavaScript);
     }
-    let mut javascript = Vec::new();
-    javascript
-        .try_reserve_exact(code.len().checked_add(1).ok_or(EncodeError::TooLarge)?)
-        .map_err(|_| EncodeError::NoMemory)?;
-    javascript.extend_from_slice(code);
-    javascript.push(0);
-    let sections = [
-        package.identity,
-        package.plan,
-        javascript.as_slice(),
-        package.pak,
+    let javascript_length = code.len().checked_add(1).ok_or(EncodeError::TooLarge)?;
+    let sections = [package.identity, package.plan, code, package.pak];
+    let lengths = [
+        package.identity.len(),
+        package.plan.len(),
+        javascript_length,
+        package.pak.len(),
     ];
     let table = align(POCKET_HEADER_SIZE)?;
     let strings = table + POCKET_VARIANT_SIZE;
     let directory = align(strings + package.target.len())?;
     let mut cursor = align(directory + sections.len() * POCKET_SECTION_SIZE)?;
     let mut offsets = [0usize; 4];
-    for (offset, section) in offsets.iter_mut().zip(sections) {
+    for (offset, size) in offsets.iter_mut().zip(lengths) {
         *offset = cursor;
-        cursor = align(
-            cursor
-                .checked_add(section.len())
-                .ok_or(EncodeError::TooLarge)?,
-        )?;
+        cursor = align(cursor.checked_add(size).ok_or(EncodeError::TooLarge)?)?;
     }
     let length = cursor
         .checked_add(POCKET_FOOTER_SIZE)
@@ -127,7 +119,9 @@ pub fn encode(package: EmbeddedPackage<'_>) -> Result<Vec<u8>, EncodeError> {
         table + OFFSET_VARIANT_SECTIONS_OFFSET,
         directory,
     );
-    let hash = fnv1a64(&sections);
+    // Hash the terminator as part of JavaScript without allocating a second
+    // script buffer. The zero-filled output already contains that byte.
+    let hash = fnv1a64(&[package.identity, package.plan, code, &[0], package.pak]);
     bytes[table + OFFSET_VARIANT_HASH..table + OFFSET_VARIANT_HASH + 8]
         .copy_from_slice(&hash.to_le_bytes());
     for (i, ((kind, section), offset)) in [SECTION_IDENTITY, SECTION_PLAN, SECTION_JS, SECTION_PAK]
@@ -139,7 +133,7 @@ pub fn encode(package: EmbeddedPackage<'_>) -> Result<Vec<u8>, EncodeError> {
         let entry = directory + i * POCKET_SECTION_SIZE;
         write32(&mut bytes, entry + OFFSET_SECTION_KIND, kind as usize);
         write32(&mut bytes, entry + OFFSET_SECTION_OFFSET, offset);
-        write32(&mut bytes, entry + OFFSET_SECTION_SIZE, section.len());
+        write32(&mut bytes, entry + OFFSET_SECTION_SIZE, lengths[i]);
         bytes[offset..offset + section.len()].copy_from_slice(section);
     }
     let hash = fnv1a64(&[&bytes[..cursor]]);

@@ -21,6 +21,11 @@ including short reads, EOF, empty output and an offset past EOF.
 parser. Run it for each item in the application's package corpus, including
 rejected packages and a mismatched expected profile hash.
 
+Admission also exercises optional Rust `PackageSource::take_bytes` transfer.
+Use a fresh owned source for each corpus item: transfer consumes it before
+admission, including rejected packages. Static sources remain reusable. The
+package crate's README documents ownership and the unchanged C copying path.
+
 `check_input` polls a prepared replay source and passes each resulting frame
 to a callback. Compare the facts with the recording there, including axis
 units, surface/contact IDs, cancellation, text and motion metadata. The helper

@@ -168,6 +168,48 @@ fn guest_callbacks_reenter_dispatch_and_each_tick_runs_one_frame() {
     drop(rt);
     assert_eq!(facts.borrow().shutdowns, 1);
 }
+
+#[test]
+fn runtime_evaluates_owned_and_static_packages_without_relocating_their_bytes() {
+    struct PointerGuest {
+        inner: TestGuest,
+        code: *const u8,
+    }
+    impl Guest for PointerGuest {
+        fn initialize(&mut self, ops: OpContext, env: &GuestEnvironment<'_>) -> Result<(), RuntimeError> {
+            self.inner.initialize(ops, env)
+        }
+        fn evaluate(&mut self, code: &[u8]) -> Result<(), RuntimeError> {
+            assert_eq!(code.as_ptr(), self.code);
+            self.inner.evaluate(code)
+        }
+        fn frame(&mut self, input: &GuestFrame<'_>) -> Result<(), RuntimeError> { self.inner.frame(input) }
+        fn collect(&mut self) -> Result<(), RuntimeError> { self.inner.collect() }
+        fn shutdown(&mut self) { self.inner.shutdown() }
+    }
+    for owned in [true, false] {
+        let bytes = package().into_boxed_slice();
+        let code = pocket_package::select_guest(
+            &bytes, "fixture", pocket_spec::BINDING_GENERATION, &config().profile_hash, false,
+        ).unwrap().js.as_ptr();
+        let source: Box<dyn PackageSource> = if owned {
+            Box::new(pocket_package::source::OwnedMemorySource::new(bytes))
+        } else {
+            Box::new(pocket_package::source::StaticMemorySource(Box::leak(bytes)))
+        };
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        let mut rt = runtime(facts.clone(), false, false);
+        rt.set_package_source(source).unwrap();
+        rt.set_guest(Box::new(PointerGuest {
+            inner: TestGuest { facts: facts.clone(), ops: None, fail: false }, code,
+        })).unwrap();
+        rt.boot().unwrap();
+        rt.tick().unwrap();
+        rt.shutdown().unwrap();
+        assert_eq!(facts.borrow().frames, 1);
+        assert_eq!(facts.borrow().shutdowns, 1);
+    }
+}
 #[test]
 fn terminal_display_failure_allows_next_tick_and_guest_failure_stops_ticks() {
     let facts = Rc::new(RefCell::new(Facts::default()));
