@@ -18,7 +18,7 @@
 import { $ } from "bun";
 import { existsSync } from "node:fs";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { startDevServer, demoManifest } from "../tools/dev/web/server.ts";
 import { startBridge, type Bridge } from "./devtools-bridge.ts";
 
@@ -28,7 +28,7 @@ const ROOT = new URL("..", import.meta.url).pathname;
 
 const argv = Bun.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith("-")));
-const positional = argv.filter((a) => !a.startsWith("-") && a !== argValue("--port") && a !== argValue("--dir"));
+const positional = argv.filter((a) => !a.startsWith("-") && a !== argValue("--port") && a !== argValue("--dir") && a !== argValue("--pocket"));
 function argValue(flag: string): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -37,13 +37,20 @@ const release = flags.has("-r") || flags.has("--release");
 const noBuild = flags.has("--no-build");
 const wantedPort = Number(argValue("--port") ?? process.env.PORT ?? 8130);
 const app = positional[0];
+const packageArg = argValue("--pocket");
+if (flags.has("--pocket") && (!packageArg || packageArg.startsWith("--")))
+  throw new Error("--pocket requires the compiled package path used for the EBOOT");
+if (app && packageArg) throw new Error("choose a demo name or --pocket, not both");
+const packagePath = packageArg ? resolve(packageArg) : undefined;
 
 if (flags.has("-h") || flags.has("--help")) {
-  console.log(`Usage: bun run devtools [app] [-r|--release] [--no-build] [--port n] [--dir path]
+  console.log(`Usage: bun run devtools [app | --pocket application.pocket] [-r|--release] [--no-build] [--port n] [--dir path]
 
 Starts the Pocket DevTools panel + WS hub + PSPLINK mailbox bridge in one
 process. With [app] it also builds and launches that demo on a real PSP
 (unless a tools/psplink/hw session is already running — then it just bridges in).
+Use --pocket for a compiled single-app package, or its captured build input.
+The bridge verifies that exact package; it does not search nearby .pocket files.
 
 Demos: ${demoNames().join(", ")}`);
   process.exit(0);
@@ -127,8 +134,9 @@ let managed: ManagedSession | null = null;
 
 async function buildApp(): Promise<boolean> {
   if (noBuild) return existsSync(join(targetDir, "pocketjs-psp.prx"));
-  status(`building ${bold(app!)} (${profile})…`);
-  const res = await $`bun ${join(ROOT, "tools", "psp.ts")} ${app} ${release ? ["--release"] : []}`
+  status(`building ${bold(packagePath ?? app!)} (${profile})…`);
+  const input = packagePath ? ["--pocket", packagePath] : [app!];
+  const res = await $`bun ${join(ROOT, "tools", "psp.ts")} ${input} ${release ? ["--release"] : []}`
     .nothrow()
     .quiet();
   if (res.exitCode !== 0) {
@@ -209,7 +217,7 @@ async function launchApp(): Promise<void> {
   if (/Failed|Error/i.test(out)) {
     status(yellow(`ldstart failed: ${out}`));
   } else {
-    status(green(`launched ${app} on the PSP`));
+    status(green(`launched ${packagePath ?? app} on the PSP`));
   }
 }
 
@@ -226,21 +234,21 @@ const external = dirFlag ? null : await detectUsbhostfs();
 if (dirFlag) {
   // An explicit --dir always wins: it targets a desktop-host mailbox
   // (pocket-ui-wgpu) and must not be hijacked by a running PSP session.
-  bridge = startBridge({ dir: dirFlag, port: server.port, onEvent });
+  bridge = startBridge({ dir: dirFlag, port: server.port, packagePath, onEvent });
   const rel = dirFlag.startsWith(ROOT) ? dirFlag.slice(ROOT.length) : dirFlag;
   pspLine = `mailbox armed at ${rel} — launch the desktop host with this cwd (or POCKETJS_DBG_DIR) to attach`;
 } else if (external) {
-  bridge = startBridge({ dir: external.dir, port: server.port, onEvent });
+  bridge = startBridge({ dir: external.dir, port: server.port, packagePath, onEvent });
   const rel = external.dir.startsWith(ROOT) ? external.dir.slice(ROOT.length) : external.dir;
   pspLine = `external PSPLINK session (pid ${external.pid}, ${rel}) — relaunch the app there to attach`;
   if (app) status(yellow(`"${app}" ignored — your existing tools/psplink/hw session controls the device`));
-} else if (app) {
-  if (!demoNames().includes(app.replace(/-main$/, ""))) {
+} else if (app || packagePath) {
+  if (app && !demoNames().includes(app.replace(/-main$/, ""))) {
     console.error(`unknown demo "${app}" — known: ${demoNames().join(", ")} (build one first: bun tools/build.ts <app>)`);
   }
   if (!(await buildApp())) process.exit(1);
   managed = await startUsbhostfs();
-  bridge = startBridge({ dir: targetDir, port: server.port, onEvent });
+  bridge = startBridge({ dir: targetDir, port: server.port, packagePath, onEvent });
   pspLine = `waiting for the PSP on USB… launch PSPLINK on it (XMB → Game)`;
 } else {
   const dir = join(ROOT, "dist", "psplink");
@@ -269,7 +277,7 @@ function onEvent(e: { type: string; detail?: string }): void {
   if (e.type === "bundle-mismatch")
     status(
       yellow(
-        `*** STALE EMBED *** ${e.detail} — the device is NOT running dist/; rebuild + reload before trusting observations`,
+        `*** STALE EMBED *** ${e.detail} — the device differs from the selected local build; rebuild + reload before trusting observations`,
       ),
     );
 }

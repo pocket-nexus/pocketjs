@@ -1,10 +1,10 @@
 // tools/bundle-hash.ts — the build-identity hash, host side.
 //
-// FNV-1a 64 over the app JS bundle bytes followed by the pak bytes. The
-// SAME algorithm runs in programs/psp/build.rs over the bytes it embeds into the
-// PRX (spec OP.debugStats reports it back), so "which code is the device
-// actually running" becomes a comparison instead of an act of faith — a
-// stale embed once shipped two rounds of "verified" fixes that never ran.
+// PSP build identity uses FNV-1a 64 over the embedded bytes. A compiled
+// single-app .pocket hashes the complete file; a launcher hashes complete
+// package files in table order. Legacy raw embedding hashes JS followed by
+// pak. tools/build/psp/embed.rs produces the device value reported through
+// OP.debugStats; the bridge must select the same input mode.
 //
 // Keep both implementations in lockstep; the published FNV-1a test vectors
 // below are asserted in tests/devtools.test.ts.
@@ -27,7 +27,7 @@ export function fnv1a64(...chunks: Uint8Array[]): string {
   return h.toString(16).padStart(16, "0");
 }
 
-/** Hash of the exact bytes programs/psp/build.rs embeds: js file, then pak file.
+/** Hash for legacy raw embedding: js file, then pak file.
  *  A missing pak hashes as empty — build.rs embeds an empty pak then too. */
 export function bundleHash(jsPath: string, pakPath: string): string {
   const js = readFileSync(jsPath);
