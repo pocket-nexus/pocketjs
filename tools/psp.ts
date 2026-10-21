@@ -328,6 +328,7 @@ const env = {
   // Keep PSP dev builds fast (opt-level 0 is unusably slow on hardware).
   CARGO_PROFILE_DEV_OPT_LEVEL: process.env.CARGO_PROFILE_DEV_OPT_LEVEL ?? "3",
   ...hostEnvironment,
+  POCKETJS_RESOLVED_PLAN: buildPlan ? planPath! : "",
   // Scripted capture input + per-demo capture window, baked into the EBOOT
   // by hosts/psp/build.rs (only consumed under --capture; harmless otherwise).
   // Explicit so stale values never linger in the cargo fingerprint.

@@ -11,23 +11,23 @@
 //! there; everything app-flavored — trace, bench, capture, and the 2D frame
 //! loop — lives here.
 //!
-//! Frame order (docs/DESIGN.md): sceCtrlPeek -> sceGuStart -> JS frame(buttons)
-//! -> drain jobs (JS_ExecutePendingJob, local extern) -> core.tick(1/60 × N) ->
-//! ge::render(core.draw()) -> sceGuFinish/Sync/WaitVblank/Swap -> pool reset.
+//! Frame order: controller facts -> generated guest -> fixed core ticks ->
+//! DrawList GE driver -> terminal wait -> paced display swap.
 
 extern crate alloc;
 
 use core::ffi::c_void;
 
-use libquickjs_sys::*;
-#[cfg(feature = "capture")]
-use psp::sys::DisplaySetBufSync;
+use alloc::rc::Rc;
+use core::cell::Cell;
 #[cfg(feature = "capture")]
 use psp::sys::DisplayPixelFormat;
-use psp::sys::{self, CtrlMode, GuContextType, GuSyncBehavior, GuSyncMode, IoOpenFlags, SceCtrlData};
+#[cfg(feature = "capture")]
+use psp::sys::DisplaySetBufSync;
+use psp::sys::{self, CtrlMode, IoOpenFlags, SceCtrlData};
 
 use pocketjs_core::spec;
-use pocketjs_psp::{arena, audio_mod, dbg, ffi, ge, host, pak, svc, switch, veil, vid};
+use pocketjs_psp::{arena, dbg, host, switch, veil, Runtime};
 
 psp::module!("pocketjs", 1, 1);
 
@@ -50,13 +50,6 @@ static POCKETJS_TRACE: &str = env!("POCKETJS_TRACE");
 // arena-pressure GC below). Single-threaded QuickJS worker.
 static mut LAST_GC_BUMP: usize = 0;
 
-// libquickjs-sys omits JS_RunGC; the linked QuickJS C library provides it
-// (local-extern pattern, same as host.rs JS_ExecutePendingJob).
-extern "C" {
-    fn JS_RunGC(rt: *mut JSRuntime);
-}
-
-
 // Build-time scripted input for deterministic PPSSPPHeadless captures
 // (tests/e2e/ppsspp.ts). Baked by build.rs from the POCKETJS_CAPTURE_INPUT env;
 // same "frame:mask,frame:mask" format as dreamcart's PSPJS_CAPTURE_INPUT.
@@ -71,20 +64,6 @@ static POCKETJS_CAP_START: &str = env!("POCKETJS_CAP_START");
 static POCKETJS_CAP_N: &str = env!("POCKETJS_CAP_N");
 #[cfg(feature = "bench")]
 static POCKETJS_BENCH_DUMP_FRAMES: &str = env!("POCKETJS_BENCH_DUMP_FRAMES");
-
-// libquickjs-sys omits JS_NewArrayBuffer; the linked QuickJS C library
-// provides it (same local-extern pattern as dreamcart runtime/src/main.rs).
-// size_t stays usize (MIPS o32).
-extern "C" {
-    fn JS_NewArrayBuffer(
-        ctx: *mut JSContext,
-        buf: *mut u8,
-        len: usize,
-        free_func: Option<unsafe extern "C" fn(*mut JSRuntime, *mut c_void, *mut c_void)>,
-        opaque: *mut c_void,
-        is_shared: i32,
-    ) -> JSValue;
-}
 
 fn psp_main() {
     unsafe {
@@ -240,16 +219,6 @@ unsafe fn bench_init() {
 }
 
 #[cfg(feature = "bench")]
-unsafe fn bench_eval_begin() {
-    BENCH.eval_begin_us = bench_now_us();
-}
-
-#[cfg(feature = "bench")]
-unsafe fn bench_eval_end() {
-    BENCH.eval_end_us = bench_now_us();
-}
-
-#[cfg(feature = "bench")]
 unsafe fn bench_window() -> (u32, u32) {
     #[cfg(feature = "capture")]
     {
@@ -284,7 +253,9 @@ unsafe fn bench_record_frame(
     let jobs_us = after_jobs.saturating_sub(after_js);
     let tick_us = after_tick.saturating_sub(after_jobs);
     let draw_us = after_draw.saturating_sub(after_tick);
-    let render_us = after_render.saturating_sub(after_draw).saturating_sub(present_us);
+    let render_us = after_render
+        .saturating_sub(after_draw)
+        .saturating_sub(present_us);
     let work_us = after_render.saturating_sub(t0).saturating_sub(present_us);
     if BENCH.frames > 0 {
         let interval_us = t0.saturating_sub(BENCH.previous_frame_start_us);
@@ -324,7 +295,7 @@ unsafe fn bench_record_frame0_complete() {
 }
 
 #[cfg(feature = "bench")]
-unsafe fn bench_maybe_flush(frame_count: u32) {
+unsafe fn bench_maybe_flush(frame_count: u32, source_lengths: (usize, usize)) {
     let (start, n) = bench_window();
     if n == 0 || frame_count != start + n - 1 || BENCH.frames == 0 {
         return;
@@ -356,8 +327,8 @@ unsafe fn bench_maybe_flush(frame_count: u32) {
         BENCH.gpu_sum_us / frames,
         BENCH.max_gpu_us,
         stack_free_bytes,
-        switch::guest_bytes(0).map(|g| g.js.len().saturating_sub(1)).unwrap_or(0),
-        switch::guest_bytes(0).map(|g| g.pak.len()).unwrap_or(0),
+        source_lengths.0,
+        source_lengths.1,
         arena_stats.capacity_bytes,
         arena_stats.bump_bytes,
         arena_stats.tail_free_bytes,
@@ -369,15 +340,6 @@ unsafe fn bench_maybe_flush(frame_count: u32) {
 
 unsafe fn boot() {
     trace_reset();
-    // The generic runtime reads its game here: on the module's main thread,
-    // in the EBOOT's folder (rust-psp changed to it), and before the first
-    // allocation, so app.pocket takes a kernel block of its own and the arena
-    // reserves the rest (src/package_file.rs).
-    #[cfg(feature = "runtime")]
-    {
-        pocketjs_psp::package_file::load();
-        trace("boot: app.pocket read");
-    }
     trace("boot: creating worker thread");
     host::run_on_worker(worker_main, run);
 }
@@ -387,11 +349,6 @@ unsafe extern "C" fn worker_main(_argc: usize, _argv: *mut c_void) -> i32 {
     trace("worker: entered");
     run();
     0
-}
-
-/// Print the pending JS exception via the debug screen (+ trace file).
-unsafe fn log_exception(ctx: *mut JSContext) {
-    host::log_exception_with(ctx, |msg| trace_pair(b"[PocketJS js error] ", msg));
 }
 
 unsafe fn halt(msg: &str) -> ! {
@@ -426,7 +383,7 @@ unsafe fn run() {
         CORE_TICKS_PER_SECOND
     };
     let ticks_per_virtual_frame = CORE_TICKS_PER_SECOND / sim_hz;
-    let mut last_present_vcount = sys::sceDisplayGetVcount();
+    let last_present_vcount = Rc::new(Cell::new(sys::sceDisplayGetVcount()));
 
     // ---- Guest lifecycle (docs/LAUNCHER.md): one guest alive at a time; a
     // switch tears the whole guest down and boots the next table entry.
@@ -437,29 +394,13 @@ unsafe fn run() {
             boot_index,
             sim_hz,
             ticks_per_virtual_frame,
-            &mut last_present_vcount,
+            &last_present_vcount,
         );
         trace("run: guest swap");
         // The system transition (docs/PLATFORM.md): host-drawn shot-dim + mark
         // sweep, then the next guest's eval holds on its settled last frame.
         veil::play();
     }
-}
-
-/// Wait for the first vblank at or after the fixed-rate presentation target.
-///
-/// Counting from the previous *actual* swap lets CPU and GE work overlap the
-/// 3-vblank budget at 20 Hz. Blindly waiting three more vblanks after the work
-/// would turn a 42 ms frame into 80+ ms instead of the intended 50 ms.
-unsafe fn wait_for_present(last_vcount: &mut u32, vblanks_per_frame: u32) {
-    loop {
-        let elapsed = sys::sceDisplayGetVcount().wrapping_sub(*last_vcount);
-        if elapsed >= vblanks_per_frame && sys::sceDisplayIsVblank() != 0 {
-            break;
-        }
-        sys::sceDisplayWaitVblankStart();
-    }
-    *last_vcount = sys::sceDisplayGetVcount();
 }
 
 /// Global presented-frame counter across every guest — the capture identity
@@ -479,390 +420,134 @@ unsafe fn guest_fail(app_index: usize, msg: &str) -> usize {
     }
 }
 
-/// The generic runtime without a game it can start: one line on the debug
-/// screen saying what is wrong with app.pocket, then park (HOME exits).
-#[cfg(feature = "runtime")]
-unsafe fn refuse(line: &str) -> ! {
-    trace_pair(b"[PocketJS runtime] ", line);
-    psp::dprintln!("{}", line);
-    psp::dprintln!("Press HOME to exit.");
-    loop {
-        sys::sceDisplayWaitVblankStart();
-    }
-}
-
 /// Boot embedded app `app_index`, drive it until a switch request, tear the
 /// guest down, and return the next app index to boot.
 unsafe fn run_guest(
     app_index: usize,
     sim_hz: u32,
     ticks_per_virtual_frame: u32,
-    last_present_vcount: &mut u32,
+    last_present_vcount: &Rc<Cell<u32>>,
 ) -> usize {
     switch::set_current(app_index);
-    // Package mode extracts js/pak zero-copy from the entry's embedded
-    // `.pocket`; single-app mode reads the classic inline embed. A package
-    // that fails to parse routes through the broken-guest rule.
-    let guest = match switch::guest_bytes(app_index) {
-        Ok(guest) => guest,
-        #[cfg(feature = "runtime")]
-        Err(switch::GuestFault::File(fault)) => refuse(&fault.message()),
-        Err(fault) => return guest_fail(app_index, &fault.message()),
+    let source = match switch::guest_source(app_index) {
+        Ok(source) => source,
+        Err(error) => return guest_fail(app_index, &error),
     };
-    let app_js = guest.js;
-    let app_pak = guest.pak;
-
-    // ---- Rust UI core (first allocation initializes the arena). Replacing
-    // the instance drops the previous guest's tree/styles/atlases/textures
-    // back into the arena's free lists.
-    trace("run: init ui begin");
-    let ui = ffi::init_ui();
-    trace("run: init ui ok");
-    // The GE is idle here (cold boot, or a switch point that never kicked
-    // its last list) — safe to drop font textures keyed on the old atlases.
-    ge::reset_fonts();
-    // Feed styles.bin + font atlases + images straight from .rodata to the
-    // core BEFORE any JS runs (zero QuickJS-heap transit) [R].
-    trace("run: pak feed begin");
-    let (textures, sprites) = pak::feed(ui, app_pak);
-    trace("run: pak feed ok");
-    // Keep the pak reachable at runtime for the streaming ops registered
-    // below (loadTileTexture pulls tile blobs straight from .rodata).
-    pak::install(app_pak);
-    // A summoned launcher gets the frozen frame as a texture in ITS core.
-    switch::upload_shot(ffi::ui());
-
-    // ---- QuickJS (fresh runtime + realm per guest) ----
-    trace("run: JS_NewRuntime begin");
-    let rt = pocketjs_psp::qjs_alloc::new_runtime();
-    if rt.is_null() {
-        halt("JS_NewRuntime returned null");
-    }
-    trace("run: JS_NewRuntime ok");
-    trace("run: JS_NewContext begin");
-    let ctx = JS_NewContext(rt);
-    if ctx.is_null() {
-        halt("JS_NewContext returned null");
-    }
-    trace("run: JS_NewContext ok");
-    let global = JS_GetGlobalObject(ctx);
-    trace("run: global object ok");
-
-    // DevTools mailbox (docs/DEVTOOLS.md): active only if pocketjs-dbg/enable
-    // exists on host0: (PSPLINK) or ms0: (PPSSPP GUI) — else two failed
-    // opens at first boot and never again. Once per process: the mailbox is
-    // host state, guests come and go under it.
+    trace("run: runtime create begin");
+    let mut runtime = match Runtime::new(source, sim_hz, last_present_vcount.clone()) {
+        Ok(runtime) => runtime,
+        Err(error) => return guest_fail(app_index, &error),
+    };
     static mut DBG_PROBED: bool = false;
     if !DBG_PROBED {
         DBG_PROBED = true;
-        if (!pocketjs_psp::offload::enabled() || cfg!(feature = "devtools-offload")) && dbg::init() {
+        if (!pocketjs_psp::offload::enabled() || cfg!(feature = "devtools-offload")) && dbg::init()
+        {
             trace("run: devtools mailbox active");
         }
     }
-
-    // globalThis.ui — the full HostOps surface + the __textures table.
-    trace("run: register ui begin");
-    ffi::register(ctx, global, &textures, &sprites);
-    trace("run: register ui ok");
-
-    // The bundle mounts synchronously during JS_Eval, and resetClock() latches
-    // this value at mount. Install it for every fresh guest realm beforehand.
-    JS_SetPropertyStr(
-        ctx,
-        global,
-        b"__simHz\0".as_ptr() as *const _,
-        JS_NewInt32(ctx, sim_hz as i32),
-    );
-    trace("run: simulation rate installed");
-
-    // Expose the asset pack read-only as globalThis.__pak (zero-copy over
-    // .rodata; free_func = None). Web/test hosts feed core through loadStyles/
-    // loadFontAtlas ops instead — on PSP pak.rs already did it natively.
-    if !app_pak.is_empty() {
-        let ab = JS_NewArrayBuffer(
-            ctx,
-            app_pak.as_ptr() as *mut u8,
-            app_pak.len(),
-            None,
-            core::ptr::null_mut(),
-            0,
-        );
-        JS_SetPropertyStr(ctx, global, b"__pak\0".as_ptr() as *const _, ab);
-        trace("run: __pak installed");
+    trace("run: package admission and generated guest boot");
+    if let Err(error) = runtime.boot() {
+        drop(runtime);
+        return guest_fail(app_index, &error);
     }
-
-    trace("run: JS_Eval begin");
     #[cfg(feature = "bench")]
-    bench_eval_begin();
-    let res = JS_Eval(
-        ctx,
-        app_js.as_ptr() as *const _,
-        app_js.len() - 1, // exclude the trailing NUL
-        b"app.js\0".as_ptr() as *const _,
-        JS_EVAL_TYPE_GLOBAL as i32,
-    );
-    if JS_ValueGetTag(res) == JS_TAG_EXCEPTION {
-        log_exception(ctx);
-        JS_FreeValue(ctx, res);
-        JS_FreeValue(ctx, global);
-        JS_FreeContext(ctx);
-        JS_FreeRuntime(rt);
-        return guest_fail(app_index, "JS_Eval threw");
+    {
+        let (begin, end) = runtime.eval_times();
+        BENCH.eval_begin_us = begin;
+        BENCH.eval_end_us = end;
     }
-    JS_FreeValue(ctx, res);
-    #[cfg(feature = "bench")]
-    bench_eval_end();
-    trace("run: JS_Eval ok");
-
-    let frame_fn = JS_GetPropertyStr(ctx, global, b"frame\0".as_ptr() as *const _);
-    if JS_IsUndefined(frame_fn) {
-        JS_FreeValue(ctx, frame_fn);
-        JS_FreeValue(ctx, global);
-        JS_FreeContext(ctx);
-        JS_FreeRuntime(rt);
-        return guest_fail(app_index, "globalThis.frame is undefined");
-    }
-    trace("run: frame lookup ok");
     let mut pad = SceCtrlData::default();
-    // The summon chord edge-detector. Starts LATCHED: when a guest boots
-    // with SELECT already held (the launcher was dismissed via SELECT), the
-    // held button must release before it can summon again — the host-side
-    // twin of the framework's `latched` option.
     let mut prev_select = true;
-
-    // ---- Fixed-timestep virtual-frame loop (60 or 20 Hz host policy) ----
-    // GLOBAL_FRAME is the capture identity (origin/main contract): it
-    // indexes the baked input script AND names the dumped frame files, so
-    // input at frame N and file fN-CAP_START refer to the same presented
-    // frame — and it spans guest swaps (see its doc). `guest_frame` is only
-    // this guest's boot-trace / bench / present-skip counter.
-    let mut guest_frame: u32 = 0;
+    let mut guest_frame = 0u32;
     loop {
         #[cfg(feature = "bench")]
         let bench_frame_start = bench_now_us();
-        if guest_frame == 0 {
-            trace("frame 0: begin");
-        }
-        // Still sample sceCtrl even in capture builds so loop timing is
-        // identical; the mask is then overridden by the baked script.
-        // The frame loop is already paced at present by vblank. Peek the
-        // latest controller sample here: Read may wait for the next sampling
-        // cycle after consuming the current sample, accidentally adding a
-        // second pacing point before JS/tick/draw on real hardware.
         sys::sceCtrlPeekBufferPositive(&mut pad, 1);
-        if guest_frame == 0 {
-            trace("frame 0: ctrl peek ok");
-        }
         let mask = pad.buttons.bits() as i32;
         #[cfg(feature = "capture")]
         let mask = capture_input_mask(GLOBAL_FRAME, mask);
-
-        // The summon chord (docs/LAUNCHER.md): on a multi-app host, guests other
-        // than the launcher never see SELECT; a host-tracked press-edge
-        // schedules the summon for this frame's bottom.
-        #[cfg_attr(not(feature = "capture"), allow(unused_mut))]
         let mut mask = mask;
         if switch::multi() && app_index != 0 {
-            let select_now = mask & (spec::btn::SELECT as i32) != 0;
-            if select_now && !prev_select {
+            let select = mask & spec::btn::SELECT as i32 != 0;
+            if select && !prev_select {
                 switch::request_summon();
             }
-            prev_select = select_now;
+            prev_select = select;
             mask &= !(spec::btn::SELECT as i32);
         }
-        // Analog nub packed (x << 8) | y, each axis 0..255 with 128 = center
-        // (spec.ts "frame(buttons, analog)"; SceCtrlData names the axes lx/ly).
         #[cfg(not(feature = "capture"))]
-        let analog = (((pad.lx as u32) << 8) | pad.ly as u32) as i32;
-        // The baked input script has no analog track: pin the nub to center
-        // so scripted PPSSPPHeadless captures stay deterministic.
+        let analog = ((pad.lx as u32) << 8) | pad.ly as u32;
         #[cfg(feature = "capture")]
-        let analog = pocketjs_core::spec::ANALOG_CENTER as i32;
-
-        let mut args = [JS_NewInt32(ctx, mask), JS_NewInt32(ctx, analog)];
-        pocketjs_psp::offload::frame(mask as u32, analog as u32);
+        let analog = spec::ANALOG_CENTER;
+        pocketjs_psp::offload::frame(mask as u32, analog);
         pocketjs_psp::offload_local::frame();
-        let r = JS_Call(ctx, frame_fn, global, 2, args.as_mut_ptr());
+        if let Err(error) = runtime.advance(mask as u32, analog, ticks_per_virtual_frame) {
+            trace_pair(b"[PocketJS guest frame] ", &error);
+        }
         #[cfg(feature = "bench")]
-        let bench_after_js = bench_now_us();
-        if guest_frame == 0 {
-            trace("frame 0: JS_Call returned");
-        }
-        if JS_ValueGetTag(r) == JS_TAG_EXCEPTION {
-            log_exception(ctx);
-        }
-        JS_FreeValue(ctx, r); // leak guard: free the return value every frame
-        if guest_frame == 0 {
-            trace("frame 0: JS return freed");
-        }
-
-        host::drain_jobs(rt);
-        // Arena-pressure GC (post-profiler-stub this WORKS: the guest's
-        // per-frame cycles are collectable once no WeakMap pins them, and the
-        // engine's lazy live*1.5 threshold otherwise lets its slab chunks pin
-        // the fixed arena). Collect when a frame leaves the bump >256 KiB
-        // past the last collection; steady-state guests never trigger it.
+        let (bench_after_js, bench_after_jobs) = runtime.phase_times();
         {
             const GC_BUMP_STEP: usize = 256 * 1024;
-            let bump = arena::stats().bump_bytes;
-            if bump > LAST_GC_BUMP.saturating_add(GC_BUMP_STEP) {
-                JS_RunGC(rt);
+            if arena::stats().bump_bytes > LAST_GC_BUMP.saturating_add(GC_BUMP_STEP) {
+                if let Err(error) = runtime.collect() {
+                    trace_pair(b"[PocketJS collect] ", &error);
+                }
                 LAST_GC_BUMP = arena::stats().bump_bytes;
             }
         }
+        #[cfg(feature = "bench")]
+        let bench_after_tick = bench_now_us();
+        // The frame borrow stays live through GE completion and display swap.
+        // The display paces against the process clock after GPU terminal wait.
+        if let Err(error) = runtime.present() {
+            trace_pair(b"[PocketJS present] ", &error);
+        }
+        #[cfg(feature = "capture")]
+        cap_dump_frame(GLOBAL_FRAME);
+        #[cfg(feature = "bench")]
+        {
+            let timing = runtime.frame_timing();
+            bench_record_gpu(guest_frame, timing.gpu_us);
+            bench_record_frame(
+                guest_frame,
+                bench_frame_start,
+                bench_after_js,
+                bench_after_jobs,
+                bench_after_tick,
+                timing.after_draw,
+                timing.after_render,
+                0,
+            );
+            if guest_frame == 0 {
+                bench_record_frame0_complete();
+            }
+            bench_maybe_flush(guest_frame, runtime.source_lengths());
+        }
+        if let Some((next, summon)) = switch::take_pending() {
+            if summon {
+                switch::capture_shot();
+            }
+            trace("switch: canonical runtime shutdown");
+            drop(runtime);
+            GLOBAL_FRAME = GLOBAL_FRAME.wrapping_add(1);
+            return next;
+        }
         if trace_enabled() && guest_frame % 25 == 0 {
-            let s = arena::stats();
+            let stats = arena::stats();
             trace_pair(
                 b"[PocketJS arena] ",
                 &alloc::format!(
                     "frame {} bump {} tail {}",
-                    guest_frame, s.bump_bytes, s.tail_free_bytes
+                    guest_frame,
+                    stats.bump_bytes,
+                    stats.tail_free_bytes
                 ),
             );
         }
-        #[cfg(feature = "bench")]
-        let bench_after_jobs = bench_now_us();
         if guest_frame == 0 {
-            trace("frame 0: pending jobs drained");
+            trace("frame 0: terminal presentation complete");
         }
-
-        // Core frame: animations always advance at fixed dt = 1/60. A lower
-        // virtual-frame policy runs multiple ticks before drawing so seconds-
-        // based transitions retain their duration and exact 60 Hz trajectory.
-        // the DrawList into the open display list. The raw-slice dance keeps
-        // borrowck happy about the single static-mut Ui (one thread; render
-        // only reads atlases/textures, never the DrawList's owner mutably).
-        let ui = ffi::ui();
-        for _ in 0..ticks_per_virtual_frame {
-            ui.tick();
-        }
-        #[cfg(feature = "bench")]
-        let bench_after_tick = bench_now_us();
-        if guest_frame == 0 {
-            trace("frame 0: ui tick ok");
-        }
-        let (words_ptr, words_len) = {
-            let dl = ui.draw();
-            (dl.words.as_ptr(), dl.words.len())
-        };
-        #[cfg(feature = "bench")]
-        let bench_after_draw = bench_now_us();
-        if guest_frame == 0 {
-            trace("frame 0: ui draw ok");
-        }
-
-        // ---- PIPELINED PRESENT: the GE has been executing frame N-1's list
-        // while the JS/tick/draw above ran. Only NOW wait for it, present it,
-        // then kick frame N's list and loop straight into frame N+1's CPU
-        // work. Wall time ~= max(CPU, GE) instead of CPU + GE; one frame of
-        // latency, the standard PSP double-buffered-list pattern. The vertex
-        // pool and the display-list buffer are reused only after the sync, so
-        // single instances of both stay sufficient.
-        //
-        // Guest frame 0 after a swap has nothing kicked and nothing to show:
-        // skip the present so the last app frame HOLDS through the new
-        // guest's eval instead of flashing the two-frames-stale draw buffer.
-        // Cold boot (GLOBAL_FRAME == 0) keeps the original present-first
-        // behavior so single-app builds are bit-identical to before.
-        let present = GLOBAL_FRAME == 0 || guest_frame > 0;
-        #[cfg(feature = "bench")]
-        let bench_before_sync = bench_now_us();
-        if present {
-            sys::sceGuSync(GuSyncMode::Finish, GuSyncBehavior::Wait);
-            #[cfg(feature = "bench")]
-            bench_record_gpu(guest_frame, bench_now_us().saturating_sub(bench_before_sync));
-            if guest_frame == 0 {
-                trace("frame 0: gu sync (previous list) ok");
-            }
-            wait_for_present(last_present_vcount, ticks_per_virtual_frame);
-            if guest_frame == 0 {
-                trace("frame 0: vblank ok");
-            }
-            sys::sceGuSwapBuffers();
-            if guest_frame == 0 {
-                trace("frame 0: swap ok");
-            }
-            // Capture build only (tests/e2e/ppsspp.ts): the buffer just
-            // presented holds frame N-1 (the pipeline is one frame deep), so
-            // dump under that index — file fN keeps meaning "simulated frame
-            // N", and the baked input identity (input at frame N -> file fN)
-            // is preserved. The frame a switch discards never presents, so
-            // its index simply has no file.
-            #[cfg(feature = "capture")]
-            if GLOBAL_FRAME > 0 {
-                cap_dump_frame(GLOBAL_FRAME.wrapping_sub(1));
-            }
-        }
-        #[cfg(feature = "bench")]
-        let bench_after_present = bench_now_us();
-
-        // ---- Guest swap (docs/LAUNCHER.md): a switch requested this frame (op
-        // appLaunch, or the SELECT chord) lands here — the display holds the
-        // last presented frame, the GE is idle, list N was never kicked.
-        if let Some((next, summon)) = switch::take_pending() {
-            if summon {
-                // The frozen frame reads the just-presented framebuffer.
-                switch::capture_shot();
-            }
-            trace("switch: teardown begin");
-            vid::close(ffi::ui()); // stops audio, frees the plane (Ui alive)
-            audio_mod::reset(); // guest-scoped streams die with their guest
-            svc::reset();
-            pocketjs_psp::offload::reset();
-            pocketjs_psp::offload_local::reset();
-            JS_FreeValue(ctx, frame_fn);
-            JS_FreeValue(ctx, global);
-            JS_FreeContext(ctx);
-            JS_FreeRuntime(rt);
-            trace("switch: teardown ok");
-            GLOBAL_FRAME = GLOBAL_FRAME.wrapping_add(1);
-            return next;
-        }
-
-        // GE idle (sceGuSync above): rewind the per-frame bump vertex
-        // arena [R] and open frame N's list. The video plane commits its
-        // staged frame here too — the ONLY window where the GE is not
-        // sampling the texture it overwrites in place (vid.rs).
-        ge::reset_pool();
-        vid::present(ffi::ui());
-        if guest_frame == 0 {
-            trace("frame 0: pool reset ok");
-        }
-        sys::sceGuStart(GuContextType::Direct, host::list_ptr());
-        if guest_frame == 0 {
-            trace("frame 0: gu start ok");
-        }
-        ge::render(ffi::ui(), core::slice::from_raw_parts(words_ptr, words_len));
-        #[cfg(feature = "bench")]
-        let bench_after_render = bench_now_us();
-        #[cfg(feature = "bench")]
-        bench_record_frame(
-            guest_frame,
-            bench_frame_start,
-            bench_after_js,
-            bench_after_jobs,
-            bench_after_tick,
-            bench_after_draw,
-            bench_after_render,
-            bench_after_present.saturating_sub(bench_before_sync),
-        );
-        if guest_frame == 0 {
-            trace("frame 0: rendered");
-        }
-        sys::sceGuFinish(); // kick list N — the GE draws while frame N+1's CPU runs
-        if guest_frame == 0 {
-            trace("frame 0: gu finish (kicked) ok");
-        }
-        if guest_frame == 0 {
-            #[cfg(feature = "bench")]
-            bench_record_frame0_complete();
-        }
-        #[cfg(feature = "bench")]
-        bench_maybe_flush(guest_frame);
-        if guest_frame == 0 {
-            trace("frame 0: complete");
-        }
-
         guest_frame = guest_frame.wrapping_add(1);
         GLOBAL_FRAME = GLOBAL_FRAME.wrapping_add(1);
     }
@@ -905,11 +590,17 @@ fn parse_capture_u32(s: &[u8], mut i: usize, end: usize) -> Option<u32> {
         } else {
             return None;
         };
-        out = out.saturating_mul(if hex { 16 } else { 10 }).saturating_add(d as u32);
+        out = out
+            .saturating_mul(if hex { 16 } else { 10 })
+            .saturating_add(d as u32);
         any = true;
         i += 1;
     }
-    if any { Some(out) } else { None }
+    if any {
+        Some(out)
+    } else {
+        None
+    }
 }
 
 /// Parse a baked decimal/hex env value (POCKETJS_CAP_START / POCKETJS_CAP_N),

@@ -15,8 +15,9 @@
 # Memory (docs/DESIGN.md "Memory (the blocker fix)" [R]): the psp crate is built
 # with `external-global-alloc` (gates out rust-psp's one-kernel-object-per-
 # allocation SystemAlloc #[global_allocator] AND its #[alloc_error_handler]);
-# framework/src/alloc.rs provides both, backed by the single-kernel-block arena that
-# also serves QuickJS (qjs_alloc.rs) and newlib malloc (c_heap.rs).
+# hosts/psp/src/alloc.rs supplies the allocator; allocation failure uses the
+# default Rust handler and rust-psp panic-abort. The single-kernel-block arena
+# serves QuickJS (qjs_alloc.rs) and newlib malloc (c_heap.rs).
 
 [package]
 name = "pocketjs-psp"
@@ -29,6 +30,15 @@ pocket-psp-ge = { path = "../../devices/psp/pocket-psp-ge" }
 psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
 pocketjs-core = { path = "../../engine/core" }
+pocket-runtime = { path = "../../engine/runtime" }
+pocket-runtime-cabi = { path = "../../engine/runtime-cabi", default-features = false, features = ["external-runtime"] }
+pocket-drivers = { path = "../../engine/drivers" }
+pocket-package = { path = "../../engine/package" }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+[build-dependencies]
+cc = "1"
+
 
 [features]
 # E2E frame-dump build for tests/e2e/ppsspp.ts (dumps frames to ms0:/dc_cap).

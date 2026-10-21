@@ -54,7 +54,31 @@ pub unsafe fn take_render_memory() -> Option<&'static mut [u8]> {
 /// engine expects. PPSSPP's software renderer path did not expose this.
 #[inline]
 pub unsafe fn reset_fpu_status() {
-    core::arch::asm!("ctc1 $zero, $31", options(nostack, nomem));
+    pocket_psp_fpu_reset();
+}
+
+/// PSP monotonic microseconds for guest phase measurements.
+pub fn now_us() -> u64 {
+    unsafe { sys::sceKernelGetSystemTimeWide() as u64 }
+}
+extern "C" {
+    fn pocket_psp_fpu_reset();
+    fn pocket_psp_fpu_mask() -> u32;
+    fn pocket_psp_fpu_restore(saved: u32);
+}
+/// Preserve a native caller's floating-point status across a runtime turn.
+pub struct FpuGuard(u32);
+impl FpuGuard {
+    /// # Safety
+    /// Call on the PSP guest thread, without moving this guard to another thread.
+    pub unsafe fn masked() -> Self {
+        Self(pocket_psp_fpu_mask())
+    }
+}
+impl Drop for FpuGuard {
+    fn drop(&mut self) {
+        unsafe { pocket_psp_fpu_restore(self.0) }
+    }
 }
 
 /// The `psp::module!` main thread has only a 256 KB stack; QuickJS compiling

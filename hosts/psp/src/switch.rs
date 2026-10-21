@@ -11,68 +11,36 @@
 //! Single-threaded (the QuickJS worker), `static mut` matches the crate
 //! style.
 
-use alloc::string::String;
+use alloc::{boxed::Box, string::String};
 
 use psp::sys::{self, DisplayPixelFormat, DisplaySetBufSync};
 
-use pocketjs_core::package::{self, Package};
 use pocketjs_core::{spec, Ui};
 
 // $OUT_DIR/apps.rs — `EmbeddedApp` + `APPS` (build.rs generates both).
 include!(concat!(env!("OUT_DIR"), "/apps.rs"));
 
-/// The bytes a guest boots from — extracted zero-copy from the entry's
-/// embedded `.pocket` (package mode), from `app.pocket` beside the EBOOT
-/// (the generic runtime, feature `runtime`), or the classic inline embed.
-/// `js` includes its NUL terminator (eval with len - 1).
-pub struct GuestBytes {
-    pub js: &'static [u8],
-    pub pak: &'static [u8],
-}
-
-/// Why a guest has no bytes; main.rs routes it through the broken-guest
-/// path with `message()` on screen.
-pub enum GuestFault {
-    /// An embedded package that does not parse or carries no variant for
-    /// this target.
-    Embedded,
-    /// The generic runtime's `app.pocket` (package_file.rs).
-    #[cfg(feature = "runtime")]
-    File(crate::package_file::Fault),
-}
-
-impl GuestFault {
-    pub fn message(&self) -> String {
-        match self {
-            GuestFault::Embedded => String::from("embedded package unreadable for this target"),
-            #[cfg(feature = "runtime")]
-            GuestFault::File(fault) => fault.message(),
-        }
-    }
-}
-
-pub fn guest_bytes(index: usize) -> Result<GuestBytes, GuestFault> {
+/// Sources retain the original catalog package. Runtime performs all package
+/// admission; the classic JS/pak embedding API constructs the same container.
+pub fn guest_source(index: usize) -> Result<Box<dyn pocket_drivers::PackageSource>, String> {
     #[cfg(feature = "runtime")]
     if index == 0 {
-        // SAFETY: package_file::load ran on the main thread before the
-        // worker started, and nothing writes its state again.
-        let game = unsafe { crate::package_file::game() }.map_err(GuestFault::File)?;
-        return Ok(GuestBytes { js: game.js, pak: game.pak });
+        return crate::package_file::source();
     }
-    let app = &APPS[index];
+    let app = APPS
+        .get(index)
+        .ok_or_else(|| String::from("unknown app index"))?;
     if app.pocket.is_empty() {
-        return Ok(GuestBytes { js: app.js.as_bytes(), pak: app.pak });
+        let plan = include_bytes!(concat!(env!("OUT_DIR"), "/embedded-plan.json"));
+        let package = crate::instance::package(
+            app.js.as_bytes(),
+            app.pak,
+            (!plan.is_empty()).then_some(plan.as_slice()),
+        )?;
+        Ok(Box::new(pocket_package::source::MemorySource(package)))
+    } else {
+        Ok(Box::new(pocket_package::source::MemorySource(app.pocket)))
     }
-    // Embedded packages were hashed into the build identity at pack time —
-    // skip the footer walk at boot (filesystem loads must NOT skip it).
-    let embedded = || -> Option<GuestBytes> {
-        let pkg = Package::parse(app.pocket, true).ok()?;
-        let variant = pkg.find_variant(env!("POCKETJS_TARGET")).ok()??;
-        let js = variant.section(package::section::JS).ok()??;
-        let pak = variant.section(package::section::PAK).ok()?.unwrap_or(&[]);
-        Some(GuestBytes { js, pak })
-    };
-    embedded().ok_or(GuestFault::Embedded)
 }
 
 /// Shot geometry (spec op 41; hosts/sim/shot.ts is the sim twin). The FULL
@@ -153,7 +121,11 @@ pub unsafe fn take_pending() -> Option<(usize, bool)> {
 /// The veil's background: the raw downscaled pixels of the frame the
 /// outgoing guest last presented (any switch), 256×128 RGBA.
 pub unsafe fn shot_pixels() -> Option<&'static [u8]> {
-    if SHOT_VALID { Some(&SHOT.0) } else { None }
+    if SHOT_VALID {
+        Some(&SHOT.0)
+    } else {
+        None
+    }
 }
 
 /// spec op 39 — the table + runtime state, one JSON string.

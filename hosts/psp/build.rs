@@ -28,9 +28,114 @@ fn dimension(name: &str, fallback: u32) -> u32 {
 }
 
 fn main() {
+    for name in [
+        "POCKET_QJS_SOURCE",
+        "POCKET_PSP_CC",
+        "POCKET_PSP_AR",
+        "PSP_SDK",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    let quickjs =
+        PathBuf::from(env::var_os("POCKET_QJS_SOURCE").expect(
+            "POCKET_QJS_SOURCE must name the pinned libquickjs-sys embed/quickjs directory",
+        ));
+    let sdk = PathBuf::from(env::var_os("PSP_SDK").expect("PSP_SDK"));
+    let compiler = env::var("POCKET_PSP_CC").expect("POCKET_PSP_CC");
+    let mut bridge = cc::Build::new();
+    bridge
+        .compiler(&compiler)
+        .archiver(env::var("POCKET_PSP_AR").expect("POCKET_PSP_AR"))
+        .no_default_flags(true)
+        .include("../../engine/guest-quickjs/include")
+        .include("../../contracts/generated")
+        .include(&quickjs)
+        .include(sdk.join("psp/include"))
+        .define("POCKET_QJS_BELLARD", None)
+        .define("__PSP__", None)
+        .flag("-std=gnu11")
+        .flag("-O2")
+        .flag("-funsigned-char")
+        .flag("-Wno-unused-parameter")
+        .flag("-march=mips2")
+        .flag("-mno-abicalls")
+        .flag("-fno-pic")
+        .flag("-G0")
+        .flag("-ffunction-sections")
+        .flag("-fdata-sections");
+    assert!(
+        compiler.contains("clang"),
+        "PSP guest bridge requires Clang"
+    );
+    bridge
+        .flag("--no-default-config")
+        .flag("--target=mipsel-sony-psp")
+        .flag("-mabi=o32")
+        .flag("-mhard-float")
+        .flag("-mfp32");
+    // Emit single-precision Allegrex instructions, then assemble with the O32
+    // FP32 attribute used by the pinned Rust/QuickJS objects. Clang 23 marks a
+    // direct -msingle-float object differently from those older LLVM builds.
+    // This guest boundary passes integer/pointer/record values only: reals live
+    // in PocketOpArg/PocketResult memory, never in by-value f64 C parameters.
+    // Validate the assembly before assigning that existing archive attribute.
+    let assembly = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("quickjs_bridge.s");
+    let status = bridge
+        .get_compiler()
+        .to_command()
+        .arg("-msingle-float")
+        .arg("-S")
+        .arg("src/quickjs_bridge.c")
+        .arg("-o")
+        .arg(&assembly)
+        .status()
+        .expect("compile PSP guest assembly");
+    assert!(status.success(), "PSP guest assembly compilation failed");
+    for line in fs::read_to_string(&assembly).unwrap().lines() {
+        let instruction = line.trim().split_whitespace().next().unwrap_or("");
+        assert!(
+            !matches!(instruction, "ldc1" | "sdc1")
+                && !instruction.split('.').skip(1).any(|part| part == "d"),
+            "PSP guest contains a double-precision FPU instruction: {line}"
+        );
+    }
+    cc::Build::new()
+        .compiler(&compiler)
+        .archiver(env::var("POCKET_PSP_AR").expect("POCKET_PSP_AR"))
+        .no_default_flags(true)
+        .flag("--no-default-config")
+        .flag("--target=mipsel-sony-psp")
+        .flag("-march=mips2")
+        .flag("-mabi=o32")
+        .flag("-mhard-float")
+        .flag("-mfp32")
+        .flag("-mno-abicalls")
+        .flag("-fno-pic")
+        .flag("-G0")
+        .file(assembly)
+        .compile("pocket_psp_guest");
+    for source in [
+        "src/quickjs_bridge.c",
+        "../../engine/guest-quickjs/src/guest.c",
+        "../../engine/guest-quickjs/src/generated_ops.h",
+        "../../engine/guest-quickjs/include/pocket_guest_quickjs.h",
+        "../../contracts/generated/pocket_runtime.h",
+        "../../contracts/generated/pocket_drivers.h",
+        "../../contracts/generated/pocket_spec.h",
+    ] {
+        println!("cargo:rerun-if-changed={source}");
+    }
+    println!(
+        "cargo:rerun-if-changed={}",
+        quickjs.join("quickjs.h").display()
+    );
+
     println!("cargo:rerun-if-env-changed=POCKETJS_OFFLOAD_SLOT");
     let slot = env::var("POCKETJS_OFFLOAD_SLOT").unwrap_or_default();
-    assert!(slot.is_empty() || (slot.len() == 16 && slot.bytes().all(|b| b.is_ascii_hexdigit())), "invalid offload slot");
+    assert!(
+        slot.is_empty() || (slot.len() == 16 && slot.bytes().all(|b| b.is_ascii_hexdigit())),
+        "invalid offload slot"
+    );
     println!("cargo:rustc-env=POCKETJS_OFFLOAD_SLOT={slot}");
     let legacy_app = env::var("POCKETJS_APP").unwrap_or_default();
     let app = env::var("POCKETJS_APP_OUTPUT").unwrap_or_else(|_| legacy_app.clone());
@@ -54,7 +159,9 @@ fn main() {
             "the runtime feature builds an EBOOT without an app: set POCKETJS_EMBED_APP=0"
         );
         assert!(
-            env::var("POCKETJS_LAUNCHER_REGISTRY").unwrap_or_default().is_empty(),
+            env::var("POCKETJS_LAUNCHER_REGISTRY")
+                .unwrap_or_default()
+                .is_empty(),
             "the runtime feature cannot embed a launcher registry"
         );
     }
@@ -92,6 +199,20 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("../../dist"));
     let out_dir = env::var("OUT_DIR").unwrap();
+    println!("cargo:rerun-if-env-changed=POCKETJS_RESOLVED_PLAN");
+    let plan_path = env::var("POCKETJS_RESOLVED_PLAN").unwrap_or_default();
+    let embedded_plan = if plan_path.is_empty() {
+        Vec::new()
+    } else {
+        assert!(embed_app, "a resolved plan requires an embedded guest");
+        println!("cargo:rerun-if-changed={plan_path}");
+        fs::read(&plan_path).expect("read PSP resolved plan")
+    };
+    fs::write(
+        Path::new(&out_dir).join("embedded-plan.json"),
+        embedded_plan,
+    )
+    .unwrap();
 
     // The embedded app table. Entry 0 is the selected app; multi-app builds
     // (POCKETJS_LAUNCHER_REGISTRY) append one entry per registry line.

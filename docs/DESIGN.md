@@ -216,13 +216,20 @@ PocketJS/
    `<app>.js` next to the pak. Parallel builds therefore cannot import one
    another's transient style table.
 
-The PSP build (`tools/psp.ts`) then runs `rustup run nightly-2026-05-28
-cargo psp` with the exact env block from `runtime/build.ts` (LLVM PATH,
-TARGET_CFLAGS, AR_mipsel_sony_psp=llvm-ar, RUST_PSP_TARGET, RUST_PSP_ABORT_ONLY,
-RUSTFLAGS `-A linker-messages …`), `POCKETJS_APP_OUTPUT=<app>` and
-`POCKETJS_EMBED_APP=1` consumed by the stock runtime `build.rs`.
-`POCKETJS_OUTPUT_DIR` carries the CLI artifact directory without putting a
-machine-local path into the checksummed build plan.
+The PSP build (`tools/psp.ts`) uses the installed `nightly-2026-05-28`,
+`cargo-psp`, SDK and pinned QuickJS archive. **The generated QuickJS guest
+compiles with LLVM Clang's MIPS backend** (`POCKETJS_LLVM_BIN` selects its
+binary directory). Its FCSR bridge saves the native caller's status, masks
+exceptions during each Rust operation, and restores the saved register.
+The link adapter places SDK C libraries after the Rust archives that own
+memory and math exports. The SDK archives remain unchanged.
+
+`POCKETJS_APP_OUTPUT` and `POCKETJS_EMBED_APP` select the embedded guest;
+`POCKETJS_OUTPUT_DIR` carries its artifact directory. A `--plan` build also
+passes the original resolved plan to the package adapter, preserving its
+identity and feature declarations. Catalog packages and `app.pocket` enter
+Runtime as their original bytes. **Runtime performs package admission**
+before guest initialization.
 
 ## The native contract (`ui.*`)
 
@@ -247,7 +254,7 @@ children[], …}`) so reconciler *reads* never cross the FFI. Handles are `i32`
 | animate | `(id, propId, to:f64, durMs, easing, delayMs) → animId` | from = current |
 | cancelAnim | `(animId)` | |
 | setFocus | `(idOr0)` | applies `focus:` variant natively |
-| loadStyles / loadFontAtlas | `(buf …)` | **web/test hosts only** — on PSP, hosts/psp/src/pak.rs feeds core directly from include_bytes! **[R]** |
+| loadStyles / loadFontAtlas | `(buf …)` | **web/test hosts only** — on PSP, Runtime admits the package and loads its assets into the shared core |
 | measureText | `(str, fontSlot) → width` | JS convenience; layout measures natively |
 | wrapText | `(str, fontSlot, maxW) → u32[]` | soft-wrap break columns for one line (ascending UTF-16 indices, empty = fits): greedy word wrap over the slot's measure provider; native-text hosts install the host text system's wrapper (gpui LineWrapper) and its positions win. Optional — apps fall back to the same greedy rules over measureText |
 | loadTileTexture | `(pakKey, tileIndex) → handle` | decode ONE tile of a TILESET pak entry (spec.ts) into a CLUT8 texture, host-side — on PSP straight from `.rodata`, zero JS-heap transit. Hosts without it: the runtime falls back to `__pak` + uploadTexture (framework/src/tiles.ts) |
@@ -274,12 +281,16 @@ in the runtime (`analogX()/analogY()` from `PocketJS/lifecycle`), never in
 hosts. The DevTools flight recorder tapes the analog track alongside the
 masks (omitted while centered — old tape files stay byte-identical).
 
-**Frame order (PSP).** `sceCtrlRead → sceGuStart → JS frame(buttons) → drain
-jobs (while JS_ExecutePendingJob(rt,&mut ctx)>0 — declare the symbol in a local
-extern block, the curated libquickjs-sys omits it [R]) → renderer end-of-frame
-sweep runs inside frame() → core.tick(1/60): anims → layout if dirty → DrawList
-→ ge::render → sceGuFinish/Sync/WaitVblank/Swap`. Backends never call
-sceGuStart/Finish (display list owned by main.rs, dreamcart contract).
+**Frame order (PSP).** The host samples the controller, calls Runtime
+`advance_with_core_ticks`, and calls Runtime `present`. The generated guest
+runs one JavaScript frame and drains pending jobs; Runtime advances the core
+at 60 Hz, builds the DrawList, and submits it through `pocket-psp-render`.
+The GE driver owns `sceGuStart`/`sceGuFinish` and performs **terminal
+`sceGuSync` before resource retirement**. The display adapter waits for the
+selected 20 or 60 Hz pacing interval and swaps buffers. No GPU resource
+borrow survives `present`; the next JavaScript turn begins after it returns.
+The old `ge::render_over` embedding API remains a thin encoder adapter for
+native scenes with an open display list.
 
 ## Memory (the blocker fix [R])
 

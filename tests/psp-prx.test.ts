@@ -43,7 +43,7 @@ describe("PSP PRX load layout", () => {
 
 // Opt in after `pocket target add psp`, with POCKETJS_LLVM_BIN naming an LLVM
 // whose clang assembles the fixture: this exercises the pinned Rust linker and
-// prxgen rather than a source-text check. PSP builds themselves run no clang.
+// prxgen rather than a source-text check. The PSP guest also uses this LLVM.
 test.skipIf(process.env.POCKETJS_TEST_PSP_LINK !== "1")("links aligned MIPS data into a loadable PRX", () => {
   const toolchain = resolvePspBuildToolchain();
   const llvmBin = process.env.POCKETJS_LLVM_BIN;
@@ -51,7 +51,7 @@ test.skipIf(process.env.POCKETJS_TEST_PSP_LINK !== "1")("links aligned MIPS data
   const dir = mkdtempSync(join(tmpdir(), "pocketjs-prx-"));
   const run = (cmd: string[]) => {
     const result = Bun.spawnSync(cmd, { env: toolchain.environment });
-    if (result.exitCode) throw new Error(result.stderr.toString());
+    if (!result.success) throw new Error(`${result.stderr.toString()} (signal=${result.signalCode})`);
     return result.stdout.toString().trim();
   };
   try {

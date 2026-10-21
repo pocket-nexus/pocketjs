@@ -3,7 +3,8 @@ name: PSP build
 # Installs the PSP toolchain the framework pins with `pocket target add psp`
 # into an empty cache, checks that a second add downloads nothing, and builds
 # the hero EBOOT through `pocket +psp build`. The target C compiler and archiver
-# are `false`: a PSP build compiles no C, QuickJS arrives as a prebuilt archive.
+# are `false`: QuickJS arrives as a prebuilt archive. The generated guest uses
+# its explicit LLVM compiler and the pinned SDK headers.
 
 on:
   pull_request:
@@ -12,6 +13,10 @@ on:
       - "tools/targets/**"
       - "tools/psp.ts"
       - "tools/psp-toolchain.ts"
+      - "tools/psp-linker.ts"
+      - "engine/guest-quickjs/**"
+      - "engine/runtime/**"
+      - "engine/runtime-cabi/**"
       - "tools/pocket.ts"
       - "tools/cli/**"
       - "hosts/psp/**"
@@ -34,6 +39,10 @@ on:
       - "tools/targets/**"
       - "tools/psp.ts"
       - "tools/psp-toolchain.ts"
+      - "tools/psp-linker.ts"
+      - "engine/guest-quickjs/**"
+      - "engine/runtime/**"
+      - "engine/runtime-cabi/**"
       - "tools/pocket.ts"
       - "tools/cli/**"
       - "hosts/psp/**"
@@ -72,6 +81,17 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - name: LLVM for the generated PSP guest (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          echo "POCKETJS_LLVM_BIN=/usr/bin" >> "$GITHUB_ENV"
+      - name: LLVM for the generated PSP guest (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "POCKETJS_LLVM_BIN=$(brew --prefix llvm)/bin" >> "$GITHUB_ENV"
       - name: Empty cache
         run: echo "POCKET_NEXUS_CACHE_DIR=$RUNNER_TEMP/pocket-nexus" >> "$GITHUB_ENV"
       - name: pocket target add psp

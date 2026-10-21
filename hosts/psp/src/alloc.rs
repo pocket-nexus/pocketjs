@@ -7,7 +7,8 @@
 //! exhaust the slots on any real UI. The `psp` dependency is built with
 //! feature `external-global-alloc`, which gates out both its
 //! `#[global_allocator]` and its `#[alloc_error_handler]`; this module
-//! provides the replacements. Rust, QuickJS (qjs_alloc.rs) and newlib C
+//! provides the allocator. Allocation failure uses Rust's default handler and
+//! the rust-psp panic-abort path. Rust, QuickJS (qjs_alloc.rs) and newlib C
 //! (c_heap.rs) all sub-allocate from the SAME single kernel block.
 //!
 //! The allocator can be hit before any explicit init runs — `arena::alloc`
@@ -35,11 +36,3 @@ unsafe impl GlobalAlloc for ArenaAlloc {
 
 #[global_allocator]
 static GLOBAL: ArenaAlloc = ArenaAlloc;
-
-#[alloc_error_handler]
-fn alloc_error(layout: Layout) -> ! {
-    psp::dprintln!("[PocketJS oom] alloc of {} bytes failed", layout.size());
-    loop {
-        unsafe { psp::sys::sceDisplayWaitVblankStart() };
-    }
-}

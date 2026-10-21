@@ -59,7 +59,8 @@ pub fn json() -> String {
     let arena = unsafe { crate::arena::stats() };
     #[cfg(feature = "runtime")]
     // SAFETY: written once at boot, before the worker started.
-    let app_file = unsafe { crate::package_file::game() }.map(|g| g.file_bytes).unwrap_or(0);
+    // Range-loaded package storage is included in the Rust arena.
+    let app_file = 0;
     #[cfg(not(feature = "runtime"))]
     let app_file = 0usize;
     format!(

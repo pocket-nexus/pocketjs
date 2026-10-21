@@ -73,6 +73,10 @@ on:
       - "devices/psp/pocket-psp-render/**"
       - "devices/psp/pocket-psp-ge/**"
       - "tests/ge-driver.test.ts"
+      - "tests/psp-runtime.test.ts"
+      - "tests/fixtures/psp-runtime/**"
+      - "tools/test-psp-runtime.ts"
+      - "hosts/psp/src/**"
       - "platforms/esp-idf/**"
       - "engine/guest-quickjs/**"
       - "engine/guest-rquickjs/**"
@@ -183,6 +187,10 @@ on:
       - "devices/psp/pocket-psp-render/**"
       - "devices/psp/pocket-psp-ge/**"
       - "tests/ge-driver.test.ts"
+      - "tests/psp-runtime.test.ts"
+      - "tests/fixtures/psp-runtime/**"
+      - "tools/test-psp-runtime.ts"
+      - "hosts/psp/src/**"
       - "platforms/esp-idf/**"
       - "engine/guest-quickjs/**"
       - "engine/guest-rquickjs/**"
@@ -267,6 +275,8 @@ jobs:
         run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-gles -p pocket-gles1 -p pocket-gles2
       - name: GE ownership and terminal completion
         run: bun test tests/ge-driver.test.ts
+      - name: PSP generated guest composition
+        run: bun test tests/psp-runtime.test.ts
       - name: Test GLES1 compatibility composition
         run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
       - name: Test shared runtime, bindings and PPA renderer

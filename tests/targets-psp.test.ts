@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolvePspBuildToolchain } from "../tools/psp-toolchain.ts";
 import { catalogEntry } from "../tools/targets/index.ts";
@@ -54,7 +54,7 @@ describe("PSP toolchain manifest", () => {
       },
     });
     expect((quickjs.source as Source).url).toStartWith("https://github.com/pocket-nexus/quickjs-rs/releases/download/prebuilt-psp-");
-    // No compiler for C: the one C dependency arrives as a pinned archive.
+    // QuickJS arrives as a pinned archive; the generated guest uses host LLVM.
     expect(manifest.components.map((item) => item.kind)).toEqual(["rustup", "cargo-install", "archive", "file"]);
     expect(psp.hosts).toEqual(["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]);
   });
@@ -101,12 +101,29 @@ describe("PSP toolchain manifest", () => {
 describe("PSP build environment", () => {
   const host = currentHost();
 
-  test("comes from the install record, with the prebuilt QuickJS and no C compiler", () => {
+  test("comes from the install record and resolves the guest compiler and Rust linker", () => {
     if (!host) return;
     const cache = tempDir();
     const env: NodeJS.ProcessEnv = { ...process.env, POCKET_NEXUS_CACHE_DIR: cache };
     const { rustup } = fakeRustup(join(cache, "rustup-home"), { [rust.toolchain]: { components: ["rust-src"] } });
     env.PATH = `${dirname(rustup)}:${process.env.PATH}`;
+    const llvm = join(cache, "llvm/bin");
+    const rustLib = join(cache, "rust/lib/rustlib/test-host/lib");
+    const quickjsManifest = join(cache, "quickjs/libquickjs-sys/Cargo.toml");
+    mkdirSync(llvm, { recursive: true });
+    mkdirSync(join(dirname(rustLib), "bin"), { recursive: true });
+    writeFileSync(join(llvm, "clang"), '#!/bin/sh\n[ "$1" = "--print-targets" ] || exit 2\nprintf "mipsel - MIPS little endian\\n"\n');
+    chmodSync(join(llvm, "clang"), 0o755);
+    writeFileSync(join(llvm, "llvm-ar"), "fixture");
+    writeFileSync(join(dirname(rustLib), "bin/rust-lld"), "fixture");
+    const metadataPath = join(cache, "metadata.json");
+    writeFileSync(metadataPath, JSON.stringify({ packages: [{ name: "libquickjs-sys", manifest_path: quickjsManifest }] }));
+    env.POCKETJS_LLVM_BIN = llvm;
+    env.FAKE_PSP_METADATA = metadataPath;
+    env.FAKE_PSP_LIBDIR = rustLib;
+    writeFileSync(rustup, readFileSync(rustup, "utf8").replace("set -e", `set -e
+if [ "$1" = "run" ] && [ "$3 $4" = "cargo metadata" ]; then cat "$FAKE_PSP_METADATA"; exit 0; fi
+if [ "$1" = "run" ] && [ "$3 $4 $5" = "rustc --print target-libdir" ]; then printf '%s\\n' "$FAKE_PSP_LIBDIR"; exit 0; fi`));
     expect(() => resolvePspBuildToolchain(env)).toThrow("run: pocket target add psp");
 
     // Publish every store component by hand, as `pocket target add psp` would.
@@ -144,8 +161,15 @@ describe("PSP build environment", () => {
     expect(toolchain.environment.QUICKJS_PREBUILT_LIB).toBe(join(tree("quickjs"), quickjs.file));
     expect(toolchain.environment.RUSTUP_AUTO_INSTALL).toBe("0");
     expect(toolchain.environment.PATH!.split(":")[0]).toBe(join(tree("cargo-psp"), "bin"));
-    for (const variable of ["TARGET_CFLAGS", "AR_mipsel_sony_psp", "POCKETJS_LLVM_BIN"]) {
+    expect(toolchain.environment.POCKET_QJS_SOURCE).toBe(join(dirname(quickjsManifest), "embed/quickjs"));
+    expect(toolchain.environment.POCKET_PSP_CC).toBe(join(llvm, "clang"));
+    expect(toolchain.environment.POCKET_PSP_AR).toBe(join(llvm, "llvm-ar"));
+    expect(toolchain.environment.POCKET_PSP_LLD).toBe(join(dirname(rustLib), "bin/rust-lld"));
+    expect(toolchain.environment.CARGO_TARGET_MIPSEL_SONY_PSP_LINKER).toBe(join(root, "tools/psp-linker.ts"));
+    for (const variable of ["TARGET_CFLAGS", "AR_mipsel_sony_psp"]) {
       expect(toolchain.environment[variable], variable).toBe(process.env[variable]);
     }
+    writeFileSync(join(llvm, "clang"), '#!/bin/sh\nprintf "aarch64 - ARM64\\n"\n');
+    expect(() => resolvePspBuildToolchain(env)).toThrow("Clang with the MIPS backend");
   });
 });

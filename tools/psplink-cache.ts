@@ -10,7 +10,7 @@ function newestMtime(dir: string): number {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       newest = Math.max(newest, newestMtime(path));
-    } else if (/\.(tsx?|rs|json|svg|toml)$/.test(entry.name) && !entry.name.endsWith(".generated.ts")) {
+    } else if (/\.(tsx?|rs|c|h|json|svg|toml)$/.test(entry.name) && !entry.name.endsWith(".generated.ts")) {
       newest = Math.max(newest, statSync(path).mtimeMs);
     }
   }
@@ -27,10 +27,20 @@ export function psplinkPrxStale(root: string, name: string, prx: string): boolea
     join(root, "framework/src"),
     join(root, "framework/compiler"),
     join(root, "contracts/spec"),
-    ...["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages"].flatMap(crate => [
+    ...["core", "spec", "drivers", "runtime", "runtime-cabi", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages"].flatMap(crate => [
       join(root, "engine", crate, "src"),
       join(root, "engine", crate, "Cargo.toml"),
     ]),
+    join(root, "engine/guest-quickjs/src"),
+    join(root, "engine/guest-quickjs/include"),
+    join(root, "contracts/generated"),
+    join(root, "devices/psp/pocket-psp-render/src"),
+    join(root, "devices/psp/pocket-psp-render/Cargo.toml"),
+    join(root, "devices/psp/pocket-psp-ge/src"),
+    join(root, "devices/psp/pocket-psp-ge/Cargo.toml"),
+    join(root, "tools/psp.ts"),
+    join(root, "tools/psp-toolchain.ts"),
+    join(root, "tools/psp-linker.ts"),
     join(root, "hosts/psp/src"),
     join(root, "hosts/psp/build.rs"),
     join(root, "hosts/psp/Cargo.toml"),
