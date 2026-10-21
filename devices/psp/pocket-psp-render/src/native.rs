@@ -16,10 +16,6 @@ const COLOR: VertexType = VertexType::from_bits_truncate(
 const TEXTURE: VertexType =
     VertexType::from_bits_truncate(COLOR.bits() | VertexType::TEXTURE_16BIT.bits());
 const MAX_PRIM_VERTICES: usize = 65532;
-// Every high-level call below emits less than 256 words. Keep room for the
-// terminal list command even if a producer exceeds the native command budget.
-const LIST_BYTES: usize = 1024 * 1024;
-const CALL_RESERVE: usize = 1024;
 pub struct NativeDevice {
     list: *mut c_void,
     open: bool,
@@ -46,8 +42,12 @@ impl NativeDevice {
         if self.failed {
             return false;
         }
-        let used = sys::sceGuCheckList();
-        if used < 0 || used as usize > LIST_BYTES - CALL_RESERVE {
+        // The pinned rust-psp sceGuCheckList implementation subtracts the
+        // start address as a u32 element count, rather than as bytes. Query
+        // the cursor through GU's zero-length allocation instead. It emits
+        // two jump words; list_budget reserves those and terminal commands.
+        let cursor = sys::sceGuGetMemory(0) as usize;
+        if !crate::list_budget::has_room(self.list as usize, cursor) {
             self.failed = true;
             false
         } else {
@@ -142,7 +142,7 @@ unsafe impl Device for NativeDevice {
             MipmapLevel::None,
             t.width as i32,
             t.height as i32,
-            t.width as i32,
+            t.buffer_width as i32,
             t.pixels.cast(),
         );
         // Real GE caches do not invalidate when only the texture pointer
@@ -251,16 +251,20 @@ impl Drop for NativeDevice {
 /// Legacy composition helper for a list already opened by a native game host.
 ///
 /// # Safety
-/// The list has 1 MiB capacity and is exclusively owned by this thread. Keep
-/// source textures and encoder alive until GU sync, then call encoder.retire().
+/// `list` is the start of the current open 1 MiB GU list, exclusively owned
+/// by this thread, with at least 24 bytes available for the cursor query and
+/// terminal commands. Keep source textures and encoder alive until GU sync,
+/// then call encoder.retire().
 pub unsafe fn encode_open(
+    list: *mut c_void,
     encoder: &mut Encoder,
     resources: &dyn RenderResources,
     words: &[u32],
     clear: bool,
 ) -> Result<(), RenderError> {
+    assert!(!list.is_null() && (list as usize).is_multiple_of(16));
     let mut device = NativeDevice {
-        list: core::ptr::null_mut(),
+        list,
         open: false,
         pending: false,
         failed: false,

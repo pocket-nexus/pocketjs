@@ -445,6 +445,103 @@ fn zero_copy_relocates_unaligned_planes_into_retained_ge_storage() {
     r.retire(id);
 }
 #[test]
+fn narrow_texture_rows_use_retained_hardware_pitch_including_zero_copy() {
+    #[repr(align(16))]
+    struct Narrow {
+        pixels: [u8; 256],
+        palette: [u8; 1024],
+        width: u32,
+        psm: u32,
+        pixel_bytes: u32,
+    }
+    impl RenderResources for Narrow {
+        fn viewport(&self) -> (f32, f32) {
+            (480., 272.)
+        }
+        fn raster_revision(&self) -> u64 {
+            1
+        }
+        fn texture(&self, _: i32) -> Option<TexView<'_>> {
+            Some(TexView {
+                pixels: &self.pixels[..(self.width * 2 * self.pixel_bytes) as usize],
+                w: self.width,
+                h: 2,
+                psm: self.psm,
+                palette: (self.psm == pocket_spec::psm::PSM_T8).then_some(&self.palette),
+                linear: true,
+            })
+        }
+        fn font_atlas(&self, _: u8) -> Option<FontView<'_>> {
+            None
+        }
+    }
+    for (psm, pixel_bytes) in [
+        (pocket_spec::psm::PSM_8888, 4),
+        (pocket_spec::psm::PSM_4444, 2),
+        (pocket_spec::psm::PSM_5650, 2),
+        (pocket_spec::psm::PSM_T8, 1),
+    ] {
+        for width in [1, 2, 16 / pixel_bytes] {
+            for zero_copy in [false, true] {
+                let (mut renderer, state) = create();
+                let mut resources = Narrow {
+                    pixels: [0xee; 256],
+                    palette: [0; 1024],
+                    width,
+                    psm,
+                    pixel_bytes,
+                };
+                let row = (width * pixel_bytes) as usize;
+                resources.pixels[..row].fill(0x31);
+                resources.pixels[row..row * 2].fill(0x72);
+                let mut draw_words = texture();
+                draw_words.extend([pocket_spec::draw_op::RECT, 0, xy(1, 1), u32::MAX]);
+                draw_words.extend(texture());
+                let words = list(draw_words);
+                let mut frame = FrameInput::new(
+                    &words,
+                    &resources,
+                    &[],
+                    Target::DeviceOwned(renderer.target()),
+                );
+                let submission = if zero_copy {
+                    unsafe { renderer.render_zero_copy(&mut frame) }.unwrap()
+                } else {
+                    renderer.render(&mut frame).unwrap()
+                };
+                let binding = state.borrow().textures[0];
+                assert_eq!(state.borrow().textures.len(), 2);
+                assert_eq!(state.borrow().textures[1].pixels, binding.pixels);
+                assert_eq!((binding.width, binding.height), (width, 2));
+                assert_eq!(binding.buffer_width * pixel_bytes, 16);
+                assert_eq!(binding.bytes, 32);
+                assert_eq!(binding.pixels as usize % 16, 0);
+                assert_eq!(
+                    binding.pixels == resources.pixels.as_ptr(),
+                    zero_copy && row == 16
+                );
+                let pixels = unsafe { core::slice::from_raw_parts(binding.pixels, binding.bytes) };
+                assert_eq!(&pixels[..row], &resources.pixels[..row]);
+                assert_eq!(&pixels[16..16 + row], &resources.pixels[row..row * 2]);
+                if row < 16 {
+                    // Negative control: the previous tightly packed allocation
+                    // cannot cover the second row at GE's mandatory pitch.
+                    assert!(16 + row > row * 2);
+                    assert!(pixels[row..16].iter().all(|v| *v == 0));
+                    assert!(pixels[16 + row..].iter().all(|v| *v == 0));
+                }
+                if !zero_copy {
+                    resources.pixels.fill(0xff);
+                }
+                // Mock::wait dereferences every retained binding, catching
+                // premature scratch reuse before terminal completion.
+                renderer.wait(&submission).unwrap();
+                renderer.retire(submission);
+            }
+        }
+    }
+}
+#[test]
 fn font_revisions_preserve_pinned_pages_and_cpu_fallback_handles_pressure() {
     let state = Rc::new(RefCell::new(State::default()));
     let mut device = Mock(state.clone());

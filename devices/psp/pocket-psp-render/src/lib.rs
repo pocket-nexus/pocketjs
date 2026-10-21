@@ -12,6 +12,8 @@ use pocket_drivers::{
     TargetOwnership,
 };
 mod encode;
+#[cfg(any(target_os = "psp", test))]
+mod list_budget;
 pub use encode::Encoder;
 #[cfg(target_os = "psp")]
 pub mod native;
@@ -78,6 +80,9 @@ pub struct TextureBinding {
     pub palette_bytes: usize,
     pub width: u32,
     pub height: u32,
+    /// Row pitch in texels. GE requires at least 16 bytes per row, including
+    /// textures whose logical width is smaller than that hardware minimum.
+    pub buffer_width: u32,
     pub psm: u32,
     pub linear: bool,
 }

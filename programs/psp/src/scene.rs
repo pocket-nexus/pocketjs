@@ -31,7 +31,8 @@ pub fn writeback_texture(ui: &Ui, handle: i32) {
     }
 }
 /// # Safety
-/// The caller owns an open 1 MiB GU list, and keeps Ui texture bytes immutable
+/// The caller owns an open 1 MiB GU list with at least 24 bytes remaining,
+/// and keeps Ui texture bytes immutable
 /// until sceGuSync completes. Call reset_pool only after that completion.
 pub unsafe fn render(ui: &Ui, words: &[u32]) {
     encode(ui, words, true);
@@ -45,7 +46,7 @@ pub unsafe fn render_over(ui: &Ui, words: &[u32]) {
 }
 unsafe fn encode(ui: &Ui, words: &[u32], clear: bool) {
     let encoder = ENCODER.get_or_insert_with(Encoder::new);
-    if let Err(error) = native::encode_open(encoder, ui, words, clear) {
+    if let Err(error) = native::encode_open(crate::host::list_ptr(), encoder, ui, words, clear) {
         psp::dprintln!("[PocketJS GE] invalid pass: {:?}", error);
         crate::host::halt("GE pass validation or native command capacity failed");
     }

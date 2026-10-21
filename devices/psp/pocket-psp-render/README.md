@@ -4,7 +4,7 @@
 
 Composition registers a `SharedRenderer<NativeDevice>` and a `GeDisplay` sharing that renderer. The device target contains an instance identity and a full 480 × 272 region. Other instances' targets and stale submissions are rejected. One submission may be pending. Display flush swaps buffers after renderer completion; VBlank pacing belongs to the host clock.
 
-**Ordinary render copies texture and palette bytes before returning.** The explicit `render_zero_copy` method borrows aligned bytes until `wait` returns; unaligned input is copied. The presentation coordinator must finish its transaction before the next guest tick can mutate those bytes. A bounded publication index uses handle, resource revision, and address to avoid repeating CPU cache writeback for immutable textures. Every GE texture bind flushes the GE texture cache. Font pages retain all referenced revisions until submission retirement; when all 16 pages are pinned, glyphs use colored coverage runs.
+**Ordinary render copies texture and palette bytes before returning.** The explicit `render_zero_copy` method borrows aligned bytes until `wait` returns; unaligned input is copied. **GE texture rows require a 16-byte pitch.** Narrow textures use retained storage with row padding and a separate buffer width; the logical dimensions and UVs stay unchanged. These textures require a copy even through `render_zero_copy`. The presentation coordinator must finish its transaction before the next guest tick can mutate those bytes. A bounded publication index uses handle, resource revision, and address to avoid repeating CPU cache writeback for immutable textures. Every GE texture bind flushes the GE texture cache. Font pages retain all referenced revisions until submission retirement; when all 16 pages are pinned, glyphs use colored coverage runs.
 
 **Both wait success and failure are terminal.** Early retirement waits before storage reuse, and destruction stops native work before freeing storage. Dropping an active shared handle also stops work when the host retains another handle. Native synchronization uses `sceGuSync(Finish, Wait)` from the pinned rust-psp implementation; if firmware does not report `GeListState::Done`, the device waits with all referenced allocations retained. It never converts a still-running list into a terminal error. Device implementations must not reenter their renderer or display.
 
@@ -20,9 +20,9 @@ cargo +stable clippy --locked --offline --manifest-path devices/psp/pocket-psp-r
 Install the pinned PSP SDK with `bun tools/pocket.ts target add psp`. Native compilation uses the project's custom target and toolchain:
 
 ```sh
-RUSTFLAGS='-C panic=abort' cargo +nightly-2026-05-28 build --release --locked --offline \
+RUSTFLAGS='-C panic=abort' cargo +nightly-2026-07-02 build --release --locked --offline \
   --manifest-path devices/psp/pocket-psp-render/Cargo.toml \
-  --target "$PWD/programs/psp/targets/mipsel-sony-psp.json" \
+  --target "$PWD/tools/build/toolchains/psp/mipsel-sony-psp.json" \
   -Zjson-target-spec -Zbuild-std=core,compiler_builtins,alloc,panic_abort
 ```
 

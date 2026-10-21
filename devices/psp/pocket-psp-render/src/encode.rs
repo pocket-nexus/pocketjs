@@ -133,7 +133,14 @@ impl Encoder {
             return Ok(Some(*binding));
         }
         let palette = view.palette.unwrap_or(&[]);
-        let pixels = ge_storage(&mut self.pool, view.pixels, zero_copy);
+        let (pixels, buffer_width, bytes) = ge_texture_storage(
+            &mut self.pool,
+            view.pixels,
+            view.w,
+            view.h,
+            pixel_bytes,
+            zero_copy,
+        );
         let clut = if palette.is_empty() {
             core::ptr::null()
         } else {
@@ -141,11 +148,12 @@ impl Encoder {
         };
         let binding = TextureBinding {
             pixels,
-            bytes: view.pixels.len(),
+            bytes,
             palette: clut,
             palette_bytes: palette.len(),
             width: view.w,
             height: view.h,
+            buffer_width,
             psm: view.psm,
             linear: view.linear,
         };
@@ -335,7 +343,14 @@ impl Encoder {
                             // allocator does not supply GE's 16-byte alignment.
                             let source_pixels =
                                 core::slice::from_raw_parts(page.pixels.as_ptr().cast(), bytes);
-                            let pixels = ge_storage(&mut self.pool, source_pixels, true);
+                            let (pixels, buffer_width, bytes) = ge_texture_storage(
+                                &mut self.pool,
+                                source_pixels,
+                                page.width,
+                                page.height,
+                                2,
+                                true,
+                            );
                             if changed || pixels != source_pixels.as_ptr() {
                                 device.publish(pixels, bytes);
                             }
@@ -346,6 +361,7 @@ impl Encoder {
                                 palette_bytes: 0,
                                 width: page.width,
                                 height: page.height,
+                                buffer_width,
                                 psm: spec::psm::PSM_4444,
                                 linear: font.raster_density != 1,
                             };
@@ -446,6 +462,34 @@ unsafe fn ge_storage(pool: &mut FramePool, bytes: &[u8], borrow: bool) -> *const
         core::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer, bytes.len());
         pointer
     }
+}
+// Logical textures are tightly packed, while GE rounds the row pitch down to
+// a multiple of 16 bytes and substitutes 16 for zero. Pad small rows instead
+// of allowing the sampler to read the next allocation. The retained pool owns
+// this copy through terminal retirement even for an explicit zero-copy call.
+unsafe fn ge_texture_storage(
+    pool: &mut FramePool,
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+    pixel_bytes: u32,
+    borrow: bool,
+) -> (*const u8, u32, usize) {
+    let row_bytes = (width * pixel_bytes) as usize;
+    if row_bytes >= 16 {
+        return (ge_storage(pool, bytes, borrow), width, bytes.len());
+    }
+    let size = 16 * height as usize;
+    let pointer = pool.alloc(size);
+    core::ptr::write_bytes(pointer, 0, size);
+    for y in 0..height as usize {
+        core::ptr::copy_nonoverlapping(
+            bytes.as_ptr().add(y * row_bytes),
+            pointer.add(y * 16),
+            row_bytes,
+        );
+    }
+    (pointer, 16 / pixel_bytes, size)
 }
 fn xy(word: u32) -> (i16, i16) {
     (word as u16 as i16, (word >> 16) as u16 as i16)
