@@ -6,7 +6,8 @@ TypeScript models into Rust. Deployed to `microts.pocket.nexus` by the
 `microts` job in `.github/workflows/deploy.yml`.
 
 - **Home**: what you can write, build and run with MicroTS, with the counter
-  from the guide and the Pocket Retro games; picking a game shows its source.
+  from the guide in Solid and in Vue and the Pocket Retro games; picking a
+  framework or a game shows its source.
 - **Docs**: the MicroTS section of `site/nav.ts` plus `typescript-support`,
   rendered at build time from `site/content/docs/` with marked and Shiki. The
   same Markdown files build the pocketjs.dev pages; links to pages this site
@@ -97,7 +98,8 @@ runs it first because `retro` resolves to the generated SDK.
 build.ts, serve.ts     build and dev server
 lib/                   Bun plugins, Markdown rendering, preview kit and Pocket Retro builders
 kit/                   browser compiler and preview runtime, bundled into /pocket/
-content/home/          code snippets shown on the home page; retro.md is the Build tab for every game
+content/home/          code snippets shown on the home page: the counter in Solid and Vue, the Rust main
+                       both share, the start commands; retro.md is the Build tab for every game
 mark.svg               the MicroTS mark; every icon of the site is generated from it
 public/                favicon, icon family and manifest, copied to the site root
 shells/                the devices' pictures and profiles (tools/handheld-shells.ts) and their credits

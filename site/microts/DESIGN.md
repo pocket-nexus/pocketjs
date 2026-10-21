@@ -68,7 +68,7 @@ The MicroTS mark is a **plum tile in a yellow frame with a cyan italic μ**, and
 | Location | Hue | Reason |
 |---|---|---|
 | Home hero plate | pink | Matches the PocketJS home page; the family entry color |
-| One source (the source and its three build paths) | cyan | Code screens are cyan |
+| One source (the counter in Solid and Vue, and its three build paths) | cyan | Code screens are cyan |
 | How it compiles (the compiler pipeline) | lilac | The color of the mark's lower bars, stands for the compiler |
 | Pick a model (the two model modes) | yellow | A choice between options |
 | Made with MicroTS (Pocket Retro) | pink | Games and entertainment content |
@@ -153,13 +153,15 @@ All component classes are defined in `@layer components` in `src/styles/main.css
 | `.plate` | Dark glass plate with a 4px hue border | Home page main title |
 | `.bulbs` | Row of small bulbs in four colors (yellow, pink, cyan, lilac) with gaps between them | Marquee along the bottom of the plate |
 | `.spark` / `.heart` | Pixel sprites drawn through a mask: the spark in the current hue, the heart in pink | Decoration, list markers |
-| `CodeTabs` | Code panel with arcade keys as tabs (pre-rendered with Shiki); a new tab list returns to the first tab and the top, and `fill` makes the screen take the remaining height and scroll | Home page code samples |
+| `CodeTabs` | Code panel with arcade keys as tabs (pre-rendered with Shiki); a new tab list returns to the first tab and the top, and `fill` makes the screen take the remaining height and scroll; the `head` slot sits above the file keys | Home page code samples |
 | `.doc` | Docs body typography: cyan links, yellow inline code, pink square list bullets, lilac-bordered tables | Rendered Markdown |
 | `.code-block` | Shiki screen with a 3px translucent cyan border | Docs code blocks |
 
 **Code highlighting** uses Shiki `one-dark-pro` for all code (the same theme as the PocketJS docs and the playground editor) and is rendered at build time. The editor is CodeMirror 6 with the one-dark theme, the background changed to `screen`, and a yellow cursor and selection.
 
 **Handheld shell** (right side of the home page): lilac body, `shade` screen bezel, `out` D-pad, pink/yellow A and B buttons. The screen cycles through Pocket Retro game screenshots (the posters at `/retro/<id>/poster.png`, `image-rendering: pixelated`) every 2.6 s, with a row of pellets in the bezel marking the current one. The device is not a link.
+
+**One source** (home page): the code panel is the first column, as in the Familiar tools section of the PocketJS home page, and the three build paths stand to its right (below it on narrow screens). The lede names Solid and Vue and links to their sites. Two framework keys, Solid then Vue, sit in the panel's `head` slot above a dotted rule: Fredoka 600 1rem, the section hue when selected, otherwise the file keys' colors. Picking one shows that framework's counter, its view file first (`Counter.tsx` or `Counter.vue`), then `Counter.ts`, `gen/counter.rs` and the `src/main.rs` both share (`content/home/counter-solid.md`, `counter-vue.md`, `counter-rust.md`). A text link at the right of the framework keys opens the same counter's playground preset. The view and model files are the playground starters, and both generate the same `gen/counter.rs`. The "Follow one binding" table below gives each binding in Solid TSX and in the Vue template, with one cell across both columns where the two are written the same.
 
 **Made with MicroTS** (home page): the six games from the handheld are buttons. Picking one marks its card yellow and shows its `game.ts` and a Build tab for that game in the code panel; the page does not navigate. Each game's highlighted source is a separate chunk, loaded on hover, focus or pick, and the panel keeps the previous game on screen under `LOADING` until it arrives. From the `lg` breakpoint the panel takes the height of the card grid and its screen scrolls; below it the panel has a fixed height, and a pick scrolls it into view. A text link in the panel's tab bar opens the picked game in the playground.
 

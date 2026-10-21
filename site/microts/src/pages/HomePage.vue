@@ -4,7 +4,9 @@ import CandyText from "../components/CandyText.vue";
 import CodeTabs from "../components/CodeTabs.vue";
 import SectionHead from "../components/SectionHead.vue";
 import MicroTSMark from "../components/MicroTSMark.vue";
-import counterTabs from "../../content/home/counter.md?tabs";
+import counterSolid from "../../content/home/counter-solid.md?tabs";
+import counterVue from "../../content/home/counter-vue.md?tabs";
+import counterRust from "../../content/home/counter-rust.md?tabs";
 import startTabs from "../../content/home/start.md?tabs";
 import { DOC_ITEMS } from "../docs/nav";
 import retroCatalog from "microts:retro-catalog";
@@ -28,6 +30,22 @@ const gameById = (id: string) => games.find((g) => g.id === id)!;
 const presetId = (id: string) => `retro-${id.replace(/_/g, "-")}`;
 
 type Tabs = { title: string; html: string }[];
+
+// One source: the counter in each front end, view file first, then the Rust program that runs either
+// one. Both generate the same gen/counter.rs; the view and model files are the playground starters.
+const frameworks = [
+  { title: "Solid", preset: "counter-solid", tabs: [...counterSolid, ...counterRust] },
+  { title: "Vue", preset: "counter-vue", tabs: [...counterVue, ...counterRust] },
+];
+const framework = ref(0);
+const current = computed(() => frameworks[framework.value]!);
+const oneSourceLede =
+  'Write a screen as a <a class="olink" href="https://www.solidjs.com" target="_blank" rel="noreferrer">Solid</a> TSX view ' +
+  'or a <a class="olink" href="https://vuejs.org" target="_blank" rel="noreferrer">Vue</a> single-file component, ' +
+  "with its state and actions typed in a TypeScript module. Both front ends produce the same View IR: " +
+  "<b>the Solid and Vue counters generate the same <code>gen/counter.rs</code> and run on the same Rust model.</b> " +
+  "Either source runs in a browser, in QuickJS on a device, or as native Rust.";
+
 const picked = ref(showcase[0]!);
 const code = reactive<Record<string, Tabs>>({});
 // The panel keeps the last loaded game on screen until the picked one arrives.
@@ -64,12 +82,13 @@ const pipeline = [
   { n: "05", title: "Cargo", body: "Build the generated view with your model and the <code>microts</code> crate. Your host supplies input, fonts and presentation." },
 ];
 
-const bindings = [
-  ["<View> and <Text>", "Create nodes with ui.create_node(...) and attach them with ui.insert_before(...)"],
-  ['class="p-4 ..."', "Use a compiled style table entry through ui.set_style(...)"],
-  ["{{ count }}", "Read vm.count(); format the text when the value changes and send it through ui.set_text(...)"],
-  ['@press="count++"', "On a matching press, call vm.set_count(vm.count().wrapping_add(1i32))"],
-  ["v-if and v-for", "Choose mounted branches and reconcile list rows by key"],
+// A row without a Vue form is written the same way in both front ends.
+const bindings: { solid: string; vue?: string; rust: string }[] = [
+  { solid: "<View> and <Text>", rust: "Create nodes with ui.create_node(...) and attach them with ui.insert_before(...)" },
+  { solid: 'class="p-4 ..."', rust: "Use a compiled style table entry through ui.set_style(...)" },
+  { solid: "{count()}", vue: "{{ count }}", rust: "Read vm.count(); format the text when the value changes and send it through ui.set_text(...)" },
+  { solid: "onPress={() => setCount(count() + 1)}", vue: '@press="count++"', rust: "On a matching press, call vm.set_count(vm.count().wrapping_add(1i32))" },
+  { solid: "<Show> and <For>", vue: "v-if and v-for", rust: "Choose mounted branches and reconcile list rows by key" },
 ];
 </script>
 
@@ -150,12 +169,39 @@ const bindings = [
 
     <!-- ================= write ================= -->
     <section class="hue-cyan wrap py-[clamp(2.6rem,6.5vw,4.2rem)]">
-      <SectionHead
-        title="One source"
-        :start="2"
-        lede="Write a screen as a Vue single-file component or a Solid TSX view, with its state and actions typed in a TypeScript module. <b>The same source runs in a browser, in QuickJS on a device, or as native Rust.</b>"
-      />
-      <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+      <SectionHead title="One source" :start="2" :lede="oneSourceLede" />
+      <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <CodeTabs :tabs="current.tabs">
+          <template #head>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-3 px-3 pt-3">
+              <div class="flex gap-2" role="tablist" aria-label="Framework">
+                <button
+                  v-for="(f, i) in frameworks"
+                  :key="f.title"
+                  type="button"
+                  role="tab"
+                  :aria-selected="framework === i"
+                  class="h-10 rounded-[10px] border-2 px-4 font-round text-[1rem] leading-none font-semibold transition"
+                  :class="
+                    framework === i
+                      ? 'translate-y-[2px] border-[var(--hue)] bg-[var(--hue)] text-out shadow-[0_1px_0_#0a0614,inset_0_-2px_0_rgba(0,0,0,0.18)]'
+                      : 'border-[rgba(203,189,226,0.18)] bg-key text-ink-2 shadow-[0_3px_0_#0a0614] hover:bg-key-hi hover:text-ink'
+                  "
+                  @click="framework = i"
+                >
+                  {{ f.title }}
+                </button>
+              </div>
+              <RouterLink
+                :to="`/playground/${current.preset}`"
+                class="ml-auto font-round text-[0.84rem] font-semibold text-soft underline decoration-dotted underline-offset-4 hover:text-yellow"
+              >
+                Edit the {{ current.title }} counter in the playground
+              </RouterLink>
+            </div>
+            <div class="dotted-rule mx-3 mt-3" aria-hidden="true" />
+          </template>
+        </CodeTabs>
         <div class="grid gap-4">
           <div v-for="(row, i) in [
             { k: 'Browser preview', v: 'Edit the view and run it in a browser on the PocketJS web host. The playground on this site runs this build.' },
@@ -166,7 +212,6 @@ const bindings = [
             <p class="text-[0.95rem] leading-relaxed text-soft">{{ row.v }}</p>
           </div>
         </div>
-        <CodeTabs :tabs="counterTabs" />
       </div>
     </section>
 
@@ -190,20 +235,22 @@ const bindings = [
       <div class="mt-10 overflow-hidden rounded-[22px] border-[3px] border-lilac bg-panel shadow-[0_6px_0_#7155d8,0_24px_40px_-22px_rgba(0,0,0,0.85)]">
         <div class="flex flex-wrap items-center justify-between gap-2 px-5 pt-4 pb-3">
           <span class="label">Follow one binding</span>
-          <span class="font-mono text-[0.75rem] text-muted">Counter.vue → gen/counter.rs</span>
+          <span class="font-mono text-[0.75rem] text-muted">Counter.tsx · Counter.vue → gen/counter.rs</span>
         </div>
         <div class="overflow-x-auto px-3 pb-3">
-          <table class="w-full min-w-[560px] border-separate border-spacing-y-1.5 text-left text-[0.9rem]">
+          <table class="w-full min-w-[760px] border-separate border-spacing-x-1 border-spacing-y-1.5 text-left text-[0.9rem]">
             <thead>
               <tr class="font-round text-[0.82rem] text-pink-l">
-                <th class="px-3 font-semibold">Template</th>
+                <th class="px-3 font-semibold">Solid TSX</th>
+                <th class="px-3 font-semibold">Vue template</th>
                 <th class="px-3 font-semibold">Generated Rust behavior</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="[t, r] in bindings" :key="t">
-                <td class="screen rounded-l-[10px] px-3 py-2.5 align-top font-mono text-[0.82rem] whitespace-nowrap text-yellow">{{ t }}</td>
-                <td class="rounded-r-[10px] bg-[rgba(18,12,33,0.55)] px-3 py-2.5 text-soft">{{ r }}</td>
+              <tr v-for="b in bindings" :key="b.solid">
+                <td :colspan="b.vue ? 1 : 2" class="screen rounded-[10px] px-3 py-2.5 align-top font-mono text-[0.82rem] whitespace-nowrap text-yellow">{{ b.solid }}</td>
+                <td v-if="b.vue" class="screen rounded-[10px] px-3 py-2.5 align-top font-mono text-[0.82rem] whitespace-nowrap text-yellow">{{ b.vue }}</td>
+                <td class="rounded-[10px] bg-[rgba(18,12,33,0.55)] px-3 py-2.5 text-soft">{{ b.rust }}</td>
               </tr>
             </tbody>
           </table>
