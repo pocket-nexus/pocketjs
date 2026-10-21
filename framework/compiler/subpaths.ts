@@ -102,6 +102,7 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
     aliases: ["vue-vapor"],
   },
   host: { file: "framework/src/host.ts" },
+  "guest-web": { file: "engine/guest-web/src/generated-ui.js" },
   "overlay-host": { file: "framework/src/overlay-host.ts" },
   "themes/desktop": { file: "framework/src/themes/desktop.ts" },
   lifecycle: {

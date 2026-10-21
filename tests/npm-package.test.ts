@@ -261,6 +261,10 @@ describe("published npm artifacts", () => {
       "microts/compiler",
       "engine/crates/microts/src",
       "engine/crates/microts/Cargo.toml",
+      "devices/psp/pocket-psp-render/Cargo.toml",
+      "devices/psp/pocket-psp-render/Cargo.lock",
+      "devices/psp/pocket-psp-render/src",
+      "devices/psp/pocket-psp-render/README.md",
       "devices/psp/pocket-psp-ge/Cargo.toml",
       "devices/psp/pocket-psp-ge/Cargo.lock",
       "devices/psp/pocket-psp-ge/src",
@@ -425,6 +429,7 @@ describe("published npm artifacts", () => {
     // Toolchain manifests travel with the framework that pins them.
     expect(files).toContain("tools/targets/psp.toolchain.json");
 
+    expect(files).toContain("devices/psp/pocket-psp-render/src/lib.rs");
     expect(files).toContain("devices/psp/pocket-psp-ge/src/lib.rs");
     expect(files).toContain("devices/psp/pocket-psp-ge/Cargo.lock");
     expect(files).toContain("devices/3ds/pocket-3ds-pica/include/pocket_pica.h");
