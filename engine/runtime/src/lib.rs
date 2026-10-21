@@ -393,6 +393,36 @@ impl Runtime {
     /// application's logical viewport. The program prepares display descriptors
     /// first and restores them on failure. CPU raster targets use `resize_embedded`.
     pub fn resize_embedded_presentation(&mut self, physical: [u32; 2]) -> Result<(), RuntimeError> {
+        self.validate_embedded_gpu_resize(physical)?;
+        self.presenter
+            .refresh_displays(self.presenter.scale(), physical)?;
+        self.profile.viewport = physical;
+        Ok(())
+    }
+    /// Resize a GPU embedding whose OS scale produces a fractional logical
+    /// viewport. The program prepares its device targets and scale first and
+    /// restores them on failure. Package admission retains its original profile.
+    pub fn resize_embedded_gpu(
+        &mut self,
+        logical: [f32; 2],
+        physical: [u32; 2],
+    ) -> Result<(), RuntimeError> {
+        self.validate_embedded_gpu_resize(physical)?;
+        if logical
+            .iter()
+            .any(|v| !v.is_finite() || *v < 1.0 || *v > 32000.0)
+        {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        let mut core = self.ops.core_mut()?;
+        self.presenter
+            .refresh_displays(self.presenter.scale(), physical)?;
+        core.ui.set_viewport(logical[0], logical[1]);
+        core.mutated();
+        self.profile.viewport = physical;
+        Ok(())
+    }
+    fn validate_embedded_gpu_resize(&self, physical: [u32; 2]) -> Result<(), RuntimeError> {
         if self.state != State::Running || !self.embedded_viewport {
             return Err(RuntimeError::InvalidState);
         }
@@ -406,9 +436,6 @@ impl Runtime {
         {
             return Err(RuntimeError::InvalidArgument);
         }
-        self.presenter
-            .refresh_displays(self.presenter.scale(), physical)?;
-        self.profile.viewport = physical;
         Ok(())
     }
     pub fn add_provider(&mut self, provider: Box<dyn OpProvider>) -> Result<(), RuntimeError> {

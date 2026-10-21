@@ -503,18 +503,19 @@ impl Coordinator {
             let native_primary = descriptor.role == DisplayRole::Primary
                 && descriptor.target_ownership == TargetOwnership::DeviceOwned;
             let viewport = if native_primary {
-                (viewport.0 as u32, viewport.1 as u32)
+                viewport
             } else {
                 (
-                    descriptor.width / self.scale,
-                    descriptor.height / self.scale,
+                    (descriptor.width / self.scale) as f32,
+                    (descriptor.height / self.scale) as f32,
                 )
             };
-            pocket_draw_ops::validate(
-                &list.words,
-                DamageRect::new(0, 0, viewport.0 as i32, viewport.1 as i32),
-            )
-            .map_err(|_| PresentError::InvalidFrame)?;
+            // DrawList coordinates are integral, while native window scaling
+            // may leave a fractional logical edge. Include its boundary pixel.
+            let clip_width = viewport.0 as i32 + i32::from(viewport.0 > viewport.0 as i32 as f32);
+            let clip_height = viewport.1 as i32 + i32::from(viewport.1 > viewport.1 as i32 as f32);
+            pocket_draw_ops::validate(&list.words, DamageRect::new(0, 0, clip_width, clip_height))
+                .map_err(|_| PresentError::InvalidFrame)?;
             views.push(FrameResources {
                 source: resources,
                 viewport,
@@ -530,7 +531,10 @@ impl Coordinator {
             // Submit the whole target until a renderer-specific mapping exists.
             let identity = identity.filter(|_| {
                 !native_primary
-                    || descriptor.width == primary_width && descriptor.height == primary_height
+                    || viewport.0 == viewport.0 as u32 as f32
+                        && viewport.1 == viewport.1 as u32 as f32
+                        && descriptor.width == primary_width
+                        && descriptor.height == primary_height
             });
             display.history_slot = identity.map(|identity| {
                 let slot = display
@@ -643,12 +647,12 @@ impl Coordinator {
 
 struct FrameResources<'a> {
     source: &'a dyn RenderResources,
-    viewport: (u32, u32),
+    viewport: (f32, f32),
 }
 
 impl RenderResources for FrameResources<'_> {
     fn viewport(&self) -> (f32, f32) {
-        (self.viewport.0 as f32, self.viewport.1 as f32)
+        self.viewport
     }
     fn raster_revision(&self) -> u64 {
         self.source.raster_revision()

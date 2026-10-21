@@ -473,3 +473,130 @@ fn profile_auxiliary_surface_has_guest_metadata_without_a_package_declaration() 
     rt.present().unwrap();
     assert_eq!(facts.borrow().flushes, 2);
 }
+
+#[test]
+fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets() {
+    use std::cell::Cell;
+    type RenderedFrame = ((f32, f32), Rect);
+    struct Gpu(Rc<RefCell<Vec<RenderedFrame>>>);
+    impl Renderer for Gpu {
+        type Submission = ();
+        fn descriptor(&self) -> RendererDescriptor {
+            RendererDescriptor::new(
+                &[PixelFormat::Rgba8888],
+                TargetOwnership::DeviceOwned,
+                Synchronization::Immediate,
+                pocket_spec::DRAW_LIST_VERSION,
+                false,
+            )
+            .unwrap()
+        }
+        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<(), RenderError> {
+            let Target::DeviceOwned(target) = &frame.target else {
+                panic!("GPU target required")
+            };
+            self.0
+                .borrow_mut()
+                .push((frame.resources.viewport(), target.region));
+            Ok(())
+        }
+        fn wait(&mut self, _: &()) -> Result<(), RenderError> {
+            Ok(())
+        }
+        fn retire(&mut self, _: ()) {}
+    }
+    struct Output(Rc<Cell<[u32; 2]>>);
+    impl DisplayOutput for Output {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            let [w, h] = self.0.get();
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                w,
+                h,
+                PixelFormat::Rgba8888,
+                w as usize * 4,
+                TargetOwnership::DeviceOwned,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            Ok(Target::DeviceOwned(DeviceTarget::new(
+                1,
+                region,
+                PixelFormat::Rgba8888,
+            )))
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = Runtime::new(config()).unwrap();
+    assert_eq!(
+        rt.resize_embedded_gpu([3.5, 2.25], [7, 5]),
+        Err(RuntimeError::InvalidState)
+    );
+    rt.allow_embedded_viewport_changes().unwrap();
+    rt.set_guest(Box::new(TestGuest {
+        facts: facts.clone(),
+        ops: None,
+        fail: false,
+    }))
+    .unwrap();
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    let size = Rc::new(Cell::new([4, 4]));
+    let frames = Rc::new(RefCell::new(Vec::new()));
+    let renderer = rt.add_renderer(Gpu(frames.clone())).unwrap();
+    rt.add_display(Output(size.clone()), renderer).unwrap();
+    rt.boot().unwrap();
+    let ops = rt.op_context();
+    for logical in [
+        [f32::NAN, 1.],
+        [1., f32::INFINITY],
+        [0., 1.],
+        [-1., 1.],
+        [32001., 1.],
+    ] {
+        assert_eq!(
+            rt.resize_embedded_gpu(logical, [7, 5]),
+            Err(RuntimeError::InvalidArgument)
+        );
+    }
+    assert_eq!(
+        rt.resize_embedded_gpu([3.5, 2.25], [0, 5]),
+        Err(RuntimeError::InvalidArgument)
+    );
+    assert!(matches!(
+        rt.resize_embedded_gpu([3.5, 2.25], [7, 5]),
+        Err(RuntimeError::Presentation(_))
+    ));
+    assert_eq!(ops.core().unwrap().ui.viewport(), (4., 4.));
+    size.set([7, 5]);
+    let borrow = ops.core().unwrap();
+    assert_eq!(
+        rt.resize_embedded_gpu([3.5, 2.25], [7, 5]),
+        Err(RuntimeError::Busy)
+    );
+    drop(borrow);
+    rt.resize_embedded_gpu([3.5, 2.25], [7, 5]).unwrap();
+    assert_eq!(ops.core().unwrap().ui.viewport(), (3.5, 2.25));
+    rt.tick().unwrap();
+    assert_eq!(
+        frames.borrow().last(),
+        Some(&((3.5, 2.25), Rect::new(0, 0, 7, 5)))
+    );
+    let mut cpu = runtime(facts, false, false);
+    cpu.allow_embedded_viewport_changes().unwrap();
+    cpu.boot().unwrap();
+    assert_eq!(
+        cpu.resize_embedded_gpu([3.5, 2.25], [4, 4]),
+        Err(RuntimeError::InvalidArgument)
+    );
+}
