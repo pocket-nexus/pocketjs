@@ -1,0 +1,16 @@
+[package]
+workspace = "../../../engine"
+name = "pocket-render-esp-ppa"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+pocket-drivers = { path = "../../../engine/drivers" }
+pocket-spec = { path = "../../../engine/spec" }
+pocket-draw-ops = { path = "../../../engine/render/draw-ops" }
+pocket-raster = { path = "../../../engine/raster" }
+pocket-glyph-pages = { path = "../../../engine/render/glyph-pages" }
+
+[dev-dependencies]
+pocketjs-core = { path = "../../../engine/core" }

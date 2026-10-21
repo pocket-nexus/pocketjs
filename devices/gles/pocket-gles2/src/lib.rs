@@ -1,18 +1,17 @@
-//! OpenGL ES 2 pipeline: a two-attribute shader program.
+#![no_std]
+//! OpenGL ES 2 pipeline: a three-attribute shader program.
 //!
 //! This is the pipeline the Nokia E7 Qt host uses. The vertex shader does the
 //! pixel-to-NDC transform the fixed-function matrix stack would otherwise do,
 //! and the fragment shader modulates the texture by the per-vertex color.
-//! `super` owns the DrawList walk, the texture cache and the batching; this
+//! `pocket-gles` owns the DrawList walk, the texture cache and the batching; this
 //! module owns only what changes between GL generations.
 
 use core::ffi::{c_char, c_void};
 use core::ptr;
 
-// Child modules can reach their ancestor's private items, so the shared type
-// aliases, enum constants and `glGetError` binding are imported rather than
-// redeclared — one definition of each, in `super`.
-use super::{
+// Shared entry points and scalar types belong to pocket-gles.
+use pocket_gles::raw::{
     glGetError, GLenum, GLfloat, GLint, GLsizei, GLuint, GL_FLOAT, GL_NO_ERROR,
     GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_UNSIGNED_BYTE,
 };
@@ -121,22 +120,13 @@ unsafe fn compile_shader(kind: GLenum, source: &[u8]) -> Option<GLuint> {
 }
 
 /// The ES 2 pipeline state: one linked program and its viewport uniform.
-pub(super) struct Pipeline {
+pub struct Pipeline {
     program: GLuint,
     viewport_uniform: GLint,
 }
 
-impl Pipeline {
-    /// A field-valid instance for unit tests that never touch a GL context.
-    #[cfg(test)]
-    pub(super) fn stub() -> Self {
-        Self {
-            program: 0,
-            viewport_uniform: 0,
-        }
-    }
-
-    pub(super) unsafe fn new() -> Option<Self> {
+unsafe impl pocket_gles::Pipeline for Pipeline {
+    unsafe fn new() -> Option<Self> {
         let vertex = compile_shader(GL_VERTEX_SHADER, VERTEX_SHADER)?;
         let fragment = match compile_shader(GL_FRAGMENT_SHADER, FRAGMENT_SHADER) {
             Some(shader) => shader,
@@ -187,20 +177,20 @@ impl Pipeline {
         })
     }
 
-    pub(super) unsafe fn destroy(&mut self) {
+    unsafe fn destroy(&mut self) {
         glDeleteProgram(self.program);
         self.program = 0;
     }
 
     /// Bind the program and tell it the logical viewport for this frame.
-    pub(super) unsafe fn begin_frame(&self, logical_width: f32, logical_height: f32) {
+    unsafe fn begin_frame(&self, logical_width: f32, logical_height: f32) {
         glUseProgram(self.program);
         glUniform2f(self.viewport_uniform, logical_width, logical_height);
         glActiveTexture(GL_TEXTURE0);
     }
 
     /// Straight alpha for color, accumulate-to-opaque for the destination.
-    pub(super) unsafe fn set_blend(&self) {
+    unsafe fn set_blend(&self) {
         glBlendFuncSeparate(
             GL_SRC_ALPHA,
             GL_ONE_MINUS_SRC_ALPHA,
@@ -210,7 +200,7 @@ impl Pipeline {
     }
 
     /// Point the three attributes at the interleaved vertex buffer.
-    pub(super) unsafe fn bind_vertices(&self, stride: GLsizei) {
+    unsafe fn bind_vertices(&self, stride: GLsizei) {
         glEnableVertexAttribArray(0);
         glEnableVertexAttribArray(1);
         glEnableVertexAttribArray(2);
@@ -219,9 +209,17 @@ impl Pipeline {
         glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, 1, stride, 16usize as *const c_void);
     }
 
-    pub(super) unsafe fn unbind_vertices(&self) {
+    unsafe fn unbind_vertices(&self) {
         glDisableVertexAttribArray(0);
         glDisableVertexAttribArray(1);
         glDisableVertexAttribArray(2);
     }
 }
+
+/// Explicit ES 2 renderer; no feature selects this pipeline.
+pub type Renderer<C> = pocket_gles::GlesRenderer<Pipeline, C>;
+
+#[cfg(test)]
+extern crate std;
+#[cfg(test)]
+mod tests;

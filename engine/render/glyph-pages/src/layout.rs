@@ -173,7 +173,10 @@ impl GlyphPageLayout {
                 let start = (y * self.width + 2) as usize;
                 bytes[start..start + 4].fill(255);
             }
-        } else if self.count % self.columns != 0 && self.stride_x >= 8 && self.stride_y >= 8 {
+        } else if !self.count.is_multiple_of(self.columns)
+            && self.stride_x >= 8
+            && self.stride_y >= 8
+        {
             let x = self.count % self.columns * self.stride_x + 2;
             let y = self.count / self.columns * self.stride_y + 2;
             if x + 4 <= self.width && y + 4 <= self.height {

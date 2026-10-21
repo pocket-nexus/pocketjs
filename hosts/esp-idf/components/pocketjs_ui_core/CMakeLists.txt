@@ -1,6 +1,10 @@
+set(pocketjs_public_includes "include")
+if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/include/pocket_drivers.h")
+    list(APPEND pocketjs_public_includes "../../../../contracts/generated")
+endif()
 idf_component_register(
     SRCS "src/ui_core.c"
-    INCLUDE_DIRS "include"
+    INCLUDE_DIRS ${pocketjs_public_includes}
     PRIV_REQUIRES heap log
     REQUIRED_IDF_TARGETS esp32p4 esp32s3
 )

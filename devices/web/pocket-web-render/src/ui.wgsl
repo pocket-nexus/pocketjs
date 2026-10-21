@@ -12,6 +12,7 @@ struct VsIn {
     @location(1) uv: vec2f,
     @location(2) color: vec4f,
     @location(3) mode: u32,
+    @location(4) bounds: vec4f,
 };
 
 struct VsOut {
@@ -19,6 +20,7 @@ struct VsOut {
     @location(0) uv: vec2f,
     @location(1) color: vec4f,
     @location(2) @interpolate(flat) mode: u32,
+    @location(3) @interpolate(flat) bounds: vec4f,
 };
 
 @vertex
@@ -28,6 +30,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.uv = in.uv;
     out.color = in.color;
     out.mode = in.mode;
+    out.bounds = in.bounds;
     return out;
 }
 
@@ -42,7 +45,10 @@ fn srgb_to_linear(c: vec3f) -> vec3f {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
-    let t = textureSample(tex, samp, in.uv);
+    // Atlas pages have transparent guards, but glyph scaling clamps to the
+    // glyph's own edge texel centers, matching the original atlas sampler.
+    let uv = select(in.uv, clamp(in.uv, in.bounds.xy, in.bounds.zw), in.mode == 2u);
+    let t = textureSample(tex, samp, uv);
     var rgb = in.color.rgb;
     if LINEAR_OUTPUT { rgb = srgb_to_linear(rgb); }
     var a = in.color.a;

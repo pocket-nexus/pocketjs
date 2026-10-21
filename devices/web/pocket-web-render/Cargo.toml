@@ -1,0 +1,20 @@
+[package]
+name = "pocket-web-render"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Pocket DrawList renderer on native wgpu devices"
+
+[dependencies]
+pocket-drivers = { path = "../../../engine/drivers" }
+pocket-spec = { path = "../../../engine/spec" }
+pocket-draw-ops = { path = "../../../engine/render/draw-ops" }
+pocket-tri-batch = { path = "../../../engine/render/tri-batch" }
+pocket-glyph-pages = { path = "../../../engine/render/glyph-pages" }
+pocket-tex-cache = { path = "../../../engine/render/tex-cache" }
+wgpu = "25"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+
+[workspace]
+resolver = "2"

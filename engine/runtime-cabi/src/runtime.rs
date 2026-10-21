@@ -1,6 +1,7 @@
 use crate::{
     adapters::{borrowed, AdapterError, CDisplay, CInputSource, CPackageSource, CRenderer},
     guest::CGuest,
+    provider::COpProvider,
 };
 use alloc::{boxed::Box, vec::Vec};
 use core::{
@@ -17,6 +18,7 @@ pub(crate) struct Handle {
     pub runtime: RefCell<Runtime>,
     pub ops: OpContext,
     pub guest_active: Cell<bool>,
+    operation_active: Cell<bool>,
     result: RefCell<Vec<u8>>,
 }
 pub(crate) unsafe fn handle<'a>(pointer: *const PocketRuntime) -> Option<&'a Handle> {
@@ -50,6 +52,9 @@ unsafe fn modify(
     };
     if let Err(status) = invalidate(handle) {
         return status;
+    }
+    if handle.operation_active.get() {
+        return POCKET_STATUS_FAILED;
     }
     let Ok(mut runtime) = handle.runtime.try_borrow_mut() else {
         return POCKET_STATUS_FAILED;
@@ -88,6 +93,7 @@ pub unsafe extern "C" fn pocket_runtime_create(
         runtime: RefCell::new(runtime),
         ops,
         guest_active: Cell::new(false),
+        operation_active: Cell::new(false),
         result: RefCell::new(Vec::new()),
     }))
     .cast()
@@ -136,7 +142,7 @@ pub unsafe extern "C" fn pocket_runtime_add_renderer(
     let Some(handle) = (unsafe { handle(pointer) }) else {
         return POCKET_RENDERER_INVALID;
     };
-    if invalidate(handle).is_err() {
+    if invalidate(handle).is_err() || handle.operation_active.get() {
         return POCKET_RENDERER_INVALID;
     }
     let Ok(mut runtime) = handle.runtime.try_borrow_mut() else {
@@ -187,6 +193,25 @@ pub unsafe extern "C" fn pocket_runtime_add_input_source(
     }
 }
 /// # Safety
+/// runtime is live. The provider context and callback last through destruction;
+/// operations supplies operation_count readable u16 values for this call.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_add_op_provider(
+    runtime: *mut PocketRuntime,
+    provider: *const PocketOpProviderV1,
+    context: *mut c_void,
+    operations: *const u16,
+    operation_count: usize,
+) -> i32 {
+    unsafe {
+        modify(runtime, |runtime| {
+            let provider = COpProvider::new(provider, context, operations, operation_count)
+                .map_err(adapter_runtime_error)?;
+            runtime.add_provider(Box::new(provider))
+        })
+    }
+}
+/// # Safety
 /// runtime is a live instance on its owning thread.
 #[no_mangle]
 pub unsafe extern "C" fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32 {
@@ -229,13 +254,23 @@ pub unsafe extern "C" fn pocket_runtime_op(
     }
     // Runtime holds a mutable borrow during callbacks. Only guest callbacks
     // may reenter dispatch; render/input/display callbacks cannot mutate Ui.
-    if !handle.guest_active.get() && handle.runtime.try_borrow().is_err() {
+    if handle.operation_active.get()
+        || !handle.guest_active.get() && handle.runtime.try_borrow().is_err()
+    {
         return POCKET_STATUS_FAILED;
     }
     let arguments = match unsafe { arguments(args, length) } {
         Ok(args) => args,
         Err(error) => return error.status(),
     };
+    struct OperationGuard<'a>(&'a Cell<bool>);
+    impl Drop for OperationGuard<'_> {
+        fn drop(&mut self) {
+            self.0.set(false);
+        }
+    }
+    handle.operation_active.set(true);
+    let _operation = OperationGuard(&handle.operation_active);
     let result = match handle.ops.dispatch(op, &arguments) {
         Ok(result) => result,
         Err(error) => return status(error),
@@ -330,7 +365,7 @@ pub unsafe extern "C" fn pocket_runtime_destroy(pointer: *mut PocketRuntime) {
     let Some(handle) = (unsafe { handle(pointer) }) else {
         return;
     };
-    if invalidate(handle).is_err() {
+    if invalidate(handle).is_err() || handle.operation_active.get() {
         return;
     }
     {

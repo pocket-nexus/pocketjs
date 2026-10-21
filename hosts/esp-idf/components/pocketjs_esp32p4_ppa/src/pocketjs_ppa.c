@@ -1,4 +1,5 @@
 #include "pocketjs_ppa.h"
+#include "pocketjs/esp32p4_ppa_status.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -64,7 +65,7 @@ static color_pixel_argb8888_data_t rgb565_to_argb8888(uint16_t color) {
 static void log_operation_failure_once(const char *operation, esp_err_t error,
                                        bool *already_logged) {
   if (!*already_logged) {
-    ESP_LOGW(TAG, "PPA %s failed (%s); using ordered RGB565 software fallback",
+    ESP_LOGW(TAG, "PPA %s failed (%s); frame aborted before display flush",
              operation, esp_err_to_name(error));
     *already_logged = true;
   }
@@ -135,7 +136,7 @@ int pocketjs_ppa_fill_rgb565(pocketjs_ppa_handle_t handle,
       !surface_is_valid(destination, destination_pixels, width, height,
                         sizeof(*destination)) ||
       !rect_is_valid(width, height, x, y, rect_width, rect_height)) {
-    return 0;
+    return POCKET_STATUS_UNSUPPORTED;
   }
 
   const ppa_fill_oper_config_t operation = {
@@ -159,9 +160,9 @@ int pocketjs_ppa_fill_rgb565(pocketjs_ppa_handle_t handle,
   const esp_err_t result = ppa_do_fill(handle->fill, &operation);
   if (result != ESP_OK) {
     log_operation_failure_once("fill", result, &handle->fill_error_logged);
-    return 0;
+    return POCKET_STATUS_FAILED;
   }
-  return 1;
+  return POCKET_STATUS_OK;
 }
 
 int pocketjs_ppa_blend_a8_rgb565(pocketjs_ppa_handle_t handle,
@@ -173,14 +174,14 @@ int pocketjs_ppa_blend_a8_rgb565(pocketjs_ppa_handle_t handle,
                                  uint8_t red, uint8_t green, uint8_t blue,
                                  uint8_t global_alpha) {
   if (global_alpha == 0) {
-    return 1;
+    return POCKET_STATUS_OK;
   }
   if (handle == NULL || handle->blend == NULL ||
       !surface_is_valid(destination, destination_pixels, width, height,
                         sizeof(*destination)) ||
       !surface_is_valid(mask, mask_len, width, height, sizeof(*mask)) ||
       !rect_is_valid(width, height, x, y, rect_width, rect_height)) {
-    return 0;
+    return POCKET_STATUS_UNSUPPORTED;
   }
 
   ppa_blend_oper_config_t operation = {
@@ -235,9 +236,9 @@ int pocketjs_ppa_blend_a8_rgb565(pocketjs_ppa_handle_t handle,
   const esp_err_t result = ppa_do_blend(handle->blend, &operation);
   if (result != ESP_OK) {
     log_operation_failure_once("blend", result, &handle->blend_error_logged);
-    return 0;
+    return POCKET_STATUS_FAILED;
   }
-  return 1;
+  return POCKET_STATUS_OK;
 }
 
 static bool exact_scale(uint32_t source_extent, uint32_t destination_extent,
@@ -272,7 +273,7 @@ int pocketjs_ppa_srm_psm5650_rgb565(
       source == NULL || source_width == 0 || source_height == 0 ||
       (size_t)source_width > SIZE_MAX / (size_t)source_height ||
       (size_t)source_width * (size_t)source_height > SIZE_MAX / 2U) {
-    return 0;
+    return POCKET_STATUS_UNSUPPORTED;
   }
 
   const size_t source_required =
@@ -286,7 +287,7 @@ int pocketjs_ppa_srm_psm5650_rgb565(
       !rect_is_valid(width, height, destination_x, destination_y,
                      destination_rect_width, destination_rect_height) ||
       quarter_turn > 3U) {
-    return 0;
+    return POCKET_STATUS_UNSUPPORTED;
   }
 
   const bool swaps_axes = quarter_turn == 1U || quarter_turn == 3U;
@@ -298,7 +299,7 @@ int pocketjs_ppa_srm_psm5650_rgb565(
   float scale_y = 0.0f;
   if (!exact_scale(source_rect_width, scaled_width, &scale_x) ||
       !exact_scale(source_rect_height, scaled_height, &scale_y)) {
-    return 0;
+    return POCKET_STATUS_UNSUPPORTED;
   }
 
   const ppa_srm_rotation_angle_t rotations[] = {
@@ -342,7 +343,7 @@ int pocketjs_ppa_srm_psm5650_rgb565(
   const esp_err_t result = ppa_do_scale_rotate_mirror(handle->srm, &operation);
   if (result != ESP_OK) {
     log_operation_failure_once("SRM", result, &handle->srm_error_logged);
-    return 0;
+    return POCKET_STATUS_FAILED;
   }
-  return 1;
+  return POCKET_STATUS_OK;
 }

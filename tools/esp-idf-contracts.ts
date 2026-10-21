@@ -47,10 +47,11 @@ function rustTypes(): string {
     for (const field of record.fields) result += `    pub ${field.name}: ${field.type},\n`;
     result += "}\n";
     const a = layout(record.name, 4), b = layout(record.name, 8);
-    result += `const _: () = {\n    let p32 = core::mem::size_of::<usize>() == 4;\n`;
+    const arch = (x: number, y: number) => x === y ? String(x) : `if core::mem::size_of::<usize>() == 4 { ${x} } else { ${y} }`;
+    result += `const _: () = {\n`;
     for (const [op, x, y] of [["size_of", a.size, b.size], ["align_of", a.align, b.align]])
-      result += `    assert!(core::mem::${op}::<${record.name}>() == if p32 { ${x} } else { ${y} });\n`;
-    record.fields.forEach((field, i) => result += `    assert!(core::mem::offset_of!(${record.name}, ${field.name}) == if p32 { ${a.offsets![i]} } else { ${b.offsets![i]} });\n`);
+      result += `    assert!(core::mem::${op}::<${record.name}>() == ${arch(Number(x), Number(y))});\n`;
+    record.fields.forEach((field, i) => result += `    assert!(core::mem::offset_of!(${record.name}, ${field.name}) == ${arch(a.offsets![i], b.offsets![i])});\n`);
     result += "};\n";
   }
   return result;

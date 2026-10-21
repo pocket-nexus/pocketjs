@@ -18,14 +18,13 @@ pub struct NativeUiConfig {
     pub tick_hz: u32,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeUiConfig>() == if p32 { 20 } else { 24 });
-    assert!(core::mem::align_of::<NativeUiConfig>() == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeUiConfig, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeUiConfig, logical_width) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeUiConfig, logical_height) == if p32 { 8 } else { 12 });
-    assert!(core::mem::offset_of!(NativeUiConfig, raster_density) == if p32 { 12 } else { 16 });
-    assert!(core::mem::offset_of!(NativeUiConfig, tick_hz) == if p32 { 16 } else { 20 });
+    assert!(core::mem::size_of::<NativeUiConfig>() == if core::mem::size_of::<usize>() == 4 { 20 } else { 24 });
+    assert!(core::mem::align_of::<NativeUiConfig>() == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeUiConfig, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeUiConfig, logical_width) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeUiConfig, logical_height) == if core::mem::size_of::<usize>() == 4 { 8 } else { 12 });
+    assert!(core::mem::offset_of!(NativeUiConfig, raster_density) == if core::mem::size_of::<usize>() == 4 { 12 } else { 16 });
+    assert!(core::mem::offset_of!(NativeUiConfig, tick_hz) == if core::mem::size_of::<usize>() == 4 { 16 } else { 20 });
 };
 
 #[repr(C)]
@@ -37,13 +36,12 @@ pub struct NativeAsset {
     pub size: usize,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeAsset>() == if p32 { 16 } else { 32 });
-    assert!(core::mem::align_of::<NativeAsset>() == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeAsset, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeAsset, kind) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeAsset, data) == if p32 { 8 } else { 16 });
-    assert!(core::mem::offset_of!(NativeAsset, size) == if p32 { 12 } else { 24 });
+    assert!(core::mem::size_of::<NativeAsset>() == if core::mem::size_of::<usize>() == 4 { 16 } else { 32 });
+    assert!(core::mem::align_of::<NativeAsset>() == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeAsset, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeAsset, kind) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeAsset, data) == if core::mem::size_of::<usize>() == 4 { 8 } else { 16 });
+    assert!(core::mem::offset_of!(NativeAsset, size) == if core::mem::size_of::<usize>() == 4 { 12 } else { 24 });
 };
 
 #[repr(C)]
@@ -60,18 +58,17 @@ pub struct NativeFrameView {
     pub private_core: *mut c_void,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeFrameView>() == if p32 { 48 } else { 64 });
-    assert!(core::mem::align_of::<NativeFrameView>() == if p32 { 8 } else { 8 });
-    assert!(core::mem::offset_of!(NativeFrameView, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeFrameView, epoch) == if p32 { 8 } else { 8 });
-    assert!(core::mem::offset_of!(NativeFrameView, raster_revision) == if p32 { 16 } else { 16 });
-    assert!(core::mem::offset_of!(NativeFrameView, logical_width) == if p32 { 24 } else { 24 });
-    assert!(core::mem::offset_of!(NativeFrameView, logical_height) == if p32 { 28 } else { 28 });
-    assert!(core::mem::offset_of!(NativeFrameView, raster_density) == if p32 { 32 } else { 32 });
-    assert!(core::mem::offset_of!(NativeFrameView, draw_words) == if p32 { 36 } else { 40 });
-    assert!(core::mem::offset_of!(NativeFrameView, draw_word_count) == if p32 { 40 } else { 48 });
-    assert!(core::mem::offset_of!(NativeFrameView, private_core) == if p32 { 44 } else { 56 });
+    assert!(core::mem::size_of::<NativeFrameView>() == if core::mem::size_of::<usize>() == 4 { 48 } else { 64 });
+    assert!(core::mem::align_of::<NativeFrameView>() == 8);
+    assert!(core::mem::offset_of!(NativeFrameView, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeFrameView, epoch) == 8);
+    assert!(core::mem::offset_of!(NativeFrameView, raster_revision) == 16);
+    assert!(core::mem::offset_of!(NativeFrameView, logical_width) == 24);
+    assert!(core::mem::offset_of!(NativeFrameView, logical_height) == 28);
+    assert!(core::mem::offset_of!(NativeFrameView, raster_density) == 32);
+    assert!(core::mem::offset_of!(NativeFrameView, draw_words) == if core::mem::size_of::<usize>() == 4 { 36 } else { 40 });
+    assert!(core::mem::offset_of!(NativeFrameView, draw_word_count) == if core::mem::size_of::<usize>() == 4 { 40 } else { 48 });
+    assert!(core::mem::offset_of!(NativeFrameView, private_core) == if core::mem::size_of::<usize>() == 4 { 44 } else { 56 });
 };
 
 #[repr(C)]
@@ -89,19 +86,18 @@ pub struct NativeTextureView {
     pub linear: bool,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeTextureView>() == if p32 { 48 } else { 72 });
-    assert!(core::mem::align_of::<NativeTextureView>() == if p32 { 8 } else { 8 });
-    assert!(core::mem::offset_of!(NativeTextureView, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeTextureView, pixels) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeTextureView, pixel_bytes) == if p32 { 8 } else { 16 });
-    assert!(core::mem::offset_of!(NativeTextureView, width) == if p32 { 12 } else { 24 });
-    assert!(core::mem::offset_of!(NativeTextureView, height) == if p32 { 16 } else { 28 });
-    assert!(core::mem::offset_of!(NativeTextureView, psm) == if p32 { 20 } else { 32 });
-    assert!(core::mem::offset_of!(NativeTextureView, palette) == if p32 { 24 } else { 40 });
-    assert!(core::mem::offset_of!(NativeTextureView, palette_bytes) == if p32 { 28 } else { 48 });
-    assert!(core::mem::offset_of!(NativeTextureView, revision) == if p32 { 32 } else { 56 });
-    assert!(core::mem::offset_of!(NativeTextureView, linear) == if p32 { 40 } else { 64 });
+    assert!(core::mem::size_of::<NativeTextureView>() == if core::mem::size_of::<usize>() == 4 { 48 } else { 72 });
+    assert!(core::mem::align_of::<NativeTextureView>() == 8);
+    assert!(core::mem::offset_of!(NativeTextureView, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeTextureView, pixels) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeTextureView, pixel_bytes) == if core::mem::size_of::<usize>() == 4 { 8 } else { 16 });
+    assert!(core::mem::offset_of!(NativeTextureView, width) == if core::mem::size_of::<usize>() == 4 { 12 } else { 24 });
+    assert!(core::mem::offset_of!(NativeTextureView, height) == if core::mem::size_of::<usize>() == 4 { 16 } else { 28 });
+    assert!(core::mem::offset_of!(NativeTextureView, psm) == if core::mem::size_of::<usize>() == 4 { 20 } else { 32 });
+    assert!(core::mem::offset_of!(NativeTextureView, palette) == if core::mem::size_of::<usize>() == 4 { 24 } else { 40 });
+    assert!(core::mem::offset_of!(NativeTextureView, palette_bytes) == if core::mem::size_of::<usize>() == 4 { 28 } else { 48 });
+    assert!(core::mem::offset_of!(NativeTextureView, revision) == if core::mem::size_of::<usize>() == 4 { 32 } else { 56 });
+    assert!(core::mem::offset_of!(NativeTextureView, linear) == if core::mem::size_of::<usize>() == 4 { 40 } else { 64 });
 };
 
 #[repr(C)]
@@ -116,16 +112,15 @@ pub struct NativeFontView {
     pub glyph_count: u32,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeFontView>() == if p32 { 28 } else { 40 });
-    assert!(core::mem::align_of::<NativeFontView>() == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeFontView, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeFontView, bitmap) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeFontView, bitmap_bytes) == if p32 { 8 } else { 16 });
-    assert!(core::mem::offset_of!(NativeFontView, cell_width) == if p32 { 12 } else { 24 });
-    assert!(core::mem::offset_of!(NativeFontView, cell_height) == if p32 { 16 } else { 28 });
-    assert!(core::mem::offset_of!(NativeFontView, raster_density) == if p32 { 20 } else { 32 });
-    assert!(core::mem::offset_of!(NativeFontView, glyph_count) == if p32 { 24 } else { 36 });
+    assert!(core::mem::size_of::<NativeFontView>() == if core::mem::size_of::<usize>() == 4 { 28 } else { 40 });
+    assert!(core::mem::align_of::<NativeFontView>() == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeFontView, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeFontView, bitmap) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeFontView, bitmap_bytes) == if core::mem::size_of::<usize>() == 4 { 8 } else { 16 });
+    assert!(core::mem::offset_of!(NativeFontView, cell_width) == if core::mem::size_of::<usize>() == 4 { 12 } else { 24 });
+    assert!(core::mem::offset_of!(NativeFontView, cell_height) == if core::mem::size_of::<usize>() == 4 { 16 } else { 28 });
+    assert!(core::mem::offset_of!(NativeFontView, raster_density) == if core::mem::size_of::<usize>() == 4 { 20 } else { 32 });
+    assert!(core::mem::offset_of!(NativeFontView, glyph_count) == if core::mem::size_of::<usize>() == 4 { 24 } else { 36 });
 };
 
 #[repr(C)]
@@ -138,14 +133,13 @@ pub struct NativeRendererConfig {
     pub min_srm_pixels: u32,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeRendererConfig>() == if p32 { 20 } else { 24 });
-    assert!(core::mem::align_of::<NativeRendererConfig>() == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeRendererConfig, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeRendererConfig, scale) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeRendererConfig, min_fill_pixels) == if p32 { 8 } else { 12 });
-    assert!(core::mem::offset_of!(NativeRendererConfig, min_blend_pixels) == if p32 { 12 } else { 16 });
-    assert!(core::mem::offset_of!(NativeRendererConfig, min_srm_pixels) == if p32 { 16 } else { 20 });
+    assert!(core::mem::size_of::<NativeRendererConfig>() == if core::mem::size_of::<usize>() == 4 { 20 } else { 24 });
+    assert!(core::mem::align_of::<NativeRendererConfig>() == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeRendererConfig, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeRendererConfig, scale) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeRendererConfig, min_fill_pixels) == if core::mem::size_of::<usize>() == 4 { 8 } else { 12 });
+    assert!(core::mem::offset_of!(NativeRendererConfig, min_blend_pixels) == if core::mem::size_of::<usize>() == 4 { 12 } else { 16 });
+    assert!(core::mem::offset_of!(NativeRendererConfig, min_srm_pixels) == if core::mem::size_of::<usize>() == 4 { 16 } else { 20 });
 };
 
 #[repr(C)]
@@ -157,13 +151,12 @@ pub struct NativeRect {
     pub height: u32,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeRect>() == if p32 { 16 } else { 16 });
-    assert!(core::mem::align_of::<NativeRect>() == if p32 { 4 } else { 4 });
-    assert!(core::mem::offset_of!(NativeRect, x) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeRect, y) == if p32 { 4 } else { 4 });
-    assert!(core::mem::offset_of!(NativeRect, width) == if p32 { 8 } else { 8 });
-    assert!(core::mem::offset_of!(NativeRect, height) == if p32 { 12 } else { 12 });
+    assert!(core::mem::size_of::<NativeRect>() == 16);
+    assert!(core::mem::align_of::<NativeRect>() == 4);
+    assert!(core::mem::offset_of!(NativeRect, x) == 0);
+    assert!(core::mem::offset_of!(NativeRect, y) == 4);
+    assert!(core::mem::offset_of!(NativeRect, width) == 8);
+    assert!(core::mem::offset_of!(NativeRect, height) == 12);
 };
 
 #[repr(C)]
@@ -175,13 +168,12 @@ pub struct NativeDamagePlan {
     pub regions: [NativeRect; MAX_DAMAGE_REGIONS],
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeDamagePlan>() == if p32 { 140 } else { 144 });
-    assert!(core::mem::align_of::<NativeDamagePlan>() == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeDamagePlan, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeDamagePlan, region_count) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeDamagePlan, full_redraw) == if p32 { 8 } else { 12 });
-    assert!(core::mem::offset_of!(NativeDamagePlan, regions) == if p32 { 12 } else { 16 });
+    assert!(core::mem::size_of::<NativeDamagePlan>() == if core::mem::size_of::<usize>() == 4 { 140 } else { 144 });
+    assert!(core::mem::align_of::<NativeDamagePlan>() == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeDamagePlan, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeDamagePlan, region_count) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeDamagePlan, full_redraw) == if core::mem::size_of::<usize>() == 4 { 8 } else { 12 });
+    assert!(core::mem::offset_of!(NativeDamagePlan, regions) == if core::mem::size_of::<usize>() == 4 { 12 } else { 16 });
 };
 
 #[repr(C)]
@@ -199,19 +191,18 @@ pub struct NativeRenderStats {
     pub full_redraw: bool,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeRenderStats>() == if p32 { 52 } else { 56 });
-    assert!(core::mem::align_of::<NativeRenderStats>() == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeRenderStats, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeRenderStats, ppa_fills) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeRenderStats, ppa_blends) == if p32 { 8 } else { 12 });
-    assert!(core::mem::offset_of!(NativeRenderStats, ppa_srm) == if p32 { 12 } else { 16 });
-    assert!(core::mem::offset_of!(NativeRenderStats, software_ops) == if p32 { 16 } else { 20 });
-    assert!(core::mem::offset_of!(NativeRenderStats, software_words) == if p32 { 20 } else { 24 });
-    assert!(core::mem::offset_of!(NativeRenderStats, damage_regions) == if p32 { 24 } else { 28 });
-    assert!(core::mem::offset_of!(NativeRenderStats, damage_pixels) == if p32 { 28 } else { 32 });
-    assert!(core::mem::offset_of!(NativeRenderStats, damage_bounds) == if p32 { 32 } else { 36 });
-    assert!(core::mem::offset_of!(NativeRenderStats, full_redraw) == if p32 { 48 } else { 52 });
+    assert!(core::mem::size_of::<NativeRenderStats>() == if core::mem::size_of::<usize>() == 4 { 52 } else { 56 });
+    assert!(core::mem::align_of::<NativeRenderStats>() == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeRenderStats, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeRenderStats, ppa_fills) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeRenderStats, ppa_blends) == if core::mem::size_of::<usize>() == 4 { 8 } else { 12 });
+    assert!(core::mem::offset_of!(NativeRenderStats, ppa_srm) == if core::mem::size_of::<usize>() == 4 { 12 } else { 16 });
+    assert!(core::mem::offset_of!(NativeRenderStats, software_ops) == if core::mem::size_of::<usize>() == 4 { 16 } else { 20 });
+    assert!(core::mem::offset_of!(NativeRenderStats, software_words) == if core::mem::size_of::<usize>() == 4 { 20 } else { 24 });
+    assert!(core::mem::offset_of!(NativeRenderStats, damage_regions) == if core::mem::size_of::<usize>() == 4 { 24 } else { 28 });
+    assert!(core::mem::offset_of!(NativeRenderStats, damage_pixels) == if core::mem::size_of::<usize>() == 4 { 28 } else { 32 });
+    assert!(core::mem::offset_of!(NativeRenderStats, damage_bounds) == if core::mem::size_of::<usize>() == 4 { 32 } else { 36 });
+    assert!(core::mem::offset_of!(NativeRenderStats, full_redraw) == if core::mem::size_of::<usize>() == 4 { 48 } else { 52 });
 };
 
 #[repr(C)]
@@ -224,12 +215,11 @@ pub struct NativeAccelerator {
     pub srm_psm5650_rgb565: Option<SrmFn>,
 }
 const _: () = {
-    let p32 = core::mem::size_of::<usize>() == 4;
-    assert!(core::mem::size_of::<NativeAccelerator>() == if p32 { 20 } else { 40 });
-    assert!(core::mem::align_of::<NativeAccelerator>() == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeAccelerator, struct_size) == if p32 { 0 } else { 0 });
-    assert!(core::mem::offset_of!(NativeAccelerator, user_data) == if p32 { 4 } else { 8 });
-    assert!(core::mem::offset_of!(NativeAccelerator, fill_rgb565) == if p32 { 8 } else { 16 });
-    assert!(core::mem::offset_of!(NativeAccelerator, blend_a8_rgb565) == if p32 { 12 } else { 24 });
-    assert!(core::mem::offset_of!(NativeAccelerator, srm_psm5650_rgb565) == if p32 { 16 } else { 32 });
+    assert!(core::mem::size_of::<NativeAccelerator>() == if core::mem::size_of::<usize>() == 4 { 20 } else { 40 });
+    assert!(core::mem::align_of::<NativeAccelerator>() == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeAccelerator, struct_size) == 0);
+    assert!(core::mem::offset_of!(NativeAccelerator, user_data) == if core::mem::size_of::<usize>() == 4 { 4 } else { 8 });
+    assert!(core::mem::offset_of!(NativeAccelerator, fill_rgb565) == if core::mem::size_of::<usize>() == 4 { 8 } else { 16 });
+    assert!(core::mem::offset_of!(NativeAccelerator, blend_a8_rgb565) == if core::mem::size_of::<usize>() == 4 { 12 } else { 24 });
+    assert!(core::mem::offset_of!(NativeAccelerator, srm_psm5650_rgb565) == if core::mem::size_of::<usize>() == 4 { 16 } else { 32 });
 };

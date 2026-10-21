@@ -26,18 +26,18 @@ const specs = NATIVE_COMPONENTS.filter(spec => !component || spec.crate === comp
 if (!specs.length) throw new Error("unknown native component " + component);
 function run(command: string[], env?: Record<string, string | undefined>): void {
   const result = Bun.spawnSync(command, { cwd: ROOT, stdout: "inherit", stderr: "inherit", env });
-  if (result.exitCode !== 0) throw new Error("command failed: " + command.join(" "));
+  if (!result.success) throw new Error("command failed: " + command.join(" "));
 }
 const rustc = join(dirname(cargo), "rustc");
 const version = Bun.spawnSync([rustc, "-Vv"], { stdout: "pipe", stderr: "pipe" });
-if (version.exitCode !== 0) throw new Error("rustc beside the supplied cargo is not runnable");
+if (!version.success) throw new Error("rustc beside the supplied cargo is not runnable");
 const compiler = version.stdout.toString().trim();
 verifyNativeCompiler(ROOT, target, compiler);
 let archiveTool: NativeReceipt["archiver"] = null;
 if (target === "esp32p4") {
   if (!archiver) throw new Error("archive preparation needs --archiver");
   const version = Bun.spawnSync([archiver, "--version"], { stdout: "pipe", stderr: "pipe" });
-  if (version.exitCode !== 0) throw new Error("use LLVM or GNU ar with --version support");
+  if (!version.success) throw new Error("use LLVM or GNU ar with --version support");
   archiveTool = { version: version.stdout.toString().trim(), executableSha256: sha256(readFileSync(archiver)) };
 }
 for (const spec of specs) {

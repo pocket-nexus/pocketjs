@@ -1,4 +1,5 @@
-//! OpenGL ES 1.1 pipeline: the fixed-function equivalent of `es2.rs`.
+#![no_std]
+//! OpenGL ES 1.1 pipeline: the fixed-function equivalent of pocket-gles2.
 //!
 //! The PowerVR MBX Lite in the original iPhone reports `OpenGL ES-CM 1.1` and
 //! exports no `glCreateShader`, so the ES 2 program cannot exist there. It does
@@ -11,14 +12,14 @@
 //! * The fragment shader's `texture2D(u_texture, v_uv) * v_color` is the
 //!   default texture environment, `GL_MODULATE`, over a per-vertex color array.
 //!
-//! `super` owns the DrawList walk, the texture cache and the batching, so this
+//! `pocket-gles` owns the DrawList walk, the texture cache and the batching, so this
 //! module is only the state those two lines of GLSL turn into.
 
 use core::ffi::c_void;
 
-use super::{
-    glGetError, GLenum, GLfloat, GLint, GLsizei, GL_FLOAT, GL_NO_ERROR,
-    GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA, GL_UNSIGNED_BYTE,
+use pocket_gles::raw::{
+    glGetError, GLenum, GLfloat, GLint, GLsizei, GL_FLOAT, GL_NO_ERROR, GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC_ALPHA, GL_UNSIGNED_BYTE,
 };
 
 const GL_PROJECTION: GLenum = 0x1701;
@@ -37,12 +38,7 @@ const GL_TEXTURE0: GLenum = 0x84c0;
 unsafe extern "C" {
     fn glActiveTexture(texture: GLenum);
     fn glBlendFunc(source: GLenum, destination: GLenum);
-    fn glColorPointer(
-        size: GLint,
-        kind: GLenum,
-        stride: GLsizei,
-        pointer: *const c_void,
-    );
+    fn glColorPointer(size: GLint, kind: GLenum, stride: GLsizei, pointer: *const c_void);
     fn glDisableClientState(array: GLenum);
     fn glEnable(capability: GLenum);
     fn glEnableClientState(array: GLenum);
@@ -57,32 +53,16 @@ unsafe extern "C" {
         near: GLfloat,
         far: GLfloat,
     );
-    fn glTexCoordPointer(
-        size: GLint,
-        kind: GLenum,
-        stride: GLsizei,
-        pointer: *const c_void,
-    );
+    fn glTexCoordPointer(size: GLint, kind: GLenum, stride: GLsizei, pointer: *const c_void);
     fn glTexEnvi(target: GLenum, parameter: GLenum, value: GLint);
-    fn glVertexPointer(
-        size: GLint,
-        kind: GLenum,
-        stride: GLsizei,
-        pointer: *const c_void,
-    );
+    fn glVertexPointer(size: GLint, kind: GLenum, stride: GLsizei, pointer: *const c_void);
 }
 
 /// The ES 1.1 pipeline has no program object, so there is no state to carry.
-pub(super) struct Pipeline;
+pub struct Pipeline;
 
-impl Pipeline {
-    /// A field-valid instance for unit tests that never touch a GL context.
-    #[cfg(test)]
-    pub(super) fn stub() -> Self {
-        Self
-    }
-
-    pub(super) unsafe fn new() -> Option<Self> {
+unsafe impl pocket_gles::Pipeline for Pipeline {
+    unsafe fn new() -> Option<Self> {
         glActiveTexture(GL_TEXTURE0);
         Self::state();
         if glGetError() != GL_NO_ERROR {
@@ -91,6 +71,53 @@ impl Pipeline {
         Some(Self)
     }
 
+    unsafe fn destroy(&mut self) {}
+
+    /// Replace the vertex shader: pixel coordinates in, top-left origin.
+    unsafe fn begin_frame(&self, logical_width: f32, logical_height: f32) {
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+        glOrthof(0.0, logical_width, logical_height, 0.0, -1.0, 1.0);
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
+        // The DrawList's UVs are already normalized, so the texture matrix must
+        // contribute nothing.
+        glMatrixMode(GL_TEXTURE);
+        glLoadIdentity();
+        glMatrixMode(GL_MODELVIEW);
+        glActiveTexture(GL_TEXTURE0);
+        Self::state();
+    }
+
+    /// MBX Lite exposes no `GL_OES_blend_func_separate`, so the destination
+    /// alpha cannot be given its own factors. It does not matter here: the
+    /// drawable is opaque and nothing ever reads its alpha back, so the color
+    /// result is identical to the ES 2 path's.
+    unsafe fn set_blend(&self) {
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+
+    /// Point the three client arrays at the same interleaved buffer the ES 2
+    /// attributes use — identical layout, identical stride, byte offsets 0/8/16.
+    unsafe fn bind_vertices(&self, stride: GLsizei) {
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glEnableClientState(GL_COLOR_ARRAY);
+        glVertexPointer(2, GL_FLOAT, stride, core::ptr::null());
+        glTexCoordPointer(2, GL_FLOAT, stride, 8usize as *const c_void);
+        // GL_UNSIGNED_BYTE colors are normalized by definition in ES 1.1, which
+        // is what the ES 2 path asks for explicitly with normalized = 1.
+        glColorPointer(4, GL_UNSIGNED_BYTE, stride, 16usize as *const c_void);
+    }
+
+    unsafe fn unbind_vertices(&self) {
+        glDisableClientState(GL_VERTEX_ARRAY);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        glDisableClientState(GL_COLOR_ARRAY);
+    }
+}
+
+impl Pipeline {
     /// The fixed-function state that stands in for having a shader at all.
     ///
     /// `glEnable(GL_TEXTURE_2D)` is the one that is easy to miss and total when
@@ -110,49 +137,12 @@ impl Pipeline {
         // Gradients interpolate per-vertex colour across the quad.
         glShadeModel(GL_SMOOTH);
     }
-
-    pub(super) unsafe fn destroy(&mut self) {}
-
-    /// Replace the vertex shader: pixel coordinates in, top-left origin.
-    pub(super) unsafe fn begin_frame(&self, logical_width: f32, logical_height: f32) {
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-        glOrthof(0.0, logical_width, logical_height, 0.0, -1.0, 1.0);
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-        // The DrawList's UVs are already normalized, so the texture matrix must
-        // contribute nothing.
-        glMatrixMode(GL_TEXTURE);
-        glLoadIdentity();
-        glMatrixMode(GL_MODELVIEW);
-        glActiveTexture(GL_TEXTURE0);
-        Self::state();
-    }
-
-    /// MBX Lite exposes no `GL_OES_blend_func_separate`, so the destination
-    /// alpha cannot be given its own factors. It does not matter here: the
-    /// drawable is opaque and nothing ever reads its alpha back, so the color
-    /// result is identical to the ES 2 path's.
-    pub(super) unsafe fn set_blend(&self) {
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    }
-
-    /// Point the three client arrays at the same interleaved buffer the ES 2
-    /// attributes use — identical layout, identical stride, byte offsets 0/8/16.
-    pub(super) unsafe fn bind_vertices(&self, stride: GLsizei) {
-        glEnableClientState(GL_VERTEX_ARRAY);
-        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-        glEnableClientState(GL_COLOR_ARRAY);
-        glVertexPointer(2, GL_FLOAT, stride, core::ptr::null());
-        glTexCoordPointer(2, GL_FLOAT, stride, 8usize as *const c_void);
-        // GL_UNSIGNED_BYTE colors are normalized by definition in ES 1.1, which
-        // is what the ES 2 path asks for explicitly with normalized = 1.
-        glColorPointer(4, GL_UNSIGNED_BYTE, stride, 16usize as *const c_void);
-    }
-
-    pub(super) unsafe fn unbind_vertices(&self) {
-        glDisableClientState(GL_VERTEX_ARRAY);
-        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-        glDisableClientState(GL_COLOR_ARRAY);
-    }
 }
+
+/// Explicit ES 1 renderer; no feature selects this pipeline.
+pub type Renderer<C> = pocket_gles::GlesRenderer<Pipeline, C>;
+
+#[cfg(test)]
+extern crate std;
+#[cfg(test)]
+mod tests;

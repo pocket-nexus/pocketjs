@@ -16,6 +16,7 @@ use core::ffi::{c_char, c_void};
 // Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.
 // Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.
 // Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.
+// Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.
 // Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame callbacks.
 // The guest receives the existing eight frame arguments through pocket_guest_frame. Introducing this ABI does not change their wire representation, tapes, packages, or binding generation.
 // Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources.
@@ -168,6 +169,8 @@ pub type PocketPackageRangeFn = unsafe extern "C" fn(context: *mut c_void, offse
 pub type PocketClockNowFn = unsafe extern "C" fn(context: *mut c_void) -> u64;
 
 pub type PocketClockSleepUntilFn = unsafe extern "C" fn(context: *mut c_void, deadline: u64) -> ();
+
+pub type PocketOpProviderDispatchFn = unsafe extern "C" fn(context: *mut c_void, op: u16, arguments: *const PocketOpArg, argument_length: usize, out: *mut PocketResult) -> i32;
 
 /// Synchronous visitor. Operation, clip and words borrow until callback return; do not retain them or mutate the DrawList. Return POCKET_STATUS_OK to continue or an error to stop.
 pub type PocketDrawOpVisitFn = unsafe extern "C" fn(context: *mut c_void, operation: *const PocketDrawOp) -> i32;
@@ -2345,7 +2348,7 @@ const _: () = {
     let field_align = core::mem::align_of::<f32>();
     size = size.div_ceil(field_align) * field_align;
     assert!(core::mem::offset_of!(PocketMotionInclination, value) == size);
-    size += 4 * 1;
+    size += 4;
     if field_align > align { align = field_align; }
     let field_align = core::mem::align_of::<u8>();
     size = size.div_ceil(field_align) * field_align;
@@ -2751,7 +2754,7 @@ const _: () = {
     let field_align = core::mem::align_of::<f32>();
     size = size.div_ceil(field_align) * field_align;
     assert!(core::mem::offset_of!(PocketMotionScreenRotation, value) == size);
-    size += 4 * 1;
+    size += 4;
     if field_align > align { align = field_align; }
     let field_align = core::mem::align_of::<u8>();
     size = size.div_ceil(field_align) * field_align;
@@ -3940,7 +3943,7 @@ const _: () = {
     let field_align = core::mem::align_of::<u8>();
     size = size.div_ceil(field_align) * field_align;
     assert!(core::mem::offset_of!(PocketRuntimeConfig, profile_hash) == size);
-    size += 1 * 32;
+    size += 32;
     if field_align > align { align = field_align; }
     let field_align = core::mem::align_of::<u32>();
     size = size.div_ceil(field_align) * field_align;
@@ -4955,6 +4958,69 @@ const _: () = {
     assert!(core::mem::align_of::<PocketGuestV1>() == align);
 };
 
+/// Provides registered non-core operations. Arguments borrow through callback return; argument_length is the byte span of extensible pocket_op_arg records. Initialize out with its supplied struct_size and return a valid tagged result on success.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketOpProviderV1 {
+    pub struct_size: usize,
+    pub dispatch: Option<PocketOpProviderDispatchFn>,
+}
+impl PocketOpProviderV1 {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, dispatch) + core::mem::size_of::<Option<PocketOpProviderDispatchFn>>() <= capacity {
+            value.dispatch = unsafe { bytes.add(core::mem::offset_of!(Self, dispatch)).cast::<Option<PocketOpProviderDispatchFn>>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, dispatch) + core::mem::size_of::<Option<PocketOpProviderDispatchFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, dispatch)).cast::<Option<PocketOpProviderDispatchFn>>().write_unaligned(self.dispatch); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpProviderV1, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<Option<PocketOpProviderDispatchFn>>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketOpProviderV1, dispatch) == size);
+    size += core::mem::size_of::<Option<PocketOpProviderDispatchFn>>();
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketOpProviderV1>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketOpProviderV1>() == align);
+};
+
 unsafe extern "C" {
     pub fn pocket_runtime_create(config: *const PocketRuntimeConfig) -> *mut PocketRuntime;
     pub fn pocket_runtime_set_package_source(runtime: *mut PocketRuntime, source: *const PocketPackageSourceV1, context: *mut c_void) -> i32;
@@ -4962,6 +5028,7 @@ unsafe extern "C" {
     pub fn pocket_runtime_add_renderer(runtime: *mut PocketRuntime, renderer: *const PocketRendererV1, context: *mut c_void) -> PocketRendererId;
     pub fn pocket_runtime_add_display(runtime: *mut PocketRuntime, display: *const PocketDisplayOutputV1, context: *mut c_void, renderer: PocketRendererId) -> i32;
     pub fn pocket_runtime_add_input_source(runtime: *mut PocketRuntime, source: *const PocketInputSourceV1, context: *mut c_void) -> i32;
+    pub fn pocket_runtime_add_op_provider(runtime: *mut PocketRuntime, provider: *const PocketOpProviderV1, context: *mut c_void, operations: *const u16, operation_count: usize) -> i32;
     pub fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32;
     pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
     /// Returns 0 or 1 without executing the operation. Does not invalidate borrowed results.

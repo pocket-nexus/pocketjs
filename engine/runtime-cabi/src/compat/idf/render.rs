@@ -1,4 +1,5 @@
 #![allow(clippy::missing_safety_doc)]
+use super::abi::*;
 use alloc::boxed::Box;
 use core::ffi::c_void;
 use core::{ptr, slice};
@@ -6,7 +7,6 @@ use pocketjs_core::{
     resources::{FontView, RenderResources},
     TexView,
 };
-use super::abi::*;
 use pocketjs_render_rgb565::{
     PpaOps, QuarterTurn, Rect, RenderTargetState, Renderer, RendererConfig, SrmTransform,
 };
@@ -24,9 +24,13 @@ pub struct NativeRenderTarget {
 
 struct CAccelerator<'a> {
     value: Option<&'a NativeAccelerator>,
+    failed: bool,
 }
 
 impl PpaOps for CAccelerator<'_> {
+    fn failed(&self) -> bool {
+        self.failed
+    }
     fn fill_rgb565(
         &mut self,
         destination: &mut [u16],
@@ -41,7 +45,7 @@ impl PpaOps for CAccelerator<'_> {
         let Some(callback) = value.fill_rgb565 else {
             return false;
         };
-        unsafe {
+        let done = unsafe {
             callback(
                 value.user_data,
                 destination.as_mut_ptr(),
@@ -51,7 +55,11 @@ impl PpaOps for CAccelerator<'_> {
                 native_rect(rect),
                 color,
             )
+        };
+        if !done {
+            self.failed = true;
         }
+        done
     }
 
     fn blend_a8_rgb565(
@@ -70,7 +78,7 @@ impl PpaOps for CAccelerator<'_> {
         let Some(callback) = value.blend_a8_rgb565 else {
             return false;
         };
-        unsafe {
+        let done = unsafe {
             callback(
                 value.user_data,
                 destination.as_mut_ptr(),
@@ -85,7 +93,11 @@ impl PpaOps for CAccelerator<'_> {
                 color[2],
                 global_alpha,
             )
+        };
+        if !done {
+            self.failed = true;
         }
+        done
     }
 
     fn srm_psm5650_to_rgb565(
@@ -112,7 +124,7 @@ impl PpaOps for CAccelerator<'_> {
             QuarterTurn::Ccw180 => 2,
             QuarterTurn::Ccw270 => 3,
         };
-        unsafe {
+        let done = unsafe {
             callback(
                 value.user_data,
                 destination.as_mut_ptr(),
@@ -129,7 +141,11 @@ impl PpaOps for CAccelerator<'_> {
                 transform.mirror_x,
                 transform.mirror_y,
             )
+        };
+        if !done {
+            self.failed = true;
         }
+        done
     }
 }
 
@@ -381,7 +397,10 @@ pub unsafe extern "C" fn pocketjs_native_renderer_render_strip(
     let accelerator = accelerator
         .as_ref()
         .filter(|value| value.struct_size >= core::mem::size_of::<NativeAccelerator>());
-    let mut accelerator = CAccelerator { value: accelerator };
+    let mut accelerator = CAccelerator {
+        value: accelerator,
+        failed: false,
+    };
     let Some(stats) = renderer.renderer.render_strip(
         &core,
         words,

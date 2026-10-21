@@ -621,8 +621,8 @@ fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), Prese
         || display.height == 0
         || display.width > i32::MAX as u32
         || display.height > i32::MAX as u32
-        || display.width % scale != 0
-        || display.height % scale != 0
+        || !display.width.is_multiple_of(scale)
+        || !display.height.is_multiple_of(scale)
         || display.stride_bytes < row_bytes
         || display
             .stride_bytes

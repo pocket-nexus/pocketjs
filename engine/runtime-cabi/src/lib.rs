@@ -6,6 +6,7 @@ pub mod adapters;
 pub mod compat;
 mod guest;
 mod hooks;
+mod provider;
 mod runtime;
 pub use runtime::*;
 pub mod raster;

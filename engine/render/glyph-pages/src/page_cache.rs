@@ -29,18 +29,10 @@ impl FontPage {
     }
 }
 
+#[derive(Default)]
 pub struct FontPages {
     pages: Vec<FontPage>,
     clock: u64,
-}
-
-impl Default for FontPages {
-    fn default() -> Self {
-        Self {
-            pages: Vec::new(),
-            clock: 0,
-        }
-    }
 }
 
 impl FontPages {

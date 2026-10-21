@@ -1814,6 +1814,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-gles"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-spec",
+ "pocket-tex-cache",
+ "pocket-tri-batch",
+]
+
+[[package]]
+name = "pocket-gles1"
+version = "0.1.0"
+dependencies = [
+ "pocket-gles",
+]
+
+[[package]]
+name = "pocket-gles2"
+version = "0.1.0"
+dependencies = [
+ "pocket-gles",
+]
+
+[[package]]
 name = "pocket-glyph-pages"
 version = "0.1.0"
 dependencies = [
@@ -1887,6 +1913,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-render-esp-ppa"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-raster",
+ "pocket-spec",
+ "pocketjs-core",
+]
+
+[[package]]
 name = "pocket-runtime"
 version = "0.1.0"
 dependencies = [
@@ -1904,11 +1942,13 @@ version = "0.1.0"
 dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
+ "pocket-gles",
+ "pocket-gles1",
+ "pocket-gles2",
  "pocket-raster",
+ "pocket-render-esp-ppa",
  "pocket-runtime",
  "pocket-spec",
- "pocket-tex-cache",
- "pocket-tri-batch",
  "pocketjs-core",
  "pocketjs-render-rgb565",
 ]
@@ -1954,7 +1994,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
+ "pocket-guest-rquickjs",
  "pocket-mod",
+ "pocket-runtime",
  "pocketjs-core",
 ]
 
@@ -1966,6 +2008,7 @@ dependencies = [
  "bytemuck",
  "pocket-mod",
  "pocket-ui-surface",
+ "pocket-web-render",
  "pocket3d",
  "pocketjs-core",
  "serde_json",
@@ -1983,6 +2026,21 @@ dependencies = [
  "pocket3d",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pocket-web-render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-spec",
+ "pocket-tex-cache",
+ "pocket-tri-batch",
+ "pollster",
+ "wgpu",
 ]
 
 [[package]]
@@ -2064,10 +2122,8 @@ name = "pocketjs-render-rgb565"
 version = "0.1.0"
 dependencies = [
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-present",
- "pocket-raster",
- "pocket-spec",
+ "pocket-render-esp-ppa",
 ]
 
 [[package]]

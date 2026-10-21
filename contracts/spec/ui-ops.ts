@@ -294,7 +294,7 @@ export const UI_OPS = [
     ],
     "result": "real",
     "provider": "core",
-    "core": "ui.measure_text(a0, a1 as u8)",
+    "core": "f64::from(ui.measure_text(a0, a1 as u8))",
     "id": 16
   },
   {

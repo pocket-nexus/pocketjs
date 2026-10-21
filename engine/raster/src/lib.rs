@@ -47,11 +47,11 @@
 
 use pocket_drivers::DamageRect;
 use pocket_drivers::RenderResources;
-use pocket_spec::{self as spec, draw_op};
 use pocket_drivers::TexView;
+use pocket_spec::{self as spec, draw_op};
 
 mod surface;
-pub use surface::{render_operation, render_surface, RasterRenderer};
+pub use surface::{render_operation, render_surface, OperationResources, RasterRenderer};
 
 pub const MAX_RENDER_SCALE: u32 = 4;
 /// Integer clip rect: x0/y0 inclusive, x1/y1 exclusive.
@@ -126,7 +126,7 @@ fn fill_opaque_span<const ARGB: bool>(span: &mut [u8], r: u32, g: u32, b: u32) {
         };
         words.fill(pixel);
     } else {
-        for px in span.chunks_exact_mut(4) {
+        for px in span.as_chunks_mut::<4>().0.iter_mut() {
             px.copy_from_slice(&bytes);
         }
     }
@@ -408,7 +408,12 @@ pub fn render(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8]
 /// density.
 /// `ui` supplies font atlases and textures. The framebuffer is cleared to
 /// opaque black first (the PSP host clears the draw buffer the same way).
-pub fn render_scaled(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8], scale: u32) {
+pub fn render_scaled(
+    ui: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    fb: &mut [u8],
+    scale: u32,
+) {
     let mut target = RgbaTarget::<false> { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
@@ -419,7 +424,12 @@ pub fn render_scaled(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &m
 /// but fused into the rasterizer so hosts skip a per-frame reorder copy.
 /// Output determinism matches the RGBA path pixel-for-pixel; only the byte
 /// placement differs.
-pub fn render_scaled_argb(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8], scale: u32) {
+pub fn render_scaled_argb(
+    ui: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    fb: &mut [u8],
+    scale: u32,
+) {
     let mut target = RgbaTarget::<true> { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
@@ -440,7 +450,12 @@ pub fn render_scaled_premultiplied(
 }
 
 /// Execute a complete DrawList into a little-endian RGB565 framebuffer.
-pub fn render_scaled_rgb565(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u16], scale: u32) {
+pub fn render_scaled_rgb565(
+    ui: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    fb: &mut [u16],
+    scale: u32,
+) {
     let mut target = Rgb565Target { pixels: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
@@ -449,7 +464,12 @@ pub fn render_scaled_rgb565(ui: &(impl RenderResources + ?Sized), words: &[u32],
 /// clearing it. Render backends composite these into their own scene (the
 /// gpui tri-batch fallback keeps uncovered pixels transparent this way —
 /// the clearing variants paint the full-frame opaque-black background).
-pub fn render_scaled_over(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8], scale: u32) {
+pub fn render_scaled_over(
+    ui: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    fb: &mut [u8],
+    scale: u32,
+) {
     let mut target = RgbaTarget::<false> { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, false);
 }
@@ -637,8 +657,7 @@ pub fn validate_framebuffer(
     );
     let expected = width as usize * height as usize;
     assert_eq!(
-        pixel_count,
-        expected,
+        pixel_count, expected,
         "scaled framebuffer has the wrong pixel count"
     );
     (width, height)
@@ -1014,7 +1033,7 @@ fn glyph_run<T: RenderTarget>(
     let coverage_w = atlas.coverage_width() as i32;
     let coverage_h = atlas.coverage_height() as i32;
     let bpr = atlas.bytes_per_row();
-    for pair in glyphs.chunks_exact(2) {
+    for pair in glyphs.as_chunks::<2>().0.iter() {
         let (gx, gy) = xy(pair[0], output_scale);
         let gid = (pair[1] & 0xffff) as u16;
         if gid >= atlas.glyph_count {

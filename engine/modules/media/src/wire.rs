@@ -73,7 +73,7 @@ pub fn parse_hello_ack(b: &[u8]) -> Option<u8> {
 }
 
 /// A `file` payload: svc-relative path + whole IMG-entry bytes.
-pub fn parse_file<'a>(payload: &'a [u8]) -> Option<(&'a str, &'a [u8])> {
+pub fn parse_file(payload: &[u8]) -> Option<(&str, &[u8])> {
     let path_len = rd_u16(payload, 0)? as usize;
     let blob_at = 2usize.checked_add(path_len)?;
     if payload.len() < blob_at {
@@ -84,7 +84,7 @@ pub fn parse_file<'a>(payload: &'a [u8]) -> Option<(&'a str, &'a [u8])> {
 }
 
 /// A `streamOpen` payload: announced path + the verbatim 96-byte header block.
-pub fn parse_stream_open<'a>(payload: &'a [u8]) -> Option<(&'a str, &'a [u8])> {
+pub fn parse_stream_open(payload: &[u8]) -> Option<(&str, &[u8])> {
     let (path, block) = parse_file(payload)?;
     if block.len() != crate::spec::stream::HEADER_BLOCK_SIZE {
         return None;
@@ -171,7 +171,7 @@ pub fn parse_stream_mark(payload: &[u8]) -> Option<StreamMarkMsg> {
 }
 
 /// A discovery beacon datagram. Returns (tcpPort, app, displayName).
-pub fn parse_beacon<'a>(datagram: &'a [u8]) -> Option<(u16, &'a str, &'a str)> {
+pub fn parse_beacon(datagram: &[u8]) -> Option<(u16, &str, &str)> {
     if rd_u32(datagram, 0)? != wire::BEACON_MAGIC || datagram.get(4).copied()? != wire::VERSION {
         return None;
     }

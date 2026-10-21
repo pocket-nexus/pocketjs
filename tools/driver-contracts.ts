@@ -64,7 +64,11 @@ function layoutExpressions(type: string, lang: "c" | "rust"): { size: string; al
     ? ["u64", "i64", "f64"].includes(type) ? `offsetof(pocket_abi_${type}_alignment, value)` : `POCKET_ABI_ALIGNOF(${cType(type)})`
     : `core::mem::align_of::<${type}>()`;
   const a = array(type);
-  if (a) { const child = layoutExpressions(a[1]!, lang); return { size: `${child.size} * ${a[2]}`, align: child.align }; }
+  if (a) {
+    const child = layoutExpressions(a[1]!, lang);
+    const size = a[2] === "1" ? child.size : child.size === "1" ? a[2]! : `${child.size} * ${a[2]}`;
+    return { size, align: child.align };
+  }
   if (type.startsWith("*") || type.startsWith("Option<") || type === "usize") return { size: sizeOf(type), align: alignOf(type) };
   const scalarSizes: Record<string, number> = { u8: 1, u16: 2, u32: 4, i32: 4, f32: 4, u64: 8, i64: 8, f64: 8 };
   if (scalarSizes[type]) return { size: String(scalarSizes[type]), align: alignOf(type) };

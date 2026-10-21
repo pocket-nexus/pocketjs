@@ -26,8 +26,8 @@ void pocketjs_ppa_destroy(pocketjs_ppa_handle_t handle);
 
 /**
  * The component's public accelerator wrapper consumes this private C ABI.
- * Each function returns 1 after a completed blocking transaction or 0 when
- * the renderer must use its ordered software fallback.
+ * Each function returns POCKET_STATUS_OK after a completed transaction,
+ * UNSUPPORTED before any write, or terminal FAILED after a hardware error.
  */
 int pocketjs_ppa_fill_rgb565(pocketjs_ppa_handle_t handle,
                              uint16_t *destination, size_t destination_pixels,

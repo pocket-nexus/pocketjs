@@ -36,6 +36,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-gles"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-spec",
+ "pocket-tex-cache",
+ "pocket-tri-batch",
+]
+
+[[package]]
+name = "pocket-gles1"
+version = "0.1.0"
+dependencies = [
+ "pocket-gles",
+]
+
+[[package]]
+name = "pocket-gles2"
+version = "0.1.0"
+dependencies = [
+ "pocket-gles",
+]
+
+[[package]]
 name = "pocket-glyph-pages"
 version = "0.1.0"
 dependencies = [
@@ -95,11 +121,12 @@ version = "0.1.0"
 dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
+ "pocket-gles",
+ "pocket-gles1",
+ "pocket-gles2",
  "pocket-raster",
  "pocket-runtime",
  "pocket-spec",
- "pocket-tex-cache",
- "pocket-tri-batch",
  "pocketjs-core",
 ]
 

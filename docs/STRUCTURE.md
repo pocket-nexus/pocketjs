@@ -49,8 +49,11 @@ pocketjs/
 │  └─ compiler/   the interpreted-path build pipeline (jsx-plugin, tailwind, pak)
 ├─ microts/      MicroTS: Solid/Vue views and TypeScript models → View IR / Model IR → Rust
 │                (README.md is its entry point)
-├─ devices/      Pocket3D device kernels: pocket-vita-gxm, pocket-psp-ge, pocket-3ds-pica,
-│                pocket-web-wgpu (the browser: a Rust crate, and web/ for the page's modules)
+├─ devices/      GPU mechanism libraries and DrawList rendering drivers
+│  ├─ gles/      pocket-gles traversal and separate GLES1/GLES2 pipelines
+│  └─ web/       pocket-web-wgpu mechanism library and pocket-web-render driver
+├─ platforms/    operating-system and SDK drivers
+│  └─ esp-idf/   render-ppa: RGB565 acceleration with per-operation raster fallback
 ├─ pocket3d/     Pocket3D entry point: README.md with its design and a map of its code
 │                (devices/, engine/pocket3d/, site/pocket3d/); it holds no code
 ├─ contracts/    single sources of truth binding the layers
@@ -90,8 +93,16 @@ missing service providers leave their methods absent from `ui`.
 and consumer tests do not freeze it. This migration retains the package format
 and existing `hostAbi` meaning. The presentation coordinator redraws each
 acquired CPU region in full until display buffers have persistent identities.
-Old `quickjs-c` and `pocket-ui-surface` bindings keep their existing entry
-paths while hosts adopt the instance API.
+`pocket-ui-surface` keeps its embedding API and uses **the runtime operation
+context and generated rquickjs bindings**. Its service queues implement an
+operation provider; asset installation uses the runtime's checked loader.
+`quickjs-c` retains its entry path while hosts adopt the instance API.
+
+**GLES, wgpu, and ESP-IDF PPA drivers consume `FrameInput` and
+`RenderResources`.** Their implementations do not depend on `Ui`. Existing
+GLES and wgpu entry points adapt the old API to these drivers. The RGB565
+compatibility crate delegates rendering to PPA and damage transactions to
+`pocket-present`. Driver construction selects the implementation in code.
 
 **`tools/sdk.ts` exports a candidate C SDK from a local build.** It packages
 one no_std runtime archive, canonical headers, C guest source, and a hash

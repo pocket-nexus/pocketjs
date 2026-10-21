@@ -8,6 +8,7 @@
 /* Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target. */
 /* Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them. */
 /* Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance. */
+/* Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest. */
 /* Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame callbacks. */
 /* The guest receives the existing eight frame arguments through pocket_guest_frame. Introducing this ABI does not change their wire representation, tapes, packages, or binding generation. */
 /* Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources. */
@@ -35,6 +36,9 @@ typedef struct pocket_guest_environment pocket_guest_environment;
 typedef struct pocket_result pocket_result;
 typedef struct pocket_guest_frame pocket_guest_frame;
 typedef struct pocket_guest_v1 pocket_guest_v1;
+typedef struct pocket_op_provider_v1 pocket_op_provider_v1;
+
+typedef int32_t (*pocket_op_provider_dispatch_fn)(void * context, uint16_t op, const pocket_op_arg * arguments, size_t argument_length, pocket_result * out);
 
 /* Synchronous visitor. Operation, clip and words borrow until callback return; do not retain them or mutate the DrawList. Return POCKET_STATUS_OK to continue or an error to stop. */
 typedef int32_t (*pocket_draw_op_visit_fn)(void * context, const pocket_draw_op * operation);
@@ -75,7 +79,7 @@ enum {
   POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
   POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(uint8_t)),
   POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_0_ALIGN, POCKET_ABI_ALIGNOF(uint8_t)),
-  POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_1_OFFSET + 1 * 32, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_1_OFFSET + 32, POCKET_ABI_ALIGNOF(uint32_t)),
   POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_1_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
   POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_2_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
   POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_RUNTIME_CONFIG_2_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
@@ -397,6 +401,23 @@ POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, collect) == POCKET_LAYOUT_POCKET_GUE
 POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, shutdown) == POCKET_LAYOUT_POCKET_GUEST_V1_4_OFFSET, "pocket_guest_v1.shutdown");
 POCKET_ABI_ASSERT(offsetof(pocket_guest_v1, initialize) == POCKET_LAYOUT_POCKET_GUEST_V1_5_OFFSET, "pocket_guest_v1.initialize");
 
+/* Provides registered non-core operations. Arguments borrow through callback return; argument_length is the byte span of extensible pocket_op_arg records. Initialize out with its supplied struct_size and return a valid tagged result on success. */
+struct pocket_op_provider_v1 {
+  size_t struct_size;
+  pocket_op_provider_dispatch_fn dispatch;
+};
+enum {
+  POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(pocket_op_provider_dispatch_fn)),
+  POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_0_ALIGN, POCKET_ABI_ALIGNOF(pocket_op_provider_dispatch_fn)),
+  POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_OFFSET + sizeof(pocket_op_provider_dispatch_fn), POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_op_provider_v1) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_SIZE, "pocket_op_provider_v1 size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_op_provider_v1) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_ALIGN, "pocket_op_provider_v1 alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_op_provider_v1, struct_size) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_0_OFFSET, "pocket_op_provider_v1.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_op_provider_v1, dispatch) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_OFFSET, "pocket_op_provider_v1.dispatch");
+
 pocket_runtime * pocket_runtime_create(const pocket_runtime_config * config);
 
 int32_t pocket_runtime_set_package_source(pocket_runtime * runtime, const pocket_package_source_v1 * source, void * context);
@@ -408,6 +429,8 @@ pocket_renderer_id pocket_runtime_add_renderer(pocket_runtime * runtime, const p
 int32_t pocket_runtime_add_display(pocket_runtime * runtime, const pocket_display_output_v1 * display, void * context, pocket_renderer_id renderer);
 
 int32_t pocket_runtime_add_input_source(pocket_runtime * runtime, const pocket_input_source_v1 * source, void * context);
+
+int32_t pocket_runtime_add_op_provider(pocket_runtime * runtime, const pocket_op_provider_v1 * provider, void * context, const uint16_t * operations, size_t operation_count);
 
 int32_t pocket_runtime_boot(pocket_runtime * runtime);
 

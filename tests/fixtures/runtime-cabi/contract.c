@@ -38,6 +38,50 @@ static int initialized,evaluated,frames,shutdowns,flushes,waits,failed_wait;
 static uint8_t pixels[64];
 static pocket_rect acquired;
 static pocket_surface acquired_surface;
+static void create_node(void);
+static int provider_mode, provider_calls;
+static uint8_t provider_bytes[]="service reply";
+static int32_t provider_dispatch(void *self,uint16_t op,const pocket_op_arg *arguments,size_t argument_length,pocket_result *out){
+  assert(self==&provider_mode && op==31 && argument_length==0);(void)arguments;provider_calls++;
+  if(provider_mode==1){out->struct_size=sizeof(size_t);return 0;}
+  if(provider_mode==2){out->tag=99;return 0;}
+  if(provider_mode==3){out->tag=POCKET_RESULT_BYTES;out->bytes=NULL;out->byte_length=1;return 0;}
+  if(provider_mode==4)return POCKET_STATUS_UNSUPPORTED;
+  if(provider_mode==5){
+    pocket_result nested={0};nested.struct_size=sizeof(nested);
+    assert(pocket_runtime_op(instance,31,NULL,0,&nested)==POCKET_STATUS_FAILED);
+    assert(pocket_runtime_tick(instance)==POCKET_STATUS_FAILED);
+    pocket_runtime_destroy(instance); /* No guest callback is needed to guard this case. */
+  }
+  out->tag=POCKET_RESULT_BYTES;out->bytes=provider_bytes;out->byte_length=sizeof(provider_bytes)-1;return 0;
+}
+static void provider_operations(void){
+  assert(pocket_runtime_supports_op(instance,31)==1);
+  for(provider_mode=0;provider_mode<=5;provider_mode++){
+    pocket_result result={0};result.struct_size=sizeof(result);
+    int status=pocket_runtime_op(instance,31,NULL,0,&result);
+    if(provider_mode==4)assert(status==POCKET_STATUS_UNSUPPORTED);
+    else if(provider_mode>=1 && provider_mode<=3)assert(status==POCKET_STATUS_INVALID);
+    else {
+      assert(status==0 && result.tag==POCKET_RESULT_BYTES && result.byte_length==sizeof(provider_bytes)-1);
+      assert(memcmp(result.bytes,provider_bytes,result.byte_length)==0 && result.bytes!=provider_bytes);
+      provider_bytes[0]='S';assert(result.bytes[0]=='s');provider_bytes[0]='s';
+    }
+  }
+  provider_mode=0;
+}
+static void register_provider(void){
+  pocket_op_provider_v1 provider={sizeof(provider),provider_dispatch};
+  uint16_t ops[]={31,31};
+  assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,ops,2)==POCKET_STATUS_INVALID);
+  const uint16_t invalid[]={0,1,23,44,65535};
+  for(size_t i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++)assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,&invalid[i],1)==POCKET_STATUS_INVALID);
+  assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,NULL,0)==POCKET_STATUS_INVALID);
+  assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,ops,1)==0);
+  assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,ops,1)==POCKET_STATUS_INVALID);
+  provider.dispatch=NULL;ops[0]=1; /* Registration copied both records. */
+  provider_operations();create_node();
+}
 static pocket_op_arg integer(int64_t value){pocket_op_arg arg={0};arg.struct_size=sizeof(arg);arg.tag=POCKET_ARG_INTEGER;arg.integer=value;return arg;}
 static void create_node(void){
   pocket_op_arg arg=integer(1);pocket_result result={0};result.struct_size=sizeof(result);
@@ -49,6 +93,7 @@ static int32_t initialize(void *self,pocket_runtime *runtime,const pocket_guest_
   assert(environment->viewport_width==4 && environment->viewport_height==4);
   assert(environment->assets_present==1 && environment->texture_count==0);
   assert(pocket_runtime_supports_op(runtime,1)==1);assert(pocket_runtime_supports_op(runtime,65535)==0);
+  provider_operations();
   create_node();
   assert(pocket_runtime_tick(runtime)<0); /* Recursive lifecycle calls are rejected. */
   pocket_runtime_destroy(runtime); /* Reentrant destruction cannot free our caller. */
@@ -153,7 +198,7 @@ static void draw_list_test(void){
 int main(void){
   pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=1;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
   instance=pocket_runtime_create(&config);assert(instance);
-  prefix_and_operation_tests();raster_test();draw_list_test();
+  prefix_and_operation_tests();raster_test();draw_list_test();register_provider();
   pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};
   pocket_guest_v1 guest={sizeof(guest),evaluate,frame,NULL,shutdown_guest,initialize};
   pocket_display_output_v1 display={sizeof(display),descriptor,acquire,flush,display_wait,NULL};
@@ -163,6 +208,9 @@ int main(void){
   assert(pocket_runtime_boot(instance)==POCKET_STATUS_FAILED); /* terminal display failure */
   assert(initialized==1 && evaluated==1 && frames==0 && flushes==1 && waits==1);
   assert(pocket_runtime_tick(instance)==0);assert(frames==1 && flushes==2 && waits==2);
+  pocket_op_provider_v1 provider={sizeof(provider),provider_dispatch};const uint16_t op=31;
+  assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,&op,1)==POCKET_STATUS_INVALID);
+  assert(provider_calls==12);
   pocket_runtime_destroy(instance);assert(shutdowns==1);assert(live_allocations==0);
   puts("runtime C ABI: prefixes, reentry, range source, raster and terminal lifecycle passed");return 0;
 }

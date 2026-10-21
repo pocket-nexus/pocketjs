@@ -78,6 +78,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-render-esp-ppa"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-raster",
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-runtime"
 version = "0.1.0"
 dependencies = [
@@ -96,6 +107,7 @@ dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
  "pocket-raster",
+ "pocket-render-esp-ppa",
  "pocket-runtime",
  "pocket-spec",
  "pocketjs-core",
@@ -155,10 +167,8 @@ name = "pocketjs-render-rgb565"
 version = "0.1.0"
 dependencies = [
  "pocket-drivers",
- "pocket-glyph-pages",
  "pocket-present",
- "pocket-raster",
- "pocket-spec",
+ "pocket-render-esp-ppa",
 ]
 
 [[package]]

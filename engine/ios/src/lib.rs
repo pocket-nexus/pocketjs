@@ -255,8 +255,13 @@ pub extern "C" fn pocket_apple_load_pak(
             return ERR_BAD_ARGUMENT;
         }
         let pak = unsafe { slice::from_raw_parts(bytes, length) };
-        state.surface.feed_pak(pak);
-        OK
+        match state.surface.try_feed_pak(pak) {
+            Ok(()) => OK,
+            Err(error) => {
+                set_last_error(format!("asset pack rejected: {error}"));
+                ERR_BAD_ARGUMENT
+            }
+        }
     })
 }
 

@@ -402,7 +402,7 @@ fn glyph_run_bounds(ui: &impl RenderResources, words: &[u32], clip: DamageRect) 
         return DamageRect::empty();
     };
     let mut bounds = DamageRect::empty();
-    for glyph in words[3..].chunks_exact(2) {
+    for glyph in words[3..].as_chunks::<2>().0 {
         let gid = (glyph[1] & 0xffff) as u16;
         if gid >= atlas.glyph_count {
             continue;

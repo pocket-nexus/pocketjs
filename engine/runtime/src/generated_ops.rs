@@ -187,7 +187,7 @@ pub fn dispatch(ui: &mut Ui, op: u16, args: &[OpArg<'_>]) -> Result<OpResult, Ru
         16 => { // measureText
             let a0 = core::str::from_utf8(bytes(&args[0])?).map_err(|_| RuntimeError::InvalidArgument)?;
             let a1 = integer(&args[1])? as u32;
-            Ok(OpResult::Real(ui.measure_text(a0, a1 as u8) as f64))
+            Ok(OpResult::Real(f64::from(ui.measure_text(a0, a1 as u8))))
         },
         17 => { // setSprite
             let a0 = integer(&args[0])? as i32;
@@ -321,7 +321,7 @@ pub fn dispatch(ui: &mut Ui, op: u16, args: &[OpArg<'_>]) -> Result<OpResult, Ru
             let a3 = real(&args[3])?;
             let a4 = real(&args[4])?;
             let a5 = real(&args[5])?;
-            Ok(OpResult::Real(ui.physics_query(a0, a1, a2, a3, a4, a5) as f64))
+            Ok(OpResult::Real(ui.physics_query(a0, a1, a2, a3, a4, a5)))
         },
         57 => { // setPropBatch
             let a0 = bytes(&args[0])?;
@@ -351,7 +351,7 @@ fn integer(arg: &OpArg<'_>) -> Result<i64, RuntimeError> { if let OpArg::Integer
 fn real(arg: &OpArg<'_>) -> Result<f64, RuntimeError> { if let OpArg::Real(value) = arg { Ok(*value) } else { Err(RuntimeError::InvalidArgument) } }
 fn bytes<'a>(arg: &OpArg<'a>) -> Result<&'a [u8], RuntimeError> { if let OpArg::Bytes(value) = arg { Ok(value) } else { Err(RuntimeError::InvalidArgument) } }
 fn set_prop_batch(ui: &mut Ui, bytes: &[u8]) {
-    for record in bytes.chunks_exact(24) {
+    for record in bytes.as_chunks::<24>().0 {
         let value = |offset| f64::from_le_bytes(record[offset..offset + 8].try_into().unwrap());
         ui.set_prop(value(0) as i32, value(8) as u8, value(16));
     }

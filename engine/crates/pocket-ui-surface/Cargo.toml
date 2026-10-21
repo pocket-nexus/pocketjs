@@ -9,5 +9,7 @@ description = "The backend-agnostic PocketJS `ui` surface: pak feeding + HostOps
 [dependencies]
 pocket-mod = { workspace = true }
 pocketjs-core = { workspace = true }
+pocket-runtime = { path = "../../runtime" }
+pocket-guest-rquickjs = { path = "../../guest-rquickjs" }
 anyhow = { workspace = true }
 log = { workspace = true }

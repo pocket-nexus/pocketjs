@@ -66,11 +66,18 @@ pub fn find<'a>(pak: &'a [u8], key: &str) -> Option<&'a [u8]> {
         .map(|entry| entry.blob)
 }
 
+/// Asset directory admission failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PakError {
+    InvalidDirectory,
+    Allocation,
+}
+
 /// Validate the complete directory before native asset installation. The
 /// tolerant `entries` iterator remains available for legacy lookup callers.
 /// Empty packages contain no assets. Names follow the existing ASCII wire
 /// contract and may not contain NUL or repeat another directory entry.
-pub fn checked_entries(pak: &[u8]) -> Result<PakEntries<'_>, ()> {
+pub fn checked_entries(pak: &[u8]) -> Result<PakEntries<'_>, PakError> {
     if pak.is_empty() {
         return Ok(entries(pak));
     }
@@ -78,41 +85,46 @@ pub fn checked_entries(pak: &[u8]) -> Result<PakEntries<'_>, ()> {
         || read_u32(pak, 0) != Some(spec::pak::MAGIC)
         || read_u16(pak, 4) != Some(spec::pak::VERSION)
     {
-        return Err(());
+        return Err(PakError::InvalidDirectory);
     }
-    let count = read_u32(pak, 8).ok_or(())? as usize;
-    let directory = read_u32(pak, 12).ok_or(())? as usize;
-    let names = read_u32(pak, 16).ok_or(())? as usize;
+    let count = read_u32(pak, 8).ok_or(PakError::InvalidDirectory)? as usize;
+    let directory = read_u32(pak, 12).ok_or(PakError::InvalidDirectory)? as usize;
+    let names = read_u32(pak, 16).ok_or(PakError::InvalidDirectory)? as usize;
     if directory > pak.len()
         || names > pak.len()
         || count > pak.len().saturating_sub(directory) / spec::pak::ENTRY_SIZE
     {
-        return Err(());
+        return Err(PakError::InvalidDirectory);
     }
     let mut seen = alloc::vec::Vec::new();
-    seen.try_reserve(count).map_err(|_| ())?;
+    seen.try_reserve(count).map_err(|_| PakError::Allocation)?;
     for i in 0..count {
         let at = directory + i * spec::pak::ENTRY_SIZE;
-        let offset = read_u32(pak, at + 4).ok_or(())? as usize;
-        let length = read_u32(pak, at + 8).ok_or(())? as usize;
+        let offset = read_u32(pak, at + 4).ok_or(PakError::InvalidDirectory)? as usize;
+        let length = read_u32(pak, at + 8).ok_or(PakError::InvalidDirectory)? as usize;
         let start = names
-            .checked_add(read_u32(pak, at + 12).ok_or(())? as usize)
-            .ok_or(())?;
-        let name_length = read_u16(pak, at + 16).ok_or(())? as usize;
+            .checked_add(read_u32(pak, at + 12).ok_or(PakError::InvalidDirectory)? as usize)
+            .ok_or(PakError::InvalidDirectory)?;
+        let name_length = read_u16(pak, at + 16).ok_or(PakError::InvalidDirectory)? as usize;
         if offset > pak.len() || length > pak.len() - offset || name_length == 0 {
-            return Err(());
+            return Err(PakError::InvalidDirectory);
         }
         let name = pak
-            .get(start..start.checked_add(name_length).ok_or(())?)
-            .ok_or(())?;
+            .get(
+                start
+                    ..start
+                        .checked_add(name_length)
+                        .ok_or(PakError::InvalidDirectory)?,
+            )
+            .ok_or(PakError::InvalidDirectory)?;
         if name.iter().any(|&c| c == 0 || c > 127) {
-            return Err(());
+            return Err(PakError::InvalidDirectory);
         }
         seen.push(name);
     }
     seen.sort_unstable();
     if seen.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(());
+        return Err(PakError::InvalidDirectory);
     }
     Ok(entries(pak))
 }

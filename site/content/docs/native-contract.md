@@ -126,6 +126,14 @@ formats until the profile migration.
 
 ## The op table
 
+**C programs register non-core UI operations before boot** with
+`pocket_runtime_add_op_provider`. The runtime copies the operation list and
+vtable, rejects unknown operations and duplicate providers, validates argument
+types, and copies returned bytes before handing them to the guest. Providers
+cannot replace core or package operations. The program retains the provider
+context through runtime destruction; provider callbacks cannot reenter the
+runtime.
+
 Signatures are authoritative from `framework/src/host.ts` (`HostOps`) and `contracts/spec/spec.ts`.
 Node ids are generation-tagged positive `i32` values and reserve `0` for
 "none"; texture handles use their own 0-based or generation-tagged contracts.

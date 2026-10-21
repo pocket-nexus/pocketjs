@@ -53,7 +53,7 @@ pub fn blend_glyph_run(
     let Some(source) = GlyphSource::from_font(font, 0) else {
         return false;
     };
-    if scale == 0 || stride == 0 || glyphs.len() % 2 != 0 {
+    if scale == 0 || stride == 0 || !glyphs.len().is_multiple_of(2) {
         return false;
     }
     let Ok(width) = i64::try_from(stride) else {
@@ -83,14 +83,14 @@ pub fn blend_glyph_run(
         return false;
     };
     // Validate every placement before writes, including unused glyph ids.
-    for glyph in glyphs.chunks_exact(2) {
+    for glyph in glyphs.as_chunks::<2>().0 {
         let gx = i64::from(glyph[0] as u16 as i16) * scale;
         let gy = i64::from((glyph[0] >> 16) as u16 as i16) * scale;
         if gx.checked_add(glyph_width).is_none() || gy.checked_add(glyph_height).is_none() {
             return false;
         }
     }
-    for glyph in glyphs.chunks_exact(2) {
+    for glyph in glyphs.as_chunks::<2>().0 {
         let gid = (glyph[1] & 0xffff) as u16;
         let Some(rows) = source.glyph_rows(gid) else {
             continue;

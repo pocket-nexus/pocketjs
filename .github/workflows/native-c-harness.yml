@@ -61,6 +61,8 @@ on:
       - "engine/ui-cabi/**"
       - "engine/runtime/**"
       - "engine/runtime-cabi/**"
+      - "devices/gles/**"
+      - "platforms/esp-idf/**"
       - "engine/guest-quickjs/**"
       - "engine/guest-rquickjs/**"
       - "engine/backends/rgb565/**"
@@ -154,6 +156,8 @@ on:
       - "engine/ui-cabi/**"
       - "engine/runtime/**"
       - "engine/runtime-cabi/**"
+      - "devices/gles/**"
+      - "platforms/esp-idf/**"
       - "engine/guest-quickjs/**"
       - "engine/guest-rquickjs/**"
       - "engine/backends/rgb565/**"
@@ -230,9 +234,11 @@ jobs:
       - name: UI singleton access and alignment policy
         run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,harness-access
       - name: GLES1 vertex layout and ordered batches
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-gles -p pocket-gles1 -p pocket-gles2
+      - name: Test GLES1 compatibility composition
         run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
-      - name: Runtime scheduling and generated Rust guest
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs
+      - name: Test shared runtime, bindings and PPA renderer
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs -p pocket-ui-surface -p pocket-render-esp-ppa
       - name: Generated C guest against QuickJS-NG
         run: bun tools/test-quickjs-guest.ts
       - name: Link and execute the C allocator and texture draw fixtures

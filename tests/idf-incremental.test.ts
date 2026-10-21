@@ -21,7 +21,9 @@ describe("ESP-IDF incremental package build", () => {
       const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/ui-core");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
       const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi", "backends/rgb565"];
-      for (const source of [native, ...crates.map(crate => join(contracts, crate))]) {
+      const extra = ["platforms/esp-idf/render-ppa", "devices/gles/pocket-gles", "devices/gles/pocket-gles1", "devices/gles/pocket-gles2"]
+        .map(path => layout === "vendor" ? join(contracts, path.split("/").at(-1)!) : join(temporary, path));
+      for (const source of [native, ...crates.map(crate => join(contracts, crate)), ...extra]) {
         mkdirSync(join(source, "src"), { recursive: true });
         writeFileSync(join(source, "Cargo.toml"), "# build dependency fixture\n");
         writeFileSync(join(source, "src/lib.rs"), "// build dependency fixture\n");
@@ -48,6 +50,8 @@ pocketjs_link_native("${component}" ui-core pocketjs_idf_ui_core POCKETJS_TEST_A
       expect(archiveEdge).toBeDefined();
       for (const crate of crates) for (const file of ["Cargo.toml", "src/lib.rs"])
         expect(archiveEdge).toContain(join(contracts, crate, file).replaceAll(" ", "$ "));
+      for (const source of extra) for (const file of ["Cargo.toml", "src/lib.rs"])
+        expect(archiveEdge).toContain(join(source, file).replaceAll(" ", "$ "));
       expect(archiveEdge).toContain(compatibility.replaceAll(" ", "$ "));
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 30_000);

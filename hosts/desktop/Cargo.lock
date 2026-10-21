@@ -1838,6 +1838,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-guest-rquickjs"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-runtime",
+ "rquickjs",
+]
+
+[[package]]
 name = "pocket-media"
 version = "0.1.0"
 dependencies = [
@@ -1882,7 +1891,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-runtime"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-package",
+ "pocket-present",
+ "pocket-spec",
+ "pocketjs-core",
+ "serde_json",
+]
+
+[[package]]
 name = "pocket-spec"
+version = "0.1.0"
+
+[[package]]
+name = "pocket-tex-cache"
 version = "0.1.0"
 
 [[package]]
@@ -1897,12 +1922,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-tri-batch"
+version = "0.1.0"
+
+[[package]]
 name = "pocket-ui-surface"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
+ "pocket-guest-rquickjs",
  "pocket-mod",
+ "pocket-runtime",
  "pocketjs-core",
 ]
 
@@ -1914,11 +1945,27 @@ dependencies = [
  "bytemuck",
  "pocket-mod",
  "pocket-ui-surface",
+ "pocket-web-render",
  "pocket3d",
  "pocketjs-core",
  "serde_json",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "pocket-web-render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-spec",
+ "pocket-tex-cache",
+ "pocket-tri-batch",
+ "pollster",
+ "wgpu",
 ]
 
 [[package]]

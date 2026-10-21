@@ -72,6 +72,11 @@ describe("ESP-IDF release integrity", () => {
     "engine/runtime-cabi/src/lib.rs", "engine/runtime-cabi/Cargo.toml",
     "engine/runtime-cabi/src/compat/idf/abi.rs", "engine/runtime-cabi/src/compat/idf/render.rs",
     "engine/backends/rgb565/src/lib.rs", "engine/backends/rgb565/Cargo.toml",
+    "platforms/esp-idf/render-ppa/src/lib.rs", "platforms/esp-idf/render-ppa/Cargo.toml",
+    "platforms/esp-idf/render-ppa/include/pocket/render_esp_ppa.h",
+    "devices/gles/pocket-gles/src/lib.rs", "devices/gles/pocket-gles/Cargo.toml",
+    "devices/gles/pocket-gles1/src/lib.rs", "devices/gles/pocket-gles1/Cargo.toml",
+    "devices/gles/pocket-gles2/src/lib.rs", "devices/gles/pocket-gles2/Cargo.toml",
   ])("rejects old archives after contract dependency changes: %s", async (path) => {
     const f = await fixture();
     writeFileSync(join(f.directory, path), "changed contract dependency");
@@ -108,6 +113,14 @@ describe("ESP-IDF release integrity", () => {
     }
     const output = join(directory, "staged");
     await stageEspIdfComponents(directory, output);
+    const include = join(output, "pocketjs_ui_core/include");
+    for (const name of ["pocket_drivers.h", "pocket_runtime.h", "pocket_spec.h"])
+      expect(readFileSync(join(include, name), "utf8")).toBe(readFileSync(join(root, "contracts/generated", name), "utf8"));
+    const compile = Bun.spawnSync(["cc", "-x", "c", "-std=c11", "-Werror", "-fsyntax-only", "-I", include,
+      "-I", join(output, "pocketjs_esp32p4_ppa/include"), "-"], {
+      stdin: new Blob(['#include "pocket/render_esp_ppa.h"\nint main(void) { return sizeof(pocket_ppa_config) == 0; }\n']), stdout: "pipe", stderr: "pipe",
+    });
+    expect(compile.success, compile.stderr.toString()).toBe(true);
     // Resolve the staged graph with Cargo, including core's extracted subsystems.
     // No workspace file or dependency path from the source tree is available.
     for (const native of NATIVE_COMPONENTS) {
@@ -115,9 +128,11 @@ describe("ESP-IDF release integrity", () => {
         "cargo", "metadata", "--offline", "--locked", "--format-version=1",
         "--manifest-path", join(output, native.component, "vendor/native/Cargo.toml"),
       ], { stdout: "pipe", stderr: "pipe" });
-      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      expect(result.success, result.stderr.toString()).toBe(true);
       const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
-      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocketjs-render-rgb565"])
+      for (const name of ["pocket-gles", "pocket-gles1", "pocket-gles2"])
+        expect(readFileSync(join(output, native.component, "vendor", name, "Cargo.toml"), "utf8")).not.toContain("../../../engine");
+      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocketjs-render-rgb565", "pocket-render-esp-ppa"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
     }
   }, 30_000);

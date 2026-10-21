@@ -8,6 +8,7 @@ export const RUNTIME_ABI_RULES = [
   "Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.",
   "Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.",
   "Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.",
+  "Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.",
   "Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame callbacks.",
   "The guest receives the existing eight frame arguments through pocket_guest_frame. Introducing this ABI does not change their wire representation, tapes, packages, or binding generation.",
   "Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources.",
@@ -38,11 +39,13 @@ export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
     f("axis_deltas", "*const PocketAxisDelta"), f("axis_delta_count", "usize"), f("motion", "*const PocketMotionState"),
   ], "Legacy frame argument packet encoded by the runtime, including hit facts. touches/hits/touch_surfaces have touch_count entries. Borrowed until the guest frame callback returns."),
   record("PocketGuestV1", "pocket_guest_v1", [f("evaluate", "Option<PocketGuestEvaluateFn>"), f("frame", "Option<PocketGuestFrameFn>"), f("collect", "Option<PocketGuestCollectFn>"), f("shutdown", "Option<PocketGuestShutdownFn>"), f("initialize", "Option<PocketGuestInitializeFn>")], "Guest callbacks invoke generated bindings through pocket_runtime_op. No guest retains borrowed frame memory after frame returns."),
+  record("PocketOpProviderV1", "pocket_op_provider_v1", [f("dispatch", "Option<PocketOpProviderDispatchFn>")], "Provides registered non-core operations. Arguments borrow through callback return; argument_length is the byte span of extensible pocket_op_arg records. Initialize out with its supplied struct_size and return a valid tagged result on success."),
 ];
 
 const context = f("context", "*mut c_void");
 const runtime = f("runtime", "*mut PocketRuntime");
 export const RUNTIME_ABI_CALLBACKS: readonly AbiCallback[] = [
+  callback("PocketOpProviderDispatchFn", "pocket_op_provider_dispatch_fn", [context, f("op", "u16"), f("arguments", "*const PocketOpArg"), f("argument_length", "usize"), f("out", "*mut PocketResult")]),
   callback("PocketDrawOpVisitFn", "pocket_draw_op_visit_fn", [context, f("operation", "*const PocketDrawOp")], "i32", "Synchronous visitor. Operation, clip and words borrow until callback return; do not retain them or mutate the DrawList. Return POCKET_STATUS_OK to continue or an error to stop."),
   callback("PocketGuestInitializeFn", "pocket_guest_initialize_fn", [context, runtime, f("environment", "*const PocketGuestEnvironment")]),
   callback("PocketGuestEvaluateFn", "pocket_guest_evaluate_fn", [context, runtime, f("code", "*const u8"), f("length", "usize")]),
@@ -58,6 +61,7 @@ export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
   { name: "pocket_runtime_add_renderer", args: [runtime, f("renderer", "*const PocketRendererV1"), context], result: "PocketRendererId" },
   { name: "pocket_runtime_add_display", args: [runtime, f("display", "*const PocketDisplayOutputV1"), context, f("renderer", "PocketRendererId")], result: "i32" },
   { name: "pocket_runtime_add_input_source", args: [runtime, f("source", "*const PocketInputSourceV1"), context], result: "i32" },
+  { name: "pocket_runtime_add_op_provider", args: [runtime, f("provider", "*const PocketOpProviderV1"), context, f("operations", "*const u16"), f("operation_count", "usize")], result: "i32" },
   { name: "pocket_runtime_boot", args: [runtime], result: "i32" },
   { name: "pocket_runtime_tick", args: [runtime], result: "i32" },
   { name: "pocket_runtime_supports_op", args: [f("runtime", "*const PocketRuntime"), f("op", "u16")], result: "u32", doc: "Returns 0 or 1 without executing the operation. Does not invalidate borrowed results." },

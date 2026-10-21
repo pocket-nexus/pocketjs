@@ -158,14 +158,21 @@ fn render_one(
 /// Fetch once per operation and retain the validated views. A public resource
 /// provider may return a different view on its next lookup, so validation and
 /// drawing must use the same borrow.
-struct OperationResources<'a, R: RenderResources + ?Sized> {
+pub struct OperationResources<'a, R: RenderResources + ?Sized> {
     source: &'a R,
     texture: Option<TexView<'a>>,
     font: Option<FontView<'a>>,
 }
 
 impl<'a, R: RenderResources + ?Sized> OperationResources<'a, R> {
-    fn new(source: &'a R, operation: &Operation<'_>, scale: u32) -> Result<Self, RenderError> {
+    pub fn new(source: &'a R, operation: &Operation<'_>, scale: u32) -> Result<Self, RenderError> {
+        if !(1..=MAX_RENDER_SCALE).contains(&scale)
+            || operation.words.first().copied() != Some(operation.opcode)
+            || word_len(operation.words, 0).map_err(|_| RenderError::InvalidFrame)?
+                != operation.words.len()
+        {
+            return Err(RenderError::InvalidFrame);
+        }
         let mut result = Self {
             source,
             texture: None,
@@ -203,7 +210,9 @@ impl<'a, R: RenderResources + ?Sized> OperationResources<'a, R> {
                     // Missing glyphs have always been skipped. An empty run
                     // or one containing only out-of-range ids needs no atlas.
                     if operation.words[3..]
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .any(|pair| (pair[1] as u16) < view.glyph_count)
                     {
                         validate_font(&view, scale)?;
@@ -229,6 +238,15 @@ impl<R: RenderResources + ?Sized> RenderResources for OperationResources<'_, R> 
     }
     fn font_atlas(&self, _: u8) -> Option<FontView<'_>> {
         self.font
+    }
+    fn texture_revision(&self, handle: i32) -> Option<u64> {
+        self.source.texture_revision(handle)
+    }
+    fn font_revision(&self, slot: u8) -> Option<u64> {
+        self.source.font_revision(slot)
+    }
+    fn font_texture_width(&self, slot: u8) -> Option<u32> {
+        self.source.font_texture_width(slot)
     }
 }
 
@@ -431,7 +449,7 @@ impl RenderTarget for SurfaceTarget<'_> {
         match self.format {
             PixelFormat::Rgb565 => {
                 let color = pack_rgb565(r, g, b).to_le_bytes();
-                for pixel in span.chunks_exact_mut(2) {
+                for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
                     pixel.copy_from_slice(&color);
                 }
             }

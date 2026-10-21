@@ -27,8 +27,10 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
         *word = u32::from_be_bytes([block[at], block[at + 1], block[at + 2], block[at + 3]]);
     }
     for index in 16..64 {
-        let s0 = w[index - 15].rotate_right(7) ^ w[index - 15].rotate_right(18) ^ (w[index - 15] >> 3);
-        let s1 = w[index - 2].rotate_right(17) ^ w[index - 2].rotate_right(19) ^ (w[index - 2] >> 10);
+        let s0 =
+            w[index - 15].rotate_right(7) ^ w[index - 15].rotate_right(18) ^ (w[index - 15] >> 3);
+        let s1 =
+            w[index - 2].rotate_right(17) ^ w[index - 2].rotate_right(19) ^ (w[index - 2] >> 10);
         w[index] = w[index - 16]
             .wrapping_add(s0)
             .wrapping_add(w[index - 7])
@@ -63,18 +65,17 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
 /// The 32-byte digest of `data`.
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut state = INITIAL;
-    let mut blocks = data.chunks_exact(64);
-    for block in &mut blocks {
+    let (blocks, rest) = data.as_chunks::<64>();
+    for block in blocks {
         compress(&mut state, block);
     }
-    let rest = blocks.remainder();
     let mut tail = [0u8; 128];
     tail[..rest.len()].copy_from_slice(rest);
     tail[rest.len()] = 0x80;
     let tail_length = if rest.len() < 56 { 64 } else { 128 };
     let bits = (data.len() as u64).wrapping_mul(8);
     tail[tail_length - 8..tail_length].copy_from_slice(&bits.to_be_bytes());
-    for block in tail[..tail_length].chunks_exact(64) {
+    for block in tail[..tail_length].as_chunks::<64>().0 {
         compress(&mut state, block);
     }
     let mut digest = [0u8; 32];
@@ -92,7 +93,11 @@ pub fn sha256_hex_prefix<const N: usize>(data: &[u8]) -> [u8; N] {
     let mut out = [0u8; N];
     for (index, slot) in out.iter_mut().enumerate() {
         let byte = digest[index / 2];
-        *slot = HEX[if index % 2 == 0 { (byte >> 4) as usize } else { (byte & 15) as usize }];
+        *slot = HEX[if index % 2 == 0 {
+            (byte >> 4) as usize
+        } else {
+            (byte & 15) as usize
+        }];
     }
     out
 }
@@ -102,7 +107,10 @@ mod tests {
     use super::*;
 
     fn hex(digest: [u8; 32]) -> std::string::String {
-        digest.iter().map(|byte| std::format!("{byte:02x}")).collect()
+        digest
+            .iter()
+            .map(|byte| std::format!("{byte:02x}"))
+            .collect()
     }
 
     #[test]
@@ -116,7 +124,9 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(
-            hex(sha256(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")),
+            hex(sha256(
+                b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            )),
             "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
         );
         let million = std::vec![b'a'; 1_000_000];

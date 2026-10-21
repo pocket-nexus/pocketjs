@@ -9,6 +9,12 @@ export const NATIVE_COMPONENTS = [
 export const NATIVE_ENGINE_CRATES = ["core", "spec", "drivers", "raster", "present", "package",
   "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache",
   "runtime", "runtime-cabi", "backends/rgb565"] as const;
+export const NATIVE_EXTRA_CRATES = [
+  { source: "platforms/esp-idf/render-ppa", destination: "render-ppa" },
+  { source: "devices/gles/pocket-gles", destination: "pocket-gles" },
+  { source: "devices/gles/pocket-gles1", destination: "pocket-gles1" },
+  { source: "devices/gles/pocket-gles2", destination: "pocket-gles2" },
+] as const;
 export type NativeComponent = typeof NATIVE_COMPONENTS[number];
 export const RUST_TARGETS = { esp32p4: "riscv32imafc-unknown-none-elf", esp32s3: "xtensa-esp32s3-none-elf" } as const;
 export type IdfTarget = keyof typeof RUST_TARGETS;
@@ -31,12 +37,15 @@ export interface NativeReceipt {
 }
 
 export async function nativeSourceFiles(root: string, spec: NativeComponent): Promise<string[]> {
-  const roots = [...NATIVE_ENGINE_CRATES.map(crate => `engine/${crate}`),
+  const roots = [...NATIVE_ENGINE_CRATES.map(crate => `engine/${crate}`), ...NATIVE_EXTRA_CRATES.map(crate => crate.source),
     `hosts/esp-idf/native/${spec.crate}`,
     `hosts/esp-idf/components/${spec.component}/src`, `hosts/esp-idf/components/${spec.component}/include`,
+    "hosts/esp-idf/components/pocketjs_esp32p4_ppa/src", "hosts/esp-idf/components/pocketjs_esp32p4_ppa/include",
     "hosts/esp-idf/components/pocketjs_render_rgb565/src", "hosts/esp-idf/components/pocketjs_render_rgb565/include"];
   const files = new Set([
-    "tools/esp-idf-native.ts", "tools/esp-idf-native-receipt.ts", "hosts/esp-idf/native/toolchains.json",
+    "tools/esp-idf-native.ts", "tools/esp-idf-release.ts",
+    "contracts/generated/pocket_drivers.h", "contracts/generated/pocket_runtime.h", "contracts/generated/pocket_spec.h",
+    "hosts/esp-idf/components/pocketjs_esp32p4_ppa/CMakeLists.txt", "tools/esp-idf-native-receipt.ts", "hosts/esp-idf/native/toolchains.json",
     "contracts/spec/idf-native.ts", "tools/esp-idf-contracts.ts", `hosts/esp-idf/components/${spec.component}/CMakeLists.txt`,
     "hosts/esp-idf/components/pocketjs_render_rgb565/CMakeLists.txt",
     "hosts/esp-idf/components/pocketjs_ui_core/native_archive.cmake",

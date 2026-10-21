@@ -37,7 +37,7 @@ fn package() -> Vec<u8> {
     bytes[36..40].copy_from_slice(&3u32.to_le_bytes());
     bytes[40..44].copy_from_slice(&56u32.to_le_bytes());
     for (i, (kind, payload)) in sections.into_iter().enumerate() {
-        while bytes.len() % 16 != 0 {
+        while !bytes.len().is_multiple_of(16) {
             bytes.push(0);
         }
         let offset = bytes.len();

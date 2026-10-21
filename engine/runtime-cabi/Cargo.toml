@@ -11,8 +11,8 @@ crate-type = ["rlib", "staticlib"]
 [features]
 default = ["std"]
 std = []
-legacy-ui = ["dep:pocketjs-core", "dep:pocket-tri-batch", "dep:pocket-tex-cache"]
-legacy-idf = ["dep:pocketjs-core", "dep:pocketjs-render-rgb565"]
+legacy-ui = ["dep:pocket-gles", "dep:pocket-gles1", "dep:pocket-gles2"]
+legacy-idf = ["dep:pocketjs-render-rgb565", "dep:pocket-render-esp-ppa"]
 standalone-extension-provider = []
 gles1 = []
 gl-frame-validation = []
@@ -21,9 +21,11 @@ harness-access = []
 boot-stage = []
 
 [dependencies]
-pocketjs-core = { path = "../core", optional = true }
-pocket-tri-batch = { path = "../render/tri-batch", optional = true }
-pocket-tex-cache = { path = "../render/tex-cache", optional = true }
+pocketjs-core = { path = "../core" }
+pocket-gles = { path = "../../devices/gles/pocket-gles", optional = true }
+pocket-gles1 = { path = "../../devices/gles/pocket-gles1", optional = true }
+pocket-gles2 = { path = "../../devices/gles/pocket-gles2", optional = true }
+pocket-render-esp-ppa = { path = "../../platforms/esp-idf/render-ppa", optional = true }
 pocketjs-render-rgb565 = { path = "../backends/rgb565", optional = true }
 pocket-runtime = { path = "../runtime" }
 pocket-drivers = { path = "../drivers" }

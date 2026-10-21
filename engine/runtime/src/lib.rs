@@ -10,6 +10,7 @@ mod config;
 pub mod generated_ops;
 mod guest;
 pub mod input;
+pub mod timing;
 pub use config::RuntimeConfig;
 pub use guest::*;
 pub use pocket_present::{DisplayId, RendererId};
@@ -113,7 +114,19 @@ impl core::ops::DerefMut for CoreState {
 pub struct OpContext {
     state: Rc<RefCell<CoreState>>,
     active: Rc<Cell<bool>>,
-    package: Rc<RefCell<Option<Rc<LoadedPackage>>>>,
+    package: Rc<RefCell<Option<PackageAssets>>>,
+}
+enum PackageAssets {
+    Admitted(Rc<LoadedPackage>),
+    Embedded(Rc<[u8]>),
+}
+impl PackageAssets {
+    fn pak(&self) -> &[u8] {
+        match self {
+            Self::Admitted(package) => package.pak(),
+            Self::Embedded(pak) => pak,
+        }
+    }
 }
 impl OpContext {
     pub fn from_ui(ui: Ui) -> Self {
@@ -128,6 +141,52 @@ impl OpContext {
     }
     pub fn core_mut(&self) -> Result<RefMut<'_, CoreState>, RuntimeError> {
         self.state.try_borrow_mut().map_err(|_| RuntimeError::Busy)
+    }
+    /// Install an embedded asset pack for an embedding that owns admission and
+    /// guest lifecycle. Full Runtime instances load assets from PackageSource.
+    /// Validation completes before any core asset changes; tile loads retain
+    /// an owned copy of this pack. Mount guest metadata after this call.
+    pub fn install_assets(&self, pak: &[u8]) -> Result<AssetRegistry, RuntimeError> {
+        if !self.active.get() {
+            return Err(RuntimeError::InvalidState);
+        }
+        let mut state = self.core_mut()?;
+        let registry = assets::install(&mut state.ui, pak)?;
+        state.mutated();
+        *self.package.borrow_mut() = Some(PackageAssets::Embedded(Rc::from(pak)));
+        Ok(registry)
+    }
+    /// Declare that the embedding supplies the compositor raster namespace.
+    pub fn set_compositor_enabled(&self, enabled: bool) -> Result<(), RuntimeError> {
+        if !self.active.get() {
+            return Err(RuntimeError::InvalidState);
+        }
+        self.core_mut()?.compositor = enabled;
+        Ok(())
+    }
+    /// Register a provider before mounting generated guest bindings. Runtime
+    /// additionally enforces its configuring/boot lifecycle around this call.
+    pub fn add_provider(&self, provider: Box<dyn OpProvider>) -> Result<(), RuntimeError> {
+        if !self.active.get() {
+            return Err(RuntimeError::InvalidState);
+        }
+        let mut state = self.core_mut()?;
+        let mut count = 0;
+        for operation in generated_ops::OP_DESCRIPTORS {
+            if provider.supports_op(operation.id) {
+                if matches!(operation.provider, "core" | "package")
+                    || state.providers.iter().any(|p| p.supports_op(operation.id))
+                {
+                    return Err(RuntimeError::InvalidArgument);
+                }
+                count += 1;
+            }
+        }
+        if count == 0 {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        state.providers.push(provider);
+        Ok(())
     }
     pub fn supports_op(&self, op: u16) -> bool {
         self.core()
@@ -168,11 +227,8 @@ impl OpContext {
                 return Err(RuntimeError::InvalidArgument);
             };
             let key = core::str::from_utf8(key).map_err(|_| RuntimeError::InvalidArgument)?;
-            let package = self
-                .package
-                .borrow()
-                .clone()
-                .ok_or(RuntimeError::MissingPackage)?;
+            let package = self.package.borrow();
+            let package = package.as_ref().ok_or(RuntimeError::MissingPackage)?;
             let handle = match pocket_package::pak::find(package.pak(), key) {
                 Some(blob) if *index >= 0 => state.ui.upload_tileset_tile(blob, *index as u32),
                 _ => -1,
@@ -281,8 +337,7 @@ impl Runtime {
     }
     pub fn add_provider(&mut self, provider: Box<dyn OpProvider>) -> Result<(), RuntimeError> {
         self.configuring()?;
-        self.ops.core_mut()?.providers.push(provider);
-        Ok(())
+        self.ops.add_provider(provider)
     }
     pub fn add_renderer<R: Renderer + 'static>(
         &mut self,
@@ -396,7 +451,7 @@ impl Runtime {
                     .ui
                     .create_auxiliary_surface(aux.width as f32, aux.height as f32);
             }
-            *self.ops.package.borrow_mut() = Some(package.clone());
+            *self.ops.package.borrow_mut() = Some(PackageAssets::Admitted(package.clone()));
             (registry, state.ui.auxiliary_surface_root())
         };
         self.package = Some(package.clone());

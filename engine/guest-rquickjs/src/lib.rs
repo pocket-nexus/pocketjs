@@ -69,7 +69,7 @@ impl Guest for RquickjsGuest {
             runtime.set_memory_limit(environment.heap_limit);
         }
         let context = self.remember(Context::full(&runtime))?;
-        let result = context.with(|ctx| mount(&ctx, ops, environment, self.profile));
+        let result = context.with(|ctx| mount_ui(&ctx, ops, environment, self.profile));
         self.remember(result)?;
         self.context = Some(context);
         self.runtime = Some(runtime);
@@ -164,7 +164,9 @@ fn permitted(profile: BindingProfile, op: u16) -> bool {
         BindingProfile::Idf => IDF_OPS.contains(&op),
     }
 }
-fn mount<'js>(
+/// Mount the generated UI contract into a host-owned realm. The host owns its
+/// job loop and keeps the OpContext alive for every callback in this realm.
+pub fn mount_ui<'js>(
     ctx: &Ctx<'js>,
     ops: OpContext,
     environment: &GuestEnvironment<'_>,
@@ -490,8 +492,8 @@ fn result_value<'js>(
                 return Err(Exception::throw_internal(ctx, "invalid array result"));
             }
             let array = Array::new(ctx.clone())?;
-            for (index, value) in bytes.chunks_exact(4).enumerate() {
-                array.set(index, u32::from_le_bytes(value.try_into().unwrap()))?;
+            for (index, value) in bytes.as_chunks::<4>().0.iter().enumerate() {
+                array.set(index, u32::from_le_bytes(*value))?;
             }
             Ok(array.into_value())
         }
