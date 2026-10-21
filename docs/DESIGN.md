@@ -94,7 +94,7 @@ PocketJS/
     spec.ts            SINGLE SOURCE OF TRUTH: op codes, prop ids, enums,
                        style-table format, atlas format, DrawList format,
                        pak container constants (magic/header/entry/align/fnv1a) [R]
-    gen-rust.ts        codegen → engine/core/src/spec.rs (committed)
+    gen-rust.ts        codegen → engine/spec/src/lib.rs (committed)
   engine/core/                Rust lib `pocketjs-core` — #![no_std] + alloc
     framework/src/lib.rs         pub struct Ui: apply-ops, tick(1/60), draw() → &DrawList
     framework/src/spec.rs        GENERATED — tests/contract.ts re-runs gen-rust.ts and

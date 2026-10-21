@@ -69,7 +69,7 @@ purpose — a bundle that plays anywhere plays everywhere.
 |---|---|---|
 | web (`hosts/web/audio.js` + `audio-worklet.js`) | AudioWorklet ring on the render thread, main-thread credit mirror, gesture-deferred `AudioContext` | audible, ships with the dev host |
 | sim (`hosts/sim/audio.ts`) | virtual-clock sink, `audioFramesForTick` consumption, PCM FNV-1a + op/event log | deterministic tests (`tests/audio.test.ts`, `tests/audio-sim.test.ts`) |
-| psp / vita | not mounted yet — `engine/core/src/spec.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy already exists in `hosts/psp/src/audio.rs` + `hosts/vita/src/audio.rs` (built for the video plane) | seam documented, capability not advertised |
+| psp / vita | not mounted yet — `engine/spec/src/lib.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy already exists in `hosts/psp/src/audio.rs` + `hosts/vita/src/audio.rs` (built for the video plane) | seam documented, capability not advertised |
 | macos-widget / pocketbook | not mounted | capability not advertised |
 
 Consoles adopt the module by implementing the namespace in their FFI table

@@ -1,0 +1,69 @@
+import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import {
+  canonicalProfileJson, pocketProfileSchema, PROFILE_HASH_BYTES, PROFILE_HASH_FIELDS,
+  profileHashProjection, type PocketProfile,
+} from "../contracts/spec/profile.ts";
+import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/validate.ts";
+
+const profile: PocketProfile = {
+  id: "my-board", platform: "esp-idf", form: "takeover", tickHz: 60,
+  display: {
+    physicalViewport: [480, 320], logicalViewports: [[480, 320]],
+    presentations: ["native"], rasterDensity: 1,
+  },
+  capabilities: ["input.buttons", "text.glyphs.baked"],
+};
+const hash = (input: PocketProfile) => createHash("sha256").update(canonicalProfileJson(input), "utf8").digest("hex");
+const diagnostics = (input: unknown) => {
+  const result: ContractDiagnostic[] = [];
+  validateSchema(input, pocketProfileSchema, "", result);
+  return result;
+};
+
+describe("proposed profile identity contract", () => {
+  test("canonical projection has seven permitted fields and UTF-8 hash input", () => {
+    expect(PROFILE_HASH_FIELDS).toEqual(["id", "platform", "form", "tickHz", "display", "capabilities", "roleCapabilities"]);
+    expect(canonicalProfileJson(profile)).toBe('{"capabilities":["input.buttons","text.glyphs.baked"],"display":{"logicalViewports":[[480,320]],"physicalViewport":[480,320],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"my-board","platform":"esp-idf","tickHz":60}');
+    expect(hash(profile)).toHaveLength(PROFILE_HASH_BYTES * 2);
+    expect(hash(profile)).toBe("91d9e23af99a35dc3b094fb7ace738745b2a81a5308897b221a016ba3afbf267");
+    expect(profileHashProjection(profile)).not.toHaveProperty("roleCapabilities");
+  });
+
+  test("object key order and metadata do not change identity", () => {
+    const reverse = Object.fromEntries(Object.entries(profile).reverse()) as unknown as PocketProfile;
+    expect(hash(reverse)).toBe(hash(profile));
+    expect(hash({ ...profile, hostExtension: { panel: "st7796", build: 42 } })).toBe(hash(profile));
+    expect(hash({ ...profile, hostExtension: { panel: "other" } })).toBe(hash(profile));
+  });
+
+  test("every software fact changes identity; added capabilities are not compatible", () => {
+    const changes: PocketProfile[] = [
+      { ...profile, id: "new-board" }, { ...profile, platform: "baremetal" },
+      { ...profile, form: "kiosk" }, { ...profile, tickHz: 30 },
+      { ...profile, display: { ...profile.display, rasterDensity: 2 } },
+      { ...profile, capabilities: [...profile.capabilities, "input.touch"] },
+      { ...profile, roleCapabilities: { systemUI: ["ui.compositor-surfaces"] } },
+    ];
+    for (const changed of changes) expect(hash(changed)).not.toBe(hash(profile));
+    expect(hash({ ...profile, capabilities: [...profile.capabilities].reverse() })).not.toBe(hash(profile));
+  });
+
+  test("profile shape permits tree-external ids without package-v1's 15-byte limit", () => {
+    expect(diagnostics({ ...profile, id: "my-product-board-with-a-long-name" })).toEqual([]);
+    expect(diagnostics({ ...profile, toolchain: "nightly" })).not.toEqual([]);
+    expect(diagnostics({ ...profile, hostAbi: 7 })).not.toEqual([]);
+    expect(diagnostics({ ...profile, tickHz: 0 })).not.toEqual([]);
+    expect(diagnostics({ ...profile, capabilities: ["input.buttons", "input.buttons"] })).not.toEqual([]);
+  });
+
+  test("Unicode remains literal; invalid JSON data cannot hash as valid data", () => {
+    expect(canonicalProfileJson({ ...profile, id: "屏幕-🎮" })).toContain('"id":"屏幕-🎮"');
+    expect(() => canonicalProfileJson({ ...profile, id: "\ud800" })).toThrow("surrogate");
+    expect(() => canonicalProfileJson({ ...profile, tickHz: NaN })).toThrow("non-finite");
+    expect(() => canonicalProfileJson({ ...profile, capabilities: Array(1) })).toThrow("undefined");
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() => canonicalProfileJson({ ...profile, display: cyclic as unknown as PocketProfile["display"] })).toThrow("cycle");
+  });
+});

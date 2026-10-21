@@ -17,6 +17,8 @@ on:
       - "hosts/psp/**"
       - "devices/psp/**"
       - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
       - "package.json"
       - "bun.lock"
   push:
@@ -31,6 +33,8 @@ on:
       - "hosts/psp/**"
       - "devices/psp/**"
       - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
       - "package.json"
       - "bun.lock"
   workflow_dispatch: {}

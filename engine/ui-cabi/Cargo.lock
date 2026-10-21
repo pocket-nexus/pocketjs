@@ -9,9 +9,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f02882884d3e1bc524fb12c79f107f6ad0e1cfd498c536ffb494301740995dfe"
 
 [[package]]
+name = "pocket-drivers"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-spec"
+version = "0.1.0"
+
+[[package]]
 name = "pocketjs-core"
 version = "0.1.0"
 dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
  "taffy",
 ]
 

@@ -1,9 +1,9 @@
-// Deterministic codegen: contracts/spec/{spec,audio,db,net,physics}.ts -> engine/core/src/spec.rs.
+// Deterministic codegen: contracts/spec/{spec,audio,db,fs,net,physics}.ts -> engine/spec/src/lib.rs.
 //
 // Run from PocketJS/:  bun contracts/spec/gen-rust.ts
 //
 // tests/contract.ts imports generateRust() and byte-compares its output against
-// the committed engine/core/src/spec.rs, so the generated file can never drift from
+// the committed engine/spec/src/lib.rs, so the generated file can never drift from
 // spec.ts. Keep this generator free of anything non-deterministic (no dates,
 // no env, no object-key sorting surprises — insertion order only).
 
@@ -97,6 +97,7 @@ import {
   PAK_MAGIC,
   PAK_VERSION,
   DRAW_OP,
+  DRAW_LIST_VERSION,
   ENUMS,
   FIXED_DT,
   FONT_CMAP_ENTRY_SIZE,
@@ -213,10 +214,11 @@ export function generateRust(): string {
 
   put("//! GENERATED — do not edit; run `bun contracts/spec/gen-rust.ts` (from PocketJS/).");
   put("//!");
-  put("//! Source of truth: PocketJS/spec/spec.ts — every constant here mirrors it.");
+  put("//! Source of truth: contracts/spec — every constant here mirrors its TypeScript definition.");
   put("//! tests/contract.ts regenerates this file in-memory and byte-compares;");
   put("//! if that fails, run `bun contracts/spec/gen-rust.ts` and commit the result.");
   put("");
+  put("#![no_std]");
   put("#![allow(dead_code)]");
   put("#![allow(clippy::all)]");
   put("");
@@ -467,6 +469,7 @@ export function generateRust(): string {
   put("/// Word counts incl. header: RECT 4, GRAD_RECT 6, GLYPH_RUN 3+2n,");
   put("/// TEX_QUAD 9, SCISSOR 3, SCISSOR_POP 1, TRI 7, TEX_TRI 12,");
   put("/// TEXT_RUN 8+ceil(bytes/4), SURFACE_QUAD 9.");
+  put(`pub const DRAW_LIST_VERSION: u32 = ${DRAW_LIST_VERSION};`);
   put("pub mod draw_op {");
   for (const [name, v] of Object.entries(DRAW_OP)) {
     put(`    pub const ${screaming(name)}: u32 = ${v};`);
@@ -653,7 +656,7 @@ export function generateRust(): string {
 }
 
 if (import.meta.main) {
-  const out = new URL("../../engine/core/src/spec.rs", import.meta.url).pathname;
+  const out = new URL("../../engine/spec/src/lib.rs", import.meta.url).pathname;
   await Bun.write(out, generateRust());
   console.log(`wrote ${out}`);
   for (const [path, source] of [

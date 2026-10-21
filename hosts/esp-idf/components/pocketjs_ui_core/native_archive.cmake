@@ -16,11 +16,13 @@ function(pocketjs_link_native component_dir crate archive override)
         if(EXISTS "${component_dir}/vendor/native/Cargo.toml")
             set(native_root "${component_dir}/vendor/native")
             set(source_roots "${component_dir}/vendor/core" "${component_dir}/vendor/abi"
-                "${component_dir}/vendor/runtime" "${component_dir}/vendor/renderer")
+                "${component_dir}/vendor/runtime" "${component_dir}/vendor/renderer"
+                "${component_dir}/vendor/spec" "${component_dir}/vendor/drivers")
         else()
             set(native_root "${component_dir}/../../native/${crate}")
             set(source_roots "${component_dir}/../../native/abi" "${component_dir}/../../native/runtime"
-                "${component_dir}/../../../../engine/core")
+                "${component_dir}/../../../../engine/core" "${component_dir}/../../../../engine/spec"
+                "${component_dir}/../../../../engine/drivers")
             if(crate STREQUAL "render-rgb565")
                 list(APPEND source_roots "${component_dir}/../../../../engine/backends/rgb565")
             endif()

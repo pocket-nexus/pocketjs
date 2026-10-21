@@ -24,6 +24,8 @@ on:
       - 'tools/text-lab-assets.ts'
       - 'framework/src/bytes.ts'
       - 'engine/core/**'
+      - 'engine/spec/**'
+      - 'engine/drivers/**'
       - 'engine/wasm/**'
       - 'hosts/psp/src/ge.rs'
       - 'apps/text-cjk/**'

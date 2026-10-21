@@ -31,6 +31,24 @@ one `no_std` Rust crate (`pocketjs-core`) compiled for each host's target
 triple. Styling is a build-time [Tailwind subset](/docs/styling/); fonts are
 baked into atlases at build time.
 
+## Driver contracts
+
+The first stage of the driver migration separates shared contracts from the
+UI implementation. **`pocket-spec` has no dependencies; `pocket-drivers`
+depends on `pocket-spec`.** Both crates use `no_std`. The generated Rust
+operation table lives in `engine/spec/src/lib.rs`. `engine/drivers` owns
+`DrawList`, `TextBox`, `TexView`, `FontView`, and `RenderResources`.
+`pocketjs-core` re-exports these types under their existing paths and keeps
+the `RenderResources` implementation for `Ui`.
+
+The driver traits and generated C declarations define the next runtime's
+display, renderer, input, and package-source boundaries. Existing hosts keep
+their frame loops, bindings, and package admission. **The declarations do not
+provide a runtime implementation or change the application package format.**
+The driver ABI remains under development until the external C and Rust
+consumer tests and deferred-device lifecycle tests pass. See
+[Native contract](/docs/native-contract/#driver-contract-migration).
+
 ## The pipeline
 
 ```
@@ -252,7 +270,7 @@ name covers the manifest, the runtime namespace, and the asset key.
 `contracts/spec/` holds the shipped specs — `audio`, `db`, `fs`, `net`,
 `physics`, `platforms`, `spec`, plus the manifest, package, system and runtime-wire files.
 They are plain TypeScript data: `gen-rust.ts` generates
-`engine/core/src/spec.rs`, `gen-c.ts` generates
+`engine/spec/src/lib.rs`, `gen-c.ts` generates
 `contracts/generated/pocket_spec.h`, and `tests/contract.ts` regenerates both
 in memory and byte-compares them against the committed files, so the three
 languages cannot drift.

@@ -1,6 +1,6 @@
 // Spec drift guard — run with `bun run contract` (exit 0 = green).
 //
-//  (a) Regenerates engine/core/src/spec.rs IN-MEMORY from contracts/spec/spec.ts and
+//  (a) Regenerates engine/spec/src/lib.rs IN-MEMORY from contracts/spec/spec.ts and
 //      byte-compares against the committed file: TS and Rust constants can
 //      never drift. Fix = `bun contracts/spec/gen-rust.ts` + commit.
 //  (b) Round-trips the styles.bin encoder/decoder over a table exercising
@@ -13,6 +13,7 @@
 
 import { generateC } from "../contracts/spec/gen-c.ts";
 import { generateRust } from "../contracts/spec/gen-rust.ts";
+import { generatedDriverContracts } from "../tools/driver-contracts.ts";
 import { withGeneratedExports } from "../tools/gen-exports.ts";
 import {
   abgr,
@@ -39,14 +40,14 @@ function check(ok: boolean, label: string, detail = "") {
   }
 }
 
-// ---- (a) generated spec.rs is in sync ---------------------------------------
+// ---- (a) generated pocket-spec is in sync -----------------------------------
 
-const specRsPath = new URL("../engine/core/src/spec.rs", import.meta.url).pathname;
+const specRsPath = new URL("../engine/spec/src/lib.rs", import.meta.url).pathname;
 const committed = await Bun.file(specRsPath).text().catch(() => null);
 const expected = generateRust();
 check(
   committed !== null && committed === expected,
-  "engine/core/src/spec.rs matches spec.ts",
+  "engine/spec/src/lib.rs matches contracts/spec",
   "run `bun contracts/spec/gen-rust.ts` and commit the result",
 );
 
@@ -61,6 +62,12 @@ check(
 );
 
 // ---- (c) package.json exports match the subpath registry ---------------------
+
+for (const [path, contents] of generatedDriverContracts()) {
+  const committed = await Bun.file(new URL(`../${path}`, import.meta.url)).text().catch(() => null);
+  check(committed === contents, `${path} matches driver/runtime spec`,
+    "run `bun tools/driver-contracts.ts` and commit the result");
+}
 
 const pkgPath = new URL("../package.json", import.meta.url).pathname;
 const pkgText = await Bun.file(pkgPath).text();

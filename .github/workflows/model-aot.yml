@@ -5,6 +5,8 @@ on:
       - 'microts/compiler/**'
       - 'framework/**'
       - 'engine/core/**'
+      - 'engine/spec/**'
+      - 'engine/drivers/**'
       - 'engine/crates/microts/**'
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/wasm/**'

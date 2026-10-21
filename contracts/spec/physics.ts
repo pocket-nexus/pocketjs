@@ -74,7 +74,7 @@
 //   - `anchorFree` bodies spring only after 0.15 s without floor contact.
 //
 // If you change ANY value here: run `bun contracts/spec/gen-rust.ts` and
-// commit the regenerated engine/core/src/spec.rs (tests/contract.ts
+// commit the regenerated engine/spec/src/lib.rs (tests/contract.ts
 // byte-compares).
 
 /** Object kinds created by `physicsCreate(kind, params)`. */

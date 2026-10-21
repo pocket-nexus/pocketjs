@@ -5,12 +5,16 @@ on:
     paths:
       - ".github/workflows/esp32p4.yml"
       - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
       - "engine/backends/rgb565/**"
   push:
     branches: [main]
     paths:
       - ".github/workflows/esp32p4.yml"
       - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
       - "engine/backends/rgb565/**"
   workflow_dispatch: {}
 

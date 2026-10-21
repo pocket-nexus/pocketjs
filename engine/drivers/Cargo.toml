@@ -1,0 +1,10 @@
+[package]
+name = "pocket-drivers"
+version = "0.1.0"
+edition = "2021"
+description = "Device contracts and borrowed rendering resources for PocketJS"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+
+[dependencies]
+pocket-spec = { path = "../spec" }

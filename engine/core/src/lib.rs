@@ -58,7 +58,7 @@ pub mod plan_facts;
 pub mod raster;
 pub mod sha256;
 pub mod compositor;
-pub mod spec;
+pub use pocket_spec as spec;
 pub mod stream;
 pub mod stream_rx;
 pub mod style;
@@ -70,7 +70,7 @@ pub mod touch;
 pub mod tree;
 pub mod wire;
 
-pub use draw::DrawList;
+pub use pocket_drivers::{DrawList, TexView};
 
 /// CLUT byte size: 256 entries x u32 ABGR (the GE CLUT8 palette).
 const TEX_PALETTE_BYTES: usize = 1024;
@@ -135,21 +135,6 @@ impl Texture {
             linear: self.linear,
         }
     }
-}
-
-/// Borrowed view of one live texture (what backends sample — see
-/// `Ui::texture` / `Ui::texture_at`). All byte slices are 16-byte aligned.
-#[derive(Clone, Copy)]
-pub struct TexView<'a> {
-    pub pixels: &'a [u8],
-    pub w: u32,
-    pub h: u32,
-    /// spec::psm::* pixel format.
-    pub psm: u32,
-    /// 1024-byte CLUT (256 x u32 ABGR) — Some exactly when psm == PSM_T8.
-    pub palette: Option<&'a [u8]>,
-    /// Bilinear sampling hint (spec::img::FLAG_LINEAR); nearest otherwise.
-    pub linear: bool,
 }
 
 /// One texture slot. `gen` tags outstanding handles (bumped on free, so a
@@ -2486,6 +2471,25 @@ fn prop_bits(kind: u8, value: f64) -> u32 {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod driver_contract_identity {
+    #[test]
+    fn public_core_paths_preserve_external_driver_type_identity() {
+        let mut ui = super::Ui::new();
+        let list: &pocket_drivers::DrawList = ui.draw();
+        let _: &super::draw::DrawList = list;
+        let _: &dyn pocket_drivers::RenderResources = &ui;
+        let _: &dyn super::resources::RenderResources = &ui;
+        let text = super::draw::TextBox {
+            x: 0.0, y: 0.0, w: 1.0, h: 1.0, text: alloc::string::String::new(),
+        };
+        let _: pocket_drivers::TextBox = text;
+        fn texture<'a>(view: super::TexView<'a>) -> pocket_drivers::TexView<'a> { view }
+        fn font<'a>(view: super::resources::FontView<'a>) -> pocket_drivers::FontView<'a> { view }
+        let _ = (texture, font);
+    }
+}
 
 /// Little-endian Float64 fields of a physics wire record.
 fn wire_f64s(bytes: &[u8]) -> Vec<f64> {

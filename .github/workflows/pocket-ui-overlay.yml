@@ -11,6 +11,8 @@ on:
       - 'tests/desktop-pointer.test.ts'
       - 'engine/crates/pocket-ui-wgpu/**'
       - 'engine/core/**'
+      - 'engine/spec/**'
+      - 'engine/drivers/**'
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/pocket3d/crates/pocket3d/src/app.rs'
       - 'engine/pocket3d/crates/pocket3d/src/input.rs'

@@ -14,6 +14,8 @@ on:
       - "tools/png.ts"
       - "contracts/**"
       - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
       - "package.json"
       - "bun.lock"
   push:
@@ -30,6 +32,8 @@ on:
       - "tools/png.ts"
       - "contracts/**"
       - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
       - "package.json"
       - "bun.lock"
 

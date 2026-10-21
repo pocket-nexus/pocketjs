@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -161,6 +161,10 @@ describe("published npm artifacts", () => {
       "engine/crates/pocket-widget/Cargo.toml",
       "engine/core/src",
       "engine/core/Cargo.toml",
+      "engine/spec/src",
+      "engine/spec/Cargo.toml",
+      "engine/drivers/src",
+      "engine/drivers/Cargo.toml",
       "engine/wasm/src",
       "engine/wasm/Cargo.toml",
       "engine/ui-cabi/src",
@@ -233,6 +237,10 @@ describe("published npm artifacts", () => {
   test("framework tarball contains every locked native and standalone Pocket3D input", async () => {
     const files = packedFiles(root);
     expect(files).toEqual(expect.arrayContaining([
+      "engine/spec/Cargo.toml",
+      "engine/spec/src/lib.rs",
+      "engine/drivers/Cargo.toml",
+      "engine/drivers/src/lib.rs",
       "engine/pocket3d/crates/pocket3d-anim/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-anim/src/lib.rs",
       "engine/crates/pocket-sim/src/lib.rs",
@@ -414,7 +422,32 @@ describe("published npm artifacts", () => {
       expect(packages).toContain("pocket3d-anim");
       expect(packages).toContain("pocket3d-mesh");
       expect(packages).toContain("pocket3d-packs");
+      expect(packages).toContain("pocket-spec");
+      expect(packages).toContain("pocket-drivers");
       expect(existsSync(join(scratch, "package/engine/core/Cargo.toml"))).toBe(true);
+
+      // A fresh native consumer must resolve the extracted contracts using
+      // only the tarball's source paths, without a registry or this checkout.
+      const consumer = join(scratch, "native-consumer");
+      mkdirSync(join(consumer, "src"), { recursive: true });
+      writeFileSync(join(consumer, "Cargo.toml"), `[package]
+name = "packed-contract-consumer"
+version = "0.0.0"
+edition = "2021"
+[dependencies]
+pocket-spec = { path = "../package/engine/spec" }
+pocket-drivers = { path = "../package/engine/drivers" }
+`);
+      writeFileSync(join(consumer, "src/lib.rs"), `#![no_std]
+pub use pocket_drivers::{DrawList, FontView, RenderResources, TexView};
+pub const ROOT_ID: i32 = pocket_spec::ROOT_ID;
+`);
+      const check = Bun.spawnSync({
+        cmd: ["cargo", "check", "--offline", "--manifest-path", join(consumer, "Cargo.toml")],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(check.exitCode, check.stderr.toString()).toBe(0);
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }

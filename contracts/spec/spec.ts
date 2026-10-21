@@ -2,7 +2,7 @@
 //
 // Everything the TS runtime (framework/src/), the compiler (framework/compiler/), the Rust core
 // (engine/core/), the wasm host and the PSP native host agree on is pinned HERE, in
-// plain data. `contracts/spec/gen-rust.ts` deterministically generates `engine/core/src/spec.rs`
+// plain data. `contracts/spec/gen-rust.ts` deterministically generates `engine/spec/src/lib.rs`
 // from this file; `tests/contract.ts` regenerates it in-memory and byte-compares
 // against the committed file, so TS and Rust can never drift.
 //
@@ -15,7 +15,7 @@
 //     unless stated otherwise.
 //
 // If you change ANY value here: run `bun contracts/spec/gen-rust.ts`, commit the
-// regenerated engine/core/src/spec.rs, and bump the relevant format VERSION if the
+// regenerated engine/spec/src/lib.rs, and bump the relevant format VERSION if the
 // change alters a binary layout.
 
 // ---------------------------------------------------------------------------
@@ -1480,6 +1480,9 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           is emitted exactly where the surface node occurs
 //                           in shell painter order, so later shell ops remain
 //                           above the child surface.
+
+/** Closed DrawList operation generation; drivers and archives use matching headers. */
+export const DRAW_LIST_VERSION = 1;
 
 export const DRAW_OP = {
   rect: 1,

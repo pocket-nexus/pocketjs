@@ -10,6 +10,43 @@ const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
 describe("ESP-IDF incremental package build", () => {
+  test.each(["checkout", "vendor"])("native %s builds track extracted contract sources", (layout) => {
+    const temporary = realpathSync(mkdtempSync(join(tmpdir(), "pocketjs native deps ")));
+    try {
+      const component = join(temporary, "hosts/esp-idf/components/pocketjs_ui_core");
+      const build = join(temporary, "build");
+      mkdirSync(component, { recursive: true });
+      for (const file of ["native_archive.cmake", "prepare_archive.cmake", "rustc_wrapper.rs"])
+        cpSync(join(root, "hosts/esp-idf/components/pocketjs_ui_core", file), join(component, file));
+      const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/ui-core");
+      const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
+      for (const source of [native, join(contracts, "core"), join(contracts, "spec"), join(contracts, "drivers")]) {
+        mkdirSync(join(source, "src"), { recursive: true });
+        writeFileSync(join(source, "Cargo.toml"), "# build dependency fixture\n");
+        writeFileSync(join(source, "src/lib.rs"), "// build dependency fixture\n");
+      }
+      writeFileSync(join(temporary, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
+project(native_dependencies NONE)
+set(IDF_TARGET esp32s3)
+set(POCKETJS_RUST_FROM_SOURCE ON CACHE BOOL "" FORCE)
+# Inspect the archive build graph without linking a firmware component.
+function(target_link_libraries)
+endfunction()
+include("${join(component, "native_archive.cmake")}")
+pocketjs_link_native("${component}" ui-core pocketjs_idf_ui_core POCKETJS_TEST_ARCHIVE)
+`);
+      const result = Bun.spawnSync(["cmake", "-S", temporary, "-B", build, "-G", "Ninja"], {
+        stdout: "pipe", stderr: "pipe",
+      });
+      expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
+      const graph = readFileSync(join(build, "build.ninja"), "utf8");
+      const archiveEdge = graph.split("\n").find(line => line.startsWith("build cargo/") && line.includes(".a: CUSTOM_COMMAND"));
+      expect(archiveEdge).toBeDefined();
+      for (const crate of ["spec", "drivers"]) for (const file of ["Cargo.toml", "src/lib.rs"])
+        expect(archiveEdge).toContain(join(contracts, crate, file).replaceAll(" ", "$ "));
+    } finally { rmSync(temporary, { recursive: true, force: true }); }
+  }, 30_000);
+
   test("escapes depfile paths", () => {
     const output = depfile("/tmp/a b.pocket", ["/tmp/new #$.ts"]);
     expect(output).toContain("a\\ b.pocket:");

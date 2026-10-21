@@ -49,6 +49,64 @@ Three rules constrain the surface:
 
 The op codes are pinned once, in `contracts/spec/spec.ts` (the `OP` table), and shared by every host and the Rust core. Codes are append-only: never renumbered, never reused. `0` is reserved as invalid/nop.
 
+## Driver contract migration
+
+`contracts/spec/input.ts`, `driver-abi.ts`, and `runtime-abi.ts` define the
+device vocabulary, C records, callbacks, and runtime function declarations.
+`bun tools/driver-contracts.ts` generates `contracts/generated/pocket_drivers.h`,
+`contracts/generated/pocket_runtime.h`, and `engine/drivers/src/abi.rs`.
+`--check` compares each output with its source. Rust and C compile-time
+assertions check field offsets, alignment, and record size using the target's
+primitive alignment rules.
+
+**The new runtime functions are declarations.** Existing QuickJS, rquickjs,
+Wasm, and ESP-IDF entry points remain in use. Generated bindings and runtime
+registration follow the contract extraction stage.
+
+`DisplayOutput` owns acquired targets and display transfers. `Renderer`
+consumes the core's DrawList and borrowed resource views. The Rust render
+method takes `&mut FrameInput` because a CPU surface grants exclusive write
+access to its pixels. A renderer with a CPU-visible target uses the
+`Immediate` synchronization model; device-owned targets may complete after
+the render call.
+
+**The required order is acquire, render, renderer wait, display flush,
+display wait, retire.** Both wait methods end device access on success and
+failure. A driver must stop or reset a hung device before returning an error.
+A render or flush error also means that the work started by that call has
+stopped. Retirement releases a submission's resources after display transfer
+ends. Shared textures remain alive until the last submission using that
+version retires. Destruction waits for outstanding work before releasing
+memory. A failed frame invalidates the buffer's damage history.
+
+The safe render method cannot retain a borrow from the frame after return.
+Deferred hardware work uses driver-owned vertex, texture, and glyph storage.
+`render_zero_copy` is an unsafe exception: the caller keeps all referenced
+resources alive and unchanged until renderer wait returns, including before
+the next application tick. Software fallback requires a CPU-visible target,
+completion of earlier hardware writes, and cache visibility before the CPU
+writes that region.
+
+The migration keeps four compatibility rules separate:
+
+| Contract | Evolution rule |
+| --- | --- |
+| Rust API | Cargo SemVer; new trait methods need defaults, and extensible descriptors use constructors with `non_exhaustive`. Existing core view types retain their construction syntax. |
+| C ABI | Records begin with `struct_size`. A consumer reads fields within the supplied prefix; missing callbacks mean unsupported. A producer cannot assume a consumer reads appended fields. |
+| DrawList | The operation set has no unknown-operation skip encoding. Drivers and the runtime archive use the same DrawList version. |
+| Guest bindings | The planned `hostAbi` value identifies a binding generation. Existing target-specific values remain in use until the package migration. |
+
+`contracts/spec/profile.ts` defines the future identity projection:
+`id`, `platform`, `form`, `tickHz`, `display`, `capabilities`, and optional
+`roleCapabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
+newline. Keys use UTF-16 code-unit order; arrays keep their order; absent
+optional fields stay absent. The canonicalizer rejects non-JSON data and
+unpaired surrogates. **`hostExtension` is excluded from profile identity**
+and may contain only metadata that does not change the application contract.
+Profile rename, capability addition, or viewport change creates a different
+identity. The current package table and profile admission keep their existing
+formats until the profile migration.
+
 ## The op table
 
 Signatures are authoritative from `framework/src/host.ts` (`HostOps`) and `contracts/spec/spec.ts`.

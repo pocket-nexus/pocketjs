@@ -42,7 +42,7 @@ frameworks (browser, RN, Flutter) structurally cannot offer:
 ### 1. Core (Rust, spec ops 18–22)
 
 New spec ops — added to `contracts/spec/spec.ts` `OP`, regenerated into
-`engine/core/src/spec.rs`, implemented on `Ui`, and exposed by both host bindings
+`engine/spec/src/lib.rs`, implemented on `Ui`, and exposed by both host bindings
 (`hosts/psp/src/ffi.rs`, `engine/wasm/src/lib.rs`). All are **debug-only, default-off,
 and unused by tests/goldens**, so shipped behavior is unchanged.
 

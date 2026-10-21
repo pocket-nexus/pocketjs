@@ -1,9 +1,10 @@
 //! GENERATED — do not edit; run `bun contracts/spec/gen-rust.ts` (from PocketJS/).
 //!
-//! Source of truth: PocketJS/spec/spec.ts — every constant here mirrors it.
+//! Source of truth: contracts/spec — every constant here mirrors its TypeScript definition.
 //! tests/contract.ts regenerates this file in-memory and byte-compares;
 //! if that fails, run `bun contracts/spec/gen-rust.ts` and commit the result.
 
+#![no_std]
 #![allow(dead_code)]
 #![allow(clippy::all)]
 
@@ -450,6 +451,7 @@ pub mod font_atlas {
 /// Word counts incl. header: RECT 4, GRAD_RECT 6, GLYPH_RUN 3+2n,
 /// TEX_QUAD 9, SCISSOR 3, SCISSOR_POP 1, TRI 7, TEX_TRI 12,
 /// TEXT_RUN 8+ceil(bytes/4), SURFACE_QUAD 9.
+pub const DRAW_LIST_VERSION: u32 = 1;
 pub mod draw_op {
     pub const RECT: u32 = 1;
     pub const GRAD_RECT: u32 = 2;

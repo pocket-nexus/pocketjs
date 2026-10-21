@@ -6,6 +6,7 @@ import { NATIVE_COMPONENTS, NATIVE_POLICY, RUST_TARGETS, nativeSourceFiles, nati
   sha256, verifyNativeReceipt, type NativeReceipt } from "../tools/esp-idf-native-receipt.ts";
 import { verifyComponentVersions } from "../tools/esp-idf-component-versions.ts";
 import { generatedIdfContracts } from "../tools/esp-idf-contracts.ts";
+import { stageEspIdfComponents } from "../tools/esp-idf-release.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const temporary: string[] = [];
@@ -49,6 +50,58 @@ describe("ESP-IDF release integrity", () => {
     writeFileSync(join(f.directory, "hosts/esp-idf/native/ui-core/src/lib.rs"), "changed source");
     await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
   });
+  test.each([
+    "engine/spec/src/lib.rs", "engine/spec/Cargo.toml",
+    "engine/drivers/src/lib.rs", "engine/drivers/Cargo.toml",
+  ])("rejects old archives after contract dependency changes: %s", async (path) => {
+    const f = await fixture();
+    writeFileSync(join(f.directory, path), "changed contract dependency");
+    await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
+  });
+  test("staged components resolve every native path dependency outside the repository", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pocketjs-release-")); temporary.push(directory);
+    const components = join(directory, "hosts/esp-idf/components");
+    cpSync(join(root, "hosts/esp-idf/components"), components, {
+      recursive: true,
+      filter: path => !path.split("/").some(part => part === "lib" || part === "vendor"),
+    });
+    cpSync(join(root, "LICENSE"), join(directory, "LICENSE"));
+    for (const native of NATIVE_COMPONENTS) {
+      for (const path of await nativeSourceFiles(root, native)) {
+        mkdirSync(dirname(join(directory, path)), { recursive: true });
+        cpSync(join(root, path), join(directory, path));
+      }
+      const pins = JSON.parse(readFileSync(join(directory, "hosts/esp-idf/native/toolchains.json"), "utf8"));
+      for (const target of ["esp32p4", "esp32s3"] as const) {
+        const archive = join(components, native.component, "lib", target);
+        mkdirSync(archive, { recursive: true });
+        const bytes = new Uint8Array([1, 2, 3, 4]);
+        writeFileSync(join(archive, native.archive), bytes);
+        const receipt: NativeReceipt = {
+          schemaVersion: 2, component: native.component, target, rustTarget: RUST_TARGETS[target],
+          compiler: `release: ${pins[target].release}\ncommit-hash: ${pins[target].commit}`,
+          archiver: target === "esp32p4" ? { version: "test archiver", executableSha256: "0".repeat(64) } : null,
+          sourceSha256: await nativeSourceDigest(directory, native), archiveSha256: sha256(bytes),
+          archiveBytes: bytes.length, policy: NATIVE_POLICY,
+        };
+        writeFileSync(join(archive, "build-receipt.json"), JSON.stringify(receipt));
+      }
+    }
+    const output = join(directory, "staged");
+    await stageEspIdfComponents(directory, output);
+    // Resolve the staged graph with Cargo, including core -> drivers -> spec.
+    // No workspace file or dependency path from the source tree is available.
+    for (const native of NATIVE_COMPONENTS) {
+      const result = Bun.spawnSync([
+        "cargo", "metadata", "--offline", "--locked", "--format-version=1",
+        "--manifest-path", join(output, native.component, "vendor/native/Cargo.toml"),
+      ], { stdout: "pipe", stderr: "pipe" });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
+      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers"])
+        expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
+    }
+  }, 30_000);
   test("archive preparation rules participate in source identity", async () => {
     const f = await fixture();
     writeFileSync(join(f.directory, "hosts/esp-idf/components/pocketjs_ui_core/prepare_archive.cmake"), "changed rules");

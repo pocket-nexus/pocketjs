@@ -84,7 +84,7 @@ PocketJS's rendering is split into three strictly separated layers:
 
 1. **Core** (Rust, `no_std`): owns the UI tree, runs layout/animation, emits a DrawList.
 2. **DrawList**: a flat `Vec<u32>` command stream — the core→backend IR. 8 opcodes,
-   format pinned in `contracts/spec/spec.ts`, codegen'd to `engine/core/src/spec.rs`.
+   format pinned in `contracts/spec/spec.ts`, codegen'd to `engine/spec/src/lib.rs`.
    All coordinates are pre-clipped to the viewport by the core's Sutherland–Hodgman
    stage; backends do **zero** clipping.
 3. **Backend**: walks the DrawList and renders it. Existing backends target sceGu (PSP),

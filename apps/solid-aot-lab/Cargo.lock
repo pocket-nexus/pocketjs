@@ -52,6 +52,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-drivers"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-solid-aot-lab"
 version = "0.1.0"
 dependencies = [
@@ -59,9 +66,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-spec"
+version = "0.1.0"
+
+[[package]]
 name = "pocketjs-core"
 version = "0.1.0"
 dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
  "taffy",
 ]
 

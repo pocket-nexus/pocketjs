@@ -37,7 +37,7 @@
 // segment.
 //
 // If you change ANY value here: run `bun contracts/spec/gen-rust.ts`, commit
-// the regenerated engine/core/src/spec.rs (tests/contract.ts byte-compares).
+// the regenerated engine/spec/src/lib.rs (tests/contract.ts byte-compares).
 
 // ---------------------------------------------------------------------------
 // Fs ops (the `fs.*` native contract)

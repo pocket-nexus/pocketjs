@@ -8,6 +8,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "spec",
+    "drivers",
     "ios",
     "crates/pocket-db",
     "crates/pocket-fs",

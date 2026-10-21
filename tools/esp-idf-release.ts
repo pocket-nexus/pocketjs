@@ -42,6 +42,8 @@ export async function stageEspIdfComponents(root: string, output: string): Promi
       [join(root, "hosts/esp-idf/native/abi"), "abi"],
       [join(root, "hosts/esp-idf/native/runtime"), "runtime"],
       [join(root, "engine/core"), "core"],
+      [join(root, "engine/spec"), "spec"],
+      [join(root, "engine/drivers"), "drivers"],
       ...(spec.crate === "render-rgb565" ? [[join(root, "engine/backends/rgb565"), "renderer"]] : []),
     ];
     for (const [source, name] of sources) cpSync(source, join(vendor, name), { recursive: true, filter: path => !ignored(path) });

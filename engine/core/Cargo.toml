@@ -12,6 +12,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+pocket-spec = { path = "../spec" }
+pocket-drivers = { path = "../drivers" }
 # no_std + alloc flexbox layout. Feature set verified to resolve; f32-only,
 # no libm (see docs/DESIGN.md "Why these choices").
 taffy = { version = "0.11", default-features = false, features = [

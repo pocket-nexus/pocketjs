@@ -1788,6 +1788,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-drivers"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-fs"
 version = "0.1.0"
 dependencies = [
@@ -1821,6 +1828,10 @@ dependencies = [
 
 [[package]]
 name = "pocket-sim"
+version = "0.1.0"
+
+[[package]]
+name = "pocket-spec"
 version = "0.1.0"
 
 [[package]]
@@ -1943,6 +1954,8 @@ dependencies = [
 name = "pocketjs-core"
 version = "0.1.0"
 dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
  "taffy",
 ]
 
