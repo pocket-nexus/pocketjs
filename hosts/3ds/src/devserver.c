@@ -1,3 +1,4 @@
+#include "pocket_spec.h"
 /*
  * Paired in-process development transport for Pocket Runtime.
  *
@@ -28,6 +29,8 @@
 
 #ifndef POCKETJS_HOST_ABI
 #error "POCKETJS_HOST_ABI must come from the verified ResolvedBuildPlan"
+#elif POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
+#error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
 #ifndef POCKETJS_TARGET_ID
 #error "POCKETJS_TARGET_ID must come from the verified ResolvedBuildPlan"

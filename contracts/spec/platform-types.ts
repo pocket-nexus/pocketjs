@@ -105,7 +105,7 @@ export interface DisplayProfile extends FixedDisplayProfile {
 export interface TargetProfile<C extends string = string> {
   /** Legacy registry adapter: omitted rates retain its 60 Hz contract. */
   readonly tickHz?: number;
-  /** JS/native HostOps wire generation embedded by the selected backend. */
+  /** Generated UI binding generation; all profiles use the shared constant. */
   readonly hostAbi: number;
   /** Device/OS substrate ("psp", "vita", "macos", …). Queryable data — the
    *  target id is only a label. */

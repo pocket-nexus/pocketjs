@@ -164,7 +164,7 @@ pub fn admit(bytes: &[u8], plan: &Value) -> Result<Bundle, String> {
     )
     .map_err(|error| format!("profile: {error:?}"))?
     .ok_or("missing program profile build inputs")?;
-    let guest = package::select_guest(bytes, "vita", 2, &profile.hash, false)
+    let guest = package::select_guest(bytes, "vita", pocketjs_core::spec::BINDING_GENERATION, &profile.hash, false)
         .map_err(|e| format!("package: {e:?}"))?;
     let package = Package::parse(bytes, true).map_err(|e| format!("package: {e:?}"))?;
     let identity = package

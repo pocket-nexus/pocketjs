@@ -1,6 +1,6 @@
 // Instance transport for the generated guest UI and the canonical Runtime.
 // Compiler/pixel harnesses can use the same OpContext without booting a guest.
-import { mountUi, encodeUiString } from "./generated-ui.js";
+import { mountUi, encodeUiString, POCKET_BINDING_GENERATION } from "./generated-ui.js";
 export const FB_W = 480;
 export const FB_H = 272;
 const encoder = new TextEncoder();
@@ -9,16 +9,22 @@ function integer(value, name, min, max) {
   if (!Number.isInteger(value) || value < min || value > max) throw new RangeError(`${name} must be ${min} through ${max}`);
   return value;
 }
+function bindingGeneration(value) {
+  if (value !== POCKET_BINDING_GENERATION) throw new TypeError(`Unsupported UI binding generation; expected ${POCKET_BINDING_GENERATION}`);
+  return value;
+}
 function bytesOf(value) {
   if (value == null) return new Uint8Array();
   return ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : new Uint8Array(value);
 }
 export async function createWasmUi(wasm, options = {}) {
+  bindingGeneration(options.hostAbi === undefined ? POCKET_BINDING_GENERATION : options.hostAbi);
   const module = wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
   return createWasmUiSync(module, options);
 }
 /** Synchronous entry for the compiler's layout solver. */
 export function createWasmUiSync(wasm, options = {}) {
+  const hostAbi = bindingGeneration(options.hostAbi === undefined ? POCKET_BINDING_GENERATION : options.hostAbi);
   const module = wasm instanceof WebAssembly.Module ? wasm : new WebAssembly.Module(wasm);
   let ex, handle = 0, mounted, ops, booted = false, pending = false, disposed = false, callbackDepth = 0;
   let callbacks = {}, callbackError, realm, evaluation;
@@ -52,6 +58,7 @@ export function createWasmUiSync(wasm, options = {}) {
     return ui;
   }
   function mount(environment, global = {}) {
+    bindingGeneration(environment.hostAbi);
     mounted?.dispose(); mounted=mountUi(transport,environment,global); ops=wrapBindings(mounted.ui); return ops;
   }
   const instance = new WebAssembly.Instance(module, { pocket_web: { guest_call(kind, nativeHandle, p, n, pak, pakLength) {
@@ -118,7 +125,7 @@ export function createWasmUiSync(wasm, options = {}) {
       throw new Error("Unknown UI result tag");
     } finally {ex.web_free(p,total);}
   }};
-  function mountHarness() { mount({...(options.host ? {host:options.host,hostAbi:options.hostAbi ?? 1} : {}),tickHz:60,viewport:{w:width,h:height},...(auxiliary ? {auxiliary:{root:ex.web_auxiliary_root(handle),w:auxiliary[0],h:auxiliary[1]}} : {})}); }
+  function mountHarness() { mount({host:options.host,hostAbi,tickHz:60,viewport:{w:width,h:height},...(auxiliary ? {auxiliary:{root:ex.web_auxiliary_root(handle),w:auxiliary[0],h:auxiliary[1]}} : {})}); }
   mountHarness();
   function capture(scale,mode) {
     control();scale=integer(scale,"render scale",1,4);
@@ -137,13 +144,14 @@ export function createWasmUiSync(wasm, options = {}) {
     get ops(){return ops;}, exports:ex,get booted(){return booted;},get disposed(){return disposed;},
     boot(source,bootOptions={}) {
       control();if(booted)throw new Error("Reset before booting another guest");
+      const generation=bindingGeneration(bootOptions.hostAbi === undefined ? hostAbi : bootOptions.hostAbi);
+      const host=bootOptions.host ?? options.host ?? "web";
       callbacks=bootOptions;realm=bootOptions.global ?? globalThis;renderScale=integer(bootOptions.renderScale ?? 1,"render scale",1,4);
       mounted.dispose();mounted=undefined;
       // Harness callers may have assigned its ops to the same realm.
       if(realm.ui===ops)delete realm.ui;
       callbackError=undefined;
-      const host=bootOptions.host ?? options.host ?? "web", hostAbi=integer(bootOptions.hostAbi ?? options.hostAbi ?? 1,"host ABI",1,0xffffffff);
-      withBytes(encoder.encode(host),(p,n)=>check(ex.web_set_identity(handle,p,n,hostAbi)));
+      withBytes(encoder.encode(host),(p,n)=>check(ex.web_set_identity(handle,p,n,generation)));
       providers={...(bootOptions.providers ?? {})};
       for(const [name,callback] of Object.entries(providers)){
         if(typeof callback!=="function")throw new TypeError(`Invalid provider ${name}`);
@@ -155,6 +163,7 @@ export function createWasmUiSync(wasm, options = {}) {
     /** Browser imports settle between JS tasks. The Runtime is retained while
      * evaluate's promise is pending; pixels and frame advancement stay gated. */
     async bootAsync(source,bootOptions={}) {
+      bindingGeneration(bootOptions.hostAbi === undefined ? hostAbi : bootOptions.hostAbi);
       try {
         api.boot(source,{...bootOptions,async:true});
         bootPending=true;
@@ -175,7 +184,7 @@ export function createWasmUiSync(wasm, options = {}) {
     init(nextDensity=density){control();check(ex.web_reset(handle,integer(nextDensity,"density",1,255)));density=nextDensity;booted=false;pending=false;bindings.clear();mountHarness();},
     dispose(){if(disposed)return;control(true);check(ex.web_destroy(handle));mounted?.dispose();disposed=true;handle=0;},
     resizeViewport(w,h){control();w=integer(w,"width",1,32000);h=integer(h,"height",1,32000);check(ex.web_resize(handle,w,h));width=w;height=h;ops.__viewport.w=w;ops.__viewport.h=h;},
-    createAuxiliarySurface(w,h){control();w=integer(w,"auxiliary width",1,4096);h=integer(h,"auxiliary height",1,4096);const root=ex.web_auxiliary(handle,w,h);if(!root)throw new Error("Auxiliary changes require an unbooted host");auxiliary=[w,h];const added=mountUi(transport,{auxiliary:{root,w,h},viewport:{w:width,h:height}},{}).ui;Object.assign(ops, {hitTestAuxiliary:added.hitTestAuxiliary,hitTestBoundsAuxiliary:added.hitTestBoundsAuxiliary,__auxiliarySurface:added.__auxiliarySurface});return root;},
+    createAuxiliarySurface(w,h){control();w=integer(w,"auxiliary width",1,4096);h=integer(h,"auxiliary height",1,4096);const root=ex.web_auxiliary(handle,w,h);if(!root)throw new Error("Auxiliary changes require an unbooted host");auxiliary=[w,h];const added=mountUi(transport,{host:options.host,hostAbi,tickHz:60,auxiliary:{root,w,h},viewport:{w:width,h:height}},{}).ui;Object.assign(ops, {hitTestAuxiliary:added.hitTestAuxiliary,hitTestBoundsAuxiliary:added.hitTestBoundsAuxiliary,__auxiliarySurface:added.__auxiliarySurface});return root;},
     tick(){control();check(ex.web_tick(handle));},
     focused(){control();return ex.web_focused(handle);},
     inspectNode(id){control();check(ex.web_inspect(handle,id));return JSON.parse(resultText());},

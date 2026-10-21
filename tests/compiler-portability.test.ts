@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -84,7 +85,7 @@ describe("compiler filesystem portability", () => {
         "process.env.NODE_ENV": '"production"',
         document: "globalThis.__pocketDocument",
         __POCKET_TARGET__: '""',
-        __POCKET_HOST_ABI__: "0",
+        __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
         __POCKET_FEATURES__: "{}",
         __POCKET_PIXEL_RATIO__: "1",
       },

@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import {
   extractHostBuildInputs,
@@ -29,7 +30,7 @@ describe("custom host build boundary", () => {
       appOutput: "main",
       app: { id: "dev.pocket-nexus.telemetry", title: "Pocket Telemetry", version: "0.1.0" },
       target: "psp",
-      hostAbi: 1,
+      hostAbi: POCKET_BINDING_GENERATION,
       viewport: {
         logical: [480, 272],
         physical: [480, 272],
@@ -45,6 +46,32 @@ describe("custom host build boundary", () => {
       .toThrow("invalid ResolvedBuildPlan checksum");
     expect(() => extractHostBuildInputs(plan, { expectedTarget: "vita" }))
       .toThrow("expected target vita, got psp");
+  });
+
+  test("rejects legacy binding generations even with a valid plan and profile hash", () => {
+    const plan = portablePlan();
+    const { planHash: _hash, ...content } = plan;
+    const inputs = extractHostBuildInputs(plan);
+    for (let generation = 1; generation < POCKET_BINDING_GENERATION; generation++) {
+      const stale = finalizeBuildPlan({ ...content, target: { ...plan.target, hostAbi: generation } });
+      expect(() => extractHostBuildInputs(stale)).toThrow("binding generation");
+      expect(() => hostBuildEnvironment({ ...inputs, hostAbi: generation }, { outputDirectory: "/tmp", embedApp: false })).toThrow("binding generation");
+    }
+  });
+
+  test("the standalone compiler rejects a stale plan before looking up application files", () => {
+    const parent = join(import.meta.dir, "../.pocket-build/validation/binding-generation");
+    mkdirSync(parent, { recursive: true });
+    const directory = mkdtempSync(join(parent, "stale-plan-"));
+    try {
+      const { planHash: _hash, ...content } = portablePlan();
+      const stale = finalizeBuildPlan({ ...content, target: { ...content.target, hostAbi: 1 } });
+      const path = join(directory, "plan.json");
+      writeFileSync(path, JSON.stringify(stale));
+      const result = Bun.spawnSync([process.execPath, join(import.meta.dir, "../tools/build.ts"), `--plan=${path}`, `--project-root=${directory}`, `--outdir=${directory}/out`]);
+      expect(result.success).toBe(false);
+      expect(result.stderr.toString()).toContain("binding generation 1 is unsupported");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 
   test("generates one target-neutral native environment", () => {
@@ -63,7 +90,7 @@ describe("custom host build boundary", () => {
       POCKETJS_EMBED_APP: "0",
       POCKETJS_OUTPUT_DIR: "/tmp/pocket",
       POCKETJS_TARGET: "psp",
-      POCKETJS_HOST_ABI: "1",
+      POCKETJS_HOST_ABI: String(POCKET_BINDING_GENERATION),
       POCKETJS_LOGICAL_WIDTH: "480",
       POCKETJS_LOGICAL_HEIGHT: "272",
       POCKETJS_PHYSICAL_WIDTH: "480",

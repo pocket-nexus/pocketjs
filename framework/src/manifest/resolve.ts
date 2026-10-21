@@ -21,6 +21,7 @@ import {
   type ResolvedBuildPlanContent,
 } from "./plan.ts";
 import { validatePocketManifest, type ContractDiagnostic } from "./validate.ts";
+import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 
 const AUXILIARY_DISPLAY = "display.auxiliary";
 const AUXILIARY_TOUCH = "input.touch.auxiliary";
@@ -307,6 +308,10 @@ export function validatePlatformContractRegistry(
   });
 
   for (const [targetId, target] of Object.entries(registry.targets)) {
+    if (target.hostAbi !== POCKET_BINDING_GENERATION) {
+      diagnostics.push({ code: "registry.bindingGeneration", path: `/targets/${targetId}/hostAbi`,
+        message: `target must use binding generation ${POCKET_BINDING_GENERATION}` });
+    }
     if (target.tickHz !== undefined && (!Number.isInteger(target.tickHz) || target.tickHz < 1 || target.tickHz > 240)) {
       diagnostics.push({ code: "registry.invalidTickHz", path: `/targets/${targetId}/tickHz`,
         message: "target tickHz must be an integer from 1 through 240" });

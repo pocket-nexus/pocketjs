@@ -262,21 +262,19 @@ keep the d-pad focus walk unchanged.
 ## Target profiles
 
 Built-in software records live in `profiles/<id>.ts` and are exported by
-`profiles/index.ts`. `POCKET_TARGETS` in `contracts/spec/platforms.ts` is a
-compatibility adapter for this subset. The binding numbers below retain their
-legacy values; `profiles/legacy-abi.ts` keeps them separate from profile
-content.
+`profiles/index.ts`. **Every profile uses the same binding generation, 12.**
+`hostAbi` is defined in `contracts/spec/binding-generation.ts` and is excluded
+from profile identity. The profile supplies the software facts below.
 
-| Target         | hostAbi | platform / form   | Logical viewport                         | Density | Capabilities |
-| -------------- | ------- | ----------------- | ---------------------------------------- | ------- | ------------ |
-| `psp`          | 1       | psp / takeover    | 480×272 (`native`, `integer-fit`)        | 1       | `input.analog.left`, `input.buttons`, `input.cursor`, `audio.pcm`, `text.glyphs.baked` |
-| `vita`         | 2       | vita / takeover   | 480×272 (`integer-fit`)                  | 2       | `input.analog.left`, `input.buttons`, `input.cursor`, `input.touch`, `text.glyphs.baked` |
-| `pocketbook`   | 5       | pocketbook / takeover | 480×272 (`integer-fit`)              | 2       | `input.buttons`, `input.touch`, `text.glyphs.baked` |
-| `macos-widget` | 3       | macos / widget    | 420×560 default, 240×180…4096×4096       | 2       | `input.buttons`, `input.ime`, `input.pointer`, `input.text`, `host.clipboard`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime` |
-| `macos-app`    | 4       | macos / window    | 720×480 default, 240×180…4096×4096, accepts fixed | 2 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.layout.native`; systemUI role adds `ui.compositor-surfaces` |
-| `linux-app`    | 4       | linux / window    | 800×600 default, 240×180…4096×4096, accepts fixed | 1 | same as `macos-app` |
-| `web-app`      | 4       | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime`; systemUI role adds `ui.compositor-surfaces` |
-
+| Target         | platform / form   | Logical viewport                         | Density | Capabilities |
+| -------------- | ----------------- | ---------------------------------------- | ------- | ------------ |
+| `psp`          | psp / takeover    | 480×272 (`native`, `integer-fit`)        | 1       | `input.analog.left`, `input.buttons`, `input.cursor`, `audio.pcm`, `text.glyphs.baked` |
+| `vita`         | vita / takeover   | 480×272 (`integer-fit`)                  | 2       | `input.analog.left`, `input.buttons`, `input.cursor`, `input.touch`, `text.glyphs.baked` |
+| `pocketbook`   | pocketbook / takeover | 480×272 (`integer-fit`)              | 2       | `input.buttons`, `input.touch`, `text.glyphs.baked` |
+| `macos-widget` | macos / widget    | 420×560 default, 240×180…4096×4096       | 2       | `input.buttons`, `input.ime`, `input.pointer`, `input.text`, `host.clipboard`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime` |
+| `macos-app`    | macos / window    | 720×480 default, 240×180…4096×4096, accepts fixed | 2 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.layout.native`; systemUI role adds `ui.compositor-surfaces` |
+| `linux-app`    | linux / window    | 800×600 default, 240×180…4096×4096, accepts fixed | 1 | same as `macos-app` |
+| `web-app`      | web / window      | 800×600 default, 320×240…4096×4096, accepts fixed | 1 | `input.buttons`, `display.viewport.live`, `text.glyphs.baked`, `text.glyphs.runtime`; systemUI role adds `ui.compositor-surfaces` |
 `roleCapabilities.systemUI` is the one conditional column: those APIs reach a
 package only when it resolves in the System-UI role. `ui.compositor-surfaces`
 is the API a shell uses to place other installed packages into native
@@ -387,7 +385,7 @@ This excerpt shows the application and viewport fields resolved for `vita`:
     "output": "main",
     "framework": "solid"
   },
-  "target": { "id": "vita", "hostAbi": 2 },
+  "target": { "id": "vita", "hostAbi": 12 },
   "viewport": {
     "logical": [480, 272],
     "physical": [960, 544],

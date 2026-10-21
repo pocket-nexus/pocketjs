@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -147,7 +148,7 @@ describe("private iPhone 4S profile", () => {
       buildId: "a".repeat(32),
       bundleId: "dev.pocket-nexus.iphone4s-demo",
       target: "iphone4s-dev",
-      hostAbi: 5,
+      hostAbi: POCKET_BINDING_GENERATION,
       deploymentTarget: "6.0",
       files: { "PocketJSiPhone4S": "1".repeat(64), "Info.plist": "2".repeat(64) },
     };

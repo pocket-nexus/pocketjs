@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
 // Deterministic codegen: contracts/spec/{spec,audio,db,fs,net,physics}.ts -> engine/spec/src/lib.rs.
 //
 // Run from PocketJS/:  bun contracts/spec/gen-rust.ts
@@ -221,6 +222,10 @@ export function generateRust(): string {
   put("#![no_std]");
   put("#![allow(dead_code)]");
   put("#![allow(clippy::all)]");
+  put("");
+
+  put("/// Generated guest/native binding contract; independent of profile identity.");
+  put(`pub const BINDING_GENERATION: u32 = ${POCKET_BINDING_GENERATION};`);
   put("");
 
   // --- scalars ---------------------------------------------------------------

@@ -415,7 +415,7 @@ Bun.build({
   define: {
     "process.env.NODE_ENV": '"production"',
     __POCKET_TARGET__: JSON.stringify(buildPlan?.target.id ?? ""),
-    __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? 0),
+    __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
     __POCKET_FEATURES__: JSON.stringify(buildPlan?.features ?? {}),
     __POCKET_PIXEL_RATIO__: String(rasterDensity),
     __POCKET_TICK_HZ__: String(tickHz),
@@ -442,9 +442,8 @@ never be shipped that the bundle doesn't use, or vice versa.
 With a resolved plan, pass 1 also replaces literal
 `hasFeature("capability.id")` calls with `true` or `false`; normal tree shaking
 can then remove an unavailable enhancement branch. Pass 2 bakes five constants
-the runtime contract reads: `__POCKET_TARGET__` and `__POCKET_HOST_ABI__` (empty
-and 0 without a plan, which is how a plan-less bundle skips the target/ABI
-check), `__POCKET_FEATURES__`, `__POCKET_PIXEL_RATIO__` (the resolved raster
+the runtime contract reads: `__POCKET_TARGET__` (empty without a plan),
+`__POCKET_HOST_ABI__` (the generated binding generation), `__POCKET_FEATURES__`, `__POCKET_PIXEL_RATIO__` (the resolved raster
 density), and `__POCKET_TICK_HZ__` (the `--hz` rate, 60 by default). A Vue Vapor
 build adds a sixth define, rewriting the bare `document` identifier to
 `globalThis.__pocketDocument`.

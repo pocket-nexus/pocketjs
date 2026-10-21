@@ -1,3 +1,4 @@
+#include "pocket_spec.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
@@ -19,7 +20,7 @@ int32_t pocket_package_open(
   uint32_t host_abi, const uint8_t expected_profile_hash[32],
   PocketGuestPackage *out
 ) {
-  if (length != 32 || bytes[0] != 0x50 || host_abi != 8 ||
+  if (length != 32 || bytes[0] != 0x50 || host_abi != POCKET_BINDING_GENERATION ||
       target_length != 7 || memcmp(target, "3ds-dev", 7) != 0) {
     return 4;
   }

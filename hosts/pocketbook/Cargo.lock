@@ -526,6 +526,7 @@ dependencies = [
  "pocket-mod",
  "pocket-package",
  "pocket-runtime",
+ "pocket-spec",
  "pocketjs-core",
  "serde_json",
 ]
@@ -542,6 +543,7 @@ dependencies = [
  "pocket-drivers",
  "pocket-mod",
  "pocket-runtime",
+ "pocket-spec",
  "pocket-ui-surface",
  "pocketjs-core",
  "rquickjs",

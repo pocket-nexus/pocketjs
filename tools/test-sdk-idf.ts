@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,7 +46,7 @@ globalThis.frame=(buttons)=>ui.setProp(box,${PROP.bgColor},buttons?0xff00ff00:0x
 // Maintained fixture for the current package contract and independent profile.
 function packageBytes(): Uint8Array {
   const bytes = (text: string) => new TextEncoder().encode(text);
-  return encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "external-idf", hostAbi: 1,
+  return encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "external-idf", hostAbi: POCKET_BINDING_GENERATION,
     profileHash: `sha256:${sha256(profile)}`, sections: [
     { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
     { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[32,24],"rasterDensity":1},"features":{}}') },

@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 // Pocket Link companion (tools/companion/*) against contracts/spec/link.ts:
 // protocol vectors, the handshake in both modes through the reference console
 // client, net / catalog / install over a live loopback link, the control API,
@@ -183,7 +184,7 @@ function makePackage(options: { id: string; title: string; target?: string; vers
     variants: [
       {
         target: options.target ?? "3ds-dev",
-        hostAbi: 11,
+        hostAbi: POCKET_BINDING_GENERATION,
         profileHash: `sha256:${"11".repeat(32)}`,
         sections: [
           { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output, id: options.id, title: options.title }) },

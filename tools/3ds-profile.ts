@@ -1,5 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/3ds-dev.ts";
-import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -20,14 +21,14 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * input.touch.auxiliary.
  */
 export const THREE_DS_DEV_TARGET_ID = softwareProfile.id;
-export const THREE_DS_DEV_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const THREE_DS_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const THREE_DS_VIEWPORT = softwareProfile.display.logicalViewports[0];
 export const THREE_DS_AUXILIARY_VIEWPORT = softwareProfile.display.auxiliary.logicalViewports[0];
 
 export const THREE_DS_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [THREE_DS_DEV_TARGET_ID]: legacyTargetProfile(softwareProfile),
+    [THREE_DS_DEV_TARGET_ID]: targetProfile(softwareProfile),
   }),
 );
 

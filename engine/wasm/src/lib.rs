@@ -3,7 +3,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 use pocket_drivers::{abi::*, *};
-use pocket_runtime::{OpContext, OpResult, Runtime, RuntimeError};
+use pocket_runtime::{generated_ops::BINDING_GENERATION, OpContext, OpResult, Runtime, RuntimeError};
 use pocketjs_core::{raster, Ui};
 use serde_json::{json, Value};
 use std::{
@@ -117,7 +117,7 @@ pub extern "C" fn web_create(w: u32, h: u32, density: u32, aw: u32, ah: u32) -> 
         logical: Cell::new([w, h]),
         physical: Rc::new(Cell::new([w, h])),
         density: Cell::new(density),
-        identity: RefCell::new(("web".into(), 1)),
+        identity: RefCell::new(("web".into(), BINDING_GENERATION)),
         auxiliary: Cell::new(aux),
         input: Rc::new(RefCell::new(InputFrameBuilder::new())),
         snapshot: Rc::new(Cell::new(Snapshot::default())),

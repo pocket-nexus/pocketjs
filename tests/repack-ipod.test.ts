@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/ipodtouch4-dev.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
@@ -64,7 +65,7 @@ async function runtimeFiles(overrides: { target?: string; hostAbi?: number; host
   for (const [name, bytes] of files) listed[name] = { bytes: bytes.length, sha256: await sha256Hex(bytes) };
   files.set("runtime.json", new TextEncoder().encode(JSON.stringify({
     target: overrides.target ?? "ipodtouch4-dev",
-    hostAbi: overrides.hostAbi ?? 8,
+    hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
     pocketjs: "0".repeat(40),
     profile: "ipodtouch4-dev", profileHash: hashPocketProfile(softwareProfile),
     files: listed,
@@ -120,7 +121,7 @@ describe("repackIPod", () => {
     expect(Array.from(small.rgba.subarray(0, 4))).toEqual([255, 210, 63, 255]);
 
     const receipt = JSON.parse(new TextDecoder().decode(files.get(`${app}build-receipt.json`)!.bytes));
-    expect(receipt).toMatchObject({ schema: 1, buildId: "0123456789abcdef0123456789abcdef", bundleId: ID, target: "ipodtouch4-dev", hostAbi: 8, deploymentTarget: "6.0" });
+    expect(receipt).toMatchObject({ schema: 1, buildId: "0123456789abcdef0123456789abcdef", bundleId: ID, target: "ipodtouch4-dev", hostAbi: POCKET_BINDING_GENERATION, deploymentTarget: "6.0" });
     expect(receipt.viewport).toEqual({ logical: [320, 480], physical: [640, 960], rasterDensity: 2 });
     for (const [name, digest] of Object.entries(receipt.files)) {
       expect(await sha256Hex(files.get(app + name)!.bytes)).toBe(digest as string);
@@ -145,14 +146,14 @@ describe("repackIPod", () => {
 
   test("refuses another target's runtime, a wrong host ABI, a broken footer and plans it cannot run", async () => {
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ target: "3ds-dev" }) }))).rejects.toThrow(/not "ipodtouch4-dev"/);
-    await expect(repackIPod(await input({ runtime: await runtimeFiles({ hostAbi: 9 }) }))).rejects.toThrow(/host ABI 8; this runtime is ABI 9/);
+    await expect(repackIPod(await input({ runtime: await runtimeFiles({ hostAbi: 9 }) }))).rejects.toThrow(/runtime binding generation 9 is unsupported/);
     await expect(repackIPod(await input({ runtime: await runtimeFiles({ host: {} }) }))).rejects.toThrow(/no host build id/);
     const broken = pocketFor();
     broken[64] ^= 1;
     await expect(repackIPod(await input({ pocket: broken }))).rejects.toThrow(/hash mismatch/);
     const other = encodePocketPackage({
       manifest: new TextEncoder().encode("{}"),
-      variants: [{ target: "ipodtouch4-dev", hostAbi: 8, profileHash: hashPocketProfile(softwareProfile), sections: [
+      variants: [{ target: "ipodtouch4-dev", hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(softwareProfile), sections: [
         { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "x", id: "dev.other.game", title: "X" }) },
         { kind: POCKET_SECTION.plan, bytes: new TextEncoder().encode("{}") },
         { kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) },

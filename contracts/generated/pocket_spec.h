@@ -4,6 +4,9 @@
 #ifndef POCKET_SPEC_H
 #define POCKET_SPEC_H
 
+/* Generated guest/native binding contract; independent of profile identity. */
+#define POCKET_BINDING_GENERATION 12U
+
 /* Portable button bitmask — identical on every host. Native hosts map
  * their platform key codes onto these bits; the guest only sees the mask. */
 #define POCKET_BTN_SELECT 0x0001U

@@ -197,7 +197,7 @@ impl Hero {
         let mut runtime = Runtime::new(RuntimeConfig {
             profile_hash: pocket_package::sha256::sha256(profile),
             profile_json: profile.to_vec(),
-            host_abi: 1,
+            host_abi: pocket_spec::BINDING_GENERATION,
             tick_hz: TICK_HZ,
             heap_limit: 4 * 1024 * 1024,
             frame_buffer_budget: WIDTH * HEIGHT * 2,

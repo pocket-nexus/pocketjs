@@ -134,7 +134,7 @@ int main(int argc,char **argv){
   /* New-header/new-archive control. Old archives must fail at link time. */
   assert(pocket_draw_list_visit(NULL,NULL,1,NULL,NULL)==POCKET_STATUS_INVALID);
 #endif
-  pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=1;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
+  pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=fixture_binding_generation;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
   instance=pocket_runtime_create(&config);assert(instance);
   prefix_and_operation_tests();raster_test();
   pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};

@@ -7,6 +7,7 @@ repository.workspace = true
 description = "The PocketJS `ui` surface on the native desktop base: pak feeding, HostOps for the guest, DrawList rendered through wgpu"
 
 [dependencies]
+pocket-spec = { path = "../../spec" }
 pocket-drivers = { path = "../../drivers" }
 pocket-runtime = { path = "../../runtime" }
 pocket-web-render = { path = "../../../devices/web/pocket-web-render" }

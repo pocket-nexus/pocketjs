@@ -4,7 +4,7 @@ const HOST_ID: &str = "macos-app";
 const HOST_ID: &str = "linux-app";
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 compile_error!("pocket-desktop-host supports macOS and Linux");
-const HOST_ABI: u32 = 4;
+const HOST_ABI: u32 = pocket_spec::BINDING_GENERATION;
 const TICK_HZ: f64 = 60.0;
 
 // spec BTN bits (contracts/spec/spec.ts) — console input mode.

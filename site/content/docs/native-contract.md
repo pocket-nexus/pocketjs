@@ -68,8 +68,9 @@ instance, including a failed call.
 
 The old UI and ESP-IDF library names delegate to compatibility implementations
 in `engine/runtime-cabi/src/compat`. Existing QuickJS C, rquickjs `UiSurface`,
-and Wasm entry paths remain available. **The driver/runtime ABI is still a
-candidate contract**; package format and `hostAbi` retain their current meaning.
+and Wasm entry paths remain available. **Applications use package format 2
+and binding generation 12.** Profile identity, binding generation, C record
+prefixes and DrawList versions are checked as separate contracts.
 
 **`pocket sdk export --triple <rust-target> --out <directory>` builds a local
 candidate C SDK.** Its no_std archive disables legacy features and uses
@@ -111,9 +112,9 @@ The migration keeps four compatibility rules separate:
 | Rust API | Cargo SemVer; new trait methods need defaults, and extensible descriptors use constructors with `non_exhaustive`. Existing core view types retain their construction syntax. |
 | C ABI | Records begin with `struct_size`. A consumer reads fields within the supplied prefix; missing callbacks mean unsupported. A producer cannot assume a consumer reads appended fields. |
 | DrawList | The operation set has no unknown-operation skip encoding. Drivers and the runtime archive use the same DrawList version. |
-| Guest bindings | The planned `hostAbi` value identifies a binding generation. Existing target-specific values remain in use until the package migration. |
+| Guest bindings | `hostAbi` equals `POCKET_BINDING_GENERATION`, generated from `contracts/spec/binding-generation.ts`. Every profile uses generation 12; legacy target-specific values 1–11 are rejected. |
 
-`contracts/spec/profile.ts` defines the future identity projection:
+`contracts/spec/profile.ts` defines the profile identity projection:
 `id`, `platform`, `form`, `tickHz`, `display`, `capabilities`, and optional
 `roleCapabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
 newline. Keys use UTF-16 code-unit order; arrays keep their order; absent
@@ -121,8 +122,45 @@ optional fields stay absent. The canonicalizer rejects non-JSON data and
 unpaired surrogates. **`hostExtension` is excluded from profile identity**
 and may contain only metadata that does not change the application contract.
 Profile rename, capability addition, or viewport change creates a different
-identity. The current package table and profile admission keep their existing
-formats until the profile migration.
+identity. The format 2 variant table carries this hash as 32 bytes.
+
+### Package and driver compatibility
+
+**The program supplies its expected profile hash and binding generation before
+reading an application.** `Runtime::new` rejects a configuration whose
+`host_abi` differs from the generated constant. Guest adapters reject an
+unsupported generation before mounting `ui` or evaluating application code.
+
+| Package | Runtime | Result |
+| --- | --- | --- |
+| Format 1 | Current format 2, generation 12 | Reject the package version before guest initialization |
+| Format 2, legacy generation 1–11, matching profile hash | Generation 12 | Reject the binding generation |
+| Format 2, generation 12, wrong profile hash | Generation 12 | Reject the profile hash |
+| Format 2, generation 12, matching target and profile hash | Generation 12 | Admit if format, assets, viewport and driver checks pass |
+| Format 2, generation 12 | Old format 1 runtime | Reject the package version |
+| Format 2, generation 12 | Format 2 runtime built with a legacy generation | Reject the binding generation |
+
+Rebuild the program and application together when changing binding generation.
+The compiler, profile exporter and repacker require the current generation;
+they do not convert a legacy plan, runtime or package. The package codec can
+read historical generation values for inspection and compatibility tests.
+
+**`hostAbi` does not version a C driver.** A driver and runtime must agree on
+the closed DrawList version. Their C records follow prefix compatibility:
+
+| Driver or caller | Archive and headers | Supported use |
+| --- | --- | --- |
+| An older canonical `struct_size` prefix | Current archive, same DrawList version | Known fields and supplied callbacks; absent callbacks remain unsupported |
+| Current canonical prefix | Older archive, same DrawList version | Common exported symbols and the prefix understood by both; new symbols require a newer archive |
+| Either prefix | A different DrawList version | Unsupported; rebuild the driver with the matching headers |
+| Pre-contract private driver layout | Canonical runtime ABI | Unsupported; implement the generated driver contract |
+
+A record's `struct_size` describes readable bytes; output capacities bound
+writes. Prefix compatibility cannot make a missing function symbol link, or
+make an old renderer understand a new DrawList operation. The runtime lifecycle
+tests cover old-package rejection before guest initialization and replacement
+with a current package. `tests/runtime-cabi-compat.test.ts` compiles and links
+old/new C prefixes in both directions.
 
 ## The op table
 
@@ -259,14 +297,17 @@ stays native and non-strict. Otherwise `globalThis.ui` is taken; one that
 carries neither marker, as the web and wasm adapters publish, resolves as
 strict-injected. If neither exists, `render()` throws.
 
-A namespace marks itself native with `__host` plus `__hostAbi`, or, for hosts
-built before platform contracts, with `__textures` alone. A manifest-built
-bundle embeds its expected target and ABI and refuses to mount on a mismatch;
-`assertNativeHostContract` also compares the bundle's baked tick rate against
-the host's `ui.__tickHz` on every native mount.
+A namespace marks itself native with `__host` plus `__hostAbi`, or with the
+legacy `__textures` marker. **Every native mount requires the current binding
+generation**, including raw bundles with no target restriction. A namespace
+with only `__textures` is rejected because it lacks `__hostAbi`; rebuild its
+guest adapter. A manifest-built bundle also checks its expected target.
+`assertNativeHostContract` compares the bundle's baked tick rate against
+the host's `ui.__tickHz` on every native mount. Injected `HostOps` adapters
+have no native metadata requirement.
 
-On ESP-IDF the namespace is installed by `pocketjs_ui_qjs` into a caller-owned
-guest and forwards each op to a caller-owned core; see
+On ESP-IDF the generated QuickJS guest mounts the namespace and dispatches
+operations into the registered runtime instance; see
 [ESP-IDF](/docs/esp-idf/).
 
 Every host drives frames through

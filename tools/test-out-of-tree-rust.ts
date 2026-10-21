@@ -76,6 +76,12 @@ export async function runOutOfTreeRust(options: {
     // Current source is exercised after its commit, at the resolved HEAD.
     const spec = await command(["git", "-C", repository, "show", revision + ":contracts/spec/pocket-package.ts"]);
     const packageVersion = /POCKET_PACKAGE_VERSION = 1;/.test(spec) ? 1 : 2;
+    const bindingSpec = await command(["git", "-C", repository, "show", revision + ":engine/spec/src/lib.rs"]);
+    if (!/pub const BINDING_GENERATION:/.test(bindingSpec)) {
+      // Before the common generation, this fixture used its own ABI value 1.
+      const file = join(consumer, "tests/consumer.rs");
+      writeFileSync(file, readFileSync(file, "utf8").replaceAll("pocket_spec::BINDING_GENERATION", "1"));
+    }
     if (packageVersion === 1) {
       copyFileSync(join(consumer, "consumer-v1.rs.in"), join(consumer, "tests/consumer.rs"));
       mkdirSync(join(consumer, "corpus"), { recursive: true });

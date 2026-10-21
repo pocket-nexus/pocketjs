@@ -12,6 +12,7 @@ description = "UIKit composition over the canonical PocketJS runtime and guest l
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+pocket-spec = { path = "../spec" }
 pocket-runtime-cabi = { path = "../runtime-cabi" }
 pocket-runtime = { path = "../runtime" }
 pocket-drivers = { path = "../drivers" }

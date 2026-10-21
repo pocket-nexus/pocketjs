@@ -89,10 +89,10 @@ operation descriptors. The Rust guest consumes the same generated descriptors.
 The guest adapters perform JavaScript coercion before borrowing byte payloads;
 missing service providers leave their methods absent from `ui`.
 
-**The driver/runtime C ABI is a candidate contract.** Its generated layouts
-and consumer tests do not freeze it. This migration retains the package format
-and existing `hostAbi` meaning. The presentation coordinator redraws each
-acquired CPU region in full until display buffers have persistent identities.
+**The driver/runtime C ABI uses `struct_size` prefix compatibility.** Its
+consumer tests check old/new prefixes against the same DrawList version.
+Applications use package format 2 and binding generation 12. The presentation
+coordinator tracks damage by buffer identity and content generation.
 `pocket-ui-surface` keeps its embedding API and uses **the runtime operation
 context and generated rquickjs bindings**. Its service queues implement an
 operation provider; asset installation uses the runtime's checked loader.

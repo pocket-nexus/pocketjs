@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import profile from "../profiles/symbian-e7-dev.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
@@ -34,7 +35,7 @@ describe("native program composition", () => {
     });
     const profileHeader = writeHostProfileHeader(build, profile);
     const bytes = encodePocketPackage({manifest: new Uint8Array(), variants:[{
-      target: profile.id, hostAbi: 4, profileHash: hashPocketProfile(profile), sections: [
+      target: profile.id, hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(profile), sections: [
         {kind: POCKET_SECTION.identity, bytes: encodeIdentity({output:"fixture", id:"dev.fixture", title:"Fixture"})},
         {kind: POCKET_SECTION.plan, bytes: new TextEncoder().encode(JSON.stringify({viewport:{logical:[360,640],rasterDensity:1},features:{}}))},
         {kind: POCKET_SECTION.js, bytes: new TextEncoder().encode("globalThis.frame=()=>{};\0")},

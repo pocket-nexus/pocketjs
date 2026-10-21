@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -150,7 +151,7 @@ describe("iPhone 2G device transport contract", () => {
     expect(artifacts.inputs).toMatchObject({
       appOutput: "renamed-iphone-guest",
       target: "iphone2g-dev",
-      hostAbi: 6,
+      hostAbi: POCKET_BINDING_GENERATION,
     });
     expect(toolSource).toContain(
       "rmSync(output, { recursive: true, force: true })",

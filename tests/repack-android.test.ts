@@ -312,7 +312,7 @@ describe("the repack refuses", () => {
 
   test("a runtime for another host ABI", async () => {
     await expect(repackAndroid(input({ runtime: fixtureRuntime({ hostAbi: HOST_ABI + 1 }) }), options))
-      .rejects.toThrow(new RegExp(`host ABI ${HOST_ABI}; this runtime is ABI ${HOST_ABI + 1}`));
+      .rejects.toThrow(new RegExp(`runtime binding generation ${HOST_ABI + 1} is unsupported`));
   });
 
   test("a broken footer", async () => {

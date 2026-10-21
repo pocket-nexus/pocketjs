@@ -105,7 +105,10 @@ words, trailing data and out-of-range offsets. Unknown section kinds retain
 their payloads. Empty payloads may share an offset. Thinning preserves both
 the payload hash and the profile hash.
 
-**Format 1 packages are rejected by format 2 runtimes.** Rebuild the application
+**Format 1 packages are rejected by format 2 runtimes.**
+**Every current program uses binding generation 12.** Values 1–11 from the
+former per-target numbering are rejected even when the profile hash matches.
+See the [compatibility matrix](../site/content/docs/native-contract.md#package-and-driver-compatibility). Rebuild the application
 to produce a format 2 package. Admission compares the selected variant's target,
 binding generation and profile hash before guest initialization, then checks its
 plan and resources. ESP-IDF also checks the binary host-input record's timing,
@@ -142,8 +145,8 @@ the profile label and each file's size and SHA-256. `tools/repack/<target>.ts` e
 by path, the `.pocket` bytes and the identity (id, title, author, version, a
 square PNG icon). `tools/repack/shared/runtime.ts` refuses a runtime for
 another target or with a file that differs from `runtime.json`, a `.pocket`
-whose footer does not verify, one with no variant for the target, a host ABI
-that differs from `runtime.json`, mismatched profile hashes in the variant,
+whose footer does not verify, one with no variant for the target, a binding
+generation that differs from the current compiler or `runtime.json`, mismatched profile hashes in the variant,
 plan or runtime, and an app id other than the identity's.
 The package carries the `.pocket` thinned to the target's variant. The other
 shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`

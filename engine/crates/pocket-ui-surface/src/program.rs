@@ -329,7 +329,7 @@ mod tests {
         let mut program = UiProgram::new(ProgramConfig {
             profile,
             host,
-            host_abi: 9,
+            host_abi: pocket_spec::BINDING_GENERATION,
             logical: [16, 16],
             density: 1,
             scale: 1,
@@ -399,8 +399,8 @@ mod tests {
         surface.svc_push("hello");
         surface.register_compositor_surface("child").unwrap();
         let guest = Rc::new(Guest::new().unwrap());
-        program.boot(guest.clone(),"test",r#"
-            if(ui.__host!=='native-test'||ui.__hostAbi!==9||ui.__viewport.w!==16||ui.__tickHz!==60) throw Error('metadata');
+        program.boot(guest.clone(),"test",&r#"
+            if(ui.__host!=='native-test'||ui.__hostAbi!==EXPECTED_BINDING||ui.__viewport.w!==16||ui.__tickHz!==60) throw Error('metadata');
             if(ui.__surfaces.child!==0||!ui.svcOpen('note')||ui.svcOpen('other')) throw Error('services');
             for (const name of ['physicsCreate','physicsApply','physicsDestroy','physicsEvents','physicsQuery']) {
                 if(typeof ui[name]!=='function') throw Error('missing '+name);
@@ -418,7 +418,7 @@ mod tests {
                 ui.svcSend(ui.svcPoll());
                 Promise.resolve().then(()=>ui.replaceText(node,'after'));
             };
-        "#,&[]).unwrap();
+        "#.replace("EXPECTED_BINDING", &pocket_spec::BINDING_GENERATION.to_string()),&[]).unwrap();
         for op in 52..=56 {
             assert!(program.runtime_mut().op_context().supports_op(op));
         }

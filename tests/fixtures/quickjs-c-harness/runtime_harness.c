@@ -56,7 +56,7 @@ static void expect_action(const char *name, int value) {
 int main(void) {
   const char *source =
     "function check(v){if(!v)throw Error('check')}"
-    "check(ui.__host==='harness-test'&&ui.__hostAbi===1&&__simHz===60);"
+    "check(ui.__host==='harness-test'&&__simHz===60);"
     "check(ui.__viewport.w===32&&ui.__viewport.h===24&&!('__textures' in ui));"
     "check(new Uint8Array(__pak)[0]===12);"
     "check(typeof ui.setPropBatch==='function'&&typeof ui.takeAnimationCompletions==='function');"
@@ -81,7 +81,7 @@ int main(void) {
     "if(buttons===8){check(touches.length===1&&touches[0]===0x400c0000&&hits[0]===0)}"
     "count++;Promise.resolve().then(()=>ui.__reportAppAction('frame',count));};"
     "globalThis.dispatch=function(a,b){if(a===99){Promise.resolve().then(()=>ui.__reportAppAction('jobs',77));return 9;}return a+b;};";
-  char bundle[4096]; snprintf(bundle, sizeof bundle, "%s%s", source, frame);
+  char bundle[4096]; snprintf(bundle, sizeof bundle, "if(ui.__hostAbi!==%u)throw Error('generation');%s%s", (unsigned)POCKET_BINDING_GENERATION, source, frame);
   assert(boot(bundle));
   assert(pocket_legacy_runtime_width()==32 && pocket_legacy_runtime_height()==24);
   assert(pocket_legacy_runtime_stride()==128 && pocket_legacy_runtime_length()==3072);

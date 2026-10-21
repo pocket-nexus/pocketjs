@@ -51,7 +51,10 @@ fn viewports(value: &Value) -> Result<Vec<[u32; 2]>, RuntimeError> {
 
 impl RuntimeConfig {
     pub(crate) fn profile(&self) -> Result<Profile, RuntimeError> {
-        if !(1..=240).contains(&self.tick_hz) || self.host_abi == 0 || self.heap_limit == 0 {
+        if self.host_abi != pocket_spec::BINDING_GENERATION {
+            return Err(RuntimeError::BindingGenerationMismatch);
+        }
+        if !(1..=240).contains(&self.tick_hz) || self.heap_limit == 0 {
             return Err(RuntimeError::InvalidConfiguration);
         }
         // The caller supplies canonical projection bytes from profile export.

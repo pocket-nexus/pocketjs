@@ -152,7 +152,7 @@ describe("private iPod touch 6 profile", () => {
     expect(info).not.toContain("<string>Icon@2x.png</string>");
     expect(info).not.toContain("<string>Icon-60@2x.png</string>");
     expect(runtime).toContain('hostId:@"ipodtouch-dev"');
-    expect(runtime).toContain("hostAbi:7");
+    expect(runtime).toContain("hostAbi:POCKET_BINDING_GENERATION");
     expect(runtime).toContain("application.idleTimerDisabled = YES");
     expect(runtime).toContain("application.idleTimerDisabled = NO");
     expect(runtime).toContain("screen.brightness = PocketRecoveredBrightness");

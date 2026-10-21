@@ -10,6 +10,8 @@ typedef enum { POCKET_QJS_CANONICAL, POCKET_QJS_LEGACY_C, POCKET_QJS_IDF } pocke
 /* The owned form creates a realm during initialize. The attached form leaves
  * the caller's context/runtime alive; destroy it only after guest shutdown.
  * Shutdown removes this guest's ui/__pak properties and invalidates callbacks.
+ * Initialize requires POCKET_BINDING_GENERATION before creating engine state
+ * or changing the attached realm. Namespace/coercion profiles do not change it.
  * Package buffers copy the source by default. Only builds with a verified
  * immutable-buffer patch may define POCKET_QJS_VERIFIED_IMMUTABLE_PAK to borrow
  * canonical/IDF package bytes; the LegacyC profile always owns a copy. */

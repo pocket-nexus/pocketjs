@@ -25,6 +25,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+pocket-spec = { path = "../../engine/spec" }
 pocket-psp-render = { path = "../../devices/psp/pocket-psp-render" }
 pocket-psp-ge = { path = "../../devices/psp/pocket-psp-ge" }
 psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
@@ -37,6 +38,7 @@ pocket-package = { path = "../../engine/package" }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 
 [build-dependencies]
+pocket-spec = { path = "../../engine/spec" }
 cc = "1"
 
 

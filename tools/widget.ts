@@ -1,5 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/macos-embedded.ts";
-import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 // bun run widget [app] [flags…] — build + launch a Pocket Stage desktop widget
 // (the first bundled stage is the PSP asset; docs/WIDGET.md).
 //
@@ -34,7 +35,7 @@ const root = new URL("..", import.meta.url).pathname;
 export const STAGE_TARGET_ID = softwareProfile.id;
 // Same current desktop HostOps wire generation as macos-widget; form and
 // capabilities differ even though the native UI surface implementation is shared.
-export const STAGE_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const STAGE_HOST_ABI = POCKET_BINDING_GENERATION;
 export type WidgetStage = "psp" | "ipod";
 
 export interface StageDisplayFacts {
@@ -117,7 +118,7 @@ export function stagePlatformContracts(display: StageDisplayFacts) {
   return definePlatformContractRegistry(
     POCKET_CAPABILITIES,
     defineTargetRegistry({
-      [STAGE_TARGET_ID]: legacyTargetProfile({
+      [STAGE_TARGET_ID]: targetProfile({
         ...softwareProfile,
         display: {
           ...softwareProfile.display,

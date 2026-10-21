@@ -1,3 +1,4 @@
+#include "pocket_spec.h"
 /* Product namespaces around the generated canonical QuickJS guest. */
 #include "qjs.h"
 #include "agent.h"
@@ -24,6 +25,8 @@
 #endif
 #ifndef POCKETJS_HOST_ABI
 #error "POCKETJS_HOST_ABI must come from the verified ResolvedBuildPlan"
+#elif POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
+#error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
 
 /* contracts/spec/spec.ts FIXED_DT: the core steps at exactly 1/60 s, and this

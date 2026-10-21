@@ -5,6 +5,7 @@ edition = "2021"
 publish = false
 [workspace]
 [dependencies]
+pocket-spec = { path = "../../../engine/spec" }
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
 pocket-drivers = { path = "../../../engine/drivers" }
 pocket-runtime = { path = "../../../engine/runtime" }
@@ -13,4 +14,5 @@ pocket-package = { path = "../../../engine/package" }
 pocketjs-core = { path = "../../../engine/core" }
 serde_json = "1"
 [build-dependencies]
+pocket-spec = { path = "../../../engine/spec" }
 cc = "1"

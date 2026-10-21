@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import {
   validateAndResolveBuildPlan,
@@ -28,7 +29,7 @@ describe("Pocket System resolution", () => {
     });
     expect(resolution.ok).toBe(true);
     if (!resolution.ok) return;
-    expect(resolution.plan.target).toEqual({ id: "web-app", hostAbi: 4 });
+    expect(resolution.plan.target).toEqual({ id: "web-app", hostAbi: POCKET_BINDING_GENERATION });
     expect(resolution.plan.systemUI.plan.features["ui.compositor-surfaces"]).toBe(true);
     expect(
       resolution.plan.applications.every(

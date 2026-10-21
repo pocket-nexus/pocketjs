@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/psp.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
@@ -79,7 +80,7 @@ async function runtime(overrides: { target?: string; hostAbi?: number; eboot?: U
   const eboot = pbpWrite([sfo, empty, empty, empty, empty, empty, DATA_PSP, empty]);
   const manifest = {
     target: overrides.target ?? "psp",
-    hostAbi: overrides.hostAbi ?? 1,
+    hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
     pocketjs: "0".repeat(40),
     profile: "psp", profileHash: hashPocketProfile(softwareProfile),
     files: { "EBOOT.PBP": { bytes: eboot.length, sha256: await sha256Hex(eboot) } },
@@ -164,7 +165,7 @@ describe("PSP repack", () => {
 
   test("refuses a host ABI the runtime does not have", async () => {
     await expect(repackPsp(await input({ runtime: await runtime({ hostAbi: 2 }) }))).rejects.toThrow(
-      "the .pocket's psp variant is for host ABI 1; this runtime is ABI 2",
+      `runtime binding generation 2 is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`,
     );
   });
 

@@ -1,4 +1,7 @@
 import { threeDsProfileHeader } from "../tools/3ds-contracts.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
+import { profileRegistry } from "../tools/profile-resolver.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -124,16 +127,11 @@ describe("private Nintendo 3DS build profile", () => {
     expect(validatePlatformContractRegistry(THREE_DS_DEV_CONTRACTS)).toEqual([]);
   });
 
-  test("takes the next hostAbi in the registry-wide sequence", () => {
-    // hostAbi is one sequence across every profile, private ones included:
-    // 1 psp, 2 vita, 3 macos-widget, 4 symbian-e7-dev, 5 pocketbook,
-    // 6 iphone2g-dev, 7 top-screen-only 3DS, 8 dual-screen 3DS,
-    // 9 Blackberry Classic, 10 companion media, 11 2D bodies (ui.physics).
-    // A collision would let a bundle mount on the wrong host.
-    expect(THREE_DS_DEV_HOST_ABI).toBe(11);
-    expect(
-      Object.values(POCKET_TARGETS).map((profile) => profile.hostAbi),
-    ).not.toContain(THREE_DS_DEV_HOST_ABI);
+  test("shares the generated binding with every built-in and external profile", () => {
+    expect(THREE_DS_DEV_HOST_ABI).toBe(POCKET_BINDING_GENERATION);
+    for (const profile of [...Object.values(POCKET_PROFILES), { ...POCKET_PROFILES["3ds-dev"], id: "external-3ds" }]) {
+      expect(profileRegistry(profile).targets[profile.id]!.hostAbi).toBe(POCKET_BINDING_GENERATION);
+    }
     // The .pocket container stores UTF-8 target ids in its bounded string table.
     expect(new TextEncoder().encode(THREE_DS_DEV_TARGET_ID).length).toBeLessThan(
       POCKET_PACKAGE_TARGET_MAX_BYTES,

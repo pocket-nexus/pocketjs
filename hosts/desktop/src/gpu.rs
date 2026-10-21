@@ -223,7 +223,7 @@ mod tests {
         let mut program = UiProgram::new(ProgramConfig {
             profile: None,
             host: "native-test",
-            host_abi: 1,
+            host_abi: pocket_spec::BINDING_GENERATION,
             logical: [4, 4],
             density: 1,
             scale: 1,

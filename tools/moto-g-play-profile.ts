@@ -1,10 +1,10 @@
 import softwareProfile from "../profiles/moto-g-play-dev.ts";
-import { legacyTargetProfile } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 import { POCKET_CAPABILITIES, definePlatformContractRegistry, defineTargetRegistry } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 export const MOTO_G_PLAY_TARGET = softwareProfile.id;
 export const MOTO_G_PLAY_CONTRACTS = definePlatformContractRegistry(POCKET_CAPABILITIES, defineTargetRegistry({
-  [MOTO_G_PLAY_TARGET]: legacyTargetProfile(softwareProfile),
+  [MOTO_G_PLAY_TARGET]: targetProfile(softwareProfile),
 }));
 export function resolveMotoGPlayBuildPlan(input: unknown) {
   const result = validateAndResolveBuildPlan(input, { target: MOTO_G_PLAY_TARGET }, MOTO_G_PLAY_CONTRACTS);

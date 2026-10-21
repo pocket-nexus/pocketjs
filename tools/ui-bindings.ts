@@ -10,7 +10,7 @@ const variant = (s: string) => s[0].toUpperCase() + s.slice(1);
 const numbered: readonly UiOperation[] = UI_OPS.filter(op => op.id !== null);
 
 function rust(): string {
-  let out = `// ${banner}\nuse alloc::{string::String, vec::Vec};\nuse core::fmt::Write;\nuse pocketjs_core::Ui;\nuse crate::{OpArg, OpResult, RuntimeError};\n\n`;
+  let out = `// ${banner}\nuse alloc::{string::String, vec::Vec};\nuse core::fmt::Write;\nuse pocketjs_core::Ui;\nuse crate::{OpArg, OpResult, RuntimeError};\npub use pocket_spec::BINDING_GENERATION;\n\n`;
   out += `#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum ArgKind { I32, U32, Real, Nonnegative, Boolean, String, Bytes }\n`;
   out += `#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum ResultKind { None, Integer, Real, Boolean, String, OptionalString, U32Array, Bytes, OptionalBytes }\n`;
   out += `#[derive(Clone, Copy, Debug)]\npub struct ArgDescriptor { pub name: &'static str, pub kind: ArgKind, pub optional: bool }\n`;
@@ -41,7 +41,7 @@ function rust(): string {
 function c(): string {
   const kinds = ["i32", "u32", "real", "nonnegative", "boolean", "string", "bytes"];
   const results = ["none", "integer", "real", "boolean", "string", "optionalString", "u32Array", "bytes", "optionalBytes"];
-  let out = `/* ${banner} */\n#pragma once\n#include <stdint.h>\n`;
+  let out = `/* ${banner} */\n#pragma once\n#include <stdint.h>\n#include "pocket_spec.h"\n`;
   out += `enum pocket_ui_arg_kind { ${kinds.map((k,i) => `PJS_ARG_${k.toUpperCase()}=${i}`).join(", ")} };\n`;
   out += `enum pocket_ui_result_kind { ${results.map((k,i) => `PJS_RESULT_${k.toUpperCase()}=${i}`).join(", ")} };\n`;
   out += `typedef struct { uint8_t kind; uint8_t optional; } pocket_ui_arg_descriptor;\ntypedef struct { uint16_t op; const char *name; uint8_t argc; uint8_t result; uint8_t idf; uint8_t legacy_c; pocket_ui_arg_descriptor args[6]; } pocket_ui_op_descriptor;\n`;

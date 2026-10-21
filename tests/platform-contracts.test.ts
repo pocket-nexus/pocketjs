@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import {
   generatePocketSystemV1Schema,
@@ -46,7 +47,7 @@ type SyntheticCapabilityId = CapabilityId<typeof SYNTHETIC_CAPABILITIES>;
 const syntheticTargetDefinitions = {
   psp: POCKET_TARGETS.psp,
   "vita-test": {
-    hostAbi: 2,
+    hostAbi: POCKET_BINDING_GENERATION,
     platform: "vita",
     form: "takeover",
     display: {
@@ -63,7 +64,7 @@ const syntheticTargetDefinitions = {
     ],
   },
   "dual-test": {
-    hostAbi: 8,
+    hostAbi: POCKET_BINDING_GENERATION,
     platform: "dual-test",
     form: "takeover",
     display: {
@@ -205,6 +206,16 @@ describe("Pocket System v1 schema", () => {
 });
 
 describe("platform registry", () => {
+  test("profiles cannot select a legacy binding generation", () => {
+    for (let hostAbi = 1; hostAbi < POCKET_BINDING_GENERATION; hostAbi++) {
+      const registry = definePlatformContractRegistry(POCKET_CAPABILITIES, { psp: { ...POCKET_TARGETS.psp, hostAbi } });
+      expect(validatePlatformContractRegistry(registry)).toContainEqual({
+        code: "registry.bindingGeneration", path: "/targets/psp/hostAbi",
+        message: `target must use binding generation ${POCKET_BINDING_GENERATION}`,
+      });
+    }
+  });
+
   test("production advertises only the truthful stock-host profiles", () => {
     expect(Object.keys(POCKET_TARGETS)).toEqual([
       "psp",
@@ -270,12 +281,12 @@ describe("platform registry", () => {
       max: [4096, 4096],
     });
     // The gpui app frame: same desktop wire generation as the widget shell
-    // (hostAbi 4 adds compositor surfaces), a general window that ALSO hosts fixed-viewport apps
+    // A general window also hosts fixed-viewport apps and compositor surfaces.
     // (acceptsFixed), and host text layout instead of runtime glyph baking.
     // Deliberately NARROW: only host-generic behavior registers — pointer/
     // text/IME/clipboard reach the note via its companion svc adapter and
     // are not target capabilities here (the platforms.ts header rule).
-    expect(POCKET_TARGETS["macos-app"].hostAbi).toBe(4);
+    expect(POCKET_TARGETS["macos-app"].hostAbi).toBe(POCKET_BINDING_GENERATION);
     expect(POCKET_TARGETS["macos-app"].form).toBe("window");
     expect(POCKET_TARGETS["macos-app"].capabilities).toEqual([
       "input.buttons",
@@ -294,7 +305,7 @@ describe("platform registry", () => {
     });
     expect(POCKET_TARGETS["linux-app"]).toEqual({
       tickHz: 60,
-      hostAbi: 4,
+      hostAbi: POCKET_BINDING_GENERATION,
       platform: "linux",
       form: "window",
       display: {
@@ -319,7 +330,7 @@ describe("platform registry", () => {
     });
     expect(POCKET_TARGETS["web-app"]).toEqual({
       tickHz: 60,
-      hostAbi: 4,
+      hostAbi: POCKET_BINDING_GENERATION,
       platform: "web",
       form: "window",
       display: {
@@ -386,7 +397,7 @@ describe("semantic resolution", () => {
     if (!onApp.ok) return;
     expect(onApp.plan.features["text.layout.native"]).toBe(false);
     expect(onApp.plan.features["text.glyphs.runtime"]).toBe(false);
-    expect(onApp.plan.target.hostAbi).toBe(4);
+    expect(onApp.plan.target.hostAbi).toBe(POCKET_BINDING_GENERATION);
 
     const onWidget = validateAndResolveBuildPlan(note, { target: "macos-widget" });
     expect(onWidget.ok).toBe(true);
@@ -433,7 +444,7 @@ describe("semantic resolution", () => {
     const result = validateAndResolveBuildPlan(portableInput, { target: "psp" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.plan.target).toEqual({ id: "psp", hostAbi: 1 });
+    expect(result.plan.target).toEqual({ id: "psp", hostAbi: POCKET_BINDING_GENERATION });
     expect(result.plan.app).toEqual({
       id: "dev.pocket-nexus.telemetry",
       title: "Pocket Telemetry",
@@ -475,7 +486,7 @@ describe("semantic resolution", () => {
     const result = validateAndResolveBuildPlan(manifest, { target: "macos-widget" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.plan.target).toEqual({ id: "macos-widget", hostAbi: 3 });
+    expect(result.plan.target).toEqual({ id: "macos-widget", hostAbi: POCKET_BINDING_GENERATION });
     // Dynamic-viewport native presentation: density from the profile.
     expect(result.plan.viewport.rasterDensity).toBe(2);
     expect(result.plan.viewport.logical).toEqual([420, 560]);
@@ -666,7 +677,7 @@ describe("semantic resolution", () => {
     const result = validateAndResolveBuildPlan(portableInput, { target: "vita" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.plan.target).toEqual({ id: "vita", hostAbi: 2 });
+    expect(result.plan.target).toEqual({ id: "vita", hostAbi: POCKET_BINDING_GENERATION });
     expect(result.plan.viewport).toEqual({
       logical: [480, 272],
       physical: [960, 544],
@@ -754,7 +765,7 @@ describe("semantic resolution", () => {
     const result = validateAndResolveBuildPlan(touchInput, { target: "vita" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.plan.target.hostAbi).toBe(2);
+    expect(result.plan.target.hostAbi).toBe(POCKET_BINDING_GENERATION);
     expect(result.plan.features["input.touch"]).toBe(true);
   });
 

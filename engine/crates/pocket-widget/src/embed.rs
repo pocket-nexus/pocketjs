@@ -135,7 +135,7 @@ mod tests {
         let program = UiProgram::new(ProgramConfig {
             profile: None,
             host: "macos-embedded",
-            host_abi: 3,
+            host_abi: pocket_spec::BINDING_GENERATION,
             logical: [8, 4],
             density: 2,
             scale: 2,
@@ -146,10 +146,11 @@ mod tests {
         .unwrap();
         program.surface().set_svc_allowlist(["test"]);
         let source = format!(
-            "if(ui.__host!=='macos-embedded'||ui.__hostAbi!==3||ui.__viewport.w!==8)throw Error('metadata');ui.svcOpen('test');const n=ui.createNode(0);ui.insertBefore(1,n,0);ui.setProp(n,{},8);ui.setProp(n,{},4);globalThis.frame=(buttons,analog)=>{{ui.setProp(n,{},buttons?0xff00ff00:0xff0000ff);ui.svcSend(String(analog));}};",
+            "if(ui.__host!=='macos-embedded'||ui.__hostAbi!=={binding_generation}||ui.__viewport.w!==8)throw Error('metadata');ui.svcOpen('test');const n=ui.createNode(0);ui.insertBefore(1,n,0);ui.setProp(n,{},8);ui.setProp(n,{},4);globalThis.frame=(buttons,analog)=>{{ui.setProp(n,{},buttons?0xff00ff00:0xff0000ff);ui.svcSend(String(analog));}};",
             pocketjs_core::spec::prop::WIDTH,
             pocketjs_core::spec::prop::HEIGHT,
-            pocketjs_core::spec::prop::BG_COLOR
+            pocketjs_core::spec::prop::BG_COLOR,
+            binding_generation = pocket_spec::BINDING_GENERATION
         );
         let mut embedded =
             EmbeddedUi::new_with_scale(&gpu, program, (16, 8), 2., &source, &[]).unwrap();

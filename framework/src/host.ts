@@ -19,9 +19,10 @@ import {
 } from "../../contracts/spec/spec.ts";
 import type { AxisDelta } from "./relative-axis.ts";
 import type { MotionState } from "./motion.ts";
+import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
-// Replaced by tools/build.ts for manifest-driven builds. `typeof` keeps
-// legacy/test bundles valid until they opt into a ResolvedBuildPlan.
+// Replaced by tools/build.ts. A raw bundle has no target restriction but uses
+// the same generated UI binding as a manifest-driven bundle.
 declare const __POCKET_TARGET__: string;
 declare const __POCKET_HOST_ABI__: number;
 // Replaced by tools/build.ts in EVERY build (default 60, `--hz` declares
@@ -263,7 +264,7 @@ export interface HostOps {
   __reportAppAction?(name: string, value: number): void;
   /** Framework target/profile identity (for example "psp" or "vita"). */
   __host?: string;
-  /** Version of the JS/native HostOps ABI implemented by this namespace. */
+  /** Generated UI binding generation, independent of the target/profile id. */
   __hostAbi?: number;
   /** Ticks per second of virtual time the host drives this realm at. Absent
    *  means the spec default 60 — hosts that predate per-realm rates only
@@ -303,8 +304,9 @@ let current: Host | null = null;
 export function embeddedBuildHostContract(): BuildHostContract | null {
   const target = typeof __POCKET_TARGET__ === "string" ? __POCKET_TARGET__ : "";
   const hostAbi =
-    typeof __POCKET_HOST_ABI__ === "number" ? __POCKET_HOST_ABI__ : 0;
-  return target && hostAbi > 0 ? { target, hostAbi } : null;
+    typeof __POCKET_HOST_ABI__ === "number" ? __POCKET_HOST_ABI__ : POCKET_BINDING_GENERATION;
+  if (hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`PocketJS: bundle binding generation ${hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  return target ? { target, hostAbi } : null;
 }
 
 /** Fail before mounting when a bundle was packaged with the wrong native
@@ -329,6 +331,12 @@ export function assertNativeHostContract(
           "a bundle only runs correctly at the rate it was built with (`--hz`), like glyphs at their density",
     );
   }
+  if (expected && expected.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`PocketJS: native host ABI mismatch (bundle binding generation ${expected.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION})`);
+  }
+  if (ops.__hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`PocketJS: native host ABI mismatch (bundle=${POCKET_BINDING_GENERATION}, host=${ops.__hostAbi ?? "missing"}); rebuild the native host`);
+  }
   if (!expected) return;
   if (typeof ops.__host !== "string") {
     throw new Error(
@@ -341,11 +349,6 @@ export function assertNativeHostContract(
       `PocketJS: native target mismatch (bundle=${expected.target}, host=${ops.__host})`,
     );
   }
-  if (ops.__hostAbi !== expected.hostAbi) {
-    throw new Error(
-      `PocketJS: native host ABI mismatch (bundle=${expected.hostAbi}, host=${ops.__hostAbi ?? "missing"})`,
-    );
-  }
 }
 
 /**
@@ -353,14 +356,10 @@ export function assertNativeHostContract(
  * QuickJS).
  * Throws when neither exists — PocketJS cannot run without a native tree.
  *
- * A namespace is NATIVE when it self-identifies with `__host` (platform
- * contracts) — or, for hosts built before contracts existed (pocket-shell,
- * the iOS fork, shipped EBOOTs), when it carries `__textures`, which only
- * native ffi layers ever set. Those legacy hosts stay hosts/psp/non-strict with
- * target "unknown"; a bundle carrying an embedded contract refuses them with
- * an actionable migration error (assertNativeHostContract). Web/wasm
- * adapters publish `globalThis.ui` too but set neither marker and stay
- * strict-injected, exactly as before.
+ * A namespace is native when it self-identifies with `__host` or carries
+ * native resource handles in `__textures`. Both paths require the current
+ * binding generation. A low-level injected HostOps object has no native
+ * marker and stays strict.
  */
 export function detectHost(injected?: HostOps): Host {
   const native = (globalThis as { ui?: HostOps & { __textures?: unknown } }).ui;

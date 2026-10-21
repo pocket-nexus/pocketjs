@@ -7,6 +7,7 @@ repository.workspace = true
 description = "A markdown sticky note on the desktop: the first flat (2D) pocket-widget runtime"
 
 [dependencies]
+pocket-spec = { path = "../../../spec" }
 pocket-drivers = { path = "../../../drivers" }
 pocket3d = { workspace = true }
 pocket-mod = { workspace = true }

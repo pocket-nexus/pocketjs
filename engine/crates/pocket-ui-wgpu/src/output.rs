@@ -344,7 +344,7 @@ mod tests {
         crate::UiProgram::new(crate::ProgramConfig {
             profile: None,
             host: "gpu-test",
-            host_abi: 1,
+            host_abi: pocket_spec::BINDING_GENERATION,
             logical: [4, 4],
             density: 1,
             scale: 1,

@@ -3,6 +3,7 @@
 // installs a changed `.pocket`, and restores the release guest over TCP.
 
 import { $ } from "bun";
+import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import {
   cpSync,
   existsSync,
@@ -224,7 +225,7 @@ try {
   launch(rom);
 
   const discovered = await discoverUntil();
-  if (discovered.target !== "3ds-dev" || discovered.hostAbi !== 8 ||
+  if (discovered.target !== "3ds-dev" || discovered.hostAbi !== POCKET_BINDING_GENERATION ||
       discovered.port !== 8131 || discovered.deviceId !== pocketRuntimeDeviceId(token)) {
     throw new Error(`wrong discovery identity: ${JSON.stringify({
       ...discovered,
@@ -256,7 +257,7 @@ try {
   const statusPromise = client.waitForCtrl((message) => message.t === "runtime.status");
   await client.requestStatus();
   const status = await statusPromise;
-  if (status.target !== "3ds-dev" || status.hostAbi !== 8 || status.phase !== "booted") {
+  if (status.target !== "3ds-dev" || status.hostAbi !== POCKET_BINDING_GENERATION || status.phase !== "booted") {
     throw new Error(`wrong runtime status: ${JSON.stringify(status)}`);
   }
 

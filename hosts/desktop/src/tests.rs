@@ -103,7 +103,7 @@ mod tests {
                 "title": "Pocket Desktop",
                 "version": "0.1.0"
             },
-            "target": { "id": HOST_ID, "hostAbi": 4 },
+            "target": { "id": HOST_ID, "hostAbi": pocket_spec::BINDING_GENERATION },
             "roles": { "systemUI": "dev.pocket-nexus.shell" },
             "lifecycle": { "backgroundExecution": "suspend" },
             "installation": {
@@ -122,7 +122,7 @@ mod tests {
                         "entry": "apps/shell/main.tsx",
                         "framework": "solid"
                     },
-                    "target": { "id": HOST_ID, "hostAbi": 4 },
+                    "target": { "id": HOST_ID, "hostAbi": pocket_spec::BINDING_GENERATION },
                     "viewport": {
                         "logical": [800, 600],
                         "physical": [1600, 1200],

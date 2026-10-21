@@ -65,7 +65,7 @@ mod tests {
         let guest = pocketjs_core::package::select_guest(
             &bundle.package,
             "vita",
-            2,
+            pocketjs_core::spec::BINDING_GENERATION,
             &pocket_package::profile::from_build_inputs(
                 option_env!("POCKETJS_PROFILE_JSON"),
                 option_env!("POCKETJS_PROFILE_HASH"),

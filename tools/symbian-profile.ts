@@ -1,5 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/symbian-e7-dev.ts";
-import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -19,7 +20,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * plan that resolved it; the guest ships inside its host's SIS.
  */
 export const SYMBIAN_E7_DEV_TARGET_ID = softwareProfile.id;
-export const SYMBIAN_E7_DEV_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const SYMBIAN_E7_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const SYMBIAN_E7_DEFAULT_VIEWPORT = softwareProfile.display.logicalViewports[0];
 export const SYMBIAN_E7_MIN_VIEWPORT = softwareProfile.display.dynamicViewport.min;
 export const SYMBIAN_E7_MAX_VIEWPORT = softwareProfile.display.dynamicViewport.max;
@@ -27,7 +28,7 @@ export const SYMBIAN_E7_MAX_VIEWPORT = softwareProfile.display.dynamicViewport.m
 export const SYMBIAN_E7_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [SYMBIAN_E7_DEV_TARGET_ID]: legacyTargetProfile(softwareProfile),
+    [SYMBIAN_E7_DEV_TARGET_ID]: targetProfile(softwareProfile),
   }),
 );
 

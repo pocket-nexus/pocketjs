@@ -9,7 +9,7 @@ export interface SdkOptions {
   cargoArgs: string[]; rustflags: string[]; prepare?: "esp32p4"; archiver?: string;
 }
 export interface SdkManifest {
-  schemaVersion: 1; status: "candidate"; abiFrozen: false;
+  schemaVersion: 1; status: "candidate"; abiFrozen: false; hostAbi: number;
   source: { revision: string | null; dirty: boolean | null; sha256: string };
   build: { triple: string; target: string; targetSha256: string | null; cargo: string; compiler: string; toolchain: string; profile: "release"; defaultFeatures: false; features: string[]; rustflags: string[]; cargoArgs: string[]; archive: string; nativeStaticLibs: string[] };
   preparation: null | { kind: "esp32p4"; version: 1; archiver: string; originalSha256: string; removedMembers: string[] };
@@ -26,12 +26,19 @@ function filesUnder(path: string): string[] {
   return readdirSync(path).sort().flatMap(name => filesUnder(join(path, name)));
 }
 function sourceHash(root: string): string {
-  const inputs = ["LICENSE", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "tools/sdk.ts", "tools/packaging/cmake", ...roots.flatMap(name => [`engine/${name}/Cargo.toml`, `engine/${name}/src`])];
+  const inputs = ["LICENSE", "engine/Cargo.toml", "engine/Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml", "engine/.cargo/config.toml", "contracts/generated", "contracts/spec/binding-generation.ts", "engine/guest-quickjs/src", "engine/guest-quickjs/include", "tools/sdk.ts", "tools/packaging/cmake", ...roots.flatMap(name => [`engine/${name}/Cargo.toml`, `engine/${name}/src`])];
   const digest = createHash("sha256");
   for (const file of inputs.flatMap(path => filesUnder(join(root, path))).sort()) {
     digest.update(relative(root, file).split(sep).join("/")); digest.update("\0"); digest.update(readFileSync(file)); digest.update("\0");
   }
   return digest.digest("hex");
+}
+function bindingGeneration(header: string): number {
+  const match = /^#define POCKET_BINDING_GENERATION (\d+)U?\s*$/m.exec(header);
+  const generation = Number(match?.[1]);
+  if (!Number.isSafeInteger(generation) || generation < 1 || generation > 0xffffffff)
+    throw new Error("SDK specification header has no valid binding generation");
+  return generation;
 }
 function run(command: string[], cwd: string, env = process.env): string {
   const result = Bun.spawnSync(command, { cwd, env, stdout: "pipe", stderr: "pipe" });
@@ -98,6 +105,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   const compiler = run([rustc, "-Vv"], root, env).trim();
   const cargoVersion = run([cargo, "-Vv"], root, env).trim();
   const before = sourceHash(root);
+  const hostAbi = bindingGeneration(readFileSync(join(root, "contracts/generated/pocket_spec.h"), "utf8"));
   const checkout = git(root, ["rev-parse", "--show-toplevel"]);
   // A framework installed below another project's Git tree must not claim
   // that project's revision as the SDK's source identity.
@@ -165,7 +173,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
     // build-directory references in its CMake package.
     writeFileSync(join(staging, "lib/cmake/Pocket/PocketArchive.cmake"), `set(Pocket_TRIPLE "${targetName}")\nset(Pocket_ARCHIVE "${archiveName}")\nset(Pocket_NATIVE_STATIC_LIBS "${nativeStaticLibs.join(";")}")\n`);
     if (before !== sourceHash(root) || (targetBytes && !targetBytes.equals(readFileSync(options.triple)))) throw new Error("SDK sources changed while the archive was building; export again");
-    const manifest: SdkManifest = { schemaVersion: 1, status: "candidate", abiFrozen: false, source: { revision, dirty: status === null ? null : status.length > 0, sha256: before }, build: { triple: targetName, target: options.triple.endsWith(".json") ? basename(options.triple) : options.triple, targetSha256: targetBytes ? hash(targetBytes) : null, cargo: cargoVersion, compiler, toolchain: options.toolchain, profile: "release", defaultFeatures: false, features: [], rustflags, cargoArgs: options.cargoArgs, archive: archiveName, nativeStaticLibs }, preparation, files: {} };
+    const manifest: SdkManifest = { schemaVersion: 1, status: "candidate", abiFrozen: false, hostAbi, source: { revision, dirty: status === null ? null : status.length > 0, sha256: before }, build: { triple: targetName, target: options.triple.endsWith(".json") ? basename(options.triple) : options.triple, targetSha256: targetBytes ? hash(targetBytes) : null, cargo: cargoVersion, compiler, toolchain: options.toolchain, profile: "release", defaultFeatures: false, features: [], rustflags, cargoArgs: options.cargoArgs, archive: archiveName, nativeStaticLibs }, preparation, files: {} };
     for (const file of filesUnder(staging)) { const bytes = readFileSync(file); manifest.files[relative(staging, file).split(sep).join("/")] = { sha256: hash(bytes), bytes: bytes.length }; }
     writeFileSync(join(staging, "sdk-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
     verifySdk(staging);
@@ -186,6 +194,8 @@ export function verifySdk(directory: string): SdkManifest {
     const bytes = readFileSync(join(directory, name));
     if (bytes.length !== receipt.bytes || hash(bytes) !== receipt.sha256) throw new Error(`SDK checksum mismatch: ${name}`);
   }
+  if (manifest.hostAbi !== bindingGeneration(readFileSync(join(directory, "include/pocket/spec.h"), "utf8")))
+    throw new Error("SDK binding generation differs from specification header");
   return manifest;
 }
 

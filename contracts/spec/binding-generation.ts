@@ -1,3 +1,6 @@
-/** Script binding generation for consumers of the generated canonical UI API.
- * Existing built-in programs retain their legacy generations until migration. */
-export const POCKET_BINDING_GENERATION = 1 as const;
+/** Script binding generation shared by every program and software profile.
+ * Values 1..11 were target identifiers and must not be accepted as generations.
+ * Change this only when the generated guest/native binding contract changes;
+ * profile hashes, package formats, C record prefixes and DrawList versions are
+ * independent compatibility checks. */
+export const POCKET_BINDING_GENERATION = 12 as const;

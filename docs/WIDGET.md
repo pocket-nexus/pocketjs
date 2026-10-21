@@ -131,12 +131,12 @@ one `render_words_scaled` pass on dirty frames. It exercises everything the
   read-only fallback, but the current Note manifest is dynamic-only; it must
   add a fixed viewport variant before a PSP or embedded host can admit that
   fallback. The §7 `widget` surface stays unbuilt.
-- **The desktop surface is first-class in the platform contracts.** Six
+- **The desktop profile declares six input and display capabilities.** Six
   registered capability ids name it (`input.text`, `input.pointer`,
   `input.ime`, `host.clipboard`, `display.viewport.live`,
   `text.glyphs.runtime` — each a distinct observable guarantee; a real
   pointer is NOT `input.cursor`), and a `macos-widget` target
-  profile (hostAbi 3, density 2, `dynamicViewport` range) provides them.
+  profile (binding generation 12, density 2, `dynamicViewport` range) provides them.
   Target semantics live in queryable profile FIELDS (`platform`,
   `form` — takeover/window/widget/kiosk/embedded); ids are labels
   (convention `<platform>-<form>`, future: `macos-app`, `linux-kiosk`),

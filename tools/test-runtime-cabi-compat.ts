@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -106,13 +107,13 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     const currentArchive = join(currentSdk, manifest.build.archive);
     copyFileSync(join(ROOT, "tests/fixtures/runtime-cabi-compat/consumer.c"), join(temporary, "consumer.c"));
     const utf8 = (text: string) => new TextEncoder().encode(text);
-    const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: "fixture", hostAbi: 1, profileHash: "sha256:" + hash(profile), sections: [
+    const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + hash(profile), sections: [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
       { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
     ] }] });
     const array = (name: string, bytes: Uint8Array) => `static const uint8_t ${name}[] = {${[...bytes].join(",")}};\n`;
-    const fixture = `static const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
+    const fixture = `static const uint32_t fixture_binding_generation = ${POCKET_BINDING_GENERATION};\nstatic const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
       + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", packageBytes);
     writeFileSync(join(temporary, "fixture-current.h"), fixture);
     writeFileSync(join(output, "fixture-current.h"), fixture);
@@ -127,7 +128,7 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
       { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
     ] }] });
-    const oldFixture = `static const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
+    const oldFixture = `static const uint32_t fixture_binding_generation = 1;\nstatic const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
       + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", oldPackageBytes);
     writeFileSync(join(temporary, "fixture-legacy.h"), oldFixture);
     writeFileSync(join(output, "fixture-legacy.h"), oldFixture);

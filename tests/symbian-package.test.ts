@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import profile from "../profiles/symbian-e7-dev.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
@@ -27,7 +28,7 @@ function plan(
       framework: "solid",
     },
     presentation: { id: "default", entry: "app/main.tsx" },
-    target: { id: "symbian-e7-dev", hostAbi: 4 },
+    target: { id: "symbian-e7-dev", hostAbi: POCKET_BINDING_GENERATION },
     viewport: {
       logical: [640, 360],
       physical: [640, 360],

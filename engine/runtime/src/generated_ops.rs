@@ -3,6 +3,7 @@ use alloc::{string::String, vec::Vec};
 use core::fmt::Write;
 use pocketjs_core::Ui;
 use crate::{OpArg, OpResult, RuntimeError};
+pub use pocket_spec::BINDING_GENERATION;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArgKind { I32, U32, Real, Nonnegative, Boolean, String, Bytes }

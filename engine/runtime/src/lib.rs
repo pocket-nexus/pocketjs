@@ -32,6 +32,7 @@ pub enum RuntimeError {
     UnsupportedOperation,
     InvalidConfiguration,
     ProfileMismatch,
+    BindingGenerationMismatch,
     InvalidState,
     Busy,
     MissingPackage,

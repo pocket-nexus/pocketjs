@@ -26,7 +26,7 @@ The export contains:
 | `lib/<triple>/libpocket_runtime.a` | One Rust archive; MSVC exports use `pocket_runtime.lib` |
 | `src/guest-quickjs/{guest.c,generated_ops.h}` | C glue and generated operation descriptors |
 | `lib/cmake/Pocket/` | Relocatable CMake package |
-| `sdk-manifest.json` | Source identity, build parameters, file sizes and SHA-256 values |
+| `sdk-manifest.json` | Source identity, binding generation (`hostAbi`), build parameters, file sizes and SHA-256 values |
 | `LICENSE` | PocketJS license |
 
 **The archive uses `no_std`, `alloc`, and `panic=abort`; legacy features are

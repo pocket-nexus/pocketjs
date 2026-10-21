@@ -134,8 +134,9 @@ note does (pure-math unit tests over an injected measurer, sim traces,
 
 ## Native desktop targets
 
-`contracts/spec/platforms.ts` registers `macos-app` and `linux-app` at
-hostAbi 4 with `form: "window"`, a dynamic viewport and `acceptsFixed`.
+`profiles/macos-app.ts` and `profiles/linux-app.ts` declare `form: "window"`,
+a dynamic viewport and `acceptsFixed`. **Both use the shared binding
+generation 12.**
 Both profiles use the same generic host. macOS resolves density 2; Linux
 resolves density 1. Fixed-viewport console apps run size-locked and
 letterboxed with their baked glyph pipeline intact.

@@ -15,11 +15,12 @@ use core::ffi::{c_char, c_void};
 // DrawList has a closed operation set without per-operation lengths. Headers and the runtime archive must share the DrawList version. No unknown-operation skipping or renderer fallback chain is defined.
 // Runtime and driver records share the struct_size prefix compatibility rules in pocket_drivers.h.
 // Rust API SemVer, C struct_size prefixes, closed DrawList versions, and the script binding generation hostAbi are distinct compatibility relations. hostAbi does not version C records or select a target.
+// Runtime configurations and guest environments require POCKET_BINDING_GENERATION. hostAbi is not a per-target identifier; unsupported generations are rejected before guest initialization.
 // Create copies configuration and profile bytes. All other borrowed runtime results expire at the next call on the same instance, including failed calls, except the read-only supports_op query. The runtime owns these bytes; callers must not free them.
 // Registration precedes boot. A renderer id binds each display to one renderer; POCKET_RENDERER_SOFTWARE selects the built-in software rasterizer. Multiple displays may share a renderer instance.
 // Operation providers implement declared non-core ui operations. Registration copies the operation list and vtable, rejects unknown/core/duplicate operations, and precedes boot. Context storage lasts through runtime destruction. Provider dispatch may not reenter the runtime; result bytes remain valid until its next dispatch, and the runtime copies them before returning to the guest.
 // Each tick samples inputs, invokes the guest frame once, computes layout, renders and presents. The platform owns threads and tick scheduling. Calls on one instance must not overlap; guest bindings may call runtime_op during initialize/evaluate/frame/collect callbacks.
-// The guest receives the existing eight frame arguments through pocket_guest_frame. Introducing this ABI does not change their wire representation, tapes, packages, or binding generation.
+// The guest receives eight frame arguments through pocket_guest_frame. Their wire representation and tape format are independent of the binding generation and package format.
 // Destroy drains rendering and display transfers before shutting down the guest and releasing package or frame resources.
 // An application links exactly one PocketJS Rust archive. The six pocket_host_* functions are supplied by the program and are the archive's complete host-hook contract.
 

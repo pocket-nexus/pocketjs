@@ -6,6 +6,7 @@ import {
 } from "../hosts/web/system-engine.js";
 import { validateAndResolveSystemPlan } from "@pocketjs/framework/manifest";
 import systemInput from "./fixtures/systems/managed-desktop.json";
+import { POCKET_BINDING_GENERATION } from "../engine/guest-web/src/generated-ui.js";
 
 async function resolvedWebSystem() {
   const installed = new Set(systemInput.installation.installedPackages);
@@ -57,6 +58,21 @@ describe("browser Pocket System host", () => {
   test("accepts a complete resolved web System plan", async () => {
     const plan = await resolvedWebSystem();
     expect(() => validateSystemPlan(plan)).not.toThrow();
+  });
+  test("rejects unsupported root and package binding generations without treating generation as profile identity", async () => {
+    const current = await resolvedWebSystem();
+    expect(current.target.hostAbi).toBe(POCKET_BINDING_GENERATION);
+    for (const generation of [...Array.from({ length: 12 }, (_, i) => i), POCKET_BINDING_GENERATION + 1]) {
+      const root = structuredClone(current) as Mutable<WebSystemPlan>;
+      root.target.hostAbi = generation;
+      expect(() => validateSystemPlan(root)).toThrow("binding generation");
+      const child = structuredClone(current) as Mutable<WebSystemPlan>;
+      child.applications[0].plan.target.hostAbi = generation;
+      expect(() => validateSystemPlan(child)).toThrow("binding generation");
+    }
+    const wrongProfile = structuredClone(current) as Mutable<WebSystemPlan>;
+    wrongProfile.target.id = "vita";
+    expect(() => validateSystemPlan(wrongProfile)).toThrow("web-app");
   });
 
   test("rejects child companions and artifact collisions at its trust boundary", async () => {

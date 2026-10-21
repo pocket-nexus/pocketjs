@@ -9,7 +9,7 @@ import { canonicalProfileJson, hashPocketProfile, validatePocketProfile, type Po
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { POCKET_CAPABILITIES, definePlatformContractRegistry, defineTargetRegistry, type PocketCapabilityId } from "../contracts/spec/platform-types.ts";
 import { POCKET_PROFILES } from "../profiles/index.ts";
-import { LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 import { validateToolchain } from "./targets/toolchain.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -125,16 +125,10 @@ export async function loadRuntimeConfig(path: string): Promise<LoadedRuntimeConf
   return { path, value, profiles, dependencies: module.dependencies };
 }
 
-export function profileBindingGeneration(profile: PocketProfile): number {
-  return builtinProfile(profile.id)
-    ? LEGACY_BINDING_GENERATIONS[profile.id] ?? POCKET_BINDING_GENERATION
-    : POCKET_BINDING_GENERATION;
-}
-
 export function profileRegistry(profile: PocketProfile) {
-  const { id, hostExtension: _extension, ...contract } = checkedProfile(profile) as PocketProfile<PocketCapabilityId>;
+  const checked = checkedProfile(profile) as PocketProfile<PocketCapabilityId>;
   return definePlatformContractRegistry(POCKET_CAPABILITIES, defineTargetRegistry({
-    [id]: { ...contract, hostAbi: profileBindingGeneration(profile) },
+    [checked.id]: targetProfile(checked),
   }));
 }
 
@@ -167,7 +161,7 @@ export async function resolveProfile(options: {
     const builtin = builtinProfile(target);
     if (builtin) {
       profile = builtin;
-      dependencies = [resolve(ROOT, `profiles/${target}.ts`), resolve(ROOT, "profiles/legacy-abi.ts"), resolve(ROOT, "contracts/spec/binding-generation.ts")];
+      dependencies = [resolve(ROOT, `profiles/${target}.ts`), resolve(ROOT, "profiles/contract.ts"), resolve(ROOT, "contracts/spec/binding-generation.ts")];
     } else {
       let path: string;
       if (target.startsWith(".") || target.startsWith("/")) path = resolve(process.cwd(), target);
@@ -183,5 +177,5 @@ export async function resolveProfile(options: {
   } else {
     throw new Error(`no profile selected; use --target, POCKET_TARGET, or ${RUNTIME_CONFIG_FILE} above ${from}`);
   }
-  return { profile, profileHash: hashPocketProfile(profile), hostAbi: profileBindingGeneration(profile), dependencies, ...(config ? { config } : {}) };
+  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies, ...(config ? { config } : {}) };
 }

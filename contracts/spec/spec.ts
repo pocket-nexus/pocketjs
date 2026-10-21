@@ -18,6 +18,8 @@
 // regenerated engine/spec/src/lib.rs, and bump the relevant format VERSION if the
 // change alters a binary layout.
 
+export { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
+
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------

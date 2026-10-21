@@ -8,6 +8,7 @@ import {
 } from "../../../contracts/spec/platforms.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "./plan.ts";
 import { canonicalProfileJson, hashPocketProfile, type PocketProfile } from "../profile.ts";
+import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 
 /** Stable subset of the internal build plan consumed by custom native hosts. */
 export interface HostBuildInputs {
@@ -124,6 +125,9 @@ export function extractHostBuildInputs(
   options: ExtractHostBuildInputsOptions = {},
 ): HostBuildInputs {
   const plan = readVerifiedPlan(input);
+  if (plan.target.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new TypeError(`PocketJS host build: binding generation ${plan.target.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  }
   if (options.expectedTarget && plan.target.id !== options.expectedTarget) {
     throw new TypeError(
       `PocketJS host build: expected target ${options.expectedTarget}, got ${plan.target.id}`,
@@ -160,6 +164,9 @@ export function hostBuildEnvironment(
   inputs: HostBuildInputs,
   options: HostBuildEnvironmentOptions,
 ): Readonly<Record<string, string>> {
+  if (inputs.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new TypeError(`PocketJS host build: binding generation ${inputs.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  }
   if (inputs.profile.id !== inputs.target || hashPocketProfile(inputs.profile) !== inputs.profileHash) {
     throw new TypeError("PocketJS host build: invalid profile identity");
   }

@@ -63,7 +63,7 @@ int main(void) {
     pocket_runtime_config config = {0};
     config.struct_size = sizeof(config);
     memcpy(config.profile_hash, profile_hash, sizeof(profile_hash));
-    config.host_abi = 1;
+    config.host_abi = POCKET_BINDING_GENERATION;
     config.tick_hz = 60;
     config.heap_limit = 1024 * 1024;
     config.frame_buffer_budget = 1024;

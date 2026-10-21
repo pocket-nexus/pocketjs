@@ -1,5 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/blackberry-qnx-dev.ts";
-import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -12,7 +13,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 export const BLACKBERRY_QNX_DEV_TARGET_ID = softwareProfile.id;
 export type BlackBerryClassicTargetId = typeof BLACKBERRY_QNX_DEV_TARGET_ID;
 
-export const BLACKBERRY_CLASSIC_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const BLACKBERRY_CLASSIC_HOST_ABI = POCKET_BINDING_GENERATION;
 export const BLACKBERRY_CLASSIC_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
 export const BLACKBERRY_CLASSIC_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
 export const BLACKBERRY_CLASSIC_RASTER_DENSITY = softwareProfile.display.rasterDensity;
@@ -20,7 +21,7 @@ export const BLACKBERRY_CLASSIC_RASTER_DENSITY = softwareProfile.display.rasterD
 export const BLACKBERRY_CLASSIC_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [BLACKBERRY_QNX_DEV_TARGET_ID]: legacyTargetProfile(softwareProfile),
+    [BLACKBERRY_QNX_DEV_TARGET_ID]: targetProfile(softwareProfile),
   }),
 );
 

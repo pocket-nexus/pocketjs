@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +23,7 @@ describe("Nintendo 3DS Pocket Runtime storage", () => {
       "-std=c11",
       "-D_POSIX_C_SOURCE=200809L",
       '-DPOCKETJS_TARGET_ID="3ds-dev"',
-      "-DPOCKETJS_HOST_ABI=8",
+      `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
       `-I${join(ROOT, "hosts/3ds/include")}`,
       `-I${join(ROOT, "contracts/generated")}`,
       `-I${join(ROOT, "hosts/3ds/src")}`,

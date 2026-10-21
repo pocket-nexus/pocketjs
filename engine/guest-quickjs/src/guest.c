@@ -200,6 +200,8 @@ static JSValue console_log(JSContext *ctx,JSValueConst self,int argc,JSValueCons
 static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_guest_environment *env) {
   pocket_guest_quickjs *guest=opaque;
   if(!guest||!runtime||!env||!HAS_FIELD(env,pocket_guest_environment,sprite_count)||guest->mounted)return -1;
+  if(env->host_abi!=POCKET_BINDING_GENERATION) {snprintf(guest->error,sizeof guest->error,"Unsupported UI binding generation; expected %u",(unsigned)POCKET_BINDING_GENERATION);return -1;}
+  guest->error[0]=0;
   if(!guest->context) {guest->engine=JS_NewRuntime();if(!guest->engine)return -1;if(env->heap_limit)JS_SetMemoryLimit(guest->engine,env->heap_limit);guest->context=JS_NewContext(guest->engine);if(!guest->context){JS_FreeRuntime(guest->engine);guest->engine=NULL;return -1;}}
   JSContext *ctx=guest->context;JSValue global=JS_GetGlobalObject(ctx),ui=JS_NewObject(ctx);
   JSValue existing=JS_GetPropertyStr(ctx,global,"ui");int occupied=!JS_IsUndefined(existing);JS_FreeValue(ctx,existing);

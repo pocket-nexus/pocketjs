@@ -12,6 +12,7 @@ test = false
 bench = false
 
 [dependencies]
+pocket-spec = { path = "../../engine/spec" }
 microts = { path = "../../engine/crates/microts", features = ["runtime"] }
 pocketjs-core = { path = "../../engine/core" }
 pocket-runtime = { path = "../../engine/runtime" }

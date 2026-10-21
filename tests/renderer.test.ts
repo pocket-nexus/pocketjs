@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 // Renderer contract tests — drive framework/src/renderer.ts against a MOCK HostOps that
 // records every op call, using the real solid-js/universal reconciler under
 // Bun. No JSX here (babel isn't in the loop for tests): we call the renderer
@@ -1097,18 +1098,18 @@ describe("host detection (host.ts)", () => {
   test("resolved build contract rejects the wrong native target or ABI", () => {
     const ops = makeMockHost().ops;
     ops.__host = "vita";
-    ops.__hostAbi = 1;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
 
     expect(() =>
       assertNativeHostContract(ops, {
         target: "vita",
-        hostAbi: 1,
+        hostAbi: POCKET_BINDING_GENERATION,
       }),
     ).not.toThrow();
     expect(() =>
       assertNativeHostContract(ops, {
         target: "psp",
-        hostAbi: 1,
+        hostAbi: POCKET_BINDING_GENERATION,
       }),
     ).toThrow(/target mismatch/);
     expect(() =>
@@ -1119,8 +1120,21 @@ describe("host detection (host.ts)", () => {
     ).toThrow(/ABI mismatch/);
   });
 
+  test("raw native bundles reject legacy namespaces without a target plan", () => {
+    const ops = makeMockHost().ops;
+    for (let generation = 1; generation < POCKET_BINDING_GENERATION; generation++) {
+      ops.__hostAbi = generation;
+      expect(() => assertNativeHostContract(ops, null)).toThrow(/rebuild the native host/);
+    }
+    delete ops.__hostAbi;
+    expect(() => assertNativeHostContract(ops, null)).toThrow(/rebuild the native host/);
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
+    expect(() => assertNativeHostContract(ops, null)).not.toThrow();
+  });
+
   test("tick-rate pairing: bundle-baked hz must match the host's declared rate", () => {
     const ops = makeMockHost().ops;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
 
     // A 60-baked bundle accepts hosts that predate __tickHz (they only ever
     // ran 60) and hosts that declare 60 — with or without a plan contract.
@@ -1130,10 +1144,10 @@ describe("host detection (host.ts)", () => {
 
     // A host driving another rate is refused even when the plan matches.
     ops.__host = "vita";
-    ops.__hostAbi = 1;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
     ops.__tickHz = 120;
     expect(() =>
-      assertNativeHostContract(ops, { target: "vita", hostAbi: 1 }),
+      assertNativeHostContract(ops, { target: "vita", hostAbi: POCKET_BINDING_GENERATION }),
     ).toThrow(/tick-rate mismatch/);
 
     // A non-60 bundle (the define is read at call time — see host.ts) needs
@@ -1161,6 +1175,7 @@ describe("host detection (host.ts)", () => {
     // injected/strict host (crash-on-miss on hardware + double asset feed).
     const psp = makeMockHost();
     psp.ops.__host = "psp";
+    psp.ops.__hostAbi = POCKET_BINDING_GENERATION;
     (psp.ops as HostOps & { __textures?: Record<string, number> }).__textures =
       {
         "logo.png": 0,
@@ -1190,7 +1205,7 @@ describe("host detection (host.ts)", () => {
   test("target-marked native host without resource tables uses portable pak feed", () => {
     const symbian = makeMockHost();
     symbian.ops.__host = "symbian-e7-dev";
-    symbian.ops.__hostAbi = 4;
+    symbian.ops.__hostAbi = POCKET_BINDING_GENERATION;
     const g = globalThis as { ui?: HostOps; __pak?: ArrayBuffer };
     const pak = pack([
       {

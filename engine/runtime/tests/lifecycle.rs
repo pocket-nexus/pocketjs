@@ -7,7 +7,7 @@ fn config() -> RuntimeConfig {
     let profile_json=br#"{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"fixture","platform":"test","tickHz":60}"#.to_vec();
     RuntimeConfig {
         profile_hash: pocket_package::sha256::sha256(&profile_json),
-        host_abi: 1,
+        host_abi: pocket_spec::BINDING_GENERATION,
         tick_hz: 60,
         heap_limit: 64 * 1024,
         frame_buffer_budget: 64,
@@ -18,10 +18,13 @@ fn package() -> Vec<u8> {
     package_for(config().profile_hash)
 }
 fn package_for(profile_hash: [u8; 32]) -> Vec<u8> {
+    package_for_generation(profile_hash, pocket_spec::BINDING_GENERATION)
+}
+fn package_for_generation(profile_hash: [u8; 32], generation: u32) -> Vec<u8> {
     let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
         target: "fixture",
-        host_abi: 1,
+        host_abi: generation,
         profile_hash,
         identity: &identity,
         plan: br#"{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}"#,
@@ -607,7 +610,7 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
         let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
         let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
             target: "fixture",
-            host_abi: 1,
+            host_abi: pocket_spec::BINDING_GENERATION,
             profile_hash: cfg.profile_hash,
             identity: &identity,
             plan: br#"{"viewport":{"logical":[4,4],"rasterDensity":2},"features":{}}"#,
@@ -763,7 +766,7 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
         .unwrap();
         let package = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
             target: "fixture",
-            host_abi: 1,
+            host_abi: pocket_spec::BINDING_GENERATION,
             profile_hash: cfg.profile_hash,
             identity: &identity,
             plan: &plan,
@@ -793,5 +796,73 @@ fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest
             assert_eq!(result, Err(RuntimeError::ProfileMismatch));
             assert!(observed.borrow().is_empty());
         }
+    }
+}
+
+#[test]
+fn runtime_configuration_requires_the_generated_binding_generation() {
+    for generation in
+        (0..pocket_spec::BINDING_GENERATION).chain([pocket_spec::BINDING_GENERATION + 1, u32::MAX])
+    {
+        let mut config = config();
+        config.host_abi = generation;
+        assert!(matches!(
+            Runtime::new(config),
+            Err(RuntimeError::BindingGenerationMismatch)
+        ));
+    }
+    assert!(Runtime::new(config()).is_ok());
+}
+
+#[test]
+fn old_packages_are_rejected_before_guest_initialization_and_can_be_replaced() {
+    use pocket_package::source::LoadError;
+    use pocket_package::{GuestError, PackageError};
+    let mut rejected = vec![(
+        include_bytes!("../../../tests/fixtures/packages/corpus/bad-v1.pocket").to_vec(),
+        GuestError::Package(PackageError::BadVersion),
+    )];
+    rejected.extend((1..pocket_spec::BINDING_GENERATION).map(|generation| {
+        (
+            package_for_generation(config().profile_hash, generation),
+            GuestError::HostAbiMismatch,
+        )
+    }));
+    for (bytes, expected) in rejected {
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        let mut runtime = runtime(facts.clone(), false, false);
+        runtime
+            .set_package_source(Box::new(MemorySource(bytes)))
+            .unwrap();
+        assert_eq!(
+            runtime.boot(),
+            Err(RuntimeError::Package(LoadError::Admission(expected)))
+        );
+        assert_eq!(facts.borrow().initializations, 0);
+        assert!(!facts.borrow().evaluated);
+        assert_eq!(facts.borrow().flushes, 0);
+        runtime
+            .set_package_source(Box::new(MemorySource(package())))
+            .unwrap();
+        runtime.boot().unwrap();
+        assert_eq!(facts.borrow().initializations, 1);
+        assert!(facts.borrow().evaluated);
+        assert_eq!(facts.borrow().flushes, 1);
+    }
+}
+
+#[test]
+fn current_package_does_not_admit_under_a_legacy_expected_generation() {
+    for expected in 1..pocket_spec::BINDING_GENERATION {
+        assert!(matches!(
+            pocket_package::select_guest(
+                &package(),
+                "fixture",
+                expected,
+                &config().profile_hash,
+                false
+            ),
+            Err(pocket_package::GuestError::HostAbiMismatch)
+        ));
     }
 }

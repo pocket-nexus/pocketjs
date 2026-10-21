@@ -144,7 +144,7 @@ fn boot(args: &Args, gpu: &Gpu) -> Result<(UiProgram, ProgramOutput)> {
         )
         .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
         host: "desktop",
-        host_abi: 1,
+        host_abi: pocket_spec::BINDING_GENERATION,
         logical: [UI_W, UI_H],
         density: 1,
         scale: 1,

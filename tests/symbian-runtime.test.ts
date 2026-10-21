@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import profile from "../profiles/symbian-e7-dev.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
@@ -199,7 +200,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       "web-app",
     ]);
     expect(POCKET_TARGETS).not.toHaveProperty(SYMBIAN_E7_DEV_TARGET_ID);
-    expect(SYMBIAN_E7_DEV_HOST_ABI).toBe(4);
+    expect(SYMBIAN_E7_DEV_HOST_ABI).toBe(POCKET_BINDING_GENERATION);
   });
 
   test("launcher admission includes only genuine E7 live-viewport apps", () => {

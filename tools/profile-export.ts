@@ -5,6 +5,7 @@ import { depfile } from "../framework/compiler/build-inputs.ts";
 import type { ResolvedProfile } from "./profile-resolver.ts";
 import { PROFILE_CAPABILITY_BITS, PROFILE_PRESENTATION_BITS } from "../contracts/spec/profile.ts";
 import type { FixedDisplayProfile } from "../contracts/spec/platform-types.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 
 const cBytes = (text: string) => `"${[...new TextEncoder().encode(text)].map(byte => `\\x${byte.toString(16).padStart(2, "0")}`).join("")}"`;
 function writeChanged(path: string, text: string): void {
@@ -29,8 +30,9 @@ function displayValue(name: string, display: FixedDisplayProfile): string {
 
 /** Export the program's trusted identity before any application is loaded. */
 export function exportProfile(resolved: ResolvedProfile, outdir: string, dependencyFile?: string) {
-  mkdirSync(outdir, { recursive: true });
   const { profile, profileHash, hostAbi } = resolved;
+  if (hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`profile export: unsupported binding generation ${hostAbi}`);
+  mkdirSync(outdir, { recursive: true });
   const canonical = canonicalProfileJson(profile);
   const hash = profileHash.slice(7).match(/../g)!.map(byte => Number.parseInt(byte, 16));
   const header = join(outdir, "pocket_profile.h");

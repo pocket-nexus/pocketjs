@@ -34,6 +34,7 @@ import {
 import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "./redmi-1s-profile.ts";
 import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "./moto-g-play-profile.ts";
 import { profileRegistry } from "./profile-resolver.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
   POCKET_SECTION,
   decodePocketPackage,
@@ -73,6 +74,9 @@ export function makeVariant(input: {
   pak: Uint8Array;
   cover?: Uint8Array;
 }): PocketPackageVariant {
+  if (input.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`pocket-pack: binding generation ${input.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  }
   const plan = JSON.parse(input.planJson) as ResolvedBuildPlan;
   if (!verifyPlanHash(plan) || !verifyPlanProfile(plan) || plan.target.id !== input.target ||
     plan.target.hostAbi !== input.hostAbi || plan.app.output !== input.identity.output ||

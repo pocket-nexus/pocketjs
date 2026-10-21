@@ -20,6 +20,7 @@ import {
 import type { ApkSigner } from "./apk-sign.ts";
 import { canonicalProfileJson, pocketProfileSchema, PROFILE_HASH_FIELDS, type PocketProfile } from "../../../contracts/spec/profile.ts";
 import { validateSchema, type ContractDiagnostic } from "../../../framework/src/manifest/schema.ts";
+import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
 
 export interface RepackIdentity {
   /** Reverse-DNS application id; must equal the `.pocket` variant's app id. */
@@ -88,6 +89,7 @@ export async function readRuntime(
   if (!Number.isInteger(manifest.hostAbi) || manifest.hostAbi < 1) {
     throw new Error(`repack: ${RUNTIME_MANIFEST} has no host ABI`);
   }
+  requireCurrentRuntime(manifest);
   if (typeof manifest.profileHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(manifest.profileHash)) {
     throw new Error(`repack: ${RUNTIME_MANIFEST} has no valid profileHash; rebuild the runtime`);
   }
@@ -124,6 +126,7 @@ export async function admitPocket(
   runtime: RuntimeManifest,
   identity: RepackIdentity,
 ): Promise<AdmittedPocket> {
+  requireCurrentRuntime(runtime);
   let decoded;
   try {
     decoded = decodePocketPackage(pocket);
@@ -188,6 +191,12 @@ export async function admitPocket(
     identity: packageIdentity,
     plan,
   };
+}
+
+function requireCurrentRuntime(runtime: RuntimeManifest): void {
+  if (runtime.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`repack: runtime binding generation ${runtime.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  }
 }
 
 /** Identity fields every package needs, checked once for every target. */

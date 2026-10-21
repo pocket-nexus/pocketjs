@@ -157,7 +157,7 @@ impl Program {
         let profile = instance::profile().unwrap();
         let mut config = PocketRuntimeConfig::empty();
         config.profile_hash = pocket_package::sha256::sha256(&profile);
-        config.host_abi = 2;
+        config.host_abi = pocket_spec::BINDING_GENERATION;
         config.tick_hz = 60;
         config.heap_limit = 128 << 20;
         config.frame_buffer_budget = 1;
@@ -240,7 +240,7 @@ const ORIGINAL_PLAN: &[u8] =
 fn original_package_plan_controls_generated_capability_namespaces() {
     unsafe {
         let p = Program::unbooted();
-        let package = std::sync::Arc::<[u8]>::from(original_package("vita", 2, ORIGINAL_PLAN));
+        let package = std::sync::Arc::<[u8]>::from(original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN));
         assert_eq!(
             instance::boot_package(p.runtime, package.clone()),
             0,
@@ -256,9 +256,9 @@ fn original_package_plan_controls_generated_capability_namespaces() {
 
 #[test]
 fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
-    let mut corrupt = original_package("vita", 2, ORIGINAL_PLAN);
+    let mut corrupt = original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN);
     *corrupt.last_mut().unwrap() ^= 1;
-    let mut wrong_profile = original_package("vita", 2, ORIGINAL_PLAN);
+    let mut wrong_profile = original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN);
     wrong_profile[64] ^= 1; // variant starts at 32; profile hash is its offset 32.
     let end = wrong_profile.len() - 8;
     let hash = pocket_package::package::fnv1a64(&[&wrong_profile[..end]]);
@@ -267,12 +267,12 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
         ("profile", wrong_profile),
         ("footer", corrupt),
         ("ABI", original_package("vita", 99, ORIGINAL_PLAN)),
-        ("target", original_package("psp", 2, ORIGINAL_PLAN)),
+        ("target", original_package("psp", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN)),
         (
             "viewport",
             original_package(
                 "vita",
-                2,
+                pocket_spec::BINDING_GENERATION,
                 br#"{"viewport":{"logical":[240,136],"rasterDensity":2}}"#,
             ),
         ),
@@ -280,11 +280,11 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
             "density",
             original_package(
                 "vita",
-                2,
+                pocket_spec::BINDING_GENERATION,
                 br#"{"viewport":{"logical":[480,272],"rasterDensity":1}}"#,
             ),
         ),
-        ("plan", original_package("vita", 2, b"{}")),
+        ("plan", original_package("vita", pocket_spec::BINDING_GENERATION, b"{}")),
     ] {
         unsafe {
             let p = Program::unbooted();
@@ -304,7 +304,7 @@ fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
 #[test]
 fn production_instance_uses_generated_ops_and_keeps_native_extensions() {
     unsafe {
-        let p=Program::new(br#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='vita'||ui.__hostAbi!==2||ui.__tickHz!==60||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing services');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false)throw Error('native extension');"#);
+        let p=Program::new(r#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='vita'||ui.__hostAbi!==EXPECTED_BINDING||ui.__tickHz!==60||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing services');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false)throw Error('native extension');"#.replace("EXPECTED_BINDING", &pocket_spec::BINDING_GENERATION.to_string()).as_bytes());
         assert!(p.guest.ops.core().unwrap().ui.viewport().0 == 480.0);
         p.assert_js("if(node<=0)throw Error('core dispatch')");
     }

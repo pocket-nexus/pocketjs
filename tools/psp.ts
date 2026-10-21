@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 // tools/psp.ts <app> [cargo args…] — build the app JS+pak (tools/
 // build.ts), then the EBOOT:
 //   POCKETJS_APP_OUTPUT=<app> POCKETJS_EMBED_APP=1 cargo psp
@@ -288,7 +289,7 @@ const hostEnvironment = buildPlan
       POCKETJS_EMBED_APP: runtime ? "0" : "1",
       POCKETJS_OUTPUT_DIR: outputDir,
       POCKETJS_TARGET: "psp",
-      POCKETJS_HOST_ABI: "1",
+      POCKETJS_HOST_ABI: String(POCKET_BINDING_GENERATION),
       POCKETJS_LOGICAL_WIDTH: "480",
       POCKETJS_LOGICAL_HEIGHT: "272",
       POCKETJS_PHYSICAL_WIDTH: "480",

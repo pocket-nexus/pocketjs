@@ -1,12 +1,32 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { generatedGuestWebBindings } from "../tools/guest-web-bindings.ts";
-import { mountUi, encodeUiString, decodeUiString } from "../engine/guest-web/src/generated-ui.js";
+import { mountUi, encodeUiString, decodeUiString, POCKET_BINDING_GENERATION } from "../engine/guest-web/src/generated-ui.js";
+import { POCKET_BINDING_GENERATION as SPEC_GENERATION } from "../contracts/spec/binding-generation.ts";
 
-const environment = { host: "fixture", hostAbi: 1, tickHz: 60, viewport: { w: 4, h: 4 }, rasterDensity: 1 };
+const environment = { host: "fixture", hostAbi: POCKET_BINDING_GENERATION, tickHz: 60, viewport: { w: 4, h: 4 }, rasterDensity: 1 };
 test("web guest binding output follows the canonical operation descriptors", () => {
+  expect(POCKET_BINDING_GENERATION).toBe(SPEC_GENERATION);
   expect(readFileSync(new URL("../hosts/web/generated-ui.js", import.meta.url), "utf8")).toBe(generatedGuestWebBindings());
   expect(readFileSync(new URL("../engine/guest-web/src/generated-ui.js", import.meta.url), "utf8")).toBe(generatedGuestWebBindings());
+});
+test("unsupported generations fail before transport queries or realm mutation and permit retry", () => {
+  const global: any = {};
+  let queries = 0, calls = 0;
+  const transport = { supportsOp: () => { queries++; return true; }, dispatch() { calls++; return { kind: "integer" as const, value: 7 }; } };
+  const rejected = [...Array.from({ length: 12 }, (_, i) => i), POCKET_BINDING_GENERATION + 1, 0xffffffff, undefined, null, NaN, Infinity, String(POCKET_BINDING_GENERATION)];
+  for (const hostAbi of rejected) {
+    expect(() => mountUi(transport, { ...environment, hostAbi, pak: new Uint8Array([1]) } as any, global)).toThrow("Unsupported UI binding generation");
+    expect(queries).toBe(0);
+    expect(calls).toBe(0);
+    expect(Reflect.ownKeys(global)).toEqual([]);
+  }
+  let reads = 0;
+  const guest = mountUi(transport, { ...environment, get hostAbi() { reads++; return reads === 1 ? POCKET_BINDING_GENERATION : 0; } }, global);
+  expect(reads).toBe(1);
+  expect(guest.ui.__hostAbi).toBe(POCKET_BINDING_GENERATION);
+  expect(guest.ui.createNode(0)).toBe(7);
+  guest.dispose();
 });
 test("web binding converts before byte borrowing and keeps typed array slice boundaries", () => {
   const calls: any[] = [], global: any = {};

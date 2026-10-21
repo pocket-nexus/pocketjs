@@ -213,7 +213,7 @@ static void timing_test(void){
 }
 int main(void){
   timing_test();
-  pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=1;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
+  pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=POCKET_BINDING_GENERATION;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
   instance=pocket_runtime_create(&config);assert(instance);
   prefix_and_operation_tests();raster_test();draw_list_test();register_provider();
   pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};

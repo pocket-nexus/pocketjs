@@ -1,11 +1,33 @@
 import { expect, test } from "bun:test";
-import { createWasmUi, contactFacts } from "../hosts/web/wasm-ops.js";
+import { createWasmUi, createWasmUiSync, contactFacts } from "../hosts/web/wasm-ops.js";
+import { POCKET_BINDING_GENERATION } from "../engine/guest-web/src/generated-ui.js";
 import { PROP, abgr } from "../contracts/spec/spec.ts";
 
 const module = WebAssembly.compile(await Bun.file(new URL("../hosts/web/pocketjs.wasm",import.meta.url)).arrayBuffer());
 const make = async (options = {}) => createWasmUi(await module,{width:32,height:24,...options});
 const source = `const n=ui.createNode(0);ui.insertBefore(1,n,0);ui.setProp(n,${PROP.width},12);ui.setProp(n,${PROP.height},10);ui.setProp(n,${PROP.bgColor},${abgr(240,20,40)});globalThis.frame=(...args)=>{globalThis.lastFrame=args;globalThis.calls=(globalThis.calls||0)+1;};`;
 function evaluator(realm: Record<string,any>) {return (code:string)=>new Function("globalThis","ui",code)(realm,realm.ui);}
+
+test("binding generation rejects before Wasm creation or guest boot side effects",async()=>{
+  const rejected=[...Array.from({length:12},(_,i)=>i),POCKET_BINDING_GENERATION+1,0xffffffff];
+  for(const hostAbi of rejected){
+    expect(()=>createWasmUiSync(new Uint8Array(),{hostAbi})).toThrow("Unsupported UI binding generation");
+    await expect(createWasmUi(new Uint8Array(),{hostAbi})).rejects.toThrow("Unsupported UI binding generation");
+  }
+  const wasm=await make(),realm:Record<string,any>={};let evaluations=0;
+  const retained=wasm.ops.createNode;
+  for(const hostAbi of rejected){
+    expect(()=>wasm.boot("",{hostAbi,global:realm,evaluate(){evaluations++;}})).toThrow("Unsupported UI binding generation");
+    expect(wasm.ops.createNode).toBe(retained);
+    expect(wasm.booted).toBe(false);expect(wasm.disposed).toBe(false);
+    expect(Reflect.ownKeys(realm)).toEqual([]);
+  }
+  await expect(wasm.bootAsync("",{hostAbi:0,global:realm})).rejects.toThrow("Unsupported UI binding generation");
+  expect(wasm.disposed).toBe(false);expect(evaluations).toBe(0);expect(retained(0)).toBeGreaterThan(0);
+  const aux=wasm.createAuxiliarySurface(8,6);expect(aux).toBeGreaterThan(0);
+  wasm.boot(source,{hostAbi:POCKET_BINDING_GENERATION,global:realm,evaluate:evaluator(realm)});
+  expect(wasm.ops.__hostAbi).toBe(POCKET_BINDING_GENERATION);wasm.advance();wasm.present();wasm.dispose();
+});
 
 test("full browser Runtime owns boot, facts, DOWN capture, and terminal presentation",async()=>{
   const wasm=await make(),realm:Record<string,any>={};
@@ -76,9 +98,9 @@ test("registered public services use generated dispatch and explicit host identi
   const wasm=await make(),realm:Record<string,any>={},sent:string[]=[];
   expect(wasm.ops.__host).toBeUndefined();expect(wasm.ops.svcOpen).toBeUndefined();
   wasm.boot(`if(!ui.svcOpen("allowed") || ui.svcOpen("denied"))throw Error("grant");if(ui.svcPoll()!=="hello")throw Error("poll");globalThis.frame=()=>ui.svcSend("reply");`,{
-    host:"web-app",hostAbi:4,global:realm,evaluate:evaluator(realm),providers:{svcOpen:(name:string)=>name==="allowed",svcPoll:()=>"hello",svcSend:(text:string)=>sent.push(text)},
+    host:"web-app",hostAbi:POCKET_BINDING_GENERATION,global:realm,evaluate:evaluator(realm),providers:{svcOpen:(name:string)=>name==="allowed",svcPoll:()=>"hello",svcSend:(text:string)=>sent.push(text)},
   });
-  expect(wasm.ops.__host).toBe("web-app");expect(wasm.ops.__hostAbi).toBe(4);expect(wasm.ops.svcOpen!.name).toBe("svcOpen");
+  expect(wasm.ops.__host).toBe("web-app");expect(wasm.ops.__hostAbi).toBe(POCKET_BINDING_GENERATION);expect(wasm.ops.svcOpen!.name).toBe("svcOpen");
   wasm.advance();expect(sent).toEqual(["reply"]);wasm.present();wasm.init();
   wasm.boot("globalThis.frame=()=>{}",{global:realm,evaluate:evaluator(realm)});expect(wasm.ops.svcOpen).toBeUndefined();wasm.dispose();
   const guarded=await make(),g:Record<string,any>={};

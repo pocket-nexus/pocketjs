@@ -43,11 +43,11 @@ operation table lives in `engine/spec/src/lib.rs`. `engine/drivers` owns
 the `RenderResources` implementation for `Ui`.
 
 The driver traits and generated C declarations define display, renderer,
-input, and package-source boundaries. **The driver/runtime ABI remains a
-candidate contract.** Layout, C/Rust consumer, and deferred-device lifecycle
-tests check the implementation; they do not freeze its interface. This
-migration retains the application package format and the existing `hostAbi`
-meaning. See [Native contract](/docs/native-contract/#driver-contract-migration).
+input and package-source boundaries. **C records use `struct_size` prefix
+compatibility; DrawList operations use a closed version.** Deferred-device
+lifecycle tests check ordering, buffer ownership and retirement. Application
+packages use format 2, the profile's SHA-256 identity and binding generation 12.
+See [Native contract](/docs/native-contract/#package-and-driver-compatibility).
 
 ## Application instances and guests
 

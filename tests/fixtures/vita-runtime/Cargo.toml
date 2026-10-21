@@ -8,6 +8,7 @@ publish = false
 default = ["usb-debug"]
 usb-debug = []
 [dependencies]
+pocket-spec = { path = "../../../engine/spec" }
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b" }
 pocket-drivers = { path = "../../../engine/drivers" }
 pocket-runtime = { path = "../../../engine/runtime" }

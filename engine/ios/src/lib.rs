@@ -16,7 +16,7 @@ use pocket_runtime_cabi::{
 };
 use std::{
     cell::{Cell, RefCell},
-    ffi::{c_char, c_void, CStr, CString},
+    ffi::{CStr, CString, c_char, c_void},
     ptr,
 };
 
@@ -118,7 +118,7 @@ pub extern "C" fn pocket_apple_create(density: u32, width: u32, height: u32) -> 
         busy: Cell::new(false),
         config: RefCell::new(Configuration {
             host: "desktop".into(),
-            abi: 1,
+            abi: pocket_spec::BINDING_GENERATION,
             hz: 60,
             pak: Vec::new(),
             package: Vec::new(),
@@ -140,7 +140,7 @@ pub extern "C" fn pocket_apple_set_identity(
         };
         if host.is_empty()
             || host.len() > pocket_package::package_format::POCKET_TARGET_MAX_BYTES
-            || abi == 0
+            || abi != pocket_spec::BINDING_GENERATION
         {
             return POCKET_STATUS_INVALID;
         }
@@ -505,6 +505,27 @@ mod tests {
         }
     }
     const RECT: &str = "let n=ui.createNode(0);ui.setProp(n,1,16);ui.setProp(n,2,12);ui.setProp(n,64,0xff0000ff);ui.insertBefore(1,n,0);globalThis.frame=function(){};";
+
+    #[test]
+    fn binding_generation_is_independent_of_apple_abi_and_rejects_stale_identity() {
+        let app = Apple::new();
+        assert_eq!(pocket_apple_abi_version(), POCKET_APPLE_ABI_VERSION);
+        for generation in [
+            0,
+            pocket_spec::BINDING_GENERATION - 1,
+            pocket_spec::BINDING_GENERATION + 1,
+        ] {
+            assert_eq!(
+                pocket_apple_set_identity(app.0, c"fixture".as_ptr(), generation),
+                POCKET_STATUS_INVALID
+            );
+        }
+        assert_eq!(
+            pocket_apple_set_identity(app.0, c"fixture".as_ptr(), pocket_spec::BINDING_GENERATION),
+            0
+        );
+        assert_eq!(app.boot(&format!("if(ui.__host!=='fixture'||ui.__hostAbi!=={})throw Error('generation');globalThis.frame=()=>{{}};", pocket_spec::BINDING_GENERATION)), 0);
+    }
 
     #[test]
     fn owned_guest_renders_once_per_tick_and_instances_are_isolated() {

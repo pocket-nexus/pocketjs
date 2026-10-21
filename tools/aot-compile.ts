@@ -12,6 +12,7 @@ import { readFontConfig } from "../framework/compiler/font-config.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/index.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { profileRegistry } from "./profile-resolver.ts";
 import { POCKET_PROFILES } from "../profiles/index.ts";
 import type { LayerDeclarations } from "../microts/compiler/aot-paint-plan.ts";
@@ -79,6 +80,7 @@ function walk(value: unknown, visitor: (value: Record<string, unknown>) => void)
 export async function compileAot(options: AotCompileOptions): Promise<AotCompileResult> {
   const { plan } = options;
   if (!verifyPlanHash(plan) || !verifyPlanProfile(plan)) throw new Error("AOT: invalid plan/profile hash");
+  if (plan.target.hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`AOT: unsupported plan binding generation ${plan.target.hostAbi}`);
   if (plan.app.aot !== true) throw new Error("AOT: app.aot must be true in pocket.json");
   const projectRoot = resolve(options.projectRoot), outdir = resolve(options.outdir);
   const inputs = new BuildInputs();

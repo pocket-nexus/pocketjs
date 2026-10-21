@@ -820,7 +820,7 @@ fn boot(args: &Args) -> Result<(UiProgram, String, Vec<u8>)> {
         )
         .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
         host: "macos-widget",
-        host_abi: 3,
+        host_abi: pocket_spec::BINDING_GENERATION,
         logical: [args.size.0, args.size.1],
         density: args.density,
         scale: 1,

@@ -279,7 +279,8 @@ unsafe fn create(
     original_package: Option<&[u8]>,
     trusted_profile: Option<(&[u8], [u8; 32])>,
 ) -> Result<Box<PocketNativeProgram>, i32> {
-    if target.is_null()
+    if host_abi != pocket_spec::BINDING_GENERATION
+        || target.is_null()
         || width == 0
         || height == 0
         || width > 4096
@@ -1128,7 +1129,7 @@ mod tests {
         let p = unsafe {
             pocket_native_program_create(
                 c"qnx".as_ptr(),
-                1,
+                pocket_spec::BINDING_GENERATION,
                 code.as_ptr(),
                 code.len(),
                 ptr::null(),
@@ -1166,7 +1167,7 @@ mod tests {
             let plan = serde_json::to_vec(&serde_json::json!({"viewport":{"logical":[32,24],"rasterDensity":1},"features":{"ui.physics":physics}})).unwrap();
             pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
                 target: "qnx",
-                host_abi: 1,
+                host_abi: pocket_spec::BINDING_GENERATION,
                 profile_hash,
                 identity: &identity,
                 plan: &plan,
@@ -1195,15 +1196,51 @@ mod tests {
                 )
             };
             let bytes = package(false);
-            assert!(create(&bytes, c"wrong".as_ptr(), 1, c"Fixture".as_ptr(), 32, 1, 1).is_null());
+            assert!(create(
+                &bytes,
+                c"wrong".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                c"Fixture".as_ptr(),
+                32,
+                1,
+                1
+            )
+            .is_null());
             assert!(create(&bytes, c"qnx".as_ptr(), 2, c"Fixture".as_ptr(), 32, 1, 1).is_null());
-            assert!(create(&bytes, c"qnx".as_ptr(), 1, c"Wrong".as_ptr(), 32, 1, 1).is_null());
-            assert!(create(&bytes, c"qnx".as_ptr(), 1, c"Fixture".as_ptr(), 33, 1, 1).is_null());
-            assert!(create(&bytes, c"qnx".as_ptr(), 1, c"Fixture".as_ptr(), 32, 2, 1).is_null());
+            assert!(create(
+                &bytes,
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                c"Wrong".as_ptr(),
+                32,
+                1,
+                1
+            )
+            .is_null());
+            assert!(create(
+                &bytes,
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                c"Fixture".as_ptr(),
+                33,
+                1,
+                1
+            )
+            .is_null());
+            assert!(create(
+                &bytes,
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                c"Fixture".as_ptr(),
+                32,
+                2,
+                1
+            )
+            .is_null());
             assert!(create(
                 &package(true),
                 c"qnx".as_ptr(),
-                1,
+                pocket_spec::BINDING_GENERATION,
                 c"Fixture".as_ptr(),
                 32,
                 1,
@@ -1213,12 +1250,21 @@ mod tests {
             let mut corrupt = bytes.clone();
             let last = corrupt.len() - 1;
             corrupt[last] ^= 1;
-            assert!(create(&corrupt, c"qnx".as_ptr(), 1, c"Fixture".as_ptr(), 32, 1, 1).is_null());
+            assert!(create(
+                &corrupt,
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                c"Fixture".as_ptr(),
+                32,
+                1,
+                1
+            )
+            .is_null());
             let mut wrong_hash = profile_hash;
             wrong_hash[0] ^= 1;
             assert!(pocket_native_program_create_package(
                 c"qnx".as_ptr(),
-                1,
+                pocket_spec::BINDING_GENERATION,
                 bytes.as_ptr(),
                 bytes.len(),
                 c"fixture".as_ptr(),
@@ -1239,7 +1285,7 @@ mod tests {
             let changed_hash = pocket_package::sha256::sha256(changed_profile.as_bytes());
             assert!(pocket_native_program_create_package(
                 c"qnx".as_ptr(),
-                1,
+                pocket_spec::BINDING_GENERATION,
                 bytes.as_ptr(),
                 bytes.len(),
                 c"fixture".as_ptr(),
@@ -1254,7 +1300,15 @@ mod tests {
                 changed_hash.as_ptr()
             )
             .is_null());
-            let p = create(&bytes, c"qnx".as_ptr(), 1, c"Fixture".as_ptr(), 32, 1, 1);
+            let p = create(
+                &bytes,
+                c"qnx".as_ptr(),
+                pocket_spec::BINDING_GENERATION,
+                c"Fixture".as_ptr(),
+                32,
+                1,
+                1,
+            );
             assert!(!p.is_null());
             drop(bytes);
             let facts = Rc::new(RefCell::new(Facts::default()));

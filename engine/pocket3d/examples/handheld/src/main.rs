@@ -1102,7 +1102,7 @@ fn boot(args: &Args, settings: &device::StageSettings) -> Result<(UiProgram, Str
         )
         .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
         host: "macos-embedded",
-        host_abi: 3,
+        host_abi: pocket_spec::BINDING_GENERATION,
         logical: [settings.logical_size.0, settings.logical_size.1],
         density: settings.raster_density,
         scale: settings.raster_density,

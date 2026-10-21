@@ -1,3 +1,7 @@
+#include "pocket_spec.h"
+#if POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
+#error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
+#endif
 #include <QApplication>
 #include <QDir>
 #include <QElapsedTimer>

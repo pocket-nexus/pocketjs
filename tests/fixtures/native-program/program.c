@@ -27,6 +27,7 @@ static void eval(const char *code) {
 static int32_t initialize(void *opaque, pocket_runtime *runtime, const pocket_guest_environment *env) {
   (void)opaque;
   assert(env->viewport_width == 360 && env->viewport_height == 640);
+  assert(env->host_abi == POCKET_BINDING_GENERATION);
   return pocket_guest_quickjs_vtable()->initialize(guest, runtime, env);
 }
 static int32_t evaluate(void *opaque, pocket_runtime *runtime, const uint8_t *source, size_t length) {
@@ -50,8 +51,8 @@ static void trace(uint32_t stage, uint32_t commands, uint32_t vertices) {
   (void)commands; (void)vertices; stages |= 1u << stage;
 }
 int main(void) {
-  static const char source[] =
-    "if(ui.__host !== 'symbian-e7-dev' || ui.__hostAbi !== 4) throw Error('metadata');"
+  static const char source_template[] =
+    "if(ui.__host !== 'symbian-e7-dev' || ui.__hostAbi !== %u) throw Error('metadata');"
     "if(ui.svcOpen !== undefined || ui.appTable !== undefined || ui.__textures !== undefined) throw Error('namespace');"
     "var n = ui.createNode(0); ui.setProp(n,1,80); ui.setProp(n,2,40); ui.setProp(n,64,0xff0000ff); ui.insertBefore(1,n,-1);"
     "globalThis.retained = ui.createNode;"
@@ -59,16 +60,22 @@ int main(void) {
     "if(buttons!==17 || analog!==0x8080 || touches.length!==1 || hits.length!==1 || surfaces[0]!==0) throw Error('input');"
     "if((touches[0]>>>0)!==((0x80000000|(7<<20)|(200<<10)|600)>>>0)) throw Error('coordinate');"
     "};";
+  char source[2048];
+  int source_length = snprintf(source, sizeof source, source_template, (unsigned)POCKET_BINDING_GENERATION);
+  assert(source_length > 0 && (size_t)source_length < sizeof source);
   uint8_t wrong_hash[32]; memcpy(wrong_hash, POCKETJS_HOST_PROFILE_HASH, 32); wrong_hash[0] ^= 1;
-  assert(!pocket_native_program_create_package("symbian-e7-dev", 4, fixture_package, sizeof fixture_package,
+  assert(!pocket_native_program_create_package("symbian-e7-dev", POCKET_BINDING_GENERATION, fixture_package, sizeof fixture_package,
     "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
     (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, wrong_hash));
-  program = pocket_native_program_create_package("symbian-e7-dev", 4, fixture_package, sizeof fixture_package,
+  assert(!pocket_native_program_create_package("symbian-e7-dev", POCKET_BINDING_GENERATION - 1, fixture_package, sizeof fixture_package,
+    "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
+    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH));
+  program = pocket_native_program_create_package("symbian-e7-dev", POCKET_BINDING_GENERATION, fixture_package, sizeof fixture_package,
     "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
     (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH);
   assert(program); pocket_native_program_destroy(program); program = NULL;
-  program = pocket_native_program_create_profile("symbian-e7-dev", 4, (const uint8_t *)source,
-    sizeof source - 1, NULL, 0, 360, 640, 1, 0,
+  program = pocket_native_program_create_profile("symbian-e7-dev", POCKET_BINDING_GENERATION, (const uint8_t *)source,
+    (size_t)source_length, NULL, 0, 360, 640, 1, 0,
     (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH);
   assert(program);
   JSRuntime *engine = JS_NewRuntime(); assert(engine);

@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 typedef struct PocketNativeProgram PocketNativeProgram;
+/* Constructors require host_abi == POCKET_BINDING_GENERATION; packages also
+ * match the independently supplied profile hash. */
 /* target is NUL-terminated. Code/pak are copied before create returns.
  * width/height are logical pixels; density controls baked resource sampling.
  * No guest or GL context is created here. Register a guest and optional op

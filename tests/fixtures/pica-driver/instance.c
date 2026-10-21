@@ -90,7 +90,7 @@ static int32_t initialize_guest(void *self, pocket_runtime *runtime,
   assert(env->auxiliary_width == 320 && env->auxiliary_height == 240 &&
          env->auxiliary_root > 0);
   assert(env->host_length == 7 && !memcmp(env->host, "3ds-dev", 7));
-  assert(env->host_abi == 11 && env->raster_density == 1);
+  assert(env->host_abi == POCKET_BINDING_GENERATION && env->raster_density == 1);
   /* This would fail if POCKETJS_LINK were not visible in instance.c. */
   assert(pocket_runtime_supports_op(runtime, POCKET_3DS_OP_appTable));
   assert(pocket_runtime_supports_op(runtime, POCKET_3DS_OP_appLaunch));

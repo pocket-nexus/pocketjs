@@ -270,7 +270,7 @@ impl UiSurface {
         let viewport = core.ui.viewport();
         let environment = GuestEnvironment {
             host: &inner.host_id,
-            host_abi: inner.host_abi.unwrap_or(0),
+            host_abi: inner.host_abi.unwrap_or(pocket_spec::BINDING_GENERATION),
             tick_hz: core.ui.tick_rate(),
             viewport: [viewport.0 as u32, viewport.1 as u32],
             auxiliary_viewport: core
@@ -385,6 +385,32 @@ impl OpProvider for ServiceProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn implicit_identity_mounts_current_bindings_without_publishing_host_abi() {
+        let guest = Guest::new().unwrap();
+        let surface = UiSurface::new((16.0, 16.0));
+        surface.mount(&guest).unwrap();
+        guest
+            .eval(
+                "identity",
+                "if('__hostAbi' in ui)throw Error('implicit identity leaked');ui.createNode(1);",
+            )
+            .unwrap();
+        let guest = Guest::new().unwrap();
+        let surface = UiSurface::new((16.0, 16.0));
+        surface.set_identity("fixture", pocket_spec::BINDING_GENERATION);
+        surface.mount(&guest).unwrap();
+        guest
+            .eval(
+                "identity",
+                &format!(
+                    "if(ui.__host!=='fixture'||ui.__hostAbi!=={})throw Error('identity');",
+                    pocket_spec::BINDING_GENERATION
+                ),
+            )
+            .unwrap();
+    }
 
     #[test]
     fn generated_ops_preserve_string_coercion_and_borrow_sliced_texture_views() {

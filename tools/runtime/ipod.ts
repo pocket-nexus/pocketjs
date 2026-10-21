@@ -13,8 +13,8 @@
 //
 // The executable has no __pocket_js / __pocket_pak section. It is compiled with
 // POCKET_PACKAGE_RUNTIME: at launch it reads app.pocket beside itself, admits
-// the ipodtouch4-dev ABI 8 variant, and takes the logical surface (320x480 or
-// 480x320) and raster density from that variant's plan (hosts/ios-legacy/
+// the ipodtouch4-dev variant with the current binding generation and takes the
+// logical surface (320x480 or 480x320) and raster density from that variant's plan (hosts/ios-legacy/
 // runtime.c). ui.physics (ops 52..56), io.offload and keep-awake (the idle
 // timer disabled while the game runs, POCKET_KEEP_AWAKE as a first-party app
 // descriptor sets it) are compiled in for every game; the svc wire is not, and
@@ -73,6 +73,7 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
     `-DPOCKET_BUILD_ID="${buildId}"`,
     "-I", join(repository, "engine/quickjs-c"),
     "-I", join(repository, "engine/ui-cabi/include"),
+    "-I", join(repository, "contracts/generated"),
     "-Wno-cast-function-type-mismatch",
   ];
   const identityObject = join(nativeBuild, "runtime.build-id-input.o");

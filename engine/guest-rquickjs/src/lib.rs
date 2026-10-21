@@ -1,13 +1,13 @@
 //! A QuickJS realm whose UI calls dispatch through the runtime's generated contract.
 use pocket_runtime::generated_ops::{
-    ArgKind, IDF_OPS, LEGACY_C_OPS, OP_DESCRIPTORS, OpDescriptor, ResultKind,
+    ArgKind, OpDescriptor, ResultKind, BINDING_GENERATION, IDF_OPS, LEGACY_C_OPS, OP_DESCRIPTORS,
 };
 use pocket_runtime::{
     Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, RuntimeError,
 };
 use rquickjs::{
-    Array, ArrayBuffer, Coerced, Context, Ctx, Exception, FromJs, Function, IntoJs, Object,
-    Runtime, Value, function::Rest,
+    function::Rest, Array, ArrayBuffer, Coerced, Context, Ctx, Exception, FromJs, Function, IntoJs,
+    Object, Runtime, Value,
 };
 
 /// The canonical profile has required numeric arguments, JS integer coercion,
@@ -63,7 +63,14 @@ impl Guest for RquickjsGuest {
         ops: OpContext,
         environment: &GuestEnvironment<'_>,
     ) -> Result<(), RuntimeError> {
+        if environment.host_abi != BINDING_GENERATION {
+            self.last_error = Some(format!(
+                "Unsupported UI binding generation; expected {BINDING_GENERATION}"
+            ));
+            return Err(RuntimeError::Guest);
+        }
         self.shutdown();
+        self.last_error = None;
         let runtime = self.remember(Runtime::new())?;
         if environment.heap_limit != 0 {
             runtime.set_memory_limit(environment.heap_limit);
@@ -176,6 +183,12 @@ pub fn mount_ui<'js>(
     environment: &GuestEnvironment<'_>,
     profile: BindingProfile,
 ) -> rquickjs::Result<()> {
+    if environment.host_abi != BINDING_GENERATION {
+        return Err(Exception::throw_type(
+            ctx,
+            &format!("Unsupported UI binding generation; expected {BINDING_GENERATION}"),
+        ));
+    }
     let globals = ctx.globals();
     if globals.contains_key("ui")? {
         return Err(Exception::throw_type(ctx, "ui is already mounted"));
@@ -553,7 +566,7 @@ mod tests {
     fn environment(assets: Option<&AssetRegistry>) -> GuestEnvironment<'_> {
         GuestEnvironment {
             host: "binding-test",
-            host_abi: 7,
+            host_abi: BINDING_GENERATION,
             tick_hz: 60,
             viewport: [480, 272],
             auxiliary_viewport: None,
@@ -581,8 +594,9 @@ mod tests {
         let (guest, _) = guest(BindingProfile::Canonical);
         assert!(evaluate::<bool>(
             &guest,
-            "ui.__host==='binding-test' && ui.__hostAbi===7 && ui.__tickHz===60 && ui.__viewport.w===480"
+            "ui.__host==='binding-test' && ui.__tickHz===60 && ui.__viewport.w===480"
         ));
+        assert_eq!(evaluate::<u32>(&guest, "ui.__hostAbi"), BINDING_GENERATION);
         assert!(evaluate::<bool>(
             &guest,
             "['svcOpen','videoOpen','appLaunch','physicsCreate','loadTileTexture','hitTestAuxiliary','setCompositorSurface','__textures','__sprites'].every(k=>!(k in ui))"
@@ -603,6 +617,66 @@ mod tests {
             &native,
             "Object.getPrototypeOf(ui.__textures)===null && Object.keys(ui.__sprites).length===0"
         ));
+    }
+    #[test]
+    fn binding_generation_is_checked_before_creating_or_replacing_a_guest() {
+        for profile in [
+            BindingProfile::Canonical,
+            BindingProfile::LegacyC,
+            BindingProfile::Idf,
+        ] {
+            let mut guest = RquickjsGuest::new(profile);
+            let ops = OpContext::from_ui(pocketjs_core::Ui::new());
+            for generation in (0..12).chain([BINDING_GENERATION + 1, u32::MAX]) {
+                let mut env = environment(None);
+                env.host_abi = generation;
+                assert_eq!(
+                    guest.initialize(ops.clone(), &env),
+                    Err(RuntimeError::Guest)
+                );
+                assert!(guest
+                    .last_error()
+                    .unwrap()
+                    .contains("Unsupported UI binding generation"));
+                assert!(guest.context.is_none() && guest.runtime.is_none());
+            }
+            guest.initialize(ops.clone(), &environment(None)).unwrap();
+            assert_eq!(evaluate::<u32>(&guest, "ui.__hostAbi"), BINDING_GENERATION);
+            guest
+                .evaluate(b"globalThis.retained=ui.createNode;globalThis.marker=42")
+                .unwrap();
+            let mut bad = environment(None);
+            bad.host_abi = 0;
+            assert_eq!(guest.initialize(ops, &bad), Err(RuntimeError::Guest));
+            assert!(evaluate::<bool>(
+                &guest,
+                "marker===42 && retained===ui.createNode && retained(0)>0"
+            ));
+        }
+    }
+    #[test]
+    fn host_owned_mount_rejects_other_generations_without_publishing_globals() {
+        for profile in [
+            BindingProfile::Canonical,
+            BindingProfile::LegacyC,
+            BindingProfile::Idf,
+        ] {
+            let engine = Runtime::new().unwrap();
+            let context = Context::full(&engine).unwrap();
+            let ops = OpContext::from_ui(pocketjs_core::Ui::new());
+            context.with(|ctx| {
+                for generation in (0..12).chain([BINDING_GENERATION + 1, u32::MAX]) {
+                    let mut env = environment(None);
+                    env.host_abi = generation;
+                    env.pak = &[1, 2, 3];
+                    assert!(mount_ui(&ctx, ops.clone(), &env, profile).is_err());
+                    let _ = ctx.catch();
+                    assert!(ctx.eval::<bool, _>("!('ui' in globalThis)&&!('__pak' in globalThis)&&!('console' in globalThis)").unwrap());
+                }
+                mount_ui(&ctx, ops.clone(), &environment(None), profile).unwrap();
+                assert_eq!(ctx.eval::<u32, _>("ui.__hostAbi").unwrap(), BINDING_GENERATION);
+            });
+        }
     }
     #[test]
     fn typed_array_offset_is_borrowed_after_reentrant_scalar_coercion() {
@@ -626,14 +700,13 @@ mod tests {
             &guest,
             "(()=>{let id=ui.createNode(1);ui.setText(id,'\\ud800');return id})()",
         );
-        assert!(
-            ops.core()
-                .unwrap()
-                .ui
-                .node_text(lone)
-                .unwrap()
-                .contains('\u{fffd}')
-        );
+        assert!(ops
+            .core()
+            .unwrap()
+            .ui
+            .node_text(lone)
+            .unwrap()
+            .contains('\u{fffd}'));
     }
     #[test]
     fn missing_arguments_and_empty_results_follow_profile() {

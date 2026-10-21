@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
@@ -11,7 +12,7 @@ test("Clear resolves the Redmi 1S panel: 360x640 logical at density 2", () => {
   const plan = resolveRedmi1sBuildPlan(clear());
   const inputs = extractHostBuildInputs(plan, { expectedTarget: REDMI_1S_TARGET });
   expect(inputs.viewport).toEqual({ logical: [360, 640], physical: [720, 1280], rasterDensity: 2, presentation: "native" });
-  expect(inputs.hostAbi).toBe(9);
+  expect(inputs.hostAbi).toBe(POCKET_BINDING_GENERATION);
   const taller = clear();
   taller.app.viewport.fixed.logical = [360, 800];
   expect(() => resolveRedmi1sBuildPlan(taller)).toThrow();

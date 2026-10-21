@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/vita.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
@@ -68,7 +69,7 @@ async function runtime(overrides: { target?: string; hostAbi?: number } = {}): P
   for (const name of RUNTIME_ASSETS) files.set(name, new Uint8Array(readFileSync(join(DEFAULT_VITA_PACKAGE_ASSETS, name))));
   const listed: Record<string, { bytes: number; sha256: string }> = {};
   for (const [name, bytes] of files) listed[name] = { bytes: bytes.length, sha256: await sha256Hex(bytes) };
-  const manifest = { target: overrides.target ?? "vita", hostAbi: overrides.hostAbi ?? 2, pocketjs: "0".repeat(40), profile: "vita", profileHash: hashPocketProfile(softwareProfile), files: listed };
+  const manifest = { target: overrides.target ?? "vita", hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION, pocketjs: "0".repeat(40), profile: "vita", profileHash: hashPocketProfile(softwareProfile), files: listed };
   files.set("runtime.json", new TextEncoder().encode(JSON.stringify(manifest)));
   return files;
 }
@@ -158,7 +159,7 @@ describe("PS Vita repack", () => {
 
   test("refuses a host ABI the runtime does not have", async () => {
     await expect(repackVita(await input({ runtime: await runtime({ hostAbi: 1 }) }))).rejects.toThrow(
-      "the .pocket's vita variant is for host ABI 2; this runtime is ABI 1",
+      `runtime binding generation 1 is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`,
     );
   });
 

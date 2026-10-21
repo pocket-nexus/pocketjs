@@ -13,7 +13,7 @@ const PROFILE: &[u8] = br#"{"capabilities":["input.buttons","input.analog.left",
 fn config() -> RuntimeConfig {
     RuntimeConfig {
         profile_hash: pocket_package::sha256::sha256(PROFILE),
-        host_abi: 1,
+        host_abi: pocket_spec::BINDING_GENERATION,
         tick_hz: 60,
         heap_limit: 65536,
         frame_buffer_budget: (WIDTH * HEIGHT * 4) as usize,
@@ -25,7 +25,7 @@ fn package() -> Vec<u8> {
         pocket_package::embedded::identity("application", "external.consumer", "Consumer").unwrap();
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
         target: "consumer",
-        host_abi: 1,
+        host_abi: pocket_spec::BINDING_GENERATION,
         profile_hash: config().profile_hash,
         identity: &identity,
         plan: br#"{"viewport":{"logical":[8,6],"rasterDensity":1},"features":{}}"#,

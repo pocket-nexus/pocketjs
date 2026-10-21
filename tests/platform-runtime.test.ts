@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -148,7 +149,7 @@ test("external apps share PocketJS's Solid runtime identity", async () => {
       define: {
         "process.env.NODE_ENV": '"production"',
         __POCKET_TARGET__: '"symbian-e7-dev"',
-        __POCKET_HOST_ABI__: "4",
+        __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
         __POCKET_FEATURES__: "{}",
         __POCKET_PIXEL_RATIO__: "1",
       },
@@ -180,7 +181,7 @@ test("parallel bundles receive their own generated style table", async () => {
         define: {
           "process.env.NODE_ENV": '"production"',
           __POCKET_TARGET__: '"symbian-e7-dev"',
-          __POCKET_HOST_ABI__: "4",
+          __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
           __POCKET_FEATURES__: "{}",
           __POCKET_PIXEL_RATIO__: "1",
         },
@@ -292,7 +293,7 @@ async function bundleAnalogProbe(framework: PocketFramework): Promise<string> {
       define: {
         "process.env.NODE_ENV": '"production"',
         __POCKET_TARGET__: '"vita"',
-        __POCKET_HOST_ABI__: "2",
+        __POCKET_HOST_ABI__: String(POCKET_BINDING_GENERATION),
         __POCKET_FEATURES__: JSON.stringify({ "input.analog.left": true }),
         __POCKET_PIXEL_RATIO__: "2",
       },

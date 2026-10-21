@@ -43,7 +43,7 @@
   },
   "target": {
     "id": "vita",
-    "hostAbi": 2
+    "hostAbi": 12
   },
   "viewport": {
     "logical": [
@@ -85,5 +85,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:74b24e894b31d9e099285e80d4744ec55adb28811341b349e6bd085b74c56072"
+  "planHash": "sha256:49a9efef7ff1ae97f921b8a0a38fc914afa1b39657d8fd588a3414558dd61691"
 }

@@ -135,7 +135,7 @@ mod tests {
         let mut runtime = Runtime::new(RuntimeConfig {
             profile_hash: hash,
             profile_json: json.to_vec(),
-            host_abi: 1,
+            host_abi: pocket_spec::BINDING_GENERATION,
             tick_hz: 60,
             heap_limit: 65536,
             frame_buffer_budget: 64,
@@ -176,15 +176,17 @@ mod tests {
         let mut runtime = Runtime::new(RuntimeConfig {
             profile_hash: pocket_package::sha256::sha256(json),
             profile_json: json.to_vec(),
-            host_abi: 1,
+            host_abi: pocket_spec::BINDING_GENERATION,
             tick_hz: 60,
             heap_limit: 65536,
             frame_buffer_budget: 0,
         })
         .unwrap();
-        assert!(runtime
-            .add_display(Display([0; 64]), RendererId::SOFTWARE)
-            .is_err());
+        assert!(
+            runtime
+                .add_display(Display([0; 64]), RendererId::SOFTWARE)
+                .is_err()
+        );
     }
     #[test]
     fn aot_guest_rejects_script_packages() {

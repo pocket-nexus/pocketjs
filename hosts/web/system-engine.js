@@ -1,6 +1,7 @@
 // Browser Pocket System host. Each package runs in an independent same-origin
 // iframe Realm with its own wasm Ui. This module owns AppInstance lifecycle,
 // focused scheduling, child raster retention and browser input adaptation.
+import { POCKET_BINDING_GENERATION } from "./generated-ui.js";
 
 const BTN = {
   SELECT: 0x0001,
@@ -82,8 +83,8 @@ export function createSurfaceCatalog(applications) {
 }
 
 export function validateSystemPlan(plan) {
-  if (!plan || plan.target?.id !== "web-app" || plan.target?.hostAbi !== 4) {
-    throw new Error("browser System host requires a web-app ABI 4 ResolvedSystemPlan");
+  if (!plan || plan.target?.id !== "web-app" || plan.target?.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`browser System host requires a web-app binding generation ${POCKET_BINDING_GENERATION} ResolvedSystemPlan`);
   }
   if (!plan.systemUI || plan.roles?.systemUI !== plan.systemUI.package) {
     throw new Error("resolved SystemUI role does not match its package plan");
@@ -103,8 +104,8 @@ export function validateSystemPlan(plan) {
     if (entry.plan.app.id !== entry.package) {
       throw new Error(`package ${entry.package} carries plan for ${entry.plan.app.id}`);
     }
-    if (entry.plan.target?.id !== "web-app" || entry.plan.target?.hostAbi !== 4) {
-      throw new Error(`package ${entry.package} was not resolved for web-app ABI 4`);
+    if (entry.plan.target?.id !== "web-app" || entry.plan.target?.hostAbi !== POCKET_BINDING_GENERATION) {
+      throw new Error(`package ${entry.package} was not resolved for web-app binding generation ${POCKET_BINDING_GENERATION}`);
     }
   }
   for (const entry of plan.applications ?? []) {

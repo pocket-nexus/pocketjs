@@ -7,6 +7,7 @@ repository.workspace = true
 description = "A low-power 3D stage that mounts Pocket apps onto authored display surfaces"
 
 [dependencies]
+pocket-spec = { path = "../../../spec" }
 pocket-drivers = { path = "../../../drivers" }
 pocket3d = { workspace = true }
 pocket-mod = { workspace = true }

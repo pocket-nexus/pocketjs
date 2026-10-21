@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -60,7 +61,7 @@ describe("runtime configuration", () => {
     const selected = await resolveProfile({ from: directory, target: "custom-profile" });
     expect(selected.profile.id).toBe("external/npm");
     expect(selected.profile.hostExtension?.directory).toBe(pkg);
-    expect(selected.hostAbi).toBe(1);
+    expect(selected.hostAbi).toBe(POCKET_BINDING_GENERATION);
     expect(selected.dependencies).toContain(join(pkg, "index.ts"));
     expect(selected.dependencies).toContain(join(pkg, "value.ts"));
     expect(selected.dependencies).toContain(join(pkg, "package.json"));
@@ -78,7 +79,7 @@ describe("runtime configuration", () => {
     for (const id of ["constructor", "__proto__", "toString"]) {
       writeFileSync(file, `export default ${JSON.stringify(profile(id))}`);
       const selected = await resolveProfile({ from: directory, target: file });
-      expect(selected.profile.id).toBe(id); expect(selected.hostAbi).toBe(1);
+      expect(selected.profile.id).toBe(id); expect(selected.hostAbi).toBe(POCKET_BINDING_GENERATION);
     }
   });
 
@@ -97,8 +98,9 @@ describe("runtime configuration", () => {
     const selected = await resolveProfile({ from: directory });
     const out = join(directory, "export"); const dependencyFile = join(directory, "profile.d");
     exportProfile(selected, out, dependencyFile);
+    expect(() => exportProfile({ ...selected, hostAbi: POCKET_BINDING_GENERATION - 1 }, out)).toThrow("binding generation");
     const sidecar = JSON.parse(readFileSync(join(out, "pocket-profile.json"), "utf8"));
-    expect(sidecar).toMatchObject({ format: "pocket-profile/1", canonicalProfileJson: canonicalProfileJson(selected.profile), profileHash: selected.profileHash, hostAbi: 1 });
+    expect(sidecar).toMatchObject({ format: "pocket-profile/1", canonicalProfileJson: canonicalProfileJson(selected.profile), profileHash: selected.profileHash, hostAbi: POCKET_BINDING_GENERATION });
     expect(readFileSync(dependencyFile, "utf8")).toContain(file);
     expect(readFileSync(dependencyFile, "utf8")).toContain(join(directory, "profile.ts"));
     writeFileSync(join(out, "consumer.c"), `#include "pocket_profile.h"
@@ -109,7 +111,7 @@ _Static_assert(POCKET_PROFILE_WIDTH == 8 && POCKET_PROFILE_HEIGHT == 4, "physica
 _Static_assert(POCKET_PROFILE_TICK_HZ == 60, "tick rate");
 int main(void) {
     assert(pocket_profile.struct_size == sizeof(pocket_profile));
-    assert(pocket_profile.tick_hz == 60 && pocket_profile.host_abi == 1);
+    assert(pocket_profile.tick_hz == 60 && pocket_profile.host_abi == ${POCKET_BINDING_GENERATION});
     assert(strcmp(pocket_profile.platform, "test") == 0 && strcmp(pocket_profile.form, "window") == 0);
     const pocket_profile_display *display = &pocket_profile.display;
     assert(display->struct_size == sizeof(*display));
@@ -163,7 +165,7 @@ int main(void) {
       expect(pkg.variants).toHaveLength(1);
       const variant = pkg.variants[0]!;
       expect(variant.target).toBe(target);
-      expect(variant.hostAbi).toBe(1);
+      expect(variant.hostAbi).toBe(POCKET_BINDING_GENERATION);
       const plan = JSON.parse(new TextDecoder().decode(findSection(variant, POCKET_SECTION.plan)!));
       expect(plan.profileHash).toBe(variant.profileHash);
       expect(plan.profile.tickHz).toBe(target === "external-a" ? 60 : 30);

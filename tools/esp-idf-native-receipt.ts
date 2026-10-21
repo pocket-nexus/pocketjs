@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -20,7 +21,7 @@ export const RUST_TARGETS = { esp32p4: "riscv32imafc-unknown-none-elf", esp32s3:
 export type IdfTarget = keyof typeof RUST_TARGETS;
 export const NATIVE_POLICY = { profile: "release", defaultFeatures: false, locked: true,
 codegenUnits: 16, lto: false, optLevel: 3, panic: "abort", preparationVersion: 1,
-  rustArchiveLayout: "single-runtime" } as const;
+  rustArchiveLayout: "single-runtime", hostAbi: POCKET_BINDING_GENERATION } as const;
 export const sha256 = (bytes: Uint8Array | string): string => createHash("sha256").update(bytes).digest("hex");
 
 export interface NativeReceipt {
@@ -51,7 +52,7 @@ export async function nativeSourceFiles(root: string, spec: NativeComponent): Pr
     "hosts/esp-idf/components/pocket_runtime/prepare_archive.cmake",
     "hosts/esp-idf/components/pocket_guest_quickjs/CMakeLists.txt",
     "hosts/esp-idf/components/pocket_guest_quickjs/tools/prepare_quickjs.py",
-    "contracts/spec/profile.ts",
+    "contracts/spec/profile.ts", "contracts/spec/binding-generation.ts",
   ]);
   for (const path of roots) {
     if (!existsSync(join(root, path))) throw new Error(`missing native source root: ${path}`);

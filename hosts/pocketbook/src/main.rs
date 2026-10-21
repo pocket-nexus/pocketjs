@@ -27,11 +27,9 @@ use std::{cell::RefCell, rc::Rc};
 
 use framebuffer::DirtyRect;
 
-/// Host platform-contract identity. Must match `pocketbook.hostAbi` in
-/// contracts/spec/platforms.ts, or plan-built bundles refuse this host
-/// (framework/src/host.ts::assertNativeHostContract).
+/// Profile identity and script binding generation are checked independently.
 const HOST_ID: &str = "pocketbook";
-const HOST_ABI: u32 = 5;
+const HOST_ABI: u32 = pocket_spec::BINDING_GENERATION;
 
 /// Logical tick cadence. E-ink doesn't need 60 fps; ~30 fps keeps animations
 /// smooth while sparing CPU and battery.

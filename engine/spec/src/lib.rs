@@ -8,6 +8,9 @@
 #![allow(dead_code)]
 #![allow(clippy::all)]
 
+/// Generated guest/native binding contract; independent of profile identity.
+pub const BINDING_GENERATION: u32 = 12;
+
 /// Logical (and physical PSP) screen size.
 pub const SCREEN_W: u32 = 480;
 pub const SCREEN_H: u32 = 272;

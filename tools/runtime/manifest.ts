@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { RUNTIME_MANIFEST, sha256Hex, type RuntimeManifest } from "../repack/shared/runtime.ts";
+import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 
@@ -27,6 +28,9 @@ export async function writeRuntimeManifest(
     extra?: Readonly<Record<string, unknown>>;
   },
 ): Promise<RuntimeManifest> {
+  if (fields.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new TypeError(`runtime manifest: binding generation ${fields.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  }
   if (!/^sha256:[0-9a-f]{64}$/.test(fields.profileHash)) {
     throw new TypeError("runtime manifest requires an explicit software profileHash");
   }

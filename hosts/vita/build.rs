@@ -98,8 +98,13 @@ fn main() {
     }
     let target = env::var("POCKETJS_TARGET").unwrap_or_else(|_| "vita".into());
     assert_eq!(target, "vita", "Vita host requires POCKETJS_TARGET=vita");
-    let host_abi = env::var("POCKETJS_HOST_ABI").unwrap_or_else(|_| "2".into());
-    assert_eq!(host_abi, "2", "Vita host requires POCKETJS_HOST_ABI=2");
+    let host_abi = env::var("POCKETJS_HOST_ABI")
+        .unwrap_or_else(|_| pocket_spec::BINDING_GENERATION.to_string());
+    assert_eq!(
+        host_abi.parse::<u32>().ok(),
+        Some(pocket_spec::BINDING_GENERATION),
+        "POCKETJS_HOST_ABI must match this build's binding generation"
+    );
     let dist = env::var_os("POCKETJS_OUTPUT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("../../dist"));

@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { canonicalProfileJson } from "../contracts/spec/profile.ts";
 import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "bun:test";
@@ -177,7 +178,7 @@ test("device Rust admission consumes the TypeScript package format", async () =>
   const profileHash = "sha256:" + createHash("sha256").update(profileJson).digest("hex");
   writeFileSync(join(directory, "plan.json"), JSON.stringify(plan));
   function pkg(overrides: { id?: string; abi?: number; target?: string; profileHash?: string; plan?: unknown; js?: string } = {}) {
-    return encodePocketPackage({ manifest: Buffer.from("{}"), variants: [{ target: overrides.target ?? "vita", hostAbi: overrides.abi ?? 2, profileHash: overrides.profileHash ?? profileHash,
+    return encodePocketPackage({ manifest: Buffer.from("{}"), variants: [{ target: overrides.target ?? "vita", hostAbi: overrides.abi ?? POCKET_BINDING_GENERATION, profileHash: overrides.profileHash ?? profileHash,
       sections: [
         { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: plan.app.output, id: overrides.id ?? plan.app.id, title: plan.app.title }) },
         { kind: POCKET_SECTION.plan, bytes: Buffer.from(JSON.stringify(overrides.plan ?? plan)) },

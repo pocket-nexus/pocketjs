@@ -510,6 +510,9 @@ pub unsafe extern "C" fn web_set_identity(h: &WasmHost, p: *const u8, n: usize, 
     status(
         h,
         (|| {
+            if abi != BINDING_GENERATION {
+                return Err(RuntimeError::BindingGenerationMismatch);
+            }
             if h.runtime
                 .try_borrow()
                 .map_err(|_| RuntimeError::Busy)?
@@ -519,11 +522,43 @@ pub unsafe extern "C" fn web_set_identity(h: &WasmHost, p: *const u8, n: usize, 
             }
             let name =
                 std::str::from_utf8(bytes(p, n)).map_err(|_| RuntimeError::InvalidArgument)?;
-            if name.is_empty() || name.len() >= 32 || name.contains('\0') || abi == 0 {
+            if name.is_empty() || name.len() >= 32 || name.contains('\0') {
                 return Err(RuntimeError::InvalidArgument);
             }
             *h.identity.borrow_mut() = (name.into(), abi);
             Ok(())
         })(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_requires_current_generation_before_changing_the_host() {
+        let pointer = web_create(4, 4, 1, 0, 0);
+        assert!(!pointer.is_null());
+        let host = unsafe { &*pointer };
+        assert_eq!(*host.identity.borrow(), ("web".into(), BINDING_GENERATION));
+        let name = b"browser-test";
+        for generation in (0..12).chain([BINDING_GENERATION + 1, u32::MAX]) {
+            assert_ne!(
+                unsafe { web_set_identity(host, name.as_ptr(), name.len(), generation) },
+                0
+            );
+            assert_eq!(*host.identity.borrow(), ("web".into(), BINDING_GENERATION));
+            assert_eq!(&*host.result.borrow(), b"BindingGenerationMismatch");
+            assert!(host.runtime.borrow().is_none());
+        }
+        assert_eq!(
+            unsafe { web_set_identity(host, name.as_ptr(), name.len(), BINDING_GENERATION) },
+            0
+        );
+        assert_eq!(
+            *host.identity.borrow(),
+            ("browser-test".into(), BINDING_GENERATION)
+        );
+        assert_eq!(unsafe { web_destroy(pointer) }, 0);
+    }
 }

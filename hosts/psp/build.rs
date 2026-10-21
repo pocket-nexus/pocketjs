@@ -166,12 +166,12 @@ fn main() {
         );
     }
     let target = env::var("POCKETJS_TARGET").unwrap_or_else(|_| "psp".into());
-    let host_abi = env::var("POCKETJS_HOST_ABI").unwrap_or_else(|_| "1".into());
-    // Fail HERE, not at boot: a garbage value would otherwise parse to 0 in
-    // ffi.rs and brick every manifest bundle with an ABI-mismatch at mount.
-    assert!(
-        host_abi.parse::<i32>().map(|abi| abi > 0).unwrap_or(false),
-        "POCKETJS_HOST_ABI must be a positive integer (got {host_abi:?})"
+    let host_abi = env::var("POCKETJS_HOST_ABI")
+        .unwrap_or_else(|_| pocket_spec::BINDING_GENERATION.to_string());
+    assert_eq!(
+        host_abi.parse::<u32>().ok(),
+        Some(pocket_spec::BINDING_GENERATION),
+        "POCKETJS_HOST_ABI must match this build's binding generation"
     );
     let logical = (
         dimension("POCKETJS_LOGICAL_WIDTH", 480),

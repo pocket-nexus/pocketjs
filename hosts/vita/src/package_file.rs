@@ -17,7 +17,7 @@ use crate::switch::GuestBytes;
 /// The file the runtime reads.
 pub const PATH: &str = "app0:app.pocket";
 const NAME: &str = "app.pocket";
-const HOST_ABI: u32 = 2;
+const HOST_ABI: u32 = pocket_spec::BINDING_GENERATION;
 
 static GAME: OnceLock<Result<Box<[u8]>, String>> = OnceLock::new();
 

@@ -246,7 +246,7 @@ pub(crate) fn package(code: &[u8], pak: &[u8]) -> Result<Vec<u8>, String> {
         "Vita embedded guest",
     )
     .map_err(|e| format!("{e:?}"))?;
-    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"vita",host_abi:2,profile_hash:pocket_package::sha256::sha256(&profile()?),identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{"input.buttons":true,"input.analog.left":true,"input.touch":true,"text.glyphs.baked":true}}"#,code,pak}).map_err(|e|format!("{e:?}"))
+    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"vita",host_abi:pocket_spec::BINDING_GENERATION,profile_hash:pocket_package::sha256::sha256(&profile()?),identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":2},"features":{"input.buttons":true,"input.analog.left":true,"input.touch":true,"text.glyphs.baked":true}}"#,code,pak}).map_err(|e|format!("{e:?}"))
 }
 
 /// Preserve the supplied package as the source for canonical admission. This

@@ -1,4 +1,5 @@
 /** Synchronous native transport; records follow contracts/spec/ui-ops.ts. */
+export const POCKET_BINDING_GENERATION: number;
 export type UiArgument = { kind: "integer" | "real"; value: number } | { kind: "bytes"; value: Uint8Array };
 export type UiResult = { kind: "none" } | { kind: "integer" | "real"; value: number } | { kind: "bytes"; value: Uint8Array };
 export interface UiTransport {
@@ -16,7 +17,8 @@ export interface GuestEnvironment {
   textures?: { name: string; handle: number }[];
   sprites?: { name: string; handle: number; frames: number; columns: number; step: number }[];
 }
-/** Operations are present according to supportsOp. A host can narrow this
+/** Mount rejects unsupported hostAbi before querying transport or changing globals.
+ * Operations are present according to supportsOp. A host can narrow this
  * dynamic object to its supported subset of the framework's HostOps contract.
  */
 export function mountUi(transport: UiTransport, environment: GuestEnvironment, global?: Record<string, any>): { ui: Record<string, any>; dispose(): void };

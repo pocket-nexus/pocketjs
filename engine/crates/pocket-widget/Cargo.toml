@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Desktop widgets as a runtime-family capability: widget window shell with demand rendering, embedded `ui` surfaces on meshes, part picking, PSP input packing"
 
 [dependencies]
+pocket-spec = { path = "../../spec" }
 pocket-runtime = { path = "../../runtime" }
 pocket-drivers = { path = "../../drivers" }
 pocket-mod = { workspace = true }

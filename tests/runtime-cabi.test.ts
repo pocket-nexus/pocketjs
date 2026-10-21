@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
@@ -11,7 +12,7 @@ const profile = '{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physi
 function packageFixture(): Uint8Array {
   const text = new TextEncoder();
   return encodePocketPackage({ manifest: new Uint8Array(), variants: [{
-    target: "fixture", hostAbi: 1, profileHash: "sha256:" + createHash("sha256").update(profile).digest("hex"),
+    target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: "sha256:" + createHash("sha256").update(profile).digest("hex"),
     sections: [
       {kind:1,bytes:encodeIdentity({output:"app",id:"test.app",title:"App"})},
       {kind:2,bytes:text.encode('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}')},

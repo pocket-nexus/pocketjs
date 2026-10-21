@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 // tools/vita.ts <app> | --plan=<plan.json> [--no-usb-debug] [--capture] [cargo args…]
 // tools/vita.ts --runtime [--title=TITLEID] [--no-usb-debug] [cargo args…]
 //
@@ -255,7 +256,7 @@ const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
   appOutput: outputApp,
   app: { id: applicationId, title: packageTitle, version: "0.0.0" },
   target: "vita",
-  hostAbi: 2,
+  hostAbi: POCKET_BINDING_GENERATION,
   viewport: {
     logical: [480, 272],
     physical: [960, 544],

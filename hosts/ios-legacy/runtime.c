@@ -80,11 +80,14 @@ typedef enum {
 #include <stdlib.h>
 #include <string.h>
 #include "pocket_ui_cabi.h"
+#include "pocket_spec.h"
 #ifndef POCKETJS_TARGET_ID
 #error "POCKETJS_TARGET_ID names the package variant this runtime admits"
 #endif
 #ifndef POCKETJS_HOST_ABI
 #error "POCKETJS_HOST_ABI names the package variant this runtime admits"
+#elif POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
+#error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
 static int g_package_width = 320;
 static int g_package_height = 480;

@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { defineProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
@@ -31,8 +32,13 @@ describe("portable QuickJS C canonical composition", () => {
       return object;
     });
     const profileHeader = writeHostProfileHeader(build, defineProfile({id:"harness-test",platform:"fixture",form:"embedded",tickHz:60,display:{physicalViewport:[32,24],logicalViewports:[[32,24]],rasterDensity:1,presentations:["native"]},capabilities:["input.buttons","input.touch"],roleCapabilities:{}}));
-    const common = ["-include", profileHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", '-DPOCKETJS_TARGET_ID="harness-test"', "-DPOCKETJS_HOST_ABI=1",
+    const common = ["-include", profileHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", '-DPOCKETJS_TARGET_ID="harness-test"', `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
       ...["engine/quickjs-c", "engine/ui-cabi/include", "engine/guest-quickjs/include", "contracts/generated", "hosts/nokia-e7/runtime", "hosts/ios-legacy"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
+    const stale = Bun.spawnSync([cc!, ...common.map(arg => arg.startsWith("-DPOCKETJS_HOST_ABI=")
+      ? `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION - 1}` : arg), "-fsyntax-only", "engine/quickjs-c/pocket_runtime.c"],
+      { cwd: repository, stdout: "pipe", stderr: "pipe" });
+    expect(stale.success).toBe(false);
+    expect(stale.stderr.toString()).toContain("POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION");
     const variants: [string, string[]][] = [
       ["production", []], ["native-extension", ["-DPOCKET_RUNTIME_EXTENSION"]], ["stages", ["-DPOCKET_RUNTIME_STAGE_HOOKS"]],
       ["harness", ["-DPOCKET_RUNTIME_HARNESS"]], ["stages-and-harness", ["-DPOCKET_RUNTIME_STAGE_HOOKS", "-DPOCKET_RUNTIME_HARNESS"]],

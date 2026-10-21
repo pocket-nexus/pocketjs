@@ -169,6 +169,7 @@ dependencies = [
  "pocket-raster",
  "pocket-runtime",
  "pocket-runtime-cabi",
+ "pocket-spec",
  "serde_json",
 ]
 

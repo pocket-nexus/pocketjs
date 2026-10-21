@@ -1,5 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/ipodtouch-dev.ts";
-import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -17,7 +18,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * repeatable build, deployment, launch, rendered-frame, and touch receipt.
  */
 export const IPODTOUCH_DEV_TARGET_ID = softwareProfile.id;
-export const IPODTOUCH_DEV_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const IPODTOUCH_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const IPODTOUCH_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
 export const IPODTOUCH_RASTER_DENSITY = softwareProfile.display.rasterDensity;
 export const IPODTOUCH_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
@@ -25,7 +26,7 @@ export const IPODTOUCH_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewp
 export const IPODTOUCH_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [IPODTOUCH_DEV_TARGET_ID]: legacyTargetProfile(softwareProfile),
+    [IPODTOUCH_DEV_TARGET_ID]: targetProfile(softwareProfile),
   }),
 );
 

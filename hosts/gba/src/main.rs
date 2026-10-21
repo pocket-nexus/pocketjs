@@ -165,7 +165,7 @@ pub unsafe extern "C" fn gba_main() -> ! {
     let mut runtime = Runtime::new(RuntimeConfig {
         profile_hash: hash,
         profile_json: profile.to_vec(),
-        host_abi: 1,
+        host_abi: pocket_spec::BINDING_GENERATION,
         tick_hz: 30,
         heap_limit: length,
         frame_buffer_budget: 0,

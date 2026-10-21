@@ -25,6 +25,8 @@ static char svc_poll_buffer[8193];
 #endif
 #ifndef POCKETJS_HOST_ABI
 #error "POCKETJS_HOST_ABI must come from the verified ResolvedBuildPlan"
+#elif POCKETJS_HOST_ABI != POCKET_BINDING_GENERATION
+#error "POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION"
 #endif
 #ifndef POCKET_HOST_PROFILE_H
 #error "pocket_host_profile.h must come from the independent host build profile"

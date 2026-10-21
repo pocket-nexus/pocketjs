@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import profile from "../profiles/3ds-dev.ts";
 import { encodeIdentity, encodePocketPackage } from "../contracts/spec/pocket-package.ts";
@@ -25,14 +26,14 @@ test.skipIf(!cc)("PICA driver retains independent screen submissions and exact r
     resolve(root,"tests/fixtures/pica-driver/driver.c"), resolve(target,"release/libpocket_runtime_cabi.a"), "-lm", "-o", binary]);
   expect(run([binary])).toContain("PICA driver lifecycle, versioning, guarded fonts and real DrawList visitor passed");
   const encoder = new TextEncoder();
-  const packageBytes = encodePocketPackage({manifest: new Uint8Array(), variants: [{target: "3ds-dev", hostAbi: 11, profileHash: hashPocketProfile(profile), sections: [
+  const packageBytes = encodePocketPackage({manifest: new Uint8Array(), variants: [{target: "3ds-dev", hostAbi: POCKET_BINDING_GENERATION, profileHash: hashPocketProfile(profile), sections: [
     {kind: 1, bytes: encodeIdentity({output: "fixture", id: "test.3ds", title: "3DS composition"})},
     {kind: 2, bytes: encoder.encode('{"viewport":{"logical":[400,240],"rasterDensity":1},"features":{}}')},
     {kind: 3, bytes: encoder.encode("test\0")},
   ]}]});
   writeFileSync(resolve(runDir, "package_fixture.h"), `static const uint8_t package_bytes[] = {${[...packageBytes].join(",")}};\n`);
   const instance = resolve(runDir, "instance");
-  run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", "-DPOCKETJS_HOST_ABI=11",
+  run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
     "-I", resolve(root,"tests/fixtures/pica-driver"), "-I", resolve(root,"hosts/3ds/include"),
     "-I", resolve(root,"contracts/generated"), "-I", runDir,
     resolve(root,"tests/fixtures/pica-driver/instance.c"), resolve(target,"release/libpocket_runtime_cabi.a"), "-lm", "-o", instance]);

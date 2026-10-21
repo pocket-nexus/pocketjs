@@ -1,5 +1,8 @@
 fn main() {
-    println!("cargo:rustc-env=POCKETJS_HOST_ABI=1");
+    println!(
+        "cargo:rustc-env=POCKETJS_HOST_ABI={}",
+        pocket_spec::BINDING_GENERATION
+    );
     let root = std::path::Path::new("../../..");
     println!("cargo:rerun-if-env-changed=POCKET_QJS_SOURCE");
     let headers =

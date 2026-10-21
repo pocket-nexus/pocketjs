@@ -228,6 +228,7 @@ dependencies = [
  "pocket-psp-render",
  "pocket-runtime",
  "pocket-runtime-cabi",
+ "pocket-spec",
  "pocketjs-core",
  "psp",
  "serde_json",

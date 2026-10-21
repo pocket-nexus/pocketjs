@@ -29,6 +29,7 @@ fn status(error: RuntimeError) -> i32 {
         RuntimeError::UnsupportedOperation => POCKET_STATUS_UNSUPPORTED,
         RuntimeError::InvalidArgument
         | RuntimeError::InvalidConfiguration
+        | RuntimeError::BindingGenerationMismatch
         | RuntimeError::ProfileMismatch
         | RuntimeError::InvalidState
         | RuntimeError::InvalidAssets

@@ -50,6 +50,7 @@ boot-stage = ["pocket-runtime-cabi/boot-stage"]
 harness-access = ["pocket-runtime-cabi/harness-access"]
 
 [dependencies]
+pocket-spec = { path = "../spec" }
 pocket-runtime-cabi = { path = "../runtime-cabi", default-features = false, features = ["legacy-ui"] }
 pocket-drivers = { path = "../drivers" }
 pocket-runtime = { path = "../runtime" }

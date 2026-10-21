@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -39,6 +40,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
   const manifest = await exportSdk(options);
   expect(manifest.status).toBe("candidate");
   expect(manifest.abiFrozen).toBe(false);
+  expect(manifest.hostAbi).toBe(POCKET_BINDING_GENERATION);
   expect(manifest.source.revision).toMatch(/^[0-9a-f]{40}$/);
   expect(manifest.build).toMatchObject({ defaultFeatures: false, features: [], profile: "release" });
   expect(manifest.build.rustflags.slice(-2)).toEqual(["-C", "panic=abort"]);
@@ -65,7 +67,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     cpSync(quickjs, join(external, "program/quickjs"), { recursive: true });
     const profile = '{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"fixture","platform":"test","tickHz":60}';
     const bytes = (source: string) => new TextEncoder().encode(source);
-    const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: 1, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
+    const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: POCKET_BINDING_GENERATION, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
       { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: bytes("globalThis.frameCount=0;globalThis.frame=()=>{globalThis.frameCount++;ui.createNode(1)};\0") },
@@ -77,6 +79,11 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     expect(readFileSync(join(external, "build/CMakeFiles/consumer.dir/link.txt"), "utf8")).not.toContain(root);
     expect(run([join(external, "build/consumer")], external)).toContain("one Rust archive, C guest, six hooks, zero leaks");
     verifySdk(sdk);
+    const manifestPath = join(sdk, "sdk-manifest.json");
+    const originalManifest = readFileSync(manifestPath, "utf8");
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, hostAbi: POCKET_BINDING_GENERATION - 1 }));
+    expect(() => verifySdk(sdk)).toThrow("binding generation differs");
+    writeFileSync(manifestPath, originalManifest);
     const header = join(sdk, "include/pocket/runtime.h");
     writeFileSync(header, "tampered");
     expect(() => verifySdk(sdk)).toThrow("checksum mismatch");

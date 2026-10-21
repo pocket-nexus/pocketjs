@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #import "PocketSurfaceView.h"
+#include "pocket_apple.h"
 
 #ifndef POCKETJS_BUILD_ID
 #define POCKETJS_BUILD_ID "development"
@@ -133,7 +134,7 @@ static const CGFloat PocketRecoveredBrightness = 0.60;
                                                logicalHeight:568
                                                      density:2
                                                       hostId:@"ipodtouch-dev"
-                                                     hostAbi:7];
+                                                     hostAbi:POCKET_BINDING_GENERATION];
   self.surface.frame = controller.view.bounds;
   self.surface.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
   [controller.view addSubview:self.surface];

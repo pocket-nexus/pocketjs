@@ -7,6 +7,7 @@ repository.workspace = true
 description = "MicroTS AOT models and views over the PocketJS retained UI"
 
 [dependencies]
+pocket-spec = { path = "../../spec" }
 pocketjs-core = { path = "../../core", default-features = false }
 ryu-js = { version = "1.0.3", default-features = false }
 libm = "0.2"

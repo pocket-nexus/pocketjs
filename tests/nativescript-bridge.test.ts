@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mountUi } from '../engine/guest-web/src/generated-ui.js';
+import { mountUi, POCKET_BINDING_GENERATION } from '../engine/guest-web/src/generated-ui.js';
 import { attachGuest } from '../hosts/ios-nativescript/pocketjs/guest.js';
 import { foundationCodec } from '../hosts/ios-nativescript/pocketjs/codec.js';
 
@@ -19,14 +19,39 @@ const codec = foundationCodec({
   array: (values: any[]) => new List(values),
   dictionary: (values: Record<string, any>) => new Dict(values),
 });
-function environment(pak = new Uint8Array([1, 2]).buffer) {
-  return new Dict({ host: 'ios-dev', hostAbi: 7, tickHz: 120, rasterDensity: 2,
+function environment(pak = new Uint8Array([1, 2]).buffer, hostAbi = POCKET_BINDING_GENERATION) {
+  return new Dict({ host: 'ios-dev', hostAbi, tickHz: 120, rasterDensity: 2,
     viewport: new Dict({ w: 16, h: 12 }), pak, textures: new List([]), sprites: new List([]) });
 }
 const globals = globalThis as any;
 afterEach(() => { delete globals.ui; delete globals.__pak; delete globals.frame; delete globals.observedFrame; });
 
 describe('NativeScript canonical guest bridge', () => {
+  test('codec preserves generation while the guest rejects unsupported metadata before mounting', () => {
+    const errors: unknown[] = [];
+    let queries = 0;
+    const existingUi = Object.freeze({ owner: 'existing guest' });
+    const existingPak = new Uint8Array([31, 41]).buffer;
+    const namespace: any = { ui: existingUi, __pak: existingPak };
+    const view: any = { supportsOperation: () => { queries++; return false; } };
+    attachGuest(view, codec, (error: unknown) => errors.push(error), mountUi, namespace);
+    for (const generation of [0, 7, POCKET_BINDING_GENERATION + 1]) {
+      const metadata = environment(undefined, generation);
+      expect(codec.environment(metadata).hostAbi).toBe(generation);
+      expect(view.onGuestInitialize(metadata)).toBe(false);
+      expect(namespace.ui).toBe(existingUi);
+      expect(namespace.__pak).toBe(existingPak);
+      expect(Array.from(new Uint8Array(existingPak))).toEqual([31, 41]);
+      expect(queries).toBe(0);
+    }
+    expect(errors).toHaveLength(3);
+    expect(errors.every(error => String(error).includes('Unsupported UI binding generation'))).toBe(true);
+    delete namespace.ui;
+    delete namespace.__pak;
+    expect(view.onGuestInitialize(environment())).toBe(true);
+    expect(namespace.ui.__hostAbi).toBe(POCKET_BINDING_GENERATION);
+    view.onGuestShutdown();
+  });
   test('owns exact byte windows and copies borrowed results', () => {
     const all = new Uint8Array([99, 1, 2, 88]);
     const args = codec.arguments([{ kind: 'bytes', value: all.subarray(1, 3) }]);

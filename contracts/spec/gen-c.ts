@@ -9,7 +9,7 @@
 // the committed header, so the C constants can never drift from spec.ts. Keep
 // this generator free of anything non-deterministic.
 
-import { ANALOG_CENTER, BTN, DRAW_LIST_VERSION, DRAW_OP } from "./spec.ts";
+import { ANALOG_CENTER, BTN, DRAW_LIST_VERSION, DRAW_OP, POCKET_BINDING_GENERATION } from "./spec.ts";
 
 function hex(n: number, pad = 4): string {
   return "0x" + (n >>> 0).toString(16).toUpperCase().padStart(pad, "0");
@@ -24,6 +24,9 @@ export function generateC(): string {
   put(" * tests/contract.ts byte-compares this file against the generator. */");
   put("#ifndef POCKET_SPEC_H");
   put("#define POCKET_SPEC_H");
+  put();
+  put("/* Generated guest/native binding contract; independent of profile identity. */");
+  put(`#define POCKET_BINDING_GENERATION ${POCKET_BINDING_GENERATION}U`);
   put();
   put("/* Portable button bitmask — identical on every host. Native hosts map");
   put(" * their platform key codes onto these bits; the guest only sees the mask. */");

@@ -1,5 +1,6 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/ios-dev.ts";
-import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
+import { targetProfile } from "../profiles/contract.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -25,7 +26,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * density the surface renders — a mismatch renders soft text.
  */
 export const IOS_DEV_TARGET_ID = softwareProfile.id;
-export const IOS_DEV_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const IOS_DEV_HOST_ABI = POCKET_BINDING_GENERATION;
 export const IOS_DEV_VIEWPORT = softwareProfile.display.logicalViewports[0];
 export const IOS_DEV_DEFAULT_DENSITY = softwareProfile.display.rasterDensity;
 export const IOS_DEV_MAX_DENSITY = 4;
@@ -44,7 +45,7 @@ export function iosDevContracts(rasterDensity: number = IOS_DEV_DEFAULT_DENSITY)
   return definePlatformContractRegistry(
     POCKET_CAPABILITIES,
     defineTargetRegistry({
-      [IOS_DEV_TARGET_ID]: legacyTargetProfile({
+      [IOS_DEV_TARGET_ID]: targetProfile({
         ...softwareProfile,
         display: {
           ...softwareProfile.display,

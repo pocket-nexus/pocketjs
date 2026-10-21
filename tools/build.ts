@@ -47,6 +47,7 @@ import {
 import { animationThemeSchema } from "../contracts/spec/pocket-manifest.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/schema.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
 import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
@@ -120,6 +121,9 @@ if (planPath) {
   buildPlan = await Bun.file(planPath).json() as ResolvedBuildPlan;
   if (!verifyPlanHash(buildPlan) || !verifyPlanProfile(buildPlan)) {
     throw new Error(`PocketJS build: invalid ResolvedBuildPlan checksum in ${planPath}`);
+  }
+  if (buildPlan.target.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`PocketJS build: binding generation ${buildPlan.target.hostAbi} is unsupported; rebuild plan for ${POCKET_BINDING_GENERATION}`);
   }
   if (frameworkFlag) {
     throw new Error("PocketJS build: --framework cannot override a ResolvedBuildPlan");
@@ -518,7 +522,7 @@ const result = await Bun.build({
   define: {
     "process.env.NODE_ENV": '"production"',
     __POCKET_TARGET__: JSON.stringify(buildPlan?.target.id ?? ""),
-    __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? 0),
+    __POCKET_HOST_ABI__: String(buildPlan?.target.hostAbi ?? POCKET_BINDING_GENERATION),
     __POCKET_FEATURES__: JSON.stringify(buildPlan?.features ?? {}),
     // The modality and presentation the plan resolved; the runtime module
     // (@pocketjs/framework/modality) falls back to the portable PSP shape

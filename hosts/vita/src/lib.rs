@@ -98,7 +98,7 @@ impl Runtime {
         let profile = instance::profile()?;
         let mut config = PocketRuntimeConfig::empty();
         config.profile_hash = pocket_package::sha256::sha256(&profile);
-        config.host_abi = 2;
+        config.host_abi = pocket_spec::BINDING_GENERATION;
         config.tick_hz = 60;
         config.heap_limit = 128 * 1024 * 1024;
         config.frame_buffer_budget = 1;

@@ -166,7 +166,7 @@ impl Program {
         let profile = instance::profile().unwrap();
         let mut config = PocketRuntimeConfig::empty();
         config.profile_hash = pocket_package::sha256::sha256(&profile);
-        config.host_abi = 1;
+        config.host_abi = pocket_spec::BINDING_GENERATION;
         config.tick_hz = 60;
         config.heap_limit = 128 << 20;
         config.frame_buffer_budget = 1;
@@ -327,7 +327,7 @@ mod offload_image;
 #[test]
 fn public_namespace_providers_and_private_extensions_share_one_runtime() {
     unsafe {
-        let p=Program::new(br#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='psp'||ui.__hostAbi!==1||ui.__tickHz!==60||__simHz!==20||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing provider');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false||audio.createStream(44100,2)!==1||offload.session()!==7)throw Error('private namespace');"#);
+        let p=Program::new(r#"globalThis.frame=function(){};globalThis.node=ui.createNode(1);if(ui.__host!=='psp'||ui.__hostAbi!==EXPECTED_BINDING||ui.__tickHz!==60||__simHz!==20||ui.__viewport.w!==480)throw Error('metadata');if(!ui.__textures||!ui.__sprites)throw Error('assets');if(typeof ui.appTable!=='undefined'||typeof ui.physicsCreate!=='undefined')throw Error('missing provider');if(!ui.svcOpen('fixture')||ui.svcPoll()!=='reply'||ui.videoTick()!==7)throw Error('provider');if(ui.__dbgActive()!==false||audio.createStream(44100,2)!==1||offload.session()!==7)throw Error('private namespace');"#.replace("EXPECTED_BINDING", &pocket_spec::BINDING_GENERATION.to_string()).as_bytes());
         p.assert_js("if(node<=0)throw Error('core');let b=new Uint8Array([1,2,3,4,5,6]);if(audio.writePcm(1,b.subarray(1,5))!==2)throw Error('audio view');");
         audio_mod::PCM.with(|pcm| assert_eq!(&*pcm.borrow(), &[0x302, 0x504]));
         assert_eq!(host::MASKED.load(std::sync::atomic::Ordering::Relaxed), 0);
@@ -360,7 +360,7 @@ fn original_package_facts_are_admitted_before_guest_initialization() {
         let mut p = Program::unbooted();
         let identity =
             pocket_package::embedded::identity("original", "psp.fixture", "Fixture").unwrap();
-        let package=pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"psp",host_abi:1,profile_hash:pocket_package::sha256::sha256(&instance::profile().unwrap()),identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#,code:br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan lost');"#,pak:&[]}).unwrap();
+        let package=pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"psp",host_abi:pocket_spec::BINDING_GENERATION,profile_hash:pocket_package::sha256::sha256(&instance::profile().unwrap()),identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#,code:br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan lost');"#,pak:&[]}).unwrap();
         assert_eq!(
             embed::set_package_source(
                 p.runtime,

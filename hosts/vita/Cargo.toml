@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+pocket-spec = { path = "../../engine/spec" }
 # Vita dependencies. vita2d ships precompiled GXM shaders, so VPKs remain
 # self-contained and do not require a separately extracted libshacccg.suprx.
 vitasdk-sys = { version = "0.3.3", features = ["SceAudio_stub", "SceCtrl_stub", "SceGxm_stub", "SceKernelModulemgr_stub", "SceKernelThreadMgr_stub", "SceLibKernel_stub", "SceNet_stub", "SceNetCtl_stub", "SceSysmodule_stub", "SceTouch_stub"] }
@@ -20,6 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [build-dependencies]
+pocket-spec = { path = "../../engine/spec" }
 cc = "1"
 
 [features]

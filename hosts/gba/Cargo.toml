@@ -7,6 +7,7 @@ publish = false
 [workspace]
 
 [dependencies]
+pocket-spec = { path = "../../engine/spec" }
 microts = { path = "../../engine/crates/microts", features = ["critical-section", "runtime"] }
 pocketjs-core = { path = "../../engine/core" }
 pocket-runtime = { path = "../../engine/runtime" }

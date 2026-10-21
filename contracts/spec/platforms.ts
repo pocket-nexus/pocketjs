@@ -5,17 +5,17 @@ import {
 } from "./platform-types.ts";
 
 import { POCKET_PROFILES } from "../../profiles/index.ts";
-import { legacyTargetProfile } from "../../profiles/legacy-abi.ts";
+import { targetProfile } from "../../profiles/contract.ts";
 
 /** Compatibility inventory; software facts are owned by profiles/*.ts. */
 export const POCKET_TARGETS = defineTargetRegistry({
-  psp: legacyTargetProfile(POCKET_PROFILES.psp),
-  vita: legacyTargetProfile(POCKET_PROFILES.vita),
-  pocketbook: legacyTargetProfile(POCKET_PROFILES.pocketbook),
-  "macos-widget": legacyTargetProfile(POCKET_PROFILES["macos-widget"]),
-  "macos-app": legacyTargetProfile(POCKET_PROFILES["macos-app"]),
-  "linux-app": legacyTargetProfile(POCKET_PROFILES["linux-app"]),
-  "web-app": legacyTargetProfile(POCKET_PROFILES["web-app"]),
+  psp: targetProfile(POCKET_PROFILES.psp),
+  vita: targetProfile(POCKET_PROFILES.vita),
+  pocketbook: targetProfile(POCKET_PROFILES.pocketbook),
+  "macos-widget": targetProfile(POCKET_PROFILES["macos-widget"]),
+  "macos-app": targetProfile(POCKET_PROFILES["macos-app"]),
+  "linux-app": targetProfile(POCKET_PROFILES["linux-app"]),
+  "web-app": targetProfile(POCKET_PROFILES["web-app"]),
 });
 
 export type PocketTargetId = TargetId<typeof POCKET_TARGETS>;

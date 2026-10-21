@@ -13,7 +13,7 @@
 // profile in tools/ios-profile.ts; external-guest hosts publish the same pair
 // on the ui namespace they mount.
 static const char *const kPocketSurfaceHostId = "ios-dev";
-static const uint32_t kPocketSurfaceHostAbi = 7;
+static const uint32_t kPocketSurfaceHostAbi = POCKET_BINDING_GENERATION;
 
 // spec FIXED_DT — the rate a realm runs at when `tickRate` is left unset.
 static const uint32_t kPocketSurfaceDefaultTickRate = 60;

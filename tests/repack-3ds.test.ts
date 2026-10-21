@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import softwareProfile from "../profiles/3ds-dev.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
@@ -94,7 +95,7 @@ async function runtimeFiles(overrides: { target?: string; hostAbi?: number; prog
   const program = runtimeProgram();
   const manifest = {
     target: overrides.target ?? "3ds-dev",
-    hostAbi: overrides.hostAbi ?? 11,
+    hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
     pocketjs: "0000000000000000000000000000000000000000",
     profile: "3ds-dev", profileHash: hashPocketProfile(softwareProfile),
     files: { "runtime.3dsx": { bytes: program.length, sha256: await sha256Hex(program) } },
@@ -220,7 +221,7 @@ describe("repack3ds", () => {
 
   test("refuses a runtime for another target, a wrong host ABI and a broken footer", async () => {
     await expect(repack3ds(await input({ runtime: await runtimeFiles({ target: "psp" }) }))).rejects.toThrow(/for "psp", not "3ds-dev"/);
-    await expect(repack3ds(await input({ runtime: await runtimeFiles({ hostAbi: 12 }) }))).rejects.toThrow(/host ABI 11; this runtime is ABI 12/);
+    await expect(repack3ds(await input({ runtime: await runtimeFiles({ hostAbi: POCKET_BINDING_GENERATION - 1 }) }))).rejects.toThrow(/runtime binding generation .* is unsupported/);
 
     const broken = pocketFor();
     broken[40] ^= 0xff;
