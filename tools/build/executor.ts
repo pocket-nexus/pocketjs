@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { canonicalProfileJson } from "../../framework/src/profile.ts";
-import type { RuntimeBuildContext, RuntimeBuildStep } from "../../framework/src/runtime-config.ts";
+import type { RuntimeBuildContext, RuntimeBuildStep, RuntimeSourceContext } from "../../framework/src/runtime-config.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import { exportProfile } from "../profile-export.ts";
 import { profileRegistry, type ResolvedProfile } from "../profile-resolver.ts";
@@ -116,7 +116,16 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
   };
   // Capture source identity before native tools can modify generated files.
   const source = pocketjsCommit();
+  const sourceContext: RuntimeSourceContext = Object.freeze({
+    profile: selected.profile, profileHash: selected.profileHash, configDirectory, outdir,
+    output, args: Object.freeze([...(options.args ?? [])]), application, aot,
+    invocationDirectory: process.cwd(),
+  });
   const snapshotDependencies = () => {
+    const inputs = typeof recipe.sourceInputs === "function" ? recipe.sourceInputs(sourceContext) : recipe.sourceInputs ?? [];
+    if (!Array.isArray(inputs) || inputs.some(path => typeof path !== "string" || !path))
+      throw new TypeError("runtime build sourceInputs must return an array of nonempty paths synchronously");
+    const roots = [...new Set<string>(inputs.map(path => resolve(configDirectory, path)))].sort();
     const declaredSources: string[] = [];
     const collectSource = (path: string) => {
       const stat = lstatSync(path);
@@ -125,7 +134,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
       declaredSources.push(path);
       if (stat.isDirectory()) for (const name of readdirSync(path).sort()) collectSource(join(path, name));
     };
-    for (const input of recipe.sourceInputs ?? []) collectSource(resolve(configDirectory, input));
+    for (const input of roots) collectSource(input);
     const resolutionDirectories = new Set(selected.resolutionDirectories ?? config.resolutionDirectories);
     const explicitSources = new Set(declaredSources);
     const snapshot: Record<string, { kind: string; bytes?: number; sha256?: string; resolved?: string | null }> =
@@ -157,17 +166,18 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
       if (resolved !== probe.resolved) throw new Error(`module resolution changed: ${probe.specifier} from ${probe.from}`);
       snapshot[`module:${probe.from}:${probe.specifier}`] = { kind: "module-resolution", resolved };
     }
-    return snapshot;
+    return { dependencies: snapshot, sourceInputs: roots };
   };
-  const dependencies = snapshotDependencies();
+  const { dependencies, sourceInputs } = snapshotDependencies();
   const verifyDependencies = () => {
     let current: ReturnType<typeof snapshotDependencies>;
     try { current = snapshotDependencies(); }
     catch (error) {
       throw new Error(`runtime build inputs changed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const changed = [...new Set([...Object.keys(dependencies), ...Object.keys(current)])]
-      .filter(path => JSON.stringify(dependencies[path]) !== JSON.stringify(current[path]));
+    const changed = [...new Set([...Object.keys(dependencies), ...Object.keys(current.dependencies)])]
+      .filter(path => JSON.stringify(dependencies[path]) !== JSON.stringify(current.dependencies[path]));
+    if (JSON.stringify(sourceInputs) !== JSON.stringify(current.sourceInputs)) changed.push("sourceInputs path set");
     if (changed.length) throw new Error(`runtime build inputs changed: ${changed.join(", ")}`);
   };
   const perform = async (): Promise<RuntimeBuildResult> => {
@@ -188,7 +198,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
     const commands: { command: string[]; cwd: string; status?: number; signal?: string | null }[] = [];
     const context: RuntimeBuildContext = {
       profile: selected.profile, profileHash: selected.profileHash, configDirectory, outdir,
-      output, args: options.args ?? [], application, aot, env, toolchainPaths: paths,
+      output, args: sourceContext.args, application, aot, env, toolchainPaths: paths,
       async run(command, runOptions = {}) {
         if (!command.length) throw new Error("runtime command must not be empty");
         const cwd = resolve(configDirectory, runOptions.cwd ?? ".");
@@ -233,7 +243,7 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
       throw error;
     } finally {
       const receipt = { schema: "pocket-runtime-build/1", success: failure === undefined, startedAt, finishedAt: new Date().toISOString(),
-        source, dependencies, config: config.path, target: selected.profile.id,
+        source, dependencies, sourceInputs, config: config.path, target: selected.profile.id,
         profileHash: selected.profileHash, hostAbi: selected.hostAbi, host,
         toolchainDigest: recipe.toolchain ? toolchainDigest(recipe.toolchain, host) : null,
         input: inputReceipt,

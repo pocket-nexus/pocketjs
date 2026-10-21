@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { decodePocketPackage, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -12,6 +12,7 @@ import { writeRuntimeManifest } from "../tools/runtime/manifest.ts";
 import { prepareAot, prepareApplication } from "../tools/build/inputs.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { resolveProfile, type ResolvedProfile } from "../tools/profile-resolver.ts";
+import { launcherSourceInputs } from "../tools/build/psp/launcher.ts";
 
 const root = resolve(import.meta.dir, "..");
 const base = join(root, ".pocket-build/validation/runtime-build/tests");
@@ -130,6 +131,102 @@ test("successful native commands cannot deploy changed configuration or source i
     expect(receipt.dependencies[native].sha256).toBe(createHash("sha256").update("before").digest("hex"));
     expect(receipt.dependencies[join(source, "added.c")]).toBeUndefined();
   }
+});
+
+test("dynamic PSP launcher inputs record guest hashes without hashing their generated-output directory", async () => {
+  const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
+  mkdirSync(packages); writeFileSync(registry, "guest\tdev.guest\tGuest\n");
+  const pocket = application(dir), guest = join(packages, "guest.pocket");
+  writeFileSync(guest, readFileSync(pocket));
+  const seen: string[][] = [];
+  const selected = await program(dir, { input: "package", steps: compilerOnly(),
+    sourceInputs(ctx) {
+      expect("run" in ctx).toBe(false); expect("env" in ctx).toBe(false);
+      expect(ctx.invocationDirectory).toBe(process.cwd());
+      expect(ctx.application?.plan.app.output).toBe(ctx.output);
+      const paths = launcherSourceInputs(ctx); seen.push(paths); return paths;
+    }, run() { writeFileSync(join(packages, "generated-cover.png"), "generated output"); },
+  });
+  const args = [`--launcher-registry=${relative(process.cwd(), registry)}`];
+  const first = await buildRuntime(selected, join(dir, "first"), { pocket, args });
+  const before = JSON.parse(readFileSync(first.receipt!, "utf8"));
+  expect(before.sourceInputs).toEqual([registry, guest].sort());
+  expect(before.dependencies[packages]).toBeUndefined();
+  expect(before.dependencies[join(packages, "generated-cover.png")]).toBeUndefined();
+  const bytes = readFileSync(guest), decoded = decodePocketPackage(bytes);
+  expect(before.dependencies[guest].sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+  const changed = encodePocketPackage({ ...decoded, variants: decoded.variants.map(variant => ({
+    ...variant, sections: [...variant.sections, { kind: 99, bytes: new Uint8Array([42]) }],
+  })) });
+  writeFileSync(guest, changed);
+  const second = await buildRuntime(selected, join(dir, "second"), { pocket, args });
+  const after = JSON.parse(readFileSync(second.receipt!, "utf8"));
+  expect(after.success).toBe(true);
+  expect(after.dependencies[guest].sha256).toBe(createHash("sha256").update(changed).digest("hex"));
+  expect(after.dependencies[guest].sha256).not.toBe(before.dependencies[guest].sha256);
+  expect(after.input.sha256).toBe(before.input.sha256);
+  expect(seen).toEqual(Array.from({ length: 4 }, () => [registry, guest]));
+});
+
+test("dynamic launcher content and registry changes during a build reject success and deployment", async () => {
+  for (const mutation of ["guest", "registry"] as const) {
+    const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
+    mkdirSync(packages); writeFileSync(registry, "guest\tdev.guest\tGuest\n");
+    const pocket = application(dir), guest = join(packages, "guest.pocket");
+    const bytes = readFileSync(pocket); writeFileSync(guest, bytes); writeFileSync(join(packages, "other.pocket"), bytes);
+    let deployed = false;
+    const selected = await program(dir, { input: "package", steps: compilerOnly(), sourceInputs: launcherSourceInputs,
+      run() {
+        if (mutation === "guest") writeFileSync(guest, "changed during build");
+        else writeFileSync(registry, "other\tdev.other\tOther\n");
+      }, deploy() { deployed = true; },
+    });
+    const out = join(dir, "out");
+    await expect(buildRuntime(selected, out, { pocket, args: [`--launcher-registry=${registry}`], deploy: true }))
+      .rejects.toThrow("runtime build inputs changed");
+    const receipt = JSON.parse(readFileSync(join(out, "build-receipt.json"), "utf8"));
+    expect(receipt.success).toBe(false); expect(deployed).toBe(false);
+    expect(receipt.dependencies[guest].sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+    expect(receipt.dependencies[join(packages, "other.pocket")]).toBeUndefined();
+  }
+});
+
+test("dynamic sourceInputs compare the declared path set even when both paths are existing config dependencies", async () => {
+  const dir = scratch(), first = join(dir, "first"), second = join(dir, "second");
+  writeFileSync(first, "first"); writeFileSync(second, "second");
+  let paths = [first];
+  const selected = await program(dir, { steps: compilerOnly(), sourceInputs: () => paths, run() { paths = [second]; } });
+  const out = join(dir, "out");
+  await expect(buildRuntime({ ...selected, dependencies: [first, second] }, out)).rejects.toThrow("sourceInputs path set");
+  const receipt = JSON.parse(readFileSync(join(out, "build-receipt.json"), "utf8"));
+  expect(receipt.success).toBe(false); expect(receipt.sourceInputs).toEqual([first]);
+  expect(receipt.dependencies[first]).toBeDefined(); expect(receipt.dependencies[second]).toBeDefined();
+});
+
+test("sourceInputs functions must return synchronous nonempty string paths and arrays remain compatible", async () => {
+  const dir = scratch(); let calls = 0;
+  for (const result of [undefined, "file", [""], [42], Promise.resolve(["file"])]) {
+    const selected = await program(dir, { steps: compilerOnly(), sourceInputs: (() => result) as RuntimeBuild["sourceInputs"], run() { calls++; } });
+    await expect(buildRuntime(selected, join(dir, "bad"))).rejects.toThrow("sourceInputs must return");
+  }
+  expect(calls).toBe(0);
+  writeFileSync(join(dir, "file"), "original array API");
+  const selected = await program(dir, { steps: compilerOnly(), sourceInputs: ["file"], run() { calls++; } });
+  const result = await buildRuntime(selected, join(dir, "array"));
+  const receipt = JSON.parse(readFileSync(result.receipt!, "utf8"));
+  expect(receipt.success).toBe(true); expect(calls).toBe(1);
+  expect(receipt.sourceInputs).toEqual([join(dir, "file")]);
+});
+
+test("missing or traversing launcher guest paths fail before the build hook", async () => {
+  const dir = scratch(), registry = join(dir, "launcher.tsv"), packages = join(dir, "packages");
+  mkdirSync(packages); const pocket = application(dir); let calls = 0;
+  const selected = await program(dir, { input: "package", steps: compilerOnly(), sourceInputs: launcherSourceInputs, run() { calls++; } });
+  for (const name of ["absent", "../outside", "..", "sub/guest", "sub\\guest"]) {
+    writeFileSync(registry, `${name}\tdev.guest\tGuest\n`);
+    await expect(buildRuntime(selected, join(dir, "bad"), { pocket, args: [`--launcher-registry=${registry}`] })).rejects.toThrow();
+  }
+  expect(calls).toBe(0);
 });
 
 test("AOT consumption verifies relocated generated outputs and rejects stale generation or changed bytes", async () => {

@@ -31,6 +31,11 @@ export interface RuntimeBuildContext {
   readonly toolchainPaths: Readonly<Record<string, string>>;
   run(command: readonly string[], options?: { cwd?: string; env?: Readonly<Record<string, string>> }): Promise<void>;
 }
+/** Inputs available before any build command or toolchain is started. */
+export type RuntimeSourceContext = Readonly<Pick<RuntimeBuildContext,
+  "profile" | "profileHash" | "configDirectory" | "outdir" | "output" | "args" | "application" | "aot"
+>> & { readonly invocationDirectory: string };
+export type RuntimeSourceInputs = readonly string[] | ((context: RuntimeSourceContext) => readonly string[]);
 interface StepOptions {
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string>>;
@@ -69,8 +74,12 @@ export interface RuntimeBuild {
   readonly steps: RuntimeBuildStep | readonly RuntimeBuildStep[];
   /** An already compiled input required by the native recipe. */
   readonly input?: "package" | "aot";
-  /** Native source files or directories, relative to the config, for the receipt. */
-  readonly sourceInputs?: readonly string[];
+  /** Source files or directories, relative to the config, for the receipt and
+   * input-change checks. A synchronous function can declare inputs selected by
+   * build arguments. It is evaluated before and after the build; both the path
+   * set and file contents must remain unchanged. Return exact input files, not
+   * a parent directory that also contains generated outputs. */
+  readonly sourceInputs?: RuntimeSourceInputs;
   readonly artifact?: string;
   readonly run?: (context: RuntimeBuildContext) => void | Promise<void>;
   readonly genericRuntime?: { readonly repack: (input: RepackInput) => Promise<Uint8Array>; readonly extension?: string; readonly signed?: boolean };
@@ -107,7 +116,9 @@ export function defineRuntimeConfig<const C extends PocketRuntimeConfig>(config:
       throw new TypeError("runtime build requires cargo, cmake, make or compilerOnly steps");
     }
     if (build.input !== undefined && !["package", "aot"].includes(build.input)) throw new TypeError("runtime build input must be package or aot");
-    if (build.sourceInputs !== undefined && (!Array.isArray(build.sourceInputs) || build.sourceInputs.some(path => typeof path !== "string" || !path))) throw new TypeError("runtime build sourceInputs must contain nonempty paths");
+    if (build.sourceInputs !== undefined && typeof build.sourceInputs !== "function" &&
+        (!Array.isArray(build.sourceInputs) || build.sourceInputs.some(path => typeof path !== "string" || !path)))
+      throw new TypeError("runtime build sourceInputs must be a path array or synchronous function");
     if (build.artifact !== undefined && (typeof build.artifact !== "string" || !build.artifact)) throw new TypeError("runtime build artifact must be a nonempty path");
     if (build.genericRuntime !== undefined && typeof build.genericRuntime?.repack !== "function") throw new TypeError("runtime genericRuntime requires a repack function");
     if (build.deploy !== undefined && typeof build.deploy !== "function") throw new TypeError("runtime build.deploy must be a function");

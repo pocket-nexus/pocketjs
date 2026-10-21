@@ -10,10 +10,11 @@ import { repackPsp } from "../../repack/psp.ts";
 import { pspToolchain } from "../toolchains/psp.ts";
 import { requireApplication, requireProgramProfile } from "./application.ts";
 import { nativeSources, buildHosts, handheldLock, nativeArguments } from "./handheld-common.ts";
+import { launcherSourceInputs } from "../psp/launcher.ts";
 
 export const build: RuntimeBuild = {
   deploy: deployPsp,
-  sourceInputs: [resolve(import.meta.dir, "../psp/embed.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs")],
+  sourceInputs: context => [resolve(import.meta.dir, "../psp/embed.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs"), ...launcherSourceInputs(context)],
   hosts: buildHosts, toolchain: pspToolchain, input: "package", steps: compilerOnly(), artifact: "{outdir}/{output}.pbp",
   async run(context) {
     requireProgramProfile(context, profile);

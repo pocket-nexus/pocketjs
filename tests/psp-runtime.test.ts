@@ -9,6 +9,7 @@ import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { pspLauncherPackages, pspPackageInput } from "../tools/psp.ts";
+import { launcherSourceInputs } from "../tools/build/psp/launcher.ts";
 test("PSP production guest uses canonical runtime, providers, input and shutdown", () => {
   const result = Bun.spawnSync([process.execPath, "tools/test-psp-runtime.ts"], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
   expect(result.success, `${result.stdout.toString()}\n${result.stderr.toString()}\nsignal=${result.signalCode}`).toBe(true);
@@ -92,4 +93,22 @@ test("PSP launcher packages resolve beside the registry, independently of captur
   expect(() => pspLauncherPackages(resolve(directory, "absent.tsv"))).toThrow("registry is missing");
   expect(() => pspLauncherPackages("", packages)).toThrow("requires --launcher-registry");
   expect(pspLauncherPackages("")).toBe("");
+});
+
+test("PSP launcher source declarations match explicit registry guests and package directories", () => {
+  const dir = embedDirectory(), registry = resolve(dir, "registry.tsv"), packages = resolve(dir, "packages"), elsewhere = resolve(dir, "elsewhere");
+  mkdirSync(packages); mkdirSync(elsewhere);
+  writeFileSync(registry, "first\tdev.first\tFirst\r\nsecond\tdev.second\tSecond\r\n");
+  for (const base of [packages, elsewhere]) for (const name of ["first", "second"]) writeFileSync(resolve(base, name + ".pocket"), name);
+  const ctx = { invocationDirectory: dir, output: "launcher", args: ["--launcher-registry=registry.tsv"] };
+  expect(launcherSourceInputs(ctx)).toEqual([registry, resolve(packages, "first.pocket"), resolve(packages, "second.pocket")]);
+  expect(launcherSourceInputs({ ...ctx, args: [...ctx.args, "--launcher-packages=elsewhere"] }))
+    .toEqual([registry, resolve(elsewhere, "first.pocket"), resolve(elsewhere, "second.pocket")]);
+  expect(launcherSourceInputs({ ...ctx, args: [] })).toEqual([]);
+  expect(() => launcherSourceInputs({ ...ctx, args: ["--launcher-packages=elsewhere"] })).toThrow("requires --launcher-registry");
+  expect(() => launcherSourceInputs({ ...ctx, args: ["--launcher-registry"] })).toThrow("requires =<path>");
+  writeFileSync(registry, "launcher\tdev.launcher\tLauncher\n");
+  expect(() => launcherSourceInputs(ctx)).toThrow("duplicates output");
+  writeFileSync(registry, "\uFEFFfirst\tdev.first\tFirst\n");
+  expect(() => launcherSourceInputs(ctx)).toThrow("invalid launcher output");
 });

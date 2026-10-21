@@ -49,7 +49,10 @@ test("program configurations load without running compilers and declare native a
     expect(loaded.profiles.some(profile => profile.id === id)).toBe(true);
     expect(loaded.value.build!.input).toBe(input);
     expect(loaded.value.build!.artifact).toStartWith("{outdir}/");
-    for (const source of loaded.value.build!.sourceInputs ?? [])
+    const declared = loaded.value.build!.sourceInputs;
+    const sources = typeof declared === "function" ? declared({ ...context(loaded.profiles[0]!),
+      configDirectory: dirname(loaded.path), invocationDirectory: root }) : declared ?? [];
+    for (const source of sources)
       expect(existsSync(resolve(dirname(loaded.path), source)), `${directory}: ${source}`).toBe(true);
     expect(loaded.dependencies.some(path => path.endsWith("framework/compiler/jsx-plugin.ts"))).toBe(false);
     if (directory.endsWith("/runtime")) expect(loaded.value.build!.genericRuntime?.repack).toBeFunction();
