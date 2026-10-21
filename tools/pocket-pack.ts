@@ -27,13 +27,7 @@ import {
   verifyPlanProfile,
   type ResolvedBuildPlan,
 } from "../framework/src/manifest/plan.ts";
-import {
-  THREE_DS_DEV_CONTRACTS,
-  THREE_DS_DEV_TARGET_ID,
-} from "./3ds-profile.ts";
-import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "./redmi-1s-profile.ts";
-import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "./moto-g-play-profile.ts";
-import { profileRegistry } from "./profile-resolver.ts";
+import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
   POCKET_SECTION,
@@ -113,58 +107,24 @@ export function makeVariant(input: {
   return { target: input.target, hostAbi: input.hostAbi, profileHash: plan.profileHash, sections };
 }
 
-/**
- * Device-profile targets outside POCKET_TARGETS: each resolves against its
- * own contract registry and compiles from the resolved plan (tools/build.ts
- * --plan), as its native host tool does.
- */
-const PROFILE_TARGETS: Readonly<Record<string, Parameters<typeof validateAndResolveBuildPlan>[2]>> = {
-  [THREE_DS_DEV_TARGET_ID]: THREE_DS_DEV_CONTRACTS,
-  [REDMI_1S_TARGET]: REDMI_1S_CONTRACTS,
-  [MOTO_G_PLAY_TARGET]: MOTO_G_PLAY_CONTRACTS,
-};
-
-function resolveTarget(manifest: unknown, target: string) {
-  return validateAndResolveBuildPlan(manifest, { target }, PROFILE_TARGETS[target]);
+async function resolveTarget(manifest: unknown, target: string, projectRoot: string) {
+  const resolved = await resolveProfile({ target, from: projectRoot });
+  return validateAndResolveBuildPlan(manifest, { target: resolved.profile.id }, profileRegistry(resolved.profile));
 }
 
 async function compileTarget(
-  manifestPath: string,
+  _manifestPath: string,
   target: string,
   plan: ResolvedBuildPlan,
   projectRoot: string,
 ): Promise<string> {
-  const outdir = join(ROOT, ".pocket-build", target);
+  // Every profile, including an external product, uses its already admitted plan.
+  const outdir = join(ROOT, ".pocket-build", "pack", plan.planHash.replace("sha256:", ""));
   mkdirSync(outdir, { recursive: true });
-  const command = target in PROFILE_TARGETS
-    ? [
-        "bun",
-        "tools/build.ts",
-        `--plan=${join(outdir, "plan.json")}`,
-        `--project-root=${projectRoot}`,
-        `--outdir=${outdir}`,
-      ]
-    : [
-        "bun",
-        "tools/pocket.ts",
-        "compile",
-        "--target",
-        target,
-        "--manifest",
-        manifestPath,
-        "--project-root",
-        projectRoot,
-        "--outdir",
-        outdir,
-      ];
-  if (target in PROFILE_TARGETS) {
-    writeFileSync(join(outdir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`);
-  }
-  const p = Bun.spawnSync(
-    command,
-    { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
-  );
-  if (p.exitCode !== 0) throw new Error(`pocket-pack: compile failed for ${target}`);
+  writeFileSync(join(outdir, "plan.json"), `${JSON.stringify(plan, null, 2)}\n`);
+  const p = Bun.spawnSync(["bun", "tools/build.ts", `--plan=${join(outdir, "plan.json")}`,
+    `--project-root=${projectRoot}`, `--outdir=${outdir}`], { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
+  if (!p.success) throw new Error(`pocket-pack: compile failed for ${target}: ${p.signalCode ?? p.exitCode}`);
   return outdir;
 }
 
@@ -191,7 +151,7 @@ async function buildCommand(argv: string[]): Promise<void> {
   const requested = allTargets ? Object.keys(POCKET_TARGETS) : targets;
   const variants: PocketPackageVariant[] = [];
   for (const target of requested) {
-    const resolution = resolveTarget(manifest, target);
+    const resolution = await resolveTarget(manifest, target, projectRoot);
     if (!resolution.ok) {
       const codes = resolution.diagnostics.map((d) => `${d.code}`).join(", ");
       if (allTargets) {
@@ -208,7 +168,7 @@ async function buildCommand(argv: string[]): Promise<void> {
     const coverPath = join(ROOT, "apps/launcher/covers", `cover-${plan.app.output}.png`);
     variants.push(
       makeVariant({
-        target,
+        target: plan.target.id,
         hostAbi: plan.target.hostAbi,
         planJson: canonicalJson(plan),
         identity: { output: plan.app.output, id: plan.app.id, title: plan.app.title },

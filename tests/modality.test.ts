@@ -63,8 +63,8 @@ describe("deriveModality", () => {
     expect(widget.glyphs).toBe("letters");
   });
 
-  test("the e-reader has touch but no cursor, sticks or buttons beyond the d-pad", () => {
-    const reader = deriveModality(POCKET_TARGETS.pocketbook);
+  test("a touch profile without cursor or analog capabilities has no synthesized pointer", () => {
+    const reader = deriveModality({ ...POCKET_TARGETS.vita, capabilities: ["input.buttons", "input.touch", "text.glyphs.baked"] });
     expect(reader.touch).toBe("primary");
     expect(reader.pointer).toBe("none");
     expect(reader.analog).toBe(0);

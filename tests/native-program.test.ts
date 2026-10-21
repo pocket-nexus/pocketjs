@@ -1,5 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import profile from "../profiles/symbian-e7-dev.ts";
+import profile from "./helpers/native-program-profile.ts";
 import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 import { encodePocketPackage, encodeIdentity, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";

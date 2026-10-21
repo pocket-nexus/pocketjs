@@ -14,13 +14,12 @@ PocketJS turns component code into native pixels through
 **one Rust core, framework-specific JS adapters, and one layout engine on every
 host.**
 
-`hosts/` holds one directory per host implementation — consoles, phones,
-e-readers, a microcontroller, desktop, browser and a headless sim. A smaller
-set of those ship as stock build targets, registered in
-`contracts/spec/platforms.ts` (`POCKET_TARGETS`); the others build through
-their own profile module or a supplied build plan. That registry is the only
-record of what a target implements, so read it rather than any list
-on this page — see [Platform contracts](/docs/platform-contracts/).
+**Programs under `programs/` compose runtimes and drivers.** `platforms/`
+contains OS and SDK adapters; `devices/` contains GPU mechanisms and renderers.
+`profiles/` defines the built-in software contracts. A consuming product can
+supply its own profile module and runtime configuration without a registry
+entry. Device ports live in Pocket Museum. See
+[Platform contracts](/docs/platform-contracts/).
 
 The application's framework can be Solid, Vue Vapor, or Octane. Solid uses its
 universal renderer; Vue Vapor uses a Vapor renderer adapter and a DOM-shaped
@@ -256,7 +255,7 @@ subset — is why layout is identical on every host.
 `engine/core/` is a platform-agnostic `#![no_std]` + `alloc` library,
 **`pocketjs-core`**. It contains no I/O, no graphics API, and no timing: the
 tree, layout, styling, animation, 2D physics, text, and DrawList generation. Each
-directory under `hosts/` gives it a body: it compiles the same crate for its
+program under `programs/` compiles the same crate for its
 target triple and supplies I/O, a JS engine, and a backend. `programs/psp` embeds
 QuickJS and renders through `sceGu`; `programs/web/wasm` wraps the identical core
 with the software rasterizer in one `wasm32-unknown-unknown` cdylib that serves

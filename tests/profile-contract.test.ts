@@ -1,3 +1,4 @@
+import { BUILTIN_PROFILE_IDS } from "../profiles/ids.ts";
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
@@ -90,12 +91,15 @@ describe("profile identity contract", () => {
   });
 
   test("built-in profiles use the same projection and cannot be shadowed", () => {
-    expect(Object.keys(POCKET_PROFILES)).toHaveLength(23);
+    expect(Object.keys(POCKET_PROFILES).sort()).toEqual([...BUILTIN_PROFILE_IDS].sort());
     for (const builtin of Object.values(POCKET_PROFILES)) {
       expect(validatePocketProfile(builtin, { builtin: true }).ok).toBe(true);
       expect(hashPocketProfile(builtin)).toBe(`sha256:${hash(builtin)}`);
       expect(() => defineProfile({ ...builtin })).toThrow("built-in profile");
       expect(builtin).not.toHaveProperty("hostAbi");
+    }
+    for (const id of ["pocketbook", "iphone2g-dev", "symbian-e7-dev"]) {
+      expect(defineProfile({ ...profile, id }).id).toBe(id);
     }
     for (const id of ["compile", "target", "profile", "sdk", "pack"]) {
       expect(() => defineProfile({ ...profile, id })).toThrow("command");

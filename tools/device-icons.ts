@@ -7,12 +7,11 @@ import { rasterizeIconSvg } from "./icon-raster.ts";
 const root = resolve(import.meta.dir, "..");
 const check = process.argv.includes("--check");
 for (const [source, target, size] of [
-  ["hosts/iphone4s/Icon.svg", "hosts/iphone2g/Icon.png", 57],
   ["programs/3ds/product/icon.svg", "programs/3ds/product/icon.png", 48],
   ["programs/3ds/product/icon-small.svg", "programs/3ds/product/icon-small.png", 24],
 ] as const) {
   const svg = readFileSync(resolve(root, source), "utf8");
-  const canvas = await rasterizeIconSvg(svg, size, size, !target.includes("iphone2g"));
+  const canvas = await rasterizeIconSvg(svg, size, size, true);
   const png = canvas.toBuffer("image/png");
   const path = resolve(root, target);
   if (check) {

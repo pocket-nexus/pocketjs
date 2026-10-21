@@ -77,9 +77,6 @@ export const ANDROID_ICON_DENSITIES = [
   ["xxxhdpi", 192],
 ] as const;
 
-/** The `.pocket` targets an Android runtime boots: the redmi-1s and moto-g-play profiles (tools/runtime/android.ts). */
-export const ANDROID_RUNTIME_TARGETS = ["redmi-1s-dev", "moto-g-play-dev"] as const;
-
 /** The runtime's unsigned APK, which every repack starts from. */
 export const ANDROID_TEMPLATE = "template.apk";
 /** The identity template.apk is linked with. */
@@ -228,9 +225,12 @@ export async function readAndroidRuntime(runtime: ReadonlyMap<string, Uint8Array
   } catch {
     target = undefined;
   }
-  // readRuntime refuses a missing or broken runtime.json with the reason; a known target goes to it as is.
-  const expected = (ANDROID_RUNTIME_TARGETS as readonly unknown[]).includes(target) ? String(target) : ANDROID_RUNTIME_TARGETS[0];
-  const manifest = (await readRuntime(runtime as Map<string, Uint8Array>, expected)) as AndroidRuntimeManifest;
+  if (typeof target !== "string" || !target.length || target.includes("\0") || new TextEncoder().encode(target).length > 65535) {
+    fail("runtime.json has no valid profile target");
+  }
+  // Product ids are external. Admission below still checks the independent
+  // runtime profile hash, generation, package plan and Android viewport.
+  const manifest = (await readRuntime(runtime as Map<string, Uint8Array>, target)) as AndroidRuntimeManifest;
   const android = manifest.android;
   if (!android || !Array.isArray(android.abis) || !android.abis.length || !Number.isInteger(android.minSdkVersion)) {
     fail("runtime.json has no android section; build it with tools/runtime/android.ts");
@@ -302,7 +302,7 @@ async function admitAndroidGame(input: RepackInput): Promise<AdmittedGame> {
     for (const [density, side] of ANDROID_ICON_DENSITIES) icons.set(density, await encodePng(squareIcon(image, side)));
   }
   // PocketActivity hands app.js to QuickJS with its length and the host's copy adds the NUL
-  // JS_Eval reads to (hosts/android/app/jni/runtime.c), so the section's NUL stays out.
+  // JS_Eval reads to in the consuming Android program, so the section's NUL stays out.
   return { names, runtime, template, js: js.subarray(0, js.length - 1), pak, icons };
 }
 

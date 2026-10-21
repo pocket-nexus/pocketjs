@@ -7,41 +7,10 @@ admission, asset loading, input hit snapshots, guest ticks and presentation.
 The Apple adapter holds the framebuffer and host queues; it holds no second
 `Ui` or operation dispatcher.
 
-The maintained NativeScript plugin is
-`hosts/ios-nativescript/pocketjs`. The shell installs it through a `file:`
-dependency and imports the generated UI mount from
-`@pocketjs/framework/guest-web`. **Both guest modes use the generated op
-schema and the same Runtime lifecycle.**
-
-## Build and run
-
-```sh
-pocket ios doctor
-pocket ios setup
-pocket ios native
-pocket ios play nsengine
-pocket ios play nsengine --external-guest
-pocket ios build nsengine --density=4
-```
-
-Building `PocketApple.xcframework` requires Xcode with the iPhone SDKs, the
-Rust `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets, and libclang.
-The framework contains the Rust runtime archive, `PocketSurfaceView`, and
-its generated C headers. The shell uses the arm64 device/simulator slices
-and excludes x86_64. CocoaPods is not required.
-
-The CLI resolves the manifest against `ios-dev`, builds the bundle and
-assets, stages `<output>.pocketjs`, `<output>.pak`, `<output>.plan.json` and
-`current.json`, copies the framework into the local plugin, installs shell
-dependencies and starts NativeScript. `--rebuild-native` rebuilds the
-framework before staging. NativeScript build files, installed dependencies,
-staged assets and framework copies are ignored by Git.
-
-The raw JS/pak entry points remain for existing UIKit consumers. The Apple
-adapter wraps those inputs in the current `.pocket` format with
-`pocket-package::embedded`, then passes the result through the standard
-package reader. The wrapper is transitional; profile and package format
-migration is a separate architecture stage.
+The NativeScript shell and device programs live in **Pocket Museum**. Its
+`programs/ios-simulator` runtime configuration selects this shared implementation;
+`tools/ios.ts` owns framework packaging, staging and simulator launch. See
+[Museum migration](MUSEUM.md) for checkout and dependency commands.
 
 ## Guest modes
 
@@ -72,27 +41,17 @@ runtime tick; a synchronous host reply enters the next frame's service
 queue. A disposal request from a guest or effect callback stops the timer
 and destroys the instance after the active call returns.
 
-## Profile and shell
+## Profile ownership
 
-`tools/ios-profile.ts` declares the private `ios-dev`/7 profile: a 480×272
-logical viewport, `input.touch` and `text.glyphs.baked`. The build and view
-must agree on **identity, viewport, raster density and tick rate**. Set
-`tickRate` before evaluating the bundle; later changes are rejected.
-Density ranges from 1 to 4. Glyph atlases bake at that density and the view
-uses the same raster scale. `hosts/ipodtouch6` uses the same UIKit consumer
-with its own identity and viewport.
-
-The shell reads the staged plan and mode, selects `PocketView` or
-`PocketHostView`, and forwards service events. `--shell-dir` stages into a
-compatible shell. `--plugin-path` overrides the maintained plugin checkout;
-that checkout must implement the canonical guest bridge.
-`--runtime-tgz` overrides the NativeScript QuickJS runtime package.
+**Each consuming program supplies its profile.** The build and view agree on
+identity, viewport, raster density and tick rate. Set `tickRate` before
+evaluating the bundle; later changes are rejected. Glyph atlases and the view
+use the same raster scale.
 
 ## Validation
 
 ```sh
-cargo +stable test --locked --manifest-path engine/Cargo.toml -p pocket-apple
-bun test tests/nativescript-bridge.test.ts tests/ios-profile.test.ts tests/ipodtouch-profile.test.ts
+cargo +stable test --locked --manifest-path Cargo.toml -p pocket-apple
 ```
 
 Desktop tests execute real QuickJS and the external C guest callbacks

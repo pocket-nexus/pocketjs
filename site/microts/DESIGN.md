@@ -2,7 +2,7 @@
 
 The MicroTS site belongs to the Pocket family ([pocket.nexus](https://pocket.nexus/), [PocketJS](https://pocketjs.pocket.nexus/), [Pocket3D](https://3d.pocket.nexus/)) and uses the family's **Arcade look**: a dark purple ground, five candy colors, hard drop shadows and pixel headings. The values are copied from `site/assets/arcade.css` and `site/assets/tokens.css` in this repository. Those two files are the reference for the family look: change them first, then carry the change into `src/styles/main.css`.
 
-This file describes the visual and interaction rules; the implementation is in `src/styles/main.css` (tokens and component classes) and `src/components/`. Paths that start with `src/` or `lib/` are relative to `site/microts/`; `site/…`, `apps/…` and `hosts/…` paths are relative to the repository root.
+This file describes the visual and interaction rules; the implementation is in `src/styles/main.css` (tokens and component classes) and `src/components/`. Paths that start with `src/` or `lib/` are relative to `site/microts/`; `site/…`, `apps/…` and `programs/…` paths are relative to the repository root.
 
 ---
 

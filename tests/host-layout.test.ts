@@ -104,13 +104,9 @@ describe("host layout ownership", () => {
     }
   });
 
-  test("iOS build and NativeScript working state stay ignored", () => {
+  test("Apple engine build output stays ignored", () => {
     const generatedPaths = [
       "engine/ios/dist/.ignore-probe",
-      "hosts/ios-nativescript/platforms/.ignore-probe",
-      "hosts/ios-nativescript/hooks/.ignore-probe",
-      "hosts/ios-nativescript/src/assets/pocket/.ignore-probe",
-      "hosts/ios-nativescript/package-lock.json",
     ];
 
     for (const generatedPath of generatedPaths) {

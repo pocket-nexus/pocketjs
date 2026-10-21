@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -19,10 +20,9 @@ import { VITA_REQUIRED_SYSTEM_ASSETS } from "./vita-package.ts";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const HOME = homedir();
-const RELEASE_DIR = `${ROOT}programs/vita/target/armv7-sony-vita-newlibeabihf/release`;
-const VPK = `${RELEASE_DIR}/pocketjs-vita.vpk`;
-const VPK_STAMP = `${VPK}.play.json`;
 const PLAY_DIR = `${ROOT}dist/play-vita`;
+const VPK = `${PLAY_DIR}/pocketjs-vita.vpk`;
+const VPK_STAMP = `${VPK}.play.json`;
 const PLAY_CONFIG = `${PLAY_DIR}/config.yml`;
 
 const defaultVita3kApp = [`${HOME}/Applications/Vita3K.app`, "/Applications/Vita3K.app"].find(
@@ -50,7 +50,6 @@ function usage(message?: string): never {
   if (message) console.error(`play: ${message}\n`);
   console.error(
     "usage: bun play vita <demo> [--fullscreen] [--no-build] [--no-launch] [--framework=solid|vue-vapor|octane]\n" +
-      "       bun play ios <demo>  [ios flags — see `bun tools/ios.ts --help`]\n" +
       `demos: ${demos().join(", ")}`,
   );
   process.exit(message ? 2 : 0);
@@ -86,7 +85,7 @@ function vpkSha256(): string {
 async function run(command: string[], label: string): Promise<void> {
   const proc = Bun.spawn(command, { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   const code = await proc.exited;
-  if (code !== 0) throw new Error(`${label} failed with exit code ${code}`);
+  if (code !== 0 || proc.signalCode) throw new Error(`${label} failed: ${proc.signalCode ?? code}`);
 }
 
 async function stopVita3K(): Promise<void> {
@@ -125,19 +124,9 @@ const args = Bun.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) usage();
 const platform = args.shift();
 const demoArg = args.shift();
-const playTargets = { vita: true, ios: true } as const;
+const playTargets = { vita: true } as const;
 if (!platform || !(platform in playTargets)) usage(`unsupported platform ${platform ?? "<missing>"}`);
 if (!demoArg) usage("missing demo name");
-
-if (platform === "ios") {
-  // tools/ios.ts owns the Apple flow, its flags included (see `pocket ios`).
-  const proc = Bun.spawn([Bun.which("bun") ?? "bun", `${ROOT}tools/ios.ts`, "play", demoArg, ...args], {
-    cwd: ROOT,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  process.exit(await proc.exited);
-}
 
 const fullscreen = args.includes("--fullscreen");
 const noBuild = args.includes("--no-build");
@@ -168,21 +157,26 @@ if (!noBuild) {
   const manifestPath = `${ROOT}.pocket/play/${demo}.json`;
   mkdirSync(dirname(manifestPath), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-  const buildArgs = [
-    Bun.which("bun") ?? "bun",
-    "tools/pocket.ts",
-    "build",
-    "--target",
-    "vita",
-    "--manifest",
-    manifestPath,
-    "--project-root",
-    ROOT,
-    "--",
-    "--release",
-  ];
+  const compilerOutput = `${PLAY_DIR}/compiler/${demo}`;
+  const packagePath = `${compilerOutput}/app.pocket`;
+  const nativeOutput = `${PLAY_DIR}/native/${demo}`;
+  console.log(`PocketJS play: compiling ${demo} for PS Vita ...`);
+  await run([
+    process.execPath, "tools/pocket.ts", "compile", "--target", "vita",
+    "--manifest", manifestPath, "--project-root", ROOT,
+    "--outdir", compilerOutput, "--plan-dir", `${compilerOutput}/plans`,
+    "--output", packagePath,
+  ], "Vita application compile");
   console.log(`PocketJS play: building ${demo} for PS Vita ...`);
-  await run(buildArgs, "Vita build");
+  await run([
+    process.execPath, "tools/pocket.ts", "build", "--target", "vita",
+    "--pocket", packagePath, "--outdir", nativeOutput,
+  ], "Vita native build");
+  const receipt = JSON.parse(readFileSync(`${nativeOutput}/build-receipt.json`, "utf8"));
+  if (receipt.schema !== "pocket-runtime-build/1" || receipt.success !== true || typeof receipt.artifact !== "string") {
+    throw new Error("Vita native build did not produce a successful artifact receipt");
+  }
+  copyFileSync(receipt.artifact, VPK);
 }
 if (!existsSync(VPK)) throw new Error(`VPK not found at ${VPK}; remove --no-build and retry`);
 if (!noBuild) {

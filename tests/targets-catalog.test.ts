@@ -7,14 +7,6 @@ import { CATALOG, COMMAND_WORDS, catalogEntry, catalogEntryForContract } from ".
 import { POCKET_PROFILES } from "../profiles/index.ts";
 import { HOST_IDS, currentHost } from "../tools/targets/types.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
-import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
-import { resolveRedmi1sBuildPlan } from "../tools/redmi-1s-profile.ts";
-import { BLACKBERRY_QNX_DEV_TARGET_ID, resolveBlackBerryClassicBuildPlan } from "../tools/blackberry-classic-profile.ts";
-import { resolveMeizuM8BuildPlan } from "../tools/meizu-m8-profile.ts";
-import { resolveSymbianE7BuildPlan } from "../tools/symbian-profile.ts";
-import { resolveIPhone2GBuildPlan } from "../tools/iphone2g-profile.ts";
-import { resolveIPhone4SBuildPlan } from "../tools/iphone4s-profile.ts";
-import { resolveIPodTouchBuildPlan } from "../tools/ipodtouch-profile.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const readJson = (path: string) => JSON.parse(readFileSync(join(root, path), "utf8"));
@@ -79,14 +71,6 @@ describe("target catalog", () => {
   test("catalog resolution equals each device profile's own resolver", () => {
     const cases: [string, string, (manifest: unknown) => { planHash: string }][] = [
       ["3ds", "apps/3ds-demo/pocket.json", resolve3dsBuildPlan],
-      ["moto-g-play", "apps/clear/pocket.android.json", resolveMotoGPlayBuildPlan],
-      ["redmi-1s", "apps/clear/pocket.redmi-1s.json", resolveRedmi1sBuildPlan],
-      ["blackberry-classic", "apps/blackberry-classic-demo/pocket.json", (m) => resolveBlackBerryClassicBuildPlan(m, BLACKBERRY_QNX_DEV_TARGET_ID)],
-      ["meizu-m8", "apps/meizu-m8-demo/pocket.json", resolveMeizuM8BuildPlan],
-      ["nokia-e7", "apps/clear/pocket.symbian.json", resolveSymbianE7BuildPlan],
-      ["iphone2g", "apps/iphone2g-demo/pocket.json", resolveIPhone2GBuildPlan],
-      ["iphone4s", "apps/iphone4s-demo/pocket.json", resolveIPhone4SBuildPlan],
-      ["ipodtouch6", "apps/ipodtouch-demo/pocket.json", resolveIPodTouchBuildPlan],
     ];
     for (const [id, manifestPath, resolver] of cases) {
       const manifest = readJson(manifestPath);
@@ -98,7 +82,7 @@ describe("target catalog", () => {
 
   test("a contract id maps back to its catalog entry", () => {
     expect(catalogEntryForContract("3ds-dev")?.id).toBe("3ds");
-    expect(catalogEntryForContract("symbian-e7-dev")?.id).toBe("nokia-e7");
+    expect(catalogEntryForContract("symbian-e7-dev")).toBeUndefined();
     expect(catalogEntryForContract("psp")?.id).toBe("psp");
   });
 
@@ -121,11 +105,7 @@ describe("tools/pocket.ts and the catalog", () => {
     expect(result.code).toBe(0);
     const rows = JSON.parse(result.out);
     expect(rows.map((row: { id: string }) => row.id)).toEqual(Object.keys(POCKET_PROFILES));
-    expect(rows.find((row: { id: string }) => row.id === "symbian-e7-dev")).toEqual({
-      id: "symbian-e7-dev",
-      title: "Nokia E7 (Symbian)",
-      platform: "symbian",
-    });
+    expect(rows.some((row: { id: string }) => row.id === "symbian-e7-dev")).toBe(false);
   });
 
   test("application compilation selects the actual profile id, not a toolchain alias", () => {

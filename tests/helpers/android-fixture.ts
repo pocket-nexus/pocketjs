@@ -1,8 +1,12 @@
-import softwareProfile from "../../profiles/redmi-1s-dev.ts";
+import { defineProfile } from "../../framework/src/profile.ts";
+import { profileRegistry } from "../../tools/profile-resolver.ts";
+import { validateAndResolveBuildPlan } from "../../framework/src/manifest/resolve.ts";
+import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
+import type { ResolvedBuildPlan } from "../../framework/src/manifest/plan.ts";
 import { hashPocketProfile } from "../../framework/src/profile.ts";
 // The Android repack's test fixture: a runtime directory around
 // tests/fixtures/repack-android/template.apk and a `.pocket` of Clear's
-// Redmi 1S plan under a test id. Shared by tests/repack-android.test.ts and
+// external Android profile under a test id. Shared by tests/repack-android.test.ts and
 // tests/repack-worker.test.ts.
 
 import { createHash } from "node:crypto";
@@ -12,7 +16,18 @@ import { encodePocketPackage, type PocketPackageVariant } from "../../contracts/
 import { canonicalJson } from "../../framework/src/manifest/plan.ts";
 import { linkAndroidApk } from "../../tools/android-link.ts";
 import { makeVariant } from "../../tools/pocket-pack.ts";
-import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "../../tools/redmi-1s-profile.ts";
+export const ANDROID_FIXTURE_TARGET = "test-android-product";
+export const ANDROID_FIXTURE_PROFILE = defineProfile({
+  id: ANDROID_FIXTURE_TARGET, platform: "android", form: "takeover",
+  display: { physicalViewport: [720, 1280], logicalViewports: [[360, 640]], presentations: ["native"], rasterDensity: 2 },
+  capabilities: ["input.touch", "text.glyphs.baked", "io.offload"], tickHz: 60,
+});
+export function resolveAndroidFixturePlan(manifest: unknown, target = ANDROID_FIXTURE_TARGET): ResolvedBuildPlan {
+  const profile = defineProfile({ ...ANDROID_FIXTURE_PROFILE, id: target });
+  const result = validateAndResolveBuildPlan(manifest, { target }, profileRegistry(profile));
+  if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+  return result.plan;
+}
 import { ANDROID_ICON_DENSITIES, ANDROID_TEMPLATE, androidTemplateJob } from "../../tools/repack/android.ts";
 import { encodePng } from "../../tools/repack/shared/png.ts";
 
@@ -20,9 +35,9 @@ const ROOT = join(import.meta.dir, "../..");
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const bytesOf = (text: string) => new TextEncoder().encode(text);
 
-export const HOST = join(ROOT, "hosts/android/app");
+export const HOST = join(ROOT, "tests/fixtures/repack-android/sources");
 /**
- * aapt2's link of hosts/android/app's templates with ANDROID_TEMPLATE_IDENTITY,
+ * aapt2's link of the maintained Android test templates's templates with ANDROID_TEMPLATE_IDENTITY,
  * stand-in classes.dex and libraries and a plain icon. Rewrite it with
  * `POCKETJS_WRITE_ANDROID_FIXTURE=1 bun test tests/repack-android.test.ts`
  * (Android SDK required); tests/repack-android.test.ts checks it against aapt2.
@@ -30,7 +45,7 @@ export const HOST = join(ROOT, "hosts/android/app");
 export const FIXTURE = join(ROOT, "tests/fixtures/repack-android/template.apk");
 export const ABIS = ["armeabi-v7a", "arm64-v8a"] as const;
 export const SDK_LEVELS = { apiLevel: 34, buildToolsVersion: "35.0.0", minSdkVersion: 18, targetSdkVersion: 34 } as const;
-export const HOST_ABI = REDMI_1S_CONTRACTS.targets[REDMI_1S_TARGET].hostAbi;
+export const HOST_ABI = POCKET_BINDING_GENERATION;
 
 export function square(side: number, paint: (x: number, y: number) => [number, number, number, number]): Uint8Array {
   const rgba = new Uint8Array(side * side * 4);
@@ -58,7 +73,7 @@ if (process.env.POCKETJS_WRITE_ANDROID_FIXTURE === "1") {
 }
 export const TEMPLATE = new Uint8Array(readFileSync(FIXTURE));
 
-/** A runtime directory around a template: the sources from hosts/android, runtime.json describing them. */
+/** A runtime directory around a template: the maintained template sources, runtime.json describing them. */
 export function fixtureRuntime(overrides: Record<string, unknown> = {}, template: Uint8Array = TEMPLATE): Map<string, Uint8Array> {
   const files = new Map<string, Uint8Array>([
     [ANDROID_TEMPLATE, template],
@@ -66,10 +81,10 @@ export function fixtureRuntime(overrides: Record<string, unknown> = {}, template
     ["res/values/strings.xml", new Uint8Array(readFileSync(join(HOST, "res/values/strings.xml")))],
   ]);
   const manifest = {
-    target: REDMI_1S_TARGET,
+    target: ANDROID_FIXTURE_TARGET,
     hostAbi: HOST_ABI,
     pocketjs: "0".repeat(40),
-    profile: "redmi-1s", profileHash: hashPocketProfile(softwareProfile),
+    profile: ANDROID_FIXTURE_TARGET, profileHash: hashPocketProfile(ANDROID_FIXTURE_PROFILE),
     viewport: { logical: [360, 640], rasterDensity: 2 },
     android: { ...SDK_LEVELS, abis: [...ABIS] },
     files: Object.fromEntries([...files].map(([path, bytes]) => [path, { bytes: bytes.length, sha256: sha256(bytes) }])),
@@ -80,12 +95,17 @@ export function fixtureRuntime(overrides: Record<string, unknown> = {}, template
 }
 
 export const IDENTITY = { id: "dev.pocket-nexus.studio.test-game", title: "Tom's \"Test\" & <Game>", author: "A Creator", version: "1.2.3" };
-/** Clear's Redmi 1S manifest under an id: the repack refuses an identity that is not the .pocket's app. */
-export const clear = (id = IDENTITY.id) => ({ ...JSON.parse(readFileSync(join(ROOT, "apps/clear/pocket.redmi-1s.json"), "utf8")), id });
+/** A fixture application: repack must keep package and application identity equal. */
+export const clear = (id = IDENTITY.id) => ({
+  $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2, id, name: "fixture-android", title: "Android Fixture", version: "0.1.0",
+  engine: { capabilities: { requires: ["input.touch", "text.glyphs.baked", "io.offload"] } },
+  app: { entry: "fixture.ts", output: "clear-main", framework: "solid",
+    viewport: { fixed: { logical: [360, 640], presentation: "native" } } },
+});
 export const GAME_JS = bytesOf("globalThis.game = 1;\n".repeat(64));
 export const GAME_PAK = Uint8Array.from({ length: 4096 }, (_, i) => (i * 7) & 0xff);
 
-export function variantFor(plan: ReturnType<typeof resolveRedmi1sBuildPlan>): PocketPackageVariant {
+export function variantFor(plan: ResolvedBuildPlan): PocketPackageVariant {
   return makeVariant({
     target: plan.target.id,
     hostAbi: plan.target.hostAbi,
@@ -100,7 +120,7 @@ export function fixturePocket(id = IDENTITY.id, variants?: PocketPackageVariant[
   const manifest = clear(id);
   return encodePocketPackage({
     manifest: bytesOf(JSON.stringify(manifest)),
-    variants: variants ?? [variantFor(resolveRedmi1sBuildPlan(manifest))],
+    variants: variants ?? [variantFor(resolveAndroidFixturePlan(manifest))],
   });
 }
 

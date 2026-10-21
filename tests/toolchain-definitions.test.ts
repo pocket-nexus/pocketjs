@@ -38,14 +38,8 @@ describe("central toolchain definitions", () => {
   });
 
   test("custom target relocation preserves compiler ABI definitions", () => {
-    // Target bytes affect rustc ABI and Cargo cache identity. The iPhone 4S
-    // and iPod touch 4 now share their formerly identical ARMv7 definition.
+    // Target bytes affect rustc ABI and Cargo cache identity.
     const targets = {
-      "tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json": "0fb58fa171038604d66437b697ccf7edfa5b0cf188f19e44a875171f3f175f31",
-      "tools/build/toolchains/iphone2g/armv6-apple-ios.json": "04966c8446d62a5f4ab51a9f09be2828042f85efa328880f2aba61aa52bdc660",
-      "tools/build/toolchains/ios/armv7-apple-ios.json": "5d96d09440bb62fe43dad2347d050d69addeff2ad5f136bc5a495e75d3beb516",
-      "tools/build/toolchains/meizu-m8/armv6-wince-asm.json": "93614b7c6f61a29ae987fe2f3c3e7c17102f263e673b54d3df16a8a279b5c888",
-      "tools/build/toolchains/symbian/armv6-symbian-eabi.json": "4760ee40443ce3aa27161964cf51297e894fa668482822df6ff6423f470bee30",
       "tools/build/toolchains/psp/mipsel-sony-psp.json": "82106fed3edb2b32ccee25e5c264e950ba6768d7181408a240f3e7758830e662"
 };
     for (const [path, expected] of Object.entries(targets)) {

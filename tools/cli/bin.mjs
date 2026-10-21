@@ -13,11 +13,8 @@
 //   pocket target add [<id> …] | list [--check] [--json] | remove <id> …
 //                            install the toolchains the framework pins
 //   pocket play vita <demo> build, install and launch a demo in Vita3K
-//   pocket play ios <demo>  build, stage and launch a demo on the iOS simulator
 //   pocket dev|psp|vita|hw|psplink|devtools|tape [...args]
 //                            low-level passthrough to the checkout's bun scripts
-//   pocket symbian <cmd>      Nokia E7 toolchain doctor/setup/build/deploy
-//   pocket ios <cmd>          Apple iOS doctor/setup/build/play on the simulator
 //
 // The CLI holds no toolchain pins: the framework it resolves carries the target
 // catalog and the toolchain manifests.
@@ -119,8 +116,6 @@ const SCRIPTS = {
   dev: "tools/dev.ts",
   psp: "tools/psp.ts",
   vita: "tools/vita.ts",
-  symbian: "tools/symbian.ts",
-  ios: "tools/ios.ts",
   hw: "tools/hw.ts",
   psplink: "tools/psplink.ts",
   devtools: "tools/devtools.ts",
@@ -315,8 +310,6 @@ switch (cmd) {
   case "dev":
   case "psp":
   case "vita":
-  case "symbian":
-  case "ios":
   case "hw":
   case "psplink":
   case "devtools":

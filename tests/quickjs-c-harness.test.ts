@@ -33,7 +33,7 @@ describe("portable QuickJS C canonical composition", () => {
     });
     const profileHeader = writeHostProfileHeader(build, defineProfile({id:"harness-test",platform:"fixture",form:"embedded",tickHz:60,display:{physicalViewport:[32,24],logicalViewports:[[32,24]],rasterDensity:1,presentations:["native"]},capabilities:["input.buttons","input.touch"],roleCapabilities:{}}));
     const common = ["-include", profileHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", '-DPOCKETJS_TARGET_ID="harness-test"', `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
-      ...["programs/native/quickjs", "programs/native/cabi/include", "engine/guest-quickjs/include", "contracts/generated", "hosts/nokia-e7/runtime", "hosts/ios-legacy"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
+      ...["programs/native/quickjs", "programs/native/cabi/include", "engine/guest-quickjs/include", "contracts/generated", "platforms/posix/svc-wire/include"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
     const stale = Bun.spawnSync([cc!, ...common.map(arg => arg.startsWith("-DPOCKETJS_HOST_ABI=")
       ? `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION - 1}` : arg), "-fsyntax-only", "programs/native/quickjs/pocket_runtime.c"],
       { cwd: repository, stdout: "pipe", stderr: "pipe" });

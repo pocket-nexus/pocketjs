@@ -20,21 +20,21 @@ describe("native host input state machine", () => {
         "-Wextra",
         "-Werror",
         "-I",
-        join(repository, "hosts/blackberry-classic"),
+        join(repository, "engine/runtime/include"),
         "-I",
         join(repository, "contracts/generated"),
-        join(repository, "hosts/blackberry-classic/pocket_input.c"),
+        join(repository, "engine/runtime/compat/input.c"),
         join(repository, "tests/fixtures/pocket-input-test.c"),
         "-o",
         executable,
       ], { cwd: repository });
-      expect(compiled.exitCode, compiled.stderr.toString()).toBe(0);
+      expect(compiled.success, compiled.stderr.toString()).toBe(true);
       if (process.platform === "darwin") {
         const xattr = Bun.which("xattr");
         if (xattr) Bun.spawnSync([xattr, "-d", "com.apple.provenance", executable]);
       }
       const ran = Bun.spawnSync([executable], { cwd: repository });
-      expect(ran.exitCode, ran.stderr.toString()).toBe(0);
+      expect(ran.success, ran.stderr.toString()).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

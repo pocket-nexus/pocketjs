@@ -2,7 +2,7 @@
 // tarball (tools/cli/package.json "files").
 
 export type CreateFramework = "solid" | "vue-vapor" | "octane";
-export type CreateTarget = "psp" | "vita" | "pocketbook" | "web-app" | "macos-app" | "linux-app" | "esp-idf";
+export type CreateTarget = "psp" | "vita" | "web-app" | "macos-app" | "linux-app" | "esp-idf";
 
 export const FRAMEWORKS: readonly CreateFramework[];
 export const TARGETS: readonly CreateTarget[];

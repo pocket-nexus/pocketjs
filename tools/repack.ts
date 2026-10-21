@@ -6,7 +6,7 @@
 // and the game's `.pocket`, with no native tools. This file only reads the
 // files; tools/repack/index.ts names each target's repack, which works on
 // bytes, so a Worker calls it the same way. `--target` is a runtime name
-// (psp, vita, 3ds, ipod, android) or a Pocket Studio target (ipod-touch).
+// (psp, vita, 3ds, android).
 //
 // Android signs with the Pocket Studio community key: the two DER files
 // `bun tools/community-key.ts` writes beside the keystore

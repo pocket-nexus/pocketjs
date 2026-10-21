@@ -8,18 +8,16 @@ import { builtinModules } from "node:module";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { REDMI_1S_TARGET } from "../tools/redmi-1s-profile.ts";
-import { ANDROID_RUNTIME_TARGETS, repackAndroid } from "../tools/repack/android.ts";
+import { repackAndroid } from "../tools/repack/android.ts";
 import { THREE_DS_RUNTIME_TARGET } from "../tools/repack/3ds.ts";
 import { REPACK_TARGETS, repackTarget } from "../tools/repack/index.ts";
-import { IPOD_RUNTIME_TARGET } from "../tools/repack/ipod.ts";
 import { PSP_RUNTIME_TARGET } from "../tools/repack/psp.ts";
 import { VITA_RUNTIME_TARGET } from "../tools/repack/vita.ts";
 import { fixturePocket, fixtureRuntime, IDENTITY } from "./helpers/android-fixture.ts";
 import { makeTestSigner } from "./helpers/apk-test-signer.ts";
 
 const ROOT = join(import.meta.dir, "..");
-const ENTRIES = ["index.ts", "psp.ts", "vita.ts", "3ds.ts", "ipod.ts", "android.ts"] as const;
+const ENTRIES = ["index.ts", "psp.ts", "vita.ts", "3ds.ts", "android.ts"] as const;
 const escape = (name: string) => name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 const BUILTIN = new RegExp(`^(node:.*|bun:.*|bun|${builtinModules.map(escape).join("|")})(/.*)?$`);
 /** What a Worker lacks: Bun's and Node's globals, CommonJS, and the module's own path. */
@@ -113,22 +111,18 @@ describe("the Studio's table", () => {
       psp: { repack: "function", runtime: "psp", variantTargets: [PSP_RUNTIME_TARGET], extension: ".zip", contentType: "application/zip", signed: false },
       vita: { repack: "function", runtime: "vita", variantTargets: [VITA_RUNTIME_TARGET], extension: ".vpk", contentType: "application/octet-stream", signed: false },
       "3ds": { repack: "function", runtime: "3ds", variantTargets: [THREE_DS_RUNTIME_TARGET], extension: ".3dsx", contentType: "application/octet-stream", signed: false },
-      "ipod-touch": { repack: "function", runtime: "ipod", variantTargets: [IPOD_RUNTIME_TARGET], extension: ".ipa", contentType: "application/octet-stream", signed: false },
       android: {
         repack: "function",
         runtime: "android",
-        variantTargets: [...ANDROID_RUNTIME_TARGETS],
+        variantTargets: [],
         extension: ".apk",
         contentType: "application/vnd.android.package-archive",
         signed: true,
       },
     });
-    expect(REPACK_TARGETS.android.variantTargets[0]).toBe(REDMI_1S_TARGET);
   });
 
   test("a row by Studio target or runtime name", () => {
-    expect(repackTarget("ipod")).toBe(REPACK_TARGETS["ipod-touch"]);
-    expect(repackTarget("ipod-touch")).toBe(REPACK_TARGETS["ipod-touch"]);
     expect(repackTarget("android")).toBe(REPACK_TARGETS.android);
     expect(repackTarget("toString")).toBeUndefined();
     expect(repackTarget("gba")).toBeUndefined();

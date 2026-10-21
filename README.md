@@ -285,7 +285,7 @@ maintains the older machines used to develop and test PocketJS.
 | PSP system software | MIPS, 32 MB | [Introducing PocketJS](https://pocketjs.pocket.nexus/blog/introducing-pocketjs/) |
 | PS Vita system software | ARM, GXM | [Twice the pixels, zero forks](https://pocketjs.pocket.nexus/blog/pocketjs-on-ps-vita/) |
 | iPhone OS 3.1.3 | ARMv6, GL ES 1.1 | [The first iPhone](https://pocketjs.pocket.nexus/blog/pocketjs-on-the-first-iphone/) |
-| iOS 6.1.3 | ARMv7 | [`hosts/iphone4s`](./hosts/iphone4s) |
+| iOS 6.1.3 | ARMv7 | [Pocket Museum](./docs/MUSEUM.md) |
 | iOS 12.5.8 | arm64 | [#278](https://github.com/pocket-nexus/pocketjs/pull/278) |
 | iOS, current | NativeScript host | [#256](https://github.com/pocket-nexus/pocketjs/pull/256) |
 | macOS | Metal window and widget | [#293](https://github.com/pocket-nexus/pocketjs/pull/293) |

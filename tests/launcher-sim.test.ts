@@ -20,9 +20,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { BTN, IMG_FLAG_LINEAR } from "../contracts/spec/spec.ts";
+import { BTN } from "../contracts/spec/spec.ts";
 import {
   launcherGeneratedSources,
   prepareIsolatedLauncherSource,
@@ -30,11 +29,6 @@ import {
   scanRegistry,
   withLauncherSourceLock,
 } from "../tools/launcher.ts";
-import {
-  resolveSymbianE7BuildPlan,
-  SYMBIAN_E7_DEV_TARGET_ID,
-} from "../tools/symbian-profile.ts";
-import { unpack } from "../framework/compiler/pak.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { bootLauncherWorld, type LauncherWorld } from "../programs/sim/launcher.ts";
 import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
@@ -60,6 +54,21 @@ const registry = scanRegistry(new Set());
 const vitaRegistry = scanRegistry(new Set(), "vita");
 
 describe("launcher registry admission", () => {
+  test("framework launch commands reject Museum targets before native or emulator work", () => {
+    for (const target of ["symbian", "symbian-e7-dev"]) {
+      const child = Bun.spawnSync([process.execPath, "tools/launcher.ts", "build", "--target", target], { cwd: repository });
+      expect(child.success).toBe(false);
+      expect(child.stderr.toString()).toContain("--target must be psp or vita");
+    }
+    const help = Bun.spawnSync([process.execPath, "tools/play.ts", "--help"], { cwd: repository });
+    expect(help.success).toBe(true);
+    expect(help.stderr.toString()).toContain("bun play vita");
+    expect(help.stderr.toString()).not.toContain("bun play ios");
+    const ios = Bun.spawnSync([process.execPath, "tools/play.ts", "ios", "hero"], { cwd: repository });
+    expect(ios.success).toBe(false);
+    expect(ios.stderr.toString()).toContain("unsupported platform ios");
+  });
+
   test("admits every PSP-compatible demo, excludes the rest", () => {
     const outputs = registry.apps.map((a) => a.output);
     // The two structurally incompatible demos (docs/LAUNCHER.md "Admission").
@@ -96,14 +105,14 @@ describe("launcher registry admission", () => {
     // not advertise that transport. A shared DrawList does not imply equal
     // runtime capabilities or make either target a superset of the other.
     expect(pspOnly.map((app) => app.output)).toEqual(["text-cjk-main", "text-offload-main"]);
-    expect(vitaOnly.map((app) => app.output).sort()).toEqual(["iphone16-demo-main", "nsengine-main"]);
+    expect(vitaOnly.map((app) => app.output).sort()).toEqual(["nsengine-main"]);
     for (const app of registry.apps.filter((app) => vitaOutputs.has(app.output))) {
       expect(vitaRegistry.apps).toContainEqual(app);
     }
     expect(pspOutputs.has("text-cjk-main")).toBe(true);
     expect(vitaOutputs.has("text-cjk-main")).toBe(false);
     expect(registry.apps).toHaveLength(18);
-    expect(vitaRegistry.apps).toHaveLength(18);
+    expect(vitaRegistry.apps).toHaveLength(17);
   });
 
   test("committed registry.generated.ts is fresh (re-run tools/launcher.ts scan)", async () => {
@@ -146,7 +155,7 @@ describe("launcher registry admission", () => {
     expect(maxActive).toBe(1);
   });
 
-  test("never writes generated sources for non-scan excludes or bad backend args", () => {
+  test("never writes generated sources for non-scan excludes or unsupported targets", () => {
     const registrySource = join(
       repository,
       "apps/launcher/registry.generated.ts",
@@ -167,13 +176,13 @@ describe("launcher registry admission", () => {
         "tools/launcher.ts",
         "build",
         "--target",
-        "symbian",
+        "museum-only",
         "--",
         "--unknown-backend-option",
       ], { cwd: repository });
       expect(invalid.exitCode).toBe(1);
       expect(new TextDecoder().decode(invalid.stderr)).toContain(
-        "unknown Symbian backend option --unknown-backend-option",
+        "--target must be psp or vita",
       );
       expect(readFileSync(registrySource)).toEqual(registryBefore);
       expect(readFileSync(imagesSource)).toEqual(imagesBefore);
@@ -200,88 +209,6 @@ describe("launcher registry admission", () => {
         if (previous) writeFileSync(path, previous);
         else rmSync(path, { force: true });
       });
-    }
-  });
-
-  test("keeps generated source bytes unchanged throughout a failing non-scan command", async () => {
-    const external = mkdtempSync(join(tmpdir(), "pocketjs-launcher-throw-"));
-    const registrySource = join(
-      repository,
-      "apps/launcher/registry.generated.ts",
-    );
-    const imagesSource = join(repository, "apps/launcher/images.json");
-    const registryBefore = readFileSync(registrySource);
-    const imagesBefore = readFileSync(imagesSource);
-    const emittedPaths = [
-      join(repository, "dist/launcher/symbian/launcher-registry.json"),
-      join(repository, "dist/launcher/symbian/launcher-registry.tsv"),
-    ];
-    const emittedBefore = emittedPaths.map((path) =>
-      existsSync(path) ? readFileSync(path) : undefined
-    );
-    const output = "launcher-throw-probe";
-    try {
-      const manifest = JSON.parse(
-        readFileSync(join(repository, "apps/hero/pocket.json"), "utf8"),
-      );
-      manifest.id = "dev.pocket-nexus.launcher.throw-probe";
-      manifest.name = output;
-      manifest.title = "AAAA Launcher Throw Probe";
-      manifest.app.entry = "app.tsx";
-      manifest.app.output = output;
-      delete manifest.app.viewport.fixed;
-      const externalManifest = join(external, "pocket.json");
-      writeFileSync(externalManifest, JSON.stringify(manifest, null, 2));
-      writeFileSync(
-        join(external, "app.tsx"),
-        "export default function App( {\n",
-      );
-
-      let exited = false;
-      const failed = Bun.spawn(
-        [
-          "bun",
-          "tools/launcher.ts",
-          "covers",
-          "--target",
-          "symbian",
-          "--include-manifest",
-          externalManifest,
-        ],
-        {
-          cwd: repository,
-          stdout: "ignore",
-          stderr: "ignore",
-        },
-      );
-      const exit = failed.exited.then((code) => {
-        exited = true;
-        return code;
-      });
-      while (!exited) {
-        expect(readFileSync(registrySource)).toEqual(registryBefore);
-        expect(readFileSync(imagesSource)).toEqual(imagesBefore);
-        await Bun.sleep(5);
-      }
-      expect(await exit).not.toBe(0);
-      expect(readFileSync(registrySource)).toEqual(registryBefore);
-      expect(readFileSync(imagesSource)).toEqual(imagesBefore);
-    } finally {
-      emittedPaths.forEach((path, index) => {
-        const previous = emittedBefore[index];
-        if (previous) writeFileSync(path, previous);
-        else rmSync(path, { force: true });
-      });
-      for (const path of [
-        join(repository, "dist/.plans", `${output}.json`),
-        join(repository, "dist", `${output}.js`),
-        join(repository, "dist", `${output}.pak`),
-        join(repository, "apps/launcher/covers", `cover-${output}.png`),
-        join(repository, "apps/launcher/covers", `refl-${output}.png`),
-      ]) {
-        rmSync(path, { force: true });
-      }
-      rmSync(external, { recursive: true, force: true });
     }
   });
 
@@ -319,111 +246,7 @@ describe("launcher registry admission", () => {
     }
   });
 
-  test("compiles an isolated E7 launcher with exactly 1 + 2N images", async () => {
-    const dist = join(repository, "dist");
-    mkdirSync(dist, { recursive: true });
-    const testRoot = mkdtempSync(join(dist, ".launcher-isolation-test-"));
-    const source = join(testRoot, "source");
-    const output = join(testRoot, "output");
-    const planPath = join(testRoot, "plan.json");
-    const registrySource = join(
-      repository,
-      "apps/launcher/registry.generated.ts",
-    );
-    const imagesSource = join(repository, "apps/launcher/images.json");
-    const registryBefore = readFileSync(registrySource);
-    const imagesBefore = readFileSync(imagesSource);
-    try {
-      const targetRegistry = scanRegistry(
-        new Set(),
-        SYMBIAN_E7_DEV_TARGET_ID,
-      );
-      const launcher = prepareIsolatedLauncherSource(
-        SYMBIAN_E7_DEV_TARGET_ID,
-        targetRegistry,
-        source,
-      );
-      const manifest = JSON.parse(readFileSync(launcher.manifest, "utf8"));
-      const plan = resolveSymbianE7BuildPlan(manifest);
-      writeFileSync(planPath, JSON.stringify(plan, null, 2) + "\n");
 
-      expect(manifest.app.entry).toBe(
-        relative(repository, join(source, "main.tsx")).replaceAll("\\", "/"),
-      );
-      expect(readFileSync(join(source, "main.tsx"), "utf8")).toContain(
-        "<Launcher registry={REGISTRY} />",
-      );
-      expect(readFileSync(registrySource)).toEqual(registryBefore);
-      expect(readFileSync(imagesSource)).toEqual(imagesBefore);
-
-      let exited = false;
-      const compiler = Bun.spawn(
-        [
-          "bun",
-          "tools/build.ts",
-          `--plan=${planPath}`,
-          `--project-root=${repository}`,
-          `--outdir=${output}`,
-        ],
-        { cwd: repository, stdout: "ignore", stderr: "pipe" },
-      );
-      const exit = compiler.exited.then((code) => {
-        exited = true;
-        return code;
-      });
-      while (!exited) {
-        expect(readFileSync(registrySource)).toEqual(registryBefore);
-        expect(readFileSync(imagesSource)).toEqual(imagesBefore);
-        await Bun.sleep(5);
-      }
-      const exitCode = await exit;
-      const stderr = await new Response(compiler.stderr).text();
-      if (exitCode !== 0) {
-        throw new Error(`isolated launcher compile failed:\n${stderr}`);
-      }
-
-      const entries = unpack(
-        new Uint8Array(
-          readFileSync(join(output, "launcher-main.pak")),
-        ),
-      );
-      const imageEntries = entries.filter((entry) =>
-        entry.key.startsWith("ui:img.")
-      );
-      const images = imageEntries.map((entry) => entry.key);
-      expect(images).toHaveLength(1 + targetRegistry.apps.length * 2);
-      expect(images).toEqual(
-        [
-          "ui:img.covers/launcher-bg.png",
-          ...targetRegistry.apps.flatMap((app) => [
-            `ui:img.covers/cover-${app.output}.png`,
-            `ui:img.covers/refl-${app.output}.png`,
-          ]),
-        ].sort(),
-      );
-      for (const entry of imageEntries) {
-        const image = new DataView(
-          entry.data.buffer,
-          entry.data.byteOffset,
-          entry.data.byteLength,
-        );
-        expect(entry.data[5]! & IMG_FLAG_LINEAR).toBe(IMG_FLAG_LINEAR);
-        if (entry.key.includes("/refl-")) {
-          expect([image.getUint16(0, true), image.getUint16(2, true)]).toEqual(
-            [128, 64],
-          );
-        } else {
-          expect([image.getUint16(0, true), image.getUint16(2, true)]).toEqual(
-            [256, 128],
-          );
-        }
-      }
-      expect(readFileSync(registrySource)).toEqual(registryBefore);
-      expect(readFileSync(imagesSource)).toEqual(imagesBefore);
-    } finally {
-      rmSync(testRoot, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("switch protocol (sim host policy)", () => {

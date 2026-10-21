@@ -75,7 +75,6 @@ members = [
     "tools/build/gba/bake",
     "programs/ipodnano",
     "programs/ipodnano/preview",
-    "hosts/pocketbook",
     "programs/psp",
     "programs/vita",
     "platforms/esp-idf/render-ppa",
@@ -218,7 +217,6 @@ pocket3d-mesh = { path = "engine/pocket3d/crates/pocket3d-mesh", version = "0.1.
 pocket3d-packs = { path = "engine/pocket3d/crates/pocket3d-packs", version = "0.1.0", default-features = false }
 pocket3d-title = { path = "engine/pocket3d/crates/pocket3d-title", version = "0.1.0", default-features = false }
 pocket3d-world = { path = "engine/pocket3d/crates/pocket3d-world", version = "0.1.0", default-features = false }
-pocketbook-host = { path = "hosts/pocketbook", version = "0.1.0", default-features = false }
 pocketjs-3ds-core = { path = "programs/3ds/product/core", version = "0.1.0", default-features = false }
 pocketjs-core = { path = "engine/core", version = "0.1.0", default-features = false }
 pocketjs-gba = { path = "programs/gba", version = "0.1.0", default-features = false }
@@ -313,7 +311,3 @@ debug = 1
 
 [profile.release.package."pocketjs-ipodnano-preview"]
 opt-level = 3
-
-[profile.release.package."pocketbook-host"]
-opt-level = "s"
-strip = true

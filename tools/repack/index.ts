@@ -14,9 +14,8 @@
 // variant for one of `target.variantTargets`, the one the runtime's
 // runtime.json names. Android alone takes `signer`.
 
-import { ANDROID_RUNTIME_TARGETS, repackAndroid } from "./android.ts";
+import { repackAndroid } from "./android.ts";
 import { THREE_DS_RUNTIME_TARGET, repack3ds } from "./3ds.ts";
-import { IPOD_RUNTIME_TARGET, repackIPod } from "./ipod.ts";
 import { PSP_RUNTIME_TARGET, repackPsp } from "./psp.ts";
 import type { RepackInput } from "./shared/runtime.ts";
 import { VITA_RUNTIME_TARGET, repackVita } from "./vita.ts";
@@ -26,14 +25,15 @@ export type { RepackIdentity, RepackInput, RuntimeManifest } from "./shared/runt
 export { POCKET_STUDIO_COMMUNITY_SIGNER, androidPackageName } from "./android.ts";
 
 /** The device targets of Pocket Studio, as its catalog names them. */
-export type StudioTarget = "psp" | "vita" | "3ds" | "ipod-touch" | "android";
+export type StudioTarget = "psp" | "vita" | "3ds" | "android";
 
 export interface RepackTarget {
   /** A game's package from a runtime directory and the game's `.pocket`. */
   readonly repack: (input: RepackInput) => Promise<Uint8Array>;
   /** `bun tools/runtime.ts <runtime>`: the runtime's name and its directory's name. */
-  readonly runtime: "psp" | "vita" | "3ds" | "ipod" | "android";
+  readonly runtime: "psp" | "vita" | "3ds" | "android";
   /** The `.pocket` targets this target's runtimes boot; the runtime's runtime.json names the one it was built for. */
+  /** Empty means the runtime manifest supplies an external profile identity. */
   readonly variantTargets: readonly string[];
   /** The package file's extension, dot included. */
   readonly extension: ".zip" | ".vpk" | ".3dsx" | ".ipa" | ".apk";
@@ -68,25 +68,17 @@ export const REPACK_TARGETS: Readonly<Record<StudioTarget, RepackTarget>> = {
     contentType: "application/octet-stream",
     signed: false,
   },
-  "ipod-touch": {
-    repack: repackIPod,
-    runtime: "ipod",
-    variantTargets: [IPOD_RUNTIME_TARGET],
-    extension: ".ipa",
-    contentType: "application/octet-stream",
-    signed: false,
-  },
   android: {
     repack: (input) => repackAndroid(input),
     runtime: "android",
-    variantTargets: [...ANDROID_RUNTIME_TARGETS],
+    variantTargets: [],
     extension: ".apk",
     contentType: "application/vnd.android.package-archive",
     signed: true,
   },
 };
 
-/** A row by Studio target or by runtime name (`ipod` is `ipod-touch`); undefined for anything else. */
+/** A row by Studio target or by runtime name; undefined for anything else. */
 export function repackTarget(name: string): RepackTarget | undefined {
   if (Object.hasOwn(REPACK_TARGETS, name)) return REPACK_TARGETS[name as StudioTarget];
   return Object.values(REPACK_TARGETS).find((target) => target.runtime === name);

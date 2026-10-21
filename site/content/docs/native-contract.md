@@ -197,7 +197,7 @@ cases.
 
 | codes | family | condition |
 |---|---|---|
-| 14–15 | `loadStyles`, `loadFontAtlas` — feed the compiled `styles.bin` and one baked atlas blob per call | Installed by the QuickJS hosts (`programs/psp/src/service_bindings.rs`, `programs/vita/src/service_bindings.rs`, `programs/3ds/product/src/qjs.c`, `hosts/nokia-e7/runtime/main.cpp`, `programs/native/quickjs/pocket_runtime.c`) and by web/test hosts. `render()` calls them only when the host publishes no native texture table, so a console host that parses the pak natively never receives the call. |
+| 14–15 | `loadStyles`, `loadFontAtlas` — feed the compiled `styles.bin` and one baked atlas blob per call | Installed by the QuickJS hosts (`programs/psp/src/service_bindings.rs`, `programs/vita/src/service_bindings.rs`, `programs/3ds/product/src/qjs.c`, `programs/native/quickjs/pocket_runtime.c`) and by web/test hosts. `render()` calls them only when the host publishes no native texture table, so a console host that parses the pak natively never receives the call. |
 | 18–22 | `debugInspect`, `debugRectXY`, `debugRectWH`, `debugPause`, `debugStep` — inspect one node's world AABB, freeze the world, arm one tick | Debug-only and default-off. See [DevTools](/docs/devtools/). |
 | 23–25 | `loadTileTexture`, `freeTexture`, `uploadImgEntry` — decode one TILESET tile host-side, release a generation-tagged texture, upload a self-contained IMG entry with its CLUT8 palette and RLE flags | Native hosts implement these so tile bytes never transit the JS heap; without them `framework/src/tiles.ts` falls back to `__pak` + `uploadTexture`. |
 | 26 | `setActive` — apply or clear the native `active:` pressed variant | Hosts that predate the op lack it and pressed visuals degrade. |

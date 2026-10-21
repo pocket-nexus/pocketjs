@@ -83,7 +83,7 @@ test("a source is never scaled up, and is square", async () => {
 });
 
 test("the Android manifest names the density-qualified launcher icon", () => {
-  const manifest = readFileSync("hosts/android/app/AndroidManifest.xml", "utf8");
+  const manifest = readFileSync("tests/fixtures/repack-android/sources/AndroidManifest.xml", "utf8");
   expect(manifest).toContain('android:icon="@mipmap/icon"');
   expect(manifest).not.toContain("@drawable/icon");
 });

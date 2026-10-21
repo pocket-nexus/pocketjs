@@ -38,6 +38,7 @@ pocketjs/
 │  ├─ psp/ vita/ 3ds/       input, display, audio, I/O and system services
 │  ├─ gba/ rockbox/         display and input adapters
 │  ├─ web/ sim/             browser and deterministic service providers
+│  ├─ android/               JNI helpers, input queue, logging and clock
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
 │  └─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
 ├─ profiles/                software contracts identified by content hashes
@@ -66,8 +67,9 @@ pocketjs/
 └─ .pocket-build/           ignored build and validation output
 ```
 
-The remaining `hosts/` directories contain device ports scheduled for the
-separate Pocket Museum extraction. The 3DS product remains under
+**Device ports live in the separate Pocket Museum repository.** Their profiles,
+runtime configurations, build tools, tests and runbooks move with the programs.
+See [Museum migration](MUSEUM.md). The 3DS product remains under
 `programs/3ds/product` until its separate product extraction. These moves have
 separate commits from the directory split.
 

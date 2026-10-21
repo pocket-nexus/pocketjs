@@ -83,80 +83,14 @@ describe("declared test suite", () => {
     expect(threeDsTests.filter((file) => !declared.has(file))).toEqual([]);
   });
 
-  test("runs every iPhone 2G test in the CI unit stage", () => {
-    const declared = unitTestFiles();
-    const iphone2gTests = readdirSync(join(repository, "tests"))
-      .filter((file) => /^iphone2g-.*\.test\.ts$/.test(file))
-      .map((file) => `tests/${file}`)
-      .sort();
-
-    expect(iphone2gTests).not.toHaveLength(0);
-    expect(iphone2gTests.filter((file) => !declared.has(file))).toEqual([]);
+  test("Museum device suites are owned by the external repository", () => {
+    const declared = stageTestFiles();
+    expect([...declared].filter(file => /\/(?:iphone|ipodtouch|symbian|moto-g-play|redmi-1s|blackberry|meizu)/.test(file))).toEqual([]);
   });
 
-  test("runs every iOS test in the CI unit stage", () => {
-    const declared = unitTestFiles();
-    const iosTests = readdirSync(join(repository, "tests"))
-      .filter((file) => /^ios-.*\.test\.ts$/.test(file))
-      .map((file) => `tests/${file}`)
-      .sort();
 
-    expect(iosTests).not.toHaveLength(0);
-    expect(iosTests.filter((file) => !declared.has(file))).toEqual([]);
-  });
 
-  test("runs every Meizu M8 test in the CI unit stage", () => {
-    const declared = unitTestFiles();
-    const meizuM8Tests = readdirSync(join(repository, "tests"))
-      .filter((file) => /^meizu-m8-.*\.test\.ts$/.test(file))
-      .map((file) => `tests/${file}`)
-      .sort();
 
-    expect(meizuM8Tests).not.toHaveLength(0);
-    expect(meizuM8Tests.filter((file) => !declared.has(file))).toEqual([]);
-  });
 
-  test("runs every BlackBerry Classic test in the CI unit stage", () => {
-    const declared = unitTestFiles();
-    const blackberryTests = readdirSync(join(repository, "tests"))
-      .filter((file) => /^blackberry-.*\.test\.ts$/.test(file))
-      .map((file) => `tests/${file}`)
-      .sort();
 
-    expect(blackberryTests).not.toHaveLength(0);
-    expect(blackberryTests.filter((file) => !declared.has(file))).toEqual([]);
-  });
-
-  test("runs every iPhone 4S test in the CI unit stage", () => {
-    const declared = unitTestFiles();
-    const iphone4sTests = readdirSync(join(repository, "tests"))
-      .filter((file) => /^iphone4s-.*\.test\.ts$/.test(file))
-      .map((file) => `tests/${file}`)
-      .sort();
-
-    expect(iphone4sTests).not.toHaveLength(0);
-    expect(iphone4sTests.filter((file) => !declared.has(file))).toEqual([]);
-  });
-
-  test("runs every iPod touch test in the CI unit stage", () => {
-    const declared = unitTestFiles();
-    const ipodtouchTests = readdirSync(join(repository, "tests"))
-      .filter((file) => /^ipodtouch-.*\.test\.ts$/.test(file))
-      .map((file) => `tests/${file}`)
-      .sort();
-
-    expect(ipodtouchTests).not.toHaveLength(0);
-    expect(ipodtouchTests.filter((file) => !declared.has(file))).toEqual([]);
-  });
-
-  test("runs every iPod touch 4 test in the CI unit stage", () => {
-    const declared = unitTestFiles();
-    const ipodtouch4Tests = readdirSync(join(repository, "tests"))
-      .filter((file) => /^ipodtouch4-.*\.test\.ts$/.test(file))
-      .map((file) => `tests/${file}`)
-      .sort();
-
-    expect(ipodtouch4Tests).not.toHaveLength(0);
-    expect(ipodtouch4Tests.filter((file) => !declared.has(file))).toEqual([]);
-  });
 });

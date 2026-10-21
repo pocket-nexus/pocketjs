@@ -1,9 +1,0 @@
-{
-  "name": "@nativescript/pocketjs",
-  "version": "0.3.0",
-  "private": true,
-  "main": "index.js",
-  "types": "index.d.ts",
-  "nativescript": { "platforms": { "ios": "9.0.0" } },
-  "peerDependencies": { "@nativescript/core": ">=9.0.0", "@pocketjs/framework": "*" }
-}

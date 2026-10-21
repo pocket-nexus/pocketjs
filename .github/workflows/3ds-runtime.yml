@@ -17,4 +17,4 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun test tests/pica-kernel.test.ts tests/pica-driver.test.ts tests/3ds-profile.test.ts tests/3ds-runtime-state.test.ts tests/3ds-runtime-wire.test.ts tests/3ds-soc.test.ts tests/native-source.test.ts tests/blackberry-classic.test.ts tests/media.test.ts tests/media-service.test.ts tests/service-client.test.ts tests/repack-3ds.test.ts tests/repack-shared.test.ts
+      - run: bun test tests/pica-kernel.test.ts tests/pica-driver.test.ts tests/3ds-profile.test.ts tests/3ds-runtime-state.test.ts tests/3ds-runtime-wire.test.ts tests/3ds-soc.test.ts tests/native-source.test.ts tests/media.test.ts tests/media-service.test.ts tests/service-client.test.ts tests/repack-3ds.test.ts tests/repack-shared.test.ts

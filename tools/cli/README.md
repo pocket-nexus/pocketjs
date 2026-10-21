@@ -28,7 +28,7 @@ Outside a framework checkout this creates a standalone project with
 `pocket.json`, `main.tsx`, `app.tsx`, `package.json`, `tsconfig.json`, a README
 and `.gitignore`. Inside a checkout it creates the application files under
 `apps/<name>/`. `--framework` accepts `solid`, `vue-vapor` and `octane`.
-Application scaffold targets are `psp`, `vita`, `pocketbook`, `web-app`,
+Application scaffold targets are `psp`, `vita`, `web-app`,
 `macos-app` and `linux-app`.
 
 **`compile` produces a version 2 `.pocket` application package.** It validates
@@ -209,10 +209,6 @@ pocket psplink
 pocket devtools hero
 pocket tape replay …
 pocket play vita hero
-pocket symbian doctor --device
-pocket symbian build probe
-pocket ios doctor
-pocket ios play nsengine
 ```
 
 Arguments go to the corresponding `tools/<command>.ts` script. See the

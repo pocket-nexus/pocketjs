@@ -41,7 +41,7 @@ A desktop runtime can adapt `ureq`, an ESP runtime can adapt
 libraries become part of the guest contract or the transport-neutral core.
 
 A product runtime outside this repository keeps its adapter in that runtime's
-repository. An adapter belongs under `hosts/<host>/` here only when PocketJS
+repository. An adapter belongs under `platforms/<os>/` here only when PocketJS
 itself owns and tests that host. The framework SDK, canonical spec, reference
 core, and deterministic sim stay upstream because every host must agree on
 them.

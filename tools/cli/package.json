@@ -28,7 +28,6 @@
     "psp",
     "vita",
     "esp-idf",
-    "symbian",
     "bun",
     "cli",
     "toolchain"

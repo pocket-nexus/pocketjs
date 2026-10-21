@@ -13,7 +13,7 @@ const runtime = [
 ];
 const cabi = [
   ...runtime, ...crate("engine/runtime-cabi"), ...crate("programs/native/cabi"),
-  "programs/native/cabi/include",
+  "programs/native/cabi/include", "platforms/posix/svc-wire/include",
   "programs/native/quickjs", "engine/guest-quickjs/src", "engine/guest-quickjs/include",
   ...["pocket-gles", "pocket-gles1", "pocket-gles2"].flatMap(name => crate(`devices/gles/${name}`)),
 ];

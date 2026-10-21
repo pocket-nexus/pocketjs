@@ -3,7 +3,7 @@ import { resizeBilinear } from "./image-resize.ts";
 
 // The launcher artifact chain (docs/LAUNCHER.md "Build pipeline").
 //
-//   bun tools/launcher.ts scan [--target psp|vita|symbian] registry only
+//   bun tools/launcher.ts scan [--target psp|vita] registry only
 //   bun tools/launcher.ts covers [--target ...]       + render target-neutral covers
 //   bun tools/launcher.ts build [--target ...]        + multi-app console package
 //
@@ -26,28 +26,9 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { encodePNG } from "../tests/png.ts";
 import { SHOT_W, SHOT_H, downscaleShot } from "../programs/sim/shot.ts";
-import {
-  SYMBIAN_E7_DEFAULT_VIEWPORT,
-  SYMBIAN_E7_DEV_CONTRACTS,
-  SYMBIAN_E7_DEV_TARGET_ID,
-  SYMBIAN_E7_MAX_VIEWPORT,
-  SYMBIAN_E7_MIN_VIEWPORT,
-} from "./symbian-profile.ts";
-import {
-  buildApp as buildSymbianApp,
-  withSymbianBuildTransaction,
-  type SymbianBuildTransaction,
-} from "./symbian.ts";
-import {
-  SYMBIAN_TOOLCHAIN,
-  withSymbianGuestBuildLock,
-} from "./build/toolchains/symbian.ts";
 import { withArtifactLock } from "./targets/lock.ts";
-import { prepareApplication } from "./build/inputs.ts";
-import { resolveProfile } from "./profile-resolver.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const APPS_DIR = join(ROOT, "apps");
@@ -121,7 +102,7 @@ function replaceGeneratedSources(
   }
 }
 
-export type LauncherTarget = "psp" | "vita" | typeof SYMBIAN_E7_DEV_TARGET_ID;
+export type LauncherTarget = "psp" | "vita";
 
 interface LauncherPaths {
   /** Target-flavored JS/pak output. PSP stays in dist/ for sim/site compatibility. */
@@ -132,8 +113,6 @@ interface LauncherPaths {
   registryTsv: string;
   /** Build-private entry directory for generated registry data and assets. */
   isolatedSource: string;
-  catalogIndex?: string;
-  catalogBlob?: string;
 }
 
 function launcherPaths(target: LauncherTarget): LauncherPaths {
@@ -146,20 +125,14 @@ function launcherPaths(target: LauncherTarget): LauncherPaths {
       isolatedSource: join(ROOT, "dist/launcher/psp/.launcher-source"),
     };
   }
-  const targetDirectory = target === "vita" ? "vita" : "symbian";
-  const output = join(ROOT, "dist/launcher", targetDirectory);
+  const output = join(ROOT, "dist/launcher/vita");
   return {
     output,
     packages: join(output, "packages"),
     registryJson: join(output, "launcher-registry.json"),
     registryTsv: join(output, "launcher-registry.tsv"),
     isolatedSource: join(output, ".launcher-source"),
-    ...(target === SYMBIAN_E7_DEV_TARGET_ID
-      ? {
-          catalogIndex: join(output, "catalog.tsv"),
-          catalogBlob: join(output, "catalog.bin"),
-        }
-      : {}),
+
   };
 }
 
@@ -194,8 +167,7 @@ export interface LauncherRegistryEntry {
   /** Manifest path, repo-root-relative (programs/psp/build.rs never reads it —
    *  it is for humans and for `covers` to rebuild a stale dist). */
   manifest: string;
-  /** Build root for an explicitly included external manifest. Omitted for
-   * repository-owned apps so committed/default registries stay portable. */
+  /** Build root for an isolated launcher source. Omitted for repository apps. */
   projectRoot?: string;
 }
 
@@ -208,7 +180,7 @@ class LauncherUsageError extends Error {}
 function usage(message?: string): never {
   if (message) console.error(`launcher: ${message}`);
   console.error(
-    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita|symbian] [--exclude <output>]... [--include-manifest <external/pocket.json>]... [--force] [-- backend args]",
+    "usage: bun tools/launcher.ts <scan|covers|pack|build> [--target psp|vita] [--exclude <output>]... [--force] [-- backend args]",
   );
   throw new LauncherUsageError(message);
 }
@@ -233,7 +205,7 @@ function moduleSpecifier(from: string, to: string): string {
 }
 
 function launcherManifestForTarget(
-  target: LauncherTarget,
+  _target: LauncherTarget,
   entry?: string,
 ): unknown {
   const manifest = JSON.parse(readFileSync(LAUNCHER_MANIFEST, "utf8")) as {
@@ -248,39 +220,7 @@ function launcherManifestForTarget(
     };
   };
   if (entry) manifest.app.entry = entry;
-  if (target === SYMBIAN_E7_DEV_TARGET_ID) {
-    manifest.engine.capabilities.enhances = [
-      ...(manifest.engine.capabilities.enhances ?? []),
-      "display.viewport.live",
-      "input.touch",
-    ];
-    manifest.app.viewport.dynamic = {
-      default: SYMBIAN_E7_DEFAULT_VIEWPORT,
-      min: SYMBIAN_E7_MIN_VIEWPORT,
-      max: SYMBIAN_E7_MAX_VIEWPORT,
-    };
-  }
   return manifest;
-}
-
-function launcherBuildEntry(
-  target: LauncherTarget,
-  paths: LauncherPaths,
-): Pick<LauncherRegistryEntry, "manifest" | "projectRoot"> {
-  if (target !== SYMBIAN_E7_DEV_TARGET_ID) {
-    return { manifest: relative(ROOT, LAUNCHER_MANIFEST) };
-  }
-  const generatedManifest = join(
-    paths.output,
-    ".manifests",
-    "launcher.symbian.pocket.json",
-  );
-  mkdirSync(dirname(generatedManifest), { recursive: true });
-  writeFileSync(
-    generatedManifest,
-    JSON.stringify(launcherManifestForTarget(target), null, 2) + "\n",
-  );
-  return { manifest: generatedManifest, projectRoot: ROOT };
 }
 
 /**
@@ -376,23 +316,6 @@ function copyIsolatedPspMetadata(source: string): void {
   }
 }
 
-function inferExternalProjectRoot(
-  absoluteManifest: string,
-  entry: string,
-): string {
-  let candidate = dirname(absoluteManifest);
-  while (true) {
-    if (existsSync(resolve(candidate, entry))) return candidate;
-    const parent = dirname(candidate);
-    if (parent === candidate) {
-      throw new Error(
-        `launcher: cannot find external entry ${entry} above ${absoluteManifest}`,
-      );
-    }
-    candidate = parent;
-  }
-}
-
 function resolveForTarget(
   manifest: unknown,
   target: LauncherTarget,
@@ -400,9 +323,6 @@ function resolveForTarget(
   return validateAndResolveBuildPlan(
     manifest,
     { target },
-    target === SYMBIAN_E7_DEV_TARGET_ID
-      ? SYMBIAN_E7_DEV_CONTRACTS
-      : undefined,
   );
 }
 
@@ -460,105 +380,9 @@ export function scanRegistry(
   return scanRegistryForTarget(exclude, target, true);
 }
 
-export function includeExternalManifests(
-  registry: LauncherRegistry,
-  manifests: readonly string[],
-  exclude: ReadonlySet<string>,
-  target: LauncherTarget,
-  launcher?: Pick<LauncherRegistryEntry, "manifest" | "projectRoot">,
-): LauncherRegistry {
-  const apps = [...registry.apps];
-  const seen = new Map(apps.map((app) => [app.output, app.manifest]));
-  const seenIds = new Map(apps.map((app) => [app.id, app.manifest]));
-  const launcherManifest = launcher
-    ? JSON.parse(readFileSync(manifestPath(launcher), "utf8"))
-    : launcherManifestForTarget(target);
-  const launcherResolution = resolveForTarget(launcherManifest, target);
-  if (!launcherResolution.ok) {
-    throw new Error(`launcher: launcher manifest does not admit ${target}`);
-  }
-  seen.set(
-    launcherResolution.plan.app.output,
-    relative(ROOT, LAUNCHER_MANIFEST),
-  );
-  seenIds.set(
-    launcherResolution.plan.app.id,
-    relative(ROOT, LAUNCHER_MANIFEST),
-  );
-  for (const requested of manifests) {
-    const absoluteManifest = resolve(requested);
-    if (!existsSync(absoluteManifest)) {
-      throw new Error(`launcher: external manifest is missing: ${absoluteManifest}`);
-    }
-    const manifest: unknown = JSON.parse(readFileSync(absoluteManifest, "utf8"));
-    const resolution = resolveForTarget(manifest, target);
-    if (!resolution.ok) {
-      const codes = resolution.diagnostics.map((diagnostic) => diagnostic.code).join(", ");
-      throw new Error(
-        `launcher: external manifest ${absoluteManifest} is not ${target}-admissible (${codes})`,
-      );
-    }
-    const { output, id, title } = resolution.plan.app;
-    if (exclude.has(output)) continue;
-    const previous = seen.get(output);
-    if (previous) {
-      throw new Error(
-        `launcher: external output ${output} duplicates ${previous}`,
-      );
-    }
-    const previousId = seenIds.get(id);
-    if (previousId) {
-      throw new Error(
-        `launcher: external id ${id} duplicates ${previousId}`,
-      );
-    }
-    seen.set(output, absoluteManifest);
-    seenIds.set(id, absoluteManifest);
-    apps.push({
-      output,
-      id,
-      title,
-      manifest: absoluteManifest,
-      projectRoot: inferExternalProjectRoot(
-        absoluteManifest,
-        resolution.plan.app.entry,
-      ),
-    });
-  }
-  apps.sort((a, b) =>
-    a.title < b.title
-      ? -1
-      : a.title > b.title
-        ? 1
-        : a.output < b.output
-          ? -1
-          : 1,
-  );
-  return { apps };
-}
-
-function mergeDisplayRegistry(
-  base: LauncherRegistry,
-  additions: LauncherRegistry,
-): LauncherRegistry {
-  const apps = new Map(base.apps.map((app) => [app.output, app]));
-  for (const app of additions.apps) apps.set(app.output, app);
-  return {
-    apps: [...apps.values()].sort((a, b) =>
-      a.title < b.title
-        ? -1
-        : a.title > b.title
-          ? 1
-          : a.output < b.output
-            ? -1
-            : 1,
-    ),
-  };
-}
-
 /**
  * Display metadata is target-neutral and committed in one generated module.
- * Keep it as the PSP/Vita/Symbian union so running any target build can never
+ * Keep it as the PSP/Vita union so running any target build can never
  * leave the common source tree in a target-only state. Each native host still
  * reports the target-admitted subset through appTable(), and the launcher
  * intersects it.
@@ -567,7 +391,7 @@ export function scanDisplayRegistry(
   exclude: ReadonlySet<string>,
 ): LauncherRegistry {
   const byOutput = new Map<string, LauncherRegistryEntry>();
-  for (const target of ["psp", "vita", SYMBIAN_E7_DEV_TARGET_ID] as const) {
+  for (const target of ["psp", "vita"] as const) {
     for (const app of scanRegistryForTarget(exclude, target, false).apps) {
       byOutput.set(app.output, app);
     }
@@ -590,7 +414,7 @@ export function launcherGeneratedSources(
   const lines = [
     "// GENERATED by tools/launcher.ts scan — do not edit by hand; COMMIT",
     "// the regenerated file (tests/launcher-sim.test.ts asserts freshness).",
-    "// The display-side PSP/Vita/Symbian union: the launcher imports it for",
+    "// The display-side PSP/Vita union: the launcher imports it for",
     "// titles + cover asset keys; each host's target-specific appTable",
     "// (spec op 39) stays the runtime truth for what is embedded.",
     "",
@@ -675,11 +499,11 @@ function writeRegistry(
 
 export function needsLauncherCompile(
   outputName: string,
-  target: LauncherTarget,
+  _target: LauncherTarget,
   outputDirectory: string,
   force: boolean,
 ): boolean {
-  if (force || target === SYMBIAN_E7_DEV_TARGET_ID) return true;
+  if (force) return true;
   return !existsSync(join(outputDirectory, `${outputName}.js`)) ||
     !existsSync(join(outputDirectory, `${outputName}.pak`));
 }
@@ -689,29 +513,27 @@ async function compileApp(
   target: LauncherTarget,
   output: string,
 ): Promise<void> {
-  await withSymbianGuestBuildLock(async () => {
-    const absoluteManifest = manifestPath(app);
-    const absoluteProjectRoot = projectRoot(app);
-    const p = Bun.spawnSync(
-      [
-        "bun",
-        "tools/pocket.ts",
-        "compile",
-        "--target",
-        target,
-        "--manifest",
-        absoluteManifest,
-        "--project-root",
-        absoluteProjectRoot,
-        "--outdir",
-        output,
-      ],
-      { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
-    );
-    if (!p.success) {
-      throw new Error(`launcher: compile failed for ${absoluteManifest}`);
-    }
-  });
+  const absoluteManifest = manifestPath(app);
+  const absoluteProjectRoot = projectRoot(app);
+  const p = Bun.spawnSync(
+    [
+      "bun",
+      "tools/pocket.ts",
+      "compile",
+      "--target",
+      target,
+      "--manifest",
+      absoluteManifest,
+      "--project-root",
+      absoluteProjectRoot,
+      "--outdir",
+      output,
+    ],
+    { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
+  );
+  if (!p.success) {
+    throw new Error(`launcher: compile failed for ${absoluteManifest}`);
+  }
 }
 
 /** Deterministic stand-in for apps the sim cannot boot (today: vue-vapor
@@ -859,8 +681,7 @@ async function renderCovers(
       // The deterministic sim is the PSP-flavored 480x272 oracle. Covers are
       // distribution metadata, not a target raster variant; Vita consumes the
       // same 256x128 PNG from its own density-2 launcher pak. Prefer PSP, then
-      // Vita; a Symbian-only dynamic app uses its density-1 bundle through the
-      // injected sim host without making the common registry target-specific.
+      // Vita, using the target admitted by this display registry.
       const manifest = JSON.parse(
         readFileSync(manifestPath(app), "utf8"),
       );
@@ -869,9 +690,7 @@ async function renderCovers(
         { target: "psp" },
       ).ok
         ? "psp"
-        : validateAndResolveBuildPlan(manifest, { target: "vita" }).ok
-          ? "vita"
-          : SYMBIAN_E7_DEV_TARGET_ID;
+        : "vita";
       await compileApp(app, coverTarget, join(ROOT, "dist"));
     }
     let shot: Uint8Array;
@@ -991,179 +810,6 @@ async function packPackages(
   );
 }
 
-export interface SymbianCatalogEntry {
-  plan: ResolvedBuildPlan;
-  packageBytes: Uint8Array;
-  liveViewport: boolean;
-}
-
-export interface EncodedSymbianCatalog {
-  index: Uint8Array;
-  blob: Uint8Array;
-}
-
-const alignCatalogOffset = (value: number) => Math.ceil(value / 16) * 16;
-
-function assertCatalogField(value: string, label: string): void {
-  if (!value || /[\t\r\n\0]/.test(value)) {
-    throw new Error(`launcher: unsafe ${label} in Symbian catalog`);
-  }
-}
-
-/** Concatenate target-thinned `.pocket` files without rewriting them.
- * `catalog.tsv` is deliberately tiny enough for the Qt 4 host to parse
- * without bringing a JSON implementation into the SIS. */
-export function encodeSymbianCatalog(
-  entries: readonly SymbianCatalogEntry[],
-): EncodedSymbianCatalog {
-  if (
-    entries.length < 2 ||
-    entries[0]?.plan.app.id !== "dev.pocket-nexus.launcher"
-  ) {
-    throw new Error(
-      "launcher: Symbian catalog must start with the launcher and contain an app",
-    );
-  }
-
-  let length = 0;
-  const offsets: number[] = [];
-  for (const entry of entries) {
-    length = alignCatalogOffset(length);
-    if (entry.packageBytes.byteLength > 0x7fffffff - length) {
-      throw new Error("launcher: Symbian catalog exceeds the 2 GiB host limit");
-    }
-    offsets.push(length);
-    length += entry.packageBytes.byteLength;
-  }
-
-  const blob = new Uint8Array(length);
-  const rows: string[] = [];
-  entries.forEach((entry, index) => {
-    const { app, viewport } = entry.plan;
-    assertCatalogField(app.output, "output");
-    assertCatalogField(app.id, "app id");
-    assertCatalogField(app.title, "title");
-    blob.set(entry.packageBytes, offsets[index]!);
-    rows.push(
-      [
-        app.output,
-        app.id,
-        app.title,
-        offsets[index],
-        entry.packageBytes.byteLength,
-        viewport.logical[0],
-        viewport.logical[1],
-        entry.liveViewport ? "live" : "fixed",
-      ].join("\t"),
-    );
-  });
-  return {
-    index: new TextEncoder().encode(rows.join("\n") + "\n"),
-    blob,
-  };
-}
-
-async function writeSymbianCatalog(
-  registry: LauncherRegistry,
-  paths: LauncherPaths,
-  launcher: Pick<LauncherRegistryEntry, "manifest" | "projectRoot">,
-): Promise<void> {
-  if (!paths.catalogIndex || !paths.catalogBlob) {
-    throw new Error("launcher: Symbian catalog paths are missing");
-  }
-  const {
-    decodeIdentity,
-    decodePocketPackage,
-    findVariant,
-    POCKET_SECTION,
-  } =
-    await import("../contracts/spec/pocket-package.ts");
-  const manifests = [
-    launcher,
-    ...registry.apps,
-  ];
-  const entries: SymbianCatalogEntry[] = [];
-  for (const app of manifests) {
-    const absoluteManifest = manifestPath(app);
-    const manifest: unknown = JSON.parse(
-      readFileSync(absoluteManifest, "utf8"),
-    );
-    const resolution = resolveForTarget(
-      manifest,
-      SYMBIAN_E7_DEV_TARGET_ID,
-    );
-    if (!resolution.ok) {
-      throw new Error(
-        `launcher: ${absoluteManifest} no longer admits ${SYMBIAN_E7_DEV_TARGET_ID}`,
-      );
-    }
-    const packagePath = join(
-      paths.packages,
-      `${resolution.plan.app.output}.pocket`,
-    );
-    const packageBytes = new Uint8Array(readFileSync(packagePath));
-    const decoded = decodePocketPackage(packageBytes);
-    const variant = findVariant(decoded, SYMBIAN_E7_DEV_TARGET_ID);
-    if (!variant || variant.hostAbi !== resolution.plan.target.hostAbi || variant.profileHash !== resolution.plan.profileHash) {
-      throw new Error(
-        `launcher: ${packagePath} does not match its Symbian build plan`,
-      );
-    }
-    const identitySection = variant.sections.find(
-      (section) => section.kind === POCKET_SECTION.identity,
-    );
-    if (!identitySection) {
-      throw new Error(`launcher: ${packagePath} has no identity section`);
-    }
-    const identity = decodeIdentity(identitySection.bytes);
-    if (
-      identity.output !== resolution.plan.app.output ||
-      identity.id !== resolution.plan.app.id ||
-      identity.title !== resolution.plan.app.title
-    ) {
-      throw new Error(
-        `launcher: ${packagePath} identity does not match its Symbian plan`,
-      );
-    }
-    entries.push({
-      plan: resolution.plan,
-      packageBytes,
-      liveViewport:
-        resolution.plan.features["display.viewport.live"] === true,
-    });
-  }
-  const catalog = encodeSymbianCatalog(entries);
-  writeFileSync(paths.catalogIndex, catalog.index);
-  writeFileSync(paths.catalogBlob, catalog.blob);
-  console.log(
-    `launcher: ${entries.length} package(s) -> ${relative(ROOT, paths.catalogBlob)}`,
-  );
-}
-
-function symbianBackendOptions(args: readonly string[]): {
-  sisVersion: string;
-  uid?: string;
-} {
-  let sisVersion = SYMBIAN_TOOLCHAIN.runtime.sisVersion;
-  let uid: string | undefined;
-  for (let index = 0; index < args.length; ++index) {
-    const argument = args[index]!;
-    if (argument === "--sis-version" || argument === "--uid") {
-      const value = args[++index];
-      if (!value) usage(`${argument} requires a value`);
-      if (argument === "--sis-version") sisVersion = value;
-      else uid = value;
-    } else if (argument.startsWith("--sis-version=")) {
-      sisVersion = argument.slice("--sis-version=".length);
-    } else if (argument.startsWith("--uid=")) {
-      uid = argument.slice("--uid=".length);
-    } else {
-      usage(`unknown Symbian backend option ${argument}`);
-    }
-  }
-  return { sisVersion, uid };
-}
-
 async function main(): Promise<void> {
   const argv = Bun.argv.slice(2);
   const command = argv.shift();
@@ -1175,7 +821,6 @@ async function main(): Promise<void> {
   )
     usage();
   const exclude = new Set<string>();
-  const externalManifests: string[] = [];
   let force = false;
   let target: LauncherTarget = "psp";
   const separator = argv.indexOf("--");
@@ -1187,34 +832,22 @@ async function main(): Promise<void> {
       const value = argv.shift();
       if (!value) usage("--exclude requires an output name");
       exclude.add(value);
-    } else if (arg === "--include-manifest") {
-      const value = argv.shift();
-      if (!value) usage("--include-manifest requires a pocket.json path");
-      externalManifests.push(value);
-    } else if (arg.startsWith("--include-manifest=")) {
-      const value = arg.slice("--include-manifest=".length);
-      if (!value) usage("--include-manifest requires a pocket.json path");
-      externalManifests.push(value);
     } else if (arg === "--target") {
       const value = argv.shift();
       if (
         value !== "psp" &&
-        value !== "vita" &&
-        value !== "symbian" &&
-        value !== SYMBIAN_E7_DEV_TARGET_ID
+        value !== "vita"
       )
-        usage("--target must be psp, vita, or symbian");
-      target = value === "symbian" ? SYMBIAN_E7_DEV_TARGET_ID : value;
+        usage("--target must be psp or vita");
+      target = value;
     } else if (arg.startsWith("--target=")) {
       const value = arg.slice("--target=".length);
       if (
         value !== "psp" &&
-        value !== "vita" &&
-        value !== "symbian" &&
-        value !== SYMBIAN_E7_DEV_TARGET_ID
+        value !== "vita"
       )
-        usage("--target must be psp, vita, or symbian");
-      target = value === "symbian" ? SYMBIAN_E7_DEV_TARGET_ID : value;
+        usage("--target must be psp or vita");
+      target = value;
     } else if (arg === "--force") {
       force = true;
     } else {
@@ -1223,43 +856,19 @@ async function main(): Promise<void> {
   }
 
   const paths = launcherPaths(target);
-  if (
-    externalManifests.length > 0 &&
-    target !== SYMBIAN_E7_DEV_TARGET_ID
-  ) {
-    usage("--include-manifest is currently limited to the Symbian launcher");
-  }
-  // Validate target-specific backend arguments before launcherBuildEntry() or
-  // writeRegistry() can emit any build metadata.
-  const symbianBackend =
-    target === SYMBIAN_E7_DEV_TARGET_ID
-      ? symbianBackendOptions(backendArgs)
-      : undefined;
-  const execute = async (
-    symbianTransaction?: SymbianBuildTransaction,
-  ): Promise<void> => {
-    let launcher = launcherBuildEntry(target, paths);
+  const execute = async (): Promise<void> => {
+    let launcher: Pick<LauncherRegistryEntry, "manifest" | "projectRoot"> = { manifest: relative(ROOT, LAUNCHER_MANIFEST) };
     console.log(
       `launcher: scanning apps/*/pocket.json against target ${target}`,
     );
-    const registry = includeExternalManifests(
-      scanRegistry(exclude, target),
-      externalManifests,
-      exclude,
-      target,
-      launcher,
-    );
-    const displayRegistry = mergeDisplayRegistry(
-      scanDisplayRegistry(exclude),
-      registry,
-    );
-    // Only a plain scan updates the committed display union. External scans
-    // and every build-like command write dist metadata only.
+    const registry = scanRegistry(exclude, target);
+    const displayRegistry = scanDisplayRegistry(exclude);
+    // Only scan publishes the common generated sources.
     writeRegistry(
       registry,
       displayRegistry,
       paths,
-      command === "scan" && externalManifests.length === 0,
+      command === "scan",
     );
     console.log(
       `launcher: ${registry.apps.length} ${target} app(s) admitted -> ${relative(ROOT, paths.registryJson)}`,
@@ -1289,22 +898,16 @@ async function main(): Promise<void> {
         await compileApp(app, target, paths.output);
       }
     }
-    // PSP/Vita retain the historical display union and let appTable() filter
-    // it at runtime. Symbian bakes only target-admitted apps to keep E7 texture
-    // memory bounded.
+    // appTable() filters the common display registry to embedded packages.
     launcher = prepareIsolatedLauncherSource(
       target,
-      target === SYMBIAN_E7_DEV_TARGET_ID ? registry : displayRegistry,
+      displayRegistry,
       paths.isolatedSource,
     );
     console.log(`launcher: compiling the ${target} launcher app`);
     await compileApp(launcher, target, paths.output);
     console.log(`launcher: packing ${target} .pocket files`);
     await packPackages(registry, target, paths, launcher);
-    if (target === SYMBIAN_E7_DEV_TARGET_ID) {
-      console.log("launcher: assembling the Symbian package catalog");
-      await writeSymbianCatalog(registry, paths, launcher);
-    }
     if (command === "pack") return;
 
     if (target === "psp") {
@@ -1318,30 +921,8 @@ async function main(): Promise<void> {
     console.log(`launcher: building the multi-app ${
       target === "psp"
         ? "EBOOT"
-        : target === "vita"
-          ? "VPK"
-          : "SIS"
+        : "VPK"
     }`);
-    if (target === SYMBIAN_E7_DEV_TARGET_ID) {
-      if (!symbianBackend) {
-        throw new Error("launcher: missing validated Symbian backend options");
-      }
-      const sis = await buildSymbianApp(
-        manifestPath(launcher),
-        symbianBackend.sisVersion,
-        {
-          projectRoot: ROOT,
-          outputRoot: paths.output,
-          uid: symbianBackend.uid,
-          catalogIndex: paths.catalogIndex!,
-          catalogBlob: paths.catalogBlob!,
-          transaction: symbianTransaction,
-          application: prepareApplication(await resolveProfile({ from: ROOT, target }), launcherPocket, join(paths.output, ".native-input")),
-        },
-      );
-      console.log(`PocketJS Symbian launcher: ${sis}`);
-      return;
-    }
     const targetBackendArgs =
       target === "vita"
         ? [
@@ -1370,15 +951,7 @@ async function main(): Promise<void> {
       throw new Error(`launcher: ${target} backend build failed`);
   };
 
-  await withLauncherSourceLock(async () => {
-    if (target === SYMBIAN_E7_DEV_TARGET_ID) {
-      await withSymbianBuildTransaction(paths.output, async (transaction) => {
-        await execute(transaction);
-      });
-    } else {
-      await execute();
-    }
-  });
+  await withLauncherSourceLock(execute);
 }
 
 if (import.meta.main) {

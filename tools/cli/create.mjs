@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 
 export const FRAMEWORKS = ["solid", "vue-vapor", "octane"];
-export const TARGETS = ["psp", "vita", "pocketbook", "web-app", "macos-app", "linux-app", "esp-idf"];
+export const TARGETS = ["psp", "vita", "web-app", "macos-app", "linux-app", "esp-idf"];
 
 // Runtime dependencies a standalone project declares next to the framework.
 // tests/cli.test.ts keeps these equal to the framework package.json.
@@ -22,7 +22,7 @@ export const FRAMEWORK_DEPENDENCIES = {
 };
 
 export const CREATE_USAGE =
-  "usage: pocket create <kebab-case-name> [--target psp|vita|pocketbook|web-app|macos-app|linux-app|esp-idf] " +
+  "usage: pocket create <kebab-case-name> [--target psp|vita|web-app|macos-app|linux-app|esp-idf] " +
   "[--framework solid|vue-vapor|octane]";
 
 export class CreateUsageError extends Error {}

@@ -11,7 +11,6 @@ import { targetProfile } from "../../profiles/contract.ts";
 export const POCKET_TARGETS = defineTargetRegistry({
   psp: targetProfile(POCKET_PROFILES.psp),
   vita: targetProfile(POCKET_PROFILES.vita),
-  pocketbook: targetProfile(POCKET_PROFILES.pocketbook),
   "macos-widget": targetProfile(POCKET_PROFILES["macos-widget"]),
   "macos-app": targetProfile(POCKET_PROFILES["macos-app"]),
   "linux-app": targetProfile(POCKET_PROFILES["linux-app"]),

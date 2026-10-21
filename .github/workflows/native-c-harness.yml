@@ -12,10 +12,8 @@ on:
       - "tests/ui-bindings.test.ts"
       - "tests/guest-web-bindings.test.ts"
       - "tests/embedded-package.test.ts"
-      - "tests/nativescript-bridge.test.ts"
       - "engine/guest-web/**"
       - "engine/ios/**"
-      - "hosts/ios-nativescript/**"
       - "tools/guest-web-bindings.ts"
       - "tools/templates/**"
       - "tests/runtime-cabi.test.ts"
@@ -36,27 +34,18 @@ on:
       - "tools/cli/**"
       - "tests/fixtures/runtime-cabi/**"
       - "engine/runtime/include/pocket/compat/contact_latch.h"
-      - "hosts/ios-legacy/**"
-      - "hosts/android/**"
+      - "platforms/android/**"
+      - "tests/android-platform.test.ts"
+      - "tests/fixtures/android-*.c"
+      - "engine/runtime/compat/**"
       - "tests/contact-latch.test.ts"
       - "platforms/esp-idf/pocket_runtime/**"
       - "tests/esp-idf/host/*"
       - "tests/idf-package-corpus.test.ts"
-      - "tests/ipodtouch4-installation.test.ts"
-      - "tools/ipodtouch4-installation.ts"
-      - "tools/ipodtouch4-resources.ts"
-      - "tests/ipodtouch4-resources.test.ts"
-      - "tools/ipodtouch4.ts"
-      - "tests/ipodtouch4-profile.test.ts"
       - "tools/repack.ts"
-      - "tools/repack/**"
-      - "tools/runtime/**"
-      - "tests/repack-ipod.test.ts"
       - "tests/fixtures/repack-ipod/**"
-      - "hosts/nokia-e7/runtime/pocketjs_symbian_extension.h"
       - "tests/clear-text.test.ts"
       - "tests/clear-ime-loading.test.ts"
-      - "apps/**"
       - "assets/**"
       - "programs/web/wasm/**"
       - "platforms/web/wasm-ops.js"
@@ -128,10 +117,8 @@ on:
       - "tests/ui-bindings.test.ts"
       - "tests/guest-web-bindings.test.ts"
       - "tests/embedded-package.test.ts"
-      - "tests/nativescript-bridge.test.ts"
       - "engine/guest-web/**"
       - "engine/ios/**"
-      - "hosts/ios-nativescript/**"
       - "tools/guest-web-bindings.ts"
       - "tools/templates/**"
       - "tests/runtime-cabi.test.ts"
@@ -152,27 +139,18 @@ on:
       - "tools/cli/**"
       - "tests/fixtures/runtime-cabi/**"
       - "engine/runtime/include/pocket/compat/contact_latch.h"
-      - "hosts/ios-legacy/**"
-      - "hosts/android/**"
+      - "platforms/android/**"
+      - "tests/android-platform.test.ts"
+      - "tests/fixtures/android-*.c"
+      - "engine/runtime/compat/**"
       - "tests/contact-latch.test.ts"
       - "platforms/esp-idf/pocket_runtime/**"
       - "tests/esp-idf/host/*"
       - "tests/idf-package-corpus.test.ts"
-      - "tests/ipodtouch4-installation.test.ts"
-      - "tools/ipodtouch4-installation.ts"
-      - "tools/ipodtouch4-resources.ts"
-      - "tests/ipodtouch4-resources.test.ts"
-      - "tools/ipodtouch4.ts"
-      - "tests/ipodtouch4-profile.test.ts"
       - "tools/repack.ts"
-      - "tools/repack/**"
-      - "tools/runtime/**"
-      - "tests/repack-ipod.test.ts"
       - "tests/fixtures/repack-ipod/**"
-      - "hosts/nokia-e7/runtime/pocketjs_symbian_extension.h"
       - "tests/clear-text.test.ts"
       - "tests/clear-ime-loading.test.ts"
-      - "apps/**"
       - "assets/**"
       - "programs/web/wasm/**"
       - "platforms/web/wasm-ops.js"
@@ -266,9 +244,20 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
-      - name: Native contacts, package corpus and device installation contracts
-        run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts tests/ipodtouch4-profile.test.ts tests/ipodtouch4-resources.test.ts tests/repack-ipod.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Native contacts, Android JNI and package corpus contracts
+        run: |
+          export POCKET_TEST_JNI_INCLUDE="$JAVA_HOME/include"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export POCKET_TEST_JNI_PLATFORM_INCLUDE="$JAVA_HOME/include/darwin"
+          else
+            export POCKET_TEST_JNI_PLATFORM_INCLUDE="$JAVA_HOME/include/linux"
+          fi
+          bun test tests/contact-latch.test.ts tests/pocket-input.test.ts tests/android-platform.test.ts tests/idf-package-corpus.test.ts
       - name: Build Clear simulator inputs
         run: bun tools/wasm.ts && bun tools/build.ts clear-main --framework=vue-vapor
       - name: Clear input and text chain

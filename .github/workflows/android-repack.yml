@@ -1,10 +1,10 @@
 name: Android runtime and repack
 on:
   pull_request:
-    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "tools/android-icon.ts", "hosts/android/**"]
+    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android-icon.ts", "platforms/android/**"]
   push:
     branches: [main]
-    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android.ts", "tools/android-icon.ts", "hosts/android/**"]
+    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android-icon.ts", "platforms/android/**"]
 permissions:
   contents: read
 jobs:

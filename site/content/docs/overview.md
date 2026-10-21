@@ -36,8 +36,9 @@ by the browser host and headless Bun.
 
 Two places in the repo decide what you can build for:
 
-- `hosts/` holds one directory per host implementation, from consoles and
-  e-readers through phones, ESP-IDF firmware, and the browser.
+- `programs/` contains console and reference program composition. `platforms/`
+  provides OS and SDK drivers; `devices/` provides GPU mechanisms and renderers.
+  Device ports and their profiles live in Pocket Museum.
 - `profiles/` defines the software profiles accepted by
   `pocket compile --target <id>`, including logical viewports, raster density,
   presentations and capabilities. A program outside the repository exports a

@@ -8,6 +8,7 @@ pub mod compositor;
 pub mod coordinator;
 pub mod damage;
 pub mod incremental;
+pub mod ink;
 pub mod transaction;
 
 pub use damage::*;
