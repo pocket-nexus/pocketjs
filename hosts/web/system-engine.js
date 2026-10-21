@@ -169,6 +169,7 @@ export async function mountPocketSystem(canvas, options = {}) {
     absolute(`${entry.plan.app.output}.${extension}`, distBase);
   const shellRealm = await createRealm(instanceUrl, {
     packageId: plan.systemUI.package,
+    host: shellPlan.target.id, hostAbi: shellPlan.target.hostAbi,
     wasmUrl,
     bundleUrl: artifact(plan.systemUI, "js"),
     pakUrl: artifact(plan.systemUI, "pak"),
@@ -195,6 +196,7 @@ export async function mountPocketSystem(canvas, options = {}) {
     if (!entry) throw new Error(`unknown compositor surface handle ${handle}`);
     const pending = createRealm(instanceUrl, {
       packageId: entry.package,
+      host: entry.plan.target.id, hostAbi: entry.plan.target.hostAbi,
       wasmUrl,
       bundleUrl: artifact(entry, "js"),
       pakUrl: artifact(entry, "pak"),

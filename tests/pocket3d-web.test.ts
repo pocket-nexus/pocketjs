@@ -18,7 +18,7 @@ test("the staged directory holds what a page loads, and a guest runs in its real
   try {
     const files = await stagePocket3dWeb(staged);
     expect(files.sort()).toEqual([
-      "app-instance.html", "app-instance.js", "art.js", "fonts/OFL.txt", "fonts/gabarito-800-latin.woff2", "offload-worker.js",
+      "app-instance.html", "app-instance.js", "art.js", "fonts/OFL.txt", "fonts/gabarito-800-latin.woff2", "generated-ui.js", "offload-worker.js",
       "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-player.css", "pocket3d-player.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js", "pocket3d-words.js",
       "pocketjs-host.js", "pocketjs.wasm",
       "runtime-glyphs.js",
@@ -38,8 +38,10 @@ test("the staged directory holds what a page loads, and a guest runs in its real
     }
 
     const run = Bun.spawnSync(["bun", ROOT + "tests/fixtures/pocket3d-web/realm.ts", staged], { stdout: "pipe", stderr: "pipe" });
-    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.success, run.stderr.toString()).toBe(true);
     const out = JSON.parse(run.stdout.toString().trim().split("\n").at(-1)!);
+    expect(out.disposedAfterPagehide).toBe(true);
+    expect(out.realmReleased).toBe(true);
     expect(out.shape).toEqual({ viewport: [32, 16], density: 2, physical: [64, 32], auxiliary: [24, 16], touch: "auxiliary", buttons: true, glyphs: "letters" });
     // A realm started with `text: false` starts no worker and gives the guest no offload.
     expect([out.workersWithoutText, out.offloadWithoutText]).toEqual([0, "undefined"]);

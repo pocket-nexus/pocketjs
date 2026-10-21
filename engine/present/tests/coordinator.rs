@@ -947,3 +947,47 @@ fn native_overlays_are_submitted_between_ui_draw_and_terminal_render_wait() {
         );
     }
 }
+
+#[test]
+fn native_target_scaling_keeps_the_logical_resource_viewport() {
+    struct ViewportRenderer(FakeRenderer);
+    impl Renderer for ViewportRenderer {
+        type Submission = Submission;
+        fn descriptor(&self) -> RendererDescriptor {
+            self.0.descriptor()
+        }
+        fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<Submission, RenderError> {
+            assert_eq!(frame.resources.viewport(), (8.0, 6.0));
+            let Target::DeviceOwned(target) = &frame.target else {
+                panic!("native target")
+            };
+            assert_eq!(target.region, Rect::new(0, 0, 13, 9));
+            assert_eq!(frame.damage, &[Rect::new(0, 0, 13, 9)]);
+            self.0.render(frame)
+        }
+        fn wait(&mut self, submission: &Submission) -> Result<(), RenderError> {
+            self.0.wait(submission)
+        }
+        fn retire(&mut self, submission: Submission) {
+            self.0.retire(submission)
+        }
+    }
+    let state = Shared::default();
+    let mut coordinator = Coordinator::new(2, 0).unwrap();
+    let renderer = coordinator
+        .add_renderer(ViewportRenderer(FakeRenderer {
+            state: state.clone(),
+            zero_copy: false,
+            version: pocket_spec::DRAW_LIST_VERSION,
+        }))
+        .unwrap();
+    let mut display = fake_display(&state, 1);
+    display.descriptor.width = 13;
+    display.descriptor.height = 9;
+    display.descriptor.stride_bytes = 26;
+    coordinator.add_display(display, renderer).unwrap();
+    coordinator
+        .present(&scene(8, 6), None, &Resources(8, 6))
+        .unwrap();
+    assert!(state.borrow().live.is_empty());
+}

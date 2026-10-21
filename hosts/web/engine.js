@@ -220,10 +220,8 @@ function safeFrame() {
     // batch BEFORE the guest's single turn (poll() drains them inside it).
     if (audioHost) audioHost.beginFrame();
     if (netHost) netHost.beginFrame();
-    // JS: one virtual-frame transaction (input, effects, sweep)
-    frameCb(held, packedAnalog());
-    const ticks = 60 / simHz;
-    for (let t = 0; t < ticks; t++) wasm.tick(); // core catch-up: 1/60 s each
+    // Runtime owns input encoding, the guest turn and core catch-up.
+    wasm.advance({ buttons: held, analog: packedAnalog() }, 60 / simHz);
   } catch (e) {
     logSink("FRAME ERROR: " + (e && e.stack ? e.stack : e));
     frameCb = null; // stop repeating the same throw 60x/s
@@ -231,7 +229,7 @@ function safeFrame() {
 }
 
 function blit() {
-  if (!wasm || !ctx) return;
+  if (!wasm || !ctx || (wasm.booted && !frameCb)) return;
   const pixels = wasm.renderScaledIncremental(RENDER_SCALE);
   imageData.data.set(pixels);
   ctx.putImageData(imageData, 0, 0);
@@ -351,10 +349,9 @@ export async function load(name, opts = {}) {
   if (!wasm) throw new Error("mount() first");
   stop();
   frameCb = null;
-  wasm.init(RASTER_DENSITY); // fresh Ui: tree/styles/atlases/textures all reset
+  wasm.init(RASTER_DENSITY); // fresh instance state before Runtime boot
   // Host contract (see apps/hero/main.tsx): both globals BEFORE eval, reset
   // EVERY load so nothing stale leaks across reloads.
-  globalThis.ui = wasm.ops;
   globalThis.frame = undefined;
   // Audio module (contracts/spec/audio.ts): mounted as its own namespace,
   // reset per load like every other contract slot (streams die with the app).
@@ -376,12 +373,12 @@ export async function load(name, opts = {}) {
   };
   try {
     const pak = await fetch("dist/" + name + ".pak");
-    globalThis.__pak = pak.ok ? await pak.arrayBuffer() : undefined;
+    const pakBytes = pak.ok ? await pak.arrayBuffer() : undefined;
     const srcRes = await fetch("dist/" + name + ".js");
     if (!srcRes.ok) throw new Error("dist/" + name + ".js not found — run: bun tools/build.ts " + name);
     const src = await srcRes.text();
     // Fresh function scope per reload (top-level vars must not collide).
-    new Function(src + "\n//# sourceURL=" + name + ".js")();
+    wasm.boot(src, { pak: pakBytes, renderScale: RENDER_SCALE, sourceName: name + ".js", host: opts.host, hostAbi: opts.hostAbi });
     if (typeof globalThis.frame !== "function") {
       throw new Error(
         "bundle did not install globalThis.frame — the demo entry must call render() " +

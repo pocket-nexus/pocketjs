@@ -18,6 +18,7 @@
  * the reason. `contain-strict` nodes inside a baked subtree are leaves here:
  * their box is a constant, their children stay live in their own region.
  */
+import { createWasmUiSync, type WasmUi } from "../../hosts/web/wasm-ops.js";
 import { AotCompileError, type AotComponent, type AotDiagnostic, type AotExpr, type AotNode, type AotProgram, type SourceLocation } from "./aot-ir.ts";
 import type { ModelProgram } from "./aot-model-ir.ts";
 import { ANIMATABLE, ENUMS, LAYOUT_DIRTYING, PROP, PROP_VALUE_KIND, VALUE_KIND, bitsF32, f32Bits, type PropName, type StyleProp, type StyleRecord } from "../../contracts/spec/spec.ts";
@@ -247,36 +248,21 @@ function analyze(program: AotProgram, writes: Map<string, Set<number | "*">>, ro
 
 /** The no_std core, instantiated synchronously for one solve. */
 class BakeCore {
-  private readonly ex: Record<string, (...args: number[]) => number> & { memory: WebAssembly.Memory };
+  private readonly host: WasmUi;
   constructor(wasm: ArrayBuffer | Uint8Array, viewport: [number, number], styles: Uint8Array, atlases: Uint8Array[]) {
-    const module = new WebAssembly.Module((wasm instanceof Uint8Array ? wasm : new Uint8Array(wasm)) as BufferSource);
-    this.ex = new WebAssembly.Instance(module, {}).exports as BakeCore["ex"];
-    if (!this.ex.ui_node_layout) throw new Error("layout-baked: this pocketjs.wasm predates ui_node_layout; rebuild it with bun tools/wasm.ts");
-    this.ex.ui_init(1);
-    this.ex.ui_set_viewport(viewport[0], viewport[1]);
-    if (!this.withBytes(styles, (ptr, len) => this.ex.ui_load_styles(ptr, len))) throw new Error("layout-baked: the core rejected styles.bin");
-    for (const atlas of atlases) if (!this.withBytes(atlas, (ptr, len) => this.ex.ui_load_font_atlas(ptr, len))) throw new Error("layout-baked: the core rejected a font atlas");
+    this.host = createWasmUiSync(wasm, {width:viewport[0],height:viewport[1]});
+    this.host.ops.loadStyles(styles);
+    for (const atlas of atlases) this.host.ops.loadFontAtlas(atlas);
   }
-  private withBytes(bytes: Uint8Array, call: (ptr: number, len: number) => number): number {
-    const ptr = this.ex.ui_alloc(bytes.length);
-    new Uint8Array(this.ex.memory.buffer, ptr, bytes.length).set(bytes);
-    const result = call(ptr, bytes.length);
-    this.ex.ui_free(ptr, bytes.length);
-    return result;
-  }
-  createNode(type: number): number { return this.ex.ui_create_node(type); }
-  insert(parent: number, child: number): void { this.ex.ui_insert_before(parent, child, 0); }
-  setStyle(id: number, style: number): void { this.ex.ui_set_style(id, style); }
-  setProp(id: number, prop: number, value: number): void { this.ex.ui_set_prop(id, prop, value); }
-  setText(id: number, text: string): void { this.withBytes(new TextEncoder().encode(text), (ptr, len) => { this.ex.ui_set_text(id, ptr, len); return 0; }); }
-  solve(): void { this.ex.ui_tick(); }
-  /** Rounded (x, y, w, h) then unrounded (x, y, w, h). */
+  createNode(type: number): number { return this.host.ops.createNode(type); }
+  insert(parent: number, child: number): void { this.host.ops.insertBefore(parent, child, 0); }
+  setStyle(id: number, style: number): void { this.host.ops.setStyle(id, style); }
+  setProp(id: number, prop: number, value: number): void { this.host.ops.setProp(id, prop, value); }
+  setText(id: number, text: string): void { this.host.ops.setText(id, text); }
+  solve(): void { this.host.tick(); }
+  dispose(): void { this.host.dispose(); }
   layout(id: number): [number, number, number, number, number, number, number, number] {
-    const ptr = this.ex.ui_alloc(32);
-    if (!this.ex.ui_node_layout(id, ptr)) throw new Error(`layout-baked: node ${id} vanished during the solve`);
-    const values = Array.from(new Float32Array(this.ex.memory.buffer, ptr, 8)) as [number, number, number, number, number, number, number, number];
-    this.ex.ui_free(ptr, 32);
-    return values;
+    return this.host.layout(id);
   }
 }
 
@@ -314,6 +300,7 @@ export function planLayout(program: AotProgram, component: AotComponent, expande
   if (!environment) fail(roots[0]!.node.loc, "the build has no layout environment (viewport, font atlases and pocketjs.wasm); pass buildAot({ layoutEnvironment })");
   const writes = modelWrites(program.model);
   const core = new BakeCore(environment.wasm, environment.viewport, Uint8Array.from(program.styles.bytes), environment.fontAtlases);
+  try {
   for (const { node: root } of roots) {
     const analysis = analyze(program, writes, root);
     // Mount the subtree as the generated code would: styles, constant props,
@@ -355,5 +342,6 @@ export function planLayout(program: AotProgram, component: AotComponent, expande
     }) : [];
     plan.report.regions.push({ name: root.debugName ?? root.tag, file: root.loc.file, line: root.loc.line, nodes: analysis.elements.length, formulas: analysis.formulas, islands: analysis.islands, layers });
   }
+  } finally { core.dispose(); }
   return plan;
 }

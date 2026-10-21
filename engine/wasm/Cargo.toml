@@ -1,11 +1,6 @@
-# pocketjs-wasm — pocketjs-core + deterministic software rasterizer compiled to
-# wasm32-unknown-unknown (no wasm-bindgen). Used by BOTH the browser dev host
-# (hosts/web/) and headless Bun goldens (tests/golden.ts). See ../../docs/DESIGN.md.
-#
-# Build: cargo build --target wasm32-unknown-unknown --release
-# (tools/wasm.ts wraps this.)
-#
-# NOTE: deliberately NOT part of any cargo workspace — see ../core/Cargo.toml.
+# Browser Runtime embedding and direct compiler/pixel harness, using plain
+# WebAssembly exports and generated canonical guest bindings.
+# Standalone cdylib; tools/wasm.ts builds wasm32-unknown-unknown.
 
 [package]
 name = "pocketjs-wasm"
@@ -17,6 +12,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pocketjs-core = { path = "../core" }
+pocket-runtime = { path = "../runtime" }
+pocket-runtime-cabi = { path = "../runtime-cabi" }
+pocket-drivers = { path = "../drivers" }
+pocket-raster = { path = "../raster" }
+pocket-present = { path = "../present" }
+pocket-package = { path = "../package" }
+serde_json = "1"
 
 [profile.release]
 opt-level = "s"

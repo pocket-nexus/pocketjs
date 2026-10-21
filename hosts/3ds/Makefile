@@ -41,6 +41,9 @@ DEVKITARM ?= $(DEVKITPRO)/devkitARM
 
 SOURCE := $(CURDIR)/src
 INCLUDE_DIR := $(CURDIR)/include
+POCKETJS_ROOT ?= $(CURDIR)/../..
+POCKETJS_CONTRACTS := $(POCKETJS_ROOT)/contracts/generated
+POCKETJS_GUEST := $(POCKETJS_ROOT)/engine/guest-quickjs
 POCKETJS_PICA_INCLUDE ?= $(CURDIR)/../../devices/3ds/pocket-3ds-pica/include
 BUILD := $(POCKETJS_BUILD_DIR)
 OUT := $(POCKETJS_OUT_3DSX)
@@ -71,10 +74,10 @@ ARCH := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 # without it links cleanly and then hands the library differently shaped
 # values — the guest boots and QuickJS's GC walks garbage pointers.
 CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections -fdata-sections \
-  $(ARCH) -D__3DS__ -DJS_NO_NAN_BOXING \
+  $(ARCH) -D__3DS__ -DJS_NO_NAN_BOXING -DPOCKET_QJS_BELLARD \
   -DPOCKETJS_TARGET_ID='"$(POCKETJS_TARGET)"' \
   -DPOCKETJS_HOST_ABI=$(POCKETJS_HOST_ABI) \
-  -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(BUILD) -I$(POCKETJS_QUICKJS_DIR) \
+  -I$(POCKETJS_CONTRACTS) -I$(POCKETJS_GUEST)/include -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(BUILD) -I$(POCKETJS_QUICKJS_DIR) \
   -I$(DEVKITPRO)/libctru/include
 
 ifeq ($(POCKETJS_OFFLOAD),1)
@@ -99,7 +102,7 @@ LIBS := -lcitro3d -lctru -lm
 
 # quirc (vendored, ISC; src/quirc/VENDORED.txt) decodes QR codes for camera.c.
 QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
-OBJECTS := $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o \
+OBJECTS := $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o \
   $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o
 ELF := $(BUILD)/pocketjs-3ds.elf
@@ -115,7 +118,7 @@ $(BUILD) $(ROMFS):
 	mkdir -p $@
 
 # The PICA200 vertex shader is assembled and linked in as data; there is no
-# fragment shader on this GPU (gfx.c drives TEV stages instead).
+# fragment shader on this GPU (the independent PICA driver configures TEV stages).
 $(BUILD)/vshader.shbin: $(SOURCE)/vshader.v.pica | $(BUILD)
 	$(PICASSO) -o $@ $<
 
@@ -152,7 +155,13 @@ $(FLAGS_STAMP).probe: | $(BUILD)
 	@rm -f $(FLAGS_STAMP).new
 $(FLAGS_STAMP): $(FLAGS_STAMP).probe ;
 
-$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(FLAGS_STAMP) | $(BUILD)
+$(BUILD)/pica_driver.o: $(POCKETJS_ROOT)/devices/3ds/pocket-3ds-pica/src/driver.c $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/canonical_guest.o: $(POCKETJS_GUEST)/src/guest.c $(wildcard $(POCKETJS_GUEST)/src/*.h) $(wildcard $(POCKETJS_GUEST)/include/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(FLAGS_STAMP) | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: $(SOURCE)/%.c $(wildcard $(INCLUDE_DIR)/*.h) $(wildcard $(SOURCE)/*.h) $(wildcard $(POCKETJS_CONTRACTS)/*.h) $(wildcard $(POCKETJS_PICA_INCLUDE)/*.h) $(BUILD)/vshader_shbin.h $(BUILD)/stage_shbin.h $(FLAGS_STAMP) | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Third-party code keeps its own warnings out of the host's build log.

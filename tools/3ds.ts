@@ -72,6 +72,7 @@
 // app, and they are the ones the generic runtime carries.
 
 import { $ } from "bun";
+import { ensureThreeDsProfileHeader } from "./3ds-contracts.ts";
 import { containerPathFor, ensureQuickJs, runContainer, THREE_DS_CONTAINER_IMAGE, type Mount } from "./3ds-toolchain.ts";
 export { containerPathFor, ensureQuickJs, THREE_DS_CONTAINER_IMAGE } from "./3ds-toolchain.ts";
 import { createHash } from "node:crypto";
@@ -648,6 +649,7 @@ export async function prepare3dsNative(options: {
   readonly cargoArgs: readonly string[];
   readonly roots: readonly string[];
 }): Promise<Native3ds> {
+  ensureThreeDsProfileHeader();
   const imageId = await preflightContainer();
   const { rustup, toolchain, rustcPath } = await preflightRust();
 

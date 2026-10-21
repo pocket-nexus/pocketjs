@@ -269,9 +269,9 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
       "-o",
       binary,
     ]);
-    expect(compile.exitCode, compile.stderr.toString()).toBe(0);
+    expect(compile.success, `exit=${compile.exitCode}, signal=${compile.signalCode}\n${compile.stderr}`).toBe(true);
     const run = Bun.spawnSync([binary]);
-    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.success, `exit=${run.exitCode}, signal=${run.signalCode}\n${run.stderr}`).toBe(true);
   });
 
   test("the native menu emits one bounded rectangle-only DrawList", () => {
@@ -285,14 +285,15 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
       "-std=c11",
       `-I${join(ROOT, "hosts/3ds/src")}`,
       `-I${join(ROOT, "hosts/3ds/include")}`,
+      `-I${join(ROOT, "contracts/generated")}`,
       join(ROOT, "tests/fixtures/3ds-devmenu.c"),
       join(ROOT, "hosts/3ds/src/devmenu.c"),
       "-o",
       binary,
     ]);
-    expect(compile.exitCode, compile.stderr.toString()).toBe(0);
+    expect(compile.success, `exit=${compile.exitCode}, signal=${compile.signalCode}\n${compile.stderr}`).toBe(true);
     const run = Bun.spawnSync([binary]);
-    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.success, `exit=${run.exitCode}, signal=${run.signalCode}\n${run.stderr}`).toBe(true);
   });
 
   test("the client survives fragmented handshake, uploads, control, and screenshot frames", async () => {

@@ -35,12 +35,14 @@ globalThis.frame = (buttons, analog, touches, hits, surfaces) => {
     if (said.panel) ui.setProp(panel, ${PROP.width}, said.panel);
     if (said.lower) ui.setProp(lower, ${PROP.width}, said.lower);
   }
-  if (touches) ui.svcSend(JSON.stringify({ touches: touches.length, hit: hits[0] === lower, surface: surfaces[0], buttons, offload: typeof globalThis.offload, simHz: globalThis.__simHz }));
+  if (touches?.length) ui.svcSend(JSON.stringify({ touches: touches.length, hit: hits[0] === lower, surface: surfaces[0], buttons, offload: typeof globalThis.offload, simHz: globalThis.__simHz }));
 };
 `);
 
 // A realm that starts a text worker constructs one: count them.
 const workers: string[] = [];
+let pagehide: (()=>void)|undefined;
+(globalThis as any).addEventListener=(name:string,callback:()=>void)=>{if(name==="pagehide")pagehide=callback;};
 (globalThis as Record<string, unknown>).Worker = class {
   onmessage = null;
   onerror = null;
@@ -101,5 +103,9 @@ await realm.create({ ...options, simHz: undefined });
 out.workersWithText = workers.length;
 out.simHzUnsaid = (globalThis as Record<string, unknown>).__simHz;
 out.offloadWithText = typeof (globalThis as Record<string, unknown>).offload;
+const retainedUi=(globalThis as any).ui;
+pagehide?.();
+try {retainedUi.createNode(0);out.disposedAfterPagehide=false;} catch {out.disposedAfterPagehide=true;}
+out.realmReleased=typeof (globalThis as any).ui==="undefined";
 console.log(JSON.stringify(out));
 process.exit(0);

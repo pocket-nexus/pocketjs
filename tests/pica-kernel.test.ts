@@ -10,8 +10,8 @@ test("PICA allocation failures clean up; exact mip uploads publish every level",
     const result = Bun.spawnSync([process.env.CC || "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
       "-I", resolve("tests/fixtures/pica-kernel"), "-I", resolve("devices/3ds/pocket-3ds-pica/include"),
       resolve("tests/fixtures/pica-kernel/texture.c"), "-o", binary]);
-    expect(result.exitCode, result.stderr.toString()).toBe(0);
+    expect(result.success, `exit=${result.exitCode} signal=${result.signalCode} ${result.stderr}`).toBe(true);
     const run = Bun.spawnSync([binary]);
-    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.success, `exit=${run.exitCode} signal=${run.signalCode} ${run.stderr}`).toBe(true);
   } finally { rmSync(output, { recursive: true, force: true }); }
 });

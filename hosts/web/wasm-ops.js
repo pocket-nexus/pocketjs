@@ -1,353 +1,204 @@
-// hosts/web/wasm-ops.js — the ONE wasm <-> HostOps binding, shared verbatim by
-// the browser dev host (engine.js) and the headless golden harness
-// (tests/golden.ts). Plain ES module, zero dependencies; needs only
-// WebAssembly + TextEncoder (both exist in every browser and in Bun — the
-// QuickJS "no TextEncoder" constraint applies only to framework/src/pak.ts, which
-// this file is not).
-//
-// ABI (see engine/wasm/src/lib.rs): one export per ui.* op; strings/buffers cross
-// via linear memory — ui_alloc(len) -> ptr, write bytes, call, ui_free.
-// ui_render() returns the byte-exact RGBA8 framebuffer pointer at the
-// logical viewport size; ui_render_scaled(n) renders the DrawList at n×.
-
+// Instance transport for the generated guest UI and the canonical Runtime.
+// Compiler/pixel harnesses can use the same OpContext without booting a guest.
+import { mountUi, encodeUiString } from "./generated-ui.js";
 export const FB_W = 480;
 export const FB_H = 272;
-
 const encoder = new TextEncoder();
-
-/**
- * Instantiate pocketjs.wasm and return
- * { ops, init, tick, drawHash, render, renderScaled,
- *   renderIncremental, renderScaledIncremental, exports }.
- * `ops` is a complete HostOps (framework/src/host.ts) — hand it to the app bundle as
- * globalThis.ui before eval'ing it.
- *
- * @param {ArrayBuffer | Uint8Array | WebAssembly.Module} wasm
- */
+const decoder = new TextDecoder();
+function integer(value, name, min, max) {
+  if (!Number.isInteger(value) || value < min || value > max) throw new RangeError(`${name} must be ${min} through ${max}`);
+  return value;
+}
+function bytesOf(value) {
+  if (value == null) return new Uint8Array();
+  return ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : new Uint8Array(value);
+}
 export async function createWasmUi(wasm, options = {}) {
-  const source = wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
-  const instance = await WebAssembly.instantiate(source, {});
-  const ex = instance.exports;
-  const decoder = new TextDecoder();
-
-  function integerInRange(value, name, min, max) {
-    if (!Number.isInteger(value) || value < min || value > max) {
-      throw new RangeError(`${name} must be an integer from ${min} through ${max}, got ${value}`);
-    }
-    return value;
+  const module = wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
+  return createWasmUiSync(module, options);
+}
+/** Synchronous entry for the compiler's layout solver. */
+export function createWasmUiSync(wasm, options = {}) {
+  const module = wasm instanceof WebAssembly.Module ? wasm : new WebAssembly.Module(wasm);
+  let ex, handle = 0, mounted, ops, booted = false, pending = false, disposed = false, callbackDepth = 0;
+  let callbacks = {}, callbackError, realm, evaluation;
+  let bootPending = false;
+  let width = integer(options.width ?? FB_W, "width", 1, 32000);
+  let height = integer(options.height ?? FB_H, "height", 1, 32000);
+  let density = integer(options.rasterDensity ?? 1, "rasterDensity", 1, 255);
+  let auxiliary = options.auxiliary?.map(n => integer(n, "auxiliary dimension", 1, 4096));
+  if (auxiliary && auxiliary.length !== 2) throw new RangeError("auxiliary requires two dimensions");
+  let renderScale = 1;
+  const bindings = new Map();
+  let providers = {};
+  const copy = (p, n) => new Uint8Array(ex.memory.buffer, p, n).slice();
+  const resultText = () => decoder.decode(copy(ex.web_result_ptr(handle), ex.web_result_len(handle)));
+  const assertLive = () => { if (disposed) throw new Error("Wasm host has been disposed"); };
+  const control = (duringBoot = false) => { assertLive(); if (bootPending && !duringBoot) throw new Error("Guest evaluation is pending"); if (callbackDepth) throw new Error("Wasm lifecycle operation during a guest callback"); };
+  function check(status) {
+    if (status !== 0) { const error = callbackError ?? new Error(`Pocket Runtime: ${resultText()}`); callbackError = undefined; throw error; }
   }
-
-  let viewportWidth = integerInRange(options.width ?? FB_W, "viewport width", 1, 32000);
-  let viewportHeight = integerInRange(options.height ?? FB_H, "viewport height", 1, 32000);
-  const initialDensity = integerInRange(options.rasterDensity ?? 1, "rasterDensity", 1, 255);
-  let auxiliary = options.auxiliary ? options.auxiliary.map((n) =>
-    integerInRange(n, "auxiliary dimension", 1, 4096)) : null;
-  if (auxiliary && auxiliary.length !== 2) throw new RangeError("auxiliary requires width and height");
-  let auxiliaryRoot = 0;
-  // node id -> { handle, focused }. The core owns geometry/painter order;
-  // this mirror gives a browser AppSupervisor the complete lifecycle binding
-  // set, including surfaces currently hidden by shell opacity.
-  const compositorBindings = new Map();
-
-  const init = (rasterDensity = initialDensity) => {
-    compositorBindings.clear();
-    ex.ui_init(integerInRange(rasterDensity, "rasterDensity", 1, 255));
-    // Older wasm binaries predate ui_set_viewport (same convention as
-    // drawHash): tolerate them at the stock size, fail loud otherwise.
-    if (ex.ui_set_viewport) ex.ui_set_viewport(viewportWidth, viewportHeight);
-    else if (viewportWidth !== FB_W || viewportHeight !== FB_H) {
-      throw new Error("this pocketjs.wasm predates ui_set_viewport — rebuild it: bun tools/wasm.ts");
-    }
-  if (auxiliary) {
-      if (!ex.ui_create_auxiliary_surface) throw new Error("Rebuild pocketjs.wasm for auxiliary output");
-      auxiliaryRoot = ex.ui_create_auxiliary_surface(...auxiliary);
-      if (!auxiliaryRoot) throw new Error("Could not create auxiliary output");
-    }
-  };
-  init(initialDensity);
-
-  // Copy bytes into wasm scratch, run fn(ptr, len), free. Views are rebuilt
-  // per call: memory.buffer is detached whenever linear memory grows.
-  function withBytes(u8, fn) {
-    const len = u8.length;
-    const ptr = ex.ui_alloc(len);
-    if (len > 0) new Uint8Array(ex.memory.buffer, ptr, len).set(u8);
+  function withBytes(input, call) {
+    // A caller may pass a wasm view. Copy before allocation can grow memory.
+    const value = bytesOf(input).slice(), p = ex.web_alloc(value.length);
+    if (!p) throw new Error("Wasm allocation failed");
+    try { new Uint8Array(ex.memory.buffer,p,value.length).set(value); return call(p,value.length); }
+    finally { ex.web_free(p,value.length); }
+  }
+  function wrapBindings(ui) {
+    const destroy = ui.destroyNode, set = ui.setCompositorSurface;
+    ui.destroyNode = id => { const result=destroy(id); bindings.delete(id); return result; };
+    if (set) ui.setCompositorSurface = (id,surface,focused) => { const result=set(id,surface,focused); if(surface<0) bindings.delete(id); else bindings.set(id,{handle:surface,focused:!!focused}); return result; };
+    return ui;
+  }
+  function mount(environment, global = {}) {
+    mounted?.dispose(); mounted=mountUi(transport,environment,global); ops=wrapBindings(mounted.ui); return ops;
+  }
+  const instance = new WebAssembly.Instance(module, { pocket_web: { guest_call(kind, nativeHandle, p, n, pak, pakLength) {
+    callbackDepth++;
     try {
-      return fn(ptr, len);
-    } finally {
-      ex.ui_free(ptr, len);
-    }
-  }
-  const withStr = (s, fn) => withBytes(encoder.encode(String(s)), fn);
-
-  /** @type {import("../../framework/src/host.ts").HostOps} */
-  const ops = {
-    __viewport: { w: viewportWidth, h: viewportHeight },
-    get __auxiliarySurface() {
-      return auxiliary ? { root: auxiliaryRoot, w: auxiliary[0], h: auxiliary[1] } : undefined;
-    },
-    createNode: (type) => ex.ui_create_node(type),
-    destroyNode: (id) => {
-      compositorBindings.delete(id);
-      ex.ui_destroy_node(id);
-    },
-    insertBefore: (parent, child, anchor) => ex.ui_insert_before(parent, child, anchor),
-    removeChild: (parent, child) => ex.ui_remove_child(parent, child),
-    setStyle: (id, styleId) => ex.ui_set_style(id, styleId),
-    setProp: (id, propId, value) => ex.ui_set_prop(id, propId, value),
-    setPropBatch: (records) => {
-      const values = new Float64Array(records);
-      for (let i = 0; i + 2 < values.length; i += 3) {
-        ex.ui_set_prop(values[i], values[i + 1], values[i + 2]);
-      }
-    },
-    setText: (id, str) => withStr(str, (p, l) => ex.ui_set_text(id, p, l)),
-    replaceText: (id, str) => withStr(str, (p, l) => ex.ui_replace_text(id, p, l)),
-    uploadTexture: (buf, w, h, psm) => withBytes(buf, (p, l) => ex.ui_upload_texture(p, l, w, h, psm)),
-    setImage: (id, tex) => ex.ui_set_image(id, tex),
-    setCompositorSurface: (id, surface, focused) => {
-      if (surface < 0) compositorBindings.delete(id);
-      else compositorBindings.set(id, { handle: surface, focused: focused !== 0 });
-      ex.ui_set_compositor_surface(id, surface, focused);
-    },
-    setSprite: (id, atlas, frames, cols, step) => ex.ui_set_sprite(id, atlas, frames, cols, step),
-    animate: (id, propId, to, durMs, easing, delayMs) =>
-      ex.ui_animate(id, propId, to, durMs, easing, delayMs),
-    cancelAnim: (animId) => ex.ui_cancel_anim(animId),
-    takeAnimationCompletions: ex.ui_take_animation_completions ? () => {
-      const count = ex.ui_take_animation_completions();
-      const values = new Int32Array(ex.memory.buffer, ex.ui_animation_completions_ptr(), count * 2);
-      return JSON.stringify(Array.from({ length: count }, (_, i) => [values[i * 2], values[i * 2 + 1]]));
-    } : undefined,
-    setFocus: (id) => ex.ui_set_focus(id),
-    setActive: (id, active) => ex.ui_set_active(id, active ? 1 : 0),
-    loadStyles: (buf) => {
-      withBytes(buf, (p, l) => ex.ui_load_styles(p, l));
-    },
-    loadFontAtlas: (buf) => {
-      withBytes(buf, (p, l) => ex.ui_load_font_atlas(p, l));
-    },
-    measureText: (str, fontSlot) => withStr(str, (p, l) => ex.ui_measure_text(p, l, fontSlot)),
-    // DevTools ops (spec ops 18..22, docs/DEVTOOLS.md) — debug-only, default-off.
-    debugInspect: (id) => ex.ui_debug_inspect(id),
-    debugRectXY: () => ex.ui_debug_rect_xy(),
-    debugRectWH: () => ex.ui_debug_rect_wh(),
-    debugPause: (on) => ex.ui_debug_pause(on ? 1 : 0),
-    debugStep: () => ex.ui_debug_step(),
-  };
-  if (ex.ui_font_stream_configure) {
-    ops.fontStreamConfigure = (buf) => !!withBytes(buf, (p, l) => ex.ui_font_stream_configure(p, l));
-    ops.fontStreamCommit = (buf) => withBytes(buf, (p, l) => ex.ui_font_stream_commit(p, l));
-    ops.fontStreamBatch = (buf) => withBytes(buf, (p, l) => ex.ui_font_stream_batch(p, l));
-    const streamJSON = (fn) => {
-      const n = fn();
-      return new TextDecoder().decode(new Uint8Array(ex.memory.buffer, ex.ui_font_stream_json_ptr(), n));
-    };
-    ops.fontStreamRequests = () => streamJSON(ex.ui_font_stream_requests);
-    ops.fontStreamStats = () => streamJSON(ex.ui_font_stream_stats);
-  }
-  // The agent's screen reading (contracts/spec/agent.ts): feature-detected.
-  if (ex.ui_capture_texts) {
-    ops.captureTexts = (surface, root) => !!ex.ui_capture_texts(surface, root ?? 0);
-    ops.capturedTexts = (surface) => {
-      const n = ex.ui_captured_texts(surface);
-      return new TextDecoder().decode(new Uint8Array(ex.memory.buffer, ex.ui_captured_texts_ptr(), n));
-    };
-  }
-  // 2D bodies (spec ops 52..56, ui.physics) — feature-detected so a stale
-  // pocketjs.wasm still boots; @pocketjs/framework/physics reports the gap.
-  if (ex.ui_physics_create) {
-    const f64Bytes = (records) =>
-      ArrayBuffer.isView(records) ? new Uint8Array(records.buffer, records.byteOffset, records.byteLength) : new Uint8Array(records);
-    ops.physicsCreate = (kind, params) => withBytes(f64Bytes(params), (p, l) => ex.ui_physics_create(kind, p, l));
-    ops.physicsApply = (records) => withBytes(f64Bytes(records), (p, l) => ex.ui_physics_apply(p, l));
-    ops.physicsDestroy = (handle) => ex.ui_physics_destroy(handle);
-    ops.physicsEvents = () => {
-      const n = ex.ui_physics_take_events();
-      if (n === 0) return undefined;
-      return new Float64Array(ex.memory.buffer, ex.ui_physics_events_ptr(), n).slice().buffer;
-    };
-    ops.physicsQuery = (query, handle, a = 0, b = 0, c = 0, d = 0) => ex.ui_physics_query(query, handle, a, b, c, d);
-  }
-  if (auxiliary) {
-    ops.hitTestAuxiliary = (x, y) => ex.ui_hit_test_auxiliary(x, y);
-    ops.hitTestBoundsAuxiliary = (x, y) => ex.ui_hit_test_bounds_auxiliary(x, y);
-  }
-
-  // Streamed-texture ops (spec ops 24/25) — feature-detected so a stale
-  // pocketjs.wasm predating them still boots (the runtime falls back to
-  // plain uploadTexture in framework/src/tiles.ts).
-  if (ex.ui_free_texture) ops.freeTexture = (handle) => ex.ui_free_texture(handle);
-  if (ex.ui_upload_img_entry) {
-    ops.uploadImgEntry = (blob) => withBytes(blob, (p, l) => ex.ui_upload_img_entry(p, l));
-  }
-
-  // Virtual cursor ops (spec ops 27..29, input.cursor) — feature-detected so
-  // a stale pocketjs.wasm predating them still boots (enableCursor falls
-  // back to the classic d-pad focus model when the host lacks them).
-  if (ex.ui_hit_test) ops.hitTest = (x, y) => ex.ui_hit_test(x, y);
-  // Touch hit facts (spec op 42): the bounds-only query twin. Same stale-wasm
-  // tolerance — the gesture layer falls back to ink hitTest, then rects.
-  if (ex.ui_hit_test_bounds) ops.hitTestBounds = (x, y) => ex.ui_hit_test_bounds(x, y);
-  if (ex.ui_set_cursor) {
-    ops.setCursor = (tex, hotX, hotY, w, h) => ex.ui_set_cursor(tex, hotX, hotY, w, h);
-  }
-  if (ex.ui_set_cursor_pos) ops.setCursorPos = (x, y) => ex.ui_set_cursor_pos(x, y);
-
-  // Text wrap (spec op 43) — feature-detected; apps fall back to the same
-  // greedy rules over measureText when absent. The staged columns must be
-  // copied INSIDE the closure: the view over linear memory dies on the next
-  // alloc/grow (and withStr frees its scratch right after fn returns).
-  if (ex.ui_wrap_text) {
-    ops.wrapText = (str, fontSlot, maxW) =>
-      withStr(str, (p, l) => {
-        const n = ex.ui_wrap_text(p, l, fontSlot, maxW);
-        return Array.from(new Uint32Array(ex.memory.buffer, ex.ui_wrap_text_ptr(), n));
+      if (nativeHandle !== handle) throw new Error("Foreign guest handle");
+      if (kind === 0) {
+        const environment=JSON.parse(decoder.decode(copy(p,n))); environment.pak=copy(pak,pakLength);
+        mount(environment,realm); callbacks.beforeEvaluate?.(ops,environment);
+      } else if (kind === 1) {
+        const source=decoder.decode(copy(p,n));
+        const outcome = callbacks.evaluate ? callbacks.evaluate(source) : new Function(`${source}\n//# sourceURL=${callbacks.sourceName ?? "pocket-web-guest.js"}`)();
+        if(outcome && typeof outcome.then === "function") {
+          if(!callbacks.async) { Promise.resolve(outcome).catch(()=>{}); throw new Error("Use bootAsync for asynchronous evaluation"); }
+          evaluation=Promise.resolve(outcome);
+          evaluation.catch(()=>{});
+        } else if(typeof realm.frame !== "function") throw new Error("Guest did not install frame()");
+      } else if (kind === 2) {
+        const frame=JSON.parse(decoder.decode(copy(p,n)));
+        callbacks.beforeFrame?.(); realm.frame(...frame); callbacks.afterFrame?.();
+      } else if (kind === 5) {
+        const request=JSON.parse(decoder.decode(copy(p,n)));
+        const callback=providers[request.name];
+        if(typeof callback!=="function")throw new Error(`Missing provider ${request.name}`);
+        const value=callback(...request.args);
+        if(value && typeof value.then==="function"){Promise.resolve(value).catch(()=>{});throw new Error("Public operation providers must return synchronously");}
+        let result;
+        if(request.result==="None" || (value==null && request.result.startsWith("Optional"))) result={kind:"none"};
+        else if(request.result==="Boolean" || request.result==="Integer") result={kind:"integer",value:Number(value)};
+        else if(request.result==="Real") result={kind:"real",value:Number(value)};
+        else if(request.result==="String" || request.result==="OptionalString") result={kind:"bytes",value:Array.from(encodeUiString(value))};
+        else result={kind:"bytes",value:Array.from(bytesOf(value))};
+        withBytes(encoder.encode(JSON.stringify(result)),(resultPointer,resultLength)=>check(ex.web_provider_result(handle,resultPointer,resultLength)));
+      } else if (kind === 4) { const owned=mounted && realm?.ui===mounted.ui; mounted?.dispose(); mounted=undefined; if(owned) realm.frame=undefined; }
+      return 0;
+    } catch(error) { callbackError=error; return -1; }
+    finally { callbackDepth--; }
+  } } });
+  ex=instance.exports;
+  if (!ex.web_create) throw new Error("Rebuild pocketjs.wasm: bun tools/wasm.ts");
+  handle=ex.web_create(width,height,density,...(auxiliary ?? [0,0]));
+  if (!handle) throw new Error("Invalid Wasm viewport or memory budget");
+  const a=Array.from({length:19},(_,i)=>ex.web_abi(i));
+  const transport={ supportsOp(id){assertLive();return !!ex.web_supports(handle,id);}, dispatch(id,args) {
+    assertLive();
+    const payloads=args.map(arg=>arg.kind==="bytes" ? bytesOf(arg.value).slice() : null);
+    const records=args.length*a[0], output=records, payloadStart=output+a[6];
+    const total=payloads.reduce((n,b)=>n+(b?.length ?? 0),payloadStart);
+    const p=ex.web_alloc(total);if(!p)throw new Error("Wasm allocation failed");
+    try {
+      new Uint8Array(ex.memory.buffer,p,total).fill(0);
+      const view=new DataView(ex.memory.buffer);let at=p+payloadStart;
+      args.forEach((arg,i)=>{const r=p+i*a[0];view.setUint32(r,a[0],true);
+        if(arg.kind==="integer"){view.setUint32(r+a[1],a[12],true);view.setBigInt64(r+a[2],BigInt(arg.value),true);}
+        else if(arg.kind==="real"){view.setUint32(r+a[1],a[13],true);view.setFloat64(r+a[3],arg.value,true);}
+        else {const b=payloads[i];view.setUint32(r+a[1],a[14],true);view.setUint32(r+a[4],at,true);view.setUint32(r+a[5],b.length,true);new Uint8Array(ex.memory.buffer,at,b.length).set(b);at+=b.length;}
       });
+      check(ex.web_dispatch(handle,id,p,records,p+output));
+      const result=new DataView(ex.memory.buffer),r=p+output,tag=result.getUint32(r+a[7],true);
+      if(tag===a[15])return {kind:"none"};
+      if(tag===a[16])return {kind:"integer",value:Number(result.getBigInt64(r+a[8],true))};
+      if(tag===a[17])return {kind:"real",value:result.getFloat64(r+a[9],true)};
+      if(tag===a[18])return {kind:"bytes",value:copy(result.getUint32(r+a[10],true),result.getUint32(r+a[11],true))};
+      throw new Error("Unknown UI result tag");
+    } finally {ex.web_free(p,total);}
+  }};
+  function mountHarness() { mount({...(options.host ? {host:options.host,hostAbi:options.hostAbi ?? 1} : {}),tickHz:60,viewport:{w:width,h:height},...(auxiliary ? {auxiliary:{root:ex.web_auxiliary_root(handle),w:auxiliary[0],h:auxiliary[1]}} : {})}); }
+  mountHarness();
+  function capture(scale,mode) {
+    control();scale=integer(scale,"render scale",1,4);
+    if(booted && pending) present();
+    const p=ex.web_capture(handle,scale,mode);if(!p)throw new Error(`Wasm capture: ${resultText()}`);
+    const [w,h]=mode===4 ? auxiliary : [width,height];return new Uint8Array(ex.memory.buffer,p,w*h*scale*scale*4);
   }
-
-  function framebufferView(ptr, scale) {
-    if (!ptr) throw new Error(`pocketjs.wasm rejected render scale ${scale}`);
-    return new Uint8Array(
-      ex.memory.buffer,
-      ptr,
-      viewportWidth * scale * viewportHeight * scale * 4,
-    );
+  function present() {
+    control();if(!booted) return capture(renderScale,1);
+    // Re-presenting is allowed: compositor uploads and guest inspection can
+    // change resources after advance without creating another guest turn.
+    check(ex.web_present(handle));pending=false;
+    return new Uint8Array(ex.memory.buffer,ex.web_pixels(handle),ex.web_pixels_len(handle));
   }
-
-  return {
-    ops,
-    exports: ex,
-    focused: () => ex.ui_focused(),
-    /** Read the retained core tree and resolved colors, without advancing a frame. */
-    inspectNode(id) {
-      if (!ex.ui_node_type) throw new Error("Rebuild pocketjs.wasm for retained-tree inspection: bun tools/wasm.ts");
-      const type = ex.ui_node_type(id);
-      if (type < 0) return null;
-      const text = decoder.decode(new Uint8Array(ex.memory.buffer, ex.ui_node_text_ptr(id), ex.ui_node_text_len(id)));
-      const children = Array.from(new Int32Array(ex.memory.buffer, ex.ui_node_children_ptr(id), ex.ui_node_children_len(id)));
-      return { type, text, children, display: ex.ui_node_display(id), style: {
-        bgColor: ex.ui_node_bg_color(id) >>> 0,
-        textColor: ex.ui_node_text_color(id) >>> 0,
-      } };
-    },
-    createAuxiliarySurface(width, height) {
-      width = integerInRange(width, "auxiliary width", 1, 4096);
-      height = integerInRange(height, "auxiliary height", 1, 4096);
-      if (!ex.ui_create_auxiliary_surface) throw new Error("Rebuild pocketjs.wasm for auxiliary output");
-      const root = ex.ui_create_auxiliary_surface(width, height);
-      if (!root) throw new Error("Auxiliary surface allocation failed");
-      auxiliary = [width, height];
-      auxiliaryRoot = root;
-      ops.hitTestAuxiliary = (x, y) => ex.ui_hit_test_auxiliary(x, y);
-      ops.hitTestBoundsAuxiliary = (x, y) => ex.ui_hit_test_bounds_auxiliary(x, y);
-      return root;
-    },
-    renderAuxiliary() {
-      if (!ops.__auxiliarySurface) throw new Error("This host has no auxiliary output");
-      const { w, h } = ops.__auxiliarySurface;
-      const ptr = ex.ui_render_auxiliary();
-      if (!ptr) throw new Error("Auxiliary rasterization failed");
-      return new Uint8Array(ex.memory.buffer, ptr, w * h * 4);
-    },
-    /** Reset the core and set raster samples per logical pixel (default 1). */
-    init,
-    /** Resize a dynamic browser viewport and keep the guest-visible fact aligned. */
-    resizeViewport(width, height) {
-      viewportWidth = integerInRange(width, "viewport width", 1, 32000);
-      viewportHeight = integerInRange(height, "viewport height", 1, 32000);
-      if (!ex.ui_set_viewport) {
-        throw new Error("this pocketjs.wasm predates ui_set_viewport — rebuild it: bun tools/wasm.ts");
+  const api={
+    get ops(){return ops;}, exports:ex,get booted(){return booted;},get disposed(){return disposed;},
+    boot(source,bootOptions={}) {
+      control();if(booted)throw new Error("Reset before booting another guest");
+      callbacks=bootOptions;realm=bootOptions.global ?? globalThis;renderScale=integer(bootOptions.renderScale ?? 1,"render scale",1,4);
+      mounted.dispose();mounted=undefined;
+      // Harness callers may have assigned its ops to the same realm.
+      if(realm.ui===ops)delete realm.ui;
+      callbackError=undefined;
+      const host=bootOptions.host ?? options.host ?? "web", hostAbi=integer(bootOptions.hostAbi ?? options.hostAbi ?? 1,"host ABI",1,0xffffffff);
+      withBytes(encoder.encode(host),(p,n)=>check(ex.web_set_identity(handle,p,n,hostAbi)));
+      providers={...(bootOptions.providers ?? {})};
+      for(const [name,callback] of Object.entries(providers)){
+        if(typeof callback!=="function")throw new TypeError(`Invalid provider ${name}`);
+        withBytes(encoder.encode(name),(p,n)=>check(ex.web_register_provider(handle,p,n)));
       }
-      ex.ui_set_viewport(viewportWidth, viewportHeight);
-      ops.__viewport.w = viewportWidth;
-      ops.__viewport.h = viewportHeight;
+      withBytes(encoder.encode(source),(code,length)=>withBytes(bootOptions.pak,(pak,pakLength)=>check(ex.web_boot(handle,code,length,pak,pakLength,bootOptions.tickHz ?? 60,renderScale))));
+      booted=true;pending=false;return ops;
     },
-    /** Advance exactly one fixed-dt (1/60 s) frame. */
-    tick: () => ex.ui_tick(),
-    /** Hash the current DrawList without rasterizing it (BigInt, wasm i64). */
-    drawHash: ex.ui_draw_hash ? () => ex.ui_draw_hash() : null,
-    /** The same for the auxiliary surface's DrawList; null on a wasm build that predates it. */
-    drawHashAuxiliary: ex.ui_draw_hash_auxiliary ? () => ex.ui_draw_hash_auxiliary() : null,
-    /** Every live shell binding, including hidden/minimized surface nodes. */
-    compositorBindings() {
-      return Array.from(compositorBindings.values(), (entry) => ({ ...entry }));
+    /** Browser imports settle between JS tasks. The Runtime is retained while
+     * evaluate's promise is pending; pixels and frame advancement stay gated. */
+    async bootAsync(source,bootOptions={}) {
+      try {
+        api.boot(source,{...bootOptions,async:true});
+        bootPending=true;
+        await evaluation;
+        assertLive();
+        if(typeof realm.frame!=="function") throw new Error("Guest did not install frame()");
+        bootPending=false;
+        present();
+        return ops;
+      } catch(error) {
+        bootPending=false;
+        if(!disposed) api.dispose();
+        throw error;
+      } finally {evaluation=undefined;}
     },
-    /** Visible child frames in exact shell painter order. */
-    compositorFrames() {
-      if (!ex.ui_compositor_frames || !ex.ui_compositor_frames_ptr) return [];
-      const count = ex.ui_compositor_frames();
-      const ptr = ex.ui_compositor_frames_ptr();
-      const words = new Uint32Array(ex.memory.buffer, ptr, count * 10);
-      const floats = new Float32Array(ex.memory.buffer, ptr, count * 10);
-      const frames = [];
-      for (let i = 0; i < count; i++) {
-        const at = i * 10;
-        frames.push({
-          handle: words[at],
-          full: [floats[at + 1], floats[at + 2], floats[at + 3], floats[at + 4]],
-          clip: [floats[at + 5], floats[at + 6], floats[at + 7], floats[at + 8]],
-          focused: words[at + 9] !== 0,
-          order: i,
-        });
-      }
-      return frames;
-    },
-    /** Retain one child RGBA8 framebuffer in the shell compositor. */
-    uploadCompositorSurface(handle, pixels, width, height) {
-      if (!ex.ui_compositor_upload_surface) return -1;
-      return withBytes(pixels, (ptr, len) =>
-        ex.ui_compositor_upload_surface(handle, ptr, len, width, height),
-      );
-    },
-    freeCompositorSurface(handle) {
-      if (ex.ui_compositor_free_surface) ex.ui_compositor_free_surface(handle);
-    },
-    /** Rasterize the byte-exact framebuffer at the logical viewport size. */
-    render() {
-      return framebufferView(ex.ui_render(), 1);
-    },
-    /** Rasterize the logical DrawList directly at an integer physical scale. */
-    renderScaled(scale) {
-      scale = integerInRange(scale, "render scale", 1, 4);
-      return framebufferView(ex.ui_render_scaled(scale), scale);
-    },
-    /**
-     * Rasterize the DrawList once into RGBA8 that keeps coverage: premultiplied
-     * R,G,B and the alpha the ops accumulated, 0 where nothing is drawn. For a
-     * host that lays the interface over a scene of its own. The view is a buffer
-     * separate from render()'s; null on a wasm build that predates the export.
-     */
-    renderPremultiplied: ex.ui_render_premultiplied_scaled
-      ? (scale = 1) => {
-          scale = integerInRange(scale, "render scale", 1, 4);
-          return framebufferView(ex.ui_render_premultiplied_scaled(scale), scale);
-        }
-      : null,
-    /** Render shell chrome and child rasters in SURFACE_QUAD painter order. */
-    renderComposited(scale = 1) {
-      scale = integerInRange(scale, "render scale", 1, 4);
-      const ptr = scale === 1
-        ? ex.ui_render_composited?.()
-        : ex.ui_render_composited_scaled?.(scale);
-      return framebufferView(ptr || ex.ui_render_scaled(scale), scale);
-    },
-    /** Repaint only changed regions, falling back for older wasm builds. */
-    renderIncremental() {
-      const ptr = ex.ui_render_incremental
-        ? ex.ui_render_incremental()
-        : ex.ui_render();
-      return framebufferView(ptr, 1);
-    },
-    /** Incremental equivalent of renderScaled(). */
-    renderScaledIncremental(scale) {
-      scale = integerInRange(scale, "render scale", 1, 4);
-      const ptr = ex.ui_render_incremental_scaled
-        ? ex.ui_render_incremental_scaled(scale)
-        : ex.ui_render_scaled(scale);
-      return framebufferView(ptr, scale);
-    },
+    advance(facts={},ticks=1) {control();if(!booted)throw new Error("Boot the Runtime first");withBytes(encoder.encode(JSON.stringify(facts)),(p,n)=>check(ex.web_advance(handle,p,n,integer(ticks,"ticks",1,60))));pending=true;},
+    present,
+    init(nextDensity=density){control();check(ex.web_reset(handle,integer(nextDensity,"density",1,255)));density=nextDensity;booted=false;pending=false;bindings.clear();mountHarness();},
+    dispose(){if(disposed)return;control(true);check(ex.web_destroy(handle));mounted?.dispose();disposed=true;handle=0;},
+    resizeViewport(w,h){control();w=integer(w,"width",1,32000);h=integer(h,"height",1,32000);check(ex.web_resize(handle,w,h));width=w;height=h;ops.__viewport.w=w;ops.__viewport.h=h;},
+    createAuxiliarySurface(w,h){control();w=integer(w,"auxiliary width",1,4096);h=integer(h,"auxiliary height",1,4096);const root=ex.web_auxiliary(handle,w,h);if(!root)throw new Error("Auxiliary changes require an unbooted host");auxiliary=[w,h];const added=mountUi(transport,{auxiliary:{root,w,h},viewport:{w:width,h:height}},{}).ui;Object.assign(ops, {hitTestAuxiliary:added.hitTestAuxiliary,hitTestBoundsAuxiliary:added.hitTestBoundsAuxiliary,__auxiliarySurface:added.__auxiliarySurface});return root;},
+    tick(){control();check(ex.web_tick(handle));},
+    focused(){control();return ex.web_focused(handle);},
+    inspectNode(id){control();check(ex.web_inspect(handle,id));return JSON.parse(resultText());},
+    layout(id){control();return withBytes(new Uint8Array(32),p=>{if(!ex.web_layout(handle,id,p))throw new Error(`Missing node ${id}`);return Array.from(new Float32Array(ex.memory.buffer,p,8));});},
+    setLayoutMode(id,mode,x,y,w,h){control();ex.web_layout_mode(handle,id,mode,x,y,w,h);},
+    drawHash(){control();return ex.web_draw_hash(handle,0);},drawHashAuxiliary(){control();return ex.web_draw_hash(handle,1);},
+    compositorBindings(){control();return Array.from(bindings.values(),v=>({...v}));},
+    compositorFrames(){control();check(ex.web_compositor_frames(handle));return JSON.parse(resultText());},
+    uploadCompositorSurface(id,pixels,w,h){control();return withBytes(pixels,(p,n)=>ex.web_upload_surface(handle,id,p,n,w,h));},
+    freeCompositorSurface(id){control();ex.web_free_surface(handle,id);},
+    render(){return booted&&renderScale===1 ? present() : capture(1,0);},renderScaled(scale){return booted&&renderScale===scale ? present() : capture(scale,0);},renderIncremental(){return booted&&renderScale===1 ? present() : capture(1,1);},renderScaledIncremental(scale){return booted&&renderScale===scale ? present() : capture(scale,1);},
+    renderPremultiplied(scale=1){return capture(scale,2);},renderComposited(scale=1){return capture(scale,3);},renderAuxiliary(){if(!auxiliary)throw new Error("No auxiliary display");return capture(1,4);},
   };
+  return api;
+}
+
+/** Decode upstream pointer transport into device facts. DOWN hit ownership
+ * remains in Runtime; the upstream hit array is intentionally not an input. */
+export function contactFacts(touches, surfaces) {
+  return (touches ?? []).map((word,index)=>{
+    word >>>= 0;const cancelled=!!(word & 0x40000000),wide=!!(word & 0x80000000),bits=wide ? 10 : 9,mask=(1<<bits)-1;
+    return {surface:surfaces?.[index] ?? 0,id:(word >>> (cancelled ? 18 : bits*2)) & 255,x:word&mask,y:(word>>>bits)&mask,cancelled};
+  });
 }
 
 /**

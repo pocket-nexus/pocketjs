@@ -2,6 +2,7 @@
 // every Pocket package receives an independent JavaScript Realm and wasm Ui.
 // The parent System host owns scheduling and composition through this narrow
 // object; package code never receives another realm or framebuffer.
+// Runtime owns input encoding, guest turns and display presentation.
 //
 // `options.text: false` starts the instance without the text worker and its
 // pocket_text.wasm: the guest then has no `offload` global, as on a host
@@ -16,7 +17,7 @@
 // with (default: the Japanese, Chinese and Korean faces of the common
 // systems, then sans-serif).
 
-import { createWasmUi } from "./wasm-ops.js";
+import { createWasmUi, contactFacts } from "./wasm-ops.js";
 import { canvasRasterizer, installRuntimeGlyphs } from "./runtime-glyphs.js";
 import { createWorkerOffload } from "./offload-worker.js";
 
@@ -26,7 +27,12 @@ async function requiredFetch(url, kind) {
   return response;
 }
 
+let currentInstance;
+globalThis.addEventListener?.("pagehide", () => currentInstance?.dispose());
+
 export async function create(options) {
+  currentInstance?.dispose();
+  currentInstance = undefined;
   const viewport = [...(options.viewport ?? [480, 272])];
   const density = options.rasterDensity ?? 1;
   const wasmBytes = await (await requiredFetch(options.wasmUrl, "PocketJS wasm")).arrayBuffer();
@@ -37,56 +43,54 @@ export async function create(options) {
     auxiliary: options.auxiliary,
   });
 
-  const glyphs = options.runtimeGlyphs === false
-    ? null
-    : installRuntimeGlyphs(wasm.ops, { rasterize: canvasRasterizer(options.glyphFamilies ? { families: options.glyphFamilies } : {}) });
-
-  const incoming = [];
-  const outgoing = [];
+  let glyphs;
+  const incoming = [], outgoing = [];
   const companions = new Set(options.companions ?? []);
-  wasm.ops.svcOpen = (name) => companions.has(name);
-  wasm.ops.svcPoll = () => {
-    if (incoming.length === 0) return null;
-    const batch = incoming.splice(0).join("\n");
-    return `${batch}\n`;
-  };
-  wasm.ops.svcSend = (line) => {
-    if (typeof line === "string" && outgoing.length < 1024) outgoing.push(line);
-  };
-  if (options.surfaces) wasm.ops.__surfaces = { ...options.surfaces };
-
-  globalThis.ui = wasm.ops;
+  const pakResponse = await fetch(options.pakUrl);
+  const pak = pakResponse.ok ? await pakResponse.arrayBuffer() : undefined;
+  const textWorker = options.text === false
+    ? { beginFrame() {}, dispose() {} }
+    : createWorkerOffload({workerUrl:new URL("./text-worker.js",import.meta.url),wasmUrl:new URL("./pocket_text.wasm",import.meta.url),pak});
+  const source = await (await requiredFetch(options.bundleUrl, "Pocket app bundle")).text();
   globalThis.frame = undefined;
   globalThis.__simHz = options.simHz ?? 60;
   globalThis.__pocketApp = options.packageId;
-  const pak = await fetch(options.pakUrl);
-  globalThis.__pak = pak.ok ? await pak.arrayBuffer() : undefined;
-  const textWorker = options.text === false
-    ? { beginFrame() {}, dispose() {} }
-    : createWorkerOffload({workerUrl:new URL("./text-worker.js",import.meta.url),wasmUrl:new URL("./pocket_text.wasm",import.meta.url),pak:globalThis.__pak});
-  if (options.text !== false) globalThis.offload=textWorker.ops;
-  const source = await (await requiredFetch(options.bundleUrl, "Pocket app bundle")).text();
-  new Function(`${source}\n//# sourceURL=${options.packageId}.js`)();
-  if (typeof globalThis.frame !== "function") {
-    throw new Error(`${options.packageId} evaluated but installed no frame()`);
-  }
+  if (options.text !== false) globalThis.offload = textWorker.ops;
+  try {
+    wasm.boot(source, {
+      pak,
+      sourceName: `${options.packageId}.js`,
+      host: options.host, hostAbi: options.hostAbi,
+      providers: {
+        svcOpen: name => companions.has(name),
+        svcPoll: () => incoming.length ? `${incoming.splice(0).join("\n")}\n` : undefined,
+        svcSend: line => {if(typeof line==="string" && outgoing.length<1024)outgoing.push(line);},
+      },
+      beforeEvaluate(ops) {
+        glyphs = options.runtimeGlyphs === false ? null : installRuntimeGlyphs(ops, {
+          rasterize: canvasRasterizer(options.glyphFamilies ? {families:options.glyphFamilies} : {}),
+        });
+        if(options.surfaces) ops.__surfaces = {...options.surfaces};
+      },
+      beforeFrame() { textWorker.beginFrame(); },
+      afterFrame() { glyphs?.flush(); },
+    });
+  } catch(error) { textWorker.dispose(); wasm.dispose(); throw error; }
 
-  return {
+  let disposed = false;
+  const instance = {
     packageId: options.packageId,
     viewport,
     // The guest frame signature is positional (framework/src/index.ts):
     // frame(buttons, analog, touches?, hits?, touchSurfaces?). A parent that
-    // passes only buttons keeps the button-only contract — `undefined`
-    // touches clear the contact snapshot, exactly as a host with no panel.
+    // passes only buttons supplies an empty contact snapshot. Runtime
+    // computes each DOWN hit and emits the canonical frame arrays.
     // `ticks` is the sixtieths of a second the core advances after the guest's
     // frame: a parent that turns the guest less often than the display
     // refreshes passes the refreshes since the last turn, as the native
-    // runtime does (engine/quickjs-c/pocket_runtime.c).
+    // runtime does through advance_with_core_ticks.
     step(buttons = 0, touches, hits, touchSurfaces, ticks = 1) {
-      textWorker.beginFrame();
-      globalThis.frame(buttons, 0x8080, touches, hits, touchSurfaces);
-      glyphs?.flush();
-      for (let i = 0; i < ticks; i++) wasm.tick();
+      wasm.advance({buttons, contacts: contactFacts(touches, touchSurfaces)}, ticks);
     },
     /**
      * Bounds hit query (spec op 42) against the committed frame, so the parent
@@ -156,14 +160,17 @@ export async function create(options) {
       return outgoing.splice(0);
     },
     dispose() {
+      if (disposed) return;
+      disposed = true;
       textWorker.dispose();
       incoming.length = 0;
       outgoing.length = 0;
-      globalThis.frame = undefined;
-      globalThis.ui = undefined;
-      globalThis.__pak = undefined;
+      wasm.dispose();
+      if (globalThis.offload === textWorker.ops) delete globalThis.offload;
     },
   };
+  currentInstance = instance;
+  return instance;
 }
 
 globalThis.PocketAppInstance = { create };

@@ -1,947 +1,519 @@
-//! pocketjs-wasm — extern "C" mirror of the core op surface + software
-//! rasterizer, for wasm32-unknown-unknown (no wasm-bindgen; the JS host talks
-//! plain numbers + wasm linear memory).
-//!
-//! `pocketjs_core::raster` is the shared deterministic rasterizer (blend,
-//! gradients, triangles, glyphs, textures). `ui_render()` keeps the byte-exact
-//! legacy 480x272 path while `ui_render_scaled(scale)` rasterizes the same
-//! logical DrawList directly onto an integer-scaled physical surface.
-//!
-//! ABI (all little-endian, one exported fn per spec::op code):
-//!   - Strings/buffers cross via linear memory: the host calls
-//!     `ui_alloc(len)`, writes bytes at the returned offset, passes
-//!     (ptr, len), then `ui_free(ptr, len)`. UTF-8 for text.
-//!   - `ui_render[_scaled]()` performs a compatibility full render.
-//!     `ui_render_incremental[_scaled]()` retains the same RGBA8 framebuffer
-//!     and repaints only changed regions. The returned pointer stays valid
-//!     until the next render or init call on this instance.
-//!   - `ui_render_premultiplied_scaled(scale)` rasterizes the same DrawList
-//!     into a buffer of its own that keeps coverage: premultiplied R,G,B and
-//!     the alpha the ops accumulated, for a host that lays the interface over
-//!     a scene it drew itself. It leaves the opaque framebuffer and the
-//!     incremental tracker as they are.
-//!   - Single-threaded by construction (one wasm instance per Ui).
+//! Instance-owned browser embedding. Guest operations use the canonical
+//! dispatcher; the direct-core entry is reserved for compiler and pixel tests.
+#![allow(clippy::missing_safety_doc)]
 
-#![allow(static_mut_refs)]
-// single-threaded wasm instance; one global Ui
-// Every (ptr, len) export dereferences a host-written linear-memory buffer;
-// safety IS the ABI contract (ui_alloc/ui_free above), not a Rust signature.
-#![allow(clippy::not_unsafe_ptr_arg_deref)]
+use pocket_drivers::{abi::*, *};
+use pocket_runtime::{OpContext, OpResult, Runtime, RuntimeError};
+use pocketjs_core::{raster, Ui};
+use serde_json::{json, Value};
+use std::{
+    alloc::{alloc, dealloc, Layout},
+    cell::{Cell, RefCell},
+    mem::{offset_of, size_of},
+    rc::Rc,
+};
+mod browser;
+use browser::Snapshot;
 
-use pocketjs_core::damage::{DamagePolicy, DamageTracker, DEFAULT_DAMAGE_REGIONS};
-use pocketjs_core::Ui;
-
-use pocketjs_core::raster;
-
-static mut UI: Option<Ui> = None;
-static mut FRAMEBUFFER: Vec<u8> = Vec::new();
-use pocketjs_core::compositor::CompositorRaster;
-static mut AUXILIARY_FRAMEBUFFER: Vec<u8> = Vec::new();
-/// The primary surface with coverage (`ui_render_premultiplied_scaled`). It is
-/// separate from FRAMEBUFFER: the incremental tracker describes that buffer.
-static mut PREMULTIPLIED_FRAMEBUFFER: Vec<u8> = Vec::new();
-
-/// Browser System hosts upload visible child AppInstance framebuffers here.
-/// Values are arbitrary-size RGBA rasters indexed by the shell's compositor
-/// handle. They deliberately do not enter the pow2 guest image texture pool.
-static mut COMPOSITOR_RASTERS: Vec<Option<CompositorRaster>> = Vec::new();
-/// Staged compositor frame records. Each record is ten u32 words:
-/// handle, full x/y/w/h f32 bits, clip x/y/w/h f32 bits, focused (0/1).
-static mut COMPOSITOR_FRAMES: Vec<u32> = Vec::new();
-static mut ANIMATION_COMPLETIONS: Vec<i32> = Vec::new();
-static mut DAMAGE_TRACKER: DamageTracker<DEFAULT_DAMAGE_REGIONS> = DamageTracker::new();
-/// wrapText result staging (same lifetime contract as FRAMEBUFFER: the
-/// pointer from `ui_wrap_text_ptr` stays valid until the next wrapText or
-/// init call on this instance).
-static mut WRAP_BREAKS: Vec<u32> = Vec::new();
-
-#[inline]
-fn ui() -> &'static mut Ui {
-    unsafe { UI.get_or_insert_with(Ui::new) }
+const MAX_BYTES: usize = 128 * 1024 * 1024;
+pub struct WasmHost {
+    ops: RefCell<OpContext>,
+    runtime: RefCell<Option<Runtime>>,
+    logical: Cell<[u32; 2]>,
+    physical: Rc<Cell<[u32; 2]>>,
+    density: Cell<u32>,
+    identity: RefCell<(String, u32)>,
+    auxiliary: Cell<Option<[u32; 2]>>,
+    input: Rc<RefCell<InputFrameBuilder>>,
+    snapshot: Rc<Cell<Snapshot>>,
+    result: RefCell<Vec<u8>>,
+    provider_ops: RefCell<Vec<u16>>,
+    provider_result: RefCell<Option<OpResult>>,
+    capture: RefCell<Capture>,
+    surfaces: RefCell<Vec<Option<pocket_present::compositor::CompositorRaster>>>,
 }
-
-/// Borrow (ptr, len) from wasm linear memory. Empty slice on null.
-#[inline]
-unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> &'a [u8] {
-    if ptr.is_null() || len == 0 {
+#[derive(Default)]
+struct Capture {
+    opaque: Vec<u8>,
+    transparent: Vec<u8>,
+    auxiliary: Vec<u8>,
+    damage:
+        pocket_present::damage::DamageTracker<{ pocket_present::damage::DEFAULT_DAMAGE_REGIONS }>,
+}
+fn core_context(size: [u32; 2], density: u32, auxiliary: Option<[u32; 2]>) -> OpContext {
+    let mut ui = Ui::new_with_raster_density(density);
+    ui.set_viewport(size[0] as f32, size[1] as f32);
+    if let Some([w, h]) = auxiliary {
+        ui.create_auxiliary_surface(w as f32, h as f32);
+    }
+    let ops = OpContext::from_ui(ui);
+    ops.set_compositor_enabled(true).unwrap();
+    ops.set_physics_enabled(true).unwrap();
+    ops
+}
+fn checked_size(size: [u32; 2], scale: u32) -> Option<usize> {
+    if !(1..=4).contains(&scale) || size.iter().any(|&n| n == 0 || n > 32000) {
+        return None;
+    }
+    (size[0] as usize)
+        .checked_mul(size[1] as usize)?
+        .checked_mul(scale as usize)?
+        .checked_mul(scale as usize)?
+        .checked_mul(4)
+        .filter(|&n| n <= MAX_BYTES)
+}
+fn resize(bytes: &mut Vec<u8>, len: usize) -> Result<(), RuntimeError> {
+    bytes
+        .try_reserve(len.saturating_sub(bytes.len()))
+        .map_err(|_| RuntimeError::InvalidArgument)?;
+    bytes.resize(len, 0);
+    Ok(())
+}
+unsafe fn bytes<'a>(p: *const u8, n: usize) -> &'a [u8] {
+    if n == 0 {
         &[]
     } else {
-        core::slice::from_raw_parts(ptr, len)
+        std::slice::from_raw_parts(p, n)
+    }
+}
+fn status(host: &WasmHost, result: Result<(), RuntimeError>) -> i32 {
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            *host.result.borrow_mut() = format!("{e:?}").into_bytes();
+            -1
+        }
     }
 }
 
-/// Borrow (ptr, len) as UTF-8 (lossy inputs are rejected -> "").
-#[inline]
-unsafe fn text<'a>(ptr: *const u8, len: usize) -> &'a str {
-    core::str::from_utf8(bytes(ptr, len)).unwrap_or("")
-}
-
-// ---- lifecycle -------------------------------------------------------------
-
-/// Create (or reset) the Ui instance. `raster_density` controls core-owned
-/// bitmap resources such as rounded-corner masks; zero is the legacy default
-/// of one sample per logical pixel. Idempotent; call before anything else.
 #[no_mangle]
-pub extern "C" fn ui_init(raster_density: u32) {
-    unsafe {
-        UI = Some(Ui::new_with_raster_density(raster_density.max(1)));
-        FRAMEBUFFER.clear();
-        AUXILIARY_FRAMEBUFFER.clear();
-        PREMULTIPLIED_FRAMEBUFFER.clear();
-        COMPOSITOR_RASTERS.clear();
-        COMPOSITOR_FRAMES.clear();
-        DAMAGE_TRACKER = DamageTracker::new();
+pub extern "C" fn web_alloc(len: usize) -> *mut u8 {
+    Layout::from_size_align(len.max(1), 8)
+        .ok()
+        .map_or(std::ptr::null_mut(), |layout| unsafe { alloc(layout) })
+}
+#[no_mangle]
+pub unsafe extern "C" fn web_free(p: *mut u8, len: usize) {
+    if !p.is_null() {
+        dealloc(p, Layout::from_size_align(len.max(1), 8).unwrap());
     }
 }
-
-/// Resize the logical layout/draw viewport. Existing stock hosts never call
-/// this and retain the legacy 480x272 contract.
 #[no_mangle]
-pub extern "C" fn ui_set_viewport(width: f32, height: f32) {
-    ui().set_viewport(width, height);
-}
-
-#[no_mangle]
-pub extern "C" fn ui_create_auxiliary_surface(width: f32, height: f32) -> i32 {
-    if !width.is_finite() || !height.is_finite() || width < 1.0 || height < 1.0 || width > 4096.0 || height > 4096.0 { return 0; }
-    ui().create_auxiliary_surface(width, height)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_hit_test_auxiliary(x: f32, y: f32) -> i32 { ui().hit_test_auxiliary(x, y) }
-#[no_mangle]
-pub extern "C" fn ui_hit_test_bounds_auxiliary(x: f32, y: f32) -> i32 { ui().hit_test_bounds_auxiliary(x, y) }
-
-struct AuxiliaryResources<'a>(&'a Ui);
-impl pocketjs_core::resources::RenderResources for AuxiliaryResources<'_> {
-    fn viewport(&self) -> (f32, f32) { self.0.auxiliary_viewport().unwrap() }
-    fn raster_revision(&self) -> u64 { self.0.raster_revision() }
-    fn texture(&self, handle: i32) -> Option<pocketjs_core::TexView<'_>> { self.0.texture(handle) }
-    fn font_atlas(&self, slot: u8) -> Option<pocketjs_core::resources::FontView<'_>> {
-        pocketjs_core::resources::RenderResources::font_atlas(self.0, slot)
+pub extern "C" fn web_create(w: u32, h: u32, density: u32, aw: u32, ah: u32) -> *mut WasmHost {
+    let aux = if aw == 0 && ah == 0 {
+        None
+    } else {
+        Some([aw, ah])
+    };
+    if checked_size([w, h], 1).is_none()
+        || !(1..=255).contains(&density)
+        || aux.is_some_and(|s| checked_size(s, 1).is_none())
+    {
+        return std::ptr::null_mut();
     }
+    Box::into_raw(Box::new(WasmHost {
+        ops: RefCell::new(core_context([w, h], density, aux)),
+        runtime: RefCell::new(None),
+        logical: Cell::new([w, h]),
+        physical: Rc::new(Cell::new([w, h])),
+        density: Cell::new(density),
+        identity: RefCell::new(("web".into(), 1)),
+        auxiliary: Cell::new(aux),
+        input: Rc::new(RefCell::new(InputFrameBuilder::new())),
+        snapshot: Rc::new(Cell::new(Snapshot::default())),
+        result: RefCell::new(Vec::new()),
+        provider_ops: RefCell::new(Vec::new()),
+        provider_result: RefCell::new(None),
+        capture: RefCell::new(Capture::default()),
+        surfaces: RefCell::new(Vec::new()),
+    }))
 }
-
-/// Auxiliary pixels share textures and frame time, with their own viewport.
+/// The JS owner invalidates guest references before releasing this handle.
+/// Reentrant destruction during guest callbacks returns Busy without freeing it.
 #[no_mangle]
-pub extern "C" fn ui_render_auxiliary() -> *const u8 {
-    let u = ui();
-    let Some((width, height)) = u.auxiliary_viewport() else { return core::ptr::null(); };
-    let Some(draw) = u.draw_auxiliary() else { return core::ptr::null(); };
-    let words = draw.words.clone();
-    unsafe {
-        AUXILIARY_FRAMEBUFFER.resize(width as usize * height as usize * 4, 0);
-        raster::render(&AuxiliaryResources(u), &words, &mut AUXILIARY_FRAMEBUFFER);
-        AUXILIARY_FRAMEBUFFER.as_ptr()
+pub unsafe extern "C" fn web_destroy(host: *mut WasmHost) -> i32 {
+    let h = &*host;
+    if h.ops.try_borrow_mut().is_err() {
+        return -1;
     }
-}
-
-/// Allocate `len` bytes of scratch in linear memory for host -> wasm buffers.
-#[no_mangle]
-pub extern "C" fn ui_alloc(len: usize) -> *mut u8 {
-    let mut v = Vec::<u8>::with_capacity(len.max(1));
-    let ptr = v.as_mut_ptr();
-    core::mem::forget(v);
-    ptr
-}
-
-/// Free a buffer previously returned by `ui_alloc` with the same `len`.
-#[no_mangle]
-pub extern "C" fn ui_free(ptr: *mut u8, len: usize) {
-    if !ptr.is_null() {
-        unsafe { drop(Vec::from_raw_parts(ptr, 0, len.max(1))) };
+    let Ok(mut runtime) = h.runtime.try_borrow_mut() else {
+        return -1;
+    };
+    if let Some(r) = runtime.as_mut() {
+        if r.shutdown().is_err() {
+            return -1;
+        }
     }
+    runtime.take();
+    drop(runtime);
+    drop(Box::from_raw(host));
+    0
 }
-
-// ---- op mirror (see spec::op + docs/DESIGN.md "The native contract") -------------
-
 #[no_mangle]
-pub extern "C" fn ui_create_node(node_type: u32) -> i32 {
-    ui().create_node(node_type as u8)
+pub unsafe extern "C" fn web_reset(h: &WasmHost, density: u32) -> i32 {
+    status(
+        h,
+        (|| {
+            if h.ops.try_borrow_mut().is_err() {
+                return Err(RuntimeError::Busy);
+            }
+            if !(1..=255).contains(&density) {
+                return Err(RuntimeError::InvalidArgument);
+            }
+            let mut runtime = h.runtime.try_borrow_mut().map_err(|_| RuntimeError::Busy)?;
+            if let Some(r) = runtime.as_mut() {
+                r.shutdown()?;
+            }
+            runtime.take();
+            h.provider_ops.borrow_mut().clear();
+            h.density.set(density);
+            *h.ops.borrow_mut() = core_context(h.logical.get(), density, h.auxiliary.get());
+            *h.capture.borrow_mut() = Capture::default();
+            h.surfaces.borrow_mut().clear();
+            h.snapshot.set(Snapshot::default());
+            Ok(())
+        })(),
+    )
 }
-
-// Read-only retained-tree inspection for host tools and differential tests.
-// Borrowed pointers remain valid until the next mutation of this Ui instance.
 #[no_mangle]
-pub extern "C" fn ui_node_type(id: i32) -> i32 {
-    ui().node_type(id).map_or(-1, i32::from)
+pub extern "C" fn web_abi(index: u32) -> usize {
+    [
+        size_of::<PocketOpArg>(),
+        offset_of!(PocketOpArg, tag),
+        offset_of!(PocketOpArg, integer),
+        offset_of!(PocketOpArg, real),
+        offset_of!(PocketOpArg, bytes),
+        offset_of!(PocketOpArg, byte_length),
+        size_of::<PocketResult>(),
+        offset_of!(PocketResult, tag),
+        offset_of!(PocketResult, integer),
+        offset_of!(PocketResult, real),
+        offset_of!(PocketResult, bytes),
+        offset_of!(PocketResult, byte_length),
+        POCKET_ARG_INTEGER as usize,
+        POCKET_ARG_REAL as usize,
+        POCKET_ARG_BYTES as usize,
+        POCKET_RESULT_NONE as usize,
+        POCKET_RESULT_I64 as usize,
+        POCKET_RESULT_F64 as usize,
+        POCKET_RESULT_BYTES as usize,
+    ]
+    .get(index as usize)
+    .copied()
+    .unwrap_or(0)
 }
-
 #[no_mangle]
-pub extern "C" fn ui_focused() -> i32 {
-    ui().focused()
+pub extern "C" fn web_supports(h: &WasmHost, op: u16) -> u32 {
+    h.ops.borrow().supports_op(op) as u32
 }
-
 #[no_mangle]
-pub extern "C" fn ui_node_text_ptr(id: i32) -> *const u8 {
-    ui().node_text(id).map_or(core::ptr::null(), str::as_ptr)
+pub unsafe extern "C" fn web_dispatch(
+    h: &WasmHost,
+    op: u16,
+    args: *const PocketOpArg,
+    count: usize,
+    out: *mut PocketResult,
+) -> i32 {
+    status(
+        h,
+        (|| {
+            let args = pocket_runtime_cabi::arguments(args.cast(), count)
+                .map_err(|_| RuntimeError::InvalidArgument)?;
+            let result = h.ops.borrow().dispatch(op, &args)?;
+            let mut record = PocketResult::empty();
+            match result {
+                OpResult::None => record.tag = POCKET_RESULT_NONE,
+                OpResult::Integer(v) => {
+                    record.tag = POCKET_RESULT_I64;
+                    record.integer = v
+                }
+                OpResult::Real(v) => {
+                    record.tag = POCKET_RESULT_F64;
+                    record.real = v
+                }
+                OpResult::Bytes(v) => {
+                    let mut b = h.result.borrow_mut();
+                    *b = v;
+                    record.tag = POCKET_RESULT_BYTES;
+                    record.bytes = b.as_ptr();
+                    record.byte_length = b.len();
+                }
+            }
+            out.write(record);
+            Ok(())
+        })(),
+    )
 }
-
 #[no_mangle]
-pub extern "C" fn ui_node_text_len(id: i32) -> usize {
-    ui().node_text(id).map_or(0, str::len)
+pub extern "C" fn web_result_ptr(h: &WasmHost) -> *const u8 {
+    h.result.borrow().as_ptr()
 }
-
 #[no_mangle]
-pub extern "C" fn ui_node_children_ptr(id: i32) -> *const i32 {
-    ui().node_children(id).as_ptr()
+pub extern "C" fn web_result_len(h: &WasmHost) -> usize {
+    h.result.borrow().len()
 }
-
 #[no_mangle]
-pub extern "C" fn ui_node_children_len(id: i32) -> usize {
-    ui().node_children(id).len()
+pub extern "C" fn web_tick(h: &WasmHost) -> i32 {
+    status(
+        h,
+        (|| {
+            if h.runtime.borrow().is_some() {
+                return Err(RuntimeError::InvalidState);
+            }
+            h.ops.borrow().core_mut()?.tick();
+            Ok(())
+        })(),
+    )
 }
-
 #[no_mangle]
-pub extern "C" fn ui_node_display(id: i32) -> i32 {
-    ui().resolved_style(id).map_or(-1, |style| i32::from(style.display))
+pub extern "C" fn web_resize(h: &WasmHost, w: u32, height: u32) -> i32 {
+    status(
+        h,
+        (|| {
+            let old = h.logical.get();
+            let physical = h.physical.get();
+            let scale = physical[0] / old[0];
+            checked_size([w, height], scale).ok_or(RuntimeError::InvalidArgument)?;
+            let mut runtime = h.runtime.try_borrow_mut().map_err(|_| RuntimeError::Busy)?;
+            h.physical.set([w * scale, height * scale]);
+            if let Some(r) = runtime.as_mut() {
+                if let Err(e) = r.resize_embedded([w, height], [w * scale, height * scale]) {
+                    h.physical.set(physical);
+                    return Err(e);
+                }
+            } else {
+                h.ops
+                    .borrow()
+                    .core_mut()?
+                    .set_viewport(w as f32, height as f32);
+            }
+            h.logical.set([w, height]);
+            h.capture.borrow_mut().damage.invalidate();
+            Ok(())
+        })(),
+    )
 }
-
-/// Rounded rect (x, y, w, h, relative to the parent) then the unrounded solver
-/// output (NaN without a solver node) into eight f32 at `out`. Returns 0 for
-/// a stale id. The MicroTS compiler's build-time layout evaluation reads it.
 #[no_mangle]
-pub extern "C" fn ui_node_layout(id: i32, out: *mut f32) -> i32 {
-    let Some((x, y, w, h)) = ui().layout_of(id) else {
+pub extern "C" fn web_auxiliary(h: &WasmHost, w: u32, height: u32) -> i32 {
+    if h.runtime.borrow().is_some() || checked_size([w, height], 1).is_none() {
+        return 0;
+    }
+    let id = h
+        .ops
+        .borrow()
+        .core_mut()
+        .map(|mut c| c.create_auxiliary_surface(w as f32, height as f32))
+        .unwrap_or(0);
+    if id != 0 {
+        h.auxiliary.set(Some([w, height]));
+    }
+    id
+}
+#[no_mangle]
+pub extern "C" fn web_auxiliary_root(h: &WasmHost) -> i32 {
+    h.ops
+        .borrow()
+        .core()
+        .ok()
+        .map(|c| c.auxiliary_surface_root())
+        .unwrap_or(0)
+}
+#[no_mangle]
+pub extern "C" fn web_focused(h: &WasmHost) -> i32 {
+    h.ops.borrow().core().map(|c| c.focused()).unwrap_or(0)
+}
+#[no_mangle]
+pub extern "C" fn web_inspect(h: &WasmHost, id: i32) -> i32 {
+    status(
+        h,
+        (|| {
+            let ops = h.ops.borrow();
+            let c = ops.core()?;
+            let value = match c.node_type(id) {
+                Some(t) => {
+                    json!({"type":t,"text":c.node_text(id).unwrap_or(""),"children":c.node_children(id),"display":c.resolved_style(id).map(|s|s.display),"style":{"bgColor":c.resolved_style(id).map_or(0,|s|s.bg_color),"textColor":c.resolved_style(id).map_or(0,|s|s.text_color)}})
+                }
+                None => Value::Null,
+            };
+            *h.result.borrow_mut() = serde_json::to_vec(&value).unwrap();
+            Ok(())
+        })(),
+    )
+}
+#[no_mangle]
+pub unsafe extern "C" fn web_layout(h: &WasmHost, id: i32, out: *mut f32) -> i32 {
+    let ops = h.ops.borrow();
+    let Ok(c) = ops.core() else { return 0 };
+    let Some((x, y, w, he)) = c.layout_of(id) else {
         return 0;
     };
-    let (ux, uy, uw, uh) = ui().layout_unrounded_of(id).unwrap_or((f32::NAN, f32::NAN, f32::NAN, f32::NAN));
-    let values = [x, y, w, h, ux, uy, uw, uh];
-    for (index, value) in values.into_iter().enumerate() {
-        // SAFETY: the caller passes an `ui_alloc` buffer of at least 32 bytes.
-        unsafe { out.add(index).write(value) };
-    }
+    let (ux, uy, uw, uh) =
+        c.layout_unrounded_of(id)
+            .unwrap_or((f32::NAN, f32::NAN, f32::NAN, f32::NAN));
+    std::ptr::copy_nonoverlapping([x, y, w, he, ux, uy, uw, uh].as_ptr(), out, 8);
     1
 }
-
-/// `Ui::set_layout_mode`: pocketjs_core::tree::LAYOUT_LIVE, LAYOUT_STATIC
-/// (with the rect) or LAYOUT_FORMULA.
 #[no_mangle]
-pub extern "C" fn ui_set_layout_mode(id: i32, mode: i32, x: f32, y: f32, w: f32, h: f32) {
-    ui().set_layout_mode(id, mode as u8, x, y, w, h);
+pub extern "C" fn web_layout_mode(
+    h: &WasmHost,
+    id: i32,
+    mode: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    height: f32,
+) {
+    if let Ok(mut c) = h.ops.borrow().core_mut() {
+        c.set_layout_mode(id, mode as u8, x, y, w, height)
+    }
+}
+fn hash(words: &[u32]) -> u64 {
+    words
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .fold(0xcbf29ce484222325u64, |h, b| {
+            (h ^ b as u64).wrapping_mul(0x100000001b3)
+        })
+}
+#[no_mangle]
+pub extern "C" fn web_draw_hash(h: &WasmHost, aux: u32) -> u64 {
+    let ops = h.ops.borrow();
+    let Ok(mut c) = ops.core_mut() else { return 0 };
+    if aux != 0 {
+        c.draw_auxiliary().map_or(0, |d| hash(&d.words))
+    } else {
+        hash(&c.draw().words)
+    }
 }
 
-#[no_mangle]
-pub extern "C" fn ui_node_bg_color(id: i32) -> u32 {
-    ui().resolved_style(id).map_or(0, |style| style.bg_color)
+struct Auxiliary<'a>(&'a Ui);
+impl RenderResources for Auxiliary<'_> {
+    fn viewport(&self) -> (f32, f32) {
+        self.0.auxiliary_viewport().unwrap()
+    }
+    fn raster_revision(&self) -> u64 {
+        self.0.raster_revision()
+    }
+    fn texture(&self, h: i32) -> Option<TexView<'_>> {
+        self.0.texture(h)
+    }
+    fn font_atlas(&self, s: u8) -> Option<FontView<'_>> {
+        RenderResources::font_atlas(self.0, s)
+    }
 }
-
+/// Modes: opaque full, incremental, premultiplied, compositor, auxiliary.
+/// Captures use the same retained core as Runtime and keep their own buffers.
 #[no_mangle]
-pub extern "C" fn ui_node_text_color(id: i32) -> u32 {
-    ui().resolved_style(id).map_or(0, |style| style.text_color)
+pub extern "C" fn web_capture(h: &WasmHost, scale: u32, mode: u32) -> *const u8 {
+    let result = (|| {
+        let size = if mode == 4 {
+            h.auxiliary.get().ok_or(RuntimeError::InvalidArgument)?
+        } else {
+            h.logical.get()
+        };
+        let len = checked_size(size, scale).ok_or(RuntimeError::InvalidArgument)?;
+        let ops = h.ops.borrow();
+        let mut c = ops.core_mut()?;
+        let mut capture = h.capture.borrow_mut();
+        if mode == 4 {
+            c.draw_auxiliary();
+            let words = &c
+                .current_auxiliary_draw_list()
+                .ok_or(RuntimeError::InvalidArgument)?
+                .words;
+            resize(&mut capture.auxiliary, len)?;
+            raster::render_scaled(&Auxiliary(&c.ui), words, &mut capture.auxiliary, scale);
+            return Ok(capture.auxiliary.as_ptr());
+        }
+        c.draw();
+        let words = &c.current_draw_list().words;
+        if mode == 2 {
+            resize(&mut capture.transparent, len)?;
+            raster::render_scaled_premultiplied(&c.ui, words, &mut capture.transparent, scale);
+            return Ok(capture.transparent.as_ptr());
+        }
+        resize(&mut capture.opaque, len)?;
+        let Capture { opaque, damage, .. } = &mut *capture;
+        if mode == 3 {
+            pocket_present::compositor::render(&c.ui, words, opaque, scale, &h.surfaces.borrow());
+            damage.invalidate();
+        } else if mode == 1 {
+            if pocket_present::incremental::render_scaled_incremental(
+                &c.ui,
+                words,
+                opaque,
+                scale,
+                damage,
+                pocket_present::damage::DamagePolicy::default(),
+            )
+            .is_err()
+            {
+                raster::render_scaled(&c.ui, words, opaque, scale);
+                damage.invalidate();
+            }
+        } else {
+            raster::render_scaled(&c.ui, words, opaque, scale);
+            damage.invalidate();
+        }
+        Ok(opaque.as_ptr())
+    })();
+    match result {
+        Ok(p) => p,
+        Err(e) => {
+            status(h, Err(e));
+            std::ptr::null()
+        }
+    }
 }
-
 #[no_mangle]
-pub extern "C" fn ui_destroy_node(id: i32) {
-    ui().destroy_node(id)
+pub extern "C" fn web_compositor_frames(h: &WasmHost) -> i32 {
+    status(
+        h,
+        (|| {
+            let ops = h.ops.borrow();
+            let mut c = ops.core_mut()?;
+            c.draw();
+            let frames = c.compositor_surface_frames();
+            *h.result.borrow_mut()=serde_json::to_vec(&frames.iter().enumerate().map(|(order,f)|json!({"handle":f.handle,"full":f.full,"clip":f.clip,"focused":f.focused,"order":order})).collect::<Vec<_>>()).unwrap();
+            Ok(())
+        })(),
+    )
 }
-
 #[no_mangle]
-pub extern "C" fn ui_insert_before(parent: i32, child: i32, anchor: i32) {
-    ui().insert_before(parent, child, anchor)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_remove_child(parent: i32, child: i32) {
-    ui().remove_child(parent, child)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_style(id: i32, style_id: i32) {
-    ui().set_style(id, style_id)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_prop(id: i32, prop: u32, value: f64) {
-    ui().set_prop(id, prop as u8, value)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_text(id: i32, ptr: *const u8, len: usize) {
-    ui().set_text(id, unsafe { text(ptr, len) })
-}
-
-#[no_mangle]
-pub extern "C" fn ui_replace_text(id: i32, ptr: *const u8, len: usize) {
-    ui().replace_text(id, unsafe { text(ptr, len) })
-}
-
-#[no_mangle]
-pub extern "C" fn ui_upload_texture(ptr: *const u8, len: usize, w: u32, h: u32, psm: u32) -> i32 {
-    ui().upload_texture(unsafe { bytes(ptr, len) }, w, h, psm)
-}
-
-/// Upload a self-contained IMG pak entry (spec op uploadImgEntry;
-/// framework/compiler/pak.ts layout — v2 PSM_T8 palette + optional RLE + filter flags
-/// parsed core-side). Returns the generation-tagged handle or -1.
-#[no_mangle]
-pub extern "C" fn ui_upload_img_entry(ptr: *const u8, len: usize) -> i32 {
-    ui().upload_img_entry(unsafe { bytes(ptr, len) })
-}
-
-/// Release a texture slot (spec op freeTexture). Stale handles are no-ops;
-/// anything still referencing the freed handle draws nothing.
-/// (No tileset op here — wasm hosts stream tiles via the JS __pak fallback
-/// and this entry point.)
-#[no_mangle]
-pub extern "C" fn ui_free_texture(handle: i32) {
-    ui().free_texture(handle)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_image(id: i32, tex: i32) {
-    ui().set_image(id, tex)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_compositor_surface(id: i32, surface: i32, focused: i32) {
-    ui().set_compositor_surface(id, surface, focused != 0)
-}
-
-/// Replace one browser compositor surface's retained RGBA8 framebuffer.
-/// This is a host-only wasm ABI: guest code can declare a surface binding,
-/// but cannot upload or inspect another AppInstance's pixels.
-#[no_mangle]
-pub extern "C" fn ui_compositor_upload_surface(
-    surface: u32,
-    ptr: *const u8,
-    len: usize,
-    width: u32,
+pub unsafe extern "C" fn web_upload_surface(
+    h: &WasmHost,
+    handle: i32,
+    p: *const u8,
+    n: usize,
+    w: u32,
     height: u32,
 ) -> i32 {
-    let Some(expected) = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return -1;
-    };
-    if width == 0 || height == 0 || expected != len {
+    if checked_size([w, height], 1) != Some(n) {
         return -1;
     }
-    let slot = surface as usize;
-    unsafe {
-        if COMPOSITOR_RASTERS.len() <= slot {
-            COMPOSITOR_RASTERS.resize(slot + 1, None);
-        }
-        COMPOSITOR_RASTERS[slot] = Some(CompositorRaster {
-            pixels: bytes(ptr, len).to_vec(),
-            width,
-            height,
-            density: 1,
-        });
-        i32::try_from(surface).unwrap_or(-1)
-    }
-}
-
-/// Release one retained browser compositor surface framebuffer.
-#[no_mangle]
-pub extern "C" fn ui_compositor_free_surface(surface: u32) {
-    let slot = surface as usize;
-    unsafe {
-        COMPOSITOR_RASTERS.get_mut(slot).and_then(Option::take);
-    }
-}
-
-/// Stage the shell's visible compositor frames in exact painter order.
-#[no_mangle]
-pub extern "C" fn ui_compositor_frames() -> u32 {
-    let frames = ui().compositor_surface_frames();
-    unsafe {
-        COMPOSITOR_FRAMES.clear();
-        COMPOSITOR_FRAMES.reserve(frames.len() * 10);
-        for frame in frames {
-            COMPOSITOR_FRAMES.extend_from_slice(&[
-                frame.handle,
-                frame.full[0].to_bits(),
-                frame.full[1].to_bits(),
-                frame.full[2].to_bits(),
-                frame.full[3].to_bits(),
-                frame.clip[0].to_bits(),
-                frame.clip[1].to_bits(),
-                frame.clip[2].to_bits(),
-                frame.clip[3].to_bits(),
-                u32::from(frame.focused),
-            ]);
-        }
-        (COMPOSITOR_FRAMES.len() / 10) as u32
-    }
-}
-
-/// Pointer to records staged by [`ui_compositor_frames`].
-#[no_mangle]
-pub extern "C" fn ui_compositor_frames_ptr() -> *const u32 {
-    unsafe { COMPOSITOR_FRAMES.as_ptr() }
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_sprite(id: i32, atlas: i32, frames: u32, cols: u32, step: u32) {
-    ui().set_sprite(id, atlas, frames, cols, step)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_animate(
-    id: i32,
-    prop: u32,
-    to: f64,
-    dur_ms: u32,
-    easing: u32,
-    delay_ms: u32,
-) -> i32 {
-    ui().animate(id, prop as u8, to, dur_ms, easing as u8, delay_ms)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_cancel_anim(anim_id: i32) {
-    ui().cancel_anim(anim_id)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_take_animation_completions() -> u32 {
-    unsafe {
-        ANIMATION_COMPLETIONS.clear();
-        ui().drain_animation_completions(|completion| {
-            let reason = match completion.reason {
-                pocketjs_core::anim::CompletionReason::Ended => 0,
-                pocketjs_core::anim::CompletionReason::Replaced => 1,
-                pocketjs_core::anim::CompletionReason::Dropped => 2,
-            };
-            ANIMATION_COMPLETIONS.extend_from_slice(&[completion.id, reason]);
-        });
-        (ANIMATION_COMPLETIONS.len() / 2) as u32
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn ui_animation_completions_ptr() -> *const i32 {
-    unsafe { ANIMATION_COMPLETIONS.as_ptr() }
-}
-
-// ---- physics (spec ops 52..56, ui.physics; contracts/spec/physics.ts) ------
-
-/// Drained physics event records (f64); valid until the next drain.
-static mut PHYSICS_EVENTS: Vec<f64> = Vec::new();
-
-#[no_mangle]
-pub extern "C" fn ui_physics_create(kind: u32, ptr: *const u8, len: usize) -> i32 {
-    ui().physics_create_wire(kind, unsafe { bytes(ptr, len) })
-}
-
-#[no_mangle]
-pub extern "C" fn ui_physics_apply(ptr: *const u8, len: usize) {
-    ui().physics_apply_wire(unsafe { bytes(ptr, len) })
-}
-
-#[no_mangle]
-pub extern "C" fn ui_physics_destroy(handle: i32) {
-    ui().physics_destroy(handle)
-}
-
-/// Drain pending events; returns the number of f64 words staged.
-#[no_mangle]
-pub extern "C" fn ui_physics_take_events() -> u32 {
-    unsafe {
-        ui().physics_take_events(&mut PHYSICS_EVENTS);
-        PHYSICS_EVENTS.len() as u32
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn ui_physics_events_ptr() -> *const f64 {
-    unsafe { PHYSICS_EVENTS.as_ptr() }
-}
-
-#[no_mangle]
-pub extern "C" fn ui_physics_query(query: u32, handle: i32, a: f64, b: f64, c: f64, d: f64) -> f64 {
-    ui().physics_query(query, handle, a, b, c, d)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_focus(id: i32) {
-    ui().set_focus(id)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_active(id: i32, active: i32) {
-    ui().set_active(id, active != 0)
-}
-
-// ---- virtual cursor ops (spec ops 27..29, input.cursor) ----------------------
-
-#[no_mangle]
-pub extern "C" fn ui_hit_test(x: f32, y: f32) -> i32 {
-    ui().hit_test(x, y)
-}
-
-// ---- touch hit facts (spec op 42 hitTestBounds; docs/TOUCH.md) ---------------
-
-#[no_mangle]
-pub extern "C" fn ui_hit_test_bounds(x: f32, y: f32) -> i32 {
-    ui().hit_test_bounds(x, y)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_cursor(tex: i32, hot_x: f32, hot_y: f32, w: f32, h: f32) {
-    ui().set_cursor(tex, hot_x, hot_y, w, h)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_set_cursor_pos(x: f32, y: f32) {
-    ui().set_cursor_pos(x, y)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_load_styles(ptr: *const u8, len: usize) -> i32 {
-    ui().load_styles(unsafe { bytes(ptr, len) }) as i32
-}
-
-#[no_mangle]
-pub extern "C" fn ui_load_font_atlas(ptr: *const u8, len: usize) -> i32 {
-    ui().load_font_atlas(unsafe { bytes(ptr, len) }) as i32
-}
-
-#[no_mangle]
-pub extern "C" fn ui_measure_text(ptr: *const u8, len: usize, font_slot: u32) -> f32 {
-    ui().measure_text(unsafe { text(ptr, len) }, font_slot as u8)
-}
-
-/// OP wrapText: stage the soft-wrap break columns (ascending UTF-16 code
-/// units) for one line under `max_w` px and return their count; the host
-/// reads them from `ui_wrap_text_ptr` before its next wasm call.
-#[no_mangle]
-pub extern "C" fn ui_wrap_text(ptr: *const u8, len: usize, font_slot: u32, max_w: f32) -> u32 {
-    let breaks = ui().wrap_text(unsafe { text(ptr, len) }, font_slot as u8, max_w);
-    unsafe {
-        WRAP_BREAKS = breaks;
-        WRAP_BREAKS.len() as u32
-    }
-}
-
-/// The staged wrapText columns (valid until the next wrapText/init call).
-#[no_mangle]
-pub extern "C" fn ui_wrap_text_ptr() -> *const u32 {
-    unsafe { WRAP_BREAKS.as_ptr() }
-}
-
-// ---- frame ------------------------------------------------------------------
-
-/// Advance one fixed-dt (1/60 s) frame: animations, then layout if dirty.
-#[no_mangle]
-pub extern "C" fn ui_tick() {
-    ui().tick()
-}
-
-/// Return a deterministic content hash for the current DrawList without
-/// rasterizing the framebuffer. Browser hosts use this as the same dirty
-/// signal as pocket-widget's EmbeddedUi: a settled guest can keep ticking
-/// while skipping the expensive software render and texture upload.
-#[no_mangle]
-pub extern "C" fn ui_draw_hash() -> u64 {
-    draw_hash(&ui().draw().words)
-}
-
-/// The same hash for the auxiliary surface's DrawList, so a host with a second
-/// screen redraws it when its content changes. Returns 0 when the instance has
-/// no auxiliary surface.
-#[no_mangle]
-pub extern "C" fn ui_draw_hash_auxiliary() -> u64 {
-    ui().draw_auxiliary()
-        .map_or(0, |draw| draw_hash(&draw.words))
-}
-
-fn draw_hash(words: &[u32]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for word in words {
-        for byte in word.to_le_bytes() {
-            hash ^= byte as u64;
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-    hash
-}
-
-#[inline]
-#[cfg(test)]
-fn packed_xy(x: i32, y: i32) -> u32 {
-    (x as i16 as u16 as u32) | ((y as i16 as u16 as u32) << 16)
-}
-
-#[inline]
-#[cfg(test)]
-fn packed_wh(width: i32, height: i32) -> u32 {
-    (width as u16 as u32) | ((height as u16 as u32) << 16)
-}
-
-fn render_composited_words(ui: &Ui, words: &[u32], framebuffer: &mut [u8], scale: u32) {
-    unsafe {
-        pocketjs_core::compositor::render(ui, words, framebuffer, scale, &COMPOSITOR_RASTERS);
-    }
-}
-
-// ---- DevTools ops (spec ops 18..22, docs/DEVTOOLS.md) -----------------------------
-
-#[no_mangle]
-pub extern "C" fn ui_debug_inspect(id: i32) {
-    ui().debug_inspect(id)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_debug_rect_xy() -> i32 {
-    ui().debug_rect_xy()
-}
-
-#[no_mangle]
-pub extern "C" fn ui_debug_rect_wh() -> i32 {
-    ui().debug_rect_wh()
-}
-
-#[no_mangle]
-pub extern "C" fn ui_debug_pause(on: i32) {
-    ui().debug_pause(on != 0)
-}
-
-#[no_mangle]
-pub extern "C" fn ui_debug_step() {
-    ui().debug_step()
-}
-
-fn render_at_scale(scale: u32) -> *const u8 {
-    if !(1..=raster::MAX_RENDER_SCALE).contains(&scale) {
-        return core::ptr::null();
-    }
-    let u = ui();
-    let (viewport_w, viewport_h) = u.viewport();
-    let logical_width = viewport_w as usize;
-    let logical_height = viewport_h as usize;
-    let Some(width) = logical_width.checked_mul(scale as usize) else {
-        return core::ptr::null();
+    let mut surfaces = h.surfaces.borrow_mut();
+    let index = if handle < 0 {
+        surfaces.len().max(1)
+    } else {
+        handle as usize
     };
-    let Some(height) = logical_height.checked_mul(scale as usize) else {
-        return core::ptr::null();
-    };
-    let Some(bytes) = width
-        .checked_mul(height)
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return core::ptr::null();
-    };
-    // draw() borrows `u` mutably for the returned &DrawList; the rasterizer
-    // then needs a shared &Ui for atlases/textures. Both live in the single
-    // static; nothing mutates during rasterization, and this module is
-    // single-threaded by construction, so the raw-pointer reborrow is sound.
-    let dl: *const pocketjs_core::DrawList = u.draw();
-    let u_ref: &Ui = unsafe { &*(u as *const Ui) };
-    unsafe {
-        FRAMEBUFFER.resize(bytes, 0);
-        if scale == 1 {
-            raster::render(u_ref, &(*dl).words, &mut FRAMEBUFFER);
-        } else {
-            raster::render_scaled(u_ref, &(*dl).words, &mut FRAMEBUFFER, scale);
-        }
-        // A compatibility full render changed the retained framebuffer
-        // outside the incremental tracker's plan/commit transaction.
-        DAMAGE_TRACKER.invalidate();
-        FRAMEBUFFER.as_ptr()
+    if index > 65535 {
+        return -1;
     }
-}
-
-fn render_composited_at_scale(scale: u32) -> *const u8 {
-    if !(1..=raster::MAX_RENDER_SCALE).contains(&scale) {
-        return core::ptr::null();
+    if index >= surfaces.len() {
+        surfaces.resize_with(index + 1, || None);
     }
-    let u = ui();
-    let (viewport_w, viewport_h) = u.viewport();
-    let Some(bytes) = (viewport_w as usize)
-        .checked_mul(scale as usize)
-        .and_then(|width| {
-            (viewport_h as usize)
-                .checked_mul(scale as usize)
-                .and_then(|height| width.checked_mul(height))
-        })
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return core::ptr::null();
-    };
-    let dl: *const pocketjs_core::DrawList = u.draw();
-    let u_ref: &Ui = unsafe { &*(u as *const Ui) };
-    unsafe {
-        FRAMEBUFFER.resize(bytes, 0);
-        render_composited_words(u_ref, &(*dl).words, &mut FRAMEBUFFER, scale);
-        DAMAGE_TRACKER.invalidate();
-        FRAMEBUFFER.as_ptr()
+    surfaces[index] = Some(pocket_present::compositor::CompositorRaster {
+        pixels: bytes(p, n).to_vec(),
+        width: w,
+        height,
+        density: 1,
+    });
+    index as i32
+}
+#[no_mangle]
+pub extern "C" fn web_free_surface(h: &WasmHost, handle: usize) {
+    if let Some(s) = h.surfaces.borrow_mut().get_mut(handle) {
+        *s = None
     }
-}
-
-fn render_incremental_at_scale(scale: u32) -> *const u8 {
-    if !(1..=raster::MAX_RENDER_SCALE).contains(&scale) {
-        return core::ptr::null();
-    }
-    let u = ui();
-    let (viewport_w, viewport_h) = u.viewport();
-    let logical_width = viewport_w as usize;
-    let logical_height = viewport_h as usize;
-    let Some(width) = logical_width.checked_mul(scale as usize) else {
-        return core::ptr::null();
-    };
-    let Some(height) = logical_height.checked_mul(scale as usize) else {
-        return core::ptr::null();
-    };
-    let Some(bytes) = width
-        .checked_mul(height)
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return core::ptr::null();
-    };
-    let dl: *const pocketjs_core::DrawList = u.draw();
-    let u_ref: &Ui = unsafe { &*(u as *const Ui) };
-    unsafe {
-        FRAMEBUFFER.resize(bytes, 0);
-        if raster::render_scaled_incremental(
-            u_ref,
-            &(*dl).words,
-            &mut FRAMEBUFFER,
-            scale,
-            &mut DAMAGE_TRACKER,
-            DamagePolicy::default(),
-        )
-        .is_err()
-        {
-            raster::render_scaled(u_ref, &(*dl).words, &mut FRAMEBUFFER, scale);
-            DAMAGE_TRACKER.invalidate();
-        }
-        FRAMEBUFFER.as_ptr()
-    }
-}
-
-/// Rasterize the current tree and return the byte-exact RGBA8 framebuffer
-/// pointer at the logical viewport size. Kept as a dedicated ABI entry for
-/// existing hosts.
-#[no_mangle]
-pub extern "C" fn ui_render() -> *const u8 {
-    render_at_scale(1)
-}
-
-/// Rasterize directly at an integer physical scale (currently 1 through 4).
-/// Returns null for an unsupported scale.
-#[no_mangle]
-pub extern "C" fn ui_render_scaled(scale: u32) -> *const u8 {
-    render_at_scale(scale)
-}
-
-/// Rasterize the primary DrawList at an integer physical scale into RGBA8 that
-/// keeps coverage: the buffer starts transparent, and each pixel ends as
-/// premultiplied R,G,B with the alpha its ops accumulated. The R,G,B bytes
-/// equal [`ui_render_scaled`]'s. The pointer has that export's size and stays
-/// valid until the next premultiplied render or init call. Returns null for an
-/// unsupported scale.
-#[no_mangle]
-pub extern "C" fn ui_render_premultiplied_scaled(scale: u32) -> *const u8 {
-    if !(1..=raster::MAX_RENDER_SCALE).contains(&scale) {
-        return core::ptr::null();
-    }
-    let u = ui();
-    let (viewport_w, viewport_h) = u.viewport();
-    let Some(bytes) = (viewport_w as usize)
-        .checked_mul(scale as usize)
-        .and_then(|width| {
-            (viewport_h as usize)
-                .checked_mul(scale as usize)
-                .and_then(|height| width.checked_mul(height))
-        })
-        .and_then(|pixels| pixels.checked_mul(4))
-    else {
-        return core::ptr::null();
-    };
-    // (the borrows are render_at_scale's: see the note there)
-    let dl: *const pocketjs_core::DrawList = u.draw();
-    let u_ref: &Ui = unsafe { &*(u as *const Ui) };
-    unsafe {
-        PREMULTIPLIED_FRAMEBUFFER.resize(bytes, 0);
-        raster::render_scaled_premultiplied(
-            u_ref,
-            &(*dl).words,
-            &mut PREMULTIPLIED_FRAMEBUFFER,
-            scale,
-        );
-        PREMULTIPLIED_FRAMEBUFFER.as_ptr()
-    }
-}
-
-/// Rasterize the shell with retained child AppInstance framebuffers inserted
-/// at SURFACE_QUAD painter positions.
-#[no_mangle]
-pub extern "C" fn ui_render_composited() -> *const u8 {
-    render_composited_at_scale(1)
-}
-
-/// Integer-scaled equivalent of [`ui_render_composited`].
-#[no_mangle]
-pub extern "C" fn ui_render_composited_scaled(scale: u32) -> *const u8 {
-    render_composited_at_scale(scale)
-}
-
-/// Incrementally rasterize at the logical viewport size.
-#[no_mangle]
-pub extern "C" fn ui_render_incremental() -> *const u8 {
-    render_incremental_at_scale(1)
-}
-
-/// Incrementally rasterize at an integer physical scale (1 through 4).
-#[no_mangle]
-pub extern "C" fn ui_render_incremental_scaled(scale: u32) -> *const u8 {
-    render_incremental_at_scale(scale)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        draw_hash, packed_wh, packed_xy, render_composited_words, CompositorRaster,
-        COMPOSITOR_RASTERS,
-    };
-    use pocketjs_core::{spec, Ui};
-
-    #[test]
-    fn draw_hash_is_stable_and_content_sensitive() {
-        let words = [0x0102_0304, 0x0506_0708];
-        assert_eq!(draw_hash(&words), draw_hash(&words));
-        assert_ne!(draw_hash(&words), draw_hash(&[0x0102_0304, 0x0506_0709]));
-        assert_ne!(draw_hash(&[]), draw_hash(&words));
-    }
-
-    #[test]
-    fn shared_compositor_preserves_child_pixels_at_two_densities() {
-        for density in [1, 2] {
-            let mut ui = Ui::new();
-            ui.set_viewport(2.0, 1.0);
-            let pixels: Vec<u8> = (0..2 * density * density)
-                .flat_map(|i| [i as u8 * 20, 40, 80, 255])
-                .collect();
-            let surfaces = [
-                None,
-                Some(CompositorRaster {
-                    pixels: pixels.clone(),
-                    width: 2,
-                    height: 1,
-                    density,
-                }),
-            ];
-            let words = [
-                spec::draw_op::SURFACE_QUAD,
-                1,
-                0.0f32.to_bits(),
-                0.0f32.to_bits(),
-                2.0f32.to_bits(),
-                1.0f32.to_bits(),
-                packed_xy(0, 0),
-                packed_wh(2, 1),
-                1,
-            ];
-            let mut framebuffer = vec![0; pixels.len()];
-            pocketjs_core::compositor::render(&ui, &words, &mut framebuffer, density, &surfaces);
-            assert_eq!(framebuffer, pixels);
-        }
-    }
-
-    #[test]
-    fn browser_compositor_keeps_child_between_shell_ops() {
-        let mut ui = Ui::new();
-        ui.set_viewport(4.0, 4.0);
-        let red = [255u8, 0, 0, 255].repeat(6);
-        unsafe {
-            COMPOSITOR_RASTERS = vec![
-                None,
-                Some(CompositorRaster {
-                    pixels: red,
-                    width: 3,
-                    height: 2,
-                    density: 1,
-                }),
-            ];
-        }
-        let words = [
-            spec::draw_op::RECT,
-            packed_xy(0, 0),
-            packed_wh(4, 4),
-            0xffff_0000,
-            spec::draw_op::SCISSOR,
-            packed_xy(0, 0),
-            packed_wh(2, 2),
-            spec::draw_op::SURFACE_QUAD,
-            1,
-            0.0f32.to_bits(),
-            0.0f32.to_bits(),
-            3.0f32.to_bits(),
-            2.0f32.to_bits(),
-            packed_xy(0, 0),
-            packed_wh(2, 2),
-            1,
-            spec::draw_op::RECT,
-            packed_xy(1, 1),
-            packed_wh(2, 2),
-            0xff00_ff00,
-            spec::draw_op::SCISSOR_POP,
-        ];
-        let mut framebuffer = vec![0; 4 * 4 * 4];
-        render_composited_words(&ui, &words, &mut framebuffer, 1);
-        assert_eq!(&framebuffer[0..4], &[255, 0, 0, 255]);
-        let center = (1 * 4 + 1) * 4;
-        assert_eq!(&framebuffer[center..center + 4], &[0, 255, 0, 255]);
-        let outside = 2 * 4;
-        assert_eq!(&framebuffer[outside..outside + 4], &[0, 0, 255, 255]);
-        let clipped_overlay = (2 * 4 + 2) * 4;
-        assert_eq!(
-            &framebuffer[clipped_overlay..clipped_overlay + 4],
-            &[0, 0, 255, 255]
-        );
-    }
-}
-
-static mut CAPTURED_TEXTS: String = String::new();
-#[no_mangle]
-pub extern "C" fn ui_capture_texts(surface: u32, root: i32) -> i32 {
-    ui().capture_texts(surface, root) as i32
-}
-/// Stage the last capture; returns its byte length (ui_captured_texts_ptr).
-#[no_mangle]
-pub extern "C" fn ui_captured_texts(surface: u32) -> usize {
-    unsafe {
-        CAPTURED_TEXTS = ui().captured_texts(surface);
-        (&*core::ptr::addr_of!(CAPTURED_TEXTS)).len()
-    }
-}
-#[no_mangle]
-pub extern "C" fn ui_captured_texts_ptr() -> *const u8 {
-    unsafe { (&*core::ptr::addr_of!(CAPTURED_TEXTS)).as_ptr() }
-}
-
-// One bounded JSON staging buffer; callers copy before the next stream query.
-static mut FONT_STREAM_JSON: String = String::new();
-#[no_mangle]
-pub extern "C" fn ui_font_stream_configure(ptr: *const u8, len: usize) -> i32 {
-    ui().font_stream_configure(unsafe { bytes(ptr, len) }) as i32
-}
-#[no_mangle]
-pub extern "C" fn ui_font_stream_commit(ptr: *const u8, len: usize) -> u32 {
-    ui().font_stream_commit(unsafe { bytes(ptr, len) }) as u32
-}
-#[no_mangle]
-pub extern "C" fn ui_font_stream_batch(ptr: *const u8, len: usize) -> i32 {
-    ui().font_stream_batch(unsafe { bytes(ptr, len) })
-}
-#[no_mangle]
-pub extern "C" fn ui_font_stream_requests() -> usize {
-    unsafe {
-        FONT_STREAM_JSON = ui().font_stream_requests();
-        FONT_STREAM_JSON.len()
-    }
-}
-#[no_mangle]
-pub extern "C" fn ui_font_stream_stats() -> usize {
-    unsafe {
-        FONT_STREAM_JSON = ui().font_stream_stats();
-        FONT_STREAM_JSON.len()
-    }
-}
-#[no_mangle]
-pub extern "C" fn ui_font_stream_json_ptr() -> *const u8 {
-    unsafe { FONT_STREAM_JSON.as_ptr() }
 }

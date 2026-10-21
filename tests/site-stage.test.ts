@@ -323,7 +323,8 @@ test("playground wraps its live framebuffer in the PSP model", () => {
   expect(playgroundGlue).toContain("mountPocketStage");
   expect(playgroundGlue).toContain("host,");
   expect(playgroundGlue).toContain("stageController?.refreshScreen()");
-  expect(playgroundGlue).toContain("stageController?.releaseInput();\n      host.reset();");
+  expect(playgroundGlue).toContain("stageController?.releaseInput();");
+  expect(playgroundGlue).toContain("host.runModule(");
 
   const adapter = readFileSync(ROOT + "site/assets/pocket-stage-web.js", "utf8");
   expect(adapter).toContain("const stageHost = suppliedHost ?? new PocketHost()");
@@ -593,7 +594,7 @@ test("single-LOD web package rewrites every profile reference to a copied asset"
 test("a fast button tap is released only after one guest turn observes it", () => {
   const host = new PocketHost();
   const seen: number[] = [];
-  host.wasm = { tick() {}, drawHash: () => 0n };
+  host.wasm = { advance({buttons}: {buttons:number}) { seen.push(buttons); }, drawHash: () => 0n };
   host.frameCb = (buttons: number) => seen.push(buttons);
   // Keep wake() from scheduling a real browser RAF in this deterministic test.
   host.rafId = 1;

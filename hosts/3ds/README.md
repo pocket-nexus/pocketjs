@@ -1,56 +1,48 @@
 # Nintendo 3DS host
 
-PocketJS on the 3DS: QuickJS runs the guest bundle, the Rust core
-owns the retained tree, layout, animation and DrawList emission, and a C
-backend walks that DrawList into **PICA200 draw calls through citro3d**. The
-app owns the **400x240 top screen** and a simultaneous **320x240 auxiliary
-bottom screen**, both at rasterDensity 1 and presentation `native`, under the
-out-of-registry `3ds-dev` profile in `tools/3ds-profile.ts`. The resistive
-panel reports contacts through `input.touch.auxiliary`.
+The 3DS host composes **one canonical `pocket-runtime-cabi` archive** with the
+generated QuickJS guest, a package source, input source, PICA renderer and two
+display outputs. The runtime owns the retained tree, layout, animation, physics,
+package admission and frame coordination. The C device driver consumes the public
+DrawList and resource contracts and issues **PICA200 draws through citro3d**.
 
-**The CIA boots and renders the calibration app on a New 3DS LL.** The profile
-remains out of the production registry because the current hardware and golden
-suite does not directly exercise the synthesized cursor, sprites, streamed
-textures or a large font atlas.
-
-`hosts/psp` puts its GPU backend in Rust because the `psp` crate has bindings
-for the GE. citro3d is a C library of mostly `static inline` functions, so here
-the split is the other way round and matches `hosts/iphone2g`: **C owns the
-graphics API, Rust owns everything above it.** That is why this host's crate
-exports the DrawList itself (`ui_draw`, `ui_draw_list_ptr`,
-`ui_draw_list_len`) and the texture and font registries over the C ABI, which
-`engine/ui-cabi` does not — its GLES backends consume the list internally.
+The app owns the **400x240 top screen** and **320x240 auxiliary bottom screen** at
+raster density 1, under the private `3ds-dev` profile in `tools/3ds-profile.ts`.
+The resistive panel reports contacts through `input.touch.auxiliary`. The profile
+remains outside the production registry pending the complete hardware and golden
+suite; the architecture migration has compiler, linker and host-test coverage.
 
 ```
-core/                 pocketjs-3ds-core: the ui_* C ABI over pocketjs-core
-  src/lib.rs          lifecycle, HostOps, DrawList handoff, pak feed
-  src/alloc.rs        #[global_allocator] over newlib + panic handler
-include/pocket_core.h the C header for the above
-src/main.c            process boot, reusable guest lifecycle, frame loop
-src/runtime.c         .pocket admission, immutable storage, active/rollback state
+core/                 one runtime staticlib plus package recovery inspection ABI
+include/pocket_core.h package inspection and native resource convenience calls
+include/pocket_profile.h generated profile bytes, hash and operation identifiers
+src/instance.c        runtime, package/input/provider registration and six hooks
+src/main.c            process boot, reusable guest lifecycle, frame boundary
+src/runtime.c         immutable package storage, active/rollback state
 src/devserver.c       discovery, paired TCP pump, uploads, screenshots, receipts
 src/dev_protocol.c    byte-order-safe development wire encoding and admission
-src/devmenu.c         Runtime-owned bottom-screen development menu
+src/devmenu.c         host-owned bottom-screen development DrawList
 src/native.c          .3dsx staging, verification and swap for the dev connection
 src/hbldr.c           Luma3DS hb:ldr requests that start a .3dsx on exit
-src/error_text.h      the shared fixed-buffer error formatter
-src/gfx.c             the DrawList -> citro3d walker
-src/qjs.c             QuickJS embedding: globalThis.ui -> ui_* calls, and the
-                      link / net / wifi / camera namespaces
-src/launcher.c        the app table: installed slots, switch requests, lastError
-src/link.c            Pocket Link client: discovery, handshake, net, catalog, install
-src/link_proto.c      Pocket Link wire facts without sockets (URI, beacon, proofs)
-src/sha256.c          SHA-256 / HMAC-SHA256 (handshake proofs, app-id slots)
-src/jscan.c           bounded JSON reader/writer for the host's own records
+src/error_text.h      fixed-buffer error formatter
+src/gfx.c             PICA driver registration and product texture/scene adapters
+src/qjs.c             generated guest attachment and product namespaces
+src/launcher.c        installed slots, switch requests and lastError
+src/link.c            companion discovery, handshake, net, catalog and install
+src/link_proto.c      wire facts without sockets (URI, beacon, proofs)
+src/sha256.c          SHA-256 / HMAC-SHA256 for handshake proofs and app slots
+src/jscan.c           bounded JSON reader/writer for host records
 src/wifi.c            globalThis.wifi over AC and nwm::EXT
-src/camera.c          globalThis.camera: outer-camera texture + QR decode
-src/quirc/            vendored quirc (ISC), the QR decoder camera.c runs
-src/input.c           3DS keys and circle pad -> the PSP BTN bitmask
+src/camera.c          outer-camera texture and QR decode
+src/quirc/            vendored quirc (ISC)
+src/input.c           hardware keys, sticks and touch sampling
 src/vshader.v.pica    the PICA200 vertex shader
-Makefile              run INSIDE the container by tools/3ds.ts
-app.rsf               the CIA descriptor makerom reads
-icon.png              48x48 SMDH icon
+Makefile              native build driven by tools/3ds.ts
 ```
+
+The independent renderer lives in `devices/3ds/pocket-3ds-pica`. It links the
+public runtime ABI helpers for DrawList decoding and guarded glyph pages; it has
+no dependency on `Ui`, QuickJS, camera, media or the launcher.
 
 ## Building
 
@@ -64,8 +56,8 @@ Two toolchains, one repository:
   `arm-none-eabi-gcc`, libctru, citro3d, `picasso`, `smdhtool` and `3dsxtool`.
 
 `tools/3ds.ts` drives both and hands this Makefile container paths in
-environment variables (the list is at the top of the Makefile). Nothing here
-reaches outside `hosts/3ds` except through them.
+environment variables (the list is at the top of the Makefile).
+`src/instance.c` registers the PICA instance and both outputs.
 
 ```sh
 bun tools/3ds.ts 3ds-demo              # dist/3ds/<output>.3dsx
@@ -278,18 +270,16 @@ message, and a combined top/bottom PNG. `dev` keeps the DevTools panel attached;
 `r` rebuilds and pushes, `i` installs the `.3dsx` and restarts into it, `s`
 captures both screens, and `o` opens the panel.
 
-**`devStats` carries `timingUs`: the mean and maximum microseconds of each
-frame phase over the last complete 60-frame window** — the loop's system work
-before the guest runs (`pre`: sockets, the link, input), guest JS, core tick
-(animation and physics), layout, the two DrawList builds, PICA200 preparation
-and submission, the wait for the vblank and the GPU (`wait`), and the frame
-interval — plus `slowFrames`, the count of intervals above 25 ms since boot,
-and `gpuLate`, the count of frames whose previous GPU work outlasted a
-vblank. A frame after a recovery or a package reload starts a new interval
-and is not sampled. **`ui.__dbgFrames()` returns the same phases for each of
-the last 64 frames** (`pre,js,layout,draw,gpu,wait,frame` in 0.1 ms units,
-oldest first), for finding the frame that missed its vblank rather than a
-window mean.
+**`devStats.timingUs` records the mean and maximum microseconds over a 60-frame
+window.** `pre` measures sockets, link and input before the tick; the retained
+`js` slot now measures the complete canonical tick, including guest, layout,
+rendering and terminal presentation. The legacy `tick`, `layout`, `draw` and `gpu` slots are zero until the runtime exposes phase counters.
+`wait` measures the host VBlank boundary, and `frame` measures the interval.
+`slowFrames` counts intervals above 25 ms. `gpuLate` counts extra VBlanks at the
+host boundary; rendering now waits inside the canonical tick, so it is not a
+measure of GPU time. Recovery and reload reset the sampled interval.
+`ui.__dbgFrames()` retains the `pre,js,layout,draw,gpu,wait,frame` wire shape in
+0.1 ms units, with the same zero placeholders.
 
 **One authenticated, ordered TCP connection carries every development
 message.** JSON frames contain only Pocket DevTools control and logs. Package
@@ -581,43 +571,51 @@ shifted up by its 8-bit variation; `tools/3ds.ts` prints the whole title id when
 it writes the file. A capture build installed and booted this way produced
 frames **byte-identical to the `.3dsx` goldens** in `tests/goldens/3ds/`.
 
-## What `globalThis.ui` has to publish
+## Guest metadata and operations
 
-Beyond the HostOps table, `src/qjs.c` publishes four properties the framework
-reads directly. `__host` and `__hostAbi` come from the build's `-D` defines and
-gate mounting. `__textures` and `__sprites` are the pak name tables. The fourth
-is geometry:
+**The generated QuickJS guest publishes all numbered UI operations and metadata.**
+The runtime supplies the profile, admitted viewport, auxiliary root, raster
+density, package bytes and named asset tables. `src/qjs.c` installs the product
+namespaces (`link`, `net`, `wifi`, camera, media and agent) and private debugging
+hooks around that guest; it has no second UI dispatcher or package registry.
+Service, app-launch and debug-stat operations use the runtime's provider table.
 
-- **`ui.__viewport` is the logical UI size, and omitting it is a layout bug,
-  not a missing nicety.** `framework/src/index.ts` sizes the mounted app and
-  overlay layers from it and falls back to the spec screen, 480x272, when a
-  host leaves it off. On this 400x240 panel that fallback lays the app out
-  **80 px too wide**: the extra width is invisible for anything anchored left,
-  and moves everything measured from the layer's right edge — `justify-between`,
-  a row's last child after a `grow` sibling, every `right-0` absolute — off the
-  panel. The value is read back from the core with `ui_viewport_width` /
-  `ui_viewport_height` after `main.c` has called `ui_set_viewport`, so the JS
-  root layer and the native root node cannot drift apart. Publishing a size is
-  not a live-resize capability: that needs `installResizeViewportHook`, which a
-  `takeover` host never calls.
+`ui.__viewport` comes from the admitted runtime geometry. The primary and
+auxiliary UI roots belong to the same runtime instance, including for a
+primary-only plan that uses the profile's bottom-screen defaults. No host shim
+creates another retained tree.
 
 ## 2D bodies
 
-The host advertises `ui.physics`. `src/qjs.c` binds ops 52–56
-(`physicsCreate`, `physicsApply`, `physicsDestroy`, `physicsEvents`,
-`physicsQuery`) to the `ui_physics_*` exports of `core/src/lib.rs`; parameters,
-command records and events cross as little-endian f64 byte buffers, and
-`physicsEvents` returns a fresh ArrayBuffer or `undefined`. **The simulation
-steps inside `ui_tick`, before `ui_draw`, and one world spans both screens:
-the app places the bottom screen's origin in world space.** `apps/nexus` is
-the reference scene ([Physics](../../site/content/docs/physics.md)).
+The generated bindings expose `ui.physics` through the canonical operation
+schema. Parameters, command records and events cross as little-endian f64 byte
+buffers. **The runtime steps physics before building both DrawLists; one world
+spans both screens.** The app chooses the bottom screen's origin in world space.
+`apps/nexus` is the reference scene ([Physics](../../site/content/docs/physics.md)).
 
-## What the backend has to honour
+## PICA renderer and display outputs
 
-`src/gfx.c` is the 3DS twin of `engine/ui-cabi/src/gl/mod.rs`: the same walk,
-the same texture and font-atlas caches, the same batching by texture and
-scissor. It does **no clipping** — the core's CPU clip stage guarantees every
-coordinate is already inside the viewport and i16-safe. The PICA200 adds:
+`devices/3ds/pocket-3ds-pica/src/driver.c` implements the public Renderer and
+DisplayOutput vtables. The shared DrawList visitor validates the complete stream
+before invoking callbacks and supplies inherited clipping. The driver batches
+adjacent operations with the same texture and scissor.
+
+**Each pending screen submission owns its vertex storage and resource leases.**
+Textures and guarded glyph pages are cached by handle, revision and page. A new
+revision allocates new storage; pending submissions keep the prior version until
+retirement. The default 16 MiB cache evicts unpinned least-recently-used entries;
+capacity failure rejects a submission without releasing another screen's data.
+Each submission has a 32,768-vertex and 2,048-command limit. The implementation
+allocates its geometry storage per submission; hardware performance acceptance
+remains part of the final device validation.
+
+**Renderer wait establishes GPU completion with a blocking `C3D_FrameBegin` after
+`C3D_FrameEnd`.** `C3D_FrameSync` alone only waits for VBlank. Display flush runs
+synchronous transfers outside a native frame and swaps its own screen. The main
+loop owns one shared VBlank boundary. In 2D mode the right-eye framebuffer aliases
+the left one, so a display transfers the right target only when `gfxIs3D()` is true.
+Camera and media textures are borrowed only during the serialized canonical tick;
+the host updates them before the tick and teardown runs after terminal completion.
 
 - Render targets are created **rotated**: `C3D_RenderTargetCreate(240, 400, …)`
   for the top screen, and `Mtx_OrthoTilt` keeps guest coordinates landscape.

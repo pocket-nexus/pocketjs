@@ -1,15 +1,14 @@
 /*
  * PocketJS Nintendo 3DS host: libctru/citro3d boot, then fixed-rate virtual
- * frames while QuickJS runs the guest, the Rust core ticks animations and
- * layout, and the PICA200 backend draws the DrawList.
+ * frames through one canonical Runtime with generated QuickJS bindings and
+ * independent PICA Renderer and Display drivers.
  *
  * Frame order (docs/DESIGN.md, the shape hosts/psp/src/main.rs drives):
- * hidScanInput -> resolve bottom-screen touch -> globalThis.frame -> drain
- * jobs -> ui_tick (fixed 1/60) -> build both DrawLists -> one C3D frame that
- * draws the top and bottom targets.
+ * hidScanInput -> one Runtime tick (contacts, guest, simulation, layout,
+ * render and terminal display waits) -> the host's next shared clock boundary.
  *
  * The app owns a 400x240 primary surface and a simultaneous 320x240 auxiliary
- * surface. Both render targets are ROTATED, and Mtx_OrthoTilt in gfx.c keeps
+ * surface. Both render targets are ROTATED, and Mtx_OrthoTilt in the PICA driver keeps
  * each surface's guest coordinates landscape. Touch belongs only to the
  * auxiliary surface.
  *
@@ -153,12 +152,6 @@ static C3D_RenderTarget *auxiliary_target;
 /* The top screen's right eye: only the agent stage draws in stereo. */
 static C3D_RenderTarget *right_target;
 static bool stage_ready;
-
-static const u32 DISPLAY_TRANSFER_FLAGS =
-  GX_TRANSFER_FLIP_VERT(0) | GX_TRANSFER_OUT_TILED(0) | GX_TRANSFER_RAW_COPY(0) |
-  GX_TRANSFER_IN_FORMAT(GX_TRANSFER_FMT_RGBA8) |
-  GX_TRANSFER_OUT_FORMAT(GX_TRANSFER_FMT_RGB8) |
-  GX_TRANSFER_SCALING(GX_TRANSFER_SCALE_NO);
 
 /* Read one completed rotated PICA target as tightly packed RGB8. `width` and
  * `height` are the guest landscape dimensions; the returned bytes retain the
@@ -353,7 +346,7 @@ static size_t scripted_touch(uint32_t frame, uint32_t *out) {
  * bug only shows under a hardware renderer; measured against a known probe
  * rectangle in the Pocket Voxel host, RGBA8 out matched 74.6% of it and RGB8
  * out matched 100.0%. RGB8 is also the format citro3d's own presentation
- * transfer uses (DISPLAY_TRANSFER_FLAGS above), so the capture travels the
+ * transfer uses, so the capture travels the
  * path the screen travels. The dropped alpha byte was never read: the decode
  * takes R, G and B only.
  *
@@ -368,8 +361,8 @@ static bool capture_write_surface(
   const char *prefix,
   uint32_t frame
 ) {
-  /* C3D_FrameEnd only queues the frame. The colour buffer is not finished
-   * until the GPU is, so wait before transferring it out. */
+  /* Canonical tick has completed native rendering and presentation. Keep the
+   * capture cadence at a VBlank boundary before the CPU readback transfer. */
   gspWaitForVBlank();
   read_surface_rgb8(surface_target, width, height, capture_rgb);
 
@@ -489,32 +482,16 @@ static bool boot_guest(
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
   agent_set_enabled(agent);
   gfxSet3D(agent);
-  ui_init(raster_density);
-  ui_set_viewport((float)VIEW_W, (float)VIEW_H);
-  if (ui_create_auxiliary_surface((float)AUX_VIEW_W, (float)AUX_VIEW_H) == 0) {
-    snprintf(error, error_length, "auxiliary UI root allocation failed");
-    ui_shutdown();
-    return false;
-  }
-  if (package->guest.pak_length > 0) {
-    ui_feed_pak(package->guest.pak, package->guest.pak_length);
-  }
-  if (!qjs_boot(
-        (const char *)package->guest.javascript,
-        package->guest.javascript_length - 1,
-        package->guest.pak,
-        package->guest.pak_length
-      )) {
+  if (!qjs_boot(package)) {
     snprintf(error, error_length, "%s", qjs_last_error());
     qjs_shutdown();
     gfx_reset_resources();
-    ui_shutdown();
     return false;
   }
   return true;
 }
 
-/* Call only after C3D_FrameBegin has retired the previous GPU command list. */
+/* Canonical tick has retired all GPU and display work before teardown. */
 static void teardown_guest(void) {
   /* Host services keep their process-wide state (the link's connection, an
    * install still streaming) and drop what belonged to this guest. */
@@ -523,7 +500,6 @@ static void teardown_guest(void) {
   agent_set_enabled(false);
   qjs_shutdown();
   gfx_reset_resources();
-  ui_shutdown();
   /* The svc reset contract: the next guest never sees this guest's lines. */
   svcwire_reset();
 }
@@ -689,6 +665,7 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
 #ifdef POCKETJS_CAPTURE
   (void)run_frame;
   C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+  C3D_FrameEnd(0);
   return 0;
 #else
   /* A bounded wait keeps HOME alive when the prior command list hangs. */
@@ -710,6 +687,7 @@ static uint32_t begin_frame_wait(uint32_t run_frame) {
       fail(verdict);
     }
   }
+  C3D_FrameEnd(0);
   return waited;
 #endif
 }
@@ -739,7 +717,6 @@ static void recover_running_guest(
     rejected,
     message
   );
-  C3D_FrameEnd(0);
 }
 
 #ifdef POCKETJS_LINK
@@ -801,7 +778,6 @@ static void install_candidate(
     devserver_set_runtime(state, choice->package, "recovered", *run_frame);
     devserver_report_install("rejected", candidate_hash, error);
   }
-  C3D_FrameEnd(0);
   *run_frame += 1;
 }
 
@@ -933,7 +909,6 @@ static void switch_guest(
   }
   select_latched = true;
   devserver_set_runtime(state, choice->package, choice->commit_on_accept ? "candidate" : "booted", *run_frame);
-  C3D_FrameEnd(0);
   *run_frame += 1;
 }
 
@@ -1054,16 +1029,14 @@ int main(void) {
   if (primary_target == NULL || auxiliary_target == NULL) {
     fail("C3D_RenderTargetCreate failed");
   }
-  C3D_RenderTargetSetOutput(primary_target, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
-  C3D_RenderTargetSetOutput(auxiliary_target, GFX_BOTTOM, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
   if (!gfx_init(VIEW_W, VIEW_H)) fail("PICA200 backend failed to initialize");
   /* A missing stage leaves the top screen to the guest, never a failed boot. */
   right_target = C3D_RenderTargetCreate(VIEW_H, VIEW_W, GPU_RB_RGBA8, GPU_RB_DEPTH24_STENCIL8);
   if (right_target != NULL) {
-    C3D_RenderTargetSetOutput(right_target, GFX_TOP, GFX_RIGHT, DISPLAY_TRANSFER_FLAGS);
     stage_ready = stage_init();
   }
+  if (!gfx_bind_targets(primary_target, auxiliary_target, right_target, VIEW_W, VIEW_H, AUX_VIEW_W, AUX_VIEW_H)) fail("PICA display registration failed");
 
   PocketRuntimeState runtime_state = {0};
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
@@ -1275,17 +1248,33 @@ int main(void) {
       stage_tick();
     }
 
-    u64 offload_cpu_start = svcGetSystemTick();
-    int32_t touch_hit = 0;
-    size_t hit_count = ui_touch_hits_auxiliary(
-      touch_count > 0 ? &touch : NULL,
-      touch_count,
-      &touch_hit,
-      1
+    u64 phase_wait __attribute__((unused)) = svcGetSystemTick();
+    uint32_t gpu_late __attribute__((unused)) = begin_frame_wait(
+#ifdef POCKETJS_CAPTURE
+      frame
+#else
+      run_frame
+#endif
     );
-    if (hit_count != touch_count) fail("auxiliary touch hit resolution failed");
-    u64 phase_js __attribute__((unused)) = svcGetSystemTick();
-    if (!qjs_frame(buttons, analog, &touch, &touch_hit, touch_count, right_analog)) {
+    u64 phase_wait_end __attribute__((unused)) = svcGetSystemTick();
+#ifdef POCKETJS_MEDIA
+    media_present();
+#endif
+    camera_present();
+    if (agent_enabled()) {
+      stage_capture_mirror(auxiliary_target);
+      agent_capture(auxiliary_target);
+    }
+#ifndef POCKETJS_CAPTURE
+    if (devmenu_visible()) {
+      char link_line[48];
+      link_describe(link_line, sizeof link_line);
+      devmenu_set_link_line(link_line);
+    }
+#endif
+    u64 offload_cpu_start = svcGetSystemTick();
+    u64 phase_js __attribute__((unused)) = offload_cpu_start;
+    if (!qjs_frame(buttons, analog, &touch, touch_count, right_analog)) {
 #if defined(POCKETJS_CAPTURE) || defined(POCKETJS_OFFLOAD)
       fail(qjs_last_error());
 #else
@@ -1307,112 +1296,13 @@ int main(void) {
       continue;
 #endif
     }
-    /* Animations always advance at the fixed 1/60 timestep; this host
-     * presents at the same rate, so it is one tick per frame. */
+    /* Canonical tick owns input, guest, fixed simulation, layout and both
+     * terminal display submissions. The host owns the shared clock boundary. */
     u64 phase_tick __attribute__((unused)) = svcGetSystemTick();
-    ui_tick();
-    u64 phase_layout __attribute__((unused)) = svcGetSystemTick();
-    ui_relayout();
-    u64 phase_draw __attribute__((unused)) = svcGetSystemTick();
-    size_t words = ui_draw();
-    size_t auxiliary_words = ui_draw_auxiliary();
-    u64 phase_draw_end __attribute__((unused)) = svcGetSystemTick();
-    const uint32_t *auxiliary_list = ui_draw_auxiliary_list_ptr();
-#ifndef POCKETJS_CAPTURE
-    if (devmenu_visible()) {
-      char link_line[48];
-      link_describe(link_line, sizeof link_line);
-      devmenu_set_link_line(link_line);
-      auxiliary_list = devmenu_draw_list(&auxiliary_words);
-    }
-#endif
-
-    u64 offload_ui_ticks = svcGetSystemTick() - offload_cpu_start;
-    u64 phase_wait __attribute__((unused)) = svcGetSystemTick();
-    uint32_t gpu_late __attribute__((unused)) = begin_frame_wait(
-#ifdef POCKETJS_CAPTURE
-      frame
-#else
-      run_frame
-#endif
-    );
+    offload_measure((unsigned)((phase_tick - offload_cpu_start) * 1000000 / SYSCLOCK_ARM11));
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
-    /* Reaching the next FrameBegin proves the candidate's first submitted list
-     * retired without tripping the GPU watchdog. Only now does it become the
-     * active generation on SD. */
     accept_guest(&guest, &runtime_state, &failures, run_frame);
 #endif
-    offload_cpu_start = svcGetSystemTick();
-    u64 phase_gpu __attribute__((unused)) = offload_cpu_start;
-    gfx_begin_frame();
-#ifdef POCKETJS_MEDIA
-    media_present();
-#endif
-    camera_present();
-    if (agent_enabled()) {
-      /* The touch screen's last frame: the monitor's mirror and any shot. */
-      stage_capture_mirror(auxiliary_target);
-      agent_capture(auxiliary_target);
-    }
-    if (!gfx_prepare_surface(0, ui_draw_list_ptr(), words, VIEW_W, VIEW_H) ||
-        !gfx_prepare_surface(
-          1,
-          auxiliary_list,
-          auxiliary_words,
-          AUX_VIEW_W,
-          AUX_VIEW_H
-        )) {
-#if defined(POCKETJS_CAPTURE) || defined(POCKETJS_OFFLOAD)
-      fail("PICA200 surface preparation failed");
-#else
-      C3D_FrameEnd(0);
-      if (!launcher_home_running()) {
-        run_frame += 1;
-        fail_to_home(
-          &guest,
-          &runtime_state,
-          embedded,
-          &failures,
-          &run_frame,
-          "guest-render",
-          "PICA200 surface preparation failed"
-        );
-        continue;
-      }
-      recover_running_guest(
-        &guest,
-        &runtime_state,
-        embedded,
-        &failures,
-        run_frame + 1,
-        "guest-render",
-        "PICA200 surface preparation failed"
-      );
-      run_frame += 2;
-      continue;
-#endif
-    }
-    gfx_finish_frame();
-
-    C3D_RenderTargetClear(primary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-    if (agent_enabled()) {
-      /* The top screen is the agent stage's; the guest's primary surface is
-       * laid out but not shown. */
-      if (osGet3DSliderState() > 0.0f) C3D_RenderTargetClear(right_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-      stage_render(primary_target, right_target);
-    } else {
-      C3D_FrameDrawOn(primary_target);
-      /* C3D_FrameDrawOn resets the viewport, so this comes after it. */
-      C3D_SetViewport(0, 0, VIEW_H, VIEW_W);
-      gfx_draw_surface(0);
-    }
-
-    C3D_RenderTargetClear(auxiliary_target, C3D_CLEAR_ALL, 0x000000ff, 0);
-    C3D_FrameDrawOn(auxiliary_target);
-    C3D_SetViewport(0, 0, AUX_VIEW_H, AUX_VIEW_W);
-    gfx_draw_surface(1);
-    C3D_FrameEnd(0);
-    offload_measure((unsigned)((offload_ui_ticks + svcGetSystemTick() - offload_cpu_start) * 1000000 / SYSCLOCK_ARM11));
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
     {
       /* A frame interval is measured only between consecutive presented
@@ -1420,17 +1310,16 @@ int main(void) {
        * and the frame after it starts a fresh interval. */
       static u64 previous_js;
       static uint32_t previous_frame = UINT32_MAX;
-      u64 phase_end = svcGetSystemTick();
       if (previous_frame != UINT32_MAX && run_frame == previous_frame + 1) {
         devserver_set_frame_timing(
           ticks_to_us(phase_tick - phase_js),
-          ticks_to_us(phase_layout - phase_tick),
-          ticks_to_us(phase_draw_end - phase_draw),
-          ticks_to_us(phase_end - phase_gpu),
+          0, /* Internal tick/layout/render phases belong to the runtime. */
+          0,
+          0,
           ticks_to_us(phase_js - previous_js),
-          ticks_to_us(phase_js - phase_loop),
-          ticks_to_us(phase_gpu - phase_wait),
-          ticks_to_us(phase_draw - phase_layout),
+          ticks_to_us((phase_wait - phase_loop) + (phase_js - phase_wait_end)),
+          ticks_to_us(phase_wait_end - phase_wait),
+          0,
           gpu_late > 0
         );
       }
@@ -1456,8 +1345,8 @@ int main(void) {
             &top_rgb,
             &auxiliary_rgb
           )) {
-        /* FrameEnd queued both surfaces. Retire them once, then copy both
-         * targets before the next command list can overwrite either. */
+        /* Canonical tick has retired both surfaces. Copy both targets before
+         * the next tick can overwrite either. */
         gspWaitForVBlank();
         read_surface_rgb8(primary_target, VIEW_W, VIEW_H, top_rgb);
         read_surface_rgb8(
@@ -1516,7 +1405,6 @@ int main(void) {
 #endif
   input_shutdown();
   teardown_guest();
-  C3D_FrameEnd(0);
   agent_shutdown();
   stage_shutdown();
   release_choice(&guest, embedded);

@@ -24,15 +24,16 @@ describe("Nintendo 3DS Pocket Runtime storage", () => {
       '-DPOCKETJS_TARGET_ID="3ds-dev"',
       "-DPOCKETJS_HOST_ABI=8",
       `-I${join(ROOT, "hosts/3ds/include")}`,
+      `-I${join(ROOT, "contracts/generated")}`,
       `-I${join(ROOT, "hosts/3ds/src")}`,
       join(ROOT, "tests/fixtures/3ds-runtime-state.c"),
       join(ROOT, "hosts/3ds/src/runtime.c"),
       "-o",
       binary,
     ]);
-    expect(compile.exitCode, compile.stderr.toString()).toBe(0);
+    expect(compile.success, `exit=${compile.exitCode}, signal=${compile.signalCode}\n${compile.stderr}`).toBe(true);
 
     const run = Bun.spawnSync([binary, directory]);
-    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    expect(run.success, `exit=${run.exitCode}, signal=${run.signalCode}\n${run.stderr}`).toBe(true);
   });
 });

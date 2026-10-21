@@ -1,19 +1,5 @@
-# pocketjs-3ds-core — pocketjs-core behind a C ABI for the Nintendo 3DS host.
-#
-# citro3d is a C library that is mostly `static inline`, so unlike hosts/psp
-# the GPU backend cannot live in Rust: this crate owns the retained tree,
-# layout, damage and DrawList emission, and hosts/3ds/src/gfx.c walks the
-# emitted word stream. That is why `ui_draw_list_ptr`/`ui_draw_list_len` and
-# the texture/font registry accessors exist here and not in
-# engine/ui-cabi/src/lib.rs, whose GLES backends consume the list internally.
-#
-# Standalone workspace: the armv6k-nintendo-3ds target needs nightly
-# build-std (see .cargo/config.toml) while the desktop engine workspace stays
-# on the normal host toolchain.
-#
-# Build from this directory (rust-toolchain.toml pins the compiler):
-#   cargo build --release --locked
-
+# Single canonical runtime static archive for the armv6k libctru program.
+# Standalone nightly workspace uses build-std core/alloc (see .cargo/config.toml).
 [package]
 name = "pocketjs-3ds-core"
 version = "0.1.0"
@@ -24,7 +10,8 @@ name = "pocketjs_3ds_core"
 crate-type = ["staticlib"]
 
 [dependencies]
-pocketjs-core = { path = "../../../engine/core" }
+pocket-runtime-cabi = { path = "../../../engine/runtime-cabi", default-features = false }
+pocket-package = { path = "../../../engine/package" }
 
 [profile.release]
 # armv6k-nintendo-3ds defaults to unwind; a staticlib linked into a libctru

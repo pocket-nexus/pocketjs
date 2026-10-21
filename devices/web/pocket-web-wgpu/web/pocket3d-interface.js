@@ -104,6 +104,8 @@ export function realmOptions({ wasm, bundle, pak, plan, service = "pocket.overla
   const shape = screens(plan);
   return {
     packageId: plan.app.id,
+    host: plan.target?.id,
+    hostAbi: plan.target?.hostAbi,
     viewport: shape.viewport,
     rasterDensity: shape.density,
     auxiliary: shape.auxiliary,

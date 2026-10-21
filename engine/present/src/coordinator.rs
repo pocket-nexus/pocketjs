@@ -410,7 +410,8 @@ impl Coordinator {
     /// destroyed to stop hardware and every display using it is disabled.
     /// Further presentation rejects the disabled registration.
     ///
-    /// Primary geometry must match the resources' viewport at this scale.
+    /// CPU primary geometry must match the resources' viewport at this scale.
+    /// Device-owned renderers map that logical viewport to their physical target.
     /// Auxiliary viewport dimensions come from its display dimensions / scale;
     /// resource lookup and revisions still refer to the same application.
     pub fn present(
@@ -488,7 +489,10 @@ impl Coordinator {
             let descriptor = display.descriptor;
             let list = match descriptor.role {
                 DisplayRole::Primary => {
-                    if descriptor.width != primary_width || descriptor.height != primary_height {
+                    if descriptor.target_ownership == TargetOwnership::CpuVisible
+                        && (descriptor.width != primary_width
+                            || descriptor.height != primary_height)
+                    {
                         return Err(PresentError::InvalidFrame);
                     }
                     primary
@@ -496,10 +500,16 @@ impl Coordinator {
                 DisplayRole::Auxiliary => auxiliary.ok_or(PresentError::MissingAuxiliary)?,
                 _ => return Err(PresentError::InvalidDisplayDescriptor),
             };
-            let viewport = (
-                descriptor.width / self.scale,
-                descriptor.height / self.scale,
-            );
+            let native_primary = descriptor.role == DisplayRole::Primary
+                && descriptor.target_ownership == TargetOwnership::DeviceOwned;
+            let viewport = if native_primary {
+                (viewport.0 as u32, viewport.1 as u32)
+            } else {
+                (
+                    descriptor.width / self.scale,
+                    descriptor.height / self.scale,
+                )
+            };
             pocket_draw_ops::validate(
                 &list.words,
                 DamageRect::new(0, 0, viewport.0 as i32, viewport.1 as i32),
@@ -516,6 +526,12 @@ impl Coordinator {
                 .expect("validated display")
                 .frame_identity()
                 .map_err(|error| PresentError::Acquire(DisplayId(index), error))?;
+            // Arbitrary GPU scaling has no integer mapping for damage regions.
+            // Submit the whole target until a renderer-specific mapping exists.
+            let identity = identity.filter(|_| {
+                !native_primary
+                    || descriptor.width == primary_width && descriptor.height == primary_height
+            });
             display.history_slot = identity.map(|identity| {
                 let slot = display
                     .histories
@@ -923,8 +939,8 @@ fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), Prese
         || display.height == 0
         || display.width > i32::MAX as u32
         || display.height > i32::MAX as u32
-        || !display.width.is_multiple_of(scale)
-        || !display.height.is_multiple_of(scale)
+        || display.target_ownership == TargetOwnership::CpuVisible
+            && (!display.width.is_multiple_of(scale) || !display.height.is_multiple_of(scale))
         || display.stride_bytes < row_bytes
         || display
             .stride_bytes

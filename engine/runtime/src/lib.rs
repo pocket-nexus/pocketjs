@@ -388,6 +388,29 @@ impl Runtime {
         self.inputs.push(input);
         Ok(())
     }
+
+    /// Resize a native GPU embedding's presentation target while keeping the
+    /// application's logical viewport. The program prepares display descriptors
+    /// first and restores them on failure. CPU raster targets use `resize_embedded`.
+    pub fn resize_embedded_presentation(&mut self, physical: [u32; 2]) -> Result<(), RuntimeError> {
+        if self.state != State::Running || !self.embedded_viewport {
+            return Err(RuntimeError::InvalidState);
+        }
+        if physical.contains(&0) || physical.iter().any(|v| *v > 65535) {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        if self
+            .presenter
+            .display_descriptors()
+            .any(|d| d.target_ownership != pocket_drivers::TargetOwnership::DeviceOwned)
+        {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        self.presenter
+            .refresh_displays(self.presenter.scale(), physical)?;
+        self.profile.viewport = physical;
+        Ok(())
+    }
     pub fn add_provider(&mut self, provider: Box<dyn OpProvider>) -> Result<(), RuntimeError> {
         self.configuring()?;
         self.ops.add_provider(provider)

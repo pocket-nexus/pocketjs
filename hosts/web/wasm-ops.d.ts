@@ -8,6 +8,15 @@ export declare const FB_H: number;
 
 export interface WasmUi {
   ops: HostOps;
+  readonly booted: boolean;
+  readonly disposed: boolean;
+  boot(source: string, options?: Record<string, any>): HostOps;
+  bootAsync(source: string, options?: Record<string, any>): Promise<HostOps>;
+  advance(facts?: Record<string, any>, ticks?: number): void;
+  present(): Uint8Array;
+  dispose(): void;
+  layout(id: number): [number, number, number, number, number, number, number, number];
+  setLayoutMode(id: number, mode: number, x: number, y: number, width: number, height: number): void;
   exports: WebAssembly.Exports & { memory: WebAssembly.Memory };
   createAuxiliarySurface(width: number, height: number): number;
   renderAuxiliary(): Uint8Array;
@@ -52,7 +61,7 @@ export interface WasmUi {
 
 export declare function createWasmUi(
   wasm: ArrayBuffer | Uint8Array | WebAssembly.Module,
-  options?: { width?: number; height?: number; rasterDensity?: number; auxiliary?: [number, number] },
+  options?: { host?: string; hostAbi?: number; width?: number; height?: number; rasterDensity?: number; auxiliary?: [number, number] },
 ): Promise<WasmUi>;
 
 export declare function uploadPackImages(
@@ -60,3 +69,6 @@ export declare function uploadPackImages(
   listEntries: (prefix: string) => string[],
   getEntry: (key: string) => Uint8Array,
 ): Map<string, number>;
+
+export declare function createWasmUiSync(wasm: ArrayBuffer | Uint8Array | WebAssembly.Module, options?: {host?: string; hostAbi?: number; width?: number; height?: number; rasterDensity?: number; auxiliary?: [number, number]}): WasmUi;
+export declare function contactFacts(touches?: readonly number[], surfaces?: readonly number[]): Array<{surface:number;id:number;x:number;y:number;cancelled:boolean}>;

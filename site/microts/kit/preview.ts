@@ -1,11 +1,7 @@
-// Preview page runtime (the iframe loading /pocket/preview.html).
-// The parent page reloads the iframe for every run so global state starts clean, then:
-//   1. instantiate pocketjs.wasm (Rust UI core + software rasterizer) and set globalThis.ui
-//   2. turn compiled modules into blob URLs, replacing each project-local import with its URL
-//   3. dynamically import the entry (main.ts calls mount()) and call globalThis.frame(buttons, analog, touches, hits) at a fixed 60 Hz step
-// Framework modules and vue / solid-js resolve through the import map in preview.html.
+// One iframe owns one Runtime. Compiled modules import behind bootAsync's
+// evaluation gate; device facts then enter Runtime at each fixed host step.
+// Closing or replacing the preview disposes the guest and its native buffers.
 import { createWasmUi } from "../../../hosts/web/wasm-ops.js";
-import { __packTouch, __packTouchWide, createTouchHitFacts } from "../../../framework/src/touch.ts";
 
 const MODULE_TOKEN = "__pocket_module__:";
 
@@ -103,11 +99,11 @@ window.addEventListener("keyup", (e) => {
   e.preventDefault();
   held &= ~bit;
 });
-window.addEventListener("blur", () => (held = 0));
+window.addEventListener("blur", () => { held=0; latched=0; cancelTouch(); });
 window.addEventListener("pointerdown", () => post({ type: "focus" }));
 
 // Link modules into blob URLs: link dependencies first, then substitute their placeholders
-function link(modules: RunMessage["modules"], entry: string): string {
+function link(modules: RunMessage["modules"], entry: string): {entry:string; urls:string[]} {
   const urls = new Map<string, string>();
   const visiting = new Set<string>();
   const visit = (path: string): string => {
@@ -124,7 +120,8 @@ function link(modules: RunMessage["modules"], entry: string): string {
     visiting.delete(path);
     return url;
   };
-  return visit(entry);
+  try { return {entry:visit(entry), urls:[...urls.values()]}; }
+  catch(error) {for(const url of urls.values()) URL.revokeObjectURL(url); throw error;}
 }
 
 /** Fit the canvas to the device's screen area (the iframe is the screen area, at the logical viewport's aspect ratio) */
@@ -144,7 +141,7 @@ window.addEventListener("resize", fitCanvas);
 let touchEnabled = false;
 let contact: { x: number; y: number } | null = null;
 let tapPending: { x: number; y: number } | null = null;
-let hitFacts: ((packed: readonly number[] | undefined) => number[] | undefined) | undefined;
+let cancellation = false;
 
 function logicalPoint(e: PointerEvent) {
   const r = canvas.getBoundingClientRect();
@@ -163,110 +160,76 @@ canvas.addEventListener("pointermove", (e) => {
   if (touchEnabled && contact) contact = logicalPoint(e);
 });
 const release = () => (contact = null);
-canvas.addEventListener("pointerup", release);
-canvas.addEventListener("pointercancel", release);
+function cancelTouch() { if(contact || tapPending) cancellation=true; contact=null; tapPending=null; }
+canvas.addEventListener("pointerup",release);
+canvas.addEventListener("pointercancel",cancelTouch);
 
-function packTouches(): number[] | undefined {
-  const point = contact ?? tapPending;
-  tapPending = null;
-  if (!point) return undefined;
-  const wide = screenSize.width > 511 || screenSize.height > 511;
-  return [wide ? __packTouchWide(0, point.x, point.y) : __packTouch(0, point.x, point.y)];
+function contactFacts() {
+  if(cancellation) {cancellation=false;return [{surface:0,id:0,x:0,y:0,cancelled:true}];}
+  const point=contact ?? tapPending;tapPending=null;
+  return point ? [{surface:0,id:0,x:point.x,y:point.y,cancelled:false}] : [];
 }
 
 let wasmBytes: Promise<ArrayBuffer> | null = null;
+let runGeneration = 0;
+let disposeRun: (()=>void) | undefined;
+window.addEventListener("pagehide",()=>{runGeneration++;disposeRun?.();disposeRun=undefined;});
 
 async function run(msg: RunMessage) {
-  const { width, height } = msg.viewport;
-  canvas.width = width;
-  canvas.height = height;
-  document.documentElement.style.setProperty("--aspect", `${width} / ${height}`);
-  screenSize = { width, height };
-  touchEnabled = msg.touch === true;
-  canvas.style.cursor = touchEnabled ? "pointer" : "";
-  fitCanvas();
-  const ctx = canvas.getContext("2d")!;
-  ctx.imageSmoothingEnabled = false;
-  const image = ctx.createImageData(width, height);
-
-  wasmBytes ??= fetch(new URL("./pocketjs.wasm", import.meta.url)).then((r) => {
-    if (!r.ok) throw new Error(`pocketjs.wasm: HTTP ${r.status}`);
-    return r.arrayBuffer();
+  const generation=++runGeneration;
+  disposeRun?.();disposeRun=undefined;
+  contact=null;tapPending=null;cancellation=false;
+  const {width,height}=msg.viewport;
+  canvas.width=width;canvas.height=height;
+  document.documentElement.style.setProperty("--aspect",`${width} / ${height}`);
+  screenSize={width,height};touchEnabled=msg.touch===true;
+  canvas.style.cursor=touchEnabled ? "pointer" : "";fitCanvas();
+  const ctx=canvas.getContext("2d")!;ctx.imageSmoothingEnabled=false;
+  const image=ctx.createImageData(width,height);
+  wasmBytes ??= fetch(new URL("./pocketjs.wasm",import.meta.url)).then(r=>{
+    if(!r.ok)throw new Error(`pocketjs.wasm: HTTP ${r.status}`);return r.arrayBuffer();
   });
-  const wasm = await createWasmUi(await wasmBytes, { width, height });
-  const g = globalThis as Record<string, unknown>;
-  g.ui = wasm.ops;
-  g.__pak = msg.pak;
-  g.__pocketStyles = msg.styles;
-  g.frame = undefined;
-
-  const entryUrl = link(msg.modules, msg.entry);
+  const wasm=await createWasmUi(await wasmBytes,{width,height});
+  if(generation!==runGeneration){wasm.dispose();return;}
+  let alive=true,raf=0,linked:ReturnType<typeof link>|undefined;
+  const dispose=()=>{
+    if(!alive)return;alive=false;cancelAnimationFrame(raf);wasm.dispose();
+    for(const url of linked?.urls ?? []) URL.revokeObjectURL(url);
+  };
+  disposeRun=dispose;
+  const g=globalThis as Record<string,unknown>;
+  g.__pocketStyles=msg.styles;
   try {
-    await import(/* @vite-ignore */ entryUrl);
-  } catch (e) {
-    reportError(e, "mount");
+    linked=link(msg.modules,msg.entry);
+    await wasm.bootAsync("",{pak:msg.pak,evaluate:()=>import(/* @vite-ignore */ linked!.entry)});
+  } catch(error) {
+    // bootAsync owns destruction on failure; cleanup remains idempotent.
+    alive=false;cancelAnimationFrame(raf);
+    for(const url of linked?.urls ?? []) URL.revokeObjectURL(url);
+    if(generation===runGeneration)reportError(error,"mount");
     return;
   }
-  const frame = g.frame as
-    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[]) => void)
-    | undefined;
-  const hitTestBounds = (wasm.ops as { hitTestBounds?: (x: number, y: number) => number }).hitTestBounds;
-  hitFacts = hitTestBounds ? createTouchHitFacts(hitTestBounds) : undefined;
-  if (typeof frame !== "function") {
-    reportError(new Error("The entry did not mount an app. main.ts must call mount(App)."), "mount");
-    return;
-  }
-
-  let last = performance.now();
-  let acc = 0;
-  let frames = 0;
-  let statT = 0;
-  let alive = true;
-  const STEP = 1000 / 60;
-  const blit = () => {
-    image.data.set(wasm.renderIncremental());
-    ctx.putImageData(image, 0, 0);
+  if(!alive || generation!==runGeneration)return;
+  let last=performance.now(),acc=0,frames=0,statT=0;
+  const STEP=1000/60;
+  const blit=()=>{image.data.set(wasm.present());ctx.putImageData(image,0,0);};
+  const step=()=>{
+    try {wasm.advance({buttons:held|latched|external,contacts:touchEnabled?contactFacts():[]});latched=0;return true;}
+    catch(error){reportError(error,"frame");dispose();return false;}
   };
-  const step = () => {
-    try {
-      const touches = touchEnabled ? packTouches() : undefined;
-      frame(held | latched | external, undefined, touches, hitFacts?.(touches));
-      latched = 0;
-      wasm.tick();
-      return true;
-    } catch (e) {
-      alive = false;
-      reportError(e, "frame");
-      return false;
-    }
+  if(!step())return;
+  blit();post({type:"running",width,height});
+  const loop=(now:number)=>{
+    if(!alive)return;
+    raf=requestAnimationFrame(loop);
+    const dt=Math.min(now-last,250);last=now;acc+=dt;
+    let steps=0;
+    while(acc>=STEP && steps<4 && alive){step();acc-=STEP;steps++;frames++;}
+    if(steps && alive)blit();
+    statT+=dt;
+    if(statT>=1000){post({type:"stats",fps:Math.round(frames*1000/statT),memory:wasm.exports.memory.buffer.byteLength});frames=0;statT=0;}
   };
-  step();
-  blit();
-  post({ type: "running", width, height });
-  const loop = (now: number) => {
-    if (!alive) return;
-    requestAnimationFrame(loop);
-    let dt = now - last;
-    last = now;
-    if (dt > 250) dt = 250;
-    acc += dt;
-    let steps = 0;
-    while (acc >= STEP && steps < 4 && alive) {
-      step();
-      acc -= STEP;
-      steps++;
-      frames++;
-    }
-    if (steps) blit();
-    statT += dt;
-    if (statT >= 1000) {
-      const mem = (wasm.exports as { memory?: WebAssembly.Memory }).memory?.buffer.byteLength ?? 0;
-      post({ type: "stats", fps: Math.round((frames * 1000) / statT), memory: mem });
-      frames = 0;
-      statT = 0;
-    }
-  };
-  requestAnimationFrame(loop);
+  raf=requestAnimationFrame(loop);
 }
 
 window.addEventListener("message", (e: MessageEvent) => {

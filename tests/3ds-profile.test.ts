@@ -1,3 +1,4 @@
+import { threeDsProfileHeader } from "../tools/3ds-contracts.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -231,7 +232,7 @@ describe("private Nintendo 3DS build profile", () => {
     expect(diagnosticCodes(dynamic)).toEqual(["viewport.fixedRequired"]);
   });
 
-  test("publishes the core's viewport as ui.__viewport", () => {
+  test("publishes metadata through the generated canonical guest", () => {
     // framework/src/index.ts sizes the mounted app and overlay layers from
     // ui.__viewport and falls back to the 480x272 spec screen when a host
     // omits it, which lays a 400x240 app out 80 px too wide and pushes every
@@ -242,9 +243,9 @@ describe("private Nintendo 3DS build profile", () => {
       join(new URL("..", import.meta.url).pathname, "hosts/3ds/src/qjs.c"),
       "utf8",
     );
-    expect(qjs).toContain('JS_SetPropertyStr(context, ui, "__viewport", viewport)');
-    expect(qjs).toContain("ui_viewport_width()");
-    expect(qjs).toContain("ui_viewport_height()");
+    expect(qjs).toMatch(/pocket_guest_quickjs_vtable\(\)->initialize\(guest,\s*owner,\s*environment\)/);
+    expect(qjs).toContain("pocket_runtime_boot(instance)");
+    expect(qjs).not.toContain("ui_viewport_width()");
   });
 
   test("keeps bring-up controls out of the application input path", () => {
@@ -284,32 +285,23 @@ describe("private Nintendo 3DS build profile", () => {
     expect(menu).not.toMatch(/\bui_[a-z_]+\s*\(/);
     expect(main).toContain("(void)devmenu_init()");
     expect(main).not.toContain("native development menu failed to initialize");
-    expect(main).toContain("auxiliary_list = devmenu_draw_list(&auxiliary_words)");
+    const gfx = readFileSync(join(root, "hosts/3ds/src/gfx.c"), "utf8");
+    expect(gfx).toContain("out->words = devmenu_draw_list(&out->word_count)");
     expect(makefile).not.toContain("-lcitro2d");
     expect(makefile).toContain("-lcitro3d");
   });
 
-  test("feeds pak images through the shared IMG-entry parser", () => {
-    const core = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "hosts/3ds/core/src/lib.rs"),
-      "utf8",
-    );
-    const imageArm = core.slice(
-      core.indexOf('entry.key.strip_prefix("ui:img.")'),
-      core.indexOf('entry.key.strip_prefix("ui:sprite.")'),
-    );
-    expect(imageArm).toContain("instance.upload_img_entry(blob)");
-    expect(imageArm).not.toContain("instance.upload_texture(");
-  });
-
-  test("keeps each display batch inside its own shared-arena range", () => {
-    const gfx = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "hosts/3ds/src/gfx.c"),
-      "utf8",
-    );
-    expect(gfx).toContain("batch->command_first = command_count");
-    expect(gfx).toContain("uint32_t start = vertex_count;");
-    expect(gfx).not.toContain("uint32_t start = 0;");
+  test("links one canonical Runtime archive and owns no second Ui", () => {
+    const root = new URL("..", import.meta.url).pathname;
+    const core = readFileSync(join(root,"hosts/3ds/core/src/lib.rs"),"utf8");
+    const manifest = readFileSync(join(root,"hosts/3ds/core/Cargo.toml"),"utf8");
+    const gfx = readFileSync(join(root,"hosts/3ds/src/gfx.c"),"utf8");
+    expect(core).toContain("pub use pocket_runtime_cabi::*");
+    expect(core).not.toContain("static mut UI");
+    expect(manifest).not.toContain("pocketjs-core =");
+    expect(gfx).toContain("pocket_runtime_add_renderer");
+    expect(gfx).toContain("pocket_runtime_add_display");
+    expect(gfx).not.toContain("ui_texture_at");
   });
 
   test("pins the device toolchain and rebuilds shell-safe SMDH metadata", () => {
@@ -454,4 +446,8 @@ describe("CIA title identity", () => {
     // is rejected as "Invalid RomFS Binary".
     expect(rsf).toMatch(/^RomFs:\n {2}RootPath: \$\(APP_ROMFS\)$/m);
   });
+});
+
+test("3DS canonical profile and operation identifiers match their source schemas", () => {
+  expect(readFileSync(new URL("../hosts/3ds/include/pocket_profile.h",import.meta.url),"utf8")).toBe(threeDsProfileHeader());
 });

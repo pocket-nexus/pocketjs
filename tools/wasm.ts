@@ -24,10 +24,10 @@ const env = {
 };
 
 const proc = Bun.spawnSync(
-  ["cargo", "build", "--release", "--target", "wasm32-unknown-unknown"],
+  ["cargo", "build", "--locked", "--release", "--target", "wasm32-unknown-unknown"],
   { cwd: WASM_DIR, env, stdout: "inherit", stderr: "inherit" },
 );
-if (proc.exitCode !== 0) {
+if (!proc.success) {
   console.error(
     "PocketJS wasm: cargo build failed" +
       " (missing target? run: rustup target add wasm32-unknown-unknown)",
