@@ -1,11 +1,11 @@
 //! The no_std archive has one allocator and one panic implementation.
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), not(feature = "external-runtime")))]
 use core::alloc::{GlobalAlloc, Layout};
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), not(feature = "external-runtime")))]
 use pocket_drivers::abi;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), not(feature = "external-runtime")))]
 struct HostAllocator;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), not(feature = "external-runtime")))]
 unsafe impl GlobalAlloc for HostAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         unsafe { abi::pocket_host_alloc(layout.size().max(1), layout.align()).cast() }
@@ -25,10 +25,10 @@ unsafe impl GlobalAlloc for HostAllocator {
         }
     }
 }
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), not(feature = "external-runtime")))]
 #[global_allocator]
 static ALLOCATOR: HostAllocator = HostAllocator;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), not(feature = "external-runtime")))]
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
     let message = b"PocketJS runtime panic";
@@ -44,7 +44,7 @@ fn panic(_: &core::panic::PanicInfo<'_>) -> ! {
 // symbol even when the application uses panic=abort. Supply it in the archive
 // so a C consumer still implements only the six documented host hooks. This
 // runtime never unwinds; reaching a personality routine is a fatal error.
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), not(feature = "external-runtime")))]
 #[no_mangle]
 pub extern "C" fn rust_eh_personality() -> ! {
     let message = b"PocketJS runtime cannot unwind";

@@ -16,7 +16,7 @@ function run(args: string[], env = process.env): string {
 test.skipIf(!cc)("PICA driver retains independent screen submissions and exact resource versions until terminal waits", () => {
   mkdirSync(runDir, { recursive: true });
   const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
-  run(["cargo", "+stable", "build", "--locked", "--offline", "--manifest-path", "engine/Cargo.toml", "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+  run(["cargo", "+stable", "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--offline", "--manifest-path", "engine/Cargo.toml", "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
   const binary = resolve(runDir, "driver");
   run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", resolve(root,"tests/fixtures/pica-driver"),
     "-I", resolve(root,"devices/3ds/pocket-3ds-pica/include"), "-I", resolve(root,"contracts/generated"),

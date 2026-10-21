@@ -107,7 +107,7 @@ export async function exportSdk(options: SdkOptions, root = ROOT): Promise<SdkMa
   const buildDir = join(root, ".pocket-build/validation/sdk/cargo", hash(JSON.stringify({ target: options.triple, compiler, rustflags, args: options.cargoArgs })).slice(0, 20));
   mkdirSync(buildDir, { recursive: true });
   console.error(`Pocket SDK: building candidate ${targetName} (${options.toolchain}, no_std, no legacy)`);
-  const command = [cargo, "rustc", "--locked", "--manifest-path", join(root, "engine/Cargo.toml"), "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target", options.triple, "--target-dir", buildDir, "--message-format=json-render-diagnostics", ...options.cargoArgs, "--", "--print=native-static-libs"];
+  const command = [cargo, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", join(root, "engine/Cargo.toml"), "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target", options.triple, "--target-dir", buildDir, "--message-format=json-render-diagnostics", ...options.cargoArgs, "--", "--print=native-static-libs"];
   const child = Bun.spawn(command, { cwd: root, env, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   writeFileSync(join(buildDir, "sdk-build.log"), `${stdout}\n${stderr}`);

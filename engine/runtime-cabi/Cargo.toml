@@ -6,11 +6,15 @@ license = "MIT"
 
 [lib]
 name = "pocket_runtime_cabi"
-crate-type = ["rlib", "staticlib"]
+# Rust programs link this library into their own final artifact.
+# SDK export selects --crate-type staticlib for the default C archive.
+crate-type = ["rlib"]
 
 [features]
 default = ["std"]
 std = []
+# A no_std Rust program supplies its own allocator, panic and compiler handlers.
+external-runtime = []
 legacy-ui = ["dep:pocket-gles", "dep:pocket-gles1", "dep:pocket-gles2"]
 standalone-extension-provider = []
 gles1 = []

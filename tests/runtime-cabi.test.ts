@@ -37,7 +37,7 @@ test.skipIf(!cc)("a C program links the no_std archive with six hooks and exerci
   const array = (name: string, data: Uint8Array) => `static const uint8_t ${name}[] = {${[...data].join(",")}};\n`;
   writeFileSync(resolve(runDir, "fixture.h"), `static const uint8_t profile_json[] = ${JSON.stringify(profile)};\n` + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", packageFixture()));
   const target = resolve(root, ".pocket-build/validation/runtime-cabi/cargo-target");
-  run(["cargo", "+stable", "build", "--locked", "--manifest-path", "engine/Cargo.toml", "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
+  run(["cargo", "+stable", "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--manifest-path", "engine/Cargo.toml", "-p", "pocket-runtime-cabi", "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
   const binary = resolve(runDir, "contract");
   run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", resolve(root, "contracts/generated"), "-I", runDir, resolve(root, "tests/fixtures/runtime-cabi/contract.c"), resolve(target, "release/libpocket_runtime_cabi.a"), "-lm", "-o", binary]);
   expect(run([binary])).toContain("runtime C ABI: prefixes, reentry, range source, raster and terminal lifecycle passed");
