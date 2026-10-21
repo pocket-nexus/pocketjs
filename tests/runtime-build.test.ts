@@ -177,3 +177,33 @@ test("pack uses the program's repack adapter after matching runtime, package and
   await expect(packRuntime({ config, runtime, pocket, output: join(dir, "bad.fixture") }, dir)).rejects.toThrow("not the file");
   expect(existsSync(join(dir, "bad.fixture"))).toBe(false);
 });
+
+test("config resolution directories exclude generated native outputs but retain package and module candidates", async () => {
+  for (const mutation of ["native-output", "package", "lock", "module"] as const) {
+    const dir = scratch();
+    mkdirSync(join(dir, "choice"));
+    writeFileSync(join(dir, "choice/index.ts"), "export default 1;\n");
+    const change = mutation === "native-output"
+      ? 'fs.writeFileSync(import.meta.dir + "/Psp.toml", "generated metadata"); fs.mkdirSync(import.meta.dir + "/target");'
+      : `fs.writeFileSync(import.meta.dir + ${JSON.stringify(mutation === "package" ? "/package.json" : mutation === "lock" ? "/bun.lock" : "/choice.ts")}, ${JSON.stringify(mutation === "package" ? '{"type":"module"}' : mutation === "lock" ? '{}' : 'export default 2;')});`;
+    writeFileSync(join(dir, "pocket.runtime-config.ts"), `
+      import fs from 'node:fs';
+      import profile from ${JSON.stringify(join(root, "profiles/psp.ts"))};
+      import choice from './choice';
+      export default { profile, build: {
+        hosts: [${JSON.stringify(`${process.platform}-${process.arch}`)}],
+        steps: [{kind:'compilerOnly'}], artifact: '{outdir}/native.bin',
+        run(ctx) { if(choice !== 1) throw Error('unexpected original choice'); ${change} fs.writeFileSync(ctx.outdir + '/native.bin', 'native'); }
+      } };
+    `);
+    const selected = await resolveProfile({ from: dir, requireConfig: true });
+    const out = join(dir, "out");
+    if (mutation === "native-output") {
+      const result = await buildRuntime(selected, out);
+      expect(JSON.parse(readFileSync(result.receipt!, "utf8")).success).toBe(true);
+    } else {
+      await expect(buildRuntime(selected, out)).rejects.toThrow("runtime build inputs changed");
+      expect(JSON.parse(readFileSync(join(out, "build-receipt.json"), "utf8")).success).toBe(false);
+    }
+  }
+});

@@ -17,13 +17,20 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const builtinProfile = (id: string): PocketProfile | undefined => Object.hasOwn(POCKET_PROFILES, id)
   ? POCKET_PROFILES[id as keyof typeof POCKET_PROFILES] : undefined;
 export const RUNTIME_CONFIG_FILE = "pocket.runtime-config.ts";
-export interface LoadedRuntimeConfig {
+export interface ResolutionInputs {
+  /** Directories are depfile watches; native output is not a module input. */
+  readonly resolutionDirectories?: readonly string[];
+  /** Exact package/lock paths, including absent candidates. */
+  readonly resolutionFiles?: readonly string[];
+  readonly moduleResolutions?: readonly { specifier: string; from: string; resolved: string | null }[];
+}
+export interface LoadedRuntimeConfig extends ResolutionInputs {
   readonly path: string;
   readonly value: PocketRuntimeConfig;
   readonly profiles: readonly PocketProfile[];
   readonly dependencies: readonly string[];
 }
-export interface ResolvedProfile {
+export interface ResolvedProfile extends ResolutionInputs {
   readonly profile: PocketProfile;
   readonly profileHash: string;
   readonly hostAbi: number;
@@ -72,19 +79,26 @@ function frameworkModulePath(specifier: string): string | undefined {
 
 const PACKAGE_INPUTS = ["package.json", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
 
-function packageResolutionInputs(inputs: BuildInputs, from: string): void {
+type ResolutionTracking = { directories: Set<string>; files: Set<string>; modules: { specifier: string; from: string; resolved: string | null }[]; packageDirectories: Set<string> };
+function packageResolutionInputs(inputs: BuildInputs, from: string, tracking: ResolutionTracking): void {
   for (let directory = from; ; directory = dirname(directory)) {
-    for (const name of PACKAGE_INPUTS) inputs.add(join(directory, name));
+    for (const name of PACKAGE_INPUTS) {
+      const path = join(directory, name);
+      inputs.add(path); tracking.files.add(path);
+    }
+    // Depfiles watch the importer directory. Exact ancestor candidates are
+    // recorded separately without adding filesystem roots as dependencies.
+    if (directory === from) { inputs.add(directory); tracking.directories.add(directory); }
     if (dirname(directory) === directory) break;
   }
 }
 
 /** External packages keep their own CJS/native loader. Their installed files
  * include data and native bindings that cannot be inferred from JS imports. */
-function externalPackageInputs(inputs: BuildInputs, entry: string, packages: Set<string>): void {
+function externalPackageInputs(inputs: BuildInputs, entry: string, packages: Set<string>, tracking: ResolutionTracking): void {
   entry = realpathSync(entry);
   inputs.add(entry);
-  packageResolutionInputs(inputs, dirname(entry));
+  packageResolutionInputs(inputs, dirname(entry), tracking);
   let directory = dirname(entry);
   while (!existsSync(join(directory, "package.json"))) {
     if (dirname(directory) === directory) return;
@@ -100,6 +114,7 @@ function externalPackageInputs(inputs: BuildInputs, entry: string, packages: Set
     const stat = statSync(actual);
     inputs.add(actual);
     if (stat.isDirectory()) {
+      tracking.packageDirectories.add(actual);
       for (const name of readdirSync(actual)) {
         if (name !== "node_modules" && name !== ".git" && name !== ".pocket-build") visit(join(actual, name));
       }
@@ -110,17 +125,27 @@ function externalPackageInputs(inputs: BuildInputs, entry: string, packages: Set
   for (const name of new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.optionalDependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])) {
     let dependency: string;
     try { dependency = Bun.resolveSync(name, directory); }
-    catch { continue; } // Optional and peer dependencies may be absent on this host.
-    if (existsSync(dependency)) externalPackageInputs(inputs, dependency, packages);
+    catch { tracking.modules.push({ specifier: name, from: directory, resolved: null }); continue; }
+    tracking.modules.push({ specifier: name, from: directory, resolved: dependency });
+    if (existsSync(dependency)) externalPackageInputs(inputs, dependency, packages, tracking);
   }
 }
 
-async function evaluateModule(path: string): Promise<{ value: unknown; dependencies: string[] }> {
+async function evaluateModule(path: string): Promise<{ value: unknown; dependencies: string[] } & ResolutionInputs> {
   const inputs = new BuildInputs();
+  const tracking: ResolutionTracking = { directories: new Set(), files: new Set(), modules: [], packageDirectories: new Set() };
   const externalPackages = new Set<string>();
   const plugin: BunPlugin = {
     name: "pocket-config-modules",
     setup(build) {
+      build.onResolve({ filter: /^(?:\.|\/)/ }, args => {
+        if (!args.importer) return;
+        const from = dirname(args.importer), resolved = Bun.resolveSync(args.path, from);
+        inputs.add(from); tracking.directories.add(from);
+        packageResolutionInputs(inputs, from, tracking);
+        tracking.modules.push({ specifier: args.path, from, resolved });
+        return { path: resolved };
+      });
       build.onResolve({ filter: /^@pocketjs\/framework(?:\/.*)?$/ }, args => {
         inputs.add(join(ROOT, "package.json"));
         return { path: frameworkModulePath(args.path)! };
@@ -129,8 +154,9 @@ async function evaluateModule(path: string): Promise<{ value: unknown; dependenc
         if (isBuiltin(args.path) || args.path === "bun" || args.path.startsWith("bun:") || args.path.includes(":")) return;
         const importer = args.importer ? dirname(args.importer) : dirname(path);
         const entry = Bun.resolveSync(args.path, importer);
-        packageResolutionInputs(inputs, importer);
-        externalPackageInputs(inputs, entry, externalPackages);
+        packageResolutionInputs(inputs, importer, tracking);
+        tracking.modules.push({ specifier: args.path, from: importer, resolved: entry });
+        externalPackageInputs(inputs, entry, externalPackages, tracking);
         return { path: entry, external: true };
       });
       build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, args => ({
@@ -145,12 +171,13 @@ async function evaluateModule(path: string): Promise<{ value: unknown; dependenc
   inputs.add(path);
   inputs.add(process.execPath);
   // Package resolution may change without a source edit.
-  inputs.add(dirname(path));
-  packageResolutionInputs(inputs, dirname(path));
+  packageResolutionInputs(inputs, dirname(path), tracking);
   const code = await bundle.outputs[0]!.text();
   const module = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   if (!("default" in module)) throw new TypeError(`${path} must export a default value`);
-  return { value: module.default, dependencies: inputs.paths() };
+  return { value: module.default, dependencies: inputs.paths(),
+    resolutionDirectories: [...tracking.directories].filter(path => !tracking.packageDirectories.has(path)).sort(),
+    resolutionFiles: [...tracking.files].sort(), moduleResolutions: tracking.modules };
 }
 
 function checkedProfile(value: unknown): PocketProfile {
@@ -174,7 +201,8 @@ export async function loadRuntimeConfig(path: string): Promise<LoadedRuntimeConf
     if (problems.length) throw new TypeError(`invalid runtime toolchain: ${problems.join("; ")}`);
   }
   const profiles = (value.profiles ?? [value.profile]).map(checkedProfile);
-  return { path, value, profiles, dependencies: module.dependencies };
+  return { path, value, profiles, dependencies: module.dependencies,
+    resolutionDirectories: module.resolutionDirectories, resolutionFiles: module.resolutionFiles, moduleResolutions: module.moduleResolutions };
 }
 
 export function profileRegistry(profile: PocketProfile) {
@@ -200,6 +228,7 @@ export async function resolveProfile(options: {
   if (options.requireConfig && !config) throw new Error(`no ${RUNTIME_CONFIG_FILE} found above ${from}`);
   let profile: PocketProfile;
   let dependencies: readonly string[] = config?.dependencies ?? [];
+  let resolution: ResolutionInputs = config ?? {};
   if (config) {
     if (target) {
       const selected = config.profiles.find(profile => profile.id === target);
@@ -225,9 +254,12 @@ export async function resolveProfile(options: {
       const module = await evaluateModule(path);
       profile = checkedProfile(module.value);
       dependencies = module.dependencies;
+      resolution = module;
     }
   } else {
     throw new Error(`no profile selected; use --target, POCKET_TARGET, or ${RUNTIME_CONFIG_FILE} above ${from}`);
   }
-  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies, ...(config ? { config } : {}) };
+  return { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION, dependencies,
+    resolutionDirectories: resolution.resolutionDirectories, resolutionFiles: resolution.resolutionFiles,
+    moduleResolutions: resolution.moduleResolutions, ...(config ? { config } : {}) };
 }

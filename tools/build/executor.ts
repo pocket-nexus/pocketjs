@@ -126,12 +126,38 @@ async function buildRuntimeUnlocked(selected: ResolvedProfile, outdir: string, o
       if (stat.isDirectory()) for (const name of readdirSync(path).sort()) collectSource(join(path, name));
     };
     for (const input of recipe.sourceInputs ?? []) collectSource(resolve(configDirectory, input));
-    return Object.fromEntries([...new Set([...selected.dependencies, ...declaredSources])].sort().map(path => {
+    const resolutionDirectories = new Set(selected.resolutionDirectories ?? config.resolutionDirectories);
+    const explicitSources = new Set(declaredSources);
+    const snapshot: Record<string, { kind: string; bytes?: number; sha256?: string; resolved?: string | null }> =
+      Object.fromEntries([...new Set([...selected.dependencies, ...declaredSources])].sort().map(path => {
       const stat = statSync(path);
       return [path, stat.isFile()
         ? { kind: "file", bytes: stat.size, sha256: hash(readFileSync(path)) }
+        : resolutionDirectories.has(path) && !explicitSources.has(path)
+        ? { kind: "resolution-directory" }
         : { kind: "directory", sha256: hash(Buffer.from(JSON.stringify(readdirSync(path).sort()))) }];
     }));
+    // Module resolution watches exact candidates, not unrelated native output
+    // created beside a config. Explicit source directories keep full listings.
+    for (const path of selected.resolutionFiles ?? config.resolutionFiles ?? []) {
+      snapshot[path] = existsSync(path)
+        ? { kind: "file", bytes: statSync(path).size, sha256: hash(readFileSync(path)) }
+        : { kind: "missing" };
+    }
+    const probes = selected.moduleResolutions ?? config.moduleResolutions ?? [];
+    // Bun caches resolution in this process. Probe in a fresh resolver so a
+    // new file that shadows a directory entry cannot pass with a stale cache.
+    const resolutions = probes.length ? Bun.spawnSync([process.execPath, "-e",
+      'const probes=await Bun.stdin.json(); console.log(JSON.stringify(probes.map(p=>{try{return Bun.resolveSync(p.specifier,p.from)}catch{return null}})));'],
+      { stdin: Buffer.from(JSON.stringify(probes)), stdout: "pipe", stderr: "pipe" }) : null;
+    if (resolutions && !resolutions.success) throw new Error(`module resolution probe failed: ${resolutions.stderr}`);
+    const resolvedPaths: (string | null)[] = resolutions ? JSON.parse(resolutions.stdout.toString()) : [];
+    for (const [index, probe] of probes.entries()) {
+      const resolved = resolvedPaths[index]!;
+      if (resolved !== probe.resolved) throw new Error(`module resolution changed: ${probe.specifier} from ${probe.from}`);
+      snapshot[`module:${probe.from}:${probe.specifier}`] = { kind: "module-resolution", resolved };
+    }
+    return snapshot;
   };
   const dependencies = snapshotDependencies();
   const verifyDependencies = () => {
