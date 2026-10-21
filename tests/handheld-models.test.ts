@@ -112,8 +112,12 @@ test("WASM auxiliary output has separate dimensions, raster, hit root and reset 
   expect(wasm.render()).toEqual(mainPixels);
   const other = await createWasmUi(bytes);
   expect(other.ops.__auxiliarySurface).toBeUndefined();
-  expect(() => other.renderAuxiliary()).toThrow("no auxiliary");
+  expect(() => other.renderAuxiliary()).toThrow("No auxiliary display");
   wasm.init();
-  expect(ops.__auxiliarySurface!.root).toBeGreaterThan(0);
-  expect(ops.hitTestBoundsAuxiliary!(20,20)).not.toBe(aux);
+  // Runtime reset retires the old guest's functions and mounts a new context.
+  expect(() => ops.hitTestBoundsAuxiliary!(20,20)).toThrow("shut down");
+  expect(wasm.ops.__auxiliarySurface!.root).toBeGreaterThan(0);
+  expect(wasm.ops.hitTestBoundsAuxiliary!(20,20)).not.toBe(aux);
+  wasm.dispose();
+  other.dispose();
 });

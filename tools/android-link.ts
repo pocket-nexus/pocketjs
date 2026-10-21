@@ -3,8 +3,8 @@
 // assets, and add classes.dex and the libraries. The result is unsigned and
 // unaligned.
 //
-// Two callers: tools/runtime/android.ts links the runtime's template.apk, and
-// tests/repack-android.test.ts links a game to compare with the TypeScript
+// External Android programs link their runtime template with this helper.
+// tests/repack-android.test.ts also links a game to compare with the TypeScript
 // repack. A repack itself runs no SDK tool.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -19,7 +19,7 @@ export interface AndroidSdk {
   readonly javaHome: string;
 }
 
-/** The SDK tools/android.ts uses: POCKETJS_ANDROID_SDK_ROOT, else the Homebrew SDK on macOS, else the toolchain cache. */
+/** Explicit SDK override, Homebrew on macOS, or the toolchain cache. */
 export function localAndroidSdk(env: NodeJS.ProcessEnv = process.env): AndroidSdk {
   return {
     root: env.POCKETJS_ANDROID_SDK_ROOT ??
@@ -35,8 +35,8 @@ export function buildTool(sdk: AndroidSdk, version: string, tool: string): strin
 
 export function runTool(program: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env): string {
   const done = Bun.spawnSync([program, ...args], { stdout: "pipe", stderr: "pipe", env });
-  if (done.exitCode !== 0) {
-    throw new Error(`${program.split("/").pop()} exited ${done.exitCode}\n${done.stderr.toString().trim() || done.stdout.toString().trim()}`);
+  if (!done.success) {
+    throw new Error(`${program.split("/").pop()} failed (${done.signalCode ?? done.exitCode})\n${done.stderr.toString().trim() || done.stdout.toString().trim()}`);
   }
   return done.stdout.toString();
 }
@@ -55,7 +55,7 @@ export async function linkAndroidApk(job: AndroidLinkJob, sdk: AndroidSdk = loca
   const aapt2 = buildTool(sdk, job.sdk.buildToolsVersion, "aapt2");
   const androidJar = join(sdk.root, "platforms", `android-${job.sdk.apiLevel}`, "android.jar");
   for (const path of [aapt2, androidJar]) {
-    if (!existsSync(path)) throw new Error(`android link: ${path} is absent (run \`bun tools/android.ts --profile=redmi-1s setup\`)`);
+    if (!existsSync(path)) throw new Error(`android link: ${path} is absent; install build-tools;${job.sdk.buildToolsVersion} and platforms;android-${job.sdk.apiLevel} in POCKETJS_ANDROID_SDK_ROOT`);
   }
   const work = mkdtempSync(join(tmpdir(), "pocket-android-link-"));
   try {
