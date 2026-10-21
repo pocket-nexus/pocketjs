@@ -123,7 +123,35 @@ impl EncodeLease {
     pub fn retain_in_encoder(self) {}
 }
 
+// Scope state also unwinds before the caller drops a shared renderer adapter.
+// A resource callback panic must not leave a validation scope on the device.
+struct ValidationScope {
+    device: wgpu::Device,
+    active: bool,
+}
+impl ValidationScope {
+    fn new(device: &wgpu::Device) -> Self {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        Self {
+            device: device.clone(),
+            active: true,
+        }
+    }
+    fn finish(mut self) -> Option<wgpu::Error> {
+        self.active = false;
+        pollster::block_on(self.device.pop_error_scope())
+    }
+}
+impl Drop for ValidationScope {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = pollster::block_on(self.device.pop_error_scope());
+        }
+    }
+}
+
 pub struct WgpuRenderer {
+    shutdown: bool,
     gpu: GpuContext,
     target_format: wgpu::TextureFormat,
     pipeline: wgpu::RenderPipeline,
@@ -203,6 +231,9 @@ impl WgpuRenderer {
         scale: f32,
         load: wgpu::LoadOp<wgpu::Color>,
     ) -> Result<TargetId, RenderError> {
+        if self.shutdown {
+            return Err(RenderError::Failed);
+        }
         if !self.valid_size(size, scale) {
             return Err(RenderError::InvalidFrame);
         }
@@ -219,6 +250,9 @@ impl WgpuRenderer {
         Ok(TargetId(id))
     }
     pub fn target(&self, id: TargetId) -> Result<DeviceTarget, RenderError> {
+        if self.shutdown {
+            return Err(RenderError::Failed);
+        }
         let target = self.targets.get(&id.0).ok_or(RenderError::InvalidFrame)?;
         Ok(DeviceTarget::new(
             id.0,
@@ -233,6 +267,34 @@ impl WgpuRenderer {
     pub fn pending_submissions(&self) -> usize {
         self.pending.len()
     }
+    pub fn is_shutdown(&self) -> bool {
+        self.shutdown
+    }
+
+    /// Permanently stop this renderer. An empty queue submission flushes staged
+    /// uploads and orders after every earlier submit, including work whose
+    /// submission token was never recorded because rendering unwound. Wait for
+    /// that checkpoint before releasing pending frames and cache versions.
+    /// Repeated calls do nothing. Fallible work entry points return `Failed`
+    /// after shutdown; the infallible surface-binding setter becomes a no-op.
+    /// This does not destroy a shared wgpu device or
+    /// invalidate resources retained by external, not-yet-submitted encoders.
+    /// Ordinary frame retirement waits only its own token; it does not call this.
+    pub fn shutdown(&mut self) {
+        if self.shutdown {
+            return;
+        }
+        self.wait_native(self.gpu.queue.submit([]));
+        self.shutdown = true;
+        self.pending.clear();
+        // A panic may have pinned versions under an id never entered in pending.
+        // All native reads/writes preceding the checkpoint are now terminal.
+        self.images = TextureCache::new(0, 0);
+        self.fonts = TextureCache::new(0, 0);
+        self.surfaces.clear();
+        self.targets.clear();
+    }
+
     pub fn resident_images(&self) -> usize {
         self.images.len()
     }
@@ -241,6 +303,9 @@ impl WgpuRenderer {
     }
 
     pub fn set_surface(&mut self, handle: u32, view: &wgpu::TextureView, logical: (u32, u32)) {
+        if self.shutdown {
+            return;
+        }
         let bind = self
             .gpu
             .device
@@ -260,6 +325,9 @@ impl WgpuRenderer {
             });
         self.surfaces.insert(handle, SurfaceBind { bind, logical });
     }
+    pub fn surface_handles(&self) -> impl Iterator<Item = u32> + '_ {
+        self.surfaces.keys().copied()
+    }
     pub fn retain_surfaces(&mut self, mut keep: impl FnMut(u32) -> bool) {
         self.surfaces.retain(|handle, _| keep(*handle));
     }
@@ -278,6 +346,9 @@ impl WgpuRenderer {
         scale: f32,
         load: wgpu::LoadOp<wgpu::Color>,
     ) -> Result<EncodeLease, RenderError> {
+        if self.shutdown {
+            return Err(RenderError::Failed);
+        }
         let id = next_id()?;
         let result =
             self.encode_inner(resources, words, encoder, view, size, scale, load, Some(id));
@@ -326,9 +397,7 @@ impl WgpuRenderer {
                 .filter(|n| *n <= limit)
                 .ok_or(RenderError::InvalidFrame)?;
         }
-        self.gpu
-            .device
-            .push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope = ValidationScope::new(&self.gpu.device);
         let result = (|| {
             let (vertices, commands) =
                 self.build_batches(resources, words, size, scale, viewport, submission)?;
@@ -410,7 +479,7 @@ impl WgpuRenderer {
                 _target: view.clone(),
             })
         })();
-        let validation = pollster::block_on(self.gpu.device.pop_error_scope());
+        let validation = scope.finish();
         if validation.is_some() || result.is_err() {
             // queue.write_texture may have staged uploads. Submit/drain them
             // before exposing a terminal error or discarding submission refs.
@@ -452,6 +521,9 @@ impl Renderer for WgpuRenderer {
         .unwrap()
     }
     fn render(&mut self, frame: &mut FrameInput<'_>) -> Result<Submission, RenderError> {
+        if self.shutdown {
+            return Err(RenderError::Failed);
+        }
         let Target::DeviceOwned(target) = &frame.target else {
             return Err(RenderError::Unsupported);
         };
@@ -482,11 +554,9 @@ impl Renderer for WgpuRenderer {
             load,
             Some(id),
         )?;
-        self.gpu
-            .device
-            .push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope = ValidationScope::new(&self.gpu.device);
         let index = self.gpu.queue.submit([encoder.finish()]);
-        if pollster::block_on(self.gpu.device.pop_error_scope()).is_some() {
+        if scope.finish().is_some() {
             self.wait_native(index);
             self.release(id);
             return Err(RenderError::Failed);
@@ -521,17 +591,6 @@ impl Renderer for WgpuRenderer {
 }
 impl Drop for WgpuRenderer {
     fn drop(&mut self) {
-        for pending in self.pending.values() {
-            self.wait_native(pending.index.clone());
-        }
-        let ids: Vec<_> = self.pending.keys().copied().collect();
-        self.pending.clear();
-        for id in ids {
-            self.release(id);
-        }
-        let _ = self.images.clear(drop);
-        let _ = self.fonts.clear(drop);
-        // External encoders retain native resources even after our handles
-        // disappear. Do not destroy a shared device, texture, or buffer here.
+        self.shutdown();
     }
 }

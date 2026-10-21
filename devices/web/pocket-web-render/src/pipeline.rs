@@ -141,6 +141,7 @@ impl WgpuRenderer {
         });
 
         Self {
+            shutdown: false,
             gpu,
             target_format,
             pipeline,

@@ -4,13 +4,18 @@
 presences on the desktop — and the first runtime built on it: Pocket Stage,
 which mounts real Pocket apps into authored 3D devices and rooms.*
 
-This document names and generalizes what
-[pocket-character](https://github.com/pocket-nexus/pocket-character) proved,
-and specifies the next runtime that needs the generalization. It follows the
-[RUNTIMES.md](RUNTIMES.md) ontology: a widget runtime is still
-⟨Cores, Surfaces, Guest⟩; **pocket-widget** is the mechanism layer that makes
-the desktop-widget *form factor* a reusable capability instead of a per-app
-reinvention.
+**Each application runs through the shared Runtime.** `UiProgram` admits the
+raw JS/pak adapter, mounts generated guest bindings, samples input facts and
+advances the core. `ProgramOutput` registers the wgpu renderer and device-owned
+display before guest evaluation. `EmbeddedUi` renders into the fixed texture
+bound to the authored screen; note-widget renders into a transparent target
+and copies it into the window. Both wait for terminal rendering before the
+scene or window submission samples the texture.
+
+The window shell uses `pocket_runtime::timing::TickSchedule` for monotonic deadlines.
+A missed wall-clock slot does not replay guest turns. DrawList hashes and the
+core's raster revision drive presentation, so changed atlas pixels repaint
+without requiring changed DrawList words.
 
 ## 1. The capability
 
@@ -37,8 +42,8 @@ plumbing, not the full capability. **pocket-widget** is the missing middle: a
 
 | Piece | Role |
 | --- | --- |
-| `shell` | The window contract and its event loop: transparent / undecorated / always-on-top (from #125) plus occlusion suspend, per-press drag-to-move / resize-grip policy hooks, optional live resizing, and the governor of §4 — fixed-rate guest ticks, demand-driven GPU frames, with a frames-vs-ticks receipt logged on exit. One governor, two widget shapes: `WidgetGame` (3D — scene, camera, embedded screens) and `FlatWidget` (2D — the window IS the `ui` surface, one `render_words_scaled` pass, no scene). |
-| `embed` | A full PocketJS `ui` surface rendered off-window: `pocket-ui-wgpu` draws the core's DrawList into a persistent `OffscreenTarget`. A semantic glTF material override binds that texture view directly to the authored screen primitive. A screen inside a widget is a *real app*, not a video or a second overlay window. The per-tick DrawList content hash is the dirty signal. |
+| `shell` | The window contract and its event loop: transparent / undecorated / always-on-top (from #125) plus occlusion suspend, per-press drag-to-move / resize-grip policy hooks, optional live resizing, and the governor of §4 — fixed-rate guest ticks, demand-driven GPU frames, with a frames-vs-ticks receipt logged on exit. One governor, two widget shapes: `WidgetGame` (3D — scene, camera, embedded screens) and `FlatWidget` (2D — Runtime presentation followed by a copy into the transparent window). |
+| `embed` | A `UiProgram` with a registered `ProgramOutput` in fixed-texture mode. A glTF material override binds its texture view to the authored screen. Submit scene reads on the same GPU queue before the next Runtime presentation overwrites the texture. DrawList hash and raster revision track changes. |
 | `parts` + `pick` | The interaction vocabulary: named part shapes (`btn_cross`, `dpad_up`, `nub`, `screen`) → spec BTN bits, analog packing (raw extremes 255/1, never 0), the shared uihost keyboard map, and cursor-ray picking against oriented part bounds (event-driven, CPU, cold path). Procedural shells can register parts directly; authored shells declare cheap proxies in package data, so visual topology never enters the picking hot path. |
 
 What stays out of pocket-widget: any specific model, part map, or behavior —
@@ -249,9 +254,9 @@ A 480×272 texture sampled in perspective shimmers. Levers, in order:
   proved the same logical layout renders at density 2 with density-2 paks;
   the widget can reuse that asset path. The handheld's v1 renders density 1
   (480×272, the byte-exact golden flavor) and leans on the framing instead.
-  The flat form (§2b) ships the lever: `UiRenderer::render_words_scaled`
-  multiplies DrawList coordinates into the physical target while density-2
-  atlases land 1:1 — the Vita presentation model on wgpu, built with
+  The flat form (§2b) configures the registered `ProgramOutput` scale.
+  Its wgpu driver multiplies logical DrawList coordinates into the physical
+  target while density-2 atlases land 1:1, built with
   `bun tools/build.ts <app> --density=2`.
 - Mipmaps + anisotropic filtering on the screen material; default framing
   keeps the screen near-parallel to the view.
@@ -424,8 +429,9 @@ escape, and every declared-but-unconsumed field fail before GPU startup.
 The bundled PSP launcher is now manifest-first on the **app** side: it resolves
 the selected demo's `pocket.json` against a transitional
 `macos-embedded` profile, writes a `ResolvedBuildPlan`, compiles from that
-plan, and publishes the same target id/ABI through `UiSurface`. Full package
-launch should extend that path rather than add a second resolver:
+plan, and publishes the same target id/ABI through `UiProgram`. The raw JS/pak
+adapter enters Runtime package admission. Full stage-package launch should
+extend that path without adding a second resolver:
 
 ```text
 pocket.json + pocket-stage.json + actual Stage host facts
@@ -488,9 +494,9 @@ Landed in this repo:
    views; glTF base-color factors, alpha modes, and double-sided materials;
    plus public `Camera::screen_ray`, `Input::inject_cursor`, and
    `pick_alpha_mode` for alternative shells.
-2. `pocket-ui-wgpu`: `UiRenderer::render_words` — render a DrawList the
-   host already built, so the per-tick dirty hash costs one tree walk, not
-   two.
+2. `pocket-ui-wgpu`: registered `ProgramOutput` renderer/display pairs,
+   fixed textures for authored meshes, and bounded frame leases for compositor
+   consumers. `UiRenderer` remains available to low-level drawing tests.
 3. `pocket-widget`: the crate — `shell` (demand-render loop), `embed`,
    `parts`, `pick` — with the RUNTIMES.md table row.
 4. `examples/handheld`: the first `pocket-stage` package and transitional
@@ -499,8 +505,8 @@ Landed in this repo:
    framings, per-package viewport/camera facts, click-wheel detents,
    embedded-target app admission/build plans, and headless scripting (`--screenshot/--click/--drag/--tap/--hold/--focus/--orbit/--auto-quit`).
 5. The flat form (§2b): `shell::run_flat` + `FlatWidget` + resizable
-   windows; `UiRenderer::render_words_scaled` (density-N presentation);
-   `UiSurface::new_with_density` + in-process svc queues; `Input` edit
+   windows; Runtime GPU viewport resizing and scaled presentation;
+   `UiProgram` with generated bindings and in-process svc queues; `Input` edit
    stream; `resizeViewport()` + overlay-aware hit testing framework-side;
    `--density=N` builds; and the second runtime — `examples/note-widget`
    over `apps/note` (markdown view/edit/menu, autosave, tested in
@@ -524,6 +530,6 @@ Open questions:
   `profile.json`; migrate it mechanically to `pocket-stage.json`, then remove
   the legacy reader rather than maintaining two permanent contracts.
 
-Resolved: dirty detection is an FNV-1a hash of the DrawList words — texture
-generations ride along in the handles, so re-uploaded pixels change the
-hash too.
+Dirty detection combines an FNV-1a hash of DrawList words with the core's
+raster revision. Font-atlas growth and texture uploads change the revision
+even when retained handles and DrawList words stay equal.

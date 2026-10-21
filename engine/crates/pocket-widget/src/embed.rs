@@ -1,127 +1,105 @@
-//! A PocketJS `ui` surface embedded in a 3D widget.
-//!
-//! The core renders off-window into an [`OffscreenTarget`] whose texture
-//! view binds onto any mesh via `ModelAsset::from_geometry_textured` — the
-//! screen inside a widget is a real app, not a video. The per-tick DrawList
-//! content hash doubles as the dirty signal: an app showing a settled frame
-//! re-renders nothing, which is the heart of the shell's demand rendering.
+//! A runtime-owned PocketJS program rendered onto a 3D widget's screen.
+//! The fixed texture remains bound to the mesh. Runtime presentation waits
+//! for the UI driver before the scene submits reads on the same GPU queue.
 
-use anyhow::Result;
-use pocket_ui_wgpu::{UiRenderer, UiSurface};
+use anyhow::{Result, anyhow};
+use pocket_drivers::InputFrameBuilder;
+use pocket_mod::Guest;
+use pocket_ui_wgpu::{ProgramOutput, ProgramTarget, UiProgram, UiSurface};
 use pocket3d::gpu::{Gpu, OFFSCREEN_FORMAT, OffscreenTarget};
+use std::{rc::Rc, sync::Arc};
 
 pub struct EmbeddedUi {
+    program: UiProgram,
     surface: UiSurface,
-    renderer: UiRenderer,
-    target: OffscreenTarget,
+    output: ProgramOutput,
+    target: Arc<ProgramTarget>,
     px: (u32, u32),
-    logical_to_physical_scale: f32,
-    /// The DrawList words of the latest tick (what render draws).
-    words: Vec<u32>,
     hash: u64,
-    /// The target holds a frame older than `words`.
+    revision: u64,
     texture_dirty: bool,
 }
-
 impl EmbeddedUi {
-    /// Wrap a booted surface (pak fed, mounted, bundle evaluated) with a
-    /// render target of `px` pixels. For 1:1 rendering `px` must equal the
-    /// surface's logical viewport — (480, 272) for stock PSP apps.
-    pub fn new(gpu: &Gpu, surface: UiSurface, px: (u32, u32)) -> EmbeddedUi {
-        Self::new_with_scale(gpu, surface, px, 1.0)
-    }
-
-    /// Wrap a density-N surface in a physical target. DrawList coordinates
-    /// stay logical while font/image assets and the output target use N×
-    /// pixels, matching the Vita/Retina presentation model.
+    /// Register the screen's real GPU output before admitting and evaluating
+    /// the app. Coordinates stay logical; `scale` converts them to pixels.
     pub fn new_with_scale(
         gpu: &Gpu,
-        surface: UiSurface,
+        mut program: UiProgram,
         px: (u32, u32),
-        logical_to_physical_scale: f32,
-    ) -> EmbeddedUi {
-        EmbeddedUi {
-            surface,
-            renderer: UiRenderer::new(gpu, OFFSCREEN_FORMAT),
-            target: OffscreenTarget::new(gpu, px.0, px.1),
+        scale: f32,
+        bundle: &str,
+        pak: &[u8],
+    ) -> Result<Self> {
+        let surface = program.surface();
+        let output = ProgramOutput::with_options(
+            gpu,
             px,
-            logical_to_physical_scale,
-            words: Vec::new(),
+            scale,
+            OFFSCREEN_FORMAT,
+            wgpu::Color::BLACK,
+            true,
+        )?;
+        output.register(&mut program)?;
+        program.boot(Rc::new(Guest::new()?), "embedded", bundle, pak)?;
+        let target = output
+            .first()
+            .ok_or_else(|| anyhow!("missing embedded target"))?;
+        Ok(Self {
+            program,
+            surface,
+            output,
+            target,
+            px,
             hash: 0,
+            revision: 0,
             texture_dirty: true,
-        }
+        })
     }
 
-    /// Advance the core one frame — call once per host tick, after the
-    /// guest turn. Returns true when the DrawList changed, i.e. the widget
-    /// needs a GPU frame to show it.
-    pub fn tick(&mut self) -> bool {
-        self.surface.tick();
-        let (hash, words) = self.surface.with_ui(|ui| {
-            let words = &ui.draw().words;
-            let hash = fnv1a64(words);
-            (hash, (hash != self.hash).then(|| words.clone()))
+    /// Publish sampled device facts and advance exactly one runtime frame.
+    /// Changes to atlas pixels count even when the DrawList words are equal.
+    pub fn tick(&mut self, facts: InputFrameBuilder) -> Result<bool> {
+        self.program.set_input(facts);
+        self.program.advance()?;
+        let (hash, revision) = self.surface.with_ui(|ui| {
+            let hash = fnv1a64(&ui.draw().words);
+            (hash, ui.raster_revision())
         });
-        let Some(words) = words else { return false };
-        self.words = words;
+        let changed = hash != self.hash || revision != self.revision;
         self.hash = hash;
-        self.texture_dirty = true;
-        true
+        self.revision = revision;
+        self.texture_dirty |= changed;
+        Ok(changed)
     }
 
-    /// Render the latest DrawList into the target if it changed since the
-    /// last render (self-submitting; call before the scene pass that samples
-    /// the texture). Returns whether a pass was recorded.
-    pub fn render_if_dirty(&mut self, gpu: &Gpu) -> Result<bool> {
+    /// Complete runtime rendering before the scene samples the fixed texture.
+    pub fn render_if_dirty(&mut self, _gpu: &Gpu) -> Result<bool> {
         if !self.texture_dirty {
             return Ok(false);
         }
-        let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        self.surface.with_ui(|ui| {
-            self.renderer.render_words_scaled(
-                gpu,
-                ui,
-                &self.words,
-                &mut encoder,
-                &self.target.view,
-                self.px,
-                self.logical_to_physical_scale,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-            )
-        })?;
-        gpu.queue.submit([encoder.finish()]);
+        anyhow::ensure!(self.output.prepare()?, "embedded target unavailable");
+        self.program.present()?;
         self.texture_dirty = false;
         Ok(true)
     }
-
-    /// The texture view a screen mesh's material binds.
     pub fn view(&self) -> &wgpu::TextureView {
         &self.target.view
     }
-
-    /// The render target (headless capture: `read_rgba` / `save_png`).
     pub fn target(&self) -> &OffscreenTarget {
         &self.target
     }
-
     pub fn surface(&self) -> &UiSurface {
         &self.surface
     }
-
     pub fn size(&self) -> (u32, u32) {
         self.px
     }
-
-    /// Deterministic hash of the most recent DrawList. Headless products can
-    /// pin this as an app-state acceptance without reading GPU pixels.
     pub fn content_hash(&self) -> u64 {
         self.hash
     }
 }
 
-/// FNV-1a 64 over the DrawList words. Texture contents are covered too:
-/// handles in the words are generation-tagged, so re-uploaded pixels change
-/// the handle and therefore the hash.
+/// FNV-1a 64 over the DrawList words; callers also include raster revision.
 fn fnv1a64(words: &[u32]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for w in words {
@@ -147,5 +125,53 @@ mod tests {
     #[test]
     fn hash_is_order_sensitive() {
         assert_ne!(fnv1a64(&[1, 2]), fnv1a64(&[2, 1]));
+    }
+    #[test]
+    fn runtime_screen_samples_facts_and_updates_its_fixed_texture() {
+        use super::*;
+        use pocket_drivers::{AxisSample, abi};
+        use pocket_ui_wgpu::ProgramConfig;
+        let gpu = Gpu::new_headless().unwrap();
+        let program = UiProgram::new(ProgramConfig {
+            host: "macos-embedded",
+            host_abi: 3,
+            logical: [8, 4],
+            density: 2,
+            scale: 2,
+            tick_hz: 60,
+            heap_limit: 4 * 1024 * 1024,
+            frame_buffer_budget: 4096,
+        })
+        .unwrap();
+        program.surface().set_svc_allowlist(["test"]);
+        let source = format!(
+            "if(ui.__host!=='macos-embedded'||ui.__hostAbi!==3||ui.__viewport.w!==8)throw Error('metadata');ui.svcOpen('test');const n=ui.createNode(0);ui.insertBefore(1,n,0);ui.setProp(n,{},8);ui.setProp(n,{},4);globalThis.frame=(buttons,analog)=>{{ui.setProp(n,{},buttons?0xff00ff00:0xff0000ff);ui.svcSend(String(analog));}};",
+            pocketjs_core::spec::prop::WIDTH,
+            pocketjs_core::spec::prop::HEIGHT,
+            pocketjs_core::spec::prop::BG_COLOR
+        );
+        let mut embedded =
+            EmbeddedUi::new_with_scale(&gpu, program, (16, 8), 2., &source, &[]).unwrap();
+        let fixed = embedded.target.clone();
+        assert!(embedded.tick(InputFrameBuilder::new()).unwrap());
+        assert!(embedded.render_if_dirty(&gpu).unwrap());
+        assert_eq!(fixed.read_rgba(&gpu).unwrap(), [255, 0, 0, 255].repeat(128));
+        assert_eq!(embedded.surface().svc_drain(), ["32896"]);
+        let mut facts = InputFrameBuilder::new();
+        facts.buttons = 1;
+        facts.axes.push(AxisSample {
+            id: abi::POCKET_AXIS_LEFT_X,
+            value: 255.,
+        });
+        assert!(embedded.tick(facts).unwrap());
+        assert!(embedded.render_if_dirty(&gpu).unwrap());
+        assert!(Arc::ptr_eq(&fixed, &embedded.target));
+        assert_eq!(fixed.read_rgba(&gpu).unwrap(), [0, 255, 0, 255].repeat(128));
+        assert_eq!(embedded.surface().svc_drain(), ["65408"]);
+        let mut same = InputFrameBuilder::new();
+        same.buttons = 1;
+        assert!(!embedded.tick(same).unwrap());
+        assert!(!embedded.render_if_dirty(&gpu).unwrap());
+        assert_eq!(embedded.output.pending_submissions(), 0);
     }
 }

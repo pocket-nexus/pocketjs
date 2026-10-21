@@ -3,33 +3,32 @@
 The PocketJS UI runtime on **PocketBook e-readers**, rendered through the
 [inkview](https://github.com/simmsb/inkview-rs) SDK.
 
-It reuses the backend-agnostic `ui` surface (`pocket-ui-surface`) and the
-core's software rasterizer unchanged, then:
+`UiProgram` composes **one `pocket-runtime::Runtime` and one UI operation
+context**. The JS/pak pair enters the package reader through its embedded
+adapter. Generated QuickJS bindings expose public UI operations; the runtime
+owns guest calls, contact capture and core advancement.
 
-- rasterizes the DrawList **incrementally** to a retained RGBA8 buffer at
-  `480×272 @2x` = 960×544 (`pocketjs_core::raster::render_scaled_incremental`
-  with a core `DamageTracker`), matching the `pocketbook` target profile in
-  `contracts/spec/platforms.ts` — an idle frame costs zero raster work;
-- pixel-diffs 16×16 tiles **inside the damage regions** and blits the changed
-  pixels as `RGB24` (`framebuffer.rs`). The DrawList damage bounds the raster
-  and the scan; the pixel diff trims the e-ink refresh to tiles that actually
-  changed (a DrawList edit that renders identical pixels flashes nothing).
-  inkview's `Screen::draw` converts `RGB24`→Gray8 internally on **grayscale**
-  panels (PocketBook Verse) and writes RGB directly on **color** panels
-  (PocketBook Era Color, Kaleido 3) — one blit path serves both;
-- drives the panel with a partial/dynamic/full update policy ported from
-  `inkview-slint` (`refresh.rs`);
-- maps inkview keys → the spec BTN bitmask and the touchscreen → the framework's
-  packed touch wire format (`input.rs`);
-- runs the inkview event loop on the main thread forwarding into a channel, with
-  a second thread owning the `Screen` and the fixed-cadence tick/render loop
-  (`main.rs`, the `inkview-slint` demo model).
+- Runtime's presentation coordinator computes DrawList damage. Its registered
+  software renderer paints acquired regions of a retained RGBA8 target at
+  **480×272 logical pixels and scale 2**, producing 960×544 pixels.
+- The registered display compares 16×16 tiles inside the damage regions and
+  copies changed pixels to Inkview as RGB24. The panel handles grayscale or
+  color conversion. An unchanged frame skips raster and pixel scanning.
+- `refresh.rs` retains partial, dynamic and full panel updates and the quiet
+  cleanup timer. Returning from the background invalidates the buffer's damage
+  generation and requests a full refresh.
+- `input.rs` publishes button masks and contacts in logical coordinates.
+  Runtime encodes guest touch arrays and retains each contact's initial hit.
+- Inkview's main thread forwards events to the program thread. Shared
+  `TickSchedule` sets **30 wall-clock turns per second**; the existing core
+  step and guest metadata remain **60 Hz**. Missed slots do not add guest turns.
 
-The 960×544 render is integer-fit centered on the actual panel (which varies by
-model), so the host works across devices without per-model configuration.
+The retained target is centered on the panel and scales down when it does not
+fit. Inkview copies target pixels before the display's terminal wait completes;
+its panel refresh keeps no borrow of the target buffer.
 
-See **`docs/IMPLEMENTATION.md`** in this directory for the full
-design and the ground-truth API notes.
+`docs/IMPLEMENTATION.md` records the original implementation proposal and SDK
+API findings. Its manual guest/raster examples predate the Runtime composition.
 
 ## Status
 

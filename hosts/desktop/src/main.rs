@@ -122,12 +122,12 @@ impl Runtime {
         let offload = text_worker(pak.clone());
         offload.mount(&guest)?;
         let output = gpu::RuntimeOutput::new(
-            gpu,
+            &gpu,
             (
                 args.viewport.0 * args.density,
                 args.viewport.1 * args.density,
             ),
-            args.density,
+            args.density as f32,
         )?;
         output.register(&mut program)?;
         program.boot(guest.clone(), &args.app, &source, &pak)?;

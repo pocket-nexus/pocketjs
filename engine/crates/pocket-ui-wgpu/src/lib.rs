@@ -14,7 +14,9 @@
 //! 2D and 3D share one base: the same `pocket3d::Gpu` device drives both.
 
 mod blit;
+mod output;
 mod overlay;
+pub use output::{ProgramOutput, ProgramTarget};
 mod render;
 
 pub use blit::Blit;
@@ -22,7 +24,7 @@ pub use overlay::UiOverlay;
 pub use render::UiRenderer;
 // The backend-agnostic surface (UiSurface + pak walk) — re-exported so desktop
 // consumers (uihost, OpenStrike) stay source-compatible after the split.
-pub use pocket_ui_surface::{PakEntry, UiSurface, walk_pak};
+pub use pocket_ui_surface::{PakEntry, ProgramConfig, UiProgram, UiSurface, walk_pak};
 
 #[cfg(test)]
 mod gpu_tests;

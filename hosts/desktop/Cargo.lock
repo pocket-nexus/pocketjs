@@ -1949,7 +1949,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "pocket-drivers",
  "pocket-mod",
+ "pocket-runtime",
  "pocket-ui-surface",
  "pocket-web-render",
  "pocket3d",

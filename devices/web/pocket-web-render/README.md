@@ -26,8 +26,18 @@ Submission references keep replaced versions alive across multiple targets and
 out-of-order retirement. Capacity is checked before expansion or GPU upload.
 Cache errors and native validation errors drain queued uploads before returning;
 native wait timeouts retain ownership and retry until completion. Early retire
-waits, stale/foreign tickets are rejected, and Drop waits for pending submissions.
-No method destroys a shared device or calls `Texture::destroy`/`Buffer::destroy`.
+waits and stale/foreign tickets are rejected.
+
+**`shutdown` reaches a queue checkpoint before releasing resources.** It submits
+staged uploads, waits for all earlier queue work, then releases pending frames,
+cache versions and target bindings. This covers a panic after native submission
+but before token registration. Shutdown is idempotent and closes the driver;
+`render`, `encode` and `register_target` then return `Failed`. The infallible
+surface-binding setter performs no work after closure. Drop uses the same path.
+An adapter which shares the renderer must call shutdown when its registration
+owner is dropped, even if other handles retain the renderer. Normal retirement
+waits only the requested submission. No method destroys a shared device or calls
+`Texture::destroy`/`Buffer::destroy`.
 
 For composition with other GPU passes, `encode` records into a host encoder and
 returns an `EncodeLease`. The host can retain that lease until submission
@@ -50,4 +60,5 @@ cargo clippy --locked --manifest-path devices/web/pocket-web-render/Cargo.toml -
 These tests require a native GPU adapter; Mesa Vulkan is sufficient on CI. They
 read back two encoders submitted after resource mutation and driver destruction,
 two targets with reversed retirement, capacity failure and retry, foreign/stale
-handles, font replacement, and native attachment-validation failure.
+handles, font replacement, native attachment-validation failure, and shutdown
+after untracked submission or a resource callback panic.

@@ -1,7 +1,7 @@
 //! A PocketJS guest over a Pocket3D frame. Applications provide JSON state
 //! and consume JSON commands; the adapter owns viewport and pointer transport.
 
-use crate::{UiRenderer, UiSurface};
+use crate::{Blit, ProgramConfig, ProgramOutput, ProgramTarget, UiProgram, UiSurface};
 use anyhow::{Context, Result, anyhow};
 use pocket_mod::{Guest, qjs::Function};
 use pocket3d::{
@@ -9,20 +9,26 @@ use pocket3d::{
     input::{Input, PointerEvent},
 };
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 use winit::event::MouseButton;
 
 pub struct UiOverlay {
     controls: BTreeMap<String, i32>,
-    guest: Guest,
+    guest: Rc<Guest>,
+    program: UiProgram,
+    output: ProgramOutput,
     surface: UiSurface,
-    renderer: Option<(wgpu::TextureFormat, UiRenderer)>,
     size: (u32, u32),
     scale: f32,
+    format: wgpu::TextureFormat,
+    blit: Option<(wgpu::TextureFormat, Blit)>,
 }
 
 impl UiOverlay {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        gpu: &Gpu,
+        format: wgpu::TextureFormat,
         bundle: &str,
         pak: &[u8],
         size: (u32, u32),
@@ -30,26 +36,54 @@ impl UiOverlay {
         density: u32,
     ) -> Result<Self> {
         let scale = valid_scale(scale);
-        let surface =
-            UiSurface::new_with_density((size.0 as f32 / scale, size.1 as f32 / scale), density);
+        let logical = [
+            (size.0 as f32 / scale).ceil().max(1.) as u32,
+            (size.1 as f32 / scale).ceil().max(1.) as u32,
+        ];
+        let mut program = UiProgram::new(ProgramConfig {
+            host: "desktop",
+            host_abi: 1,
+            logical,
+            density,
+            scale: 1,
+            tick_hz: 60,
+            heap_limit: 64 * 1024 * 1024,
+            frame_buffer_budget: 128 * 1024 * 1024,
+        })?;
+        let surface = program.surface();
         surface.set_svc_allowlist(["pocket.overlay"]);
-        surface.feed_pak(pak);
-        let guest = Guest::new()?;
-        surface.mount(&guest)?;
-        guest.eval("overlay", bundle)?;
-        anyhow::ensure!(
-            guest.has_frame(),
-            "PocketJS overlay bundle installed no frame handler"
-        );
-        surface.tick();
-        Ok(Self {
+        let guest = Rc::new(Guest::new()?);
+        let output = ProgramOutput::with_options(
+            gpu,
+            (logical[0], logical[1]),
+            1.,
+            format,
+            wgpu::Color::TRANSPARENT,
+            false,
+        )?;
+        output.register(&mut program)?;
+        program.boot(guest.clone(), "overlay", bundle, pak)?;
+        output.configure(size, scale)?;
+        program
+            .runtime_mut()
+            .resize_embedded_gpu(
+                [size.0 as f32 / scale, size.1 as f32 / scale],
+                [size.0, size.1],
+            )
+            .map_err(|error| anyhow!("overlay viewport: {error:?}"))?;
+        let overlay = Self {
             controls: BTreeMap::new(),
             guest,
             surface,
-            renderer: None,
+            program,
+            output,
             size,
             scale,
-        })
+            format,
+            blit: None,
+        };
+        overlay.resize_guest(size.0 as f32 / scale, size.1 as f32 / scale)?;
+        Ok(overlay)
     }
 
     /// Resize layout and input together. Pak raster density is independent of
@@ -61,10 +95,21 @@ impl UiOverlay {
             return Ok(());
         }
         self.cancel_pointer();
+        let (width, height) = (size.0 as f32 / scale, size.1 as f32 / scale);
+        self.output.configure(size, scale)?;
+        if let Err(error) = self
+            .program
+            .runtime_mut()
+            .resize_embedded_gpu([width, height], [size.0, size.1])
+        {
+            self.output.configure(self.size, self.scale)?;
+            return Err(anyhow!("overlay resize: {error:?}"));
+        }
         self.size = size;
         self.scale = scale;
-        let (width, height) = (size.0 as f32 / scale, size.1 as f32 / scale);
-        self.surface.with_ui(|ui| ui.set_viewport(width, height));
+        self.resize_guest(width, height)
+    }
+    fn resize_guest(&self, width: f32, height: f32) -> Result<()> {
         self.guest.with(|ctx| -> Result<()> {
             let hook: Option<Function> = ctx.globals().get("__pocketResizeViewport")?;
             if let Some(hook) = hook {
@@ -72,9 +117,7 @@ impl UiOverlay {
                     .map_err(|e| anyhow!("overlay resize: {e}"))?;
             }
             Ok(())
-        })?;
-        self.surface.tick();
-        Ok(())
+        })
     }
 
     pub fn logical_size(&self) -> (f32, f32) {
@@ -101,8 +144,7 @@ impl UiOverlay {
                     .svc_push(json!({"type":"pointer", "event":event}).to_string());
             }
         }
-        self.guest.frame(0)?;
-        self.surface.tick();
+        self.program.advance()?;
         let mut commands = Vec::new();
         for line in self.surface.svc_drain() {
             let value: Value =
@@ -147,30 +189,59 @@ impl UiOverlay {
         })
     }
 
+    /// Render through the registered driver, then record scene composition.
+    /// Keep the returned lease until the scene encoder has been submitted.
     pub fn render(
         &mut self,
         gpu: &Gpu,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         format: wgpu::TextureFormat,
-    ) -> Result<()> {
-        if self.renderer.as_ref().is_none_or(|(old, _)| *old != format) {
-            self.renderer = Some((format, UiRenderer::new(gpu, format)));
+    ) -> Result<Arc<ProgramTarget>> {
+        anyhow::ensure!(
+            format.is_srgb() == self.format.is_srgb(),
+            "overlay output color space changed"
+        );
+        anyhow::ensure!(
+            self.output.prepare()?,
+            "all overlay target leases are outstanding"
+        );
+        self.program.present()?;
+        let target = self
+            .output
+            .last()
+            .ok_or_else(|| anyhow!("overlay produced no target"))?;
+        if let Some((_, blit)) = self
+            .blit
+            .as_mut()
+            .filter(|(previous_format, _)| *previous_format == format)
+        {
+            blit.set_source(gpu, &target.view);
+        } else {
+            self.blit = Some((
+                format,
+                Blit::new_premultiplied(gpu, &target.view, format, wgpu::FilterMode::Nearest),
+            ));
         }
-        let (_, renderer) = self.renderer.as_mut().unwrap();
-        self.surface.with_ui(|ui| {
-            let words = ui.draw().words.clone();
-            renderer.render_words_scaled(
-                gpu,
-                ui,
-                &words,
-                encoder,
-                view,
-                self.size,
-                self.scale,
-                wgpu::LoadOp::Load,
-            )
-        })
+        let blit = &self.blit.as_ref().expect("blit initialized").1;
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Pocket UI overlay composition"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            blit.draw(&mut pass);
+        }
+        Ok(target)
     }
 }
 
@@ -215,8 +286,18 @@ mod tests {
                 if (batch) for (const line of batch.split("\n")) if (line) ui.svcSend(line);
             };
         "#;
-        for scale in [1.0, 2.0] {
-            let mut overlay = UiOverlay::new(bundle, &[], (960, 600), scale, 2).unwrap();
+        let gpu = Gpu::new_headless().unwrap();
+        for scale in [1.0, 1.25, 2.0] {
+            let mut overlay = UiOverlay::new(
+                &gpu,
+                pocket3d::gpu::OFFSCREEN_FORMAT,
+                bundle,
+                &[],
+                (960, 600),
+                scale,
+                2,
+            )
+            .unwrap();
             let mut input = Input::default();
             input.inject_cursor(200.0, 100.0);
             input.inject_mouse_button(MouseButton::Left, true);
@@ -233,5 +314,112 @@ mod tests {
             overlay.resize((1200, 800), scale).unwrap();
             assert_eq!(overlay.logical_size(), (1200.0 / scale, 800.0 / scale));
         }
+    }
+    #[test]
+    fn runtime_overlay_matches_direct_pixels_at_fractional_scale() {
+        let gpu = Gpu::new_headless().unwrap();
+        let format = pocket3d::gpu::OFFSCREEN_FORMAT;
+        let source = format!(
+            "globalThis.size=[];globalThis.__pocketResizeViewport=(w,h)=>size=[w,h];const n=ui.createNode(0);ui.insertBefore(1,n,0);ui.setProp(n,{},19);ui.setProp(n,{},11);ui.setProp(n,{},{});globalThis.frame=()=>{{}};",
+            pocketjs_core::spec::prop::WIDTH,
+            pocketjs_core::spec::prop::HEIGHT,
+            pocketjs_core::spec::prop::BG_COLOR,
+            0x806040e0u32
+        );
+        for scale in [1., 1.25, 2.] {
+            let mut overlay =
+                UiOverlay::new(&gpu, format, &source, &[], (37, 23), scale, 1).unwrap();
+            let width: f32 = overlay.guest.with(|ctx| ctx.eval("size[0]")).unwrap();
+            assert_eq!(width, 37. / scale);
+            assert_eq!(
+                overlay.surface.with_ui(|ui| ui.viewport()),
+                (37. / scale, 23. / scale)
+            );
+            overlay.frame(&Input::default(), &Value::Null).unwrap();
+            let direct = pocket3d::gpu::OffscreenTarget::new(&gpu, 37, 23);
+            let composed = pocket3d::gpu::OffscreenTarget::new(&gpu, 37, 23);
+            let background = wgpu::Color {
+                r: 0.15,
+                g: 0.25,
+                b: 0.4,
+                a: 1.,
+            };
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            let mut reference = crate::UiRenderer::new(&gpu, format);
+            overlay.surface.with_ui(|ui| {
+                let words = ui.draw().words.clone();
+                reference
+                    .render_words_scaled(
+                        &gpu,
+                        ui,
+                        &words,
+                        &mut encoder,
+                        &direct.view,
+                        direct.size,
+                        scale,
+                        wgpu::LoadOp::Clear(background),
+                    )
+                    .unwrap();
+            });
+            {
+                let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("overlay background"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &composed.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(background),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+            }
+            let lease = overlay
+                .render(&gpu, &mut encoder, &composed.view, format)
+                .unwrap();
+            assert_eq!(overlay.output.pending_submissions(), 0);
+            gpu.queue.submit([encoder.finish()]);
+            let actual = composed.read_rgba(&gpu).unwrap();
+            let expected = direct.read_rgba(&gpu).unwrap();
+            for (i, (a, b)) in actual.iter().zip(expected).enumerate() {
+                assert!(
+                    a.abs_diff(b) <= 1,
+                    "scale {scale}, byte {i}: composite {a}, direct {b}"
+                );
+            }
+            // The completed frame stays valid across output reconfiguration.
+            let retained = lease.read_rgba(&gpu).unwrap();
+            overlay.resize((41, 31), scale).unwrap();
+            overlay.frame(&Input::default(), &Value::Null).unwrap();
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            let next = pocket3d::gpu::OffscreenTarget::new(&gpu, 41, 31);
+            let next_lease = overlay
+                .render(&gpu, &mut encoder, &next.view, format)
+                .unwrap();
+            gpu.queue.submit([encoder.finish()]);
+            assert_eq!(lease.read_rgba(&gpu).unwrap(), retained);
+            assert_eq!(next_lease.size, (41, 31));
+        }
+    }
+    #[test]
+    fn tiny_physical_window_keeps_the_existing_core_minimum_viewport() {
+        let gpu = Gpu::new_headless().unwrap();
+        let format = pocket3d::gpu::OFFSCREEN_FORMAT;
+        let mut overlay =
+            UiOverlay::new(&gpu, format, "globalThis.frame=()=>{}", &[], (1, 1), 2., 1).unwrap();
+        assert_eq!(overlay.logical_size(), (0.5, 0.5));
+        assert_eq!(overlay.surface.with_ui(|ui| ui.viewport()), (1., 1.));
+        overlay.resize((1, 2), 2.).unwrap();
+        let target = pocket3d::gpu::OffscreenTarget::new(&gpu, 1, 2);
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        let lease = overlay
+            .render(&gpu, &mut encoder, &target.view, format)
+            .unwrap();
+        gpu.queue.submit([encoder.finish()]);
+        assert_eq!(lease.size, (1, 2));
+        assert_eq!(lease.read_rgba(&gpu).unwrap().len(), 8);
     }
 }

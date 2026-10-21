@@ -7,6 +7,8 @@ repository.workspace = true
 description = "PocketJS UI demos in a native window: the PSP UI runtime on the desktop base"
 
 [dependencies]
+pocket-runtime = { path = "../../../runtime" }
+pocket-drivers = { path = "../../../drivers" }
 pocket3d = { workspace = true }
 pocket-mod = { workspace = true }
 pocket-ui-wgpu = { workspace = true }

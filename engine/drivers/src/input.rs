@@ -38,6 +38,9 @@ impl BitOrAssign for InputClasses {
     }
 }
 
+/// Stick axes 0..=3 use 0..=255 with 128 at rest; Runtime packs these
+/// device samples into legacy axis words without normalizing -1..=1.
+/// Other axis IDs use their protocol's units.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AxisSample {
     pub id: u32,

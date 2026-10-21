@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use glam::Vec2;
+use pocket_runtime::timing::TickSchedule;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -132,12 +133,7 @@ pub trait FlatWidget {
     fn take_dirty(&mut self) -> bool;
     /// Draw into the swapchain view (submit your own encoder). Called only
     /// on frames that render.
-    fn render(
-        &mut self,
-        gpu: &Gpu,
-        view: &wgpu::TextureView,
-        window_px: (u32, u32),
-    ) -> Result<()>;
+    fn render(&mut self, gpu: &Gpu, view: &wgpu::TextureView, window_px: (u32, u32)) -> Result<()>;
     /// Left-press policy: OS window drag (move) at this cursor position?
     fn drag_at(&mut self, cursor: Vec2) -> bool {
         let _ = cursor;
@@ -163,7 +159,13 @@ pub trait FlatWidget {
 
 /// Run a 3D widget (scene + camera + demand rendering).
 pub fn run(config: WidgetConfig, game: impl WidgetGame) -> Result<()> {
-    run_driver(config, SceneDriver { game, renderer: None })
+    run_driver(
+        config,
+        SceneDriver {
+            game,
+            renderer: None,
+        },
+    )
 }
 
 /// Run a 2D widget (the window is the surface).
@@ -307,10 +309,6 @@ fn run_driver(config: WidgetConfig, driver: impl Driver) -> Result<()> {
     }
 }
 
-/// Catch-up bound: after an app-nap the loop resyncs instead of replaying
-/// the gap (a widget needs liveness, not history).
-const MAX_CATCHUP_TICKS: u32 = 6;
-
 /// Why frames were armed — logged with the exit receipt so a hot widget
 /// explains itself (dirt is the only healthy steady-state source).
 #[derive(Default)]
@@ -330,7 +328,7 @@ struct WindowState {
     gpu: Gpu,
     input: Input,
     start: Instant,
-    next_tick: Instant,
+    schedule: TickSchedule,
     last_render: Instant,
     /// Dirt latched from the game, waiting for a paced render.
     render_pending: bool,
@@ -399,6 +397,12 @@ impl<D: Driver> WidgetApp<D> {
 
         self.driver.init(&gpu, surface_config.format)?;
 
+        anyhow::ensure!(
+            self.config.tick_hz.is_finite() && self.config.tick_hz.fract() == 0.,
+            "tick rate must be an integer"
+        );
+        let schedule = TickSchedule::new(self.config.tick_hz as u32, 0, 1)
+            .map_err(|error| anyhow::anyhow!("widget timing: {error:?}"))?;
         let now = Instant::now();
         Ok(WindowState {
             window,
@@ -407,7 +411,7 @@ impl<D: Driver> WidgetApp<D> {
             gpu,
             input: Input::default(),
             start: now,
-            next_tick: now,
+            schedule,
             last_render: now - Duration::from_secs(1),
             render_pending: true, // first frame
             occluded: false,
@@ -423,28 +427,31 @@ impl<D: Driver> WidgetApp<D> {
             return;
         };
         let tick_dt = 1.0 / self.config.tick_hz.max(1.0);
-        let tick_interval = Duration::from_secs_f32(tick_dt);
         let now = Instant::now();
-
         let window_px = (state.surface_config.width, state.surface_config.height);
         let scale = state.window.scale_factor();
-        let mut ran = 0u32;
-        while now >= state.next_tick && ran < MAX_CATCHUP_TICKS {
+        let timing = state.schedule.poll(
+            now.duration_since(state.start)
+                .as_micros()
+                .min(u64::MAX as u128) as u64,
+        );
+        let due = match timing {
+            Ok(value) => value.is_some(),
+            Err(error) => {
+                self.error = Some(anyhow::anyhow!("widget timing: {error:?}"));
+                event_loop.exit();
+                return;
+            }
+        };
+        if due {
             if let Err(e) = self.driver.tick(tick_dt, &state.input, window_px, scale) {
                 self.error = Some(e);
                 event_loop.exit();
                 return;
             }
-            // Pressed edges and device deltas belong to one simulation turn,
-            // even when the governor catches up multiple fixed ticks in one
-            // pump. Held state remains set until the matching release event.
+            // Device edges belong to the one runtime turn reserved above.
             state.input.end_frame();
-            state.next_tick += tick_interval;
-            ran += 1;
-        }
-        self.ticks += ran as u64;
-        if ran == MAX_CATCHUP_TICKS && now >= state.next_tick {
-            state.next_tick = now + tick_interval;
+            self.ticks += 1;
         }
         if self.driver.wants_exit() {
             event_loop.exit();
@@ -470,7 +477,14 @@ impl<D: Driver> WidgetApp<D> {
         }
 
         let frame_interval = Duration::from_secs_f32(1.0 / self.config.max_fps.max(1.0));
-        let mut wake = state.next_tick;
+        let mut wake = match state.schedule.deadline() {
+            Ok(deadline) => state.start + Duration::from_micros(deadline),
+            Err(error) => {
+                self.error = Some(anyhow::anyhow!("widget timing: {error:?}"));
+                event_loop.exit();
+                return;
+            }
+        };
         if state.render_pending && !state.occluded {
             let due = state.last_render + frame_interval;
             if now >= due {
@@ -510,12 +524,8 @@ impl<D: Driver> WidgetApp<D> {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         let size = (state.surface_config.width, state.surface_config.height);
-        self.driver.render(
-            &state.gpu,
-            &view,
-            size,
-            state.start.elapsed().as_secs_f32(),
-        )?;
+        self.driver
+            .render(&state.gpu, &view, size, state.start.elapsed().as_secs_f32())?;
         state.window.pre_present_notify();
         frame.present();
 

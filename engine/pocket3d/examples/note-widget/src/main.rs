@@ -20,15 +20,19 @@
 
 mod cjk;
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use anyhow::{Context, Result, anyhow};
 use glam::Vec2;
+use pocket_drivers::InputFrameBuilder;
+use pocket_mod::Guest;
+use pocket_ui_wgpu::{Blit, ProgramConfig, ProgramOutput, UiProgram, UiSurface};
+use pocket_widget::shell::{FlatWidget, WidgetConfig};
 use pocket3d::gpu::{Gpu, OFFSCREEN_FORMAT, OffscreenTarget};
 use pocket3d::input::{EditKey, ImeInput, Input};
-use pocket_mod::Guest;
-use pocket_ui_wgpu::{UiRenderer, UiSurface};
-use pocket_widget::shell::{FlatWidget, WidgetConfig};
 use winit::keyboard::KeyCode;
 
 /// Header strip height in logical px — mirrors HEADER_H in apps/note/app.tsx.
@@ -44,8 +48,13 @@ const DRAG_TICKS: u64 = 8;
 
 struct NoteGame {
     surface: UiSurface,
-    guest: Guest,
-    renderer: Option<UiRenderer>,
+    program: UiProgram,
+    bundle: String,
+    pak: Vec<u8>,
+    output: Option<ProgramOutput>,
+    format: wgpu::TextureFormat,
+    blit: Option<Blit>,
+    output_scale: f32,
     /// Runtime CJK atlas extension (IME input → system-font glyphs).
     atlases: cjk::CjkAtlases,
     /// Caret rect reported by the guest (logical px) — docks the IME
@@ -54,8 +63,8 @@ struct NoteGame {
     file: PathBuf,
     /// Current logical viewport (the core's), tracked against the window.
     logical: (u32, u32),
-    /// DrawList words of the latest tick + their hash (the dirty signal).
-    words: Vec<u32>,
+    /// DrawList hash and raster revision of the latest tick.
+    revision: u64,
     hash: u64,
     dirty: bool,
     exit: bool,
@@ -95,21 +104,28 @@ enum ScriptEvent {
 
 impl NoteGame {
     fn new(
-        surface: UiSurface,
-        guest: Guest,
+        program: UiProgram,
+        bundle: String,
+        pak: Vec<u8>,
         atlases: cjk::CjkAtlases,
         file: PathBuf,
         logical: (u32, u32),
     ) -> Self {
+        let surface = program.surface();
         NoteGame {
             surface,
-            guest,
-            renderer: None,
+            program,
+            bundle,
+            pak,
+            output: None,
+            format: OFFSCREEN_FORMAT,
+            blit: None,
+            output_scale: 1.,
             atlases,
             caret_rect: None,
             file,
             logical,
-            words: Vec::new(),
+            revision: 0,
             hash: 0,
             dirty: true,
             exit: false,
@@ -124,6 +140,29 @@ impl NoteGame {
             script_drag: None,
             quit_after: None,
         }
+    }
+
+    fn configure_output(
+        &mut self,
+        logical: (u32, u32),
+        physical: (u32, u32),
+        scale: f32,
+    ) -> Result<()> {
+        let output = self.output.as_ref().expect("init ran");
+        if self.logical == logical && output.size() == physical && self.output_scale == scale {
+            return Ok(());
+        }
+        let previous = output.size();
+        output.configure(physical, scale)?;
+        if let Err(error) = self.program.runtime_mut().resize_embedded_gpu(
+            [logical.0 as f32, logical.1 as f32],
+            [physical.0, physical.1],
+        ) {
+            output.configure(previous, self.output_scale)?;
+            return Err(anyhow!("note viewport: {error:?}"));
+        }
+        self.output_scale = scale;
+        Ok(())
     }
 
     fn svc(&self, value: serde_json::Value) {
@@ -217,9 +256,8 @@ impl NoteGame {
             match ev {
                 ImeInput::Preedit(text, range) => {
                     self.ensure_text(&text);
-                    let cursor = range.map(|(lo, _)| {
-                        text.char_indices().take_while(|(i, _)| *i < lo).count()
-                    });
+                    let cursor = range
+                        .map(|(lo, _)| text.char_indices().take_while(|(i, _)| *i < lo).count());
                     self.svc(serde_json::json!({"t": "ime", "s": text, "c": cursor}));
                 }
                 ImeInput::Commit(text) => {
@@ -288,7 +326,21 @@ impl NoteGame {
 
 impl FlatWidget for NoteGame {
     fn init(&mut self, gpu: &Gpu, format: wgpu::TextureFormat) -> Result<()> {
-        self.renderer = Some(UiRenderer::new(gpu, format));
+        let output = ProgramOutput::with_options(
+            gpu,
+            self.logical,
+            1.,
+            format,
+            wgpu::Color::TRANSPARENT,
+            false,
+        )?;
+        output.register(&mut self.program)?;
+        self.program
+            .boot(Rc::new(Guest::new()?), "note", &self.bundle, &self.pak)?;
+        self.bundle.clear();
+        self.pak.clear();
+        self.output = Some(output);
+        self.format = format;
         Ok(())
     }
 
@@ -338,9 +390,8 @@ impl FlatWidget for NoteGame {
             ((window_px.1 as f64 / scale).round() as u32).max(1),
         );
         if logical != self.logical {
+            self.configure_output(logical, window_px, scale as f32)?;
             self.logical = logical;
-            self.surface
-                .with_ui(|ui| ui.set_viewport(logical.0 as f32, logical.1 as f32));
             self.svc(serde_json::json!({"t": "resize", "w": logical.0, "h": logical.1}));
         }
 
@@ -360,8 +411,7 @@ impl FlatWidget for NoteGame {
         // 60 Hz tick — level sampling alone would drop it entirely (the
         // guest would see no press, no CIRCLE, and a stale selection).
         let pressed_edge = input.mouse_button_pressed(winit::event::MouseButton::Left);
-        let level_down =
-            input.mouse_button_down(winit::event::MouseButton::Left) || script_down;
+        let level_down = input.mouse_button_down(winit::event::MouseButton::Left) || script_down;
         let mouse_down = level_down || pressed_edge;
 
         // Pointer → svc: one line per (position, button) change, so the
@@ -388,7 +438,9 @@ impl FlatWidget for NoteGame {
                 // The whole click fit inside this tick: deliver both edges
                 // in order so the guest still runs press → release.
                 self.svc(serde_json::json!({"t": "mouse", "x": x, "y": y, "d": true, "sh": shift}));
-                self.svc(serde_json::json!({"t": "mouse", "x": x, "y": y, "d": false, "sh": shift}));
+                self.svc(
+                    serde_json::json!({"t": "mouse", "x": x, "y": y, "d": false, "sh": shift}),
+                );
                 self.last_mouse = Some((x, y, false));
             } else {
                 let m = (x, y, mouse_down);
@@ -404,8 +456,10 @@ impl FlatWidget for NoteGame {
         // The guest turn (Law 3: exactly one per tick). Clicks are CIRCLE —
         // hover already focused what's under the pointer.
         let buttons = if mouse_down { BTN_CIRCLE } else { 0 };
-        self.guest.frame(buttons)?;
-        self.surface.tick();
+        let mut facts = InputFrameBuilder::new();
+        facts.buttons = buttons;
+        self.program.set_input(facts);
+        self.program.advance()?;
 
         // Guest → host intents.
         for line in self.surface.svc_drain() {
@@ -429,16 +483,15 @@ impl FlatWidget for NoteGame {
             }
         }
 
-        // DrawList content hash → demand rendering (embed.rs's trick, flat).
-        let (hash, words) = self.surface.with_ui(|ui| {
-            let words = &ui.draw().words;
-            let hash = fnv1a64(words);
-            (hash, (hash != self.hash).then(|| words.clone()))
+        // Atlas uploads can change pixels without changing DrawList words.
+        let (hash, revision) = self.surface.with_ui(|ui| {
+            let hash = fnv1a64(&ui.draw().words);
+            (hash, ui.raster_revision())
         });
-        if let Some(words) = words {
-            log::debug!("note-widget: DrawList changed at tick {}", self.ticks);
-            self.words = words;
+        if hash != self.hash || revision != self.revision {
+            log::debug!("note-widget: pixels changed at tick {}", self.ticks);
             self.hash = hash;
+            self.revision = revision;
             self.dirty = true;
         }
 
@@ -451,29 +504,51 @@ impl FlatWidget for NoteGame {
     }
 
     fn render(&mut self, gpu: &Gpu, view: &wgpu::TextureView, window_px: (u32, u32)) -> Result<()> {
-        let renderer = self.renderer.as_mut().expect("init ran");
-        // Render at the WINDOW's scale factor, never at a window/viewport
-        // ratio: mid-resize the surface and the last-ticked viewport differ
-        // by sub-pixel rounding, and a fractional ratio re-scales every
-        // glyph — visible as font/position jitter while dragging the grip.
-        // At the true scale a stale viewport is at most one physical px of
-        // clipped edge for one frame; a resize is a relayout, never a zoom.
-        let scale = if self.scale > 0.0 { self.scale as f32 } else { 1.0 };
-        let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        self.surface.with_ui(|ui| {
-            renderer.render_words_scaled(
+        // Use the OS scale for rasterization, including mid-resize rounding.
+        let scale = if self.scale > 0.0 {
+            self.scale as f32
+        } else {
+            1.0
+        };
+        self.configure_output(self.logical, window_px, scale)?;
+        let output = self.output.as_ref().expect("init ran");
+        anyhow::ensure!(output.prepare()?, "note output leases exhausted");
+        self.program.present()?;
+        let target = output
+            .last()
+            .ok_or_else(|| anyhow!("note produced no target"))?;
+        // Copy the premultiplied RGBA target into the transparent swapchain;
+        // its alpha mode applies window composition after this submission.
+        if let Some(blit) = &mut self.blit {
+            blit.set_source(gpu, &target.view);
+        } else {
+            self.blit = Some(Blit::new(
                 gpu,
-                ui,
-                &self.words,
-                &mut encoder,
-                view,
-                window_px,
-                scale,
-                // Transparent clear: the app's rounded-xl background is the
-                // window shape; the corners really are see-through.
-                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-            )
-        })?;
+                &target.view,
+                self.format,
+                wgpu::FilterMode::Nearest,
+                false,
+            ));
+        }
+        let blit = self.blit.as_ref().expect("blit initialized");
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("note output"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            blit.draw(&mut pass);
+        }
         gpu.queue.submit([encoder.finish()]);
         Ok(())
     }
@@ -499,7 +574,8 @@ impl FlatWidget for NoteGame {
 
     fn ime_cursor_area(&mut self) -> Option<(f32, f32, f32, f32)> {
         let s = self.scale as f32;
-        self.caret_rect.map(|(x, y, w, h)| (x * s, y * s, w * s, h * s))
+        self.caret_rect
+            .map(|(x, y, w, h)| (x * s, y * s, w * s, h * s))
     }
 
     fn wants_exit(&self) -> bool {
@@ -621,16 +697,20 @@ fn parse_args() -> Result<Args> {
                 let (x, y) = spec
                     .split_once(',')
                     .ok_or_else(|| anyhow!("--click wants x,y@frame"))?;
-                args.script
-                    .push((frame, ScriptEvent::Click(x.trim().parse()?, y.trim().parse()?)));
+                args.script.push((
+                    frame,
+                    ScriptEvent::Click(x.trim().parse()?, y.trim().parse()?),
+                ));
             }
             "--shift-click" => {
                 let (frame, spec) = at(&val("--shift-click")?, "--shift-click")?;
                 let (x, y) = spec
                     .split_once(',')
                     .ok_or_else(|| anyhow!("--shift-click wants x,y@frame"))?;
-                args.script
-                    .push((frame, ScriptEvent::ShiftClick(x.trim().parse()?, y.trim().parse()?)));
+                args.script.push((
+                    frame,
+                    ScriptEvent::ShiftClick(x.trim().parse()?, y.trim().parse()?),
+                ));
             }
             "--drag" => {
                 let (frame, spec) = at(&val("--drag")?, "--drag")?;
@@ -724,8 +804,8 @@ fn note_file(explicit: Option<PathBuf>) -> PathBuf {
     })
 }
 
-/// Boot the guest: feed the pak, mount `ui` (svc included), eval the bundle.
-fn boot(args: &Args) -> Result<(Guest, UiSurface)> {
+/// Stage raw inputs; init registers the display before runtime boot.
+fn boot(args: &Args) -> Result<(UiProgram, String, Vec<u8>)> {
     let js_path = resolve_asset(args.js.clone(), &args.app, "js")?;
     let pak_path = resolve_asset(args.pak.clone(), &args.app, "pak")?;
     let bundle = std::fs::read_to_string(&js_path)
@@ -733,35 +813,33 @@ fn boot(args: &Args) -> Result<(Guest, UiSurface)> {
     let pak =
         std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
-    let surface = UiSurface::new_with_density(
-        (args.size.0 as f32, args.size.1 as f32),
-        args.density,
-    );
-    // The platform-contract identity plan-built bundles assert
-    // (contracts/spec/platforms.ts POCKET_TARGETS["macos-widget"]).
-    surface.set_identity("macos-widget", 3);
-    // svcOpen is deny-by-default: this host IS the note companion, declared.
-    surface.set_svc_allowlist(["note"]);
-    surface.feed_pak(&pak);
-    let guest = Guest::new()?;
-    surface.mount(&guest)?;
-    guest.eval(&args.app, &bundle)?;
-    if !guest.has_frame() {
-        return Err(anyhow!(
-            "bundle evaluated but installed no frame() — is this a PocketJS app?"
-        ));
-    }
-    Ok((guest, surface))
+    let program = UiProgram::new(ProgramConfig {
+        host: "macos-widget",
+        host_abi: 3,
+        logical: [args.size.0, args.size.1],
+        density: args.density,
+        scale: 1,
+        tick_hz: 60,
+        heap_limit: 64 * 1024 * 1024,
+        frame_buffer_budget: 128 * 1024 * 1024,
+    })?;
+    program.surface().set_svc_allowlist(["note"]);
+    Ok((program, bundle, pak))
 }
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let mut args = parse_args()?;
-    let (guest, surface) = boot(&args)?;
-    let atlases = cjk::CjkAtlases::from_pak(&std::fs::read(
-        resolve_asset(args.pak.clone(), &args.app, "pak")?,
-    )?);
-    let mut game = NoteGame::new(surface, guest, atlases, note_file(args.file.clone()), args.size);
+    let (program, bundle, pak) = boot(&args)?;
+    let atlases = cjk::CjkAtlases::from_pak(&pak);
+    let mut game = NoteGame::new(
+        program,
+        bundle,
+        pak,
+        atlases,
+        note_file(args.file.clone()),
+        args.size,
+    );
     game.script = std::mem::take(&mut args.script);
     game.quit_after = args.auto_quit.map(|s| (s * 60.0) as u64);
 
@@ -797,21 +875,8 @@ fn headless(mut game: NoteGame, args: Args, out: &std::path::Path) -> Result<()>
     let (w, h) = (args.size.0 * scale, args.size.1 * scale);
     let target = OffscreenTarget::new(&gpu, w, h);
     game.take_dirty();
-    let renderer = game.renderer.as_mut().expect("init ran");
-    let mut encoder = gpu.device.create_command_encoder(&Default::default());
-    game.surface.with_ui(|ui| {
-        renderer.render_words_scaled(
-            &gpu,
-            ui,
-            &game.words,
-            &mut encoder,
-            &target.view,
-            (w, h),
-            scale as f32,
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-        )
-    })?;
-    gpu.queue.submit([encoder.finish()]);
+    game.scale = scale as f64;
+    game.render(&gpu, &target.view, (w, h))?;
     target.save_png(&gpu, out)?;
     println!(
         "note-widget: wrote {} after {} frames ({}x{} @{}x)",

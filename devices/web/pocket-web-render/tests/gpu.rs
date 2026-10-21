@@ -422,3 +422,107 @@ fn incompatible_native_attachment_fails_terminally_and_driver_can_retry() {
     renderer.retire(submission);
     assert_eq!(gpu.read(&output), [255, 0, 0, 255].repeat(16));
 }
+
+#[test]
+fn shutdown_covers_submitted_work_without_a_registered_token() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let gpu = Gpu::new();
+    let mut renderer = gpu.renderer();
+    let target = gpu.output();
+    let view = target.create_view(&Default::default());
+    let resources = Resources::red();
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    renderer
+        .encode(
+            &resources,
+            &image(4).words,
+            &mut encoder,
+            &view,
+            (4, 4),
+            1.,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+        )
+        .unwrap()
+        .retain_in_encoder();
+    gpu.queue.submit([encoder.finish()]);
+    assert_eq!(renderer.pending_submissions(), 0);
+    assert_eq!(renderer.resident_images(), 1);
+    let complete = Arc::new(AtomicBool::new(false));
+    let completed = complete.clone();
+    gpu.queue.on_submitted_work_done(move || {
+        completed.store(true, Ordering::SeqCst);
+    });
+    renderer.shutdown();
+    assert!(complete.load(Ordering::SeqCst));
+    assert!(renderer.is_shutdown());
+    assert_eq!(renderer.resident_images(), 0);
+    assert_eq!(
+        renderer.register_target(&view, (4, 4), 1., wgpu::LoadOp::Load),
+        Err(RenderError::Failed)
+    );
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    assert!(matches!(
+        renderer.encode(
+            &resources,
+            &image(4).words,
+            &mut encoder,
+            &view,
+            (4, 4),
+            1.,
+            wgpu::LoadOp::Load
+        ),
+        Err(RenderError::Failed)
+    ));
+    renderer.shutdown();
+    assert_eq!(gpu.read(&target), [255, 0, 0, 255].repeat(16));
+}
+
+#[test]
+fn shutdown_releases_cache_pins_left_by_a_resource_callback_panic() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    struct PanicResources(Resources);
+    impl RenderResources for PanicResources {
+        fn viewport(&self) -> (f32, f32) {
+            self.0.viewport()
+        }
+        fn raster_revision(&self) -> u64 {
+            1
+        }
+        fn texture(&self, id: i32) -> Option<TexView<'_>> {
+            assert_ne!(id, 8, "resource callback failed after an earlier upload");
+            self.0.texture(id)
+        }
+        fn font_atlas(&self, _: u8) -> Option<FontView<'_>> {
+            None
+        }
+    }
+    let gpu = Gpu::new();
+    let mut renderer = gpu.renderer();
+    let target = gpu.output();
+    let id = gpu.register(&mut renderer, &target);
+    let mut list = image(4);
+    let mut other = image(4);
+    other.words[1] = 8;
+    list.words.extend(other.words);
+    let resources = PanicResources(Resources::red());
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            let target = renderer.target(id).unwrap();
+            let _ = renderer.render(&mut FrameInput::new(
+                &list,
+                &resources,
+                &[],
+                Target::DeviceOwned(target),
+            ));
+        }))
+        .is_err()
+    );
+    assert_eq!(renderer.pending_submissions(), 0);
+    assert_eq!(renderer.resident_images(), 1);
+    renderer.shutdown();
+    assert_eq!(renderer.resident_images(), 0);
+    assert!(matches!(renderer.target(id), Err(RenderError::Failed)));
+}

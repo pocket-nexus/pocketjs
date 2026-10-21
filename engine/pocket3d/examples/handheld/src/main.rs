@@ -30,10 +30,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, anyhow, ensure};
 use glam::{Quat, Vec2, Vec3};
-use pocket_mod::Guest;
-use pocket_ui_wgpu::UiSurface;
+use pocket_drivers::{AxisSample, InputFrameBuilder, abi};
+use pocket_ui_wgpu::{ProgramConfig, UiProgram};
 use pocket_widget::embed::EmbeddedUi;
-use pocket_widget::parts::{analog_pack, key_button};
+use pocket_widget::parts::key_button;
 use pocket_widget::shell::{WidgetConfig, WidgetGame};
 use pocket3d::camera::Camera;
 use pocket3d::gpu::{Gpu, OFFSCREEN_FORMAT, OffscreenTarget};
@@ -423,8 +423,9 @@ impl RotaryScrollState {
 
 struct StageGame {
     // Boot state (pre-GPU) — consumed by init.
-    boot_surface: Option<UiSurface>,
-    guest: Guest,
+    boot_program: Option<UiProgram>,
+    boot_bundle: String,
+    boot_pak: Vec<u8>,
     profile_path: PathBuf,
     settings: device::StageSettings,
     last_unknown_svc_warning_tick: Option<u64>,
@@ -471,8 +472,9 @@ struct StageGame {
 
 impl StageGame {
     fn new(
-        guest: Guest,
-        surface: UiSurface,
+        program: UiProgram,
+        bundle: String,
+        pak: Vec<u8>,
         hold_mask: u32,
         profile_path: PathBuf,
         settings: device::StageSettings,
@@ -491,8 +493,9 @@ impl StageGame {
         };
         camera.look_at(settings.view.desk_target);
         Self {
-            boot_surface: Some(surface),
-            guest,
+            boot_program: Some(program),
+            boot_bundle: bundle,
+            boot_pak: pak,
             profile_path,
             settings,
             last_unknown_svc_warning_tick: None,
@@ -562,13 +565,17 @@ impl StageGame {
 
 impl WidgetGame for StageGame {
     fn init(&mut self, gpu: &Gpu, renderer: &mut Renderer) -> Result<()> {
-        let surface = self.boot_surface.take().expect("init runs once");
+        let program = self.boot_program.take().expect("init runs once");
         let embedded = EmbeddedUi::new_with_scale(
             gpu,
-            surface,
+            program,
             self.settings.physical_size,
             self.settings.raster_density as f32,
-        );
+            &self.boot_bundle,
+            &self.boot_pak,
+        )?;
+        self.boot_bundle.clear();
+        self.boot_pak.clear();
         self.dev = Some(device::build(
             gpu,
             renderer,
@@ -792,10 +799,20 @@ impl WidgetGame for StageGame {
         } else {
             key_nub
         };
-        let analog = analog_pack(nub.x, nub.y);
-        self.guest.frame_with_analog(buttons, analog)?;
+        let mut facts = InputFrameBuilder::new();
+        facts.buttons = buttons;
+        facts.axes.extend([
+            AxisSample {
+                id: abi::POCKET_AXIS_LEFT_X,
+                value: 128. + nub.x * 127.,
+            },
+            AxisSample {
+                id: abi::POCKET_AXIS_LEFT_Y,
+                value: 128. + nub.y * 127.,
+            },
+        ]);
         if let Some(embedded) = self.embedded.as_mut()
-            && embedded.tick()
+            && embedded.tick(facts)?
         {
             self.dirty = true;
         }
@@ -887,8 +904,8 @@ extern "C" fn request_exit_on_signal(_signal: libc::c_int) {
 }
 
 fn install_signal_handlers() {
-    let handler = request_exit_on_signal as extern "C" fn(libc::c_int) as *const ()
-        as libc::sighandler_t;
+    let handler =
+        request_exit_on_signal as extern "C" fn(libc::c_int) as *const () as libc::sighandler_t;
     // SAFETY: the handler only stores to a static atomic, which is
     // async-signal-safe; registration happens before any thread observes it.
     unsafe {
@@ -1069,8 +1086,8 @@ fn resolve_asset(explicit: Option<PathBuf>, app: &str, ext: &str) -> Result<Path
     ))
 }
 
-/// Boot the guest: feed the pak, mount `ui`, eval the bundle.
-fn boot(args: &Args, settings: &device::StageSettings) -> Result<(Guest, UiSurface)> {
+/// Load inputs; admission/evaluation follows real display registration in init.
+fn boot(args: &Args, settings: &device::StageSettings) -> Result<(UiProgram, String, Vec<u8>)> {
     let js_path = resolve_asset(args.js.clone(), &args.app, "js")?;
     let pak_path = resolve_asset(args.pak.clone(), &args.app, "pak")?;
     let bundle = std::fs::read_to_string(&js_path)
@@ -1078,33 +1095,17 @@ fn boot(args: &Args, settings: &device::StageSettings) -> Result<(Guest, UiSurfa
     let pak =
         std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
-    let surface = UiSurface::new_with_density(
-        (
-            settings.logical_size.0 as f32,
-            settings.logical_size.1 as f32,
-        ),
-        settings.raster_density,
-    );
-    // tools/widget.ts resolves plan-built guests against this custom-host
-    // profile. The outer OS window is widget-shaped; the mounted screen is a
-    // fixed embedded target (contracts/spec/platforms.ts), so macos-widget is wrong.
-    surface.set_identity("macos-embedded", 3);
-    surface.feed_pak(&pak);
-    let guest = Guest::new()?;
-    surface.mount(&guest)?;
-    guest.eval(&args.app, &bundle)?;
-    if !guest.has_frame() {
-        return Err(anyhow!(
-            "bundle evaluated but installed no frame() — is this a PocketJS app?"
-        ));
-    }
-    log::info!(
-        "pocket-stage: booted {} ({} bytes js, {} bytes pak)",
-        args.app,
-        bundle.len(),
-        pak.len()
-    );
-    Ok((guest, surface))
+    let program = UiProgram::new(ProgramConfig {
+        host: "macos-embedded",
+        host_abi: 3,
+        logical: [settings.logical_size.0, settings.logical_size.1],
+        density: settings.raster_density,
+        scale: settings.raster_density,
+        tick_hz: 60,
+        heap_limit: 64 * 1024 * 1024,
+        frame_buffer_budget: 128 * 1024 * 1024,
+    })?;
+    Ok((program, bundle, pak))
 }
 
 fn main() -> Result<()> {
@@ -1171,10 +1172,11 @@ fn main() -> Result<()> {
             "--expect-ui-hash requires --screenshot"
         );
     }
-    let (guest, surface) = boot(&args, &settings)?;
+    let (program, bundle, pak) = boot(&args, &settings)?;
     let mut game = StageGame::new(
-        guest,
-        surface,
+        program,
+        bundle,
+        pak,
         args.hold,
         args.profile.clone(),
         settings.clone(),

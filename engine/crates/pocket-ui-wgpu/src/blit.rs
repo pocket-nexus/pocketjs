@@ -29,6 +29,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
 pub struct Blit {
     pipeline: wgpu::RenderPipeline,
     bind: wgpu::BindGroup,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
 }
 
 impl Blit {
@@ -40,6 +42,36 @@ impl Blit {
         format: wgpu::TextureFormat,
         filter: wgpu::FilterMode,
         blend: bool,
+    ) -> Blit {
+        Self::with_blend(
+            gpu,
+            src,
+            format,
+            filter,
+            blend.then_some(wgpu::BlendState::ALPHA_BLENDING),
+        )
+    }
+    /// Composite a transparent render target whose RGB already includes alpha.
+    pub fn new_premultiplied(
+        gpu: &Gpu,
+        src: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+        filter: wgpu::FilterMode,
+    ) -> Blit {
+        Self::with_blend(
+            gpu,
+            src,
+            format,
+            filter,
+            Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+        )
+    }
+    fn with_blend(
+        gpu: &Gpu,
+        src: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+        filter: wgpu::FilterMode,
+        blend: Option<wgpu::BlendState>,
     ) -> Blit {
         let shader = gpu
             .device
@@ -114,7 +146,7 @@ impl Blit {
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
-                        blend: blend.then_some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -124,7 +156,31 @@ impl Blit {
                 multiview: None,
                 cache: None,
             });
-        Blit { pipeline, bind }
+        Blit {
+            pipeline,
+            bind,
+            layout,
+            sampler,
+        }
+    }
+
+    /// Replace the sampled frame without rebuilding the shader or pipeline.
+    /// Encoders which already used the previous bind group retain its resources.
+    pub fn set_source(&mut self, gpu: &Gpu, src: &wgpu::TextureView) {
+        self.bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pocket-ui blit bind"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(src),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
     }
 
     /// Draw the blit inside an existing render pass (set the viewport first

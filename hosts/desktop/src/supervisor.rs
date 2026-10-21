@@ -148,7 +148,7 @@ impl AppSupervisor {
         let [w, h] = plan.viewport.logical;
         let density = plan.viewport.raster_density;
         let output =
-            gpu::RuntimeOutput::new(self.gpu.clone(), (w * density, h * density), density)?;
+            gpu::RuntimeOutput::new(&self.gpu, (w * density, h * density), density as f32)?;
         output.register(&mut program)?;
         program.boot(guest, &plan.app.output, &bundle, &pak)?;
 

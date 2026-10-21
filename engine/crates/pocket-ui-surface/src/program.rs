@@ -125,7 +125,7 @@ impl UiProgram {
             "target":{"id":config.host,"hostAbi":config.host_abi},
             "viewport":{"logical":config.logical,"rasterDensity":config.density},
             "tickHz":config.tick_hz,
-            "features":["input.buttons","input.analog.left","input.touch","text.layout.baked","ui.physics"]
+            "features":{"input.buttons":true,"input.analog.left":true,"input.touch":true,"text.layout.baked":true,"ui.physics":true}
         }))?;
         let identity = pocket_package::embedded::identity(label, label, label)
             .map_err(|error| anyhow!("package identity: {error:?}"))?;
@@ -342,6 +342,15 @@ mod tests {
         program.boot(guest.clone(),"test",r#"
             if(ui.__host!=='native-test'||ui.__hostAbi!==9||ui.__viewport.w!==16||ui.__tickHz!==60) throw Error('metadata');
             if(ui.__surfaces.child!==0||!ui.svcOpen('note')||ui.svcOpen('other')) throw Error('services');
+            for (const name of ['physicsCreate','physicsApply','physicsDestroy','physicsEvents','physicsQuery']) {
+                if(typeof ui[name]!=='function') throw Error('missing '+name);
+            }
+            const world=ui.physicsCreate(1,new ArrayBuffer(0));
+            if(!world) throw Error('world create failed');
+            ui.physicsApply(new ArrayBuffer(0));
+            ui.physicsEvents();
+            ui.physicsQuery(1,world,0,0,0,0);
+            ui.physicsDestroy(world);
             globalThis.node=ui.createNode(1); ui.setText(node,'before');
             globalThis.seen=[];
             globalThis.frame=(buttons,analog,touches,hits)=>{
@@ -350,6 +359,9 @@ mod tests {
                 Promise.resolve().then(()=>ui.replaceText(node,'after'));
             };
         "#,&[]).unwrap();
+        for op in 52..=56 {
+            assert!(program.runtime_mut().op_context().supports_op(op));
+        }
         let mut input = InputFrameBuilder::new();
         input.buttons = 7;
         input.contacts.push(Contact {
