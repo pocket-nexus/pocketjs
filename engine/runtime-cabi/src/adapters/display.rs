@@ -1,11 +1,18 @@
 use super::*;
 
+struct PendingTransfer {
+    id: u64,
+    native: u64,
+    range: Option<(usize, usize)>,
+}
+
 pub struct CDisplay {
     table: PocketDisplayOutputV1,
     context: *mut c_void,
     descriptor: DisplayDescriptor,
     acquired: bool,
-    pending: Option<(u64, u64)>,
+    pending: alloc::vec::Vec<PendingTransfer>,
+    acquired_range: Option<(usize, usize)>,
     next: u64,
 }
 impl CDisplay {
@@ -44,10 +51,18 @@ impl CDisplay {
         let mut descriptor =
             DisplayDescriptor::new(role, raw.width, raw.height, format, raw.stride_bytes, own);
         descriptor.double_buffered = raw.flags & POCKET_DISPLAY_DOUBLE_BUFFERED != 0;
+        descriptor.pipelined_acquire = raw.flags & POCKET_DISPLAY_PIPELINED_ACQUIRE != 0;
         descriptor.partial_refresh = raw.flags & POCKET_DISPLAY_PARTIAL_REFRESH != 0;
         descriptor.device_frame_storage = raw.flags & POCKET_DISPLAY_FRAME_STORAGE != 0;
         descriptor.device_rotation = raw.flags & POCKET_DISPLAY_DEVICE_ROTATION != 0;
         descriptor.device_scaling = raw.flags & POCKET_DISPLAY_DEVICE_SCALING != 0;
+        if descriptor.pipelined_acquire
+            && (!descriptor.double_buffered
+                || !descriptor.device_frame_storage
+                || own != TargetOwnership::CpuVisible)
+        {
+            return Err(AdapterError::Invalid);
+        }
         macro_rules! positive {
             ($field:ident) => {
                 if raw.struct_size
@@ -71,7 +86,8 @@ impl CDisplay {
             context,
             descriptor,
             acquired: false,
-            pending: None,
+            pending: alloc::vec::Vec::new(),
+            acquired_range: None,
             next: 1,
         })
     }
@@ -81,8 +97,38 @@ impl DisplayOutput for CDisplay {
     fn descriptor(&self) -> DisplayDescriptor {
         self.descriptor
     }
+    fn frame_identity(&mut self) -> Result<Option<BufferIdentity>, DisplayError> {
+        if !self.pending.is_empty() {
+            return Err(DisplayError::InvalidTarget);
+        }
+        self.acquired = false;
+        self.acquired_range = None;
+        let Some(callback) = self.table.frame_identity else {
+            return Ok(None);
+        };
+        let mut raw = PocketBufferIdentity::empty();
+        let status = unsafe { callback(self.context, &mut raw) };
+        if status == POCKET_STATUS_UNSUPPORTED {
+            return Ok(None);
+        }
+        check(status).map_err(display_error)?;
+        let raw = unsafe { PocketBufferIdentity::read_prefix(&raw) }
+            .ok_or(DisplayError::InvalidTarget)?;
+        if raw.struct_size < core::mem::offset_of!(PocketBufferIdentity, generation) + 8 {
+            return Err(DisplayError::InvalidTarget);
+        }
+        Ok(Some(BufferIdentity {
+            buffer: raw.buffer,
+            generation: raw.generation,
+        }))
+    }
     fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
-        if self.pending.is_some()
+        if self.pending.len()
+            >= if self.descriptor.pipelined_acquire {
+                2
+            } else {
+                1
+            }
             || region.width == 0
             || region.height == 0
             || region
@@ -123,6 +169,19 @@ impl DisplayOutput for CDisplay {
                 {
                     return Err(DisplayError::InvalidTarget);
                 }
+                let start = surface.pixels as usize;
+                let end = start
+                    .checked_add(surface.byte_length)
+                    .ok_or(DisplayError::InvalidTarget)?;
+                if self
+                    .pending
+                    .iter()
+                    .filter_map(|entry| entry.range)
+                    .any(|(a, b)| start < b && a < end)
+                {
+                    return Err(DisplayError::InvalidTarget);
+                }
+                self.acquired_range = Some((start, end));
                 let bytes = unsafe { writable(surface.pixels, surface.byte_length) }
                     .map_err(display_error)?;
                 Target::CpuVisible(Surface::new(
@@ -143,7 +202,14 @@ impl DisplayOutput for CDisplay {
         Ok(target)
     }
     fn flush(&mut self, regions: &[Rect]) -> Result<u64, DisplayError> {
-        if !self.acquired || self.pending.is_some() {
+        if !self.acquired
+            || self.pending.len()
+                >= if self.descriptor.pipelined_acquire {
+                    2
+                } else {
+                    1
+                }
+        {
             return Err(DisplayError::InvalidTarget);
         }
         let id = self.next;
@@ -155,17 +221,18 @@ impl DisplayOutput for CDisplay {
             self.table.flush.unwrap()(self.context, raw.as_ptr(), raw.len(), &mut native)
         })
         .map_err(display_error)?;
-        self.pending = Some((id, native));
+        self.pending.push(PendingTransfer {
+            id,
+            native,
+            range: self.acquired_range.take(),
+        });
         Ok(id)
     }
     fn wait(&mut self, token: u64) -> Result<(), DisplayError> {
-        let Some((id, native)) = self.pending else {
+        let Some(index) = self.pending.iter().position(|entry| entry.id == token) else {
             return Err(DisplayError::InvalidTarget);
         };
-        if id != token {
-            return Err(DisplayError::InvalidTarget);
-        }
-        self.pending = None;
+        let PendingTransfer { native, .. } = self.pending.remove(index);
         check(unsafe { self.table.wait.unwrap()(self.context, native) }).map_err(display_error)
     }
     fn vsync(&mut self) -> VsyncSource {
@@ -177,7 +244,7 @@ impl DisplayOutput for CDisplay {
 }
 impl Drop for CDisplay {
     fn drop(&mut self) {
-        if let Some((_, native)) = self.pending.take() {
+        for PendingTransfer { native, .. } in self.pending.drain(..) {
             unsafe {
                 self.table.wait.unwrap()(self.context, native);
             }

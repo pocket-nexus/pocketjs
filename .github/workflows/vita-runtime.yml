@@ -5,11 +5,13 @@ on:
     paths:
       - ".github/workflows/vita-runtime.yml"
       - "hosts/vita/**"
-      - "devices/vita/pocket-vita-gxm/**"
+      - "devices/vita/**"
       - "tools/vita*.ts"
       - "tools/vita-usb/**"
       - "tests/vita*.test.ts"
       - "tests/fixtures/vita-dev/**"
+      - "tests/fixtures/vita-runtime/**"
+      - "tools/test-vita-runtime.ts"
       - "tests/npm-package.test.ts"
       - "tools/png.ts"
       - "contracts/**"
@@ -22,6 +24,11 @@ on:
       - "engine/modules/media/**"
       - "engine/render/draw-ops/**"
       - "engine/render/glyph-pages/**"
+      - "engine/render/tex-cache/**"
+      - "engine/render/tri-batch/**"
+      - "engine/runtime/**"
+      - "engine/runtime-cabi/**"
+      - "engine/guest-quickjs/**"
       - "package.json"
       - "bun.lock"
   push:
@@ -29,11 +36,13 @@ on:
     paths:
       - ".github/workflows/vita-runtime.yml"
       - "hosts/vita/**"
-      - "devices/vita/pocket-vita-gxm/**"
+      - "devices/vita/**"
       - "tools/vita*.ts"
       - "tools/vita-usb/**"
       - "tests/vita*.test.ts"
       - "tests/fixtures/vita-dev/**"
+      - "tests/fixtures/vita-runtime/**"
+      - "tools/test-vita-runtime.ts"
       - "tests/npm-package.test.ts"
       - "tools/png.ts"
       - "contracts/**"
@@ -46,6 +55,11 @@ on:
       - "engine/modules/media/**"
       - "engine/render/draw-ops/**"
       - "engine/render/glyph-pages/**"
+      - "engine/render/tex-cache/**"
+      - "engine/render/tri-batch/**"
+      - "engine/runtime/**"
+      - "engine/runtime-cabi/**"
+      - "engine/guest-quickjs/**"
       - "package.json"
       - "bun.lock"
 
@@ -69,5 +83,6 @@ jobs:
       - run: bun install --frozen-lockfile
       # Pure host tests: this validates protocol/package behavior, not Vita
       # hardware, GXM rendering, or kernel-driver loading.
-      - run: bun test tests/vita-dev.test.ts tests/vita-package.test.ts tests/npm-package.test.ts
+      - run: bun test tests/vita-dev.test.ts tests/vita-runtime.test.ts tests/vita-package.test.ts tests/npm-package.test.ts
       - run: cargo test --locked --manifest-path devices/vita/pocket-vita-gxm/Cargo.toml
+      - run: cargo test --locked --manifest-path devices/vita/pocket-vita-render/Cargo.toml

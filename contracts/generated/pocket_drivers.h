@@ -8,6 +8,7 @@
 /* Every record starts with struct_size in bytes. Read only complete fields within min(struct_size, known size). Missing callbacks are unsupported; ignore unknown trailing fields. Appended fields must not increase record alignment; use a pointer for new over-aligned data. Callers initialize output struct_size to their writable capacity; callees must not write beyond it. */
 /* Record arrays are packed records: advance by each element's struct_size, not the consumer's sizeof. Each size includes padding to that record's alignment; validate the size, alignment and enclosing buffer bounds before reading a prefix, and never cast a short prefix into a full-sized record. A zero count permits a null pointer. A nonzero count requires the caller to provide valid readable storage for every element including its announced size; pointers and counts cannot prove the underlying allocation extent. */
 /* Status zero means success; negative values mean errors. Callback absence is unsupported. Driver context and vtables remain valid until runtime destruction, after all outstanding work has been drained. Runtime calls occur on its single owning thread. */
+/* PIPELINED_ACQUIRE requires CPU-visible double staging buffers and device frame storage. After flush, acquire may return the other buffer while the first transfer is pending; at most two transfers are pending. Never return storage still read by a transfer. Missing this flag requires display wait before reacquisition. */
 /* Lifecycle: acquire, render, renderer wait, flush, display wait, retire. Each display has its own submission. A shared resource remains live until its last referencing submission retires. */
 /* CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts. Acquired regions are exclusive until flush; nobody writes them until display wait returns. */
 /* render and flush errors are terminal: drain or cancel all submitted work before returning an error. Both wait callbacks return only after completion or cancellation on success AND error; there is no in-progress or recoverable timeout result. Reset hung hardware before returning failure. */
@@ -95,6 +96,7 @@ extern "C" {
 #define POCKET_DISPLAY_FRAME_STORAGE 4U
 #define POCKET_DISPLAY_DEVICE_ROTATION 8U
 #define POCKET_DISPLAY_DEVICE_SCALING 16U
+#define POCKET_DISPLAY_PIPELINED_ACQUIRE 64U
 #define POCKET_STATUS_OK 0U
 #define POCKET_STATUS_UNSUPPORTED (-1)
 #define POCKET_STATUS_INVALID (-2)
@@ -104,6 +106,7 @@ typedef struct { char prefix; uint64_t value; } pocket_abi_u64_alignment;
 typedef struct { char prefix; int64_t value; } pocket_abi_i64_alignment;
 typedef struct { char prefix; double value; } pocket_abi_f64_alignment;
 typedef struct pocket_rect pocket_rect;
+typedef struct pocket_buffer_identity pocket_buffer_identity;
 typedef struct pocket_surface pocket_surface;
 typedef struct pocket_target pocket_target;
 typedef struct pocket_display_descriptor pocket_display_descriptor;
@@ -148,6 +151,9 @@ typedef int32_t (*pocket_font_revision_fn)(const void * context, uint8_t slot, u
 typedef int32_t (*pocket_font_texture_width_fn)(const void * context, uint8_t slot, uint32_t * out);
 
 typedef int32_t (*pocket_font_atlas_fn)(const void * context, uint8_t slot, pocket_font_view * out);
+
+/* Optional. Unsupported or an absent callback requires full redraws. Called once before a frame; does not publish output or invalidate pending device access. */
+typedef int32_t (*pocket_display_frame_identity_fn)(void * context, pocket_buffer_identity * out);
 
 typedef int32_t (*pocket_display_descriptor_fn)(void * context, pocket_display_descriptor * out);
 
@@ -229,6 +235,27 @@ POCKET_ABI_ASSERT(offsetof(pocket_rect, x) == POCKET_LAYOUT_POCKET_RECT_1_OFFSET
 POCKET_ABI_ASSERT(offsetof(pocket_rect, y) == POCKET_LAYOUT_POCKET_RECT_2_OFFSET, "pocket_rect.y");
 POCKET_ABI_ASSERT(offsetof(pocket_rect, width) == POCKET_LAYOUT_POCKET_RECT_3_OFFSET, "pocket_rect.width");
 POCKET_ABI_ASSERT(offsetof(pocket_rect, height) == POCKET_LAYOUT_POCKET_RECT_4_OFFSET, "pocket_rect.height");
+
+/* Identity of the retained output pixels updated by this frame, stable until the next frame_identity call. Use one identity per physical framebuffer, or one for panel GRAM. Change generation after resets, external pixel writes or changed output rules. */
+struct pocket_buffer_identity {
+  size_t struct_size;
+  uint64_t buffer;
+  uint64_t generation;
+};
+enum {
+  POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_0_OFFSET + sizeof(size_t), offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_0_ALIGN, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_1_OFFSET + 8, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_1_ALIGN, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_2_OFFSET + 8, POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_2_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_buffer_identity) == POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_SIZE, "pocket_buffer_identity size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_buffer_identity) == POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_2_ALIGN, "pocket_buffer_identity alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_buffer_identity, struct_size) == POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_0_OFFSET, "pocket_buffer_identity.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_buffer_identity, buffer) == POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_1_OFFSET, "pocket_buffer_identity.buffer");
+POCKET_ABI_ASSERT(offsetof(pocket_buffer_identity, generation) == POCKET_LAYOUT_POCKET_BUFFER_IDENTITY_2_OFFSET, "pocket_buffer_identity.generation");
 
 /* CPU-writable storage for region; row stride is in bytes, including packed Gray4/Mono1 rows. */
 struct pocket_surface {
@@ -1145,6 +1172,7 @@ struct pocket_display_output_v1 {
   pocket_display_flush_fn flush;
   pocket_display_wait_fn wait;
   pocket_display_vsync_fn vsync;
+  pocket_display_frame_identity_fn frame_identity;
 };
 enum {
   POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
@@ -1159,16 +1187,19 @@ enum {
   POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_3_ALIGN, POCKET_ABI_ALIGNOF(pocket_display_wait_fn)),
   POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_4_OFFSET + sizeof(pocket_display_wait_fn), POCKET_ABI_ALIGNOF(pocket_display_vsync_fn)),
   POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_4_ALIGN, POCKET_ABI_ALIGNOF(pocket_display_vsync_fn)),
-  POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_OFFSET + sizeof(pocket_display_vsync_fn), POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_ALIGN)
+  POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_6_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_OFFSET + sizeof(pocket_display_vsync_fn), POCKET_ABI_ALIGNOF(pocket_display_frame_identity_fn)),
+  POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_6_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_ALIGN, POCKET_ABI_ALIGNOF(pocket_display_frame_identity_fn)),
+  POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_6_OFFSET + sizeof(pocket_display_frame_identity_fn), POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_6_ALIGN)
 };
 POCKET_ABI_ASSERT(sizeof(pocket_display_output_v1) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_SIZE, "pocket_display_output_v1 size");
-POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_display_output_v1) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_ALIGN, "pocket_display_output_v1 alignment");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_display_output_v1) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_6_ALIGN, "pocket_display_output_v1 alignment");
 POCKET_ABI_ASSERT(offsetof(pocket_display_output_v1, struct_size) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_0_OFFSET, "pocket_display_output_v1.struct_size");
 POCKET_ABI_ASSERT(offsetof(pocket_display_output_v1, descriptor) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_1_OFFSET, "pocket_display_output_v1.descriptor");
 POCKET_ABI_ASSERT(offsetof(pocket_display_output_v1, acquire) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_2_OFFSET, "pocket_display_output_v1.acquire");
 POCKET_ABI_ASSERT(offsetof(pocket_display_output_v1, flush) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_3_OFFSET, "pocket_display_output_v1.flush");
 POCKET_ABI_ASSERT(offsetof(pocket_display_output_v1, wait) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_4_OFFSET, "pocket_display_output_v1.wait");
 POCKET_ABI_ASSERT(offsetof(pocket_display_output_v1, vsync) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_5_OFFSET, "pocket_display_output_v1.vsync");
+POCKET_ABI_ASSERT(offsetof(pocket_display_output_v1, frame_identity) == POCKET_LAYOUT_POCKET_DISPLAY_OUTPUT_V1_6_OFFSET, "pocket_display_output_v1.frame_identity");
 
 struct pocket_renderer_v1 {
   size_t struct_size;

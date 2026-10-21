@@ -13,14 +13,14 @@ describe("ESP-IDF incremental package build", () => {
   test.each(["checkout", "vendor"])("native %s builds track extracted contract sources", (layout) => {
     const temporary = realpathSync(mkdtempSync(join(tmpdir(), "pocketjs native deps ")));
     try {
-      const component = join(temporary, "hosts/esp-idf/components/pocketjs_ui_core");
+      const component = join(temporary, "hosts/esp-idf/components/pocket_runtime");
       const build = join(temporary, "build");
       mkdirSync(component, { recursive: true });
       for (const file of ["native_archive.cmake", "prepare_archive.cmake"])
-        cpSync(join(root, "hosts/esp-idf/components/pocketjs_ui_core", file), join(component, file));
-      const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/ui-core");
+        cpSync(join(root, "hosts/esp-idf/components/pocket_runtime", file), join(component, file));
+      const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/runtime");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
-      const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi", "backends/rgb565"];
+      const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi"];
       const extra = ["platforms/esp-idf/render-ppa", "devices/gles/pocket-gles", "devices/gles/pocket-gles1", "devices/gles/pocket-gles2"]
         .map(path => layout === "vendor" ? join(contracts, path.split("/").at(-1)!) : join(temporary, path));
       for (const source of [native, ...crates.map(crate => join(contracts, crate)), ...extra]) {
@@ -28,8 +28,7 @@ describe("ESP-IDF incremental package build", () => {
         writeFileSync(join(source, "Cargo.toml"), "# build dependency fixture\n");
         writeFileSync(join(source, "src/lib.rs"), "// build dependency fixture\n");
       }
-      const compatibility = join(contracts, "runtime-cabi/src/compat/idf/render.rs");
-      mkdirSync(join(contracts, "runtime-cabi/src/compat/idf"), { recursive: true });
+      const compatibility = join(extra[0], "src/cabi.rs");
       writeFileSync(compatibility, "// compatibility source dependency fixture\n");
       writeFileSync(join(temporary, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
 project(native_dependencies NONE)
@@ -39,12 +38,12 @@ set(POCKETJS_RUST_FROM_SOURCE ON CACHE BOOL "" FORCE)
 function(target_link_libraries)
 endfunction()
 include("${join(component, "native_archive.cmake")}")
-pocketjs_link_native("${component}" ui-core pocketjs_idf_ui_core POCKETJS_TEST_ARCHIVE)
+pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARCHIVE)
 `);
       const result = Bun.spawnSync(["cmake", "-S", temporary, "-B", build, "-G", "Ninja"], {
         stdout: "pipe", stderr: "pipe",
       });
-      expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
+      expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
       const graph = readFileSync(join(build, "build.ninja"), "utf8");
       const archiveEdge = graph.split("\n").find(line => line.startsWith("build cargo/") && line.includes(".a: CUSTOM_COMMAND"));
       expect(archiveEdge).toBeDefined();
@@ -86,7 +85,7 @@ pocketjs_link_native("${component}" ui-core pocketjs_idf_ui_core POCKETJS_TEST_A
       chmodSync(cli, 0o755);
       writeFileSync(join(app, "CMakeLists.txt"), `cmake_minimum_required(VERSION 3.20)
 project(incremental NONE)
-include("${join(root, "hosts/esp-idf/components/pocketjs_package/project_include.cmake")}")
+include("${join(root, "hosts/esp-idf/components/pocket_runtime/project_include.cmake")}")
 # Exercise the real compile helper; embedding/firmware linking is tested separately.
 function(_pocketjs_package_attach target name package profile)
   add_custom_target(package ALL DEPENDS "\${package}")
@@ -97,7 +96,7 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
 `);
       const run = (args: string[]) => {
         const result = Bun.spawnSync(args, { cwd: app, env: { ...process.env, PATH: bin + ":" + process.env.PATH }, stdout: "pipe", stderr: "pipe" });
-        expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
+        expect(result.success, result.stdout.toString() + result.stderr.toString()).toBe(true);
         return result.stdout.toString() + result.stderr.toString();
       };
       // Real build: the compile recipe runs and the package banner is printed.

@@ -8,6 +8,7 @@ cd "$(dirname "$0")"
 IOS_DIR="$PWD"
 ENGINE_DIR="$(cd .. && pwd)"
 DIST="$IOS_DIR/dist"
+CONTRACTS_DIR="$ENGINE_DIR/../contracts/generated"
 MIN_IOS="16.0"
 
 rm -rf "$DIST"
@@ -22,6 +23,7 @@ build_slice() {
   mkdir -p "$fw/Headers" "$fw/Modules"
 
   cp "$IOS_DIR/include/pocket_apple.h" "$fw/Headers/"
+  cp "$CONTRACTS_DIR/pocket_runtime.h" "$CONTRACTS_DIR/pocket_drivers.h" "$CONTRACTS_DIR/pocket_spec.h" "$fw/Headers/"
   cp "$IOS_DIR/uikit/PocketSurfaceView.h" "$fw/Headers/"
   cat > "$fw/Headers/PocketApple.h" <<'EOF'
 #import <PocketApple/PocketSurfaceView.h>
@@ -57,7 +59,7 @@ EOF
     -fobjc-arc -fapplication-extension \
     -dynamiclib \
     -install_name "@rpath/PocketApple.framework/PocketApple" \
-    -I "$IOS_DIR/include" \
+    -I "$IOS_DIR/include" -I "$CONTRACTS_DIR" \
     "$IOS_DIR/uikit/PocketSurfaceView.m" \
     "$ENGINE_DIR/target/$rust_target/release/libpocket_apple.a" \
     -framework Foundation -framework UIKit -framework QuartzCore -framework CoreGraphics \

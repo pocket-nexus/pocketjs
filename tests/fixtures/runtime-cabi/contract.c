@@ -195,13 +195,30 @@ static void draw_list_test(void){
   list.version--;assert(pocket_draw_list_visit(&list,&resources,0,visit_operation,&state)==POCKET_STATUS_INVALID);
   assert(pocket_draw_list_visit(&list,&resources,1,NULL,&state)==POCKET_STATUS_INVALID);
 }
+static void timing_test(void){
+  assert(!pocket_tick_schedule_create(0,0,100));
+  pocket_tick_schedule *schedule=pocket_tick_schedule_create(60,1000,100000);assert(schedule);
+  pocket_tick_timing timing={0};timing.struct_size=sizeof(timing);uint32_t ready=99;uint64_t deadline=0;
+  assert(pocket_tick_schedule_poll(schedule,999,&timing,&ready)==POCKET_STATUS_FAILED && !ready);
+  assert(pocket_tick_schedule_deadline(schedule,&deadline)==0 && deadline==1000);
+  timing.struct_size=0;
+  assert(pocket_tick_schedule_poll(schedule,1000,&timing,&ready)==POCKET_STATUS_INVALID && !ready);
+  timing.struct_size=sizeof(timing);
+  assert(pocket_tick_schedule_poll(schedule,1000,&timing,&ready)==0 && ready && timing.index==0 && timing.deadline==1000);
+  assert(pocket_tick_schedule_poll(schedule,1001,&timing,&ready)==0 && !ready);
+  assert(pocket_tick_schedule_poll(schedule,1001000,&timing,&ready)==0 && ready && timing.index==60 && timing.skipped==59);
+  assert(pocket_tick_schedule_deadline(schedule,&deadline)==0 && deadline==1017666);
+  pocket_tick_schedule_destroy(schedule);pocket_tick_schedule_destroy(NULL);
+  assert(live_allocations==0);
+}
 int main(void){
+  timing_test();
   pocket_runtime_config config={0};config.struct_size=sizeof(config);memcpy(config.profile_hash,profile_hash,32);config.host_abi=1;config.tick_hz=60;config.heap_limit=65536;config.frame_buffer_budget=64;config.profile_json=profile_json;config.profile_json_length=sizeof(profile_json)-1;
   instance=pocket_runtime_create(&config);assert(instance);
   prefix_and_operation_tests();raster_test();draw_list_test();register_provider();
   pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};
   pocket_guest_v1 guest={sizeof(guest),evaluate,frame,NULL,shutdown_guest,initialize};
-  pocket_display_output_v1 display={sizeof(display),descriptor,acquire,flush,display_wait,NULL};
+  pocket_display_output_v1 display={.struct_size=sizeof(display),.descriptor=descriptor,.acquire=acquire,.flush=flush,.wait=display_wait};
   assert(pocket_runtime_set_package_source(instance,&source,NULL)==0);
   assert(pocket_runtime_set_guest(instance,&guest,NULL)==0);
   assert(pocket_runtime_add_display(instance,&display,NULL,POCKET_RENDERER_SOFTWARE)==0);

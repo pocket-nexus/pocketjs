@@ -19,21 +19,23 @@ use pocketjs_core::raster;
 use pocketjs_core::Ui;
 
 pub mod extension;
-#[cfg(all(
-    any(not(feature = "std"), test),
-    not(feature = "software-only")
-))]
+#[cfg(all(any(not(feature = "std"), test), not(feature = "software-only")))]
 mod gl;
 
 #[inline]
 fn report_boot_stage(stage: i32) {
     #[cfg(feature = "boot-stage")]
-    unsafe { extern "C" { fn pocket_host_boot_stage(stage:i32); } pocket_host_boot_stage(stage); }
+    unsafe {
+        extern "C" {
+            fn pocket_host_boot_stage(stage: i32);
+        }
+        pocket_host_boot_stage(stage);
+    }
     #[cfg(not(feature = "boot-stage"))]
-    let _=stage;
+    let _ = stage;
 }
 
-static mut UI: Option<pocket_runtime::CoreState> = None;
+static mut UI: Option<pocket_runtime::OpContext> = None;
 static mut FRAMEBUFFER: Vec<u8> = Vec::new();
 static mut DAMAGE_TRACKER: DamageTracker<DEFAULT_DAMAGE_REGIONS> = DamageTracker::new();
 /// wrapText result staging (FRAMEBUFFER lifetime contract: valid until the
@@ -68,8 +70,26 @@ pub extern "C" fn pocketjs_symbian_extension_v1() -> *const extension::Extension
 }
 
 #[inline]
-fn ui() -> &'static mut Ui {
-    unsafe { &mut UI.get_or_insert_with(|| pocket_runtime::CoreState::new(Ui::new())).ui }
+fn ui() -> core::cell::RefMut<'static, Ui> {
+    let context =
+        unsafe { UI.get_or_insert_with(|| pocket_runtime::OpContext::from_ui(Ui::new())) };
+    core::cell::RefMut::map(
+        context.core_mut().expect("exclusive active UI access"),
+        |state| &mut state.ui,
+    )
+}
+
+/// Attach compatibility inspection and capture entry points to a runtime's Ui.
+///
+/// # Safety
+/// This legacy namespace is confined to one host thread. No compatibility call
+/// or outstanding UI guard may overlap replacement. The runtime must outlive
+/// the attachment; detach before destroying it.
+pub unsafe fn attach_context(context: Option<pocket_runtime::OpContext>) {
+    unsafe {
+        UI = context;
+    }
+    clear_framebuffer();
 }
 
 /// Run `f` against an already initialized C ABI `Ui` singleton.
@@ -87,7 +107,10 @@ fn ui() -> &'static mut Ui {
 /// can alias the mutable borrow or drop the borrowed value.
 #[cfg(feature = "harness-access")]
 pub unsafe fn with_initialized_ui_unchecked<R>(f: impl FnOnce(&mut Ui) -> R) -> Option<R> {
-    unsafe { UI.as_mut().map(|state|f(&mut state.ui)) }
+    unsafe {
+        UI.as_ref()
+            .and_then(|context| context.core_mut().ok().map(|mut state| f(&mut state.ui)))
+    }
 }
 
 #[inline]
@@ -229,17 +252,16 @@ pub unsafe extern "C" fn pocket_ui_package_open(
 #[no_mangle]
 pub extern "C" fn ui_init(raster_density: u32) {
     report_boot_stage(101);
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         // This call may happen without a current GL context, so the backend
         // only marks its caches stale and defers replacement until render.
         gl::invalidate_resources();
     }
     unsafe {
-        UI = Some(pocket_runtime::CoreState::new(Ui::new_with_raster_density(raster_density.max(1))));
+        UI = Some(pocket_runtime::OpContext::from_ui(
+            Ui::new_with_raster_density(raster_density.max(1)),
+        ));
     }
     report_boot_stage(102);
     clear_framebuffer();
@@ -249,10 +271,7 @@ pub extern "C" fn ui_init(raster_density: u32) {
 /// Drop all retained UI, texture, font, and framebuffer allocations.
 #[no_mangle]
 pub extern "C" fn ui_shutdown() {
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         gl::invalidate_resources();
     }
@@ -337,7 +356,7 @@ pub extern "C" fn ui_set_prop(id: i32, prop: u32, value: f64) {
 #[no_mangle]
 pub extern "C" fn ui_set_prop_batch(ptr: *const u8, len: usize) {
     let (records, _) = unsafe { bytes(ptr, len) }.as_chunks::<24>();
-    let instance = ui();
+    let mut instance = ui();
     for record in records {
         instance.set_prop(
             read_f64_le(record, 0) as i32,
@@ -477,7 +496,9 @@ pub extern "C" fn ui_take_animation_completions_json(length: *mut usize) -> *con
     output.clear();
     output.push('[');
     ui().drain_animation_completions(|completion| {
-        if output.len() > 1 { output.push(','); }
+        if output.len() > 1 {
+            output.push(',');
+        }
         let reason = match completion.reason {
             CompletionReason::Ended => 0,
             CompletionReason::Replaced => 1,
@@ -486,7 +507,11 @@ pub extern "C" fn ui_take_animation_completions_json(length: *mut usize) -> *con
         let _ = write!(output, "[{},{}]", completion.id, reason);
     });
     output.push(']');
-    if !length.is_null() { unsafe { *length = output.len(); } }
+    if !length.is_null() {
+        unsafe {
+            *length = output.len();
+        }
+    }
     output.as_ptr()
 }
 
@@ -529,10 +554,7 @@ pub extern "C" fn ui_load_styles(ptr: *const u8, len: usize) -> i32 {
 pub extern "C" fn ui_load_font_atlas(ptr: *const u8, len: usize) -> i32 {
     let blob = unsafe { bytes(ptr, len) };
     let loaded = ui().load_font_atlas(blob);
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     if loaded {
         if let Some(&slot) = blob.get(12) {
             unsafe {
@@ -577,26 +599,17 @@ pub extern "C" fn ui_tick() {
 
 #[no_mangle]
 pub extern "C" fn ui_gl_initialize() -> i32 {
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         return gl::initialize() as i32;
     }
-    #[cfg(any(
-        feature = "software-only",
-        not(not(feature = "std"))
-    ))]
+    #[cfg(any(feature = "software-only", not(not(feature = "std"))))]
     0
 }
 
 #[no_mangle]
 pub extern "C" fn ui_gl_reset_resources() {
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         gl::reset_resources();
     }
@@ -604,10 +617,7 @@ pub extern "C" fn ui_gl_reset_resources() {
 
 #[no_mangle]
 pub extern "C" fn ui_gl_shutdown() {
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         gl::shutdown();
     }
@@ -615,17 +625,11 @@ pub extern "C" fn ui_gl_shutdown() {
 
 #[no_mangle]
 pub extern "C" fn ui_gl_set_trace(callback: Option<extern "C" fn(u32, u32, u32)>) {
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         gl::set_trace(callback);
     }
-    #[cfg(any(
-        feature = "software-only",
-        not(not(feature = "std"))
-    ))]
+    #[cfg(any(feature = "software-only", not(not(feature = "std"))))]
     let _ = callback;
 }
 
@@ -638,13 +642,10 @@ pub extern "C" fn ui_gl_render(
     window_width: i32,
     window_height: i32,
 ) -> i32 {
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         return gl::render(
-            ui(),
+            &mut ui(),
             target_x,
             target_y,
             target_width,
@@ -653,10 +654,7 @@ pub extern "C" fn ui_gl_render(
             window_height,
         ) as i32;
     }
-    #[cfg(any(
-        feature = "software-only",
-        not(not(feature = "std"))
-    ))]
+    #[cfg(any(feature = "software-only", not(not(feature = "std"))))]
     {
         let _ = (
             target_x,
@@ -682,13 +680,10 @@ pub extern "C" fn ui_gl_render_over(
     window_width: i32,
     window_height: i32,
 ) -> i32 {
-    #[cfg(all(
-        not(feature = "std"),
-        not(feature = "software-only")
-    ))]
+    #[cfg(all(not(feature = "std"), not(feature = "software-only")))]
     unsafe {
         return gl::render_over(
-            ui(),
+            &mut ui(),
             target_x,
             target_y,
             target_width,
@@ -697,10 +692,7 @@ pub extern "C" fn ui_gl_render_over(
             window_height,
         ) as i32;
     }
-    #[cfg(any(
-        feature = "software-only",
-        not(not(feature = "std"))
-    ))]
+    #[cfg(any(feature = "software-only", not(not(feature = "std"))))]
     {
         let _ = (
             target_x,
@@ -777,12 +769,12 @@ fn remember_framebuffer_geometry(width: usize, height: usize) {
 }
 
 fn render_at_scale(scale: u32, incremental: bool) -> *const u8 {
-    let instance = ui();
-    let Some((width, height, byte_len)) = framebuffer_geometry(instance, scale) else {
+    let mut instance = ui();
+    let Some((width, height, byte_len)) = framebuffer_geometry(&instance, scale) else {
         return core::ptr::null();
     };
     let draw_list: *const pocketjs_core::DrawList = instance.draw();
-    let instance_ref: &Ui = unsafe { &*(instance as *const Ui) };
+    let instance_ref: &Ui = &instance;
 
     unsafe {
         if FRAMEBUFFER.len() != byte_len {
@@ -941,12 +933,20 @@ mod tests {
     #[test]
     fn package_open_reports_why_a_package_is_refused() {
         let fixture = std::fs::read(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/packages/synthetic.pocket"),
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/packages/synthetic.pocket"),
         )
         .unwrap();
         let open = |bytes: &[u8], target: &str, abi: u32| unsafe {
             let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
-            pocket_ui_package_open(bytes.as_ptr(), bytes.len(), target.as_ptr(), target.len(), abi, out.as_mut_ptr())
+            pocket_ui_package_open(
+                bytes.as_ptr(),
+                bytes.len(),
+                target.as_ptr(),
+                target.len(),
+                abi,
+                out.as_mut_ptr(),
+            )
         };
         // The fixture's plans carry a target but no viewport.
         assert_eq!(open(&fixture, "psp", 1), 14);
@@ -955,7 +955,19 @@ mod tests {
         let mut damaged = fixture.clone();
         damaged[40] ^= 0xff;
         assert_eq!(open(&damaged, "psp", 1), 4);
-        assert_eq!(unsafe { pocket_ui_package_open(core::ptr::null(), 0, b"psp".as_ptr(), 3, 1, core::ptr::null_mut()) }, 12);
+        assert_eq!(
+            unsafe {
+                pocket_ui_package_open(
+                    core::ptr::null(),
+                    0,
+                    b"psp".as_ptr(),
+                    3,
+                    1,
+                    core::ptr::null_mut(),
+                )
+            },
+            12
+        );
     }
 
     #[test]
@@ -970,13 +982,28 @@ mod tests {
         let target = "ipodtouch4-dev";
         let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
         let result = unsafe {
-            pocket_ui_package_open(fixture.as_ptr(), fixture.len(), target.as_ptr(), target.len(), 8, out.as_mut_ptr())
+            pocket_ui_package_open(
+                fixture.as_ptr(),
+                fixture.len(),
+                target.as_ptr(),
+                target.len(),
+                8,
+                out.as_mut_ptr(),
+            )
         };
         assert_eq!(result, 0);
         let package = unsafe { out.assume_init() };
-        assert_eq!((package.view_width, package.view_height, package.raster_density), (480, 320, 2));
+        assert_eq!(
+            (
+                package.view_width,
+                package.view_height,
+                package.raster_density
+            ),
+            (480, 320, 2)
+        );
         assert_eq!(package.features, POCKET_UI_PACKAGE_PHYSICS);
-        let javascript = unsafe { core::slice::from_raw_parts(package.javascript, package.javascript_length) };
+        let javascript =
+            unsafe { core::slice::from_raw_parts(package.javascript, package.javascript_length) };
         assert_eq!(javascript.last(), Some(&0));
         assert!(javascript.starts_with(b"globalThis.frame"));
         assert_eq!(package.pak_length, 4);
@@ -1000,13 +1027,15 @@ mod tests {
         // This unit test uses Rust's default allocator. The linked C fixture in
         // tests/ui-cabi-allocator.test.ts covers the bare-platform CAllocator.
         let pixel = [0xff, 0x00, 0x00, 0xff];
-        assert!(ui_upload_texture(
-            pixel.as_ptr(),
-            pixel.len(),
-            1,
-            1,
-            spec::psm::PSM_8888 as u32,
-        ) >= 0);
+        assert!(
+            ui_upload_texture(
+                pixel.as_ptr(),
+                pixel.len(),
+                1,
+                1,
+                spec::psm::PSM_8888 as u32,
+            ) >= 0
+        );
         // Packed ABGR: R=0x33, G=0x22, B=0x11, A=0xff.
         ui_set_prop(
             spec::ROOT_ID,
@@ -1028,7 +1057,8 @@ mod tests {
         ui_tick();
         let mut length = 0;
         let json = ui_take_animation_completions_json(&mut length);
-        let text = core::str::from_utf8(unsafe { core::slice::from_raw_parts(json, length) }).unwrap();
+        let text =
+            core::str::from_utf8(unsafe { core::slice::from_raw_parts(json, length) }).unwrap();
         assert_eq!(text, alloc::format!("[[{},0]]", animation));
         let json = ui_take_animation_completions_json(&mut length);
         assert_eq!(unsafe { core::slice::from_raw_parts(json, length) }, b"[]");

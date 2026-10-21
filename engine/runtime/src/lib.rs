@@ -137,9 +137,15 @@ impl OpContext {
         }
     }
     pub fn core(&self) -> Result<Ref<'_, CoreState>, RuntimeError> {
+        if !self.active.get() {
+            return Err(RuntimeError::InvalidState);
+        }
         self.state.try_borrow().map_err(|_| RuntimeError::Busy)
     }
     pub fn core_mut(&self) -> Result<RefMut<'_, CoreState>, RuntimeError> {
+        if !self.active.get() {
+            return Err(RuntimeError::InvalidState);
+        }
         self.state.try_borrow_mut().map_err(|_| RuntimeError::Busy)
     }
     /// Install an embedded asset pack for an embedding that owns admission and
@@ -162,6 +168,12 @@ impl OpContext {
             return Err(RuntimeError::InvalidState);
         }
         self.core_mut()?.compositor = enabled;
+        Ok(())
+    }
+    /// Enable physics operations for a low-level embedding. Full Runtime boot
+    /// replaces this setting with the admitted package's feature declaration.
+    pub fn set_physics_enabled(&self, enabled: bool) -> Result<(), RuntimeError> {
+        self.core_mut()?.physics = enabled;
         Ok(())
     }
     /// Register a provider before mounting generated guest bindings. Runtime
@@ -216,6 +228,9 @@ impl OpContext {
                 .any(|provider| provider.supports_op(op))
     }
     pub fn dispatch(&self, op: u16, args: &[OpArg<'_>]) -> Result<OpResult, RuntimeError> {
+        if !self.active.get() {
+            return Err(RuntimeError::UnsupportedOperation);
+        }
         let mut state = self.core_mut()?;
         if !self.supported(&state, op) {
             return Err(RuntimeError::UnsupportedOperation);
@@ -268,6 +283,8 @@ pub struct Runtime {
     presenter: Coordinator,
     state: State,
     native_assets: bool,
+    pending_frame: bool,
+    embedded_viewport: bool,
 }
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Result<Self, RuntimeError> {
@@ -300,6 +317,8 @@ impl Runtime {
             presenter,
             state: State::Configuring,
             native_assets: true,
+            pending_frame: false,
+            embedded_viewport: false,
         })
     }
     pub fn op_context(&self) -> OpContext {
@@ -328,6 +347,40 @@ impl Runtime {
     pub fn set_native_asset_loading(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.configuring()?;
         self.native_assets = enabled;
+        Ok(())
+    }
+    /// Allow viewport changes for a program that embeds raw JavaScript. This
+    /// opt-in must precede boot and is disabled for fixed-profile packages.
+    pub fn allow_embedded_viewport_changes(&mut self) -> Result<(), RuntimeError> {
+        self.configuring()?;
+        self.embedded_viewport = true;
+        Ok(())
+    }
+    /// Resize an opted-in raw-JavaScript embedding. The program must first
+    /// prepare its display storage and descriptors for `physical`. On error it
+    /// must restore those descriptors. This does not admit a different package.
+    pub fn resize_embedded(
+        &mut self,
+        logical: [u32; 2],
+        physical: [u32; 2],
+    ) -> Result<(), RuntimeError> {
+        if self.state != State::Running
+            || !self.embedded_viewport
+            || logical.contains(&0)
+            || logical.iter().any(|v| *v > 32000)
+        {
+            return Err(RuntimeError::InvalidState);
+        }
+        let scale = physical[0] / logical[0];
+        if !(1..=4).contains(&scale) || physical != [logical[0] * scale, logical[1] * scale] {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        let mut core = self.ops.core_mut()?;
+        self.presenter.refresh_displays(scale, physical)?;
+        core.ui.set_viewport(logical[0] as f32, logical[1] as f32);
+        core.mutated();
+        self.profile.viewport = physical;
+        self.profile.logical_viewports[0] = logical;
         Ok(())
     }
     pub fn add_input_source(&mut self, input: Box<dyn InputSource>) -> Result<(), RuntimeError> {
@@ -361,6 +414,13 @@ impl Runtime {
         Ok(self.presenter.add_display(display, renderer)?)
     }
     pub fn boot(&mut self) -> Result<(), RuntimeError> {
+        self.boot_deferred()?;
+        self.present()
+    }
+    /// Admit and evaluate the package without presenting its initial tree.
+    /// The program must call `present` before advancing the first guest frame.
+    /// This allows a native scene to be established before its UI overlay.
+    pub fn boot_deferred(&mut self) -> Result<(), RuntimeError> {
         self.configuring()?;
         if self.guest.is_none() {
             return Err(RuntimeError::MissingGuest);
@@ -434,6 +494,22 @@ impl Runtime {
                 return Err(RuntimeError::ProfileMismatch);
             }
         }
+        // A profile with a second physical display keeps its declared surface
+        // available even when a package does not draw auxiliary content.
+        let auxiliary_viewport = if let Some(aux) = facts.auxiliary {
+            Some([aux.width, aux.height])
+        } else if let Some(physical) = self.profile.auxiliary {
+            Some(
+                *self
+                    .profile
+                    .auxiliary_logical
+                    .iter()
+                    .find(|size| physical == [size[0] * scale, size[1] * scale])
+                    .ok_or(RuntimeError::ProfileMismatch)?,
+            )
+        } else {
+            None
+        };
         self.presenter.set_scale(scale)?;
         let (registry, auxiliary_root) = {
             let mut state = self.ops.core_mut()?;
@@ -446,10 +522,10 @@ impl Runtime {
                 .ui
                 .set_viewport(viewport[0] as f32, viewport[1] as f32);
             state.physics = facts.feature("ui.physics");
-            if let Some(aux) = facts.auxiliary {
+            if let Some(aux) = auxiliary_viewport {
                 state
                     .ui
-                    .create_auxiliary_surface(aux.width as f32, aux.height as f32);
+                    .create_auxiliary_surface(aux[0] as f32, aux[1] as f32);
             }
             *self.ops.package.borrow_mut() = Some(PackageAssets::Admitted(package.clone()));
             (registry, state.ui.auxiliary_surface_root())
@@ -460,7 +536,7 @@ impl Runtime {
             host_abi: self.config.host_abi,
             tick_hz: self.config.tick_hz,
             viewport,
-            auxiliary_viewport: facts.auxiliary.map(|a| [a.width, a.height]),
+            auxiliary_viewport,
             auxiliary_root,
             raster_density: self.profile.density,
             heap_limit: self.config.heap_limit,
@@ -479,12 +555,19 @@ impl Runtime {
             return Err(error);
         }
         self.state = State::Running;
-        // The initial frame is rendered from evaluated UI state. No animation
-        // tick or guest frame is synthesized before the platform's first tick.
-        self.render()
+        self.pending_frame = true;
+        Ok(())
     }
-    fn render(&mut self) -> Result<(), RuntimeError> {
+    /// Present the current tree and wait for all render and display work.
+    /// No driver retains frame references after this call. Both terminal
+    /// outcomes permit another advance; a failed output can also be retried
+    /// with `present` without running the guest again.
+    pub fn present(&mut self) -> Result<(), RuntimeError> {
+        if self.state != State::Running {
+            return Err(RuntimeError::InvalidState);
+        }
         let mut state = self.ops.core_mut()?;
+        self.pending_frame = false;
         state.ui.draw();
         state.ui.draw_auxiliary();
         self.presenter.present(
@@ -495,7 +578,45 @@ impl Runtime {
         Ok(())
     }
     pub fn tick(&mut self) -> Result<(), RuntimeError> {
+        self.advance()?;
+        self.present()
+    }
+    /// Present a device-owned UI and submit host overlays before terminal
+    /// rendering completion. The callback runs with the core borrowed; UI
+    /// mutation through retained operation contexts is rejected during it.
+    pub fn present_with_overlay(
+        &mut self,
+        overlay: impl FnMut(DisplayId),
+    ) -> Result<(), RuntimeError> {
         if self.state != State::Running {
+            return Err(RuntimeError::InvalidState);
+        }
+        let mut state = self.ops.core_mut()?;
+        self.pending_frame = false;
+        state.ui.draw();
+        state.ui.draw_auxiliary();
+        self.presenter.present_with_overlay(
+            state.ui.current_draw_list(),
+            state.ui.current_auxiliary_draw_list(),
+            &state.ui,
+            overlay,
+        )?;
+        Ok(())
+    }
+    /// Sample input and advance the guest and core once. No rendering work is
+    /// submitted. A subsequent advance is rejected until `present` completes,
+    /// allowing the program to insert native scene commands between the two.
+    pub fn advance(&mut self) -> Result<(), RuntimeError> {
+        self.advance_with_core_ticks(1)
+    }
+    /// Run one guest frame followed by a bounded number of fixed core steps.
+    /// Embeddings with a lower guest cadence retain the core simulation step;
+    /// ordinary runtime ticks always use one. No presentation occurs here.
+    pub fn advance_with_core_ticks(&mut self, ticks: u32) -> Result<(), RuntimeError> {
+        if !(1..=60).contains(&ticks) {
+            return Err(RuntimeError::InvalidArgument);
+        }
+        if self.state != State::Running || self.pending_frame {
             return Err(RuntimeError::InvalidState);
         }
         self.input.clear();
@@ -528,10 +649,23 @@ impl Runtime {
         }
         {
             let mut state = self.ops.core_mut()?;
-            state.ui.tick();
+            for _ in 0..ticks {
+                state.ui.tick();
+            }
             state.mutated();
         }
-        self.render()
+        self.pending_frame = true;
+        Ok(())
+    }
+    /// Discard a frame that has not submitted rendering work. Embeddings use
+    /// this for headless fast-forward or deferring the first native surface.
+    /// The next advance still runs exactly one guest turn.
+    pub fn skip_presentation(&mut self) -> Result<(), RuntimeError> {
+        if self.state != State::Running {
+            return Err(RuntimeError::InvalidState);
+        }
+        self.pending_frame = false;
+        Ok(())
     }
     pub fn collect(&mut self) -> Result<(), RuntimeError> {
         if self.state != State::Running {
@@ -557,6 +691,7 @@ impl Runtime {
         }
         self.package = None;
         self.state = State::Stopped;
+        self.pending_frame = false;
         Ok(())
     }
 }

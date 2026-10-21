@@ -1,6 +1,7 @@
 idf_component_register(
-    SRCS "main.c"
-    REQUIRES pocketjs_package pocketjs_guest pocketjs_ui_core pocketjs_ui_qjs pocketjs_runner
+    SRCS "main.c" "../../common/sample_io.c"
+    INCLUDE_DIRS "../../common"
+    REQUIRES pocket_runtime pocket_guest_quickjs pocket_runner
 )
 
 set(POCKETJS_RUNNER_PREBUILT_PACKAGE "" CACHE FILEPATH "Prebuilt runner package")

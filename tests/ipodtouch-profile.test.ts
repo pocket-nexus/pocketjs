@@ -33,7 +33,7 @@ const INFO = join(REPOSITORY, "hosts/ipodtouch6/Info.plist");
 const RUNTIME = join(REPOSITORY, "hosts/ipodtouch6/runtime.m");
 const SURFACE = join(REPOSITORY, "engine/ios/uikit/PocketSurfaceView.m");
 const APPLE_CORE = join(REPOSITORY, "engine/ios/src/lib.rs");
-const POCKET_MOD = join(REPOSITORY, "engine/crates/pocket-mod/src/lib.rs");
+const GUEST = join(REPOSITORY, "engine/guest-rquickjs/src/lib.rs");
 const ICON_TOOL = join(REPOSITORY, "tools/ipodtouch-icon.ts");
 const TOOL = join(REPOSITORY, "tools/ipodtouch.ts");
 const OUTPUT = mkdtempSync(join(tmpdir(), "pocketjs-ipodtouch-icon-"));
@@ -141,7 +141,7 @@ describe("private iPod touch 6 profile", () => {
     const runtime = readFileSync(RUNTIME, "utf8");
     const surface = readFileSync(SURFACE, "utf8");
     const appleCore = readFileSync(APPLE_CORE, "utf8");
-    const pocketMod = readFileSync(POCKET_MOD, "utf8");
+    const guest = readFileSync(GUEST, "utf8");
     const tool = readFileSync(TOOL, "utf8");
 
     expect(info).toContain("<string>12.0</string>");
@@ -167,14 +167,14 @@ describe("private iPod touch 6 profile", () => {
     expect(runtime).toContain("startWithFixedFrameTimer");
     expect(surface).toContain("self.onFrame(_frameNumber, count)");
     expect(surface).toContain("startWithFixedFrameTimer");
-    expect(surface).toContain("(1.0 / 60.0)");
+    expect(surface).toContain("_tickRate > 0 ? _tickRate : kPocketSurfaceDefaultTickRate");
     expect(surface).toContain("[_frameTimer invalidate]");
     expect(surface).toContain("_logicalWidth > 512 || _logicalHeight > 512");
     expect(surface).toContain("0x80000000u");
     expect(surface).toContain("((y & 0x3ff) << 10)");
-    expect(appleCore).toContain("ui.touch_hits(touch_words, &mut touch_hits)");
-    expect(appleCore).toContain("state.guest.frame_with_touch_hits(");
-    expect(pocketMod).toContain("pub fn frame_with_touch_hits(");
+    expect(appleCore).toContain("pocket_runtime_tick(state.runtime.get())");
+    expect(appleCore).toContain("RquickjsGuest::new(BindingProfile::Canonical)");
+    expect(guest).toContain("frame.hits.iter().enumerate()");
     expect(tool).toContain('const DEVICE_TYPE = "iPod7,1"');
     expect(tool).toContain('const DEVICE_VERSION = "12.5.8"');
     expect(tool).toContain('const DEVICE_PORT = 44');

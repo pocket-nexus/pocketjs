@@ -1,30 +1,23 @@
 #!/usr/bin/env bun
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { decodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
-import { pack, unpack } from "../framework/compiler/pak.ts";
-
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const output = process.env.POCKETJS_HOST_TEST_BUILD ?? mkdtempSync(join(tmpdir(), "pocketjs-idf-host-"));
+const output = resolve(process.env.POCKETJS_HOST_TEST_BUILD ?? join(root, ".pocket-build/validation/idf-canonical/host"));
+mkdirSync(output,{recursive:true});
 const quickjs = resolve(process.env.POCKETJS_QUICKJS_SOURCE ?? join(root,
-  "hosts/esp-idf/examples/smoke/managed_components/espressif__quickjs-ng/quickjs-ng"));
-function run(cmd: string[], env: Record<string, string | undefined> = process.env) {
-  const result = Bun.spawnSync(cmd, { cwd: root, env, stdout: "inherit", stderr: "inherit" });
-  if (result.exitCode !== 0) throw new Error(`command failed: ${cmd.join(" ")}`);
+ "hosts/esp-idf/examples/smoke/managed_components/espressif__quickjs-ng/quickjs-ng"));
+function run(cmd:string[],env:Record<string,string|undefined>=process.env){
+ const result=Bun.spawnSync(cmd,{cwd:root,env,stdout:"inherit",stderr:"inherit"});
+ if(!result.success)throw new Error(`command failed (${result.signalCode ?? result.exitCode}): ${cmd.join(" ")}`);
 }
-const pkg = decodePocketPackage(new Uint8Array(readFileSync(join(root, "hosts/esp-idf/examples/prebuilt/idf-smoke.pocket"))));
-const blobs = unpack(findSection(pkg.variants[0], POCKET_SECTION.pak)!);
-blobs.push({ key: "ui:img.transaction-test", dtype: 1, data: new Uint8Array([1,0,1,0,3,0,0,0,4,5,6,255]) });
-await Bun.write(join(output, "valid.pak"), pack(blobs));
-await Bun.write(join(output, "invalid.pak"), pack(blobs.map(b => b.key === "ui:styles" ? { ...b, data: new Uint8Array([0]) } : b)));
-run(["cargo", "build", "--locked", "--release", "--no-default-features", "--manifest-path", "hosts/esp-idf/native/ui-core/Cargo.toml"],
-  { ...process.env, CARGO_ENCODED_RUSTFLAGS: "", RUSTFLAGS: "", RUSTC_WRAPPER: "", RUSTC_WORKSPACE_WRAPPER: "",
-    CARGO_TARGET_DIR: join(output, "cargo/ui-core") });
-run(["cargo", "test", "--locked", "--manifest-path", "hosts/esp-idf/tests/native/Cargo.toml"]);
-run(["cmake", "-S", "hosts/esp-idf/tests/host", "-B", output, "-G", "Ninja", `-DPOCKETJS_QUICKJS_SOURCE=${quickjs}`,
-  `-DPOCKETJS_UI_CORE_ARCHIVE=${join(output, "cargo/ui-core/release/libpocketjs_idf_ui_core.a")}`]);
-run(["cmake", "--build", output, "-j", "4"]);
-run(["ctest", "--test-dir", output, "--output-on-failure"]);
+const pkg=join(root,"hosts/esp-idf/examples/prebuilt/idf-smoke.pocket");
+run(["python3","hosts/esp-idf/components/pocket_runtime/tools/embed_package.py","--package",pkg,"--host-profile","hosts/esp-idf/examples/smoke/pocket.host.json","--name","host","--output-dir",output]);
+const embedded=join(output,"pocketjs_package_host.c");
+writeFileSync(embedded,readFileSync(embedded,"utf8").replace("extern const uint8_t pocketjs_package_host_start[];",`const uint8_t pocketjs_package_host_start[] = {${[...readFileSync(pkg)].join(",")}};`));
+run(["cargo","+stable","build","--locked","--release","--no-default-features","--manifest-path","hosts/esp-idf/native/runtime/Cargo.toml"],
+ {...process.env,CARGO_ENCODED_RUSTFLAGS:"",RUSTFLAGS:"",RUSTC_WRAPPER:"",RUSTC_WORKSPACE_WRAPPER:"",CARGO_TARGET_DIR:join(output,"cargo")});
+run(["cmake","-S","hosts/esp-idf/tests/host","-B",output,"-G","Ninja",`-DPOCKETJS_QUICKJS_SOURCE=${quickjs}`,`-DPOCKET_RUNTIME_ARCHIVE=${join(output,"cargo/release/libpocket_idf_runtime.a")}`]);
+run(["cmake","--build",output,"-j","4"]);
+run(["ctest","--test-dir",output,"--output-on-failure"]);
 console.log(`ESP-IDF host regression artifacts: ${output}`);

@@ -29,41 +29,20 @@ NS_ASSUME_NONNULL_BEGIN
                                  hostId:(NSString *)hostId
                                 hostAbi:(uint32_t)hostAbi;
 
-// External-guest mode: no embedded QuickJS realm — the embedding runtime
-// (e.g. NativeScript) owns the guest, mounts globalThis.ui over the ui*
-// methods below, and receives onTick to run globalThis.frame each display
-// tick. evalBundle is invalid in this mode; loadPak feeds the core directly.
+// The embedding engine receives canonical guest initialization, evaluation,
+// frame and shutdown callbacks. The runtime still owns admission/input/present.
 + (instancetype)externalSurfaceWithLogicalWidth:(uint32_t)logicalWidth
                                   logicalHeight:(uint32_t)logicalHeight
                                         density:(uint32_t)density;
-
-// External mode only: runs before the core tick; call globalThis.frame here.
-@property(nonatomic, copy, nullable) void (^onTick)
-    (uint32_t buttons, uint32_t analog, NSArray<NSNumber *> *touches);
-
-// ---- external-guest ui.* ops --------------------------------------------
-- (int32_t)uiCreateNode:(int32_t)nodeType;
-- (void)uiDestroyNode:(int32_t)nodeId;
-- (void)uiInsertBefore:(int32_t)parent child:(int32_t)child anchor:(int32_t)anchor;
-- (void)uiRemoveChild:(int32_t)parent child:(int32_t)child;
-- (void)uiSetStyle:(int32_t)nodeId style:(int32_t)styleId;
-- (void)uiSetProp:(int32_t)nodeId prop:(int32_t)prop value:(double)value;
-- (void)uiSetText:(int32_t)nodeId text:(NSString *)text;
-- (void)uiReplaceText:(int32_t)nodeId text:(NSString *)text;
-- (float)uiMeasureText:(NSString *)text fontSlot:(int32_t)fontSlot;
-- (int32_t)uiUploadTexture:(NSData *)pixels width:(uint32_t)width height:(uint32_t)height psm:(uint32_t)psm;
-- (void)uiSetImage:(int32_t)nodeId texture:(int32_t)texture;
-- (void)uiSetSprite:(int32_t)nodeId atlas:(int32_t)atlas frames:(int32_t)frames cols:(int32_t)cols step:(int32_t)step;
-- (int32_t)uiAnimate:(int32_t)nodeId prop:(int32_t)prop to:(double)to dur:(int32_t)durationMs easing:(int32_t)easing delay:(int32_t)delayMs;
-- (void)uiCancelAnim:(int32_t)animId;
-- (void)uiSetFocus:(int32_t)nodeId;
-- (void)uiSetActive:(int32_t)nodeId active:(int32_t)active;
+@property(nonatomic, copy, nullable) BOOL (^onGuestInitialize)(NSDictionary *environment);
+@property(nonatomic, copy, nullable) BOOL (^onGuestEvaluate)(NSString *source);
+@property(nonatomic, copy, nullable) BOOL (^onGuestFrame)(NSDictionary *frame);
+@property(nonatomic, copy, nullable) void (^onGuestShutdown)(void);
+- (BOOL)supportsOperation:(uint16_t)operation;
+// Records have kind integer/real/bytes and a NSNumber/NSData value. The result
+// is copied before another runtime operation can invalidate borrowed bytes.
+- (NSDictionary *)dispatchOperation:(uint16_t)operation arguments:(NSArray<NSDictionary *> *)arguments;
 - (int32_t)uiHitTestBounds:(float)x y:(float)y;
-- (NSDictionary<NSString *, NSNumber *> *)uiTextures;
-- (NSArray<NSDictionary<NSString *, NSNumber *> *> *)uiSprites;
-- (void)uiSvcSend:(NSString *)line;
-- (NSString *_Nullable)uiSvcPoll;
-- (BOOL)uiSvcOpen:(NSString *)name;
 
 // Feed assets before start. Returns NO with `lastError` set on failure.
 - (BOOL)loadPak:(NSData *)pak;
@@ -83,11 +62,14 @@ NS_ASSUME_NONNULL_BEGIN
 // Starts/stops the CADisplayLink. start after evalBundle succeeds.
 - (void)start;
 
-// Starts a 60 Hz main-run-loop timer instead of CADisplayLink. Connected
+// Starts a main-run-loop timer at tickRate instead of CADisplayLink. Connected
 // device hosts use this only when their runtime does not deliver display-link
 // callbacks; it is mutually exclusive with start.
 - (void)startWithFixedFrameTimer;
 - (void)stop;
+// Stops and destroys the runtime. A call from a guest/effect callback defers
+// destruction until that callback returns. The view cannot restart afterward.
+- (void)disposeRuntime;
 
 // Guest -> host effect lines (JSON by convention), delivered on the main
 // thread during the display tick.

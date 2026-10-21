@@ -2,7 +2,7 @@
 # (docs/RUNTIMES.md: these are the Cores plus their desktop surfaces).
 #
 # Deliberately EXCLUDED and standalone (each with its own Cargo.lock):
-#   core/, wasm/, backends/esp32p4-ppa/
+#   core/, wasm/
 #                        — cargo-psp and ESP-IDF need to consume these as
 #                           lone standalone crates (see their Cargo.toml)
 [workspace]
@@ -46,8 +46,6 @@ members = [
     "pocket3d/examples/uihost",
 ]
 exclude = [
-    "backends/rgb565",
-    "backends/esp32p4-ppa",
     "backends/gpui",
     "core",
     "wasm",

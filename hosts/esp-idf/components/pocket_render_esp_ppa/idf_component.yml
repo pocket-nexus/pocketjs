@@ -1,0 +1,9 @@
+version: "0.1.0"
+description: ESP32-P4 PPA renderer with ordered software fallback
+license: MIT
+repository: https://github.com/pocket-nexus/pocketjs
+targets:
+  - esp32p4
+dependencies:
+  idf: ">=6.0,<6.3"
+  pocket-nexus/pocket_runtime: "0.1.0"

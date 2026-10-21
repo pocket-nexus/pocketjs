@@ -268,3 +268,208 @@ fn auxiliary_density_must_match_the_shared_resource_density() {
         Err(RuntimeError::InvalidConfiguration)
     ));
 }
+
+#[test]
+fn native_scene_embedding_separates_advancement_from_terminal_presentation() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = runtime(facts.clone(), false, true);
+    assert_eq!(rt.present(), Err(RuntimeError::InvalidState));
+    rt.boot_deferred().unwrap();
+    assert!(facts.borrow().evaluated);
+    assert_eq!(facts.borrow().flushes, 0);
+    assert_eq!(rt.advance(), Err(RuntimeError::InvalidState));
+    assert!(matches!(rt.present(), Err(RuntimeError::Presentation(_))));
+    rt.present().unwrap(); // retry the initial output without a guest turn
+    assert_eq!(facts.borrow().frames, 0);
+    rt.advance().unwrap();
+    assert_eq!(facts.borrow().frames, 1);
+    assert_eq!(facts.borrow().flushes, 2);
+    assert_eq!(rt.advance(), Err(RuntimeError::InvalidState));
+    assert_eq!(rt.tick(), Err(RuntimeError::InvalidState));
+    rt.present().unwrap();
+    rt.tick().unwrap();
+    assert_eq!(facts.borrow().frames, 2);
+    assert_eq!(facts.borrow().flushes, 4);
+    rt.advance().unwrap();
+    rt.shutdown().unwrap(); // no GPU work was started by advance
+    assert_eq!(rt.present(), Err(RuntimeError::InvalidState));
+    assert_eq!(facts.borrow().shutdowns, 1);
+}
+
+#[test]
+fn embedded_resize_requires_opt_in_and_checks_budget_before_changing_ui() {
+    use std::cell::Cell;
+    struct Resizable {
+        size: Rc<Cell<[u32; 2]>>,
+        pixels: Vec<u8>,
+    }
+    impl DisplayOutput for Resizable {
+        type Token = ();
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+        fn descriptor(&self) -> DisplayDescriptor {
+            let [w, h] = self.size.get();
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                w,
+                h,
+                PixelFormat::Rgba8888,
+                w as usize * 4,
+                TargetOwnership::CpuVisible,
+            )
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            let [w, h] = self.size.get();
+            self.pixels.resize(w as usize * h as usize * 4, 0);
+            Ok(Target::CpuVisible(Surface::new(
+                &mut self.pixels,
+                region,
+                w as usize * 4,
+                PixelFormat::Rgba8888,
+            )?))
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            Ok(())
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            Ok(())
+        }
+    }
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut fixed = runtime(facts.clone(), false, false);
+    fixed.boot().unwrap();
+    assert_eq!(
+        fixed.allow_embedded_viewport_changes(),
+        Err(RuntimeError::InvalidState)
+    );
+    assert_eq!(
+        fixed.resize_embedded([2, 2], [4, 4]),
+        Err(RuntimeError::InvalidState)
+    );
+    let mut rt = Runtime::new(config()).unwrap();
+    rt.allow_embedded_viewport_changes().unwrap();
+    rt.set_guest(Box::new(TestGuest {
+        facts: facts.clone(),
+        ops: None,
+        fail: false,
+    }))
+    .unwrap();
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    let size = Rc::new(Cell::new([4, 4]));
+    rt.add_display(
+        Resizable {
+            size: size.clone(),
+            pixels: vec![],
+        },
+        RendererId::SOFTWARE,
+    )
+    .unwrap();
+    rt.boot().unwrap();
+    let ops = rt.op_context();
+    size.set([8, 8]);
+    assert!(matches!(
+        rt.resize_embedded([8, 8], [8, 8]),
+        Err(RuntimeError::Presentation(
+            pocket_present::PresentError::BudgetExceeded
+        ))
+    ));
+    assert_eq!(ops.core().unwrap().ui.viewport(), (4., 4.));
+    size.set([4, 4]);
+    rt.resize_embedded([2, 2], [4, 4]).unwrap();
+    assert_eq!(ops.core().unwrap().ui.viewport(), (2., 2.));
+    rt.present().unwrap();
+    assert_eq!(
+        rt.advance_with_core_ticks(0),
+        Err(RuntimeError::InvalidArgument)
+    );
+    assert_eq!(
+        rt.advance_with_core_ticks(61),
+        Err(RuntimeError::InvalidArgument)
+    );
+    rt.advance_with_core_ticks(30).unwrap();
+    assert_eq!(facts.borrow().frames, 1);
+    rt.present().unwrap();
+}
+
+#[test]
+fn profile_auxiliary_surface_has_guest_metadata_without_a_package_declaration() {
+    struct AuxDisplay(Display);
+    impl DisplayOutput for AuxDisplay {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            let mut descriptor = self.0.descriptor();
+            descriptor.role = DisplayRole::Auxiliary;
+            descriptor
+        }
+        fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
+            self.0.acquire(region)
+        }
+        fn flush(&mut self, damage: &[Rect]) -> Result<(), DisplayError> {
+            self.0.flush(damage)
+        }
+        fn wait(&mut self, token: ()) -> Result<(), DisplayError> {
+            self.0.wait(token)
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    struct AuxGuest;
+    impl Guest for AuxGuest {
+        fn initialize(
+            &mut self,
+            ops: OpContext,
+            env: &GuestEnvironment<'_>,
+        ) -> Result<(), RuntimeError> {
+            assert_eq!(env.auxiliary_viewport, Some([4, 4]));
+            assert!(env.auxiliary_root > 0);
+            assert!(ops.supports_op(45));
+            assert_eq!(ops.core()?.ui.auxiliary_surface_root(), env.auxiliary_root);
+            Ok(())
+        }
+        fn evaluate(&mut self, _: &[u8]) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn frame(&mut self, _: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn shutdown(&mut self) {}
+    }
+    let mut cfg = config();
+    let mut profile: serde_json::Value = serde_json::from_slice(&cfg.profile_json).unwrap();
+    profile["display"]["auxiliary"] = serde_json::json!({"physicalViewport": [4,4], "logicalViewports": [[4,4]], "rasterDensity": 1});
+    cfg.profile_json = serde_json::to_vec(&profile).unwrap();
+    cfg.profile_hash = pocket_package::sha256::sha256(&cfg.profile_json);
+    cfg.frame_buffer_budget = 128;
+    let mut rt = Runtime::new(cfg).unwrap();
+    rt.set_guest(Box::new(AuxGuest)).unwrap();
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    rt.add_display(
+        Display {
+            pixels: [0; 64],
+            facts: facts.clone(),
+            fail_once: false,
+        },
+        RendererId::SOFTWARE,
+    )
+    .unwrap();
+    rt.add_display(
+        AuxDisplay(Display {
+            pixels: [0; 64],
+            facts: facts.clone(),
+            fail_once: false,
+        }),
+        RendererId::SOFTWARE,
+    )
+    .unwrap();
+    rt.boot_deferred().unwrap();
+    assert_eq!(facts.borrow().flushes, 0);
+    rt.skip_presentation().unwrap();
+    rt.advance().unwrap();
+    rt.present().unwrap();
+    assert_eq!(facts.borrow().flushes, 2);
+}

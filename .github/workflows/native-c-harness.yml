@@ -10,6 +10,14 @@ on:
       - "tools/ui-bindings.ts"
       - "tools/test-quickjs-guest.ts"
       - "tests/ui-bindings.test.ts"
+      - "tests/guest-web-bindings.test.ts"
+      - "tests/embedded-package.test.ts"
+      - "tests/nativescript-bridge.test.ts"
+      - "engine/guest-web/**"
+      - "engine/ios/**"
+      - "hosts/ios-nativescript/**"
+      - "tools/guest-web-bindings.ts"
+      - "tools/templates/**"
       - "tests/runtime-cabi.test.ts"
       - "tests/runtime-cabi-compat.test.ts"
       - "tests/fixtures/runtime-cabi-compat/**"
@@ -105,6 +113,14 @@ on:
       - "tools/ui-bindings.ts"
       - "tools/test-quickjs-guest.ts"
       - "tests/ui-bindings.test.ts"
+      - "tests/guest-web-bindings.test.ts"
+      - "tests/embedded-package.test.ts"
+      - "tests/nativescript-bridge.test.ts"
+      - "engine/guest-web/**"
+      - "engine/ios/**"
+      - "hosts/ios-nativescript/**"
+      - "tools/guest-web-bindings.ts"
+      - "tools/templates/**"
       - "tests/runtime-cabi.test.ts"
       - "tests/runtime-cabi-compat.test.ts"
       - "tests/fixtures/runtime-cabi-compat/**"
@@ -224,7 +240,7 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/ui-bindings.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - name: Native contacts, package corpus and device installation contracts
         run: bun test tests/contact-latch.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts tests/ipodtouch4-profile.test.ts tests/ipodtouch4-resources.test.ts tests/repack-ipod.test.ts
       - name: Build Clear simulator inputs
@@ -238,7 +254,7 @@ jobs:
       - name: Test GLES1 compatibility composition
         run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-ui,gles1 gl::tests
       - name: Test shared runtime, bindings and PPA renderer
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs -p pocket-ui-surface -p pocket-render-esp-ppa
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime -p pocket-guest-rquickjs -p pocket-ui-surface -p pocket-present -p pocket-package -p pocket-apple -p pocket-render-esp-ppa
       - name: Generated C guest against QuickJS-NG
         run: bun tools/test-quickjs-guest.ts
       - name: Link and execute the C allocator and texture draw fixtures

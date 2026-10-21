@@ -1,217 +1,124 @@
-#include "pocketjs/guest_quickjs.h"
-#include "pocketjs/render_rgb565.h"
-#include "pocketjs/ui_qjs.h"
-#include "pocket_runtime.h"
+#include "pocket/guest_idf.h"
+#include "pocket/package_source.h"
+#include "pocketjs_package_host.h"
+#include "sample_io.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-extern long pocketjs_test_fail_after;
 extern long pocketjs_test_heap_fail_after;
-
-static void test_runtime_allocator_hooks(void) {
-  assert(pocket_host_alloc(0, 8) == NULL);
-  assert(pocket_host_alloc(16, 3) == NULL);
-  unsigned char *original = pocket_host_alloc(17, 64);
-  assert(original != NULL && (uintptr_t)original % 64 == 0);
-  for (size_t i = 0; i < 17; ++i)
-    original[i] = (unsigned char)i;
+static void allocator(void) {
+  assert(!pocket_host_alloc(0, 8));
+  assert(!pocket_host_alloc(16, 3));
+  uint8_t *p = pocket_host_alloc(17, 64);
+  assert(p && (uintptr_t)p % 64 == 0);
+  for (size_t i = 0; i < 17; i++)
+    p[i] = (uint8_t)i;
   pocketjs_test_heap_fail_after = 0;
-  assert(pocket_host_realloc(original, 17, 64, 33) == NULL);
+  assert(!pocket_host_realloc(p, 17, 64, 33));
   pocketjs_test_heap_fail_after = -1;
-  for (size_t i = 0; i < 17; ++i)
-    assert(original[i] == i);
-  unsigned char *grown = pocket_host_realloc(original, 17, 64, 33);
-  assert(grown != NULL && (uintptr_t)grown % 64 == 0);
-  for (size_t i = 0; i < 17; ++i)
-    assert(grown[i] == i);
-  unsigned char *shrunk = pocket_host_realloc(grown, 33, 64, 7);
-  assert(shrunk != NULL && (uintptr_t)shrunk % 64 == 0);
-  for (size_t i = 0; i < 7; ++i)
-    assert(shrunk[i] == i);
-  pocket_host_free(shrunk, 7, 64);
+  uint8_t *q = pocket_host_realloc(p, 17, 64, 33);
+  assert(q && (uintptr_t)q % 64 == 0);
+  for (size_t i = 0; i < 17; i++)
+    assert(q[i] == i);
+  pocket_host_free(q, 33, 64);
 }
-
-static void eval(JSContext *ctx, const char *source) {
-  JSValue result =
-      JS_Eval(ctx, source, strlen(source), "test", JS_EVAL_TYPE_GLOBAL);
-  if (JS_IsException(result)) {
-    JSValue exception = JS_GetException(ctx);
-    const char *text = JS_ToCString(ctx, exception);
-    fprintf(stderr, "test JS failed: %s\n", text ? text : "<exception>");
-    abort();
+typedef struct {
+  pocket_guest_idf *guest;
+  const char *extra;
+  unsigned evaluations;
+} test_guest;
+static int32_t initialize(void *p, pocket_runtime *r,
+                          const pocket_guest_environment *e) {
+  return pocket_guest_idf_vtable()->initialize(((test_guest *)p)->guest, r, e);
+}
+static int32_t evaluate(void *p, pocket_runtime *r, const uint8_t *code,
+                        size_t size) {
+  test_guest *g = p;
+  g->evaluations++;
+  int32_t status = pocket_guest_idf_vtable()->evaluate(g->guest, r, code, size);
+  if (status == 0 && g->extra)
+    status = pocket_guest_idf_vtable()->evaluate(
+        g->guest, r, (const uint8_t *)g->extra, strlen(g->extra));
+  return status;
+}
+static int32_t frame(void *p, const pocket_guest_frame *f) {
+  return pocket_guest_idf_vtable()->frame(((test_guest *)p)->guest, f);
+}
+static int32_t collect(void *p) {
+  return pocket_guest_idf_vtable()->collect(((test_guest *)p)->guest);
+}
+static void shutdown(void *p) {
+  pocket_guest_idf_vtable()->shutdown(((test_guest *)p)->guest);
+}
+static const pocket_guest_v1 GUEST = {sizeof(GUEST), evaluate, frame,
+                                      collect,       shutdown, initialize};
+static void scenario(const char *extra, bool invalid, int32_t first,
+                     int32_t second) {
+  const pocketjs_package_host_contract_t *host =
+      &pocketjs_package_host_contract;
+  sample_display display;
+  assert(sample_display_init(&display, host->physical_width,
+                             host->physical_height, 16, 2) == 0);
+  pocket_runtime_config config = {
+      .struct_size = sizeof(config),
+      .host_abi = host->host_abi,
+      .tick_hz = host->tick_hz,
+      .heap_limit = 8 * 1024 * 1024,
+      .frame_buffer_budget = display.capacity * display.count,
+      .profile_json = pocketjs_package_host_profile_json,
+      .profile_json_length = pocketjs_package_host_profile_json_length};
+  memcpy(config.profile_hash, pocketjs_package_host_runtime_profile_hash, 32);
+  pocket_runtime *runtime = pocket_runtime_create(&config);
+  assert(runtime);
+  const pocket_guest_idf_config gc = {8 * 1024 * 1024, 512 * 1024, true};
+  test_guest guest = {pocket_guest_idf_create(&gc), extra, 0};
+  assert(guest.guest);
+  pocket_memory_package source = {pocketjs_package_host.data,
+                                  invalid ? 10 : pocketjs_package_host.size};
+  assert(pocket_runtime_set_guest(runtime, &GUEST, &guest) == 0);
+  assert(pocket_runtime_set_package_source(
+             runtime, pocket_memory_package_vtable(), &source) == 0);
+  assert(pocket_runtime_add_input_source(runtime, sample_input_vtable(),
+                                         NULL) == 0);
+  assert(pocket_runtime_add_display(runtime, sample_display_vtable(), &display,
+                                    POCKET_RENDERER_SOFTWARE) == 0);
+  int32_t boot = pocket_runtime_boot(runtime);
+  if (invalid) {
+    assert(boot != 0);
+    assert(guest.evaluations == 0);
+  } else {
+    if (boot)
+      fprintf(stderr, "boot=%d %s\n", boot,
+              pocket_guest_idf_error(guest.guest));
+    assert(boot == 0);
+    assert(guest.evaluations == 1);
+    assert(pocket_runtime_tick(runtime) == first);
+    assert(pocket_runtime_tick(runtime) == second);
+    assert(display.flushes == display.waits);
+    if (first == 0)
+      assert(display.flushes > 0 && display.hash);
   }
-  JS_FreeValue(ctx, result);
+  pocket_runtime_destroy(runtime);
+  pocket_guest_idf_destroy(guest.guest);
+  sample_display_destroy(&display);
 }
-
-static pocketjs_guest_t *guest_new(void) {
-  pocketjs_guest_config_t config;
-  pocketjs_guest_config_defaults(&config);
-  pocketjs_guest_t *guest = NULL;
-  assert(pocketjs_guest_create(&config, &guest) == ESP_OK);
-  return guest;
-}
-
-static void test_promises(void) {
-  pocketjs_guest_t *guest = guest_new();
-  const char *source =
-      "let a, n=0; globalThis.frame=()=>{if(n++===0) a=Promise.reject('A');"
-      "else if(n===2){Promise.reject('B'); a.catch(()=>{});}}";
-  assert(pocketjs_guest_eval(guest, source, strlen(source), "promises") ==
-         ESP_OK);
-  pocketjs_guest_frame_t frame = {.struct_size = sizeof(frame)};
-  assert(pocketjs_guest_frame(guest, &frame) == ESP_FAIL);
-  assert(pocketjs_guest_frame(guest, &frame) == ESP_FAIL);
-  assert(pocketjs_guest_frame(guest, &frame) == ESP_OK);
-  pocketjs_guest_destroy(guest);
-}
-
-static pocketjs_ui_core_t *core_new(void) {
-  pocketjs_ui_core_config_t config;
-  pocketjs_ui_core_config_defaults(&config);
-  pocketjs_ui_core_t *core = NULL;
-  config.raster_density = 256;
-  assert(pocketjs_ui_core_create(&config, &core) == ESP_ERR_INVALID_ARG);
-  assert(core == NULL);
-  config.raster_density = 1;
-  assert(pocketjs_ui_core_create(&config, &core) == ESP_OK);
-  return core;
-}
-
-static void test_rejection_reporting_reentrancy(void) {
-  pocketjs_guest_t *guest = guest_new();
-  const char *source = "let p, n=0; globalThis.frame=()=>{if(n++===0)"
-                       "p=Promise.reject({toString(){p.catch(()=>{});return "
-                       "'handled while reporting'}})};";
-  assert(pocketjs_guest_eval(guest, source, strlen(source), "reentrant") ==
-         ESP_OK);
-  pocketjs_guest_frame_t frame = {.struct_size = sizeof(frame)};
-  assert(pocketjs_guest_frame(guest, &frame) == ESP_FAIL);
-  assert(pocketjs_guest_frame(guest, &frame) == ESP_OK);
-  pocketjs_guest_destroy(guest);
-}
-
-static void test_binding(const unsigned char *pak, size_t pak_size) {
-  pocketjs_guest_t *guest = guest_new();
-  pocketjs_ui_core_t *core = core_new();
-  pocketjs_ui_qjs_config_t config = {
-      .struct_size = sizeof(config), .target_id = "idf-smoke", .host_abi = 1};
-  pocketjs_ui_qjs_t *binding = NULL, *second = NULL;
-  assert(pocketjs_ui_qjs_create(guest, core, &config, &binding) == ESP_OK);
-  assert(pocketjs_ui_qjs_create(guest, core, &config, &second) == ESP_OK);
-  assert(pocketjs_ui_qjs_feed_pak(binding, pak, pak_size) == ESP_OK);
-  assert(pocketjs_ui_qjs_mount(binding) == ESP_OK);
-  assert(pocketjs_ui_qjs_mount(second) == ESP_ERR_INVALID_STATE);
-  JSContext *ctx = pocketjs_guest_quickjs_context(guest);
-  int foreign_module = 123;
-  JS_SetContextOpaque(ctx, &foreign_module);
-  eval(ctx,
-       "globalThis.node=ui.createNode(0); if(typeof node!=='number') throw "
-       "Error('closure');"
-       "if(!__pak.immutable) throw Error('pak mutable');"
-       "const original=new Uint8Array(__pak)[0]; new Uint8Array(__pak)[0]=0;"
-       "const copy=new Uint8Array(__pak).slice(); copy[0]=0;"
-       "if(new Uint8Array(__pak)[0]!==original) throw Error('pak changed');"
-       "let threw=0; for(const f of [()=>ui.createNode(Symbol()),"
-       "()=>ui.setProp(node,0,{valueOf(){throw Error('convert')}}),"
-       "()=>ui.loadStyles(Symbol()),()=>ui.loadFontAtlas(Symbol()),"
-       "()=>ui.uploadImgEntry(),()=>ui.wrapText('test',Symbol(),10)])"
-       "{try{f()}catch(e){threw++}} if(threw!==6) throw Error('conversion "
-       "exceptions: '+threw);");
-  assert(JS_GetContextOpaque(ctx) == &foreign_module);
-  pocketjs_ui_frame_view_t a = {.struct_size = sizeof(a)},
-                           b = {.struct_size = sizeof(b)};
-  assert(pocketjs_ui_core_draw(core, &a) == ESP_OK);
-  assert(pocketjs_ui_core_draw(core, &b) == ESP_OK);
-  assert(a.epoch != b.epoch);
-  pocketjs_rgb565_renderer_config_t rc;
-  pocketjs_rgb565_renderer_config_defaults(&rc);
-  pocketjs_rgb565_renderer_t *renderer = NULL;
-  pocketjs_rgb565_target_t *target = NULL;
-  assert(pocketjs_rgb565_renderer_create(&rc, &renderer) == ESP_OK);
-  assert(pocketjs_rgb565_target_create(&target) == ESP_OK);
-  pocketjs_rgb565_damage_plan_t damage = {.struct_size = sizeof(damage)};
-  assert(pocketjs_rgb565_prepare(renderer, target, &a, &damage) ==
-         ESP_ERR_INVALID_STATE);
-  assert(pocketjs_rgb565_prepare(renderer, target, &b, &damage) == ESP_OK);
-  assert(pocketjs_ui_core_draw(core, &a) == ESP_OK);
-  assert(pocketjs_rgb565_commit(renderer, target, &b) == ESP_ERR_INVALID_STATE);
-  pocketjs_rgb565_target_destroy(target);
-  pocketjs_rgb565_renderer_destroy(renderer);
-  pocketjs_guest_destroy(guest);
-  pocketjs_ui_qjs_destroy(second);
-  pocketjs_ui_qjs_destroy(binding);
-  pocketjs_ui_core_destroy(core);
-}
-
-static void test_atomic_assets(const unsigned char *good, size_t good_size,
-                               const unsigned char *bad, size_t bad_size) {
-  for (int fault = -1; fault < 9; ++fault) {
-    pocketjs_guest_t *guest = guest_new();
-    pocketjs_ui_core_t *core = core_new();
-    const unsigned char pixel[] = {1, 2, 3, 255};
-    int32_t existing = pocketjs_ui_core_upload_texture(core, pixel, 4, 1, 1, 3);
-    assert(existing == 0);
-    pocketjs_ui_qjs_config_t config = {
-        .struct_size = sizeof(config), .target_id = "idf-smoke", .host_abi = 1};
-    pocketjs_ui_qjs_t *binding = NULL;
-    assert(pocketjs_ui_qjs_create(guest, core, &config, &binding) == ESP_OK);
-    pocketjs_ui_frame_view_t before = {.struct_size = sizeof(before)},
-                             after = {.struct_size = sizeof(after)};
-    assert(pocketjs_ui_core_draw(core, &before) == ESP_OK);
-    if (fault >= 0)
-      pocketjs_test_fail_after = fault;
-    esp_err_t result = pocketjs_ui_qjs_feed_pak(
-        binding, fault < 0 ? bad : good, fault < 0 ? bad_size : good_size);
-    pocketjs_test_fail_after = -1;
-    if (fault < 0)
-      assert(result != ESP_OK);
-    if (result != ESP_OK) {
-      assert(pocketjs_ui_core_draw(core, &after) == ESP_OK);
-      assert(before.raster_revision == after.raster_revision);
-      pocketjs_ui_texture_view_t view = {.struct_size = sizeof(view)};
-      assert(pocketjs_ui_core_texture(core, existing, &view) == ESP_OK);
-      assert(!memcmp(view.pixels, pixel, 4));
-      assert(pocketjs_ui_core_texture(core, 1, &view) != ESP_OK);
-      assert(pocketjs_ui_qjs_feed_pak(binding, good, good_size) == ESP_OK);
-    }
-    assert(pocketjs_ui_qjs_mount(binding) == ESP_OK);
-    eval(pocketjs_guest_quickjs_context(guest),
-         "if(ui.__textures['transaction-test']!==1) throw Error('leaked "
-         "handle');");
-    pocketjs_guest_destroy(guest);
-    pocketjs_ui_qjs_destroy(binding);
-    pocketjs_ui_core_destroy(core);
-  }
-}
-
-static unsigned char *read_file(const char *path, size_t *size) {
-  FILE *file = fopen(path, "rb");
-  assert(file);
-  assert(fseek(file, 0, SEEK_END) == 0);
-  long end = ftell(file);
-  assert(end > 0);
-  *size = (size_t)end;
-  rewind(file);
-  unsigned char *data = malloc(*size);
-  assert(data && fread(data, 1, *size, file) == *size);
-  fclose(file);
-  return data;
-}
-
-int main(int argc, char **argv) {
-  assert(argc == 3);
-  test_runtime_allocator_hooks();
-  size_t good_size, bad_size;
-  unsigned char *good = read_file(argv[1], &good_size),
-                *bad = read_file(argv[2], &bad_size);
-  test_promises();
-  test_rejection_reporting_reentrancy();
-  test_atomic_assets(good, good_size, bad, bad_size);
-  test_binding(good, good_size);
-  free(good);
-  free(bad);
-  puts("IDF host runtime regressions passed");
+int main(void) {
+  allocator();
+  scenario("if(!__pak.immutable)throw Error('mutable pak');const byte=new "
+           "Uint8Array(__pak)[0];new Uint8Array(__pak)[0]^=255;const copy=new "
+           "Uint8Array(__pak).slice();copy[0]^=255;if(new "
+           "Uint8Array(__pak)[0]!==byte)throw Error('changed pak');const "
+           "old=frame;let count=0;frame=(...args)=>{count++;old(...args)}",
+           false, 0, 0);
+  scenario(NULL, true, 0, 0);
+  scenario("let "
+           "p,n=0;frame=()=>{if(n++===0)p=Promise.reject({toString(){p.catch(()"
+           "=>{});return 'reentrant rejection'}})}",
+           false, POCKET_STATUS_FAILED, POCKET_STATUS_INVALID);
+  scenario("let n=0;frame=()=>{if(n++===0)throw Error('frame failure')}", false,
+           POCKET_STATUS_FAILED, POCKET_STATUS_INVALID);
+  puts("IDF canonical runtime, admission, immutable package and rejection "
+       "regressions passed");
   return 0;
 }

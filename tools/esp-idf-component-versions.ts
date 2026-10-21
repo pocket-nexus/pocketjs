@@ -6,13 +6,13 @@ export function verifyComponentVersions(root: string): string[] {
   const releases = JSON.parse(readFileSync(join(components, "versions.json"), "utf8")) as
     Record<string, { version: string; requires: Record<string, string> }>;
   for (const [name, release] of Object.entries(releases)) {
-    if (!/^pocketjs_[a-z0-9_]+$/.test(name) || !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(release.version))
+    if (!/^pocket_[a-z0-9_]+$/.test(name) || !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(release.version))
       throw new Error(`invalid component release: ${name}`);
     const manifest = Bun.YAML.parse(readFileSync(join(components, name, "idf_component.yml"), "utf8")) as
       { version: string; dependencies?: Record<string, unknown> };
     if (manifest.version !== release.version) throw new Error(`component version drift: ${name}`);
     const internal = Object.fromEntries(Object.entries(manifest.dependencies ?? {})
-      .filter(([key]) => key.startsWith("pocket-nexus/pocketjs_"))
+      .filter(([key]) => key.startsWith("pocket-nexus/pocket_"))
       .map(([key, value]) => [key.slice("pocket-nexus/".length), value]));
     if (Object.keys(internal).length !== Object.keys(release.requires).length)
       throw new Error(`component dependency drift: ${name}`);

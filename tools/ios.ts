@@ -383,9 +383,6 @@ function stageAssets(artifacts: GuestArtifacts, options: StageOptions): void {
 async function installShellDependencies(options: StageOptions): Promise<void> {
   const packagePath = resolve(options.shellDir, "package.json");
   const hasOverrides = options.pluginPath !== undefined || options.runtimeTgz !== undefined;
-  if (!hasOverrides && existsSync(resolve(options.shellDir, "node_modules"))) {
-    return;
-  }
   const committed = readFileSync(packagePath, "utf8");
   try {
     if (hasOverrides) {
@@ -407,18 +404,18 @@ async function installShellDependencies(options: StageOptions): Promise<void> {
     });
     if (installed.exitCode !== 0) throw new Error("pocket ios: npm install failed in the shell");
   } finally {
-    // The committed template names the published packages; overrides only
-    // ever live in node_modules.
+    // Restore the maintained shell manifest after checkout-specific overrides.
     writeFileSync(packagePath, committed);
   }
 }
 
 async function vendPluginXcframework(options: StageOptions): Promise<void> {
-  // Only meaningful against a local plugin checkout: the npm package already
-  // carries a prebuilt PocketApple.xcframework.
-  if (!options.pluginPath) return;
-  if (!existsSync(XCFRAMEWORK_DIST)) return;
-  const destination = resolve(options.pluginPath, "platforms/ios/PocketApple.xcframework");
+  const plugin = options.pluginPath ?? resolve(options.shellDir, "pocketjs");
+  const destination = resolve(plugin, "platforms/ios/PocketApple.xcframework");
+  if (!existsSync(XCFRAMEWORK_DIST)) {
+    if (existsSync(destination)) return;
+    throw new Error("pocket ios: build the canonical runtime framework first with pocket ios native");
+  }
   rmSync(destination, { recursive: true, force: true });
   cpSync(XCFRAMEWORK_DIST, destination, { recursive: true });
 }
@@ -531,7 +528,7 @@ flags for stage/play:
   --attach            stay attached to ns run for console output (default exits after launch)
   --release           build the shell in release configuration
   --shell-dir=<path>  stage into another NativeScript app instead of hosts/ios-nativescript
-  --plugin-path=<path>  use a local @nativescript/pocketjs checkout instead of npm
+  --plugin-path=<path>  override the maintained @nativescript/pocketjs checkout
   --runtime-tgz=<path>  use a local @nativescript/ios-quickjs tgz instead of npm
 `;
 

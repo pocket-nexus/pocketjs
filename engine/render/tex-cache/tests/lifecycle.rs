@@ -177,3 +177,74 @@ fn lru_evicts_only_idle_entries_and_enforces_byte_budget() {
     );
     assert_eq!(cache.len(), 2);
 }
+
+#[test]
+fn in_place_updates_require_idle_storage_and_keep_the_charge() {
+    let mut cache = TextureCache::new(1, 10);
+    cache
+        .get_or_upload(
+            key(7, 1),
+            10,
+            Some(1),
+            || Ok::<_, ()>(Cell::new(11)),
+            |_| {},
+        )
+        .unwrap();
+    assert!(cache
+        .update_unreferenced(key(7, 1), key(7, 2), 10, |_| -> Result<(), ()> {
+            panic!("pinned update")
+        })
+        .unwrap()
+        .is_none());
+    cache.retire(1, |_| {});
+    assert!(cache
+        .update_unreferenced(key(7, 1), key(8, 2), 10, |_| -> Result<(), ()> {
+            panic!("different handle")
+        })
+        .unwrap()
+        .is_none());
+    assert!(cache
+        .update_unreferenced(key(7, 1), key(7, 2), 11, |_| -> Result<(), ()> {
+            panic!("different size")
+        })
+        .unwrap()
+        .is_none());
+    cache.invalidate(key(7, 1));
+    assert_eq!(
+        cache
+            .update_unreferenced(key(7, 1), key(7, 2), 10, |value| {
+                value.set(12);
+                Ok::<_, ()>(())
+            })
+            .unwrap()
+            .unwrap()
+            .get(),
+        12
+    );
+    assert!(cache.get(key(7, 1)).is_none());
+    assert_eq!(cache.get(key(7, 2)).unwrap().get(), 12);
+    assert_eq!(cache.resident_bytes(), 10);
+    assert_eq!(cache.len(), 1);
+}
+
+#[test]
+fn partial_update_failure_invalidates_storage_before_returning() {
+    let mut cache = TextureCache::new(1, 10);
+    cache
+        .get_or_upload(key(7, 1), 10, None, || Ok::<_, ()>(Cell::new(11)), |_| {})
+        .unwrap();
+    assert_eq!(
+        cache.update_unreferenced(key(7, 1), key(7, 2), 10, |value| {
+            value.set(99);
+            Err("partial")
+        }),
+        Err("partial")
+    );
+    assert!(cache.get(key(7, 1)).is_none());
+    assert!(cache.get(key(7, 2)).is_none());
+    assert!(cache.retain(key(7, 1), 3).is_none());
+    let mut freed = Vec::new();
+    cache.collect(|value| freed.push(value.get()));
+    assert_eq!(freed, [99]);
+    assert!(cache.is_empty());
+}

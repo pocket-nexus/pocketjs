@@ -38,10 +38,10 @@ async function fixture() {
 }
 
 describe("ESP-IDF release integrity", () => {
-  test("one runtime archive serves both UI and RGB565 components", () => {
-    expect(NATIVE_COMPONENTS).toEqual([{ component: "pocketjs_ui_core", crate: "ui-core", archive: "libpocketjs_idf_ui_core.a" }]);
-    const renderer = readFileSync(join(root, "hosts/esp-idf/components/pocketjs_render_rgb565/CMakeLists.txt"), "utf8");
-    expect(renderer).toContain("REQUIRES pocketjs_ui_core");
+  test("one runtime archive serves canonical runtime and PPA factory", () => {
+    expect(NATIVE_COMPONENTS).toEqual([{ component: "pocket_runtime", crate: "runtime", archive: "libpocket_idf_runtime.a" }]);
+    const renderer = readFileSync(join(root, "hosts/esp-idf/components/pocket_render_esp_ppa/CMakeLists.txt"), "utf8");
+    expect(renderer).toContain("REQUIRES pocket_runtime");
     expect(renderer).not.toContain("pocketjs_link_native");
     expect(NATIVE_POLICY.rustArchiveLayout).toBe("single-runtime");
   });
@@ -54,7 +54,7 @@ describe("ESP-IDF release integrity", () => {
   });
   test("rejects old archives paired with modified sources", async () => {
     const f = await fixture();
-    writeFileSync(join(f.directory, "hosts/esp-idf/native/ui-core/src/lib.rs"), "changed source");
+    writeFileSync(join(f.directory, "hosts/esp-idf/native/runtime/src/lib.rs"), "changed source");
     await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
   });
   test.each([
@@ -70,8 +70,8 @@ describe("ESP-IDF release integrity", () => {
     "engine/render/tex-cache/src/lib.rs", "engine/render/tex-cache/Cargo.toml",
     "engine/runtime/src/lib.rs", "engine/runtime/Cargo.toml",
     "engine/runtime-cabi/src/lib.rs", "engine/runtime-cabi/Cargo.toml",
-    "engine/runtime-cabi/src/compat/idf/abi.rs", "engine/runtime-cabi/src/compat/idf/render.rs",
-    "engine/backends/rgb565/src/lib.rs", "engine/backends/rgb565/Cargo.toml",
+    "platforms/esp-idf/render-ppa/src/cabi.rs",
+    "hosts/esp-idf/components/pocket_guest_quickjs/tools/prepare_quickjs.py",
     "platforms/esp-idf/render-ppa/src/lib.rs", "platforms/esp-idf/render-ppa/Cargo.toml",
     "platforms/esp-idf/render-ppa/include/pocket/render_esp_ppa.h",
     "devices/gles/pocket-gles/src/lib.rs", "devices/gles/pocket-gles/Cargo.toml",
@@ -113,11 +113,11 @@ describe("ESP-IDF release integrity", () => {
     }
     const output = join(directory, "staged");
     await stageEspIdfComponents(directory, output);
-    const include = join(output, "pocketjs_ui_core/include");
+    const include = join(output, "pocket_runtime/include");
     for (const name of ["pocket_drivers.h", "pocket_runtime.h", "pocket_spec.h"])
       expect(readFileSync(join(include, name), "utf8")).toBe(readFileSync(join(root, "contracts/generated", name), "utf8"));
     const compile = Bun.spawnSync(["cc", "-x", "c", "-std=c11", "-Werror", "-fsyntax-only", "-I", include,
-      "-I", join(output, "pocketjs_esp32p4_ppa/include"), "-"], {
+      "-I", join(output, "pocket_render_esp_ppa/include"), "-"], {
       stdin: new Blob(['#include "pocket/render_esp_ppa.h"\nint main(void) { return sizeof(pocket_ppa_config) == 0; }\n']), stdout: "pipe", stderr: "pipe",
     });
     expect(compile.success, compile.stderr.toString()).toBe(true);
@@ -132,13 +132,13 @@ describe("ESP-IDF release integrity", () => {
       const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
       for (const name of ["pocket-gles", "pocket-gles1", "pocket-gles2"])
         expect(readFileSync(join(output, native.component, "vendor", name, "Cargo.toml"), "utf8")).not.toContain("../../../engine");
-      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocketjs-render-rgb565", "pocket-render-esp-ppa"])
+      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages", "pocket-runtime", "pocket-runtime-cabi", "pocket-render-esp-ppa"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
     }
   }, 30_000);
   test("archive preparation rules participate in source identity", async () => {
     const f = await fixture();
-    writeFileSync(join(f.directory, "hosts/esp-idf/components/pocketjs_ui_core/prepare_archive.cmake"), "changed rules");
+    writeFileSync(join(f.directory, "hosts/esp-idf/components/pocket_runtime/prepare_archive.cmake"), "changed rules");
     await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
   });
   test("rejects archive tampering and size drift", async () => {
@@ -161,7 +161,7 @@ describe("ESP-IDF release integrity", () => {
   });
   test("component versions and internal dependency ranges are checked", () => {
     const names = verifyComponentVersions(root);
-    expect(names).toHaveLength(7);
+    expect(names).toHaveLength(5);
     const directory = mkdtempSync(join(tmpdir(), "pocketjs-versions-")); temporary.push(directory);
     const components = join(directory, "hosts/esp-idf/components");
     mkdirSync(components, { recursive: true });
@@ -171,8 +171,8 @@ describe("ESP-IDF release integrity", () => {
       cpSync(join(root, "hosts/esp-idf/components", name, "idf_component.yml"), join(components, name, "idf_component.yml"));
     }
     expect(verifyComponentVersions(directory)).toEqual(names);
-    const file = join(components, "pocketjs_ui_qjs/idf_component.yml");
-    writeFileSync(file, readFileSync(file, "utf8").replace('pocket-nexus/pocketjs_ui_core: "0.1.0"', 'pocket-nexus/pocketjs_ui_core: "9.0.0"'));
+    const file = join(components, "pocket_guest_quickjs/idf_component.yml");
+    writeFileSync(file, readFileSync(file, "utf8").replace('pocket-nexus/pocket_runtime: "0.1.0"', 'pocket-nexus/pocket_runtime: "9.0.0"'));
     expect(() => verifyComponentVersions(directory)).toThrow(/dependency version drift/);
   });
 });

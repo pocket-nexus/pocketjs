@@ -4,10 +4,13 @@
 #include "generated_ops.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__APPLE__)
+#if defined(POCKET_QJS_BELLARD)
+#define HAS_IMMUTABLE_API 0
+#elif defined(__APPLE__)
 extern int JS_SetImmutableArrayBuffer(JSValueConst object, bool immutable) __attribute__((weak_import));
 #define HAS_IMMUTABLE_API (JS_SetImmutableArrayBuffer != NULL)
 #elif defined(__GNUC__)
@@ -25,6 +28,9 @@ struct pocket_guest_quickjs {
   pocket_runtime *runtime;
   pocket_qjs_profile profile;
   int attached, mounted, mounted_pak;
+#if defined(POCKET_QJS_BELLARD)
+  JSClassID buffer_class, uint8_class;
+#endif
   JSValue token, pak;
   char error[256];
 };
@@ -117,13 +123,23 @@ static JSValue invoke(JSContext *ctx,JSValueConst self,int argc,JSValueConst *ar
   }
   for(unsigned i=0;i<op->argc;i++) if(op->args[i].kind==PJS_ARG_BYTES) {
     size_t offset=0,length=0,backing=0,element=0;
-    if(guest->profile==POCKET_QJS_IDF&&JS_GetTypedArrayType(argv[i])!=JS_TYPED_ARRAY_UINT8) {JS_ThrowTypeError(ctx,"expected Uint8Array");goto done;}
-    if(JS_IsArrayBuffer(argv[i])) {buffers[i]=JS_DupValue(ctx,argv[i]);}
+#if defined(POCKET_QJS_BELLARD)
+    int is_buffer=JS_IsObject(argv[i])&&JS_GetClassID(argv[i])==guest->buffer_class;
+    int is_uint8=JS_IsObject(argv[i])&&JS_GetClassID(argv[i])==guest->uint8_class;
+#else
+    int is_buffer=JS_IsArrayBuffer(argv[i]);
+    int is_uint8=JS_GetTypedArrayType(argv[i])==JS_TYPED_ARRAY_UINT8;
+#endif
+    if(guest->profile==POCKET_QJS_IDF&&!is_uint8) {JS_ThrowTypeError(ctx,"expected Uint8Array");goto done;}
+    if(is_buffer) {buffers[i]=JS_DupValue(ctx,argv[i]);}
     else {buffers[i]=JS_GetTypedArrayBuffer(ctx,argv[i],&offset,&length,&element);if(JS_IsException(buffers[i]))goto done;}
-    uint8_t *bytes=JS_GetArrayBuffer(ctx,&backing,buffers[i]);if(!bytes)goto done;
-    if(JS_IsArrayBuffer(argv[i]))length=backing;
+    uint8_t *bytes=JS_GetArrayBuffer(ctx,&backing,buffers[i]);
+    /* A zero-byte Bellard ArrayBuffer may have a NULL data pointer. The
+     * exception flag distinguishes it from detached or invalid storage. */
+    if(!bytes&&JS_HasException(ctx))goto done;
+    if(is_buffer)length=backing;
     if(offset>backing||length>backing-offset) {JS_ThrowTypeError(ctx,"invalid byte view");goto done;}
-    args[i].bytes=bytes+offset;args[i].byte_length=length;
+    args[i].bytes=bytes?bytes+offset:NULL;args[i].byte_length=length;
   }
   pocket_result output={0};output.struct_size=sizeof output;
   if(pocket_runtime_op(guest->runtime,op->op,args,op->argc*sizeof args[0],&output)!=0) {JS_ThrowInternalError(ctx,"UI operation failed: %s",op->name);goto done;}
@@ -160,7 +176,7 @@ static JSValue package_buffer(JSContext *ctx,pocket_guest_quickjs *guest,const p
 #endif
   {pak=JS_NewArrayBufferCopy(ctx,env->pak,env->pak_length);}
   if(!JS_IsException(pak)&&guest->profile!=POCKET_QJS_LEGACY_C&&HAS_IMMUTABLE_API) {
-#if defined(__GNUC__) || defined(POCKET_QJS_IMMUTABLE_API)
+#if !defined(POCKET_QJS_BELLARD) && (defined(__GNUC__) || defined(POCKET_QJS_IMMUTABLE_API))
     if(JS_SetImmutableArrayBuffer(pak,true)<0){JS_FreeValue(ctx,pak);return JS_ThrowInternalError(ctx,"cannot protect package buffer");}
 #endif
   }
@@ -180,6 +196,17 @@ static int32_t initialize(void *opaque,pocket_runtime *runtime,const pocket_gues
   if(env->pak_length) {existing=JS_GetPropertyStr(ctx,global,"__pak");occupied=!JS_IsUndefined(existing);JS_FreeValue(ctx,existing);if(occupied){JS_ThrowTypeError(ctx,"__pak is already mounted");goto failed;}}
   existing=JS_GetPropertyStr(ctx,global,"console");
   if(JS_IsUndefined(existing)) {JSValue console=JS_NewObject(ctx);const char *names[]={"log","info","warn","error","debug"};for(size_t i=0;i<5;i++)if(set(ctx,console,names[i],JS_NewCFunction(ctx,console_log,names[i],1))<0){JS_FreeValue(ctx,console);JS_FreeValue(ctx,existing);goto failed;}if(set(ctx,global,"console",console)<0){JS_FreeValue(ctx,existing);goto failed;}}JS_FreeValue(ctx,existing);
+#if defined(POCKET_QJS_BELLARD)
+  /* Discover native classes without invoking replaceable JS constructors or
+   * property getters. Preserve the embedding engine's JSValue ABI. */
+  JSValue probe=JS_NewArrayBufferCopy(ctx,NULL,0);
+  if(JS_IsException(probe))goto failed;
+  guest->buffer_class=JS_GetClassID(probe);JS_FreeValue(ctx,probe);
+  JSValue zero=JS_NewInt32(ctx,0);
+  probe=JS_NewTypedArray(ctx,1,&zero,JS_TYPED_ARRAY_UINT8);
+  if(JS_IsException(probe))goto failed;
+  guest->uint8_class=JS_GetClassID(probe);JS_FreeValue(ctx,probe);
+#endif
   guest->runtime=runtime;guest->token=JS_NewArrayBufferCopy(ctx,(const uint8_t*)&guest,sizeof guest);
   if(JS_IsException(guest->token))goto failed;
   for(size_t i=0;i<POCKET_UI_OP_COUNT;i++) {
@@ -266,7 +293,7 @@ static void shutdown(void *opaque) {
   guest->runtime=NULL;guest->mounted=guest->mounted_pak=0;
 }
 static const pocket_guest_v1 vtable={sizeof(pocket_guest_v1),evaluate,frame,collect,shutdown,initialize};
-pocket_guest_quickjs *pocket_guest_quickjs_create(pocket_qjs_profile profile) {if(profile<POCKET_QJS_CANONICAL||profile>POCKET_QJS_IDF)return NULL;pocket_guest_quickjs *guest=calloc(1,sizeof *guest);if(guest){guest->profile=profile;guest->token=guest->pak=JS_UNDEFINED;}return guest;}
+pocket_guest_quickjs *pocket_guest_quickjs_create(pocket_qjs_profile profile) {if((unsigned)profile>(unsigned)POCKET_QJS_IDF)return NULL;pocket_guest_quickjs *guest=calloc(1,sizeof *guest);if(guest){guest->profile=profile;guest->token=guest->pak=JS_UNDEFINED;}return guest;}
 pocket_guest_quickjs *pocket_guest_quickjs_attach(JSContext *ctx,pocket_qjs_profile profile) {if(!ctx)return NULL;pocket_guest_quickjs *guest=pocket_guest_quickjs_create(profile);if(guest){guest->context=ctx;guest->engine=JS_GetRuntime(ctx);guest->attached=1;}return guest;}
 const pocket_guest_v1 *pocket_guest_quickjs_vtable(void){return &vtable;}
 const char *pocket_guest_quickjs_error(const pocket_guest_quickjs *guest){return guest?guest->error:"invalid guest";}

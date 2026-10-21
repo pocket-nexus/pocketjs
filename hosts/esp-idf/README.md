@@ -1,59 +1,42 @@
 # PocketJS on ESP-IDF
 
-PocketJS ships as caller-composed ESP-IDF components. **The product firmware
-owns tasks, input drivers, display buffers, presentation, and package storage.**
-Only the optional `pocketjs_runner` component creates a task.
-
-## Components
+**The product registers its guest, input, display, package source and renderer
+on one `pocket_runtime` instance.** The runtime owns package admission, UI
+state, input packing, damage tracking and presentation. The product owns tasks,
+GPIO configuration, panel setup and package storage.
 
 | Component | Responsibility | Targets |
 | --- | --- | --- |
-| `pocketjs_package` | Zero-copy `.pocket` parsing and host admission | P4, S3 |
-| `pocketjs_guest` | Caller-driven QuickJS realm and guest turns | P4, S3 |
-| `pocketjs_ui_core` | Retained UI core and versioned frame view | P4, S3 |
-| `pocketjs_ui_qjs` | `globalThis.ui` binding between guest and core | P4, S3 |
-| `pocketjs_render_rgb565` | Transactional RGB565 damage and software rendering | P4, S3 |
-| `pocketjs_esp32p4_ppa` | Blocking P4 FILL, A8 BLEND, and SRM acceleration | P4 |
-| `pocketjs_runner` | Optional exact-cadence owner task | P4, S3 |
+| `pocket_runtime` | One native program archive, six allocator/log hooks and memory package source | P4, S3 |
+| `pocket_guest_quickjs` | QuickJS allocation, cancellation and generated guest bindings | P4, S3 |
+| `pocket_display_esp_lcd` | RGB565 SPI/I80 GRAM output with one or two DMA strip buffers | P4, S3 |
+| `pocket_render_esp_ppa` | P4 FILL, A8 BLEND and SRM operations | P4 |
+| `pocket_runner` | Optional owner task using the shared tick schedule | P4, S3 |
 
-The full dependency graph and integration sequence are documented in the
-[ESP-IDF guide](https://pocketjs.dev/docs/esp-idf/). Component headers live
-under `include/pocketjs/`; their comments are the API authority.
+The runtime component links `libpocket_idf_runtime.a`. This archive composes
+`pocket-runtime-cabi` and the PPA factory. `pocket-raster` supplies the built-in
+software renderer. The PPA renderer implements the same public driver contract;
+unsupported operations use ordered software fallback.
 
-The core and renderer each own a Rust archive. The renderer reads resources
-through the C ABI and does not dereference the core's Rust representation.
-Generated C/Rust layouts are checked by `bun tools/esp-idf-contracts.ts --check`.
-
-PAK bytes remain caller-owned and immutable in JavaScript. Asset loading is
-atomic for returned errors; Rust allocation exhaustion is fatal.
-
-## Build the examples
-
-The caller-driven smoke example builds a package from source when the PocketJS
-CLI is in `PATH`:
+`examples/smoke` and `examples/prebuilt` register these interfaces in `main.c`.
+Their sample display is a transfer-hash sink with two strips; it does not
+initialize a physical panel. A product can replace that table with
+`pocket_display_esp_lcd_vtable()` after configuring its panel and panel IO.
+`examples/runner` registers the same application and joins the owner task
+before destroying runtime or driver state.
 
 ```sh
-cd hosts/esp-idf/examples/smoke
-idf.py set-target esp32p4 # or esp32s3
+cd hosts/esp-idf/examples/prebuilt
+idf.py -DPOCKETJS_RUST_FROM_SOURCE=ON set-target esp32p4
 idf.py build
 ```
 
-Pass `-DPOCKETJS_SMOKE_PREBUILT_PACKAGE=/absolute/app.pocket` to build without
-Bun. Registry releases provide the matching target-native Rust archive; a
-PocketJS source checkout can set `POCKETJS_RUST_FROM_SOURCE=ON` and uses the
-Rust environment already supplied by the developer.
+A source build uses the caller's Rust toolchain. Registry releases provide
+native archives for P4 and S3. Pass `POCKET_RUNTIME_ARCHIVE` to select a prepared
+archive, or `POCKETJS_CARGO` with source builds to select a Cargo installation.
+The compiler package and `pocket.host.json` formats retain their current
+contracts; the embed helper emits a separate canonical runtime profile and hash.
 
-`examples/runner` executes the same application through the optional task
-runner. Neither example initializes a panel or reads a device input driver.
-
-## Hardware tests
-
-`tests/data-smoke` is an independent ESP32-P4 conformance binary for the DB/FS
-module cores over LittleFS. It does not add DB/FS to the UI components or their
-dependency graph. The test retains its own Rust and ESP-IDF v5.5.3 toolchain
-pin until that data-module fixture is upgraded separately.
-
-## Maintainer workflow
-
-Archive receipts, Registry packaging, CI, and hardware gates are described in
-[`docs/ESP_IDF.md`](../../docs/ESP_IDF.md).
+See [component maintenance](../../docs/ESP_IDF.md) for archive receipts,
+QuickJS source identity and validation. `tests/data-smoke` retains its independent
+data-module toolchain and does not participate in the UI runtime graph.

@@ -14,6 +14,27 @@ Normal builds do not enable benchmark captures. They include the
 [USB developer runtime](../../docs/VITA-USB.md): L+R+SELECT opens its native
 menu, and `bun run vita:dev` sends guest/native updates and captures over USB.
 
+The host registers [`pocket-vita-render`](../../devices/vita/pocket-vita-render/README.md)
+with the canonical Runtime through the C ABI handle. **Each guest owns its
+CoreState, package, input encoder and generated QuickJS bindings.** The Vita
+provider supplies services, video, diagnostics and launcher operations; native
+extensions keep the existing Bellard QuickJS context and JSValue ABI.
+
+The renderer owns resource revisions, submission vertex memory and GPU waits.
+For native 3D composition, call `graphics::begin_frame`, record native 3D, then
+call `Runtime::render_over_with(|| { /* native overlay */ })`. The callback
+runs after the UI submission and before GPU completion. **Presentation waits
+for GPU work and the display queue before retiring frame resources.**
+`render_over()` supplies no overlay; it returns after presentation. Native
+commands that followed the old `render_over()` must move into the callback.
+The following `graphics::present()` call is accepted as a compatibility no-op.
+`Runtime::render_with_overlay` opens a new scene for the stock host.
+
+`eval` admits the JS/pak pair through the package reader and does not submit
+GPU work. `frame_with_input` samples input, calls the guest and ticks the core
+once. The retained `tick()` compatibility method has no effect. `ui()` returns
+a scoped guard; release it before calling the runtime or recording an overlay.
+
 `pocketjs-vita` is the native PS Vita host for PocketJS. It embeds QuickJS,
 feeds the normal PocketJS pak, renders the standard DrawList with vita2d/GXM,
 and reads the physical Vita controller. Applications do not need a
@@ -37,7 +58,7 @@ contact ids in 480x272 logical coordinates through `touches()` from
 
 The supported local setup is:
 
-- VitaSDK in `$VITASDK` (this workstation uses `~/vitasdk`)
+- VitaSDK in `$VITASDK`
 - `cargo-vita` 0.2.2
 - Rust nightly `2026-05-28` with `rust-src`
 - Vita3K for emulator E2E
@@ -106,10 +127,10 @@ needed.
 
 Reusable Rust hosts that replace one Pocket guest with another must consume
 the old runtime with `Runtime::shutdown(self)` after presenting a closed
-scene. That boundary releases QuickJS, waits for GXM, retires the guest's
-texture/font handles, drops its `Ui`, and uninstalls its pak. Plain `Drop`
-only releases QuickJS so it remains safe inside a host-owned open scene; it
-does not authorize constructing a second guest.
+scene. That boundary releases the canonical runtime and QuickJS, waits for
+GXM, retires the guest's texture/font handles, and releases its package. Plain
+`Drop` destroys the guest instance without resetting the shared native scene;
+it does not authorize constructing a second guest.
 
 ## Golden E2E
 

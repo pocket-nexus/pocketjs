@@ -1,484 +1,740 @@
-//! pocket-apple — the PocketJS iOS host core behind a C ABI.
-//!
-//! Composition mirrors `hosts/pocketbook`: one `pocket_mod::Guest` (QuickJS
-//! realm), one `pocket_ui_surface::UiSurface` (`globalThis.ui` + pak feeding),
-//! and `pocketjs_core::raster` driven incrementally through a `DamageTracker`.
-//! The framebuffer is ARGB32 words — BGRA byte order in memory on
-//! little-endian, i.e. `kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst`
-//! for CoreGraphics without any swizzling.
-//!
-//! Threading: everything here is single-threaded by construction (`UiSurface`
-//! is `Rc<RefCell<..>>`). Create, drive, and destroy a handle from one thread —
-//! in practice the main thread, alongside CADisplayLink.
-//!
-//! Call order per handle: `create` → `load_pak`* → [`set_identity`] →
-//! [`set_tick_rate`] → `eval_bundle` → per tick `frame` then `render` →
-//! `destroy`. `load_pak`, `set_identity` and `set_tick_rate` are all
-//! rejected after `eval_bundle` because the surface publishes them to the
-//! guest at mount time — and the guest converts its mount-time `animate()`
-//! durations to frames at the rate in force while the bundle evaluates, so
-//! a rate declared later would have silently converted them at 60.
+//! UIKit composition over the canonical runtime C boundary. The compatibility
+//! entry points retain no Ui, DrawList, asset parser or presentation policy.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-use std::cell::RefCell;
-use std::ffi::{c_char, CString};
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::slice;
+mod bridge;
+mod package;
 
-pub mod core_host;
+use bridge::Bridge;
+use pocket_guest_rquickjs::{BindingProfile, RquickjsGuest};
+use pocket_runtime_cabi::abi::*;
+use pocket_runtime_cabi::{
+    pocket_runtime_add_display, pocket_runtime_add_input_source, pocket_runtime_add_op_provider,
+    pocket_runtime_boot, pocket_runtime_create, pocket_runtime_destroy, pocket_runtime_op,
+    pocket_runtime_set_guest, pocket_runtime_set_package_source, pocket_runtime_supports_op,
+    pocket_runtime_tick,
+};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::{c_char, c_void, CStr, CString},
+    ptr,
+};
 
-use pocket_mod::Guest;
-use pocket_ui_surface::UiSurface;
-use pocketjs_core::damage::{DamagePolicy, DamageTracker, DEFAULT_DAMAGE_REGIONS};
-use pocketjs_core::raster;
-use pocketjs_core::spec;
-
-pub const POCKET_APPLE_ABI_VERSION: u32 = 1;
-pub const POCKET_APPLE_MAX_DAMAGE_REGIONS: usize = DEFAULT_DAMAGE_REGIONS;
-
-/// Accepted `set_tick_rate` range: covers every Apple display cadence from a
-/// throttled 1 Hz up to the 240 Hz headroom above ProMotion's 120 (the
-/// core's own ceiling — `pocketjs_core::MAX_TICK_HZ`).
-pub(crate) const MIN_TICK_HZ: u32 = 1;
-pub(crate) const MAX_TICK_HZ: u32 = pocketjs_core::MAX_TICK_HZ;
-
-const OK: i32 = 0;
-const ERR_BAD_ARGUMENT: i32 = -1;
-const ERR_BAD_STATE: i32 = -2;
-const ERR_GUEST: i32 = -3;
-const ERR_PANIC: i32 = -4;
-
-thread_local! {
-    static LAST_ERROR: RefCell<CString> = RefCell::new(CString::new("").unwrap());
-}
-
-pub(crate) fn set_last_error(message: impl AsRef<str>) {
-    let sanitized = message.as_ref().replace('\0', " ");
+pub const POCKET_APPLE_ABI_VERSION: u32 = 2;
+pub const POCKET_APPLE_MAX_DAMAGE_REGIONS: usize = 8;
+const MAX_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
+pub type PocketAppleEffectCallback = extern "C" fn(*const c_char, *mut c_void);
+thread_local! { static LAST_ERROR: RefCell<CString> = RefCell::new(CString::default()); }
+fn error(message: impl AsRef<str>) -> i32 {
     LAST_ERROR.with(|slot| {
-        *slot.borrow_mut() = CString::new(sanitized).unwrap_or_default();
+        *slot.borrow_mut() = CString::new(message.as_ref().replace('\0', " ")).unwrap()
     });
+    POCKET_STATUS_FAILED
 }
-
-pub type PocketAppleEffectCallback =
-    extern "C" fn(line: *const c_char, context: *mut std::ffi::c_void);
-
-pub struct PocketApple {
-    guest: Guest,
-    surface: UiSurface,
-    framebuffer: Vec<u8>,
-    tracker: DamageTracker,
-    density: u32,
-    logical_width: u32,
-    logical_height: u32,
-    mounted: bool,
-    effect_callback: Option<(PocketAppleEffectCallback, *mut std::ffi::c_void)>,
-}
-
-/// One rendered frame. `pixels` stays valid until the next `render`, a
-/// `destroy`, or any other call that mutates the handle.
 #[repr(C)]
 pub struct PocketAppleFrame {
     pub pixels: *const u8,
     pub width_px: u32,
     pub height_px: u32,
     pub stride_bytes: u32,
-    /// Repaint rects in pixel coordinates as x, y, w, h. `region_count == 0`
-    /// means nothing changed this frame; the previous contents are current.
     pub regions: [[i32; 4]; POCKET_APPLE_MAX_DAMAGE_REGIONS],
     pub region_count: u32,
     pub full_redraw: i32,
 }
-
-fn with_handle<R>(
-    handle: *mut PocketApple,
-    default: R,
-    f: impl FnOnce(&mut PocketApple) -> R,
-) -> R {
-    if handle.is_null() {
-        set_last_error("null handle");
-        return default;
-    }
-    let state = unsafe { &mut *handle };
-    match catch_unwind(AssertUnwindSafe(|| f(state))) {
-        Ok(value) => value,
-        Err(_) => {
-            set_last_error("panic inside pocket-apple");
-            default
-        }
+struct Configuration {
+    host: String,
+    abi: u32,
+    hz: u32,
+    pak: Vec<u8>,
+    package: Vec<u8>,
+    guest: Option<(PocketGuestV1, *mut c_void)>,
+}
+pub struct PocketApple {
+    runtime: Cell<*mut PocketRuntime>,
+    busy: Cell<bool>,
+    config: RefCell<Configuration>,
+    bridge: Box<Bridge>,
+    effect: Cell<Option<(PocketAppleEffectCallback, *mut c_void)>>,
+}
+struct Busy<'a>(&'a Cell<bool>);
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        self.0.set(false);
     }
 }
-
+fn access(handle: *mut PocketApple, operation: impl FnOnce(&PocketApple) -> i32) -> i32 {
+    let Some(state) = (unsafe { handle.as_ref() }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    if state.busy.replace(true) {
+        return error("Apple runtime call is already active");
+    }
+    let _guard = Busy(&state.busy);
+    operation(state)
+}
+fn configure(handle: *mut PocketApple, action: impl FnOnce(&mut Configuration) -> i32) -> i32 {
+    access(handle, |state| {
+        if !state.runtime.get().is_null() {
+            return error("configuration must precede guest boot");
+        }
+        action(&mut state.config.borrow_mut())
+    })
+}
+unsafe fn bytes<'a>(pointer: *const u8, length: usize) -> Option<&'a [u8]> {
+    if length == 0 {
+        return Some(&[]);
+    }
+    if pointer.is_null()
+        || length > isize::MAX as usize
+        || (pointer as usize).checked_add(length).is_none()
+    {
+        return None;
+    }
+    Some(unsafe { std::slice::from_raw_parts(pointer, length) })
+}
+unsafe fn string<'a>(pointer: *const c_char) -> Option<&'a str> {
+    if pointer.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(pointer) }.to_str().ok()
+    }
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_abi_version() -> u32 {
     POCKET_APPLE_ABI_VERSION
 }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_last_error() -> *const c_char {
     LAST_ERROR.with(|slot| slot.borrow().as_ptr())
 }
-
 #[unsafe(no_mangle)]
-pub extern "C" fn pocket_apple_create(
-    density: u32,
-    logical_width: u32,
-    logical_height: u32,
-) -> *mut PocketApple {
-    let result = catch_unwind(|| {
-        if density == 0
-            || density > raster::MAX_RENDER_SCALE
-            || logical_width == 0
-            || logical_height == 0
-        {
-            set_last_error("invalid density or viewport");
-            return std::ptr::null_mut();
-        }
-        let guest = match Guest::new() {
-            Ok(guest) => guest,
-            Err(error) => {
-                set_last_error(format!("guest create failed: {error}"));
-                return std::ptr::null_mut();
-            }
-        };
-        let surface = UiSurface::new_with_density(
-            (logical_width as f32, logical_height as f32),
-            density,
-        );
-        let pixel_len =
-            (logical_width * density) as usize * (logical_height * density) as usize * 4;
-        Box::into_raw(Box::new(PocketApple {
-            guest,
-            surface,
-            framebuffer: vec![0; pixel_len],
-            tracker: DamageTracker::default(),
-            density,
-            logical_width,
-            logical_height,
-            mounted: false,
-            effect_callback: None,
-        }))
-    });
-    result.unwrap_or(std::ptr::null_mut())
+pub extern "C" fn pocket_apple_create(density: u32, width: u32, height: u32) -> *mut PocketApple {
+    let Some(bridge) = Bridge::new(density, width, height) else {
+        error("invalid Apple viewport or allocation size");
+        return ptr::null_mut();
+    };
+    Box::into_raw(Box::new(PocketApple {
+        runtime: Cell::new(ptr::null_mut()),
+        busy: Cell::new(false),
+        config: RefCell::new(Configuration {
+            host: "desktop".into(),
+            abi: 1,
+            hz: 60,
+            pak: Vec::new(),
+            package: Vec::new(),
+            guest: None,
+        }),
+        bridge: Box::new(bridge),
+        effect: Cell::new(None),
+    }))
 }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_set_identity(
     handle: *mut PocketApple,
-    host_id: *const c_char,
-    host_abi: u32,
+    host: *const c_char,
+    abi: u32,
 ) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if state.mounted {
-            set_last_error("identity must be set before eval_bundle");
-            return ERR_BAD_STATE;
+    configure(handle, |config| {
+        let Some(host) = (unsafe { string(host) }) else {
+            return POCKET_STATUS_INVALID;
+        };
+        if host.is_empty() || host.len() > 15 || abi == 0 {
+            return POCKET_STATUS_INVALID;
         }
-        if host_id.is_null() {
-            return ERR_BAD_ARGUMENT;
-        }
-        let id = unsafe { std::ffi::CStr::from_ptr(host_id) };
-        match id.to_str() {
-            Ok(id) => {
-                state.surface.set_identity(id, host_abi);
-                OK
-            }
-            Err(_) => ERR_BAD_ARGUMENT,
-        }
+        config.host = host.into();
+        config.abi = abi;
+        0
     })
 }
-
-/// Declare the exact companion service names this host serves (comma-
-/// separated; svcOpen answers false for everything else — and for
-/// everything when this is never called, per the surface's deny-by-default
-/// contract). Must be called before `eval_bundle`, like `set_identity`.
+#[unsafe(no_mangle)]
+pub extern "C" fn pocket_apple_set_tick_rate(handle: *mut PocketApple, hz: u32) -> i32 {
+    configure(handle, |config| {
+        if !(1..=240).contains(&hz) {
+            return POCKET_STATUS_INVALID;
+        }
+        config.hz = hz;
+        0
+    })
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_set_svc_allowlist(
     handle: *mut PocketApple,
-    comma_separated: *const c_char,
+    names: *const c_char,
 ) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if state.mounted {
-            set_last_error("svc allowlist must be set before eval_bundle");
-            return ERR_BAD_STATE;
+    access(handle, |state| {
+        if !state.runtime.get().is_null() {
+            return error("service allowlist must precede boot");
         }
-        if comma_separated.is_null() {
-            return ERR_BAD_ARGUMENT;
-        }
-        let names = unsafe { std::ffi::CStr::from_ptr(comma_separated) };
-        match names.to_str() {
-            Ok(names) => {
-                state
-                    .surface
-                    .set_svc_allowlist(names.split(',').filter(|s| !s.is_empty()));
-                OK
-            }
-            Err(_) => ERR_BAD_ARGUMENT,
-        }
+        let Some(names) = (unsafe { string(names) }) else {
+            return POCKET_STATUS_INVALID;
+        };
+        state.bridge.services.borrow_mut().allow = names
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect();
+        0
     })
 }
-
-/// Ticks (and therefore `pocket_apple_frame` calls) per second of guest
-/// virtual time. 1..=240; the guest bundle must be built for the same rate.
-/// Rejected after `eval_bundle`, like `set_identity`: the mount publishes
-/// the rate to the guest as `ui.__tickHz`, and the bundle's mount-time
-/// `animate()` calls convert ms to frames at the rate in force while it
-/// evaluates.
-#[unsafe(no_mangle)]
-pub extern "C" fn pocket_apple_set_tick_rate(handle: *mut PocketApple, hz: u32) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if state.mounted {
-            set_last_error("tick rate must be set before eval_bundle");
-            return ERR_BAD_STATE;
-        }
-        if !(MIN_TICK_HZ..=MAX_TICK_HZ).contains(&hz) {
-            set_last_error("tick rate must be 1 through 240 Hz");
-            return ERR_BAD_ARGUMENT;
-        }
-        if !state.surface.set_tick_rate(hz) {
-            set_last_error("tick rate must be set before the realm ticks");
-            return ERR_BAD_STATE;
-        }
-        OK
-    })
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_load_pak(
     handle: *mut PocketApple,
-    bytes: *const u8,
+    data: *const u8,
     length: usize,
 ) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if state.mounted {
-            set_last_error("pak must be fed before eval_bundle");
-            return ERR_BAD_STATE;
+    configure(handle, |config| {
+        let Some(pak) = (unsafe { bytes(data, length) }) else {
+            return POCKET_STATUS_INVALID;
+        };
+        // The runtime performs the authoritative asset installation at boot.
+        if pocket_package::pak::checked_entries(pak).is_err() {
+            return error("invalid asset pack");
         }
-        if bytes.is_null() || length == 0 {
-            return ERR_BAD_ARGUMENT;
+        if pak.len() > MAX_PACKAGE_BYTES {
+            return error("asset pack exceeds the runtime heap limit");
         }
-        let pak = unsafe { slice::from_raw_parts(bytes, length) };
-        match state.surface.try_feed_pak(pak) {
-            Ok(()) => OK,
-            Err(error) => {
-                set_last_error(format!("asset pack rejected: {error}"));
-                ERR_BAD_ARGUMENT
-            }
+        let mut owned = Vec::new();
+        if owned.try_reserve_exact(pak.len()).is_err() {
+            return error("asset pack allocation failed");
         }
+        owned.extend_from_slice(pak);
+        config.pak = owned;
+        0
     })
 }
-
+/// Register an external engine before boot. Its callbacks use the same guest
+/// lifecycle and runtime_op reentry rules as an owned rquickjs engine.
+#[unsafe(no_mangle)]
+pub extern "C" fn pocket_apple_set_guest(
+    handle: *mut PocketApple,
+    table: *const PocketGuestV1,
+    context: *mut c_void,
+) -> i32 {
+    configure(handle, |config| {
+        let Some(table) = (unsafe { PocketGuestV1::read_prefix(table) }) else {
+            return POCKET_STATUS_INVALID;
+        };
+        if table.evaluate.is_none() || table.frame.is_none() {
+            return POCKET_STATUS_INVALID;
+        }
+        config.guest = Some((table, context));
+        0
+    })
+}
+fn boot(state: &PocketApple, code: &[u8]) -> i32 {
+    if !state.runtime.get().is_null() {
+        return error("guest is already booted");
+    }
+    let (config, guest) = {
+        let mut configuration = state.config.borrow_mut();
+        let (profile, package) = match package::encode(&configuration, &state.bridge, code) {
+            Ok(value) => value,
+            Err(message) => return error(message),
+        };
+        configuration.package = package;
+        let mut config = PocketRuntimeConfig::empty();
+        config.profile_hash = pocket_package::sha256::sha256(&profile);
+        config.host_abi = configuration.abi;
+        config.tick_hz = configuration.hz;
+        config.heap_limit = MAX_PACKAGE_BYTES;
+        config.frame_buffer_budget = state.bridge.byte_length();
+        config.profile_json = profile.as_ptr();
+        config.profile_json_length = profile.len();
+        let runtime = unsafe { pocket_runtime_create(&config) };
+        if runtime.is_null() {
+            return error("runtime rejected Apple profile");
+        }
+        state.runtime.set(runtime);
+        (runtime, configuration.guest)
+    };
+    let context = (&*state.bridge as *const Bridge)
+        .cast_mut()
+        .cast::<c_void>();
+    let source_context = (state as *const PocketApple).cast_mut().cast::<c_void>();
+    let mut status =
+        unsafe { pocket_runtime_set_package_source(config, &bridge::SOURCE, source_context) };
+    if status == 0 {
+        status = unsafe {
+            pocket_runtime_add_display(config, &bridge::DISPLAY, context, POCKET_RENDERER_SOFTWARE)
+        };
+    }
+    if status == 0 {
+        status = unsafe { pocket_runtime_add_input_source(config, &bridge::INPUT, context) };
+    }
+    if status == 0 {
+        status = unsafe {
+            pocket_runtime_add_op_provider(
+                config,
+                &bridge::PROVIDER,
+                context,
+                [30u16, 31, 32].as_ptr(),
+                3,
+            )
+        };
+    }
+    if status == 0 {
+        status = match guest {
+            Some((table, context)) => unsafe { pocket_runtime_set_guest(config, &table, context) },
+            None => unsafe {
+                pocket_runtime_cabi::embedding::set_guest(
+                    config,
+                    Box::new(RquickjsGuest::new(BindingProfile::Canonical)),
+                )
+            },
+        };
+    }
+    if status == 0 {
+        status = unsafe { pocket_runtime_boot(config) };
+    }
+    if status != 0 {
+        unsafe { pocket_runtime_destroy(config) };
+        state.runtime.set(ptr::null_mut());
+        state.bridge.reset();
+        return error(format!("Apple runtime boot failed ({status})"));
+    }
+    0
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_eval_bundle(
     handle: *mut PocketApple,
-    source: *const u8,
+    code: *const u8,
     length: usize,
-    label: *const c_char,
+    _label: *const c_char,
 ) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if source.is_null() || length == 0 {
-            return ERR_BAD_ARGUMENT;
-        }
-        let bytes = unsafe { slice::from_raw_parts(source, length) };
-        let bundle = match std::str::from_utf8(bytes) {
-            Ok(text) => text,
-            Err(_) => {
-                set_last_error("bundle is not UTF-8");
-                return ERR_BAD_ARGUMENT;
-            }
+    access(handle, |state| {
+        let Some(code) = (unsafe { bytes(code, length) }) else {
+            return POCKET_STATUS_INVALID;
         };
-        let label = if label.is_null() {
-            "app"
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(label) }
-                .to_str()
-                .unwrap_or("app")
-        };
-        if !state.mounted {
-            if let Err(error) = state.surface.mount(&state.guest) {
-                set_last_error(format!("ui mount failed: {error}"));
-                return ERR_GUEST;
-            }
-            state.mounted = true;
+        if code.is_empty() || code.len() > MAX_PACKAGE_BYTES || std::str::from_utf8(code).is_err() {
+            return POCKET_STATUS_INVALID;
         }
-        if let Err(error) = state.guest.eval(label, bundle) {
-            set_last_error(format!("bundle eval failed: {error}"));
-            return ERR_GUEST;
-        }
-        if !state.guest.has_frame() {
-            set_last_error("bundle installed no frame() — is this a PocketJS app?");
-            return ERR_GUEST;
-        }
-        OK
+        boot(state, code)
     })
 }
-
-/// `touches`: up to 8 packed words in logical coordinates. Legacy words carry
-/// x:9, y:9, id:8 with bit 31 clear. Wide words set bit 31 and carry x:10,
-/// y:10, id:8. Pass `analog = 0x8080` when centered.
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_frame(
     handle: *mut PocketApple,
     buttons: u32,
     analog: u32,
     touches: *const u32,
-    touch_count: usize,
+    count: usize,
 ) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if !state.mounted {
-            set_last_error("frame before eval_bundle");
-            return ERR_BAD_STATE;
+    access(handle, |state| {
+        if state.runtime.get().is_null() || count > 8 || (count != 0 && touches.is_null()) {
+            return POCKET_STATUS_INVALID;
         }
-        let touch_words: &[u32] = if touches.is_null() || touch_count == 0 {
+        let words = if count == 0 {
             &[]
         } else {
-            unsafe { slice::from_raw_parts(touches, touch_count.min(8)) }
+            unsafe { std::slice::from_raw_parts(touches, count) }
         };
-        // Resolve each new contact against the committed core frame before the
-        // guest mutates it, then carry that fact in Ui's contact table until
-        // release. This is frame() argument 4 from the touch contract.
-        let mut touch_hits = [0i32; 8];
-        let hit_count = state
-            .surface
-            .with_ui(|ui| ui.touch_hits(touch_words, &mut touch_hits));
-        let analog = if analog == 0 { spec::ANALOG_CENTER } else { analog };
-        if let Err(error) = state.guest.frame_with_touch_hits(
-            buttons,
-            analog,
-            touch_words,
-            &touch_hits[..hit_count],
-        ) {
-            set_last_error(format!("guest frame failed: {error}"));
-            return ERR_GUEST;
+        state
+            .bridge
+            .set_input(buttons, if analog == 0 { 0x8080 } else { analog }, words);
+        state.bridge.begin_frame();
+        let status = unsafe { pocket_runtime_tick(state.runtime.get()) };
+        if status != 0 {
+            return error(format!("Apple runtime tick failed ({status})"));
         }
-        state.surface.tick();
-        if let Some((callback, context)) = state.effect_callback {
-            for line in state.surface.svc_drain() {
+        let lines: Vec<_> = state
+            .bridge
+            .services
+            .borrow_mut()
+            .outgoing
+            .drain(..)
+            .collect();
+        if let Some((callback, context)) = state.effect.get() {
+            for line in lines {
                 if let Ok(line) = CString::new(line) {
                     callback(line.as_ptr(), context);
                 }
             }
         }
-        OK
+        0
     })
 }
-
-/// Register the guest -> host effect sink. Lines are whatever the guest's
-/// effect driver `svcSend`s (JSON by convention), delivered synchronously
-/// during `pocket_apple_frame` on the calling thread. `context` must stay
-/// valid until the callback is replaced or the handle destroyed.
+#[unsafe(no_mangle)]
+pub extern "C" fn pocket_apple_render(handle: *mut PocketApple, out: *mut PocketAppleFrame) -> i32 {
+    access(handle, |state| {
+        if out.is_null() || state.runtime.get().is_null() {
+            return POCKET_STATUS_INVALID;
+        }
+        let frame = state.bridge.frame.borrow();
+        unsafe {
+            out.write(frame.snapshot());
+        }
+        0
+    })
+}
+/// Operations are allowed inside guest callbacks. They must bypass the Apple
+/// outer-call guard; the canonical boundary enforces the narrower reentry rule.
+#[unsafe(no_mangle)]
+pub extern "C" fn pocket_apple_op(
+    handle: *mut PocketApple,
+    operation: u16,
+    args: *const c_void,
+    length: usize,
+    result: *mut PocketResult,
+) -> i32 {
+    let Some(state) = (unsafe { handle.as_ref() }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    unsafe { pocket_runtime_op(state.runtime.get(), operation, args, length, result) }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pocket_apple_supports_op(handle: *mut PocketApple, operation: u16) -> u32 {
+    let Some(state) = (unsafe { handle.as_ref() }) else {
+        return 0;
+    };
+    unsafe { pocket_runtime_supports_op(state.runtime.get(), operation) }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pocket_apple_hit_test_bounds(handle: *mut PocketApple, x: f32, y: f32) -> i32 {
+    let args = [
+        PocketOpArg {
+            tag: POCKET_ARG_REAL,
+            real: f64::from(x),
+            ..PocketOpArg::empty()
+        },
+        PocketOpArg {
+            tag: POCKET_ARG_REAL,
+            real: f64::from(y),
+            ..PocketOpArg::empty()
+        },
+    ];
+    let mut result = PocketResult::empty();
+    if pocket_apple_op(
+        handle,
+        42,
+        args.as_ptr().cast(),
+        std::mem::size_of_val(&args),
+        &mut result,
+    ) == 0
+    {
+        result.integer as i32
+    } else {
+        0
+    }
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_set_effect_callback(
     handle: *mut PocketApple,
     callback: Option<PocketAppleEffectCallback>,
-    context: *mut std::ffi::c_void,
+    context: *mut c_void,
 ) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        state.effect_callback = callback.map(|cb| (cb, context));
-        OK
+    access(handle, |state| {
+        state
+            .effect
+            .set(callback.map(|callback| (callback, context)));
+        0
     })
 }
-
-/// Queue one line for the guest's next `svcPoll` — host -> guest facts land
-/// at a frame boundary, per the "no mid-tick callbacks" law.
 #[unsafe(no_mangle)]
-pub extern "C" fn pocket_apple_post_event(
-    handle: *mut PocketApple,
-    line: *const c_char,
-) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if line.is_null() {
-            return ERR_BAD_ARGUMENT;
-        }
-        match unsafe { std::ffi::CStr::from_ptr(line) }.to_str() {
-            Ok(text) => {
-                state.surface.svc_push(text);
-                OK
-            }
-            Err(_) => ERR_BAD_ARGUMENT,
-        }
-    })
+pub extern "C" fn pocket_apple_post_event(handle: *mut PocketApple, line: *const c_char) -> i32 {
+    // Effect delivery may synchronously post a reply. Its queue has no active
+    // borrow when callbacks execute, and the reply is consumed next tick.
+    let Some(state) = (unsafe { handle.as_ref() }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    let Some(line) = (unsafe { string(line) }) else {
+        return POCKET_STATUS_INVALID;
+    };
+    let Ok(mut services) = state.bridge.services.try_borrow_mut() else {
+        return POCKET_STATUS_FAILED;
+    };
+    services.incoming.push_back(line.into());
+    0
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pocket_apple_render(
-    handle: *mut PocketApple,
-    out: *mut PocketAppleFrame,
-) -> i32 {
-    with_handle(handle, ERR_PANIC, |state| {
-        if out.is_null() {
-            return ERR_BAD_ARGUMENT;
-        }
-        if !state.mounted {
-            set_last_error("render before eval_bundle");
-            return ERR_BAD_STATE;
-        }
-        let density = state.density;
-        let framebuffer = &mut state.framebuffer;
-        let tracker = &mut state.tracker;
-        let plan = state.surface.with_ui(|ui| {
-            let words = ui.draw().words.clone();
-            match raster::render_scaled_argb_incremental(
-                ui,
-                &words,
-                framebuffer,
-                density,
-                tracker,
-                DamagePolicy::default(),
-            ) {
-                Ok(plan) => plan,
-                Err(_) => {
-                    raster::render_scaled_argb(ui, &words, framebuffer, density);
-                    tracker.invalidate();
-                    pocketjs_core::damage::DamagePlan::full(
-                        pocketjs_core::damage::DamageRect::new(
-                            0,
-                            0,
-                            state.logical_width as i32,
-                            state.logical_height as i32,
-                        ),
-                    )
-                }
-            }
-        });
-
-        let width_px = state.logical_width * density;
-        let height_px = state.logical_height * density;
-        let frame = unsafe { &mut *out };
-        frame.pixels = state.framebuffer.as_ptr();
-        frame.width_px = width_px;
-        frame.height_px = height_px;
-        frame.stride_bytes = width_px * 4;
-        frame.full_redraw = i32::from(plan.is_full_redraw());
-        frame.region_count = plan.region_count().min(POCKET_APPLE_MAX_DAMAGE_REGIONS) as u32;
-        frame.regions = [[0; 4]; POCKET_APPLE_MAX_DAMAGE_REGIONS];
-        for (slot, rect) in frame.regions.iter_mut().zip(plan.regions()) {
-            let scale = density as i32;
-            let x = rect.x0.max(0) * scale;
-            let y = rect.y0.max(0) * scale;
-            let w = (rect.x1 - rect.x0).max(0) * scale;
-            let h = (rect.y1 - rect.y0).max(0) * scale;
-            *slot = [x, y, w, h];
-        }
-        OK
-    })
-}
-
-/// Hit test in logical coordinates. Returns the focusable node id or 0.
-#[unsafe(no_mangle)]
-pub extern "C" fn pocket_apple_hit_test_bounds(
-    handle: *mut PocketApple,
-    x: f32,
-    y: f32,
-) -> i32 {
-    with_handle(handle, 0, |state| {
-        state.surface.with_ui(|ui| ui.hit_test_bounds(x, y))
-    })
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pocket_apple_destroy(handle: *mut PocketApple) {
-    if handle.is_null() {
+    let Some(state) = (unsafe { handle.as_ref() }) else {
+        return;
+    };
+    if state.busy.replace(true) {
         return;
     }
-    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+    unsafe {
+        pocket_runtime_destroy(state.runtime.replace(ptr::null_mut()));
         drop(Box::from_raw(handle));
-    }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem;
+
+    struct Apple(*mut PocketApple);
+    impl Apple {
+        fn new() -> Self {
+            let ptr = pocket_apple_create(1, 16, 12);
+            assert!(!ptr.is_null());
+            Self(ptr)
+        }
+        fn boot(&self, source: &str) -> i32 {
+            let status =
+                pocket_apple_eval_bundle(self.0, source.as_ptr(), source.len(), ptr::null());
+            if status != 0 {
+                eprintln!("{:?}", unsafe { CStr::from_ptr(pocket_apple_last_error()) });
+            }
+            status
+        }
+        fn tick(&self, words: &[u32]) -> i32 {
+            pocket_apple_frame(self.0, 0, 0, words.as_ptr(), words.len())
+        }
+        fn snapshot(&self) -> (PocketAppleFrame, Vec<u8>) {
+            let mut output = mem::MaybeUninit::uninit();
+            assert_eq!(pocket_apple_render(self.0, output.as_mut_ptr()), 0);
+            let output = unsafe { output.assume_init() };
+            let pixels = unsafe {
+                std::slice::from_raw_parts(
+                    output.pixels,
+                    output.stride_bytes as usize * output.height_px as usize,
+                )
+            }
+            .to_vec();
+            (output, pixels)
+        }
+    }
+    impl Drop for Apple {
+        fn drop(&mut self) {
+            pocket_apple_destroy(self.0);
+        }
+    }
+    const RECT: &str = "let n=ui.createNode(0);ui.setProp(n,1,16);ui.setProp(n,2,12);ui.setProp(n,64,0xff0000ff);ui.insertBefore(1,n,0);globalThis.frame=function(){};";
+
+    #[test]
+    fn owned_guest_renders_once_per_tick_and_instances_are_isolated() {
+        let one = Apple::new();
+        let two = Apple::new();
+        assert_eq!(one.boot(RECT), 0);
+        assert_eq!(two.boot("globalThis.frame=function(){}"), 0);
+        assert_eq!(one.tick(&[]), 0);
+        assert_eq!(two.tick(&[]), 0);
+        let (frame, pixels) = one.snapshot();
+        assert_eq!(
+            (frame.width_px, frame.height_px, frame.stride_bytes),
+            (16, 12, 64)
+        );
+        assert_eq!(&pixels[..4], &[0, 0, 255, 255]);
+        assert_ne!(pixels, two.snapshot().1);
+        assert_eq!(pixels, one.snapshot().1);
+        assert_eq!(pocket_apple_set_tick_rate(one.0, 120), POCKET_STATUS_FAILED);
+        assert_eq!(one.boot(RECT), POCKET_STATUS_FAILED);
+    }
+    #[test]
+    fn pak_and_texture_registry_are_owned_through_guest_shutdown() {
+        // One maintained 1x1 RGBA image entry in the existing DCPK format.
+        let mut pak = [0u8; 96];
+        pak[..4].copy_from_slice(b"DCPK");
+        pak[4..6].copy_from_slice(&1u16.to_le_bytes());
+        pak[8..12].copy_from_slice(&1u32.to_le_bytes());
+        pak[12..16].copy_from_slice(&32u32.to_le_bytes());
+        pak[16..20].copy_from_slice(&64u32.to_le_bytes());
+        pak[36..40].copy_from_slice(&80u32.to_le_bytes());
+        pak[40..44].copy_from_slice(&12u32.to_le_bytes());
+        pak[48..50].copy_from_slice(&11u16.to_le_bytes());
+        pak[64..75].copy_from_slice(b"ui:img.icon");
+        pak[80..92].copy_from_slice(&[1, 0, 1, 0, 3, 0, 0, 0, 7, 8, 9, 255]);
+        let app = Apple::new();
+        assert_eq!(pocket_apple_load_pak(app.0, pak.as_ptr(), pak.len()), 0);
+        pak.fill(0);
+        assert_eq!(app.boot("if(!(ui.__textures.icon>=0)||new Uint8Array(__pak)[88]!==7)throw Error('assets'); let n=ui.createNode(2);ui.setProp(n,1,16);ui.setProp(n,2,12);ui.setImage(n,ui.__textures.icon);ui.insertBefore(1,n,0);globalThis.frame=()=>{}"),0);
+        let (_, pixels) = app.snapshot();
+        assert_eq!(&pixels[..4], &[9, 8, 7, 255]);
+        assert_eq!(app.tick(&[]), 0);
+        assert_eq!(app.snapshot().1, pixels);
+    }
+    #[test]
+    fn persistent_output_skips_idle_transfers_and_updates_changed_pixels() {
+        let app = Apple::new();
+        assert_eq!(app.boot("let n=ui.createNode(0);ui.setProp(n,1,16);ui.setProp(n,2,12);ui.setProp(n,64,0xff0000ff);ui.insertBefore(1,n,0);let ticks=0;globalThis.frame=()=>{if(++ticks===2)ui.setProp(n,64,0xff00ff00)}"),0);
+        assert_eq!(app.snapshot().0.region_count, 1);
+        assert_eq!(app.tick(&[]), 0);
+        assert_eq!(app.snapshot().0.region_count, 0);
+        assert_eq!(app.tick(&[]), 0);
+        let (frame, pixels) = app.snapshot();
+        assert!(frame.region_count > 0);
+        assert_eq!(&pixels[..4], &[0, 255, 0, 255]);
+        assert_eq!(app.tick(&[]), 0);
+        assert_eq!(app.snapshot().0.region_count, 0);
+    }
+    #[test]
+    fn failed_boot_tears_down_and_can_retry_with_original_configuration() {
+        let app = Apple::new();
+        assert_eq!(pocket_apple_set_tick_rate(app.0, 120), 0);
+        assert_eq!(app.boot("throw Error('boot fails');"), POCKET_STATUS_FAILED);
+        assert_eq!(
+            app.boot("if(ui.__tickHz!==120)throw Error('rate');globalThis.frame=function(){}"),
+            0
+        );
+        assert_eq!(app.tick(&[]), 0);
+        assert_eq!(pocket_apple_set_tick_rate(app.0, 0), POCKET_STATUS_FAILED);
+    }
+    #[test]
+    fn viewport_and_pak_validation_do_not_create_a_partial_runtime() {
+        assert!(pocket_apple_create(5, 16, 12).is_null());
+        assert!(pocket_apple_create(4, 4096, 4096).is_null());
+        assert!(pocket_apple_create(1, u32::MAX, 12).is_null());
+        let app = Apple::new();
+        assert_ne!(pocket_apple_load_pak(app.0, b"bad".as_ptr(), 3), 0);
+        assert_eq!(app.boot("globalThis.frame=function(){}"), 0);
+        assert_ne!(pocket_apple_frame(app.0, 0, 0, ptr::null(), 1), 0);
+    }
+
+    struct External {
+        apple: *mut PocketApple,
+        initializes: u32,
+        shutdowns: u32,
+        node: i32,
+        touches: Vec<Vec<u32>>,
+        hits: Vec<Vec<i32>>,
+    }
+    fn integer(value: i64) -> PocketOpArg {
+        PocketOpArg {
+            tag: POCKET_ARG_INTEGER,
+            integer: value,
+            ..PocketOpArg::empty()
+        }
+    }
+    fn real(value: f64) -> PocketOpArg {
+        PocketOpArg {
+            tag: POCKET_ARG_REAL,
+            real: value,
+            ..PocketOpArg::empty()
+        }
+    }
+    fn call(app: *mut PocketApple, op: u16, args: &[PocketOpArg]) -> PocketResult {
+        let mut result = PocketResult::empty();
+        assert_eq!(
+            pocket_apple_op(
+                app,
+                op,
+                args.as_ptr().cast(),
+                mem::size_of_val(args),
+                &mut result
+            ),
+            0
+        );
+        result
+    }
+    unsafe extern "C" fn initialize(
+        context: *mut c_void,
+        _: *mut PocketRuntime,
+        env: *const PocketGuestEnvironment,
+    ) -> i32 {
+        let state = unsafe { &mut *context.cast::<External>() };
+        let env = unsafe { &*env };
+        assert_eq!(
+            (env.viewport_width, env.viewport_height, env.tick_hz),
+            (16, 12, 60)
+        );
+        assert_eq!(
+            unsafe { std::slice::from_raw_parts(env.host, env.host_length) },
+            b"desktop"
+        );
+        state.initializes += 1;
+        assert_eq!(pocket_apple_supports_op(state.apple, 1), 1);
+        // A nested tick and destroy cannot invalidate the active callback.
+        assert_eq!(
+            pocket_apple_frame(state.apple, 0, 0, ptr::null(), 0),
+            POCKET_STATUS_FAILED
+        );
+        pocket_apple_destroy(state.apple);
+        state.node = call(state.apple, 1, &[integer(0)]).integer as i32;
+        for (property, value) in [(1, 16.0), (2, 12.0), (64, 4294901760.0)] {
+            call(
+                state.apple,
+                6,
+                &[integer(state.node as i64), integer(property), real(value)],
+            );
+        }
+        call(
+            state.apple,
+            3,
+            &[integer(1), integer(state.node as i64), integer(0)],
+        );
+        0
+    }
+    unsafe extern "C" fn evaluate(
+        _: *mut c_void,
+        _: *mut PocketRuntime,
+        _: *const u8,
+        _: usize,
+    ) -> i32 {
+        0
+    }
+    unsafe extern "C" fn frame(context: *mut c_void, value: *const PocketGuestFrame) -> i32 {
+        let state = unsafe { &mut *context.cast::<External>() };
+        let value = unsafe { &*value };
+        assert_eq!(value.analog, 0x8080);
+        let touches = if value.touch_count == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(value.touches, value.touch_count) }.to_vec()
+        };
+        let hits = if value.touch_count == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(value.hits, value.touch_count) }.to_vec()
+        };
+        state.touches.push(touches);
+        state.hits.push(hits);
+        0
+    }
+    unsafe extern "C" fn shutdown(context: *mut c_void) {
+        unsafe { &mut *context.cast::<External>() }.shutdowns += 1;
+    }
+    #[test]
+    fn external_guest_uses_same_core_hit_snapshot_cancel_and_shutdown() {
+        let app = Apple::new();
+        let mut external = External {
+            apple: app.0,
+            initializes: 0,
+            shutdowns: 0,
+            node: 0,
+            touches: Vec::new(),
+            hits: Vec::new(),
+        };
+        let table = PocketGuestV1 {
+            initialize: Some(initialize),
+            evaluate: Some(evaluate),
+            frame: Some(frame),
+            shutdown: Some(shutdown),
+            ..PocketGuestV1::empty()
+        };
+        assert_eq!(
+            pocket_apple_set_guest(app.0, &table, (&mut external as *mut External).cast()),
+            0
+        );
+        assert_eq!(app.boot("external source"), 0);
+        assert_eq!(app.tick(&[]), 0);
+        let word = (3 << 18) | (2 << 9) | 2;
+        assert_eq!(app.tick(&[word]), 0);
+        assert_eq!(external.hits[1], [external.node]);
+        assert_eq!(app.tick(&[word | 0x40000000]), 0);
+        assert_eq!(app.tick(&[]), 0);
+        assert_eq!(external.touches[2], [(3 << 18) | 0x40000000]);
+        assert!(external.touches[3].is_empty());
+        assert_eq!(external.initializes, 1);
+        drop(app);
+        assert_eq!(external.shutdowns, 1);
+    }
+    extern "C" fn effect(line: *const c_char, context: *mut c_void) {
+        let app = context.cast::<PocketApple>();
+        assert_eq!(unsafe { CStr::from_ptr(line) }.to_bytes(), b"request");
+        pocket_apple_destroy(app); // Rejected while the effect sink is active.
+        assert_eq!(pocket_apple_post_event(app, c"response".as_ptr()), 0);
+    }
+    #[test]
+    fn effects_can_post_a_reply_without_reentering_runtime_dispatch() {
+        let app = Apple::new();
+        assert_eq!(
+            pocket_apple_set_effect_callback(app.0, Some(effect), app.0.cast()),
+            0
+        );
+        assert_eq!(app.boot("let count=0;globalThis.frame=function(){if(count++===0){ui.svcSend('request')}else if(ui.svcPoll()!=='response\\n'){throw Error('reply missing')}}"),0);
+        assert_eq!(app.tick(&[]), 0);
+        assert_eq!(app.tick(&[]), 0);
+    }
 }

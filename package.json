@@ -101,8 +101,6 @@
     "engine/guest-rquickjs/Cargo.toml",
     "engine/guest-quickjs/src",
     "engine/guest-quickjs/include",
-    "engine/backends/rgb565/src",
-    "engine/backends/rgb565/Cargo.toml",
     "engine/core/src",
     "engine/core/Cargo.toml",
     "engine/spec/src",
@@ -159,6 +157,10 @@
     "hosts/nokia-e7/probe",
     "hosts/nokia-e7/runtime",
     "hosts/nokia-e7/targets",
+    "devices/vita/pocket-vita-render/src",
+    "devices/vita/pocket-vita-render/Cargo.toml",
+    "devices/vita/pocket-vita-render/Cargo.lock",
+    "devices/vita/pocket-vita-render/README.md",
     "devices/vita/pocket-vita-gxm/src",
     "devices/vita/pocket-vita-gxm/Cargo.toml",
     "devices/vita/pocket-vita-gxm/Cargo.lock",
@@ -199,7 +201,8 @@
     "devices/3ds/pocket-3ds-pica/README.md",
     "devices/LICENSE",
     "engine/pocket3d/LICENSE",
-    "pocket3d/LICENSE"
+    "pocket3d/LICENSE",
+    "engine/guest-web/src"
   ],
   "publishConfig": {
     "access": "public"
@@ -265,8 +268,14 @@
     "./prelude": "./framework/src/prelude.ts",
     "./renderer": "./framework/src/renderer.ts",
     "./virtual-list": "./framework/src/virtual-list.ts",
-    "./vue-vapor/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
-    "./solid/std": {"types":"./framework/src/std-microts.d.ts","default":"./framework/src/std-microts.ts"},
+    "./vue-vapor/std": {
+      "types": "./framework/src/std-microts.d.ts",
+      "default": "./framework/src/std-microts.ts"
+    },
+    "./solid/std": {
+      "types": "./framework/src/std-microts.d.ts",
+      "default": "./framework/src/std-microts.ts"
+    },
     "./solid/reactive": "./framework/src/reactive-solid.ts",
     "./vue-vapor/reactive": "./framework/src/reactive-vue-vapor.ts",
     "./model/tasks": "./framework/src/model-tasks.ts",
@@ -331,7 +340,8 @@
     "./octane/input": "./framework/src/input-api.ts",
     "./octane/net": "./framework/src/net-api.ts",
     "./octane/renderer": "./framework/src/renderer-octane.ts",
-    "./octane/physics": "./framework/src/physics.ts"
+    "./octane/physics": "./framework/src/physics.ts",
+    "./guest-web": "./engine/guest-web/src/generated-ui.js"
   },
   "description": "A portable application runtime that turns modern component code into native pixels across radically different hardware: Solid, Vue Vapor and Octane over a native Rust core, with build-time Tailwind styling and 60 FPS animation under an 8 MB memory budget.",
   "scripts": {
@@ -402,7 +412,7 @@
     "devtools:psp": "bun tools/devtools-psp.ts",
     "test:tailwind": "bun test tests/tailwind.test.ts",
     "contract": "bun tests/contract.ts",
-    "gen": "bun contracts/spec/gen-rust.ts && bun contracts/spec/gen-c.ts && bun tools/driver-contracts.ts && bun tools/gen-exports.ts",
+    "gen": "bun contracts/spec/gen-rust.ts && bun contracts/spec/gen-c.ts && bun tools/driver-contracts.ts && bun tools/ui-bindings.ts && bun tools/guest-web-bindings.ts && bun tools/gen-exports.ts",
     "esp-idf:native": "bun tools/esp-idf-native.ts",
     "esp-idf:release": "bun tools/esp-idf-release.ts",
     "android": "bun tools/android.ts",

@@ -101,6 +101,9 @@ pub struct DisplayDescriptor {
     pub stride_bytes: usize,
     pub target_ownership: TargetOwnership,
     pub double_buffered: bool,
+    /// Two CPU staging buffers permit acquiring the next strip while the
+    /// previous transfer is pending. Only valid with device frame storage.
+    pub pipelined_acquire: bool,
     pub partial_refresh: bool,
     pub refresh_granularity: [u32; 2],
     pub window_alignment: [u32; 2],
@@ -127,6 +130,7 @@ impl DisplayDescriptor {
             stride_bytes,
             target_ownership,
             double_buffered: false,
+            pipelined_acquire: false,
             partial_refresh: false,
             refresh_granularity: [1, 1],
             window_alignment: [1, 1],
@@ -251,6 +255,12 @@ impl Target<'_> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BufferIdentity {
+    pub buffer: u64,
+    pub generation: u64,
+}
+
 /// A display owns its buffers and pending transfers. After `flush`, it must
 /// prevent `acquire` from reusing a buffer until the corresponding `wait` ends.
 /// Destruction must stop device access before releasing backing memory.
@@ -263,6 +273,14 @@ pub trait DisplayOutput {
     type Token;
 
     fn descriptor(&self) -> DisplayDescriptor;
+    /// Identity of the retained pixels being updated in this frame. A display
+    /// buffer uses its own identity; GRAM uses the panel's identity. The value
+    /// stays fixed through every acquire/flush/wait in this frame. Increment
+    /// generation after reset, external pixel writes or changed output rules.
+    /// None requires complete redraws. This call never publishes a frame.
+    fn frame_identity(&mut self) -> Result<Option<BufferIdentity>, DisplayError> {
+        Ok(None)
+    }
     fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError>;
     /// Called after the renderer's wait. An error means all work started by
     /// this call was drained or cancelled; the device no longer reads it.

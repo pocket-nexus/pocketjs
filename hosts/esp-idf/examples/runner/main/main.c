@@ -1,83 +1,72 @@
-#include <inttypes.h>
-#include <stddef.h>
-
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "pocketjs/guest.h"
-#include "pocketjs/package.h"
-#include "pocketjs/runner.h"
-#include "pocketjs/ui_core.h"
-#include "pocketjs/ui_qjs.h"
+#include "pocket/guest_idf.h"
+#include "pocket/package_source.h"
+#include "pocket/runner.h"
 #include "pocketjs_package_runner.h"
-
-static const char *TAG = "pocketjs_runner_example";
-
-static esp_err_t sample_input(pocketjs_ui_input_t *input, void *user_data) {
-  (void)user_data;
-  input->buttons = 0;
-  return ESP_OK;
+#include "sample_io.h"
+#include <assert.h>
+#include <inttypes.h>
+#include <string.h>
+static void require_status(int32_t status) {
+  assert(status == POCKET_STATUS_OK);
 }
-
-static esp_err_t after_turn(const pocketjs_ui_frame_view_t *frame,
-                            void *user_data) {
-  (void)user_data;
-  if (frame->draw_words == NULL || frame->draw_word_count == 0U)
-    return ESP_FAIL;
-  return ESP_OK;
-}
-
+static void interrupt_guest(void *guest) { pocket_guest_idf_interrupt(guest); }
 void app_main(void) {
-  pocketjs_package_t *package = NULL;
-  ESP_ERROR_CHECK(pocketjs_package_open(
-      pocketjs_package_runner.data, pocketjs_package_runner.size, 0, &package));
-  pocketjs_package_variant_t app = {.struct_size = sizeof(app)};
-  ESP_ERROR_CHECK(pocketjs_package_select(
-      package, &pocketjs_package_runner_contract, &app));
+  const pocketjs_package_host_contract_t *host =
+      &pocketjs_package_runner_contract;
+  sample_display output;
+  require_status(sample_display_init(&output, host->physical_width,
+                                     host->physical_height, 16, 2));
+  pocket_runtime_config config = {
+      .struct_size = sizeof(config),
+      .host_abi = host->host_abi,
+      .tick_hz = host->tick_hz,
+      .heap_limit = 4 * 1024 * 1024,
+      .frame_buffer_budget = output.capacity * output.count,
+      .profile_json = pocketjs_package_runner_profile_json,
+      .profile_json_length = pocketjs_package_runner_profile_json_length};
+  memcpy(config.profile_hash, pocketjs_package_runner_runtime_profile_hash, 32);
+  pocket_runtime *runtime = pocket_runtime_create(&config);
+  assert(runtime);
+  const pocket_guest_idf_config guest_config = {4 * 1024 * 1024, 256 * 1024,
+                                                true};
+  pocket_guest_idf *guest = pocket_guest_idf_create(&guest_config);
+  assert(guest);
+  require_status(
+      pocket_runtime_set_guest(runtime, pocket_guest_idf_vtable(), guest));
+  pocket_memory_package package = {pocketjs_package_runner.data,
+                                   pocketjs_package_runner.size};
+  require_status(pocket_runtime_set_package_source(
+      runtime, pocket_memory_package_vtable(), &package));
+  require_status(
+      pocket_runtime_add_input_source(runtime, sample_input_vtable(), NULL));
+  uint32_t renderer_id = POCKET_RENDERER_SOFTWARE;
 
-  pocketjs_guest_config_t guest_config;
-  pocketjs_guest_config_defaults(&guest_config);
-  pocketjs_guest_t *guest = NULL;
-  ESP_ERROR_CHECK(pocketjs_guest_create(&guest_config, &guest));
-
-  pocketjs_ui_core_config_t core_config;
-  pocketjs_ui_core_config_defaults(&core_config);
-  core_config.logical_width = pocketjs_package_runner_contract.logical_width;
-  core_config.logical_height = pocketjs_package_runner_contract.logical_height;
-  core_config.raster_density = pocketjs_package_runner_contract.raster_density;
-  core_config.tick_hz = pocketjs_package_runner_contract.tick_hz;
-  pocketjs_ui_core_t *core = NULL;
-  ESP_ERROR_CHECK(pocketjs_ui_core_create(&core_config, &core));
-
-  const pocketjs_ui_qjs_config_t binding_config = {
-      .struct_size = sizeof(binding_config),
-      .target_id = pocketjs_package_runner_contract.target_id,
-      .host_abi = pocketjs_package_runner_contract.host_abi,
-  };
-  pocketjs_ui_qjs_t *binding = NULL;
+  require_status(pocket_runtime_add_display(runtime, sample_display_vtable(),
+                                            &output, renderer_id));
+  int32_t boot = pocket_runtime_boot(runtime);
+  if (boot)
+    ESP_LOGE("pocket_smoke", "boot status=%d: %s", (int)boot,
+             pocket_guest_idf_error(guest));
+  require_status(boot);
+  pocket_runner_config_t runner_config;
+  pocket_runner_config_defaults(&runner_config);
+  runner_config.interrupt = interrupt_guest;
+  runner_config.user_data = guest;
+  pocket_runner_t *runner = NULL;
   ESP_ERROR_CHECK(
-      pocketjs_ui_qjs_create(guest, core, &binding_config, &binding));
-  ESP_ERROR_CHECK(
-      pocketjs_ui_qjs_feed_pak(binding, app.pak.data, app.pak.size));
-  ESP_ERROR_CHECK(pocketjs_ui_qjs_mount(binding));
-  ESP_ERROR_CHECK(pocketjs_guest_eval(guest, (const char *)app.javascript.data,
-                                      app.javascript.size - 1U, "runner"));
-
-  pocketjs_runner_config_t runner_config;
-  pocketjs_runner_config_defaults(&runner_config);
-  runner_config.sample_input = sample_input;
-  runner_config.after_turn = after_turn;
-  pocketjs_runner_t *runner = NULL;
-  ESP_ERROR_CHECK(pocketjs_runner_start(binding, &runner_config, &runner));
+      pocket_runner_start(runtime, host->tick_hz, &runner_config, &runner));
   vTaskDelay(pdMS_TO_TICKS(1000));
-  pocketjs_runner_stats_t stats = {.struct_size = sizeof(stats)};
-  ESP_ERROR_CHECK(pocketjs_runner_stats(runner, &stats));
-  ESP_ERROR_CHECK(pocketjs_runner_stop(runner));
-  ESP_LOGI(TAG, "PASS frames=%" PRIu32 " skipped=%" PRIu32 " errors=%" PRIu32,
+  pocket_runner_stats_t stats = {.struct_size = sizeof(stats)};
+  ESP_ERROR_CHECK(pocket_runner_stats(runner, &stats));
+  ESP_ERROR_CHECK(pocket_runner_stop(runner));
+  ESP_LOGI("pocket_runner",
+           "PASS frames=%" PRIu32 " skipped=%" PRIu32 " errors=%" PRIu32,
            stats.frames, stats.frames_skipped, stats.frame_errors);
+  pocket_runtime_destroy(runtime);
+  pocket_guest_idf_destroy(guest);
 
-  pocketjs_guest_destroy(guest);
-  pocketjs_ui_qjs_destroy(binding);
-  pocketjs_ui_core_destroy(core);
-  pocketjs_package_close(package);
+  sample_display_destroy(&output);
 }

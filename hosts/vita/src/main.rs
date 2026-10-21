@@ -221,17 +221,16 @@ unsafe fn run_guest(app_index: usize, dev: &mut dev::Host) -> usize {
             }
         }
         if let Some(guest) = runtime.as_mut() {
-            guest.tick();
-            guest.render();
+            guest.render_with_overlay(|| dev.overlay());
         } else {
             graphics::begin_frame(0xff1c_1410);
             #[cfg(feature = "runtime")]
             if !dev.menu.visible && !dev.error.is_empty() {
                 pocketjs_vita::devmenu::notice(&dev.error);
             }
+            dev.overlay();
+            graphics::present();
         }
-        dev.overlay();
-        graphics::present();
         if pending.is_some() {
             vita2d_sys::vita2d_wait_rendering_done();
         }

@@ -75,7 +75,7 @@ int main(void) {
     assert(guest);
     assert(pocket_runtime_set_guest(runtime, pocket_guest_quickjs_vtable(), guest) == POCKET_STATUS_OK);
     pocket_package_source_v1 source = {sizeof(source), package_length, package_all, package_range};
-    pocket_display_output_v1 display = {sizeof(display), descriptor, acquire, flush, wait_display, NULL};
+    pocket_display_output_v1 display = {.struct_size=sizeof(display), .descriptor=descriptor, .acquire=acquire, .flush=flush, .wait=wait_display};
     assert(pocket_runtime_set_package_source(runtime, &source, NULL) == POCKET_STATUS_OK);
     assert(pocket_runtime_add_display(runtime, &display, NULL, POCKET_RENDERER_SOFTWARE) == POCKET_STATUS_OK);
     assert(pocket_runtime_supports_op(runtime, 1)); /* createNode */

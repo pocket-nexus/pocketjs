@@ -286,6 +286,14 @@ const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
   },
 };
 
+// The pinned engine crate does not export header metadata through DEP_*.
+// Resolve that exact dependency before Cargo runs the native build script.
+const qjsMetadata = Bun.spawnSync([rustup, "run", "nightly-2026-05-28", "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", `${nativeDir}Cargo.toml`], { stdout: "pipe", stderr: "pipe" });
+if (!qjsMetadata.success) throw new Error(qjsMetadata.stderr.toString() || "Vita Cargo metadata failed");
+const qjsPackage = (JSON.parse(qjsMetadata.stdout.toString()).packages as { name: string; manifest_path: string }[]).find(pkg => pkg.name === "libquickjs-sys");
+if (!qjsPackage) throw new Error("Vita dependency closure has no libquickjs-sys");
+const quickjsSource = resolvePath(dirname(qjsPackage.manifest_path), "embed/quickjs");
+
 const env = {
   ...process.env,
   // cargo-vita probes `rustc` from PATH even when cargo itself was launched
@@ -293,6 +301,7 @@ const env = {
   // compiler and expose VitaSDK tools without requiring shell dotfiles.
   PATH: `${vitasdk}/bin:${home}/.cargo/bin:${process.env.PATH ?? ""}`,
   VITASDK: vitasdk,
+  POCKET_QJS_SOURCE: quickjsSource,
   // cargo-vita uses this only when the reusable runtime crate deliberately
   // omits a static title_id. Pocket's stable manifest id owns installation
   // identity; every demo therefore gets its own LiveArea application.

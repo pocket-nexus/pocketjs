@@ -71,7 +71,7 @@ static int32_t wait_display(void *opaque, uint64_t token) {
   return state->waits == state->fail_wait ? POCKET_STATUS_FAILED : POCKET_STATUS_OK;
 }
 static const pocket_display_output_v1 display_table = {
-    sizeof(display_table), display_descriptor, acquire, flush, wait_display, NULL};
+    sizeof(display_table), display_descriptor, acquire, flush, wait_display, NULL, NULL};
 static uint32_t input_classes(void *opaque) { (void)opaque; return POCKET_INPUT_CLASS_BUTTONS; }
 static int32_t poll(void *opaque, pocket_input_frame_builder *builder) {
   output_state *state = opaque;

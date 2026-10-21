@@ -12,7 +12,6 @@ crate-type = ["rlib", "staticlib"]
 default = ["std"]
 std = []
 legacy-ui = ["dep:pocket-gles", "dep:pocket-gles1", "dep:pocket-gles2"]
-legacy-idf = ["dep:pocketjs-render-rgb565", "dep:pocket-render-esp-ppa"]
 standalone-extension-provider = []
 gles1 = []
 gl-frame-validation = []
@@ -25,10 +24,9 @@ pocketjs-core = { path = "../core" }
 pocket-gles = { path = "../../devices/gles/pocket-gles", optional = true }
 pocket-gles1 = { path = "../../devices/gles/pocket-gles1", optional = true }
 pocket-gles2 = { path = "../../devices/gles/pocket-gles2", optional = true }
-pocket-render-esp-ppa = { path = "../../platforms/esp-idf/render-ppa", optional = true }
-pocketjs-render-rgb565 = { path = "../backends/rgb565", optional = true }
 pocket-runtime = { path = "../runtime" }
 pocket-drivers = { path = "../drivers" }
 pocket-raster = { path = "../raster" }
 pocket-draw-ops = { path = "../render/draw-ops" }
 pocket-spec = { path = "../spec" }
+pocket-glyph-pages = { path = "../render/glyph-pages" }

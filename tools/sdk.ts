@@ -16,7 +16,7 @@ export interface SdkManifest {
   files: Record<string, { sha256: string; bytes: number }>;
 }
 const hash = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
-const roots = ["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime", "runtime-cabi", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "backends/rgb565"];
+const roots = ["spec", "drivers", "core", "raster", "present", "package", "modules/media", "runtime", "runtime-cabi", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache"];
 
 function filesUnder(path: string): string[] {
   if (!existsSync(path)) return [];

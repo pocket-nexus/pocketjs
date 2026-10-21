@@ -1,4 +1,4 @@
-// pocket-apple C ABI — the PocketJS guest + ui surface + software rasterizer
+// pocket-apple C ABI — UIKit composition over the canonical PocketJS runtime
 // (engine/ios/src/lib.rs). Single-threaded: create, drive, and destroy a
 // handle from one thread (in practice the main thread, with CADisplayLink).
 //
@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "pocket_runtime.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,7 +27,7 @@ typedef struct PocketApple PocketApple;
 
 // One rendered frame. `pixels` is ARGB32 words — BGRA byte order in memory on
 // little-endian, i.e. kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst.
-// The pointer stays valid until the next render/destroy on the same handle.
+// The pointer stays valid until the next frame/destroy on the same handle.
 typedef struct PocketAppleFrame {
   const uint8_t *pixels;
   uint32_t width_px;
@@ -75,7 +76,7 @@ int32_t pocket_apple_eval_bundle(PocketApple *handle, const uint8_t *source,
 // touches: up to 8 packed words in logical coordinates. Legacy words carry
 // x:9, y:9, id:8 with bit 31 clear. Wide words set bit 31 and carry x:10,
 // y:10, id:8. A contact present this tick means down/move, absent means
-// released. The Apple core resolves and carries the committed-frame hit fact
+// released. Bit 30 marks a cancellation. The canonical runtime resolves and carries the committed-frame hit fact
 // for each contact and delivers it as frame() argument 4. analog 0 means
 // centered (0x8080).
 int32_t pocket_apple_frame(PocketApple *handle, uint32_t buttons,
@@ -99,74 +100,17 @@ int32_t pocket_apple_set_effect_callback(PocketApple *handle,
 // frame boundary, never mid-tick).
 int32_t pocket_apple_post_event(PocketApple *handle, const char *line);
 
+// Reentrant destruction during a frame/guest callback is rejected; callers
+// defer destruction until the outer call returns.
 void pocket_apple_destroy(PocketApple *handle);
 
-// ---- external-guest mode ---------------------------------------------------
-// The embedding runtime owns the JS guest; this side owns only the core, the
-// pak feed, the raster pipeline, and the svc queues. Mount globalThis.ui in
-// the embedding engine over these ops. Same single-thread rules.
-
-typedef struct PocketAppleCore PocketAppleCore;
-
-PocketAppleCore *pocket_apple_core_create(uint32_t density, uint32_t logical_width,
-                                          uint32_t logical_height);
-int32_t pocket_apple_core_load_pak(PocketAppleCore *handle, const uint8_t *bytes,
-                                   size_t length);
-
-int32_t pocket_apple_core_create_node(PocketAppleCore *handle, uint32_t node_type);
-void pocket_apple_core_destroy_node(PocketAppleCore *handle, int32_t id);
-void pocket_apple_core_insert_before(PocketAppleCore *handle, int32_t parent, int32_t child,
-                                     int32_t anchor);
-void pocket_apple_core_remove_child(PocketAppleCore *handle, int32_t parent, int32_t child);
-void pocket_apple_core_set_style(PocketAppleCore *handle, int32_t id, int32_t style);
-void pocket_apple_core_set_prop(PocketAppleCore *handle, int32_t id, uint32_t prop, double value);
-void pocket_apple_core_set_text(PocketAppleCore *handle, int32_t id, const uint8_t *text,
-                                size_t length);
-void pocket_apple_core_replace_text(PocketAppleCore *handle, int32_t id, const uint8_t *text,
-                                    size_t length);
-float pocket_apple_core_measure_text(PocketAppleCore *handle, const uint8_t *text, size_t length,
-                                     uint32_t font_slot);
-int32_t pocket_apple_core_upload_texture(PocketAppleCore *handle, const uint8_t *bytes,
-                                         size_t length, uint32_t width, uint32_t height,
-                                         uint32_t psm);
-void pocket_apple_core_set_image(PocketAppleCore *handle, int32_t id, int32_t texture);
-void pocket_apple_core_set_sprite(PocketAppleCore *handle, int32_t id, int32_t atlas,
-                                  uint32_t frames, uint32_t cols, uint32_t step);
-int32_t pocket_apple_core_animate(PocketAppleCore *handle, int32_t id, uint32_t prop, double to,
-                                  uint32_t duration_ms, uint32_t easing, uint32_t delay_ms);
-void pocket_apple_core_cancel_anim(PocketAppleCore *handle, int32_t anim_id);
-void pocket_apple_core_set_focus(PocketAppleCore *handle, int32_t id);
-void pocket_apple_core_set_active(PocketAppleCore *handle, int32_t id, int32_t active);
-int32_t pocket_apple_core_hit_test_bounds(PocketAppleCore *handle, float x, float y);
-
-uint32_t pocket_apple_core_texture_count(PocketAppleCore *handle);
-const char *pocket_apple_core_texture_name(PocketAppleCore *handle, uint32_t index);
-int32_t pocket_apple_core_texture_handle(PocketAppleCore *handle, uint32_t index);
-uint32_t pocket_apple_core_sprite_count(PocketAppleCore *handle);
-const char *pocket_apple_core_sprite_name(PocketAppleCore *handle, uint32_t index);
-// out must hold 4 int32: handle, frames, cols, step.
-int32_t pocket_apple_core_sprite_info(PocketAppleCore *handle, uint32_t index, int32_t *out);
-
-void pocket_apple_core_svc_send(PocketAppleCore *handle, const uint8_t *text, size_t length);
-// Newline-joined batch or NULL; valid until the next poll on this handle.
-const char *pocket_apple_core_svc_poll(PocketAppleCore *handle);
-int32_t pocket_apple_core_post_event(PocketAppleCore *handle, const char *line);
-void pocket_apple_core_drain_effects(PocketAppleCore *handle, PocketAppleEffectCallback callback,
-                                     void *context);
-
-// Ticks per second of the core's virtual time (1..240, default 60); rejected
-// after the first core_animate or tick — animate converts ms to frames at
-// the rate then in force, so declare the rate before the guest evaluates,
-// and declare it on the mounted namespace as ui.__tickHz. Same
-// bundle/display-link pairing as the guest mode.
-int32_t pocket_apple_core_set_tick_rate(PocketAppleCore *handle, uint32_t hz);
-
-void pocket_apple_core_tick(PocketAppleCore *handle);
-int32_t pocket_apple_core_render(PocketAppleCore *handle, PocketAppleFrame *out);
-void pocket_apple_core_destroy(PocketAppleCore *handle);
+// External engines implement the generated guest lifecycle; operations share
+// the canonical instance that owns package admission and presentation.
+int32_t pocket_apple_set_guest(PocketApple *handle, const pocket_guest_v1 *guest, void *context);
+int32_t pocket_apple_op(PocketApple *handle, uint16_t op, const void *args, size_t length, pocket_result *out);
+uint32_t pocket_apple_supports_op(PocketApple *handle, uint16_t op);
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif // POCKET_APPLE_H
+#endif

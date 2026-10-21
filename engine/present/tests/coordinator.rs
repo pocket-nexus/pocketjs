@@ -739,6 +739,15 @@ fn destruction_after_failed_waits_has_no_outstanding_render_or_display_work() {
 
 #[test]
 fn render_unwind_stops_borrowed_work_before_tokens_and_frame_resources_drop() {
+    check_borrowed_unwind(false);
+}
+
+#[test]
+fn render_wait_unwind_stops_work_without_waiting_the_same_submission_again() {
+    check_borrowed_unwind(true);
+}
+
+fn check_borrowed_unwind(panic_on_wait: bool) {
     #[derive(Default)]
     struct State {
         live: Cell<bool>,
@@ -786,6 +795,8 @@ fn render_unwind_stops_borrowed_work_before_tokens_and_frame_resources_drop() {
         calls: usize,
         resources: Option<*const dyn RenderResources>,
         words: *const u32,
+        damage: *const Rect,
+        panic_on_wait: bool,
     }
     impl Renderer for PanicRenderer {
         type Submission = BorrowedSubmission;
@@ -816,13 +827,16 @@ fn render_unwind_stops_borrowed_work_before_tokens_and_frame_resources_drop() {
                 )
             });
             self.words = frame.list.words.as_ptr();
-            if self.calls == 2 {
+            self.damage = frame.damage.as_ptr();
+            if self.calls == 2 && !self.panic_on_wait {
                 panic!("started borrowed work before returning a submission");
             }
             Ok(BorrowedSubmission(self.state.clone()))
         }
         fn wait(&mut self, _: &Self::Submission) -> Result<(), RenderError> {
-            unreachable!("an unwinding renderer is destroyed, not called again")
+            assert!(self.panic_on_wait);
+            self.state.events.borrow_mut().push("wait-panic");
+            panic!("device completion unknown")
         }
         fn retire(&mut self, _: Self::Submission) {
             unreachable!("token release follows driver destruction")
@@ -833,6 +847,7 @@ fn render_unwind_stops_borrowed_work_before_tokens_and_frame_resources_drop() {
             assert!(self.state.resources_alive.get());
             assert_eq!(unsafe { (&*self.resources.unwrap()).viewport() }, (8., 6.));
             assert_eq!(unsafe { *self.words }, draw_op::GRAD_RECT);
+            assert_eq!(unsafe { *self.damage }, Rect::new(0, 0, 8, 6));
             self.state.live.set(false);
             self.state.events.borrow_mut().push("renderer-stop");
         }
@@ -853,6 +868,8 @@ fn render_unwind_stops_borrowed_work_before_tokens_and_frame_resources_drop() {
             calls: 0,
             resources: None,
             words: core::ptr::null(),
+            damage: core::ptr::null(),
+            panic_on_wait,
         })
         .unwrap();
     coordinator
@@ -873,7 +890,17 @@ fn render_unwind_stops_borrowed_work_before_tokens_and_frame_resources_drop() {
     assert!(result.is_err());
     assert_eq!(
         *state.events.borrow(),
-        ["renderer-stop", "token-drop", "resources-drop"]
+        if panic_on_wait {
+            vec![
+                "wait-panic",
+                "renderer-stop",
+                "token-drop",
+                "token-drop",
+                "resources-drop",
+            ]
+        } else {
+            vec!["renderer-stop", "token-drop", "resources-drop"]
+        }
     );
     assert_eq!(other.borrow().retired, [1]);
     assert!(other.borrow().live.is_empty());
@@ -897,4 +924,26 @@ fn render_unwind_stops_borrowed_work_before_tokens_and_frame_resources_drop() {
         );
     }
     drop(coordinator);
+}
+
+#[test]
+fn native_overlays_are_submitted_between_ui_draw_and_terminal_render_wait() {
+    let (mut coordinator, state) = pair(false);
+    coordinator
+        .present_with_overlay(&scene(8, 6), None, &Resources(8, 6), |id| {
+            let mut state = state.borrow_mut();
+            assert!(state.live.values().all(|job| !job.stopped));
+            state.events.push(format!("overlay:{}", id.as_raw() + 1));
+        })
+        .unwrap();
+    let events = &state.borrow().events;
+    for target in [1, 2] {
+        let pos = |s: String| events.iter().position(|e| *e == s).unwrap();
+        assert!(pos(format!("render:{target}")) < pos(format!("overlay:{target}")));
+        assert!(pos(format!("overlay:{target}")) < pos(format!("render-stop:{target}")));
+        assert_eq!(
+            coordinator.history_valid(pocket_present::DisplayId::from_raw(target - 1)),
+            Some(false)
+        );
+    }
 }

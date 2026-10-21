@@ -13,6 +13,37 @@ fn positive_dimension(name: &str, fallback: u32) -> u32 {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=POCKET_QJS_SOURCE");
+    let quickjs = PathBuf::from(env::var_os("POCKET_QJS_SOURCE")
+        .expect("POCKET_QJS_SOURCE must name the resolved libquickjs-sys embed/quickjs directory; tools/vita.ts resolves it from cargo metadata"));
+    assert!(
+        quickjs.join("quickjs.h").is_file(),
+        "POCKET_QJS_SOURCE has no quickjs.h"
+    );
+    for source in [
+        "../../engine/guest-quickjs/src/guest.c",
+        "../../engine/guest-quickjs/src/generated_ops.h",
+        "../../engine/guest-quickjs/include/pocket_guest_quickjs.h",
+        "../../contracts/generated/pocket_runtime.h",
+        "../../contracts/generated/pocket_drivers.h",
+        "../../contracts/generated/pocket_spec.h",
+    ] {
+        println!("cargo:rerun-if-changed={source}");
+    }
+    println!(
+        "cargo:rerun-if-changed={}",
+        quickjs.join("quickjs.h").display()
+    );
+    cc::Build::new()
+        .file("../../engine/guest-quickjs/src/guest.c")
+        .include("../../engine/guest-quickjs/include")
+        .include("../../contracts/generated")
+        .include(quickjs)
+        .define("POCKET_QJS_BELLARD", None)
+        .define("JS_NO_NAN_BOXING", None)
+        .flag_if_supported("-std=c11")
+        .flag_if_supported("-Wno-unused-parameter")
+        .compile("pocket_guest_quickjs");
     let dev_plan = env::var("POCKETJS_VITA_PLAN").unwrap_or_default();
     let plan_json = if dev_plan.is_empty() {
         "null".into()
@@ -59,7 +90,9 @@ fn main() {
             "the runtime feature builds an eboot without an app: set POCKETJS_EMBED_APP=0"
         );
         assert!(
-            env::var("POCKETJS_LAUNCHER_REGISTRY").unwrap_or_default().is_empty(),
+            env::var("POCKETJS_LAUNCHER_REGISTRY")
+                .unwrap_or_default()
+                .is_empty(),
             "the runtime feature cannot embed a launcher registry"
         );
     }

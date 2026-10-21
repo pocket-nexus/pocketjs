@@ -1769,10 +1769,13 @@ name = "pocket-apple"
 version = "0.1.0"
 dependencies = [
  "log",
- "pocket-mod",
- "pocket-ui-surface",
- "pocketjs-core",
+ "pocket-drivers",
+ "pocket-guest-rquickjs",
+ "pocket-package",
+ "pocket-runtime",
+ "pocket-runtime-cabi",
  "rquickjs",
+ "serde_json",
 ]
 
 [[package]]
@@ -1919,7 +1922,9 @@ dependencies = [
  "pocket-draw-ops",
  "pocket-drivers",
  "pocket-glyph-pages",
+ "pocket-present",
  "pocket-raster",
+ "pocket-runtime-cabi",
  "pocket-spec",
  "pocketjs-core",
 ]
@@ -1945,12 +1950,11 @@ dependencies = [
  "pocket-gles",
  "pocket-gles1",
  "pocket-gles2",
+ "pocket-glyph-pages",
  "pocket-raster",
- "pocket-render-esp-ppa",
  "pocket-runtime",
  "pocket-spec",
  "pocketjs-core",
- "pocketjs-render-rgb565",
 ]
 
 [[package]]
@@ -2115,15 +2119,6 @@ dependencies = [
  "pocket-raster",
  "pocket-spec",
  "taffy",
-]
-
-[[package]]
-name = "pocketjs-render-rgb565"
-version = "0.1.0"
-dependencies = [
- "pocket-drivers",
- "pocket-present",
- "pocket-render-esp-ppa",
 ]
 
 [[package]]

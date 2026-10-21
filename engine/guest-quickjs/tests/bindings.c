@@ -13,7 +13,7 @@ uint32_t pocket_runtime_supports_op(const pocket_runtime *runtime,uint16_t op) {
 int32_t pocket_runtime_op(pocket_runtime *runtime,uint16_t op,const void *data,size_t length,pocket_result *result) {
   const pocket_op_arg *args=data;size_t count=length/sizeof *args;
   runtime->calls++;runtime->last_op=op;
-  for(size_t i=0;i<count;i++){assert(args[i].struct_size==sizeof *args);runtime->integers[i]=args[i].integer;if(args[i].tag==POCKET_ARG_BYTES){runtime->length=args[i].byte_length;assert(runtime->length<=sizeof runtime->bytes);memcpy(runtime->bytes,args[i].bytes,runtime->length);}}
+  for(size_t i=0;i<count;i++){assert(args[i].struct_size==sizeof *args);runtime->integers[i]=args[i].integer;if(args[i].tag==POCKET_ARG_BYTES){runtime->length=args[i].byte_length;assert(runtime->length<=sizeof runtime->bytes);if(runtime->length)memcpy(runtime->bytes,args[i].bytes,runtime->length);}}
   result->tag=POCKET_RESULT_NONE;
   if(op==1||op==9||op==25){result->tag=POCKET_RESULT_I64;result->integer=17;}
   if(op==14||op==15){result->tag=POCKET_RESULT_I64;result->integer=1;}
@@ -35,6 +35,7 @@ static void canonical(void) {
   eval(guest,&runtime,"function check(x){if(!x)throw new Error('assertion')}check(ui.__host==='test'&&ui.__hostAbi===9&&ui.__tickHz===60&&ui.__viewport.w===480);check(!('__textures' in ui)&&!('svcOpen' in ui)&&!('physicsCreate' in ui));check(ui.takeAnimationCompletions()==='[]');check(ui.wrapText('',0,1).length===0);let caught=false;try{ui.createNode()}catch(e){caught=e instanceof TypeError}check(caught)");
   eval(guest,&runtime,"ui.uploadTexture(new Uint8Array([0,0,0,0,10,20,30,255]).subarray(4),{valueOf(){check(ui.createNode(0)===17);return 1}},1,3)");
   assert(runtime.last_op==9&&runtime.length==4&&memcmp(runtime.bytes,"\x0a\x14\x1e\xff",4)==0);
+  eval(guest,&runtime,"ui.loadStyles(new ArrayBuffer(0));ui.loadStyles(new Uint8Array(new ArrayBuffer(0)));let bad=false;try{ui.loadStyles({})}catch(e){bad=e instanceof TypeError}check(bad);ui.createNode(0)");assert(runtime.last_op==1);
   eval(guest,&runtime,"ui.setText(17,{toString(){ui.createNode(0);return 'ok'}})");assert(runtime.last_op==7&&runtime.length==2&&memcmp(runtime.bytes,"ok",2)==0);
   eval(guest,&runtime,"ui.setText(17,'\\ud800')");assert(runtime.length>0&&runtime.bytes[0]==0xef);
   eval(guest,&runtime,"let b=new ArrayBuffer(4),v=new Uint8Array(b);let rejected=false;try{ui.uploadTexture(v,{valueOf(){b.transfer();return 1}},1,3)}catch(e){rejected=true}check(rejected)");
@@ -48,6 +49,7 @@ static void idf(void) {
   pocket_runtime runtime={0};pocket_guest_quickjs *guest=pocket_guest_quickjs_create(POCKET_QJS_IDF);pocket_guest_environment env=environment();env.assets_present=1;
   assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
   eval(guest,&runtime,"function check(x){if(!x)throw new Error('assertion')}check(Object.getPrototypeOf(ui.__textures)===null&&Object.keys(ui.__sprites).length===0);check(ui.createNode()===17&&ui.measureText()===0&&ui.wrapText('x').length===0);check(Object.values(ui).filter(v=>typeof v==='function').length===25);let caught=false;try{ui.uploadTexture(new ArrayBuffer(4),1,1,3)}catch(e){caught=e instanceof TypeError}check(caught)");
+  eval(guest,&runtime,"ui.loadStyles(new Uint8Array(0));let bad=false;try{ui.loadStyles(new Int8Array(0))}catch(e){bad=e instanceof TypeError}check(bad);ui.createNode(0)");
   eval(guest,&runtime,"ui.setSprite(1,2,-1,-2,-3)");assert(runtime.integers[2]==UINT32_MAX&&runtime.integers[3]==UINT32_MAX-1);
   pocket_guest_quickjs_destroy(guest);
 }

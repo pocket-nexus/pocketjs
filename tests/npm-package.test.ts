@@ -167,8 +167,6 @@ describe("published npm artifacts", () => {
       "engine/guest-rquickjs/Cargo.toml",
       "engine/guest-quickjs/src",
       "engine/guest-quickjs/include",
-      "engine/backends/rgb565/src",
-      "engine/backends/rgb565/Cargo.toml",
       "engine/core/src",
       "engine/core/Cargo.toml",
       "engine/spec/src",
@@ -225,6 +223,10 @@ describe("published npm artifacts", () => {
       "hosts/nokia-e7/probe",
       "hosts/nokia-e7/runtime",
       "hosts/nokia-e7/targets",
+      "devices/vita/pocket-vita-render/src",
+      "devices/vita/pocket-vita-render/Cargo.toml",
+      "devices/vita/pocket-vita-render/Cargo.lock",
+      "devices/vita/pocket-vita-render/README.md",
       "devices/vita/pocket-vita-gxm/src",
       "devices/vita/pocket-vita-gxm/Cargo.toml",
       "devices/vita/pocket-vita-gxm/Cargo.lock",
@@ -268,6 +270,7 @@ describe("published npm artifacts", () => {
       "devices/LICENSE",
       "engine/pocket3d/LICENSE",
       "pocket3d/LICENSE",
+      "engine/guest-web/src",
     ]);
   });
 
@@ -286,8 +289,6 @@ describe("published npm artifacts", () => {
       "engine/guest-quickjs/include/pocket_guest_quickjs.h",
       "engine/guest-quickjs/src/generated_ops.h",
       "engine/guest-quickjs/src/guest.c",
-      "engine/backends/rgb565/Cargo.toml",
-      "engine/backends/rgb565/src/lib.rs",
       "engine/spec/Cargo.toml",
       "engine/spec/src/lib.rs",
       "engine/drivers/Cargo.toml",
@@ -419,8 +420,6 @@ describe("published npm artifacts", () => {
     ).toBe(false);
     // The compatibility runtime resolves RGB565 as an optional path dependency.
     // Other platform integrations remain outside the tarball.
-    expect(files).toContain("engine/backends/rgb565/src/lib.rs");
-    expect(files.some((file) => file.startsWith("engine/backends/") && !file.startsWith("engine/backends/rgb565/"))).toBe(false);
     expect(files.some((file) => file.startsWith("hosts/esp-idf/"))).toBe(false);
     expect(files).not.toContain("docs/SYMBIAN_E7.md");
     // Toolchain manifests travel with the framework that pins them.

@@ -1,184 +1,136 @@
 # ESP-IDF component maintenance
 
-PocketJS publishes six caller-driven components and one optional task runner
-from `hosts/esp-idf/components`. **ESP32-P4 and ESP32-S3 consume the same C ABI
-and package contract.** P4 can add the PPA component; S3 always uses the
-software RGB565 path.
+**One program archive contains the canonical runtime, software renderer and
+PPA factory.** Components under `hosts/esp-idf/components` supply platform
+allocation, the generated QuickJS guest, display transport and an optional
+owner task. ESP32-P4 can register PPA; ESP32-S3 uses the software renderer.
 
-## Dependency gates
+| Component | Dependencies |
+| --- | --- |
+| `pocket_runtime` | IDF heap/log; one Rust archive |
+| `pocket_guest_quickjs` | runtime and espressif/quickjs-ng 0.14.0 |
+| `pocket_display_esp_lcd` | runtime and esp_lcd SPI/I80 transport |
+| `pocket_render_esp_ppa` | runtime and esp_driver_ppa |
+| `pocket_runner` | runtime, FreeRTOS and esp_timer |
 
-```text
-pocketjs_package
-pocketjs_guest -> quickjs-ng
-pocketjs_ui_core
-pocketjs_ui_qjs -> pocketjs_guest + pocketjs_ui_core
-pocketjs_render_rgb565 -> pocketjs_ui_core
-pocketjs_esp32p4_ppa -> pocketjs_render_rgb565 + esp_driver_ppa
-pocketjs_runner -> pocketjs_ui_qjs
-```
+Only the runner creates a task. Only the PPA component includes accelerator
+headers. Package admission and UI state remain in runtime crates.
 
-Only `pocketjs_runner` calls `xTaskCreatePinnedToCore`. Only
-`pocketjs_esp32p4_ppa` includes PPA driver headers. Package, core, and renderer
-must not acquire a QuickJS dependency.
+## Native archive identity
 
-## Native archives
-
-**One Rust archive per target supplies the UI and RGB565 C interfaces.**
-The UI component owns that archive and its receipt:
+The runtime component owns:
 
 ```text
-pocketjs_ui_core/lib/<target>/libpocketjs_idf_ui_core.a
-pocketjs_ui_core/lib/<target>/build-receipt.json
+pocket_runtime/lib/<target>/libpocket_idf_runtime.a
+pocket_runtime/lib/<target>/build-receipt.json
 ```
 
-Build P4 with a Rust installation that provides
-`riscv32imafc-unknown-none-elf`:
+`hosts/esp-idf/native/runtime` composes `pocket-runtime-cabi` and
+`pocket-render-esp-ppa` with its C factory feature. The generic SDK archive has
+no platform driver dependency. Both compositions use one allocator and panic
+handler backed by the six `pocket_host_*` hooks in `pocket_runtime/src/hooks.c`.
 
 ```sh
-bun tools/esp-idf-native.ts --target esp32p4
+bun tools/esp-idf-native.ts --target esp32p4 --archiver /path/to/llvm-ar
+bun tools/esp-idf-native.ts --target esp32s3 --cargo /path/to/xtensa-rust/bin/cargo
+bun tools/esp-idf-release.ts --output /path/to/staged-components
 ```
 
-Build S3 with a Rust installation whose `cargo` and `rustc` support
-`xtensa-esp32s3-none-elf`:
+The script uses the supplied toolchain. Compiler commits are pinned in
+`hosts/esp-idf/native/toolchains.json`. Receipts record compiler, target,
+build policy, source digest, archive digest, byte size and P4 archiver identity.
+Release staging verifies these fields before copying files. Vendored sources
+resolve all path dependencies outside the checkout.
+
+`POCKETJS_RUST_FROM_SOURCE=ON` enables development builds. P4 runs a locked
+`cargo build --no-default-features`; S3 adds `-Zbuild-std=core,alloc`.
+`POCKETJS_CARGO` selects Cargo and its adjacent rustc. `POCKET_RUNTIME_ARCHIVE`
+selects an existing prepared archive when source builds are disabled.
+
+**P4 archive preparation removes Rust-bundled soft-float compiler-rt C members.**
+ESP-IDF supplies their symbols through ROM or libgcc under its `ilp32f` ABI.
+The preparation rules participate in receipt identity.
+
+## Package and profile boundaries
+
+The existing IDF package format is unchanged. `pocket.host.json` retains its
+schema and full-JSON hash in host-input metadata. The Python embed helper checks
+that hash and the selected host's dimensions, density, presentation and cadence.
+It emits a second JSON value containing the seven public profile identity fields
+from `contracts/spec/profile.ts`, plus a separate runtime profile hash.
+`RuntimeConfig` receives this projection; it does not receive the legacy hash.
+
+The runtime admits `.pocket` bytes through the shared Rust package loader,
+selects target/ABI, installs assets and initializes the guest. Generated guest
+bindings publish metadata, dispatch UI operations and pack frame inputs.
+The removed C package parser and UI dispatcher have no independent admission
+or binding path.
+
+`tools/driver-contracts.ts` generates public C/Rust driver/runtime ABI records.
+`tools/esp-idf-contracts.ts` generates package wire constants and Python profile
+field names. Both generators support `--check`. TS, Rust and Python readers
+consume `tests/fixtures/packages/corpus`.
+
+## QuickJS source preparation
+
+**The immutable package path checks an exact official source digest.**
+The espressif/quickjs-ng 0.14.0 source used by the component is at
+[Espressif commit 0d0b99456ce9112f4ac4838927ba837949359f9b](https://github.com/espressif/esp-iot-solution/tree/0d0b99456ce9112f4ac4838927ba837949359f9b/components/quickjs-ng).
+Its `quickjs-ng/quickjs.c` SHA-256 is
+`36128da188cb236ffd029dd3c672ff8f85e5a196a9211e267a515c8efc1ab52c`.
+`pocket_guest_quickjs/tools/prepare_quickjs.py` checks this digest and adds
+immutable checks for reverse and species-created write destinations in a
+build-directory copy. Managed component sources remain untouched. Dependency
+upgrades require reviewing the patch and passing immutable-buffer regressions.
+
+The generated guest borrows PAK bytes for this verified immutable profile.
+Package storage remains live until guest shutdown. The platform wrapper
+supplies heap/stack limits, cancellation and promise rejection reporting.
+Guest errors fail the runtime; renderer/display errors drain submitted work
+before returning and invalidate presentation history.
+
+## Presentation and task ownership
+
+The SPI/I80 display adapter reserves one or two full-width RGB565 strips under
+the configured pixel budget. Two buffers let the coordinator render a strip
+while the previous DMA transfer reads the other buffer. Partial damage expands
+to full-width rows. Per-panel identity retains damage history; invalidate its
+generation after reset or external writes.
+
+**Display wait is terminal on success and returned failure.** The adapter uses
+IDF's synchronous parameter transaction to drain color transfers. A failure to
+establish the drain is fatal because DMA storage cannot be released. The driver
+does not implement RGB/MIPI framebuffer output.
+
+PPA preserves opaque fill, A8 glyph coverage, white-alpha batching and RGB565
+SRM. Unsupported operations fall back before hardware writes; failures after
+writes abort the frame. A8 payload storage has its own configured budget.
+
+The optional runner uses `pocket_tick_schedule` for deadlines and skipped ticks.
+Stop interrupts the guest, wakes the task and joins it. A timeout retains the
+runner and its contexts. After a successful join, destroy runtime, guest,
+renderer/device and display in that order.
+
+## Validation
 
 ```sh
-bun tools/esp-idf-native.ts \
-  --target esp32s3 \
-  --cargo /path/to/xtensa-rust/bin/cargo
-```
-
-The script does not download or select a toolchain. Release compiler commits
-are pinned in `hosts/esp-idf/native/toolchains.json`. Each invocation builds
-the shared runtime archive. The receipt records the compiler, Rust target, build policy, source
-digest, archive digest, byte size, and P4 archiver identity.
-If the host's default `ar` cannot resolve GNU archive long names, pass LLVM or
-GNU ar with `--archiver /path/to/llvm-ar`.
-
-The component build accepts `POCKETJS_RUST_FROM_SOURCE=ON` for development.
-P4 runs a locked `cargo build --no-default-features`; S3 additionally uses
-`-Zbuild-std=core,alloc`. Missing Cargo, target support, or linker state is an
-error with no installation side effect.
-
-The compatibility crates under `hosts/esp-idf/native` re-export
-`engine/runtime-cabi`; only `ui-core` produces a static archive. The RGB565 C
-component depends on the UI component for its native symbols. The archive
-contains one allocator and panic handler, backed by the six `pocket_host_*`
-hooks in `ui_core.c`. The general renderer crate is `engine/backends/rgb565`;
-PPA driver code remains in the optional P4 component.
-
-**Rust OOM is fatal; returned asset-loading errors are transactional.**
-Asset parsing and allocation happen before the live core is changed.
-Registry allocation failure and malformed input leave the binding reusable.
-
-**The P4 preparation step removes Rust-bundled soft-float compiler-rt C
-members. ESP-IDF provides the equivalent runtime symbols through ROM or
-libgcc under its `ilp32f` ABI.**
-
-## Package contract
-
-`pocket.host.json` is validated against
-`contracts/schema/pocket-idf-host-1.json`. Its canonical SHA-256 travels in the
-resolved plan, generated C contract, and `.pocket` host-input section.
-
-The generic build plan carries a versioned `hostExtension` with its JSON
-payload and payload hash. Only the IDF adapter interprets profile hash and
-tick rate. Section kind 7 is a 104-byte little-endian record:
-
-| Offset | Field |
-| ---: | --- |
-| 0 | `PHST` magic |
-| 4 | format version 1 |
-| 8 | HostOps ABI |
-| 12 | tick rate |
-| 16–28 | logical and physical width/height |
-| 32 | raster density |
-| 36 | presentation enum |
-| 40 | 32-byte host-profile SHA-256 |
-| 72 | 32-byte resolved-plan SHA-256 |
-
-The variant table still carries target id and HostOps ABI. Device admission
-checks both copies, every numeric host field, and the profile hash before
-returning JS or PAK bytes. The JSON plan remains in section kind 2 for artifact
-inspection and is not parsed during device boot.
-
-`tools/esp-idf-contracts.ts` generates C/Rust FFI declarations and layout
-assertions from `contracts/spec/idf-native.ts`, and wire constants from the
-package specifications. `--check` rejects stale generated files. The TS,
-Rust, C and Python readers consume `tests/fixtures/packages/corpus`.
-
-The guest uses `JS_SetImmutableArrayBuffer` for borrowed PAK bytes. The
-Registry QuickJS 0.14.0 source needs two extra immutable checks: typed-array
-reverse and species-created write destinations. `prepare_quickjs.py`
-verifies the input source hash and prepares a build-directory copy; it never
-edits managed components. **Dependency upgrades require reviewing this
-patch and passing the immutable-buffer regression tests.**
-
-## CI
-
-`.github/workflows/esp-idf.yml` is manually dispatched for release validation
-and runs:
-
-- host contract/package, depfile, receipt, and native Rust tests;
-- native archive builds for both targets;
-- ESP-IDF `release/v6.0` and `release/v6.1` firmware builds for both targets;
-- the same generated `.pocket` in each firmware build.
-
-**The committed package fixture and this workflow use Bun 1.3.14.** Bundle
-bytes are compiler-versioned; update the pin and fixture in the same change.
-
-The smoke application renders a 320×240 logical UI. The P4 build includes the
-PPA component. The S3 build uses `MINIMAL_BUILD` and excludes PPA from component
-discovery and the link map.
-
-Run native host regressions without a board after resolving the pinned
-QuickJS component in an IDF example:
-
-```sh
+bun tools/driver-contracts.ts --check
 bun tools/esp-idf-contracts.ts --check
 bun tools/esp-idf-host-tests.ts
-bun test tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts
+bun test tests/idf-embed.test.ts tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts
+cargo test --locked --manifest-path engine/Cargo.toml -p pocket-render-esp-ppa --features cabi
 ```
 
-`POCKETJS_QUICKJS_SOURCE` may point at another copy of that exact component
-source. Host tests compile the real C wrappers, the shared Rust archive, and
-QuickJS. They inject C allocation failures, reject stale frame views, check
-Promise identity, and exercise immutable PAK writes. The package fuzz target
-and scratch-corpus instructions are in `hosts/esp-idf/tests/fuzz`.
+`POCKETJS_QUICKJS_SOURCE` selects another copy of the exact pinned source.
+Host regressions compile the generated guest, platform wrapper and single Rust
+archive. Tests cover package admission, immutable writes, promise rejection,
+allocator failure, two pending display buffers, reverse waits, DMA drain after
+submission failure and old RGB565 pixel/strip parity.
 
-## Hardware release gates
-
-Before a component release:
-
-1. Flash `examples/smoke` to the Waveshare ESP32-P4 test board. Require the
-   fixed framebuffer hash and non-zero FILL, BLEND, and SRM counters.
-2. Flash the S3 build to AtomS3R. Require the same software-reference pixel
-   hash and no PPA symbols in the map.
-3. Run 10,000 caller-driven turns on both boards and compare heap before and
-   after the steady-state interval.
-4. Run `examples/runner` for 30 seconds. Require the configured cadence, zero
-   ordinary skipped frames, and a successful stop/join.
-5. Archive UART receipts, map files, component versions, native-archive
-   receipts, and firmware SHA-256 values with the release record.
-
-## Registry release
-
-`components/versions.json` specifies each component version and its internal
-dependency ranges. The current release uses exact dependencies; the verifier
-does not require all components to share one version. Upload components only
-after their dependency versions exist in the Registry.
-
-Before staging, `tools/esp-idf-release.ts` verifies both target archive receipts,
-recomputes source and archive hashes, checks compiler/build policy and sizes,
-and checks generated contracts and component versions. Archive preparation
-rules participate in the source digest. **Stale archives cannot be staged
-with newer source.** The script stages files; it does not upload to Registry.
-
-Run the verifier independently with `bun tools/esp-idf-native-receipt.ts`.
-The UI component's source-build vendor tree includes the runtime, C ABI,
-renderer backend, and their Rust dependencies. The RGB565 component consumes
-that archive through its UI component dependency.
-
-Every component's `documentation` URL must resolve to the ESP-IDF guide. Build
-the site and the two example projects before publishing. A release is rejected
-if the prebuilt package path needs Bun or if the default native-archive path
-invokes Cargo.
+The smoke and runner examples use a transfer-hash sink; they do not initialize
+panel hardware. Real panel validation must supply board setup and compare pixels
+against the software reference. Final device acceptance covers P4 acceleration,
+S3 software output, strip budgets, panel resets, task cadence, stop/join and
+steady-state heap use. Keep UART output, maps, hashes and receipts in ignored
+`.pocket-build/validation/<task>/<run>/` or an artifact store. No device run is
+implied by a host test or firmware link result.

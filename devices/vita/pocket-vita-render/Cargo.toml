@@ -1,0 +1,23 @@
+[package]
+name = "pocket-vita-render"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+description = "GXM DrawList renderer with owned submissions and bounded texture caches"
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+pocket-drivers = { path = "../../../engine/drivers" }
+pocket-spec = { path = "../../../engine/spec" }
+pocket-draw-ops = { path = "../../../engine/render/draw-ops" }
+pocket-tri-batch = { path = "../../../engine/render/tri-batch" }
+pocket-glyph-pages = { path = "../../../engine/render/glyph-pages" }
+pocket-tex-cache = { path = "../../../engine/render/tex-cache" }
+
+[target.'cfg(target_os = "vita")'.dependencies]
+pocket-vita-gxm = { path = "../pocket-vita-gxm" }
+vita2d-sys = "0.1.1"
+vitasdk-sys = { version = "0.3.3", features = ["SceGxm_stub", "SceDisplay_stub", "SceSysmem_stub"] }

@@ -11,8 +11,16 @@ vita2d-sys = "0.1.1"
 
 libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b" }
 pocketjs-core = { path = "../../engine/core" }
+pocket-drivers = { path = "../../engine/drivers" }
+pocket-runtime = { path = "../../engine/runtime" }
+pocket-runtime-cabi = { path = "../../engine/runtime-cabi" }
+pocket-package = { path = "../../engine/package" }
+pocket-vita-render = { path = "../../devices/vita/pocket-vita-render" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[build-dependencies]
+cc = "1"
 
 [features]
 default = ["usb-debug"]

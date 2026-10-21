@@ -5,6 +5,7 @@ use core::ffi::{c_char, c_void};
 // Every record starts with struct_size in bytes. Read only complete fields within min(struct_size, known size). Missing callbacks are unsupported; ignore unknown trailing fields. Appended fields must not increase record alignment; use a pointer for new over-aligned data. Callers initialize output struct_size to their writable capacity; callees must not write beyond it.
 // Record arrays are packed records: advance by each element's struct_size, not the consumer's sizeof. Each size includes padding to that record's alignment; validate the size, alignment and enclosing buffer bounds before reading a prefix, and never cast a short prefix into a full-sized record. A zero count permits a null pointer. A nonzero count requires the caller to provide valid readable storage for every element including its announced size; pointers and counts cannot prove the underlying allocation extent.
 // Status zero means success; negative values mean errors. Callback absence is unsupported. Driver context and vtables remain valid until runtime destruction, after all outstanding work has been drained. Runtime calls occur on its single owning thread.
+// PIPELINED_ACQUIRE requires CPU-visible double staging buffers and device frame storage. After flush, acquire may return the other buffer while the first transfer is pending; at most two transfers are pending. Never return storage still read by a transfer. Missing this flag requires display wait before reacquisition.
 // Lifecycle: acquire, render, renderer wait, flush, display wait, retire. Each display has its own submission. A shared resource remains live until its last referencing submission retires.
 // CPU-visible targets require immediate rendering. Device-owned targets must complete rendering before flush starts. Acquired regions are exclusive until flush; nobody writes them until display wait returns.
 // render and flush errors are terminal: drain or cancel all submitted work before returning an error. Both wait callbacks return only after completion or cancellation on success AND error; there is no in-progress or recoverable timeout result. Reset hung hardware before returning failure.
@@ -25,6 +26,8 @@ use core::ffi::{c_char, c_void};
 pub type PocketRendererId = u32;
 #[repr(C)]
 pub struct PocketRuntime { _private: [u8; 0] }
+#[repr(C)]
+pub struct PocketTickSchedule { _private: [u8; 0] }
 pub const POCKET_INPUT_CLASS_BUTTONS: u32 = 1;
 pub const POCKET_INPUT_CLASS_AXIS_ABSOLUTE: u32 = 2;
 pub const POCKET_INPUT_CLASS_AXIS_RELATIVE: u32 = 4;
@@ -103,6 +106,7 @@ pub const POCKET_DISPLAY_PARTIAL_REFRESH: u32 = 2;
 pub const POCKET_DISPLAY_FRAME_STORAGE: u32 = 4;
 pub const POCKET_DISPLAY_DEVICE_ROTATION: u32 = 8;
 pub const POCKET_DISPLAY_DEVICE_SCALING: u32 = 16;
+pub const POCKET_DISPLAY_PIPELINED_ACQUIRE: u32 = 64;
 pub const POCKET_STATUS_OK: i32 = 0;
 pub const POCKET_STATUS_UNSUPPORTED: i32 = -1;
 pub const POCKET_STATUS_INVALID: i32 = -2;
@@ -126,6 +130,9 @@ pub type PocketFontRevisionFn = unsafe extern "C" fn(context: *const c_void, slo
 pub type PocketFontTextureWidthFn = unsafe extern "C" fn(context: *const c_void, slot: u8, out: *mut u32) -> i32;
 
 pub type PocketFontAtlasFn = unsafe extern "C" fn(context: *const c_void, slot: u8, out: *mut PocketFontView) -> i32;
+
+/// Optional. Unsupported or an absent callback requires full redraws. Called once before a frame; does not publish output or invalidate pending device access.
+pub type PocketDisplayFrameIdentityFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketBufferIdentity) -> i32;
 
 pub type PocketDisplayDescriptorFn = unsafe extern "C" fn(context: *mut c_void, out: *mut PocketDisplayDescriptor) -> i32;
 
@@ -281,6 +288,81 @@ const _: () = {
     if field_align > align { align = field_align; }
     assert!(core::mem::size_of::<PocketRect>() == size.div_ceil(align) * align);
     assert!(core::mem::align_of::<PocketRect>() == align);
+};
+
+/// Identity of the retained output pixels updated by this frame, stable until the next frame_identity call. Use one identity per physical framebuffer, or one for panel GRAM. Change generation after resets, external pixel writes or changed output rules.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketBufferIdentity {
+    pub struct_size: usize,
+    pub buffer: u64,
+    pub generation: u64,
+}
+impl PocketBufferIdentity {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, buffer) + core::mem::size_of::<u64>() <= capacity {
+            value.buffer = unsafe { bytes.add(core::mem::offset_of!(Self, buffer)).cast::<u64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, generation) + core::mem::size_of::<u64>() <= capacity {
+            value.generation = unsafe { bytes.add(core::mem::offset_of!(Self, generation)).cast::<u64>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, buffer) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, buffer)).cast::<u64>().write_unaligned(self.buffer); }
+        }
+        if core::mem::offset_of!(Self, generation) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, generation)).cast::<u64>().write_unaligned(self.generation); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketBufferIdentity, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u64>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketBufferIdentity, buffer) == size);
+    size += 8;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u64>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketBufferIdentity, generation) == size);
+    size += 8;
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketBufferIdentity>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketBufferIdentity>() == align);
 };
 
 /// CPU-writable storage for region; row stride is in bytes, including packed Gray4/Mono1 rows.
@@ -3398,6 +3480,7 @@ pub struct PocketDisplayOutputV1 {
     pub flush: Option<PocketDisplayFlushFn>,
     pub wait: Option<PocketDisplayWaitFn>,
     pub vsync: Option<PocketDisplayVsyncFn>,
+    pub frame_identity: Option<PocketDisplayFrameIdentityFn>,
 }
 impl PocketDisplayOutputV1 {
     /// An empty current-version record suitable for an output callback.
@@ -3433,6 +3516,9 @@ impl PocketDisplayOutputV1 {
         if core::mem::offset_of!(Self, vsync) + core::mem::size_of::<Option<PocketDisplayVsyncFn>>() <= capacity {
             value.vsync = unsafe { bytes.add(core::mem::offset_of!(Self, vsync)).cast::<Option<PocketDisplayVsyncFn>>().read_unaligned() };
         }
+        if core::mem::offset_of!(Self, frame_identity) + core::mem::size_of::<Option<PocketDisplayFrameIdentityFn>>() <= capacity {
+            value.frame_identity = unsafe { bytes.add(core::mem::offset_of!(Self, frame_identity)).cast::<Option<PocketDisplayFrameIdentityFn>>().read_unaligned() };
+        }
         Some(value)
     }
     /// Preserve the caller's capacity and write only complete known fields.
@@ -3458,6 +3544,9 @@ impl PocketDisplayOutputV1 {
         }
         if core::mem::offset_of!(Self, vsync) + core::mem::size_of::<Option<PocketDisplayVsyncFn>>() <= capacity {
             unsafe { bytes.add(core::mem::offset_of!(Self, vsync)).cast::<Option<PocketDisplayVsyncFn>>().write_unaligned(self.vsync); }
+        }
+        if core::mem::offset_of!(Self, frame_identity) + core::mem::size_of::<Option<PocketDisplayFrameIdentityFn>>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, frame_identity)).cast::<Option<PocketDisplayFrameIdentityFn>>().write_unaligned(self.frame_identity); }
         }
         true
     }
@@ -3494,6 +3583,11 @@ const _: () = {
     size = size.div_ceil(field_align) * field_align;
     assert!(core::mem::offset_of!(PocketDisplayOutputV1, vsync) == size);
     size += core::mem::size_of::<Option<PocketDisplayVsyncFn>>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<Option<PocketDisplayFrameIdentityFn>>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketDisplayOutputV1, frame_identity) == size);
+    size += core::mem::size_of::<Option<PocketDisplayFrameIdentityFn>>();
     if field_align > align { align = field_align; }
     assert!(core::mem::size_of::<PocketDisplayOutputV1>() == size.div_ceil(align) * align);
     assert!(core::mem::align_of::<PocketDisplayOutputV1>() == align);
@@ -3842,6 +3936,216 @@ const _: () = {
     if field_align > align { align = field_align; }
     assert!(core::mem::size_of::<PocketClockV1>() == size.div_ceil(align) * align);
     assert!(core::mem::align_of::<PocketClockV1>() == align);
+};
+
+/// Guarded A8 page layout and requested glyph UVs; rows include the transparent one-texel guard. The caller owns output storage.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketGlyphPage {
+    pub struct_size: usize,
+    pub page: u32,
+    pub first: u32,
+    pub count: u32,
+    pub width: u32,
+    pub height: u32,
+    pub uv: [f32; 4],
+}
+impl PocketGlyphPage {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, page) + core::mem::size_of::<u32>() <= capacity {
+            value.page = unsafe { bytes.add(core::mem::offset_of!(Self, page)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, first) + core::mem::size_of::<u32>() <= capacity {
+            value.first = unsafe { bytes.add(core::mem::offset_of!(Self, first)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, count) + core::mem::size_of::<u32>() <= capacity {
+            value.count = unsafe { bytes.add(core::mem::offset_of!(Self, count)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            value.width = unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            value.height = unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, uv) + core::mem::size_of::<[f32; 4]>() <= capacity {
+            value.uv = unsafe { bytes.add(core::mem::offset_of!(Self, uv)).cast::<[f32; 4]>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, page) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, page)).cast::<u32>().write_unaligned(self.page); }
+        }
+        if core::mem::offset_of!(Self, first) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, first)).cast::<u32>().write_unaligned(self.first); }
+        }
+        if core::mem::offset_of!(Self, count) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, count)).cast::<u32>().write_unaligned(self.count); }
+        }
+        if core::mem::offset_of!(Self, width) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, width)).cast::<u32>().write_unaligned(self.width); }
+        }
+        if core::mem::offset_of!(Self, height) + core::mem::size_of::<u32>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, height)).cast::<u32>().write_unaligned(self.height); }
+        }
+        if core::mem::offset_of!(Self, uv) + core::mem::size_of::<[f32; 4]>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, uv)).cast::<[f32; 4]>().write_unaligned(self.uv); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGlyphPage, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGlyphPage, page) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGlyphPage, first) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGlyphPage, count) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGlyphPage, width) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGlyphPage, height) == size);
+    size += 4;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<f32>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketGlyphPage, uv) == size);
+    size += 4 * 4;
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketGlyphPage>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketGlyphPage>() == align);
+};
+
+/// Monotonic microsecond deadline and wall-clock slot index. Skipped slots do not advance guest simulation.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PocketTickTiming {
+    pub struct_size: usize,
+    pub index: u64,
+    pub deadline: u64,
+    pub skipped: u64,
+}
+impl PocketTickTiming {
+    /// An empty current-version record suitable for an output callback.
+    pub fn empty() -> Self {
+        let mut value: Self = unsafe { core::mem::zeroed() };
+        value.struct_size = core::mem::size_of::<Self>();
+        value
+    }
+    /// Copy only complete fields; absent fields remain zero/null.
+    /// # Safety
+    /// A nonnull pointer provides a readable usize prefix and valid field
+    /// representations through min(struct_size, known size). No full-sized
+    /// reference is formed from a possibly shorter caller allocation.
+    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
+        if pointer.is_null() { return None; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
+        let mut value = Self::empty();
+        value.struct_size = capacity;
+        if core::mem::offset_of!(Self, index) + core::mem::size_of::<u64>() <= capacity {
+            value.index = unsafe { bytes.add(core::mem::offset_of!(Self, index)).cast::<u64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, deadline) + core::mem::size_of::<u64>() <= capacity {
+            value.deadline = unsafe { bytes.add(core::mem::offset_of!(Self, deadline)).cast::<u64>().read_unaligned() };
+        }
+        if core::mem::offset_of!(Self, skipped) + core::mem::size_of::<u64>() <= capacity {
+            value.skipped = unsafe { bytes.add(core::mem::offset_of!(Self, skipped)).cast::<u64>().read_unaligned() };
+        }
+        Some(value)
+    }
+    /// Preserve the caller's capacity and write only complete known fields.
+    /// # Safety
+    /// pointer provides a readable usize prefix and writable bytes through
+    /// min(struct_size, known size), with no overlapping live references.
+    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
+        if pointer.is_null() { return false; }
+        let bytes = pointer.cast::<u8>();
+        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
+        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
+        if core::mem::offset_of!(Self, index) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, index)).cast::<u64>().write_unaligned(self.index); }
+        }
+        if core::mem::offset_of!(Self, deadline) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, deadline)).cast::<u64>().write_unaligned(self.deadline); }
+        }
+        if core::mem::offset_of!(Self, skipped) + core::mem::size_of::<u64>() <= capacity {
+            unsafe { bytes.add(core::mem::offset_of!(Self, skipped)).cast::<u64>().write_unaligned(self.skipped); }
+        }
+        true
+    }
+}
+const _: () = {
+    let mut size = 0usize;
+    let mut align = 1usize;
+    let field_align = core::mem::align_of::<usize>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketTickTiming, struct_size) == size);
+    size += core::mem::size_of::<usize>();
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u64>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketTickTiming, index) == size);
+    size += 8;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u64>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketTickTiming, deadline) == size);
+    size += 8;
+    if field_align > align { align = field_align; }
+    let field_align = core::mem::align_of::<u64>();
+    size = size.div_ceil(field_align) * field_align;
+    assert!(core::mem::offset_of!(PocketTickTiming, skipped) == size);
+    size += 8;
+    if field_align > align { align = field_align; }
+    assert!(core::mem::size_of::<PocketTickTiming>() == size.div_ceil(align) * align);
+    assert!(core::mem::align_of::<PocketTickTiming>() == align);
 };
 
 /// profile_json is the canonical profile projection defined by profile.ts; profile_hash is its SHA-256. Limits are bytes; tick_hz must equal the projection's tickHz. No target or toolchain selection occurs here.
@@ -5022,6 +5326,14 @@ const _: () = {
 };
 
 unsafe extern "C" {
+    /// Query or expand a bounded guarded A8 page through pocket-glyph-pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap.
+pub fn pocket_glyph_page_a8(font: *const PocketFontView, glyph: u32, max_dimension: u32, pixels: *mut u8, capacity: usize, out: *mut PocketGlyphPage) -> i32;
+    /// Create a thread-owned monotonic deadline schedule. Invalid rate, zero lag limit, or overflow returns null. Platform code owns waits and cancellation.
+pub fn pocket_tick_schedule_create(tick_hz: u32, started: u64, max_lag_us: u64) -> *mut PocketTickSchedule;
+    pub fn pocket_tick_schedule_deadline(schedule: *const PocketTickSchedule, out: *mut u64) -> i32;
+    /// Reserve at most one due slot. Early polls set ready to zero without advancing; excessive lag skips expired wall-clock slots. Invalid output prefixes leave the schedule unchanged.
+pub fn pocket_tick_schedule_poll(schedule: *mut PocketTickSchedule, now: u64, out: *mut PocketTickTiming, ready: *mut u32) -> i32;
+    pub fn pocket_tick_schedule_destroy(schedule: *mut PocketTickSchedule) -> ();
     pub fn pocket_runtime_create(config: *const PocketRuntimeConfig) -> *mut PocketRuntime;
     pub fn pocket_runtime_set_package_source(runtime: *mut PocketRuntime, source: *const PocketPackageSourceV1, context: *mut c_void) -> i32;
     pub fn pocket_runtime_set_guest(runtime: *mut PocketRuntime, guest: *const PocketGuestV1, context: *mut c_void) -> i32;

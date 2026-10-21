@@ -43,7 +43,7 @@ fn invalidate(handle: &Handle) -> Result<(), i32> {
         .map(|mut bytes| bytes.clear())
         .map_err(|_| POCKET_STATUS_FAILED)
 }
-unsafe fn modify(
+pub(crate) unsafe fn modify(
     pointer: *mut PocketRuntime,
     action: impl FnOnce(&mut Runtime) -> Result<(), RuntimeError>,
 ) -> i32 {
@@ -302,7 +302,12 @@ pub unsafe extern "C" fn pocket_runtime_op(
         POCKET_STATUS_INVALID
     }
 }
-unsafe fn arguments<'a>(
+/// Decode the canonical extensible UI argument records for native embedders.
+///
+/// # Safety
+/// The record span and every referenced payload remain readable for the
+/// returned lifetime, with no concurrent mutation.
+pub unsafe fn arguments<'a>(
     pointer: *const c_void,
     length: usize,
 ) -> Result<Vec<OpArg<'a>>, AdapterError> {

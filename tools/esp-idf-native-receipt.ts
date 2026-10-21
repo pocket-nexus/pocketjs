@@ -4,11 +4,11 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const NATIVE_COMPONENTS = [
-  { component: "pocketjs_ui_core", crate: "ui-core", archive: "libpocketjs_idf_ui_core.a" },
+  { component: "pocket_runtime", crate: "runtime", archive: "libpocket_idf_runtime.a" },
 ] as const;
 export const NATIVE_ENGINE_CRATES = ["core", "spec", "drivers", "raster", "present", "package",
   "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache",
-  "runtime", "runtime-cabi", "backends/rgb565"] as const;
+  "runtime", "runtime-cabi"] as const;
 export const NATIVE_EXTRA_CRATES = [
   { source: "platforms/esp-idf/render-ppa", destination: "render-ppa" },
   { source: "devices/gles/pocket-gles", destination: "pocket-gles" },
@@ -40,16 +40,18 @@ export async function nativeSourceFiles(root: string, spec: NativeComponent): Pr
   const roots = [...NATIVE_ENGINE_CRATES.map(crate => `engine/${crate}`), ...NATIVE_EXTRA_CRATES.map(crate => crate.source),
     `hosts/esp-idf/native/${spec.crate}`,
     `hosts/esp-idf/components/${spec.component}/src`, `hosts/esp-idf/components/${spec.component}/include`,
-    "hosts/esp-idf/components/pocketjs_esp32p4_ppa/src", "hosts/esp-idf/components/pocketjs_esp32p4_ppa/include",
-    "hosts/esp-idf/components/pocketjs_render_rgb565/src", "hosts/esp-idf/components/pocketjs_render_rgb565/include"];
+    "hosts/esp-idf/components/pocket_render_esp_ppa/src", "hosts/esp-idf/components/pocket_render_esp_ppa/include",
+    "engine/guest-quickjs/src", "engine/guest-quickjs/include", "hosts/esp-idf/components/pocket_guest_quickjs"];
   const files = new Set([
     "tools/esp-idf-native.ts", "tools/esp-idf-release.ts",
     "contracts/generated/pocket_drivers.h", "contracts/generated/pocket_runtime.h", "contracts/generated/pocket_spec.h",
-    "hosts/esp-idf/components/pocketjs_esp32p4_ppa/CMakeLists.txt", "tools/esp-idf-native-receipt.ts", "hosts/esp-idf/native/toolchains.json",
-    "contracts/spec/idf-native.ts", "tools/esp-idf-contracts.ts", `hosts/esp-idf/components/${spec.component}/CMakeLists.txt`,
-    "hosts/esp-idf/components/pocketjs_render_rgb565/CMakeLists.txt",
-    "hosts/esp-idf/components/pocketjs_ui_core/native_archive.cmake",
-    "hosts/esp-idf/components/pocketjs_ui_core/prepare_archive.cmake",
+    "hosts/esp-idf/components/pocket_render_esp_ppa/CMakeLists.txt", "tools/esp-idf-native-receipt.ts", "hosts/esp-idf/native/toolchains.json",
+    "tools/esp-idf-contracts.ts", `hosts/esp-idf/components/${spec.component}/CMakeLists.txt`,
+    "hosts/esp-idf/components/pocket_runtime/native_archive.cmake",
+    "hosts/esp-idf/components/pocket_runtime/prepare_archive.cmake",
+    "hosts/esp-idf/components/pocket_guest_quickjs/CMakeLists.txt",
+    "hosts/esp-idf/components/pocket_guest_quickjs/tools/prepare_quickjs.py",
+    "contracts/spec/profile.ts",
   ]);
   for (const path of roots) {
     if (!existsSync(join(root, path))) throw new Error(`missing native source root: ${path}`);

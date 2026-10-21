@@ -1,6 +1,4 @@
-# pocket-apple — the PocketJS iOS host core: one pocket-mod guest realm,
-# the pocket-ui-surface `ui` mount, and pocketjs-core's software rasterizer
-# behind a small C ABI consumed by PocketSurfaceView (UIKit).
+# UIKit composition over pocket-runtime-cabi with an owned or external guest.
 
 [package]
 name = "pocket-apple"
@@ -8,15 +6,18 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The PocketJS `ui` surface for iOS: pocket-mod guest, pak feeding, software raster DrawList behind a C ABI"
+description = "UIKit composition over the canonical PocketJS runtime and guest lifecycle"
 
 [lib]
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-pocket-mod = { workspace = true }
-pocket-ui-surface = { workspace = true }
-pocketjs-core = { workspace = true }
+pocket-runtime-cabi = { path = "../runtime-cabi" }
+pocket-runtime = { path = "../runtime" }
+pocket-drivers = { path = "../drivers" }
+pocket-package = { path = "../package" }
+pocket-guest-rquickjs = { path = "../guest-rquickjs" }
+serde_json = "1"
 log = { workspace = true }
 
 # rquickjs ships pre-generated FFI bindings for common targets but NOT the

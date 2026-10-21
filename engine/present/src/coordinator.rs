@@ -1,17 +1,17 @@
 //! Register drivers and complete a frame's rendering and display transfers.
 //!
-//! Acquired CPU surfaces have no persistent buffer identity in this version of
-//! the driver contract. Every presentation therefore redraws each full display,
-//! using strips when its device frame storage and the host budget allow that.
-//! The completion flag is diagnostic; it never permits skipping a redraw.
+//! Drivers can identify retained output buffers for incremental damage. GRAM
+//! displays can overlap two CPU staging buffers when they declare that acquire
+//! does not reuse storage read by a pending transfer.
 
-use alloc::{boxed::Box, vec::Vec};
+use crate::damage::{DamagePolicy, DamageTarget, DamageTracker};
+use alloc::{boxed::Box, collections::VecDeque, vec::Vec};
 use core::any::Any;
 
 use pocket_drivers::{
-    DamageRect, DisplayDescriptor, DisplayError, DisplayOutput, DisplayRole, DrawList, FontView,
-    FrameInput, Rect, RenderError, RenderResources, Renderer, RendererDescriptor, Synchronization,
-    Target, TargetOwnership, TexView,
+    BufferIdentity, DamageRect, DisplayDescriptor, DisplayError, DisplayOutput, DisplayRole,
+    DrawList, FontView, FrameInput, Rect, RenderError, RenderResources, Renderer,
+    RendererDescriptor, Synchronization, Target, TargetOwnership, TexView,
 };
 use pocket_raster::RasterRenderer;
 
@@ -105,6 +105,8 @@ where
 }
 
 trait ErasedDisplay {
+    fn descriptor(&self) -> DisplayDescriptor;
+    fn frame_identity(&mut self) -> Result<Option<BufferIdentity>, DisplayError>;
     fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError>;
     fn flush(&mut self, regions: &[Rect]) -> Result<ErasedValue, DisplayError>;
     fn wait(&mut self, token: ErasedValue) -> Result<(), DisplayError>;
@@ -116,6 +118,12 @@ impl<D: DisplayOutput> ErasedDisplay for DisplayAdapter<D>
 where
     D::Token: 'static,
 {
+    fn descriptor(&self) -> DisplayDescriptor {
+        self.0.descriptor()
+    }
+    fn frame_identity(&mut self) -> Result<Option<BufferIdentity>, DisplayError> {
+        self.0.frame_identity()
+    }
     fn acquire(&mut self, region: Rect) -> Result<Target<'_>, DisplayError> {
         self.0.acquire(region)
     }
@@ -139,6 +147,8 @@ struct Pending {
     submission: ErasedValue,
     render_waited: bool,
     display_in_call: bool,
+    damage: Box<[Rect]>,
+    token: Option<ErasedValue>,
 }
 
 struct RegisteredDisplay {
@@ -148,8 +158,12 @@ struct RegisteredDisplay {
     strip_height: u32,
     reserved_bytes: usize,
     next_y: u32,
-    damage: [Rect; 1],
+    damage: Vec<Rect>,
     pending: Option<Pending>,
+    acquired_damage: Option<Box<[Rect]>>,
+    transfers: VecDeque<Pending>,
+    histories: Vec<(BufferIdentity, DamageTracker)>,
+    history_slot: Option<usize>,
     history_valid: bool,
 }
 
@@ -158,8 +172,8 @@ struct RegisteredDisplay {
 ///
 /// The budget accounts for host CPU framebuffer storage across all displays;
 /// device-owned targets consume no host framebuffer reservation. Double-buffer
-/// descriptors reserve two buffers even though this coordinator waits before
-/// reusing a strip. Drivers own the actual allocation and must honor the
+/// descriptors reserve two buffers. Pipelined strips retain both transfers
+/// until their terminal waits before reusing storage. Drivers own the actual allocation and must honor the
 /// requested region/stride; the coordinator allocates no pixel staging buffer.
 pub struct Coordinator {
     scale: u32,
@@ -202,6 +216,58 @@ impl Coordinator {
             descriptor: software.descriptor(),
             driver: Some(Box::new(RendererAdapter(software))),
         };
+        self.scale = scale;
+        self.invalidate();
+        Ok(())
+    }
+
+    /// Re-read program-owned output descriptors at a terminal frame boundary.
+    /// Validation and budget planning finish before registration changes. A
+    /// primary display must have the requested physical viewport.
+    pub fn refresh_displays(&mut self, scale: u32, primary: [u32; 2]) -> Result<(), PresentError> {
+        let software =
+            RasterRenderer::new(scale).map_err(|_| PresentError::InvalidRendererDescriptor)?;
+        if self
+            .displays
+            .iter()
+            .any(|d| d.pending.is_some() || !d.transfers.is_empty())
+        {
+            return Err(PresentError::InvalidFrame);
+        }
+        let mut descriptors = Vec::with_capacity(self.displays.len());
+        for (i, display) in self.displays.iter().enumerate() {
+            let descriptor = display
+                .driver
+                .as_ref()
+                .ok_or(PresentError::InvalidTarget(DisplayId(i)))?
+                .descriptor();
+            validate_display(&descriptor, scale)?;
+            let renderer = &self.renderers[display.renderer.0 as usize];
+            if renderer.driver.is_none()
+                || descriptor.target_ownership != renderer.descriptor.target_ownership()
+                || !renderer.descriptor.formats().contains(&descriptor.format)
+            {
+                return Err(PresentError::IncompatibleRenderer);
+            }
+            if descriptor.role != display.descriptor.role
+                || descriptor.role == DisplayRole::Primary
+                    && [descriptor.width, descriptor.height] != primary
+            {
+                return Err(PresentError::InvalidDisplayDescriptor);
+            }
+            descriptors.push(descriptor);
+        }
+        let plans = budget_plans(&descriptors, self.frame_buffer_budget)?;
+        self.renderers[0] = RegisteredRenderer {
+            descriptor: software.descriptor(),
+            driver: Some(Box::new(RendererAdapter(software))),
+        };
+        for ((display, descriptor), plan) in self.displays.iter_mut().zip(descriptors).zip(plans) {
+            display.descriptor = descriptor;
+            display.strip_height = plan.rows;
+            display.reserved_bytes = plan.bytes;
+            display.acquired_damage = None;
+        }
         self.scale = scale;
         self.invalidate();
         Ok(())
@@ -283,8 +349,12 @@ impl Coordinator {
             strip_height: 0,
             reserved_bytes: 0,
             next_y: 0,
-            damage: [Rect::default()],
+            damage: Vec::new(),
             pending: None,
+            acquired_damage: None,
+            transfers: VecDeque::new(),
+            histories: Vec::new(),
+            history_slot: None,
             history_valid: false,
         });
         for (display, plan) in self.displays.iter_mut().zip(plans) {
@@ -326,6 +396,9 @@ impl Coordinator {
     pub fn invalidate(&mut self) {
         for display in &mut self.displays {
             display.history_valid = false;
+            for (_, tracker) in &mut display.histories {
+                tracker.invalidate();
+            }
         }
     }
 
@@ -346,7 +419,46 @@ impl Coordinator {
         auxiliary: Option<&DrawList>,
         resources: &dyn RenderResources,
     ) -> Result<(), PresentError> {
+        let result = self.present_inner(primary, auxiliary, resources, None);
+        if result.is_err() {
+            self.invalidate();
+        }
+        result
+    }
+
+    /// Draw host overlays after each device-owned UI submission and before its
+    /// terminal render wait. The callback must use the same device/context and
+    /// finish submitting commands before returning. All outputs must be
+    /// device-owned. Each callback runs once per display; damage is full because
+    /// host overlay changes are not represented by the UI DrawList.
+    pub fn present_with_overlay(
+        &mut self,
+        primary: &DrawList,
+        auxiliary: Option<&DrawList>,
+        resources: &dyn RenderResources,
+        mut overlay: impl FnMut(DisplayId),
+    ) -> Result<(), PresentError> {
+        if self
+            .displays
+            .iter()
+            .any(|d| d.descriptor.target_ownership != TargetOwnership::DeviceOwned)
+        {
+            return Err(PresentError::IncompatibleRenderer);
+        }
+        let result = self.present_inner(primary, auxiliary, resources, Some(&mut overlay));
+        // External commands are absent from the tracked DrawList, so a later
+        // ordinary presentation must not reuse the overlay's retained pixels.
         self.invalidate();
+        result
+    }
+
+    fn present_inner(
+        &mut self,
+        primary: &DrawList,
+        auxiliary: Option<&DrawList>,
+        resources: &dyn RenderResources,
+        mut overlay: Option<&mut dyn FnMut(DisplayId)>,
+    ) -> Result<(), PresentError> {
         for (index, display) in self.displays.iter().enumerate() {
             if self.renderers[display.renderer.0 as usize].driver.is_none() {
                 return Err(PresentError::InvalidRenderer);
@@ -372,7 +484,7 @@ impl Coordinator {
             .checked_mul(self.scale)
             .ok_or(PresentError::InvalidFrame)?;
         let mut views = Vec::with_capacity(self.displays.len());
-        for display in &mut self.displays {
+        for (index, display) in self.displays.iter_mut().enumerate() {
             let descriptor = display.descriptor;
             let list = match descriptor.role {
                 DisplayRole::Primary => {
@@ -398,12 +510,58 @@ impl Coordinator {
                 viewport,
             });
             display.next_y = 0;
+            let identity = display
+                .driver
+                .as_mut()
+                .expect("validated display")
+                .frame_identity()
+                .map_err(|error| PresentError::Acquire(DisplayId(index), error))?;
+            display.history_slot = identity.map(|identity| {
+                let slot = display
+                    .histories
+                    .iter()
+                    .position(|(known, _)| known.buffer == identity.buffer);
+                if let Some(slot) = slot {
+                    if display.histories[slot].0 != identity {
+                        display.histories[slot].1.invalidate();
+                        display.histories[slot].0 = identity;
+                    }
+                    slot
+                } else {
+                    let capacity = if descriptor.double_buffered { 2 } else { 1 };
+                    if display.histories.len() == capacity {
+                        display.histories.remove(0);
+                    }
+                    display.histories.push((identity, DamageTracker::new()));
+                    display.histories.len() - 1
+                }
+            });
+            display.damage = if let Some(slot) = display
+                .history_slot
+                .filter(|_| descriptor.partial_refresh && overlay.is_none())
+            {
+                let target = DamageTarget::new(
+                    descriptor.width,
+                    descriptor.height,
+                    self.scale,
+                    descriptor.format as u64,
+                );
+                let plan = display.histories[slot]
+                    .1
+                    .prepare(views.last().unwrap(), &list.words, target)
+                    .and_then(|plan| plan.with_policy(DamagePolicy::default()))
+                    .map_err(|_| PresentError::InvalidFrame)?;
+                physical_damage(plan.regions(), &descriptor, self.scale)?
+            } else {
+                alloc::vec![Rect::new(0, 0, descriptor.width, descriptor.height)]
+            };
         }
         // Drop this guard before `views` on either return or unwinding. In
         // particular, zero-copy renderers may retain the resource wrapper.
         let mut frame = FrameGuard {
             coordinator: self,
             rendering: None,
+            committed: false,
         };
         loop {
             let mut submitted = false;
@@ -419,7 +577,16 @@ impl Coordinator {
                     _ => auxiliary.expect("auxiliary validated before submission"),
                 };
                 match frame.submit(index, list, view) {
-                    Ok(()) => submitted = true,
+                    Ok(()) => {
+                        if frame.coordinator.displays[index].pending.is_some() {
+                            if let Some(callback) = overlay.as_mut() {
+                                frame.rendering = Some(frame.coordinator.displays[index].renderer);
+                                callback(DisplayId(index));
+                                frame.rendering = None;
+                            }
+                        }
+                        submitted = true;
+                    }
                     Err(error) => {
                         failure = Some(error);
                         break;
@@ -434,9 +601,26 @@ impl Coordinator {
                 break;
             }
         }
-        for display in &mut frame.coordinator.displays {
+        if let Some(error) = frame.drain_transfers() {
+            return Err(error);
+        }
+        for (display, view) in frame.coordinator.displays.iter_mut().zip(&views) {
+            let list = match display.descriptor.role {
+                DisplayRole::Primary => primary,
+                _ => auxiliary.unwrap(),
+            };
+            if let Some(slot) = display.history_slot {
+                let target = DamageTarget::new(
+                    display.descriptor.width,
+                    display.descriptor.height,
+                    frame.coordinator.scale,
+                    display.descriptor.format as u64,
+                );
+                display.histories[slot].1.commit(view, &list.words, target);
+            }
             display.history_valid = true;
         }
+        frame.committed = true;
         Ok(())
     }
 }
@@ -472,9 +656,10 @@ impl RenderResources for FrameResources<'_> {
 
 struct FrameGuard<'a> {
     coordinator: &'a mut Coordinator,
-    // A render may unwind after starting zero-copy work but before returning
-    // a token. Destroy that renderer before the caller's frame can unwind.
+    // A render or wait may unwind without a terminal result. Destroy that
+    // renderer before the caller's frame can unwind.
     rendering: Option<RendererId>,
+    committed: bool,
 }
 
 impl FrameGuard<'_> {
@@ -494,7 +679,19 @@ impl FrameGuard<'_> {
             descriptor.width,
             display.strip_height.min(descriptor.height - display.next_y),
         );
-        display.damage[0] = region;
+        let damage: Box<[Rect]> = display
+            .damage
+            .iter()
+            .filter_map(|damage| intersect(*damage, region))
+            .collect();
+        display.next_y += region.height;
+        if damage.is_empty() {
+            return Ok(());
+        }
+        // Keep the descriptor storage in the coordinator before invoking a
+        // driver. If render panics after retaining it, FrameGuard destroys the
+        // renderer before this allocation can be released.
+        display.acquired_damage = Some(damage);
         let target = display
             .driver
             .as_mut()
@@ -515,7 +712,12 @@ impl FrameGuard<'_> {
                 return Err(PresentError::InvalidTarget(id));
             }
         }
-        let mut input = FrameInput::new(list, resources, &display.damage, target);
+        let mut input = FrameInput::new(
+            list,
+            resources,
+            display.acquired_damage.as_ref().unwrap(),
+            target,
+        );
         self.rendering = Some(display.renderer);
         let result = renderer
             .driver
@@ -528,6 +730,8 @@ impl FrameGuard<'_> {
             submission,
             render_waited: false,
             display_in_call: false,
+            damage: display.acquired_damage.take().unwrap(),
+            token: None,
         });
         Ok(())
     }
@@ -544,11 +748,13 @@ impl FrameGuard<'_> {
             let rendered = if pending.render_waited {
                 false // A prior unwinding wait/flush never permits another flush.
             } else {
+                self.rendering = Some(display.renderer);
                 let result = renderer
                     .driver
                     .as_mut()
                     .expect("registered renderer")
                     .wait(&*pending.submission);
+                self.rendering = None;
                 pending.render_waited = true;
                 match result {
                     Ok(()) => true,
@@ -567,17 +773,28 @@ impl FrameGuard<'_> {
             } else if rendered && !unwinding {
                 pending.display_in_call = true;
                 let driver = display.driver.as_mut().expect("registered display");
-                match driver.flush(&display.damage) {
+                match driver.flush(&pending.damage) {
                     Ok(token) => {
-                        if let Err(error) = driver.wait(token) {
-                            failure.get_or_insert(PresentError::DisplayWait(id, error));
-                        }
+                        pending.token = Some(token);
                     }
                     Err(error) => {
                         failure.get_or_insert(PresentError::Flush(id, error));
                     }
                 }
                 pending.display_in_call = false;
+            }
+            if pending.token.is_some() {
+                display
+                    .transfers
+                    .push_back(display.pending.take().expect("pending submission"));
+                let pipeline = display.descriptor.pipelined_acquire
+                    && display.strip_height < display.descriptor.height;
+                if !pipeline || display.transfers.len() >= 2 || unwinding {
+                    if let Some(error) = finish_transfer(display, renderer, id) {
+                        failure.get_or_insert(error);
+                    }
+                }
+                continue;
             }
             // Both wait outcomes are terminal; success is not required for
             // retirement. A failed flush also guarantees terminal device work.
@@ -587,7 +804,19 @@ impl FrameGuard<'_> {
                 .as_mut()
                 .expect("registered renderer")
                 .retire(pending.submission);
-            display.next_y += display.damage[0].height;
+        }
+        failure
+    }
+    fn drain_transfers(&mut self) -> Option<PresentError> {
+        let mut failure = None;
+        for index in (0..self.coordinator.displays.len()).rev() {
+            let display = &mut self.coordinator.displays[index];
+            let renderer = &mut self.coordinator.renderers[display.renderer.0 as usize];
+            while !display.transfers.is_empty() {
+                if let Some(error) = finish_transfer(display, renderer, DisplayId(index)) {
+                    failure.get_or_insert(error);
+                }
+            }
         }
         failure
     }
@@ -595,7 +824,11 @@ impl FrameGuard<'_> {
 
 impl Drop for FrameGuard<'_> {
     fn drop(&mut self) {
+        if !self.committed {
+            self.coordinator.invalidate();
+        }
         if let Some(id) = self.rendering.take() {
+            self.drain_transfers();
             // Drop stops all hardware, including submissions already returned
             // for other displays and the current call without a token. Only
             // then may submission destructors and display storage be released.
@@ -609,7 +842,76 @@ impl Drop for FrameGuard<'_> {
             }
         }
         self.finish_round(true);
+        self.drain_transfers();
     }
+}
+
+fn finish_transfer(
+    display: &mut RegisteredDisplay,
+    renderer: &mut RegisteredRenderer,
+    id: DisplayId,
+) -> Option<PresentError> {
+    let pending = display
+        .transfers
+        .front_mut()
+        .expect("pending display transfer");
+    let mut failure = None;
+    if pending.display_in_call {
+        // An unwinding native wait consumed its token. Driver Drop drains all
+        // device access before any corresponding renderer resource is retired.
+        drop(display.driver.take());
+    } else if let Some(driver) = display.driver.as_mut() {
+        pending.display_in_call = true;
+        let token = pending.token.take().expect("display token");
+        if let Err(error) = driver.wait(token) {
+            failure = Some(PresentError::DisplayWait(id, error));
+        }
+        pending.display_in_call = false;
+    }
+    let pending = display.transfers.pop_front().unwrap();
+    renderer
+        .driver
+        .as_mut()
+        .expect("registered renderer")
+        .retire(pending.submission);
+    failure
+}
+
+fn intersect(a: Rect, b: Rect) -> Option<Rect> {
+    let x = a.x.max(b.x);
+    let y = a.y.max(b.y);
+    let right = (a.x + a.width).min(b.x + b.width);
+    let bottom = (a.y + a.height).min(b.y + b.height);
+    (x < right && y < bottom).then(|| Rect::new(x, y, right - x, bottom - y))
+}
+fn physical_damage(
+    regions: &[DamageRect],
+    display: &DisplayDescriptor,
+    scale: u32,
+) -> Result<Vec<Rect>, PresentError> {
+    let quantum = |a: u32, b: u32| {
+        (a / gcd(a, b))
+            .checked_mul(b)
+            .ok_or(PresentError::InvalidDisplayDescriptor)
+    };
+    let xq = quantum(display.refresh_granularity[0], display.window_alignment[0])?;
+    let yq = quantum(display.refresh_granularity[1], display.window_alignment[1])?;
+    let up = |value: u64, step: u32, maximum: u32| {
+        value
+            .div_ceil(step as u64)
+            .saturating_mul(step as u64)
+            .min(maximum as u64) as u32
+    };
+    Ok(regions
+        .iter()
+        .map(|r| {
+            let x = r.x0.max(0) as u32 * scale / xq * xq;
+            let y = r.y0.max(0) as u32 * scale / yq * yq;
+            let right = up(r.x1.max(0) as u64 * scale as u64, xq, display.width);
+            let bottom = up(r.y1.max(0) as u64 * scale as u64, yq, display.height);
+            Rect::new(x, y, right - x, bottom - y)
+        })
+        .collect())
 }
 
 fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), PresentError> {
@@ -630,6 +932,10 @@ fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), Prese
             .is_none()
         || display.refresh_granularity.contains(&0)
         || display.window_alignment.contains(&0)
+        || display.pipelined_acquire
+            && (!display.double_buffered
+                || !display.device_frame_storage
+                || display.target_ownership != TargetOwnership::CpuVisible)
     {
         return Err(PresentError::InvalidDisplayDescriptor);
     }

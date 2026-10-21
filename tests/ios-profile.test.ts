@@ -126,10 +126,10 @@ describe("private iOS build profile", () => {
       "set_tick_rate",
     );
     const mount = readFileSync(
-      join(REPOSITORY, "engine/crates/pocket-ui-surface/src/surface.rs"),
+      join(REPOSITORY, "engine/guest-rquickjs/src/lib.rs"),
       "utf8",
     );
-    expect(mount).toContain('ns.set("__tickHz", inner.ui.tick_rate())');
+    expect(mount).toContain('ui.set("__tickHz", environment.tick_hz)');
   });
 
   test("type-checks the nsengine demo's explicit imports", () => {

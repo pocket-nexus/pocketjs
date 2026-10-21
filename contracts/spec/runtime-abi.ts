@@ -23,6 +23,8 @@ export const RUNTIME_ABI_CONSTANTS: Readonly<Record<string, number>> = {
 };
 
 export const RUNTIME_ABI_STRUCTS: readonly AbiRecord[] = [
+  record("PocketGlyphPage", "pocket_glyph_page", [f("page", "u32"), f("first", "u32"), f("count", "u32"), f("width", "u32"), f("height", "u32"), f("uv", "[f32; 4]")], "Guarded A8 page layout and requested glyph UVs; rows include the transparent one-texel guard. The caller owns output storage."),
+  record("PocketTickTiming", "pocket_tick_timing", [f("index", "u64"), f("deadline", "u64"), f("skipped", "u64")], "Monotonic microsecond deadline and wall-clock slot index. Skipped slots do not advance guest simulation."),
   record("PocketRuntimeConfig", "pocket_runtime_config", [
     f("profile_hash", `[u8; ${PROFILE_HASH_BYTES}]`), f("host_abi", "u32"), f("tick_hz", "u32"),
     f("heap_limit", "usize"), f("frame_buffer_budget", "usize"),
@@ -55,6 +57,11 @@ export const RUNTIME_ABI_CALLBACKS: readonly AbiCallback[] = [
 ];
 
 export const RUNTIME_ABI_FUNCTIONS: readonly AbiFunction[] = [
+  { name: "pocket_glyph_page_a8", args: [f("font", "*const PocketFontView"), f("glyph", "u32"), f("max_dimension", "u32"), f("pixels", "*mut u8"), f("capacity", "usize"), f("out", "*mut PocketGlyphPage")], result: "i32", doc: "Query or expand a bounded guarded A8 page through pocket-glyph-pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap." },
+  { name: "pocket_tick_schedule_create", args: [f("tick_hz", "u32"), f("started", "u64"), f("max_lag_us", "u64")], result: "*mut PocketTickSchedule", doc: "Create a thread-owned monotonic deadline schedule. Invalid rate, zero lag limit, or overflow returns null. Platform code owns waits and cancellation." },
+  { name: "pocket_tick_schedule_deadline", args: [f("schedule", "*const PocketTickSchedule"), f("out", "*mut u64")], result: "i32" },
+  { name: "pocket_tick_schedule_poll", args: [f("schedule", "*mut PocketTickSchedule"), f("now", "u64"), f("out", "*mut PocketTickTiming"), f("ready", "*mut u32")], result: "i32", doc: "Reserve at most one due slot. Early polls set ready to zero without advancing; excessive lag skips expired wall-clock slots. Invalid output prefixes leave the schedule unchanged." },
+  { name: "pocket_tick_schedule_destroy", args: [f("schedule", "*mut PocketTickSchedule")], result: "void" },
   { name: "pocket_runtime_create", args: [f("config", "*const PocketRuntimeConfig")], result: "*mut PocketRuntime" },
   { name: "pocket_runtime_set_package_source", args: [runtime, f("source", "*const PocketPackageSourceV1"), context], result: "i32" },
   { name: "pocket_runtime_set_guest", args: [runtime, f("guest", "*const PocketGuestV1"), context], result: "i32" },

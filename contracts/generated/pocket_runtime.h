@@ -18,6 +18,7 @@
 extern "C" {
 #endif
 typedef struct pocket_runtime pocket_runtime;
+typedef struct pocket_tick_schedule pocket_tick_schedule;
 typedef uint32_t pocket_renderer_id;
 #define POCKET_RENDERER_SOFTWARE 0U
 #define POCKET_RENDERER_INVALID 4294967295U
@@ -28,6 +29,8 @@ typedef uint32_t pocket_renderer_id;
 #define POCKET_RESULT_I64 1U
 #define POCKET_RESULT_F64 2U
 #define POCKET_RESULT_BYTES 3U
+typedef struct pocket_glyph_page pocket_glyph_page;
+typedef struct pocket_tick_timing pocket_tick_timing;
 typedef struct pocket_runtime_config pocket_runtime_config;
 typedef struct pocket_op_arg pocket_op_arg;
 typedef struct pocket_named_texture pocket_named_texture;
@@ -62,6 +65,68 @@ typedef void (*pocket_guest_shutdown_fn)(void * context);
 #endif
 #define POCKET_ABI_ALIGN_UP(size, align) (((size) + (align) - 1) / (align) * (align))
 #define POCKET_ABI_MAX(a, b) ((a) > (b) ? (a) : (b))
+
+/* Guarded A8 page layout and requested glyph UVs; rows include the transparent one-texel guard. The caller owns output storage. */
+struct pocket_glyph_page {
+  size_t struct_size;
+  uint32_t page;
+  uint32_t first;
+  uint32_t count;
+  uint32_t width;
+  uint32_t height;
+  float uv[4];
+};
+enum {
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GLYPH_PAGE_0_OFFSET + sizeof(size_t), POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GLYPH_PAGE_0_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GLYPH_PAGE_1_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GLYPH_PAGE_1_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GLYPH_PAGE_2_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GLYPH_PAGE_2_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_4_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GLYPH_PAGE_3_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_4_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GLYPH_PAGE_3_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_5_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GLYPH_PAGE_4_OFFSET + 4, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_5_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GLYPH_PAGE_4_ALIGN, POCKET_ABI_ALIGNOF(uint32_t)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_6_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GLYPH_PAGE_5_OFFSET + 4, POCKET_ABI_ALIGNOF(float)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_6_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_GLYPH_PAGE_5_ALIGN, POCKET_ABI_ALIGNOF(float)),
+  POCKET_LAYOUT_POCKET_GLYPH_PAGE_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_GLYPH_PAGE_6_OFFSET + 4 * 4, POCKET_LAYOUT_POCKET_GLYPH_PAGE_6_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_glyph_page) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_SIZE, "pocket_glyph_page size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_glyph_page) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_6_ALIGN, "pocket_glyph_page alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_glyph_page, struct_size) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_0_OFFSET, "pocket_glyph_page.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_glyph_page, page) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_1_OFFSET, "pocket_glyph_page.page");
+POCKET_ABI_ASSERT(offsetof(pocket_glyph_page, first) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_2_OFFSET, "pocket_glyph_page.first");
+POCKET_ABI_ASSERT(offsetof(pocket_glyph_page, count) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_3_OFFSET, "pocket_glyph_page.count");
+POCKET_ABI_ASSERT(offsetof(pocket_glyph_page, width) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_4_OFFSET, "pocket_glyph_page.width");
+POCKET_ABI_ASSERT(offsetof(pocket_glyph_page, height) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_5_OFFSET, "pocket_glyph_page.height");
+POCKET_ABI_ASSERT(offsetof(pocket_glyph_page, uv) == POCKET_LAYOUT_POCKET_GLYPH_PAGE_6_OFFSET, "pocket_glyph_page.uv");
+
+/* Monotonic microsecond deadline and wall-clock slot index. Skipped slots do not advance guest simulation. */
+struct pocket_tick_timing {
+  size_t struct_size;
+  uint64_t index;
+  uint64_t deadline;
+  uint64_t skipped;
+};
+enum {
+  POCKET_LAYOUT_POCKET_TICK_TIMING_0_OFFSET = POCKET_ABI_ALIGN_UP(0, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_0_ALIGN = POCKET_ABI_MAX(1, POCKET_ABI_ALIGNOF(size_t)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_1_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_TICK_TIMING_0_OFFSET + sizeof(size_t), offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_1_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_TICK_TIMING_0_ALIGN, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_2_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_TICK_TIMING_1_OFFSET + 8, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_2_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_TICK_TIMING_1_ALIGN, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_3_OFFSET = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_TICK_TIMING_2_OFFSET + 8, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_3_ALIGN = POCKET_ABI_MAX(POCKET_LAYOUT_POCKET_TICK_TIMING_2_ALIGN, offsetof(pocket_abi_u64_alignment, value)),
+  POCKET_LAYOUT_POCKET_TICK_TIMING_SIZE = POCKET_ABI_ALIGN_UP(POCKET_LAYOUT_POCKET_TICK_TIMING_3_OFFSET + 8, POCKET_LAYOUT_POCKET_TICK_TIMING_3_ALIGN)
+};
+POCKET_ABI_ASSERT(sizeof(pocket_tick_timing) == POCKET_LAYOUT_POCKET_TICK_TIMING_SIZE, "pocket_tick_timing size");
+POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_tick_timing) == POCKET_LAYOUT_POCKET_TICK_TIMING_3_ALIGN, "pocket_tick_timing alignment");
+POCKET_ABI_ASSERT(offsetof(pocket_tick_timing, struct_size) == POCKET_LAYOUT_POCKET_TICK_TIMING_0_OFFSET, "pocket_tick_timing.struct_size");
+POCKET_ABI_ASSERT(offsetof(pocket_tick_timing, index) == POCKET_LAYOUT_POCKET_TICK_TIMING_1_OFFSET, "pocket_tick_timing.index");
+POCKET_ABI_ASSERT(offsetof(pocket_tick_timing, deadline) == POCKET_LAYOUT_POCKET_TICK_TIMING_2_OFFSET, "pocket_tick_timing.deadline");
+POCKET_ABI_ASSERT(offsetof(pocket_tick_timing, skipped) == POCKET_LAYOUT_POCKET_TICK_TIMING_3_OFFSET, "pocket_tick_timing.skipped");
 
 /* profile_json is the canonical profile projection defined by profile.ts; profile_hash is its SHA-256. Limits are bytes; tick_hz must equal the projection's tickHz. No target or toolchain selection occurs here. */
 struct pocket_runtime_config {
@@ -417,6 +482,19 @@ POCKET_ABI_ASSERT(sizeof(pocket_op_provider_v1) == POCKET_LAYOUT_POCKET_OP_PROVI
 POCKET_ABI_ASSERT(POCKET_ABI_ALIGNOF(pocket_op_provider_v1) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_ALIGN, "pocket_op_provider_v1 alignment");
 POCKET_ABI_ASSERT(offsetof(pocket_op_provider_v1, struct_size) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_0_OFFSET, "pocket_op_provider_v1.struct_size");
 POCKET_ABI_ASSERT(offsetof(pocket_op_provider_v1, dispatch) == POCKET_LAYOUT_POCKET_OP_PROVIDER_V1_1_OFFSET, "pocket_op_provider_v1.dispatch");
+
+/* Query or expand a bounded guarded A8 page through pocket-glyph-pages. max_dimension is a power of two in 8..4096. Null pixels with zero capacity queries metadata only; otherwise capacity must cover width*height. Errors leave pixels and out unchanged. Font, output bytes and metadata must not overlap. */
+int32_t pocket_glyph_page_a8(const pocket_font_view * font, uint32_t glyph, uint32_t max_dimension, uint8_t * pixels, size_t capacity, pocket_glyph_page * out);
+
+/* Create a thread-owned monotonic deadline schedule. Invalid rate, zero lag limit, or overflow returns null. Platform code owns waits and cancellation. */
+pocket_tick_schedule * pocket_tick_schedule_create(uint32_t tick_hz, uint64_t started, uint64_t max_lag_us);
+
+int32_t pocket_tick_schedule_deadline(const pocket_tick_schedule * schedule, uint64_t * out);
+
+/* Reserve at most one due slot. Early polls set ready to zero without advancing; excessive lag skips expired wall-clock slots. Invalid output prefixes leave the schedule unchanged. */
+int32_t pocket_tick_schedule_poll(pocket_tick_schedule * schedule, uint64_t now, pocket_tick_timing * out, uint32_t * ready);
+
+void pocket_tick_schedule_destroy(pocket_tick_schedule * schedule);
 
 pocket_runtime * pocket_runtime_create(const pocket_runtime_config * config);
 

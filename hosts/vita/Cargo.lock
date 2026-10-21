@@ -119,8 +119,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-runtime"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-package",
+ "pocket-present",
+ "pocket-spec",
+ "pocketjs-core",
+ "serde_json",
+]
+
+[[package]]
+name = "pocket-runtime-cabi"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-raster",
+ "pocket-runtime",
+ "pocket-spec",
+ "pocketjs-core",
+]
+
+[[package]]
 name = "pocket-spec"
 version = "0.1.0"
+
+[[package]]
+name = "pocket-tex-cache"
+version = "0.1.0"
+
+[[package]]
+name = "pocket-tri-batch"
+version = "0.1.0"
+
+[[package]]
+name = "pocket-vita-gxm"
+version = "0.1.0"
+dependencies = [
+ "vita2d-sys",
+ "vitasdk-sys",
+]
+
+[[package]]
+name = "pocket-vita-render"
+version = "0.1.0"
+dependencies = [
+ "pocket-draw-ops",
+ "pocket-drivers",
+ "pocket-glyph-pages",
+ "pocket-spec",
+ "pocket-tex-cache",
+ "pocket-tri-batch",
+ "pocket-vita-gxm",
+ "vita2d-sys",
+ "vitasdk-sys",
+]
 
 [[package]]
 name = "pocketjs-core"
@@ -140,7 +196,13 @@ dependencies = [
 name = "pocketjs-vita"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "libquickjs-sys",
+ "pocket-drivers",
+ "pocket-package",
+ "pocket-runtime",
+ "pocket-runtime-cabi",
+ "pocket-vita-render",
  "pocketjs-core",
  "serde",
  "serde_json",

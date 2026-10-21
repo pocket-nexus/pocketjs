@@ -22,9 +22,7 @@ jobs:
           tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts
       - run: bun tools/esp-idf-contracts.ts --check
       - uses: dtolnay/rust-toolchain@1.93.0
-      - run: cargo test --locked --manifest-path hosts/esp-idf/native/ui-core/Cargo.toml
-      - run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi --features legacy-idf
-      - run: cargo test --locked --manifest-path hosts/esp-idf/tests/native/Cargo.toml
+      - run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-runtime-cabi -p pocket-present -p pocket-render-esp-ppa --features pocket-render-esp-ppa/cabi
       - run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-package -p pocket-media
       - name: Test C bindings with the pinned QuickJS component
         env:
@@ -33,12 +31,14 @@ jobs:
           bun -e 'const r = await fetch("https://components-file.espressif.com/components/espressif/quickjs-ng/0.14.0/espressif__quickjs-ng-v0.14.0.zip"); if (!r.ok) throw new Error(String(r.status)); await Bun.write(process.env.RUNNER_TEMP + "/quickjs.zip", r);'
           unzip -q "$RUNNER_TEMP/quickjs.zip" -d "$RUNNER_TEMP/pocketjs-quickjs"
           bun tools/esp-idf-host-tests.ts
-      - name: Fuzz package parsing with sanitizers
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Fuzz canonical package admission and short reads
         run: |
-          cmake -S hosts/esp-idf/tests/fuzz -B "$RUNNER_TEMP/package-fuzz" -G Ninja -DCMAKE_C_COMPILER=clang
-          cmake --build "$RUNNER_TEMP/package-fuzz"
-          cp -R tests/fixtures/packages/corpus "$RUNNER_TEMP/package-fuzz/corpus"
-          "$RUNNER_TEMP/package-fuzz/package_fuzz" "$RUNNER_TEMP/package-fuzz/corpus" -runs=10000 -max_len=8192
+          cargo install cargo-fuzz --locked
+          mkdir -p .pocket-build/validation/package-fuzz/ci/corpus
+          cp tests/fixtures/packages/corpus/* .pocket-build/validation/package-fuzz/ci/corpus/
+          cd engine/package
+          CARGO_TARGET_DIR=../../.pocket-build/validation/package-fuzz/target cargo +nightly fuzz run admission ../../.pocket-build/validation/package-fuzz/ci/corpus -- -runs=10000 -max_len=8192 -artifact_prefix=../../.pocket-build/validation/package-fuzz/ci/
 
   firmware:
     runs-on: ubuntu-latest

@@ -60,9 +60,14 @@ export async function stageEspIdfComponents(root: string, output: string): Promi
     for (const name of ["pocket_drivers.h", "pocket_runtime.h", "pocket_spec.h"])
       cpSync(join(root, "contracts/generated", name), join(component, "include", name));
   }
-  const ppaInclude = join(output, "pocketjs_esp32p4_ppa/include/pocket");
+  const ppaInclude = join(output, "pocket_render_esp_ppa/include/pocket");
   mkdirSync(ppaInclude, { recursive: true });
   cpSync(join(root, "platforms/esp-idf/render-ppa/include/pocket/render_esp_ppa.h"), join(ppaInclude, "render_esp_ppa.h"));
+  const guest = join(output, "pocket_guest_quickjs");
+  mkdirSync(join(guest, "generated"), { recursive: true });
+  for (const name of ["guest.c", "generated_ops.h"])
+    cpSync(join(root, "engine/guest-quickjs/src", name), join(guest, "generated", name));
+  cpSync(join(root, "engine/guest-quickjs/include/pocket_guest_quickjs.h"), join(guest, "include/pocket_guest_quickjs.h"));
   for (const spec of NATIVE_COMPONENTS) for (const target of Object.keys(RUST_TARGETS) as IdfTarget[])
     await verifyNativeReceipt(root, spec, target, join(output, spec.component, "lib", target));
   console.log("ESP-IDF component staging verified: " + output);

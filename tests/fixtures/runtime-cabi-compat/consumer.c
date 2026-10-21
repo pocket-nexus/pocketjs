@@ -135,7 +135,7 @@ int main(int argc,char **argv){
   prefix_and_operation_tests();raster_test();
   pocket_package_source_v1 source={sizeof(source),source_length,NULL,source_range};
   pocket_guest_v1 guest={sizeof(guest),evaluate,frame,NULL,shutdown_guest,initialize};
-  pocket_display_output_v1 display={sizeof(display),descriptor,acquire,flush,display_wait,NULL};
+  pocket_display_output_v1 display={.struct_size=sizeof(display),.descriptor=descriptor,.acquire=acquire,.flush=flush,.wait=display_wait};
   assert(pocket_runtime_set_package_source(instance,&source,NULL)==0);
   assert(pocket_runtime_set_guest(instance,&guest,NULL)==0);
   assert(pocket_runtime_add_display(instance,&display,NULL,POCKET_RENDERER_SOFTWARE)==0);

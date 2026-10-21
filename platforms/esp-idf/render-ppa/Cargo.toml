@@ -5,7 +5,12 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 
+[features]
+default = []
+cabi = ["dep:pocket-runtime-cabi"]
+
 [dependencies]
+pocket-runtime-cabi = { path = "../../../engine/runtime-cabi", default-features = false, optional = true }
 pocket-drivers = { path = "../../../engine/drivers" }
 pocket-spec = { path = "../../../engine/spec" }
 pocket-draw-ops = { path = "../../../engine/render/draw-ops" }
@@ -13,4 +18,8 @@ pocket-raster = { path = "../../../engine/raster" }
 pocket-glyph-pages = { path = "../../../engine/render/glyph-pages" }
 
 [dev-dependencies]
+pocket-present = { path = "../../../engine/present" }
+pocket-runtime-cabi = { path = "../../../engine/runtime-cabi", features = ["std"] }
 pocketjs-core = { path = "../../../engine/core" }
+
+# C bridge tests use the host allocator; production builds remain no_std.

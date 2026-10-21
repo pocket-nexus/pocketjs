@@ -179,8 +179,9 @@ pub unsafe fn tick(_ui: &mut Ui) -> i32 {
     s.presented_frame
 }
 
-/// Commit the staged frame to the plane texture. MUST run in the GPU-idle
-/// window (Runtime::render invokes it right after begin_frame).
+/// Commit the staged frame to core texture storage before the runtime builds
+/// its DrawList. The GXM driver owns the GPU copy and only rewrites an idle
+/// cached allocation; pending GPU references retain their previous revision.
 pub unsafe fn present(ui: &mut Ui) {
     let Some(s) = SESSION.as_mut() else { return };
     if !s.pending {
@@ -190,8 +191,8 @@ pub unsafe fn present(ui: &mut Ui) {
     let pal = &s.staging[..1024];
     let px = &s.staging[1024..];
     if ui.update_texture_t8(s.tex, pal, px) {
-        // Rewrite the mirrored vita2d texture in place — the recycle path
-        // would allocate+drain GXM every frame at 24 fps.
+        // Mark the mirrored revision stale. The renderer selects the bounded
+        // idle-update path when no submission still references the allocation.
         graphics::update_texture_in_place(ui, s.tex);
         s.presented_seq = s.staged_seq;
         s.presented_frame = s.staged_frame;

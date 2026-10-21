@@ -74,6 +74,43 @@ impl<T> TextureCache<T> {
             .map(|entry| &entry.texture)
     }
 
+    /// Update storage without allocating a second version, only when no
+    /// submission references it. Handle and byte charge must remain unchanged.
+    /// `Ok(None)` means the caller must upload a separate version instead.
+    /// The callback runs without GPU readers; it must not leave asynchronous
+    /// writes pending. Failure invalidates the old entry because the callback
+    /// may have changed its contents before failing. `collect` can release it.
+    pub fn update_unreferenced<E>(
+        &mut self,
+        old: TextureKey,
+        new: TextureKey,
+        bytes: usize,
+        update: impl FnOnce(&T) -> Result<(), E>,
+    ) -> Result<Option<&T>, E> {
+        if old.handle != new.handle
+            || self
+                .entries
+                .iter()
+                .any(|entry| entry.key == new && entry.key != old)
+        {
+            return Ok(None);
+        }
+        let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.key == old && entry.bytes == bytes && entry.submissions.is_empty())
+        else {
+            return Ok(None);
+        };
+        entry.invalidated = true;
+        update(&entry.texture)?;
+        self.clock = self.clock.saturating_add(1);
+        entry.key = new;
+        entry.used = self.clock;
+        entry.invalidated = false;
+        Ok(Some(&entry.texture))
+    }
+
     /// Add a submission reference before native commands use this texture.
     pub fn retain(&mut self, key: TextureKey, submission: u64) -> Option<&T> {
         let entry = self

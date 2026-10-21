@@ -82,7 +82,7 @@ fn run_instance(bundle: &[u8], pak: &[u8], tick_hz: Option<u32>) -> (Vec<u8>, u3
 
 fn write_ppm(path: &str, argb: &[u8], width: u32, height: u32) {
     let mut out = format!("P6\n{width} {height}\n255\n").into_bytes();
-    for chunk in argb.chunks_exact(4) {
+    for chunk in argb.as_chunks::<4>().0 {
         // ARGB32 little-endian in memory: B, G, R, A.
         out.extend_from_slice(&[chunk[2], chunk[1], chunk[0]]);
     }
@@ -119,7 +119,7 @@ fn main() {
     let (first, w, h, damage_a) = run_instance(&bundle, &pak, tick_hz);
     let (second, _, _, damage_b) = run_instance(&bundle, &pak, tick_hz);
 
-    let non_blank = first.chunks_exact(4).any(|px| px[0] != 0 || px[1] != 0 || px[2] != 0);
+    let non_blank = first.as_chunks::<4>().0.iter().any(|px| px[0] != 0 || px[1] != 0 || px[2] != 0);
     let deterministic = first == second;
 
     write_ppm(&format!("{out_base}-frame{FRAMES}.ppm"), &first, w, h);

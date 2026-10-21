@@ -36,7 +36,8 @@ fn check(status: i32) -> Result<(), AdapterError> {
         _ => Err(AdapterError::Failed),
     }
 }
-pub(crate) fn pixel_format(value: u32) -> Result<PixelFormat, AdapterError> {
+/// Convert a canonical pixel-format tag, rejecting unknown formats.
+pub fn pixel_format(value: u32) -> Result<PixelFormat, AdapterError> {
     match value {
         POCKET_PIXEL_FORMAT_RGB565 => Ok(PixelFormat::Rgb565),
         POCKET_PIXEL_FORMAT_RGBA8888 => Ok(PixelFormat::Rgba8888),
@@ -63,7 +64,11 @@ fn vsync(value: u32) -> Result<VsyncSource, AdapterError> {
         _ => Err(AdapterError::Invalid),
     }
 }
-pub(crate) unsafe fn borrowed<'a, T>(
+/// Validate a foreign slice shape before borrowing its allocation.
+/// # Safety
+/// For nonzero count, pointer must name initialized T values in one live allocation
+/// for the returned lifetime; no writer may access those values during the borrow.
+pub unsafe fn borrowed<'a, T>(
     pointer: *const T,
     count: usize,
 ) -> Result<&'a [T], AdapterError> {
@@ -80,7 +85,11 @@ pub(crate) unsafe fn borrowed<'a, T>(
     }
     Ok(unsafe { slice::from_raw_parts(pointer, count) })
 }
-pub(crate) unsafe fn writable<'a>(
+/// Validate a foreign writable byte span.
+/// # Safety
+/// For nonzero count, pointer must name one initialized allocation exclusively
+/// borrowed for the returned lifetime, with no hardware or other concurrent access.
+pub unsafe fn writable<'a>(
     pointer: *mut u8,
     count: usize,
 ) -> Result<&'a mut [u8], AdapterError> {
@@ -133,7 +142,11 @@ unsafe fn record_array<T>(
     }
     Ok(())
 }
-pub(crate) unsafe fn rect(pointer: *const PocketRect) -> Result<Rect, AdapterError> {
+/// Read a nonempty canonical rectangle with checked endpoint arithmetic.
+/// # Safety
+/// A nonnull pointer must provide a readable size prefix and initialized bytes
+/// through the smaller of that prefix and the known PocketRect size.
+pub unsafe fn rect(pointer: *const PocketRect) -> Result<Rect, AdapterError> {
     let r = unsafe { PocketRect::read_prefix(pointer) }.ok_or(AdapterError::Invalid)?;
     if r.width == 0
         || r.height == 0

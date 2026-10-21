@@ -2,6 +2,8 @@
 //! Hardware operations finish before returning, including error paths.
 #![no_std]
 extern crate alloc;
+#[cfg(feature = "cabi")]
+pub mod cabi;
 use alloc::vec::Vec;
 use pocket_draw_ops::{DrawOps, Operation};
 use pocket_drivers::{

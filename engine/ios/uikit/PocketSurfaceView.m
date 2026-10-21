@@ -24,6 +24,7 @@ typedef struct {
   BOOL live;
   BOOL reported;
   BOOL used;
+  BOOL cancelled;
 } PocketTouchSlot;
 
 @interface PocketSurfaceView ()
@@ -35,9 +36,66 @@ typedef struct {
                       hostAbi:(uint32_t)hostAbi;
 @end
 
+static int32_t PocketGuestInitialize(void *context, pocket_runtime *runtime, const pocket_guest_environment *environment) {
+  (void)runtime;
+  __unsafe_unretained PocketSurfaceView *view = (__bridge PocketSurfaceView *)context;
+  if (view.onGuestInitialize == nil) return POCKET_STATUS_FAILED;
+  NSMutableArray *textures = [NSMutableArray array];
+  NSMutableArray *sprites = [NSMutableArray array];
+  for (size_t i = 0; i < environment->texture_count; i++) {
+    const pocket_named_texture *item = &environment->textures[i];
+    NSString *name = [[NSString alloc] initWithBytes:item->name length:item->name_length encoding:NSUTF8StringEncoding];
+    if (name == nil) return POCKET_STATUS_INVALID;
+    [textures addObject:@{ @"name": name, @"handle": @(item->handle) }];
+  }
+  for (size_t i = 0; i < environment->sprite_count; i++) {
+    const pocket_named_sprite *item = &environment->sprites[i];
+    NSString *name = [[NSString alloc] initWithBytes:item->name length:item->name_length encoding:NSUTF8StringEncoding];
+    if (name == nil) return POCKET_STATUS_INVALID;
+    [sprites addObject:@{ @"name": name, @"handle": @(item->handle), @"frames": @(item->frames), @"columns": @(item->columns), @"step": @(item->step) }];
+  }
+  NSString *host = [[NSString alloc] initWithBytes:environment->host length:environment->host_length encoding:NSUTF8StringEncoding];
+  if (host == nil) return POCKET_STATUS_INVALID;
+  NSDictionary *metadata = @{ @"host": host, @"hostAbi": @(environment->host_abi), @"tickHz": @(environment->tick_hz),
+    @"viewport": @{ @"w": @(environment->viewport_width), @"h": @(environment->viewport_height) },
+    @"rasterDensity": @(environment->raster_density), @"textures": textures, @"sprites": sprites,
+    @"pak": [NSData dataWithBytes:environment->pak length:environment->pak_length] };
+  @try { return view.onGuestInitialize(metadata) ? 0 : POCKET_STATUS_FAILED; }
+  @catch (NSException *exception) { (void)exception; return POCKET_STATUS_FAILED; }
+}
+static int32_t PocketGuestEvaluate(void *context, pocket_runtime *runtime, const uint8_t *code, size_t length) {
+  (void)runtime;
+  __unsafe_unretained PocketSurfaceView *view = (__bridge PocketSurfaceView *)context;
+  if (length > 0 && code[length - 1] == 0) length--;
+  NSString *source = [[NSString alloc] initWithBytes:code length:length encoding:NSUTF8StringEncoding];
+  if (source == nil || view.onGuestEvaluate == nil) return POCKET_STATUS_FAILED;
+  @try { return view.onGuestEvaluate(source) ? 0 : POCKET_STATUS_FAILED; }
+  @catch (NSException *exception) { (void)exception; return POCKET_STATUS_FAILED; }
+}
+static int32_t PocketGuestFrame(void *context, const pocket_guest_frame *frame) {
+  __unsafe_unretained PocketSurfaceView *view = (__bridge PocketSurfaceView *)context;
+  if (view.onGuestFrame == nil) return POCKET_STATUS_FAILED;
+  NSMutableArray *touches = [NSMutableArray array], *hits = [NSMutableArray array], *surfaces = [NSMutableArray array];
+  for (size_t i = 0; i < frame->touch_count; i++) {
+    [touches addObject:@(frame->touches[i])]; [hits addObject:@(frame->hits[i])]; [surfaces addObject:@(frame->touch_surfaces[i])];
+  }
+  NSDictionary *input = @{ @"buttons": @(frame->buttons), @"analog": @(frame->analog), @"touches": touches,
+    @"hits": hits, @"surfaces": surfaces, @"rightAnalog": @(frame->right_analog) };
+  @try { return view.onGuestFrame(input) ? 0 : POCKET_STATUS_FAILED; }
+  @catch (NSException *exception) { (void)exception; return POCKET_STATUS_FAILED; }
+}
+static void PocketGuestShutdown(void *context) {
+  __unsafe_unretained PocketSurfaceView *view = (__bridge PocketSurfaceView *)context;
+  @try { if (view.onGuestShutdown != nil) view.onGuestShutdown(); }
+  @catch (NSException *exception) { (void)exception; }
+}
+static const pocket_guest_v1 PocketExternalGuest = {
+  .struct_size = sizeof(pocket_guest_v1), .initialize = PocketGuestInitialize,
+  .evaluate = PocketGuestEvaluate, .frame = PocketGuestFrame, .shutdown = PocketGuestShutdown,
+};
+
 @implementation PocketSurfaceView {
   PocketApple *_handle;
-  PocketAppleCore *_coreHandle;
   CADisplayLink *_displayLink;
   NSTimer *_frameTimer;
   CGColorSpaceRef _colorSpace;
@@ -45,6 +103,8 @@ typedef struct {
   uint32_t _density;
   uint64_t _frameNumber;
   BOOL _running;
+  BOOL _runtimeCallActive;
+  BOOL _disposeAfterCall;
 }
 
 + (instancetype)surfaceWithLogicalWidth:(uint32_t)logicalWidth
@@ -77,12 +137,7 @@ typedef struct {
                                           logicalHeight:logicalHeight
                                                 density:density];
   if (view != nil && view->_handle != NULL) {
-    pocket_apple_destroy(view->_handle);
-    view->_handle = NULL;
-    view->_coreHandle = pocket_apple_core_create(density, logicalWidth, logicalHeight);
-    if (view->_coreHandle == NULL) {
-      [view captureError];
-    }
+    if (pocket_apple_set_guest(view->_handle, &PocketExternalGuest, (__bridge void *)view) != 0) [view captureError];
   }
   return view;
 }
@@ -139,12 +194,9 @@ typedef struct {
   [_displayLink invalidate];
   [_frameTimer invalidate];
   if (_handle != NULL) {
-    pocket_apple_destroy(_handle);
+    PocketApple *handle = _handle;
     _handle = NULL;
-  }
-  if (_coreHandle != NULL) {
-    pocket_apple_core_destroy(_coreHandle);
-    _coreHandle = NULL;
+    pocket_apple_destroy(handle);
   }
   if (_colorSpace != NULL) {
     CGColorSpaceRelease(_colorSpace);
@@ -160,9 +212,14 @@ typedef struct {
 }
 
 static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
-  PocketSurfaceView *view = (__bridge PocketSurfaceView *)context;
-  if (view.onEffect != nil && line != NULL) {
-    view.onEffect(@(line));
+  __unsafe_unretained PocketSurfaceView *view = (__bridge PocketSurfaceView *)context;
+  @try {
+    if (view.onEffect != nil && line != NULL) view.onEffect(@(line));
+  } @catch (NSException *exception) {
+    // Objective-C exceptions must never unwind across the Rust C callback.
+    [view stop];
+    @try { if (view.onError != nil) view.onError(exception.reason ?: @"host effect failed"); }
+    @catch (NSException *nested) { (void)nested; }
   }
 }
 
@@ -181,23 +238,12 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
   if (line.length == 0) {
     return;
   }
-  if (_coreHandle != NULL) {
-    pocket_apple_core_post_event(_coreHandle, line.UTF8String);
-  } else if (_handle != NULL) {
-    pocket_apple_post_event(_handle, line.UTF8String);
-  }
+  if (_handle != NULL) pocket_apple_post_event(_handle, line.UTF8String);
 }
 
 - (BOOL)loadPak:(NSData *)pak {
   if (pak.length == 0) {
     return NO;
-  }
-  if (_coreHandle != NULL) {
-    if (pocket_apple_core_load_pak(_coreHandle, pak.bytes, pak.length) != 0) {
-      [self captureError];
-      return NO;
-    }
-    return YES;
   }
   if (_handle == NULL) {
     return NO;
@@ -214,8 +260,12 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
     return NO;
   }
   NSData *utf8 = [source dataUsingEncoding:NSUTF8StringEncoding];
-  if (pocket_apple_eval_bundle(_handle, utf8.bytes, utf8.length,
-                               label != nil ? label.UTF8String : NULL) != 0) {
+  _runtimeCallActive = YES;
+  int32_t status = pocket_apple_eval_bundle(_handle, utf8.bytes, utf8.length,
+                               label != nil ? label.UTF8String : NULL);
+  _runtimeCallActive = NO;
+  if (_disposeAfterCall) { [self disposeRuntime]; return NO; }
+  if (status != 0) {
     [self captureError];
     return NO;
   }
@@ -248,9 +298,7 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
   // set surfaces through lastError/onError and leaves the old rate pinned.
   uint32_t rate = tickRate > 0 ? tickRate : kPocketSurfaceDefaultTickRate;
   int32_t status = 0;
-  if (_coreHandle != NULL) {
-    status = pocket_apple_core_set_tick_rate(_coreHandle, rate);
-  } else if (_handle != NULL) {
+  if (_handle != NULL) {
     status = pocket_apple_set_tick_rate(_handle, rate);
   }
   if (status != 0) {
@@ -261,7 +309,7 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
 }
 
 - (void)start {
-  if (_running || (_handle == NULL && _coreHandle == NULL)) {
+  if (_running || _handle == NULL) {
     return;
   }
   _running = YES;
@@ -277,11 +325,11 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
 }
 
 - (void)startWithFixedFrameTimer {
-  if (_running || (_handle == NULL && _coreHandle == NULL)) {
+  if (_running || _handle == NULL) {
     return;
   }
   _running = YES;
-  _frameTimer = [NSTimer timerWithTimeInterval:(1.0 / 60.0)
+  _frameTimer = [NSTimer timerWithTimeInterval:(1.0 / (_tickRate > 0 ? _tickRate : kPocketSurfaceDefaultTickRate))
                                         target:self
                                       selector:@selector(handleFixedTimerTick:)
                                       userInfo:nil
@@ -295,6 +343,19 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
   _displayLink = nil;
   [_frameTimer invalidate];
   _frameTimer = nil;
+}
+
+- (void)disposeRuntime {
+  [self stop];
+  if (_runtimeCallActive) { _disposeAfterCall = YES; return; }
+  _disposeAfterCall = NO;
+  if (_handle != NULL) {
+    PocketApple *handle = _handle;
+    _handle = NULL;
+    pocket_apple_destroy(handle);
+  }
+  self.onGuestInitialize = nil; self.onGuestEvaluate = nil;
+  self.onGuestFrame = nil; self.onGuestShutdown = nil;
 }
 
 - (void)appDidEnterBackground {
@@ -356,6 +417,7 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
         _touchSlots[slot].point = [touch locationInView:self];
         _touchSlots[slot].live = YES;
         _touchSlots[slot].reported = NO;
+        _touchSlots[slot].cancelled = NO;
         _touchSlots[slot].used = YES;
         break;
       }
@@ -374,19 +436,20 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
 }
 
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-  [self releaseTouches:touches];
+  [self releaseTouches:touches cancelled:NO];
 }
 
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-  [self releaseTouches:touches];
+  [self releaseTouches:touches cancelled:YES];
 }
 
-- (void)releaseTouches:(NSSet<UITouch *> *)touches {
+- (void)releaseTouches:(NSSet<UITouch *> *)touches cancelled:(BOOL)cancelled {
   for (UITouch *touch in touches) {
     for (int slot = 0; slot < POCKET_MAX_TOUCHES; slot++) {
       if (_touchSlots[slot].used && _touchSlots[slot].touch == touch) {
         _touchSlots[slot].live = NO;
-        if (_touchSlots[slot].reported) {
+        _touchSlots[slot].cancelled = cancelled;
+        if (_touchSlots[slot].reported && !cancelled) {
           _touchSlots[slot].used = NO;
         }
       }
@@ -405,12 +468,13 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
     }
     uint32_t x = 0;
     uint32_t y = 0;
-    if ([self logicalPointForPoint:_touchSlots[slot].point outX:&x outY:&y]) {
+    if ([self logicalPointForPoint:_touchSlots[slot].point outX:&x outY:&y] || _touchSlots[slot].cancelled) {
+      uint32_t cancel = _touchSlots[slot].cancelled ? 0x40000000u : 0;
       if (_logicalWidth > 512 || _logicalHeight > 512) {
-        words[count++] = 0x80000000u | ((uint32_t)(slot & 0xff) << 20) |
+        words[count++] = cancel | 0x80000000u | ((uint32_t)(slot & 0xff) << 20) |
                          ((y & 0x3ff) << 10) | (x & 0x3ff);
       } else {
-        words[count++] = ((uint32_t)(slot & 0xff) << 18) |
+        words[count++] = cancel | ((uint32_t)(slot & 0xff) << 18) |
                          ((y & 0x1ff) << 9) | (x & 0x1ff);
       }
     }
@@ -448,37 +512,14 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
   uint32_t words[POCKET_MAX_TOUCHES];
   size_t count = [self collectTouchWords:words];
 
-  if (_coreHandle != NULL) {
-    if (self.onTick != nil) {
-      NSMutableArray<NSNumber *> *touches = [NSMutableArray arrayWithCapacity:count];
-      for (size_t i = 0; i < count; i++) {
-        [touches addObject:@(words[i])];
-      }
-      self.onTick(0, 0x8080, touches);
-    }
-    pocket_apple_core_tick(_coreHandle);
-    if (self.onEffect != nil) {
-      pocket_apple_core_drain_effects(_coreHandle, PocketSurfaceEffectTrampoline,
-                                      (__bridge void *)self);
-    }
-    PocketAppleFrame frame;
-    if (pocket_apple_core_render(_coreHandle, &frame) != 0) {
-      [self captureError];
-      [self stop];
-      return;
-    }
-    [self presentFrame:&frame];
-    _frameNumber += 1;
-    if (self.onFrame != nil) {
-      self.onFrame(_frameNumber, count);
-    }
-    return;
-  }
-
   if (_handle == NULL) {
     return;
   }
-  if (pocket_apple_frame(_handle, 0, 0, count > 0 ? words : NULL, count) != 0) {
+  _runtimeCallActive = YES;
+  int32_t status = pocket_apple_frame(_handle, 0, 0, count > 0 ? words : NULL, count);
+  _runtimeCallActive = NO;
+  if (_disposeAfterCall) { [self disposeRuntime]; return; }
+  if (status != 0) {
     [self captureError];
     [self stop];
     return;
@@ -496,139 +537,37 @@ static void PocketSurfaceEffectTrampoline(const char *line, void *context) {
   }
 }
 
-// ---- external-guest ui.* ops --------------------------------------------
-
-- (int32_t)uiCreateNode:(int32_t)nodeType {
-  return _coreHandle != NULL ? pocket_apple_core_create_node(_coreHandle, (uint32_t)nodeType) : 0;
+- (BOOL)supportsOperation:(uint16_t)operation {
+  return _handle != NULL && pocket_apple_supports_op(_handle, operation) != 0;
 }
-
-- (void)uiDestroyNode:(int32_t)nodeId {
-  if (_coreHandle != NULL) pocket_apple_core_destroy_node(_coreHandle, nodeId);
-}
-
-- (void)uiInsertBefore:(int32_t)parent child:(int32_t)child anchor:(int32_t)anchor {
-  if (_coreHandle != NULL) pocket_apple_core_insert_before(_coreHandle, parent, child, anchor);
-}
-
-- (void)uiRemoveChild:(int32_t)parent child:(int32_t)child {
-  if (_coreHandle != NULL) pocket_apple_core_remove_child(_coreHandle, parent, child);
-}
-
-- (void)uiSetStyle:(int32_t)nodeId style:(int32_t)styleId {
-  if (_coreHandle != NULL) pocket_apple_core_set_style(_coreHandle, nodeId, styleId);
-}
-
-- (void)uiSetProp:(int32_t)nodeId prop:(int32_t)prop value:(double)value {
-  if (_coreHandle != NULL) pocket_apple_core_set_prop(_coreHandle, nodeId, (uint32_t)prop, value);
-}
-
-- (void)uiSetText:(int32_t)nodeId text:(NSString *)text {
-  if (_coreHandle == NULL) return;
-  NSData *utf8 = [text dataUsingEncoding:NSUTF8StringEncoding];
-  pocket_apple_core_set_text(_coreHandle, nodeId, utf8.bytes, utf8.length);
-}
-
-- (void)uiReplaceText:(int32_t)nodeId text:(NSString *)text {
-  if (_coreHandle == NULL) return;
-  NSData *utf8 = [text dataUsingEncoding:NSUTF8StringEncoding];
-  pocket_apple_core_replace_text(_coreHandle, nodeId, utf8.bytes, utf8.length);
-}
-
-- (float)uiMeasureText:(NSString *)text fontSlot:(int32_t)fontSlot {
-  if (_coreHandle == NULL) return 0;
-  NSData *utf8 = [text dataUsingEncoding:NSUTF8StringEncoding];
-  return pocket_apple_core_measure_text(_coreHandle, utf8.bytes, utf8.length, (uint32_t)fontSlot);
-}
-
-- (int32_t)uiUploadTexture:(NSData *)pixels width:(uint32_t)width height:(uint32_t)height psm:(uint32_t)psm {
-  if (_coreHandle == NULL || pixels.length == 0) return -1;
-  return pocket_apple_core_upload_texture(_coreHandle, pixels.bytes, pixels.length, width, height, psm);
-}
-
-- (void)uiSetImage:(int32_t)nodeId texture:(int32_t)texture {
-  if (_coreHandle != NULL) pocket_apple_core_set_image(_coreHandle, nodeId, texture);
-}
-
-- (void)uiSetSprite:(int32_t)nodeId atlas:(int32_t)atlas frames:(int32_t)frames cols:(int32_t)cols step:(int32_t)step {
-  if (_coreHandle != NULL) {
-    pocket_apple_core_set_sprite(_coreHandle, nodeId, atlas, (uint32_t)frames, (uint32_t)cols,
-                                 (uint32_t)step);
+- (NSDictionary *)dispatchOperation:(uint16_t)operation arguments:(NSArray<NSDictionary *> *)arguments {
+  if (_handle == NULL || arguments.count > 64) return @{ @"error": @"invalid runtime arguments" };
+  pocket_op_arg values[64] = {0};
+  for (NSUInteger i = 0; i < arguments.count; i++) {
+    NSDictionary *argument = arguments[i];
+    NSString *kind = argument[@"kind"];
+    id value = argument[@"value"];
+    values[i].struct_size = sizeof(values[i]);
+    if ([kind isEqualToString:@"integer"] && [value isKindOfClass:[NSNumber class]]) {
+      values[i].tag = POCKET_ARG_INTEGER; values[i].integer = [value longLongValue];
+    } else if ([kind isEqualToString:@"real"] && [value isKindOfClass:[NSNumber class]]) {
+      values[i].tag = POCKET_ARG_REAL; values[i].real = [value doubleValue];
+    } else if ([kind isEqualToString:@"bytes"] && [value isKindOfClass:[NSData class]]) {
+      values[i].tag = POCKET_ARG_BYTES; values[i].bytes = [value bytes]; values[i].byte_length = [value length];
+    } else return @{ @"error": @"invalid operation argument" };
+  }
+  pocket_result result = { .struct_size = sizeof(result) };
+  int32_t status = pocket_apple_op(_handle, operation, values, arguments.count * sizeof(values[0]), &result);
+  if (status != 0) return @{ @"error": [NSString stringWithFormat:@"runtime operation failed (%d)", status] };
+  switch (result.tag) {
+    case POCKET_RESULT_NONE: return @{ @"kind": @"none" };
+    case POCKET_RESULT_I64: return @{ @"kind": @"integer", @"value": @(result.integer) };
+    case POCKET_RESULT_F64: return @{ @"kind": @"real", @"value": @(result.real) };
+    case POCKET_RESULT_BYTES: return @{ @"kind": @"bytes", @"value": [NSData dataWithBytes:result.bytes length:result.byte_length] };
+    default: return @{ @"error": @"invalid runtime result" };
   }
 }
-
-- (int32_t)uiAnimate:(int32_t)nodeId prop:(int32_t)prop to:(double)to dur:(int32_t)durationMs easing:(int32_t)easing delay:(int32_t)delayMs {
-  if (_coreHandle == NULL) return -1;
-  return pocket_apple_core_animate(_coreHandle, nodeId, (uint32_t)prop, to, (uint32_t)durationMs,
-                                   (uint32_t)easing, (uint32_t)delayMs);
-}
-
-- (void)uiCancelAnim:(int32_t)animId {
-  if (_coreHandle != NULL) pocket_apple_core_cancel_anim(_coreHandle, animId);
-}
-
-- (void)uiSetFocus:(int32_t)nodeId {
-  if (_coreHandle != NULL) pocket_apple_core_set_focus(_coreHandle, nodeId);
-}
-
-- (void)uiSetActive:(int32_t)nodeId active:(int32_t)active {
-  if (_coreHandle != NULL) pocket_apple_core_set_active(_coreHandle, nodeId, active);
-}
-
 - (int32_t)uiHitTestBounds:(float)x y:(float)y {
-  if (_coreHandle != NULL) return pocket_apple_core_hit_test_bounds(_coreHandle, x, y);
-  if (_handle != NULL) return pocket_apple_hit_test_bounds(_handle, x, y);
-  return 0;
+  return _handle != NULL ? pocket_apple_hit_test_bounds(_handle, x, y) : 0;
 }
-
-- (NSDictionary<NSString *, NSNumber *> *)uiTextures {
-  NSMutableDictionary *table = [NSMutableDictionary dictionary];
-  if (_coreHandle != NULL) {
-    uint32_t count = pocket_apple_core_texture_count(_coreHandle);
-    for (uint32_t i = 0; i < count; i++) {
-      const char *name = pocket_apple_core_texture_name(_coreHandle, i);
-      if (name != NULL) {
-        table[@(name)] = @(pocket_apple_core_texture_handle(_coreHandle, i));
-      }
-    }
-  }
-  return table;
-}
-
-- (NSArray<NSDictionary<NSString *, NSNumber *> *> *)uiSprites {
-  NSMutableArray *sprites = [NSMutableArray array];
-  if (_coreHandle != NULL) {
-    uint32_t count = pocket_apple_core_sprite_count(_coreHandle);
-    for (uint32_t i = 0; i < count; i++) {
-      const char *name = pocket_apple_core_sprite_name(_coreHandle, i);
-      int32_t info[4] = {0};
-      if (name != NULL && pocket_apple_core_sprite_info(_coreHandle, i, info) == 0) {
-        [sprites addObject:@{
-          @"name" : @(name),
-          @"handle" : @(info[0]),
-          @"frames" : @(info[1]),
-          @"cols" : @(info[2]),
-          @"step" : @(info[3]),
-        }];
-      }
-    }
-  }
-  return sprites;
-}
-
-- (void)uiSvcSend:(NSString *)line {
-  if (_coreHandle == NULL) return;
-  NSData *utf8 = [line dataUsingEncoding:NSUTF8StringEncoding];
-  pocket_apple_core_svc_send(_coreHandle, utf8.bytes, utf8.length);
-}
-
-- (NSString *)uiSvcPoll {
-  if (_coreHandle == NULL) return nil;
-  const char *batch = pocket_apple_core_svc_poll(_coreHandle);
-  return batch != NULL ? @(batch) : nil;
-}
-
-- (BOOL)uiSvcOpen:(NSString *)name {
-  return _coreHandle != NULL;
-}
-
 @end

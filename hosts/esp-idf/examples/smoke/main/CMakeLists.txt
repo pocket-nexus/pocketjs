@@ -1,15 +1,11 @@
-set(pocketjs_smoke_requires
-    pocketjs_package
-    pocketjs_guest
-    pocketjs_ui_core
-    pocketjs_ui_qjs
-    pocketjs_render_rgb565)
+set(pocketjs_smoke_requires pocket_runtime pocket_guest_quickjs)
 if(IDF_TARGET STREQUAL "esp32p4")
-    list(APPEND pocketjs_smoke_requires pocketjs_esp32p4_ppa)
+    list(APPEND pocketjs_smoke_requires pocket_render_esp_ppa)
 endif()
 
 idf_component_register(
-    SRCS "main.c"
+    SRCS "main.c" "../../common/sample_io.c"
+    INCLUDE_DIRS "../../common"
     REQUIRES ${pocketjs_smoke_requires}
 )
 
