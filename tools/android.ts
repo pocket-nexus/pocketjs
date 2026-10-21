@@ -1,3 +1,6 @@
+import motoToolchain from "./build/toolchains/moto-g-play/manifest.json";
+import redmiToolchain from "./build/toolchains/redmi-1s/manifest.json";
+import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
 import {
   cpSync,
   copyFileSync,
@@ -14,7 +17,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildGuestBundle,
-  buildGuestBundleFromPlan,
   ensureQuickJsCheckout,
   type GuestBundle,
   type GuestBundleRequest,
@@ -24,7 +26,6 @@ import {
   printCheck,
   quickJsCheckout,
   quickJsCheckoutStatus,
-  readGuestBundle,
   renderTemplate,
   runCommand,
   sha256File,
@@ -53,7 +54,7 @@ interface NativeInputs {
  * One Android host (hosts/android), built for a named device profile. A
  * profile is its target id, the resolver of that target, the target's
  * contract (where `runtime` reads the native inputs), and the toolchain file
- * `tools/cli/<profile>-toolchain.json`.
+ * `tools/build/toolchains/<profile>/manifest.json`.
  */
 const PROFILES: Readonly<Record<string, {
   readonly target: string;
@@ -118,12 +119,7 @@ interface AndroidAbi {
   readonly cFlags?: readonly string[];
   readonly linkFlags?: readonly string[];
 }
-const toolchain = JSON.parse(
-  readFileSync(
-    join(repository, `tools/cli/${profile}-toolchain.json`),
-    "utf8",
-  ),
-) as {
+const toolchain = (profile === "moto-g-play" ? motoToolchain : redmiToolchain) as {
   readonly toolchainVersion: string;
   readonly cachePath: string;
   readonly quickjs: {
@@ -699,23 +695,15 @@ function elfSummary(library: string): string {
 }
 
 /**
- * The guest of this build: the plan `--plan` names, compiled from
- * `--project-root`, or the bundle `build-demo` left for the toolchain file's
- * manifest.
+ * The compiled package selected by this native invocation.
  */
 function guestBundle(): GuestBundle {
-  if (!planOption) return readGuestBundle(guest);
-  return buildGuestBundleFromPlan({
-    label: LABEL,
-    repository,
-    target,
-    planPath: resolve(planOption),
-    projectRoot,
-    outputDirectory: join(build, "guest"),
-  });
+  const selectedProfile = profile === "moto-g-play" ? motoProfile : redmiProfile;
+  return applicationBundle(prepareCompiledApplication(selectedProfile, argv, join(repository, ".pocket-build/native-inputs", profile)), target);
 }
 
 async function buildApp(): Promise<void> {
+  const bundle = guestBundle();
   requireToolchain();
   resetBuild();
   // Before any compile: an icon the tool refuses stops the build here.
@@ -724,7 +712,6 @@ async function buildApp(): Promise<void> {
   const resources = join(build, "resources");
   cpSync(join(appHost, "res"), resources, { recursive: true });
   const icons = await bakeAndroidLauncherIcons(iconSource, resources);
-  const bundle = guestBundle();
   const libraries = buildNativeLibraries({
     profile: bundle.inputs.profile,
     target: bundle.inputs.target,
@@ -850,12 +837,10 @@ async function buildRuntime(): Promise<void> {
 
 const USAGE =
   `usage: bun tools/android.ts [--profile=${Object.keys(PROFILES).join("|")}] <doctor|setup|build-demo|build-app|build|runtime>\n` +
-  `       build-app [--plan=<plan.json> [--project-root=<dir>]] [--out=<file.apk>] [--icon=<png|svg>] [--release]\n` +
+  `       build-app --pocket=<application.pocket> [--out=<file.apk>] [--icon=<png|svg>] [--release]\n` +
   `       runtime --out=<directory>`;
 
-if (planOption && command !== "build-app" && command !== "build") {
-  throw new Error(`${LABEL}: --plan goes with build-app\n${USAGE}`);
-}
+if (planOption) throw new Error(`${LABEL}: native builds take --pocket; compile the application separately with pocket compile`);
 if (iconOption && !/\.(png|svg)$/i.test(iconOption)) {
   throw new Error(`${LABEL}: --icon names a .png or an .svg file`);
 }
@@ -877,7 +862,6 @@ switch (command) {
     await buildApp();
     break;
   case "build":
-    if (!planOption) buildGuestBundle(guest);
     await buildApp();
     break;
   case "runtime":

@@ -12,7 +12,6 @@
     "create.mjs",
     "framework.mjs",
     "select.mjs",
-    "symbian-toolchain.json",
     "README.md"
   ],
   "engines": {

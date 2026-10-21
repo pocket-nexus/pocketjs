@@ -37,7 +37,7 @@ bun tools/esp-idf-release.ts --output /path/to/staged-components
 ```
 
 The script uses the supplied toolchain. Compiler commits are pinned in
-`hosts/esp-idf/native/toolchains.json`. Receipts record compiler, target,
+`tools/build/toolchains/esp-idf/compiler-pins.json`. Receipts record compiler, target,
 build policy, source digest, archive digest, byte size and P4 archiver identity.
 Release staging verifies these fields before copying files. Vendored sources
 resolve all path dependencies outside the checkout.

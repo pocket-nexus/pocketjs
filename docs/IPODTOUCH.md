@@ -1,5 +1,7 @@
 # iPod touch 6 connected-device host
 
+Native build inputs and program configs are listed in [Museum native builds](MUSEUM_BUILDS.md).
+
 PocketJS runs on the sixth-generation iPod touch as a native UIKit
 application. **The tested device is `iPod7,1` on iOS 12.5.8 (`16H88`) with an
 A8 processor and a 640×1136 Retina display.** The host exposes a 320×568
@@ -19,8 +21,8 @@ The application statically links `engine/ios`:
   its jailbroken iOS 12 runtime does not deliver `CADisplayLink` callbacks;
   the default Apple host keeps the display-link path.
 
-The iPod host publishes `ipodtouch-dev` / ABI 7. The NativeScript simulator
-shell continues to publish `ios-dev` / ABI 7. **A plan-built guest refuses to
+The iPod host publishes `ipodtouch-dev` / current binding generation. The NativeScript simulator
+shell continues to publish `ios-dev` / current binding generation. **A plan-built guest refuses to
 mount when the target identifier differs, even though both hosts share the
 same operation ABI.**
 
@@ -35,13 +37,12 @@ defaults to `127.0.0.1:2223`; it does not open a Wi-Fi listener.
 rustup target add aarch64-apple-ios
 bun install --frozen-lockfile
 bun ipodtouch doctor
-bun ipodtouch build
+bun ipodtouch build --pocket dist/ipodtouch/application.pocket
 bun ipodtouch deploy
 bun ipodtouch launch
 ```
 
-`build` resolves `apps/ipodtouch-demo/pocket.json`, builds its Solid guest and
-pak, compiles `pocket-apple` for arm64 iOS 12, links a UIKit executable, and
+`build --pocket` consumes an admitted application package, compiles `pocket-apple` for arm64 iOS 12, links a UIKit executable, and
 pseudo-signs it with `ldid`. Generated output is
 `dist/ipodtouch/PocketJSiPod.app`. **The build ID hashes the compiled
 `libpocket_apple.a` in addition to the guest and host inputs, so any transitive

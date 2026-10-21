@@ -1,5 +1,7 @@
 # Nokia E7 / Symbian Belle development
 
+The current native build entry takes a compiled `--pocket` input. See [Museum native builds](MUSEUM_BUILDS.md) for compilation, program configs and artifact paths. Dated device validation records retain their recorded commands.
+
 PocketJS includes a pinned, repeatable command-line bootstrap for building
 standard Symbian Qt applications and an experimental PocketJS host for a Nokia
 E7 (RM-626). The probe exercises the compiler, Qt ABI, E32 executable, resource
@@ -128,14 +130,16 @@ requires that choice and its security consequences are understood.
 
 ## Build and stage a PocketJS application
 
-The app builder resolves the manifest against the private
-`symbian-e7-dev` profile, compiles the PocketJS JavaScript and `.pak`, builds
-the Rust core, links the Qt/QuickJS host, and signs one SIS:
+Compile the application with the selected profile, then pass its **`.pocket` package**
+to the native builder. The native step checks the package identity, builds the
+Rust runtime, links the Qt/QuickJS host, and signs one SIS:
 
 ```sh
-bun tools/symbian.ts build app \
-  --manifest apps/hero/pocket.json \
-  --sis-version 1.0.0
+bun tools/pocket.ts compile apps/hero/pocket.json --project-root . \
+  --runtime-config programs/nokia-e7/pocket.runtime-config.ts \
+  --output dist/symbian/application.pocket
+bun tools/symbian.ts build app --pocket dist/symbian/application.pocket \
+  -- --sis-version 1.0.0
 ```
 
 It writes both the installable package and a build receipt:
@@ -182,8 +186,7 @@ External Pocket projects use the same authority without copying the toolchain:
 
 ```sh
 bun tools/symbian.ts build app \
-  --manifest /path/to/project/pocket.json \
-  --project-root /path/to/project \
+  --pocket /path/to/project/dist/application.pocket \
   --outdir /path/to/project/dist/symbian
 ```
 
@@ -197,9 +200,8 @@ without copying or forking the Qt/QuickJS host:
 
 ```sh
 bun tools/symbian.ts build app \
-  --manifest /path/to/project/pocket.json \
-  --project-root /path/to/project \
-  --core-library /path/to/libapplication_symbian_core.a
+  --pocket /path/to/project/dist/application.pocket \
+  -- --core-library /path/to/libapplication_symbian_core.a
 ```
 
 An application-specific core can package a non-empty external data tree in the
@@ -207,9 +209,8 @@ same SIS by adding `--mass-storage-data-root`:
 
 ```sh
 bun tools/symbian.ts build app \
-  --manifest /path/to/project/pocket.json \
-  --project-root /path/to/project \
-  --core-library /path/to/libapplication_symbian_core.a \
+  --pocket /path/to/project/dist/application.pocket \
+  -- --core-library /path/to/libapplication_symbian_core.a \
   --mass-storage-data-root /path/to/native-data
 ```
 

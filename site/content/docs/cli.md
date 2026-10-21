@@ -188,7 +188,9 @@ generated animation data.
 
 **`pocket build` executes the program's runtime configuration.** It does not
 accept an application manifest. Compile application packages or AOT sources
-with `pocket compile`.
+with `pocket compile`. `--pocket <file>` supplies a compiled package;
+`--aot-dir <directory>` supplies generated sources. A recipe declares its
+required input with `input: "package"` or `input: "aot"`.
 
 ```ts
 // pocket.runtime-config.ts in a native program repository
@@ -209,8 +211,9 @@ pocket build --config pocket.runtime-config.ts --out dist/profile
 ```
 
 `--target <id>` selects among the configuration's profiles. `--out` names the
-profile export directory, relative to the configuration's directory; its
-default is `dist/profile`. `--runtime-config` and `--outdir` are aliases for
+output directory, relative to the current directory. Its default is
+`dist/runtime` beside the configuration, or `dist/profile` for a configuration
+without a build recipe. `--runtime-config` and `--outdir` are aliases for
 `--config` and `--out` on this command.
 
 The recipe declares supported `hosts` and one or more `steps`:
@@ -228,11 +231,53 @@ steps. Step working directories and artifact paths are relative to the
 configuration directory. `context.run` supplies the selected profile's
 canonical JSON, hash, ID, binding generation, tick rate and export directory
 to native build commands. `context.toolchainPaths` exposes installed component
-paths when the recipe declares a toolchain.
+paths when the recipe declares a toolchain. Cargo steps use the recorded
+`rustup` executable and pinned compiler. Installed toolchain `bin` directories
+precede the command's `PATH`.
+
+**The executor checks the package's profile hash and binding generation before
+native compilation.** AOT inputs also verify every generated file's checksum.
+Admitted bytes are copied into the output directory. `context.application`
+contains the extracted plan, JavaScript and resource pack;
+`context.aot` contains the source directory and include file. Paths in steps
+can use `{outdir}`, `{output}`, `{config}`, `{application}` and `{aot}`.
+
+`sourceInputs` declares native files or directories that the recipe reads
+outside its imported modules. Their contents are included in the receipt.
+A build writes `build-receipt.json` with source and configuration dependency
+hashes, selected profile, toolchain digest, compiled input identity, commands
+and artifact hashes. A failed native command writes a failed receipt.
+`--deploy` invokes a declared deployment hook after artifact validation.
+
+Without a project configuration, a built-in target locates its program's
+`pocket.runtime-config.ts` in the source checkout. `--generic` selects its
+reusable runtime recipe. PSP and 3DS use `psp-runtime` and `3ds-runtime`
+profiles for these recipes; their reduced service sets have distinct hashes.
 
 **A configuration without `build` exports the profile and runs no native
 compiler.** This supports programs whose CMake, Make or ESP-IDF build owns
 native compilation.
+
+## pack
+
+**`pocket pack` combines a verified generic runtime with a compiled package.**
+The selected configuration supplies the repack function and output extension.
+The runtime and application must have matching profiles and binding generations.
+
+```sh
+pocket compile --manifest apps/hero/pocket.json --project-root . --target psp-runtime \
+  --output dist/hero.pocket
+pocket build --target psp --generic --out dist/psp-runtime
+pocket pack --target psp --runtime dist/psp-runtime \
+  --pocket dist/hero.pocket --out dist/hero-psp.zip
+```
+
+`--runtime` accepts a runtime directory containing `runtime.json`, or a build
+output directory with a successful matching receipt. Without it, `pack` checks
+the selected recipe's default output. Native compilation and application
+compilation are separate commands. `--id`, `--title`, `--version`, `--author`
+and `--icon` supply package identity; omitted application fields come from the
+compiled plan, and an omitted author is recorded as `Unspecified`.
 
 ## Profile export
 

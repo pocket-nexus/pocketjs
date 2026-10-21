@@ -38,7 +38,7 @@ test("a plan resolved for another target is refused before the compiler runs", (
 });
 
 test("each Android profile's toolchain file names its SDK levels and its ABIs", () => {
-  const read = (profile: string) => JSON.parse(readFileSync(`tools/cli/${profile}-toolchain.json`, "utf8")).android;
+  const read = (profile: string) => JSON.parse(readFileSync(`tools/build/toolchains/${profile}/manifest.json`, "utf8")).android;
   const redmi = read("redmi-1s");
   expect(redmi.minSdkVersion).toBe(18);
   expect(redmi.abis.map((abi: { abi: string; clangTarget: string }) => [abi.abi, abi.clangTarget])).toEqual([
@@ -63,12 +63,12 @@ test("the Android manifest takes its SDK levels and its debuggable flag from the
   expect(rendered).not.toContain("@POCKET_");
 });
 
-test("the Android CLI refuses a plan outside build-app, an output that is not an .apk and an icon that is neither a .png nor an .svg", () => {
+test("the Android CLI requires compiled packages and refuses an output that is not an .apk and an icon that is neither a .png nor an .svg", () => {
   const run = (...args: string[]) => Bun.spawnSync([process.execPath, "tools/android.ts", "--profile=redmi-1s", ...args], { stdout: "pipe", stderr: "pipe" });
   const plan = run("doctor", "--plan=plan.json");
   expect(plan.exitCode).not.toBe(0);
-  expect(plan.stderr.toString()).toContain("--plan goes with build-app");
-  const out = run("build-app", "--plan=plan.json", "--out=clear.zip");
+  expect(plan.stderr.toString()).toContain("native builds take --pocket");
+  const out = run("build-app", "--pocket=app.pocket", "--out=clear.zip");
   expect(out.exitCode).not.toBe(0);
   expect(out.stderr.toString()).toContain("--out names an .apk file");
   const icon = run("build-app", "--icon=icon.jpg");

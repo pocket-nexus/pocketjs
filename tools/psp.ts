@@ -27,10 +27,10 @@ import { createHash } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import {
-  FRAMEWORKS,
+  FRAMEWORK_CHOICES as FRAMEWORKS,
   parseFramework,
   type PocketFramework,
-} from "../framework/compiler/jsx-plugin.ts";
+} from "../framework/compiler/framework-choice.ts";
 import {
   extractHostBuildInputs,
   hostBuildEnvironment,
@@ -39,17 +39,19 @@ import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifes
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
 import { mountedSourceApp, resolveSourceEntry, sourceAppContent, sourceOutputName } from "./source-app.ts";
 import softwareProfile from "../profiles/psp.ts";
+import runtimeProfile from "../profiles/psp-runtime.ts";
+import type { RuntimeBuildContext } from "../framework/src/runtime-config.ts";
 import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
 const nativeDir = pspUiDir + "hosts/psp/";
-const pspTarget = nativeDir + "targets/mipsel-sony-psp.json";
+const pspTarget = resolvePath(pspUiDir, "tools/build/toolchains/psp/mipsel-sony-psp.json");
 
 // ---------------------------------------------------------------------------
 // CLI: first bare arg = app name; everything else is passed to cargo psp.
 // ---------------------------------------------------------------------------
 
-const argv = Bun.argv.slice(2);
+export async function buildPsp(argv: readonly string[], context?: RuntimeBuildContext): Promise<string> {
 let appArg = "";
 let capture = false;
 let bench = false;
@@ -82,9 +84,12 @@ for (const a of argv) {
   else if (a.startsWith("--outdir=")) outputDir = resolvePath(a.slice("--outdir=".length)) + "/";
   else if (a === "--skip-build") skipBuild = true;
   else if (a === "--runtime") runtime = true;
-  else if (!appArg && !a.startsWith("-")) appArg = a;
+  else if (!planPath && !runtime && !appArg && !a.startsWith("-")) appArg = a;
   else cargoArgs.push(a);
 }
+if (context && !runtime && !planPath) throw new Error("PSP native build requires an admitted package");
+if (context) skipBuild = true;
+const selectedProfile = context?.profile ?? (runtime ? runtimeProfile : softwareProfile);
 const features = [capture ? "capture" : "", bench ? "bench" : "", runtime ? "runtime" : ""].filter(Boolean);
 if (features.length > 0) cargoArgs.push("--features", features.join(","));
 if (runtime && (appArg || planPath || launcherRegistry)) {
@@ -110,7 +115,7 @@ try {
 let buildPlan: ResolvedBuildPlan | undefined;
 if (planPath) {
   buildPlan = await Bun.file(planPath).json() as ResolvedBuildPlan;
-  if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== "psp") {
+  if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== selectedProfile.id) {
     throw new Error(`PocketJS psp: invalid PSP ResolvedBuildPlan at ${planPath}`);
   }
   if (frameworkFlag) {
@@ -232,7 +237,7 @@ const veilLogoPath = `${outputDir}veil-logo.raw`;
   // its exact geometry (assets/brand/pocketjs-avatar-white-minimal.svg, in
   // its 1024 viewBox): a 76-wide stroked round-rect, the face circle, two
   // rounded bars. White with real alpha; the veil tints via vertex color.
-  const { resizeBilinear } = await import("./launcher.ts");
+  const { resizeBilinear } = await import("./image-resize.ts");
   const S = 512; // supersample grid, downscaled 4x for anti-aliasing
   const k = S / 1024;
   const sdRoundRect = (px: number, py: number, cx: number, cy: number, hw: number, hh: number, r: number) => {
@@ -277,18 +282,18 @@ const rustflags = [
   .join(" ");
 
 const hostEnvironment = buildPlan
-  ? hostBuildEnvironment(extractHostBuildInputs(buildPlan, { expectedTarget: "psp" }), {
+  ? hostBuildEnvironment(extractHostBuildInputs(buildPlan, { expectedTarget: selectedProfile.id }), {
       outputDirectory: outputDir,
       embedApp: true,
     })
   : {
-      POCKETJS_PROFILE_JSON: canonicalProfileJson(softwareProfile),
-      POCKETJS_PROFILE_HASH: hashPocketProfile(softwareProfile),
-      POCKETJS_TICK_HZ: String(softwareProfile.tickHz),
+      POCKETJS_PROFILE_JSON: canonicalProfileJson(selectedProfile),
+      POCKETJS_PROFILE_HASH: hashPocketProfile(selectedProfile),
+      POCKETJS_TICK_HZ: String(selectedProfile.tickHz),
       POCKETJS_APP_OUTPUT: runtime ? "" : outputApp,
       POCKETJS_EMBED_APP: runtime ? "0" : "1",
       POCKETJS_OUTPUT_DIR: outputDir,
-      POCKETJS_TARGET: "psp",
+      POCKETJS_TARGET: selectedProfile.id,
       POCKETJS_HOST_ABI: String(POCKET_BINDING_GENERATION),
       POCKETJS_LOGICAL_WIDTH: "480",
       POCKETJS_LOGICAL_HEIGHT: "272",
@@ -346,7 +351,8 @@ function outputProfile(args: string[]): string {
 }
 
 console.log(`PocketJS psp: cargo psp (app=${runtime ? "none, runtime" : outputApp})`);
-await $`${toolchain.rustup} run ${toolchain.rustToolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
+if (context) await context.run([toolchain.rustup, "run", toolchain.rustToolchain, "cargo", "psp", ...cargoArgs], { cwd: nativeDir, env });
+else await $`${toolchain.rustup} run ${toolchain.rustToolchain} cargo psp ${cargoArgs}`.cwd(nativeDir).env(env);
 
 const profile = outputProfile(cargoArgs);
 const { verifyPspPrx } = await import("./psp-prx.ts");
@@ -357,3 +363,8 @@ if (existsSync(binEboot)) {
   await Bun.write(conventionalEboot, await Bun.file(binEboot).arrayBuffer());
 }
 console.log(`output: ${conventionalEboot}`);
+
+return conventionalEboot;
+}
+
+if (import.meta.main) await buildPsp(Bun.argv.slice(2));

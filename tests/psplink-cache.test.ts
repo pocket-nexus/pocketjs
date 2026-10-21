@@ -37,7 +37,9 @@ test("cached PSP PRXs rebuild when extracted contract sources or dependencies ch
       "engine/guest-quickjs/include/pocket_guest_quickjs.h", "contracts/generated/pocket_runtime.h",
       "devices/psp/pocket-psp-render/src/encode.rs", "devices/psp/pocket-psp-render/Cargo.toml",
       "devices/psp/pocket-psp-ge/src/lib.rs", "devices/psp/pocket-psp-ge/Cargo.toml",
-      "hosts/psp/src/quickjs_bridge.c", "tools/psp-toolchain.ts", "tools/psp-linker.ts", "tools/psp.ts",
+      "hosts/psp/src/quickjs_bridge.c", "tools/build/toolchains/psp/build.ts", "tools/psp-linker.ts", "tools/psp.ts",
+      "tools/build/toolchains/psp.ts", "tools/build/toolchains/rust.ts",
+      "tools/build/toolchains/psp/mipsel-sony-psp.json",
       "engine/core/Cargo.toml", "hosts/psp/Cargo.toml", "hosts/psp/Cargo.lock",
     ]) {
       const changed = file(source, newer);

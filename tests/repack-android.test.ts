@@ -293,6 +293,8 @@ describe("the repack refuses", () => {
     const manifest = JSON.parse(new TextDecoder().decode(runtime.get("runtime.json")));
     delete manifest.files[ANDROID_TEMPLATE];
     runtime.set("runtime.json", bytesOf(JSON.stringify(manifest)));
+    await expect(repackAndroid(input({ runtime }), options)).rejects.toThrow(/unlisted file: template\.apk/);
+    runtime.delete(ANDROID_TEMPLATE);
     await expect(repackAndroid(input({ runtime }), options)).rejects.toThrow(/lacks template\.apk/);
     const signed = await writeZip([...readZip(TEMPLATE).map((entry) => ({ name: entry.name, entry })), { name: "META-INF/MANIFEST.MF", data: bytesOf("x") }]);
     await expect(repackAndroid(input({ runtime: fixtureRuntime({}, signed) }), options)).rejects.toThrow(/template\.apk is signed/);

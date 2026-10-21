@@ -35,11 +35,13 @@ writes `.pocket/<profile-id>/plan.json`, then packages the JS and assets in a
 `.pocket` file. Without `--target`, it uses the nearest
 `pocket.runtime-config.ts`. `--runtime-config <file>` selects another config.
 
-`pocket build` reads the program's `pocket.runtime-config.ts` and executes its
-`build` recipe. A config without `build` exports the profile and leaves native
-compilation to the external build system. `pocket profile export --config
-<file> --out <directory>` writes `pocket_profile.h` and `pocket-profile.json`
-without compiling an application or program.
+**`pocket build` consumes compiled application inputs and the program's
+`pocket.runtime-config.ts`.** `--pocket` provides a format 2 package;
+`--aot-dir` provides the generated source directory. The executor verifies
+profile identity and binding generation, snapshots the admitted files, then
+runs Cargo, CMake, Make or the program's native hook. `build-receipt.json`
+records the input and artifact hashes. A profile-only configuration exports
+`pocket_profile.h` and leaves native compilation to its external build system.
 
 The lower-level compiler can still turn one entry into two files directly:
 

@@ -92,6 +92,10 @@ export async function create(options) {
     step(buttons = 0, touches, hits, touchSurfaces, ticks = 1) {
       wasm.advance({buttons, contacts: contactFacts(touches, touchSurfaces)}, ticks);
     },
+    /** Native browser pointer facts retain full viewport coordinates. */
+    stepInput(facts, ticks = 1) {
+      wasm.advance(facts, ticks);
+    },
     /**
      * Bounds hit query (spec op 42) against the committed frame, so the parent
      * can resolve a contact's DOWN-edge hit fact before the next step().

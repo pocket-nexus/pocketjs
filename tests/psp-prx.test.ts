@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { verifyPspPrx } from "../tools/psp-prx.ts";
-import { resolvePspBuildToolchain } from "../tools/psp-toolchain.ts";
+import { resolvePspBuildToolchain } from "../tools/build/toolchains/psp/build.ts";
 
 // ELF32 layout reduced from a real failing PSP build: the RX segment began
 // at file offset 0xe0, but 64-byte-aligned rodata shifted the R segment by
@@ -59,7 +59,7 @@ test.skipIf(process.env.POCKETJS_TEST_PSP_LINK !== "1")("links aligned MIPS data
     const sysroot = run([...rust, "--print", "sysroot"]);
     const host = run([...rust, "-vV"]).match(/^host: (.+)$/m)![1]!;
     const linker = join(sysroot, "lib/rustlib", host, "bin/rust-lld");
-    const target = JSON.parse(readFileSync(new URL("../hosts/psp/targets/mipsel-sony-psp.json", import.meta.url), "utf8"));
+    const target = JSON.parse(readFileSync(new URL("../tools/build/toolchains/psp/mipsel-sony-psp.json", import.meta.url), "utf8"));
     const object = join(dir, "aligned.o"), elf = join(dir, "aligned.elf"), prxFile = join(dir, "aligned.prx");
     writeFileSync(join(dir, "link.ld"), target["link-script"]);
     run([join(llvmBin, "clang"), "-target", "mipsel-sony-psp", "-march=mips2", "-mno-abicalls", "-fno-pic", "-c",

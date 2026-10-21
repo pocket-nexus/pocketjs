@@ -1,4 +1,8 @@
-{
+import type { ToolchainManifest } from "../../targets/toolchain.ts";
+import { RUST_TOOLCHAINS } from "./rust.ts";
+
+/** Installed components; changing a pin creates a new content-addressed receipt. */
+export const pspToolchain = {
   "schema": "pocket-toolchain/2",
   "target": "psp",
   "components": [
@@ -6,8 +10,10 @@
       "name": "rust",
       "role": "toolchain",
       "kind": "rustup",
-      "toolchain": "nightly-2026-05-28",
-      "components": ["rust-src"],
+      "toolchain": RUST_TOOLCHAINS.psp,
+      "components": [
+        "rust-src"
+      ],
       "targets": []
     },
     {
@@ -19,8 +25,14 @@
         "revision": "2cbaf8c9bc72569c76240a1d9743de10731e5f6b"
       },
       "package": "cargo-psp",
-      "binaries": ["cargo-psp", "prxgen", "prxmin", "pack-pbp", "mksfo"],
-      "toolchain": "nightly-2026-05-28"
+      "binaries": [
+        "cargo-psp",
+        "prxgen",
+        "prxmin",
+        "pack-pbp",
+        "mksfo"
+      ],
+      "toolchain": RUST_TOOLCHAINS.psp
     },
     {
       "name": "sdk",
@@ -32,7 +44,12 @@
       },
       "format": "zip",
       "root": "mipsel-sony-psp",
-      "markers": ["psp/lib/libc.a", "psp/include/stdio.h", "psp/sdk/include/pspkernel.h", "psp/sdk/lib/libpspkernel.a"]
+      "markers": [
+        "psp/lib/libc.a",
+        "psp/include/stdio.h",
+        "psp/sdk/include/pspkernel.h",
+        "psp/sdk/lib/libpspkernel.a"
+      ]
     },
     {
       "name": "quickjs",
@@ -45,4 +62,4 @@
       "file": "libquickjs-mipsel-sony-psp.a"
     }
   ]
-}
+} as const satisfies ToolchainManifest;

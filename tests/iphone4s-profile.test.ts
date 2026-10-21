@@ -15,7 +15,7 @@ import {
   IPHONE4S_RASTER_DENSITY,
   resolveIPhone4SBuildPlan,
 } from "../tools/iphone4s-profile.ts";
-import { IPHONE4S_TOOLCHAIN } from "../tools/iphone4s-toolchain.ts";
+import { IPHONE4S_TOOLCHAIN } from "../tools/build/toolchains/iphone4s.ts";
 import { rasterizeIconSvg } from "../tools/icon-raster.ts";
 import {
   bakeClassicIPhoneArtwork,

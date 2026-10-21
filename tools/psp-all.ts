@@ -36,7 +36,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { parse as parseFont, type Font, type Path } from "opentype.js";
-import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
+import { resolvePspBuildToolchain } from "./build/toolchains/psp/build.ts";
 
 const pspUiDir = fileURLToPath(new URL("..", import.meta.url));
 const demosDir = join(pspUiDir, "apps");

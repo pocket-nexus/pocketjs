@@ -74,6 +74,10 @@
 import { $ } from "bun";
 import { ensureThreeDsProfileHeader } from "./3ds-contracts.ts";
 import softwareProfile from "../profiles/3ds-dev.ts";
+import type { PocketProfile } from "../framework/src/profile.ts";
+import type { RuntimeBuildContext } from "../framework/src/runtime-config.ts";
+import { threeDsProfileHeader } from "./3ds-contracts.ts";
+import { RUST_TOOLCHAINS } from "./build/toolchains/rust.ts";
 import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 import { containerPathFor, ensureQuickJs, runContainer, THREE_DS_CONTAINER_IMAGE, type Mount } from "./3ds-toolchain.ts";
 export { containerPathFor, ensureQuickJs, THREE_DS_CONTAINER_IMAGE } from "./3ds-toolchain.ts";
@@ -187,7 +191,7 @@ export function parse3dsArguments(
     else if (a.startsWith("--package-outdir=")) packageDir = resolvePath(a.slice("--package-outdir=".length));
     else if (a === "--config" || a.startsWith("--config=") || a === "--no-config") {
       throw new Error("PocketJS 3ds: application configuration belongs in pocket.json");
-    } else if (!app && !a.startsWith("-")) app = a;
+    } else if (!planPath && !app && !a.startsWith("-")) app = a;
     else cargoArgs.push(a);
   }
 
@@ -350,12 +354,7 @@ async function preflightRust(): Promise<{ rustup: string; toolchain: string; rus
       "PocketJS 3ds: rustup not found (expected ~/.cargo/bin/rustup). Install Rust from https://rustup.rs.",
     );
   }
-  let toolchain = "nightly";
-  if (existsSync(`${coreDirectory}rust-toolchain.toml`)) {
-    const active = await capture(rustup, ["show", "active-toolchain"], coreDirectory);
-    const named = active.stdout.trim().split(/\s+/)[0];
-    if (active.exitCode === 0 && named) toolchain = named;
-  }
+  const toolchain = RUST_TOOLCHAINS.threeDs;
   const rustc = await capture(rustup, ["run", toolchain, "rustc", "--version"]);
   if (rustc.exitCode !== 0) {
     throw new Error(
@@ -634,13 +633,15 @@ export interface Native3ds {
 export async function prepare3dsNative(options: {
   readonly cargoArgs: readonly string[];
   readonly roots: readonly string[];
+  readonly context?: RuntimeBuildContext;
 }): Promise<Native3ds> {
   ensureThreeDsProfileHeader();
   const imageId = await preflightContainer();
   const { rustup, toolchain, rustcPath } = await preflightRust();
 
   console.log(`PocketJS 3ds: cargo build --release (${RUST_TARGET}, ${toolchain})`);
-  await $`${rustup} run ${toolchain} cargo build --release ${options.cargoArgs}`
+  if (options.context) await options.context.run([rustup, "run", toolchain, "cargo", "build", "--locked", "--release", ...options.cargoArgs], { cwd: coreDirectory, env: { RUSTC: rustcPath } });
+  else await $`${rustup} run ${toolchain} cargo build --release ${options.cargoArgs}`
     .cwd(coreDirectory)
     .env({ ...process.env, RUSTC: rustcPath });
   const releaseDirectory = `${coreDirectory}target/${RUST_TARGET}/release`;
@@ -678,9 +679,11 @@ export async function run3dsMake(
   environment: Readonly<Record<string, string>>,
   mounts: readonly Mount[],
   notes: readonly string[] = [],
+  selectedProfile: PocketProfile = softwareProfile,
+  context?: RuntimeBuildContext,
 ): Promise<void> {
-  if (environment.POCKETJS_PROFILE_JSON !== canonicalProfileJson(softwareProfile) ||
-      environment.POCKETJS_PROFILE_HASH !== hashPocketProfile(softwareProfile)) {
+  if (environment.POCKETJS_PROFILE_JSON !== canonicalProfileJson(selectedProfile) ||
+      environment.POCKETJS_PROFILE_HASH !== hashPocketProfile(selectedProfile)) {
     throw new Error("PocketJS 3ds: native build requires the registered 3DS software profile");
   }
   console.log(
@@ -692,6 +695,8 @@ export async function run3dsMake(
     containerPathFor(hostDirectory, mounts),
     environment,
     "hosts/3ds/Makefile",
+    THREE_DS_CONTAINER_IMAGE,
+    context?.run,
   );
 }
 
@@ -699,7 +704,7 @@ export async function run3dsMake(
 // The pipeline
 // ---------------------------------------------------------------------------
 
-export async function build3ds(argv: readonly string[]): Promise<string> {
+export async function build3ds(argv: readonly string[], context?: RuntimeBuildContext): Promise<string> {
   const args = parse3dsArguments(argv);
   if (!args.app && !args.planPath) throw new Error(USAGE);
   if (!existsSync(hostDirectory)) {
@@ -709,7 +714,8 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   if (args.pocketOnly && (args.capture || args.cia)) {
     throw new Error("PocketJS 3ds: --pocket-only cannot be combined with --capture or --cia");
   }
-  const { plan, planPath, manifestPath } = await loadBuildPlan(args);
+  if (context && !context.application) throw new Error("3DS native build requires an admitted package");
+  const { plan, planPath, manifestPath } = context?.application ?? await loadBuildPlan(args);
   const inputs = extractHostBuildInputs(plan, { expectedTarget: TARGET_ID });
   const capture = args.capture
     ? captureDefines(process.env)
@@ -718,7 +724,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   // 1. guest bundle + pak
   console.log(`PocketJS 3ds: building app "${plan.app.output}" (${plan.app.framework})`);
   mkdirSync(args.outputDir, { recursive: true });
-  if (!args.skipBuild) {
+  if (!context && !args.skipBuild) {
     await $`bun tools/build.ts --plan=${planPath} --project-root=${args.projectRoot} --outdir=${args.outputDir}`
       .cwd(repository);
   }
@@ -736,7 +742,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   // beside the native binary for SD-card deployment.
   mkdirSync(args.packageDir, { recursive: true });
   const manifestBytes = new Uint8Array(readFileSync(manifestPath));
-  const guestPackage = encodePocketPackage({
+  const guestPackage = context ? new Uint8Array(readFileSync(context.application!.packagePath)) : encodePocketPackage({
     manifest: manifestBytes,
     variants: [
       makeVariant({
@@ -764,6 +770,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
 
   // 2-3. the Rust core staticlib (macOS) and QuickJS (container)
   const { imageId, coreLibrary, quickJsDirectory, mounts } = await prepare3dsNative({
+    context,
     cargoArgs: args.cargoArgs,
     roots: [args.outputDir, args.packageDir, args.projectRoot],
   });
@@ -773,8 +780,9 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   // C objects, romfs staging and SMDH metadata are cacheable only within one
   // resolved output. A shared directory can package app B with app A's older
   // romfs files when their mtimes happen to precede the staging targets.
-  const buildDirectory = join(distributionRoot, "build", inputs.appOutput);
+  const buildDirectory = context ? join(context.outdir, "native") : join(distributionRoot, "build", inputs.appOutput);
   mkdirSync(buildDirectory, { recursive: true });
+  writeFileSync(join(buildDirectory, "pocket_profile.h"), threeDsProfileHeader(context?.profile ?? softwareProfile));
 
   const makerom = args.cia
     ? await ensureMakerom(join(distributionRoot, "makerom"), imageId, mounts)
@@ -815,7 +823,7 @@ export async function build3ds(argv: readonly string[]): Promise<string> {
   };
 
   const notes = [args.capture ? "capture" : "", args.cia ? "cia" : ""].filter(Boolean);
-  await run3dsMake(makeEnvironment, mounts, notes);
+  await run3dsMake(makeEnvironment, mounts, notes, context?.profile ?? softwareProfile, context);
   if (!existsSync(output)) {
     throw new Error(`PocketJS 3ds: the container build did not produce ${output}`);
   }

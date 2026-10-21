@@ -87,6 +87,10 @@ describe("published npm artifacts", () => {
       "contracts/schema",
       "contracts/spec",
       "profiles",
+      "programs/**/pocket.runtime-config.ts",
+      "programs/web/main.js",
+      "programs/web/index.html",
+      "programs/sim/main.ts",
       "contracts/generated",
       "tools",
       // The desktop benchmark's Electron/Tauri comparison apps are git-only
@@ -209,7 +213,6 @@ describe("published npm artifacts", () => {
       "engine/ui-cabi/Cargo.lock",
       "engine/ui-cabi/rust-toolchain.toml",
       "hosts/psp/src",
-      "hosts/psp/targets",
       "hosts/psp/build.rs",
       "hosts/psp/Cargo.toml",
       "hosts/psp/Cargo.lock",
@@ -223,7 +226,6 @@ describe("published npm artifacts", () => {
       "hosts/vita/rust-toolchain.toml",
       "hosts/nokia-e7/probe",
       "hosts/nokia-e7/runtime",
-      "hosts/nokia-e7/targets",
       "devices/vita/pocket-vita-render/src",
       "devices/vita/pocket-vita-render/Cargo.toml",
       "devices/vita/pocket-vita-render/Cargo.lock",
@@ -338,7 +340,7 @@ describe("published npm artifacts", () => {
       "engine/pocket3d/crates/pocket3d-packs/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-packs/src/lib.rs",
       "engine/pocket3d/crates/pocket3d-packs/pocket3d_packs.h",
-      "tools/3ds-toolchain.ts",
+      "tools/build/toolchains/3ds.ts",
       "tools/vita-dev.ts",
       "tools/vita-dev-client.ts",
       "tools/vita-usb.ts",
@@ -357,11 +359,11 @@ describe("published npm artifacts", () => {
       "apps/iphone4s-demo/pocket.json",
       "apps/blackberry-classic-demo/pocket.json",
       "hosts/iphone2g/device_tool.c",
-      "hosts/iphone2g/armv6-apple-ios.json",
-      "hosts/iphone4s/armv7-apple-ios.json",
+      "tools/build/toolchains/iphone2g/armv6-apple-ios.json",
+      "tools/build/toolchains/ios/armv7-apple-ios.json",
       "hosts/blackberry-classic-qnx/main.c",
       "hosts/blackberry-classic-qnx/bar-descriptor.xml",
-      "hosts/blackberry-classic-qnx/armv7-qnx-eabi.json",
+      "tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json",
       "docs/IPHONE2G.md",
       "docs/IPHONE4S.md",
       "docs/BLACKBERRY_CLASSIC.md",
@@ -387,7 +389,7 @@ describe("published npm artifacts", () => {
       "hosts/nokia-e7/runtime/main.cpp",
       "hosts/nokia-e7/runtime/pocketjs-e7-runtime.pro",
       "hosts/nokia-e7/runtime/pocketjs_symbian_keys.h",
-      "hosts/nokia-e7/targets/armv6-symbian-eabi.json",
+      "tools/build/toolchains/symbian/armv6-symbian-eabi.json",
       "engine/ui-cabi/Cargo.toml",
       "engine/ui-cabi/rust-toolchain.toml",
       "engine/ui-cabi/src/lib.rs",
@@ -405,8 +407,8 @@ describe("published npm artifacts", () => {
       "engine/crates/pocket-mod/src/lib.rs",
       "engine/crates/pocket-ui-surface/Cargo.toml",
       "engine/crates/pocket-ui-surface/src/lib.rs",
-      "tools/cli/symbian-toolchain.json",
-      "tools/cli/blackberry-qnx-toolchain.json",
+      "tools/build/toolchains/symbian/manifest.json",
+      "tools/build/toolchains/blackberry-qnx/manifest.json",
       "tools/blackberry-qnx/build.sh",
       "tools/symbian/coda-usb-probe.c",
       "tools/symbian/Dockerfile.dockerignore",
@@ -432,7 +434,7 @@ describe("published npm artifacts", () => {
     expect(files.some((file) => file.startsWith("hosts/esp-idf/"))).toBe(false);
     expect(files).not.toContain("docs/SYMBIAN_E7.md");
     // Toolchain manifests travel with the framework that pins them.
-    expect(files).toContain("tools/targets/psp.toolchain.json");
+    expect(files).toContain("tools/build/toolchains/psp.ts");
 
     expect(files).toContain("devices/psp/pocket-psp-render/src/lib.rs");
     expect(files).toContain("devices/psp/pocket-psp-ge/src/lib.rs");
@@ -461,7 +463,6 @@ describe("published npm artifacts", () => {
       "framework.mjs",
       "package.json",
       "select.mjs",
-      "symbian-toolchain.json",
     ]);
   });
 

@@ -206,6 +206,8 @@ export interface SimWorld {
 }
 
 export interface SimViewportOptions {
+  host?: string;
+  hostAbi?: number;
   width?: number;
   height?: number;
   rasterDensity?: number;

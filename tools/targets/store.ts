@@ -241,11 +241,28 @@ export function targetState(descriptor: TargetDescriptor, options: StateOptions 
   }
   const rustup = options.rustup === undefined ? findRustup(env) : options.rustup;
   const missing: string[] = [];
+  if (!record.components || typeof record.components !== "object" || Array.isArray(record.components)) {
+    return { state: "broken", digest, record, missing: ["invalid component record"] };
+  }
+  const names = new Set(components.map(component => component.name));
+  for (const name of Object.keys(record.components)) {
+    if (!names.has(name)) missing.push(`${name} (not declared by the toolchain)`);
+  }
   for (const component of components) {
     const recorded = record.components[component.name];
     const expected = componentDigest(component, host);
     if (!recorded || recorded.digest !== expected) {
       missing.push(`${component.name} (not in the record)`);
+      continue;
+    }
+    const location = recorded.location;
+    if (recorded.kind !== component.kind || recorded.role !== component.role ||
+        !location || typeof location !== "object" || Array.isArray(location) ||
+        Object.keys(location).length !== 1 ||
+        (component.kind === "rustup"
+          ? !("rustup" in location) || location.rustup !== component.toolchain
+          : !("store" in location) || location.store !== expected)) {
+      missing.push(`${component.name} (record differs from the pinned component)`);
       continue;
     }
     if (component.kind === "rustup") {
@@ -314,12 +331,17 @@ export function requireToolchain(descriptor: TargetDescriptor, options: StateOpt
   if (message) throw new ToolchainError(message);
   const env = options.env ?? process.env;
   const layout = storeLayout(env);
-  const recorded = state.state === "installed" ? state.record.components : {};
   const components: Record<string, ResolvedComponent> = {};
-  for (const [name, component] of Object.entries(recorded)) {
-    components[name] = "store" in component.location
-      ? { kind: component.kind, path: storeTree(layout, component.location.store) }
-      : { kind: component.kind, toolchain: component.location.rustup };
+  const host = options.host === undefined ? currentHost() : options.host;
+  if (state.state === "installed" && descriptor.toolchain && host) {
+    // Readiness checks the record, but build paths come from the manifest's
+    // expected identities. Record fields must never select another store tree
+    // or append executables that the toolchain did not declare.
+    for (const component of toolchainComponents(descriptor.toolchain, host)) {
+      components[component.name] = component.kind === "rustup"
+        ? { kind: component.kind, toolchain: component.toolchain }
+        : { kind: component.kind, path: storeTree(layout, componentDigest(component, host)) };
+    }
   }
   const digest = state.state === "installed" || state.state === "nothing to install" ? state.digest : "";
   return {

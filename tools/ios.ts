@@ -1,26 +1,14 @@
-// tools/ios.ts — the pocket ios toolchain: doctor/setup for Xcode, the
-// simulator and the NativeScript CLI; guest builds against the transitional
-// ios-dev profile; staging into the committed NativeScript shell
-// (hosts/ios-nativescript); and launch on an arm64 iOS simulator.
-//
-//   pocket ios doctor
-//   pocket ios setup --yes
-//   pocket ios devices
-//   pocket ios native [--force]
-//   pocket ios build nsengine [--density=1..4]
-//   pocket ios stage nsengine [--external-guest] [flags]
-//   pocket ios play  nsengine [--external-guest] [--device=<name|udid>] [flags]
-//
-// `play` is also reachable as `pocket play ios <app>`.
+import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import { applicationBundle, prepareCompiledApplication, runProgramBuild } from "./build/programs/application.ts";
+// NativeScript iOS build, staging and deployment. Application JavaScript
+// arrives in a compiled .pocket; this file builds only the native shell.
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { demoManifestFor } from "./demo-identity.ts";
-import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
+import { resolveProfile } from "./profile-resolver.ts";
 import {
   IOS_DEV_DEFAULT_DENSITY,
   IOS_DEV_MAX_DENSITY,
   IOS_DEV_TARGET_ID,
-  resolveIOSDevBuildPlan,
 } from "./ios-profile.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -67,7 +55,7 @@ async function spawn(
   ]);
   if (timer) clearTimeout(timer);
   return {
-    exitCode: timedOut ? 124 : exitCode,
+    exitCode: timedOut ? 124 : child.signalCode ? exitCode || 1 : exitCode,
     stdout,
     stderr: timedOut ? `${stderr}\ncommand timed out` : stderr,
   };
@@ -291,65 +279,40 @@ async function buildNative(force: boolean): Promise<void> {
   }
 }
 
+/** Build the NativeScript host shell around an already compiled guest. */
+export async function buildIOSSimulatorNative(application: RuntimeApplication, outdir: string, args: readonly string[] = []): Promise<void> {
+  const { inputs } = applicationBundle(application, IOS_DEV_TARGET_ID);
+  const sdk = await spawn("xcrun", ["--sdk", "iphonesimulator", "--show-sdk-path"]);
+  if (sdk.exitCode !== 0 || !sdk.stdout.trim()) throw new Error("iOS simulator native build requires the Xcode iPhoneSimulator SDK");
+  if (!Bun.which("ns")) throw new Error("iOS simulator native build requires the NativeScript CLI (ns)");
+  const shellDir = resolve(outdir, "shell");
+  rmSync(shellDir, { recursive: true, force: true });
+  cpSync(DEFAULT_SHELL, shellDir, { recursive: true, filter: source => !["node_modules", "platforms", ".git"].includes(source.split("/").at(-1)!) });
+  const packagePath = resolve(shellDir, "package.json");
+  const manifest = JSON.parse(readFileSync(packagePath, "utf8"));
+  manifest.dependencies["@pocketjs/framework"] = `file:${ROOT}`;
+  writeFileSync(packagePath, JSON.stringify(manifest, null, 2) + "\n");
+  const options: StageOptions = { shellDir, externalGuest: args.includes("--external-guest"), tickHz: application.plan.profile.tickHz };
+  stageAssets({ appOutput: inputs.appOutput, bundle: application.jsPath, pak: application.pakPath, planPath: application.planPath }, options);
+  await buildNative(true);
+  await vendPluginXcframework(options);
+  await installShellDependencies(options);
+  const built = await spawn("ns", ["build", "ios", "--emulator", "--release", ...args.filter(arg => arg !== "--external-guest")], { cwd: shellDir, inherit: true });
+  if (built.exitCode !== 0) throw new Error("iOS simulator native shell build failed");
+  const candidates = [...new Bun.Glob("platforms/ios/build/**/*.app").scanSync({ cwd: shellDir, onlyFiles: false })];
+  const apps = candidates.filter(path => path.includes("iphonesimulator") && !path.includes(".app/"));
+  if (apps.length !== 1) throw new Error(`iOS simulator native build must produce one .app, found ${apps.length}`);
+  const output = resolve(outdir, "PocketShell.app");
+  rmSync(output, { recursive: true, force: true });
+  cpSync(resolve(shellDir, apps[0]!), output, { recursive: true });
+  cpSync(XCFRAMEWORK_DIST, resolve(outdir, "PocketApple.xcframework"), { recursive: true });
+}
+
 interface GuestArtifacts {
   appOutput: string;
   bundle: string;
   pak: string;
   planPath: string;
-}
-
-/** What a build baked into its artifacts — the facts staging must agree
- *  with. Written next to the artifacts because the resolved plan cannot
- *  carry them: the plan is hash-sealed and does not own the tick rate. */
-interface BuildStamp {
-  app: string;
-  tickHz: number;
-  density: number;
-}
-
-function buildStampPath(demo: string): string {
-  return resolve(ROOT, `dist/ios/${demo}/build-stamp.json`);
-}
-
-function normalizeDemoName(demo: string): string {
-  return demo.replace(/-main$/, "");
-}
-
-async function buildGuest(demoArg: string, density: number, tickHz: number): Promise<GuestArtifacts> {
-  const demo = normalizeDemoName(demoArg);
-  const manifest = demoManifestFor(ROOT, demo);
-  const plan = resolveIOSDevBuildPlan(manifest, density);
-  const planDir = resolve(ROOT, ".pocket/ios");
-  mkdirSync(planDir, { recursive: true });
-  const planPath = resolve(planDir, `${demo}.plan.json`);
-  writeFileSync(planPath, JSON.stringify(plan, null, 2));
-
-  const outdir = resolve(ROOT, `dist/ios/${demo}`);
-  const built = await spawn(
-    "bun",
-    [
-      "tools/build.ts",
-      `--plan=${planPath}`,
-      `--project-root=${ROOT}`,
-      `--outdir=${outdir}`,
-      `--hz=${tickHz}`,
-      // The headline/FPS copy renders the baked rate's digits; pin them so
-      // glyph coverage never depends on incidental literals elsewhere.
-      "--extra-chars=0123456789",
-    ],
-    { inherit: true },
-  );
-  if (built.exitCode !== 0) throw new Error(`pocket ios: guest build failed for ${demo}`);
-
-  const inputs = extractHostBuildInputs(plan, { expectedTarget: IOS_DEV_TARGET_ID });
-  const bundle = resolve(outdir, `${inputs.appOutput}.js`);
-  const pak = resolve(outdir, `${inputs.appOutput}.pak`);
-  if (!existsSync(bundle) || !existsSync(pak)) {
-    throw new Error(`pocket ios: expected ${bundle} and ${pak} after the build`);
-  }
-  const stamp: BuildStamp = { app: inputs.appOutput, tickHz, density };
-  writeFileSync(buildStampPath(demo), JSON.stringify(stamp, null, 2) + "\n");
-  return { appOutput: inputs.appOutput, bundle, pak, planPath };
 }
 
 interface StageOptions {
@@ -423,63 +386,24 @@ async function vendPluginXcframework(options: StageOptions): Promise<void> {
 // ---------------------------------------------------------------------------
 // play
 
-async function play(demoArg: string, args: readonly string[]): Promise<void> {
-  const density = Number(flagValue(args, "--density") ?? IOS_DEV_DEFAULT_DENSITY);
+async function play(args: readonly string[]): Promise<void> {
+  const selected = await resolveProfile({ from: process.cwd(), runtimeConfig: flagValue(args, "--runtime-config") ?? resolve(ROOT, "programs/ios-simulator/pocket.runtime-config.ts"), requireConfig: true });
+  const application = prepareCompiledApplication(selected.profile, args, resolve(ROOT, ".pocket-build/ios/stage"));
+  const { inputs } = applicationBundle(application, IOS_DEV_TARGET_ID);
   const requestedHz = tickRateFlag(args);
+  const requestedDensity = flagValue(args, "--density");
+  if ((requestedHz !== undefined && requestedHz !== selected.profile.tickHz) ||
+      (requestedDensity !== undefined && Number(requestedDensity) !== selected.profile.display.rasterDensity)) {
+    throw new Error("iOS staging timing and density must match the compiled package's runtime config");
+  }
   const options: StageOptions = {
     shellDir: resolve(flagValue(args, "--shell-dir") ?? DEFAULT_SHELL),
-    externalGuest: args.includes("--external-guest"),
-    tickHz: requestedHz ?? IOS_DEFAULT_TICK_RATE,
-    pluginPath: flagValue(args, "--plugin-path"),
-    runtimeTgz: flagValue(args, "--runtime-tgz"),
+    externalGuest: args.includes("--external-guest"), tickHz: selected.profile.tickHz,
+    pluginPath: flagValue(args, "--plugin-path"), runtimeTgz: flagValue(args, "--runtime-tgz"),
   };
-
-  if (args.includes("--rebuild-native")) {
-    await buildNative(true);
-  }
+  if (args.includes("--rebuild-native")) await buildNative(true);
   await vendPluginXcframework(options);
-
-  let artifacts: GuestArtifacts;
-  if (args.includes("--no-build")) {
-    const demo = normalizeDemoName(demoArg);
-    const planPath = resolve(ROOT, `.pocket/ios/${demo}.plan.json`);
-    if (!existsSync(planPath)) {
-      throw new Error(`pocket ios: --no-build but no prior plan at ${planPath}`);
-    }
-    const plan = JSON.parse(readFileSync(planPath, "utf8"));
-    const inputs = extractHostBuildInputs(plan, { expectedTarget: IOS_DEV_TARGET_ID });
-    artifacts = {
-      appOutput: inputs.appOutput,
-      bundle: resolve(ROOT, `dist/ios/${demo}/${inputs.appOutput}.js`),
-      pak: resolve(ROOT, `dist/ios/${demo}/${inputs.appOutput}.pak`),
-      planPath,
-    };
-    if (!existsSync(artifacts.bundle) || !existsSync(artifacts.pak)) {
-      throw new Error("pocket ios: --no-build but no prior guest artifacts — drop the flag");
-    }
-    // Timing (and glyph scale) are baked into the reused artifacts; staging
-    // must repeat the bundle's facts, never the flags' defaults. Bundles
-    // refuse a mismatched rate at mount, so a stale stage fails on-device.
-    if (!existsSync(buildStampPath(demo))) {
-      throw new Error(
-        "pocket ios: --no-build but the prior build predates build stamps — rebuild once without it",
-      );
-    }
-    const stamp = JSON.parse(readFileSync(buildStampPath(demo), "utf8")) as BuildStamp;
-    if (requestedHz !== undefined && requestedHz !== stamp.tickHz) {
-      throw new Error(
-        `pocket ios: --no-build reuses a ${stamp.tickHz} Hz build but --hz=${requestedHz} was asked — rebuild, or drop --hz`,
-      );
-    }
-    if (flagValue(args, "--density") !== undefined && density !== stamp.density) {
-      throw new Error(
-        `pocket ios: --no-build reuses a density-${stamp.density} build but --density=${density} was asked — rebuild, or drop --density`,
-      );
-    }
-    options.tickHz = stamp.tickHz;
-  } else {
-    artifacts = await buildGuest(demoArg, density, options.tickHz);
-  }
+  const artifacts: GuestArtifacts = { appOutput: inputs.appOutput, bundle: application.jsPath, pak: application.pakPath, planPath: application.planPath };
   stageAssets(artifacts, options);
   await installShellDependencies(options);
 
@@ -505,31 +429,25 @@ async function play(demoArg: string, args: readonly string[]): Promise<void> {
 
 const HELP = `PocketJS Apple / iOS toolchain
 
-  pocket ios doctor                 inspect Xcode, the simulator, Rust targets and the NativeScript CLI
-  pocket ios setup                  add the two Rust iOS targets; print install hints for the rest
-  pocket ios devices                list the arm64 iOS simulators this target can run on
-  pocket ios native [--force]       build engine/ios/dist/PocketApple.xcframework
-  pocket ios build <app> [--density=1..${IOS_DEV_MAX_DENSITY}] [--hz=${IOS_TICK_RATES.join("|")}]
-                                    resolve the ${IOS_DEV_TARGET_ID} plan and emit dist/ios/<app>/
-  pocket ios stage <app> [flags]    build + copy assets into the shell, without launching
-  pocket ios play <app> [flags]     stage, then build and launch the shell on the simulator
+  pocket ios doctor                       inspect Xcode, Rust targets and NativeScript
+  pocket ios setup                        add Rust iOS targets
+  pocket ios devices                      list available simulators
+  pocket ios native [--force]              build PocketApple.xcframework
+  pocket ios build --pocket <app.pocket>   build the native simulator shell
+  pocket ios stage --pocket <app.pocket>   stage the compiled package into the shell
+  pocket ios play --pocket <app.pocket>    stage, build and launch the shell
 
-flags for stage/play:
-  --density=1..${IOS_DEV_MAX_DENSITY}      guest raster density (default ${IOS_DEV_DEFAULT_DENSITY}; glyphs bake at this scale)
-  --hz=${IOS_TICK_RATES.join("|")}         ticks per second of guest time (default ${IOS_DEFAULT_TICK_RATE}; 120 for ProMotion)
-                      Glyphs are density-baked; timing is hz-baked. A bundle
-                      only runs correctly at the hz it was built with, so the
-                      shell is staged with that rate.
-  --external-guest    evaluate the guest in the shell's own runtime (PocketHostView)
-  --device=<name|udid>  pick a specific simulator (default: booted, else newest runtime)
-  --rebuild-native    rebuild PocketApple.xcframework first (needs Rust iOS targets)
-  --no-build          reuse the previous guest build for this app
-  --no-launch         stage only
-  --attach            stay attached to ns run for console output (default exits after launch)
-  --release           build the shell in release configuration
-  --shell-dir=<path>  stage into another NativeScript app instead of hosts/ios-nativescript
-  --plugin-path=<path>  override the maintained @nativescript/pocketjs checkout
-  --runtime-tgz=<path>  use a local @nativescript/ios-quickjs tgz instead of npm
+stage/play options:
+  --runtime-config=<file>  program profile (default programs/ios-simulator)
+  --external-guest         use the shell's generated guest binding
+  --shell-dir=<path>       destination NativeScript shell
+  --plugin-path=<path>     @nativescript/pocketjs source override
+  --runtime-tgz=<path>     @nativescript/ios-quickjs package override
+  --device=<name|udid>     simulator selection for play
+  --rebuild-native        rebuild the native framework before staging
+  --no-launch             stage without launching
+  --attach                attach NativeScript logs
+  --release               build the shell in release mode
 `;
 
 export async function iosMain(args: readonly string[] = Bun.argv.slice(2)): Promise<void> {
@@ -551,20 +469,15 @@ export async function iosMain(args: readonly string[] = Bun.argv.slice(2)): Prom
         await buildNative(rest.includes("--force"));
         return;
       case "build": {
-        if (!rest[0] || rest[0].startsWith("--")) throw new Error("pocket ios build: missing app name");
-        const density = Number(flagValue(rest, "--density") ?? IOS_DEV_DEFAULT_DENSITY);
-        const artifacts = await buildGuest(rest[0], density, tickRateFlag(rest) ?? IOS_DEFAULT_TICK_RATE);
-        console.log(`pocket ios: built ${artifacts.bundle}`);
+        await runProgramBuild("ios-simulator", rest);
         return;
       }
       case "stage": {
-        if (!rest[0] || rest[0].startsWith("--")) throw new Error("pocket ios stage: missing app name");
-        await play(rest[0], [...rest.slice(1), "--no-launch"]);
+        await play([...rest, "--no-launch"]);
         return;
       }
       case "play": {
-        if (!rest[0] || rest[0].startsWith("--")) throw new Error("pocket ios play: missing app name");
-        await play(rest[0], rest.slice(1));
+        await play(rest);
         return;
       }
       default:

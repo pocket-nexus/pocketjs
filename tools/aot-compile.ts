@@ -156,7 +156,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   const allInputs = inputs.paths();
   const files = [...new Set([...result.files.map(path => relative(outdir, path)), ...sources.keys()])].sort();
   const dependencyManifest = resolve(outdir, "dependencies.json");
-  writeFileSync(dependencyManifest, JSON.stringify({ schemaVersion: 1, kind: "aot", planHash: plan.planHash, profileHash: plan.profileHash,
+  writeFileSync(dependencyManifest, JSON.stringify({ schemaVersion: 1, kind: "aot", planHash: plan.planHash, profileHash: plan.profileHash, hostAbi: POCKET_BINDING_GENERATION, plan,
     entry, component, inputs: allInputs.map(path => ({ path, kind: statSync(path).isDirectory() ? "directory" : "file", ...(statSync(path).isFile() ? { sha256: sha(readFileSync(path)) } : {}) })),
     outputs: files.map(file => ({ file, sha256: sha(readFileSync(resolve(outdir, file))), sources: sources.get(file)?.length ? sources.get(file) : allInputs })),
   }, null, 2) + "\n");

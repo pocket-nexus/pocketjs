@@ -1,12 +1,32 @@
+import type { ResolvedBuildPlan } from "./manifest/plan.ts";
+import type { RepackInput } from "../../tools/repack/shared/runtime.ts";
 import type { PocketProfile } from "./profile.ts";
 import type { ToolchainManifest } from "../../tools/targets/toolchain.ts";
 
 export type RuntimeBuildHost = "darwin-arm64" | "darwin-x64" | "linux-arm64" | "linux-x64";
+export interface RuntimeApplication {
+  readonly packagePath: string;
+  readonly directory: string;
+  readonly planPath: string;
+  readonly plan: ResolvedBuildPlan;
+  readonly jsPath: string;
+  readonly pakPath: string;
+  readonly manifestPath: string;
+}
+export interface RuntimeAotInput {
+  readonly directory: string;
+  readonly includeFile: string;
+  readonly dependencyManifest: string;
+}
 export interface RuntimeBuildContext {
   readonly profile: PocketProfile;
   readonly profileHash: string;
   readonly configDirectory: string;
   readonly outdir: string;
+  readonly output: string;
+  readonly args: readonly string[];
+  readonly application?: RuntimeApplication;
+  readonly aot?: RuntimeAotInput;
   readonly env: Readonly<Record<string, string>>;
   readonly toolchainPaths: Readonly<Record<string, string>>;
   run(command: readonly string[], options?: { cwd?: string; env?: Readonly<Record<string, string>> }): Promise<void>;
@@ -18,7 +38,11 @@ interface StepOptions {
 }
 export interface CargoStep extends StepOptions {
   readonly kind: "cargo";
+  readonly executable?: string;
+  readonly toolchain?: string;
   readonly package?: string;
+  readonly targetDirectory?: string;
+  readonly noDefaultFeatures?: boolean;
   readonly manifest?: string;
   readonly target?: string;
   readonly buildStd?: readonly string[];
@@ -43,9 +67,13 @@ export interface RuntimeBuild {
   readonly hosts: readonly RuntimeBuildHost[];
   readonly toolchain?: ToolchainManifest;
   readonly steps: RuntimeBuildStep | readonly RuntimeBuildStep[];
+  /** An already compiled input required by the native recipe. */
+  readonly input?: "package" | "aot";
+  /** Native source files or directories, relative to the config, for the receipt. */
+  readonly sourceInputs?: readonly string[];
   readonly artifact?: string;
   readonly run?: (context: RuntimeBuildContext) => void | Promise<void>;
-  readonly genericRuntime?: { readonly repack: (...args: never[]) => unknown };
+  readonly genericRuntime?: { readonly repack: (input: RepackInput) => Promise<Uint8Array>; readonly extension?: string; readonly signed?: boolean };
   readonly deploy?: (context: RuntimeBuildContext) => void | Promise<void>;
 }
 export type PocketRuntimeConfig = (
@@ -78,6 +106,11 @@ export function defineRuntimeConfig<const C extends PocketRuntimeConfig>(config:
     if (!steps.length || steps.some(step => !step || !["cargo", "cmake", "make", "compilerOnly"].includes(step.kind))) {
       throw new TypeError("runtime build requires cargo, cmake, make or compilerOnly steps");
     }
+    if (build.input !== undefined && !["package", "aot"].includes(build.input)) throw new TypeError("runtime build input must be package or aot");
+    if (build.sourceInputs !== undefined && (!Array.isArray(build.sourceInputs) || build.sourceInputs.some(path => typeof path !== "string" || !path))) throw new TypeError("runtime build sourceInputs must contain nonempty paths");
+    if (build.artifact !== undefined && (typeof build.artifact !== "string" || !build.artifact)) throw new TypeError("runtime build artifact must be a nonempty path");
+    if (build.genericRuntime !== undefined && typeof build.genericRuntime?.repack !== "function") throw new TypeError("runtime genericRuntime requires a repack function");
+    if (build.deploy !== undefined && typeof build.deploy !== "function") throw new TypeError("runtime build.deploy must be a function");
     if (build.run !== undefined && typeof build.run !== "function") throw new TypeError("runtime build.run must be a function");
   }
   return config;

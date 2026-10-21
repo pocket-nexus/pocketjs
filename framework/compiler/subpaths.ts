@@ -83,6 +83,8 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   profile: { file: "framework/src/profile.ts" },
   "runtime-config": { file: "framework/src/runtime-config.ts" },
   profiles: { file: "profiles/index.ts" },
+  "profiles/psp-runtime": { file: "profiles/psp-runtime.ts" },
+  "profiles/3ds-runtime": { file: "profiles/3ds-runtime.ts" },
   "profiles/psp": { file: "profiles/psp.ts" },
   "profiles/vita": { file: "profiles/vita.ts" },
   "profiles/3ds-dev": { file: "profiles/3ds-dev.ts" },

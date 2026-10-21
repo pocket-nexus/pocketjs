@@ -36,6 +36,8 @@ import octanePkg from "octane/package.json";
 import babelCorePkg from "@babel/core/package.json";
 import tsPresetPkg from "@babel/preset-typescript/package.json";
 import type { PocketFramework } from "../../contracts/spec/pocket-manifest.ts";
+import { FRAMEWORK_CHOICES, parseFramework } from "./framework-choice.ts";
+export { parseFramework } from "./framework-choice.ts";
 import { POCKET_FRAMEWORKS, SUBPATHS } from "./subpaths.ts";
 
 export type { PocketFramework };
@@ -154,20 +156,17 @@ export const FRAMEWORKS: Record<
   }
 > = {
   solid: {
-    label: "Solid",
-    outputSuffix: "",
+    ...FRAMEWORK_CHOICES["solid"],
     rendererPath: RESOLVED.solid.renderer,
     rootPath: RESOLVED.solid[""],
   },
   "vue-vapor": {
-    label: "Vue Vapor",
-    outputSuffix: ".vue-vapor",
+    ...FRAMEWORK_CHOICES["vue-vapor"],
     rendererPath: RESOLVED["vue-vapor"].renderer,
     rootPath: RESOLVED["vue-vapor"][""],
   },
   octane: {
-    label: "Octane",
-    outputSuffix: ".octane",
+    ...FRAMEWORK_CHOICES["octane"],
     rendererPath: RESOLVED.octane.renderer,
     rootPath: RESOLVED.octane[""],
   },
@@ -210,11 +209,6 @@ const VAPOR_HELPERS = new Map([
   [ssrHelperId, ssrHelperCode],
 ]);
 
-export function parseFramework(value: string | undefined, source: string): PocketFramework {
-  if (value === undefined || value === "") return "solid";
-  if (value === "solid" || value === "vue-vapor" || value === "octane") return value;
-  throw new Error(`PocketJS ${source}: framework must be "solid", "vue-vapor" or "octane"`);
-}
 
 /** A string literal and where the source wrote it: 1-based line and column. */
 export interface LiteralSite {

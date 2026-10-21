@@ -183,7 +183,7 @@ fn main() {
     );
     let presentation = env::var("POCKETJS_PRESENTATION").unwrap_or_else(|_| "native".into());
     let raster_density = dimension("POCKETJS_RASTER_DENSITY", 1);
-    assert_eq!(target, "psp", "pocketjs-psp requires target psp");
+    assert!(target == "psp" || (env::var_os("CARGO_FEATURE_RUNTIME").is_some() && target == "psp-runtime"), "pocketjs-psp requires psp or the psp-runtime program profile");
     assert_eq!(logical, (480, 272), "PSP logical viewport must be 480x272");
     assert_eq!(
         physical,

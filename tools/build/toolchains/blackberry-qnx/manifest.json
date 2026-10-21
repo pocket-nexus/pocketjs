@@ -21,7 +21,7 @@
   },
   "rust": {
     "toolchain": "nightly-2026-07-02",
-    "target": "hosts/blackberry-classic-qnx/armv7-qnx-eabi.json"
+    "target": "tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json"
   },
   "app": {
     "manifest": "apps/blackberry-classic-demo/pocket.json",

@@ -117,7 +117,7 @@ describe("private BlackBerry Classic profile", () => {
 
 describe("BlackBerry Classic toolchain pins", () => {
   const qnx = JSON.parse(
-    readFileSync(join(repository, "tools/cli/blackberry-qnx-toolchain.json"), "utf8"),
+    readFileSync(join(repository, "tools/build/toolchains/blackberry-qnx/manifest.json"), "utf8"),
   );
   test("the QNX host pins QuickJS, Rust, and the Hero manifest", () => {
     expect(qnx.quickjs.revision).toMatch(/^[0-9a-f]{40}$/);

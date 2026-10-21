@@ -8,6 +8,7 @@ import { addTarget, escapingLinks, InstallError, prune, removeTarget, unsafeEntr
 import { publishStagedDirectory, withArtifactLock, withSharedLock } from "../tools/targets/lock.ts";
 import {
   requireToolchain,
+  recordPath,
   storeLayout,
   storeTree,
   targetLock,
@@ -287,6 +288,43 @@ describe("pocket target add", () => {
 });
 
 describe("readiness", () => {
+  test.each([
+    ["store location", (record: any) => { record.components.blob.location.store = "f".repeat(64); }],
+    ["store traversal", (record: any) => { record.components.blob.location.store = "../../unrelated"; }],
+    ["component kind", (record: any) => { record.components.blob.kind = "cargo-install"; }],
+    ["component role", (record: any) => { record.components.blob.role = "deploy"; }],
+    ["component digest", (record: any) => { record.components.blob.digest = "e".repeat(64); }],
+    ["extra component", (record: any) => { record.components.unrelated = { ...record.components.blob }; }],
+    ["ambiguous location", (record: any) => { record.components.blob.location.rustup = "stable"; }],
+    ["missing location", (record: any) => { delete record.components.blob.location; }],
+    ["invalid components", (record: any) => { record.components = null; }],
+  ])("rejects a record with a mismatched %s before exposing build paths", async (_name, mutate) => {
+    const env = environment();
+    const target = descriptor({ components: [{ name: "blob", role: "toolchain", kind: "file", source: serve("/record.a", "record"), file: "blob.a" }] });
+    const record = await addTarget(target, { env, ...quiet });
+    const altered = JSON.parse(JSON.stringify(record));
+    mutate(altered);
+    writeFileSync(recordPath(storeLayout(env), target.id, record.digest), JSON.stringify(altered));
+    expect(targetState(target, { env }).state).toBe("broken");
+    expect(() => requireToolchain(target, { env })).toThrow(ToolchainError);
+    // A fresh install record restores the manifest's identity without fetching
+    // the unchanged component again.
+    await addTarget(target, { env, ...quiet });
+    expect(requireToolchain(target, { env })!.path("blob")).toBe(storeTree(storeLayout(env), record.components.blob!.digest));
+  });
+
+  test("rejects a recorded rustup name that differs from the installed pin", async () => {
+    const env = environment();
+    const { rustup } = fakeRustup();
+    const target = descriptor({ components: [{ name: "rust", role: "toolchain", kind: "rustup", toolchain: "nightly-2026-05-28", components: [], targets: [] }] });
+    const record = await addTarget(target, { env, rustup, ...quiet });
+    const altered = JSON.parse(JSON.stringify(record));
+    altered.components.rust.location.rustup = "stable";
+    writeFileSync(recordPath(storeLayout(env), target.id, record.digest), JSON.stringify(altered));
+    expect(targetState(target, { env, rustup }).state).toBe("broken");
+    expect(() => requireToolchain(target, { env, rustup })).toThrow(ToolchainError);
+  });
+
   test("outdated: a record for another toolchain digest names the framework that wrote it", async () => {
     const env = environment();
     const first = descriptor({ components: [{ name: "blob", role: "toolchain", kind: "file", source: serve("/v1.a", "v1"), file: "blob.a" }] });

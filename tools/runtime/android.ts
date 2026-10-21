@@ -79,8 +79,8 @@ export async function buildRuntimeAndroid(argv: readonly string[] = []): Promise
       stdout: "inherit",
       stderr: "inherit",
     });
-    if (build.exitCode !== 0) throw new Error(`runtime android: tools/android.ts runtime exited ${build.exitCode}`);
-    const toolchain = JSON.parse(readFileSync(join(repository, `tools/cli/${profile}-toolchain.json`), "utf8"));
+    if (!build.success) throw new Error(`runtime android: tools/android.ts runtime failed: ${build.signalCode ?? build.exitCode}`);
+    const toolchain = JSON.parse(readFileSync(join(repository, `tools/build/toolchains/${profile}/manifest.json`), "utf8"));
     const sdk = {
       apiLevel: toolchain.android.apiLevel,
       buildToolsVersion: toolchain.android.buildToolsVersion,

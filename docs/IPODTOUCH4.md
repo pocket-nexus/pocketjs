@@ -1,5 +1,7 @@
 # iPod touch 4
 
+The current native build entry takes a compiled `--pocket` input. See [Museum native builds](MUSEUM_BUILDS.md) for compilation, program configs and artifact paths. Dated device validation records retain their recorded commands.
+
 The private iPod touch 4 target runs PocketJS on an exact `iPod4,1` device
 with iOS 6.1.6 build `10B500`. **The application owns a 320×480-point surface
 backed by the device's 640×960 Retina display, rendered through the required
@@ -75,7 +77,7 @@ which replaces the generated `Default@2x.png`.
 
 ```sh
 bun apps/nexus-touch/gen-art.ts                       # re-bake the art from the homepage
-POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build
+POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 build --pocket dist/ipodtouch4/application.pocket
 POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 deploy
 POCKETJS_IPODTOUCH4_APP=nexus-touch bun ipodtouch4 launch
 ```
@@ -127,7 +129,7 @@ bun ipodtouch4 doctor
 ## Build and deploy
 
 ```sh
-bun ipodtouch4 build
+bun ipodtouch4 build --pocket dist/ipodtouch4/application.pocket
 bun ipodtouch4 deploy
 bun ipodtouch4 launch
 bun ipodtouch4 status [--require-action]
@@ -135,8 +137,7 @@ bun ipodtouch4 capture
 bun ipodtouch4 uninstall         # removes the app and its data
 ```
 
-`build` resolves the selected app's manifest (`apps/clear/pocket.json` by
-default) against the `ipodtouch4-dev` profile, produces the guest bundle and pak, compiles the shared legacy
+`build --pocket` consumes an application package admitted to the `ipodtouch4-dev` profile and compiles the shared legacy
 runtime for `armv7-apple-ios6.0`, and links a `-no_pie` Mach-O with the app
 embedded as `__pocket_js` / `__pocket_pak` sections. The build id hashes the
 plan, the guest artifacts, every native object, the sysroot stubs, and the

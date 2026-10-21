@@ -356,7 +356,7 @@ await Bun.write(log,JSON.stringify([...previous,Bun.argv.slice(2)]));`);
     expect(pocket(framework,["check","--target=psp","--target=vita"]).err).toContain("conflicting targets");
     expect(pocket(framework,["check","--target="]).err).toContain("requires a value");
     expect(pocket(framework,["check","--manifest","pocket.json","+psp"]).err).toContain("must come right after");
-    expect(pocket(framework,["+psp","create","x"]).err).toContain("selects a target for check, compile, build or show");
+    expect(pocket(framework,["+psp","create","x"]).err).toContain("selects a target for check, compile, build, pack or show");
   });
   test("retired matrix and JSON host-profile options fail before execution",()=>{
     const framework=fakeFramework();

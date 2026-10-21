@@ -3,46 +3,54 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { compileBuiltinAot } from "../../tools/aot-compile.ts";
+import { RUST_TOOLCHAINS } from "../../tools/build/toolchains/rust.ts";
+import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
 
 const root = resolve(import.meta.dir, "../..");
-export const IPODNANO_TOOLCHAIN = "nightly-2026-07-01";
+export const IPODNANO_TOOLCHAIN = RUST_TOOLCHAINS.ipodNano;
 export const IPODNANO_TARGET = "armv4t-none-eabi";
 const VIEWPORT: [number, number] = [176, 132];
 
-const USAGE = `bun hosts/ipodnano/build.ts [--outdir=<directory>] [--rockbox=<rockbox-source>] [--compiler-prefix=<prefix>] [--install=<ipod-volume>]
+const USAGE = `bun hosts/ipodnano/build.ts --aot-dir=<sources> --rockbox=<rockbox-source> [--outdir=<directory>] [--compiler-prefix=<prefix>] [--install=<ipod-volume>]
 
-Without --rockbox the build stops after the host preview and the Rust staticlib.
+The native program links both pockethero.rock and pockethero.ovl.
 Requires rustup toolchain install ${IPODNANO_TOOLCHAIN} --component rust-src`;
 
 async function run(command: string[], options: { cwd?: string; env?: Record<string, string | undefined> } = {}) {
   const child = Bun.spawn(command, { cwd: options.cwd ?? root, stdout: "inherit", stderr: "inherit", env: { ...process.env, ...options.env } });
-  if (await child.exited !== 0) throw new Error(`${command.join(" ")} failed`);
+  if (await child.exited !== 0 || child.signalCode) throw new Error(`${command.join(" ")} failed`);
 }
 
-function option(name: string): string | undefined {
+function option(name: string, args: readonly string[]): string | undefined {
   const prefix = `--${name}=`;
-  return process.argv.slice(2).find(arg => arg.startsWith(prefix))?.slice(prefix.length);
+  return args.find(arg => arg.startsWith(prefix))?.slice(prefix.length);
 }
 
-function compilerPrefix(): string {
-  const chosen = option("compiler-prefix");
+function compilerPrefix(args: readonly string[]): string {
+  const chosen = option("compiler-prefix", args);
   if (chosen) return chosen;
   // Rockbox recommends arm-elf-eabi-gcc 9.5.0; arm-none-eabi-gcc builds plugins too.
   return Bun.which("arm-elf-eabi-gcc") ? "arm-elf-eabi-" : "arm-none-eabi-";
 }
 
-async function main() {
-  if (process.argv.includes("--help")) {
+export async function buildIpodNano(args: readonly string[], context?: RuntimeBuildContext) {
+  if (args.includes("--help")) {
     console.log(USAGE);
     return;
   }
-  const known = ["--outdir=", "--rockbox=", "--compiler-prefix=", "--install="];
-  if (process.argv.slice(2).some(arg => !known.some(prefix => arg.startsWith(prefix)))) throw new Error(`Unknown argument\n${USAGE}`);
-  const out = resolve(option("outdir") ?? resolve(root, "dist/ipodnano"));
+  if (context && args.some(arg => arg.startsWith("--install="))) throw new Error("program builds do not install devices; copy the completed .rock/.ovl after building");
+  const execute = context ? (command: string[], options: { cwd?: string; env?: Record<string, string> } = {}) => context.run(command, options) : run;
+  const known = ["--aot-dir=", "--outdir=", "--rockbox=", "--compiler-prefix=", "--install="];
+  if (args.some(arg => !known.some(prefix => arg.startsWith(prefix)))) throw new Error(`Unknown argument\n${USAGE}`);
+  const out = context?.outdir ?? resolve(option("outdir", args) ?? resolve(root, "dist/ipodnano"));
   const gen = resolve(out, "generated");
   mkdirSync(gen, { recursive: true });
-  const { result } = await compileBuiltinAot("ipodnano", gen);
+  const input = context?.aot?.directory ?? option("aot-dir", args);
+  if (!input) throw new Error("iPod nano native build requires --aot-dir from pocket compile --aot");
+  const dependency = JSON.parse(readFileSync(resolve(input, "dependencies.json"), "utf8"));
+  cpSync(resolve(input), gen, { recursive: true });
+  const rockboxSource = option("rockbox", args);
+  if (!rockboxSource) throw new Error("iPod nano program build requires --rockbox=<source> to link .rock/.ovl");
   const env = { IPODNANO_GENERATED: gen };
 
   // The preview runs the same crate on the host with the layout oracle and
@@ -50,17 +58,12 @@ async function main() {
   const previewDir = resolve(out, "preview");
   mkdirSync(previewDir, { recursive: true });
   const previewCommand = ["cargo", "+stable", "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/ipodnano/preview/Cargo.toml"), "--target-dir", resolve(out, "preview-target"), "--", previewDir];
-  await run(previewCommand, { env });
+  await execute(previewCommand, { env });
 
   const libCommand = ["cargo", `+${IPODNANO_TOOLCHAIN}`, "build", "--locked", "--release", "--lib", "--target", IPODNANO_TARGET, "-Z", "build-std=core,alloc", "-Z", "build-std-features=compiler-builtins-mem", "--manifest-path", resolve(root, "hosts/ipodnano/Cargo.toml"), "--target-dir", resolve(out, "target")];
-  await run(libCommand, { env });
+  await execute(libCommand, { env });
   const lib = resolve(out, `target/${IPODNANO_TARGET}/release/libpocketjs_ipodnano.a`);
 
-  const rockboxSource = option("rockbox");
-  if (!rockboxSource) {
-    console.log(`Rust staticlib: ${lib}\nPass --rockbox=<rockbox-source> to link pockethero.rock.`);
-    return;
-  }
   const source = resolve(rockboxSource);
   if (!existsSync(resolve(source, "tools/configure"))) throw new Error(`${source} is not a Rockbox source tree`);
   // The plugin directory is copied into the source tree, where configure's
@@ -68,13 +71,12 @@ async function main() {
   cpSync(resolve(root, "hosts/ipodnano/rockbox/pockethero"), resolve(source, "apps/plugins/pockethero"), { recursive: true });
   const rockboxBuild = resolve(out, "rockbox-build");
   mkdirSync(rockboxBuild, { recursive: true });
-  const prefix = compilerPrefix();
+  const prefix = compilerPrefix(args);
   const configure = [resolve(source, "tools/configure"), "--target=ipodnano2g", "--type=N", "--plugins=pockethero", `--compiler-prefix=${prefix}`];
   if (!existsSync(resolve(rockboxBuild, "Makefile"))) {
-    const child = Bun.spawn(configure, { cwd: rockboxBuild, stdin: "ignore", stdout: "inherit", stderr: "inherit" });
-    if (await child.exited !== 0) throw new Error("Rockbox configure failed");
+    await execute(configure, { cwd: rockboxBuild });
   }
-  await run(["make", "rocks"], { cwd: rockboxBuild, env: { POCKETHERO_LIB: lib } });
+  await execute(["make", "rocks"], { cwd: rockboxBuild, env: { POCKETHERO_LIB: lib } });
   const pluginDir = resolve(rockboxBuild, "apps/plugins/pockethero");
   // pockethero.rock is the launcher; pockethero.ovl holds the app and loads
   // at the top of the audio buffer.
@@ -89,12 +91,12 @@ async function main() {
   const rockboxVersion = Bun.spawnSync(["git", "-C", source, "rev-parse", "--short=10", "HEAD"], { stdout: "pipe" }).stdout.toString().trim();
   writeFileSync(resolve(out, "build.json"), JSON.stringify({
     target: IPODNANO_TARGET, toolchain: IPODNANO_TOOLCHAIN, rockbox: rockboxVersion, compilerPrefix: prefix,
-    previewCommand, libCommand, configure, app: "apps/ipodnano-hero", nominalTickHz: 30,
-    viewport: VIEWPORT, fontSlots: result.program.styles.usedFontSlots, layout: result.layout.regions, outputs,
+    previewCommand, libCommand, configure, app: dependency.plan.app.id, nominalTickHz: dependency.plan.profile.tickHz,
+    viewport: VIEWPORT, planHash: dependency.planHash, profileHash: dependency.profileHash, outputs,
   }, null, 2) + "\n");
   for (const line of sections.split("\n").filter(line => /^\.(text|rodata|data|bss)\b/.test(line))) console.log(`pockethero.ovl ${line.trim().split(/\s+/).slice(0, 2).join(" ")} bytes`);
   for (const output of Object.values(outputs)) console.log(`${output.file}: ${output.bytes} bytes (Rockbox ${rockboxVersion})`);
-  const install = option("install");
+  const install = option("install", args);
   if (install) {
     const info = resolve(install, ".rockbox/rockbox-info.txt");
     if (!existsSync(info)) throw new Error(`${install} has no .rockbox/rockbox-info.txt`);
@@ -104,4 +106,4 @@ async function main() {
     console.log(`installed ${Object.values(files).join(", ")} in ${resolve(install, ".rockbox/rocks/apps")}`);
   }
 }
-if (import.meta.main) await main();
+if (import.meta.main) await buildIpodNano(Bun.argv.slice(2));

@@ -1,5 +1,7 @@
 # iPhone 2G / iPhone OS 3.1.3 development
 
+The current native build entry takes a compiled `--pocket` input. See [Museum native builds](MUSEUM_BUILDS.md) for compilation, program configs and artifact paths. Dated device validation records retain their recorded commands.
+
 This document tracks the experimental PocketJS target for an original iPhone
 (`iPhone1,1`). The current device target is iPhone OS **3.1.3** (`7E18`). The
 native artifact is still compiled with a byte-pinned iPhone OS **1.1.4**
@@ -107,8 +109,8 @@ erase authorization, and a separately verified exit route.
 | `bun iphone2g prepare-bootstrap` | Builds and signs the ARMv6 `pocketjs-device` helper, creates or verifies the dedicated RSA client key, and stages the 3.1.3 key-only SSH policy plus receipt. It does not contact the phone.                                                                                                                                                                     | None                             |
 | `bun iphone2g install-bootstrap` | Rebuilds/verifies the stage, checks the exact `iPhone1,1`/3.1.3/`7E18` tuple and read/write mounts, pins the existing CustomHJ RSA host key, merges the client key, installs the signed helper, and disables password SSH only after key/helper checks pass. The transaction preserves the device `sshd`, host key, and launchd plist and rolls back on failure. | USB SSH; managed tunnel          |
 | `bun iphone2g tunnel`            | Runs a foreground `127.0.0.1:2222` to device port 22 usbmux forward for repeated manual access. Install, deploy, and status start a temporary tunnel themselves when one is not already listening.                                                                                                                                                               | USB                              |
-| `bun iphone2g build`             | Builds and `ldid`-signs the 3.1.3-targeted `dist/iphone2g/PocketJSDemo.app` against the 1.1.4 ABI sysroot.                                                                                                                                                                                                                                                       | None                             |
-| `bun iphone2g deploy`            | Rebuilds a signed bundle, verifies the installed helper, performs a transactional install with byte-exact readback and rollback, checks that root and data remain read/write, commits, refreshes the application cache as `mobile`, and restarts SpringBoard.                                                                                                    | Key-only USB SSH; managed tunnel |
+| `bun iphone2g build --pocket <file>`             | Builds and `ldid`-signs the 3.1.3-targeted `dist/iphone2g/PocketJSDemo.app` against the 1.1.4 ABI sysroot.                                                                                                                                                                                                                                                       | None                             |
+| `bun iphone2g deploy`            | Consumes the built signed bundle, verifies the installed helper, performs a transactional install with byte-exact readback and rollback, checks that root and data remain read/write, commits, refreshes the application cache as `mobile`, and restarts SpringBoard.                                                                                                    | Key-only USB SSH; managed tunnel |
 | `bun iphone2g launch`            | Verifies that the installed build receipt matches the current local bundle, then asks SpringBoard to open the demo through its private `pocketjs-iphone2g-demo` URL scheme.                                                                                                                                                                                      | Key-only USB SSH; managed tunnel |
 | `bun iphone2g device-status`     | Verifies a fresh schema-2 record for the current build: the recorded PID is alive, the heartbeat advances, the guest is producing frames, a touch release completed, the Hero action changed application state, and no runtime error is present.                                                                                                                 | Key-only USB SSH; managed tunnel |
 
@@ -125,7 +127,7 @@ sequence is:
 bun iphone2g doctor
 bun iphone2g prepare-bootstrap
 bun iphone2g install-bootstrap
-bun iphone2g build
+bun iphone2g build --pocket dist/iphone2g/application.pocket
 bun iphone2g deploy
 bun iphone2g launch
 # On the phone: tap the Hero action.
@@ -176,7 +178,7 @@ export POCKETJS_IPHONE2G_IDENTITY=/absolute/path/to/dedicated-client-key
 Do not commit firmware, decrypted system files, ramdisks, pairing or activation
 records, SSH keys, or historical binary packages. The canonical versions,
 URLs, revisions, and hashes are in
-[`tools/cli/iphone2g-toolchain.json`](../tools/cli/iphone2g-toolchain.json).
+[`tools/build/toolchains/iphone2g/manifest.json`](../tools/build/toolchains/iphone2g/manifest.json).
 
 ### 1.1.4 build and archival artifact preparation
 
@@ -255,25 +257,16 @@ Every required line must report `[ok]`. `ldid` is required to sign the current
 
 ## Build the 3.1.3 bundle with the 1.1.4 ABI sysroot
 
-Build the generated guest and native runtime as one workflow:
+After compiling the application with the iPhone 2G runtime config, build the
+native bundle from its **`.pocket` package**:
 
 ```sh
-bun iphone2g build
+bun iphone2g build --pocket dist/iphone2g/application.pocket
 ```
 
-For diagnosis, the two lower-level stages are:
-
-```sh
-bun iphone2g build-demo
-bun iphone2g build-runtime
-```
-
-Outputs:
-
-```text
-dist/iphone2g/guest/
-dist/iphone2g/PocketJSDemo.app/
-```
+The `build-runtime` compatibility command takes the same `--pocket` input.
+Both commands write `dist/iphone2g/PocketJSDemo.app/`; application compilation
+is a separate `pocket compile` step.
 
 The native build uses current Xcode Clang for ARMv6 object generation and invokes
 `ld-classic` directly against the byte-pinned 1.1.4 sysroot and Apple `Csu-76`.
@@ -1404,7 +1397,7 @@ a bounds hit alone does not meet that criterion.
 
 ## Primary references
 
-- [Pinned PocketJS toolchain manifest](../tools/cli/iphone2g-toolchain.json)
+- [Pinned PocketJS toolchain manifest](../tools/build/toolchains/iphone2g/manifest.json)
 - [PocketJS iPhone 2G host notes](../hosts/iphone2g/README.md)
 - [Legacy-iOS-Kit](https://github.com/LukeZGD/Legacy-iOS-Kit)
 - [Legacy-iOS-Kit SSH ramdisk notes](https://github.com/LukeZGD/Legacy-iOS-Kit/wiki/SSH-Ramdisk)

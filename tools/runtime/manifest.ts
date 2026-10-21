@@ -11,8 +11,9 @@ const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 /** HEAD of this checkout, "-dirty" when tracked files differ from it. */
 export function pocketjsCommit(): string {
   const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repository });
-  if (head.exitCode !== 0) return "unknown";
+  if (!head.success) return "unknown";
   const dirty = Bun.spawnSync(["git", "status", "--porcelain", "--untracked-files=no"], { cwd: repository });
+  if (!dirty.success) return "unknown";
   return head.stdout.toString().trim() + (dirty.stdout.toString().trim() ? "-dirty" : "");
 }
 

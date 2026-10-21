@@ -14,7 +14,8 @@ import { statusRows, targetCommand } from "./targets/commands.ts";
 import { loadProject } from "./targets/project.ts";
 import { profileRegistry, resolveProfile } from "./profile-resolver.ts";
 import { exportProfile } from "./profile-export.ts";
-import { buildRuntime } from "./runtime-build.ts";
+import { buildRuntime } from "./build/executor.ts";
+import { resolveRuntimeProgram } from "./build/programs.ts";
 import { makeVariant } from "./pocket-pack.ts";
 import { sdkCommand } from "./sdk.ts";
 
@@ -25,7 +26,8 @@ function usage(message?: string): never {
   if (message) console.error(`PocketJS: ${message}`);
   console.error("usage: pocket check|compile [--manifest pocket.json] [--target <id|module>] [--runtime-config FILE]\n" +
     "       pocket compile [--output app.pocket] [--depfile FILE] [--aot --out DIR]\n" +
-    "       pocket build [--config pocket.runtime-config.ts] [--target ID] [--out DIR]\n" +
+    "       pocket build [--config pocket.runtime-config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
+    "       pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]\n" +
     "       pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]");
   process.exit(1);
 }
@@ -97,13 +99,34 @@ async function main() {
     console.log(`✓ ${result.header}\n✓ ${result.sidecar}`);
     return;
   }
+  if (command === "pack") {
+    const config = takeOption("config") ?? takeOption("runtime-config");
+    const target = takeOption("target");
+    const runtime = takeOption("runtime");
+    const output = takeOption("output") ?? takeOption("out");
+    const id = takeOption("id"), title = takeOption("title"), author = takeOption("author"), version = takeOption("version"), icon = takeOption("icon");
+    const pocket = takeOption("pocket") ?? argv.shift();
+    noArguments();
+    if (!pocket) usage("pack requires an application.pocket file");
+    const { packRuntime } = await import("./build/pack.ts");
+    await packRuntime({ config, target, runtime, output, id, title, author, version, icon, pocket });
+    return;
+  }
   if (command === "build") {
+    const separator = argv.indexOf("--");
+    const args = separator < 0 ? [] : argv.splice(separator).slice(1);
     const config = takeOption("config") ?? takeOption("runtime-config");
     const target = takeOption("target");
     const out = takeOption("out") ?? takeOption("outdir");
+    const pocket = takeOption("pocket");
+    const aotDirectory = takeOption("aot-dir");
+    const deploy = flag("deploy");
+    const generic = flag("generic");
     noArguments();
-    const selected = await resolveProfile({ from: process.cwd(), target, runtimeConfig: config, env: process.env, requireConfig: true });
-    await buildRuntime(selected, resolve(dirname(selected.config!.path), out ?? "dist/profile"));
+    const selected = await resolveRuntimeProgram({ from: process.cwd(), target, runtimeConfig: config, generic, env: process.env });
+    await buildRuntime(selected, out ? resolve(out) : resolve(dirname(selected.config!.path), selected.config!.value.build ? "dist/runtime" : "dist/profile"), {
+      pocket: pocket && resolve(pocket), aotDirectory: aotDirectory && resolve(aotDirectory), deploy, args,
+    });
     return;
   }
   if (command !== "check" && command !== "compile") usage(`unknown command ${command ?? "<missing>"}`);

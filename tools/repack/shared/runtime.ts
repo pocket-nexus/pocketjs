@@ -96,7 +96,13 @@ export async function readRuntime(
   if (!manifest.files || typeof manifest.files !== "object") {
     throw new Error(`repack: ${RUNTIME_MANIFEST} lists no files`);
   }
+  for (const name of runtime.keys()) {
+    if (name !== RUNTIME_MANIFEST && !Object.hasOwn(manifest.files, name))
+      throw new Error(`repack: the runtime contains an unlisted file: ${name}`);
+  }
   for (const [name, expected] of Object.entries(manifest.files)) {
+    if (name === RUNTIME_MANIFEST || name.includes("\\") || name.split("/").some(part => !part || part === "." || part === ".."))
+      throw new Error(`repack: invalid runtime file path: ${name}`);
     const bytes = runtime.get(name);
     if (!bytes) throw new Error(`repack: the runtime is missing ${name}`);
     if (bytes.length !== expected.bytes || (await sha256Hex(bytes)) !== expected.sha256) {
@@ -152,6 +158,7 @@ export async function admitPocket(
   if (!identitySection || !planSection || !javascript || javascript.length === 0) {
     throw new Error(`repack: the .pocket's ${runtime.target} variant lacks its identity, plan or JavaScript`);
   }
+  if (javascript[javascript.length - 1] !== 0) throw new Error("repack: application JavaScript must be NUL-terminated");
   const packageIdentity = decodeIdentity(identitySection);
   if (packageIdentity.id !== identity.id) {
     throw new Error(

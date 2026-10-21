@@ -1,3 +1,5 @@
+import profilePspRuntime from "./psp-runtime.ts";
+import profile3dsRuntime from "./3ds-runtime.ts";
 import profilePsp from "./psp.ts";
 import profileVita from "./vita.ts";
 import profile3dsDev from "./3ds-dev.ts";
@@ -22,6 +24,8 @@ import profileIpodnano from "./ipodnano.ts";
 
 export const POCKET_PROFILES = {
   "psp": profilePsp,
+  "psp-runtime": profilePspRuntime,
+  "3ds-runtime": profile3dsRuntime,
   "vita": profileVita,
   "3ds-dev": profile3dsDev,
   "pocketbook": profilePocketbook,
@@ -46,6 +50,8 @@ export const POCKET_PROFILES = {
 
 export type BuiltinProfileId = keyof typeof POCKET_PROFILES;
 export {
+  profilePspRuntime,
+  profile3dsRuntime,
   profilePsp,
   profileVita,
   profile3dsDev,

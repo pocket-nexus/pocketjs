@@ -1,5 +1,7 @@
 # Meizu M8 / M8SE
 
+Native build inputs and program configs are listed in [Museum native builds](MUSEUM_BUILDS.md).
+
 PocketJS runs on the original Meizu M8 as a Windows CE 6 ARM application. **The host embeds QuickJS and the Rust software renderer in one `PocketJS.exe`, then copies its native 480×720 BGRA framebuffer to the 480×720 LCD with GDI without stretching.** Host ABI 8 uses its wide touch-word format for the full native coordinate range.
 
 **The PocketJS window is not system-topmost.** Pressing Home or Escape closes it so the Windows CE shell can regain the display.
@@ -13,11 +15,11 @@ Install Docker, Bun, Rustup, libusb, GLib, D-Bus, gettext, Autoconf, Automake, a
 ```sh
 bun install --frozen-lockfile
 bun meizu-m8 doctor
-bun meizu-m8 build
+bun meizu-m8 build --pocket dist/meizu-m8/application.pocket
 bun meizu-m8 setup-rapi
 ```
 
-**The native compiler image, Rust nightly, QuickJS revision, SynCE revision, SDK checksum, USB endpoints, and device addresses are pinned.** `dist/meizu-m8/build-receipt.json` records the inputs and the resulting executable digest.
+**The native compiler image, Rust nightly, QuickJS revision, SynCE revision, SDK checksum, USB endpoints, and device addresses are pinned.** `dist/meizu-m8/native-build-receipt.json` records the inputs and the resulting executable digest.
 
 ## USB connection and deployment
 

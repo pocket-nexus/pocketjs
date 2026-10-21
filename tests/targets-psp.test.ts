@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { resolvePspBuildToolchain } from "../tools/psp-toolchain.ts";
+import { resolvePspBuildToolchain } from "../tools/build/toolchains/psp/build.ts";
 import { catalogEntry } from "../tools/targets/index.ts";
 import { RECEIPT_SCHEMA, RECORD_SCHEMA, frameworkIdentity, storeLayout, storeTree, writeRecord, expectedFiles } from "../tools/targets/store.ts";
 import {
@@ -75,8 +75,8 @@ describe("PSP toolchain manifest", () => {
 
   test("production entrypoints have no personal, DreamCart, or sibling toolchain fallback", async () => {
     const productionFiles = [
-      "tools/targets/psp.toolchain.json",
-      "tools/psp-toolchain.ts",
+      "tools/build/toolchains/psp.ts",
+      "tools/build/toolchains/psp/build.ts",
       "tools/psp.ts",
       "tools/psp-all.ts",
       "tools/cli/bin.mjs",

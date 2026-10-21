@@ -90,7 +90,7 @@ describe("profile identity contract", () => {
   });
 
   test("built-in profiles use the same projection and cannot be shadowed", () => {
-    expect(Object.keys(POCKET_PROFILES)).toHaveLength(21);
+    expect(Object.keys(POCKET_PROFILES)).toHaveLength(23);
     for (const builtin of Object.values(POCKET_PROFILES)) {
       expect(validatePocketProfile(builtin, { builtin: true }).ok).toBe(true);
       expect(hashPocketProfile(builtin)).toBe(`sha256:${hash(builtin)}`);

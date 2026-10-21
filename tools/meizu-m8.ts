@@ -1,3 +1,6 @@
+import nativeToolchain from "./build/toolchains/meizu-m8/manifest.json";
+import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import { writeHostProfileHeader } from "./host-profile.ts";
 import { createHash, randomBytes } from "node:crypto";
 import {
@@ -23,9 +26,7 @@ import { validateMeizuM8FramebufferBmp } from "./meizu-m8/validation.ts";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const command = Bun.argv[2] ?? "doctor";
-const toolchain = JSON.parse(
-  readFileSync(join(repository, "tools/cli/meizu-m8-toolchain.json"), "utf8"),
-) as {
+const toolchain = nativeToolchain as {
   readonly toolchainVersion: string;
   readonly cachePath: string;
   readonly compiler: {
@@ -81,7 +82,7 @@ function run(
     stderr: "pipe",
   });
   return {
-    exitCode: result.exitCode,
+    exitCode: result.success ? 0 : result.exitCode || 1,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   };
@@ -135,25 +136,6 @@ function guestArtifacts(plan: ResolvedBuildPlan): GuestArtifacts {
   };
 }
 
-function readGuestArtifacts(): GuestArtifacts {
-  if (!existsSync(planPath)) {
-    throw new Error(
-      "PocketJS Meizu M8: resolved plan is absent; run `bun tools/meizu-m8.ts build-demo`",
-    );
-  }
-  const stored = JSON.parse(readFileSync(planPath, "utf8")) as ResolvedBuildPlan;
-  const current = currentPlan();
-  if (stored.planHash !== current.planHash) {
-    throw new Error(
-      "PocketJS Meizu M8: resolved plan is stale; rerun build-demo",
-    );
-  }
-  const artifacts = guestArtifacts(stored);
-  if (!existsSync(artifacts.javaScript) || !existsSync(artifacts.pack)) {
-    throw new Error("PocketJS Meizu M8: guest JavaScript or pack is absent");
-  }
-  return artifacts;
-}
 
 function buildDemo(): void {
   const plan = currentPlan();
@@ -273,9 +255,13 @@ export function sanitizeRustAssembly(source: string): string {
   return `${output.join("\n")}\n`;
 }
 
-function buildRuntime(): void {
+export function buildMeizuNative(application: RuntimeApplication, outputDirectory: string): void {
+  const artifacts = applicationBundle(application, "meizu-m8-dev");
+  const executable = join(outputDirectory, "PocketJS.exe");
+  const stopExecutable = join(outputDirectory, "PocketJSStop.exe");
+  if (!Bun.which("docker")) throw new Error("PocketJS Meizu M8: Docker with the pinned WinCE compiler image is required");
+  if (run("docker", ["image", "inspect", toolchain.compiler.image]).exitCode !== 0) throw new Error("PocketJS Meizu M8: pinned WinCE compiler image is absent; install the declared toolchain first");
   ensureQuickJs();
-  const artifacts = readGuestArtifacts();
   const { inputs } = artifacts;
   const buildId = randomBytes(16).toString("hex");
   rmSync(nativeBuild, { recursive: true, force: true });
@@ -308,7 +294,7 @@ function buildRuntime(): void {
       "--no-default-features", "--features",
       "standalone-extension-provider,bare-platform,software-only,host-allocator,boot-stage",
       "--target",
-      join(repository, "hosts/meizu-m8/armv6-wince-asm.json"),
+      join(repository, "tools/build/toolchains/meizu-m8/armv6-wince-asm.json"),
       "-Z",
       "json-target-spec",
       "-Z",
@@ -406,7 +392,7 @@ function buildRuntime(): void {
     stopExecutableBytes: lstatSync(stopExecutable).size,
   };
   writeFileSync(
-    join(outputDirectory, "build-receipt.json"),
+    join(outputDirectory, "native-build-receipt.json"),
     `${JSON.stringify(receipt, null, 2)}\n`,
   );
   console.log(`PocketJS Meizu M8: WinCE executable -> ${executable}`);
@@ -481,7 +467,7 @@ function deploy(): void {
   const prun = synceTool("prun");
   const registry = synceTool("registry");
   const receipt = JSON.parse(
-    readFileSync(join(outputDirectory, "build-receipt.json"), "utf8"),
+    readFileSync(join(outputDirectory, "native-build-receipt.json"), "utf8"),
   ) as { readonly buildId: string };
   if (!/^[0-9a-f]{32}$/.test(receipt.buildId)) {
     throw new Error("PocketJS Meizu M8: build receipt has an invalid build ID");
@@ -609,7 +595,7 @@ function status(requireAction = false): void {
   const destination = join(nativeBuild, "device-status.txt");
   mkdirSync(nativeBuild, { recursive: true });
   const receipt = JSON.parse(
-    readFileSync(join(outputDirectory, "build-receipt.json"), "utf8"),
+    readFileSync(join(outputDirectory, "native-build-receipt.json"), "utf8"),
   ) as {
     readonly buildId: string;
     readonly hostContract: {
@@ -650,7 +636,7 @@ function status(requireAction = false): void {
 function capture(): void {
   const destination = join(nativeBuild, "device-frame.bmp");
   const receipt = JSON.parse(
-    readFileSync(join(outputDirectory, "build-receipt.json"), "utf8"),
+    readFileSync(join(outputDirectory, "native-build-receipt.json"), "utf8"),
   ) as {
     readonly buildId: string;
     readonly hostContract: {
@@ -706,7 +692,7 @@ function usage(): never {
   process.exit(2);
 }
 
-switch (command) {
+if (import.meta.main) switch (command) {
   case "doctor":
     doctor();
     break;
@@ -714,11 +700,10 @@ switch (command) {
     buildDemo();
     break;
   case "build-runtime":
-    buildRuntime();
+    await runProgramBuild("meizu-m8", Bun.argv.slice(3));
     break;
   case "build":
-    buildDemo();
-    buildRuntime();
+    await runProgramBuild("meizu-m8", Bun.argv.slice(3));
     break;
   case "setup-rapi":
     setupRapi();

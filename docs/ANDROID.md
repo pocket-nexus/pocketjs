@@ -4,7 +4,7 @@
 runtime (`app/jni/runtime.c`) over QuickJS-C, the shared Rust core and its
 OpenGL ES 2 renderer. `tools/android.ts` builds it for a named profile. **A
 profile is a target id, that target's resolver and the toolchain file
-`tools/cli/<profile>-toolchain.json`.** Both targets share host ABI 9 and
+`tools/build/toolchains/<profile>/manifest.json`.** Both targets use the current binding generation and
 stay outside the public `POCKET_TARGETS` registry.
 
 | Profile | Target | Logical | Panel | Libraries | minSdk | NDK |
@@ -46,34 +46,24 @@ pixels of the same rectangle.
 
 ## Building
 
+The [Museum native build recipes](MUSEUM_BUILDS.md) separate application compilation, reusable runtime builds and APK packaging.
+
 ```sh
-rustup toolchain install nightly-2026-07-02 --profile minimal
-bun redmi-1s setup      # platform 34, build tools 35.0.0, NDK 21.4.7075529, QuickJS, both Rust targets
+bun redmi-1s setup
 bun redmi-1s doctor
-bun redmi-1s build      # apps/clear/pocket.redmi-1s.json -> dist/redmi-1s/pocket-clear.apk
+bun tools/pocket.ts compile --manifest apps/clear/pocket.redmi-1s.json \
+  --project-root . --runtime-config programs/redmi-1s/pocket.runtime-config.ts \
+  --output dist/clear-redmi.pocket
+bun tools/android.ts --profile=redmi-1s build-app \
+  --pocket=dist/clear-redmi.pocket --out=dist/clear-redmi.apk
 ```
 
 `POCKETJS_ANDROID_SDK_ROOT` selects the SDK and `JAVA_HOME` selects Java 17.
-`build` is `build-demo` (the guest bundle of the toolchain file's manifest)
-followed by `build-app` (the libraries, the Activity and the package).
+**`build-app` consumes a current `.pocket` file without compiling its JavaScript.** `--plan` is no longer a native build input. The package's admitted plan supplies the application id, label, version, viewport and profile.
 
-**`build-app --plan` builds an app this repository does not name:**
-
-```sh
-bun tools/android.ts --profile=redmi-1s build-app \
-  --plan=<plan.json> --project-root=<dir> --out=<file.apk> [--icon=<png|svg>] [--release]
-```
-
-- `--plan` is a plan resolved for the profile's target, for example by
-  `validateAndResolveBuildPlan(manifest, { target: REDMI_1S_TARGET }, REDMI_1S_CONTRACTS)`.
-  The tool verifies its checksum and its target, then compiles the guest with
-  `tools/build.ts` from `--project-root` (default: this repository).
-- **The package name, label and version come from the plan**: the app id with
-  each `-` as `_`, the title, and `major * 1_000_000 + minor * 1_000 + patch`
-  as the version code.
-- `--out` is the APK's path (default: the toolchain file's output).
-- The build directory is `.pocket-build/<profile>`, so builds of one profile
-  run one at a time.
+- `--out` names the APK; `--icon` selects its artwork and `--release` selects release signing.
+- The native build directory is `.pocket-build/<profile>`, so builds of one profile run one at a time.
+- The program config builds a reusable template under its output directory's `runtime/` subdirectory; `pocket pack` combines it with a compiled application.
 
 ## The launcher icon
 
@@ -149,7 +139,7 @@ bun tools/repack.ts --target android --runtime dist/runtime/android --pocket gam
 
 - **The runtime directory holds `template.apk`, the two templates it was
   linked from (`AndroidManifest.xml`, `res/values/strings.xml`) and
-  `runtime.json`**: target `redmi-1s-dev`, host ABI 9, the PocketJS commit,
+  `runtime.json`**: target `redmi-1s-dev`, current binding generation, the PocketJS commit,
   the SDK levels, the ABIs and the size and SHA-256 of each file.
   `template.apk` is aapt2's link of the runtime with the identity
   `dev.pocket-nexus.runtime.template` (`ANDROID_TEMPLATE_IDENTITY`), the

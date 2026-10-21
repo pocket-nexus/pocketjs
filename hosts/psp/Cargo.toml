@@ -4,7 +4,7 @@
 # workspace (do NOT add a workspace Cargo.toml at PocketJS/).
 #
 # Build via tools/psp.ts: `rustup run nightly-2026-05-28 cargo psp` with the
-# toolchain `pocket target add psp` installs from tools/targets/psp.toolchain.json
+# toolchain `pocket target add psp` installs from tools/build/toolchains/psp.ts
 # (PSP_SDK, cargo-psp, QUICKJS_PREBUILT_LIB) plus RUSTFLAGS -A linker-messages,
 # RUST_PSP_TARGET=targets/mipsel-sony-psp.json and RUST_PSP_ABORT_ONLY=1.
 #

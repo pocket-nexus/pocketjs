@@ -12,31 +12,32 @@
 //
 // The runtime has no io.offload slot; the repack refuses a plan that asks for it.
 
-import { $ } from "bun";
+import { buildPsp } from "../psp.ts";
+import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
 import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { POCKET_TARGETS } from "../../contracts/spec/platforms.ts";
 import { PSP_RUNTIME_FILE, PSP_RUNTIME_TARGET } from "../repack/psp.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
-import profile from "../../profiles/psp.ts";
+import profile from "../../profiles/psp-runtime.ts";
 import { hashPocketProfile } from "../../framework/src/profile.ts";
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 
-export async function buildRuntimePsp(argv: readonly string[] = []): Promise<string> {
+export async function buildRuntimePsp(argv: readonly string[] = [], context?: RuntimeBuildContext): Promise<string> {
   let out = join(repository, "dist/runtime/psp");
   for (const argument of argv) {
     if (argument.startsWith("--out=")) out = resolvePath(argument.slice("--out=".length));
     else throw new Error(`usage: bun tools/runtime.ts psp [--out=<dir>] (unknown argument ${argument})`);
   }
-  await $`bun tools/psp.ts --runtime --release`.cwd(repository);
+  await buildPsp(["--runtime", "--release"], context);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   copyFileSync(join(repository, "hosts/psp/target/mipsel-sony-psp/release/EBOOT.PBP"), join(out, PSP_RUNTIME_FILE));
   const manifest = await writeRuntimeManifest(out, {
     target: PSP_RUNTIME_TARGET,
     hostAbi: POCKET_TARGETS.psp.hostAbi,
-    profile: "psp",
+    profile: profile.id,
     profileHash: hashPocketProfile(profile),
     files: [PSP_RUNTIME_FILE],
   });

@@ -16,7 +16,7 @@ import {
   symbianDownloadPath,
   symbianDownloadsRoot,
   symbianImplementationDigest,
-} from "./symbian-toolchain.ts";
+} from "./build/toolchains/symbian.ts";
 import { pocketNexusCacheRoot } from "./targets/cache.ts";
 import { withArtifactLock } from "./targets/lock.ts";
 

@@ -266,8 +266,8 @@ const argvAfterPocket = process.argv.slice(2);
 // `pocket +<id> <command>`: a leading selection, as `cargo +<toolchain>`.
 const leading = argvAfterPocket[0]?.startsWith("+") ? argvAfterPocket.shift().slice(1) : undefined;
 const [cmd, ...rest] = argvAfterPocket;
-const SELECTING = new Set(["check", "compile", "build", "show"]);
-if (leading !== undefined && !SELECTING.has(cmd)) fail(`+${leading} selects a target for check, compile, build or show`);
+const SELECTING = new Set(["check", "compile", "build", "pack", "show"]);
+if (leading !== undefined && !SELECTING.has(cmd)) fail(`+${leading} selects a target for check, compile, build, pack or show`);
 const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
 
   pocket create <name> [--target ID]
@@ -276,7 +276,12 @@ const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
       --output FILE          compile a .pocket package
       --aot --out DIR        compile native guest sources
       --depfile FILE         emit build dependencies
-  pocket build [--config pocket.runtime-config.ts] [--target ID] [--out DIR]
+  pocket build [--config FILE] [--target ID] [--out DIR]
+      --pocket FILE          consume a compiled application
+      --aot-dir DIR          consume generated AOT sources
+      --generic              build a reusable runtime
+      --deploy               deploy the resulting artifact
+  pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]
   pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]
   pocket show [--json]       profile selection and toolchain status
   pocket target add [ID…] | list [--check] [--json] | remove ID…
@@ -292,6 +297,7 @@ switch (cmd) {
   case "check":
   case "compile":
   case "build":
+  case "pack":
     verb(cmd, rest, leading);
     break;
   case "show":

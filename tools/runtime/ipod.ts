@@ -35,7 +35,7 @@ import {
   sysrootIdentityInputs,
 } from "../ipodtouch4.ts";
 import { IPODTOUCH4_DEV_HOST_ABI, IPODTOUCH4_DEV_TARGET_ID, IPODTOUCH4_RASTER_DENSITY } from "../ipodtouch4-profile.ts";
-import { IPODTOUCH4_TOOLCHAIN } from "../ipodtouch4-toolchain.ts";
+import { IPODTOUCH4_TOOLCHAIN } from "../build/toolchains/ipodtouch4.ts";
 import { IPOD_RUNTIME_EXECUTABLE, IPOD_RUNTIME_FILES } from "../repack/ipod.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
 import profile from "../../profiles/ipodtouch4-dev.ts";
@@ -83,7 +83,7 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
   const buildId = hashInputs([
     join(repository, "tools/ipodtouch4.ts"),
     join(repository, "tools/runtime/ipod.ts"),
-    join(repository, "hosts/ipodtouch4/armv7-apple-ios.json"),
+    join(repository, "tools/build/toolchains/ios/armv7-apple-ios.json"),
     ...sysrootIdentityInputs(native.sysroot),
     { label: "native/csu-start.o", path: native.csuStart },
     { label: "native/csu-dyld-glue.o", path: native.csuDyldGlue },

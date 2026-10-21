@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { resizeBilinear } from "./image-resize.ts";
 
 // The launcher artifact chain (docs/LAUNCHER.md "Build pipeline").
 //
@@ -43,8 +44,10 @@ import {
 import {
   SYMBIAN_TOOLCHAIN,
   withSymbianGuestBuildLock,
-} from "./symbian-toolchain.ts";
+} from "./build/toolchains/symbian.ts";
 import { withArtifactLock } from "./targets/lock.ts";
+import { prepareApplication } from "./build/inputs.ts";
+import { resolveProfile } from "./profile-resolver.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const APPS_DIR = join(ROOT, "apps");
@@ -689,37 +692,6 @@ async function compileApp(
   await withSymbianGuestBuildLock(async () => {
     const absoluteManifest = manifestPath(app);
     const absoluteProjectRoot = projectRoot(app);
-    if (target === SYMBIAN_E7_DEV_TARGET_ID) {
-      const manifestBytes = readFileSync(absoluteManifest);
-      const resolution = resolveForTarget(
-        JSON.parse(manifestBytes.toString("utf8")),
-        target,
-      );
-      if (!resolution.ok) {
-        throw new Error(`launcher: compile failed to resolve ${absoluteManifest}`);
-      }
-      const planDirectory = join(output, ".plans");
-      mkdirSync(planDirectory, { recursive: true });
-      const planPath = join(
-        planDirectory,
-        `${resolution.plan.app.output}.json`,
-      );
-      writeFileSync(planPath, JSON.stringify(resolution.plan, null, 2) + "\n");
-      const p = Bun.spawnSync(
-        [
-          "bun",
-          "tools/build.ts",
-          `--plan=${planPath}`,
-          `--project-root=${absoluteProjectRoot}`,
-          `--outdir=${output}`,
-        ],
-        { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
-      );
-      if (p.exitCode !== 0) {
-        throw new Error(`launcher: compile failed for ${absoluteManifest}`);
-      }
-      return;
-    }
     const p = Bun.spawnSync(
       [
         "bun",
@@ -736,7 +708,7 @@ async function compileApp(
       ],
       { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
     );
-    if (p.exitCode !== 0) {
+    if (!p.success) {
       throw new Error(`launcher: compile failed for ${absoluteManifest}`);
     }
   });
@@ -930,38 +902,7 @@ async function renderCovers(
 /** Generic bilinear resample (art assets only — the deck textures use the
  *  fixed-size shot path). Also used by tools/psp.ts to bake the switch
  *  veil's logo texture. */
-export function resizeBilinear(
-  rgba: Uint8Array,
-  sw: number,
-  sh: number,
-  dw: number,
-  dh: number,
-): Uint8Array {
-  const out = new Uint8Array(dw * dh * 4);
-  for (let y = 0; y < dh; y++) {
-    const sy = ((y + 0.5) * sh) / dh - 0.5;
-    const y0 = Math.min(sh - 1, Math.max(0, Math.floor(sy)));
-    const y1 = Math.min(sh - 1, y0 + 1);
-    const fy = Math.min(1, Math.max(0, sy - y0));
-    for (let x = 0; x < dw; x++) {
-      const sx = ((x + 0.5) * sw) / dw - 0.5;
-      const x0 = Math.min(sw - 1, Math.max(0, Math.floor(sx)));
-      const x1 = Math.min(sw - 1, x0 + 1);
-      const fx = Math.min(1, Math.max(0, sx - x0));
-      const o = (y * dw + x) * 4;
-      for (let c = 0; c < 4; c++) {
-        const top =
-          rgba[(y0 * sw + x0) * 4 + c] +
-          (rgba[(y0 * sw + x1) * 4 + c] - rgba[(y0 * sw + x0) * 4 + c]) * fx;
-        const bot =
-          rgba[(y1 * sw + x0) * 4 + c] +
-          (rgba[(y1 * sw + x1) * 4 + c] - rgba[(y1 * sw + x0) * 4 + c]) * fx;
-        out[o + c] = Math.round(top + (bot - top) * fy);
-      }
-    }
-  }
-  return out;
-}
+export { resizeBilinear } from "./image-resize.ts";
 
 /** XMB identity (cargo-psp packs apps/launcher/psp/Psp.toml): ICON0 is the
  *  REAL deck — a settled sim render resized to 144×80 — and PIC1 is the
@@ -1371,6 +1312,9 @@ async function main(): Promise<void> {
       await renderXmbArt();
       copyIsolatedPspMetadata(paths.isolatedSource);
     }
+    const launcherResolution = resolveForTarget(JSON.parse(readFileSync(manifestPath(launcher), "utf8")), target);
+    if (!launcherResolution.ok) throw new Error("launcher: package no longer resolves for the native program");
+    const launcherPocket = join(paths.packages, `${launcherResolution.plan.app.output}.pocket`);
     console.log(`launcher: building the multi-app ${
       target === "psp"
         ? "EBOOT"
@@ -1392,6 +1336,7 @@ async function main(): Promise<void> {
           catalogIndex: paths.catalogIndex!,
           catalogBlob: paths.catalogBlob!,
           transaction: symbianTransaction,
+          application: prepareApplication(await resolveProfile({ from: ROOT, target }), launcherPocket, join(paths.output, ".native-input")),
         },
       );
       console.log(`PocketJS Symbian launcher: ${sis}`);
@@ -1400,8 +1345,7 @@ async function main(): Promise<void> {
     const targetBackendArgs =
       target === "vita"
         ? [
-            `--launcher-packages=${relative(ROOT, paths.packages)}`,
-            `--package-outdir=${relative(ROOT, join(ROOT, "dist/vita"))}`,
+            `--launcher-packages=${paths.packages}`,
           ]
         : [];
     const p = Bun.spawnSync(
@@ -1411,20 +1355,18 @@ async function main(): Promise<void> {
         "build",
         "--target",
         target,
-        "--manifest",
-        manifestPath(launcher),
-        "--project-root",
-        projectRoot(launcher),
-        "--outdir",
-        paths.output,
+        "--pocket",
+        launcherPocket,
+        "--out",
+        join(paths.output, "native"),
         "--",
-        `--launcher-registry=${relative(ROOT, paths.registryTsv)}`,
+        `--launcher-registry=${paths.registryTsv}`,
         ...targetBackendArgs,
         ...backendArgs,
       ],
       { cwd: ROOT, stdout: "inherit", stderr: "inherit" },
     );
-    if (p.exitCode !== 0)
+    if (!p.success)
       throw new Error(`launcher: ${target} backend build failed`);
   };
 

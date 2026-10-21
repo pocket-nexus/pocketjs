@@ -12,7 +12,7 @@
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
 import { tmpdir } from "node:os";
-import { runContainer, type Mount } from "../3ds-toolchain.ts";
+import { runContainer, type Mount } from "../build/toolchains/3ds.ts";
 import { readRuntimeDirectory } from "../repack.ts";
 import { encodePng } from "./shared/png.ts";
 import { parse3dsx, repack3ds, smdhIcons } from "./3ds.ts";

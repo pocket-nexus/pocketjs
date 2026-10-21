@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 /** Experimental bare-metal MicroTS Hero ROM; no JavaScript VM or OS. */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { compileBuiltinAot } from "../../tools/aot-compile.ts";
+import { RUST_TOOLCHAINS } from "../../tools/build/toolchains/rust.ts";
+import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
 import { packLayers } from "./assets.ts";
 
 const root = resolve(import.meta.dir, "../..");
-export const GBA_TOOLCHAIN = "nightly-2026-07-01";
+export const GBA_TOOLCHAIN = RUST_TOOLCHAINS.gba;
 // Cartridge boot logo bytes defined by the GBA ROM header format.
 const logo = "24ffae51699aa2213d84820a84e409ad11248b98c0817f21a352be199309ce2010464a4af82731ec58c7e83382e3cebf85f4df94ce4b09c194568ac01372a7fc9f844d73a3ca9a615897a327fc039876231dc7610304ae56bf38840040a70efdff52fe036f9530f197fbc08560d68025a963be03014e38e2f9a234ffbb3e0344780090cb88113a9465c07c6387f03caf d625e48b380aac7221d4f807".replaceAll(" ", "");
 
@@ -43,29 +44,35 @@ export function gbaRom(elf: Uint8Array): Uint8Array {
   return rom;
 }
 
-async function main() {
-  if (process.argv.includes("--help")) {
-    console.log("bun hosts/gba/build.ts [--outdir=<directory>]\nRequires rustup toolchain install nightly-2026-07-01 --component rust-src");
+export async function buildGba(args: readonly string[], context?: RuntimeBuildContext) {
+  if (args.includes("--help")) {
+    console.log(`bun hosts/gba/build.ts --aot-dir=<sources> [--outdir=<directory>]\nRequires rustup toolchain install ${GBA_TOOLCHAIN} --component rust-src`);
     return;
   }
-  const options = process.argv.slice(2);
-  if (options.some(arg => !arg.startsWith("--outdir="))) throw new Error("Unknown argument; use --help");
-  const out = resolve(options.find(arg => arg.startsWith("--outdir="))?.slice(9) ?? resolve(root, "dist/gba"));
+  const options = args;
+  if (options.some(arg => !arg.startsWith("--outdir=") && !arg.startsWith("--aot-dir="))) throw new Error("Unknown argument; use --help");
+  const out = context?.outdir ?? resolve(options.find(arg => arg.startsWith("--outdir="))?.slice(9) ?? resolve(root, "dist/gba"));
   const gen = resolve(out, "generated");
   mkdirSync(out, { recursive: true });
-  const { result } = await compileBuiltinAot("gba", gen);
+  const input = context?.aot?.directory ?? options.find(arg => arg.startsWith("--aot-dir="))?.slice(10);
+  if (!input) throw new Error("GBA native build requires --aot-dir from pocket compile --aot");
+  const dependency = JSON.parse(readFileSync(resolve(input, "dependencies.json"), "utf8"));
+  cpSync(resolve(input), gen, { recursive: true });
   const bakeDirectory = resolve(out, "baked");
   mkdirSync(bakeDirectory, { recursive: true });
   const bakeCommand = ["cargo", "+stable", "run", "--locked", "--release", "--manifest-path", resolve(root, "hosts/gba/bake/Cargo.toml"), "--target-dir", resolve(out, "bake-target"), "--", bakeDirectory];
-  const baker = Bun.spawn(bakeCommand, { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env, GBA_GENERATED: gen } });
-  if (await baker.exited !== 0) throw new Error("GBA native scene bake failed");
+  const run = async (command: string[], env: Record<string, string>) => {
+    if (context) return context.run(command, { cwd: root, env });
+    const child = Bun.spawn(command, { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env, ...env } });
+    if (await child.exited !== 0 || child.signalCode) throw new Error(`GBA native command failed: ${command.join(" ")}`);
+  };
+  await run(bakeCommand, { GBA_GENERATED: gen });
   const assets = packLayers(bakeDirectory, gen);
   for (const layer of assets.layers) console.log(`layer ${layer.name}: ${layer.frames} frames x ${layer.bytesPerFrame} B, crop [${layer.crop.join(", ")}], ${layer.oam} OAM, ${layer.vramBytes} B VRAM`);
   console.log(`OAM ${assets.oamSlots}/128, OBJ VRAM ${assets.vramBytes}/32768 B, frame ROM ${assets.frameBytes} B`);
   const command = ["cargo", `+${GBA_TOOLCHAIN}`, "build", "--locked", "--release", "--target", "thumbv4t-none-eabi", "-Z", "build-std=core,alloc", "--manifest-path", resolve(root, "hosts/gba/Cargo.toml"), "--target-dir", resolve(out, "target")];
   const rustflags = ["-C", `link-arg=-T${resolve(root, "hosts/gba/gba.ld")}`, "-C", "link-arg=--gc-sections"];
-  const child = Bun.spawn(command, { cwd: root, stdout: "inherit", stderr: "inherit", env: { ...process.env, GBA_GENERATED: gen, CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f") } });
-  if (await child.exited !== 0) throw new Error("GBA Rust build failed");
+  await run(command, { GBA_GENERATED: gen, CARGO_ENCODED_RUSTFLAGS: rustflags.join("\x1f") });
   const elf = readFileSync(resolve(out, "target/thumbv4t-none-eabi/release/gba-hero"));
   const rom = gbaRom(elf);
   if (rom.length <= assets.frameBytes) throw new Error("GBA ELF omitted the compiled scene assets; inspect a constant boot failure before accepting this build");
@@ -75,11 +82,10 @@ async function main() {
   writeFileSync(resolve(out, "build.json"), JSON.stringify({
     target: "thumbv4t-none-eabi", toolchain: GBA_TOOLCHAIN, command, rustflags, bakeCommand,
     romBytes: rom.length, romSha256: hash(rom), elfSha256: hash(elf),
-    app: "apps/gba-hero", nominalTickHz: 30, vblanksPerPresentation: 2,
-    fontSlots: result.program.styles.usedFontSlots,
-    layout: result.layout.regions.map(region => ({ ...region, layers: region.layers.map(layer => ({ name: layer.name, kind: layer.recipe.kind, rect: layer.rect })) })),
+    app: dependency.plan.app.id, nominalTickHz: dependency.plan.profile.tickHz, vblanksPerPresentation: 2,
+    planHash: dependency.planHash, profileHash: dependency.profileHash,
     renderer: "mode0-bg-obj", assets,
   }, null, 2) + "\n");
   console.log(`GBA Hero: ${rom.length} ROM bytes -> ${resolve(out, "gba-hero.gba")}`);
 }
-if (import.meta.main) await main();
+if (import.meta.main) await buildGba(Bun.argv.slice(2));

@@ -1,3 +1,6 @@
+import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import ipodTouch4Profile from "../profiles/ipodtouch4-dev.ts";
+import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { createCanvas } from "@napi-rs/canvas";
 import {
@@ -32,7 +35,7 @@ import {
   ipodtouch4CsuPath,
   ipodtouch4QuickJsPath,
   ipodtouch4SysrootPath,
-} from "./ipodtouch4-toolchain.ts";
+} from "./build/toolchains/ipodtouch4.ts";
 import {
   IPODTOUCH4_DEV_TARGET_ID,
   IPODTOUCH4_PHYSICAL_VIEWPORT,
@@ -349,7 +352,7 @@ function run(
     stderr: "pipe",
   });
   return {
-    exitCode: result.exitCode,
+    exitCode: result.success ? 0 : result.exitCode || 1,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   };
@@ -364,7 +367,7 @@ function runBinary(executable: string, args: readonly string[]): BinaryCommandRe
     stderr: "pipe",
   });
   return {
-    exitCode: result.exitCode,
+    exitCode: result.success ? 0 : result.exitCode || 1,
     stdout: Buffer.from(result.stdout),
     stderr: result.stderr.toString(),
   };
@@ -765,7 +768,7 @@ export function prepareIPodNative(
     cargo,
     ["build", "--release", "--locked", "--manifest-path", resolvePath(appRoot, nativeCore?.manifest ?? join(REPOSITORY, "engine/ui-cabi/Cargo.toml")),
       ...(nativeCore ? [] : ["--no-default-features"]), "--features", nativeCore?.features.join(",") ?? "standalone-extension-provider,bare-platform,gles1", "--target",
-      join(REPOSITORY, "hosts/ipodtouch4/armv7-apple-ios.json"), "-Z", "json-target-spec",
+      join(REPOSITORY, "tools/build/toolchains/ios/armv7-apple-ios.json"), "-Z", "json-target-spec",
       "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
     {
       cwd: join(REPOSITORY, "engine/ui-cabi"),
@@ -877,32 +880,13 @@ export function linkIPodExecutable(
   mustRun("ldid", ["-S", executable]);
 }
 
-async function build(): Promise<void> {
-  const manifest = JSON.parse(readFileSync(manifestPath(), "utf8"));
-  const plan = resolveIPodTouch4BuildPlan(manifest);
-  mkdirSync(dirname(planPath()), { recursive: true });
-  writeFileSync(planPath(), JSON.stringify(plan, null, 2) + "\n");
-  const inputs = extractHostBuildInputs(plan, { expectedTarget: IPODTOUCH4_DEV_TARGET_ID });
-
-  rmSync(guestDirectory(), { recursive: true, force: true });
-  mkdirSync(guestDirectory(), { recursive: true });
-  mustRun("bun", [
-    "tools/build.ts",
-    `--plan=${planPath()}`,
-    `--project-root=${APP_ROOT}`,
-    `--outdir=${guestDirectory()}`,
-  ]);
-  const guestJavaScript = join(guestDirectory(), `${inputs.appOutput}.js`);
-  const guestPak = join(guestDirectory(), `${inputs.appOutput}.pak`);
-  if (!existsSync(guestJavaScript) || !existsSync(guestPak)) {
-    throw new Error("pocket ipodtouch4: guest build did not produce its JS and pak artifacts");
-  }
-
+export async function buildIPodTouch4Native(application: RuntimeApplication, outdir = dirname(bundleDirectory())): Promise<void> {
+  const { inputs, javaScript: guestJavaScript, pack: guestPak } = applicationBundle(application, IPODTOUCH4_DEV_TARGET_ID);
   const nativeBuild = join(REPOSITORY, `.pocket-build/ipodtouch4/${APP.id}/runtime`);
   const native = prepareIPodNative(nativeBuild, APP.nativeCore, APP_ROOT);
   const { compile, sysroot, quickJsObjects, rustLibrary } = native;
 
-  const bundle = bundleDirectory();
+  const bundle = join(outdir, BUNDLE_NAME);
   rmSync(bundle, { recursive: true, force: true });
   mkdirSync(bundle, { recursive: true });
   writeFileSync(join(bundle, "Info.plist"), renderInfoPlist());
@@ -935,7 +919,7 @@ async function build(): Promise<void> {
     target: inputs.target,
     hostAbi: inputs.hostAbi,
     rasterDensity: inputs.viewport.rasterDensity,
-    features: plan.features,
+    features: application.plan.features,
     svcWire: APP.svcWire,
     nativeCore: APP.nativeCore,
     appRoot: APP_ROOT,
@@ -951,7 +935,7 @@ async function build(): Promise<void> {
   const buildId = hashInputs([
     ...ipodBundleFiles(bundle).map(name => ({ label: `bundle/${name}`, path: join(bundle, name) })),
     ...host.application.map((path, index) => ({ label: `native/application-${index}.o`, path })),
-    planPath(),
+    application.planPath,
     guestJavaScript,
     guestPak,
     { label: "bundle/Info.plist", path: join(bundle, "Info.plist") },
@@ -961,9 +945,10 @@ async function build(): Promise<void> {
     join(REPOSITORY, "tools/iphone-classic-icon.ts"),
     join(REPOSITORY, "tools/icon-raster.ts"),
     join(REPOSITORY, "tools/ipodtouch4.ts"),
-    join(REPOSITORY, "tools/ipodtouch4-toolchain.ts"),
-    join(REPOSITORY, "tools/cli/iphone4s-toolchain.json"),
-    join(REPOSITORY, "hosts/ipodtouch4/armv7-apple-ios.json"),
+    join(REPOSITORY, "tools/build/toolchains/ipodtouch4.ts"),
+    join(REPOSITORY, "tools/build/toolchains/iphone4s.ts"),
+    join(REPOSITORY, "tools/build/toolchains/iphone4s/manifest.json"),
+    join(REPOSITORY, "tools/build/toolchains/ios/armv7-apple-ios.json"),
     ...sysrootIdentityInputs(sysroot),
     { label: "native/csu-start.o", path: native.csuStart },
     { label: "native/csu-dyld-glue.o", path: native.csuDyldGlue },
@@ -1014,7 +999,7 @@ async function build(): Promise<void> {
       rasterDensity: inputs.viewport.rasterDensity,
     },
   };
-  writeFileSync(receiptPath(), JSON.stringify(receipt, null, 2) + "\n");
+  writeFileSync(join(bundle, "build-receipt.json"), JSON.stringify(receipt, null, 2) + "\n");
 
   buildIPodInstaller(native);
 
@@ -1022,8 +1007,9 @@ async function build(): Promise<void> {
   const payload = join(packageRoot, "Payload", BUNDLE_NAME);
   mkdirSync(dirname(payload), { recursive: true });
   cpSync(bundle, payload, { recursive: true });
-  rmSync(ipaPath(), { force: true });
-  mustRun("zip", ["-q", "-r", ipaPath(), "Payload"], { cwd: packageRoot });
+  const packagePath = join(outdir, BUNDLE_NAME.replace(/\.app$/, ".ipa"));
+  rmSync(packagePath, { force: true });
+  mustRun("zip", ["-q", "-r", packagePath, "Payload"], { cwd: packageRoot });
 
   console.log(`built ${bundle}`);
   console.log(fileInfo);
@@ -1091,7 +1077,6 @@ function copyToDevice(port: number, source: string, destination: string): void {
 }
 
 async function deploy(): Promise<void> {
-  if (!IPA) await build();
   const receipt = readReceipt();
   const transactionId = randomBytes(12).toString("hex");
   const remoteRoot = `/private/var/tmp/pocketjs-user-${transactionId}`;
@@ -1363,7 +1348,7 @@ export async function main(args: readonly string[] = Bun.argv.slice(2)): Promise
       delegateToIPhone4S("prepare-sysroot");
       break;
     case "build":
-      await build();
+      await buildIPodTouch4Native(prepareCompiledApplication(ipodTouch4Profile, args.slice(1), dirname(bundleDirectory())));
       break;
     case "deploy":
       await deploy();

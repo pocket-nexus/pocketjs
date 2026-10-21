@@ -61,8 +61,10 @@ pocketjs/
 │  ├─ generated/  generated C contract headers consumed by native hosts
 │  └─ schema/     published JSON schemas (pocket-2.json)
 ├─ apps/         demo apps (pocket.json manifests; built by tools/build.ts)
-├─ tools/        every command: build/dev/device/release bun scripts (flat),
-│                plus cli/ (@pocketjs/cli), psplink/, and
+├─ programs/     program-owned runtime configurations and native input recipes
+├─ tools/        every command: build/dev/device/release bun scripts,
+│                build/ (executor, program adapters, pinned toolchains),
+│                cli/ (@pocketjs/cli), psplink/, and
 │                symbian/ (isolated GCCE/Qt toolchain + CODA USB transport)
 ├─ tests/        the test suite: *.test.ts flat at the root, plus
 │                e2e/ (PPSSPP, Vita3K drivers), goldens/{web,psp,vita}, tapes/, fixtures/

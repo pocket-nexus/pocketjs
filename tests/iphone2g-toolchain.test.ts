@@ -16,7 +16,7 @@ import {
   iphone2gRamdiskPath,
   iphone2gSysrootPath,
   sha256File,
-} from "../tools/iphone2g-toolchain.ts";
+} from "../tools/build/toolchains/iphone2g.ts";
 
 const temporary: string[] = [];
 afterEach(() => {

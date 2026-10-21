@@ -1,3 +1,5 @@
+import type { RuntimeApplication } from "../framework/src/runtime-config.ts";
+import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
 import {
   chmodSync,
   cpSync,
@@ -23,7 +25,7 @@ import {
   iphone2gRamdiskPath,
   iphone2gSysrootPath,
   sha256File,
-} from "./iphone2g-toolchain.ts";
+} from "./build/toolchains/iphone2g.ts";
 import {
   IPHONE2G_DEV_TARGET_ID,
   resolveIPhone2GBuildPlan,
@@ -62,7 +64,7 @@ function run(
     stderr: "pipe",
   });
   return {
-    exitCode: result.exitCode,
+    exitCode: result.success ? 0 : result.exitCode || 1,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   };
@@ -84,7 +86,7 @@ function runBinary(
     stderr: "pipe",
   });
   return {
-    exitCode: result.exitCode,
+    exitCode: result.success ? 0 : result.exitCode || 1,
     stdout: Buffer.from(result.stdout),
     stderr: result.stderr.toString(),
   };
@@ -345,31 +347,6 @@ function currentIPhone2GBuildPlan() {
   );
 }
 
-function readIPhone2GGuestArtifacts(): IPhone2GGuestArtifacts {
-  const planPath = iphone2gPlanPath();
-  if (!existsSync(planPath)) {
-    throw new Error(
-      "PocketJS iPhone 2G: resolved build plan is absent; run `bun tools/iphone2g.ts build-demo`",
-    );
-  }
-  const storedPlan = JSON.parse(readFileSync(planPath, "utf8")) as unknown;
-  const currentPlan = currentIPhone2GBuildPlan();
-  const artifacts = deriveIPhone2GGuestArtifacts(
-    storedPlan,
-    iphone2gGuestOutputDirectory(),
-  );
-  if (
-    typeof storedPlan !== "object" ||
-    storedPlan === null ||
-    !("planHash" in storedPlan) ||
-    storedPlan.planHash !== currentPlan.planHash
-  ) {
-    throw new Error(
-      "PocketJS iPhone 2G: resolved build plan is stale; rerun `bun tools/iphone2g.ts build-demo`",
-    );
-  }
-  return artifacts;
-}
 
 function buildDemo(): void {
   const plan = currentIPhone2GBuildPlan();
@@ -394,8 +371,8 @@ function buildDemo(): void {
   console.log(`PocketJS iPhone 2G: guest bundle -> ${output}`);
 }
 
-function buildRuntime(): void {
-  ensureSources();
+export function buildIPhone2GNative(application: RuntimeApplication, outdir: string): void {
+  const guestArtifacts = applicationBundle(application, IPHONE2G_DEV_TARGET_ID);
   const status = inspectIPhone2GToolchain();
   if (!status.sysroot || !status.csu || !status.quickjs) {
     throw new Error(
@@ -430,14 +407,13 @@ function buildRuntime(): void {
   // slow part of the toolchain. Keep Cargo's target directory outside the
   // disposable native-object directory so subsequent demo builds reuse it.
   const rustTarget = join(iphone2gCacheRoot(), "build/rust-target");
-  const bundle = join(repository, "dist/iphone2g/PocketJSDemo.app");
-  const guestArtifacts = readIPhone2GGuestArtifacts();
+  const bundle = join(outdir, "PocketJSDemo.app");
   const { inputs: hostInputs } = guestArtifacts;
   const guestJavaScript = guestArtifacts.javaScript;
   const guestPack = guestArtifacts.pack;
   if (!existsSync(guestJavaScript) || !existsSync(guestPack)) {
     throw new Error(
-      "PocketJS iPhone 2G: guest bundle is absent; run `bun tools/iphone2g.ts build-demo`",
+      "PocketJS iPhone 2G: compiled package payload is absent; pass a current --pocket input",
     );
   }
   // This nonce binds a device acceptance record to one concrete deployment,
@@ -568,7 +544,7 @@ function buildRuntime(): void {
   const coreDirectory = join(repository, "engine/ui-cabi");
   const rustTargetSpec = join(
     repository,
-    "hosts/iphone2g/armv6-apple-ios.json",
+    "tools/build/toolchains/iphone2g/armv6-apple-ios.json",
   );
   mustRun(
     cargo,
@@ -2031,8 +2007,6 @@ function deploymentPackage(bundle: string, identifier: string): Buffer {
 }
 
 function deployDemo(): void {
-  buildDemo();
-  buildRuntime();
   const bundle = join(repository, "dist/iphone2g/PocketJSDemo.app");
   const receipt = verifiedBootstrapReceipt();
   const buildReceipt = JSON.parse(
@@ -2387,11 +2361,9 @@ if (import.meta.main) {
     else if (command === "install-bootstrap") await installBootstrap();
     else if (command === "tunnel") runTunnel();
     else if (command === "build-runtime" || command === "build-probe") {
-      buildDemo();
-      buildRuntime();
+      await runProgramBuild("iphone2g", Bun.argv.slice(3));
     } else if (command === "build") {
-      buildDemo();
-      buildRuntime();
+      await runProgramBuild("iphone2g", Bun.argv.slice(3));
     } else if (command === "deploy") await withManagedTunnel(deployDemo);
     else if (command === "launch") await withManagedTunnel(launchDemo);
     else if (command === "device-status")

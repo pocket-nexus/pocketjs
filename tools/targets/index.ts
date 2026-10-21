@@ -17,7 +17,7 @@ import { IPHONE2G_DEV_CONTRACTS, IPHONE2G_DEV_TARGET_ID } from "../iphone2g-prof
 import { IPHONE4S_DEV_CONTRACTS, IPHONE4S_DEV_TARGET_ID } from "../iphone4s-profile.ts";
 import { IPODTOUCH_DEV_CONTRACTS, IPODTOUCH_DEV_TARGET_ID } from "../ipodtouch-profile.ts";
 import { IPODTOUCH4_DEV_CONTRACTS, IPODTOUCH4_DEV_TARGET_ID } from "../ipodtouch4-profile.ts";
-import pspToolchain from "./psp.toolchain.json";
+import { pspToolchain } from "../build/toolchains/psp.ts";
 import { TOOLCHAIN_SCHEMA, type ToolchainManifest } from "./toolchain.ts";
 import { HOST_IDS, type HostId, type TargetDescriptor } from "./types.ts";
 

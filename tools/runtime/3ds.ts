@@ -14,33 +14,36 @@
 // The runtime leaves out io.offload and media.playback; the repack refuses a
 // plan that asks for either.
 
+import type { RuntimeBuildContext } from "../../framework/src/runtime-config.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve as resolvePath } from "node:path";
-import { containerPathFor } from "../3ds-toolchain.ts";
+import { containerPathFor } from "../build/toolchains/3ds.ts";
 import { prepare3dsNative, run3dsMake } from "../3ds.ts";
 import { THREE_DS_DEV_HOST_ABI, THREE_DS_DEV_TARGET_ID } from "../3ds-profile.ts";
 import { THREE_DS_RUNTIME_FILE } from "../repack/3ds.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
-import profile from "../../profiles/3ds-dev.ts";
+import profile from "../../profiles/3ds-runtime.ts";
+import { threeDsProfileHeader } from "../3ds-contracts.ts";
 import { canonicalProfileJson, hashPocketProfile } from "../../framework/src/profile.ts";
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 
-export async function buildRuntime3ds(argv: readonly string[] = []): Promise<string> {
+export async function buildRuntime3ds(argv: readonly string[] = [], context?: RuntimeBuildContext): Promise<string> {
   let out = join(repository, "dist/runtime/3ds");
   for (const argument of argv) {
     if (argument.startsWith("--out=")) out = resolvePath(argument.slice("--out=".length));
     else throw new Error(`usage: bun tools/runtime.ts 3ds [--out=<dir>] (unknown argument ${argument})`);
   }
-  const native = await prepare3dsNative({ cargoArgs: [], roots: [out] });
+  const native = await prepare3dsNative({ cargoArgs: [], roots: [out], context });
   const buildDirectory = join(repository, "dist/3ds/build/runtime");
   mkdirSync(buildDirectory, { recursive: true });
+  writeFileSync(join(buildDirectory, "pocket_profile.h"), threeDsProfileHeader(profile));
   mkdirSync(out, { recursive: true });
   const program = join(out, THREE_DS_RUNTIME_FILE);
   rmSync(program, { force: true });
   await run3dsMake(
     {
-      POCKETJS_TARGET: THREE_DS_DEV_TARGET_ID,
+      POCKETJS_TARGET: profile.id,
       POCKETJS_HOST_ABI: String(THREE_DS_DEV_HOST_ABI),
       POCKETJS_PROFILE_HASH: hashPocketProfile(profile),
       POCKETJS_PROFILE_JSON: canonicalProfileJson(profile),
@@ -64,11 +67,13 @@ export async function buildRuntime3ds(argv: readonly string[] = []): Promise<str
     },
     native.mounts,
     ["runtime"],
+    profile,
+    context,
   );
   const manifest = await writeRuntimeManifest(out, {
-    target: THREE_DS_DEV_TARGET_ID,
+    target: profile.id,
     hostAbi: THREE_DS_DEV_HOST_ABI,
-    profile: THREE_DS_DEV_TARGET_ID,
+    profile: profile.id,
     profileHash: hashPocketProfile(profile),
     files: [THREE_DS_RUNTIME_FILE],
   });

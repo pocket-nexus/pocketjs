@@ -75,8 +75,13 @@ pocket build --config pocket.runtime-config.ts --out dist/profile
 pocket profile export --config pocket.runtime-config.ts --out dist/profile
 ```
 
-**`build` executes the program's native recipe and accepts no application
-manifest.** It requires a runtime configuration; `--target` selects an ID
+**`build` executes the program's native recipe and accepts compiled inputs.**
+`--pocket` supplies a package; `--aot-dir` supplies generated Rust sources.
+The executor verifies the profile hash, binding generation and input checksums
+before invoking native tools. It copies the admitted inputs into the output
+directory so a source edit cannot change an active build.
+
+The command reads a runtime configuration; `--target` selects an ID
 implemented by that configuration. Recipes use `cargo`, `cmake`, `make` or
 `compilerOnly` helpers. A configuration containing only `{ profile }` exports
 the profile and leaves native compilation to the external build system.
@@ -90,6 +95,43 @@ auxiliary and dynamic viewport data, presentation masks and capability masks.
 Application settings, including `app.framework` and `app.theme`, belong in
 `pocket.json`. The profile declares display geometry, capabilities and tick
 rate. Runtime configuration declares the program's profiles and build recipe.
+
+## Native programs and repacking
+
+**Each shipped program has a configuration under `programs/`.** From the
+checkout root, `--target` locates that program's configuration. Inside a
+product directory, the nearest configuration owns the build. `--config`
+selects a configuration without consulting the catalog.
+
+```sh
+pocket compile --manifest pocket.json --target psp --output dist/app.pocket
+pocket build --target psp --pocket dist/app.pocket --out dist/psp
+
+pocket compile --manifest pocket.json --target psp-runtime --output dist/game.pocket
+pocket build --target psp --generic --out dist/psp-runtime
+pocket pack --target psp dist/game.pocket --runtime dist/psp-runtime \
+  --author "Example Studio" --output dist/game.zip
+```
+
+**The generic PSP and 3DS programs use `psp-runtime` and `3ds-runtime`.**
+The PSP program has no compiled offload worker; the 3DS program has no
+application-specific offload or media worker. Those capabilities are absent
+from these profiles. Packages compiled for the full `psp` or `3ds-dev`
+profile need the corresponding native program build.
+
+`build-receipt.json` records the selected profile hash, binding generation,
+input identity, toolchain digest, native commands and artifact checksums.
+A failed command writes a failed receipt. `--deploy` invokes a configuration's
+deploy hook after the artifact check; an absent hook is an error.
+`pack` uses `build.genericRuntime.repack` and checks the runtime's own
+`runtime.json` before writing the installation package. Identity defaults to
+the compiled application's id, title and version. `--author` supplies package
+authorship; its default is `Unspecified`.
+
+The toolchain definitions live under `tools/build/toolchains/`.
+`pocket-toolchain/2` installs only declared components. Targets that require
+an external SDK report that prerequisite through their native builder;
+an empty install manifest does not prove the SDK is installed.
 
 ## ESP-IDF products
 
@@ -175,3 +217,8 @@ Arguments go to the corresponding `tools/<command>.ts` script. See the
 [CLI reference](https://pocketjs.pocket.nexus/docs/cli/) for command options,
 configuration examples and installation states, and the
 [repository](https://github.com/pocket-nexus/pocketjs) for host scripts.
+
+The old `tools/psp.ts`, `tools/vita.ts` and `tools/3ds.ts` application-building
+CLI routes are deprecated compatibility entry points. New native builds use
+`pocket build` with a compiled package; its recipes do not invoke the
+application compiler.

@@ -102,7 +102,7 @@ describe("private Meizu M8 build profile", () => {
 
   test("pins the device, compiler image, QuickJS, and RAPI source", () => {
     const toolchain = JSON.parse(
-      readFileSync(join(repository, "tools/cli/meizu-m8-toolchain.json"), "utf8"),
+      readFileSync(join(repository, "tools/build/toolchains/meizu-m8/manifest.json"), "utf8"),
     );
     expect(toolchain).toMatchObject({
       toolchainVersion: "meizu-m8-wince6-armv4i-v1",
@@ -163,7 +163,7 @@ describe("private Meizu M8 build profile", () => {
       "utf8",
     );
     const toolchainManifest = readFileSync(
-      join(repository, "tools/cli/meizu-m8-toolchain.json"),
+      join(repository, "tools/build/toolchains/meizu-m8/manifest.json"),
       "utf8",
     );
     expect(runtime).toContain("SetDIBitsToDevice(");

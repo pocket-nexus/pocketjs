@@ -1,5 +1,7 @@
 # iPhone 4S
 
+Native build inputs and program configs are listed in [Museum native builds](MUSEUM_BUILDS.md).
+
 The private iPhone 4S target runs PocketJS on an exact `iPhone4,1` device with
 iOS 6.1.3 build `10B329`. **The application owns a 320×480-point surface backed
 by the phone's 640×960 Retina display.** The target remains outside the public
@@ -57,13 +59,13 @@ matching file exists, the environment variable is not required.
 ## Build and deploy
 
 ```sh
-bun iphone4s build
+bun iphone4s build --pocket dist/iphone4s/application.pocket
 bun iphone4s deploy
 bun iphone4s launch
 bun iphone4s status
 ```
 
-`build` resolves `apps/iphone4s-demo/pocket.json`, builds the Solid guest, builds
+`build --pocket` consumes an admitted application package and builds
 the no-std retained UI core for ARMv7, embeds the JS and PAK into the executable,
 links against the derived iOS 6 stubs, and signs the bundle with `ldid`.
 **The build ID hashes the guest and artwork plus every object, archive, and

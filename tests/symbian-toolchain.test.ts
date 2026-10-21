@@ -27,7 +27,7 @@ import {
   symbianImplementationDigest,
   withSymbianGuestBuildLock,
   withSymbianRuntimeBuildLock,
-} from "../tools/symbian-toolchain.ts";
+} from "../tools/build/toolchains/symbian.ts";
 import { withArtifactLock } from "../tools/targets/lock.ts";
 
 const repository = new URL("..", import.meta.url).pathname;
@@ -505,9 +505,8 @@ describe("canonical Symbian E7 toolchain", () => {
       join(repository, "tools/symbian.ts"),
       "utf8",
     );
-    expect(orchestrator).toContain(
-      "await withSymbianGuestBuildLock(async () =>",
-    );
+    expect(orchestrator).not.toContain("await withSymbianGuestBuildLock(async () =>");
+    expect(orchestrator).toContain("copyFileSync(compiled.javaScript, resolve(payload, \"app.js\"))");
     const launcher = readFileSync(
       join(repository, "tools/launcher.ts"),
       "utf8",
@@ -523,14 +522,14 @@ describe("canonical Symbian E7 toolchain", () => {
   test("changes the implementation digest when a repository snapshot changes", () => {
     const root = mkdtempSync(join(tmpdir(), "pocketjs-symbian-snapshot-digest-"));
     temporary.push(root);
-    cpSync(join(repository, "tools/cli"), join(root, "tools/cli"), {
+    cpSync(join(repository, "tools/build/toolchains/symbian"), join(root, "tools/build/toolchains/symbian"), {
       recursive: true,
     });
     cpSync(join(repository, "tools/symbian"), join(root, "tools/symbian"), {
       recursive: true,
     });
     const before = symbianImplementationDigest(root);
-    const manifestPath = join(root, "tools/cli/symbian-toolchain.json");
+    const manifestPath = join(root, "tools/build/toolchains/symbian/manifest.json");
     writeFileSync(
       manifestPath,
       readFileSync(manifestPath, "utf8").replace(
@@ -613,7 +612,7 @@ describe("canonical Symbian E7 toolchain", () => {
   test("Docker invocations are amd64, pinned, and narrowly mounted", () => {
     const root = mkdtempSync(join(tmpdir(), "pocketjs-symbian-repository-"));
     temporary.push(root);
-    cpSync(join(repository, "tools/cli"), join(root, "tools/cli"), { recursive: true });
+    cpSync(join(repository, "tools/build/toolchains/symbian"), join(root, "tools/build/toolchains/symbian"), { recursive: true });
     cpSync(join(repository, "tools/symbian"), join(root, "tools/symbian"), {
       recursive: true,
     });

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { isBuiltin } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { BunPlugin } from "bun";
@@ -69,14 +70,68 @@ function frameworkModulePath(specifier: string): string | undefined {
   return resolve(ROOT, target);
 }
 
+const PACKAGE_INPUTS = ["package.json", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"];
+
+function packageResolutionInputs(inputs: BuildInputs, from: string): void {
+  for (let directory = from; ; directory = dirname(directory)) {
+    for (const name of PACKAGE_INPUTS) inputs.add(join(directory, name));
+    if (dirname(directory) === directory) break;
+  }
+}
+
+/** External packages keep their own CJS/native loader. Their installed files
+ * include data and native bindings that cannot be inferred from JS imports. */
+function externalPackageInputs(inputs: BuildInputs, entry: string, packages: Set<string>): void {
+  entry = realpathSync(entry);
+  inputs.add(entry);
+  packageResolutionInputs(inputs, dirname(entry));
+  let directory = dirname(entry);
+  while (!existsSync(join(directory, "package.json"))) {
+    if (dirname(directory) === directory) return;
+    directory = dirname(directory);
+  }
+  if (packages.has(directory)) return;
+  packages.add(directory);
+  const visited = new Set<string>();
+  const visit = (path: string) => {
+    const actual = realpathSync(path);
+    if (visited.has(actual)) return;
+    visited.add(actual);
+    const stat = statSync(actual);
+    inputs.add(actual);
+    if (stat.isDirectory()) {
+      for (const name of readdirSync(actual)) {
+        if (name !== "node_modules" && name !== ".git" && name !== ".pocket-build") visit(join(actual, name));
+      }
+    }
+  };
+  visit(directory);
+  const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
+  for (const name of new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.optionalDependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])) {
+    let dependency: string;
+    try { dependency = Bun.resolveSync(name, directory); }
+    catch { continue; } // Optional and peer dependencies may be absent on this host.
+    if (existsSync(dependency)) externalPackageInputs(inputs, dependency, packages);
+  }
+}
+
 async function evaluateModule(path: string): Promise<{ value: unknown; dependencies: string[] }> {
   const inputs = new BuildInputs();
+  const externalPackages = new Set<string>();
   const plugin: BunPlugin = {
     name: "pocket-config-modules",
     setup(build) {
       build.onResolve({ filter: /^@pocketjs\/framework(?:\/.*)?$/ }, args => {
         inputs.add(join(ROOT, "package.json"));
         return { path: frameworkModulePath(args.path)! };
+      });
+      build.onResolve({ filter: /^[^./#]/ }, args => {
+        if (isBuiltin(args.path) || args.path === "bun" || args.path.startsWith("bun:") || args.path.includes(":")) return;
+        const importer = args.importer ? dirname(args.importer) : dirname(path);
+        const entry = Bun.resolveSync(args.path, importer);
+        packageResolutionInputs(inputs, importer);
+        externalPackageInputs(inputs, entry, externalPackages);
+        return { path: entry, external: true };
       });
       build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, args => ({
         contents: sourceMetadata(readFileSync(args.path, "utf8"), args.path),
@@ -91,10 +146,7 @@ async function evaluateModule(path: string): Promise<{ value: unknown; dependenc
   inputs.add(process.execPath);
   // Package resolution may change without a source edit.
   inputs.add(dirname(path));
-  for (let directory = dirname(path); ; directory = dirname(directory)) {
-    for (const name of ["package.json", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]) inputs.add(join(directory, name));
-    if (dirname(directory) === directory) break;
-  }
+  packageResolutionInputs(inputs, dirname(path));
   const code = await bundle.outputs[0]!.text();
   const module = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
   if (!("default" in module)) throw new TypeError(`${path} must export a default value`);

@@ -24,7 +24,7 @@ async function fixture() {
   mkdirSync(archive);
   const bytes = new Uint8Array([1, 2, 3, 4]);
   writeFileSync(join(archive, spec.archive), bytes);
-  const pin = JSON.parse(readFileSync(join(directory, "hosts/esp-idf/native/toolchains.json"), "utf8")).esp32p4;
+  const pin = JSON.parse(readFileSync(join(directory, "tools/build/toolchains/esp-idf/compiler-pins.json"), "utf8")).esp32p4;
   const receipt: NativeReceipt = {
     schemaVersion: 2, component: spec.component, target: "esp32p4", rustTarget: RUST_TARGETS.esp32p4,
     compiler: `release: ${pin.release}\ncommit-hash: ${pin.commit}`,
@@ -95,7 +95,7 @@ describe("ESP-IDF release integrity", () => {
         mkdirSync(dirname(join(directory, path)), { recursive: true });
         cpSync(join(root, path), join(directory, path));
       }
-      const pins = JSON.parse(readFileSync(join(directory, "hosts/esp-idf/native/toolchains.json"), "utf8"));
+      const pins = JSON.parse(readFileSync(join(directory, "tools/build/toolchains/esp-idf/compiler-pins.json"), "utf8"));
       for (const target of ["esp32p4", "esp32s3"] as const) {
         const archive = join(components, native.component, "lib", target);
         mkdirSync(archive, { recursive: true });

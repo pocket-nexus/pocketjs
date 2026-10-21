@@ -13,10 +13,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import {
-  FRAMEWORKS,
+  FRAMEWORK_CHOICES as FRAMEWORKS,
   parseFramework,
   type PocketFramework,
-} from "../framework/compiler/jsx-plugin.ts";
+} from "../framework/compiler/framework-choice.ts";
 import {
   extractHostBuildInputs,
   hostBuildEnvironment,
@@ -33,6 +33,8 @@ import { packageVitaVpk } from "./vita-package.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
 import { mountedSourceApp, resolveSourceEntry, sourceAppContent, sourceOutputName } from "./source-app.ts";
 import softwareProfile from "../profiles/vita.ts";
+import type { RuntimeBuildContext } from "../framework/src/runtime-config.ts";
+import { RUST_TOOLCHAINS } from "./build/toolchains/rust.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
@@ -43,7 +45,7 @@ const home = process.env.HOME ?? "";
 // CLI: first bare arg = app name; everything else is passed to cargo vita
 // ---------------------------------------------------------------------------
 
-const argv = Bun.argv.slice(2);
+export async function buildVita(argv: readonly string[], context?: RuntimeBuildContext): Promise<string> {
 let appArg = "";
 let capture = false;
 let frameworkFlag: string | undefined;
@@ -88,13 +90,16 @@ for (const a of argv) {
     runtime = true;
   } else if (a.startsWith("--title=")) {
     titleOverride = a.slice("--title=".length);
-  } else if (!appArg && !a.startsWith("-")) {
+  } else if (!planPath && !runtime && !appArg && !a.startsWith("-")) {
     appArg = a;
   } else {
     cargoArgs.push(a);
   }
 }
 
+if (context && !runtime && !planPath) throw new Error("Vita native build requires an admitted package");
+if (context) skipBuild = true;
+const selectedProfile = context?.profile ?? softwareProfile;
 if (runtime && (appArg || planPath || launcherRegistry)) {
   throw new Error("PocketJS vita: --runtime builds a program without an app; give no app, --plan or launcher registry");
 }
@@ -150,13 +155,13 @@ let buildPlan: ResolvedBuildPlan | undefined;
 let hostBuildInputs: HostBuildInputs | undefined;
 if (planPath) {
   buildPlan = (await Bun.file(planPath).json()) as ResolvedBuildPlan;
-  if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== "vita") {
+  if (!verifyPlanHash(buildPlan) || buildPlan.target.id !== selectedProfile.id) {
     throw new Error(
       `PocketJS vita: invalid Vita ResolvedBuildPlan at ${planPath}`,
     );
   }
   hostBuildInputs = extractHostBuildInputs(buildPlan, {
-    expectedTarget: "vita",
+    expectedTarget: selectedProfile.id,
   });
   if (frameworkFlag) {
     throw new Error(
@@ -214,7 +219,7 @@ if (!buildPlan && stockDemo) {
   }
   projectRoot = pspUiDir;
   hostBuildInputs = extractHostBuildInputs(buildPlan, {
-    expectedTarget: "vita",
+    expectedTarget: selectedProfile.id,
   });
   planPath = `${pspUiDir}.pocket/vita-low-level/${outputApp}.plan.json`;
   mkdirSync(resolvePath(planPath, ".."), { recursive: true });
@@ -251,11 +256,11 @@ if (!skipBuild && !runtime) {
 // ---------------------------------------------------------------------------
 
 const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
-  profile: softwareProfile,
-  profileHash: hashPocketProfile(softwareProfile),
+  profile: selectedProfile,
+  profileHash: hashPocketProfile(selectedProfile),
   appOutput: outputApp,
   app: { id: applicationId, title: packageTitle, version: "0.0.0" },
-  target: "vita",
+  target: selectedProfile.id,
   hostAbi: POCKET_BINDING_GENERATION,
   viewport: {
     logical: [480, 272],
@@ -267,7 +272,7 @@ const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
 
 // The pinned engine crate does not export header metadata through DEP_*.
 // Resolve that exact dependency before Cargo runs the native build script.
-const qjsMetadata = Bun.spawnSync([rustup, "run", "nightly-2026-05-28", "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", `${nativeDir}Cargo.toml`], { stdout: "pipe", stderr: "pipe" });
+const qjsMetadata = Bun.spawnSync([rustup, "run", RUST_TOOLCHAINS.vita, "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", `${nativeDir}Cargo.toml`], { stdout: "pipe", stderr: "pipe" });
 if (!qjsMetadata.success) throw new Error(qjsMetadata.stderr.toString() || "Vita Cargo metadata failed");
 const qjsPackage = (JSON.parse(qjsMetadata.stdout.toString()).packages as { name: string; manifest_path: string }[]).find(pkg => pkg.name === "libquickjs-sys");
 if (!qjsPackage) throw new Error("Vita dependency closure has no libquickjs-sys");
@@ -316,7 +321,8 @@ console.log(
   `PocketJS vita: cargo vita build vpk (app=${runtime ? "none, runtime" : outputApp}${capture ? ", capture" : ""})`,
 );
 // Forward to cargo-vita
-await $`${rustup} run nightly-2026-05-28 cargo vita build vpk ${cargoArgs}`
+if (context) await context.run([rustup, "run", RUST_TOOLCHAINS.vita, "cargo", "vita", "build", "vpk", ...cargoArgs], { cwd: nativeDir, env });
+else await $`${rustup} run ${RUST_TOOLCHAINS.vita} cargo vita build vpk ${cargoArgs}`
   .cwd(nativeDir)
   .env(env);
 
@@ -372,3 +378,8 @@ await Bun.write(resolvePath(packagedDirectory, `${outputApp}.runtime.json`), JSO
 }, null, 2) + "\n");
 console.log(`PocketJS vita: package ${titleId} (${applicationId})`);
 console.log(`output: ${packaged}`);
+
+return packaged;
+}
+
+if (import.meta.main) await buildVita(Bun.argv.slice(2));

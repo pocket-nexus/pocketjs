@@ -19,8 +19,8 @@ import {
   IPODTOUCH4_DEPLOYMENT,
   IPODTOUCH4_DEVICE,
   IPODTOUCH4_TOOLCHAIN,
-} from "../tools/ipodtouch4-toolchain.ts";
-import { IPHONE4S_TOOLCHAIN } from "../tools/iphone4s-toolchain.ts";
+} from "../tools/build/toolchains/ipodtouch4.ts";
+import { IPHONE4S_TOOLCHAIN } from "../tools/build/toolchains/iphone4s.ts";
 import {
   buildReceiptsMatch,
   guestRuntimeDefines,

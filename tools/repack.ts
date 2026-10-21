@@ -12,7 +12,7 @@
 // `bun tools/community-key.ts` writes beside the keystore
 // (POCKET_STUDIO_COMMUNITY_KEY names another keystore).
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, lstatSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { readCommunitySigner } from "./community-key.ts";
 import { REPACK_TARGETS, repackTarget } from "./repack/index.ts";
@@ -23,7 +23,9 @@ export function readRuntimeDirectory(directory: string): Map<string, Uint8Array>
   const walk = (path: string) => {
     for (const name of readdirSync(path)) {
       const child = join(path, name);
-      if (statSync(child).isDirectory()) walk(child);
+      const stat = lstatSync(child);
+      if (stat.isSymbolicLink()) throw new Error(`runtime contains a symlink: ${child}`);
+      if (stat.isDirectory()) walk(child);
       else files.set(relative(directory, child).split("\\").join("/"), new Uint8Array(readFileSync(child)));
     }
   };

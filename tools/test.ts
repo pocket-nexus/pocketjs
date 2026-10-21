@@ -133,6 +133,10 @@ const SUITE: readonly Stage[] = [
       "tests/runtime-packages.test.ts",
       "tests/build-writes.test.ts",
       "tests/targets-catalog.test.ts",
+      "tests/toolchain-definitions.test.ts",
+      "tests/runtime-build.test.ts",
+      "tests/runtime-programs.test.ts",
+      "tests/museum-program-build.test.ts",
       "tests/targets-project.test.ts",
       "tests/targets-install.test.ts",
       "tests/class-diagnostics.test.ts",
@@ -417,7 +421,7 @@ for (const stage of selected) {
       stdout: "pipe",
       stderr: "pipe",
     });
-    if (p.exitCode !== 0) {
+    if (!p.success) {
       fail(stage.name, cmd, p.stdout.toString() + p.stderr.toString());
     }
   }
@@ -427,7 +431,7 @@ for (const stage of selected) {
       stdout: "inherit",
       stderr: "inherit",
     });
-    if (p.exitCode !== 0) fail(stage.name, stage.script);
+    if (!p.success) fail(stage.name, stage.script);
   }
   if (stage.tests) {
     const cmd = [
@@ -441,7 +445,7 @@ for (const stage of selected) {
       stdout: "inherit",
       stderr: "inherit",
     });
-    if (p.exitCode !== 0) fail(stage.name, cmd);
+    if (!p.success) fail(stage.name, cmd);
   }
   console.log(
     `   ${stage.name}: ok (${((Date.now() - started) / 1000).toFixed(1)}s)`,

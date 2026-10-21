@@ -26,7 +26,7 @@ import {
   type RepackInput,
 } from "./shared/runtime.ts";
 
-export const THREE_DS_RUNTIME_TARGET = "3ds-dev";
+export const THREE_DS_RUNTIME_TARGET = "3ds-runtime";
 /** The runtime's program inside dist/runtime/3ds/. */
 export const THREE_DS_RUNTIME_FILE = "runtime.3dsx";
 

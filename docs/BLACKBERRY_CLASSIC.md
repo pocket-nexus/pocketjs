@@ -1,5 +1,7 @@
 # BlackBerry Classic
 
+Native build inputs and program configs are listed in [Museum native builds](MUSEUM_BUILDS.md).
+
 PocketJS runs on the BlackBerry Classic (SQC100, BlackBerry 10.3) through
 **the native QNX host in `hosts/blackberry-classic-qnx`**. It mounts the
 no-std Rust UI core, GLES2 DrawList backend, and QuickJS bridge
@@ -66,7 +68,7 @@ build of `pocketjs-core` plus the GLES2 DrawList backend that the Nokia E7,
 iPhone 2G/4S, and Meizu M8 hosts link. The Classic host builds it with the
 `bare-platform` feature. **Its compatibility archive remains
 `libpocketjs_symbian_core.a`, preserving the existing link input and C ABI.**
-The build uses `hosts/blackberry-classic-qnx/armv7-qnx-eabi.json`
+The build uses `tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json`
 (ARMv7, VFPv3, soft-float ABI, PIC, `build-std`).
 
 ## Host requirements
@@ -100,7 +102,7 @@ The QuickJS checkout and Rust target directory live under
 
 ### Toolchain
 
-`tools/cli/blackberry-qnx-toolchain.json` pins:
+`tools/build/toolchains/blackberry-qnx/manifest.json` pins:
 
 - BBNDK target API **10.3.1.995**, host tools **10.3.1.12**;
 - `qcc` **GCC 4.8.3** for `armle-v7`;
@@ -119,12 +121,10 @@ allocator reports usable size as zero.
 ```sh
 bun blackberry-qnx setup     # pulls the image, clones QuickJS, runs doctor
 bun blackberry-qnx doctor
-bun blackberry-qnx build     # build-demo + build-runtime
+bun blackberry-qnx build --pocket dist/blackberry-qnx/application.pocket
 ```
 
-`build-demo` resolves the manifest against `blackberry-qnx-dev`, writes the
-plan to `.pocket/blackberry-qnx/`, and compiles the guest into
-`dist/blackberry-qnx/guest/`. `build-runtime` builds the Rust core, compiles
+**`build --pocket` consumes the application package without compiling JavaScript.** The native step builds the Rust core and compiles
 QuickJS, `pocket_runtime.c`, and `hosts/blackberry-classic-qnx/main.c` with the plan's
 target id, host ABI, raster density, and logical viewport, links the PIE ELF
 against `libbps`, `libscreen`, `libEGL`, and `libGLESv2` with `--no-undefined`,
@@ -137,7 +137,7 @@ executable than the one it linked.**
 
 ```text
 dist/blackberry-qnx/pocketjs-blackberry-classic-hero.bar
-dist/blackberry-qnx/build-receipt.json
+dist/blackberry-qnx/native-build-receipt.json
 ```
 
 The receipt records the resolved host contract, image digest, QuickJS and

@@ -702,10 +702,10 @@ describe("experimental Nokia E7 runtime profile", () => {
     expect(orchestrator).toContain(
       'resolve(payload, "libpocketjs_symbian_core.a")',
     );
-    expect(orchestrator).toContain(
-      'coreLibrary: flagValue(args.slice(2), "--core-library")',
+    expect(readFileSync(join(repository, "tools/build/programs/nokia-e7.ts"), "utf8")).toContain(
+      'coreLibrary: option("--core-library")',
     );
-    expect(orchestrator).toContain(
+    expect(readFileSync(join(repository, "tools/build/programs/nokia-e7.ts"), "utf8")).toContain(
       '"--mass-storage-data-root"',
     );
     expect(orchestrator).toContain(

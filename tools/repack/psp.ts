@@ -20,7 +20,7 @@ import { fitRgba } from "./shared/scale.ts";
 import { readSfo, writeSfo, type SfoEntry } from "./shared/sfo.ts";
 import { writeZip } from "./shared/zip.ts";
 
-export const PSP_RUNTIME_TARGET = "psp";
+export const PSP_RUNTIME_TARGET = "psp-runtime";
 /** The runtime's program inside dist/runtime/psp/. */
 export const PSP_RUNTIME_FILE = "EBOOT.PBP";
 export const PSP_ICON0 = { width: 144, height: 80 } as const;

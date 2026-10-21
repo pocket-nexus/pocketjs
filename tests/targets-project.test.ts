@@ -68,6 +68,44 @@ describe("runtime configuration", () => {
     expect(selected.dependencies).not.toContain("/");
   });
 
+  test("runtime config keeps native npm loading and captures the installed native dependency", async () => {
+    const directory = scratch();
+    mkdirSync(join(directory, "node_modules/@napi-rs"), { recursive: true });
+    symlinkSync(join(root, "node_modules/@napi-rs/canvas"), join(directory, "node_modules/@napi-rs/canvas"), "dir");
+    writeFileSync(join(directory, "package.json"), JSON.stringify({ dependencies: { "@napi-rs/canvas": "1.0.2" } }));
+    writeFileSync(join(directory, "bun.lock"), "native-dependency-lock-fixture\n");
+    writeFileSync(join(directory, "pocket.runtime-config.ts"), `import {createCanvas} from '@napi-rs/canvas';
+      const canvas=createCanvas(1,1); const ctx=canvas.getContext('2d');ctx.fillStyle='#172b3f';ctx.fillRect(0,0,1,1);
+      export default {profile:{...${JSON.stringify(profile())},hostExtension:{pixel:Array.from(ctx.getImageData(0,0,1,1).data)}}};`);
+    const selected = await resolveProfile({ from: directory });
+    expect(selected.profile.hostExtension?.pixel).toEqual([23, 43, 63, 255]);
+    expect(selected.dependencies).toContain(join(directory, "package.json"));
+    expect(selected.dependencies).toContain(join(directory, "bun.lock"));
+    expect(selected.dependencies).toContain(realpathSync(join(root, "node_modules/@napi-rs/canvas/js-binding.js")));
+    expect(selected.dependencies.some(path => /canvas[^/]*\/[^/]+\.node$/.test(path))).toBe(true);
+    expect(selected.dependencies.some(path => /canvas-[^/]+\/package\.json$/.test(path))).toBe(true);
+  });
+
+  test("external npm dependencies resolve from each source importer with their local CJS files", async () => {
+    const directory = scratch();
+    for (const [name, hz] of [["first", 30], ["second", 60]] as const) {
+      const importer = join(directory, name); const pkg = join(importer, "node_modules/config-native-helper");
+      mkdirSync(pkg, { recursive: true });
+      writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "config-native-helper", main: "index.cjs" }));
+      writeFileSync(join(pkg, "value.json"), JSON.stringify(hz));
+      writeFileSync(join(pkg, "index.cjs"), "module.exports=require('node:fs').readFileSync(require('node:path').join(__dirname,'value.json'),'utf8');");
+      writeFileSync(join(importer, "profile.ts"), `import hz from 'config-native-helper';export default {...${JSON.stringify(profile(name))},tickHz:Number(hz)};`);
+    }
+    const file = join(directory, "pocket.runtime-config.ts");
+    writeFileSync(file, "import first from './first/profile.ts';import second from './second/profile.ts';export default {profiles:[first,second]};");
+    for (const [name, hz] of [["first", 30], ["second", 60]] as const) {
+      const selected = await resolveProfile({ from: directory, runtimeConfig: file, target: name });
+      expect(selected.profile.tickHz).toBe(hz);
+      expect(selected.dependencies).toContain(join(directory, name, "node_modules/config-native-helper/value.json"));
+      expect(selected.dependencies).toContain(join(directory, name, "node_modules/config-native-helper/package.json"));
+    }
+  });
+
   test("a module cannot replace a built-in profile under the same identity", async () => {
     const directory = scratch(); const file = join(directory, "profile.ts");
     writeFileSync(file, `export default ${JSON.stringify(profile("psp"))}`);

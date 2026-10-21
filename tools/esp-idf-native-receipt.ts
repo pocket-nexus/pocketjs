@@ -46,7 +46,7 @@ export async function nativeSourceFiles(root: string, spec: NativeComponent): Pr
   const files = new Set([
     "tools/esp-idf-native.ts", "tools/esp-idf-release.ts",
     "contracts/generated/pocket_drivers.h", "contracts/generated/pocket_runtime.h", "contracts/generated/pocket_spec.h",
-    "hosts/esp-idf/components/pocket_render_esp_ppa/CMakeLists.txt", "tools/esp-idf-native-receipt.ts", "hosts/esp-idf/native/toolchains.json",
+    "hosts/esp-idf/components/pocket_render_esp_ppa/CMakeLists.txt", "tools/esp-idf-native-receipt.ts", "tools/build/toolchains/esp-idf/compiler-pins.json",
     "tools/esp-idf-contracts.ts", `hosts/esp-idf/components/${spec.component}/CMakeLists.txt`,
     "hosts/esp-idf/components/pocket_runtime/native_archive.cmake",
     "hosts/esp-idf/components/pocket_runtime/prepare_archive.cmake",
@@ -74,7 +74,7 @@ export async function nativeSourceDigest(root: string, spec: NativeComponent): P
 }
 
 export function verifyNativeCompiler(root: string, target: IdfTarget, compiler: string): void {
-  const expected = JSON.parse(readFileSync(join(root, "hosts/esp-idf/native/toolchains.json"), "utf8"))[target];
+  const expected = JSON.parse(readFileSync(join(root, "tools/build/toolchains/esp-idf/compiler-pins.json"), "utf8"))[target];
   if (typeof compiler !== "string" || !expected ||
       !compiler.split("\n").includes(`release: ${expected.release}`) ||
       !compiler.split("\n").includes(`commit-hash: ${expected.commit}`)) {
