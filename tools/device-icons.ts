@@ -7,8 +7,8 @@ import { rasterizeIconSvg } from "./icon-raster.ts";
 const root = resolve(import.meta.dir, "..");
 const check = process.argv.includes("--check");
 for (const [source, target, size] of [
-  ["programs/3ds/product/icon.svg", "programs/3ds/product/icon.png", 48],
-  ["programs/3ds/product/icon-small.svg", "programs/3ds/product/icon-small.png", 24],
+  ["products/3ds/icon.svg", "products/3ds/icon.png", 48],
+  ["products/3ds/icon-small.svg", "products/3ds/icon-small.png", 24],
 ] as const) {
   const svg = readFileSync(resolve(root, source), "utf8");
   const canvas = await rasterizeIconSvg(svg, size, size, true);

@@ -156,7 +156,7 @@ shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`
 
 | Target | Runtime reads | Package |
 | --- | --- | --- |
-| `3ds-dev` | `romfs:/app.pocket` | `.3dsx` (programs/3ds/product/README.md) |
+| `3ds-dev` | `romfs:/app.pocket` | `.3dsx` (products/3ds/README.md) |
 | `psp` | `app.pocket` in the EBOOT's folder (the module's argv[0] directory) into one kernel block before the arena reserves the rest | `.zip`: `PSP/GAME/Studio<Name>/EBOOT.PBP` (PARAM.SFO with the game's `TITLE` and `MEMSIZE = 1`, ICON0 144×80 from the icon, the runtime's `DATA.PSP` unchanged) and `app.pocket` beside it; a plan that asks for `io.offload` is refused |
 | `vita` | `app0:app.pocket` into one 16-byte-aligned block; no compiled app id | `.vpk`: `sce_sys/param.sfo` (byte for byte what `vita-mksfoex` writes for `tools/vita.ts`: the game's title, title id `P` + 8 hex of SHA-256(id)), the runtime's `eboot.bin` unchanged, `app.pocket`, `sce_sys/icon0.png` 128×128 indexed PNG-8 from the icon, the runtime's LiveArea files |
 | `ipodtouch4-dev` | `app.pocket` in the app bundle | `.ipa`: the runtime's executable under the game's bundle name, an Info.plist with the game's bundle id (the app id), name and version, 57 and 114 px icons, `app.pocket` (Pocket Museum: `docs/IPODTOUCH4.md`) |

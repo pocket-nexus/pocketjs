@@ -6,7 +6,7 @@
 //! because its companion IS the host. An app whose companion is a separate
 //! program — Pocket Term, whose daemon holds the PTYs — needs those queues fed
 //! from a socket instead. That is this module: the same wire the console
-//! speaks (`programs/3ds/product/src/svcwire.c`), the same codec
+//! speaks (`products/3ds/src/svcwire.c`), the same codec
 //! (`pocketjs_core::wire`), so one companion serves a 3DS and a desktop
 //! window without knowing which is which.
 //!
@@ -46,7 +46,7 @@ const WRITER_IDLE: Duration = Duration::from_millis(200);
 /// pressing a key and the character appearing: measured p50 133 ms against
 /// a companion whose own round trip is 4.6 ms. The console never had this
 /// because its transport pumps send and receive independently every frame
-/// (programs/3ds/product/src/svcwire.c); here that separation is a condvar.
+/// (products/3ds/src/svcwire.c); here that separation is a condvar.
 #[derive(Default)]
 struct Outbox {
     queue: Mutex<VecDeque<Vec<u8>>>,

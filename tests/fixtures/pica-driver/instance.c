@@ -1,7 +1,8 @@
 #define _POSIX_C_SOURCE 200112L
-#include "../../../programs/3ds/product/src/instance.c"
+#include "../../../products/3ds/src/instance.c"
 #include "package_fixture.h"
 #include <assert.h>
+#include <stdlib.h>
 
 void *memalign(size_t alignment, size_t length) {
   void *out = NULL;

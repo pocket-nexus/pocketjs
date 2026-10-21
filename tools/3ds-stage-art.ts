@@ -1,5 +1,5 @@
 // tools/3ds-stage-art.ts — bakes the agent stage's two pictures
-// (programs/3ds/product/src/stage.c) into C headers:
+// (products/3ds/src/stage.c) into C headers:
 //
 //   stage_hint.h   the "L+R Ask Claude" pill, drawn at the top screen's own
 //                  pixels after both eyes while the mascot is idle. RGBA8 in
@@ -23,8 +23,8 @@ import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import { encodePNG } from "./png.ts";
 
 const ROOT = join(import.meta.dir, "..");
-const HINT_OUT = join(ROOT, "programs/3ds/product/src/stage_hint.h");
-const SAVER_OUT = join(ROOT, "programs/3ds/product/src/stage_saver.h");
+const HINT_OUT = join(ROOT, "products/3ds/src/stage_hint.h");
+const SAVER_OUT = join(ROOT, "products/3ds/src/stage_saver.h");
 const TEX_W = 128;
 const TEX_H = 32;
 /** The lockup is laid out on a 256x128 grid, drawn at four times that and

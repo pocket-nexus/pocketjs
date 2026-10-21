@@ -434,7 +434,7 @@ Kinetic scroll views, CLUT/swizzled textures, render-to-texture opacity groups
 kerning, `hover:`, percentage sizes beyond `-full`, Android hosts,
 `rounded-full` on runtime-sized nodes.
 
-The 3DS left this list with `programs/3ds/product` — a QuickJS guest over a PICA200
+The 3DS left this list with `products/3ds` — a QuickJS guest over a PICA200
 backend. **The CIA boots and renders on a New 3DS LL.** The `3ds-dev` profile
 in `tools/3ds-profile.ts` stays outside the production registry until its
 synthesized-cursor, sprite, streamed-texture and large-atlas paths have direct

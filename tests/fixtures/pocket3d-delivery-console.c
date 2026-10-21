@@ -1,4 +1,4 @@
-/* The console's side of the pack delivery (programs/3ds/product/src/packs_delivery.c) as
+/* The console's side of the pack delivery (products/3ds/src/packs_delivery.c) as
  * a program for a computer: one control line in, the answer's line out.
  * tests/pocket3d-delivery.test.ts builds and runs it.
  *   console <directory> <line> */

@@ -1,6 +1,7 @@
-# Nintendo 3DS host
+# Nintendo 3DS product
 
-The 3DS host composes **one canonical `pocket-runtime-cabi` archive** with the
+The 3DS product composes **one archive containing `pocket-runtime-cabi` and
+private recovery inspection** with the
 generated QuickJS guest, a package source, input source, PICA renderer and two
 display outputs. The runtime owns the retained tree, layout, animation, physics,
 package admission and frame coordination. The C device driver consumes the public
@@ -16,7 +17,7 @@ suite; the architecture migration has compiler, linker and host-test coverage.
 core/                 one runtime staticlib plus package recovery inspection ABI
 include/pocket_core.h package inspection and native resource convenience calls
 include/pocket_profile.h generated profile bytes, hash and operation identifiers
-src/instance.c        runtime, package/input/provider registration and six hooks
+src/instance.c        runtime, package/input/provider registration
 src/main.c            process boot, reusable guest lifecycle, frame boundary
 src/runtime.c         immutable package storage, active/rollback state
 src/devserver.c       discovery, paired TCP pump, uploads, screenshots, receipts
@@ -35,9 +36,10 @@ src/jscan.c           bounded JSON reader/writer for host records
 src/wifi.c            globalThis.wifi over AC and nwm::EXT
 src/camera.c          outer-camera texture and QR decode
 src/quirc/            vendored quirc (ISC)
-src/input.c           hardware keys, sticks and touch sampling
-src/vshader.v.pica    the PICA200 vertex shader
-Makefile              native build driven by tools/3ds.ts
+src/input_policy.c    reserved product chords and development-menu input latch
+platforms/3ds/        shared hooks, unreserved HID facts and input source
+devices/3ds/          PICA renderer and vertex shader
+Makefile              native build driven by this product’s build.ts
 ```
 
 The independent renderer lives in `devices/3ds/pocket-3ds-pica`. It links the
@@ -48,10 +50,9 @@ no dependency on `Ui`, QuickJS, camera, media or the launcher.
 
 Two toolchains, one repository:
 
-- The **Rust staticlib builds on macOS**. `armv6k-nintendo-3ds` is a built-in
-  rustc target, so `core/.cargo/config.toml` only has to ask for `build-std`;
-  `core/rust-toolchain.toml` pins the nightly. The target defaults to unwind,
-  so the crate sets `panic = "abort"`.
+- The **Rust archive uses the root workspace and lockfile**, the built-in
+  `armv6k-nintendo-3ds` target and the build-std compiler pinned in
+  `tools/build/toolchains/rust.ts`. The recipe selects panic abort.
 - The **C half builds in the digest-pinned `devkitpro/devkitarm` image**, which brings
   `arm-none-eabi-gcc`, libctru, citro3d, `picasso`, `smdhtool` and `3dsxtool`.
 
@@ -86,36 +87,19 @@ have the same surfaces. A `.3dsx` with no RomFS, or no `app.pocket` in it,
 writes `this .3dsx carries no game: romfs:/app.pocket is missing` to the bottom
 screen and to `sdmc:/pocketjs-error.txt`, and waits for HOME.
 
-The program a build of any app produces is therefore the same apart from
-`--capture`, `io.offload` (a different main loop) and `media.playback` (the
-media worker), and a game's `.3dsx` can be written without a compiler:
+**The generic runtime is a separate program.** `programs/3ds` reads a file
+package and registers the generated guest, input source and two PICA displays.
+It has no product services, development server, camera, launcher or recovery
+state. Its `3ds-runtime` profile accepts only the capabilities implemented by
+that program. The generic program links the default Runtime archive; this
+product links `core/` for its recovery inspection interface.
 
-```sh
-bun tools/runtime.ts 3ds          # dist/runtime/3ds/runtime.3dsx + runtime.json
-bun tools/repack.ts --target 3ds --runtime dist/runtime/3ds --pocket game.pocket \
-  --id dev.example.game --title Game --author Example --version 1.0.0 --icon icon.png -o game.3dsx
-```
-
-`tools/runtime/3ds.ts` builds the program with an SMDH ("PocketJS Runtime",
-the PocketJS mark) and no RomFS, and records its size, SHA-256, target, host
-ABI and PocketJS commit in `runtime.json`. `tools/repack/3ds.ts` works on
-bytes, with no file system and no native tool: it checks `runtime.json`, the
-`.pocket` footer, that the package's `3ds-dev` variant has the runtime's host
-ABI and the identity's app id, and refuses a plan that needs `io.offload` or
-`media.playback` (the runtime carries neither) or other surfaces. It keeps the
-`.3dsx` header's segment sizes, the relocation headers, the three segments and
-the relocation tables byte for byte, and writes a new SMDH (title, `<title>
-<version>` as the description, author, 24 and 48 px icons scaled from the
-identity's PNG or the runtime's own) and a RomFS holding `app.pocket` (the
-`.pocket` thinned to its `3ds-dev` variant when it carries others).
-**The SMDH and RomFS are the bytes `smdhtool` and `3dsxtool` (3dstools 1.3.1)
-write for the same inputs**: `tests/repack-3ds.test.ts` compares them with
-fixtures those tools wrote, and `bun tools/repack/reference-3ds.ts` builds a
-whole `.3dsx` with them in the devkitARM image and byte-compares it with the
-repack's. `bun tests/e2e/3ds-repack.ts` starts the bare runtime and a repacked
-game in Azahar and plays the game over the Pocket Runtime wire; with
-`--device --host <ip>` it plays a repacked game already installed on a
-console.
+Use `pocket build --target 3ds --generic` for that runtime and
+`pocket pack --runtime <build-directory> --pocket <application.pocket>` to
+replace its RomFS. See [the minimal program](../../programs/3ds/README.md).
+`pocket build --target 3ds --pocket <application.pocket>` selects this product
+and its `3ds-dev` profile. Existing `tools/3ds.ts` options delegate to
+`products/3ds/build.ts`, including capture, CIA and package-only builds.
 
 ## Updating the guest from SD
 

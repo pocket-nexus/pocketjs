@@ -3,7 +3,7 @@
 `pocket_pica_driver.h` exposes an independent **Renderer and DisplayOutput over
 the public C ABI**. The driver consumes DrawLists, texture/font views and target
 identities. It does not include `Ui`, a guest engine or product services.
-`programs/3ds/product/src/gfx.c` supplies camera/media texture leases, the native stage and
+`products/3ds/src/gfx.c` supplies camera/media texture leases, the native stage and
 the development-menu overlay through explicit callbacks.
 
 Each display borrows an unlinked, rotated RGBA8 citro3d target. A process-wide

@@ -11,7 +11,7 @@ mechanism and the companion implementation in `tools/companion/`.
 
 | Side | Process | Sockets |
 | --- | --- | --- |
-| Console | the host runtime (3DS: `programs/3ds/product`) | UDP **8627** for beacons, one outgoing TCP connection |
+| Console | the host runtime (3DS: `products/3ds`) | UDP **8627** for beacons, one outgoing TCP connection |
 | Companion | `tools/companion.ts serve`, or the daemon inside Pocket Companion.app | TCP **8628** listener, UDP beacon sender, control API on 127.0.0.1 |
 
 **The companion listens; the console connects.** The console holds no listening

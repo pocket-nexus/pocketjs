@@ -5,6 +5,7 @@
 /* Explicit 3DS composition of the single runtime archive and C device drivers.
  */
 #include "instance.h"
+#include "input_source.h"
 #include "devserver.h"
 #include "gfx.h"
 #include "launcher.h"
@@ -17,42 +18,9 @@
 #include <string.h>
 static pocket_runtime *active;
 static PocketRuntimePackage *source;
-static uint32_t buttons;
-static pocket_axis_sample axes[4];
-static pocket_contact contacts[8];
-static size_t contact_count;
+static pocket_3ds_input_source input;
 static char provider_text[8193];
 
-void *pocket_host_alloc(size_t size, size_t alignment) {
-  return alignment <= 8 ? malloc(size ? size : 1)
-                        : memalign(alignment, size ? size : 1);
-}
-void *pocket_host_realloc(void *pointer, size_t old_size, size_t alignment,
-                          size_t new_size) {
-  if (alignment <= 8)
-    return realloc(pointer, new_size ? new_size : 1);
-  void *out = pocket_host_alloc(new_size, alignment);
-  if (!out)
-    return NULL;
-  if (pointer)
-    memcpy(out, pointer, old_size < new_size ? old_size : new_size);
-  free(pointer);
-  return out;
-}
-void pocket_host_free(void *pointer, size_t size, size_t alignment) {
-  (void)size;
-  (void)alignment;
-  free(pointer);
-}
-void pocket_host_panic(const char *message, size_t length) {
-  fwrite(message, 1, length, stderr);
-  abort();
-}
-void pocket_host_log(int32_t level, const char *message, size_t length) {
-  (void)level;
-  fwrite(message, 1, length, stderr);
-}
-void pocket_host_boot_stage(int32_t stage) { (void)stage; }
 static int32_t package_length(void *context, size_t *out) {
   (void)context;
   *out = source->length;
@@ -77,40 +45,9 @@ static int32_t package_range(void *context, size_t offset, uint8_t *bytes,
   *read = n;
   return 0;
 }
-static uint32_t input_classes(void *context) {
-  (void)context;
-  return POCKET_INPUT_CLASS_BUTTONS | POCKET_INPUT_CLASS_AXIS_ABSOLUTE |
-         POCKET_INPUT_CLASS_CONTACT;
-}
-static int32_t input_poll(void *context, pocket_input_frame_builder *builder) {
-  (void)context;
-  pocket_input_frame frame = {.struct_size = sizeof frame,
-                              .buttons = buttons,
-                              .axes = axes,
-                              .axis_count = 4,
-                              .contacts = contacts,
-                              .contact_count = contact_count};
-  return builder->append(builder->context, &frame);
-}
 void instance_input(uint32_t held, uint32_t analog, const uint32_t *touches,
                     size_t count, uint32_t right) {
-  buttons = held;
-  uint32_t sticks[2] = {analog, right};
-  for (unsigned i = 0; i < 4; i++)
-    axes[i] = (pocket_axis_sample){
-        sizeof axes[i], i, (float)((sticks[i / 2] >> ((i & 1) ? 0 : 8)) & 255)};
-  contact_count = count < 8 ? count : 8;
-  for (size_t i = 0; i < contact_count; i++) {
-    uint32_t word = touches[i];
-    bool wide = (word >> 31) != 0;
-    contacts[i] = (pocket_contact){
-        sizeof contacts[i],
-        1,
-        (word >> (wide ? 20 : 18)) & 255,
-        (float)(word & (wide ? 1023 : 511)),
-        (float)((word >> (wide ? 10 : 9)) & (wide ? 1023 : 511)),
-        (word >> 30) & 1};
-  }
+  pocket_3ds_input_source_set(&input, held, analog, touches, count, right);
 }
 static int32_t provider(void *context, uint16_t op, const pocket_op_arg *args,
                         size_t length, pocket_result *out) {
@@ -178,8 +115,6 @@ static int32_t provider(void *context, uint16_t op, const pocket_op_arg *args,
 }
 static const pocket_package_source_v1 source_api = {
     sizeof source_api, package_length, package_all, package_range};
-static const pocket_input_source_v1 input_api = {sizeof input_api,
-                                                 input_classes, input_poll};
 static const pocket_op_provider_v1 provider_api = {sizeof provider_api,
                                                    provider};
 pocket_runtime *instance_create(PocketRuntimePackage *package) {
@@ -207,7 +142,7 @@ pocket_runtime *instance_create(PocketRuntimePackage *package) {
 #endif
   };
   if (pocket_runtime_set_package_source(active, &source_api, NULL) ||
-      pocket_runtime_add_input_source(active, &input_api, NULL) ||
+      pocket_runtime_add_input_source(active, pocket_3ds_input_source_vtable(), &input) ||
       pocket_runtime_add_op_provider(active, &provider_api, NULL, operations,
                                      sizeof operations / sizeof *operations) ||
       !gfx_register(active)) {

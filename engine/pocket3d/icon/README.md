@@ -55,7 +55,7 @@ $(BUILD)/game.smdh: $(ICON) $(SMALL_ICON)
 	smdhtool --create '$(TITLE)' '$(DESCRIPTION)' '$(AUTHOR)' $(ICON) $@ $(SMALL_ICON)
 ```
 
-PocketJS's own 3DS Makefile (`programs/3ds/product/Makefile`) takes the same two
+PocketJS's own 3DS Makefile (`products/3ds/Makefile`) takes the same two
 variables, `ICON` and `SMALL_ICON`. Its iPod touch packager
 (`tools/ipodtouch4.ts`) takes `icon` in the application's description: give it
 `ios/Icon@2x.png`. That packager writes the 57-pixel file by reducing the one

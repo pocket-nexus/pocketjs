@@ -1,32 +1,23 @@
-// A game repacked onto the generic 3DS runtime, started and played.
-//
-//   bun tests/e2e/3ds-repack.ts --pocket <game.pocket> --id <id> --title <title>
-//     --author <author> --version <version> [--icon <png>] [--out <dir>]
-//   bun tests/e2e/3ds-repack.ts --device --host <3ds-ip> --id <id> [--out <dir>]
-//
-// Azahar (the default): repacks the game onto dist/runtime/3ds (built by
-// `bun tools/runtime.ts 3ds`), starts the bare runtime once to read the line
-// it leaves when it carries no game, then starts the repacked .3dsx on a
-// fixture SD card and plays it over the Pocket Runtime wire.
-//
-// --device: the repacked .3dsx is already running on a paired console
-// (`bun tools/3ds-dev.ts install --file <game.3dsx> --name <name>.3dsx`
-// under the 3ds:wire device lease); only the play part runs.
-//
-// Play: status (target, ABI, the state slot named from the app id), a
-// screenshot of both screens, then a DevTools replay tape per step (CIRCLE to
-// start, then the D-pad) with a screenshot after each. A step whose
-// screenshot equals the previous one fails the run. Screenshots and the
-// transcript go to --out (default .pocket-build/validation/runtime-3ds/<run>/).
+// Repack the minimal 3DS file program, launch it in Azahar and inspect native
+// screenshots of both displays. No product development service is required.
+// --runtime DIR selects a generic build receipt or its runtime artifact directory.
+// --external-input waits for a test operator to press the logged key and F13;
+// otherwise the macOS test runner sends those keys through System Events.
+// --keys a,h,g chooses the application's keyboard sequence.
+// --touches '160,140;160,180' chooses auxiliary touch points (external input).
+// --window-rect x,y,w,h accepts external window PNGs when native capture fails.
+// Keep the pointer outside that rectangle while capturing each window PNG.
+// --device retains the paired product's wire replay validation.
 
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pocketRuntimeDeviceId } from "../../contracts/spec/pocket-runtime-wire.ts";
 import { PocketRuntimeClient, parsePocketRuntimeToken } from "../../tools/3ds-runtime-client.ts";
 import { readRuntimeDirectory } from "../../tools/repack.ts";
 import { repack3ds } from "../../tools/repack/3ds.ts";
+import { decodePng, encodePng } from "../../tools/repack/shared/png.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const argv = Bun.argv.slice(2);
@@ -36,9 +27,9 @@ const option = (name: string) => {
 };
 const device = argv.includes("--device");
 const id = option("id");
-if (!id) throw new Error("--id is required");
+if (!id && !argv.includes("--preflight")) throw new Error("--id is required");
 const run = new Date().toISOString().replace(/[:.]/g, "-");
-const OUT = option("out") ?? join(ROOT, ".pocket-build/validation/runtime-3ds", `${device ? "device" : "azahar"}-${run}`);
+const OUT = resolve(option("out") ?? join(ROOT, ".pocket-build/validation/e2e", `${device ? "device" : "azahar"}-${run}`));
 mkdirSync(OUT, { recursive: true });
 const transcript: string[] = [];
 const log = (line: string) => {
@@ -62,48 +53,113 @@ const FIXTURE_HOME = join(OUT, "home");
 const USER_DIR = join(FIXTURE_HOME, "Library/Application Support/Azahar");
 const SDMC = join(USER_DIR, "sdmc");
 
-function setConfig(config: string, key: string, value: string): string {
-  const line = new RegExp(`^${key}=.*$`, "m");
-  if (!line.test(config)) return `${config}\n${key}=${value}\n${key}\\default=false\n`;
-  const next = config.replace(line, `${key}=${value}`);
-  const fallback = new RegExp(`^${key}\\\\default=.*$`, "m");
-  return fallback.test(next) ? next.replace(fallback, `${key}\\default=false`) : next.replace(line, `${key}=${value}\n${key}\\default=false`);
+const shots = join(OUT, "screenshots");
+const sourceConfig = process.env.AZAHAR_CONFIG ?? join(homedir(), "Library/Application Support/Azahar/config/qt-config.ini");
+const externalInput = argv.includes("--external-input");
+// Some Azahar/macOS versions return a blank native screenshot. An external
+// window capture can supply the same test with an explicit display rectangle;
+// retain the unmodified window PNG as evidence alongside the normalized frame.
+const windowRect = option("window-rect")?.split(",").map(Number);
+if (windowRect && (!externalInput || windowRect.length !== 4 || windowRect.some(value => !Number.isInteger(value) || value < 0) || !windowRect[2] || !windowRect[3]))
+  throw new Error("--window-rect x,y,width,height needs --external-input and a valid rectangle");
+const keys = (option("keys") ?? "a,h,g,f,t").split(",");
+if (keys.some(key => !/^[a-z0-9]$/.test(key))) throw new Error("--keys accepts comma-separated letter/digit keys");
+const touches = option("touches")?.split(";").map(pair => pair.split(",").map(Number));
+if (touches && (!externalInput || touches.some(pair => pair.length !== 2 || pair.some(value => !Number.isInteger(value) || value < 0) || pair[0]! >= 320 || pair[1]! >= 240)))
+  throw new Error("--touches x,y;x,y requires --external-input and auxiliary surface coordinates");
+const inputSteps = touches?.map(([x, y]) => `touch(${x},${y})`) ?? keys;
+function preflight(): void {
+  if (process.platform !== "darwin") throw new Error("Azahar E2E requires macOS LaunchServices");
+  if (!existsSync(azaharBinary)) throw new Error(`Azahar not found: ${azaharBinary}`);
+  if (!existsSync(sourceConfig)) throw new Error(`isolated Azahar defaults required: set AZAHAR_CONFIG (${sourceConfig})`);
+  for (const tool of ["open", "pgrep", ...(externalInput ? [] : ["osascript"])])
+    if (!Bun.which(tool)) throw new Error(`${tool} is required`);
 }
-
-function writeFixture(token: Uint8Array): void {
+function writeFixture(): void {
   rmSync(FIXTURE_HOME, { recursive: true, force: true });
   mkdirSync(join(USER_DIR, "config"), { recursive: true });
-  mkdirSync(join(SDMC, "pocketjs/runtime"), { recursive: true });
-  const sourceConfig = join(homedir(), "Library/Application Support/Azahar/config/qt-config.ini");
-  const sourceUser = join(homedir(), "Library/Application Support/Azahar");
-  for (const directory of ["nand", "sysdata"]) {
+  mkdirSync(SDMC, { recursive: true }); mkdirSync(shots, { recursive: true });
+  const sourceUser = sourceConfig.replace(/\/config\/[^/]+$/, "");
+  for (const directory of ["nand", "sysdata"])
     if (existsSync(join(sourceUser, directory))) cpSync(join(sourceUser, directory), join(USER_DIR, directory), { recursive: true });
-  }
-  let config = existsSync(sourceConfig) ? readFileSync(sourceConfig, "utf8") : "[Renderer]\n";
-  for (const [key, value] of [["graphics_api", "0"], ["resolution_factor", "1"], ["use_vsync", "false"], ["check_for_update_on_start", "false"]]) {
-    config = setConfig(config, key!, value!);
-  }
+  let config = readFileSync(sourceConfig, "utf8");
+  const set = (key: string, value: string): void => {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const expression = new RegExp(`^${escaped}=.*$`, "m");
+    if (!expression.test(config)) throw new Error(`Azahar config has no ${key}`);
+    config = config.replace(expression, () => `${key}=${value}`);
+    const fallback = new RegExp(`^${escaped}\\\\default=.*$`, "m");
+    config = fallback.test(config) ? config.replace(fallback, () => `${key}\\default=false`)
+      : config.replace(expression, () => `${key}=${value}\n${key}\\default=false`);
+  };
+  // Azahar 2125 software output does not fulfill native screenshot requests.
+  // This Vulkan scene/liveness run is separate from the software golden test.
+  for (const [key, value] of Object.entries({ graphics_api: "2", resolution_factor: "1", use_vsync: "false",
+    check_for_update_on_start: "false", frame_limit: "100", layout_option: "0", swap_screen: "false",
+    upright_screen: "false", screenshot_resolution_factor: "1",
+    "Paths\\screenshotPath": shots, "Shortcuts\\Main%20Window\\Capture%20Screenshot\\KeySeq": "F13" })) set(key, value);
   writeFileSync(join(USER_DIR, "config/qt-config.ini"), config);
-  writeFileSync(join(SDMC, "pocketjs/runtime/dev.key"), `${Buffer.from(token).toString("hex")}\n`);
 }
-
-// Azahar runs detached from this process (started from Bun.spawn with a pipe
-// or file for output it never boots the ROM). Every ROM this run starts sits
-// in --out, so its path names this run's emulator and nobody else's.
 let romPath: string | null = null;
-
+function emulatorPids(): number[] {
+  if (!romPath) return [];
+  const result = Bun.spawnSync(["pgrep", "-f", romPath], { stdout: "pipe", stderr: "ignore" });
+  return result.stdout.toString().trim().split(/\s+/).filter(Boolean).map(Number);
+}
 function killEmulator(): void {
-  if (romPath) Bun.spawnSync(["pkill", "-9", "-f", romPath], { stdout: "ignore", stderr: "ignore" });
+  for (const pid of emulatorPids()) { try { process.kill(pid, "SIGKILL"); } catch {} }
   romPath = null;
 }
-
 function launch(rom: string): void {
-  killEmulator();
   romPath = rom;
-  const shell = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-  const log = join(OUT, `azahar-${Date.now()}.log`);
-  const result = Bun.spawnSync(["sh", "-c", `HOME=${shell(FIXTURE_HOME)} ${shell(azaharBinary)} ${shell(rom)} > ${shell(log)} 2>&1 &`]);
-  if (result.exitCode !== 0) throw new Error(`Azahar did not start: ${result.stderr.toString().trim()}`);
+  const result = Bun.spawnSync(["open", "-n", "-a", azaharApp, "--env", `HOME=${FIXTURE_HOME}`,
+    "--stdout", join(OUT, "azahar.log"), "--stderr", join(OUT, "azahar.log"), "--args", rom]);
+  if (!result.success) throw new Error(`Azahar launch failed: ${result.stderr.toString()}`);
+}
+async function nativeScreenshot(name: string, key?: string): Promise<string> {
+  const before = new Set(readdirSync(shots));
+  log(`capture ${name}: ${key ? `press ${key}, then ` : ""}${windowRect ? `move the pointer outside the displays and save a fresh window PNG into ${shots}` : "F13 in Azahar"}`);
+  if (!externalInput) {
+    const pid = emulatorPids()[0]; if (!pid) throw new Error("Azahar exited before screenshot");
+    const commands = [`tell application "System Events"`, `set p to first application process whose unix id is ${pid}`,
+      `set frontmost of p to true`, `tell p`, ...(key ? [`keystroke "${key}"`, "delay 1"] : []), "key code 105", "end tell", "end tell"];
+    const result = Bun.spawnSync(["osascript", "-e", commands.join("\n")]);
+    if (!result.success) throw new Error(`keyboard automation failed: ${result.stderr.toString()}`);
+  }
+  const deadline = Date.now() + (externalInput ? 180_000 : 60_000);
+  while (Date.now() < deadline) {
+    if (!emulatorPids().length) throw new Error("Azahar exited while waiting for a rendered frame");
+    const file = readdirSync(shots).find(path => path.endsWith(".png") && !before.has(path));
+    if (file) {
+      let png = new Uint8Array(readFileSync(join(shots, file)));
+      let decoded = await decodePng(png);
+      if (windowRect) {
+        const [x0, y0, width, height] = windowRect as [number, number, number, number];
+        if (x0 + width > decoded.width || y0 + height > decoded.height) throw new Error("display rectangle exceeds captured window");
+        writeFileSync(join(OUT, `${name}.window.png`), png);
+        const rgba = new Uint8Array(400 * 480 * 4);
+        for (let y=0;y<480;y++) for (let x=0;x<400;x++) {
+          const at=((y0+Math.floor(y*height/480))*decoded.width+x0+Math.floor(x*width/400))*4;
+          rgba.set(decoded.rgba.subarray(at,at+4),(y*400+x)*4);
+        }
+        decoded={width:400,height:480,rgba}; png = new Uint8Array(await encodePng(decoded));
+      }
+      if (decoded.width !== 400 || decoded.height !== 480) throw new Error(`native screenshot is ${decoded.width}x${decoded.height}, expected 400x480`);
+      for (const [label, x0, y0, width] of [["top", 0, 0, 400], ["bottom", 40, 240, 320]] as const) {
+        const colors = new Set<number>();
+        for (let y = y0; y < y0 + 240; y++) for (let x = x0; x < x0 + width; x++) {
+          const at = (y * 400 + x) * 4;
+          colors.add((decoded.rgba[at]! << 16) | (decoded.rgba[at + 1]! << 8) | decoded.rgba[at + 2]!);
+        }
+        if (colors.size < 8) throw new Error(`${label} screen has no rendered scene (${colors.size} colors)`);
+      }
+      writeFileSync(join(OUT, `${name}.png`), png);
+      const digest = createHash("sha256").update(decoded.rgba).digest("hex");
+      log(`native screenshot ${name}: 400x480 sha256 ${digest}`); return digest;
+    }
+    await Bun.sleep(100);
+  }
+  throw new Error(`no native screenshot for ${name}`);
 }
 
 async function connect(host: string, token: Uint8Array, timeoutMs: number): Promise<PocketRuntimeClient> {
@@ -165,43 +221,36 @@ try {
     log(`connected to ${host} (device ${pocketRuntimeDeviceId(token).toString(16)})`);
     await play(client);
   } else {
-    const pocketPath = option("pocket");
-    const identity = { id, title: option("title") ?? "", author: option("author") ?? "", version: option("version") ?? "" };
-    if (!pocketPath || !identity.title || !identity.author || !identity.version) {
-      throw new Error("Azahar runs need --pocket, --title, --author and --version");
+    preflight();
+    if (argv.includes("--preflight")) { log("preflight passed; emulator not started"); }
+    else {
+      const pocketPath = option("pocket");
+      const identity = { id: id!, title: option("title") ?? "", author: option("author") ?? "", version: option("version") ?? "" };
+      if (!pocketPath || !identity.title || !identity.author || !identity.version)
+        throw new Error("Azahar runs need --pocket, --id, --title, --author and --version");
+      const icon = option("icon");
+      let runtimeDir = resolve(option("runtime") ?? join(ROOT, "dist/runtime/3ds"));
+      const receiptPath = join(runtimeDir, "build-receipt.json");
+      if (existsSync(receiptPath)) {
+        const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+        if (receipt.success !== true) throw new Error("runtime build receipt is not successful");
+        runtimeDir = receipt.artifact;
+      }
+      const runtime = readRuntimeDirectory(runtimeDir);
+      const game = await repack3ds({ runtime, pocket: new Uint8Array(readFileSync(pocketPath)),
+        identity: { ...identity, ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}) } });
+      const gamePath = join(OUT, "game.3dsx"); writeFileSync(gamePath, game);
+      log(`repacked ${game.length} bytes from ${runtimeDir}`);
+      writeFixture(); launch(gamePath); await Bun.sleep(10_000);
+      let previous = await nativeScreenshot("00-start");
+      for (const [index, key] of inputSteps.entries()) {
+        const digest = await nativeScreenshot(`${index + 1}-${key}`, key);
+        if (digest === previous) throw new Error(`pressing ${key} changed no pixels`);
+        previous = digest;
+      }
+      if (!emulatorPids().length) throw new Error("Azahar exited after the last frame");
+      log("minimal program rendered both screens and responded to input without a product wire service");
     }
-    const icon = option("icon");
-    const runtime = readRuntimeDirectory(join(ROOT, "dist/runtime/3ds"));
-    const started = performance.now();
-    const game = await repack3ds({
-      runtime,
-      pocket: new Uint8Array(readFileSync(pocketPath)),
-      identity: { ...identity, ...(icon ? { icon: new Uint8Array(readFileSync(icon)) } : {}) },
-    });
-    log(`repacked ${game.length} bytes in ${(performance.now() - started).toFixed(0)} ms`);
-    const gamePath = join(OUT, "game.3dsx");
-    writeFileSync(gamePath, game);
-    const token = Uint8Array.from({ length: 32 }, (_, i) => (i * 11 + 5) & 255);
-
-    // The bare runtime: no RomFS, so it leaves its one line and waits for HOME.
-    writeFixture(token);
-    const barePath = join(OUT, "bare-runtime.3dsx");
-    cpSync(join(ROOT, "dist/runtime/3ds/runtime.3dsx"), barePath);
-    launch(barePath);
-    const errorFile = join(SDMC, "pocketjs-error.txt");
-    for (let waited = 0; waited < 30_000 && !existsSync(errorFile); waited += 250) await Bun.sleep(250);
-    const line = existsSync(errorFile) ? readFileSync(errorFile, "utf8").trim() : "(no error file)";
-    log(`bare runtime: ${line}`);
-    if (!line.includes("carries no game")) throw new Error("the bare runtime did not say it carries no game");
-
-    writeFixture(token);
-    launch(gamePath);
-    client = await connect("127.0.0.1", token, 60_000);
-    log("connected to Azahar");
-    await play(client);
-    const state = join(SDMC, "pocketjs/runtime/apps", createHash("sha256").update(id).digest("hex").slice(0, 16));
-    log(`state slot on the SD card: ${existsSync(state) ? state.slice(SDMC.length) : "missing"}`);
-    if (!existsSync(state)) throw new Error("the game's state slot was not created");
   }
   log("PASS");
 } catch (error) {

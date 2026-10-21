@@ -49,6 +49,8 @@ pocketjs/
 │  ├─ linux-kms/            Linux program with its own profile
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
 │  └─ native/               compatibility C-shell composition and QuickJS glue
+├─ products/
+│  └─ 3ds/                  Link, launcher, camera and development product
 ├─ framework/               guest APIs and application compiler
 ├─ microts/                 TypeScript model and view compilation
 ├─ tools/
@@ -69,9 +71,10 @@ pocketjs/
 
 **Device ports live in the separate Pocket Museum repository.** Their profiles,
 runtime configurations, build tools, tests and runbooks move with the programs.
-See [Museum migration](MUSEUM.md). The 3DS product remains under
-`programs/3ds/product` until its separate product extraction. These moves have
-separate commits from the directory split.
+See [Museum migration](MUSEUM.md). **The 3DS product lives in `products/3ds`.**
+Its private package inspection, Link, camera, launcher and development services
+are separate from the file-backed reference program in `programs/3ds`. Both
+compose the same Runtime, generated guest and PICA driver.
 
 ## Ownership and dependency rules
 

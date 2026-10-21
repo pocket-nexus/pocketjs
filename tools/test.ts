@@ -89,6 +89,7 @@ const SUITE: readonly Stage[] = [
       "tests/native-program.test.ts",
       "tests/native-source.test.ts",
       "tests/3ds-profile.test.ts",
+      "tests/3ds-minimal.test.ts",
       "tests/pica-kernel.test.ts",
       "tests/pica-driver.test.ts",
       "tests/ge-driver.test.ts",

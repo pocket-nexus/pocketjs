@@ -1,5 +1,5 @@
 # PocketJS Nintendo 3DS CIA descriptor — read by makerom, invoked from
-# programs/3ds/product/Makefile with the four values below supplied as -DNAME=VALUE:
+# products/3ds/Makefile with the four values below supplied as -DNAME=VALUE:
 #
 #   APP_TITLE         the manifest title, cut to the 8 bytes the exheader holds
 #   APP_PRODUCT_CODE  CTR-P-XXXX, derived from the app id
@@ -187,7 +187,7 @@ AccessControlInfo:
 SystemControlInfo:
   SaveDataSize: 0K
   RemasterVersion: 0
-  # The main thread's stack. programs/3ds/product/src/main.c raises the 3dsx crt0's
+  # The main thread's stack. products/3ds/src/main.c raises the 3dsx crt0's
   # 32 KiB with __stacksize__; a CIA takes the number from here instead, so the
   # two formats do NOT get the same stack and a .3dsx that survives proves
   # nothing about the CIA.

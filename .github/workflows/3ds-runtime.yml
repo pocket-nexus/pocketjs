@@ -1,20 +1,51 @@
 name: 3DS runtime contracts
 on:
   pull_request:
-    paths: ['devices/3ds/**', 'tests/pica-kernel.test.ts', 'tests/pica-driver.test.ts', 'tests/fixtures/pica-driver/**', 'tests/fixtures/pica-kernel/**', 'programs/3ds/product/**', 'contracts/**', 'tools/3ds*.ts', 'tools/media-stream.ts', 'framework/src/media.ts', 'framework/src/media-service.ts', 'framework/src/service-client.ts', 'tests/media-service.test.ts', 'tests/service-client.test.ts', 'tests/fixtures/service-client-entry.ts', 'tests/media.test.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', 'tools/repack.ts', 'tools/repack/**', 'tools/runtime.ts', 'tools/runtime/**', 'tests/repack-*.test.ts', 'tests/fixtures/repack-3ds/**', 'engine/spec/**', 'engine/drivers/**', 'engine/raster/**', 'engine/present/**', 'engine/package/**', 'engine/modules/media/**', 'engine/render/draw-ops/**', 'engine/render/glyph-pages/**', 'engine/core/src/package.rs', 'engine/core/src/plan_facts.rs', 'engine/core/src/sha256.rs', '.github/workflows/3ds-runtime.yml']
+    paths: ['programs/3ds/**', 'platforms/3ds/**', 'profiles/3ds-*.ts', 'tools/build/3ds/**', 'tools/build/programs/3ds.ts', 'tools/build/programs.ts', 'tools/test-3ds-minimal.ts', 'tools/check-3ds-symbols.ts', 'tools/build/toolchains/{3ds,rust}.ts', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'engine/runtime/**', 'engine/runtime-cabi/**', 'engine/guest-quickjs/**', 'devices/3ds/**', 'tests/pica-kernel.test.ts', 'tests/pica-driver.test.ts', 'tests/fixtures/pica-driver/**', 'tests/fixtures/pica-kernel/**', 'products/3ds/**', 'contracts/**', 'tools/3ds*.ts', 'tools/media-stream.ts', 'framework/src/media.ts', 'framework/src/media-service.ts', 'framework/src/service-client.ts', 'tests/media-service.test.ts', 'tests/service-client.test.ts', 'tests/fixtures/service-client-entry.ts', 'tests/media.test.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', 'tools/repack.ts', 'tools/repack/**', 'tools/runtime.ts', 'tools/runtime/**', 'tests/repack-*.test.ts', 'tests/fixtures/repack-3ds/**', 'engine/spec/**', 'engine/drivers/**', 'engine/raster/**', 'engine/present/**', 'engine/package/**', 'engine/modules/media/**', 'engine/render/draw-ops/**', 'engine/render/glyph-pages/**', 'engine/core/src/package.rs', 'engine/core/src/plan_facts.rs', 'engine/core/src/sha256.rs', '.github/workflows/3ds-runtime.yml']
   push:
     branches: [main]
-    paths: ['devices/3ds/**', 'tests/pica-kernel.test.ts', 'tests/pica-driver.test.ts', 'tests/fixtures/pica-driver/**', 'tests/fixtures/pica-kernel/**', 'programs/3ds/product/**', 'contracts/**', 'tools/3ds*.ts', 'tools/media-stream.ts', 'framework/src/media.ts', 'framework/src/media-service.ts', 'framework/src/service-client.ts', 'tests/media-service.test.ts', 'tests/service-client.test.ts', 'tests/fixtures/service-client-entry.ts', 'tests/media.test.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', 'tools/repack.ts', 'tools/repack/**', 'tools/runtime.ts', 'tools/runtime/**', 'tests/repack-*.test.ts', 'tests/fixtures/repack-3ds/**', 'engine/spec/**', 'engine/drivers/**', 'engine/raster/**', 'engine/present/**', 'engine/package/**', 'engine/modules/media/**', 'engine/render/draw-ops/**', 'engine/render/glyph-pages/**', 'engine/core/src/package.rs', 'engine/core/src/plan_facts.rs', 'engine/core/src/sha256.rs', '.github/workflows/3ds-runtime.yml']
+    paths: ['programs/3ds/**', 'platforms/3ds/**', 'profiles/3ds-*.ts', 'tools/build/3ds/**', 'tools/build/programs/3ds.ts', 'tools/build/programs.ts', 'tools/test-3ds-minimal.ts', 'tools/check-3ds-symbols.ts', 'tools/build/toolchains/{3ds,rust}.ts', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'engine/runtime/**', 'engine/runtime-cabi/**', 'engine/guest-quickjs/**', 'devices/3ds/**', 'tests/pica-kernel.test.ts', 'tests/pica-driver.test.ts', 'tests/fixtures/pica-driver/**', 'tests/fixtures/pica-kernel/**', 'products/3ds/**', 'contracts/**', 'tools/3ds*.ts', 'tools/media-stream.ts', 'framework/src/media.ts', 'framework/src/media-service.ts', 'framework/src/service-client.ts', 'tests/media-service.test.ts', 'tests/service-client.test.ts', 'tests/fixtures/service-client-entry.ts', 'tests/media.test.ts', 'tools/native-source.ts', 'tools/native-host-build.ts', 'tests/native-source.test.ts', 'tests/3ds*.test.ts', 'tests/fixtures/3ds-*', 'tests/fixtures/3ds-*/**', 'tools/repack.ts', 'tools/repack/**', 'tools/runtime.ts', 'tools/runtime/**', 'tests/repack-*.test.ts', 'tests/fixtures/repack-3ds/**', 'engine/spec/**', 'engine/drivers/**', 'engine/raster/**', 'engine/present/**', 'engine/package/**', 'engine/modules/media/**', 'engine/render/draw-ops/**', 'engine/render/glyph-pages/**', 'engine/core/src/package.rs', 'engine/core/src/plan_facts.rs', 'engine/core/src/sha256.rs', '.github/workflows/3ds-runtime.yml']
 permissions:
   contents: read
 jobs:
   runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - name: Install pinned stable Rust
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+      - run: bun install --frozen-lockfile
+      - run: bun test tests/pica-kernel.test.ts tests/pica-driver.test.ts tests/3ds-profile.test.ts tests/3ds-minimal.test.ts tests/3ds-runtime-state.test.ts tests/3ds-runtime-wire.test.ts tests/3ds-soc.test.ts tests/native-source.test.ts tests/media.test.ts tests/media-service.test.ts tests/service-client.test.ts tests/repack-3ds.test.ts tests/repack-shared.test.ts
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
-      - run: bun test tests/pica-kernel.test.ts tests/pica-driver.test.ts tests/3ds-profile.test.ts tests/3ds-runtime-state.test.ts tests/3ds-runtime-wire.test.ts tests/3ds-soc.test.ts tests/native-source.test.ts tests/media.test.ts tests/media-service.test.ts tests/service-client.test.ts tests/repack-3ds.test.ts tests/repack-shared.test.ts
+      - name: Install pinned native toolchains
+        run: |
+          rustup toolchain install "$(bun -e 'import { BUILD_STD_NIGHTLY } from "./tools/build/toolchains/rust.ts"; console.log(BUILD_STD_NIGHTLY)')" --profile minimal --component rust-src
+          docker pull "$(bun -e 'import { THREE_DS_CONTAINER_IMAGE } from "./tools/build/toolchains/3ds.ts"; console.log(THREE_DS_CONTAINER_IMAGE)')"
+      - name: Build minimal runtime and independent product
+        run: |
+          bun tools/pocket.ts build --target 3ds --generic --out .pocket-build/validation/3ds-ci/minimal
+          bun tools/pocket.ts compile --runtime-config products/3ds/pocket.runtime-config.ts --manifest apps/3ds-demo/pocket.json --project-root . --output .pocket-build/validation/3ds-ci/app.pocket --outdir .pocket-build/validation/3ds-ci/compiler --plan-dir .pocket-build/validation/3ds-ci/plans
+          bun tools/pocket.ts build --target 3ds --pocket .pocket-build/validation/3ds-ci/app.pocket --out .pocket-build/validation/3ds-ci/product
+      - name: Verify linked program boundaries
+        run: |
+          image="$(bun -e 'import { THREE_DS_CONTAINER_IMAGE } from "./tools/build/toolchains/3ds.ts"; console.log(THREE_DS_CONTAINER_IMAGE)')"
+          docker run --rm -v "$PWD:/repo" "$image" /opt/devkitpro/devkitARM/bin/arm-none-eabi-nm --defined-only /repo/.pocket-build/validation/3ds-ci/minimal/native/pocketjs-3ds.elf > .pocket-build/validation/3ds-ci/minimal.nm
+          docker run --rm -v "$PWD:/repo" "$image" /opt/devkitpro/devkitARM/bin/arm-none-eabi-nm --defined-only /repo/.pocket-build/validation/3ds-ci/product/native/pocketjs-3ds.elf > .pocket-build/validation/3ds-ci/product.nm
+          bun tools/check-3ds-symbols.ts .pocket-build/validation/3ds-ci/minimal.nm .pocket-build/validation/3ds-ci/product.nm
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: 3ds-native-programs
+          path: .pocket-build/validation/3ds-ci

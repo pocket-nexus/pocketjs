@@ -52,7 +52,7 @@ describe("central toolchain definitions", () => {
   test("the root stable override is the only program rustup override", () => {
     const data = Bun.TOML.parse(readFileSync(join(root, "rust-toolchain.toml"), "utf8")) as {toolchain: {channel: string}};
     expect(data.toolchain.channel).toBe(STABLE_RUST_TOOLCHAIN);
-    for (const path of ["programs/vita", "programs/3ds/product/core", "programs/native/cabi", "tests/esp-idf/data-smoke"]) {
+    for (const path of ["programs/vita", "products/3ds/core", "programs/native/cabi", "tests/esp-idf/data-smoke"]) {
       expect(existsSync(join(root, path, "rust-toolchain.toml")), path).toBe(false);
     }
     for (const pin of Object.values(RUST_TOOLCHAINS)) expect(pin).toBe(BUILD_STD_NIGHTLY);

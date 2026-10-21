@@ -37,7 +37,7 @@
 #include "gfx.h"
 #include "stage.h"
 #include "agent.h"
-#include "input.h"
+#include "input_policy.h"
 #include "pocket_core.h"
 #include "qjs.h"
 #include "offload.h"

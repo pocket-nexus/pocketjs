@@ -13,12 +13,12 @@ export function threeDsProfileHeader(selected: PocketProfile = profile): string 
 }
 
 export function ensureThreeDsProfileHeader(): void {
-  const path = resolve(import.meta.dir, "../programs/3ds/product/include/pocket_profile.h");
+  const path = resolve(import.meta.dir, "../products/3ds/include/pocket_profile.h");
   const expected = threeDsProfileHeader();
   if (!existsSync(path) || readFileSync(path, "utf8") !== expected) writeFileSync(path, expected);
 }
 if (import.meta.main) {
-  const path = resolve(import.meta.dir, "../programs/3ds/product/include/pocket_profile.h");
+  const path = resolve(import.meta.dir, "../products/3ds/include/pocket_profile.h");
   const expected = threeDsProfileHeader();
   if (process.argv.includes("--check")) {
     if (readFileSync(path, "utf8") !== expected) throw new Error("3DS profile header is stale");

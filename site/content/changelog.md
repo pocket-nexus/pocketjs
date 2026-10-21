@@ -362,7 +362,7 @@ neither advertises a production capability from a build alone.
 - **`via-*` adds a middle gradient stop, and vertical gradients point the
   right way on the 3DS.** The core draws a three-stop gradient as two ordinary
   two-stop boxes, so every backend still sees `GRAD_RECT` and clipping stays
-  where it was. `programs/3ds/product/src/gfx.c` copies the spec's `GradDir` ordinals
+  where it was. `products/3ds/src/gfx.c` copies the spec's `GradDir` ordinals
   into C by hand and had `ToTop` and `ToBottom` swapped, which inverted every
   vertical gradient on the one backend that does not read the generated Rust
   enum. The gpui raster fallback renders the full viewport and composites

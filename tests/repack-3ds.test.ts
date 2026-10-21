@@ -243,7 +243,8 @@ describe("repack3ds", () => {
     });
     await expect(repack3ds(await input({ pocket: pspOnly }))).rejects.toThrow(/no 3ds-runtime variant \(it has psp\)/);
     expect(() => pocketFor(manifest({ requires: ["io.offload"] }))).toThrow("io.offload");
-    expect(() => pocketFor(manifest({ requires: ["media.playback"] }))).toThrow("media.playback");
+    for (const capability of ["media.playback", "net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const)
+      expect(() => pocketFor(manifest({ requires: [capability] }))).toThrow(capability);
     await expect(repack3ds(await input({ identity: { id: "nodots", title: "T", author: "A", version: "1" } })))
       .rejects.toThrow(/reverse-DNS/);
   });

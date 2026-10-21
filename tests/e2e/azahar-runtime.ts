@@ -3,6 +3,7 @@
 // as an immutable blob but the previously accepted package boots again.
 
 import { $ } from "bun";
+import { createHash } from "node:crypto";
 import { evidenceDirectory } from "./build.ts";
 import {
   cpSync,
@@ -27,11 +28,12 @@ const FIXTURE_HOME = join(OUT, "home");
 const USER_DIR = join(FIXTURE_HOME, "Library/Application Support/Azahar");
 const CONFIG = join(USER_DIR, "config/qt-config.ini");
 const RUNTIME_DIR = join(USER_DIR, "sdmc/pocketjs/runtime");
-const PENDING = join(RUNTIME_DIR, "pending.pocket");
-const STATUS = join(RUNTIME_DIR, "status.txt");
-const LAST_ERROR = join(RUNTIME_DIR, "last-error.txt");
-const STATE_DIR = join(RUNTIME_DIR, "state");
-const PACKAGES_DIR = join(RUNTIME_DIR, "packages");
+const APP_DIR = join(RUNTIME_DIR, "apps", createHash("sha256").update("dev.pocket-nexus.3ds-demo").digest("hex").slice(0, 16));
+const PENDING = join(APP_DIR, "pending.pocket");
+const STATUS = join(APP_DIR, "status.txt");
+const LAST_ERROR = join(APP_DIR, "last-error.txt");
+const STATE_DIR = join(APP_DIR, "state");
+const PACKAGES_DIR = join(APP_DIR, "packages");
 const CONSOLE_LOG = join(OUT, "azahar-console.log");
 const azaharApp = process.env.AZAHAR || "/Applications/Azahar.app";
 const azaharBinary = join(azaharApp, "Contents/MacOS/azahar");
@@ -68,7 +70,7 @@ function setConfig(config: string, key: string, value: string): string {
 function writeFixture(): void {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(join(USER_DIR, "config"), { recursive: true });
-  mkdirSync(RUNTIME_DIR, { recursive: true });
+  mkdirSync(APP_DIR, { recursive: true });
   for (const directory of ["nand", "sysdata"]) {
     const source = join(sourceUserDir, directory);
     if (existsSync(source)) cpSync(source, join(USER_DIR, directory), { recursive: true });

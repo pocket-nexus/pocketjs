@@ -162,7 +162,7 @@ them from its channel in one of two ways:
 | Host | How the game answers |
 | --- | --- |
 | Rust hosts (`programs/psp`, `programs/vita`) | After the host registered its ops and before the bundle is evaluated, set `svcOpen`, `svcPoll`, `svcSend` on the guest's `ui` object to C functions that read and write the channel (`JS_NewCFunction2`, `JS_SetPropertyStr`). |
-| C hosts (`programs/3ds/product/src/qjs.c`, `programs/native/quickjs/pocket_runtime.c` with `POCKET_SVC_WIRE`) | Link the six functions of [`programs/3ds/product/src/svcwire.h`](../../programs/3ds/product/src/svcwire.h) (`svcwire_open`, `svcwire_recv_lines`, `svcwire_send_line`, …) from the game's interface crate in place of the network client. |
+| C hosts (`products/3ds/src/qjs.c`, `programs/native/quickjs/pocket_runtime.c` with `POCKET_SVC_WIRE`) | Link the six functions of [`products/3ds/src/svcwire.h`](../../products/3ds/src/svcwire.h) (`svcwire_open`, `svcwire_recv_lines`, `svcwire_send_line`, …) from the game's interface crate in place of the network client. |
 
 Rules for the state:
 
@@ -241,7 +241,7 @@ entry.
 | --- | --- | --- |
 | PSP | `programs/psp` as a library: `Runtime::new`, `boot`, `advance`, `present` in `programs/psp/src/program.rs`; the runtime owns guest bindings and assets, and its arena is the program's allocator | The last pass of the frame's GE list |
 | PS Vita | `programs/vita` as a library: `Runtime::new`, `eval`, `frame_with_input`, `tick`, `render_over` | The display scene, after the game's composite |
-| Nintendo 3DS | `programs/3ds/product/src` composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
+| Nintendo 3DS | `products/3ds/src` composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
 | iPod touch 4 | `programs/native/quickjs/pocket_runtime.c` with the UI core's OpenGL ES 2 backend | A texture redrawn when the draw hash changes, laid over the scene |
 | Browser tab | `programs/web/app-instance.js` in a hidden frame of the page, driven through `openInterface` of the browser kernel; the UI core is `platforms/web/pocketjs.wasm` | `renderPremultiplied` when `drawHash` changes: one software drawing with its alpha, uploaded and laid over the scene in a pass of its own (`pocket_web_wgpu::overlay`). A second screen from `renderAuxiliary` into its own canvas when `drawHashAuxiliary` changes |
 

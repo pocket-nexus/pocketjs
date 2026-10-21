@@ -26,7 +26,7 @@ describe("Cargo program and library graph", () => {
       expect(dependency["default-features"], path).toBe(false);
     }
     expect(workspace["default-members"].every((path: string) => paths.has(path))).toBe(true);
-    for (const path of ["programs/psp", "programs/vita", "programs/3ds/product/core", "programs/gba", "programs/esp-idf/archive", "programs/linux-kms"]) {
+    for (const path of ["programs/psp", "programs/vita", "products/3ds/core", "programs/gba", "programs/esp-idf/archive", "programs/linux-kms"]) {
       expect(paths.has(path), path).toBe(true);
       expect(workspace["default-members"], path).not.toContain(path);
       expect(toml(`${path}/Cargo.toml`).package.publish, path).toBe(false);

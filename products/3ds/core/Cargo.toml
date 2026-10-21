@@ -1,5 +1,5 @@
-# Single canonical runtime static archive for the armv6k libctru program.
-# Standalone nightly workspace uses build-std core/alloc (see .cargo/config.toml).
+# Product runtime archive with private recovery package inspection.
+# The minimal program links pocket-runtime-cabi without this wrapper.
 [package]
 name = "pocketjs-3ds-core"
 edition = "2021"

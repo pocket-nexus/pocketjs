@@ -125,7 +125,7 @@ bun tools/launcher.ts build --target vita -- --capture
 - **programs/vita** — the same package-table and ops contract with a
   process-global frame/input tape across fresh guests, SELECT interception,
   CPU-oracle frozen shots, and an explicit GXM-safe guest-resource reset.
-- **programs/3ds/product** — the launcher is the embedded ROMFS guest and the catalog is
+- **products/3ds** — the launcher is the embedded ROMFS guest and the catalog is
   the set of installed runtime slots on the SD card, not a package table; see
   "Nintendo 3DS: installed apps" below.
 - **programs/sim** — `programs/sim/launcher.ts` drives the same protocol over
@@ -254,4 +254,4 @@ Its error is written to its own slot's `last-error.txt`, the host switches to
 the launcher, and nothing is committed into the launcher's slot. SELECT
 follows the policy above: stripped from installed apps, a host-tracked press
 edge returns to the launcher with `resume` set, and the edge detector is
-latched at every boot. programs/3ds/product/README.md has the slot and switch details.
+latched at every boot. products/3ds/README.md has the slot and switch details.

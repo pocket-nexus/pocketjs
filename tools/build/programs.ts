@@ -7,13 +7,15 @@ export interface ProgramEntry {
   readonly id: string;
   readonly profile: string;
   readonly directory: string;
+  /** Repository-relative config override for an independent product. */
+  readonly runtimeConfig?: string;
   readonly generic?: { readonly directory: string; readonly profile: string };
 }
 /** CLI aliases locate program-owned recipes; external programs need no entry. */
 export const PROGRAMS: readonly ProgramEntry[] = [
   { id: "psp", profile: "psp", directory: "psp", generic: { directory: "psp/runtime", profile: "psp-runtime" } },
   { id: "vita", profile: "vita", directory: "vita", generic: { directory: "vita/runtime", profile: "vita" } },
-  { id: "3ds", profile: "3ds-dev", directory: "3ds", generic: { directory: "3ds/runtime", profile: "3ds-runtime" } },
+  { id: "3ds", profile: "3ds-dev", directory: "3ds", runtimeConfig: "products/3ds/pocket.runtime-config.ts", generic: { directory: "3ds", profile: "3ds-runtime" } },
   { id: "web-app", profile: "web-app", directory: "web" },
   { id: "macos-app", profile: "macos-app", directory: "desktop/macos" },
   { id: "linux-app", profile: "linux-app", directory: "desktop/linux" },
@@ -40,7 +42,9 @@ export async function resolveRuntimeProgram(options: {
   const useGeneric = options.generic || target === entry.generic?.profile && target !== entry.profile;
   const selection = useGeneric ? entry.generic : entry;
   if (!selection) throw new Error(`program ${entry.id} has no generic runtime; use its native build recipe`);
-  const runtimeConfig = resolve(ROOT, "programs", selection.directory, "pocket.runtime-config.ts");
+  const runtimeConfig = !useGeneric && entry.runtimeConfig
+    ? resolve(ROOT, entry.runtimeConfig)
+    : resolve(ROOT, "programs", selection.directory, "pocket.runtime-config.ts");
   if (!existsSync(runtimeConfig)) throw new Error(`program source is unavailable: ${runtimeConfig}; use a source checkout or your own --config`);
   return resolveProfile({ from: options.from, target: selection.profile, runtimeConfig, requireConfig: true, env: options.env });
 }

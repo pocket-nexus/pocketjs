@@ -16,7 +16,7 @@ import { loadRuntimeConfig, profileRegistry } from "../tools/profile-resolver.ts
 import { prepareApplication } from "../tools/build/inputs.ts";
 import { build as pspBuild } from "../tools/build/programs/psp.ts";
 import { build as vitaBuild } from "../tools/build/programs/vita.ts";
-import { build as threeDsBuild } from "../tools/build/programs/3ds.ts";
+import { build as threeDsBuild } from "../products/3ds/recipe.ts";
 import { build as webBuild } from "../tools/build/programs/web.ts";
 import { gbaBuild, ipodNanoBuild } from "../tools/build/programs/aot.ts";
 import { nativeArguments } from "../tools/build/programs/handheld-common.ts";
@@ -38,7 +38,7 @@ function context(profile: PocketProfile, outdir = scratch()): RuntimeBuildContex
 const recipes = [
   ["psp", "psp", "package"], ["psp/runtime", "psp-runtime", undefined],
   ["vita", "vita", "package"], ["vita/runtime", "vita", undefined],
-  ["3ds", "3ds-dev", "package"], ["3ds/runtime", "3ds-runtime", undefined],
+  ["3ds", "3ds-runtime", undefined], ["3ds/runtime", "3ds-runtime", undefined],
   ["web", "web-app", "package"], ["desktop/macos", "macos-app", "package"], ["desktop/linux", "linux-app", "package"],
   ["macos-widget", "macos-widget", "package"], ["gba", "gba", "aot"], ["ipodnano", "ipodnano", "aot"], ["sim", "psp-runtime", "package"],
 ] as const;
@@ -61,6 +61,8 @@ test("generic handheld identity describes the providers that the file-loaded pro
   expect(pspRuntime.capabilities).not.toContain("text.layout.offload");
   expect(threeDs.capabilities).toContain("media.playback"); expect(threeDsRuntime.capabilities).not.toContain("media.playback");
   expect(threeDsRuntime.capabilities).not.toContain("io.offload");
+  for (const capability of ["net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const)
+    expect(threeDsRuntime.capabilities).not.toContain(capability);
   expect(hashPocketProfile(pspRuntime)).not.toBe(hashPocketProfile(psp));
   expect(hashPocketProfile(threeDsRuntime)).not.toBe(hashPocketProfile(threeDs));
 });

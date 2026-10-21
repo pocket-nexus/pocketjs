@@ -68,7 +68,7 @@ members = [
     "engine/spec",
     "programs/native/cabi",
     "programs/web/wasm",
-    "programs/3ds/product/core",
+    "products/3ds/core",
     "programs/desktop",
     "programs/esp-idf/archive",
     "programs/gba",
@@ -217,7 +217,7 @@ pocket3d-mesh = { path = "engine/pocket3d/crates/pocket3d-mesh", version = "0.1.
 pocket3d-packs = { path = "engine/pocket3d/crates/pocket3d-packs", version = "0.1.0", default-features = false }
 pocket3d-title = { path = "engine/pocket3d/crates/pocket3d-title", version = "0.1.0", default-features = false }
 pocket3d-world = { path = "engine/pocket3d/crates/pocket3d-world", version = "0.1.0", default-features = false }
-pocketjs-3ds-core = { path = "programs/3ds/product/core", version = "0.1.0", default-features = false }
+pocketjs-3ds-core = { path = "products/3ds/core", version = "0.1.0", default-features = false }
 pocketjs-core = { path = "engine/core", version = "0.1.0", default-features = false }
 pocketjs-gba = { path = "programs/gba", version = "0.1.0", default-features = false }
 pocketjs-gba-bake = { path = "tools/build/gba/bake", version = "0.1.0", default-features = false }

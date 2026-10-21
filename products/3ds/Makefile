@@ -1,7 +1,7 @@
 # PocketJS Nintendo 3DS host — run INSIDE the devkitpro/devkitarm container.
 #
 # tools/3ds.ts builds the Rust staticlib and QuickJS on macOS, then invokes
-# this with CWD programs/3ds/product and every path already translated to a container
+# this with CWD products/3ds and every path already translated to a container
 # path. All inputs arrive as ENVIRONMENT variables, so the recipes below only
 # ever read them:
 #
@@ -29,8 +29,8 @@
 #
 # The guest's surfaces and its state directory on the SD card are not here:
 # the host reads them at boot from the plan and the identity of the package in
-# RomFS, so the code segments are the same for every game (the generic runtime
-# tools/runtime/3ds.ts builds, which tools/repack/3ds.ts pairs with a game).
+# RomFS, so the code segments are the same for every game (the product binary with its recovery package; the minimal file-loaded
+# program is built from programs/3ds by a separate recipe).
 #
 # The tape and the capture window travel INSIDE the binary: a capture run never
 # reads the emulator's filesystem for its input. Nothing is written outside
@@ -41,7 +41,7 @@ DEVKITARM ?= $(DEVKITPRO)/devkitARM
 
 SOURCE := $(CURDIR)/src
 INCLUDE_DIR := $(CURDIR)/include
-POCKETJS_ROOT ?= $(CURDIR)/../../..
+POCKETJS_ROOT ?= $(CURDIR)/../..
 PLATFORM_SOURCE := $(POCKETJS_ROOT)/platforms/3ds
 OFFLOAD_INCLUDE := $(POCKETJS_ROOT)/engine/modules/offload/include
 POCKETJS_CONTRACTS := $(POCKETJS_ROOT)/contracts/generated
@@ -104,7 +104,7 @@ LIBS := -lcitro3d -lctru -lm
 
 # quirc (vendored, ISC; src/quirc/VENDORED.txt) decodes QR codes for camera.c.
 QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
-OBJECTS := $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o \
+OBJECTS := $(BUILD)/pica_driver.o $(BUILD)/canonical_guest.o $(BUILD)/instance.o $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o $(BUILD)/input_policy.o $(BUILD)/input_source.o $(BUILD)/hooks.o \
   $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o
 ELF := $(BUILD)/pocketjs-3ds.elf
