@@ -1,16 +1,17 @@
-//! pocket-ui-surface — the backend-agnostic half of the PocketJS `ui` surface.
+//! Native program composition and the generated UI compatibility surface.
 //!
-//! Owns a [`pocketjs_core::Ui`] core, feeds it app paks (styles, font atlases,
-//! images, sprites — the same walk as the PSP's `hosts/psp/src/pak.rs`), and
-//! mounts the `ui.*` HostOps surface into a [`pocket_mod::Guest`]. It has NO
-//! renderer dependency: the desktop wgpu host (`pocket-ui-wgpu`) and the
-//! PocketBook e-ink host (`hosts/pocketbook`) both build on it, pairing it with
-//! their own DrawList backends (docs/RUNTIMES.md — a runtime is
-//! ⟨Cores, Surfaces, Guest⟩; this crate is the Surface mechanism).
+//! [`UiProgram`] owns a `pocket_runtime::Runtime`, package admission, a device
+//! input source and the adapter for a host-owned QuickJS realm. A program
+//! registers its renderer and display before boot. [`UiSurface`] exposes the
+//! same operation context for services, compositor metadata and inspection.
+//! Its standalone constructor remains available to low-level harnesses.
+//! This crate has no renderer dependency.
 
 mod dbg;
 mod pak;
 mod surface;
+mod program;
+pub use program::{ProgramConfig, UiProgram};
 
 pub use pak::{PakEntry, find_pak, walk_pak};
 pub use surface::UiSurface;

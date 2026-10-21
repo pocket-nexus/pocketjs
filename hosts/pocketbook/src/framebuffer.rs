@@ -1,30 +1,20 @@
-//! Incremental RGBA8 raster + tile-based damage refinement for the e-ink panel.
+//! Retained RGBA8 storage and pixel damage refinement for the e-ink display.
 //!
-//! Two damage layers compose here, each doing what the other cannot:
+//! Runtime's presentation coordinator computes DrawList damage and its raster
+//! renderer writes acquired Surface regions. This module compares 16×16 tiles
+//! inside those regions with the last blitted pixels. Inkview copies RGB24
+//! into its screen storage; grayscale panels convert to luminance there.
 //!
-//! 1. **DrawList damage** (`pocketjs_core::damage::DamageTracker`, via
-//!    `raster::render_scaled_incremental`): compares the retained DrawList
-//!    against the one whose pixels live in `rgba` and repaints only the
-//!    changed regions — rasterization cost scales with what changed, and an
-//!    idle frame costs nothing.
-//! 2. **Pixel tile diff** (16×16, scoped to the damage regions): decides what
-//!    the *panel* must refresh. E-ink updates are the expensive resource, and
-//!    conservative DrawList regions can contain pixels that did not actually
-//!    change — the tile diff trims the refresh to real pixel changes.
-//!
-//! `rgba` is the persistent render target (always the complete current
-//! frame — `blit_all` can present it at any time); `prev` mirrors what was
-//! last diffed against, advanced only inside the damaged tiles.
-//!
-//! inkview's `Screen::draw` is generic over the pixel format and branches on
-//! the panel depth: on a grayscale panel (PocketBook Verse) it converts
-//! `RGB24` → 8-bit gray internally (the same 0.2125R+0.7154G+0.0721B
-//! luminance), while on a color panel (PocketBook Era Color, Kaleido 3) it
-//! writes the RGB triple directly. One blit path therefore serves both gray
-//! and color devices with no host-side conversion.
+//! `rgba` retains the complete frame. `prev` advances after the changed tiles
+//! are copied to Inkview. Idle frames skip rasterization and pixel scans.
 
 use inkview::screen::{Screen, RGB24};
-use pocketjs_core::damage::{DamagePlan, DamagePolicy, DamageRect, DamageTracker};
+use pocket_drivers::{DisplayError, PixelFormat, Rect as PhysicalRect, Surface};
+#[cfg(test)]
+use pocketjs_core::damage::DamagePlan;
+#[cfg(test)]
+use pocketjs_core::damage::{DamagePolicy, DamageRect, DamageTracker};
+#[cfg(test)]
 use pocketjs_core::{raster, Ui};
 
 use crate::Geometry;
@@ -49,21 +39,25 @@ pub struct FramebufferPipeline {
     prev: Vec<u8>,
     w: usize,
     h: usize,
+    #[cfg(test)]
     density: u32,
     /// DrawList snapshot for the pixels retained in `rgba`.
+    #[cfg(test)]
     tracker: DamageTracker,
 }
 
 impl FramebufferPipeline {
     /// `w`/`h` are the RENDER-buffer dimensions (logical × density).
-    pub fn new(w: usize, h: usize, density: u32) -> Self {
+    pub fn new(w: usize, h: usize, _density: u32) -> Self {
         let n = w * h * 4;
         Self {
             rgba: vec![0u8; n],
             prev: vec![0u8; n],
             w,
             h,
-            density,
+            #[cfg(test)]
+            density: _density,
+            #[cfg(test)]
             tracker: DamageTracker::new(),
         }
     }
@@ -71,6 +65,7 @@ impl FramebufferPipeline {
     /// Rasterize the DrawList into the retained RGBA8 buffer, repainting only
     /// DrawList damage. Returns the logical damage plan; malformed DrawLists
     /// conservatively fall back to a full render.
+    #[cfg(test)]
     pub fn rasterize(&mut self, ui: &Ui, words: &[u32]) -> DamagePlan {
         match raster::render_scaled_incremental(
             ui,
@@ -95,34 +90,76 @@ impl FramebufferPipeline {
         }
     }
 
+    /// Acquire a bounded view into the retained RGBA buffer. Runtime owns
+    /// DrawList damage planning; the panel driver only refines changed pixels.
+    pub fn surface(&mut self, region: PhysicalRect) -> Result<Surface<'_>, DisplayError> {
+        if region.width == 0
+            || region.height == 0
+            || region
+                .x
+                .checked_add(region.width)
+                .is_none_or(|x| x as usize > self.w)
+            || region
+                .y
+                .checked_add(region.height)
+                .is_none_or(|y| y as usize > self.h)
+        {
+            return Err(DisplayError::InvalidTarget);
+        }
+        let offset = (region.y as usize * self.w + region.x as usize) * 4;
+        Surface::new(
+            &mut self.rgba[offset..],
+            region,
+            self.w * 4,
+            PixelFormat::Rgba8888,
+        )
+    }
+    pub fn physical_diff(&self, regions: &[PhysicalRect]) -> Vec<DirtyRect> {
+        let regions = regions
+            .iter()
+            .map(|r| DirtyRect {
+                x: r.x as usize,
+                y: r.y as usize,
+                w: r.width as usize,
+                h: r.height as usize,
+            })
+            .collect::<Vec<_>>();
+        self.diff_regions(&regions)
+    }
+
     /// Diff the current frame against `prev` inside the plan's regions and
     /// return the changed tiles (buffer coordinates). Pixels outside the plan
     /// are untouched by construction, so they are never scanned. Does NOT
     /// advance `prev`; call [`Self::advance`] after blitting.
+    #[cfg(test)]
     pub fn diff(&self, plan: &DamagePlan) -> Vec<DirtyRect> {
-        if plan.is_empty() {
+        let scale = self.density as usize;
+        let regions = plan
+            .regions()
+            .iter()
+            .map(|r| DirtyRect {
+                x: r.x0.max(0) as usize * scale,
+                y: r.y0.max(0) as usize * scale,
+                w: (r.x1 - r.x0).max(0) as usize * scale,
+                h: (r.y1 - r.y0).max(0) as usize * scale,
+            })
+            .collect::<Vec<_>>();
+        self.diff_regions(&regions)
+    }
+    fn diff_regions(&self, regions: &[DirtyRect]) -> Vec<DirtyRect> {
+        if regions.is_empty() {
             return Vec::new();
         }
         let (w, h) = (self.w, self.h);
         let tx = w.div_ceil(TILE);
         let ty = h.div_ceil(TILE);
         let mut flags = vec![false; tx * ty];
-        for region in plan.regions() {
-            let scale = self.density as usize;
-            let x0 = (region.x0.max(0) as usize * scale).min(w);
-            let y0 = (region.y0.max(0) as usize * scale).min(h);
-            let x1 = (region.x1.max(0) as usize * scale).min(w);
-            let y1 = (region.y1.max(0) as usize * scale).min(h);
-            for y in y0..y1 {
-                for x in x0..x1 {
+        for region in regions {
+            for y in region.y.min(h)..region.y.saturating_add(region.h).min(h) {
+                for x in region.x.min(w)..region.x.saturating_add(region.w).min(w) {
                     let i = (y * w + x) * 4;
-                    // Alpha is always 255 (the raster clears opaque), so
-                    // comparing RGB decides visibility.
-                    if self.rgba[i] != self.prev[i]
-                        || self.rgba[i + 1] != self.prev[i + 1]
-                        || self.rgba[i + 2] != self.prev[i + 2]
-                    {
-                        flags[(y / TILE) * tx + (x / TILE)] = true;
+                    if self.rgba[i..i + 3] != self.prev[i..i + 3] {
+                        flags[(y / TILE) * tx + x / TILE] = true;
                     }
                 }
             }
@@ -352,5 +389,40 @@ mod tests {
         fb.advance(&dirty);
         assert_eq!(fb.rgba, reference(&ui, &words, 64, 32, 2));
         assert_eq!(fb.prev, fb.rgba);
+    }
+    #[test]
+    fn runtime_surface_regions_refine_physical_damage_without_touching_other_pixels() {
+        let mut ui = Ui::new_with_raster_density(2);
+        ui.set_viewport(32., 16.);
+        let mut fb = FramebufferPipeline::new(64, 32, 2);
+        let full = PhysicalRect::new(0, 0, 64, 32);
+        let words = frame(1, 0xff00_00ff);
+        raster::render_surface(&ui, &words, &mut fb.surface(full).unwrap(), 2).unwrap();
+        assert_eq!(fb.rgba, reference(&ui, &words, 64, 32, 2));
+        let dirty = fb.physical_diff(&[full]);
+        fb.advance(&dirty);
+        assert!(fb.physical_diff(&[full]).is_empty());
+        let before = fb.rgba.clone();
+        let region = PhysicalRect::new(2, 8, 12, 12);
+        let words = frame(1, 0xff00_ff00);
+        raster::render_surface(&ui, &words, &mut fb.surface(region).unwrap(), 2).unwrap();
+        let expected = reference(&ui, &words, 64, 32, 2);
+        for y in 0..32 {
+            for x in 0..64 {
+                let at = (y * 64 + x) * 4;
+                let wanted = if (2..14).contains(&x) && (8..20).contains(&y) {
+                    &expected
+                } else {
+                    &before
+                };
+                assert_eq!(&fb.rgba[at..at + 4], &wanted[at..at + 4]);
+            }
+        }
+        let dirty = fb.physical_diff(&[region]);
+        assert!(!dirty.is_empty());
+        fb.advance(&dirty);
+        assert!(fb.physical_diff(&[full]).is_empty());
+        assert!(fb.surface(PhysicalRect::new(64, 32, 0, 1)).is_err());
+        assert!(fb.surface(PhysicalRect::new(u32::MAX, 0, 2, 1)).is_err());
     }
 }

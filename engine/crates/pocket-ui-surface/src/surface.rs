@@ -17,13 +17,13 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use anyhow::{anyhow, Result};
-use pocket_mod::qjs::{Coerced, Ctx, FromJs, Function, Object, Value};
+use anyhow::{Result, anyhow};
 use pocket_mod::Guest;
+use pocket_mod::qjs::{Coerced, Ctx, FromJs, Function, Object, Value};
 use pocketjs_core::Ui;
 
 use crate::dbg::DbgMailbox;
-use pocket_guest_rquickjs::{mount_ui, BindingProfile};
+use pocket_guest_rquickjs::{BindingProfile, mount_ui};
 use pocket_runtime::{
     AssetRegistry, GuestEnvironment, OpArg, OpContext, OpProvider, OpResult, RuntimeError,
 };
@@ -107,6 +107,10 @@ impl UiSurface {
         let ops = OpContext::from_ui(ui);
         ops.set_compositor_enabled(true).expect("fresh context");
         ops.install_assets(&[]).expect("empty asset pack");
+        Self::from_context(ops)
+    }
+
+    pub(crate) fn from_context(ops: OpContext) -> Self {
         let inner = Rc::new(RefCell::new(Inner {
             pak: Vec::new(),
             assets: AssetRegistry::default(),
@@ -279,16 +283,27 @@ impl UiSurface {
             pak: &inner.pak,
             assets: Some(&inner.assets),
         };
+        drop(core);
+        self.mount_environment(guest, &environment, inner.host_abi.is_some())
+    }
+
+    pub(crate) fn mount_environment(
+        &self,
+        guest: &Guest,
+        environment: &GuestEnvironment<'_>,
+        has_abi: bool,
+    ) -> Result<()> {
+        let inner = self.inner.borrow();
         guest
             .with(|ctx| -> pocket_mod::qjs::Result<()> {
                 mount_ui(
                     &ctx,
                     self.ops.clone(),
-                    &environment,
+                    environment,
                     BindingProfile::Canonical,
                 )?;
                 let ns: Object = ctx.globals().get("ui")?;
-                if inner.host_abi.is_none() {
+                if !has_abi {
                     ns.remove("__hostAbi")?;
                 }
                 let surfaces = Object::new(ctx.clone())?;

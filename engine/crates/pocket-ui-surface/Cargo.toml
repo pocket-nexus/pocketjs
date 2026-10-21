@@ -11,5 +11,8 @@ pocket-mod = { workspace = true }
 pocketjs-core = { workspace = true }
 pocket-runtime = { path = "../../runtime" }
 pocket-guest-rquickjs = { path = "../../guest-rquickjs" }
+pocket-drivers = { path = "../../drivers" }
+pocket-package = { path = "../../package" }
+serde_json = { workspace = true }
 anyhow = { workspace = true }
 log = { workspace = true }

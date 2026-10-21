@@ -191,6 +191,21 @@ impl Guest {
         Ok(())
     }
 
+    /// Bound this realm before a canonical runtime initializes its guest.
+    pub fn set_memory_limit(&self, bytes: usize) {
+        self.rt.set_memory_limit(bytes);
+    }
+
+    /// Drain jobs for a runtime-owned turn. Any failed job fails that turn.
+    pub fn collect_result(&self) -> Result<()> {
+        while self.rt.is_job_pending() {
+            self.rt
+                .execute_pending_job()
+                .map_err(|error| anyhow!("pocket-mod: pending job: {error:?}"))?;
+        }
+        Ok(())
+    }
+
     /// Drain the microtask/job queue (promise reactions). Job exceptions are
     /// logged, not fatal — matching how hosts treat stray rejections.
     pub fn drain_jobs(&self) {

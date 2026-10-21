@@ -1,13 +1,13 @@
 //! A QuickJS realm whose UI calls dispatch through the runtime's generated contract.
 use pocket_runtime::generated_ops::{
-    ArgKind, OpDescriptor, ResultKind, IDF_OPS, LEGACY_C_OPS, OP_DESCRIPTORS,
+    ArgKind, IDF_OPS, LEGACY_C_OPS, OP_DESCRIPTORS, OpDescriptor, ResultKind,
 };
 use pocket_runtime::{
     Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, RuntimeError,
 };
 use rquickjs::{
-    function::Rest, Array, ArrayBuffer, Coerced, Context, Ctx, Exception, FromJs, Function, IntoJs,
-    Object, Runtime, Value,
+    Array, ArrayBuffer, Coerced, Context, Ctx, Exception, FromJs, Function, IntoJs, Object,
+    Runtime, Value, function::Rest,
 };
 
 /// The canonical profile has required numeric arguments, JS integer coercion,
@@ -89,43 +89,7 @@ impl Guest for RquickjsGuest {
     }
     fn frame(&mut self, frame: &GuestFrame<'_>) -> Result<(), RuntimeError> {
         let context = self.context.as_ref().ok_or(RuntimeError::Guest)?;
-        let result = context.with(|ctx| {
-            let value: Value = ctx.globals().get("frame")?;
-            if value.is_undefined() {
-                return Ok(());
-            }
-            let function = Function::from_js(&ctx, value)?;
-            let touches = Array::new(ctx.clone())?;
-            let hits = Array::new(ctx.clone())?;
-            let surfaces = Array::new(ctx.clone())?;
-            for (i, value) in frame.touches.iter().enumerate() {
-                touches.set(i, *value)?;
-            }
-            for (i, value) in frame.hits.iter().enumerate() {
-                hits.set(i, *value)?;
-            }
-            for (i, value) in frame.touch_surfaces.iter().enumerate() {
-                surfaces.set(i, *value)?;
-            }
-            let deltas = Array::new(ctx.clone())?;
-            for (i, delta) in frame.axis_deltas.iter().enumerate() {
-                let entry = Object::new(ctx.clone())?;
-                entry.set("axis", delta.id)?;
-                entry.set("delta", delta.delta)?;
-                deltas.set(i, entry)?;
-            }
-            let motion = motion_value(&ctx, frame.motion)?;
-            function.call::<_, ()>((Rest(vec![
-                frame.buttons.into_js(&ctx)?,
-                frame.analog.into_js(&ctx)?,
-                touches.into_value(),
-                hits.into_value(),
-                surfaces.into_value(),
-                frame.right_analog.into_js(&ctx)?,
-                deltas.into_value(),
-                motion,
-            ]),))
-        });
+        let result = context.with(|ctx| call_frame(&ctx, frame));
         self.remember(result)?;
         self.collect()
     }
@@ -144,6 +108,46 @@ impl Guest for RquickjsGuest {
         self.context = None;
         self.runtime = None;
     }
+}
+
+/// Encode the canonical frame facts into a host-owned QuickJS realm.
+/// The owner drains its job queue before returning from the guest turn.
+pub fn call_frame(ctx: &Ctx<'_>, frame: &GuestFrame<'_>) -> rquickjs::Result<()> {
+    let value: Value = ctx.globals().get("frame")?;
+    if value.is_undefined() {
+        return Ok(());
+    }
+    let function = Function::from_js(ctx, value)?;
+    let touches = Array::new(ctx.clone())?;
+    let hits = Array::new(ctx.clone())?;
+    let surfaces = Array::new(ctx.clone())?;
+    for (i, value) in frame.touches.iter().enumerate() {
+        touches.set(i, *value)?;
+    }
+    for (i, value) in frame.hits.iter().enumerate() {
+        hits.set(i, *value)?;
+    }
+    for (i, value) in frame.touch_surfaces.iter().enumerate() {
+        surfaces.set(i, *value)?;
+    }
+    let deltas = Array::new(ctx.clone())?;
+    for (i, delta) in frame.axis_deltas.iter().enumerate() {
+        let entry = Object::new(ctx.clone())?;
+        entry.set("axis", delta.id)?;
+        entry.set("delta", delta.delta)?;
+        deltas.set(i, entry)?;
+    }
+    let motion = motion_value(ctx, frame.motion)?;
+    function.call::<_, ()>((Rest(vec![
+        frame.buttons.into_js(ctx)?,
+        frame.analog.into_js(ctx)?,
+        touches.into_value(),
+        hits.into_value(),
+        surfaces.into_value(),
+        frame.right_analog.into_js(ctx)?,
+        deltas.into_value(),
+        motion,
+    ]),))
 }
 
 fn engine_error(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
@@ -575,9 +579,18 @@ mod tests {
     #[test]
     fn namespace_omits_unregistered_providers_and_preserves_metadata_presence() {
         let (guest, _) = guest(BindingProfile::Canonical);
-        assert!(evaluate::<bool>(&guest,"ui.__host==='binding-test' && ui.__hostAbi===7 && ui.__tickHz===60 && ui.__viewport.w===480"));
-        assert!(evaluate::<bool>(&guest,"['svcOpen','videoOpen','appLaunch','physicsCreate','loadTileTexture','hitTestAuxiliary','setCompositorSurface','__textures','__sprites'].every(k=>!(k in ui))"));
-        assert!(evaluate::<bool>(&guest,"['setPropBatch','takeAnimationCompletions','fontStreamBatch','captureTexts','capturedTexts'].every(k=>typeof ui[k]==='function')"));
+        assert!(evaluate::<bool>(
+            &guest,
+            "ui.__host==='binding-test' && ui.__hostAbi===7 && ui.__tickHz===60 && ui.__viewport.w===480"
+        ));
+        assert!(evaluate::<bool>(
+            &guest,
+            "['svcOpen','videoOpen','appLaunch','physicsCreate','loadTileTexture','hitTestAuxiliary','setCompositorSurface','__textures','__sprites'].every(k=>!(k in ui))"
+        ));
+        assert!(evaluate::<bool>(
+            &guest,
+            "['setPropBatch','takeAnimationCompletions','fontStreamBatch','captureTexts','capturedTexts'].every(k=>typeof ui[k]==='function')"
+        ));
         let mut native = RquickjsGuest::default();
         let assets = AssetRegistry::default();
         native
@@ -594,26 +607,33 @@ mod tests {
     #[test]
     fn typed_array_offset_is_borrowed_after_reentrant_scalar_coercion() {
         let (guest, ops) = guest(BindingProfile::Canonical);
-        let handle=evaluate::<i32>(&guest,"ui.uploadTexture(new Uint8Array([99,99,99,99,10,20,30,255]).subarray(4), {valueOf(){ui.createNode(0);return 1}},1,3)");
+        let handle = evaluate::<i32>(
+            &guest,
+            "ui.uploadTexture(new Uint8Array([99,99,99,99,10,20,30,255]).subarray(4), {valueOf(){ui.createNode(0);return 1}},1,3)",
+        );
         let core = ops.core().unwrap();
         assert_eq!(core.ui.texture(handle).unwrap().pixels, &[10, 20, 30, 255]);
     }
     #[test]
     fn reentrant_string_coercion_does_not_hold_core_borrow() {
         let (guest, ops) = guest(BindingProfile::Canonical);
-        let id=evaluate::<i32>(&guest,"(()=>{let id=ui.createNode(1);ui.setText(id,{toString(){ui.createNode(0);return 'ok'}});return id})()");
+        let id = evaluate::<i32>(
+            &guest,
+            "(()=>{let id=ui.createNode(1);ui.setText(id,{toString(){ui.createNode(0);return 'ok'}});return id})()",
+        );
         assert_eq!(ops.core().unwrap().ui.node_text(id), Some("ok"));
         let lone = evaluate::<i32>(
             &guest,
             "(()=>{let id=ui.createNode(1);ui.setText(id,'\\ud800');return id})()",
         );
-        assert!(ops
-            .core()
-            .unwrap()
-            .ui
-            .node_text(lone)
-            .unwrap()
-            .contains('\u{fffd}'));
+        assert!(
+            ops.core()
+                .unwrap()
+                .ui
+                .node_text(lone)
+                .unwrap()
+                .contains('\u{fffd}')
+        );
     }
     #[test]
     fn missing_arguments_and_empty_results_follow_profile() {
@@ -631,8 +651,14 @@ mod tests {
             "[]"
         );
         let (idf, _) = guest(BindingProfile::Idf);
-        assert!(evaluate::<bool>(&idf,"ui.createNode()>0 && ui.measureText()===0 && ui.wrapText('text').length===0 && !('takeAnimationCompletions' in ui)"));
-        assert!(evaluate::<bool>(&idf,"(()=>{try{ui.uploadTexture(new ArrayBuffer(4),1,1,3);return false}catch(e){return e instanceof TypeError}})()"));
+        assert!(evaluate::<bool>(
+            &idf,
+            "ui.createNode()>0 && ui.measureText()===0 && ui.wrapText('text').length===0 && !('takeAnimationCompletions' in ui)"
+        ));
+        assert!(evaluate::<bool>(
+            &idf,
+            "(()=>{try{ui.uploadTexture(new ArrayBuffer(4),1,1,3);return false}catch(e){return e instanceof TypeError}})()"
+        ));
         let (legacy, _) = guest(BindingProfile::LegacyC);
         assert!(evaluate::<bool>(
             &legacy,
@@ -642,7 +668,10 @@ mod tests {
     #[test]
     fn detached_views_are_rejected_after_coercion_before_dispatch() {
         let (guest, _) = guest(BindingProfile::Canonical);
-        assert!(evaluate::<bool>(&guest,"(()=>{const buf=new ArrayBuffer(4);const view=new Uint8Array(buf);try{ui.uploadTexture(view,{valueOf(){buf.transfer();return 1}},1,3);return false}catch(e){return true}})()"));
+        assert!(evaluate::<bool>(
+            &guest,
+            "(()=>{const buf=new ArrayBuffer(4);const view=new Uint8Array(buf);try{ui.uploadTexture(view,{valueOf(){buf.transfer();return 1}},1,3);return false}catch(e){return true}})()"
+        ));
     }
     #[test]
     fn frame_passes_eight_arguments_and_drains_jobs() {
@@ -664,7 +693,10 @@ mod tests {
                 text: &[],
             })
             .unwrap();
-        assert!(evaluate::<bool>(&guest,"received.length===8 && received[2][0]===0x40040000 && received[4][0]===1 && received[6][0].axis===1 && received[6][0].delta===-5 && received[7].timestamp===100 && drained"));
+        assert!(evaluate::<bool>(
+            &guest,
+            "received.length===8 && received[2][0]===0x40040000 && received[4][0]===1 && received[6][0].axis===1 && received[6][0].delta===-5 && received[7].timestamp===100 && drained"
+        ));
     }
     #[test]
     fn evaluates_the_nul_terminated_source_span_returned_by_package_admission() {

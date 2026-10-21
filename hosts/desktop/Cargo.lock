@@ -1802,10 +1802,13 @@ dependencies = [
  "arboard",
  "env_logger",
  "log",
+ "pocket-drivers",
  "pocket-mod",
+ "pocket-runtime",
  "pocket-text",
  "pocket-ui-surface",
  "pocket-ui-wgpu",
+ "pocket-web-render",
  "pocket3d",
  "pocketjs-core",
  "serde",
@@ -1931,10 +1934,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
+ "pocket-drivers",
  "pocket-guest-rquickjs",
  "pocket-mod",
+ "pocket-package",
  "pocket-runtime",
  "pocketjs-core",
+ "serde_json",
 ]
 
 [[package]]

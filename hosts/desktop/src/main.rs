@@ -3,10 +3,12 @@
 //! Text capabilities run in separately budgeted io.offload workers. No platform
 //! text system participates in layout, shaping or drawing.
 use anyhow::{Context as _, Result, anyhow};
+use pocket_drivers::InputFrameBuilder;
 use pocket_mod::Guest;
-use pocket_ui_surface::{UiSurface, offload::OffloadWorker};
+use pocket_ui_surface::{ProgramConfig, UiProgram, UiSurface, offload::OffloadWorker};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::rc::Rc;
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet, VecDeque},
@@ -79,7 +81,9 @@ enum Wake {
 struct Runtime {
     args: Args,
     surface: UiSurface,
-    guest: Guest,
+    guest: Rc<Guest>,
+    program: UiProgram,
+    output: gpu::RuntimeOutput,
     supervisor: AppSupervisor,
     offload: OffloadWorker,
     viewport: (u32, u32),
@@ -93,7 +97,7 @@ struct Runtime {
     wire: Option<net::SvcWire>,
 }
 impl Runtime {
-    fn boot(args: Args) -> Result<Self> {
+    fn boot(args: Args, gpu: Arc<pocket3d::gpu::Gpu>) -> Result<Self> {
         if args.native_text {
             return Err(anyhow!(
                 "text.layout.native is unavailable; use the portable text offload capability"
@@ -101,23 +105,32 @@ impl Runtime {
         }
         let pak = std::fs::read(resolve_asset(args.pak.clone(), &args.app, "pak")?)?;
         let source = std::fs::read_to_string(resolve_asset(args.js.clone(), &args.app, "js")?)?;
-        let surface = UiSurface::new_with_density(
-            (args.viewport.0 as f32, args.viewport.1 as f32),
-            args.density,
-        );
-        surface.set_identity(HOST_ID, HOST_ABI);
-        surface.set_tick_rate(60);
+        let mut program = UiProgram::new(ProgramConfig {
+            host: HOST_ID,
+            host_abi: HOST_ABI,
+            logical: [args.viewport.0, args.viewport.1],
+            density: args.density,
+            scale: args.density,
+            tick_hz: 60,
+            heap_limit: 128 * 1024 * 1024,
+            frame_buffer_budget: 128 * 1024 * 1024,
+        })?;
+        let surface = program.surface();
         surface.set_svc_allowlist(args.companions.clone());
-        surface.feed_pak(&pak);
-        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface)?;
-        let guest = Guest::new()?;
-        surface.mount(&guest)?;
-        let offload = text_worker(pak);
+        let supervisor = AppSupervisor::new(args.system.as_ref(), &surface, gpu.clone())?;
+        let guest = Rc::new(Guest::new()?);
+        let offload = text_worker(pak.clone());
         offload.mount(&guest)?;
-        guest.eval(&args.app, &source)?;
-        if !guest.has_frame() {
-            return Err(anyhow!("bundle installed no frame handler"));
-        }
+        let output = gpu::RuntimeOutput::new(
+            gpu,
+            (
+                args.viewport.0 * args.density,
+                args.viewport.1 * args.density,
+            ),
+            args.density,
+        )?;
+        output.register(&mut program)?;
+        program.boot(guest.clone(), &args.app, &source, &pak)?;
         surface.svc_push(
             json!({"t":"hello","w":args.viewport.0,"h":args.viewport.1,"epoch":epoch_ms()})
                 .to_string(),
@@ -137,6 +150,8 @@ impl Runtime {
             args,
             surface,
             guest,
+            program,
+            output,
             supervisor,
             offload,
             ticks: 0,
@@ -183,9 +198,19 @@ impl Runtime {
                 }
             }
             Input::Resize(w, h) if !self.args.fixed => {
+                let old = self.output.size();
+                let physical = (
+                    w.checked_mul(self.args.density)
+                        .ok_or_else(|| anyhow!("width overflow"))?,
+                    h.checked_mul(self.args.density)
+                        .ok_or_else(|| anyhow!("height overflow"))?,
+                );
+                self.output.set_size(physical)?;
+                if let Err(error) = self.program.resize([w, h], [physical.0, physical.1]) {
+                    self.output.set_size(old)?;
+                    return Err(error);
+                }
                 self.viewport = (w, h);
-                self.surface
-                    .with_ui(|ui| ui.set_viewport(w as f32, h as f32));
                 self.guest.eval(
                     "resize",
                     &format!("globalThis.__pocketResizeViewport?.({w},{h})"),
@@ -223,9 +248,11 @@ impl Runtime {
         } else {
             self.buttons | self.script_buttons
         };
-        self.guest.frame(buttons)?;
+        let mut facts = InputFrameBuilder::new();
+        facts.buttons = buttons;
+        self.program.set_input(facts);
+        self.program.advance()?;
         self.click_edge = false;
-        self.surface.tick();
         for (id, error) in self
             .supervisor
             .sync(&self.surface)
@@ -324,12 +351,27 @@ fn run_runtime(
     gpu: Arc<pocket3d::gpu::Gpu>,
 ) -> Result<()> {
     let available = Arc::new(AtomicBool::new(true));
-    let mut renderer = gpu::Renderer::new(gpu);
-    let mut runtime = Runtime::boot(args)?;
+    let mut renderer = gpu::Renderer::new(gpu.clone());
+    let mut runtime = Runtime::boot(args, gpu)?;
     let mut hash = None;
     let mut intents = Vec::new();
-    let mut deadline = Instant::now();
+    let started = Instant::now();
+    let mut schedule = pocket_runtime::timing::TickSchedule::new(60, 0, 1)
+        .map_err(|error| anyhow!("tick schedule: {error:?}"))?;
     loop {
+        let deadline = schedule
+            .deadline()
+            .map_err(|error| anyhow!("tick deadline: {error:?}"))?;
+        if let Some(wait) = Duration::from_micros(deadline).checked_sub(started.elapsed()) {
+            thread::sleep(wait);
+        }
+        if schedule
+            .poll(started.elapsed().as_micros() as u64)
+            .map_err(|error| anyhow!("tick timing: {error:?}"))?
+            .is_none()
+        {
+            continue;
+        }
         for input in inputs.try_iter().take(256) {
             if !runtime.input(input)? {
                 return Ok(());
@@ -386,12 +428,6 @@ fn run_runtime(
             .is_some_and(|n| runtime.ticks >= n)
         {
             return Ok(());
-        }
-        deadline += Duration::from_nanos(1_000_000_000 / 60);
-        if let Some(wait) = deadline.checked_duration_since(Instant::now()) {
-            thread::sleep(wait);
-        } else {
-            deadline = Instant::now();
         }
     }
 }

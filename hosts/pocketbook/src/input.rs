@@ -1,11 +1,9 @@
-//! inkview events → PocketJS input state.
-//!
-//! Hardware keys map to the spec BTN bitmask (the same bits `uihost` uses);
-//! the touchscreen maps to the framework's packed touch wire format
-//! (`(id<<18)|(y<<9)|x`, framework/src/touch.ts) in LOGICAL viewport pixels.
+//! Inkview device events become button and contact facts in logical pixels.
+//! Runtime owns contact encoding and down-edge hit capture.
 
 use inkview::event::{Event, Key};
-use pocketjs_core::spec::{btn, ANALOG_CENTER};
+use pocket_drivers::{Contact, InputFrameBuilder};
+use pocketjs_core::spec::btn;
 
 /// What the render loop should do after handling an event.
 pub enum Outcome {
@@ -77,19 +75,22 @@ impl Input {
         (lx, ly)
     }
 
-    /// (buttons, analog, packed touches) for `Guest::frame_with_touches`.
-    pub fn snapshot(&self) -> (u32, u32, Vec<u32>) {
-        let touches = self
-            .touch
-            .map(|(x, y)| vec![pack_touch(0, x, y)])
-            .unwrap_or_default();
-        (self.buttons, ANALOG_CENTER, touches)
+    /// Device facts in logical coordinates. Runtime encodes contacts and
+    /// retains the down-edge hit until release.
+    pub fn snapshot(&self) -> InputFrameBuilder {
+        let mut frame = InputFrameBuilder::new();
+        frame.buttons = self.buttons;
+        if let Some((x, y)) = self.touch {
+            frame.contacts.push(Contact {
+                surface: 0,
+                id: 0,
+                x: x as f32,
+                y: y as f32,
+                cancelled: false,
+            });
+        }
+        frame
     }
-}
-
-/// framework/src/touch.ts `__packTouch`: `(id<<18)|(y<<9)|x`.
-fn pack_touch(id: u32, x: u32, y: u32) -> u32 {
-    ((id & 0xff) << 18) | ((y & 0x1ff) << 9) | (x & 0x1ff)
 }
 
 fn key_bit(key: Key) -> u32 {
@@ -113,21 +114,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn touch_packs_id_y_x() {
-        assert_eq!(pack_touch(0, 10, 20), (20 << 9) | 10);
-        assert_eq!(pack_touch(3, 1, 2), (3 << 18) | (2 << 9) | 1);
-        // 9-bit clamp at the wire level:
-        assert_eq!(pack_touch(0, 511, 511), (511 << 9) | 511);
-    }
-
-    #[test]
     fn keys_set_and_clear_button_bits() {
         let mut input = Input::new(0, 0, 480, 320, 960, 640);
         assert_eq!(input.on_event_matches_key(Key::Ok), btn::CROSS);
         input.apply_key_down(Key::Ok);
-        assert_eq!(input.snapshot().0 & btn::CROSS, btn::CROSS);
+        assert_eq!(input.snapshot().buttons & btn::CROSS, btn::CROSS);
         input.apply_key_up(Key::Ok);
-        assert_eq!(input.snapshot().0 & btn::CROSS, 0);
+        assert_eq!(input.snapshot().buttons & btn::CROSS, 0);
     }
 
     #[test]
@@ -136,12 +129,12 @@ mod tests {
         // offset (1, 0), logical 511×379.
         let mut input = Input::new(1, 0, 511, 379, 1022, 758);
         input.on_event(Event::PointerDown { x: 103, y: 41 });
-        let (_, _, touches) = input.snapshot();
+        let touches = input.snapshot().contacts;
         assert_eq!(touches.len(), 1);
         // logical = (physical - offset) * logical / disp = (103-1)*511/1022=51, 41*379/758=20.
-        assert_eq!(touches[0], pack_touch(0, 51, 20));
+        assert_eq!((touches[0].x, touches[0].y), (51., 20.));
         input.on_event(Event::PointerUp { x: 103, y: 41 });
-        assert!(input.snapshot().2.is_empty());
+        assert!(input.snapshot().contacts.is_empty());
     }
 
     #[test]
@@ -153,9 +146,9 @@ mod tests {
         //   = (480, 272) → logical (480*480/960, 272*272/544) = (240, 136).
         // But via our formula: lx = 379*480/758 = 240, ly = (512-297)*272/429 = 215*272/429 = 136.
         input.on_event(Event::PointerDown { x: 379, y: 512 });
-        let (_, _, touches) = input.snapshot();
+        let touches = input.snapshot().contacts;
         assert_eq!(touches.len(), 1);
-        assert_eq!(touches[0], pack_touch(0, 240, 136));
+        assert_eq!((touches[0].x, touches[0].y), (240., 136.));
     }
 
     // Test helpers (avoid needing to construct full Events for key tests).

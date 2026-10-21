@@ -21,6 +21,8 @@ license = "MIT"
 description = "PocketJS UI runtime host for PocketBook e-readers via the inkview SDK"
 
 [dependencies]
+pocket-drivers = { path = "../../engine/drivers" }
+pocket-runtime = { path = "../../engine/runtime" }
 pocketjs-core = { path = "../../engine/core" }
 pocket-mod = { path = "../../engine/crates/pocket-mod" }
 pocket-ui-surface = { path = "../../engine/crates/pocket-ui-surface" }

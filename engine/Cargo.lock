@@ -2001,10 +2001,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
+ "pocket-drivers",
  "pocket-guest-rquickjs",
  "pocket-mod",
+ "pocket-package",
  "pocket-runtime",
  "pocketjs-core",
+ "serde_json",
 ]
 
 [[package]]

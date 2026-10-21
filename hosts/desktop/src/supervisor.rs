@@ -9,7 +9,9 @@ struct AppInstance {
     package: SystemPackagePlan,
     surface_handle: u32,
     surface: UiSurface,
-    guest: Guest,
+    program: UiProgram,
+    output: gpu::RuntimeOutput,
+    render_hash: Option<u64>,
     offload: OffloadWorker,
     buttons: u32,
     visible: bool,
@@ -19,6 +21,7 @@ struct AppInstance {
 }
 
 struct AppSupervisor {
+    gpu: Arc<pocket3d::gpu::Gpu>,
     next_generation: u64,
     catalog: Vec<AppCatalogEntry>,
     instances: Vec<AppInstance>,
@@ -65,9 +68,14 @@ fn scheduled_app_instances(facts: &[SchedulingFact]) -> Vec<usize> {
 }
 
 impl AppSupervisor {
-    fn new(system: Option<&ResolvedSystemPlan>, shell: &UiSurface) -> Result<Self> {
+    fn new(
+        system: Option<&ResolvedSystemPlan>,
+        shell: &UiSurface,
+        gpu: Arc<pocket3d::gpu::Gpu>,
+    ) -> Result<Self> {
         let Some(system) = system else {
             return Ok(Self {
+                gpu,
                 next_generation: 0,
                 catalog: Vec::new(),
                 instances: Vec::new(),
@@ -92,6 +100,7 @@ impl AppSupervisor {
             });
         }
         Ok(Self {
+            gpu,
             next_generation: 0,
             catalog,
             instances: Vec::new(),
@@ -122,24 +131,26 @@ impl AppSupervisor {
         let pak =
             std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
-        let surface = UiSurface::new_with_density(
-            (
-                plan.viewport.logical[0] as f32,
-                plan.viewport.logical[1] as f32,
-            ),
-            plan.viewport.raster_density,
-        );
-        surface.set_identity(&plan.target.id, plan.target.host_abi);
-        surface.set_tick_rate(TICK_HZ as u32);
-        surface.feed_pak(&pak);
-        let guest = Guest::new()?;
-        surface.mount(&guest)?;
-        let offload = text_worker(pak);
+        let mut program = UiProgram::new(ProgramConfig {
+            host: &plan.target.id,
+            host_abi: plan.target.host_abi,
+            logical: plan.viewport.logical,
+            density: plan.viewport.raster_density,
+            scale: plan.viewport.raster_density,
+            tick_hz: TICK_HZ as u32,
+            heap_limit: 128 * 1024 * 1024,
+            frame_buffer_budget: 128 * 1024 * 1024,
+        })?;
+        let surface = program.surface();
+        let guest = Rc::new(Guest::new()?);
+        let offload = text_worker(pak.clone());
         offload.mount(&guest)?;
-        guest.eval(output, &bundle)?;
-        if !guest.has_frame() {
-            return Err(anyhow!("{output} evaluated but installed no frame()"));
-        }
+        let [w, h] = plan.viewport.logical;
+        let density = plan.viewport.raster_density;
+        let output =
+            gpu::RuntimeOutput::new(self.gpu.clone(), (w * density, h * density), density)?;
+        output.register(&mut program)?;
+        program.boot(guest, &plan.app.output, &bundle, &pak)?;
 
         self.next_generation += 1;
         self.instances.push(AppInstance {
@@ -147,7 +158,9 @@ impl AppSupervisor {
             package: entry.package.clone(),
             surface_handle: entry.surface_handle,
             surface,
-            guest,
+            program,
+            output,
+            render_hash: None,
             offload,
             buttons: 0,
             visible: false,
@@ -296,12 +309,14 @@ impl AppSupervisor {
         for index in schedule {
             let instance = &mut self.instances[index];
             instance.offload.begin_frame();
-            if let Err(error) = instance.guest.frame(instance.buttons) {
+            let mut facts = InputFrameBuilder::new();
+            facts.buttons = instance.buttons;
+            instance.program.set_input(facts);
+            if let Err(error) = instance.program.advance() {
                 instance.state = AppInstanceState::Failed;
                 failures.push((instance.package.package.clone(), error.to_string()));
                 continue;
             }
-            instance.surface.tick();
         }
         failures
     }

@@ -11,6 +11,7 @@
 //! the `Screen` and the PocketJS tick/render loop, pulling events with a
 //! timeout so it ticks on a fixed cadence even when idle.
 
+mod display;
 mod framebuffer;
 mod input;
 mod refresh;
@@ -21,7 +22,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use inkview::Event;
 use pocket_mod::Guest;
-use pocket_ui_surface::UiSurface;
+use pocket_ui_surface::{ProgramConfig, UiProgram};
+use std::{cell::RefCell, rc::Rc};
 
 use framebuffer::DirtyRect;
 
@@ -33,7 +35,7 @@ const HOST_ABI: u32 = 5;
 
 /// Logical tick cadence. E-ink doesn't need 60 fps; ~30 fps keeps animations
 /// smooth while sparing CPU and battery.
-const TICK_MS: u64 = 33;
+const PRESENT_HZ: u32 = 30;
 
 /// Logical viewport the pocketbook target profile bakes bundles for
 /// (contracts/spec/platforms.ts). Must match the bundle: the framework lays
@@ -84,7 +86,7 @@ fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Re
         anyhow::bail!("expected EVT_INIT first");
     }
 
-    let mut screen = inkview::screen::Screen::new(iv);
+    let screen = inkview::screen::Screen::new(iv);
     let phys_w = screen.width();
     let phys_h = screen.height();
 
@@ -107,21 +109,16 @@ fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Re
     let bundle =
         std::fs::read_to_string(js_path()).with_context(|| format!("reading {}", js_path()))?;
 
-    let surface =
-        UiSurface::new_with_density((geo.logical_w as f32, geo.logical_h as f32), geo.density);
-    surface.set_identity(HOST_ID, HOST_ABI);
-    surface.feed_pak(&pak);
-
-    let guest = Guest::new()?;
-    surface.mount(&guest)?;
-    guest.eval("app", &bundle)?;
-    anyhow::ensure!(
-        guest.has_frame(),
-        "bundle installed no frame() — is this a PocketJS app?"
-    );
-
-    let mut fb = framebuffer::FramebufferPipeline::new(geo.render_w, geo.render_h, geo.density);
-    let mut refresh = refresh::Refresh::new();
+    let mut program = UiProgram::new(ProgramConfig {
+        host: HOST_ID,
+        host_abi: HOST_ABI,
+        logical: [geo.logical_w as u32, geo.logical_h as u32],
+        density: geo.density,
+        scale: geo.density,
+        tick_hz: 60,
+        heap_limit: 64 * 1024 * 1024,
+        frame_buffer_budget: geo.render_w * geo.render_h * 4,
+    })?;
     let mut input = input::Input::new(
         geo.ox as i32,
         geo.oy as i32,
@@ -131,22 +128,33 @@ fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Re
         geo.disp_h as u32,
     );
 
-    // First paint: render one frame and full-update so the screen starts clean.
-    tick(
-        &guest,
-        &surface,
-        &mut fb,
-        &mut refresh,
-        &mut input,
-        &mut screen,
-        &geo,
-        true,
+    let panel = Rc::new(RefCell::new(display::Panel {
+        screen,
+        refresh: refresh::Refresh::new(),
+        geometry: geo,
+        full: true,
+        flushes: 0,
+    }));
+    program.add_display(
+        display::Display::new(panel.clone()),
+        pocket_runtime::RendererId::SOFTWARE,
     )?;
-
-    let mut last_tick = Instant::now();
+    program.boot(Rc::new(Guest::new()?), "app", &bundle, &pak)?;
+    let started = Instant::now();
+    let mut schedule = pocket_runtime::timing::TickSchedule::new(PRESENT_HZ, 0, 1)
+        .map_err(|error| anyhow::anyhow!("tick schedule: {error:?}"))?;
+    schedule
+        .poll(0)
+        .map_err(|error| anyhow::anyhow!("tick timing: {error:?}"))?;
+    tick(&mut program, &panel, &input, true)?;
     loop {
         // Pull events until the tick deadline, then drain any burst.
-        let deadline = last_tick + Duration::from_millis(TICK_MS);
+        let deadline = started
+            + Duration::from_micros(
+                schedule
+                    .deadline()
+                    .map_err(|error| anyhow::anyhow!("tick deadline: {error:?}"))?,
+            );
         let mut quit = false;
         let mut full = false;
         loop {
@@ -181,66 +189,33 @@ fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Re
             break;
         }
 
-        last_tick = Instant::now();
-        tick(
-            &guest,
-            &surface,
-            &mut fb,
-            &mut refresh,
-            &mut input,
-            &mut screen,
-            &geo,
-            full,
-        )?;
+        if schedule
+            .poll(started.elapsed().as_micros() as u64)
+            .map_err(|error| anyhow::anyhow!("tick timing: {error:?}"))?
+            .is_none()
+        {
+            continue;
+        }
+        tick(&mut program, &panel, &input, full)?;
     }
     Ok(())
 }
 
-/// One fixed-step frame: guest turn → core tick → draw → raster → gray → blit
-/// → panel update. Order matches uihost.
-#[allow(clippy::too_many_arguments)]
+/// Submit device facts, let Runtime drive the guest/core, and present through
+/// the registered raster/display pair. Idle frames still service e-ink cleanup.
 fn tick(
-    guest: &Guest,
-    surface: &UiSurface,
-    fb: &mut framebuffer::FramebufferPipeline,
-    refresh: &mut refresh::Refresh,
-    input: &mut input::Input,
-    screen: &mut inkview::screen::Screen,
-    geo: &Geometry,
+    program: &mut UiProgram,
+    panel: &Rc<RefCell<display::Panel>>,
+    input: &input::Input,
     full: bool,
 ) -> Result<()> {
-    let (buttons, analog, touches) = input.snapshot();
-    guest.frame_with_touches(buttons, analog, &touches)?;
-
-    surface.tick();
-
-    // Incremental raster: repaint only DrawList damage into the retained
-    // RGBA8 target, then pixel-diff WITHIN the damage plan to find the tiles
-    // the panel must refresh. An idle frame plans nothing, rasterizes
-    // nothing, and scans nothing.
-    let dirty = surface.with_ui(|ui| {
-        let words = ui.draw().words.clone();
-        let plan = fb.rasterize(ui, &words);
-        fb.diff(&plan)
-    });
-
-    if full {
-        // Full panel redraw (first paint / return from background): the
-        // retained buffer is always the complete current frame, so re-blit it
-        // and flash the panel once for a clean, ghost-free image.
-        fb.blit_all(screen, geo);
-        refresh.full(screen);
-        fb.advance_full();
-    } else if !dirty.is_empty() {
-        fb.blit_dirty(screen, &dirty, geo);
-        let screen_dirty = offset_rects(&dirty, geo);
-        refresh.present(screen, &screen_dirty);
-        // Latch only the blitted tiles; everything else already matches.
-        fb.advance(&dirty);
-    } else {
-        // No pixel change this frame; still let the refresh policy run its
-        // quiet cleanup timer (it no-ops when there's nothing pending).
-        refresh.present(screen, &[]);
+    panel.borrow_mut().full |= full;
+    let before = panel.borrow().flushes;
+    program.set_input(input.snapshot());
+    program.advance()?;
+    program.present()?;
+    if panel.borrow().flushes == before {
+        panel.borrow_mut().idle();
     }
     Ok(())
 }
