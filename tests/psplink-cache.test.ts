@@ -29,6 +29,8 @@ test("cached PSP PRXs rebuild when extracted contract sources or dependencies ch
       "engine/present/src/lib.rs", "engine/present/Cargo.toml",
       "engine/package/src/lib.rs", "engine/package/Cargo.toml",
       "engine/modules/media/src/lib.rs", "engine/modules/media/Cargo.toml",
+      "engine/render/draw-ops/src/lib.rs", "engine/render/draw-ops/Cargo.toml",
+      "engine/render/glyph-pages/src/lib.rs", "engine/render/glyph-pages/Cargo.toml",
       "engine/core/Cargo.toml", "hosts/psp/Cargo.toml", "hosts/psp/Cargo.lock",
     ]) {
       const changed = file(source, newer);

@@ -70,6 +70,31 @@ Hosts can continue importing `pocketjs_core::raster`, `damage`, `compositor`,
 `codec` while their implementations reside in the new crates. Package bytes,
 admission checks, and DrawList encoding retain their existing formats.
 
+## Rendering utilities
+
+**The rendering utilities use `no_std` and have no dependency on the UI core
+or each other.** Drivers select the utilities they need.
+
+| Crate | Mechanism |
+| --- | --- |
+| `pocket-draw-ops` | Borrows operation words, validates record lengths, and attaches the current absolute clip |
+| `pocket-tri-batch` | Constructs driver-defined vertices and merges adjacent ranges with equal texture and clip keys |
+| `pocket-glyph-pages` | Expands A8 pages and masks, and retains ABGR4444 pages by submission |
+| `pocket-tex-cache` | Keeps device texture versions alive until their last referencing submission retires |
+
+`pocket-raster::RasterRenderer` implements the driver trait for RGBA8888,
+ARGB8888, and RGB565 CPU targets. **It writes only the acquired region and
+honors its byte stride**, including RGB565 slices without word alignment.
+Its scale is a constructor parameter. `render_operation` draws one operation
+over the existing pixels, after the caller has completed earlier accelerator
+work and made the target cache visible. Native text and surface composition
+remain separate host responsibilities.
+
+The GLES backend uses the shared triangle construction and batching code.
+The core's glyph texture preparation and the RGB565 glyph mask path use
+`pocket-glyph-pages`. Existing host entry points remain available during the
+runtime migration.
+
 ## The pipeline
 
 ```

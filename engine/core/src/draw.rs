@@ -402,8 +402,6 @@ struct GlyphPage {
     revision: u64,
     page: u32,
     handle: i32,
-    width: u32,
-    height: u32,
 }
 
 impl PaintCache {
@@ -421,67 +419,14 @@ impl PaintCache {
     }
 }
 
-// A run can reuse the resolved page while its glyph IDs remain inside it.
-// Font revisions and texture generations are checked again for every run;
-// this value never survives a draw or a font/resource mutation.
-#[derive(Clone, Copy)]
-pub struct GlyphSampler {
-    pub handle: u32,
-    first: u32,
-    end: u32,
-    columns: u32,
-    stride_x: u32,
-    stride_y: u32,
-    width: u32,
-    height: u32,
-}
+// Sampling descriptors remain available at the existing public path.
+pub use pocket_glyph_pages::GlyphSampler;
 
-/// One source for coverage-page allocation, sampling and warmup accounting.
-pub(crate) struct GlyphPageLayout {
-    page: u32,
-    first: u32,
-    pub count: u32,
-    columns: u32,
-    stride_x: u32,
-    stride_y: u32,
-    width: u32,
-    height: u32,
-}
-
+/// Compatibility constructor for core-owned Atlas values.
+pub(crate) struct GlyphPageLayout;
 impl GlyphPageLayout {
-    pub fn new(atlas: &crate::text::Atlas, gid: u16) -> Option<Self> {
-        if gid >= atlas.glyph_count { return None; }
-        let stride_x = atlas.coverage_width() + 2;
-        let stride_y = atlas.coverage_height() + 2;
-        let columns = spec::TEX_MAX_DIM / stride_x;
-        let rows = spec::TEX_MAX_DIM / stride_y;
-        if columns == 0 || rows == 0 { return None; }
-        let capacity = columns * rows;
-        let page = gid as u32 / capacity;
-        let first = page * capacity;
-        let count = (atlas.glyph_count as u32 - first).min(capacity);
-        Some(Self {
-            page, first, count, columns, stride_x, stride_y,
-            width: pow2_at_least(columns.min(count) * stride_x),
-            height: pow2_at_least(count.div_ceil(columns) * stride_y),
-        })
-    }
-
-    pub fn coverage_bytes(&self) -> usize { (self.width * self.height) as usize }
-}
-
-impl GlyphSampler {
-    pub fn contains(&self, gid: u16) -> bool {
-        (gid as u32) >= self.first && (gid as u32) < self.end
-    }
-
-    pub fn uv(&self, gid: u16) -> [f32; 4] {
-        let n = gid as u32 - self.first;
-        let x = (n % self.columns) * self.stride_x + 1;
-        let y = (n / self.columns) * self.stride_y + 1;
-        [x as f32 / self.width as f32, y as f32 / self.height as f32,
-            (x + self.stride_x - 2) as f32 / self.width as f32,
-            (y + self.stride_y - 2) as f32 / self.height as f32]
+    pub fn new(atlas: &crate::text::Atlas, gid: u16) -> Option<pocket_glyph_pages::GlyphPageLayout> {
+        pocket_glyph_pages::GlyphPageLayout::new(crate::font_pages::view(atlas), gid)
     }
 }
 
@@ -499,9 +444,9 @@ pub(crate) fn glyph_page(
     gid: u16,
 ) -> Option<GlyphSampler> {
     let layout = GlyphPageLayout::new(atlas, gid)?;
-    let GlyphPageLayout { page, first, count, columns, stride_x, stride_y, width, height } = layout;
-    let cw = atlas.coverage_width();
-    let ch = atlas.coverage_height();
+    let page = layout.page();
+    let width = layout.width();
+    let height = layout.height();
     // A load/stream update invalidates every page of that font. Release the
     // old generation before allocating its replacement; stale handles cannot
     // alias a new texture even if the free-list reuses the same slot.
@@ -523,34 +468,7 @@ pub(crate) fn glyph_page(
         let byte_len = (width * height) as usize;
         let mut data = alloc::vec![0u128; byte_len.div_ceil(16)];
         let bytes = unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut u8, byte_len) };
-        for n in 0..count {
-            let source = atlas.glyph_rows((first + n) as u16);
-            let x = (n % columns) * stride_x + 1;
-            let y = (n / columns) * stride_y + 1;
-            for row in 0..ch {
-                let from = (row * cw) as usize;
-                let to = ((y + row) * width + x) as usize;
-                bytes[to..to + cw as usize].copy_from_slice(&source[from..from + cw as usize]);
-            }
-        }
-        // A guarded white block in unused page padding lets backends keep
-        // adjacent solid geometry in the glyph batch. Glyph UVs never include it.
-        let used_rows = count.div_ceil(columns) * stride_y;
-        if height >= used_rows + 6 && width >= 6 {
-            for y in used_rows + 2..used_rows + 6 {
-                let start = (y * width + 2) as usize;
-                bytes[start..start + 4].fill(255);
-            }
-        } else if count % columns != 0 && stride_x >= 8 && stride_y >= 8 {
-            let x = (count % columns) * stride_x + 2;
-            let y = (count / columns) * stride_y + 2;
-            if x + 4 <= width && y + 4 <= height {
-                for row in y..y + 4 {
-                    let start = (row * width + x) as usize;
-                    bytes[start..start + 4].fill(255);
-                }
-            }
-        }
+        if !layout.expand_a8(crate::font_pages::view(atlas), bytes) { return None; }
         let mut palette = alloc::vec![0u128; 64];
         let colors = unsafe { core::slice::from_raw_parts_mut(palette.as_mut_ptr() as *mut u32, 256) };
         for (a, color) in colors.iter_mut().enumerate() { *color = 0x00ff_ffff | ((a as u32) << 24); }
@@ -559,12 +477,10 @@ pub(crate) fn glyph_page(
             palette: Some(palette), linear: true, revision: 0,
         });
         if handle < 0 { return None; }
-        cache.glyphs.push(GlyphPage { slot: atlas.slot, revision, page, handle, width, height });
+        cache.glyphs.push(GlyphPage { slot: atlas.slot, revision, page, handle });
         cache.glyphs.last()?
     };
-    Some(GlyphSampler { handle: entry.handle as u32, first,
-        end: first + count, columns, stride_x, stride_y,
-        width: entry.width, height: entry.height })
+    Some(layout.sampler(entry.handle as u32))
 }
 
 impl Default for PaintCache {

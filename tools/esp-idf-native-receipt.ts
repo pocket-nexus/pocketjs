@@ -30,7 +30,8 @@ export interface NativeReceipt {
 
 export async function nativeSourceFiles(root: string, spec: NativeComponent): Promise<string[]> {
   const roots = ["engine/core", "engine/spec", "engine/drivers", "engine/raster", "engine/present",
-    "engine/package", "engine/modules/media", `hosts/esp-idf/native/${spec.crate}`,
+    "engine/package", "engine/modules/media", "engine/render/draw-ops", "engine/render/glyph-pages",
+    `hosts/esp-idf/native/${spec.crate}`,
     "hosts/esp-idf/native/abi", "hosts/esp-idf/native/runtime",
     `hosts/esp-idf/components/${spec.component}/src`, `hosts/esp-idf/components/${spec.component}/include`];
   if (spec.crate === "render-rgb565") roots.push("engine/backends/rgb565");

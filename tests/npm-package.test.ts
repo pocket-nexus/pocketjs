@@ -173,6 +173,14 @@ describe("published npm artifacts", () => {
       "engine/package/Cargo.toml",
       "engine/modules/media/src",
       "engine/modules/media/Cargo.toml",
+      "engine/render/draw-ops/src",
+      "engine/render/draw-ops/Cargo.toml",
+      "engine/render/glyph-pages/src",
+      "engine/render/glyph-pages/Cargo.toml",
+      "engine/render/tri-batch/src",
+      "engine/render/tri-batch/Cargo.toml",
+      "engine/render/tex-cache/src",
+      "engine/render/tex-cache/Cargo.toml",
       "engine/wasm/src",
       "engine/wasm/Cargo.toml",
       "engine/ui-cabi/src",
@@ -257,6 +265,14 @@ describe("published npm artifacts", () => {
       "engine/package/src/lib.rs",
       "engine/modules/media/Cargo.toml",
       "engine/modules/media/src/lib.rs",
+      "engine/render/draw-ops/Cargo.toml",
+      "engine/render/draw-ops/src/lib.rs",
+      "engine/render/glyph-pages/Cargo.toml",
+      "engine/render/glyph-pages/src/lib.rs",
+      "engine/render/tri-batch/Cargo.toml",
+      "engine/render/tri-batch/src/lib.rs",
+      "engine/render/tex-cache/Cargo.toml",
+      "engine/render/tex-cache/src/lib.rs",
       "engine/pocket3d/crates/pocket3d-anim/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-anim/src/lib.rs",
       "engine/crates/pocket-sim/src/lib.rs",
@@ -444,6 +460,10 @@ describe("published npm artifacts", () => {
       expect(packages).toContain("pocket-present");
       expect(packages).toContain("pocket-package");
       expect(packages).toContain("pocket-media");
+      expect(packages).toContain("pocket-draw-ops");
+      expect(packages).toContain("pocket-glyph-pages");
+      expect(packages).toContain("pocket-tri-batch");
+      expect(packages).toContain("pocket-tex-cache");
       expect(existsSync(join(scratch, "package/engine/core/Cargo.toml"))).toBe(true);
 
       // A fresh native consumer must resolve the extracted contracts using
@@ -461,6 +481,10 @@ pocket-raster = { path = "../package/engine/raster" }
 pocket-present = { path = "../package/engine/present" }
 pocket-package = { path = "../package/engine/package" }
 pocket-media = { path = "../package/engine/modules/media" }
+pocket-draw-ops = { path = "../package/engine/render/draw-ops" }
+pocket-glyph-pages = { path = "../package/engine/render/glyph-pages" }
+pocket-tri-batch = { path = "../package/engine/render/tri-batch" }
+pocket-tex-cache = { path = "../package/engine/render/tex-cache" }
 `);
       writeFileSync(join(consumer, "src/lib.rs"), `#![no_std]
 pub use pocket_drivers::{DrawList, FontView, RenderResources, TexView};
@@ -468,6 +492,10 @@ pub use pocket_raster as raster;
 pub use pocket_present as present;
 pub use pocket_package as package;
 pub use pocket_media as media;
+pub use pocket_draw_ops as draw_ops;
+pub use pocket_glyph_pages as glyph_pages;
+pub use pocket_tri_batch as tri_batch;
+pub use pocket_tex_cache as tex_cache;
 pub const ROOT_ID: i32 = pocket_spec::ROOT_ID;
 `);
       const check = Bun.spawnSync({

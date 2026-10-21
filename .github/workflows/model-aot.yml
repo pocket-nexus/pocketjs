@@ -11,6 +11,8 @@ on:
       - 'engine/present/**'
       - 'engine/package/**'
       - 'engine/modules/media/**'
+      - 'engine/render/draw-ops/**'
+      - 'engine/render/glyph-pages/**'
       - 'engine/crates/microts/**'
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/wasm/**'

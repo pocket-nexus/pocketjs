@@ -16,20 +16,7 @@ pub struct CompositorRaster {
 }
 
 pub fn draw_op_len(words: &[u32], at: usize) -> Option<usize> {
-    let op = *words.get(at)?;
-    Some(match op {
-        pocket_spec::draw_op::RECT => 4,
-        pocket_spec::draw_op::GRAD_RECT => 6,
-        pocket_spec::draw_op::GLYPH_RUN => 3 + 2 * ((*words.get(at + 1)? >> 16) as usize),
-        pocket_spec::draw_op::TEX_QUAD => 9,
-        pocket_spec::draw_op::SCISSOR => 3,
-        pocket_spec::draw_op::SCISSOR_POP => 1,
-        pocket_spec::draw_op::TRI => 7,
-        pocket_spec::draw_op::TEX_TRI => 12,
-        pocket_spec::draw_op::TEXT_RUN => 8 + (*words.get(at + 7)? as usize).div_ceil(4),
-        pocket_spec::draw_op::SURFACE_QUAD => 9,
-        _ => return None,
-    })
+    pocket_draw_ops::word_len(words, at).ok()
 }
 
 fn render_segment(

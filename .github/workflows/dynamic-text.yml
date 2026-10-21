@@ -30,6 +30,8 @@ on:
       - 'engine/present/**'
       - 'engine/package/**'
       - 'engine/modules/media/**'
+      - 'engine/render/draw-ops/**'
+      - 'engine/render/glyph-pages/**'
       - 'engine/wasm/**'
       - 'hosts/psp/src/ge.rs'
       - 'apps/text-cjk/**'

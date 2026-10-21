@@ -2293,7 +2293,7 @@ impl Ui {
             let Some(atlas) = self.fonts.atlas(slot as u8) else { continue; };
             if atlas.stream.is_some() { continue; }
             let Some(page) = draw::GlyphPageLayout::new(atlas, 0) else { continue; };
-            if page.count != atlas.glyph_count as u32 { continue; }
+            if page.count() != atlas.glyph_count as u32 { continue; }
             let bytes = page.coverage_bytes();
             if bytes > byte_budget.saturating_sub(used) { continue; }
             if self.prepare_glyph_page(slot as u8, 0).is_some() { used += bytes; }

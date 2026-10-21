@@ -19,14 +19,17 @@ function(pocketjs_link_native component_dir crate archive override)
                 "${component_dir}/vendor/runtime" "${component_dir}/vendor/renderer"
                 "${component_dir}/vendor/spec" "${component_dir}/vendor/drivers"
                 "${component_dir}/vendor/raster" "${component_dir}/vendor/present"
-                "${component_dir}/vendor/package" "${component_dir}/vendor/modules/media")
+                "${component_dir}/vendor/package" "${component_dir}/vendor/modules/media"
+                "${component_dir}/vendor/render/draw-ops" "${component_dir}/vendor/render/glyph-pages")
         else()
             set(native_root "${component_dir}/../../native/${crate}")
             set(source_roots "${component_dir}/../../native/abi" "${component_dir}/../../native/runtime"
                 "${component_dir}/../../../../engine/core" "${component_dir}/../../../../engine/spec"
                 "${component_dir}/../../../../engine/drivers" "${component_dir}/../../../../engine/raster"
                 "${component_dir}/../../../../engine/present" "${component_dir}/../../../../engine/package"
-                "${component_dir}/../../../../engine/modules/media")
+                "${component_dir}/../../../../engine/modules/media"
+                "${component_dir}/../../../../engine/render/draw-ops"
+                "${component_dir}/../../../../engine/render/glyph-pages")
             if(crate STREQUAL "render-rgb565")
                 list(APPEND source_roots "${component_dir}/../../../../engine/backends/rgb565")
             endif()

@@ -31,6 +31,7 @@ use alloc::{vec, vec::Vec};
 use core::ffi::c_void;
 use core::mem::size_of;
 
+use pocket_tex_cache::{TextureCache, TextureKey};
 use pocketjs_core::spec;
 use pocketjs_core::{TexView, Ui};
 
@@ -123,6 +124,12 @@ struct Vertex {
     color: u32,
 }
 
+impl pocket_tri_batch::Vertex for Vertex {
+    fn from_components(position: [f32; 2], uv: [f32; 2], color: u32) -> Self {
+        Self { position, uv, color }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Clip {
     x: i32,
@@ -131,13 +138,7 @@ struct Clip {
     h: i32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Command {
-    texture: GLuint,
-    first: i32,
-    count: i32,
-    clip: Clip,
-}
+type Command = pocket_tri_batch::Batch<GLuint, Clip>;
 
 #[derive(Clone, Copy)]
 struct ImageTexture {
@@ -168,6 +169,7 @@ struct Renderer {
     vertex_buffer: GLuint,
     white: GLuint,
     images: Vec<Option<ImageTexture>>,
+    image_cache: TextureCache<ImageTexture>,
     fonts: Vec<Option<FontTexture>>,
     vertices: Vec<Vertex>,
     commands: Vec<Command>,
@@ -368,6 +370,7 @@ impl Renderer {
             vertex_buffer,
             white,
             images: Vec::new(),
+            image_cache: TextureCache::unbounded(),
             fonts: Vec::new(),
             vertices: Vec::new(),
             commands: Vec::new(),
@@ -385,11 +388,9 @@ impl Renderer {
     }
 
     unsafe fn reset_resources(&mut self) {
-        for image in &mut self.images {
-            if let Some(texture) = image.take() {
-                glDeleteTextures(1, &texture.name);
-            }
-        }
+        // GL retains objects referenced by queued draws after deletion. The
+        // cache therefore needs no software submission references here.
+        let _ = self.image_cache.clear(|texture| glDeleteTextures(1, &texture.name));
         self.images.clear();
         self.fonts.clear();
         self.vertices.clear();
@@ -403,6 +404,7 @@ impl Renderer {
         for texture in self.images.iter_mut().flatten() {
             texture.dirty = true;
         }
+        self.image_cache.invalidate_all();
         self.fonts.clear();
     }
 
@@ -410,8 +412,8 @@ impl Renderer {
         if let Some(font) = self.fonts.get_mut(slot as usize) { *font = None; }
     }
 
-    unsafe fn upload_image(&self, view: TexView<'_>) -> Option<(GLuint, Option<[f32; 2]>)> {
-        if view.w > self.max_texture_size || view.h > self.max_texture_size {
+    unsafe fn upload_image(max_texture_size: u32, view: TexView<'_>) -> Option<(GLuint, Option<[f32; 2]>)> {
+        if view.w > max_texture_size || view.h > max_texture_size {
             return None;
         }
         if let Some(pixels) = coverage_luminance_alpha(view) {
@@ -489,31 +491,37 @@ impl Renderer {
                     {
                         continue;
                     }
-                    if let Some(old) = self.images[slot].take() {
-                        glDeleteTextures(1, &old.name);
-                    }
-                    self.images[slot] = match self.upload_image(view) {
-                        Some((name, white_uv)) => Some(ImageTexture {
-                            handle,
-                            revision,
-                            name,
-                            white_uv,
-                            dirty: false,
-                        }),
-                        None => {
-                            ok = false;
-                            None
+                    let key = TextureKey { handle, revision };
+                    let max_texture_size = self.max_texture_size;
+                    // Four bytes per texel is an upper bound for RGBA and LA.
+                    let bytes = (view.w as usize).saturating_mul(view.h as usize).saturating_mul(4);
+                    match self.image_cache.get_or_upload(key, bytes, None, || {
+                        Self::upload_image(max_texture_size, view).map(|(name, white_uv)| ImageTexture {
+                            handle, revision, name, white_uv, dirty: false,
+                        }).ok_or(())
+                    }, |texture| glDeleteTextures(1, &texture.name)) {
+                        Ok(texture) => {
+                            let replacement = *texture;
+                            // A recycled slot has a different generation handle.
+                            if let Some(old) = self.images[slot] {
+                                if old.handle != handle {
+                                    self.image_cache.invalidate(TextureKey { handle: old.handle, revision: old.revision });
+                                }
+                            }
+                            self.images[slot] = Some(replacement);
                         }
-                    };
+                        Err(_) => ok = false,
+                    }
                 }
                 None => {
                     if let Some(old) = self.images[slot].take() {
-                        glDeleteTextures(1, &old.name);
+                        self.image_cache.invalidate(TextureKey { handle: old.handle, revision: old.revision });
                     }
                 }
             }
         }
 
+        self.image_cache.collect(|texture| glDeleteTextures(1, &texture.name));
         ok
     }
 
@@ -545,58 +553,15 @@ impl Renderer {
         uv1: [f32; 2],
         colors: [u32; 4],
     ) {
-        let top_left_vertex = Vertex {
-            position: top_left,
-            uv: uv0,
-            color: colors[0],
-        };
-        let top_right_vertex = Vertex {
-            position: [bottom_right[0], top_left[1]],
-            uv: [uv1[0], uv0[1]],
-            color: colors[1],
-        };
-        let bottom_right_vertex = Vertex {
-            position: bottom_right,
-            uv: uv1,
-            color: colors[2],
-        };
-        let bottom_left_vertex = Vertex {
-            position: [top_left[0], bottom_right[1]],
-            uv: [uv0[0], uv1[1]],
-            color: colors[3],
-        };
-        self.vertices.extend_from_slice(&[
-            top_left_vertex,
-            top_right_vertex,
-            bottom_right_vertex,
-            top_left_vertex,
-            bottom_right_vertex,
-            bottom_left_vertex,
-        ]);
+        self.vertices.extend_from_slice(&pocket_tri_batch::quad(
+            top_left, bottom_right, uv0, uv1, colors,
+        ));
     }
 
     fn flush(&mut self, texture: GLuint, clip: Clip, start: &mut usize) {
         let end = self.vertices.len();
         if end > *start {
-            // A no-op clip push/pop can split otherwise contiguous geometry.
-            // Merge only adjacent ranges with identical texture and scissor;
-            // painter order and alpha compositing stay unchanged.
-            if let Some(previous) = self.commands.last_mut() {
-                if previous.texture == texture
-                    && previous.clip == clip
-                    && previous.first + previous.count == *start as i32
-                {
-                    previous.count += (end - *start) as i32;
-                    *start = end;
-                    return;
-                }
-            }
-            self.commands.push(Command {
-                texture,
-                first: *start as i32,
-                count: (end - *start) as i32,
-                clip,
-            });
+            pocket_tri_batch::append_batch(&mut self.commands, texture, clip, *start..end);
             *start = end;
         }
     }
@@ -739,18 +704,18 @@ impl Renderer {
                         texture = name;
                     }
                     let color = words[index + 11];
-                    for vertex in 0..3 {
+                    let positions = core::array::from_fn(|vertex| {
                         let offset = index + 2 + vertex * 3;
                         let (x, y) = xy(words[offset]);
-                        self.vertices.push(Vertex {
-                            position: [x, y],
-                            uv: [
-                                f32::from_bits(words[offset + 1]),
-                                f32::from_bits(words[offset + 2]),
-                            ],
-                            color,
-                        });
-                    }
+                        [x, y]
+                    });
+                    let uvs = core::array::from_fn(|vertex| {
+                        let offset = index + 2 + vertex * 3;
+                        [f32::from_bits(words[offset + 1]), f32::from_bits(words[offset + 2])]
+                    });
+                    self.vertices.extend_from_slice(&pocket_tri_batch::triangle(
+                        positions, uvs, [color; 3],
+                    ));
                     index += 12;
                 }
                 spec::draw_op::TRI if index + 7 <= words.len() => {
@@ -758,14 +723,14 @@ impl Renderer {
                         self.flush(texture, clip, &mut start);
                         texture = self.white;
                     }
-                    for vertex in 0..3 {
+                    let positions = core::array::from_fn(|vertex| {
                         let (x, y) = xy(words[index + 1 + vertex]);
-                        self.vertices.push(Vertex {
-                            position: [x, y],
-                            uv: [0.0, 0.0],
-                            color: words[index + 4 + vertex],
-                        });
-                    }
+                        [x, y]
+                    });
+                    let colors = core::array::from_fn(|vertex| words[index + 4 + vertex]);
+                    self.vertices.extend_from_slice(&pocket_tri_batch::triangle(
+                        positions, [[0.0, 0.0]; 3], colors,
+                    ));
                     index += 7;
                 }
                 spec::draw_op::SCISSOR if index + 3 <= words.len() => {
@@ -931,7 +896,7 @@ impl Renderer {
                 glScissor(physical.x, physical.y, physical.w, physical.h);
                 scissor = Some(physical);
             }
-            glDrawArrays(GL_TRIANGLES, command.first, command.count);
+            glDrawArrays(GL_TRIANGLES, command.first as GLint, command.count as GLsizei);
         }
         glDisable(GL_SCISSOR_TEST);
         self.pipeline.unbind_vertices();
@@ -1072,11 +1037,43 @@ mod tests {
             vertex_buffer: 0,
             white: 1,
             images,
+            image_cache: TextureCache::unbounded(),
             fonts: Vec::new(),
             vertices: Vec::new(),
             commands: Vec::new(),
             max_texture_size: 2048,
         }
+    }
+
+    #[test]
+    fn vertex_layout_matches_both_gl_pipelines() {
+        assert_eq!(size_of::<Vertex>(), 20);
+        assert_eq!(core::mem::align_of::<Vertex>(), 4);
+        assert_eq!(core::mem::offset_of!(Vertex, position), 0);
+        assert_eq!(core::mem::offset_of!(Vertex, uv), 8);
+        assert_eq!(core::mem::offset_of!(Vertex, color), 16);
+    }
+
+    #[test]
+    fn mixed_quads_and_triangles_preserve_painter_order_and_corner_colors() {
+        let mut renderer = planner(0, 9);
+        renderer.build(&[
+            spec::draw_op::GRAD_RECT, pack_xy(-2, 3), pack_wh(4, 5),
+            0x8040_3020, 0x8080_7060, spec::GradDir::ToRight as u32,
+            spec::draw_op::TRI, pack_xy(7, 8), pack_xy(-1, 2), pack_xy(3, -4),
+            0x8000_0001, 0x8000_0002, 0x8000_0003,
+        ], 100, 50);
+        assert_eq!(renderer.vertices.iter().map(|v| (v.position, v.color)).collect::<Vec<_>>(), [
+            ([-2.0, 3.0], 0x8040_3020), ([2.0, 3.0], 0x8080_7060),
+            ([2.0, 8.0], 0x8080_7060), ([-2.0, 3.0], 0x8040_3020),
+            ([2.0, 8.0], 0x8080_7060), ([-2.0, 8.0], 0x8040_3020),
+            ([7.0, 8.0], 0x8000_0001), ([-1.0, 2.0], 0x8000_0002),
+            ([3.0, -4.0], 0x8000_0003),
+        ]);
+        assert!(renderer.vertices[..6].iter().all(|v| v.uv == [0.5, 0.5]));
+        assert!(renderer.vertices[6..].iter().all(|v| v.uv == [0.0, 0.0]));
+        assert_eq!(renderer.commands.len(), 1);
+        assert_eq!((renderer.commands[0].first, renderer.commands[0].count), (0, 9));
     }
 
     #[test]

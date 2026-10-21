@@ -18,7 +18,6 @@ use alloc::vec::Vec;
 
 use pocket_spec as spec;
 
-const CLIP_DEPTH: usize = 32;
 
 /// Default fixed capacity used by the generic software rasterizer.
 pub const DEFAULT_DAMAGE_REGIONS: usize = 8;
@@ -315,99 +314,38 @@ struct DecodedOp<'a> {
 }
 
 struct DamageDecoder<'a> {
-    words: &'a [u32],
-    index: usize,
-    screen: DamageRect,
-    clip: DamageRect,
-    stack: [DamageRect; CLIP_DEPTH],
-    depth: usize,
+    operations: pocket_draw_ops::DrawOps<'a>,
 }
 
 impl<'a> DamageDecoder<'a> {
     fn new(words: &'a [u32], screen: DamageRect) -> Self {
-        Self {
-            words,
-            index: 0,
-            screen,
-            clip: screen,
-            stack: [screen; CLIP_DEPTH],
-            depth: 0,
-        }
+        Self { operations: pocket_draw_ops::DrawOps::new(words, screen) }
     }
 
     fn next(&mut self, ui: &impl RenderResources) -> Result<Option<DecodedOp<'a>>, ()> {
-        if self.index == self.words.len() {
+        let Some(operation) = self.operations.next().transpose().map_err(|_| ())? else {
             return Ok(None);
-        }
-        let start = self.index;
-        let code = *self.words.get(start).ok_or(())?;
-        let len = match code {
-            spec::draw_op::RECT => 4,
-            spec::draw_op::GRAD_RECT => 6,
-            spec::draw_op::GLYPH_RUN => {
-                let count = (self.words.get(start + 1).copied().ok_or(())? >> 16) as usize;
-                3usize
-                    .checked_add(count.checked_mul(2).ok_or(())?)
-                    .ok_or(())?
-            }
-            spec::draw_op::TEX_QUAD => 9,
-            spec::draw_op::SCISSOR => 3,
-            spec::draw_op::SCISSOR_POP => 1,
-            spec::draw_op::TRI => 7,
-            spec::draw_op::TEX_TRI => 12,
-            spec::draw_op::TEXT_RUN => {
-                // 8 header words + ceil(byteLen/4) packed UTF-8 words.
-                let bytes = *self.words.get(start + 7).ok_or(())? as usize;
-                8usize.checked_add(bytes.div_ceil(4)).ok_or(())?
-            }
-            spec::draw_op::SURFACE_QUAD => 9,
-            _ => return Err(()),
         };
-        let end = start.checked_add(len).ok_or(())?;
-        let words = self.words.get(start..end).ok_or(())?;
-        self.index = end;
-
+        let code = operation.opcode;
+        let words = operation.words;
+        let clip = operation.clip;
         let bounds = match code {
             spec::draw_op::RECT | spec::draw_op::GRAD_RECT => {
-                logical_rect(words[1], words[2]).intersect(self.clip)
+                logical_rect(words[1], words[2]).intersect(clip)
             }
-            spec::draw_op::GLYPH_RUN => glyph_run_bounds(ui, words, self.clip),
-            spec::draw_op::TEX_QUAD => logical_rect(words[2], words[3]).intersect(self.clip),
-            spec::draw_op::SCISSOR => {
-                if self.depth >= self.stack.len() {
-                    return Err(());
-                }
-                self.stack[self.depth] = self.clip;
-                self.depth += 1;
-                self.clip = self.screen.intersect(logical_rect(words[1], words[2]));
-                self.clip
-            }
-            spec::draw_op::SCISSOR_POP => {
-                if self.depth == 0 {
-                    return Err(());
-                }
-                self.depth -= 1;
-                self.clip = self.stack[self.depth];
-                DamageRect::empty()
-            }
-            spec::draw_op::TRI => triangle_bounds([words[1], words[2], words[3]], self.clip),
-            spec::draw_op::TEX_TRI => triangle_bounds([words[2], words[5], words[8]], self.clip),
-            // Native-text runs carry no glyph geometry the tracker can
-            // measure; the core keeps every partially-clipped run inside a
-            // scissor, so the current clip is a sound (conservative) bound.
-            spec::draw_op::TEXT_RUN => self.clip,
-            spec::draw_op::SURFACE_QUAD => logical_rect(words[6], words[7]).intersect(self.clip),
+            spec::draw_op::GLYPH_RUN => glyph_run_bounds(ui, words, clip),
+            spec::draw_op::TEX_QUAD => logical_rect(words[2], words[3]).intersect(clip),
+            spec::draw_op::SCISSOR => clip,
+            spec::draw_op::SCISSOR_POP => DamageRect::empty(),
+            spec::draw_op::TRI => triangle_bounds([words[1], words[2], words[3]], clip),
+            spec::draw_op::TEX_TRI => triangle_bounds([words[2], words[5], words[8]], clip),
+            // Native text has no glyph geometry here. Its current clip is a
+            // conservative bound for damage tracking.
+            spec::draw_op::TEXT_RUN => clip,
+            spec::draw_op::SURFACE_QUAD => logical_rect(words[6], words[7]).intersect(clip),
             _ => return Err(()),
         };
-        Ok(Some(DecodedOp {
-            code,
-            words,
-            bounds,
-        }))
-    }
-
-    fn is_balanced(&self) -> bool {
-        self.depth == 0
+        Ok(Some(DecodedOp { code, words, bounds }))
     }
 }
 
@@ -438,9 +376,6 @@ fn draw_list_damage<const MAX_REGIONS: usize>(
             _ => return Ok(DamagePlan::full(screen)),
         }
     }
-    if !old.is_balanced() || !new.is_balanced() {
-        return Err(DamageError::MalformedDrawList);
-    }
     Ok(damage)
 }
 
@@ -455,11 +390,7 @@ fn validate_draw_list(
         .map_err(|_| DamageError::MalformedDrawList)?
         .is_some()
     {}
-    if decoder.is_balanced() {
-        Ok(())
-    } else {
-        Err(DamageError::MalformedDrawList)
-    }
+    Ok(())
 }
 
 fn glyph_run_bounds(ui: &impl RenderResources, words: &[u32], clip: DamageRect) -> DamageRect {
@@ -506,14 +437,4 @@ fn xy(word: u32) -> (i32, i32) {
     )
 }
 
-#[inline]
-fn wh(word: u32) -> (i32, i32) {
-    ((word & 0xffff) as i32, (word >> 16) as i32)
-}
-
-#[inline]
-fn logical_rect(xy_word: u32, wh_word: u32) -> DamageRect {
-    let (x, y) = xy(xy_word);
-    let (w, h) = wh(wh_word);
-    DamageRect::new(x, y, x + w, y + h)
-}
+use pocket_draw_ops::logical_rect;

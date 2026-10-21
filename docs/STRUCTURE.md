@@ -10,6 +10,7 @@ pocketjs/
 │  ├─ core/       pocketjs-core — retained UI tree, taffy layout, animation, text (standalone crate)
 │  ├─ spec/       generated no_std operation constants and formats
 │  ├─ drivers/    resource views, driver traits, and generated C ABI records
+│  ├─ render/     draw-ops, glyph-pages, tri-batch, and tex-cache utility crates
 │  ├─ raster/     software DrawList interpreter and pixel kernels
 │  ├─ present/    damage history, presentation transactions, and composition
 │  ├─ package/    package admission, pak readers, build facts, and SHA-256

@@ -18,12 +18,13 @@ use pocket_present::damage::{
     DEFAULT_DAMAGE_REGIONS,
 };
 use pocket_raster::{
-    coverage_index, linear_sample_coordinates, pack_rgb565, render_scaled_rgb565_over,
+    linear_sample_coordinates, pack_rgb565, render_scaled_rgb565_over,
     render_scaled_rgb565_window_over,
 };
 #[cfg(test)]
 use pocketjs_core::Ui;
 use pocket_drivers::TexView;
+use pocket_glyph_pages::composite_mask;
 use pocket_spec as spec;
 use pocket_present::DamageTransaction;
 
@@ -684,35 +685,13 @@ impl Renderer {
         }
         let mask = self.mask_mut();
         fill_mask_rect(mask, width, rect, 0);
-        let density = atlas.raster_density as i32;
-        let coverage_w = atlas.coverage_width() as i32;
-        let coverage_h = atlas.coverage_height() as i32;
-        let bpr = atlas.bytes_per_row();
-        for glyph in op[3..].chunks_exact(2) {
-            let (gx, gy) = xy(glyph[0]);
-            let gid = (glyph[1] & 0xffff) as u16;
-            if gid >= atlas.glyph_count {
-                continue;
-            }
-            let rows = atlas.glyph_rows(gid);
-            let x0 = (gx * scale).max(global_rect.x as i32);
-            let y0 = (gy * scale).max(global_rect.y as i32);
-            let x1 = ((gx + cell_w) * scale).min((global_rect.x + global_rect.w) as i32);
-            let y1 = ((gy + cell_h) * scale).min((global_rect.y + global_rect.h) as i32);
-            for py in y0..y1 {
-                let sy = coverage_index(py - gy * scale, scale, density, coverage_h);
-                let row = &rows[sy * bpr..];
-                for px in x0..x1 {
-                    let sx = coverage_index(px - gx * scale, scale, density, coverage_w);
-                    let local_x = px - surface.x0 * scale;
-                    let local_y = py - surface.y0 * scale;
-                    composite_mask(
-                        &mut mask[local_y as usize * width as usize + local_x as usize],
-                        ((row[sx] as u32 * a + 127) / 255) as u8,
-                    );
-                }
-            }
-        }
+        if !pocket_glyph_pages::blend_glyph_run(
+            atlas, &op[3..], mask, width as usize,
+            [surface.x0 * scale, surface.y0 * scale],
+            Clip::new(global_rect.x as i32, global_rect.y as i32,
+                (global_rect.x + global_rect.w) as i32, (global_rect.y + global_rect.h) as i32),
+            scale as u32, a as u8,
+        ) { return false; }
         if ppa.blend_a8_rgb565(
             destination,
             width,
@@ -1035,17 +1014,8 @@ fn pack_wh(w: i32, h: i32) -> u32 {
 
 #[inline]
 fn fill_mask_rect(mask: &mut [u8], stride: u32, rect: Rect, value: u8) {
-    for y in rect.y..rect.y + rect.h {
-        let start = y as usize * stride as usize + rect.x as usize;
-        mask[start..start + rect.w as usize].fill(value);
-    }
-}
-
-#[inline]
-fn composite_mask(destination: &mut u8, source: u8) {
-    let d = *destination as u32;
-    let s = source as u32;
-    *destination = (s + (d * (255 - s) + 127) / 255) as u8;
+    assert!(pocket_glyph_pages::fill_mask_rect(mask, stride as usize,
+        rect.x, rect.y, rect.w, rect.h, value));
 }
 
 fn texture_source_rect(

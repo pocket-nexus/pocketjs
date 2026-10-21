@@ -50,6 +50,8 @@ harness-access = []
 
 [dependencies]
 pocketjs-core = { path = "../core" }
+pocket-tri-batch = { path = "../render/tri-batch" }
+pocket-tex-cache = { path = "../render/tex-cache" }
 
 [profile.release]
 panic = "abort"

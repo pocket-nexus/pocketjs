@@ -1,7 +1,8 @@
 //! Borrowed resource views, independent of the retained UI tree.
 
-/// Borrowed view of one live texture (what backends sample — see
-/// `Ui::texture` / `Ui::texture_at`). All byte slices are 16-byte aligned.
+/// Borrowed view of one live texture. Core-owned storage is 16-byte aligned;
+/// external resource providers may supply byte-aligned storage. Drivers check
+/// alignment before passing pointers to device APIs that require it.
 #[derive(Clone, Copy)]
 pub struct TexView<'a> {
     pub pixels: &'a [u8],
@@ -46,4 +47,18 @@ pub trait RenderResources {
     fn raster_revision(&self) -> u64;
     fn texture(&self, handle: i32) -> Option<TexView<'_>>;
     fn font_atlas(&self, slot: u8) -> Option<FontView<'_>>;
+    /// Version of a live texture's content. The default invalidates on any
+    /// raster mutation; drivers must pair this with the generation-tagged handle.
+    fn texture_revision(&self, handle: i32) -> Option<u64> {
+        self.texture(handle).map(|_| self.raster_revision())
+    }
+    /// Version of a live font atlas; a replacement must change this value.
+    fn font_revision(&self, slot: u8) -> Option<u64> {
+        self.font_atlas(slot).map(|_| self.raster_revision())
+    }
+    /// Coverage width excluding transparent right-hand archive padding.
+    /// The bitmap row stride remains FontView::coverage_width().
+    fn font_texture_width(&self, slot: u8) -> Option<u32> {
+        self.font_atlas(slot).map(|font| font.coverage_width())
+    }
 }

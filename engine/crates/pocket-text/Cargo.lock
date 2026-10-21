@@ -169,9 +169,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "pocket-draw-ops"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-drivers"
 version = "0.1.0"
 dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-glyph-pages"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
  "pocket-spec",
 ]
 
@@ -193,6 +209,7 @@ dependencies = [
 name = "pocket-present"
 version = "0.1.0"
 dependencies = [
+ "pocket-draw-ops",
  "pocket-drivers",
  "pocket-raster",
  "pocket-spec",
@@ -202,6 +219,7 @@ dependencies = [
 name = "pocket-raster"
 version = "0.1.0"
 dependencies = [
+ "pocket-draw-ops",
  "pocket-drivers",
  "pocket-spec",
 ]
@@ -226,6 +244,7 @@ name = "pocketjs-core"
 version = "0.1.0"
 dependencies = [
  "pocket-drivers",
+ "pocket-glyph-pages",
  "pocket-media",
  "pocket-package",
  "pocket-present",

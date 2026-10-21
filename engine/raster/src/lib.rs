@@ -50,6 +50,9 @@ use pocket_drivers::RenderResources;
 use pocket_spec::{self as spec, draw_op};
 use pocket_drivers::TexView;
 
+mod surface;
+pub use surface::{render_operation, render_surface, RasterRenderer};
+
 pub const MAX_RENDER_SCALE: u32 = 4;
 /// Integer clip rect: x0/y0 inclusive, x1/y1 exclusive.
 #[derive(Clone, Copy)]
@@ -393,7 +396,7 @@ fn lerp_color(from: u32, to: u32, f: f32) -> u32 {
 
 /// Execute `words` into the UI's logical viewport at one sample per pixel.
 /// The stock viewport remains 480x272, preserving the legacy golden output.
-pub fn render(ui: &impl RenderResources, words: &[u32], fb: &mut [u8]) {
+pub fn render(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8]) {
     render_scaled(ui, words, fb, 1);
 }
 
@@ -405,7 +408,7 @@ pub fn render(ui: &impl RenderResources, words: &[u32], fb: &mut [u8]) {
 /// density.
 /// `ui` supplies font atlases and textures. The framebuffer is cleared to
 /// opaque black first (the PSP host clears the draw buffer the same way).
-pub fn render_scaled(ui: &impl RenderResources, words: &[u32], fb: &mut [u8], scale: u32) {
+pub fn render_scaled(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8], scale: u32) {
     let mut target = RgbaTarget::<false> { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
@@ -416,7 +419,7 @@ pub fn render_scaled(ui: &impl RenderResources, words: &[u32], fb: &mut [u8], sc
 /// but fused into the rasterizer so hosts skip a per-frame reorder copy.
 /// Output determinism matches the RGBA path pixel-for-pixel; only the byte
 /// placement differs.
-pub fn render_scaled_argb(ui: &impl RenderResources, words: &[u32], fb: &mut [u8], scale: u32) {
+pub fn render_scaled_argb(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8], scale: u32) {
     let mut target = RgbaTarget::<true> { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
@@ -427,7 +430,7 @@ pub fn render_scaled_argb(ui: &impl RenderResources, words: &[u32], fb: &mut [u8
 /// 0 where the DrawList draws nothing, 255 under an opaque op. The R,G,B bytes
 /// equal [`render_scaled`]'s for the same DrawList.
 pub fn render_scaled_premultiplied(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     fb: &mut [u8],
     scale: u32,
@@ -437,7 +440,7 @@ pub fn render_scaled_premultiplied(
 }
 
 /// Execute a complete DrawList into a little-endian RGB565 framebuffer.
-pub fn render_scaled_rgb565(ui: &impl RenderResources, words: &[u32], fb: &mut [u16], scale: u32) {
+pub fn render_scaled_rgb565(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u16], scale: u32) {
     let mut target = Rgb565Target { pixels: fb };
     render_scaled_impl(ui, words, &mut target, scale, true);
 }
@@ -446,7 +449,7 @@ pub fn render_scaled_rgb565(ui: &impl RenderResources, words: &[u32], fb: &mut [
 /// clearing it. Render backends composite these into their own scene (the
 /// gpui tri-batch fallback keeps uncovered pixels transparent this way —
 /// the clearing variants paint the full-frame opaque-black background).
-pub fn render_scaled_over(ui: &impl RenderResources, words: &[u32], fb: &mut [u8], scale: u32) {
+pub fn render_scaled_over(ui: &(impl RenderResources + ?Sized), words: &[u32], fb: &mut [u8], scale: u32) {
     let mut target = RgbaTarget::<false> { bytes: fb };
     render_scaled_impl(ui, words, &mut target, scale, false);
 }
@@ -454,7 +457,7 @@ pub fn render_scaled_over(ui: &impl RenderResources, words: &[u32], fb: &mut [u8
 /// Execute DrawList words over an existing RGB565 framebuffer without
 /// clearing it. Hardware backends use this for ordered fallback segments.
 pub fn render_scaled_rgb565_over(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     fb: &mut [u16],
     scale: u32,
@@ -473,7 +476,7 @@ pub fn render_scaled_rgb565_over(
 /// compact window. Hardware backends use this for ordered software fallback
 /// while rendering a dirty strip.
 pub fn render_scaled_rgb565_window_over(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     fb: &mut [u16],
     scale: u32,
@@ -525,7 +528,7 @@ pub fn render_scaled_rgb565_window_over(
 /// Each region replays the complete DrawList under an additional root clip,
 /// preserving painter order for unchanged translucent operations.
 pub fn render_scaled_regions(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     fb: &mut [u8],
     scale: u32,
@@ -537,7 +540,7 @@ pub fn render_scaled_regions(
 
 /// ARGB/BGRA-memory equivalent of [`render_scaled_regions`].
 pub fn render_scaled_argb_regions(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     fb: &mut [u8],
     scale: u32,
@@ -549,7 +552,7 @@ pub fn render_scaled_argb_regions(
 
 /// RGB565 equivalent of [`render_scaled_regions`].
 pub fn render_scaled_rgb565_regions(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     fb: &mut [u16],
     scale: u32,
@@ -560,7 +563,7 @@ pub fn render_scaled_rgb565_regions(
 }
 
 fn render_scaled_impl<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     target: &mut T,
     scale: u32,
@@ -574,7 +577,7 @@ fn render_scaled_impl<T: RenderTarget>(
 }
 
 fn render_scaled_regions_impl<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     target: &mut T,
     scale: u32,
@@ -594,7 +597,7 @@ fn render_scaled_regions_impl<T: RenderTarget>(
 }
 
 fn target_geometry<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     target: &T,
     scale: u32,
 ) -> (i32, i32, Clip) {
@@ -616,7 +619,7 @@ fn target_geometry<T: RenderTarget>(
 /// Panics for scales outside 1 through 4, nonpositive viewport dimensions, or
 /// a pixel count that does not match the scaled viewport.
 pub fn validate_framebuffer(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     pixel_count: usize,
     scale: u32,
 ) -> (i32, i32) {
@@ -643,7 +646,7 @@ pub fn validate_framebuffer(
 
 #[allow(clippy::too_many_arguments)]
 fn render_damage_regions<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     target: &mut T,
     width: i32,
@@ -682,7 +685,7 @@ fn clear_black_rect<T: RenderTarget>(target: &mut T, stride: i32, rect: Clip) {
 }
 
 fn render_scaled_clipped<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     words: &[u32],
     target: &mut T,
     width: i32,
@@ -989,7 +992,7 @@ pub fn coverage_index(
 
 #[allow(clippy::too_many_arguments)]
 fn glyph_run<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     target: &mut T,
     stride: i32,
     output_scale: i32,
@@ -1165,7 +1168,7 @@ fn sample_linear(view: &TexView, u: f32, v: f32) -> Option<(u32, u32, u32, u32)>
 //      bilinear when the texture carries the linear flag) --------------------
 
 fn tex_tri<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     target: &mut T,
     stride: i32,
     scale: i32,
@@ -1250,7 +1253,7 @@ fn tex_tri<T: RenderTarget>(
 //      carries the linear flag) --------------------------------------------------------
 
 fn tex_quad<T: RenderTarget>(
-    ui: &impl RenderResources,
+    ui: &(impl RenderResources + ?Sized),
     target: &mut T,
     stride: i32,
     scale: i32,

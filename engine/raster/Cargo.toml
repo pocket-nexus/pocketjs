@@ -9,3 +9,4 @@ repository = "https://github.com/pocket-nexus/pocketjs"
 [dependencies]
 pocket-spec = { path = "../spec" }
 pocket-drivers = { path = "../drivers" }
+pocket-draw-ops = { path = "../render/draw-ops" }

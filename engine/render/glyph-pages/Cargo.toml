@@ -1,0 +1,11 @@
+[package]
+name = "pocket-glyph-pages"
+version = "0.1.0"
+edition = "2021"
+description = "Borrowed font coverage expansion, bounded pages, and A8 masks for PocketJS"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+
+[dependencies]
+pocket-drivers = { path = "../../drivers" }
+pocket-spec = { path = "../../spec" }

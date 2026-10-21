@@ -57,6 +57,8 @@ describe("ESP-IDF release integrity", () => {
     "engine/present/src/lib.rs", "engine/present/Cargo.toml",
     "engine/package/src/lib.rs", "engine/package/Cargo.toml",
     "engine/modules/media/src/lib.rs", "engine/modules/media/Cargo.toml",
+    "engine/render/draw-ops/src/lib.rs", "engine/render/draw-ops/Cargo.toml",
+    "engine/render/glyph-pages/src/lib.rs", "engine/render/glyph-pages/Cargo.toml",
   ])("rejects old archives after contract dependency changes: %s", async (path) => {
     const f = await fixture();
     writeFileSync(join(f.directory, path), "changed contract dependency");
@@ -102,7 +104,7 @@ describe("ESP-IDF release integrity", () => {
       ], { stdout: "pipe", stderr: "pipe" });
       expect(result.exitCode, result.stderr.toString()).toBe(0);
       const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
-      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media"])
+      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media", "pocket-draw-ops", "pocket-glyph-pages"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
     }
   }, 30_000);

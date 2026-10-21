@@ -1,0 +1,11 @@
+[package]
+name = "pocket-draw-ops"
+version = "0.1.0"
+edition = "2021"
+description = "Borrowed DrawList decoding and clipping for PocketJS renderers"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+
+[dependencies]
+pocket-drivers = { path = "../../drivers" }
+pocket-spec = { path = "../../spec" }

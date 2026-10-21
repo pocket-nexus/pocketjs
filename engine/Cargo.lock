@@ -1788,6 +1788,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-draw-ops"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-drivers"
 version = "0.1.0"
 dependencies = [
@@ -1803,6 +1811,14 @@ dependencies = [
  "pocket-mod",
  "pocketjs-core",
  "serde_json",
+]
+
+[[package]]
+name = "pocket-glyph-pages"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
 ]
 
 [[package]]
@@ -1844,6 +1860,7 @@ dependencies = [
 name = "pocket-present"
 version = "0.1.0"
 dependencies = [
+ "pocket-draw-ops",
  "pocket-drivers",
  "pocket-raster",
  "pocket-spec",
@@ -1853,6 +1870,7 @@ dependencies = [
 name = "pocket-raster"
 version = "0.1.0"
 dependencies = [
+ "pocket-draw-ops",
  "pocket-drivers",
  "pocket-spec",
 ]
@@ -1883,6 +1901,14 @@ dependencies = [
  "wgpu",
  "winit",
 ]
+
+[[package]]
+name = "pocket-tex-cache"
+version = "0.1.0"
+
+[[package]]
+name = "pocket-tri-batch"
+version = "0.1.0"
 
 [[package]]
 name = "pocket-ui-surface"
@@ -1986,6 +2012,7 @@ name = "pocketjs-core"
 version = "0.1.0"
 dependencies = [
  "pocket-drivers",
+ "pocket-glyph-pages",
  "pocket-media",
  "pocket-package",
  "pocket-present",

@@ -44,6 +44,10 @@ on:
       - "engine/present/**"
       - "engine/package/**"
       - "engine/modules/media/**"
+      - "engine/render/draw-ops/**"
+      - "engine/render/glyph-pages/**"
+      - "engine/render/tri-batch/**"
+      - "engine/render/tex-cache/**"
       - "framework/src/**"
       - "framework/compiler/**"
       - "contracts/**"
@@ -106,6 +110,10 @@ on:
       - "engine/present/**"
       - "engine/package/**"
       - "engine/modules/media/**"
+      - "engine/render/draw-ops/**"
+      - "engine/render/glyph-pages/**"
+      - "engine/render/tri-batch/**"
+      - "engine/render/tex-cache/**"
       - "framework/src/**"
       - "framework/compiler/**"
       - "contracts/**"
@@ -164,6 +172,8 @@ jobs:
         run: bun test --conditions=browser tests/clear-text.test.ts tests/clear-ime-loading.test.ts
       - name: UI singleton access and alignment policy
         run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features harness-access
+      - name: GLES1 vertex layout and ordered batches
+        run: cargo test --locked --manifest-path engine/ui-cabi/Cargo.toml --features gles1 gl::tests
       - name: Link and execute the C allocator and texture draw fixtures
         run: bun test tests/ui-cabi-allocator.test.ts tests/ui-cabi-psm-draw.test.ts
       - name: Test suite coverage and tape assertion contracts

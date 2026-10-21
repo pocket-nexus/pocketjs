@@ -23,6 +23,8 @@ on:
       - "engine/present/**"
       - "engine/package/**"
       - "engine/modules/media/**"
+      - "engine/render/draw-ops/**"
+      - "engine/render/glyph-pages/**"
       - "package.json"
       - "bun.lock"
   push:
@@ -43,6 +45,8 @@ on:
       - "engine/present/**"
       - "engine/package/**"
       - "engine/modules/media/**"
+      - "engine/render/draw-ops/**"
+      - "engine/render/glyph-pages/**"
       - "package.json"
       - "bun.lock"
   workflow_dispatch: {}

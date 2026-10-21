@@ -17,6 +17,8 @@ on:
       - 'engine/present/**'
       - 'engine/package/**'
       - 'engine/modules/media/**'
+      - 'engine/render/draw-ops/**'
+      - 'engine/render/glyph-pages/**'
       - 'engine/crates/pocket-ui-surface/**'
       - 'engine/pocket3d/crates/pocket3d/src/app.rs'
       - 'engine/pocket3d/crates/pocket3d/src/input.rs'
