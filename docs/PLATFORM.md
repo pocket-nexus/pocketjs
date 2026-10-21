@@ -19,7 +19,7 @@ review as a pure function, not a queue of humans.
 |---|---|---|
 | L0 contract | spec.ts ISA, append-only ops, capability registry, manifest admission | SHIPPED — the platform's constitution |
 | L1 hosts | psp / vita / sim / web against one HostOps contract; guest lifecycle (boot/teardown/switch) | switching shipped on psp + vita + sim + web |
-| L2 distribution | `.pocket` package, on-device install, host-relay push | format SHIPPED (v1, below); install + push next |
+| L2 distribution | `.pocket` package, on-device install, host-relay push | format 2 (below); install + push next |
 | L3 experience | launcher-as-Home, switch veil, DevTools time travel | launcher shipped; veil below |
 
 Rule 5 of RUNTIMES.md stays the platform's first law: every capability a
@@ -60,55 +60,68 @@ Two refinements stack on top later, both cheap: the launcher can play a
 200 ms card-zoom before calling `appLaunch` (pure JS, no host change), and
 qjsc bytecode (below) shrinks the hold the veil is papering over.
 
-## `.pocket` — the package format (SHIPPED, v1)
+## Profiles and `.pocket` format 2
 
-Spec: `contracts/spec/pocket-package.ts` (TS encoder/decoder) + `engine/package/src/package.rs`
-(no_std zero-copy reader), pinned to one committed fixture so the two
-implementations cannot drift. One file per app:
+`@pocketjs/framework/profile` provides `defineProfile()`. A profile declares
+`id`, `platform`, `form`, `tickHz`, `display`, `capabilities` and
+`roleCapabilities`. Built-in values live in `profiles/<id>.ts` and are exported
+from `@pocketjs/framework/profiles`.
 
-```
-header   "PCKT" v1, manifest length, variant count
-manifest pocket.json verbatim (the SAME file the build resolver admitted)
-variants TARGET VARIANTS — dist bundles are target-flavored (psp density 1,
-         vita density 2, a desktop widget's live viewport…), so the app is
-         manifest × variants. Each variant: target id + hostAbi + a typed,
-         APPEND-ONLY section table (1 identity, 2 plan, 3 js — NUL-included
-         for zero-copy device eval, 4 pak, 5 cover, 6 reserved qjsc,
-         7 fixed-width ESP-IDF host inputs; unknown kinds skip).
-         Per-variant FNV-1a64: `thin` extracts a device subset from a
-         universal file without changing any variant's identity.
-footer   FNV-1a64 over the whole file (the stale-embed tripwire, now a
-         file format)
-```
+**Profile identity is SHA-256 over seven fields.**
+`contracts/spec/profile.ts` defines their canonical JSON encoding. Object keys
+sort by UTF-16 code units; array order remains part of identity. `hostExtension`
+is metadata and is excluded. Renaming a profile, adding a capability, or
+changing its timing or geometry changes the hash and requires rebuilding the
+application. `defineProfile()` checks reserved names, capability vocabulary,
+dynamic viewports, auxiliary screens and contact coordinate limits.
 
-Tools: `bun run pocket:pack build --manifest … --target psp --target vita`
-(each target compiles into its own outdir — the stale-dist lesson,
-institutionalized), plus `inspect`, `thin`, `verify` (footer + per-variant
-re-admission of the embedded manifest). The launcher chain
-(`tools/launcher.ts pack --target psp|vita`) emits target-thinned packages
-into separate trees. Both native binaries embed the `.pocket` files verbatim
-and boot guests zero-copy out of them; the site serves the PSP packages to the
-wasm host.
+The resolved build plan carries this full projection and `profileHash`.
+`hostBuildEnvironment()` exports `POCKETJS_PROFILE_JSON` and
+`POCKETJS_PROFILE_HASH` for the program build. **The program's expected hash
+comes from its build input.** A package cannot supply its own expected value.
+Programs pass these inputs into shared libraries as configuration values.
+Runtime admits declared logical orientations and dynamic viewport bounds before
+initializing the guest. CPU outputs and auxiliary screens use one integer
+presentation scale; a primary GPU renderer maps the admitted logical viewport
+to its registered target.
 
-Design rules:
+`contracts/spec/pocket-package.ts` defines the binary container. TypeScript,
+Rust and Python readers share maintained valid and malformed fixtures.
 
-- The manifest travels INSIDE the package and is re-admitted on device
-  (below) — a package is self-describing, never trusted by filename.
-- The hash footer makes torn copies and stale syncs self-announcing — the
-  same tripwire philosophy as the embedded-bundle hash (a stale embed once
-  burned two rounds of hardware verification; distribution inherits the
-  lesson for free).
-- Corrupt or inadmissible packages fail into the launcher's existing
-  broken-guest path (log + return to deck), never a halt.
-- ESP-IDF variants duplicate their target ABI in the variant entry and binary
-  host-input record. The device compares target, ABI, tick rate, viewport,
-  density, presentation, and host-profile SHA-256 before exposing JS/PAK spans.
+| Region | Contents |
+| --- | --- |
+| Header, 32 bytes | `PCKT`, version 2, manifest length, variant count, string table offset and size, two zero reserved words |
+| Manifest | Original `pocket.json` bytes, padded to 16 bytes |
+| Variant, 64 bytes | Target string offset and size, binding generation, section count and table offset, zero reserved word, FNV-1a64 payload hash, 32-byte profile hash |
+| String table | UTF-8 target IDs, 1–65535 bytes each, without NUL terminators |
+| Section entry, 16 bytes | Kind, zero reserved word, payload offset and length |
+| Payloads | Identity, plan, NUL-terminated JavaScript, asset pack, cover, or other declared sections, each padded to 16 bytes |
+| Footer, 8 bytes | FNV-1a64 over all preceding bytes |
+
+Variants sort by UTF-8 bytes and section kinds increase within each variant.
+Strings, section tables and payloads occupy contiguous regions in that order.
+Readers reject overlap, duplicate IDs or kinds, invalid UTF-8, nonzero reserved
+words, trailing data and out-of-range offsets. Unknown section kinds retain
+their payloads. Empty payloads may share an offset. Thinning preserves both
+the payload hash and the profile hash.
+
+**Format 1 packages are rejected by format 2 runtimes.** Rebuild the application
+to produce a format 2 package. Admission compares the selected variant's target,
+binding generation and profile hash before guest initialization, then checks its
+plan and resources. ESP-IDF also checks the binary host-input record's timing,
+viewport, density and presentation against the program's profile.
+
+The launcher embeds original package bytes or supplies them through a file
+source. A JavaScript/asset-pair embedding adapter creates a format 2 package with
+its explicit program profile; it does not convert an existing package to bypass
+admission.
 
 ## Generic runtimes and the repack step
 
 A generic runtime is one prebuilt host per device with no app in it. It
 reads `app.pocket` at boot, checks the footer hash, takes the variant for
-its own target and refuses a variant whose host ABI differs from its own.
+its own target and refuses a variant whose binding generation or profile hash
+differs from its own.
 A runtime that finds no file, or a file it refuses, shows one line on screen
 that names the fault. The embedded-app build stays: the built-in games and
 the dev loops use it.
@@ -123,14 +136,15 @@ bun tools/repack.ts --target psp --runtime dist/runtime/psp --pocket game.pocket
   --id <id> --title <title> --author <author> --version <version> [--icon icon.png] -o game.zip
 ```
 
-`runtime.json` records `target`, `hostAbi`, the PocketJS commit, the device
-profile and each file's size and SHA-256. `tools/repack/<target>.ts` exports
+`runtime.json` records `target`, `hostAbi`, `profileHash`, the PocketJS commit,
+the profile label and each file's size and SHA-256. `tools/repack/<target>.ts` exports
 `repack<Target>({ runtime, pocket, identity })`: the runtime's files as bytes
 by path, the `.pocket` bytes and the identity (id, title, author, version, a
 square PNG icon). `tools/repack/shared/runtime.ts` refuses a runtime for
 another target or with a file that differs from `runtime.json`, a `.pocket`
 whose footer does not verify, one with no variant for the target, a host ABI
-that differs from `runtime.json`, and an app id other than the identity's.
+that differs from `runtime.json`, mismatched profile hashes in the variant,
+plan or runtime, and an app id other than the identity's.
 The package carries the `.pocket` thinned to the target's variant. The other
 shared pieces use Web-platform APIs only (a Worker runs them): `zip.ts`
 (1980-01-01 dates, entries in the given order, `CompressionStream` deflate),

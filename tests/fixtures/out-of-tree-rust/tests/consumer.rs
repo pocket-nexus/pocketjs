@@ -1,9 +1,6 @@
 mod support;
 use pocket_drivers::*;
-use pocket_package::{
-    package_format as format,
-    source::{LoadedPackage, MemorySource},
-};
+use pocket_package::source::{LoadedPackage, MemorySource};
 use pocket_present::{Coordinator, DisplayId, RendererId};
 use pocket_runtime::{
     Guest, GuestEnvironment, GuestFrame, OpArg, OpContext, OpResult, Runtime, RuntimeConfig,
@@ -23,71 +20,19 @@ fn config() -> RuntimeConfig {
         profile_json: PROFILE.to_vec(),
     }
 }
-fn put(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
 fn package() -> Vec<u8> {
-    let mut identity = Vec::new();
-    for value in ["application", "external.consumer", "Consumer"] {
-        identity.extend_from_slice(&(value.len() as u16).to_le_bytes());
-        identity.extend_from_slice(value.as_bytes());
-    }
-    let sections = [
-        (format::SECTION_IDENTITY, identity),
-        (
-            format::SECTION_PLAN,
-            br#"{"viewport":{"logical":[8,6],"rasterDensity":1},"features":{}}"#.to_vec(),
-        ),
-        (format::SECTION_JS, b"public-api-fixture\0".to_vec()),
-    ];
-    let variant = format::POCKET_HEADER_SIZE;
-    let table = variant + format::POCKET_VARIANT_SIZE;
-    let mut bytes = vec![0; table + sections.len() * format::POCKET_SECTION_SIZE];
-    put(
-        &mut bytes,
-        format::OFFSET_HEADER_MAGIC as usize,
-        format::POCKET_MAGIC,
-    );
-    put(
-        &mut bytes,
-        format::OFFSET_HEADER_VERSION as usize,
-        format::POCKET_VERSION,
-    );
-    put(&mut bytes, format::OFFSET_HEADER_VARIANT_COUNT, 1);
-    bytes[variant..variant + 8].copy_from_slice(b"consumer");
-    put(&mut bytes, variant + format::OFFSET_VARIANT_HOST_ABI, 1);
-    put(
-        &mut bytes,
-        variant + format::OFFSET_VARIANT_SECTION_COUNT,
-        sections.len() as u32,
-    );
-    put(
-        &mut bytes,
-        variant + format::OFFSET_VARIANT_SECTIONS_OFFSET,
-        table as u32,
-    );
-    for (index, (kind, payload)) in sections.into_iter().enumerate() {
-        while bytes.len() % format::POCKET_ALIGN != 0 {
-            bytes.push(0);
-        }
-        let offset = bytes.len();
-        let entry = table + index * format::POCKET_SECTION_SIZE;
-        put(&mut bytes, entry + format::OFFSET_SECTION_KIND, kind);
-        put(
-            &mut bytes,
-            entry + format::OFFSET_SECTION_OFFSET,
-            offset as u32,
-        );
-        put(
-            &mut bytes,
-            entry + format::OFFSET_SECTION_SIZE,
-            payload.len() as u32,
-        );
-        bytes.extend_from_slice(&payload);
-    }
-    let hash = pocket_package::package::fnv1a64(&[&bytes]);
-    bytes.extend_from_slice(&hash.to_le_bytes());
-    bytes
+    let identity =
+        pocket_package::embedded::identity("application", "external.consumer", "Consumer").unwrap();
+    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+        target: "consumer",
+        host_abi: 1,
+        profile_hash: config().profile_hash,
+        identity: &identity,
+        plan: br#"{"viewport":{"logical":[8,6],"rasterDensity":1},"features":{}}"#,
+        code: b"public-api-fixture",
+        pak: &[],
+    })
+    .unwrap()
 }
 struct RangeSource {
     bytes: Vec<u8>,
@@ -514,6 +459,7 @@ fn all_and_short_range_sources_share_package_corpus_admission() {
             &mut MemorySource(&bytes),
             "psp",
             1,
+            &[0x11; 32],
             bytes.len(),
         ));
         let reads = Rc::new(RefCell::new(0));
@@ -524,11 +470,12 @@ fn all_and_short_range_sources_share_package_corpus_admission() {
             },
             "psp",
             1,
+            &[0x11; 32],
             bytes.len(),
         ));
         assert_eq!(memory, range, "{}", path.display());
         assert!(*reads.borrow() > 0);
         cases += 1;
     }
-    assert_eq!(cases, 14);
+    assert!(cases >= 24);
 }

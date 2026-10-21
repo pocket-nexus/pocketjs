@@ -293,6 +293,7 @@ describe("platform registry", () => {
       acceptsFixed: true,
     });
     expect(POCKET_TARGETS["linux-app"]).toEqual({
+      tickHz: 60,
       hostAbi: 4,
       platform: "linux",
       form: "window",
@@ -317,6 +318,7 @@ describe("platform registry", () => {
       roleCapabilities: { systemUI: ["ui.compositor-surfaces"] },
     });
     expect(POCKET_TARGETS["web-app"]).toEqual({
+      tickHz: 60,
       hostAbi: 4,
       platform: "web",
       form: "window",

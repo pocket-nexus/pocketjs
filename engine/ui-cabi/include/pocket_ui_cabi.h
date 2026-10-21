@@ -27,13 +27,15 @@ typedef struct {
 
 /* 0 = admitted: footer hash, exact target and host ABI, identity, plan and
  * NUL-terminated JS. 1-11 package errors, 12 bad arguments, 13 plan JSON,
- * 14 plan viewport. */
+ * 14 plan viewport, 16 profile hash, 17 section layout. profile_hash is the
+ * independent host build profile SHA-256 (32 readable bytes). */
 int32_t pocket_ui_package_open(
   const uint8_t *bytes,
   size_t length,
   const uint8_t *target,
   size_t target_length,
   uint32_t host_abi,
+  const uint8_t profile_hash[32],
   PocketUiPackage *out
 );
 

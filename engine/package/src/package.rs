@@ -11,12 +11,14 @@
 use core::str;
 
 use crate::package_format::{
-    OFFSET_SECTION_OFFSET, OFFSET_SECTION_SIZE, OFFSET_VARIANT_HASH, OFFSET_VARIANT_HOST_ABI,
-    OFFSET_VARIANT_SECTIONS_OFFSET, OFFSET_VARIANT_SECTION_COUNT,
+    OFFSET_HEADER_STRING_TABLE_OFFSET, OFFSET_HEADER_STRING_TABLE_SIZE, OFFSET_SECTION_OFFSET,
+    OFFSET_SECTION_SIZE, OFFSET_VARIANT_HASH, OFFSET_VARIANT_HOST_ABI, OFFSET_VARIANT_PROFILE_HASH,
+    OFFSET_VARIANT_SECTIONS_OFFSET, OFFSET_VARIANT_SECTION_COUNT, OFFSET_VARIANT_TARGET_OFFSET,
+    OFFSET_VARIANT_TARGET_SIZE,
 };
 use crate::package_format::{
     POCKET_ALIGN as ALIGN, POCKET_HEADER_SIZE as HEADER_SIZE, POCKET_SECTION_SIZE as SECTION_SIZE,
-    POCKET_TARGET_BYTES as TARGET_BYTES, POCKET_VARIANT_SIZE as VARIANT_SIZE,
+    POCKET_TARGET_MAX_BYTES as TARGET_MAX_BYTES, POCKET_VARIANT_SIZE as VARIANT_SIZE,
 };
 pub use crate::package_format::{POCKET_MAGIC as MAGIC, POCKET_VERSION as VERSION};
 
@@ -35,6 +37,7 @@ pub enum PackageError {
     BadVersion,
     HashMismatch,
     BadUtf8,
+    BadLayout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +45,7 @@ pub enum GuestError {
     Package(PackageError),
     MissingVariant,
     HostAbiMismatch,
+    ProfileHashMismatch,
     MissingIdentity,
     MissingPlan,
     MissingJavaScript,
@@ -68,6 +72,9 @@ pub struct Variant<'a> {
     pub target: &'a str,
     pub host_abi: u32,
     pub variant_hash: u64,
+    /// Declared identity only. Admission compares it with an independent
+    /// program profile; never derive the expected value from this field.
+    pub profile_hash: [u8; 32],
     section_count: usize,
     sections_off: usize,
 }
@@ -102,23 +109,37 @@ fn u64_at(bytes: &[u8], off: usize) -> Result<u64, PackageError> {
     ]))
 }
 
+fn checked_end(offset: usize, size: usize, limit: usize) -> Result<usize, PackageError> {
+    offset
+        .checked_add(size)
+        .filter(|&end| end <= limit)
+        .ok_or(PackageError::Truncated)
+}
+fn aligned(value: usize) -> Result<usize, PackageError> {
+    value
+        .checked_add(ALIGN - 1)
+        .map(|value| value & !(ALIGN - 1))
+        .ok_or(PackageError::Truncated)
+}
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+fn fnv_continue(mut hash: u64, bytes: &[u8]) -> u64 {
+    for &byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
 /// FNV-1a64, lockstep with tools/bundle-hash.ts / hosts/psp/build.rs.
 pub fn fnv1a64(chunks: &[&[u8]]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for chunk in chunks {
-        for &b in *chunk {
-            h ^= b as u64;
-            h = h.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-    h
+    chunks
+        .iter()
+        .fold(FNV_OFFSET, |hash, bytes| fnv_continue(hash, bytes))
 }
 
 impl<'a> Package<'a> {
-    /// Parse and (unless `skip_hash`) verify the footer hash. Embedded
-    /// packages were hashed at build time — boot paths pass `skip_hash =
-    /// true` and rely on the EBOOT's own build identity; filesystem loads
-    /// (dynamic install) MUST verify.
+    /// Parse the canonical v2 layout and verify its footer and variant hashes.
+    /// `skip_hash` skips only FNV checks, for metadata inspection after an
+    /// independent integrity check. Runtime admission always verifies them.
     pub fn parse(bytes: &'a [u8], skip_hash: bool) -> Result<Self, PackageError> {
         if bytes.len() < HEADER_SIZE + 8 {
             return Err(PackageError::Truncated);
@@ -129,49 +150,106 @@ impl<'a> Package<'a> {
         if u32_at(bytes, 4)? != VERSION {
             return Err(PackageError::BadVersion);
         }
-        if !skip_hash {
-            let stored = u64_at(bytes, bytes.len() - 8)?;
-            if stored != fnv1a64(&[&bytes[..bytes.len() - 8]]) {
-                return Err(PackageError::HashMismatch);
-            }
+        let end = bytes.len() - 8;
+        if !skip_hash && u64_at(bytes, end)? != fnv1a64(&[&bytes[..end]]) {
+            return Err(PackageError::HashMismatch);
+        }
+        if u32_at(bytes, 24)? != 0 || u32_at(bytes, 28)? != 0 {
+            return Err(PackageError::BadLayout);
         }
         let manifest_len = u32_at(bytes, 8)? as usize;
         let variant_count = u32_at(bytes, 12)? as usize;
-        let end = bytes.len() - 8;
-        let manifest_end = HEADER_SIZE
-            .checked_add(manifest_len)
+        let manifest_end = checked_end(HEADER_SIZE, manifest_len, end)?;
+        let table_off = aligned(manifest_end)?;
+        let table_size = variant_count
+            .checked_mul(VARIANT_SIZE)
             .ok_or(PackageError::Truncated)?;
-        if manifest_end > end {
-            return Err(PackageError::Truncated);
+        let strings_off = checked_end(table_off, table_size, end)?;
+        if u32_at(bytes, OFFSET_HEADER_STRING_TABLE_OFFSET)? as usize != strings_off {
+            return Err(PackageError::BadLayout);
         }
-        let table_off = manifest_end
-            .checked_add(ALIGN - 1)
-            .ok_or(PackageError::Truncated)?
-            & !(ALIGN - 1);
-        if table_off > end || variant_count > (end - table_off) / VARIANT_SIZE {
-            return Err(PackageError::Truncated);
-        }
+        let strings_end = checked_end(
+            strings_off,
+            u32_at(bytes, OFFSET_HEADER_STRING_TABLE_SIZE)? as usize,
+            end,
+        )?;
         let package = Package {
             bytes,
             manifest_len,
             variant_count,
             table_off,
         };
+        let mut next_string = strings_off;
+        let mut next_table = aligned(strings_end)?;
+        let mut previous_target: Option<&[u8]> = None;
+        // Exact contiguous directories reject overlaps without allocating or
+        // comparing every range against every other range.
+        for i in 0..variant_count {
+            let entry = table_off + i * VARIANT_SIZE;
+            if u32_at(bytes, entry + 20)? != 0
+                || u32_at(bytes, entry + OFFSET_VARIANT_TARGET_OFFSET)? as usize != next_string
+            {
+                return Err(PackageError::BadLayout);
+            }
+            let target_size = u32_at(bytes, entry + OFFSET_VARIANT_TARGET_SIZE)? as usize;
+            if target_size == 0 || target_size > TARGET_MAX_BYTES {
+                return Err(PackageError::BadUtf8);
+            }
+            let target_end = checked_end(next_string, target_size, strings_end)?;
+            let target = &bytes[next_string..target_end];
+            if target.contains(&0) {
+                return Err(PackageError::BadUtf8);
+            }
+            str::from_utf8(target).map_err(|_| PackageError::BadUtf8)?;
+            if previous_target.is_some_and(|previous| previous >= target) {
+                return Err(PackageError::BadLayout);
+            }
+            previous_target = Some(target);
+            next_string = target_end;
+            let variant = package.variant(i)?;
+            if variant.sections_off != next_table {
+                return Err(PackageError::BadLayout);
+            }
+            let table_size = variant
+                .section_count
+                .checked_mul(SECTION_SIZE)
+                .ok_or(PackageError::Truncated)?;
+            next_table = checked_end(next_table, table_size, end)?;
+        }
+        if next_string != strings_end {
+            return Err(PackageError::BadLayout);
+        }
+        let mut next_payload = aligned(next_table)?;
         for i in 0..variant_count {
             let variant = package.variant(i)?;
-            if variant.sections_off > end
-                || variant.section_count > (end - variant.sections_off) / SECTION_SIZE
-            {
-                return Err(PackageError::Truncated);
-            }
+            let mut previous_kind = None;
+            let mut hash = FNV_OFFSET;
             for j in 0..variant.section_count {
-                let section = variant.sections_off + j * SECTION_SIZE;
-                let offset = u32_at(bytes, section + OFFSET_SECTION_OFFSET)? as usize;
-                let length = u32_at(bytes, section + OFFSET_SECTION_SIZE)? as usize;
-                if offset > end || length > end - offset {
-                    return Err(PackageError::Truncated);
+                let entry = variant.sections_off + j * SECTION_SIZE;
+                let kind = u32_at(bytes, entry)?;
+                if previous_kind.is_some_and(|previous| previous >= kind)
+                    || u32_at(bytes, entry + 4)? != 0
+                    || u32_at(bytes, entry + OFFSET_SECTION_OFFSET)? as usize != next_payload
+                {
+                    return Err(PackageError::BadLayout);
                 }
+                previous_kind = Some(kind);
+                let payload_end = checked_end(
+                    next_payload,
+                    u32_at(bytes, entry + OFFSET_SECTION_SIZE)? as usize,
+                    end,
+                )?;
+                if !skip_hash {
+                    hash = fnv_continue(hash, &bytes[next_payload..payload_end]);
+                }
+                next_payload = aligned(payload_end)?;
             }
+            if !skip_hash && hash != variant.variant_hash {
+                return Err(PackageError::HashMismatch);
+            }
+        }
+        if next_payload != end {
+            return Err(PackageError::BadLayout);
         }
         Ok(package)
     }
@@ -197,21 +275,20 @@ impl<'a> Package<'a> {
             return Err(PackageError::Truncated);
         }
         let entry = self.table_off + index * VARIANT_SIZE;
-        let name = self
-            .bytes
-            .get(entry..entry + TARGET_BYTES)
-            .ok_or(PackageError::Truncated)?;
-        let len = name
-            .iter()
-            .position(|&b| b == 0)
-            .ok_or(PackageError::BadUtf8)?;
-        if len == 0 {
-            return Err(PackageError::BadUtf8);
-        }
-        let target = str::from_utf8(&name[..len]).map_err(|_| PackageError::BadUtf8)?;
+        let target_off = u32_at(self.bytes, entry + OFFSET_VARIANT_TARGET_OFFSET)? as usize;
+        let target_len = u32_at(self.bytes, entry + OFFSET_VARIANT_TARGET_SIZE)? as usize;
+        let target_end = checked_end(target_off, target_len, self.bytes.len() - 8)?;
+        let target = str::from_utf8(&self.bytes[target_off..target_end])
+            .map_err(|_| PackageError::BadUtf8)?;
+        let mut profile_hash = [0; 32];
+        profile_hash.copy_from_slice(
+            &self.bytes
+                [entry + OFFSET_VARIANT_PROFILE_HASH..entry + OFFSET_VARIANT_PROFILE_HASH + 32],
+        );
         Ok(Variant {
             bytes: self.bytes,
             target,
+            profile_hash,
             host_abi: u32_at(self.bytes, entry + OFFSET_VARIANT_HOST_ABI)?,
             section_count: u32_at(self.bytes, entry + OFFSET_VARIANT_SECTION_COUNT)? as usize,
             sections_off: u32_at(self.bytes, entry + OFFSET_VARIANT_SECTIONS_OFFSET)? as usize,
@@ -231,13 +308,15 @@ impl<'a> Package<'a> {
     }
 }
 
-/// Parse a package and admit its guest payload for an exact target/host ABI.
+/// Parse a package and admit its guest payload for an exact target, host ABI
+/// and independently supplied program profile hash.
 /// This is the shared boundary filesystem-loading hosts use before exposing
 /// any package bytes to QuickJS or the retained UI core.
 pub fn select_guest<'a>(
     bytes: &'a [u8],
     target: &str,
     host_abi: u32,
+    expected_profile_hash: &[u8; 32],
     skip_hash: bool,
 ) -> Result<Guest<'a>, GuestError> {
     let package = Package::parse(bytes, skip_hash)?;
@@ -246,6 +325,9 @@ pub fn select_guest<'a>(
         .ok_or(GuestError::MissingVariant)?;
     if variant.host_abi != host_abi {
         return Err(GuestError::HostAbiMismatch);
+    }
+    if variant.profile_hash != *expected_profile_hash {
+        return Err(GuestError::ProfileHashMismatch);
     }
     let identity = variant.identity()?.ok_or(GuestError::MissingIdentity)?;
     let plan = variant
@@ -403,7 +485,7 @@ mod tests {
 
     #[test]
     fn admits_a_complete_guest_for_an_exact_host() {
-        let guest = select_guest(FIXTURE, "psp", 1, false).unwrap();
+        let guest = select_guest(FIXTURE, "psp", 1, &[0x11; 32], false).unwrap();
         assert_eq!(guest.js.last(), Some(&0));
         assert!(!guest.id.is_empty());
         assert!(!guest.plan.is_empty());
@@ -415,11 +497,11 @@ mod tests {
     #[test]
     fn rejects_target_and_host_abi_drift() {
         assert!(matches!(
-            select_guest(FIXTURE, "3ds-dev", 8, false),
+            select_guest(FIXTURE, "3ds-dev", 8, &[0x11; 32], false),
             Err(GuestError::MissingVariant)
         ));
         assert!(matches!(
-            select_guest(FIXTURE, "psp", 8, false),
+            select_guest(FIXTURE, "psp", 8, &[0x11; 32], false),
             Err(GuestError::HostAbiMismatch)
         ));
     }

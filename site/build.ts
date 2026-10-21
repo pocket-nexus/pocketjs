@@ -50,6 +50,9 @@ import {
 import { emitSingleLodStagePackage } from "./stage-package.ts";
 import { renderHomeShowcase } from "./home-showcase.ts";
 import { SHOWCASE_APPS } from "./showcase.ts";
+import pspProfile from "../profiles/psp.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { decodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname; // repo root
 const SITE = ROOT + "site/";
@@ -602,16 +605,22 @@ async function main() {
     apps: { output: string; id: string; title: string }[];
   };
   const stageApps = ["launcher-main", ...launcherRegistry.apps.map((a) => a.output)];
+  const stageProfileHash = hashPocketProfile(pspProfile);
   for (const output of stageApps) {
     const source = ROOT + `dist/packages/${output}.pocket`;
     if (!existsSync(source)) {
       throw new Error(`missing dist/packages/${output}.pocket — run: bun tools/launcher.ts pack`);
+    }
+    const variant = findVariant(decodePocketPackage(new Uint8Array(readFileSync(source))), "psp");
+    if (!variant || variant.profileHash !== stageProfileHash) {
+      throw new Error(`stage package ${output} does not match the PSP software profile; rebuild it`);
     }
     copy(source, `stage/apps/${output}.pocket`);
   }
   write(
     "stage/apps/apps.json",
     JSON.stringify({
+      target: "psp", hostAbi: 1, profileHash: stageProfileHash,
       apps: launcherRegistry.apps.map(({ output, id, title }) => ({ output, id, title })),
     }),
   );

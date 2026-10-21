@@ -29,10 +29,13 @@ pub struct LoadedPackage {
 }
 
 impl LoadedPackage {
+    /// The expected hash comes from the program profile exported at build
+    /// time, never from this source or a selected package variant.
     pub fn load(
         source: &mut dyn PackageSource,
         target: &str,
         host_abi: u32,
+        expected_profile_hash: &[u8; 32],
         byte_limit: usize,
     ) -> Result<Self, LoadError> {
         let length = source.length().map_err(LoadError::Source)?;
@@ -70,11 +73,22 @@ impl LoadedPackage {
         }
         // Never trust embedding as a reason to skip the footer check. All
         // sources pass through the same admission path.
-        Self::from_bytes(bytes.into_boxed_slice(), target, host_abi)
+        Self::from_bytes(
+            bytes.into_boxed_slice(),
+            target,
+            host_abi,
+            expected_profile_hash,
+        )
     }
 
-    pub fn from_bytes(bytes: Box<[u8]>, target: &str, host_abi: u32) -> Result<Self, LoadError> {
-        let guest = select_guest(&bytes, target, host_abi, false).map_err(LoadError::Admission)?;
+    pub fn from_bytes(
+        bytes: Box<[u8]>,
+        target: &str,
+        host_abi: u32,
+        expected_profile_hash: &[u8; 32],
+    ) -> Result<Self, LoadError> {
+        let guest = select_guest(&bytes, target, host_abi, expected_profile_hash, false)
+            .map_err(LoadError::Admission)?;
         let range = |part: &[u8]| {
             if part.is_empty() {
                 return 0..0;
@@ -145,23 +159,30 @@ mod tests {
     }
     #[test]
     fn memory_and_short_range_reads_have_identical_admission() {
-        let memory =
-            LoadedPackage::load(&mut MemorySource(FIXTURE), "psp", 1, FIXTURE.len()).unwrap();
-        let ranges = LoadedPackage::load(&mut ShortReads, "psp", 1, FIXTURE.len()).unwrap();
+        let memory = LoadedPackage::load(
+            &mut MemorySource(FIXTURE),
+            "psp",
+            1,
+            &[0x11; 32],
+            FIXTURE.len(),
+        )
+        .unwrap();
+        let ranges =
+            LoadedPackage::load(&mut ShortReads, "psp", 1, &[0x11; 32], FIXTURE.len()).unwrap();
         assert_eq!(memory.bytes(), ranges.bytes());
         assert_eq!(memory.javascript(), ranges.javascript());
         assert_eq!(memory.pak(), ranges.pak());
         assert!(matches!(
-            LoadedPackage::load(&mut ShortReads, "psp", 1, FIXTURE.len() - 1),
+            LoadedPackage::load(&mut ShortReads, "psp", 1, &[0x11; 32], FIXTURE.len() - 1),
             Err(LoadError::TooLarge)
         ));
     }
     #[test]
     fn owned_package_survives_source_mutation_and_bad_hash_is_rejected() {
         let mut source = MemorySource(FIXTURE.to_vec());
-        let package = LoadedPackage::load(&mut source, "psp", 1, usize::MAX).unwrap();
+        let package = LoadedPackage::load(&mut source, "psp", 1, &[0x11; 32], usize::MAX).unwrap();
         source.0.fill(0);
         assert_eq!(package.bytes(), FIXTURE);
-        assert!(LoadedPackage::load(&mut source, "psp", 1, usize::MAX).is_err());
+        assert!(LoadedPackage::load(&mut source, "psp", 1, &[0x11; 32], usize::MAX).is_err());
     }
 }

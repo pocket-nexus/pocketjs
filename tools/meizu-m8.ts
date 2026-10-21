@@ -1,3 +1,4 @@
+import { writeHostProfileHeader } from "./host-profile.ts";
 import { createHash, randomBytes } from "node:crypto";
 import {
   cpSync,
@@ -341,6 +342,7 @@ function buildRuntime(): void {
     );
   }
 
+  writeHostProfileHeader(nativeBuild, inputs.profile);
   mustRun("docker", [
     "run",
     "--rm",

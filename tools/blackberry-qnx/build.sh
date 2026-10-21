@@ -65,6 +65,7 @@ first_party_flags=(
 
 "$qcc" "${first_party_flags[@]}" \
   -DPOCKETJS_TARGET_ID=\""$POCKETJS_TARGET_ID"\" \
+  -include /build/pocket_host_profile.h \
   -DPOCKETJS_HOST_ABI="$POCKETJS_HOST_ABI" \
   -DPOCKET_RASTER_DENSITY="$POCKET_RASTER_DENSITY" \
   -I/repo/engine/quickjs-c \

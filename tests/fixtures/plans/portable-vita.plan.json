@@ -1,4 +1,34 @@
 {
+  "profile": {
+    "id": "vita",
+    "platform": "vita",
+    "form": "takeover",
+    "tickHz": 60,
+    "display": {
+      "physicalViewport": [
+        960,
+        544
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "integer-fit"
+      ],
+      "rasterDensity": 2
+    },
+    "capabilities": [
+      "input.analog.left",
+      "input.buttons",
+      "input.cursor",
+      "input.touch",
+      "text.glyphs.baked"
+    ]
+  },
+  "profileHash": "sha256:041a2ca9259377a5daece00c447eb488c7310a250e676d2ebeda3c916a57f656",
   "app": {
     "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
@@ -55,5 +85,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:cb64176ad42142c870ed6d2719bad75c1beb6d8c8288c126fc97f32c290d0466"
+  "planHash": "sha256:74b24e894b31d9e099285e80d4744ec55adb28811341b349e6bd085b74c56072"
 }

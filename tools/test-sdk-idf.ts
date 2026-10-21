@@ -42,11 +42,11 @@ ui.setProp(box,${PROP.width},8);ui.setProp(box,${PROP.height},8);ui.setProp(box,
 ui.setProp(box,${PROP.insetL},3);ui.setProp(box,${PROP.insetT},5);ui.setProp(box,${PROP.bgColor},0xff0000ff);
 globalThis.frame=(buttons)=>ui.setProp(box,${PROP.bgColor},buttons?0xff00ff00:0xff0000ff);
 `;
-// Maintained fixture for the current package contract. Phase 7 changes package
-// identity separately; this fixture does not introduce a new package format.
+// Maintained fixture for the current package contract and independent profile.
 function packageBytes(): Uint8Array {
   const bytes = (text: string) => new TextEncoder().encode(text);
-  return encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "external-idf", hostAbi: 1, sections: [
+  return encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "external-idf", hostAbi: 1,
+    profileHash: `sha256:${sha256(profile)}`, sections: [
     { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
     { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[32,24],"rasterDensity":1},"features":{}}') },
     { kind: POCKET_SECTION.js, bytes: bytes(script + "\0") },

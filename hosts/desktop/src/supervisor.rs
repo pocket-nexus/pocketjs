@@ -132,6 +132,11 @@ impl AppSupervisor {
             std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
         let mut program = UiProgram::new(ProgramConfig {
+            profile: pocket_ui_surface::program_profile::from_build_inputs(
+                option_env!("POCKETJS_PROFILE_JSON"),
+                option_env!("POCKETJS_PROFILE_HASH"),
+            )
+            .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
             host: &plan.target.id,
             host_abi: plan.target.host_abi,
             logical: plan.viewport.logical,

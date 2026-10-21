@@ -133,6 +133,7 @@ mod tests {
         use pocket_ui_wgpu::ProgramConfig;
         let gpu = Gpu::new_headless().unwrap();
         let program = UiProgram::new(ProgramConfig {
+            profile: None,
             host: "macos-embedded",
             host_abi: 3,
             logical: [8, 4],

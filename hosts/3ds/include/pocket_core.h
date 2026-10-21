@@ -35,13 +35,16 @@ typedef struct {
 
 /* 0 = admitted. The package footer, target, host ABI, identity, plan and
  * NUL-terminated JS section are all checked before success; 13, 14 and 15
- * name a plan whose JSON, viewport or auxiliary surface cannot be read. */
+ * name a plan whose JSON, viewport or auxiliary surface cannot be read.
+ * 16 = profile mismatch; 17 = malformed layout. The expected profile hash
+ * is compiled into the program, never read from the package. */
 int32_t pocket_package_open(
   const uint8_t *bytes,
   size_t length,
   const uint8_t *target,
   size_t target_length,
   uint32_t host_abi,
+  const uint8_t expected_profile_hash[32],
   PocketGuestPackage *out
 );
 

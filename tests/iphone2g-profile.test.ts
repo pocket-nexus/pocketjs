@@ -40,6 +40,7 @@ describe("private iPhone 2G build profile", () => {
   test("stays private and describes the original device display", () => {
     expect(POCKET_TARGETS).not.toHaveProperty(IPHONE2G_DEV_TARGET_ID);
     expect(IPHONE2G_DEV_CONTRACTS.targets[IPHONE2G_DEV_TARGET_ID]).toEqual({
+      tickHz: 60,
       hostAbi: IPHONE2G_DEV_HOST_ABI,
       platform: "ios",
       form: "takeover",

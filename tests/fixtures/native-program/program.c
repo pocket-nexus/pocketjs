@@ -59,8 +59,17 @@ int main(void) {
     "if(buttons!==17 || analog!==0x8080 || touches.length!==1 || hits.length!==1 || surfaces[0]!==0) throw Error('input');"
     "if((touches[0]>>>0)!==((0x80000000|(7<<20)|(200<<10)|600)>>>0)) throw Error('coordinate');"
     "};";
-  program = pocket_native_program_create("symbian-e7-dev", 4, (const uint8_t *)source,
-    sizeof source - 1, NULL, 0, 360, 640, 1, 0);
+  uint8_t wrong_hash[32]; memcpy(wrong_hash, POCKETJS_HOST_PROFILE_HASH, 32); wrong_hash[0] ^= 1;
+  assert(!pocket_native_program_create_package("symbian-e7-dev", 4, fixture_package, sizeof fixture_package,
+    "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
+    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, wrong_hash));
+  program = pocket_native_program_create_package("symbian-e7-dev", 4, fixture_package, sizeof fixture_package,
+    "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
+    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH);
+  assert(program); pocket_native_program_destroy(program); program = NULL;
+  program = pocket_native_program_create_profile("symbian-e7-dev", 4, (const uint8_t *)source,
+    sizeof source - 1, NULL, 0, 360, 640, 1, 0,
+    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH);
   assert(program);
   JSRuntime *engine = JS_NewRuntime(); assert(engine);
   context = JS_NewContext(engine); assert(context);

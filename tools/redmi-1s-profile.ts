@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/redmi-1s-dev.ts";
+import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -19,27 +21,16 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * The phone has no game keys: `input.buttons` is absent, as it is for the
  * iPod touch 4, and an app that requires it does not resolve.
  */
-export const REDMI_1S_TARGET = "redmi-1s-dev";
-export const REDMI_1S_HOST_ABI = 9;
-export const REDMI_1S_LOGICAL_VIEWPORT = [360, 640] as const;
-export const REDMI_1S_PHYSICAL_VIEWPORT = [720, 1280] as const;
-export const REDMI_1S_RASTER_DENSITY = 2;
+export const REDMI_1S_TARGET = softwareProfile.id;
+export const REDMI_1S_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const REDMI_1S_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
+export const REDMI_1S_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
+export const REDMI_1S_RASTER_DENSITY = softwareProfile.display.rasterDensity;
 
 export const REDMI_1S_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [REDMI_1S_TARGET]: {
-      hostAbi: REDMI_1S_HOST_ABI,
-      platform: "android",
-      form: "takeover",
-      display: {
-        physicalViewport: REDMI_1S_PHYSICAL_VIEWPORT,
-        logicalViewports: [REDMI_1S_LOGICAL_VIEWPORT],
-        presentations: ["native"],
-        rasterDensity: REDMI_1S_RASTER_DENSITY,
-      },
-      capabilities: ["input.touch", "text.glyphs.baked", "io.offload"],
-    },
+    [REDMI_1S_TARGET]: legacyTargetProfile(softwareProfile),
   }),
 );
 

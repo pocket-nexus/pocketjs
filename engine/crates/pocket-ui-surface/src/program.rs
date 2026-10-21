@@ -16,6 +16,9 @@ use serde_json::json;
 use crate::UiSurface;
 
 pub struct ProgramConfig<'a> {
+    /// Independent exported profile, supplied by the program. Raw JS/pak
+    /// adapters can use None to describe their explicit local configuration.
+    pub profile: Option<pocket_package::profile::BuildProfile<'a>>,
     pub host: &'a str,
     pub host_abi: u32,
     pub logical: [u32; 2],
@@ -38,6 +41,7 @@ pub struct UiProgram {
 struct OwnedConfig {
     host: String,
     host_abi: u32,
+    profile_hash: [u8; 32],
     logical: [u32; 2],
     density: u32,
     tick_hz: u32,
@@ -56,14 +60,21 @@ impl UiProgram {
                 .checked_mul(config.scale)
                 .ok_or_else(|| anyhow!("viewport overflow"))?,
         ];
-        let profile = serde_json::to_vec(&json!({
+        let fallback = serde_json::to_vec(&json!({
             "id":config.host,"platform":config.host,"form":"native","tickHz":config.tick_hz,
             "display":{"physicalViewport":physical,"logicalViewports":[config.logical],"rasterDensity":config.density},
             "capabilities":["input.buttons","input.analog.left","input.touch","text.layout.baked","ui.physics"],
             "roleCapabilities":{}
         }))?;
+        let (profile, profile_hash) = match config.profile {
+            Some(profile) => (profile.json.to_vec(), profile.hash),
+            None => {
+                let hash = pocket_package::sha256::sha256(&fallback);
+                (fallback, hash)
+            }
+        };
         let mut runtime = Runtime::new(RuntimeConfig {
-            profile_hash: pocket_package::sha256::sha256(&profile),
+            profile_hash,
             profile_json: profile,
             host_abi: config.host_abi,
             tick_hz: config.tick_hz,
@@ -86,6 +97,7 @@ impl UiProgram {
             config: OwnedConfig {
                 host: config.host.to_owned(),
                 host_abi: config.host_abi,
+                profile_hash,
                 logical: config.logical,
                 density: config.density,
                 tick_hz: config.tick_hz,
@@ -132,6 +144,7 @@ impl UiProgram {
         let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
             target: &config.host,
             host_abi: config.host_abi,
+            profile_hash: config.profile_hash,
             identity: &identity,
             plan: &plan,
             code: source.as_bytes(),
@@ -307,8 +320,15 @@ mod tests {
         }
     }
     fn program() -> (UiProgram, Rc<RefCell<usize>>) {
+        program_with_profile("native-test", None)
+    }
+    fn program_with_profile(
+        host: &str,
+        profile: Option<pocket_package::profile::BuildProfile<'_>>,
+    ) -> (UiProgram, Rc<RefCell<usize>>) {
         let mut program = UiProgram::new(ProgramConfig {
-            host: "native-test",
+            profile,
+            host,
             host_abi: 9,
             logical: [16, 16],
             density: 1,
@@ -330,6 +350,46 @@ mod tests {
             )
             .unwrap();
         (program, count)
+    }
+    #[test]
+    fn two_programs_accept_independent_profiles_in_one_binary() {
+        let profile = |id| {
+            serde_json::to_vec(&json!({
+                "id":id,"platform":"native-test","form":"native","tickHz":60,
+                "display":{"physicalViewport":[16,16],"logicalViewports":[[16,16]],"rasterDensity":1},
+                "capabilities":["input.buttons","input.analog.left","input.touch","text.layout.baked","ui.physics"],
+                "roleCapabilities":{}
+            })).unwrap()
+        };
+        let first_json = profile("first-program");
+        let second_json = profile("second-program");
+        let first_profile = pocket_package::profile::BuildProfile {
+            json: &first_json,
+            hash: pocket_package::sha256::sha256(&first_json),
+        };
+        let second_profile = pocket_package::profile::BuildProfile {
+            json: &second_json,
+            hash: pocket_package::sha256::sha256(&second_json),
+        };
+        let (mut first, first_count) = program_with_profile("first-program", Some(first_profile));
+        let (mut second, second_count) =
+            program_with_profile("second-program", Some(second_profile));
+        assert_ne!(first.config.profile_hash, second.config.profile_hash);
+        for (program, host) in [
+            (&mut first, "first-program"),
+            (&mut second, "second-program"),
+        ] {
+            program.boot(
+                Rc::new(Guest::new().unwrap()),
+                host,
+                &format!("if(ui.__host!=={host:?})throw Error('wrong profile');globalThis.frame=()=>{{}}"),
+                &[],
+            ).unwrap();
+            program.advance().unwrap();
+            program.present().unwrap();
+        }
+        assert_eq!(*first_count.borrow(), 1);
+        assert_eq!(*second_count.borrow(), 1);
     }
     #[test]
     fn full_runtime_mounts_one_context_and_preserves_services_metadata_and_jobs() {

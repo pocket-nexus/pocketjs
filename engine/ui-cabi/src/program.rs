@@ -277,6 +277,7 @@ unsafe fn create(
     density: u32,
     physics: u32,
     original_package: Option<&[u8]>,
+    trusted_profile: Option<(&[u8], [u8; 32])>,
 ) -> Result<Box<PocketNativeProgram>, i32> {
     if target.is_null()
         || width == 0
@@ -299,7 +300,27 @@ unsafe fn create(
         .checked_mul(height as usize)
         .and_then(|n| n.checked_mul(4))
         .ok_or(POCKET_STATUS_INVALID)?;
-    let profile=serde_json::to_vec(&serde_json::json!({"id":target,"platform":target,"form":"embedded","tickHz":60,"display":{"physicalViewport":[width,height],"logicalViewports":[[width,height]],"rasterDensity":density},"capabilities":["input.buttons","input.analog.left","input.touch"],"roleCapabilities":{}})).map_err(|_|POCKET_STATUS_FAILED)?;
+    let fallback_profile;
+    let (profile, profile_hash) = match trusted_profile {
+        Some(profile) => profile,
+        None => {
+            // Explicit private adapter for callers supplying raw JS/pak spans.
+            fallback_profile = serde_json::to_vec(&serde_json::json!({"id":target,"platform":target,"form":"embedded","tickHz":60,"display":{"physicalViewport":[width,height],"logicalViewports":[[width,height]],"rasterDensity":density},"capabilities":["input.buttons","input.analog.left","input.touch"],"roleCapabilities":{}})).map_err(|_|POCKET_STATUS_FAILED)?;
+            let hash = pocket_package::sha256::sha256(&fallback_profile);
+            (fallback_profile.as_slice(), hash)
+        }
+    };
+    let profile_value: serde_json::Value =
+        serde_json::from_slice(profile).map_err(|_| POCKET_STATUS_INVALID)?;
+    if profile_value["id"].as_str() != Some(target)
+        || profile_value["display"]["rasterDensity"].as_u64() != Some(density as u64)
+    {
+        return Err(POCKET_STATUS_INVALID);
+    }
+    let tick_hz = profile_value["tickHz"]
+        .as_u64()
+        .and_then(|n| u32::try_from(n).ok())
+        .ok_or(POCKET_STATUS_INVALID)?;
     let plan=serde_json::to_vec(&serde_json::json!({"viewport":{"logical":[width,height],"rasterDensity":density},"features":{"ui.physics":physics!=0}})).map_err(|_|POCKET_STATUS_FAILED)?;
     let identity = pocket_package::embedded::identity(
         "embedded",
@@ -313,6 +334,7 @@ unsafe fn create(
         pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
             target,
             host_abi,
+            profile_hash,
             identity: &identity,
             plan: &plan,
             code,
@@ -321,9 +343,9 @@ unsafe fn create(
         .map_err(|_| POCKET_STATUS_INVALID)?
     };
     let config = PocketRuntimeConfig {
-        profile_hash: pocket_package::sha256::sha256(&profile),
+        profile_hash,
         host_abi,
-        tick_hz: 60,
+        tick_hz,
         heap_limit: 128 * 1024 * 1024,
         frame_buffer_budget: length,
         profile_json: profile.as_ptr(),
@@ -395,8 +417,9 @@ unsafe fn create(
     {
         let renderer = unsafe { embed::add_renderer(runtime, gpu::Render(program.gl.clone())) }?;
         check(unsafe { embed::add_display(runtime, gpu::Display(program.gl.clone()), renderer) })?;
-        check(unsafe { embed::allow_embedded_viewport_changes(runtime) })?;
     }
+    // Native hosts own the final presentation transform, including logical-sized CPU buffers.
+    check(unsafe { embed::allow_embedded_viewport_changes(runtime) })?;
     program.attached = true;
     unsafe { pocket_runtime_cabi::compat::ui::attach_context(Some(program.ops.clone())) };
     Ok(program)
@@ -429,10 +452,68 @@ pub unsafe extern "C" fn pocket_native_program_create(
             density,
             physics,
             None,
+            None,
         )
     }
     .map(Box::into_raw)
     .unwrap_or(ptr::null_mut())
+}
+/// # Safety
+/// Input spans are readable. The profile comes from the host build, not its package.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_native_program_create_profile(
+    target: *const c_char,
+    host_abi: u32,
+    code: *const u8,
+    code_length: usize,
+    pak: *const u8,
+    pak_length: usize,
+    width: u32,
+    height: u32,
+    density: u32,
+    physics: u32,
+    profile_json: *const u8,
+    profile_length: usize,
+    profile_hash: *const u8,
+) -> *mut PocketNativeProgram {
+    let checked = || -> Result<Box<PocketNativeProgram>, i32> {
+        let profile = unsafe { trusted_profile(profile_json, profile_length, profile_hash) }?;
+        unsafe {
+            create(
+                target,
+                host_abi,
+                code,
+                code_length,
+                pak,
+                pak_length,
+                width,
+                height,
+                density,
+                physics,
+                None,
+                Some(profile),
+            )
+        }
+    };
+    checked().map(Box::into_raw).unwrap_or(ptr::null_mut())
+}
+unsafe fn trusted_profile<'a>(
+    json: *const u8,
+    length: usize,
+    hash: *const u8,
+) -> Result<(&'a [u8], [u8; 32]), i32> {
+    if hash.is_null() || length == 0 {
+        return Err(POCKET_STATUS_INVALID);
+    }
+    let profile =
+        unsafe { pocket_runtime_cabi::adapters::borrowed(json, length) }.map_err(|e| e.status())?;
+    let hash: [u8; 32] = unsafe { core::slice::from_raw_parts(hash, 32) }
+        .try_into()
+        .unwrap();
+    if pocket_package::sha256::sha256(profile) != hash {
+        return Err(POCKET_STATUS_INVALID);
+    }
+    Ok((profile, hash))
 }
 /// # Safety
 /// Strings are terminated UTF-8; package is readable for length bytes. The
@@ -450,6 +531,9 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
     height: u32,
     density: u32,
     physics: u32,
+    profile_json: *const u8,
+    profile_length: usize,
+    profile_hash: *const u8,
 ) -> *mut PocketNativeProgram {
     let checked = || -> Result<Box<PocketNativeProgram>, i32> {
         let string = |pointer: *const c_char| -> Result<&str, i32> {
@@ -460,6 +544,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
                 .to_str()
                 .map_err(|_| POCKET_STATUS_INVALID)
         };
+        let profile = unsafe { trusted_profile(profile_json, profile_length, profile_hash) }?;
         let target_name = string(target)?;
         let bytes = unsafe { pocket_runtime_cabi::adapters::borrowed(bytes, length) }
             .map_err(|error| error.status())?;
@@ -479,7 +564,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
         {
             return Err(POCKET_STATUS_INVALID);
         }
-        let guest = pocket_package::select_guest(bytes, target_name, host_abi, false)
+        let guest = pocket_package::select_guest(bytes, target_name, host_abi, &profile.1, false)
             .map_err(|_| POCKET_STATUS_INVALID)?;
         let facts = pocket_package::plan_facts(guest.plan).map_err(|_| POCKET_STATUS_INVALID)?;
         if [facts.viewport.width, facts.viewport.height] != [width, height]
@@ -502,6 +587,7 @@ pub unsafe extern "C" fn pocket_native_program_create_package(
                 density,
                 physics,
                 Some(bytes),
+                Some(profile),
             )
         }
     };
@@ -1072,6 +1158,8 @@ mod tests {
     #[test]
     fn original_package_admission_preserves_plan_and_copies_source() {
         let _lock = SERIAL.lock().unwrap();
+        let profile = serde_json::to_vec(&serde_json::json!({"id":"qnx","platform":"qnx","form":"embedded","tickHz":60,"display":{"physicalViewport":[32,24],"logicalViewports":[[32,24]],"rasterDensity":1},"capabilities":["input.buttons"],"roleCapabilities":{}})).unwrap();
+        let profile_hash = pocket_package::sha256::sha256(&profile);
         let package = |physics: bool| {
             let identity =
                 pocket_package::embedded::identity("fixture", "dev.fixture", "Fixture").unwrap();
@@ -1079,6 +1167,7 @@ mod tests {
             pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
                 target: "qnx",
                 host_abi: 1,
+                profile_hash,
                 identity: &identity,
                 plan: &plan,
                 code: b"fixture",
@@ -1100,6 +1189,9 @@ mod tests {
                     24,
                     density,
                     physics,
+                    profile.as_ptr(),
+                    profile.len(),
+                    profile_hash.as_ptr(),
                 )
             };
             let bytes = package(false);
@@ -1122,6 +1214,46 @@ mod tests {
             let last = corrupt.len() - 1;
             corrupt[last] ^= 1;
             assert!(create(&corrupt, c"qnx".as_ptr(), 1, c"Fixture".as_ptr(), 32, 1, 1).is_null());
+            let mut wrong_hash = profile_hash;
+            wrong_hash[0] ^= 1;
+            assert!(pocket_native_program_create_package(
+                c"qnx".as_ptr(),
+                1,
+                bytes.as_ptr(),
+                bytes.len(),
+                c"fixture".as_ptr(),
+                c"dev.fixture".as_ptr(),
+                c"Fixture".as_ptr(),
+                32,
+                24,
+                1,
+                1,
+                profile.as_ptr(),
+                profile.len(),
+                wrong_hash.as_ptr()
+            )
+            .is_null());
+            let changed_profile = core::str::from_utf8(&profile)
+                .unwrap()
+                .replace("embedded", "window");
+            let changed_hash = pocket_package::sha256::sha256(changed_profile.as_bytes());
+            assert!(pocket_native_program_create_package(
+                c"qnx".as_ptr(),
+                1,
+                bytes.as_ptr(),
+                bytes.len(),
+                c"fixture".as_ptr(),
+                c"dev.fixture".as_ptr(),
+                c"Fixture".as_ptr(),
+                32,
+                24,
+                1,
+                1,
+                changed_profile.as_ptr(),
+                changed_profile.len(),
+                changed_hash.as_ptr()
+            )
+            .is_null());
             let p = create(&bytes, c"qnx".as_ptr(), 1, c"Fixture".as_ptr(), 32, 1, 1);
             assert!(!p.is_null());
             drop(bytes);

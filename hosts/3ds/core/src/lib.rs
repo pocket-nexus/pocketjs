@@ -52,6 +52,8 @@ fn package_error_code(error: GuestError) -> i32 {
         GuestError::Package(PackageError::BadVersion) => 3,
         GuestError::Package(PackageError::HashMismatch) => 4,
         GuestError::Package(PackageError::BadUtf8) => 5,
+        GuestError::Package(PackageError::BadLayout) => 17,
+        GuestError::ProfileHashMismatch => 16,
         GuestError::MissingVariant => 6,
         GuestError::HostAbiMismatch => 7,
         GuestError::MissingIdentity => 8,
@@ -61,10 +63,11 @@ fn package_error_code(error: GuestError) -> i32 {
     }
 }
 
-/// Verify a complete `.pocket` and select one exact target/ABI variant.
+/// Verify a complete `.pocket` for an independent target/ABI/profile identity.
 /// Returns 0 on success; non-zero codes are stable for the C runtime's status
 /// and recovery files (12 is a bad pointer or non-UTF-8 target argument;
-/// 13-15 a plan whose JSON, viewport or auxiliary surface cannot be read).
+/// 13-15 a plan whose JSON, viewport or auxiliary surface cannot be read;
+/// 16 a profile mismatch; 17 a malformed layout).
 #[no_mangle]
 pub unsafe extern "C" fn pocket_package_open(
     ptr: *const u8,
@@ -72,6 +75,7 @@ pub unsafe extern "C" fn pocket_package_open(
     target_ptr: *const u8,
     target_len: usize,
     host_abi: u32,
+    expected_profile_hash: *const u8,
     out: *mut PocketGuestPackage,
 ) -> i32 {
     if ptr.is_null()
@@ -80,6 +84,7 @@ pub unsafe extern "C" fn pocket_package_open(
         || target_ptr.is_null()
         || target_len == 0
         || target_len > isize::MAX as usize
+        || expected_profile_hash.is_null()
         || out.is_null()
     {
         return 12;
@@ -88,7 +93,9 @@ pub unsafe extern "C" fn pocket_package_open(
         Ok(value) if !value.is_empty() => value,
         _ => return 12,
     };
-    let guest = match select_guest(bytes(ptr, len), target, host_abi, false) {
+    let mut profile_hash = [0; 32];
+    profile_hash.copy_from_slice(bytes(expected_profile_hash, 32));
+    let guest = match select_guest(bytes(ptr, len), target, host_abi, &profile_hash, false) {
         Ok(guest) => guest,
         Err(error) => return package_error_code(error),
     };

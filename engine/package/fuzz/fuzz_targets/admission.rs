@@ -25,13 +25,19 @@ fuzz_target!(|data: &[u8]| {
             for i in 0..package.variant_count() {
                 if let Ok(variant) = package.variant(i) {
                     let _ = variant.identity();
-                    let _ = select_guest(data, variant.target, variant.host_abi, skip_hash);
+                    let _ = select_guest(
+                        data,
+                        variant.target,
+                        variant.host_abi,
+                        &[0x11; 32],
+                        skip_hash,
+                    );
                 }
             }
         }
     }
-    let memory = LoadedPackage::load(&mut MemorySource(data), "psp", 1, 8192);
-    let range = LoadedPackage::load(&mut Chunks(data), "psp", 1, 8192);
+    let memory = LoadedPackage::load(&mut MemorySource(data), "psp", 1, &[0x11; 32], 8192);
+    let range = LoadedPackage::load(&mut Chunks(data), "psp", 1, &[0x11; 32], 8192);
     assert_eq!(memory.is_ok(), range.is_ok());
     if let (Ok(memory), Ok(range)) = (memory, range) {
         assert_eq!(memory.bytes(), range.bytes());

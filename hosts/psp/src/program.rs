@@ -117,15 +117,16 @@ impl Runtime {
         clock: Rc<Cell<u32>>,
     ) -> Result<Self, String> {
         let _fpu = crate::host::FpuGuard::masked();
-        let profile = instance::profile();
+        let profile = instance::build_profile()?
+            .ok_or("PSP runtime requires exported profile build inputs")?;
         let config = PocketRuntimeConfig {
-            profile_hash: pocket_package::sha256::sha256(&profile),
+            profile_hash: profile.hash,
             host_abi: env!("POCKETJS_HOST_ABI").parse().unwrap(),
             tick_hz: 60,
             heap_limit: 128 * 1024 * 1024,
             frame_buffer_budget: 1,
-            profile_json: profile.as_ptr(),
-            profile_json_length: profile.len(),
+            profile_json: profile.json.as_ptr(),
+            profile_json_length: profile.json.len(),
             ..PocketRuntimeConfig::empty()
         };
         let handle = pocket_runtime_cabi::pocket_runtime_create(&config);

@@ -154,7 +154,7 @@ impl Program {
         p
     }
     unsafe fn unbooted() -> Self {
-        let profile = instance::profile();
+        let profile = instance::profile().unwrap();
         let mut config = PocketRuntimeConfig::empty();
         config.profile_hash = pocket_package::sha256::sha256(&profile);
         config.host_abi = 2;
@@ -225,6 +225,7 @@ fn original_package(target: &str, abi: u32, plan: &[u8]) -> Vec<u8> {
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
         target,
         host_abi: abi,
+        profile_hash: pocket_package::sha256::sha256(&instance::profile().unwrap()),
         identity: &identity,
         plan,
         code: br#"globalThis.started=true;globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('original feature lost');"#,
@@ -257,7 +258,13 @@ fn original_package_plan_controls_generated_capability_namespaces() {
 fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
     let mut corrupt = original_package("vita", 2, ORIGINAL_PLAN);
     *corrupt.last_mut().unwrap() ^= 1;
+    let mut wrong_profile = original_package("vita", 2, ORIGINAL_PLAN);
+    wrong_profile[64] ^= 1; // variant starts at 32; profile hash is its offset 32.
+    let end = wrong_profile.len() - 8;
+    let hash = pocket_package::package::fnv1a64(&[&wrong_profile[..end]]);
+    wrong_profile[end..].copy_from_slice(&hash.to_le_bytes());
     for (reason, package) in [
+        ("profile", wrong_profile),
         ("footer", corrupt),
         ("ABI", original_package("vita", 99, ORIGINAL_PLAN)),
         ("target", original_package("psp", 2, ORIGINAL_PLAN)),

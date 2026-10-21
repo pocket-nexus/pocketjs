@@ -37,6 +37,7 @@ describe("private iPhone 4S profile", () => {
   test("pins the exact Retina iOS 6 takeover surface", () => {
     expect(POCKET_TARGETS).not.toHaveProperty(IPHONE4S_DEV_TARGET_ID);
     expect(IPHONE4S_DEV_CONTRACTS.targets[IPHONE4S_DEV_TARGET_ID]).toEqual({
+      tickHz: 60,
       hostAbi: IPHONE4S_DEV_HOST_ABI,
       platform: "ios",
       form: "takeover",

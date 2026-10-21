@@ -9,11 +9,12 @@
 
 mod dbg;
 mod pak;
-mod surface;
 mod program;
+mod surface;
+pub use pocket_package::profile as program_profile;
 pub use program::{ProgramConfig, UiProgram};
 
-pub use pak::{PakEntry, find_pak, walk_pak};
+pub use pak::{find_pak, walk_pak, PakEntry};
 pub use surface::UiSurface;
 
 pub mod offload;

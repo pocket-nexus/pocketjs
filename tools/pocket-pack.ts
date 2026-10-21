@@ -25,6 +25,7 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import {
   canonicalJson,
   verifyPlanHash,
+  verifyPlanProfile,
   type ResolvedBuildPlan,
 } from "../framework/src/manifest/plan.ts";
 import {
@@ -73,7 +74,7 @@ export function makeVariant(input: {
   cover?: Uint8Array;
 }): PocketPackageVariant {
   const plan = JSON.parse(input.planJson) as ResolvedBuildPlan;
-  if (!verifyPlanHash(plan) || plan.target.id !== input.target ||
+  if (!verifyPlanHash(plan) || !verifyPlanProfile(plan) || plan.target.id !== input.target ||
     plan.target.hostAbi !== input.hostAbi || plan.app.output !== input.identity.output ||
     plan.app.id !== input.identity.id || plan.app.title !== input.identity.title) {
     throw new Error(`pocket-pack: ${input.target} plan and variant identity differ`);
@@ -90,6 +91,9 @@ export function makeVariant(input: {
   if (input.cover) sections.push({ kind: POCKET_SECTION.cover, bytes: input.cover });
   const idfHost = readIdfHostExtension(plan.hostExtension);
   if (idfHost) {
+    if (idfHost.profileHash !== plan.profileHash || idfHost.tickHz !== plan.profile.tickHz) {
+      throw new Error(`pocket-pack: ${input.target} host extension and profile identity differ`);
+    }
     sections.push({
       kind: POCKET_SECTION.hostInputs,
       bytes: encodeHostInputs({
@@ -101,12 +105,12 @@ export function makeVariant(input: {
         physicalHeight: plan.viewport.physical[1],
         rasterDensity: plan.viewport.rasterDensity,
         presentation: plan.viewport.presentation,
-        profileHash: idfHost.profileHash,
+        profileHash: plan.profileHash,
         planHash: plan.planHash,
       }),
     });
   }
-  return { target: input.target, hostAbi: input.hostAbi, sections };
+  return { target: input.target, hostAbi: input.hostAbi, profileHash: plan.profileHash, sections };
 }
 
 /**
@@ -237,6 +241,7 @@ function inspectCommand(file: string): void {
   for (const v of pkg.variants) {
     const hash = fnv1a64(...v.sections.map((s) => s.bytes)).toString(16).padStart(16, "0");
     console.log(`  variant ${v.target} (abi ${v.hostAbi}) hash ${hash}`);
+    console.log(`    profile ${v.profileHash}`);
     const names: Record<number, string> = {
       1: "identity",
       2: "plan",
@@ -284,7 +289,8 @@ function verifyCommand(file: string): void {
       if (!planBytes) throw new Error(`verify: ESP-IDF variant ${v.target} has no plan`);
       const plan = JSON.parse(new TextDecoder().decode(planBytes)) as ResolvedBuildPlan;
       const idfHost = readIdfHostExtension(plan.hostExtension);
-      if (!verifyPlanHash(plan) || plan.target.id !== v.target || plan.target.hostAbi !== v.hostAbi || !idfHost) {
+      if (!verifyPlanHash(plan) || !verifyPlanProfile(plan) || plan.target.id !== v.target ||
+        plan.target.hostAbi !== v.hostAbi || plan.profileHash !== v.profileHash || !idfHost) {
         throw new Error(`verify: ESP-IDF variant ${v.target} has inconsistent plan identity`);
       }
       const inputs = decodeHostInputs(hostInputs);
@@ -292,7 +298,8 @@ function verifyCommand(file: string): void {
         inputs.logicalWidth !== plan.viewport.logical[0] || inputs.logicalHeight !== plan.viewport.logical[1] ||
         inputs.physicalWidth !== plan.viewport.physical[0] || inputs.physicalHeight !== plan.viewport.physical[1] ||
         inputs.rasterDensity !== plan.viewport.rasterDensity || inputs.presentation !== plan.viewport.presentation ||
-        inputs.profileHash !== idfHost.profileHash || inputs.planHash !== plan.planHash) {
+        inputs.profileHash !== idfHost.profileHash || inputs.profileHash !== plan.profileHash ||
+        inputs.tickHz !== plan.profile.tickHz || inputs.planHash !== plan.planHash) {
         throw new Error(`verify: ESP-IDF variant ${v.target} host inputs drifted`);
       }
       expectedPlan = plan;
@@ -303,6 +310,9 @@ function verifyCommand(file: string): void {
       }
       if (resolution.plan.target.hostAbi !== v.hostAbi) {
         throw new Error(`verify: variant ${v.target} hostAbi drifted`);
+      }
+      if (resolution.plan.profileHash !== v.profileHash) {
+        throw new Error(`verify: variant ${v.target} profileHash drifted`);
       }
       expectedPlan = resolution.plan;
     }

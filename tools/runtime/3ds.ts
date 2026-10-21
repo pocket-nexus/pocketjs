@@ -21,6 +21,8 @@ import { prepare3dsNative, run3dsMake } from "../3ds.ts";
 import { THREE_DS_DEV_HOST_ABI, THREE_DS_DEV_TARGET_ID } from "../3ds-profile.ts";
 import { THREE_DS_RUNTIME_FILE } from "../repack/3ds.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
+import profile from "../../profiles/3ds-dev.ts";
+import { canonicalProfileJson, hashPocketProfile } from "../../framework/src/profile.ts";
 
 const repository = resolvePath(new URL("../..", import.meta.url).pathname);
 
@@ -40,6 +42,8 @@ export async function buildRuntime3ds(argv: readonly string[] = []): Promise<str
     {
       POCKETJS_TARGET: THREE_DS_DEV_TARGET_ID,
       POCKETJS_HOST_ABI: String(THREE_DS_DEV_HOST_ABI),
+      POCKETJS_PROFILE_HASH: hashPocketProfile(profile),
+      POCKETJS_PROFILE_JSON: canonicalProfileJson(profile),
       POCKETJS_PICA_INCLUDE: containerPathFor(join(repository, "devices/3ds/pocket-3ds-pica/include"), native.mounts),
       POCKETJS_CORE_LIB: containerPathFor(native.coreLibrary, native.mounts),
       POCKETJS_QUICKJS_DIR: containerPathFor(native.quickJsDirectory, native.mounts),
@@ -65,6 +69,7 @@ export async function buildRuntime3ds(argv: readonly string[] = []): Promise<str
     target: THREE_DS_DEV_TARGET_ID,
     hostAbi: THREE_DS_DEV_HOST_ABI,
     profile: THREE_DS_DEV_TARGET_ID,
+    profileHash: hashPocketProfile(profile),
     files: [THREE_DS_RUNTIME_FILE],
   });
   console.log(`output: ${program} (${manifest.files[THREE_DS_RUNTIME_FILE]!.bytes} bytes, PocketJS ${manifest.pocketjs})`);

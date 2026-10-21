@@ -184,6 +184,7 @@ function makePackage(options: { id: string; title: string; target?: string; vers
       {
         target: options.target ?? "3ds-dev",
         hostAbi: 11,
+        profileHash: `sha256:${"11".repeat(32)}`,
         sections: [
           { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output, id: options.id, title: options.title }) },
           { kind: POCKET_SECTION.js, bytes: new TextEncoder().encode("globalThis.x=1;\0") },

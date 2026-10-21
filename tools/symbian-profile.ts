@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/symbian-e7-dev.ts";
+import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -16,37 +18,16 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * ui.physics (ops 52..56) is bound by hosts/nokia-e7/runtime/main.cpp for a
  * plan that resolved it; the guest ships inside its host's SIS.
  */
-export const SYMBIAN_E7_DEV_TARGET_ID = "symbian-e7-dev";
-export const SYMBIAN_E7_DEV_HOST_ABI = 4;
-export const SYMBIAN_E7_DEFAULT_VIEWPORT = [640, 360] as const;
-export const SYMBIAN_E7_MIN_VIEWPORT = [360, 360] as const;
-export const SYMBIAN_E7_MAX_VIEWPORT = [640, 640] as const;
+export const SYMBIAN_E7_DEV_TARGET_ID = softwareProfile.id;
+export const SYMBIAN_E7_DEV_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const SYMBIAN_E7_DEFAULT_VIEWPORT = softwareProfile.display.logicalViewports[0];
+export const SYMBIAN_E7_MIN_VIEWPORT = softwareProfile.display.dynamicViewport.min;
+export const SYMBIAN_E7_MAX_VIEWPORT = softwareProfile.display.dynamicViewport.max;
 
 export const SYMBIAN_E7_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [SYMBIAN_E7_DEV_TARGET_ID]: {
-      hostAbi: SYMBIAN_E7_DEV_HOST_ABI,
-      platform: "symbian",
-      form: "window",
-      display: {
-        physicalViewport: SYMBIAN_E7_DEFAULT_VIEWPORT,
-        logicalViewports: [SYMBIAN_E7_DEFAULT_VIEWPORT],
-        dynamicViewport: {
-          min: SYMBIAN_E7_MIN_VIEWPORT,
-          max: SYMBIAN_E7_MAX_VIEWPORT,
-        },
-        presentations: ["native"],
-        rasterDensity: 1,
-      },
-      capabilities: [
-        "input.buttons",
-        "input.touch",
-        "display.viewport.live",
-        "text.glyphs.baked",
-        "ui.physics",
-      ],
-    },
+    [SYMBIAN_E7_DEV_TARGET_ID]: legacyTargetProfile(softwareProfile),
   }),
 );
 

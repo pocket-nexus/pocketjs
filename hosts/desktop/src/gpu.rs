@@ -221,6 +221,7 @@ mod tests {
         let gpu = Arc::new(Gpu::new_headless().unwrap());
         let output = RuntimeOutput::new(&gpu, (4, 4), 1.).unwrap();
         let mut program = UiProgram::new(ProgramConfig {
+            profile: None,
             host: "native-test",
             host_abi: 1,
             logical: [4, 4],

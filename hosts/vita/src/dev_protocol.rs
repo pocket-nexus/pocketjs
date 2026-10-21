@@ -158,8 +158,14 @@ pub fn admit(bytes: &[u8], plan: &Value) -> Result<Bundle, String> {
     if bytes.len() > MAX_PACKAGE {
         return Err("package exceeds 32 MiB".into());
     }
-    let guest =
-        package::select_guest(bytes, "vita", 2, false).map_err(|e| format!("package: {e:?}"))?;
+    let profile = pocket_package::profile::from_build_inputs(
+        option_env!("POCKETJS_PROFILE_JSON"),
+        option_env!("POCKETJS_PROFILE_HASH"),
+    )
+    .map_err(|error| format!("profile: {error:?}"))?
+    .ok_or("missing program profile build inputs")?;
+    let guest = package::select_guest(bytes, "vita", 2, &profile.hash, false)
+        .map_err(|e| format!("package: {e:?}"))?;
     let package = Package::parse(bytes, true).map_err(|e| format!("package: {e:?}"))?;
     let identity = package
         .find_variant("vita")

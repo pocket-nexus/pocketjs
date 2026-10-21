@@ -128,7 +128,7 @@ export async function repackIPod(input: RepackInput): Promise<Uint8Array> {
   for (const name of IPOD_RUNTIME_FILES) {
     if (!(name in runtime.files)) throw new Error(`repack ipod: the runtime does not list ${name}`);
   }
-  const pocket = admitPocket(input.pocket, runtime, input.identity);
+  const pocket = await admitPocket(input.pocket, runtime, input.identity);
   const viewport = pocket.plan.viewport as { logical?: number[]; physical?: number[]; rasterDensity?: number } | undefined;
   const logical = viewport?.logical ?? [];
   if (!SURFACES.some(([width, height]) => logical[0] === width && logical[1] === height) || viewport?.rasterDensity !== 2) {

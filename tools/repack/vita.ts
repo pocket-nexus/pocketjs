@@ -94,7 +94,7 @@ export async function repackVita(input: RepackInput): Promise<Uint8Array> {
   };
   const eboot = file(VITA_RUNTIME_FILE);
   const liveArea = VITA_LIVEAREA.map((name) => ({ name, data: file(name) }));
-  const pocket = admitPocket(input.pocket, runtime, input.identity);
+  const pocket = await admitPocket(input.pocket, runtime, input.identity);
   const titleId = await vitaTitleIdFor(input.identity.id);
   const icon = input.identity.icon ? await vitaIcon0(input.identity.icon) : file(VITA_ICON);
   return writeZip([

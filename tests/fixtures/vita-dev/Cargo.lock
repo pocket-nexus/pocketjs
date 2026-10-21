@@ -85,6 +85,7 @@ version = "0.1.0"
 name = "pocket-vita-dev-contract-tests"
 version = "0.0.0"
 dependencies = [
+ "pocket-package",
  "pocketjs-core",
  "serde",
  "serde_json",

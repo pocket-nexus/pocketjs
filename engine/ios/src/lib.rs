@@ -138,7 +138,10 @@ pub extern "C" fn pocket_apple_set_identity(
         let Some(host) = (unsafe { string(host) }) else {
             return POCKET_STATUS_INVALID;
         };
-        if host.is_empty() || host.len() > 15 || abi == 0 {
+        if host.is_empty()
+            || host.len() > pocket_package::package_format::POCKET_TARGET_MAX_BYTES
+            || abi == 0
+        {
             return POCKET_STATUS_INVALID;
         }
         config.host = host.into();

@@ -366,7 +366,7 @@ export async function repack3ds(input: RepackInput): Promise<Uint8Array> {
   if (!program || !(THREE_DS_RUNTIME_FILE in runtime.files)) {
     throw new Error(`repack 3ds: the runtime has no ${THREE_DS_RUNTIME_FILE}`);
   }
-  const pocket = admitPocket(input.pocket, runtime, input.identity);
+  const pocket = await admitPocket(input.pocket, runtime, input.identity);
   const features = planFeatures(pocket.plan);
   for (const feature of UNSUPPORTED_FEATURES) {
     if (features[feature] === true) {

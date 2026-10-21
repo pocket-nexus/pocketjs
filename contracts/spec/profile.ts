@@ -1,12 +1,11 @@
-// Profile identity contract. The current target registry and package admission
-// continue to use their existing formats until migration stage 7.
+// Profile identity contract, shared by application compilation and Runtime admission.
 import type { JsonSchema } from "./pocket-manifest.ts";
 import {
   PRESENTATION_MODES,
   TARGET_FORMS,
   type DisplayProfile,
   type TargetForm,
-} from "./platforms.ts";
+} from "./platform-types.ts";
 
 /** Software facts promised by a program; no compiler, SDK, or build steps. */
 export interface PocketProfile<C extends string = string> {
@@ -48,7 +47,7 @@ const fixedDisplay = {
   },
 } as const satisfies JsonSchema;
 
-/** This schema covers the data shape. Stage 7's profile resolver also checks
+/** This schema covers the data shape. The profile definition API also checks
  * capability/viewport relations and reserved command and built-in profile ids. */
 export const pocketProfileSchema = {
   type: "object", additionalProperties: false,

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { hashPocketProfile, profileHashProjection, type PocketProfile } from "../profile.ts";
 import {
   POCKET_IDF_HOST_ABI,
   pocketIdfHostSchema,
@@ -10,7 +10,6 @@ import {
   defineTargetRegistry,
   type PlatformContractRegistry,
 } from "../../../contracts/spec/platforms.ts";
-import { canonicalJson } from "./plan.ts";
 import { createHostExtension, isHostExtension, type HostExtension } from "./host-extension.ts";
 import { validateSchema, type ContractDiagnostic, type ValidationResult } from "./validate.ts";
 
@@ -75,7 +74,12 @@ export function validatePocketIdfHostProfile(input: unknown): ValidationResult<P
 }
 
 export function hashPocketIdfHostProfile(profile: PocketIdfHostProfile): string {
-  return `sha256:${createHash("sha256").update(canonicalJson(profile)).digest("hex")}`;
+  return hashPocketProfile(pocketIdfSoftwareProfile(profile));
+}
+
+/** One-way adapter from the versioned CLI JSON to the software contract. */
+export function pocketIdfSoftwareProfile(profile: PocketIdfHostProfile): PocketProfile {
+  return profileHashProjection(profile);
 }
 
 export function pocketIdfHostRegistry(profile: PocketIdfHostProfile): PlatformContractRegistry {
@@ -84,6 +88,7 @@ export function pocketIdfHostRegistry(profile: PocketIdfHostProfile): PlatformCo
     defineTargetRegistry({
       [profile.id]: {
         hostAbi: POCKET_IDF_HOST_ABI,
+        tickHz: profile.tickHz,
         platform: profile.platform,
         form: profile.form,
         display: profile.display,

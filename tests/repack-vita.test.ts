@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/vita.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -66,7 +68,7 @@ async function runtime(overrides: { target?: string; hostAbi?: number } = {}): P
   for (const name of RUNTIME_ASSETS) files.set(name, new Uint8Array(readFileSync(join(DEFAULT_VITA_PACKAGE_ASSETS, name))));
   const listed: Record<string, { bytes: number; sha256: string }> = {};
   for (const [name, bytes] of files) listed[name] = { bytes: bytes.length, sha256: await sha256Hex(bytes) };
-  const manifest = { target: overrides.target ?? "vita", hostAbi: overrides.hostAbi ?? 2, pocketjs: "0".repeat(40), profile: "vita", files: listed };
+  const manifest = { target: overrides.target ?? "vita", hostAbi: overrides.hostAbi ?? 2, pocketjs: "0".repeat(40), profile: "vita", profileHash: hashPocketProfile(softwareProfile), files: listed };
   files.set("runtime.json", new TextEncoder().encode(JSON.stringify(manifest)));
   return files;
 }

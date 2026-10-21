@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/psp.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
 import {
   decodePocketPackage,
@@ -79,7 +81,7 @@ async function runtime(overrides: { target?: string; hostAbi?: number; eboot?: U
     target: overrides.target ?? "psp",
     hostAbi: overrides.hostAbi ?? 1,
     pocketjs: "0".repeat(40),
-    profile: "psp",
+    profile: "psp", profileHash: hashPocketProfile(softwareProfile),
     files: { "EBOOT.PBP": { bytes: eboot.length, sha256: await sha256Hex(eboot) } },
   };
   return new Map([

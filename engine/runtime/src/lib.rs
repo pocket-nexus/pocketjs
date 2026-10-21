@@ -298,11 +298,9 @@ impl Runtime {
         if let Some(aux) = profile.auxiliary_logical.first() {
             ui.create_auxiliary_surface(aux[0] as f32, aux[1] as f32);
         }
-        let scale = profile.viewport[0]
-            .checked_div(logical[0])
-            .filter(|&s| s > 0 && s <= 4 && profile.viewport == [logical[0] * s, logical[1] * s])
-            .ok_or(RuntimeError::InvalidConfiguration)?;
-        let presenter = Coordinator::new(scale, config.frame_buffer_budget)?;
+        // Output ownership is known after registration. CPU scale is selected
+        // from admitted logical and registered physical sizes at boot.
+        let presenter = Coordinator::new(1, config.frame_buffer_budget)?;
         Ok(Self {
             config,
             profile,
@@ -349,8 +347,9 @@ impl Runtime {
         self.native_assets = enabled;
         Ok(())
     }
-    /// Allow viewport changes for a program that embeds raw JavaScript. This
-    /// opt-in must precede boot and is disabled for fixed-profile packages.
+    /// Let an embedding program manage its presentation target dimensions.
+    /// This opt-in must precede boot. Package hash and logical viewport admission
+    /// still use the compiled profile; CPU targets still require integer scaling.
     pub fn allow_embedded_viewport_changes(&mut self) -> Result<(), RuntimeError> {
         self.configuring()?;
         self.embedded_viewport = true;
@@ -472,21 +471,17 @@ impl Runtime {
         let mut primary = false;
         let mut auxiliary = false;
         for descriptor in self.presenter.display_descriptors() {
-            let expected = match descriptor.role {
+            match descriptor.role {
                 DisplayRole::Primary => {
                     primary = true;
-                    self.profile.viewport
                 }
                 DisplayRole::Auxiliary => {
                     auxiliary = true;
-                    self.profile
-                        .auxiliary
-                        .ok_or(RuntimeError::ProfileMismatch)?
+                    if self.profile.auxiliary.is_none() {
+                        return Err(RuntimeError::ProfileMismatch);
+                    }
                 }
                 _ => return Err(RuntimeError::ProfileMismatch),
-            };
-            if [descriptor.width, descriptor.height] != expected {
-                return Err(RuntimeError::ProfileMismatch);
             }
         }
         if !primary || self.profile.auxiliary.is_some() && !auxiliary {
@@ -503,6 +498,88 @@ impl Runtime {
         }
         Ok(())
     }
+    fn presentation_layout(
+        &self,
+        viewport: [u32; 2],
+        auxiliary: Option<[u32; 2]>,
+    ) -> Result<(u32, Option<[u32; 2]>), RuntimeError> {
+        if !self.profile.admits_viewport(viewport)
+            || auxiliary.is_some_and(|size| !self.profile.auxiliary_logical.contains(&size))
+        {
+            return Err(RuntimeError::ProfileMismatch);
+        }
+        let candidates: Vec<Option<[u32; 2]>> = match auxiliary {
+            Some(size) => alloc::vec![Some(size)],
+            None if self.profile.auxiliary.is_some() => self
+                .profile
+                .auxiliary_logical
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
+            None => alloc::vec![None],
+        };
+        for auxiliary in candidates {
+            let mut raster_scale = None;
+            let mut primary_gpu_scale = None;
+            let mut valid = true;
+            for display in self.presenter.display_descriptors() {
+                let (logical, panel, dynamic) = match display.role {
+                    DisplayRole::Primary => (
+                        viewport,
+                        self.profile.viewport,
+                        self.profile.dynamic_viewport.is_some(),
+                    ),
+                    DisplayRole::Auxiliary => (
+                        auxiliary.ok_or(RuntimeError::ProfileMismatch)?,
+                        self.profile
+                            .auxiliary
+                            .ok_or(RuntimeError::ProfileMismatch)?,
+                        false,
+                    ),
+                    _ => return Err(RuntimeError::ProfileMismatch),
+                };
+                let physical = [display.width, display.height];
+                if !self.embedded_viewport {
+                    let expected = [
+                        logical[0] * self.profile.density,
+                        logical[1] * self.profile.density,
+                    ];
+                    if if dynamic {
+                        physical != expected
+                    } else {
+                        physical != panel && physical != [panel[1], panel[0]]
+                    } {
+                        valid = false;
+                        break;
+                    }
+                }
+                let scale = physical[0] / logical[0];
+                // The coordinator derives auxiliary resource geometry from the
+                // shared integer scale. Primary GPU outputs own their mapping.
+                if display.target_ownership == pocket_drivers::TargetOwnership::CpuVisible
+                    || display.role == DisplayRole::Auxiliary
+                {
+                    if !(1..=4).contains(&scale)
+                        || physical != [logical[0] * scale, logical[1] * scale]
+                        || raster_scale.is_some_and(|previous| previous != scale)
+                    {
+                        valid = false;
+                        break;
+                    }
+                    raster_scale = Some(scale);
+                } else if (1..=4).contains(&scale)
+                    && physical == [logical[0] * scale, logical[1] * scale]
+                {
+                    primary_gpu_scale = Some(scale);
+                }
+            }
+            if valid {
+                return Ok((raster_scale.or(primary_gpu_scale).unwrap_or(1), auxiliary));
+            }
+        }
+        Err(RuntimeError::ProfileMismatch)
+    }
     /// Start code and assets linked into an AOT program. No package source or
     /// JavaScript payload is read. The generated artifact's profile hash must
     /// match this instance, and its viewport must be declared by that profile.
@@ -515,29 +592,12 @@ impl Runtime {
     ) -> Result<(), RuntimeError> {
         self.validate_boot_drivers()?;
         if profile_hash != self.config.profile_hash
-            || !self.profile.logical_viewports.contains(&viewport)
+            || !self.profile.admits_viewport(viewport)
             || self.source.is_some()
         {
             return Err(RuntimeError::ProfileMismatch);
         }
-        let scale = self.profile.viewport[0] / viewport[0];
-        if !(1..=4).contains(&scale)
-            || self.profile.viewport != [viewport[0] * scale, viewport[1] * scale]
-        {
-            return Err(RuntimeError::ProfileMismatch);
-        }
-        let auxiliary_viewport = self
-            .profile
-            .auxiliary
-            .map(|physical| {
-                self.profile
-                    .auxiliary_logical
-                    .iter()
-                    .copied()
-                    .find(|size| physical == [size[0] * scale, size[1] * scale])
-                    .ok_or(RuntimeError::ProfileMismatch)
-            })
-            .transpose()?;
+        let (scale, auxiliary_viewport) = self.presentation_layout(viewport, None)?;
         self.presenter.set_scale(scale)?;
         let auxiliary_root = {
             let mut state = self.ops.core_mut()?;
@@ -591,6 +651,7 @@ impl Runtime {
                 source.as_mut(),
                 &self.profile.id,
                 self.config.host_abi,
+                &self.config.profile_hash,
                 self.config.heap_limit,
             )
             .map_err(RuntimeError::Package)?,
@@ -598,46 +659,17 @@ impl Runtime {
         let facts = pocket_package::plan_facts(package.plan())
             .map_err(|_| RuntimeError::ProfileMismatch)?;
         let viewport = [facts.viewport.width, facts.viewport.height];
-        if !self.profile.logical_viewports.contains(&viewport)
-            || facts.viewport.raster_density != self.profile.density
+        if facts.viewport.raster_density != self.profile.density
+            || facts
+                .auxiliary
+                .is_some_and(|aux| aux.raster_density != self.profile.density)
         {
             return Err(RuntimeError::ProfileMismatch);
         }
-        let scale = self.profile.viewport[0]
-            .checked_div(viewport[0])
-            .filter(|&scale| {
-                scale > 0
-                    && scale <= 4
-                    && self.profile.viewport == [viewport[0] * scale, viewport[1] * scale]
-            })
-            .ok_or(RuntimeError::ProfileMismatch)?;
-        if let Some(aux) = facts.auxiliary {
-            if !self
-                .profile
-                .auxiliary_logical
-                .contains(&[aux.width, aux.height])
-                || self.profile.auxiliary != Some([aux.width * scale, aux.height * scale])
-                || aux.raster_density != self.profile.density
-            {
-                return Err(RuntimeError::ProfileMismatch);
-            }
-        }
-        // A profile with a second physical display keeps its declared surface
-        // available even when a package does not draw auxiliary content.
-        let auxiliary_viewport = if let Some(aux) = facts.auxiliary {
-            Some([aux.width, aux.height])
-        } else if let Some(physical) = self.profile.auxiliary {
-            Some(
-                *self
-                    .profile
-                    .auxiliary_logical
-                    .iter()
-                    .find(|size| physical == [size[0] * scale, size[1] * scale])
-                    .ok_or(RuntimeError::ProfileMismatch)?,
-            )
-        } else {
-            None
-        };
+        // A registered auxiliary display keeps its profile surface available
+        // even when this package does not declare auxiliary content.
+        let (scale, auxiliary_viewport) =
+            self.presentation_layout(viewport, facts.auxiliary.map(|aux| [aux.width, aux.height]))?;
         self.presenter.set_scale(scale)?;
         let (registry, auxiliary_root) = {
             let mut state = self.ops.core_mut()?;

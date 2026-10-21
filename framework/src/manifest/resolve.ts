@@ -1,4 +1,5 @@
 import { isHostExtension, type HostExtension } from "./host-extension.ts";
+import { hashPocketProfile, profileHashProjection } from "../profile.ts";
 import { DYNAMIC_FORMS, PACKAGE_ROLES, TARGET_FORMS } from "../../../contracts/spec/platforms.ts";
 import { deriveModality, modalityMisses } from "../../../contracts/spec/modality.ts";
 import type {
@@ -304,6 +305,10 @@ export function validatePlatformContractRegistry(
   });
 
   for (const [targetId, target] of Object.entries(registry.targets)) {
+    if (target.tickHz !== undefined && (!Number.isInteger(target.tickHz) || target.tickHz < 1 || target.tickHz > 240)) {
+      diagnostics.push({ code: "registry.invalidTickHz", path: `/targets/${targetId}/tickHz`,
+        message: "target tickHz must be an integer from 1 through 240" });
+    }
     if (
       !Number.isInteger(target.display.rasterDensity) ||
       target.display.rasterDensity < 1 ||
@@ -649,7 +654,12 @@ export function resolveBuildPlan(
     [...featureAvailability.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
   );
 
+  // The old registry's absent rate has always meant 60 Hz. This one-way
+  // adapter preserves that contract while every emitted plan names its rate.
+  const softwareProfile = profileHashProjection({ id: request.target, ...profile, tickHz: profile.tickHz ?? 60 });
   const content: ResolvedBuildPlanContent = {
+    profile: softwareProfile,
+    profileHash: hashPocketProfile(softwareProfile),
     app: {
       id: manifest.id,
       title: manifest.title,

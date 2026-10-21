@@ -110,7 +110,7 @@ export async function repackPsp(input: RepackInput): Promise<Uint8Array> {
   const runtime = await readRuntime(input.runtime, PSP_RUNTIME_TARGET);
   const program = input.runtime.get(PSP_RUNTIME_FILE);
   if (!program || !(PSP_RUNTIME_FILE in runtime.files)) throw new Error(`repack psp: the runtime has no ${PSP_RUNTIME_FILE}`);
-  const pocket = admitPocket(input.pocket, runtime, input.identity);
+  const pocket = await admitPocket(input.pocket, runtime, input.identity);
   const features = planFeatures(pocket.plan);
   for (const feature of UNSUPPORTED_FEATURES) {
     if (features[feature] === true) throw new Error(`repack psp: the plan asks for ${feature}, which the PSP runtime leaves out`);

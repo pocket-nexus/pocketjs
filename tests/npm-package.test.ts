@@ -86,6 +86,7 @@ describe("published npm artifacts", () => {
       "framework/compiler",
       "contracts/schema",
       "contracts/spec",
+      "profiles",
       "contracts/generated",
       "tools",
       // The desktop benchmark's Electron/Tauri comparison apps are git-only
@@ -281,6 +282,11 @@ describe("published npm artifacts", () => {
   test("framework tarball contains every locked native and standalone Pocket3D input", async () => {
     const files = packedFiles(root);
     expect(files).toEqual(expect.arrayContaining([
+      "profiles/index.ts",
+      "profiles/psp.ts",
+      "profiles/3ds-dev.ts",
+      "framework/src/profile.ts",
+      "contracts/spec/platform-types.ts",
       "engine/runtime/Cargo.toml",
       "engine/runtime/src/lib.rs",
       "engine/runtime/src/generated_ops.rs",
@@ -470,6 +476,20 @@ describe("published npm artifacts", () => {
         stderr: "pipe",
       });
       expect(extract.exitCode, extract.stderr.toString()).toBe(0);
+      writeFileSync(join(scratch, "package/profile-consumer.ts"), `
+import { defineProfile, hashPocketProfile } from "@pocketjs/framework/profile";
+import { POCKET_PROFILES } from "@pocketjs/framework/profiles";
+import psp from "@pocketjs/framework/profiles/psp";
+if (psp !== POCKET_PROFILES.psp) throw Error("profile exports diverged");
+const external = defineProfile({ ...psp, id: "external-product-with-a-long-id" });
+if (hashPocketProfile(external) === hashPocketProfile(psp)) throw Error("identity omitted id");
+console.log("standalone profile definitions and hashes passed");
+`);
+      const profileImport = Bun.spawnSync([process.execPath, "profile-consumer.ts"], {
+        cwd: join(scratch, "package"), stdout: "pipe", stderr: "pipe",
+      });
+      expect(profileImport.success, profileImport.stderr.toString()).toBe(true);
+      expect(profileImport.stdout.toString()).toContain("profile definitions and hashes passed");
       const metadata = Bun.spawnSync({
         cmd: [
           "cargo",

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
-import { POCKET_PACKAGE_TARGET_BYTES } from "../contracts/spec/pocket-package.ts";
+import { POCKET_PACKAGE_TARGET_MAX_BYTES } from "../contracts/spec/pocket-package.ts";
 import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
 import {
   extractHostBuildInputs,
@@ -87,6 +87,7 @@ describe("private Nintendo 3DS build profile", () => {
   test("stays private until the remaining host paths are covered", () => {
     expect(POCKET_TARGETS).not.toHaveProperty(THREE_DS_DEV_TARGET_ID);
     expect(THREE_DS_DEV_CONTRACTS.targets[THREE_DS_DEV_TARGET_ID]).toEqual({
+      tickHz: 60,
       hostAbi: THREE_DS_DEV_HOST_ABI,
       platform: "3ds",
       form: "takeover",
@@ -133,9 +134,9 @@ describe("private Nintendo 3DS build profile", () => {
     expect(
       Object.values(POCKET_TARGETS).map((profile) => profile.hostAbi),
     ).not.toContain(THREE_DS_DEV_HOST_ABI);
-    // The .pocket container stores the target id in a NUL-padded fixed field.
+    // The .pocket container stores UTF-8 target ids in its bounded string table.
     expect(new TextEncoder().encode(THREE_DS_DEV_TARGET_ID).length).toBeLessThan(
-      POCKET_PACKAGE_TARGET_BYTES,
+      POCKET_PACKAGE_TARGET_MAX_BYTES,
     );
   });
 

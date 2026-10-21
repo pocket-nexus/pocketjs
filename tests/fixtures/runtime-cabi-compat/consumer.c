@@ -2,7 +2,11 @@
 #define _DARWIN_C_SOURCE
 #define _POSIX_C_SOURCE 200112L
 #include "pocket_runtime.h"
-#include "fixture.h"
+#ifdef POCKET_OLD_CANDIDATE_PERSONALITY
+#include "fixture-legacy.h"
+#else
+#include "fixture-current.h"
+#endif
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>

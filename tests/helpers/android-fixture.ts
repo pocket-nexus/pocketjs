@@ -1,3 +1,5 @@
+import softwareProfile from "../../profiles/redmi-1s-dev.ts";
+import { hashPocketProfile } from "../../framework/src/profile.ts";
 // The Android repack's test fixture: a runtime directory around
 // tests/fixtures/repack-android/template.apk and a `.pocket` of Clear's
 // Redmi 1S plan under a test id. Shared by tests/repack-android.test.ts and
@@ -67,7 +69,7 @@ export function fixtureRuntime(overrides: Record<string, unknown> = {}, template
     target: REDMI_1S_TARGET,
     hostAbi: HOST_ABI,
     pocketjs: "0".repeat(40),
-    profile: "redmi-1s",
+    profile: "redmi-1s", profileHash: hashPocketProfile(softwareProfile),
     viewport: { logical: [360, 640], rasterDensity: 2 },
     android: { ...SDK_LEVELS, abis: [...ABIS] },
     files: Object.fromEntries([...files].map(([path, bytes]) => [path, { bytes: bytes.length, sha256: sha256(bytes) }])),

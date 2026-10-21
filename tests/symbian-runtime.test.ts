@@ -1,3 +1,5 @@
+import profile from "../profiles/symbian-e7-dev.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
 import {
   existsSync,
@@ -155,7 +157,9 @@ describe("experimental Nokia E7 runtime profile", () => {
         modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
         features: {},
         companions: [],
-        planHash: `sha256:${"0".repeat(64)}`,
+        profile,
+    profileHash: hashPocketProfile(profile),
+    planHash: `sha256:${"0".repeat(64)}`,
       },
       packageBytes: new Uint8Array(bytes),
       liveViewport,
@@ -462,7 +466,7 @@ describe("experimental Nokia E7 runtime profile", () => {
       "utf8",
     );
 
-    expect(runtime).toContain('pocket_native_program_create("symbian-e7-dev", POCKETJS_HOST_ABI');
+    expect(runtime).toContain('pocket_native_program_create_profile("symbian-e7-dev", POCKETJS_HOST_ABI');
     expect(runtime).toContain("pocket_guest_quickjs_vtable()->initialize");
     expect(runtime).toContain("pocket_guest_quickjs_vtable()->frame");
     expect(runtime).toContain("#if POCKETJS_FRAME_RATE <= 0");

@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
+import { writeHostProfileHeader } from "./host-profile.ts";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -497,6 +498,7 @@ function buildRuntime(): void {
     join(build, "runtime.o"),
     [
       ...firstPartyWarnings,
+      "-include", writeHostProfileHeader(build, hostInputs.profile),
       `-DPOCKET_BUILD_ID="${buildId}"`,
       `-DPOCKET_LOGICAL_WIDTH=${hostInputs.viewport.logical[0]}`,
       `-DPOCKET_LOGICAL_HEIGHT=${hostInputs.viewport.logical[1]}`,
@@ -510,6 +512,7 @@ function buildRuntime(): void {
     join(build, "pocket_runtime.o"),
     [
       ...firstPartyWarnings,
+      "-include", writeHostProfileHeader(build, hostInputs.profile),
       `-DPOCKETJS_TARGET_ID="${hostInputs.target}"`,
       `-DPOCKETJS_HOST_ABI=${hostInputs.hostAbi}`,
       "-I",

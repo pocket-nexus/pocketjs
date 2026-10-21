@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { basename, join, resolve } from "node:path";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { exportSdk, parseSdkExport, type SdkManifest } from "./sdk.ts";
@@ -105,7 +106,7 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     const currentArchive = join(currentSdk, manifest.build.archive);
     copyFileSync(join(ROOT, "tests/fixtures/runtime-cabi-compat/consumer.c"), join(temporary, "consumer.c"));
     const utf8 = (text: string) => new TextEncoder().encode(text);
-    const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: "fixture", hostAbi: 1, sections: [
+    const packageBytes = encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: "fixture", hostAbi: 1, profileHash: "sha256:" + hash(profile), sections: [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
       { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
@@ -113,8 +114,23 @@ export async function runRuntimeCompatibility(options: { output?: string } = {})
     const array = (name: string, bytes: Uint8Array) => `static const uint8_t ${name}[] = {${[...bytes].join(",")}};\n`;
     const fixture = `static const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
       + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", packageBytes);
-    writeFileSync(join(temporary, "fixture.h"), fixture);
-    writeFileSync(join(output, "fixture.h"), fixture);
+    writeFileSync(join(temporary, "fixture-current.h"), fixture);
+    writeFileSync(join(output, "fixture-current.h"), fixture);
+    // The C ABI matrix is independent of the package format version. The
+    // historical archive receives v1 bytes produced by its own frozen encoder.
+    const oldSpec = await command(["git", "-C", ROOT, "show", OLD_RUNTIME_CANDIDATE + ":contracts/spec/pocket-package.ts"]);
+    const oldSpecFile = join(temporary, "package-v1.ts");
+    writeFileSync(oldSpecFile, oldSpec.stdout);
+    const oldEncoder = await import(pathToFileURL(oldSpecFile).href);
+    const oldPackageBytes: Uint8Array = oldEncoder.encodePocketPackage({ manifest: utf8("{}"), variants: [{ target: "fixture", hostAbi: 1, sections: [
+      { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "app", id: "test.app", title: "App" }) },
+      { kind: POCKET_SECTION.plan, bytes: utf8('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
+      { kind: POCKET_SECTION.js, bytes: utf8("test\0") },
+    ] }] });
+    const oldFixture = `static const uint8_t profile_json[] = ${JSON.stringify(profile)};\n`
+      + array("profile_hash", createHash("sha256").update(profile).digest()) + array("package_bytes", oldPackageBytes);
+    writeFileSync(join(temporary, "fixture-legacy.h"), oldFixture);
+    writeFileSync(join(output, "fixture-legacy.h"), oldFixture);
     const link = (name: string, headers: string, archive: string, libraries: string[], macros: string[] = []) => [
       cc, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", headers, "-I", temporary,
       ...macros.map(name => "-D" + name), join(temporary, "consumer.c"), archive,

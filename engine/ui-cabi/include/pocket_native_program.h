@@ -16,15 +16,23 @@ typedef struct PocketNativeProgram PocketNativeProgram;
 PocketNativeProgram *pocket_native_program_create(const char *target, uint32_t host_abi,
   const uint8_t *code, size_t code_length, const uint8_t *pak, size_t pak_length,
   uint32_t width, uint32_t height, uint32_t density, uint32_t physics);
+/* Build-profile form: canonical JSON and its SHA-256 come from independent
+ * host build inputs. Runtime verifies their agreement before admission. */
+PocketNativeProgram *pocket_native_program_create_profile(const char *target, uint32_t host_abi,
+  const uint8_t *code, size_t code_length, const uint8_t *pak, size_t pak_length,
+  uint32_t width, uint32_t height, uint32_t density, uint32_t physics,
+  const uint8_t *profile_json, size_t profile_length, const uint8_t profile_hash[32]);
 /* Catalog guests retain their original .pocket bytes and plan. Identity and
  * declared viewport must match the catalog; physics is a host permission,
  * while the package plan decides whether its methods mount. Runtime performs
- * package admission before guest initialization. Initial viewport uses the
+ * package admission against the supplied host profile before guest initialization.
+ * Profile bytes/hash must come from the host build, never this package. Initial viewport uses the
  * package declaration; live-window hosts resize before their first frame. */
 PocketNativeProgram *pocket_native_program_create_package(const char *target, uint32_t host_abi,
   const uint8_t *package, size_t package_length,
   const char *output, const char *id, const char *title,
-  uint32_t width, uint32_t height, uint32_t density, uint32_t physics);
+  uint32_t width, uint32_t height, uint32_t density, uint32_t physics,
+  const uint8_t *profile_json, size_t profile_length, const uint8_t profile_hash[32]);
 pocket_runtime *pocket_native_program_runtime(PocketNativeProgram *program);
 /* Status codes are canonical POCKET_STATUS_* values (zero is success).
  * boot evaluates without submitting a presentation. advance copies canonical

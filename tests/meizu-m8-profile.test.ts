@@ -42,6 +42,7 @@ describe("private Meizu M8 build profile", () => {
   test("uses the WinCE display and touch contract without changing public targets", () => {
     expect(POCKET_TARGETS).not.toHaveProperty(MEIZU_M8_DEV_TARGET_ID);
     expect(MEIZU_M8_DEV_CONTRACTS.targets[MEIZU_M8_DEV_TARGET_ID]).toEqual({
+      tickHz: 60,
       hostAbi: MEIZU_M8_DEV_HOST_ABI,
       platform: "wince",
       form: "takeover",

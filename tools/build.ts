@@ -47,7 +47,7 @@ import {
   type PocketFramework,
 } from "../framework/compiler/jsx-plugin.ts";
 import type { PocketConfig } from "../framework/src/config.ts";
-import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
 import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
@@ -121,7 +121,7 @@ for (const a of args) {
 let buildPlan: ResolvedBuildPlan | undefined;
 if (planPath) {
   buildPlan = await Bun.file(planPath).json() as ResolvedBuildPlan;
-  if (!verifyPlanHash(buildPlan)) {
+  if (!verifyPlanHash(buildPlan) || !verifyPlanProfile(buildPlan)) {
     throw new Error(`PocketJS build: invalid ResolvedBuildPlan checksum in ${planPath}`);
   }
   if (frameworkFlag) {
@@ -237,15 +237,18 @@ const rasterDensity = buildPlan?.viewport.rasterDensity ?? densityFlag ?? 1;
 
 // Tick rate: the realm's virtual-time step, baked into the bundle because
 // every ms-to-frame conversion in the framework resolves against it. An
-// ESP-IDF host profile owns the rate; low-level builds may still pass --hz.
+// software profile owns the rate; low-level builds may still pass --hz.
 if (hzFlag !== undefined && (!Number.isInteger(hzFlag) || hzFlag < 1 || hzFlag > 240)) {
   throw new Error("PocketJS build: --hz wants an integer from 1 through 240");
 }
 const idfHost = readIdfHostExtension(buildPlan?.hostExtension);
-if (idfHost && hzFlag !== undefined && hzFlag !== idfHost.tickHz) {
-  throw new Error("PocketJS build: --hz cannot override an ESP-IDF host profile");
+if (buildPlan && hzFlag !== undefined && hzFlag !== buildPlan.profile.tickHz) {
+  throw new Error("PocketJS build: --hz cannot override the resolved software profile");
 }
-const tickHz = idfHost?.tickHz ?? hzFlag ?? 60;
+if (idfHost && (idfHost.tickHz !== buildPlan!.profile.tickHz || idfHost.profileHash !== buildPlan!.profileHash)) {
+  throw new Error("PocketJS build: ESP-IDF host extension and software profile differ");
+}
+const tickHz = buildPlan?.profile.tickHz ?? hzFlag ?? 60;
 console.log(
   `PocketJS build: ${appName} (${entry}, framework=${framework}` +
     `${tickHz === 60 ? "" : `, ${tickHz}Hz`}` +

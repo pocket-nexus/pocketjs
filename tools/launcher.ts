@@ -1163,7 +1163,7 @@ async function writeSymbianCatalog(
     const packageBytes = new Uint8Array(readFileSync(packagePath));
     const decoded = decodePocketPackage(packageBytes);
     const variant = findVariant(decoded, SYMBIAN_E7_DEV_TARGET_ID);
-    if (!variant || variant.hostAbi !== resolution.plan.target.hostAbi) {
+    if (!variant || variant.hostAbi !== resolution.plan.target.hostAbi || variant.profileHash !== resolution.plan.profileHash) {
       throw new Error(
         `launcher: ${packagePath} does not match its Symbian build plan`,
       );

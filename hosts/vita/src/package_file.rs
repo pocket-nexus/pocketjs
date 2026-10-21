@@ -54,7 +54,9 @@ fn load() -> Result<Box<[u8]>, String> {
     file.read_exact(&mut bytes)
         .map_err(|error| format!("{NAME} could not be read: {error}."))?;
     let target = env!("POCKETJS_TARGET");
-    package::select_guest(&bytes, target, HOST_ABI, false).map_err(|error| {
+    let profile =
+        crate::instance::build_profile()?.ok_or("missing program profile build inputs")?;
+    package::select_guest(&bytes, target, HOST_ABI, &profile.hash, false).map_err(|error| {
         let abi = Package::parse(&bytes, true)
             .ok()
             .and_then(|p| p.find_variant(target).ok().flatten())
@@ -78,6 +80,12 @@ fn message(error: GuestError, abi: u32) -> String {
         }
         GuestError::Package(PackageError::BadUtf8) => {
             format!("{NAME} has an unreadable variant table.")
+        }
+        GuestError::Package(PackageError::BadLayout) => {
+            format!("{NAME} has an invalid package layout.")
+        }
+        GuestError::ProfileHashMismatch => {
+            format!("{NAME} was built for a different program profile.")
         }
         GuestError::MissingVariant => format!("{NAME} has no {target} variant."),
         GuestError::HostAbiMismatch => {

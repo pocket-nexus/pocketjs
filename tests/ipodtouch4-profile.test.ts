@@ -34,6 +34,7 @@ describe("private iPod touch 4 profile", () => {
   test("pins the exact Retina iOS 6 takeover surface", () => {
     expect(POCKET_TARGETS).not.toHaveProperty(IPODTOUCH4_DEV_TARGET_ID);
     expect(IPODTOUCH4_DEV_CONTRACTS.targets[IPODTOUCH4_DEV_TARGET_ID]).toEqual({
+      tickHz: 60,
       hostAbi: IPODTOUCH4_DEV_HOST_ABI,
       platform: "ios",
       form: "takeover",

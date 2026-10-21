@@ -191,6 +191,7 @@ if (!resolution.ok) {
   process.exit(1);
 }
 const plan = resolution.plan;
+tickHz = plan.profile.tickHz;
 const entry = resolve(projectRoot, plan.app.entry);
 if (!existsSync(entry)) usage(`app entry not found: ${entry}`);
 

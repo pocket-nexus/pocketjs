@@ -15,6 +15,7 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
+import { writeHostProfileHeader } from "./host-profile.ts";
 import {
   bakeClassicIPhoneArtwork,
   IPHONE_CLASSIC_ICON_FILE,
@@ -675,6 +676,7 @@ async function build(): Promise<void> {
 
   const firstParty = [
     ...warnings,
+    "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -693,6 +695,7 @@ async function build(): Promise<void> {
   ]);
   compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntimeObject, [
     ...warnings,
+    "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
     `-DPOCKETJS_TARGET_ID=\"${inputs.target}\"`,
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,

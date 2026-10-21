@@ -29,6 +29,9 @@ import { RUNTIME_MANIFEST, type RuntimeManifest } from "../repack/shared/runtime
 import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET } from "../moto-g-play-profile.ts";
 import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET } from "../redmi-1s-profile.ts";
 import { writeRuntimeManifest } from "./manifest.ts";
+import redmiProfile from "../../profiles/redmi-1s-dev.ts";
+import motoProfile from "../../profiles/moto-g-play-dev.ts";
+import { hashPocketProfile, type PocketProfile } from "../../framework/src/profile.ts";
 
 const repository = resolve(import.meta.dir, "../..");
 
@@ -38,9 +41,9 @@ interface Contract {
 }
 
 /** The Android profiles a runtime can be built for, by tools/android.ts profile name. */
-export const ANDROID_RUNTIME_PROFILES: Readonly<Record<string, { readonly target: string; readonly contract: Contract }>> = {
-  "redmi-1s": { target: REDMI_1S_TARGET, contract: REDMI_1S_CONTRACTS.targets[REDMI_1S_TARGET] },
-  "moto-g-play": { target: MOTO_G_PLAY_TARGET, contract: MOTO_G_PLAY_CONTRACTS.targets[MOTO_G_PLAY_TARGET] },
+export const ANDROID_RUNTIME_PROFILES: Readonly<Record<string, { readonly target: string; readonly contract: Contract; readonly profile: PocketProfile }>> = {
+  "redmi-1s": { target: REDMI_1S_TARGET, contract: REDMI_1S_CONTRACTS.targets[REDMI_1S_TARGET], profile: redmiProfile },
+  "moto-g-play": { target: MOTO_G_PLAY_TARGET, contract: MOTO_G_PLAY_CONTRACTS.targets[MOTO_G_PLAY_TARGET], profile: motoProfile },
 };
 
 function walk(directory: string): string[] {
@@ -99,6 +102,7 @@ export async function buildRuntimeAndroid(argv: readonly string[] = []): Promise
       target: chosen.target,
       hostAbi: chosen.contract.hostAbi,
       profile,
+      profileHash: hashPocketProfile(chosen.profile),
       files: [ANDROID_TEMPLATE, ...ANDROID_TEMPLATE_SOURCES].sort(),
       extra: {
         viewport: { logical: chosen.contract.display.logicalViewports[0], rasterDensity: chosen.contract.display.rasterDensity },

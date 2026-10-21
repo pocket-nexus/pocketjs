@@ -37,6 +37,7 @@ describe("private iOS build profile", () => {
   test("stays private and describes the embedded PocketSurfaceView", () => {
     expect(POCKET_TARGETS).not.toHaveProperty(IOS_DEV_TARGET_ID);
     expect(IOS_DEV_CONTRACTS.targets[IOS_DEV_TARGET_ID]).toEqual({
+      tickHz: 60,
       hostAbi: IOS_DEV_HOST_ABI,
       platform: "ios",
       form: "embedded",

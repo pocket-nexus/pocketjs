@@ -1096,6 +1096,11 @@ fn boot(args: &Args, settings: &device::StageSettings) -> Result<(UiProgram, Str
         std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
     let program = UiProgram::new(ProgramConfig {
+        profile: pocket_ui_wgpu::program_profile::from_build_inputs(
+            option_env!("POCKETJS_PROFILE_JSON"),
+            option_env!("POCKETJS_PROFILE_HASH"),
+        )
+        .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
         host: "macos-embedded",
         host_abi: 3,
         logical: [settings.logical_size.0, settings.logical_size.1],

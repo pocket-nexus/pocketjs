@@ -23,6 +23,7 @@ done
 "$CC" $COMMON -Wall -Wextra -Werror -Wno-unused-parameter \
   -DPOCKET_RUNTIME_REPORT_BOOT_STAGE=1 \
   -DPOCKETJS_TARGET_ID=\"$POCKETJS_TARGET_ID\" \
+  -include /build/pocket_host_profile.h \
   -DPOCKETJS_HOST_ABI=$POCKETJS_HOST_ABI \
   -I/src/engine/quickjs-c -I/src/engine/guest-quickjs/include -I/src/engine/ui-cabi/include \
   -I/src/contracts/generated -I/build/qjs \

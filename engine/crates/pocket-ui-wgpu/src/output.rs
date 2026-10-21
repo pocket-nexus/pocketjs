@@ -342,6 +342,7 @@ mod tests {
     }
     fn program() -> crate::UiProgram {
         crate::UiProgram::new(crate::ProgramConfig {
+            profile: None,
             host: "gpu-test",
             host_abi: 1,
             logical: [4, 4],

@@ -21,7 +21,7 @@ fn main() {
   let identity = embedded::identity("embedded", "test.app", "嵌入").unwrap();
   let code = std::fs::read(&args[1]).unwrap();
   let pak = std::fs::read(&args[2]).unwrap();
-  let bytes = embedded::encode(embedded::EmbeddedPackage { target: "test", host_abi: 7, identity: &identity, plan: b"{}", code: &code, pak: &pak }).unwrap();
+  let bytes = embedded::encode(embedded::EmbeddedPackage { target: "test", host_abi: 7, profile_hash: [0x11;32], identity: &identity, plan: b"{}", code: &code, pak: &pak }).unwrap();
   std::fs::write(&args[3], bytes).unwrap();
 }`);
   run(["rustc", "+stable", "--edition=2021", "-Adead_code", "-Aunused_imports", resolve(out, "main.rs"), "-o", resolve(out, "encode")]);
@@ -32,7 +32,7 @@ fn main() {
       writeFileSync(resolve(out, "code"), text.encode(code));
       writeFileSync(resolve(out, "pak"), pak);
       run([resolve(out, "encode"), resolve(out, "code"), resolve(out, "pak"), resolve(out, "app.pocket")]);
-      const expected = encodePocketPackage({ manifest: new Uint8Array(), variants: [{ target: "test", hostAbi: 7, sections: [
+      const expected = encodePocketPackage({ manifest: new Uint8Array(), variants: [{ target: "test", hostAbi: 7, profileHash: "sha256:" + "11".repeat(32), sections: [
         { kind: 1, bytes: identity }, { kind: 2, bytes: text.encode("{}") },
         { kind: 3, bytes: text.encode(code.replace(/\0$/, "") + "\0") }, { kind: 4, bytes: pak },
       ] }] });

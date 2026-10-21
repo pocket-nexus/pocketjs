@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/macos-embedded.ts";
+import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
 // bun run widget [app] [flags…] — build + launch a Pocket Stage desktop widget
 // (the first bundled stage is the PSP asset; docs/WIDGET.md).
 //
@@ -29,10 +31,10 @@ import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 const root = new URL("..", import.meta.url).pathname;
 
 /** Transitional embedded target shared by the bundled PSP and iPod stages. */
-export const STAGE_TARGET_ID = "macos-embedded";
+export const STAGE_TARGET_ID = softwareProfile.id;
 // Same current desktop HostOps wire generation as macos-widget; form and
 // capabilities differ even though the native UI surface implementation is shared.
-export const STAGE_HOST_ABI = 3;
+export const STAGE_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
 export type WidgetStage = "psp" | "ipod";
 
 export interface StageDisplayFacts {
@@ -115,23 +117,15 @@ export function stagePlatformContracts(display: StageDisplayFacts) {
   return definePlatformContractRegistry(
     POCKET_CAPABILITIES,
     defineTargetRegistry({
-      [STAGE_TARGET_ID]: {
-        hostAbi: STAGE_HOST_ABI,
-        platform: "macos",
-        form: "embedded",
+      [STAGE_TARGET_ID]: legacyTargetProfile({
+        ...softwareProfile,
         display: {
+          ...softwareProfile.display,
           physicalViewport: [width * density, height * density],
           logicalViewports: [[width, height]],
-          presentations: ["native", "integer-fit"],
           rasterDensity: density,
         },
-        capabilities: [
-          "input.analog.left",
-          "input.buttons",
-          "input.cursor",
-          "text.glyphs.baked",
-        ],
-      },
+      }),
     }),
   );
 }

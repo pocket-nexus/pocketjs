@@ -262,6 +262,7 @@ pub unsafe extern "C" fn web_boot(
             let package = embedded::encode(EmbeddedPackage {
                 target: &host,
                 host_abi: abi,
+                profile_hash: pocket_package::sha256::sha256(&profile),
                 identity: &identity,
                 plan: &plan,
                 code: bytes(code, code_len),

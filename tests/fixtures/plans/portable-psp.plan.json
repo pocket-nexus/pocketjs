@@ -1,4 +1,38 @@
 {
+  "profile": {
+    "id": "psp",
+    "platform": "psp",
+    "form": "takeover",
+    "tickHz": 60,
+    "display": {
+      "physicalViewport": [
+        480,
+        272
+      ],
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "rasterDensity": 1
+    },
+    "capabilities": [
+      "input.analog.left",
+      "input.buttons",
+      "io.offload",
+      "text.layout.offload",
+      "input.cursor",
+      "audio.pcm",
+      "text.glyphs.baked",
+      "text.glyphs.streamed"
+    ]
+  },
+  "profileHash": "sha256:28c6c88ea190093dbb2b991b21e2b1f46aa48a3546dfa4943e4f6f4b2e40f67e",
   "app": {
     "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
@@ -55,5 +89,5 @@
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:f32e28cee957be3a4daf780d9d3485d3a7b617006a78b6cd1f52900a2b8a0c6c"
+  "planHash": "sha256:b0361d0cf00d2ee4cbf356f309ae009eed8afa33d1744c6804170913fc215d0e"
 }

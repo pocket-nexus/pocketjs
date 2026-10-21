@@ -38,6 +38,8 @@ import {
 } from "../framework/src/manifest/host-build-inputs.ts";
 import { verifyPlanHash, type ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { resolvePspBuildToolchain } from "./psp-toolchain.ts";
+import softwareProfile from "../profiles/psp.ts";
+import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
 const nativeDir = pspUiDir + "hosts/psp/";
@@ -305,6 +307,9 @@ const hostEnvironment = buildPlan
       embedApp: true,
     })
   : {
+      POCKETJS_PROFILE_JSON: canonicalProfileJson(softwareProfile),
+      POCKETJS_PROFILE_HASH: hashPocketProfile(softwareProfile),
+      POCKETJS_TICK_HZ: String(softwareProfile.tickHz),
       POCKETJS_APP_OUTPUT: runtime ? "" : outputApp,
       POCKETJS_EMBED_APP: runtime ? "0" : "1",
       POCKETJS_OUTPUT_DIR: outputDir,

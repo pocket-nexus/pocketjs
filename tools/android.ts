@@ -35,9 +35,14 @@ import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET, resolveMotoGPlayBuildPlan } 
 import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "./redmi-1s-profile.ts";
 import { ANDROID_DEFAULT_ICON, bakeAndroidLauncherIcons } from "./android-icon.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import type { PocketProfile } from "../framework/src/profile.ts";
+import redmiProfile from "../profiles/redmi-1s-dev.ts";
+import motoProfile from "../profiles/moto-g-play-dev.ts";
+import { writeHostProfileHeader } from "./host-profile.ts";
 
 /** The target values the native library is compiled with: the same for every app of a profile. */
 interface NativeInputs {
+  readonly profile: PocketProfile;
   readonly target: string;
   readonly hostAbi: number;
   readonly rasterDensity: number;
@@ -58,22 +63,24 @@ const PROFILES: Readonly<Record<string, {
   "moto-g-play": {
     target: MOTO_G_PLAY_TARGET,
     resolvePlan: resolveMotoGPlayBuildPlan,
-    nativeInputs: () => contractInputs(MOTO_G_PLAY_TARGET, MOTO_G_PLAY_CONTRACTS.targets[MOTO_G_PLAY_TARGET]),
+    nativeInputs: () => contractInputs(motoProfile, MOTO_G_PLAY_CONTRACTS.targets[MOTO_G_PLAY_TARGET]),
   },
   "redmi-1s": {
     target: REDMI_1S_TARGET,
     resolvePlan: resolveRedmi1sBuildPlan,
-    nativeInputs: () => contractInputs(REDMI_1S_TARGET, REDMI_1S_CONTRACTS.targets[REDMI_1S_TARGET]),
+    nativeInputs: () => contractInputs(redmiProfile, REDMI_1S_CONTRACTS.targets[REDMI_1S_TARGET]),
   },
 };
-function contractInputs(target: string, contract: {
+function contractInputs(profile: PocketProfile, contract: {
   readonly hostAbi: number;
   readonly display: { readonly logicalViewports: readonly (readonly [number, number])[]; readonly rasterDensity: number };
 }): NativeInputs {
+  const target = profile.id;
   if (contract.display.logicalViewports.length !== 1) {
     throw new Error(`${target}: a runtime is built for one logical viewport, and the contract lists ${contract.display.logicalViewports.length}`);
   }
   return {
+    profile,
     target,
     hostAbi: contract.hostAbi,
     rasterDensity: contract.display.rasterDensity,
@@ -593,6 +600,7 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
   const portableRuntime = join(objects, "pocket_runtime.o");
   mustRun(clang, [
     ...cFlags,
+    "-include", writeHostProfileHeader(objects, inputs.profile),
     `-DPOCKETJS_TARGET_ID="${inputs.target}"`,
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.rasterDensity}`,
@@ -718,6 +726,7 @@ async function buildApp(): Promise<void> {
   const icons = await bakeAndroidLauncherIcons(iconSource, resources);
   const bundle = guestBundle();
   const libraries = buildNativeLibraries({
+    profile: bundle.inputs.profile,
     target: bundle.inputs.target,
     hostAbi: bundle.inputs.hostAbi,
     rasterDensity: bundle.inputs.viewport.rasterDensity,

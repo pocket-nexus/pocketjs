@@ -26,67 +26,88 @@ def fnv1a64(data: bytes) -> int:
     return value
 
 
-def validate(data: bytes) -> None:
-    if len(data) < 24:
+def variants(data: bytes) -> list[tuple[str, int, bytes, list[tuple[int, bytes]]]]:
+    if len(data) < fmt.POCKET_HEADER_SIZE + fmt.POCKET_FOOTER_SIZE:
         raise ValueError("package is truncated")
-    magic, version = struct.unpack_from("<II", data, 0)
+    magic, version, manifest, count, strings, string_size, reserved0, reserved1 = struct.unpack_from("<8I", data)
     if magic != MAGIC:
         raise ValueError("bad .pocket magic")
     if version != VERSION:
         raise ValueError(f"unsupported .pocket version {version}")
-    expected = struct.unpack_from("<Q", data, len(data) - 8)[0]
-    if fnv1a64(data[:-8]) != expected:
-        raise ValueError(".pocket footer hash mismatch")
     end = len(data) - fmt.POCKET_FOOTER_SIZE
-    manifest, count = struct.unpack_from("<II", data, fmt.OFFSET_HEADER_MANIFEST_SIZE)
-    table = (fmt.POCKET_HEADER_SIZE + manifest + fmt.POCKET_ALIGN - 1) & ~(fmt.POCKET_ALIGN - 1)
-    if fmt.POCKET_HEADER_SIZE + manifest > end or table + count * fmt.POCKET_VARIANT_SIZE > end:
-        raise ValueError("manifest or variant table is truncated")
+    if fnv1a64(data[:end]) != struct.unpack_from("<Q", data, end)[0]:
+        raise ValueError(".pocket footer hash mismatch")
+    align = lambda value: (value + fmt.POCKET_ALIGN - 1) & ~(fmt.POCKET_ALIGN - 1)
+    table = align(fmt.POCKET_HEADER_SIZE + manifest)
+    if reserved0 or reserved1 or table > end or count > (end - table) // fmt.POCKET_VARIANT_SIZE:
+        raise ValueError("invalid header or variant table")
+    if strings != table + count * fmt.POCKET_VARIANT_SIZE or strings + string_size > end:
+        raise ValueError("invalid string table")
+    next_string, strings_end = strings, strings + string_size
+    next_table = align(strings_end)
+    previous_target = None
+    records = []
     for index in range(count):
         entry = table + index * fmt.POCKET_VARIANT_SIZE
-        target = data[entry:entry + fmt.POCKET_TARGET_BYTES]
-        if target.find(b"\0") <= 0:
-            raise ValueError("variant target is not NUL terminated")
-        sections, offset = struct.unpack_from("<II", data, entry + fmt.OFFSET_VARIANT_SECTION_COUNT)
-        if offset + sections * fmt.POCKET_SECTION_SIZE > end:
-            raise ValueError("section table is truncated")
-        for section in range(sections):
-            at = offset + section * fmt.POCKET_SECTION_SIZE
-            start, size = struct.unpack_from("<II", data, at + fmt.OFFSET_SECTION_OFFSET)
-            if start + size > end:
-                raise ValueError("section payload is truncated")
+        target_offset, target_size, abi, sections, offset, reserved, variant_hash = struct.unpack_from("<6IQ", data, entry)
+        if target_offset != next_string or not 1 <= target_size <= fmt.POCKET_TARGET_MAX_BYTES or target_offset + target_size > strings_end:
+            raise ValueError("invalid target range")
+        raw_target = data[target_offset:target_offset + target_size]
+        if b"\0" in raw_target or (previous_target is not None and previous_target >= raw_target):
+            raise ValueError("invalid target order")
+        target = raw_target.decode("utf-8", errors="strict")
+        if reserved or offset != next_table or offset > end or sections > (end - offset) // fmt.POCKET_SECTION_SIZE:
+            raise ValueError("invalid section table")
+        records.append((target, abi, data[entry + fmt.OFFSET_VARIANT_PROFILE_HASH:entry + fmt.OFFSET_VARIANT_PROFILE_HASH + 32], offset, sections, variant_hash))
+        previous_target = raw_target
+        next_string += target_size
+        next_table += sections * fmt.POCKET_SECTION_SIZE
+    if next_string != strings_end:
+        raise ValueError("unused string table bytes")
+    next_payload = align(next_table)
+    result = []
+    for target, abi, profile_hash, offset, count, variant_hash in records:
+        sections = []
+        previous_kind = None
+        actual_hash = 0xCBF29CE484222325
+        for index in range(count):
+            kind, reserved, start, size = struct.unpack_from("<4I", data, offset + index * fmt.POCKET_SECTION_SIZE)
+            if reserved or (previous_kind is not None and previous_kind >= kind) or start != next_payload or start + size > end:
+                raise ValueError("invalid payload layout")
+            payload = data[start:start + size]
+            for byte in payload:
+                actual_hash = ((actual_hash ^ byte) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+            sections.append((kind, payload))
+            previous_kind = kind
+            next_payload = align(start + size)
+        if actual_hash != variant_hash:
+            raise ValueError("variant payload hash mismatch")
+        result.append((target, abi, profile_hash, sections))
+    if next_payload != end:
+        raise ValueError("invalid footer position")
+    return result
+
+
+def validate(data: bytes) -> None:
+    variants(data)
 
 
 def host_contract(data: bytes) -> tuple[str, tuple[int, ...], bytes]:
-    manifest_size, variant_count = struct.unpack_from("<II", data, 8)
-    table = (fmt.POCKET_HEADER_SIZE + manifest_size + fmt.POCKET_ALIGN - 1) & ~(fmt.POCKET_ALIGN - 1)
     matches: list[tuple[str, tuple[int, ...], bytes]] = []
-    for index in range(variant_count):
-        entry = table + index * fmt.POCKET_VARIANT_SIZE
-        if entry + fmt.POCKET_VARIANT_SIZE > len(data) - 8:
-            raise ValueError("variant table is truncated")
-        raw_target = data[entry : entry + fmt.OFFSET_VARIANT_HOST_ABI]
-        end = raw_target.find(b"\0")
-        if end <= 0:
-            raise ValueError("variant target is not NUL terminated")
-        target = raw_target[:end].decode("utf-8")
-        variant_abi, section_count, sections = struct.unpack_from("<III", data, entry + fmt.OFFSET_VARIANT_HOST_ABI)
-        for section_index in range(section_count):
-            section = sections + section_index * fmt.POCKET_SECTION_SIZE
-            if section + fmt.POCKET_SECTION_SIZE > len(data) - 8:
-                raise ValueError("section table is truncated")
-            kind, _, offset, size = struct.unpack_from("<IIII", data, section)
+    for target, variant_abi, profile_hash, sections in variants(data):
+        for kind, payload in sections:
             if kind != fmt.SECTION_HOST_INPUTS:
                 continue
-            if size != HOST_INPUTS_SIZE or offset + size > len(data) - 8:
+            if len(payload) != HOST_INPUTS_SIZE:
                 raise ValueError("hostInputs section is malformed")
-            payload = data[offset : offset + size]
-            fields = struct.unpack_from("<10I", payload, 0)
+            fields = struct.unpack_from("<10I", payload)
             if fields[0] != HOST_INPUTS_MAGIC or fields[1] != HOST_INPUTS_VERSION:
                 raise ValueError("hostInputs header is unsupported")
             if fields[2] != variant_abi:
                 raise ValueError("hostInputs ABI differs from its variant")
-            matches.append((target, fields, payload[fmt.OFFSET_HOST_INPUTS_PROFILE_HASH:fmt.OFFSET_HOST_INPUTS_PLAN_HASH]))
+            if payload[fmt.OFFSET_HOST_INPUTS_PROFILE_HASH:fmt.OFFSET_HOST_INPUTS_PLAN_HASH] != profile_hash:
+                raise ValueError("hostInputs profile hash differs from its variant")
+            matches.append((target, fields, profile_hash))
     if len(matches) != 1:
         raise ValueError("embedded ESP-IDF package must contain exactly one hostInputs variant")
     return matches[0]
@@ -103,7 +124,8 @@ def validate_profile(
     profile_hash: bytes,
 ) -> None:
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
-    canonical = json.dumps(profile, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    projection = {key: profile[key] for key in fmt.PROFILE_HASH_FIELDS if key in profile}
+    canonical = json.dumps(projection, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False)
     if hashlib.sha256(canonical.encode("utf-8")).digest() != profile_hash:
         raise ValueError("package host profile hash does not match HOST_PROFILE")
     display = profile.get("display", {})
@@ -162,7 +184,7 @@ def generate(package: Path, profile: Path, name: str, output_dir: Path) -> None:
         "};\n\n"
         f"const pocketjs_package_host_contract_t {symbol}_contract = {{\n"
         f"    .struct_size = sizeof({symbol}_contract),\n"
-        f'    .target_id = "{target}",\n'
+        f"    .target_id = (const char[]){{{','.join(str(byte) for byte in target.encode('utf-8'))},0}},\n"
         f"    .host_abi = {host_fields[2]}U,\n"
         f"    .tick_hz = {host_fields[3]}U,\n"
         f"    .logical_width = {host_fields[4]}U,\n"

@@ -1,3 +1,5 @@
+import profile from "../profiles/symbian-e7-dev.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
 import { deriveModality } from "../contracts/spec/modality.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
@@ -36,6 +38,8 @@ function plan(
     modality: deriveModality(SYMBIAN_E7_DEV_CONTRACTS.targets[SYMBIAN_E7_DEV_TARGET_ID]),
     features: {},
     companions: [],
+    profile,
+    profileHash: hashPocketProfile(profile),
     planHash: `sha256:${"0".repeat(64)}`,
   };
 }

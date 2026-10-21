@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/3ds-dev.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -94,7 +96,7 @@ async function runtimeFiles(overrides: { target?: string; hostAbi?: number; prog
     target: overrides.target ?? "3ds-dev",
     hostAbi: overrides.hostAbi ?? 11,
     pocketjs: "0000000000000000000000000000000000000000",
-    profile: "3ds-dev",
+    profile: "3ds-dev", profileHash: hashPocketProfile(softwareProfile),
     files: { "runtime.3dsx": { bytes: program.length, sha256: await sha256Hex(program) } },
   };
   return new Map<string, Uint8Array>([
@@ -206,7 +208,7 @@ describe("repack3ds", () => {
   test("thins a package that also carries other targets' variants", async () => {
     const other: PocketPackageVariant = {
       target: "psp",
-      hostAbi: 1,
+      hostAbi: 1, profileHash: hashPocketProfile(softwareProfile),
       sections: [{ kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "twenty48", id: ID, title: "Twenty48" }) }],
     };
     const universal = pocketFor(manifest(), [other]);
@@ -233,7 +235,7 @@ describe("repack3ds", () => {
       .rejects.toThrow(/the identity says "dev.pocket-nexus.other"/);
     const pspOnly = encodePocketPackage({
       manifest: new TextEncoder().encode("{}"),
-      variants: [{ target: "psp", hostAbi: 1, sections: [{ kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) }] }],
+      variants: [{ target: "psp", hostAbi: 1, profileHash: hashPocketProfile(softwareProfile), sections: [{ kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) }] }],
     });
     await expect(repack3ds(await input({ pocket: pspOnly }))).rejects.toThrow(/no 3ds-dev variant \(it has psp\)/);
     const offload = pocketFor(manifest({ requires: ["io.offload"] }));

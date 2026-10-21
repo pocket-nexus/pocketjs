@@ -9,6 +9,7 @@
  */
 
 #include "runtime.h"
+#include "pocket_profile.h"
 #include "error_text.h"
 
 #include <dirent.h>
@@ -65,7 +66,7 @@ static const char *package_error(int32_t code) {
     case 1: return "truncated package";
     case 2: return "bad package magic";
     case 3: return "unsupported package version";
-    case 4: return "package footer hash mismatch";
+    case 4: return "package integrity hash mismatch";
     case 5: return "invalid package UTF-8";
     case 6: return "package has no " POCKETJS_TARGET_ID " variant";
     case 7: return "package host ABI mismatch";
@@ -76,6 +77,8 @@ static const char *package_error(int32_t code) {
     case 13: return "package plan is not readable JSON";
     case 14: return "package plan has no usable viewport";
     case 15: return "package plan has an unusable auxiliary surface";
+    case 16: return "package profile hash mismatch";
+    case 17: return "invalid package layout";
     default: return "invalid package arguments";
   }
 }
@@ -245,6 +248,7 @@ PocketRuntimePackage *runtime_package_load(
     (const uint8_t *)POCKETJS_TARGET_ID,
     sizeof POCKETJS_TARGET_ID - 1,
     POCKETJS_HOST_ABI,
+    pocket_3ds_profile_hash,
     &package->guest
   );
   if (result != 0 || package->guest.package_hash == 0) {

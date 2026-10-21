@@ -1,3 +1,5 @@
+import { canonicalProfileJson } from "../contracts/spec/profile.ts";
+import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -171,9 +173,11 @@ test("device Rust admission consumes the TypeScript package format", async () =>
   const directory = resolve(".pocket-build/validation/vita-usb-contract/fixtures");
   mkdirSync(directory, { recursive: true });
   const plan = JSON.parse(readFileSync("tests/fixtures/plans/portable-vita.plan.json", "utf8"));
+  const profileJson = canonicalProfileJson(plan.profile);
+  const profileHash = "sha256:" + createHash("sha256").update(profileJson).digest("hex");
   writeFileSync(join(directory, "plan.json"), JSON.stringify(plan));
-  function pkg(overrides: { id?: string; abi?: number; target?: string; plan?: unknown; js?: string } = {}) {
-    return encodePocketPackage({ manifest: Buffer.from("{}"), variants: [{ target: overrides.target ?? "vita", hostAbi: overrides.abi ?? 2,
+  function pkg(overrides: { id?: string; abi?: number; target?: string; profileHash?: string; plan?: unknown; js?: string } = {}) {
+    return encodePocketPackage({ manifest: Buffer.from("{}"), variants: [{ target: overrides.target ?? "vita", hostAbi: overrides.abi ?? 2, profileHash: overrides.profileHash ?? profileHash,
       sections: [
         { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: plan.app.output, id: overrides.id ?? plan.app.id, title: plan.app.title }) },
         { kind: POCKET_SECTION.plan, bytes: Buffer.from(JSON.stringify(overrides.plan ?? plan)) },
@@ -183,12 +187,13 @@ test("device Rust admission consumes the TypeScript package format", async () =>
   }
   const badHash = pkg(); badHash[badHash.length - 1] ^= 1;
   for (const [name, bytes] of Object.entries({ "good": pkg(), "bad-hash": badHash,
+    "wrong-profile": pkg({ profileHash: "sha256:" + "55".repeat(32) }),
     "wrong-app": pkg({ id: "other.app" }), "wrong-abi": pkg({ abi: 99 }),
     "wrong-native": pkg({ plan: { ...plan, viewport: { ...plan.viewport, rasterDensity: 1 } } }),
     "wrong-target": pkg({ target: "psp" }), "no-nul": pkg({ js: "globalThis.frame = () => {};" }),
   })) writeFileSync(join(directory, `${name}.pocket`), bytes);
   const child = Bun.spawn(["cargo", "test", "--locked", "--manifest-path", "tests/fixtures/vita-dev/Cargo.toml", "--target-dir", ".pocket-build/validation/vita-usb-contract/target"],
-    { env: { ...process.env, VITA_DEV_FIXTURES: directory }, stdout: "pipe", stderr: "pipe" });
+    { env: { ...process.env, POCKETJS_PROFILE_JSON: profileJson, POCKETJS_PROFILE_HASH: profileHash, VITA_DEV_FIXTURES: directory }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0 || child.signalCode !== null) throw new Error(stdout + stderr);
   expect(stdout).toContain("9 passed");

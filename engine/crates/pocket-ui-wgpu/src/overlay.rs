@@ -2,13 +2,13 @@
 //! and consume JSON commands; the adapter owns viewport and pointer transport.
 
 use crate::{Blit, ProgramConfig, ProgramOutput, ProgramTarget, UiProgram, UiSurface};
-use anyhow::{Context, Result, anyhow};
-use pocket_mod::{Guest, qjs::Function};
+use anyhow::{anyhow, Context, Result};
 use pocket3d::{
     gpu::Gpu,
     input::{Input, PointerEvent},
 };
-use serde_json::{Value, json};
+use pocket_mod::{qjs::Function, Guest};
+use serde_json::{json, Value};
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 use winit::event::MouseButton;
 
@@ -41,6 +41,7 @@ impl UiOverlay {
             (size.1 as f32 / scale).ceil().max(1.) as u32,
         ];
         let mut program = UiProgram::new(ProgramConfig {
+            profile: None,
             host: "desktop",
             host_abi: 1,
             logical,

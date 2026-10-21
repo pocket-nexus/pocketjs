@@ -5,10 +5,13 @@ import {
   type PresentationMode,
   type Viewport,
 } from "../../../contracts/spec/platforms.ts";
-import { verifyPlanHash, type ResolvedBuildPlan } from "./plan.ts";
+import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "./plan.ts";
+import { canonicalProfileJson, hashPocketProfile, type PocketProfile } from "../profile.ts";
 
 /** Stable subset of the internal build plan consumed by custom native hosts. */
 export interface HostBuildInputs {
+  readonly profile: Omit<PocketProfile, "hostExtension">;
+  readonly profileHash: string;
   readonly appOutput: string;
   /** Package identity from the manifest, as the plan resolved it. Hosts map
    *  it onto their platform's package id and version scheme. */
@@ -38,6 +41,7 @@ export interface HostBuildInputs {
 
 export interface ExtractHostBuildInputsOptions {
   readonly expectedTarget?: string;
+  readonly expectedProfileHash?: string;
 }
 
 export interface HostBuildEnvironmentOptions {
@@ -97,6 +101,9 @@ function readVerifiedPlan(input: unknown): ResolvedBuildPlan {
     if (!verifyPlanHash(input)) {
       throw new TypeError("PocketJS host build: invalid ResolvedBuildPlan checksum");
     }
+    if (!verifyPlanProfile(input)) {
+      throw new TypeError("PocketJS host build: invalid ResolvedBuildPlan profile identity");
+    }
   } catch (error) {
     if (error instanceof TypeError && error.message.startsWith("PocketJS host build:")) {
       throw error;
@@ -120,7 +127,12 @@ export function extractHostBuildInputs(
       `PocketJS host build: expected target ${options.expectedTarget}, got ${plan.target.id}`,
     );
   }
+  if (options.expectedProfileHash && plan.profileHash !== options.expectedProfileHash) {
+    throw new TypeError(`PocketJS host build: expected profile ${options.expectedProfileHash}, got ${plan.profileHash}`);
+  }
   return {
+    profile: plan.profile,
+    profileHash: plan.profileHash,
     appOutput: plan.app.output,
     app: {
       id: plan.app.id,
@@ -145,7 +157,13 @@ export function hostBuildEnvironment(
   inputs: HostBuildInputs,
   options: HostBuildEnvironmentOptions,
 ): Readonly<Record<string, string>> {
+  if (inputs.profile.id !== inputs.target || hashPocketProfile(inputs.profile) !== inputs.profileHash) {
+    throw new TypeError("PocketJS host build: invalid profile identity");
+  }
   return {
+    POCKETJS_PROFILE_HASH: inputs.profileHash,
+    POCKETJS_PROFILE_JSON: canonicalProfileJson(inputs.profile),
+    POCKETJS_TICK_HZ: String(inputs.profile.tickHz),
     POCKETJS_APP_OUTPUT: inputs.appOutput,
     POCKETJS_APP_ID: inputs.app.id,
     POCKETJS_APP_TITLE: inputs.app.title,

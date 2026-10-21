@@ -178,7 +178,9 @@ pub const POCKET_UI_PACKAGE_COMPANIONS: u32 = 4;
 /// target/ABI variant. 0 = admitted; 1-11 are the package errors the 3DS host
 /// numbers the same way (truncated, magic, version, footer hash, UTF-8,
 /// no variant, host ABI, identity, plan, JavaScript, NUL terminator), 12 a bad
-/// argument, 13-14 a plan whose JSON or viewport cannot be read.
+/// argument, 13-14 a plan whose JSON or viewport cannot be read, 16 a profile
+/// mismatch, and 17 an invalid section layout. The expected profile hash comes
+/// from the independent host build (32 readable bytes).
 #[no_mangle]
 pub unsafe extern "C" fn pocket_ui_package_open(
     ptr: *const u8,
@@ -186,18 +188,28 @@ pub unsafe extern "C" fn pocket_ui_package_open(
     target_ptr: *const u8,
     target_len: usize,
     host_abi: u32,
+    profile_hash: *const u8,
     out: *mut PocketUiPackage,
 ) -> i32 {
     use pocketjs_core::package::{select_guest, GuestError, PackageError};
     use pocketjs_core::plan_facts::{plan_facts, PlanFactsError};
-    if ptr.is_null() || len == 0 || target_ptr.is_null() || target_len == 0 || out.is_null() {
+    if ptr.is_null()
+        || len == 0
+        || target_ptr.is_null()
+        || target_len == 0
+        || profile_hash.is_null()
+        || out.is_null()
+    {
         return 12;
     }
     let target = match core::str::from_utf8(bytes(target_ptr, target_len)) {
         Ok(value) if !value.is_empty() => value,
         _ => return 12,
     };
-    let guest = match select_guest(bytes(ptr, len), target, host_abi, false) {
+    let expected_hash: [u8; 32] = core::slice::from_raw_parts(profile_hash, 32)
+        .try_into()
+        .unwrap();
+    let guest = match select_guest(bytes(ptr, len), target, host_abi, &expected_hash, false) {
         Ok(guest) => guest,
         Err(error) => {
             return match error {
@@ -208,6 +220,8 @@ pub unsafe extern "C" fn pocket_ui_package_open(
                 GuestError::Package(PackageError::BadUtf8) => 5,
                 GuestError::MissingVariant => 6,
                 GuestError::HostAbiMismatch => 7,
+                GuestError::ProfileHashMismatch => 16,
+                GuestError::Package(PackageError::BadLayout) => 17,
                 GuestError::MissingIdentity => 8,
                 GuestError::MissingPlan => 9,
                 GuestError::MissingJavaScript => 10,
@@ -937,7 +951,7 @@ mod tests {
                 .join("../../tests/fixtures/packages/synthetic.pocket"),
         )
         .unwrap();
-        let open = |bytes: &[u8], target: &str, abi: u32| unsafe {
+        let open_profile = |bytes: &[u8], target: &str, abi: u32, profile_hash: &[u8; 32]| unsafe {
             let mut out = core::mem::MaybeUninit::<PocketUiPackage>::uninit();
             pocket_ui_package_open(
                 bytes.as_ptr(),
@@ -945,9 +959,13 @@ mod tests {
                 target.as_ptr(),
                 target.len(),
                 abi,
+                profile_hash.as_ptr(),
                 out.as_mut_ptr(),
             )
         };
+        let open =
+            |bytes: &[u8], target: &str, abi: u32| open_profile(bytes, target, abi, &[0x11; 32]);
+        assert_eq!(open_profile(&fixture, "psp", 1, &[0x12; 32]), 16);
         // The fixture's plans carry a target but no viewport.
         assert_eq!(open(&fixture, "psp", 1), 14);
         assert_eq!(open(&fixture, "psp", 2), 7);
@@ -963,6 +981,7 @@ mod tests {
                     b"psp".as_ptr(),
                     3,
                     1,
+                    core::ptr::null(),
                     core::ptr::null_mut(),
                 )
             },
@@ -988,6 +1007,12 @@ mod tests {
                 target.as_ptr(),
                 target.len(),
                 8,
+                [
+                    0x94, 0x86, 0x68, 0xbc, 0x22, 0x22, 0x47, 0xce, 0x96, 0x2d, 0x0b, 0xad, 0x31,
+                    0x8b, 0x19, 0xba, 0x10, 0x11, 0x25, 0x8a, 0x88, 0xd4, 0x73, 0xc7, 0xdf, 0xb1,
+                    0xbc, 0x22, 0xb3, 0xa9, 0x28, 0xac,
+                ]
+                .as_ptr(),
                 out.as_mut_ptr(),
             )
         };

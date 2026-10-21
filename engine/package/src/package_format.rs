@@ -1,12 +1,12 @@
 // Generated from contracts/spec/pocket-package.ts. Do not edit.
 #![allow(dead_code)]
 pub const POCKET_MAGIC: u32 = 1414218576;
-pub const POCKET_VERSION: u32 = 1;
-pub const POCKET_HEADER_SIZE: usize = 16;
-pub const POCKET_VARIANT_SIZE: usize = 40;
+pub const POCKET_VERSION: u32 = 2;
+pub const POCKET_HEADER_SIZE: usize = 32;
+pub const POCKET_VARIANT_SIZE: usize = 64;
 pub const POCKET_SECTION_SIZE: usize = 16;
 pub const POCKET_ALIGN: usize = 16;
-pub const POCKET_TARGET_BYTES: usize = 16;
+pub const POCKET_TARGET_MAX_BYTES: usize = 65535;
 pub const POCKET_FOOTER_SIZE: usize = 8;
 pub const HOST_INPUTS_MAGIC: u32 = 1414744144;
 pub const HOST_INPUTS_VERSION: u32 = 1;
@@ -21,10 +21,15 @@ pub const OFFSET_HEADER_MAGIC: u32 = 0;
 pub const OFFSET_HEADER_VERSION: u32 = 4;
 pub const OFFSET_HEADER_MANIFEST_SIZE: usize = 8;
 pub const OFFSET_HEADER_VARIANT_COUNT: usize = 12;
-pub const OFFSET_VARIANT_HOST_ABI: usize = 16;
-pub const OFFSET_VARIANT_SECTION_COUNT: usize = 20;
-pub const OFFSET_VARIANT_SECTIONS_OFFSET: usize = 24;
-pub const OFFSET_VARIANT_HASH: usize = 32;
+pub const OFFSET_HEADER_STRING_TABLE_OFFSET: usize = 16;
+pub const OFFSET_HEADER_STRING_TABLE_SIZE: usize = 20;
+pub const OFFSET_VARIANT_TARGET_OFFSET: usize = 0;
+pub const OFFSET_VARIANT_TARGET_SIZE: usize = 4;
+pub const OFFSET_VARIANT_HOST_ABI: usize = 8;
+pub const OFFSET_VARIANT_SECTION_COUNT: usize = 12;
+pub const OFFSET_VARIANT_SECTIONS_OFFSET: usize = 16;
+pub const OFFSET_VARIANT_HASH: usize = 24;
+pub const OFFSET_VARIANT_PROFILE_HASH: usize = 32;
 pub const OFFSET_SECTION_KIND: usize = 0;
 pub const OFFSET_SECTION_OFFSET: usize = 8;
 pub const OFFSET_SECTION_SIZE: usize = 12;

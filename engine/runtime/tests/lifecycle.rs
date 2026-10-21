@@ -1,5 +1,5 @@
 use pocket_drivers::*;
-use pocket_package::{package::fnv1a64, source::MemorySource};
+use pocket_package::source::MemorySource;
 use pocket_runtime::*;
 use std::{cell::RefCell, rc::Rc};
 
@@ -15,44 +15,24 @@ fn config() -> RuntimeConfig {
     }
 }
 fn package() -> Vec<u8> {
-    let mut identity = Vec::new();
-    for value in ["app", "test.app", "App"] {
-        identity.extend_from_slice(&(value.len() as u16).to_le_bytes());
-        identity.extend_from_slice(value.as_bytes());
-    }
-    let sections = [
-        (1, identity),
-        (
-            2,
-            br#"{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}"#.to_vec(),
-        ),
-        (3, b"test\0".to_vec()),
-    ];
-    let mut bytes = vec![0; 16 + 40 + 48];
-    bytes[0..4].copy_from_slice(b"PCKT");
-    bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
-    bytes[12..16].copy_from_slice(&1u32.to_le_bytes());
-    bytes[16..23].copy_from_slice(b"fixture");
-    bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
-    bytes[36..40].copy_from_slice(&3u32.to_le_bytes());
-    bytes[40..44].copy_from_slice(&56u32.to_le_bytes());
-    for (i, (kind, payload)) in sections.into_iter().enumerate() {
-        while !bytes.len().is_multiple_of(16) {
-            bytes.push(0);
-        }
-        let offset = bytes.len();
-        let entry = 56 + i * 16;
-        bytes[entry..entry + 4].copy_from_slice(&(kind as u32).to_le_bytes());
-        bytes[entry + 8..entry + 12].copy_from_slice(&(offset as u32).to_le_bytes());
-        bytes[entry + 12..entry + 16].copy_from_slice(&(payload.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&payload);
-    }
-    let hash = fnv1a64(&[&bytes]);
-    bytes.extend_from_slice(&hash.to_le_bytes());
-    bytes
+    package_for(config().profile_hash)
+}
+fn package_for(profile_hash: [u8; 32]) -> Vec<u8> {
+    let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+    pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+        target: "fixture",
+        host_abi: 1,
+        profile_hash,
+        identity: &identity,
+        plan: br#"{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}"#,
+        code: b"test",
+        pak: &[],
+    })
+    .unwrap()
 }
 #[derive(Default)]
 struct Facts {
+    initializations: usize,
     frames: usize,
     shutdowns: usize,
     evaluated: bool,
@@ -69,6 +49,7 @@ impl Guest for TestGuest {
         ops: OpContext,
         env: &GuestEnvironment<'_>,
     ) -> Result<(), RuntimeError> {
+        self.facts.borrow_mut().initializations += 1;
         assert_eq!(env.viewport, [4, 4]);
         assert!(env.assets.is_some());
         assert!(ops.supports_op(1));
@@ -443,9 +424,10 @@ fn profile_auxiliary_surface_has_guest_metadata_without_a_package_declaration() 
     cfg.profile_json = serde_json::to_vec(&profile).unwrap();
     cfg.profile_hash = pocket_package::sha256::sha256(&cfg.profile_json);
     cfg.frame_buffer_budget = 128;
+    let package = package_for(cfg.profile_hash);
     let mut rt = Runtime::new(cfg).unwrap();
     rt.set_guest(Box::new(AuxGuest)).unwrap();
-    rt.set_package_source(Box::new(MemorySource(package())))
+    rt.set_package_source(Box::new(MemorySource(package)))
         .unwrap();
     let facts = Rc::new(RefCell::new(Facts::default()));
     rt.add_display(
@@ -505,13 +487,13 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
         }
         fn retire(&mut self, _: ()) {}
     }
-    struct Output(Rc<Cell<[u32; 2]>>);
+    struct Output(Rc<Cell<[u32; 2]>>, DisplayRole);
     impl DisplayOutput for Output {
         type Token = ();
         fn descriptor(&self) -> DisplayDescriptor {
             let [w, h] = self.0.get();
             DisplayDescriptor::new(
-                DisplayRole::Primary,
+                self.1,
                 w,
                 h,
                 PixelFormat::Rgba8888,
@@ -554,7 +536,8 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
     let size = Rc::new(Cell::new([4, 4]));
     let frames = Rc::new(RefCell::new(Vec::new()));
     let renderer = rt.add_renderer(Gpu(frames.clone())).unwrap();
-    rt.add_display(Output(size.clone()), renderer).unwrap();
+    rt.add_display(Output(size.clone(), DisplayRole::Primary), renderer)
+        .unwrap();
     rt.boot().unwrap();
     let ops = rt.op_context();
     for logical in [
@@ -606,4 +589,209 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
         cpu.resize_embedded_gpu([3.5, 2.25], [4, 4]),
         Err(RuntimeError::InvalidArgument)
     );
+
+    // Auxiliary GPU resources retain their logical viewport at density two.
+    // Its scale takes priority over the primary GPU's optional integer mapping.
+    for (aux_extent, admitted) in [(8, true), (4, true), (5, false)] {
+        let mut cfg = config();
+        let mut profile: serde_json::Value = serde_json::from_slice(&cfg.profile_json).unwrap();
+        profile["display"]["physicalViewport"] = serde_json::json!([8, 8]);
+        profile["display"]["rasterDensity"] = serde_json::json!(2);
+        profile["display"]["auxiliary"] = serde_json::json!({
+            "physicalViewport":[aux_extent,aux_extent], "logicalViewports":[[4,4]],
+            "rasterDensity":2, "presentations":["integer-fit"]
+        });
+        cfg.profile_json = serde_json::to_vec(&profile).unwrap();
+        cfg.profile_hash = pocket_package::sha256::sha256(&cfg.profile_json);
+        cfg.frame_buffer_budget = 0;
+        let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+        let bytes = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "fixture",
+            host_abi: 1,
+            profile_hash: cfg.profile_hash,
+            identity: &identity,
+            plan: br#"{"viewport":{"logical":[4,4],"rasterDensity":2},"features":{}}"#,
+            code: b"test",
+            pak: &[],
+        })
+        .unwrap();
+        let observed = Rc::new(RefCell::new(Vec::new()));
+        let facts = Rc::new(RefCell::new(Facts::default()));
+        let mut runtime = Runtime::new(cfg).unwrap();
+        runtime
+            .set_guest(Box::new(TestGuest {
+                facts: facts.clone(),
+                ops: None,
+                fail: false,
+            }))
+            .unwrap();
+        runtime
+            .set_package_source(Box::new(MemorySource(bytes)))
+            .unwrap();
+        let renderer = runtime.add_renderer(Gpu(observed.clone())).unwrap();
+        runtime
+            .add_display(
+                Output(Rc::new(Cell::new([8, 8])), DisplayRole::Primary),
+                renderer,
+            )
+            .unwrap();
+        runtime
+            .add_display(
+                Output(
+                    Rc::new(Cell::new([aux_extent, aux_extent])),
+                    DisplayRole::Auxiliary,
+                ),
+                renderer,
+            )
+            .unwrap();
+        if admitted {
+            runtime.boot().unwrap();
+            assert_eq!(
+                *observed.borrow(),
+                vec![
+                    ((4., 4.), Rect::new(0, 0, 8, 8)),
+                    ((4., 4.), Rect::new(0, 0, aux_extent, aux_extent)),
+                ]
+            );
+        } else {
+            assert_eq!(runtime.boot(), Err(RuntimeError::ProfileMismatch));
+            assert_eq!(facts.borrow().initializations, 0);
+        }
+    }
+}
+
+#[test]
+fn profile_hash_mismatch_precedes_guest_initialization_and_allows_source_replacement() {
+    let facts = Rc::new(RefCell::new(Facts::default()));
+    let mut rt = runtime(facts.clone(), false, false);
+    rt.set_package_source(Box::new(MemorySource(package_for([0x55; 32]))))
+        .unwrap();
+    assert!(matches!(
+        rt.boot(),
+        Err(RuntimeError::Package(
+            pocket_package::source::LoadError::Admission(
+                pocket_package::GuestError::ProfileHashMismatch
+            )
+        ))
+    ));
+    assert_eq!(facts.borrow().initializations, 0);
+    assert!(!facts.borrow().evaluated);
+    assert_eq!(facts.borrow().flushes, 0);
+    rt.set_package_source(Box::new(MemorySource(package())))
+        .unwrap();
+    rt.boot().unwrap();
+    assert_eq!(facts.borrow().initializations, 1);
+}
+
+#[test]
+fn profile_orientations_dynamic_ranges_and_cpu_targets_are_admitted_before_guest() {
+    struct Probe(Rc<RefCell<Vec<[u32; 2]>>>);
+    impl Guest for Probe {
+        fn initialize(
+            &mut self,
+            _: OpContext,
+            env: &GuestEnvironment<'_>,
+        ) -> Result<(), RuntimeError> {
+            self.0.borrow_mut().push(env.viewport);
+            Ok(())
+        }
+        fn evaluate(&mut self, _: &[u8]) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn frame(&mut self, _: &GuestFrame<'_>) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn shutdown(&mut self) {}
+    }
+    struct Output([u32; 2]);
+    impl DisplayOutput for Output {
+        type Token = ();
+        fn descriptor(&self) -> DisplayDescriptor {
+            DisplayDescriptor::new(
+                DisplayRole::Primary,
+                self.0[0],
+                self.0[1],
+                PixelFormat::Rgba8888,
+                self.0[0] as usize * 4,
+                TargetOwnership::CpuVisible,
+            )
+        }
+        fn acquire(&mut self, _: Rect) -> Result<Target<'_>, DisplayError> {
+            unreachable!()
+        }
+        fn flush(&mut self, _: &[Rect]) -> Result<(), DisplayError> {
+            unreachable!()
+        }
+        fn wait(&mut self, _: ()) -> Result<(), DisplayError> {
+            unreachable!()
+        }
+        fn vsync(&mut self) -> VsyncSource {
+            VsyncSource::None
+        }
+    }
+    let cases = [
+        // The panel and the selected declared viewport turn together.
+        (false, false, [4, 2], [8, 4], true),
+        // A fixed CPU output cannot replace the profile panel with an arbitrary size.
+        (false, false, [4, 2], [4, 2], false),
+        // A native embedding explicitly owns the final host-side scaling step.
+        (false, true, [4, 2], [4, 2], true),
+        // A dynamic viewport need not be the profile's default viewport.
+        (true, false, [3, 3], [6, 6], true),
+        (true, false, [5, 3], [10, 6], false),
+        // A dynamic CPU target still matches the density promised by the profile.
+        (true, false, [3, 3], [3, 3], false),
+        (true, true, [5, 3], [5, 3], false),
+    ];
+    for (dynamic, embedding, logical, physical, admitted) in cases {
+        let mut cfg = config();
+        let mut profile: serde_json::Value = serde_json::from_slice(&cfg.profile_json).unwrap();
+        profile["display"]["physicalViewport"] = serde_json::json!([4, 8]);
+        profile["display"]["logicalViewports"] = serde_json::json!([[2, 4], [4, 2]]);
+        profile["display"]["rasterDensity"] = serde_json::json!(2);
+        if dynamic {
+            profile["form"] = serde_json::json!("window");
+            profile["display"]["dynamicViewport"] = serde_json::json!({"min":[2,2],"max":[4,4]});
+        }
+        cfg.profile_json = serde_json::to_vec(&profile).unwrap();
+        cfg.profile_hash = pocket_package::sha256::sha256(&cfg.profile_json);
+        cfg.frame_buffer_budget = 1024;
+        let identity = pocket_package::embedded::identity("app", "test.app", "App").unwrap();
+        let plan = serde_json::to_vec(
+            &serde_json::json!({"viewport":{"logical":logical,"rasterDensity":2},"features":{}}),
+        )
+        .unwrap();
+        let package = pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
+            target: "fixture",
+            host_abi: 1,
+            profile_hash: cfg.profile_hash,
+            identity: &identity,
+            plan: &plan,
+            code: b"test",
+            pak: &[],
+        })
+        .unwrap();
+        let observed = Rc::new(RefCell::new(Vec::new()));
+        let mut runtime = Runtime::new(cfg).unwrap();
+        runtime
+            .set_guest(Box::new(Probe(observed.clone())))
+            .unwrap();
+        runtime
+            .set_package_source(Box::new(MemorySource(package)))
+            .unwrap();
+        runtime
+            .add_display(Output(physical), RendererId::SOFTWARE)
+            .unwrap();
+        if embedding {
+            runtime.allow_embedded_viewport_changes().unwrap();
+        }
+        let result = runtime.boot_deferred();
+        if admitted {
+            result.unwrap();
+            assert_eq!(*observed.borrow(), vec![logical]);
+        } else {
+            assert_eq!(result, Err(RuntimeError::ProfileMismatch));
+            assert!(observed.borrow().is_empty());
+        }
+    }
 }

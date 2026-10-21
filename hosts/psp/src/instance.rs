@@ -270,9 +270,21 @@ impl OpProvider for Services {
         }
     }
 }
-pub(crate) fn profile() -> Vec<u8> {
-    serde_json::to_vec(&serde_json::json!({"id":"psp","platform":"psp","form":"handheld","tickHz":60,"display":{"physicalViewport":[480,272],"logicalViewports":[[480,272]],"rasterDensity":1},"capabilities":["input.buttons","input.analog.left","text.glyphs.baked"],"roleCapabilities":{}})).unwrap()
+pub(crate) fn build_profile(
+) -> Result<Option<pocket_package::profile::BuildProfile<'static>>, String> {
+    pocket_package::profile::from_build_inputs(
+        option_env!("POCKETJS_PROFILE_JSON"),
+        option_env!("POCKETJS_PROFILE_HASH"),
+    )
+    .map_err(|error| alloc::format!("profile build inputs: {error:?}"))
 }
+pub(crate) fn profile() -> Result<Vec<u8>, String> {
+    if let Some(profile) = build_profile()? {
+        return Ok(profile.json.to_vec());
+    }
+    Ok(serde_json::to_vec(&serde_json::json!({"id":"psp","platform":"psp","form":"handheld","tickHz":60,"display":{"physicalViewport":[480,272],"logicalViewports":[[480,272]],"rasterDensity":1},"capabilities":["input.buttons","input.analog.left","text.glyphs.baked"],"roleCapabilities":{}})).unwrap())
+}
+
 pub(crate) fn package(
     code: &[u8],
     pak: &[u8],
@@ -292,6 +304,7 @@ pub(crate) fn package(
     pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage {
         target: "psp",
         host_abi: env!("POCKETJS_HOST_ABI").parse().unwrap(),
+        profile_hash: pocket_package::sha256::sha256(&profile()?),
         identity: &identity,
         plan,
         code,

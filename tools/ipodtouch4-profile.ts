@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/ipodtouch4-dev.ts";
+import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -18,30 +20,19 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * an app whose plan resolved it. The guest is embedded in the same binary as
  * its host, so no bundle can meet a host without the ops its plan admitted.
  */
-export const IPODTOUCH4_DEV_TARGET_ID = "ipodtouch4-dev";
-export const IPODTOUCH4_DEV_HOST_ABI = 8;
-export const IPODTOUCH4_LOGICAL_VIEWPORT = [320, 480] as const;
+export const IPODTOUCH4_DEV_TARGET_ID = softwareProfile.id;
+export const IPODTOUCH4_DEV_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const IPODTOUCH4_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
 /** The same panel a quarter turn over: the host rotates its content view and
  *  presents 480x320 logical on the 960x640 drawable (hosts/ios-legacy/runtime.c). */
-export const IPODTOUCH4_LANDSCAPE_VIEWPORT = [480, 320] as const;
-export const IPODTOUCH4_PHYSICAL_VIEWPORT = [640, 960] as const;
-export const IPODTOUCH4_RASTER_DENSITY = 2;
+export const IPODTOUCH4_LANDSCAPE_VIEWPORT = softwareProfile.display.logicalViewports[1];
+export const IPODTOUCH4_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
+export const IPODTOUCH4_RASTER_DENSITY = softwareProfile.display.rasterDensity;
 
 export const IPODTOUCH4_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [IPODTOUCH4_DEV_TARGET_ID]: {
-      hostAbi: IPODTOUCH4_DEV_HOST_ABI,
-      platform: "ios",
-      form: "takeover",
-      display: {
-        physicalViewport: IPODTOUCH4_PHYSICAL_VIEWPORT,
-        logicalViewports: [IPODTOUCH4_LOGICAL_VIEWPORT, IPODTOUCH4_LANDSCAPE_VIEWPORT],
-        presentations: ["native"],
-        rasterDensity: IPODTOUCH4_RASTER_DENSITY,
-      },
-      capabilities: ["input.touch", "text.glyphs.baked", "io.offload", "ui.physics"],
-    },
+    [IPODTOUCH4_DEV_TARGET_ID]: legacyTargetProfile(softwareProfile),
   }),
 );
 

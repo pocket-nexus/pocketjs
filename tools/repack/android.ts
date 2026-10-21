@@ -281,7 +281,7 @@ async function admitAndroidGame(input: RepackInput): Promise<AdmittedGame> {
   checkIdentity(input.identity);
   const names = androidIdentity(input.identity);
   const runtime = await readAndroidRuntime(input.runtime);
-  const game = admitPocket(input.pocket, runtime, input.identity);
+  const game = await admitPocket(input.pocket, runtime, input.identity);
   const viewport = game.plan.viewport as { logical?: readonly number[]; rasterDensity?: number } | undefined;
   const [width, height] = runtime.viewport.logical;
   if (viewport?.logical?.[0] !== width || viewport.logical[1] !== height || viewport.rasterDensity !== runtime.viewport.rasterDensity) {

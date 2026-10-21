@@ -65,7 +65,7 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     cpSync(quickjs, join(external, "program/quickjs"), { recursive: true });
     const profile = '{"capabilities":[],"display":{"logicalViewports":[[4,4]],"physicalViewport":[4,4],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"fixture","platform":"test","tickHz":60}';
     const bytes = (source: string) => new TextEncoder().encode(source);
-    const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: 1, sections: [
+    const pkg = encodePocketPackage({ manifest: bytes("{}"), variants: [{ target: "fixture", hostAbi: 1, profileHash: `sha256:${createHash("sha256").update(profile).digest("hex")}`, sections: [
       { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "sdk", id: "test.sdk", title: "SDK consumer" }) },
       { kind: POCKET_SECTION.plan, bytes: bytes('{"viewport":{"logical":[4,4],"rasterDensity":1},"features":{}}') },
       { kind: POCKET_SECTION.js, bytes: bytes("globalThis.frameCount=0;globalThis.frame=()=>{globalThis.frameCount++;ui.createNode(1)};\0") },

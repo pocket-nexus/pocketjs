@@ -332,7 +332,7 @@ arm-none-symbianelf-gcc "${quickjs_flags[@]}" -std=gnu99 -funsigned-char \
 arm-none-symbianelf-ar cqs "$build/libquickjs.a" "$quickjs_objects"/*.o
 
 cp "$runtime_source"/* "$build/"
-cp "$payload/app.js" "$payload/app.pak" "$build/"
+cp "$payload/app.js" "$payload/app.pak" "$payload/pocket_host_profile.h" "$build/"
 if test -f "$payload/navigation.tsv"; then
     cp "$payload/navigation.tsv" "$build/navigation.tsv"
 else
@@ -356,6 +356,7 @@ qmake \
     "POCKETJS_FRAME_RATE=$frame_rate" \
     "POCKETJS_PERF_TRACE=$perf_trace" \
     "POCKETJS_HOST_ABI=$host_abi" \
+    "POCKETJS_HOST_PROFILE=$build/pocket_host_profile.h" \
     "POCKETJS_INITIAL_LOGICAL_WIDTH=$initial_logical_width" \
     "POCKETJS_INITIAL_LOGICAL_HEIGHT=$initial_logical_height" \
     "POCKETJS_ORIENTATION_LOCK=$orientation_lock" \

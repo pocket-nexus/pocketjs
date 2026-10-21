@@ -5,7 +5,9 @@ outside the checkout. It creates a manifest with **git dependencies at one
 fixed revision**, checks Cargo metadata, and runs the consumer tests. The runner
 resolves the repository's current `HEAD` to a full commit hash at the start of
 each run. `--revision <full-commit>` replays an older revision. The generated
-manifest and receipt record the immutable hash used for that run. It uses
+manifest and receipt record the immutable hash used for that run. Version 1
+package revisions use the maintained v1 consumer and the corpus from that
+revision; current revisions use the v2 admission API and profile hash. It uses
 no path dependencies, Cargo patches, internal engine modules, or direct core
 dependency. Logs, resolved metadata, the generated lockfile, and the result
 receipt go under `.pocket-build/validation/out-of-tree-rust/`.

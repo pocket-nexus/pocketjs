@@ -32,6 +32,8 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
 import { demoIdentity, demoManifestFor } from "./demo-identity.ts";
 import { packageVitaVpk } from "./vita-package.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
+import softwareProfile from "../profiles/vita.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
 const nativeDir = pspUiDir + "hosts/vita/";
@@ -274,6 +276,8 @@ if (!skipBuild && !runtime) {
 // ---------------------------------------------------------------------------
 
 const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
+  profile: softwareProfile,
+  profileHash: hashPocketProfile(softwareProfile),
   appOutput: outputApp,
   app: { id: applicationId, title: packageTitle, version: "0.0.0" },
   target: "vita",
@@ -389,6 +393,7 @@ const packagedSelf = resolvePath(packagedDirectory, `${outputApp}.self`);
 cpSync(eboot, packagedSelf);
 await Bun.write(resolvePath(packagedDirectory, `${outputApp}.runtime.json`), JSON.stringify({
   version: 1, titleId, applicationId, output: outputApp, nativeBuild, plan: buildPlan ?? null,
+  profileHash: nativeInputs.profileHash,
   self: `${outputApp}.self`, usbDebug, usbDriver: usb?.fingerprint,
   selfSha256: createHash("sha256").update(Buffer.from(await Bun.file(packagedSelf).arrayBuffer())).digest("hex"),
 }, null, 2) + "\n");

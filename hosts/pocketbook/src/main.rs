@@ -110,6 +110,11 @@ fn run(iv: &'static inkview::bindings::Inkview, rx: mpsc::Receiver<Event>) -> Re
         std::fs::read_to_string(js_path()).with_context(|| format!("reading {}", js_path()))?;
 
     let mut program = UiProgram::new(ProgramConfig {
+        profile: pocket_ui_surface::program_profile::from_build_inputs(
+            option_env!("POCKETJS_PROFILE_JSON"),
+            option_env!("POCKETJS_PROFILE_HASH"),
+        )
+        .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
         host: HOST_ID,
         host_abi: HOST_ABI,
         logical: [geo.logical_w as u32, geo.logical_h as u32],

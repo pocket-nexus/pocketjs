@@ -71,6 +71,7 @@ pub struct Runtime {
     input: Rc<RefCell<instance::Input>>,
     pak: Arc<[u8]>,
     booted: bool,
+    trusted_profile: bool,
 }
 impl Runtime {
     /// # Safety
@@ -93,7 +94,8 @@ impl Runtime {
             input::init();
             INPUT_INITIALIZED = true;
         }
-        let profile = instance::profile();
+        let trusted_profile = instance::build_profile()?.is_some();
+        let profile = instance::profile()?;
         let mut config = PocketRuntimeConfig::empty();
         config.profile_hash = pocket_package::sha256::sha256(&profile);
         config.host_abi = 2;
@@ -131,6 +133,7 @@ impl Runtime {
             input,
             pak,
             booted: false,
+            trusted_profile,
         };
         runtime
             .ops
@@ -196,13 +199,19 @@ impl Runtime {
             return Err("PocketJS Vita bundle must be NUL-terminated".into());
         }
         let package = instance::package(source.as_bytes(), pak)?;
-        self.eval_package(package)
+        self.boot_bytes(package)
     }
     /// Boot the original .pocket bytes, including its admission facts. Runtime
     /// owns the source and retains its selected package through guest shutdown.
     /// # Safety
     /// Same requirements as eval().
     pub unsafe fn eval_package(&mut self, bytes: impl AsRef<[u8]> + 'static) -> Result<(), String> {
+        if !self.trusted_profile {
+            return Err("Vita packages require exported profile build inputs".into());
+        }
+        self.boot_bytes(bytes)
+    }
+    unsafe fn boot_bytes(&mut self, bytes: impl AsRef<[u8]> + 'static) -> Result<(), String> {
         if self.booted {
             return Err("Vita guest already booted".into());
         }

@@ -29,6 +29,8 @@ import {
 } from "../../contracts/spec/agent.ts";
 import { LINK_MAX_DATA } from "../../contracts/spec/link.ts";
 import { POCKET_SECTION, decodePocketPackage, findSection, findVariant } from "../../contracts/spec/pocket-package.ts";
+import { POCKET_PROFILES, type BuiltinProfileId } from "../../profiles/index.ts";
+import { hashPocketProfile } from "../../framework/src/profile.ts";
 import { encodePNG } from "../png.ts";
 import { CodexClient, findCodex, prepareCodexHome, type CodexNotification, type CodexServerRequest } from "./codex.ts";
 import { GlyphFeed, GlyphRasterizer } from "./glyphs.ts";
@@ -338,15 +340,17 @@ export class AgentService {
       entries.find((e) => e.title.toLowerCase() === wanted) ??
       entries.find((e) => e.title.toLowerCase().includes(wanted) || wanted.includes(e.title.toLowerCase()));
     if (!entry) return null;
+    const profile = POCKET_PROFILES[target as BuiltinProfileId];
+    if (!profile) return null;
+    const pkg = decodePocketPackage(new Uint8Array(readFileSync(entry.path)));
+    const variant = findVariant(pkg, target);
+    const source = variant && findSection(variant, POCKET_SECTION.js);
+    if (!variant || !source || variant.profileHash !== hashPocketProfile(profile)) return null;
     const dir = join(this.options.storeDir, "own");
     mkdirSync(dir, { recursive: true });
     const js = join(dir, `${entry.output}-${entry.hash}.js`);
     const pak = join(dir, `${entry.output}-${entry.hash}.pak`);
     if (!existsSync(js)) {
-      const pkg = decodePocketPackage(new Uint8Array(readFileSync(entry.path)));
-      const variant = findVariant(pkg, target);
-      const source = variant && findSection(variant, POCKET_SECTION.js);
-      if (!variant || !source) return null;
       // The js section is NUL-terminated for zero-copy evaluation on devices.
       const end = source[source.length - 1] === 0 ? source.length - 1 : source.length;
       writeFileSync(js, source.subarray(0, end));

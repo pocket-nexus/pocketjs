@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +32,7 @@ export interface RustConsumerReceipt {
   lockSha256: string;
   compiler: string;
   tests: number;
+  packageVersion: 1 | 2;
   result: "passed";
   artifactDirectory: string;
 }
@@ -71,7 +72,22 @@ export async function runOutOfTreeRust(options: {
   }
   try {
     cpSync(join(ROOT, "tests/fixtures/out-of-tree-rust"), consumer, { recursive: true });
-    cpSync(join(ROOT, "tests/fixtures/packages/corpus"), join(consumer, "corpus"), { recursive: true });
+    // Historical API replay uses that revision's package format and corpus.
+    // Current source is exercised after its commit, at the resolved HEAD.
+    const spec = await command(["git", "-C", repository, "show", revision + ":contracts/spec/pocket-package.ts"]);
+    const packageVersion = /POCKET_PACKAGE_VERSION = 1;/.test(spec) ? 1 : 2;
+    if (packageVersion === 1) {
+      copyFileSync(join(consumer, "consumer-v1.rs.in"), join(consumer, "tests/consumer.rs"));
+      mkdirSync(join(consumer, "corpus"), { recursive: true });
+      const files = await command(["git", "-C", repository, "ls-tree", "--name-only", revision + ":tests/fixtures/packages/corpus"]);
+      for (const name of files.trim().split("\n").filter(name => name.endsWith(".pocket"))) {
+        const result = Bun.spawnSync(["git", "-C", repository, "show", revision + ":tests/fixtures/packages/corpus/" + name], { stdout: "pipe", stderr: "pipe" });
+        if (!result.success) throw new Error(`cannot read historical corpus (${result.signalCode}): ${result.stderr}`);
+        writeFileSync(join(consumer, "corpus", name), result.stdout);
+      }
+    } else {
+      cpSync(join(ROOT, "tests/fixtures/packages/corpus"), join(consumer, "corpus"), { recursive: true });
+    }
     const manifest = readFileSync(join(consumer, "Cargo.toml.in"), "utf8")
       .replaceAll("@GIT_URL@", JSON.stringify(gitUrl))
       .replaceAll("@REVISION@", JSON.stringify(revision));
@@ -112,7 +128,7 @@ export async function runOutOfTreeRust(options: {
       gitCrates: gitCrates.filter(pkg => pkg.id !== root.id).map(pkg => ({ name: pkg.name, source: pkg.source! })).sort((a, b) => a.name.localeCompare(b.name)),
       lockSha256: createHash("sha256").update(readFileSync(join(consumer, "Cargo.lock"))).digest("hex"),
       compiler,
-      tests: 6, result: "passed", artifactDirectory: output,
+      tests: 6, packageVersion, result: "passed", artifactDirectory: output,
     };
     writeFileSync(join(output, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n");
     return receipt;

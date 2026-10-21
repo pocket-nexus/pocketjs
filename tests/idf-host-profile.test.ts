@@ -14,6 +14,7 @@ import {
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { createHostExtension, isHostExtension } from "../framework/src/manifest/host-extension.ts";
 import { idfHostBuildEnvironment } from "../framework/src/manifest/idf-host.ts";
+import { hashPocketProfile, profileHashProjection } from "../framework/src/profile.ts";
 
 const profile: PocketIdfHostProfile = {
   $schema: POCKET_IDF_HOST_SCHEMA_ID,
@@ -66,7 +67,15 @@ describe("ESP-IDF host profile", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.plan.target).toEqual({ id: "idf-smoke", hostAbi: 1 });
+    expect(result.plan.profile).toEqual(profileHashProjection(profile));
+    expect(result.plan.profileHash).toBe(hashPocketProfile(profile));
     expect(readIdfHostExtension(result.plan.hostExtension)).toEqual({ profileHash, tickHz: 60 });
+  });
+
+  test("legacy JSON schema metadata is excluded and tickHz remains part of identity", () => {
+    expect(hashPocketIdfHostProfile(profile)).toBe(hashPocketProfile(profileHashProjection(profile)));
+    expect(hashPocketIdfHostProfile({ ...profile, tickHz: 30 })).not.toBe(hashPocketIdfHostProfile(profile));
+    expect(hashPocketIdfHostProfile({ ...profile, version: 2 } as unknown as PocketIdfHostProfile)).toBe(hashPocketIdfHostProfile(profile));
   });
 
   test("rejects target ids that exceed the package table", () => {

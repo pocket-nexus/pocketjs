@@ -6,15 +6,21 @@ import type { HostOps } from "../../framework/src/host.ts";
 export declare const FB_W: number;
 export declare const FB_H: number;
 
+export type WasmHostOps = HostOps & Required<Pick<HostOps, "loadStyles" | "loadFontAtlas">> & {
+  __viewport: { w: number; h: number };
+};
+
 export interface WasmUi {
-  ops: HostOps;
+  ops: WasmHostOps;
   readonly booted: boolean;
   readonly disposed: boolean;
-  boot(source: string, options?: Record<string, any>): HostOps;
-  bootAsync(source: string, options?: Record<string, any>): Promise<HostOps>;
+  boot(source: string, options?: Record<string, any>): WasmHostOps;
+  bootAsync(source: string, options?: Record<string, any>): Promise<WasmHostOps>;
   advance(facts?: Record<string, any>, ticks?: number): void;
   present(): Uint8Array;
   dispose(): void;
+  focused(): number;
+  inspectNode(id: number): { type: number; text: string; children: number[]; display: number | null; style: { bgColor: number; textColor: number } } | null;
   layout(id: number): [number, number, number, number, number, number, number, number];
   setLayoutMode(id: number, mode: number, x: number, y: number, width: number, height: number): void;
   exports: WebAssembly.Exports & { memory: WebAssembly.Memory };

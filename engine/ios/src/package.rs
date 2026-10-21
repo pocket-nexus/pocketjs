@@ -38,6 +38,7 @@ pub(crate) fn encode(
     let package = embedded::encode(EmbeddedPackage {
         target: &config.host,
         host_abi: config.abi,
+        profile_hash: pocket_package::sha256::sha256(&profile),
         identity: &identity,
         plan: &plan,
         code,

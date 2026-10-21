@@ -135,9 +135,17 @@ fn embedded_hash(app_index: usize) -> String {
             let (js, pak) = match guest {
                 switch::GuestBytes::Raw { js, pak } => (js.as_bytes(), pak),
                 switch::GuestBytes::Package(bytes) => {
-                    let guest =
-                        pocketjs_core::package::select_guest(bytes, "vita", 2, false).ok()?;
-                    (guest.js, guest.pak)
+                    let package = pocketjs_core::package::Package::parse(bytes, false).ok()?;
+                    let variant = package.find_variant("vita").ok()??;
+                    (
+                        variant
+                            .section(pocketjs_core::package::section::JS)
+                            .ok()??,
+                        variant
+                            .section(pocketjs_core::package::section::PAK)
+                            .ok()?
+                            .unwrap_or(&[]),
+                    )
                 }
             };
             let js = js.strip_suffix(&[0]).unwrap_or(js);

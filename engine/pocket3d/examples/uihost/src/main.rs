@@ -138,6 +138,11 @@ fn boot(args: &Args, gpu: &Gpu) -> Result<(UiProgram, ProgramOutput)> {
         std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
     let mut program = UiProgram::new(ProgramConfig {
+        profile: pocket_ui_wgpu::program_profile::from_build_inputs(
+            option_env!("POCKETJS_PROFILE_JSON"),
+            option_env!("POCKETJS_PROFILE_HASH"),
+        )
+        .map_err(|error| anyhow::anyhow!("profile: {error:?}"))?,
         host: "desktop",
         host_abi: 1,
         logical: [UI_W, UI_H],

@@ -30,6 +30,7 @@ describe("private BlackBerry Classic profile", () => {
     for (const target of targets) {
       expect(POCKET_TARGETS).not.toHaveProperty(target);
       expect(BLACKBERRY_CLASSIC_DEV_CONTRACTS.targets[target]).toEqual({
+        tickHz: 60,
         hostAbi: BLACKBERRY_CLASSIC_HOST_ABI,
         platform: "blackberry10-qnx",
         form: "takeover",

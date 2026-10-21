@@ -26,6 +26,9 @@ static char svc_poll_buffer[8193];
 #ifndef POCKETJS_HOST_ABI
 #error "POCKETJS_HOST_ABI must come from the verified ResolvedBuildPlan"
 #endif
+#ifndef POCKET_HOST_PROFILE_H
+#error "pocket_host_profile.h must come from the independent host build profile"
+#endif
 #ifndef POCKET_RASTER_DENSITY
 #define POCKET_RASTER_DENSITY 1
 #endif
@@ -243,13 +246,14 @@ int pocket_legacy_runtime_boot(const char *code, size_t length, const uint8_t *p
   reported_action_name[0] = 0; reported_action_value = 0; reported_action_sequence = 0; last_touch_hit = 0;
   REPORT_BOOT_STAGE(1);
   if (width <= 0 || height <= 0) { set_error("invalid viewport"); goto failed; }
-  program = pocket_native_program_create(POCKETJS_TARGET_ID, POCKETJS_HOST_ABI, (const uint8_t *)code, length, pak, pak_length,
+  program = pocket_native_program_create_profile(POCKETJS_TARGET_ID, POCKETJS_HOST_ABI, (const uint8_t *)code, length, pak, pak_length,
     (uint32_t)width, (uint32_t)height, boot_raster_density,
 #ifdef POCKET_PHYSICS
-    1
+    1,
 #else
-    0
+    0,
 #endif
+    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof(POCKETJS_HOST_PROFILE_JSON) - 1, POCKETJS_HOST_PROFILE_HASH
   );
   if (!program) { set_error("PocketJS program allocation or configuration failed"); goto failed; }
   REPORT_BOOT_STAGE(2); REPORT_BOOT_STAGE(3);

@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/ipodtouch4-dev.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
 import { encodePocketPackage, encodeIdentity, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
@@ -64,7 +66,7 @@ async function runtimeFiles(overrides: { target?: string; hostAbi?: number; host
     target: overrides.target ?? "ipodtouch4-dev",
     hostAbi: overrides.hostAbi ?? 8,
     pocketjs: "0".repeat(40),
-    profile: "ipodtouch4-dev",
+    profile: "ipodtouch4-dev", profileHash: hashPocketProfile(softwareProfile),
     files: listed,
     host: overrides.host ?? { buildId: "0123456789abcdef0123456789abcdef", executable: IPOD_RUNTIME_EXECUTABLE, deploymentTarget: "6.0" },
   })));
@@ -150,7 +152,7 @@ describe("repackIPod", () => {
     await expect(repackIPod(await input({ pocket: broken }))).rejects.toThrow(/hash mismatch/);
     const other = encodePocketPackage({
       manifest: new TextEncoder().encode("{}"),
-      variants: [{ target: "ipodtouch4-dev", hostAbi: 8, sections: [
+      variants: [{ target: "ipodtouch4-dev", hostAbi: 8, profileHash: hashPocketProfile(softwareProfile), sections: [
         { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: "x", id: "dev.other.game", title: "X" }) },
         { kind: POCKET_SECTION.plan, bytes: new TextEncoder().encode("{}") },
         { kind: POCKET_SECTION.js, bytes: new Uint8Array([0]) },

@@ -21,22 +21,27 @@ export async function writeRuntimeManifest(
     target: string;
     hostAbi: number;
     profile: string;
+    profileHash: string;
     files: readonly string[];
     /** Target-specific fields written beside the common ones (an Android runtime's viewport and SDK levels). */
     extra?: Readonly<Record<string, unknown>>;
   },
 ): Promise<RuntimeManifest> {
+  if (!/^sha256:[0-9a-f]{64}$/.test(fields.profileHash)) {
+    throw new TypeError("runtime manifest requires an explicit software profileHash");
+  }
   const files: Record<string, { bytes: number; sha256: string }> = {};
   for (const name of fields.files) {
     const bytes = new Uint8Array(readFileSync(join(directory, name)));
     files[name] = { bytes: bytes.length, sha256: await sha256Hex(bytes) };
   }
   const manifest: RuntimeManifest = {
+    ...fields.extra,
     target: fields.target,
     hostAbi: fields.hostAbi,
     pocketjs: pocketjsCommit(),
     profile: fields.profile,
-    ...fields.extra,
+    profileHash: fields.profileHash,
     files,
   };
   writeFileSync(join(directory, RUNTIME_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);

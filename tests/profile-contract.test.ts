@@ -5,6 +5,8 @@ import {
   profileHashProjection, type PocketProfile,
 } from "../contracts/spec/profile.ts";
 import { validateSchema, type ContractDiagnostic } from "../framework/src/manifest/validate.ts";
+import { defineProfile, hashPocketProfile, validatePocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../profiles/index.ts";
 
 const profile: PocketProfile = {
   id: "my-board", platform: "esp-idf", form: "takeover", tickHz: 60,
@@ -21,7 +23,7 @@ const diagnostics = (input: unknown) => {
   return result;
 };
 
-describe("proposed profile identity contract", () => {
+describe("profile identity contract", () => {
   test("canonical projection has seven permitted fields and UTF-8 hash input", () => {
     expect(PROFILE_HASH_FIELDS).toEqual(["id", "platform", "form", "tickHz", "display", "capabilities", "roleCapabilities"]);
     expect(canonicalProfileJson(profile)).toBe('{"capabilities":["input.buttons","text.glyphs.baked"],"display":{"logicalViewports":[[480,320]],"physicalViewport":[480,320],"presentations":["native"],"rasterDensity":1},"form":"takeover","id":"my-board","platform":"esp-idf","tickHz":60}');
@@ -65,5 +67,42 @@ describe("proposed profile identity contract", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     expect(() => canonicalProfileJson({ ...profile, display: cyclic as unknown as PocketProfile["display"] })).toThrow("cycle");
+  });
+
+  test("external profiles retain long and Unicode ids and freeze their promises", () => {
+    const declared = defineProfile({ ...profile, id: "树外产品-🎮-with-a-name-longer-than-fifteen-bytes", display: structuredClone(profile.display), capabilities: [...profile.capabilities] });
+    expect(hashPocketProfile(declared)).toBe(`sha256:${hash(declared)}`);
+    expect(Object.isFrozen(declared.display.logicalViewports[0])).toBe(true);
+    expect(() => (declared.capabilities as string[]).push("input.touch")).toThrow();
+    expect(() => defineProfile({ ...profile, id: "\0board" })).toThrow("without NUL");
+    expect(() => defineProfile({ ...profile, id: "x".repeat(65536) })).toThrow("65535");
+  });
+
+  test("built-in profiles use the same projection and cannot be shadowed", () => {
+    expect(Object.keys(POCKET_PROFILES)).toHaveLength(21);
+    for (const builtin of Object.values(POCKET_PROFILES)) {
+      expect(validatePocketProfile(builtin, { builtin: true }).ok).toBe(true);
+      expect(hashPocketProfile(builtin)).toBe(`sha256:${hash(builtin)}`);
+      expect(() => defineProfile({ ...builtin })).toThrow("built-in profile");
+      expect(builtin).not.toHaveProperty("hostAbi");
+    }
+    for (const id of ["compile", "target", "profile", "sdk", "pack"]) {
+      expect(() => defineProfile({ ...profile, id })).toThrow("command");
+    }
+  });
+
+  test("viewport and capability relations are checked before accepting a profile", () => {
+    expect(() => defineProfile({ ...profile, capabilities: ["made.up"] })).toThrow("unregistered capability");
+    expect(() => defineProfile({ ...profile, form: "window" })).toThrow("dynamic viewport");
+    expect(() => defineProfile({ ...profile, capabilities: ["display.auxiliary"] })).toThrow("geometry");
+    expect(() => defineProfile({ ...profile, capabilities: ["input.touch.auxiliary"] })).toThrow("auxiliary display");
+    const dynamic = {
+      ...profile, form: "window" as const,
+      display: { ...profile.display, dynamicViewport: { min: [240, 180] as const, max: [800, 600] as const } },
+      capabilities: [...profile.capabilities, "display.viewport.live"],
+    };
+    expect(defineProfile(dynamic)).toBe(dynamic);
+    expect(() => defineProfile({ ...dynamic, display: { ...dynamic.display, dynamicViewport: { min: [900, 700], max: [800, 600] } } })).toThrow("minimum");
+    expect(() => defineProfile({ ...dynamic, capabilities: ["input.touch", "display.viewport.live"], display: { ...dynamic.display, dynamicViewport: { min: [240, 180], max: [2048, 2048] } } })).toThrow("10-bit");
   });
 });

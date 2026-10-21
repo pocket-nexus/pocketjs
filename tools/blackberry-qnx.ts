@@ -1,3 +1,4 @@
+import { writeHostProfileHeader } from "./host-profile.ts";
 import { createHash, randomBytes } from "node:crypto";
 import {
   copyFileSync,
@@ -202,6 +203,7 @@ function buildRustCore(): string {
 }
 
 function dockerBuild(buildId: string, inputs: HostBuildInputs): void {
+  writeHostProfileHeader(nativeBuild, inputs.profile);
   const uid = process.getuid?.() ?? 1000;
   const gid = process.getgid?.() ?? 1000;
   mustRun("docker", [

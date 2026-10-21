@@ -21,6 +21,7 @@ pub(crate) struct Profile {
     pub id: String,
     pub viewport: [u32; 2],
     pub logical_viewports: Vec<[u32; 2]>,
+    pub dynamic_viewport: Option<([u32; 2], [u32; 2])>,
     pub auxiliary: Option<[u32; 2]>,
     pub auxiliary_logical: Vec<[u32; 2]>,
     pub density: u32,
@@ -80,7 +81,11 @@ impl RuntimeConfig {
         }
         let id = value["id"]
             .as_str()
-            .filter(|s| !s.is_empty())
+            .filter(|s| {
+                !s.is_empty()
+                    && s.len() <= pocket_package::package_format::POCKET_TARGET_MAX_BYTES
+                    && !s.contains('\0')
+            })
             .ok_or(RuntimeError::InvalidConfiguration)?
             .to_string();
         if value["platform"]
@@ -95,6 +100,17 @@ impl RuntimeConfig {
         let display = &value["display"];
         let physical = viewport(&display["physicalViewport"])?;
         let logical = viewports(&display["logicalViewports"])?;
+        let dynamic_viewport = display
+            .get("dynamicViewport")
+            .map(|range| {
+                let min = viewport(&range["min"])?;
+                let max = viewport(&range["max"])?;
+                if min[0] > max[0] || min[1] > max[1] {
+                    return Err(RuntimeError::InvalidConfiguration);
+                }
+                Ok((min, max))
+            })
+            .transpose()?;
         let density = display["rasterDensity"]
             .as_u64()
             .filter(|&n| n > 0 && n <= 255)
@@ -136,10 +152,21 @@ impl RuntimeConfig {
             id,
             viewport: physical,
             logical_viewports: logical,
+            dynamic_viewport,
             auxiliary,
             auxiliary_logical,
             density,
             required_inputs,
         })
+    }
+}
+
+impl Profile {
+    pub fn admits_viewport(&self, size: [u32; 2]) -> bool {
+        if let Some((min, max)) = self.dynamic_viewport {
+            size[0] >= min[0] && size[1] >= min[1] && size[0] <= max[0] && size[1] <= max[1]
+        } else {
+            self.logical_viewports.contains(&size)
+        }
     }
 }

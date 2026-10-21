@@ -1,3 +1,4 @@
+import { writeHostProfileHeader } from "./host-profile.ts";
 import { encodeSymbianNavigation } from "./symbian-navigation.ts";
 import { createHash } from "node:crypto";
 import {
@@ -508,6 +509,7 @@ export async function buildApp(
   const transaction = async () => {
     rmSync(payload, { recursive: true, force: true });
     mkdirSync(payload, { recursive: true });
+    writeHostProfileHeader(payload, plan.profile);
     if (massStorageDataRoot !== undefined) {
       stageSymbianMassStorageData(massStorageDataRoot, payload);
     }

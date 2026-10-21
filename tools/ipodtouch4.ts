@@ -16,6 +16,8 @@ import { createServer } from "node:net";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
+import type { PocketProfile } from "../framework/src/profile.ts";
+import { writeHostProfileHeader } from "./host-profile.ts";
 import {
   bakeClassicIPhoneArtwork,
   IPHONE_USER_ICON_FILE,
@@ -794,6 +796,7 @@ export interface IPodHostObjects {
  * is pocket_runtime.c's default, which a package runtime replaces at launch.
  */
 export function compileIPodHost(native: IPodNative, options: {
+  readonly profile: PocketProfile;
   readonly target: string;
   readonly hostAbi: number;
   readonly rasterDensity: number;
@@ -815,6 +818,7 @@ export function compileIPodHost(native: IPodNative, options: {
   compile(join(REPOSITORY, "hosts/ios-legacy/crt_globals.c"), crtGlobals, IPOD_WARNINGS);
   compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntime, [
     ...IPOD_WARNINGS,
+    "-include", writeHostProfileHeader(nativeBuild, options.profile),
     ...guestRuntimeDefines(options.features),
     ...svcWireDefines,
     ...offloadDefines,
@@ -917,6 +921,7 @@ async function build(): Promise<void> {
   }
   const firstParty = [
     ...IPOD_WARNINGS,
+    "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
     `-DPOCKET_LOGICAL_WIDTH=${inputs.viewport.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.viewport.logical[1]}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
@@ -926,6 +931,7 @@ async function build(): Promise<void> {
     ...(APP.svcWire ? ["-DPOCKET_SVC_WIRE"] : []),
   ];
   const host = compileIPodHost(native, {
+    profile: inputs.profile,
     target: inputs.target,
     hostAbi: inputs.hostAbi,
     rasterDensity: inputs.viewport.rasterDensity,

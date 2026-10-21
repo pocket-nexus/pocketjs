@@ -16,7 +16,7 @@ int32_t pocket_package_open(
   size_t length,
   const uint8_t *target,
   size_t target_length,
-  uint32_t host_abi,
+  uint32_t host_abi, const uint8_t expected_profile_hash[32],
   PocketGuestPackage *out
 ) {
   if (length != 32 || bytes[0] != 0x50 || host_abi != 8 ||

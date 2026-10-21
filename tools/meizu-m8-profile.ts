@@ -1,3 +1,5 @@
+import softwareProfile from "../profiles/meizu-m8-dev.ts";
+import { legacyTargetProfile, LEGACY_BINDING_GENERATIONS } from "../profiles/legacy-abi.ts";
 import {
   POCKET_CAPABILITIES,
   definePlatformContractRegistry,
@@ -13,26 +15,15 @@ import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.t
  * carry the full native coordinate range without device-specific app input.
  * It remains private until the full hardware acceptance receipt passes.
  */
-export const MEIZU_M8_DEV_TARGET_ID = "meizu-m8-dev";
-export const MEIZU_M8_DEV_HOST_ABI = 8;
-export const MEIZU_M8_LOGICAL_VIEWPORT = [480, 720] as const;
-export const MEIZU_M8_PHYSICAL_VIEWPORT = [480, 720] as const;
+export const MEIZU_M8_DEV_TARGET_ID = softwareProfile.id;
+export const MEIZU_M8_DEV_HOST_ABI = LEGACY_BINDING_GENERATIONS[softwareProfile.id];
+export const MEIZU_M8_LOGICAL_VIEWPORT = softwareProfile.display.logicalViewports[0];
+export const MEIZU_M8_PHYSICAL_VIEWPORT = softwareProfile.display.physicalViewport;
 
 export const MEIZU_M8_DEV_CONTRACTS = definePlatformContractRegistry(
   POCKET_CAPABILITIES,
   defineTargetRegistry({
-    [MEIZU_M8_DEV_TARGET_ID]: {
-      hostAbi: MEIZU_M8_DEV_HOST_ABI,
-      platform: "wince",
-      form: "takeover",
-      display: {
-        physicalViewport: MEIZU_M8_PHYSICAL_VIEWPORT,
-        logicalViewports: [MEIZU_M8_LOGICAL_VIEWPORT],
-        presentations: ["native"],
-        rasterDensity: 1,
-      },
-      capabilities: ["input.touch", "text.glyphs.baked"],
-    },
+    [MEIZU_M8_DEV_TARGET_ID]: legacyTargetProfile(softwareProfile),
   }),
 );
 

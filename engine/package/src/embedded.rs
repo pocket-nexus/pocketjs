@@ -17,6 +17,9 @@ pub enum EncodeError {
 pub struct EmbeddedPackage<'a> {
     pub target: &'a str,
     pub host_abi: u32,
+    /// Identity of the explicit profile used by the raw JS/pak embedder.
+    /// A supplied .pocket must retain its original bytes and admission facts.
+    pub profile_hash: [u8; 32],
     pub identity: &'a [u8],
     pub plan: &'a [u8],
     pub code: &'a [u8],
@@ -48,7 +51,7 @@ fn write32(bytes: &mut [u8], offset: usize, value: usize) {
 
 pub fn encode(package: EmbeddedPackage<'_>) -> Result<Vec<u8>, EncodeError> {
     if package.target.is_empty()
-        || package.target.len() >= POCKET_TARGET_BYTES
+        || package.target.len() > POCKET_TARGET_MAX_BYTES
         || package.target.contains('\0')
     {
         return Err(EncodeError::InvalidTarget);
@@ -70,7 +73,8 @@ pub fn encode(package: EmbeddedPackage<'_>) -> Result<Vec<u8>, EncodeError> {
         package.pak,
     ];
     let table = align(POCKET_HEADER_SIZE)?;
-    let directory = table + POCKET_VARIANT_SIZE;
+    let strings = table + POCKET_VARIANT_SIZE;
+    let directory = align(strings + package.target.len())?;
     let mut cursor = align(directory + sections.len() * POCKET_SECTION_SIZE)?;
     let mut offsets = [0usize; 4];
     for (offset, section) in offsets.iter_mut().zip(sections) {
@@ -93,7 +97,21 @@ pub fn encode(package: EmbeddedPackage<'_>) -> Result<Vec<u8>, EncodeError> {
     write32(&mut bytes, 0, POCKET_MAGIC as usize);
     write32(&mut bytes, 4, POCKET_VERSION as usize);
     write32(&mut bytes, OFFSET_HEADER_VARIANT_COUNT, 1);
-    bytes[table..table + package.target.len()].copy_from_slice(package.target.as_bytes());
+    write32(&mut bytes, OFFSET_HEADER_STRING_TABLE_OFFSET, strings);
+    write32(
+        &mut bytes,
+        OFFSET_HEADER_STRING_TABLE_SIZE,
+        package.target.len(),
+    );
+    write32(&mut bytes, table + OFFSET_VARIANT_TARGET_OFFSET, strings);
+    write32(
+        &mut bytes,
+        table + OFFSET_VARIANT_TARGET_SIZE,
+        package.target.len(),
+    );
+    bytes[strings..strings + package.target.len()].copy_from_slice(package.target.as_bytes());
+    bytes[table + OFFSET_VARIANT_PROFILE_HASH..table + OFFSET_VARIANT_PROFILE_HASH + 32]
+        .copy_from_slice(&package.profile_hash);
     write32(
         &mut bytes,
         table + OFFSET_VARIANT_HOST_ABI,
@@ -140,6 +158,7 @@ mod tests {
             encode(EmbeddedPackage {
                 target: "web",
                 host_abi: 1,
+                profile_hash: [0x11; 32],
                 identity: &identity,
                 plan: b"{}",
                 code,
@@ -149,12 +168,74 @@ mod tests {
         let bytes = make(b"hello").unwrap();
         assert_eq!(bytes, make(b"hello\0").unwrap());
         assert_eq!(make(b"hello\0\0"), Err(EncodeError::InvalidJavaScript));
-        let package =
-            LoadedPackage::load(&mut MemorySource(&bytes), "web", 1, bytes.len()).unwrap();
+        let package = LoadedPackage::load(
+            &mut MemorySource(&bytes),
+            "web",
+            1,
+            &[0x11; 32],
+            bytes.len(),
+        )
+        .unwrap();
         assert_eq!(package.javascript(), b"hello\0");
-        assert!(LoadedPackage::load(&mut MemorySource(&bytes), "web", 2, bytes.len()).is_err());
+        assert!(LoadedPackage::load(
+            &mut MemorySource(&bytes),
+            "web",
+            2,
+            &[0x11; 32],
+            bytes.len()
+        )
+        .is_err());
         let mut damaged = bytes;
         damaged[0] ^= 1;
-        assert!(LoadedPackage::load(&mut MemorySource(&damaged), "web", 1, damaged.len()).is_err());
+        assert!(LoadedPackage::load(
+            &mut MemorySource(&damaged),
+            "web",
+            1,
+            &[0x11; 32],
+            damaged.len()
+        )
+        .is_err());
+    }
+    #[test]
+    fn target_uses_full_utf8_table_and_profile_mismatch_is_not_payload_admission() {
+        let identity = identity("fixture", "app", "App").unwrap();
+        for target in [
+            "a target beyond fifteen bytes",
+            "\u{feff}设备-\u{1f680}",
+            &"a".repeat(65535),
+        ] {
+            let bytes = encode(EmbeddedPackage {
+                target,
+                host_abi: 7,
+                profile_hash: [0x55; 32],
+                identity: &identity,
+                plan: b"{}",
+                code: b"test",
+                pak: &[],
+            })
+            .unwrap();
+            let parsed = crate::Package::parse(&bytes, false).unwrap();
+            assert_eq!(parsed.variant(0).unwrap().target, target);
+            assert_eq!(parsed.variant(0).unwrap().profile_hash, [0x55; 32]);
+            assert!(matches!(
+                crate::select_guest(&bytes, target, 7, &[0x11; 32], false),
+                Err(crate::GuestError::ProfileHashMismatch)
+            ));
+            crate::select_guest(&bytes, target, 7, &[0x55; 32], false).unwrap();
+        }
+        for target in ["", "nul\0id", &"a".repeat(65536)] {
+            assert_eq!(
+                encode(EmbeddedPackage {
+                    target,
+                    host_abi: 7,
+                    profile_hash: [0; 32],
+                    identity: &identity,
+                    plan: b"{}",
+                    code: b"test",
+                    pak: &[]
+                }),
+                Err(EncodeError::InvalidTarget)
+            );
+        }
     }
 }

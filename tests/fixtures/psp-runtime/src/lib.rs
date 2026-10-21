@@ -163,7 +163,7 @@ impl Program {
         p
     }
     unsafe fn unbooted() -> Self {
-        let profile = instance::profile();
+        let profile = instance::profile().unwrap();
         let mut config = PocketRuntimeConfig::empty();
         config.profile_hash = pocket_package::sha256::sha256(&profile);
         config.host_abi = 1;
@@ -360,7 +360,7 @@ fn original_package_facts_are_admitted_before_guest_initialization() {
         let mut p = Program::unbooted();
         let identity =
             pocket_package::embedded::identity("original", "psp.fixture", "Fixture").unwrap();
-        let package=pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"psp",host_abi:1,identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#,code:br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan lost');"#,pak:&[]}).unwrap();
+        let package=pocket_package::embedded::encode(pocket_package::embedded::EmbeddedPackage{target:"psp",host_abi:1,profile_hash:pocket_package::sha256::sha256(&instance::profile().unwrap()),identity:&identity,plan:br#"{"viewport":{"logical":[480,272],"rasterDensity":1},"features":{"ui.physics":true}}"#,code:br#"globalThis.frame=function(){};if(typeof ui.physicsCreate!=='function')throw Error('plan lost');"#,pak:&[]}).unwrap();
         assert_eq!(
             embed::set_package_source(
                 p.runtime,

@@ -62,8 +62,20 @@ mod tests {
         let bytes = fixture("good.pocket");
         let bundle = admit(&bytes, &plan()).unwrap();
         assert_eq!(bundle.package.as_ref(), bytes);
-        let guest =
-            pocketjs_core::package::select_guest(&bundle.package, "vita", 2, false).unwrap();
+        let guest = pocketjs_core::package::select_guest(
+            &bundle.package,
+            "vita",
+            2,
+            &pocket_package::profile::from_build_inputs(
+                option_env!("POCKETJS_PROFILE_JSON"),
+                option_env!("POCKETJS_PROFILE_HASH"),
+            )
+            .unwrap()
+            .unwrap()
+            .hash,
+            false,
+        )
+        .unwrap();
         assert_eq!(guest.js, b"globalThis.frame = () => {};\0");
         assert_eq!(serde_json::from_slice::<Value>(guest.plan).unwrap(), plan());
         assert_eq!(bundle.hash.len(), 16);
@@ -73,6 +85,7 @@ mod tests {
         for name in [
             "bad-hash.pocket",
             "wrong-app.pocket",
+            "wrong-profile.pocket",
             "wrong-abi.pocket",
             "wrong-native.pocket",
             "wrong-target.pocket",

@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { crc32 } from "../tools/repack/shared/crc32.ts";
 import { decodePng, deflateZlib, encodePng } from "../tools/repack/shared/png.ts";
 import { flattenRgba, scaleRgba } from "../tools/repack/shared/scale.ts";
-import { readRuntime, sha256Hex } from "../tools/repack/shared/runtime.ts";
+import { admitPocket, readRuntime, sha256Hex, type RuntimeManifest } from "../tools/repack/shared/runtime.ts";
+import { decodePocketPackage, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { makeVariant } from "../tools/pocket-pack.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
 
 function chunk(name: string, body: Uint8Array): Uint8Array {
   const out = new Uint8Array(12 + body.length);
@@ -122,12 +126,43 @@ describe("repack shared helpers", () => {
 
   test("a runtime directory must match its runtime.json", async () => {
     const program = new Uint8Array([1, 2, 3]);
-    const manifest = (files: object) => new TextEncoder().encode(JSON.stringify({ target: "3ds-dev", hostAbi: 11, pocketjs: "x", profile: "3ds-dev", files }));
+    const manifest = (files: object) => new TextEncoder().encode(JSON.stringify({ target: "3ds-dev", hostAbi: 11, pocketjs: "x", profile: "3ds-dev", profileHash: `sha256:${"12".repeat(32)}`, files }));
     const good = new Map([["runtime.json", manifest({ "a.bin": { bytes: 3, sha256: await sha256Hex(program) } })], ["a.bin", program]]);
     expect((await readRuntime(good, "3ds-dev")).hostAbi).toBe(11);
     await expect(readRuntime(new Map(), "3ds-dev")).rejects.toThrow(/no runtime.json/);
     await expect(readRuntime(good, "psp")).rejects.toThrow(/for "3ds-dev", not "psp"/);
     const missing = new Map([["runtime.json", manifest({ "a.bin": { bytes: 3, sha256: "00" } })]]);
     await expect(readRuntime(missing, "3ds-dev")).rejects.toThrow(/missing a.bin/);
+    for (const profileHash of [undefined, "", "sha256:bad"]) {
+      const raw = JSON.parse(new TextDecoder().decode(good.get("runtime.json")!));
+      const invalid = new Map(good);
+      invalid.set("runtime.json", new TextEncoder().encode(JSON.stringify({ ...raw, profileHash })));
+      await expect(readRuntime(invalid, "3ds-dev")).rejects.toThrow(/profileHash/);
+    }
+  });
+
+  test("package, plan and runtime must name the same complete software profile", async () => {
+    const manifest = await Bun.file(new URL("./fixtures/manifests/portable-psp.json", import.meta.url)).json();
+    const resolution = validateAndResolveBuildPlan(manifest, { target: "psp" });
+    if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
+    const plan = resolution.plan;
+    const variant = makeVariant({ target: "psp", hostAbi: plan.target.hostAbi, planJson: JSON.stringify(plan),
+      identity: { id: plan.app.id, title: plan.app.title, output: plan.app.output }, js: new TextEncoder().encode("test"), pak: new Uint8Array() });
+    const encode = () => encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [variant] });
+    const runtime: RuntimeManifest = { target: "psp", hostAbi: plan.target.hostAbi, profile: "psp",
+      profileHash: plan.profileHash, pocketjs: "test", files: {} };
+    const identity = { id: plan.app.id, title: plan.app.title, author: "Test", version: plan.app.version };
+    expect((await admitPocket(encode(), runtime, identity)).variant.profileHash).toBe(plan.profileHash);
+    const changed = { ...plan.profile, capabilities: [...plan.profile.capabilities, "ui.physics"] };
+    await expect(admitPocket(encode(), { ...runtime, profileHash: hashPocketProfile(changed) }, identity)).rejects.toThrow(/profileHash/);
+    variant.profileHash = hashPocketProfile(changed);
+    await expect(admitPocket(encode(), runtime, identity)).rejects.toThrow(/profileHash/);
+    variant.profileHash = plan.profileHash;
+    variant.sections.find(section => section.kind === POCKET_SECTION.plan)!.bytes = new TextEncoder().encode(JSON.stringify({
+      ...plan, profile: changed,
+    }));
+    await expect(admitPocket(encode(), runtime, identity)).rejects.toThrow(/plan has an invalid profile identity/);
+    const decoded = decodePocketPackage(encode());
+    expect(decoded.variants[0]!.profileHash).toBe(runtime.profileHash);
   });
 });

@@ -564,6 +564,12 @@ export async function mountPocketStage(root, options = {}) {
       // directly. The Playground skips this branch because its supplied host
       // already owns the live-compiled app.
       const bundleCache = new Map();
+      const runtimeRegistry = fetch(STAGE_ROOT + "apps/apps.json").then(failResponse).then(r => r.json()).then(value => {
+        if (value.target !== "psp" || value.hostAbi !== 1 || !/^sha256:[0-9a-f]{64}$/.test(value.profileHash ?? "")) {
+          throw new Error("Pocket Stage has no valid software profile identity");
+        }
+        return value;
+      });
       fetchBundle = async (output) => {
         if (!bundleCache.has(output)) {
           bundleCache.set(
@@ -571,10 +577,14 @@ export async function mountPocketStage(root, options = {}) {
             fetch(STAGE_ROOT + "apps/" + output + ".pocket")
               .then(failResponse)
               .then((r) => r.arrayBuffer())
-              .then((buffer) => {
+              .then(async (buffer) => {
+                const expected = await runtimeRegistry;
                 const pkg = decodePocketPackage(new Uint8Array(buffer));
                 const variant = findVariant(pkg, "psp");
                 if (!variant) throw new Error(output + ".pocket has no psp variant");
+                if (variant.hostAbi !== expected.hostAbi || variant.profileHash !== expected.profileHash) {
+                  throw new Error(output + ".pocket does not match the Pocket Stage software profile");
+                }
                 const js = findSection(variant, POCKET_SECTION.js);
                 const pak = findSection(variant, POCKET_SECTION.pak) ?? new Uint8Array(0);
                 // The js section carries its QuickJS NUL — strip it for eval-
@@ -588,14 +598,14 @@ export async function mountPocketStage(root, options = {}) {
         }
         return bundleCache.get(output);
       };
-      const [loadedModel, registryResponse, loadedLauncher] = await Promise.all([
+      const [loadedModel, loadedRegistry, loadedLauncher] = await Promise.all([
         loader.loadAsync(modelUrl),
-        fetch(STAGE_ROOT + "apps/apps.json").then(failResponse),
+        runtimeRegistry,
         fetchBundle(options.bootApp ?? "launcher-main"),
         hostReady,
       ]);
       model = loadedModel;
-      registry = await registryResponse.json();
+      registry = loadedRegistry;
       launcherBundle = loadedLauncher;
       stageHost.enableAppSwitching({
         launcher: "launcher-main",

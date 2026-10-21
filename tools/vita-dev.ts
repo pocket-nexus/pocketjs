@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { decodePocketPackage, encodePocketPackage, findVariant } from "../contracts/spec/pocket-package.ts";
+import { makeVariant } from "./pocket-pack.ts";
+import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
 import { encodePNG } from "./png.ts";
 import { prepareVitaUsb } from "./vita-usb.ts";
 import { atomicWrite, VitaUsbClient } from "./vita-dev-client.ts";
@@ -121,24 +123,26 @@ L+R+SELECT opens the menu.`);
     console.log(JSON.stringify(result, null, 2)); return;
   }
   async function push() {
+    if (!/^sha256:[0-9a-f]{64}$/.test(info?.profileHash ?? "")) throw new Error("push needs runtime metadata with profileHash; rebuild the runtime");
     let payload: Uint8Array;
     const packagePath = value("--package");
     if (packagePath) payload = readFileSync(packagePath);
     else {
       if (!info?.plan) throw new Error("push needs a build plan or --package");
+      extractHostBuildInputs(info.plan, { expectedTarget: "vita", expectedProfileHash: info.profileHash });
       mkdirSync(client.directory, { recursive: true });
       const planPath = join(client.directory, "build.plan.json");
       atomicWrite(planPath, JSON.stringify(info.plan));
       await run(["bun", "tools/build.ts", `--plan=${planPath}`, `--project-root=${value("--project-root") ?? ROOT}`]);
       const dist = join(ROOT, "dist");
-      payload = encodePocketPackage({ manifest: Buffer.from(JSON.stringify({ id: info.applicationId })), variants: [{ target: "vita", hostAbi: 2,
-        sections: [
-          { kind: POCKET_SECTION.identity, bytes: encodeIdentity({ output: info.output, id: info.applicationId, title: info.plan.app.title }) },
-          { kind: POCKET_SECTION.plan, bytes: Buffer.from(JSON.stringify(info.plan)) },
-          { kind: POCKET_SECTION.js, bytes: Buffer.concat([readFileSync(join(dist, `${info.output}.js`)), Buffer.from([0])]) },
-          { kind: POCKET_SECTION.pak, bytes: readFileSync(join(dist, `${info.output}.pak`)) },
-        ] }] });
+      payload = encodePocketPackage({ manifest: Buffer.from(JSON.stringify({ id: info.applicationId })), variants: [makeVariant({
+        target: "vita", hostAbi: info.plan.target.hostAbi, planJson: JSON.stringify(info.plan),
+        identity: { output: info.output, id: info.applicationId, title: info.plan.app.title },
+        js: readFileSync(join(dist, `${info.output}.js`)), pak: readFileSync(join(dist, `${info.output}.pak`)),
+      })] });
     }
+    const variant = findVariant(decodePocketPackage(payload), "vita");
+    if (!variant || variant.profileHash !== info.profileHash) throw new Error("package profileHash does not match the built Vita runtime");
     console.log(JSON.stringify(await client.command("push", { payload }), null, 2));
   }
   if (command === "push") { await push(); return; }

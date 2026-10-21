@@ -73,6 +73,8 @@
 
 import { $ } from "bun";
 import { ensureThreeDsProfileHeader } from "./3ds-contracts.ts";
+import softwareProfile from "../profiles/3ds-dev.ts";
+import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 import { containerPathFor, ensureQuickJs, runContainer, THREE_DS_CONTAINER_IMAGE, type Mount } from "./3ds-toolchain.ts";
 export { containerPathFor, ensureQuickJs, THREE_DS_CONTAINER_IMAGE } from "./3ds-toolchain.ts";
 import { createHash } from "node:crypto";
@@ -693,6 +695,10 @@ export async function run3dsMake(
   mounts: readonly Mount[],
   notes: readonly string[] = [],
 ): Promise<void> {
+  if (environment.POCKETJS_PROFILE_JSON !== canonicalProfileJson(softwareProfile) ||
+      environment.POCKETJS_PROFILE_HASH !== hashPocketProfile(softwareProfile)) {
+    throw new Error("PocketJS 3ds: native build requires the registered 3DS software profile");
+  }
   console.log(
     `PocketJS 3ds: make (${THREE_DS_CONTAINER_IMAGE}${notes.length > 0 ? `, ${notes.join(", ")}` : ""})`,
   );
