@@ -1,5 +1,14 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import profile from "../profiles/psp.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { profileRegistry } from "../tools/profile-resolver.ts";
+import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { makeVariant } from "../tools/pocket-pack.ts";
+import { pspLauncherPackages, pspPackageInput } from "../tools/psp.ts";
 test("PSP production guest uses canonical runtime, providers, input and shutdown", () => {
   const result = Bun.spawnSync([process.execPath, "tools/test-psp-runtime.ts"], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
   expect(result.success, `${result.stdout.toString()}\n${result.stderr.toString()}\nsignal=${result.signalCode}`).toBe(true);
@@ -20,4 +29,67 @@ test("PSP linker response arguments preserve spaces and escaped path characters"
   expect(responseWords('"/tmp/a b/psp.rlib" -lc \'x y.rlib\' plain\\ path.rlib ""')).toEqual(["/tmp/a b/psp.rlib", "-lc", "x y.rlib", "plain path.rlib", ""]);
   expect(() => responseWords('"unfinished')).toThrow("unterminated");
   expect(() => responseWords("unfinished\\")).toThrow("incomplete");
+});
+
+function embedDirectory() {
+  const base = resolve(import.meta.dir, "../.pocket-build/validation/psp-package-embed");
+  mkdirSync(base, { recursive: true });
+  return mkdtempSync(resolve(base, "run-"));
+}
+test("PSP writer emits real static tables with exact package bytes and explicit launcher inputs", () => {
+  const directory = embedDirectory(), binary = resolve(directory, "embed-tests");
+  const build = Bun.spawnSync(["rustc", "--edition=2021", "--test", "tools/build/psp/embed.rs", "-o", binary],
+    { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
+  expect(build.success, build.stderr.toString()).toBe(true);
+  const run = Bun.spawnSync([binary], { env: { ...process.env, POCKET_EMBED_TEST_DIR: directory }, stdout: "pipe", stderr: "pipe" });
+  expect(run.success, run.stdout.toString() + run.stderr.toString()).toBe(true);
+  expect(run.stdout.toString()).toContain("4 passed");
+}, 60_000);
+
+test("PSP --pocket captures admitted original bytes without requiring or compiling application sources", () => {
+  const directory = embedDirectory();
+  const manifest = { $schema: "https://pocketjs.dev/schema/pocket-2.json", pocket: 2,
+    id: "dev.pocket.psp-embed", name: "example", title: "Original package", version: "1.0.0",
+    engine: { capabilities: { requires: ["text.glyphs.baked"] } },
+    app: { entry: "does-not-exist.tsx", framework: "solid", output: "original",
+      viewport: { fixed: { logical: [480, 272], presentation: "native" } } } };
+  const result = validateAndResolveBuildPlan(manifest, { target: profile.id }, profileRegistry(profile));
+  if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
+  const variant = makeVariant({ target: profile.id, hostAbi: POCKET_BINDING_GENERATION,
+    planJson: JSON.stringify(result.plan), identity: { id: manifest.id, title: manifest.title, output: "original" },
+    js: new TextEncoder().encode("globalThis.frame=()=>{};"), pak: new Uint8Array([1, 2, 3]) });
+  const bytes = encodePocketPackage({ manifest: new TextEncoder().encode(JSON.stringify(manifest)), variants: [variant] });
+  const source = resolve(directory, "original.pocket"); writeFileSync(source, bytes);
+  const application = pspPackageInput(source, directory)!;
+  expect(application.packagePath).toStartWith(directory);
+  expect(application.packagePath).not.toBe(source);
+  expect(readFileSync(application.packagePath)).toEqual(Buffer.from(bytes));
+  const context = { profile, profileHash: hashPocketProfile(profile), configDirectory: directory, outdir: directory,
+    output: "original", args: [], env: {}, toolchainPaths: {}, application, async run() { throw new Error("compiler must not run"); } };
+  expect(pspPackageInput(undefined, directory, context)).toBe(application);
+  expect(() => pspPackageInput(source, directory, context)).toThrow("recipe owns --pocket");
+  writeFileSync(source, "corrupt original after admission");
+  expect(readFileSync(application.packagePath)).toEqual(Buffer.from(bytes));
+  expect(() => pspPackageInput(source, directory)).toThrow();
+});
+
+test("PSP CLI rejects missing or conflicting package inputs before invoking a toolchain", () => {
+  for (const args of [["--pocket"], ["--pocket=/missing/psp-application.pocket"], ["--pocket=/missing", "--runtime"], ["--pocket=/missing", "--plan=/other"]]) {
+    const result = Bun.spawnSync([process.execPath, "tools/psp.ts", ...args], { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
+    expect(result.success).toBe(false);
+    expect(result.stdout.toString()).not.toContain("cargo psp");
+    expect(result.stderr.toString()).not.toContain("toolchain is not installed");
+  }
+});
+
+test("PSP launcher packages resolve beside the registry, independently of captured application output", () => {
+  const directory = embedDirectory(), registry = resolve(directory, "launcher-registry.tsv");
+  const packages = resolve(directory, "packages"), explicit = resolve(directory, "elsewhere");
+  writeFileSync(registry, "guest\tdev.guest\tGuest\n"); mkdirSync(packages); mkdirSync(explicit);
+  expect(pspLauncherPackages(registry)).toBe(packages);
+  expect(pspLauncherPackages(registry, explicit)).toBe(explicit);
+  expect(() => pspLauncherPackages(registry, resolve(directory, "missing"))).toThrow("directory is missing");
+  expect(() => pspLauncherPackages(resolve(directory, "absent.tsv"))).toThrow("registry is missing");
+  expect(() => pspLauncherPackages("", packages)).toThrow("requires --launcher-registry");
+  expect(pspLauncherPackages("")).toBe("");
 });

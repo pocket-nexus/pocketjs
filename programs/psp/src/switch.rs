@@ -37,9 +37,9 @@ pub fn guest_source(index: usize) -> Result<Box<dyn pocket_drivers::PackageSourc
             app.pak,
             (!plan.is_empty()).then_some(plan.as_slice()),
         )?;
-        Ok(Box::new(pocket_package::source::MemorySource(package)))
+        Ok(Box::new(pocket_package::source::OwnedMemorySource::new(package)))
     } else {
-        Ok(Box::new(pocket_package::source::MemorySource(app.pocket)))
+        Ok(Box::new(pocket_package::source::StaticMemorySource(app.pocket)))
     }
 }
 

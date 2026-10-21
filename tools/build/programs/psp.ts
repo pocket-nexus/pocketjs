@@ -13,7 +13,7 @@ import { nativeSources, buildHosts, handheldLock, nativeArguments } from "./hand
 
 export const build: RuntimeBuild = {
   deploy: deployPsp,
-  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs"),
+  sourceInputs: [resolve(import.meta.dir, "../psp/embed.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs")],
   hosts: buildHosts, toolchain: pspToolchain, input: "package", steps: compilerOnly(), artifact: "{outdir}/{output}.pbp",
   async run(context) {
     requireProgramProfile(context, profile);
@@ -26,7 +26,7 @@ export const build: RuntimeBuild = {
   },
 };
 export const genericBuild: RuntimeBuild = {
-  sourceInputs: nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs"),
+  sourceInputs: [resolve(import.meta.dir, "../psp/embed.rs"), ...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/psp", "platforms/psp", "devices/psp", "devices/psp/pocket-psp-render", "engine/guest-quickjs")],
   hosts: buildHosts, toolchain: pspToolchain, steps: compilerOnly(), artifact: "{outdir}/runtime",
   genericRuntime: { repack: repackPsp, extension: ".zip" },
   async run(context) {
