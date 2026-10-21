@@ -2,7 +2,7 @@ name: PSP build
 
 # Installs the PSP toolchain the framework pins with `pocket target add psp`
 # into an empty cache, checks that a second add downloads nothing, and builds
-# the hero EBOOT through `pocket +psp build`. The target C compiler and archiver
+# the hero EBOOT through compile and the program-owned build recipe. The target C compiler and archiver
 # are `false`: QuickJS arrives as a prebuilt archive. The generated guest uses
 # its explicit LLVM compiler and the pinned SDK headers.
 
@@ -12,6 +12,9 @@ on:
       - ".github/workflows/psp-build.yml"
       - "tools/targets/**"
       - "tools/psp.ts"
+      - "tools/build/**"
+      - "platforms/psp/**"
+      - "profiles/psp.ts"
       - "tools/psp-linker.ts"
       - "engine/guest-quickjs/**"
       - "engine/runtime/**"
@@ -37,6 +40,9 @@ on:
       - ".github/workflows/psp-build.yml"
       - "tools/targets/**"
       - "tools/psp.ts"
+      - "tools/build/**"
+      - "platforms/psp/**"
+      - "profiles/psp.ts"
       - "tools/psp-linker.ts"
       - "engine/guest-quickjs/**"
       - "engine/runtime/**"
@@ -98,11 +104,13 @@ jobs:
         run: |
           bun tools/cli/bin.mjs target add psp | tee second-add.log
           ! grep -q downloading second-add.log
-      - name: pocket +psp build
+      - name: Compile the hero package and build its PSP program
         env:
           TARGET_CC: /usr/bin/false
           TARGET_AR: /usr/bin/false
           CC_mipsel_sony_psp: /usr/bin/false
           AR_mipsel_sony_psp: /usr/bin/false
-        run: bun tools/cli/bin.mjs +psp build --manifest apps/hero/pocket.json --project-root . -- --release
-      - run: test -s programs/psp/target/mipsel-sony-psp/release/EBOOT.PBP
+        run: |
+          bun tools/pocket.ts compile --target psp --manifest apps/hero/pocket.json --project-root . --output .pocket-build/validation/psp-ci/hero.pocket
+          bun tools/pocket.ts build --target psp --pocket .pocket-build/validation/psp-ci/hero.pocket --out .pocket-build/validation/psp-ci/native
+          bun -e 'import { statSync } from "node:fs"; const r = await Bun.file(".pocket-build/validation/psp-ci/native/build-receipt.json").json(); if (!r.success || !r.artifact || statSync(r.artifact).size === 0) process.exit(1);'

@@ -23,7 +23,10 @@ bun tools/pocket.ts sdk build --triple aarch64-apple-darwin \
 
 The Cargo template depends on a versioned `pocket-runtime-cabi` crate with
 `default-features = false`. Add Rust driver dependencies to that program crate;
-it produces the program's single Rust static archive. The `std` feature provides
+it produces the program's single Rust static archive. The versioned template
+requires those crates to be published to the selected Cargo registry; generating
+the template does not publish them. A prerelease consumer can select an exact
+Git revision, as in `tests/fixtures/out-of-tree-rust/Cargo.toml.in`. The `std` feature provides
 the six host hooks through the standard library. A no_std program provides them.
 
 The export contains:
@@ -75,7 +78,7 @@ ESP32-P4 consumers using the IDF `ilp32f` ABI can request archive preparation:
 
 ```sh
 bun tools/pocket.ts sdk build \
-  --triple riscv32imafc-unknown-none-elf --toolchain 1.93.0 \
+  --triple riscv32imafc-unknown-none-elf --toolchain 1.98.1 \
   --prepare esp32p4 --archiver /path/to/llvm-ar \
   --out .pocket-build/validation/sdk/esp32p4
 ```
@@ -121,3 +124,39 @@ from a source checkout and pass its output with `--runtime` for local developmen
 The npm package contains the framework, TypeScript compiler and tools, profiles,
 contracts, generated headers and browser assets. Rust crates, C glue and platform
 components come from their Cargo, SDK and platform distributions.
+
+## Runtime release artifacts
+
+**The release workflow builds PSP, Vita and 3DS generic runtimes from their
+program configurations.** `tools/release/inputs.ts` requires every SDK matrix
+row and all three runtime artifacts. It checks successful generic build
+receipts, the release revision, profile hashes, binding generation, file lists
+and hashes before `publish.ts` prepares archives. Vita release builds install
+the fixed SDK and four port archives through `tools/build/toolchains/vita.ts`.
+The installer retains source archives in the content cache and checks their
+hashes and the installed SDK tree on reuse.
+
+## Program inspection
+
+**`pocket doctor` reads the selected program configuration, toolchain records
+and optional validation receipts.** It does not install tools or access a device.
+
+```sh
+pocket doctor --target psp --generic --json
+pocket doctor --target vita --generic \
+  --build-receipt .pocket-build/vita/build-receipt.json \
+  --runtime .pocket-build/vita/runtime
+```
+
+Use `--config` for an external program. A build receipt is checked against the
+selected profile and current artifact bytes. A runtime directory is checked
+against `runtime.json`. Native tools without a toolchain manifest are reported
+as unverified; their program recipe performs the native preflight.
+
+`--evidence FILE --identity FILE` checks a `DeviceEvidence` receipt against an
+expected `{device, runtimeBuild, assets}` identity. The product obtains that
+identity from its device readback. `--device KEY` probes an existing lease file
+with a nonblocking OS lock, then releases it without changing its owner. Evidence without
+observations, identity changes and held leases produce failures. **Absent device
+evidence remains unverified; matching identity does not assert a product's
+measurement budgets.** Products set and evaluate those limits in their tests.

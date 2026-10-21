@@ -7,20 +7,20 @@ copies the project, SDK, and consumer-supplied QuickJS source into a temporary
 directory outside the checkout. CMake does not invoke Cargo or read engine
 sources from the checkout.
 
-Export host and ESP32-P4 SDKs before running the fixture:
+Build host and ESP32-P4 SDK candidates before running the fixture:
 
 ```sh
-bun tools/pocket.ts sdk export --triple aarch64-apple-darwin \
+bun tools/pocket.ts sdk build --triple aarch64-apple-darwin \
   --out /tmp/pocket-sdk-host
-bun tools/pocket.ts sdk export --triple riscv32imafc-unknown-none-elf \
-  --toolchain 1.93.0 --prepare esp32p4 --archiver /path/to/llvm-ar \
+bun tools/pocket.ts sdk build --triple riscv32imafc-unknown-none-elf \
+  --toolchain 1.98.1 --prepare esp32p4 --archiver /path/to/llvm-ar \
   --out /tmp/pocket-sdk-p4
 bun tools/test-sdk-idf.ts --host-sdk /tmp/pocket-sdk-host \
   --sdk /tmp/pocket-sdk-p4 --quickjs /path/to/quickjs-ng \
   --idf /path/to/esp-idf
 ```
 
-Use the host machine's Rust triple for the first export. Pass `--host-only`
+Use the host machine's Rust triple for the first build. Pass `--host-only`
 instead of `--sdk` and `--idf` to run the host checks without IDF. Pass
 `--artifacts DIR` to select an ignored receipt and log directory. The runner
 records SDK manifest hashes, QuickJS source hash, commands, process signals,

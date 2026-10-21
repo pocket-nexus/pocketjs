@@ -45,6 +45,7 @@ const SUITE: readonly Stage[] = [
     tests: [
       "tests/device-lease.test.ts",
       "tests/device-evidence.test.ts",
+      "tests/doctor.test.ts",
       "tests/release-check.test.ts",
       "tests/release-notes.test.ts",
       "tests/platform-contracts.test.ts",
@@ -61,6 +62,8 @@ const SUITE: readonly Stage[] = [
       "tests/runtime-cabi-compat.test.ts",
       "tests/sdk.test.ts",
       "tests/release-artifacts.test.ts",
+      "tests/release-inputs.test.ts",
+      "tests/vita-toolchain.test.ts",
       "tests/e2e-build.test.ts",
       "tests/cargo-workspace.test.ts",
       "tests/idf-input.test.ts",

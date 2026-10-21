@@ -281,6 +281,7 @@ const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
   pocket show [--json]       profile selection and toolchain status
   pocket target add [ID…] | list [--check] [--json] | remove ID…
   pocket sdk export         export a relocatable C SDK
+  pocket doctor --target ID inspect program tools, output receipts and device evidence
   pocket dev|psp|vita|hw|psplink|devtools|tape|play [...args]
   pocket --version
 `;
@@ -306,6 +307,9 @@ switch (cmd) {
     break;
   case "profile":
     targetCommand(rest, "profile");
+    break;
+  case "doctor":
+    targetCommand(rest, "doctor");
     break;
   case "dev":
   case "psp":

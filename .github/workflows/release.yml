@@ -39,8 +39,11 @@ jobs:
   sdk-artifacts:
     needs: identity
     uses: ./.github/workflows/sdk-artifacts.yml
+  runtime-artifacts:
+    needs: identity
+    uses: ./.github/workflows/runtime-artifacts.yml
   publish:
-    needs: sdk-artifacts
+    needs: [sdk-artifacts, runtime-artifacts]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -126,9 +129,13 @@ jobs:
         with:
           pattern: pocket-sdk-*
           path: .pocket-build/validation/release/sdks
-      - name: Prepare verified SDK and source release assets
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pocket-runtime-*
+          path: .pocket-build/validation/release/runtimes
+      - name: Prepare verified SDK, runtime and source release assets
         run: |
-          bun -e 'import { readdirSync } from "node:fs"; const base = ".pocket-build/validation/release"; const sdks = Object.fromEntries(readdirSync(base + "/sdks").map(name => [name.slice("pocket-sdk-".length), "sdks/" + name])); const revision = Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim(); await Bun.write(base + "/inputs.json", JSON.stringify({ version: (await Bun.file("package.json").json()).version, revision, sourceRoot: "../../..", sdks, runtimes: {} }));'
+          bun tools/release/inputs.ts .pocket-build/validation/release .
           bun tools/release/publish.ts .pocket-build/validation/release/inputs.json .pocket-build/validation/release/assets
           bun tools/release/crates.ts > .pocket-build/validation/release/assets/crate-release-plan.json
 
@@ -169,7 +176,7 @@ jobs:
               --title "$(bun tools/release-notes.ts "$tag" --title)" \
               --notes-file "$RUNNER_TEMP/notes.md"
           fi
-      - name: Upload verified SDK and source artifacts
+      - name: Upload verified SDK, runtime and source artifacts
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}

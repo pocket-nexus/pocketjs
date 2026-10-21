@@ -28,7 +28,8 @@ function usage(message?: string): never {
     "       pocket compile [--output app.pocket] [--depfile FILE] [--aot --out DIR]\n" +
     "       pocket build [--config pocket.runtime-config.ts] [--target ID] [--out DIR] [--pocket FILE | --aot-dir DIR] [--generic] [--deploy]\n" +
     "       pocket pack [--config FILE] [--target ID] --pocket FILE [--runtime DIR] [--out FILE]\n" +
-    "       pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]");
+    "       pocket profile export [--config FILE] [--target ID] --out DIR [--depfile FILE]\n" +
+    "       pocket doctor --target ID [--config FILE] [--generic] [--build-receipt FILE] [--runtime DIR] [--evidence FILE --identity FILE] [--device KEY] [--json]");
   process.exit(1);
 }
 function takeOption(name: string): string | undefined {
@@ -61,6 +62,21 @@ if (cliProtocol !== undefined) {
 async function main() {
   if (command === "sdk") process.exit(await sdkCommand(argv));
   if (command === "target") process.exit(await targetCommand(argv));
+  if (command === "doctor") {
+    const options = { target: takeOption("target"), config: takeOption("config") ?? takeOption("runtime-config"),
+      generic: flag("generic"), buildReceipt: takeOption("build-receipt"), runtime: takeOption("runtime"),
+      evidence: takeOption("evidence"), identity: takeOption("identity"), device: takeOption("device") };
+    const json = flag("json"); noArguments();
+    const { inspectProgram } = await import("./doctor.ts");
+    const report = await inspectProgram(options);
+    if (json) console.log(JSON.stringify(report, null, 2));
+    else {
+      console.log(`${report.target} · ${report.profileHash} · binding generation ${report.hostAbi}`);
+      for (const check of report.checks) console.log(`${check.status}: ${check.name}: ${check.detail}`);
+    }
+    if (!report.ok) process.exitCode = 1;
+    return;
+  }
   if (command === "catalog") {
     const json = flag("json"); noArguments();
     const rows = Object.values(POCKET_PROFILES).map(profile => ({

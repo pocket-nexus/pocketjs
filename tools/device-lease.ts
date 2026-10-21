@@ -34,6 +34,27 @@ function inherited(): Inherited {
   try { return JSON.parse(process.env[ENV] ?? "{}"); } catch { throw new Error("Invalid inherited device lease context"); }
 }
 
+/** Probe an existing OS lock without creating a lease file or changing its owner. */
+export function inspectDeviceLease(device: string, options: { directory?: string } = {}): {
+  state: "available" | "busy"; owner: Owner | null;
+} {
+  if (!/^[a-z0-9][a-z0-9:._-]{0,199}$/.test(device)) throw new Error("Invalid canonical device key");
+  const directory = resolve(options.directory ?? join(homedir(), ".pocketjs/device-leases"));
+  const path = join(directory, createHash("sha256").update(device).digest("hex") + ".json");
+  let fd: number;
+  try { fd = openSync(path, "r"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { state: "available", owner: null };
+    throw error;
+  }
+  try {
+    native ??= openNative();
+    const unlocked = native.symbols.flock(fd, 2 | 4) === 0;
+    if (unlocked) native.symbols.flock(fd, 8);
+    return { state: unlocked ? "available" : "busy", owner: readOwner(path) };
+  } finally { closeSync(fd); }
+}
+
 export async function withDeviceLease<T>(device: string, run: (lease: DeviceLease) => Promise<T>, options: { directory?: string } = {}): Promise<T> {
   if (!/^[a-z0-9][a-z0-9:._-]{0,199}$/.test(device)) throw new Error("Invalid canonical device key");
   const directory = resolve(options.directory ?? join(homedir(), ".pocketjs/device-leases"));

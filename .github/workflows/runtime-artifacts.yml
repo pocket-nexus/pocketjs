@@ -1,0 +1,61 @@
+name: Generic runtime release artifacts
+on:
+  workflow_dispatch: {}
+  workflow_call: {}
+permissions:
+  contents: read
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      rows: ${{ steps.matrix.outputs.rows }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - id: matrix
+        run: |
+          bun -e 'import { RUNTIME_MATRIX } from "./tools/release/inputs.ts"; console.log("rows=" + JSON.stringify({include:RUNTIME_MATRIX}));' >> "$GITHUB_OUTPUT"
+  runtime:
+    needs: matrix
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.rows) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Install pinned Rust compilers
+        run: |
+          bun -e 'import { STABLE_RUST_TOOLCHAIN, BUILD_STD_NIGHTLY } from "./tools/build/toolchains/rust.ts"; for (const toolchain of [STABLE_RUST_TOOLCHAIN, BUILD_STD_NIGHTLY]) { const child = Bun.spawn(["rustup", "toolchain", "install", toolchain, "--profile", "minimal", "--component", "rust-src"], {stdout:"inherit", stderr:"inherit"}); if (await child.exited !== 0 || child.signalCode) process.exit(1); }'
+      - name: Install pinned PSP tools
+        if: matrix.target == 'psp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          echo "POCKETJS_LLVM_BIN=/usr/bin" >> "$GITHUB_ENV"
+          bun tools/pocket.ts target add psp
+      - name: Install pinned Vita SDK and ports
+        if: matrix.target == 'vita'
+        run: |
+          bun -e 'import { installVitaReleaseSdk } from "./tools/build/toolchains/vita.ts"; import { appendFileSync } from "node:fs"; const sdk = await installVitaReleaseSdk(process.env.RUNNER_TEMP + "/pocket-vita"); appendFileSync(process.env.GITHUB_ENV!, "VITASDK=" + sdk + "\n"); appendFileSync(process.env.GITHUB_PATH!, sdk + "/bin\n");'
+      - name: Pull pinned 3DS C toolchain
+        if: matrix.target == '3ds'
+        run: |
+          image=$(bun -e 'import { THREE_DS_CONTAINER_IMAGE } from "./tools/build/toolchains/3ds.ts"; console.log(THREE_DS_CONTAINER_IMAGE)')
+          docker pull "$image"
+      - name: Build the program-owned generic runtime
+        env:
+          TARGET: ${{ matrix.target }}
+          PROFILE: ${{ matrix.profile }}
+        run: bun tools/pocket.ts build --generic --target "$TARGET" --out ".pocket-build/validation/runtime-release/$PROFILE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocket-runtime-${{ matrix.profile }}
+          path: |
+            .pocket-build/validation/runtime-release/${{ matrix.profile }}/runtime
+            .pocket-build/validation/runtime-release/${{ matrix.profile }}/build-receipt.json
+          if-no-files-found: error
