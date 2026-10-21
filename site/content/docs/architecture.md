@@ -26,9 +26,10 @@ The application's framework can be Solid, Vue Vapor, or Octane. Solid uses its
 universal renderer; Vue Vapor uses a Vapor renderer adapter and a DOM-shaped
 facade for Vue's helpers; Octane compiles JSX and hooks to static host plans
 plus dynamic slots whose driver (`renderer-octane.ts`) targets the native tree
-with no DOM shim. The rendering, layout, styling, animation, 2D physics, and text engine is
-one `no_std` Rust crate (`pocketjs-core`) compiled for each host's target
-triple. Styling is a build-time [Tailwind subset](/docs/styling/); fonts are
+with no DOM shim. The layout, styling, animation, 2D physics, and text engine
+live in `pocketjs-core`; software drawing and presentation live in separate
+`no_std` Rust crates compiled for each host's target triple. Styling is a
+build-time [Tailwind subset](/docs/styling/); fonts are
 baked into atlases at build time.
 
 ## Driver contracts
@@ -48,6 +49,26 @@ provide a runtime implementation or change the application package format.**
 The driver ABI remains under development until the external C and Rust
 consumer tests and deferred-device lifecycle tests pass. See
 [Native contract](/docs/native-contract/#driver-contract-migration).
+
+## Core extraction
+
+**Rendering, presentation, package parsing, and media parsing do not depend
+on the UI core.** Their callers supply resource views or borrowed bytes.
+
+| Crate | Source | Responsibility |
+| --- | --- | --- |
+| `pocket-raster` | `engine/raster` | DrawList interpretation and software pixel output |
+| `pocket-present` | `engine/present` | Damage history, prepare/commit/abort transactions, incremental drawing, and surface composition |
+| `pocket-package` | `engine/package` | Package admission, variant selection, pak entries, build facts, and SHA-256 |
+| `pocket-media` | `engine/modules/media` | Stream containers, transport messages, RAM stream assembly, and byte codecs |
+
+`pocket-present` calls `pocket-raster` for software drawing. Both consume
+`RenderResources` from `pocket-drivers`; neither requires a `Ui` instance.
+**The core keeps compatibility exports at the existing module paths.**
+Hosts can continue importing `pocketjs_core::raster`, `damage`, `compositor`,
+`package`, `pak`, `sha256`, `plan_facts`, `stream`, `stream_rx`, `wire`, and
+`codec` while their implementations reside in the new crates. Package bytes,
+admission checks, and DrawList encoding retain their existing formats.
 
 ## The pipeline
 
@@ -98,7 +119,7 @@ Reading it top to bottom:
    **DrawList** each frame.
 5. A thin **backend** turns the DrawList into pixels: sceGu/GE on PSP,
    vita2d/GXM on Vita, gpui on `hosts/desktop`, wgpu in the debug uihosts, and
-   the deterministic software rasterizer in `engine/core/src/raster.rs` behind
+   the deterministic software rasterizer in `engine/raster/src/lib.rs` behind
    the browser canvas and the byte-exact PNG goldens.
 
 Everything *above* the backend follows the same contract across targets. The

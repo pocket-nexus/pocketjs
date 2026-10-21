@@ -366,7 +366,7 @@ Two build-time facts are load-bearing:
 
 `src/svcwire.c` implements spec ops 30..32 (`svcOpen`/`svcPoll`/`svcSend`)
 over the **SVC WIRE (PKNT) protocol** (`contracts/spec/spec.ts`,
-`engine/core/src/wire.rs`) — the transport the Vita host speaks in
+`engine/modules/media/src/wire.rs`) — the transport the Vita host speaks in
 `hosts/vita/src/net.rs`, reduced to the devserver.c shape: non-blocking
 sockets pumped once per frame by the main thread, no threads. The device
 listens for the companion's once-a-second UDP beacon on port 8621 (or reads a

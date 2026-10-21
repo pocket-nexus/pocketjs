@@ -10,6 +10,10 @@ resolver = "2"
 members = [
     "spec",
     "drivers",
+    "raster",
+    "present",
+    "package",
+    "modules/media",
     "ios",
     "crates/pocket-db",
     "crates/pocket-fs",

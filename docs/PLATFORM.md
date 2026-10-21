@@ -62,7 +62,7 @@ qjsc bytecode (below) shrinks the hold the veil is papering over.
 
 ## `.pocket` — the package format (SHIPPED, v1)
 
-Spec: `contracts/spec/pocket-package.ts` (TS encoder/decoder) + `engine/core/src/package.rs`
+Spec: `contracts/spec/pocket-package.ts` (TS encoder/decoder) + `engine/package/src/package.rs`
 (no_std zero-copy reader), pinned to one committed fixture so the two
 implementations cannot drift. One file per app:
 

@@ -396,7 +396,7 @@ export function generateRust(): string {
   put("}");
   put("");
   put("/// STREAM container (.pkst) — host-written video+audio ring file.");
-  put("/// Full byte layout in spec.ts; parsed by engine/core/src/stream.rs.");
+  put("/// Full byte layout in spec.ts; parsed by engine/modules/media/src/stream.rs.");
   put("pub mod stream {");
   put(`    pub const MAGIC: u32 = ${hex(STREAM_MAGIC)}; // 'PKST' LE`);
   put(`    pub const VERSION: u16 = ${STREAM_VERSION};`);
@@ -412,7 +412,7 @@ export function generateRust(): string {
   put("}");
   put("");
   put("/// SVC WIRE protocol (PKNT) — the svc mailbox over a socket.");
-  put("/// Full byte layout in spec.ts; parsed by engine/core/src/wire.rs.");
+  put("/// Full byte layout in spec.ts; parsed by engine/modules/media/src/wire.rs.");
   put("pub mod wire {");
   put(`    pub const MAGIC: u32 = ${hex(WIRE_MAGIC)}; // 'PKNT' LE`);
   put(`    pub const BEACON_MAGIC: u32 = ${hex(WIRE_BEACON_MAGIC)}; // 'PKDB' LE`);

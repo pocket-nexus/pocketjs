@@ -7,6 +7,10 @@ on:
       - "engine/core/**"
       - "engine/spec/**"
       - "engine/drivers/**"
+      - "engine/raster/**"
+      - "engine/present/**"
+      - "engine/package/**"
+      - "engine/modules/media/**"
       - "engine/backends/rgb565/**"
   push:
     branches: [main]
@@ -15,6 +19,10 @@ on:
       - "engine/core/**"
       - "engine/spec/**"
       - "engine/drivers/**"
+      - "engine/raster/**"
+      - "engine/present/**"
+      - "engine/package/**"
+      - "engine/modules/media/**"
       - "engine/backends/rgb565/**"
   workflow_dispatch: {}
 
@@ -31,8 +39,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Test RGB565 core rasterizer
+      - name: Test UI core
         run: cargo test --locked --manifest-path engine/core/Cargo.toml
+
+      - name: Test extracted rendering, presentation, package and media subsystems
+        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-raster -p pocket-present -p pocket-package -p pocket-media
 
       - name: Test retained layout against a fresh solver
         run: cargo test --locked --manifest-path engine/core/Cargo.toml --features counters

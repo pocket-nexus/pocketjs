@@ -988,7 +988,7 @@ async function renderXmbArt(): Promise<void> {
 
 /** Emit one target-thinned package per embedded app from ALREADY-BUILT dists.
  *  Native hosts embed these files verbatim and select their target variant
- *  through engine/core/src/package.rs. The standalone multi-target packer
+ *  through engine/package/src/package.rs. The standalone multi-target packer
  *  remains tools/pocket-pack.ts. */
 async function packPackages(
   registry: LauncherRegistry,

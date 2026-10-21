@@ -142,7 +142,7 @@ fn main() {
 
     // Multi-app mode embeds `.pocket` PACKAGES (contracts/spec/pocket-package.ts)
     // verbatim — the device parses them at boot with the core reader
-    // (engine/core/src/package.rs); js/pak are zero-copy slices into .rodata.
+    // (engine/package/src/package.rs); js/pak are zero-copy slices into .rodata.
     let registry = env::var("POCKETJS_LAUNCHER_REGISTRY").unwrap_or_default();
     let mut pockets: Vec<(String, String, String, Vec<u8>)> = Vec::new(); // output, id, title, bytes
     if !registry.is_empty() {

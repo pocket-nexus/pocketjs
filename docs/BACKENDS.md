@@ -11,7 +11,7 @@ in exactly one capability: **who measures and shapes text**.
 
 The portable backend is the baked-text pipeline every fixed-function host
 shares: `pocket-ui-wgpu` on the desktop, the core software rasterizer
-(`engine/core/src/raster.rs`) behind the wasm, Apple, PocketBook and sim
+(`engine/raster/src/lib.rs`) behind the wasm, Apple, PocketBook and sim
 hosts, the PSP GE walker, the ESP32-P4 PPA and Symbian GLES2 ports.
 
 - **Text is baked at compile time.** `framework/compiler/bake-font.ts`
@@ -49,7 +49,7 @@ available. An output reservation prevents recording more GPU work while the
 window thread has not consumed the previous output. Surface loss/outdated errors reconfigure and retry; fatal GPU errors
 exit with an error. Production presentation performs no framebuffer readback.
 
-The WASM host retains `engine/core/src/compositor.rs` and the software rasterizer.
+The WASM host retains `engine/present/src/compositor.rs` and the software rasterizer.
 Vita/GXM and 3DS/PICA retain their own DrawList adapters and capability profiles;
 wgpu is not added to their dependency graph. Desktop composition support does
 not admit that capability on handheld targets.

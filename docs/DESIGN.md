@@ -60,7 +60,7 @@ artifacts: `$JOB_TMP/map-*.json`).
   PSP bin wraps it with QuickJS + sceGu; `wasm32-unknown-unknown` build wraps
   it with a deterministic software rasterizer used by BOTH the browser dev
   host and headless Bun goldens. One layout engine everywhere.
-- **Damage is backend-independent**: `engine/core/src/damage.rs` compares
+- **Damage is backend-independent**: `engine/present/src/damage.rs` compares
   retained DrawLists and returns logical damage regions for one persistent
   framebuffer. RGBA8, PPA-memory ARGB8 and RGB565 software paths clear each
   region and replay the complete DrawList under a root clip; framebuffer
@@ -136,8 +136,8 @@ PocketJS/
     framework/src/lib.rs         extern "C" op mirror + byte-exact render() at 480×272;
                        renderScaled(1..4) rasterizes directly at physical density;
                        opt-in incremental exports retain and repaint damage regions
-  engine/core/src/damage.rs   DrawList diff, logical damage plans and per-target snapshots
-  engine/core/src/raster.rs   shared deterministic scanline rasterizer used by wasm and
+  engine/present/src/damage.rs   DrawList diff, logical damage plans and per-target snapshots
+  engine/raster/src/lib.rs   shared deterministic scanline rasterizer used by wasm and
                        native capture (full and region-clipped RGBA/ARGB/RGB565)
   framework/src/                 TS/JS runtime shared by all hosts
     renderer.ts        Solid universal createRenderer; JS mirror tree; setProperty

@@ -11,6 +11,7 @@ extern crate alloc;
 
 pub mod abi;
 pub mod clock;
+pub mod damage_rect;
 pub mod display;
 pub mod draw;
 pub mod input;
@@ -19,6 +20,7 @@ pub mod render;
 pub mod resources;
 
 pub use clock::Clock;
+pub use damage_rect::DamageRect;
 pub use display::*;
 pub use draw::{DrawList, TextBox};
 pub use input::*;

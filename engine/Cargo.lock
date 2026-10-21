@@ -1806,6 +1806,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-media"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-mod"
 version = "0.1.0"
 dependencies = [
@@ -1824,6 +1831,30 @@ dependencies = [
  "pocketjs-core",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pocket-package"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-present"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-raster",
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-raster"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
 ]
 
 [[package]]
@@ -1955,6 +1986,10 @@ name = "pocketjs-core"
 version = "0.1.0"
 dependencies = [
  "pocket-drivers",
+ "pocket-media",
+ "pocket-package",
+ "pocket-present",
+ "pocket-raster",
  "pocket-spec",
  "taffy",
 ]

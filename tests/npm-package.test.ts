@@ -165,6 +165,14 @@ describe("published npm artifacts", () => {
       "engine/spec/Cargo.toml",
       "engine/drivers/src",
       "engine/drivers/Cargo.toml",
+      "engine/raster/src",
+      "engine/raster/Cargo.toml",
+      "engine/present/src",
+      "engine/present/Cargo.toml",
+      "engine/package/src",
+      "engine/package/Cargo.toml",
+      "engine/modules/media/src",
+      "engine/modules/media/Cargo.toml",
       "engine/wasm/src",
       "engine/wasm/Cargo.toml",
       "engine/ui-cabi/src",
@@ -241,6 +249,14 @@ describe("published npm artifacts", () => {
       "engine/spec/src/lib.rs",
       "engine/drivers/Cargo.toml",
       "engine/drivers/src/lib.rs",
+      "engine/raster/Cargo.toml",
+      "engine/raster/src/lib.rs",
+      "engine/present/Cargo.toml",
+      "engine/present/src/lib.rs",
+      "engine/package/Cargo.toml",
+      "engine/package/src/lib.rs",
+      "engine/modules/media/Cargo.toml",
+      "engine/modules/media/src/lib.rs",
       "engine/pocket3d/crates/pocket3d-anim/Cargo.toml",
       "engine/pocket3d/crates/pocket3d-anim/src/lib.rs",
       "engine/crates/pocket-sim/src/lib.rs",
@@ -424,6 +440,10 @@ describe("published npm artifacts", () => {
       expect(packages).toContain("pocket3d-packs");
       expect(packages).toContain("pocket-spec");
       expect(packages).toContain("pocket-drivers");
+      expect(packages).toContain("pocket-raster");
+      expect(packages).toContain("pocket-present");
+      expect(packages).toContain("pocket-package");
+      expect(packages).toContain("pocket-media");
       expect(existsSync(join(scratch, "package/engine/core/Cargo.toml"))).toBe(true);
 
       // A fresh native consumer must resolve the extracted contracts using
@@ -437,9 +457,17 @@ edition = "2021"
 [dependencies]
 pocket-spec = { path = "../package/engine/spec" }
 pocket-drivers = { path = "../package/engine/drivers" }
+pocket-raster = { path = "../package/engine/raster" }
+pocket-present = { path = "../package/engine/present" }
+pocket-package = { path = "../package/engine/package" }
+pocket-media = { path = "../package/engine/modules/media" }
 `);
       writeFileSync(join(consumer, "src/lib.rs"), `#![no_std]
 pub use pocket_drivers::{DrawList, FontView, RenderResources, TexView};
+pub use pocket_raster as raster;
+pub use pocket_present as present;
+pub use pocket_package as package;
+pub use pocket_media as media;
 pub const ROOT_ID: i32 = pocket_spec::ROOT_ID;
 `);
       const check = Bun.spawnSync({

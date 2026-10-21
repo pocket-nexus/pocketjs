@@ -1,14 +1,19 @@
 # Repository structure
 
-The tree mirrors the platform ontology from [RUNTIMES.md](RUNTIMES.md) —
-**Cores + Surfaces + Guest** — plus the compiler family, the contracts that
-bind the layers, and the products built on top. One axis per top-level
-directory; nothing else gets a top-level name.
+**Native libraries live in `engine/`; host entry points live in `hosts/`.**
+The compiler, shared contracts, device libraries, applications, and build
+tools have separate directories.
 
 ```
 pocketjs/
 ├─ engine/       Cores: the Rust simulation cores
-│  ├─ core/       pocketjs-core — retained UI tree, taffy layout, damage + raster (standalone crate)
+│  ├─ core/       pocketjs-core — retained UI tree, taffy layout, animation, text (standalone crate)
+│  ├─ spec/       generated no_std operation constants and formats
+│  ├─ drivers/    resource views, driver traits, and generated C ABI records
+│  ├─ raster/     software DrawList interpreter and pixel kernels
+│  ├─ present/    damage history, presentation transactions, and composition
+│  ├─ package/    package admission, pak readers, build facts, and SHA-256
+│  ├─ modules/media/ stream readers, transport messages, and codecs
 │  ├─ backends/    platform render backends (ESP32-P4 PPA is a standalone no_std
 │  │              crate; gpui is the standalone native desktop backend with native
 │  │              text layout — docs/BACKENDS.md)

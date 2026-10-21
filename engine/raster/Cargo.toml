@@ -1,0 +1,11 @@
+[package]
+name = "pocket-raster"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic DrawList software rasterization for PocketJS"
+license = "MIT"
+repository = "https://github.com/pocket-nexus/pocketjs"
+
+[dependencies]
+pocket-spec = { path = "../spec" }
+pocket-drivers = { path = "../drivers" }

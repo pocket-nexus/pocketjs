@@ -27,7 +27,7 @@
 // Determinism: variants sort by target id, sections by kind, and the
 // manifest travels verbatim — identical inputs produce identical bytes
 // (tests/pocket-package.test.ts byte-compares a committed fixture, and
-// engine/core/src/package.rs parses the SAME fixture: one format, two readers,
+// engine/package/src/package.rs parses the SAME fixture: one format, two readers,
 // one contract).
 //
 // Section kinds are APPEND-ONLY, like the op table: never renumber, never

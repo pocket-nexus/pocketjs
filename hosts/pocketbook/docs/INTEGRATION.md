@@ -52,7 +52,7 @@
                            │  texQuad, scissor, scissorPop, tri, texTri)
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Software Rasterizer  (engine/core/src/raster.rs)               │
+│  Software Rasterizer  (engine/raster/src/lib.rs)               │
 │  render(ui, words, fb) → RGBA8 framebuffer                      │
 │  Already exists — used by wasm/web/sim hosts                    │
 └──────────────────────────┬──────────────────────────────────────┘
@@ -522,7 +522,7 @@ Instead of blitting the entire framebuffer every frame, only write changed tiles
 ### Optimization: Direct Gray8 Rasterization
 
 The software rasterizer currently outputs RGBA8. For a future optimization, you
-could add a `render_gray8()` variant to `engine/core/src/raster.rs` that outputs
+could add a `render_gray8()` variant to `engine/raster/src/lib.rs` that outputs
 Gray8 directly, skipping the conversion pass. This is optional — the conversion
 is cheap compared to the rasterization itself.
 
@@ -1325,7 +1325,7 @@ feature-detects optional HostOps methods.
 | `contracts/spec/platforms.ts` | Target profiles (add `pocketbook` here) |
 | `engine/core/src/lib.rs` | `Ui` struct, `tick()`, `draw()`, `set_viewport()` |
 | `engine/core/src/draw.rs` | DrawList format, DRAW_OP enum |
-| `engine/core/src/raster.rs` | Software rasterizer (`render`, `render_scaled`) |
+| `engine/raster/src/lib.rs` | Software rasterizer (`render`, `render_scaled`) |
 | `framework/src/host.ts` | `HostOps` interface (the 17 required + optional ops) |
 | `framework/src/native-tree.ts` | NodeMirror arena (JS-side tree mirror) |
 | `framework/src/renderer-solid.ts` | Solid universal renderer over HostOps |

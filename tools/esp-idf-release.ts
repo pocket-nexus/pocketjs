@@ -44,6 +44,10 @@ export async function stageEspIdfComponents(root: string, output: string): Promi
       [join(root, "engine/core"), "core"],
       [join(root, "engine/spec"), "spec"],
       [join(root, "engine/drivers"), "drivers"],
+      [join(root, "engine/raster"), "raster"],
+      [join(root, "engine/present"), "present"],
+      [join(root, "engine/package"), "package"],
+      [join(root, "engine/modules/media"), "modules/media"],
       ...(spec.crate === "render-rgb565" ? [[join(root, "engine/backends/rgb565"), "renderer"]] : []),
     ];
     for (const [source, name] of sources) cpSync(source, join(vendor, name), { recursive: true, filter: path => !ignored(path) });
@@ -53,7 +57,10 @@ export async function stageEspIdfComponents(root: string, output: string): Promi
       .replaceAll("../../../../engine/backends/rgb565", "../renderer"));
     if (spec.crate === "render-rgb565") {
       const backendManifest = join(vendor, "renderer/Cargo.toml");
-      writeFileSync(backendManifest, readFileSync(backendManifest, "utf8").replaceAll("../../core", "../core"));
+      // The backend moves from engine/backends/rgb565 to vendor/renderer;
+      // its engine siblings are one level closer in the staged component.
+      writeFileSync(backendManifest, readFileSync(backendManifest, "utf8")
+        .replaceAll(/(\bpath\s*=\s*["'])\.\.\/\.\.\//g, "$1../"));
     }
   }
   for (const spec of NATIVE_COMPONENTS) for (const target of Object.keys(RUST_TARGETS) as IdfTarget[])

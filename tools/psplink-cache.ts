@@ -27,7 +27,7 @@ export function psplinkPrxStale(root: string, name: string, prx: string): boolea
     join(root, "framework/src"),
     join(root, "framework/compiler"),
     join(root, "contracts/spec"),
-    ...["core", "spec", "drivers"].flatMap(crate => [
+    ...["core", "spec", "drivers", "raster", "present", "package", "modules/media"].flatMap(crate => [
       join(root, "engine", crate, "src"),
       join(root, "engine", crate, "Cargo.toml"),
     ]),

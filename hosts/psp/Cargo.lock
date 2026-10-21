@@ -96,8 +96,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-media"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-package"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+]
+
+[[package]]
+name = "pocket-present"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-raster",
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-psp-ge"
 version = "0.1.0"
+
+[[package]]
+name = "pocket-raster"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-spec",
+]
 
 [[package]]
 name = "pocket-spec"
@@ -108,6 +139,10 @@ name = "pocketjs-core"
 version = "0.1.0"
 dependencies = [
  "pocket-drivers",
+ "pocket-media",
+ "pocket-package",
+ "pocket-present",
+ "pocket-raster",
  "pocket-spec",
  "taffy",
 ]

@@ -11,19 +11,21 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use pocketjs_core::resources::RenderResources;
+use pocket_drivers::RenderResources;
 
-use pocketjs_core::damage::{
-    DamagePlan, DamagePolicy, DamageRect as Clip, DamageTarget, DamageTracker,
+use pocket_present::damage::{
+    DamagePlan, DamagePolicy, DamageRect as Clip, DamageTracker,
     DEFAULT_DAMAGE_REGIONS,
 };
-use pocketjs_core::raster::{
+use pocket_raster::{
     coverage_index, linear_sample_coordinates, pack_rgb565, render_scaled_rgb565_over,
     render_scaled_rgb565_window_over,
 };
 #[cfg(test)]
 use pocketjs_core::Ui;
-use pocketjs_core::{spec, TexView};
+use pocket_drivers::TexView;
+use pocket_spec as spec;
+use pocket_present::DamageTransaction;
 
 const MASK_ALIGNMENT: usize = 128;
 const CLIP_DEPTH: usize = 32;
@@ -177,7 +179,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(config: RendererConfig) -> Option<Self> {
-        if !(1..=pocketjs_core::raster::MAX_RENDER_SCALE).contains(&config.scale) {
+        if !(1..=pocket_raster::MAX_RENDER_SCALE).contains(&config.scale) {
             return None;
         }
         Some(Self {
@@ -240,12 +242,7 @@ impl Renderer {
         words: &[u32],
     ) -> Option<RenderDamagePlan> {
         self.sync_resources(ui);
-        let damage_target = self.damage_target(ui)?;
-        target
-            .prepare(ui, words, damage_target)
-            .ok()?
-            .with_policy(DamagePolicy::new(FULL_REDRAW_PERCENT))
-            .ok()
+        self.transaction().prepare(target, ui, words).ok()
     }
 
     /// Record a successfully presented DrawList in one persistent target.
@@ -255,17 +252,12 @@ impl Renderer {
         ui: &impl RenderResources,
         words: &[u32],
     ) -> bool {
-        let Some(damage_target) = self.damage_target(ui) else {
-            target.invalidate();
-            return false;
-        };
-        target.commit(ui, words, damage_target);
-        true
+        self.transaction().commit(target, ui, words)
     }
 
     /// Invalidate a persistent target after an aborted or partial update.
     pub fn abort_damage(&self, target: &mut RenderTargetState) {
-        target.invalidate();
+        self.transaction().abort(target);
     }
 
     /// Repaint only pixels whose DrawList operations differ from the snapshot
@@ -287,27 +279,13 @@ impl Renderer {
         ppa: &mut O,
     ) -> Option<RenderStats> {
         self.target_screen(ui, destination, width, height)?;
-        let damage = self.prepare_damage(target, ui, words)?;
-        let full_redraw = damage.is_full_redraw();
-
-        let result = self.render_damage(
-            ui,
-            words,
-            destination,
-            width,
-            height,
-            &damage,
-            full_redraw,
-            ppa,
-        );
-        if result.is_some() {
-            if !self.commit_damage(target, ui, words) {
-                return None;
-            }
-        } else {
-            self.abort_damage(target);
-        }
-        result
+        self.sync_resources(ui);
+        self.transaction().run(target, ui, words, |damage| {
+            self.render_damage(
+                ui, words, destination, width, height, damage,
+                damage.is_full_redraw(), ppa,
+            )
+        })
     }
 
     /// Render one global logical dirty rectangle into a tightly packed
@@ -389,20 +367,12 @@ impl Renderer {
         Some(stats)
     }
 
-    fn damage_target(&self, ui: &impl RenderResources) -> Option<DamageTarget> {
-        let scale = self.config.scale;
-        let (viewport_w, viewport_h) = ui.viewport();
-        let width = (viewport_w as u32).checked_mul(scale)?;
-        let height = (viewport_h as u32).checked_mul(scale)?;
-        if width == 0 || height == 0 {
-            return None;
-        }
-        Some(DamageTarget::new(
-            width,
-            height,
-            scale,
+    fn transaction(&self) -> DamageTransaction {
+        DamageTransaction::new(
+            self.config.scale,
             DAMAGE_TARGET_SIGNATURE,
-        ))
+            DamagePolicy::new(FULL_REDRAW_PERCENT),
+        )
     }
 
     fn target_screen(

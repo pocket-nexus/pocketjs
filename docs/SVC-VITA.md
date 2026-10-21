@@ -4,7 +4,7 @@ The host service channel (spec ops 30–37: mailbox, side files, `.pkst`
 video) was born on the PSP over PSPLINK's usbhostfs file share. The Vita has
 no file share — it has WiFi. This document describes the Vita transport:
 the **PKNT** wire protocol (contracts/spec/spec.ts "SVC WIRE protocol",
-`engine/core/src/wire.rs`), the RAM ring (`engine/core/src/stream_rx.rs`),
+`engine/modules/media/src/wire.rs`), the RAM ring (`engine/modules/media/src/stream_rx.rs`),
 and the host-side modules under `hosts/vita/src/` (`net.rs`, `svc.rs`,
 `vid.rs`, `audio.rs`).
 

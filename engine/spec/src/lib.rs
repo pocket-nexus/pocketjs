@@ -378,7 +378,7 @@ pub mod svc {
 }
 
 /// STREAM container (.pkst) — host-written video+audio ring file.
-/// Full byte layout in spec.ts; parsed by engine/core/src/stream.rs.
+/// Full byte layout in spec.ts; parsed by engine/modules/media/src/stream.rs.
 pub mod stream {
     pub const MAGIC: u32 = 0x54534b50; // 'PKST' LE
     pub const VERSION: u16 = 1;
@@ -394,7 +394,7 @@ pub mod stream {
 }
 
 /// SVC WIRE protocol (PKNT) — the svc mailbox over a socket.
-/// Full byte layout in spec.ts; parsed by engine/core/src/wire.rs.
+/// Full byte layout in spec.ts; parsed by engine/modules/media/src/wire.rs.
 pub mod wire {
     pub const MAGIC: u32 = 0x544e4b50; // 'PKNT' LE
     pub const BEACON_MAGIC: u32 = 0x42444b50; // 'PKDB' LE

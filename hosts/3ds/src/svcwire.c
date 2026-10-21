@@ -1,7 +1,7 @@
 /*
  * SVC WIRE (PKNT) client — see svcwire.h. Byte layouts come verbatim from
  * contracts/spec/spec.ts "SVC WIRE protocol" (the Rust codec in
- * engine/core/src/wire.rs is the executable reference):
+ * engine/modules/media/src/wire.rs is the executable reference):
  *
  *   beacon (UDP, host -> broadcast, once a second):
  *     u32 'PKDB' LE · u8 version · u8 reserved · u16 tcpPort LE ·

@@ -20,7 +20,8 @@ describe("ESP-IDF incremental package build", () => {
         cpSync(join(root, "hosts/esp-idf/components/pocketjs_ui_core", file), join(component, file));
       const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/ui-core");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
-      for (const source of [native, join(contracts, "core"), join(contracts, "spec"), join(contracts, "drivers")]) {
+      const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media"];
+      for (const source of [native, ...crates.map(crate => join(contracts, crate))]) {
         mkdirSync(join(source, "src"), { recursive: true });
         writeFileSync(join(source, "Cargo.toml"), "# build dependency fixture\n");
         writeFileSync(join(source, "src/lib.rs"), "// build dependency fixture\n");
@@ -42,7 +43,7 @@ pocketjs_link_native("${component}" ui-core pocketjs_idf_ui_core POCKETJS_TEST_A
       const graph = readFileSync(join(build, "build.ninja"), "utf8");
       const archiveEdge = graph.split("\n").find(line => line.startsWith("build cargo/") && line.includes(".a: CUSTOM_COMMAND"));
       expect(archiveEdge).toBeDefined();
-      for (const crate of ["spec", "drivers"]) for (const file of ["Cargo.toml", "src/lib.rs"])
+      for (const crate of crates) for (const file of ["Cargo.toml", "src/lib.rs"])
         expect(archiveEdge).toContain(join(contracts, crate, file).replaceAll(" ", "$ "));
     } finally { rmSync(temporary, { recursive: true, force: true }); }
   }, 30_000);

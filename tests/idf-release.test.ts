@@ -53,6 +53,10 @@ describe("ESP-IDF release integrity", () => {
   test.each([
     "engine/spec/src/lib.rs", "engine/spec/Cargo.toml",
     "engine/drivers/src/lib.rs", "engine/drivers/Cargo.toml",
+    "engine/raster/src/lib.rs", "engine/raster/Cargo.toml",
+    "engine/present/src/lib.rs", "engine/present/Cargo.toml",
+    "engine/package/src/lib.rs", "engine/package/Cargo.toml",
+    "engine/modules/media/src/lib.rs", "engine/modules/media/Cargo.toml",
   ])("rejects old archives after contract dependency changes: %s", async (path) => {
     const f = await fixture();
     writeFileSync(join(f.directory, path), "changed contract dependency");
@@ -89,7 +93,7 @@ describe("ESP-IDF release integrity", () => {
     }
     const output = join(directory, "staged");
     await stageEspIdfComponents(directory, output);
-    // Resolve the staged graph with Cargo, including core -> drivers -> spec.
+    // Resolve the staged graph with Cargo, including core's extracted subsystems.
     // No workspace file or dependency path from the source tree is available.
     for (const native of NATIVE_COMPONENTS) {
       const result = Bun.spawnSync([
@@ -98,7 +102,7 @@ describe("ESP-IDF release integrity", () => {
       ], { stdout: "pipe", stderr: "pipe" });
       expect(result.exitCode, result.stderr.toString()).toBe(0);
       const packages = JSON.parse(result.stdout.toString()).packages as Array<{ name: string; manifest_path: string }>;
-      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers"])
+      for (const name of ["pocketjs-core", "pocket-spec", "pocket-drivers", "pocket-raster", "pocket-present", "pocket-package", "pocket-media"])
         expect(packages.find(pkg => pkg.name === name)?.manifest_path).toStartWith(join(output, native.component, "vendor"));
     }
   }, 30_000);

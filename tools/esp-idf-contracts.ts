@@ -99,7 +99,7 @@ export function generatedIdfContracts(): Map<string, string> {
   return new Map([
     ["hosts/esp-idf/components/pocketjs_package/include/pocketjs/package_format.h", cConstants],
     ["hosts/esp-idf/components/pocketjs_package/tools/package_format.py", pyConstants],
-    ["engine/core/src/package_format.rs", rustConstants],
+    ["engine/package/src/package_format.rs", rustConstants],
     ["hosts/esp-idf/components/pocketjs_ui_qjs/include/pocketjs/pak_format.h",
       "/* Generated from contracts/spec/spec.ts. Do not edit. */\n#pragma once\n" +
       Object.entries({ PAK_MAGIC, PAK_VERSION, PAK_HEADER_SIZE, PAK_ENTRY_SIZE }).map(([key, value]) => `#define ${key} ${value}U\n`).join("")],
