@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { BTN } from "../contracts/spec/spec.ts";
-import { bootWorld, treeHasText, type SimWorld } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText, type SimWorld } from "../programs/sim/sim.ts";
 import { MOTION_CREDIT_ASSETS } from "../site/motion-credit.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;

@@ -313,11 +313,11 @@ profile carries only `text.glyphs.baked`, a codepoint missing from the atlas
 resolves to glyph 0 — a drawn hollow "tofu" box, also mapped from U+FFFD so it
 has an advance.** A target that also advertises `text.glyphs.runtime`
 (`macos-widget`, and `web-app` and every page that runs a package through
-`hosts/web/app-instance.js`) rasterizes the missing glyph from a system font and
+`programs/web/app-instance.js`) rasterizes the missing glyph from a system font and
 reloads the atlas through `loadFontAtlas`, so tofu is what an app that accepts
 arbitrary text gets on a baked-only target.
 
-In a browser, `hosts/web/runtime-glyphs.js` does this inside the package's
+In a browser, `platforms/web/runtime-glyphs.js` does this inside the package's
 realm. It keeps a copy of each atlas the guest loads. Before the core reads a
 string (`setText`, `replaceText`, `measureText`, `wrapText`) it draws each
 codepoint no atlas maps on a 2D canvas, in the browser's Japanese, Chinese and

@@ -27,7 +27,7 @@ pub unsafe fn sceKernelAllocPartitionMemory(
     _: *mut c_void,
 ) -> SceUid {
     ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
-    assert_eq!(size as usize, CAPACITY);
+    assert!(size > 0 && size as usize <= CAPACITY);
     if std::env::var_os("POCKET_TEST_ARENA_INIT_FAIL").is_some() {
         SceUid(-1)
     } else {

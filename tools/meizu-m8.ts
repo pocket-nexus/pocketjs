@@ -302,7 +302,7 @@ export function buildMeizuNative(application: RuntimeApplication, outputDirector
       "-Z",
       "build-std-features=compiler-builtins-mem",
     ],
-    join(repository, "engine/ui-cabi"),
+    join(repository, "programs/native/cabi"),
     {
       ...process.env,
       CARGO_TARGET_DIR: rustTarget,

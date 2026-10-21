@@ -20,7 +20,7 @@
 
 import { createCanvas, GlobalFonts, type SKRSContext2D } from "@napi-rs/canvas";
 import { mkdirSync } from "node:fs";
-import { runScenario } from "../hosts/sim/sim.ts";
+import { runScenario } from "../programs/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 import { FRAMEWORKS, parseFramework } from "../framework/compiler/jsx-plugin.ts";
 
@@ -312,7 +312,7 @@ for (const demo of selected) {
       ? `bun tools/gen-demo-covers.ts ${demo.dir}`
       : `bun tools/gen-demo-covers.ts --framework=${framework} ${demo.dir}`;
   const toml = `# XMB metadata for the ${title} EBOOT. tools/psp.ts copies this to
-# hosts/psp/Psp.toml ${scope}; cargo-psp packs
+# programs/psp/Psp.toml ${scope}; cargo-psp packs
 # it into PARAM.SFO / ICON0 / PIC1.
 # Regenerate the art with: ${regen}
 title = "${title}"

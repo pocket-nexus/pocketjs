@@ -183,7 +183,7 @@ function buildRustCore(): string {
       "-Z",
       "build-std-features=compiler-builtins-mem",
     ],
-    join(repository, "engine/ui-cabi"),
+    join(repository, "programs/native/cabi"),
     {
       ...process.env,
       CARGO_PROFILE_RELEASE_LTO: "false",

@@ -55,7 +55,7 @@ and the router renders the 404 page.
 | `index.html`, `assets/main-*.js`, `assets/chunk-*.js` | `src/`; `.vue` files compile through `@vue/compiler-sfc` in `lib/plugins.ts`; each page, each preset's sources and each game's home page code panel are a separate chunk |
 | `assets/site-*.css` | `src/styles/main.css` through `bunx @tailwindcss/cli`, followed by the SFC `<style>` blocks |
 | `assets/retro-worker.js`, `assets/retro-mixer.js` | the retro game worker and the audio worklet |
-| `pocket/` | the UI preview kit (`lib/kit.ts`): `kit/` compiler worker and preview iframe, the framework subpaths, Vue Vapor and Solid runtimes, `hosts/web/pocketjs.wasm`, Inter |
+| `pocket/` | the UI preview kit (`lib/kit.ts`): `kit/` compiler worker and preview iframe, the framework subpaths, Vue Vapor and Solid runtimes, `platforms/web/pocketjs.wasm`, Inter |
 | `retro/<id>/` | baked assets and a poster frame per game (`lib/retro.ts`) |
 | `shells/` | the playground devices' pictures and their credits (`lib/shells.ts`): `shells/` here and the Pocket3D player's PSP and 3DS |
 | `fonts/`, `pocket3d-mark.svg` | copied from `site/assets/fonts/` and `site/pocket3d/mark.svg` |

@@ -300,7 +300,7 @@ fn validate_drawlist(words: &[u32]) -> [u32; 11] {
     counts
 }
 
-/// Consecutive TEX_TRI batches exactly as hosts/psp/src/ge.rs sees them.
+/// Consecutive TEX_TRI batches exactly as programs/psp/src/scene.rs sees them.
 /// Any different op or texture handle terminates the current run.
 fn tex_tri_runs(words: &[u32]) -> Vec<(u32, usize)> {
     let mut runs: Vec<(u32, usize)> = Vec::new();

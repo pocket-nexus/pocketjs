@@ -239,7 +239,7 @@ describe("private Nintendo 3DS build profile", () => {
     // emulator, so the publication is pinned here — read back from the core
     // rather than re-derived, so the JS layer and the native root cannot drift.
     const qjs = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "hosts/3ds/src/qjs.c"),
+      join(new URL("..", import.meta.url).pathname, "programs/3ds/product/src/qjs.c"),
       "utf8",
     );
     expect(qjs).toMatch(/pocket_guest_quickjs_vtable\(\)->initialize\(guest,\s*owner,\s*environment\)/);
@@ -249,7 +249,7 @@ describe("private Nintendo 3DS build profile", () => {
 
   test("keeps bring-up controls out of the application input path", () => {
     const main = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "hosts/3ds/src/main.c"),
+      join(new URL("..", import.meta.url).pathname, "programs/3ds/product/src/main.c"),
       "utf8",
     );
     expect(main).not.toContain("gfx_debug_modes");
@@ -259,7 +259,7 @@ describe("private Nintendo 3DS build profile", () => {
     expect(main).not.toContain("KEY_Y");
 
     const input = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "hosts/3ds/src/input.c"),
+      join(new URL("..", import.meta.url).pathname, "platforms/3ds/input.c"),
       "utf8",
     );
     expect(input).toContain("RUNTIME_RELOAD_KEYS");
@@ -275,16 +275,16 @@ describe("private Nintendo 3DS build profile", () => {
 
   test("keeps the development menu native and outside the guest capability surface", () => {
     const root = new URL("..", import.meta.url).pathname;
-    const menu = readFileSync(join(root, "hosts/3ds/src/devmenu.c"), "utf8");
-    const main = readFileSync(join(root, "hosts/3ds/src/main.c"), "utf8");
-    const makefile = readFileSync(join(root, "hosts/3ds/Makefile"), "utf8");
+    const menu = readFileSync(join(root, "programs/3ds/product/src/devmenu.c"), "utf8");
+    const main = readFileSync(join(root, "programs/3ds/product/src/main.c"), "utf8");
+    const makefile = readFileSync(join(root, "programs/3ds/product/Makefile"), "utf8");
     expect(menu).toContain("const uint32_t *devmenu_draw_list");
     expect(menu).toContain("#define DRAW_RECT 1u");
     expect(menu).toContain("devserver_snapshot(&state)");
     expect(menu).not.toMatch(/\bui_[a-z_]+\s*\(/);
     expect(main).toContain("(void)devmenu_init()");
     expect(main).not.toContain("native development menu failed to initialize");
-    const gfx = readFileSync(join(root, "hosts/3ds/src/gfx.c"), "utf8");
+    const gfx = readFileSync(join(root, "programs/3ds/product/src/gfx.c"), "utf8");
     expect(gfx).toContain("out->words = devmenu_draw_list(&out->word_count)");
     expect(makefile).not.toContain("-lcitro2d");
     expect(makefile).toContain("-lcitro3d");
@@ -292,9 +292,9 @@ describe("private Nintendo 3DS build profile", () => {
 
   test("links one canonical Runtime archive and owns no second Ui", () => {
     const root = new URL("..", import.meta.url).pathname;
-    const core = readFileSync(join(root,"hosts/3ds/core/src/lib.rs"),"utf8");
-    const manifest = readFileSync(join(root,"hosts/3ds/core/Cargo.toml"),"utf8");
-    const gfx = readFileSync(join(root,"hosts/3ds/src/gfx.c"),"utf8");
+    const core = readFileSync(join(root,"programs/3ds/product/core/src/lib.rs"),"utf8");
+    const manifest = readFileSync(join(root,"programs/3ds/product/core/Cargo.toml"),"utf8");
+    const gfx = readFileSync(join(root,"programs/3ds/product/src/gfx.c"),"utf8");
     expect(core).toContain("pub use pocket_runtime_cabi::*");
     expect(core).not.toContain("static mut UI");
     expect(manifest).not.toContain("pocketjs-core =");
@@ -310,7 +310,7 @@ describe("private Nintendo 3DS build profile", () => {
     expect(MAKEROM_REVISION).toMatch(/^[0-9a-f]{40}$/);
 
     const makefile = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "hosts/3ds/Makefile"),
+      join(new URL("..", import.meta.url).pathname, "programs/3ds/product/Makefile"),
       "utf8",
     );
     expect(makefile).toContain("SMDH_STAMP :=");
@@ -431,13 +431,13 @@ describe("CIA title identity", () => {
 
   test("the RSF asks for the memory region that is the point of a CIA", () => {
     const rsf = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "hosts/3ds/app.rsf"),
+      join(new URL("..", import.meta.url).pathname, "programs/3ds/product/app.rsf"),
       "utf8",
     );
     // A .3dsx inherits hbmenu's allocation; a CIA asks for its own region.
     expect(rsf).toMatch(/^\s+SystemMode\s+: 64MB$/m);
     expect(rsf).toMatch(/^\s+SystemModeExt\s+: 124MB$/m);
-    // The four values hosts/3ds/Makefile substitutes; a rename breaks here.
+    // The four values programs/3ds/product/Makefile substitutes; a rename breaks here.
     for (const name of ["APP_TITLE", "APP_PRODUCT_CODE", "APP_UNIQUE_ID", "APP_ROMFS"]) {
       expect(rsf).toContain(`$(${name})`);
     }
@@ -448,5 +448,5 @@ describe("CIA title identity", () => {
 });
 
 test("3DS canonical profile and operation identifiers match their source schemas", () => {
-  expect(readFileSync(new URL("../hosts/3ds/include/pocket_profile.h",import.meta.url),"utf8")).toBe(threeDsProfileHeader());
+  expect(readFileSync(new URL("../programs/3ds/product/include/pocket_profile.h",import.meta.url),"utf8")).toBe(threeDsProfileHeader());
 });

@@ -60,15 +60,15 @@ describe("PSP toolchain manifest", () => {
     expect(psp.hosts).toEqual(["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]);
   });
 
-  test("the prebuilt QuickJS comes from the revision hosts/psp links", async () => {
-    const revision = quickjsRevision(await Bun.file(join(root, "hosts/psp/Cargo.toml")).text());
+  test("the prebuilt QuickJS comes from the revision programs/psp links", async () => {
+    const revision = quickjsRevision(await Bun.file(join(root, "programs/psp/Cargo.toml")).text());
     expect(revision).toBeDefined();
     expect((quickjs.source as Source).url).toContain(`/prebuilt-psp-${revision!.slice(0, 12)}/`);
     expect(await Bun.file(join(root, "Cargo.lock")).text()).toContain(`rev=${revision}#`);
   });
 
-  test("hosts/psp builds against the rust-psp revision cargo-psp comes from", async () => {
-    const source = await Bun.file(join(root, "hosts/psp/Cargo.toml")).text();
+  test("programs/psp builds against the rust-psp revision cargo-psp comes from", async () => {
+    const source = await Bun.file(join(root, "programs/psp/Cargo.toml")).text();
     expect(source).toContain(`git = "${cargoPsp.source.git}"`);
     expect(source).toContain(`rev = "${cargoPsp.source.revision}"`);
     expect(await Bun.file(join(root, "Cargo.lock")).text()).toContain(cargoPsp.source.revision);
@@ -81,8 +81,8 @@ describe("PSP toolchain manifest", () => {
       "tools/psp.ts",
       "tools/psp-all.ts",
       "tools/cli/bin.mjs",
-      "hosts/psp/Cargo.toml",
-      "hosts/vita/Cargo.toml",
+      "programs/psp/Cargo.toml",
+      "programs/vita/Cargo.toml",
       "devices/psp/pocket-psp-ge/Cargo.toml",
     ];
     for (const file of productionFiles) {

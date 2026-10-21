@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import {
   PHYSICS_HANDLE_KIND_SHIFT,
   PHYSICS_KIND,
@@ -47,7 +47,7 @@ const handle = (kind: number, slot: number) => (kind << PHYSICS_HANDLE_KIND_SHIF
 type Tape = Record<number, [number, number] | null>;
 
 async function run(frames: number, tape: Tape, probe: (frame: number, wasm: any) => void = () => {}) {
-  const wasm = await createWasmUi(await Bun.file(`${ROOT}hosts/web/pocketjs.wasm`).arrayBuffer(), { width: 320, height: 480, rasterDensity: 2 });
+  const wasm = await createWasmUi(await Bun.file(`${ROOT}platforms/web/pocketjs.wasm`).arrayBuffer(), { width: 320, height: 480, rasterDensity: 2 });
   const g = globalThis as any;
   g.ui = wasm.ops;
   g.__pak = await Bun.file(`${GUEST}.pak`).arrayBuffer();

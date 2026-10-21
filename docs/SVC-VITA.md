@@ -5,7 +5,7 @@ video) was born on the PSP over PSPLINK's usbhostfs file share. The Vita has
 no file share — it has WiFi. This document describes the Vita transport:
 the **PKNT** wire protocol (contracts/spec/spec.ts "SVC WIRE protocol",
 `engine/modules/media/src/wire.rs`), the RAM ring (`engine/modules/media/src/stream_rx.rs`),
-and the host-side modules under `hosts/vita/src/` (`net.rs`, `svc.rs`,
+and the host-side modules under `programs/vita/src/` (`net.rs`, `svc.rs`,
 `vid.rs`, `audio.rs`).
 
 The guest contract does not change. An app that speaks the svc ops on PSP
@@ -84,7 +84,7 @@ texture memory only when the GPU provably is not reading it.
 
 ## Audio
 
-`hosts/vita/src/audio.rs` is the PSP design with `sceAudioOut` in place of
+`platforms/vita/audio/src/lib.rs` is the PSP design with `sceAudioOut` in place of
 `sceAudioCh`: one BGM port at 44.1 kHz, a dedicated output thread fed from
 an in-RAM SPSC ring (~743 ms) over absolute frame counters, starvation
 sleeps instead of queued silence, and the port opened **and released on the
@@ -94,7 +94,7 @@ playable; the Vita profile streams native 44.1 kHz.
 
 ## Diagnostics
 
-`debugStats` (op 38) is wired: `hosts/vita/src/stats.rs` adds a `net`
+`debugStats` (op 38) is wired: `programs/vita/src/stats.rs` adds a `net`
 section (rxBytes/txBytes/reconnects/slotsRx/fileEvicts) to the PSP shape,
 plus the bundle FNV-1a64 for the stale-embed tripwire. Throughput tuning on
 real hardware reads these as deltas over a window.

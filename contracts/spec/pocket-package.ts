@@ -173,7 +173,7 @@ export interface PocketPackageIdentity {
   title: string;
 }
 
-// --- FNV-1a64 (lockstep with tools/bundle-hash.ts + hosts/psp/build.rs) ----
+// --- FNV-1a64 (lockstep with tools/bundle-hash.ts + programs/psp/build.rs) ----
 
 const FNV_OFFSET = 0xcbf29ce484222325n;
 const FNV_PRIME = 0x100000001b3n;

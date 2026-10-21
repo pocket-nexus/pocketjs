@@ -50,7 +50,7 @@ afterEach(() => {
 
 describe("Nintendo 3DS Pocket Runtime wire", () => {
   test("keeps TypeScript and C protocol constants byte-exact", async () => {
-    const header = readFileSync(join(ROOT, "hosts/3ds/src/dev_protocol.h"), "utf8");
+    const header = readFileSync(join(ROOT, "programs/3ds/product/src/dev_protocol.h"), "utf8");
     // Every numeric #define, evaluated with its references to other defines.
     const expressions = new Map(
       [...header.matchAll(/^#define (POCKET_RUNTIME_\w+) (.+?)(?:\s*\/\*.*)?$/gm)].map((m) => [m[1], m[2]]),
@@ -263,9 +263,9 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
     const compile = Bun.spawnSync([
       compiler!,
       "-std=c11",
-      `-I${join(ROOT, "hosts/3ds/src")}`,
+      `-I${join(ROOT, "programs/3ds/product/src")}`,
       join(ROOT, "tests/fixtures/3ds-dev-protocol.c"),
-      join(ROOT, "hosts/3ds/src/dev_protocol.c"),
+      join(ROOT, "programs/3ds/product/src/dev_protocol.c"),
       "-o",
       binary,
     ]);
@@ -283,11 +283,11 @@ describe("Nintendo 3DS Pocket Runtime wire", () => {
     const compile = Bun.spawnSync([
       compiler!,
       "-std=c11",
-      `-I${join(ROOT, "hosts/3ds/src")}`,
-      `-I${join(ROOT, "hosts/3ds/include")}`,
+      `-I${join(ROOT, "programs/3ds/product/src")}`,
+      `-I${join(ROOT, "programs/3ds/product/include")}`,
       `-I${join(ROOT, "contracts/generated")}`,
       join(ROOT, "tests/fixtures/3ds-devmenu.c"),
-      join(ROOT, "hosts/3ds/src/devmenu.c"),
+      join(ROOT, "programs/3ds/product/src/devmenu.c"),
       "-o",
       binary,
     ]);

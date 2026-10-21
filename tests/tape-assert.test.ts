@@ -5,7 +5,7 @@
 // mismatched golden must name the defect and reject before booting instead.
 //
 // The end-to-end 180/180 replay is the "tape golden" stage in tools/test.ts
-// (it needs hosts/web/pocketjs.wasm); this file covers the validator itself
+// (it needs platforms/web/pocketjs.wasm); this file covers the validator itself
 // and the CLI's fail-closed path, which rejects before any build.
 
 import { afterEach, describe, expect, test } from "bun:test";

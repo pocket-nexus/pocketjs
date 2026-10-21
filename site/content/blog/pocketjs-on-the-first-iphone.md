@@ -324,7 +324,7 @@ bug one.
 
 The rasterizer always was. `ui_render_incremental` writes only the spans the
 damage plan covers, and it works: instrumenting the plan the core already
-returns — and which `engine/ui-cabi` was discarding — gives
+returns — and which `programs/native/cabi` was discarding — gives
 `damage_failures=0`, two full redraws in 361 frames, and an **empty** plan on
 most frames, because a mostly-still UI mostly does not change.
 

@@ -24,7 +24,7 @@ import {
   write,
   writeFileSync,
 } from "../framework/src/fs-api.ts";
-import { createSimFsHost, type SimFsHost } from "../hosts/sim/fs.ts";
+import { createSimFsHost, type SimFsHost } from "../platforms/sim/fs.ts";
 
 const g = globalThis as { fs?: unknown };
 let host: SimFsHost | null = null;

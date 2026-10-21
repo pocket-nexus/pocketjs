@@ -30,10 +30,10 @@ supplied with its build receipt.
 ## Build the native archive
 
 ```sh
-bun tools/esp-idf-native.ts --target esp32p4 --archiver /path/to/llvm-ar
-bun tools/esp-idf-native.ts --target esp32s3 --cargo /path/to/xtensa-rust/bin/cargo
-bun tools/esp-idf-native.ts --target esp32c3
-bun tools/esp-idf-native.ts --target esp32c6
+bun tools/packaging/esp-idf/native.ts --target esp32p4 --archiver /path/to/llvm-ar
+bun tools/packaging/esp-idf/native.ts --target esp32s3 --cargo /path/to/xtensa-rust/bin/cargo
+bun tools/packaging/esp-idf/native.ts --target esp32c3
+bun tools/packaging/esp-idf/native.ts --target esp32c6
 ```
 
 The P4 command uses the pinned RISC-V compiler. S3 requires the supplied Xtensa

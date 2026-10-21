@@ -57,7 +57,7 @@ export type ButtonName = (typeof BUTTON_NAMES)[number];
 
 /** Shell labels per BTN bit, keyed by the spec's PlayStation-positional
  *  names. A Nintendo host maps A/B/X/Y onto the CIRCLE/CROSS/TRIANGLE/SQUARE
- *  positions (hosts/3ds/src/input.c), so `circle` reads "A" there. */
+ *  positions (platforms/3ds/input.c), so `circle` reads "A" there. */
 export const BUTTON_GLYPHS: Readonly<Record<ButtonGlyphSet, Readonly<Record<ButtonName, string>>>> = {
   playstation: {
     circle: "○",

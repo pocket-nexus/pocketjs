@@ -15,7 +15,8 @@
 
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { stageWebAssets, webAssetSources } from "./build/web-assets.ts";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -30,7 +31,7 @@ export const POCKET3D_WEB = {
   title: ["pocket3d-title.js", "art.js"],
   /** The realm of a guest: PocketJS's AppInstance and what it imports. A realm started with
    *  `text: false` reads no text worker, so the worker and its wasm are not staged. */
-  realm: ["app-instance.html", "app-instance.js", "wasm-ops.js", "generated-ui.js", "runtime-glyphs.js", "offload-worker.js"],
+  realm: webAssetSources().map(file => relative(ROOT, file)),
   core: "pocketjs.wasm",
   /** What a host needs of the framework to hand a guest its contacts and name its buttons. */
   host: "pocketjs-host.js",
@@ -47,10 +48,10 @@ export const PACK_PIECES = "pocket-pack-pieces/1";
  */
 export async function stagePocket3dWeb(out: string): Promise<string[]> {
   mkdirSync(out, { recursive: true });
-  const web = join(ROOT, "hosts/web");
+  const web = join(ROOT, "platforms/web");
   if (!existsSync(join(web, POCKET3D_WEB.core))) {
     const built = Bun.spawnSync(["bun", "tools/wasm.ts"], { cwd: ROOT, stdout: "pipe", stderr: "inherit" });
-    if (built.exitCode !== 0) throw new Error("pocket3d-web: the UI core did not build (bun tools/wasm.ts)");
+    if (!built.success) throw new Error("pocket3d-web: the UI core did not build (bun tools/wasm.ts)");
   }
   for (const file of POCKET3D_WEB.modules) cpSync(join(POCKET3D_WEB.crate, "web", file), join(out, file));
   const assets: string[] = [];
@@ -59,14 +60,17 @@ export async function stagePocket3dWeb(out: string): Promise<string[]> {
     assets.push(...readdirSync(join(POCKET3D_WEB.crate, "web", directory)).map((file) => `${directory}/${file}`));
   }
   for (const file of POCKET3D_WEB.title) cpSync(join(ROOT, "engine/pocket3d/crates/pocket3d-title/web", file), join(out, file));
-  for (const file of [...POCKET3D_WEB.realm, POCKET3D_WEB.core]) cpSync(join(web, file), join(out, file));
+  const realmFiles = stageWebAssets(out, { wasm: join(web, POCKET3D_WEB.core) });
+  // Keep the existing game-facing realm and wasm URLs while modules retain their tree.
+  writeFileSync(join(out, "app-instance.html"), '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Pocket AppInstance</title></head><body><script type="module" src="./programs/web/app-instance.js"></script></body></html>\n');
+  cpSync(join(web, POCKET3D_WEB.core), join(out, POCKET3D_WEB.core));
   // One module of the framework's own sources: the contact wire format, the touch hit facts and the button bits.
   const entry = join(tmpdir(), `pocketjs-host-${process.pid}.ts`);
   writeFileSync(entry, `export { __packTouch, createTouchHitFacts } from ${JSON.stringify(join(ROOT, "framework/src/touch.ts"))};\nexport { BTN } from ${JSON.stringify(join(ROOT, "contracts/spec/spec.ts"))};\n`);
   const bundle = await Bun.build({ entrypoints: [entry], format: "esm", target: "browser" });
   if (!bundle.success) throw new Error(`pocket3d-web: ${bundle.logs.join("; ")}`);
   writeFileSync(join(out, POCKET3D_WEB.host), await bundle.outputs[0]!.text());
-  return [...POCKET3D_WEB.modules, ...assets, ...POCKET3D_WEB.title, ...POCKET3D_WEB.realm, POCKET3D_WEB.core, POCKET3D_WEB.host];
+  return [...POCKET3D_WEB.modules, ...assets, ...POCKET3D_WEB.title, ...realmFiles, "app-instance.html", POCKET3D_WEB.core, POCKET3D_WEB.host];
 }
 
 const sha256 = (bytes: Uint8Array) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");

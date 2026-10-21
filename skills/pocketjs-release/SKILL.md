@@ -32,8 +32,8 @@ on every `main` push (`deploy.yml`).
 bun run test && bun tests/golden.ts && bun run tape:check
 cargo test --manifest-path engine/core/Cargo.toml
 bunx tsc --noEmit
-bun tests/e2e/ppsspp.ts        # when hosts/psp/ or engine/core/ changed
-bun tools/psp.ts hero        # cross-compile check when hosts/psp/ changed
+bun tests/e2e/ppsspp.ts        # when programs/psp/ or engine/core/ changed
+bun tools/psp.ts hero        # cross-compile check when programs/psp/ changed
 ```
 
 4. **Merge.** Draft PR → `gh pr ready <n>` → `gh pr merge <n> --squash`
@@ -78,7 +78,7 @@ gh release list --limit 2      # GitHub Release exists and is marked Latest
   then configure the trusted publisher.
 - The publish steps guard with `npm view "$name@$version"` — pushing a tag
   where one package's version already exists publishes only the other.
-- The framework tarball ships gitignored build output (`hosts/web/
+- The framework tarball ships gitignored build output (`platforms/web/
   pocketjs.wasm`) because the `files` whitelist wins over .gitignore; CI
   builds it (`bun tools/wasm.ts`) before publishing. Check tarball
   contents with `npm pack --dry-run` if `files` changed.

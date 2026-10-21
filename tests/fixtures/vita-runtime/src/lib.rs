@@ -2,12 +2,11 @@
 #![allow(dead_code, unused_unsafe)]
 // Compile the production composition/extension code. Only device services are
 // substituted; QuickJS, generated bindings, runtime and core are real.
-#[path = "../../../../hosts/vita/src/ffi.rs"]
-mod ffi;
-#[path = "../../../../hosts/vita/src/instance.rs"]
+#[path = "../../../../programs/vita/src/service_bindings.rs"]
+mod service_bindings;
+#[path = "../../../../programs/vita/src/instance.rs"]
 mod instance;
-#[path = "../../../../hosts/vita/src/registered_renderer.rs"]
-mod registered_renderer;
+mod registered_renderer { pub use pocket_vita_render::registered::SharedRenderer as RegisteredRenderer; }
 mod renderer_drop;
 mod dbg {
     pub fn active() -> bool {

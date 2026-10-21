@@ -28,7 +28,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
 import { encodePNG } from "../tests/png.ts";
-import { SHOT_W, SHOT_H, downscaleShot } from "../hosts/sim/shot.ts";
+import { SHOT_W, SHOT_H, downscaleShot } from "../programs/sim/shot.ts";
 import {
   SYMBIAN_E7_DEFAULT_VIEWPORT,
   SYMBIAN_E7_DEV_CONTRACTS,
@@ -191,7 +191,7 @@ export interface LauncherRegistryEntry {
   output: string;
   id: string;
   title: string;
-  /** Manifest path, repo-root-relative (hosts/psp/build.rs never reads it —
+  /** Manifest path, repo-root-relative (programs/psp/build.rs never reads it —
    *  it is for humans and for `covers` to rebuild a stale dist). */
   manifest: string;
   /** Build root for an explicitly included external manifest. Omitted for
@@ -660,7 +660,7 @@ function writeRegistry(
       })),
     }, null, 2) + "\n",
   );
-  // The native build's twin (hosts/psp/build.rs): output\tid\ttitle per line —
+  // The native build's twin (programs/psp/build.rs): output\tid\ttitle per line —
   // no JSON parser inside a build script.
   writeFileSync(
     paths.registryTsv,
@@ -850,7 +850,7 @@ async function renderCovers(
   }
   // Import lazily: bootWorld pulls the wasm core + build machinery, which
   // `scan` alone must not need.
-  const { bootWorld } = await import("../hosts/sim/sim.ts");
+  const { bootWorld } = await import("../programs/sim/sim.ts");
   for (const app of registry.apps) {
     const coverPath = join(COVERS_DIR, `cover-${app.output}.png`);
     const reflPath = join(COVERS_DIR, `refl-${app.output}.png`);
@@ -911,7 +911,7 @@ export { resizeBilinear } from "./image-resize.ts";
 async function renderXmbArt(): Promise<void> {
   const pspDir = join(LAUNCHER_DIR, "psp");
   mkdirSync(pspDir, { recursive: true });
-  const { bootWorld } = await import("../hosts/sim/sim.ts");
+  const { bootWorld } = await import("../programs/sim/sim.ts");
   const world = await bootWorld("launcher-main", 60);
   for (let f = 0; f < 60; f++) {
     world.frame(0);

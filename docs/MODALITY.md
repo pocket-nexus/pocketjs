@@ -32,7 +32,7 @@ window size with `resizable: true`. **A device reports contacts on one
 screen**: the Vita on its primary panel, the 3DS on its auxiliary panel.
 `glyphs` follows the platform because the spec names buttons by their
 PlayStation positions and the 3DS host maps A/B/X/Y onto those positions
-(`hosts/3ds/src/input.c`).
+(`platforms/3ds/input.c`).
 
 ### The PSP and the 3DS
 

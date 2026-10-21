@@ -26,7 +26,7 @@ describe("Cargo program and library graph", () => {
       expect(dependency["default-features"], path).toBe(false);
     }
     expect(workspace["default-members"].every((path: string) => paths.has(path))).toBe(true);
-    for (const path of ["hosts/psp", "hosts/vita", "hosts/3ds/core", "hosts/gba", "hosts/esp-idf/native/runtime", "programs/linux-kms"]) {
+    for (const path of ["programs/psp", "programs/vita", "programs/3ds/product/core", "programs/gba", "programs/esp-idf/archive", "programs/linux-kms"]) {
       expect(paths.has(path), path).toBe(true);
       expect(workspace["default-members"], path).not.toContain(path);
       expect(toml(`${path}/Cargo.toml`).package.publish, path).toBe(false);
@@ -38,6 +38,26 @@ describe("Cargo program and library graph", () => {
     expect(STABLE_RUST_TOOLCHAIN).toMatch(/^\d+\.\d+\.\d+$/);
     expect(BUILD_STD_NIGHTLY).toMatch(/^nightly-\d{4}-\d{2}-\d{2}$/);
     for (const path of workspace.members) expect(existsSync(join(root, path, "rust-toolchain.toml")), path).toBe(false);
+  });
+
+  test("platform drivers do not depend on a program or the UI core", () => {
+    for (const path of workspace.members.filter((path: string) => path.startsWith("platforms/"))) {
+      const manifest = toml(`${path}/Cargo.toml`);
+      const groups = [manifest.dependencies, manifest["build-dependencies"],
+        ...Object.values(manifest.target ?? {}).flatMap((target: any) => [target.dependencies, target["build-dependencies"]])];
+      for (const dependencies of groups) {
+        for (const [name, value] of Object.entries(dependencies ?? {})) {
+          const dependency = value as any;
+          const effective = dependency.workspace ? workspace.dependencies[name] : dependency;
+          const packageName = dependency.package ?? name;
+          expect(packageName, `${path} -> ${name}`).not.toBe("pocketjs-core");
+          if (effective?.path) {
+            const source = resolve(root, dependency.workspace ? "." : path, effective.path);
+            expect(source.startsWith(join(root, "programs") + "/"), `${path} -> ${source}`).toBe(false);
+          }
+        }
+      }
+    }
   });
 
   test("published crate fixtures match their cross-language canonical inputs", () => {

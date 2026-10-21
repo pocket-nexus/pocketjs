@@ -1,6 +1,6 @@
 /**
  * Dynamic paint inside a `layout-baked` subtree, for hosts that present a
- * baked page as a static background plus hardware sprites (hosts/gba).
+ * baked page as a static background plus hardware sprites (programs/gba).
  *
  * The layout plan proves every rect; this pass lists what still changes on
  * screen at runtime and describes it as one recipe per **layer**: the nearest

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const build = mkdtempSync(join(tmpdir(), "pocketjs-ui-cabi-allocator-"));
-const crate = join(repository, "engine/ui-cabi");
+const crate = join(repository, "programs/native/cabi");
 
 afterAll(() => rmSync(build, { recursive: true, force: true }));
 

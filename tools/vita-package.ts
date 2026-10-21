@@ -19,7 +19,7 @@ export const VITA_SYSTEM_ASSET_PATHS = {
 export const VITA_REQUIRED_SYSTEM_ASSETS = Object.values(VITA_SYSTEM_ASSET_PATHS);
 export const VITA_ICON_VPK_PATH = VITA_SYSTEM_ASSET_PATHS.icon;
 export const DEFAULT_VITA_PACKAGE_ASSETS = fileURLToPath(
-  new URL("../hosts/vita/assets", import.meta.url),
+  new URL("../programs/vita/assets", import.meta.url),
 );
 export const DEFAULT_VITA_SYSTEM_ASSETS = join(DEFAULT_VITA_PACKAGE_ASSETS, "sce_sys");
 export const DEFAULT_VITA_ICON = join(DEFAULT_VITA_PACKAGE_ASSETS, VITA_ICON_VPK_PATH);
@@ -308,6 +308,7 @@ export function vitaPackVpkArguments(input: VitaPackVpkInput): string[] {
 
 export interface PackageVitaVpkInput extends VitaPackVpkInput {
   readonly tool: string;
+  readonly execute?: (command: string[]) => Promise<void>;
 }
 
 /** Atomically create the final VPK through the framework's single asset resolver. */
@@ -315,17 +316,14 @@ export async function packageVitaVpk(input: PackageVitaVpkInput): Promise<void> 
   const next = `${input.output}.pocketjs-new`;
   mkdirSync(dirname(input.output), { recursive: true });
   rmSync(next, { force: true });
-  const child = Bun.spawn([
-    input.tool,
-    ...vitaPackVpkArguments({ ...input, output: next }),
-  ], {
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const code = await child.exited;
-  if (code !== 0) {
-    rmSync(next, { force: true });
-    throw new Error(`vita-pack-vpk failed with exit code ${code}`);
-  }
+  const command = [input.tool, ...vitaPackVpkArguments({ ...input, output: next })];
+  try {
+    if (input.execute) await input.execute(command);
+    else {
+      const child = Bun.spawn(command, { stdout: "inherit", stderr: "inherit" });
+      const code = await child.exited;
+      if (code !== 0 || child.signalCode) throw new Error(`vita-pack-vpk failed: ${child.signalCode ?? code}`);
+    }
+  } catch (error) { rmSync(next, { force: true }); throw error; }
   renameSync(next, input.output);
 }

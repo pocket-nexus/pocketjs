@@ -11,7 +11,7 @@ import {
   DB_NAME_PATTERN,
 } from "../contracts/spec/db.ts";
 import { Database, dbHost } from "../framework/src/db-api.ts";
-import { createSimDbHost, type SimDbHost } from "../hosts/sim/db.ts";
+import { createSimDbHost, type SimDbHost } from "../platforms/sim/db.ts";
 
 const g = globalThis as { db?: unknown };
 let host: SimDbHost | null = null;

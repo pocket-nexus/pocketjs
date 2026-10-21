@@ -7,7 +7,7 @@
 //   bun run hw --once       # build + load once, then exit
 //   bun run hw --no-build   # skip the build, just load what's built
 //
-// It serves hosts/psp/target/... as host0: through usbhostfs_pc, then ldstart's
+// It serves programs/psp/target/... as host0: through usbhostfs_pc, then ldstart's
 // the raw PRX through PSPLINK. Each reload is reset + ldstart.
 import { $ } from "bun";
 import { existsSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
@@ -70,7 +70,7 @@ if (!usbhostfs || !pspsh) {
   process.exit(1);
 }
 
-const targetDir = pspUiDir + `hosts/psp/target/mipsel-sony-psp/${profile}`;
+const targetDir = pspUiDir + `programs/psp/target/mipsel-sony-psp/${profile}`;
 const prxPath = targetDir + "/pocketjs-psp.prx";
 const tracePath = targetDir + "/PocketJS-trace.txt";
 

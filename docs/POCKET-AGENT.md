@@ -6,7 +6,7 @@ text or microphone audio) over the [Pocket Link](POCKET-LINK.md) to the
 companion; the companion runs the model, and the model acts on the console's
 touch screen through tool calls the console answers. The wire contract is
 `contracts/spec/agent.ts`. This page describes the console side (the 3DS host
-in `hosts/3ds/src/stage.c` and `agent.c`, the guest overlay in
+in `programs/3ds/product/src/stage.c` and `agent.c`, the guest overlay in
 `framework/src/agent-layer.tsx`) and the companion side (`tools/companion/`).
 
 ## Who owns the screens
@@ -67,7 +67,7 @@ an orange block with two upright eyes, two arm stubs and four legs.
 **The hint.** While the mode is `idle`, a pill in the bottom-right corner
 shows two key caps, L and R, and "Ask Claude". It is a 128×32 RGBA8 texture
 baked from Inter Bold by `tools/3ds-stage-art.ts` into
-`hosts/3ds/src/stage_hint.h`, drawn after each eye with an orthographic
+`programs/3ds/product/src/stage_hint.h`, drawn after each eye with an orthographic
 projection at the screen's pixels (zero parallax), its opacity in the texture
 combiner's constant colour. It fades out in **about 0.2 s** when the mode
 leaves `idle` and back in over **about 0.6 s**. `bun tools/3ds-stage-art.ts
@@ -268,7 +268,7 @@ keeps waiting for the console to come back.
 
 **Own screen.** The companion runs the app's `3ds-dev` bundle from the
 catalog's `.pocket` file (extracted to `<store>/own/`) in the sim host with
-the 3DS geometry (`hosts/sim/console-3ds.ts`), in a child process, since the
+the 3DS geometry (`programs/sim/console-3ds.ts`), in a child process, since the
 sim replaces process globals. The child steps the app at 60 frames a second
 of wall time; its NET module is the companion's own fetch, with the link's
 destination policy. Actions queue touch and button frames, then wait

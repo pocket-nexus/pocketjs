@@ -1,5 +1,5 @@
 // Deterministic sim journeys for the audio module through the REAL music
-// demo bundle (dist/music-main.js): the sim sink (hosts/sim/audio.ts) is the
+// demo bundle (dist/music-main.js): the sim sink (platforms/sim/audio.ts) is the
 // virtual-clock embodiment of contracts/spec/audio.ts, injected through
 // bootWorld's extraGlobals exactly the way a device host mounts the
 // namespace.
@@ -17,8 +17,8 @@
 
 import { expect, test } from "bun:test";
 import { BTN } from "../contracts/spec/spec.ts";
-import { bootWorld, fnv1a, scriptToMasks, type ScriptEvent } from "../hosts/sim/sim.ts";
-import { createSimAudioSink, type SimAudioSink } from "../hosts/sim/audio.ts";
+import { bootWorld, fnv1a, scriptToMasks, type ScriptEvent } from "../programs/sim/sim.ts";
+import { createSimAudioSink, type SimAudioSink } from "../platforms/sim/audio.ts";
 
 // The golden-spec journey (tests/golden-specs.ts music-main), extended to 3 s:
 // focus the cover, pause, walk focus down, select a row (play), skip a track.

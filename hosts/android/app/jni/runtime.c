@@ -8,7 +8,7 @@
 #include <time.h>
 
 #include "pocket_input.h"
-#include "../../../shared/contact_latch.h"
+#include "../../../../engine/runtime/include/pocket/compat/contact_latch.h"
 #include "pocket_legacy_runtime.h"
 #include "pocket_spec.h"
 

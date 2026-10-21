@@ -27,7 +27,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import {
   expandTape,
   expandTapeAnalog,
@@ -50,7 +50,7 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Each invocation rebuilds serially into this dedicated runtime directory.
 const RUNTIME_DIST = join(ROOT, "dist/tape-runtime/");
 const CAPTURE_DIST = join(ROOT, "dist/tape");
-const WASM_PATH = join(ROOT, "hosts/web/pocketjs.wasm");
+const WASM_PATH = join(ROOT, "platforms/web/pocketjs.wasm");
 
 function ensureBuilt(path: string, cmd: string[]): void {
   if (existsSync(path)) return;

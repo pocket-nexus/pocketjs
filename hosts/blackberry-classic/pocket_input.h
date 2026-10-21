@@ -22,12 +22,7 @@
  *    at the very next sample.
  */
 
-typedef enum {
-  POCKET_TOUCH_DOWN,
-  POCKET_TOUCH_MOVE,
-  POCKET_TOUCH_UP,
-  POCKET_TOUCH_CANCEL
-} PocketTouchPhase;
+#include "../../engine/runtime/include/pocket/compat/input_types.h"
 
 typedef struct {
   uint32_t held_keys;

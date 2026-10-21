@@ -1,4 +1,4 @@
-// The socket-free half of the 3DS Pocket Link client (hosts/3ds/src/
+// The socket-free half of the 3DS Pocket Link client (programs/3ds/product/src/
 // link_proto.c, sha256.c, jscan.c) and the vendored QR decoder, compiled for
 // the build machine and checked against the contract (contracts/spec/link.ts)
 // and the companion's own codec (tools/companion/protocol.ts, qr.ts): the
@@ -22,7 +22,7 @@ import {
 import { encodeQr, rasterizeQr } from "../tools/companion/qr.ts";
 
 const root = resolve(import.meta.dir, "..");
-const src = join(root, "hosts/3ds/src");
+const src = join(root, "programs/3ds/product/src");
 
 // argv-driven probe: one command per run, one result line on stdout.
 const HARNESS = String.raw`

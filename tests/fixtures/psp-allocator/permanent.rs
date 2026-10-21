@@ -1,6 +1,6 @@
 #![allow(dead_code, non_snake_case)]
 extern crate self as psp;
-#[path = "../../../hosts/psp/src/arena.rs"]
+#[path = "../../../platforms/psp/alloc/src/arena.rs"]
 mod arena;
 mod sys;
 
@@ -116,3 +116,6 @@ fn kernel_reservation_failure() {
         );
     }
 }
+
+#[no_mangle]
+pub extern "C" fn pocket_psp_arena_capacity() -> usize { option_env!("POCKETJS_ARENA_BYTES").unwrap_or("0").parse().unwrap() }

@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { PROP, ENUMS, ROOT_ID, abgr } from "../contracts/spec/spec.ts";
 import { PHYSICS_EVENT_WORDS, PHYSICS_KEY, PHYSICS_KIND } from "../contracts/spec/physics.ts";
 import { installHost } from "../framework/src/host.ts";
 import { createWorld, hasPhysics } from "../framework/src/physics.ts";
 import { runServicePumps } from "../framework/src/services.ts";
 
-const WASM = new URL("../hosts/web/pocketjs.wasm", import.meta.url);
+const WASM = new URL("../platforms/web/pocketjs.wasm", import.meta.url);
 
 async function dualScreen() {
   const wasm = await createWasmUi(await Bun.file(WASM).arrayBuffer(), { width: 400, height: 240 });

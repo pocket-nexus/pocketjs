@@ -20,9 +20,9 @@ createEffect(()=>{setCount(5);setVisible(false);});async function byFrame():Prom
   const result=await buildAot(fixture,{outDir:resolve(run,"src/gen"),format:false});
   const wasmBuild=Bun.spawnSync([process.execPath,"tools/wasm.ts"],{stdout:"pipe",stderr:"pipe"});expect(wasmBuild.exitCode,wasmBuild.stderr.toString()).toBe(0);
   const oracle=resolve(run,"oracle.ts");await Bun.write(oracle,`
-import {render} from ${JSON.stringify(resolve("framework/src/index.ts"))};import {rootMirror} from ${JSON.stringify(resolve("framework/src/renderer-solid.ts"))};import {createWasmUi} from ${JSON.stringify(resolve("hosts/web/wasm-ops.js"))};import App from ${JSON.stringify(resolve(fixture,"App.tsx"))};
+import {render} from ${JSON.stringify(resolve("framework/src/index.ts"))};import {rootMirror} from ${JSON.stringify(resolve("framework/src/renderer-solid.ts"))};import {createWasmUi} from ${JSON.stringify(resolve("platforms/web/wasm-ops.js"))};import App from ${JSON.stringify(resolve(fixture,"App.tsx"))};
 const commands=[];const log=console.log;console.log=(...x)=>commands.push(x.join(" "));
-const wasm=await createWasmUi(await Bun.file(${JSON.stringify(resolve("hosts/web/pocketjs.wasm"))}).arrayBuffer());wasm.ops.loadStyles(new Uint8Array(${JSON.stringify(result.program.styles.bytes)}));const dispose=render(()=>App(),{ops:wasm.ops,styles:${JSON.stringify(result.program.styles.ids)}});const root=rootMirror.children[0].id;
+const wasm=await createWasmUi(await Bun.file(${JSON.stringify(resolve("platforms/web/pocketjs.wasm"))}).arrayBuffer());wasm.ops.loadStyles(new Uint8Array(${JSON.stringify(result.program.styles.bytes)}));const dispose=render(()=>App(),{ops:wasm.ops,styles:${JSON.stringify(result.program.styles.ids)}});const root=rootMirror.children[0].id;
 const text=id=>{const n=wasm.inspectNode(id);return n.text+n.children.map(text).join("")};
 export function check(){try{const frames=[text(root)];for(const buttons of [16384,0]){globalThis.frame(buttons,0,[],[],[],0,[]);wasm.tick();frames.push(text(root));}dispose();return {frames,commands};}finally{console.log=log;}}
 `);

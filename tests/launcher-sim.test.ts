@@ -1,5 +1,5 @@
 // tests/launcher-sim.test.ts — the launcher + app-switch protocol on the
-// deterministic sim host (docs/LAUNCHER.md; hosts/sim/launcher.ts).
+// deterministic sim host (docs/LAUNCHER.md; programs/sim/launcher.ts).
 //
 // Prereq (the `test` script runs it): bun tools/launcher.ts covers
 //   -> dist/launcher-registry.{json,tsv}, apps/launcher/covers/*,
@@ -36,8 +36,8 @@ import {
 } from "../tools/symbian-profile.ts";
 import { unpack } from "../framework/compiler/pak.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { bootLauncherWorld, type LauncherWorld } from "../hosts/sim/launcher.ts";
-import { bootWorld, treeHasText } from "../hosts/sim/sim.ts";
+import { bootLauncherWorld, type LauncherWorld } from "../programs/sim/launcher.ts";
+import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
 
 const repository = new URL("..", import.meta.url).pathname;
 

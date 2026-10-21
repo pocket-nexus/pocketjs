@@ -2,9 +2,9 @@
 // input, guest turns and presentation. runIIFE boots a script synchronously;
 // runModule retains the Runtime behind the browser import promise gate.
 
-import { createWasmUiSync, FB_W, FB_H } from "../../hosts/web/wasm-ops.js";
-import { drawHud, wasmMemoryBytes } from "../../hosts/web/hud.js";
-import { SHOT_W, SHOT_H, downscaleShot } from "../../hosts/sim/shot.ts";
+import { createWasmUiSync, FB_W, FB_H } from "../../platforms/web/wasm-ops.js";
+import { drawHud, wasmMemoryBytes } from "../../programs/web/dev/hud.js";
+import { SHOT_W, SHOT_H, downscaleShot } from "../../programs/sim/shot.ts";
 
 /** spec PSM_8888 — the frozen-shot upload format (contracts/spec/spec.ts psm). */
 const PSM_8888 = 3;
@@ -56,7 +56,7 @@ export class PocketHost {
 
   /**
    * Turn this host into a multi-app host (docs/LAUNCHER.md, the browser twin of
-   * hosts/psp/src/switch.rs + hosts/sim/launcher.ts): the three app* ops are
+   * programs/psp/src/switch.rs + programs/sim/launcher.ts): the three app* ops are
    * installed on every guest, SELECT is reserved as the summon chord for
    * non-launcher guests, and a switch fetches + evals the target bundle in
    * place — the same whole-guest swap runIIFE always was.

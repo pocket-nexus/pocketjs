@@ -25,7 +25,7 @@ describe("portable QuickJS C canonical composition", () => {
     expect(dependency).toBeDefined();
     const quickjs = join(dirname(dependency.manifest_path), "quickjs");
     const target = join(repository, ".pocket-build/validation/quickjs-c/target");
-    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "engine/ui-cabi/Cargo.toml", "--no-default-features", "--features", "std,software-only", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
+    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "programs/native/cabi/Cargo.toml", "--no-default-features", "--features", "std,software-only", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
     const vendor = ["quickjs", "dtoa", "libregexp", "libunicode"].map(name => {
       const object = join(build, `${name}.o`);
       run([cc!, "-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"', "-I", quickjs, "-c", join(quickjs, `${name}.c`), "-o", object]);
@@ -33,9 +33,9 @@ describe("portable QuickJS C canonical composition", () => {
     });
     const profileHeader = writeHostProfileHeader(build, defineProfile({id:"harness-test",platform:"fixture",form:"embedded",tickHz:60,display:{physicalViewport:[32,24],logicalViewports:[[32,24]],rasterDensity:1,presentations:["native"]},capabilities:["input.buttons","input.touch"],roleCapabilities:{}}));
     const common = ["-include", profileHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", '-DPOCKETJS_TARGET_ID="harness-test"', `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
-      ...["engine/quickjs-c", "engine/ui-cabi/include", "engine/guest-quickjs/include", "contracts/generated", "hosts/nokia-e7/runtime", "hosts/ios-legacy"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
+      ...["programs/native/quickjs", "programs/native/cabi/include", "engine/guest-quickjs/include", "contracts/generated", "hosts/nokia-e7/runtime", "hosts/ios-legacy"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
     const stale = Bun.spawnSync([cc!, ...common.map(arg => arg.startsWith("-DPOCKETJS_HOST_ABI=")
-      ? `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION - 1}` : arg), "-fsyntax-only", "engine/quickjs-c/pocket_runtime.c"],
+      ? `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION - 1}` : arg), "-fsyntax-only", "programs/native/quickjs/pocket_runtime.c"],
       { cwd: repository, stdout: "pipe", stderr: "pipe" });
     expect(stale.success).toBe(false);
     expect(stale.stderr.toString()).toContain("POCKETJS_HOST_ABI must match POCKET_BINDING_GENERATION");
@@ -46,7 +46,7 @@ describe("portable QuickJS C canonical composition", () => {
     ];
     for (const [name, defines] of variants) {
       const binary = join(build, name);
-      run([cc!, ...common, ...defines, "engine/quickjs-c/pocket_runtime.c", "engine/guest-quickjs/src/guest.c", "tests/fixtures/quickjs-c-harness/runtime_harness.c",
+      run([cc!, ...common, ...defines, "programs/native/quickjs/pocket_runtime.c", "engine/guest-quickjs/src/guest.c", "tests/fixtures/quickjs-c-harness/runtime_harness.c",
         ...vendor, join(target, "release/libpocketjs_symbian_core.a"), "-lm", "-lpthread", "-ldl", "-o", binary]);
       expect(run([binary])).toContain("quickjs-c canonical composition: ok");
     }

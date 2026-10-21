@@ -71,13 +71,13 @@ wire, promise-job draining, host identity, tick rate, viewport, and native asset
 tables. **Absent asset tables mean JavaScript must load assets from `__pak`.**
 An empty native table means native loading completed without that asset kind.
 
-`pocket-runtime-cabi` owns the instance C entry points and the compatibility
-implementations for the old UI and IDF libraries. `engine/ui-cabi` and
-`hosts/esp-idf/native/ui-core` retain their library names and delegate to those
-implementations, whose UI state uses `CoreState`. The GLES backend now resides
-in `engine/runtime-cabi/src/compat/ui/gl`. Existing C guest entry points use
-`pocket_legacy_runtime_*` symbols; the old rquickjs `UiSurface` remains available
-while hosts migrate to instance registration.
+**`pocket-runtime-cabi` owns the instance C entry points.** Its compatibility
+adapters retain the old UI and IDF call shapes over runtime-owned state.
+`programs/native/cabi` supplies the historical C-shell archive;
+`programs/esp-idf/archive` composes one Rust archive for IDF. The GLES renderers
+live in `devices/gles/`. Program scene adapters connect existing embedding
+APIs to these renderers. C guest composition lives in
+`programs/native/quickjs`; generated guest bindings live in `engine/guest-quickjs`.
 
 The presentation coordinator keeps borrowed resources alive until renderer
 and display work reaches a terminal state. **It redraws each acquired CPU
@@ -257,10 +257,10 @@ subset — is why layout is identical on every host.
 **`pocketjs-core`**. It contains no I/O, no graphics API, and no timing: the
 tree, layout, styling, animation, 2D physics, text, and DrawList generation. Each
 directory under `hosts/` gives it a body: it compiles the same crate for its
-target triple and supplies I/O, a JS engine, and a backend. `hosts/psp` embeds
-QuickJS and renders through `sceGu`; `engine/wasm` wraps the identical core
+target triple and supplies I/O, a JS engine, and a backend. `programs/psp` embeds
+QuickJS and renders through `sceGu`; `programs/web/wasm` wraps the identical core
 with the software rasterizer in one `wasm32-unknown-unknown` cdylib that serves
-both the browser dev host and the headless Bun goldens; `hosts/desktop` drives
+both the browser dev host and the headless Bun goldens; `programs/desktop` drives
 gpui behind the `macos-app` and `linux-app` targets. Native hosts consume the
 same stable `HostBuildInputs` projection.
 
@@ -327,7 +327,7 @@ a backend — axis-aligned quads are clipped with UV/color re-interpolation,
 rotated quads are Sutherland–Hodgman-clipped or culled.
 
 **3. The backend.** Consumes the DrawList and nothing else. PSP uses `sceGu`,
-Vita uses vita2d/GXM, `hosts/desktop` uses the gpui backend
+Vita uses vita2d/GXM, `programs/desktop` uses the gpui backend
 (`engine/backends/gpui`), the debug uihosts use wgpu, and `wasm32` uses a
 scanline rasterizer that handles blending, gradients, and glyph coverage
 deterministically. Backends do not redefine input or styling semantics, and
@@ -373,7 +373,7 @@ One axis per top-level directory. The tree and the rule that governs it live in
 
 The PSP build replaces `rust-psp`'s default `#[global_allocator]`, which makes
 one kernel object per allocation and caps out long before a real UI tree is
-built, with one backed by a single arena (`hosts/psp/src/alloc.rs` over
+built, with one backed by a single arena (`platforms/psp/alloc/src/lib.rs` over
 `arena.rs`) — the same kernel block QuickJS, newlib and the core's textures and
 retained buffers all draw from. The public **8 MB** figure names that
 application arena with its safety headroom, not the PSP's whole main memory:

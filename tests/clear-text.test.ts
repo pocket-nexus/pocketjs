@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { bootWorld, treeHasText } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
 import { __packTouchWide, __packTouchCancel } from "../framework/src/touch.ts";
 import { KB_LAYERS } from "../apps/clear/kb-layout.ts";
 import { KB_H, KB_PAD, KB_ROW_H, KB_GAP } from "../apps/clear/keyboard-metrics.ts";

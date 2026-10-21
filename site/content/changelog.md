@@ -189,7 +189,7 @@ carry larger worlds.
   inertial or geomagnetic level; `<MotionHandler>` in Solid and `@update` in
   Vue receive it, and board admission rejects a board below the level a value
   requires. On targets such as ARMv4T, MicroTS and heapless select
-  `portable-atomic`. `bun hosts/gba/build.ts` builds a 656,316-byte Hero ROM
+  `portable-atomic`. `bun tools/build/gba/build.ts` builds a 656,316-byte Hero ROM
   that boots in mGBA with a 60,268-byte peak heap.
 - **The shared Hero runs one view and model in JavaScript guests and
   generated Rust.** The standalone `hero-vue-sfc` and `hero-vue-vapor` apps
@@ -301,7 +301,7 @@ development targets: each records an exact hardware and firmware tuple, and
 neither advertises a production capability from a build alone.
 
 - **The Nintendo 3DS runs a QuickJS guest on both screens.** The split follows
-  `hosts/iphone2g` rather than `hosts/psp`: citro3d is mostly `static inline`,
+  `hosts/iphone2g` rather than `programs/psp`: citro3d is mostly `static inline`,
   so C owns the GPU while a `no_std` Rust staticlib built for the built-in
   `armv6k-nintendo-3ds` target owns the core and exports the DrawList. The top
   screen is a fixed 400×240 viewport and the touch screen a 320×240 auxiliary
@@ -362,7 +362,7 @@ neither advertises a production capability from a build alone.
 - **`via-*` adds a middle gradient stop, and vertical gradients point the
   right way on the 3DS.** The core draws a three-stop gradient as two ordinary
   two-stop boxes, so every backend still sees `GRAD_RECT` and clipping stays
-  where it was. `hosts/3ds/src/gfx.c` copies the spec's `GradDir` ordinals
+  where it was. `programs/3ds/product/src/gfx.c` copies the spec's `GradDir` ordinals
   into C by hand and had `ToTop` and `ToBottom` swapped, which inverted every
   vertical gradient on the one backend that does not read the generated Rust
   enum. The gpui raster fallback renders the full viewport and composites
@@ -568,7 +568,7 @@ and exposes the damage statistics that made the diagnosis possible. The
   handed. The composite costs **0.26 ms**, and the frame **7.63 ms** of a
   16.67 ms budget. No preservation guarantee is relied on: when UIKit discards
   the backing store it passes full bounds and the full frame is drawn.
-- **Damage is observable.** `engine/ui-cabi` was discarding the `DamagePlan` the
+- **Damage is observable.** `programs/native/cabi` was discarding the `DamagePlan` the
   incremental rasterizer returns. Six new C ABI accessors expose attempts,
   failures, policy-chosen full redraws, region count, pixel area and union
   bounds, and four of them ride in the device record. **`damage_failures` is the
@@ -652,7 +652,7 @@ corrected in 0.9.1 above.
   and deployment is a signed transaction with byte-exact readback and
   rollback over key-only USB SSH. The target stays deliberately outside
   the production registry, with a test asserting it.
-- **The GL backend now serves two GPU generations.** `engine/ui-cabi`'s
+- **The GL backend now serves two GPU generations.** `programs/native/cabi`'s
   renderer split into a generation-independent DrawList walker plus two
   pipelines: the existing ES 2 shader program, and a new fixed-function ES
   1.1 path for GPUs that predate shaders. The two shader lines turned out

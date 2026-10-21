@@ -14,7 +14,7 @@ import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
 
 const root = resolve(import.meta.dir, "..");
 const fixture = resolve(root, "tests/fixtures/aot/layout-baked");
-const wasmPath = resolve(root, "hosts/web/pocketjs.wasm");
+const wasmPath = resolve(root, "platforms/web/pocketjs.wasm");
 
 async function environment(slots: number[]): Promise<LayoutEnvironment> {
   if (!existsSync(wasmPath)) {

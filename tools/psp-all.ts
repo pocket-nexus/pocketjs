@@ -589,7 +589,7 @@ if (import.meta.main) {
   mkdirSync(workRoot, { recursive: true });
 
   const profile = release ? "release" : "debug";
-  const eboot = join(pspUiDir, "hosts/psp/target/mipsel-sony-psp", profile, "EBOOT.PBP");
+  const eboot = join(pspUiDir, "programs/psp/target/mipsel-sony-psp", profile, "EBOOT.PBP");
 
   const built: { name: string; title: string; folder: string }[] = [];
 

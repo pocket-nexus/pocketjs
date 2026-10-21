@@ -21,7 +21,7 @@ test("TS, Rust and Python consume the shared package corpus", () => {
       if (name.startsWith("ok-")) expect(() => decodePocketPackage(bytes), name).not.toThrow();
       else expect(() => decodePocketPackage(bytes), name).toThrow();
     }
-    run(["python3", join(root, "hosts/esp-idf/tests/host/package_corpus.py"),
+    run(["python3", join(root, "tests/esp-idf/host/package_corpus.py"),
       join(root, "platforms/esp-idf/pocket_runtime/tools"), corpus]);
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }, 60_000);

@@ -129,7 +129,7 @@ fn fnv_continue(mut hash: u64, bytes: &[u8]) -> u64 {
     }
     hash
 }
-/// FNV-1a64, lockstep with tools/bundle-hash.ts / hosts/psp/build.rs.
+/// FNV-1a64, lockstep with tools/bundle-hash.ts / programs/psp/build.rs.
 pub fn fnv1a64(chunks: &[&[u8]]) -> u64 {
     chunks
         .iter()

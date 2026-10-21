@@ -99,7 +99,7 @@ is the default for compatibility:
    A plain in-repository `scan` is the only command that updates
    `apps/launcher/{registry.generated.ts,images.json}`; external scans leave
    those files untouched.
-2. **covers** — boot each admitted app in `hosts/sim`, settle 90 virtual frames,
+2. **covers** — boot each admitted app in `programs/sim`, settle 90 virtual frames,
    render, box-downscale the full frame to 256×128, write
    `apps/launcher/covers/cover-<output>.png` (generated, deterministic —
    the PSP-flavored sim is the target-neutral oracle, so goldens over
@@ -112,7 +112,7 @@ is the default for compatibility:
    registry, image metadata, entry, and cover assets; compiler/watch processes
    never observe a temporary target registry in the committed source tree.
 4. **build** — the selected backend embeds those packages VERBATIM
-   (`hosts/psp/build.rs` or `hosts/vita/build.rs`; the core reader extracts
+   (`programs/psp/build.rs` or `programs/vita/build.rs`; the core reader extracts
    js/pak zero-copy at boot). PSP retains its aggregate FNV-1a64 build
    identity; Vita tracks every package as a Cargo input and preserves each
    `.pocket` footer identity. Outputs are the PSP EBOOT or
@@ -149,8 +149,8 @@ in-repository admission set remains unchanged.
 
 ## Hosts
 
-- **hosts/psp** — the original native implementation of everything above.
-- **hosts/vita** — the same package-table and ops contract with a
+- **programs/psp** — the original native implementation of everything above.
+- **programs/vita** — the same package-table and ops contract with a
   process-global frame/input tape across fresh guests, SELECT interception,
   CPU-oracle frozen shots, and an explicit GXM-safe guest-resource reset.
 - **hosts/nokia-e7** — the E7 Qt process owns the fullscreen window, timer,
@@ -159,10 +159,10 @@ in-repository admission set remains unchanged.
   native `Ui` before the next package boots. The launcher background, frozen
   shot, deck origin, title, and footer use the live 640×360/360×640 viewport;
   touch divides the current width into browse/launch thirds.
-- **hosts/3ds** — the launcher is the embedded ROMFS guest and the catalog is
+- **programs/3ds/product** — the launcher is the embedded ROMFS guest and the catalog is
   the set of installed runtime slots on the SD card, not a package table; see
   "Nintendo 3DS: installed apps" below.
-- **hosts/sim** — `hosts/sim/launcher.ts` drives the same protocol over
+- **programs/sim** — `programs/sim/launcher.ts` drives the same protocol over
   per-guest `bootWorld`s: strips SELECT, performs the downscale with the
   same box filter, uploads the shot into the next world, answers the three
   ops. Switch flows are therefore deterministic traces, golden-able, and
@@ -207,7 +207,7 @@ timebase, never a launcher-name branch or a `slowPsp` capability.
 
 - `tests/launcher-sim.test.ts` — admission matrix, the full
   launch/summon/resume protocol on the sim host policy runner
-  (hosts/sim/launcher.ts), SELECT stripping + host-edge latching, and
+  (programs/sim/launcher.ts), SELECT stripping + host-edge latching, and
   determinism (two identical journeys hash identically frame by frame).
 - `tests/e2e/launcher-ppsspp.ts` (`bun run e2e:launcher`) — the same journey
   on the REAL native host in PPSSPPHeadless with a 20 Hz baked input script.
@@ -284,7 +284,7 @@ Its error is written to its own slot's `last-error.txt`, the host switches to
 the launcher, and nothing is committed into the launcher's slot. SELECT
 follows the policy above: stripped from installed apps, a host-tracked press
 edge returns to the launcher with `resume` set, and the edge detector is
-latched at every boot. hosts/3ds/README.md has the slot and switch details.
+latched at every boot. programs/3ds/product/README.md has the slot and switch details.
 
 ## Native process navigation on E7
 

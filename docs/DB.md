@@ -101,7 +101,7 @@ transaction is also the flash-wear discipline on device hosts.
 
 | Host | Implementation | Status |
 |---|---|---|
-| sim (`hosts/sim/db.ts`) | bun:sqlite behind the op namespace, injected via `bootWorld` `extraGlobals` | ships with the test host; `tests/db.test.ts` runs the contract and an oracle comparison against bun:sqlite directly |
+| sim (`platforms/sim/db.ts`) | bun:sqlite behind the op namespace, injected via `bootWorld` `extraGlobals` | ships with the test host; `tests/db.test.ts` runs the contract and an oracle comparison against bun:sqlite directly |
 | reference core (`engine/crates/pocket-db`) | rusqlite (bundled SQLite) + the ATTACH authorizer, mountable on any `pocket-mod` guest as `globalThis.db` | tested including a live QuickJS guest round-trip |
 | consoles / devices | — | a target appends `data.sqlite` to its profile when its native host ships the module; the port point is SQLite's VFS (POSIX on desktop, LittleFS-backed on MCU hosts). ESP-IDF support ships in the crate — see below |
 

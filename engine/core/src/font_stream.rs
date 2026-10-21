@@ -8,13 +8,11 @@ use alloc::{format, string::String, vec, vec::Vec};
 use core::cell::Cell;
 
 pub const CONFIG_MAGIC: u32 = 0x31534650; // PFS1
-pub const GLYPH_MAGIC: u32 = 0x31474650; // PFG1
+pub use pocket_package::font_archive::{GLYPH_MAGIC, MAX_BATCH, MAX_PIXELS};
 pub const MAX_ENTRIES: usize = 4096;
 pub const BATCH_MAGIC: u32 = 0x31424650; // PFB1
 pub const MAX_LEASES: usize = 32;
-pub const MAX_PIXELS: usize = 4096;
 pub const MAX_BYTES: usize = 2 * 1024 * 1024;
-pub const MAX_BATCH: usize = 4;
 
 pub(crate) struct Entry {
     cp: u32,

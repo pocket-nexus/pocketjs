@@ -1,6 +1,6 @@
 // A game's packs brought to a console over the LAN: the pieces the console
 // lacks, then the list, then (when asked) the pieces the list no longer names
-// removed. The console's side is hosts/3ds/src/packs_delivery.c; the format
+// removed. The console's side is programs/3ds/product/src/packs_delivery.c; the format
 // and the steps are in docs/POCKET3D-PACKS.md.
 //
 // The paired connection (PocketRuntimeClient) carries one control line a step.

@@ -117,7 +117,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   fontConfig.codepoints.forEach(point => codepoints.add(point));
   const fonts = await bakeAtlases({ slots: program.styles.usedFontSlots, codepoints, rasterDensity: plan.viewport.rasterDensity,
     fallbackTtfs: fontConfig.fallbackTtfs, onRead: fontRead });
-  const wasmPath = resolve(options.wasmPath ?? resolve(ROOT, "hosts/web/pocketjs.wasm"));
+  const wasmPath = resolve(options.wasmPath ?? resolve(ROOT, "platforms/web/pocketjs.wasm"));
   if (!existsSync(wasmPath)) throw new Error(`AOT: prebuilt layout oracle not found: ${wasmPath}; install/build the compiler's wasm asset before compilation`);
   inputs.add(wasmPath);
   const declarationsPath = resolve(dirname(component), "gba-layers.json");

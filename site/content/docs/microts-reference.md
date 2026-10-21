@@ -242,7 +242,7 @@ Values must match the property's numeric type or unit below.
 
 A `layout-baked` class on a `View` asserts that **every rect in its subtree is
 a build-time constant**. The compiler checks the assertion, solves the subtree
-once in the no_std wasm core (`hosts/web/pocketjs.wasm`, the same crate and
+once in the no_std wasm core (`platforms/web/pocketjs.wasm`, the same crate and
 float math the device runs), and emits the result into the generated mount
 code. Each element gets one of two calls before its `insert_before`:
 
@@ -273,7 +273,7 @@ The rules, each a compile error naming the node:
 
 The build needs a layout environment: the viewport from `pocket.json`
 (`app.viewport.fixed.logical`), the baked font atlases, and the wasm core.
-`buildAot(app, { layoutEnvironment })` supplies it; `hosts/gba/build.ts` is the
+`buildAot(app, { layoutEnvironment })` supplies it; `tools/build/gba/build.ts` is the
 reference caller. The result's `layout.regions` lists every baked root with its
 node, formula and island counts, and `build.json` records it.
 
@@ -290,7 +290,7 @@ plans one sprite layer per named dynamic subtree of each baked root
 recipe (`branches`, `opacity`, `size`, `color` or `text`) plus a translate
 flag, for hosts that present a baked page as a static background and hardware
 sprites. The rules and the hero's plan are in
-[`hosts/gba/README.md`](https://github.com/pocket-nexus/pocketjs/blob/main/hosts/gba/README.md).
+[`programs/gba/README.md`](https://github.com/pocket-nexus/pocketjs/blob/main/programs/gba/README.md).
 
 ## Types and Rust methods
 

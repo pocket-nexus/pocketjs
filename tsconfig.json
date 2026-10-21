@@ -51,5 +51,5 @@
       "@pocketjs/framework/octane/renderer": ["./framework/src/renderer-octane.ts"]
     }
   },
-  "include": ["framework", "apps", "tests", "contracts", "hosts/web"]
+  "include": ["framework", "apps", "tests", "contracts", "programs/web", "platforms/web", "programs/sim", "platforms/sim"]
 }

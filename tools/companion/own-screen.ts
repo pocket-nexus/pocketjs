@@ -1,5 +1,5 @@
 // The agent's own screen: a Pocket app running headless on the computer, in
-// the deterministic sim host with the 3DS geometry (hosts/sim/console-3ds.ts),
+// the deterministic sim host with the 3DS geometry (programs/sim/console-3ds.ts),
 // that only the agent operates. The user sees it on the mascot's monitor.
 //
 // The sim swaps process globals (Date.now inside a frame, globalThis.ui/net
@@ -26,7 +26,7 @@ import { NET_ERROR, NET_MAX_INFLIGHT } from "../../contracts/spec/net.ts";
 export const OWN_SCREEN_SCRIPT = join(import.meta.dir, "own-screen.ts");
 
 /** contracts/spec/spec.ts BTN, by the console's button names (A sits where
- *  CIRCLE does, as hosts/3ds/src/input.c maps them). */
+ *  CIRCLE does, as platforms/3ds/input.c maps them). */
 const BUTTONS: Record<AgentButton, number> = {
   SELECT: 0x0001,
   START: 0x0008,
@@ -290,7 +290,7 @@ async function liveNet() {
 }
 
 export async function runOwnScreenChild(): Promise<void> {
-  const { bootConsole3ds } = await import("../../hosts/sim/console-3ds.ts");
+  const { bootConsole3ds } = await import("../../programs/sim/console-3ds.ts");
   type Console = Awaited<ReturnType<typeof bootConsole3ds>>;
   type StepInput = Parameters<Console["step"]>[0];
   const net = await liveNet();

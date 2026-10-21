@@ -3,6 +3,7 @@
 // installs a changed `.pocket`, and restores the release guest over TCP.
 
 import { $ } from "bun";
+import { evidenceDirectory } from "./build.ts";
 import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 import {
   cpSync,
@@ -31,7 +32,7 @@ import {
 } from "../../tools/3ds-runtime-client.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const OUT = join(ROOT, "dist/e2e-3ds-devserver");
+const OUT = evidenceDirectory(ROOT, "azahar-devserver");
 const FIXTURE_HOME = join(OUT, "home");
 const USER_DIR = join(FIXTURE_HOME, "Library/Application Support/Azahar");
 const CONFIG = join(USER_DIR, "config/qt-config.ini");

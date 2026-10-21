@@ -5,7 +5,7 @@
 //
 // QuickJS is the PSP host's one C dependency. libquickjs-sys links the
 // prebuilt archive QUICKJS_PREBUILT_LIB names, which pocket-nexus/quickjs-rs
-// publishes from the revision hosts/psp/Cargo.toml pins. The generated guest
+// publishes from the revision programs/psp/Cargo.toml pins. The generated guest
 // bridge compiles against that revision's header.
 
 import { dirname, join, resolve } from "node:path";
@@ -36,7 +36,7 @@ export function resolvePspBuildToolchain(env: NodeJS.ProcessEnv = process.env): 
   const cargoPspBin = join(toolchain.path("cargo-psp"), "bin");
   const quickjs = join(toolchain.path("quickjs"), quickjsFile);
   const rustToolchain = toolchain.toolchain("rust");
-  const metadata = Bun.spawnSync([toolchain.rustup, "run", rustToolchain, "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", resolve(import.meta.dir, "../../../../hosts/psp/Cargo.toml")], { env, stdout: "pipe", stderr: "pipe" });
+  const metadata = Bun.spawnSync([toolchain.rustup, "run", rustToolchain, "cargo", "metadata", "--locked", "--format-version=1", "--manifest-path", resolve(import.meta.dir, "../../../../programs/psp/Cargo.toml")], { env, stdout: "pipe", stderr: "pipe" });
   if (!metadata.success) throw new ToolchainError(`PSP QuickJS source lookup failed: ${metadata.stderr.toString()}`);
   const packages = JSON.parse(metadata.stdout.toString()).packages as {name: string; manifest_path: string; source: string | null; dependencies: { name: string; source: string | null }[]}[];
   const source = packages.find(p => p.name === "pocketjs-psp")?.dependencies.find(d => d.name === "libquickjs-sys")?.source;

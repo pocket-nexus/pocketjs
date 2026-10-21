@@ -543,7 +543,7 @@ describe("semantic resolution", () => {
       cursor: [true, true, false, true],
       devkit: [true, true, false, true],
       gallery: [true, true, false, true],
-      "gba-hero": [false, false, false, false], // built by hosts/gba/build.ts; no public profile hosts its fixed 240x160 viewport
+      "gba-hero": [false, false, false, false], // built by tools/build/gba/build.ts; no public profile hosts its fixed 240x160 viewport
       hero: [true, true, true, true],
       im: [true, true, false, true],
       "iphone16-demo": [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
@@ -554,7 +554,7 @@ describe("semantic resolution", () => {
       nexus: [false, false, false, false], // requires the private 3ds-dev profile's auxiliary display, auxiliary touch and ui.physics
       "nexus-touch": [false, false, false, false], // touch + ui.physics on a fixed 320x480 surface: the private ipodtouch4-dev profile
       nsengine: [false, true, false, false], // targets the private ios-dev profile; vita shares its touch + integer-fit contract
-      "ipodnano-hero": [false, false, false, false], // built by hosts/ipodnano/build.ts as a Rockbox plugin; no public profile hosts its fixed 176x132 viewport
+      "ipodnano-hero": [false, false, false, false], // built by tools/build/ipodnano/build.ts as a Rockbox plugin; no public profile hosts its fixed 176x132 viewport
       launcher: [true, true, false, true], // the Cover Flow deck (docs/LAUNCHER.md) is an ordinary console app
       library: [true, true, false, true],
       motions: [true, true, false, true],

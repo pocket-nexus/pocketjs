@@ -1,5 +1,5 @@
 #include "pocket_legacy_runtime.h"
-#include "../shared/contact_latch.h"
+#include "../../engine/runtime/include/pocket/compat/contact_latch.h"
 /* The svc transport's state, for the acceptance record: "absent" on builds
  * without the network channel, else discover / connecting / hello / up /
  * up-usb / backoff (svcwire.c). */

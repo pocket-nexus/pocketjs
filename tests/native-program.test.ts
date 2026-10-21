@@ -27,7 +27,7 @@ describe("native program composition", () => {
     expect(dependency).toBeDefined();
     const quickjs = join(dirname(dependency.manifest_path), "quickjs");
     const target = join(repository, ".pocket-build/validation/native-program/target");
-    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "engine/ui-cabi/Cargo.toml", "--no-default-features", "--features", "standalone-extension-provider", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
+    run(["cargo", "+stable", "build", "--locked", "--release", "--manifest-path", "programs/native/cabi/Cargo.toml", "--no-default-features", "--features", "standalone-extension-provider", "--target-dir", target], { ...process.env, CARGO_PROFILE_RELEASE_PANIC: "abort", CARGO_PROFILE_RELEASE_LTO: "true" });
     const vendor = ["quickjs", "dtoa", "libregexp", "libunicode"].map(name => {
       const object = join(build, `${name}.o`);
       run([cc!, "-std=gnu11", "-O1", "-D_GNU_SOURCE", '-DCONFIG_VERSION="test"', "-I", quickjs, "-c", join(quickjs, `${name}.c`), "-o", object]);
@@ -44,7 +44,7 @@ describe("native program composition", () => {
     const packageHeader = join(build, "fixture_package.h");
     writeFileSync(packageHeader, `static const unsigned char fixture_package[] = {${[...bytes].join(",")}};\n`);
     const common = ["-include", profileHeader, "-include", packageHeader,"-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter",
-      ...["engine/ui-cabi/include", "engine/guest-quickjs/include", "contracts/generated"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
+      ...["programs/native/cabi/include", "engine/guest-quickjs/include", "contracts/generated"].flatMap(path => ["-I", join(repository, path)]), "-isystem", quickjs];
     const binary = join(build, "program");
     run([cc!, ...common, "engine/guest-quickjs/src/guest.c", "tests/fixtures/native-program/program.c",
       ...vendor, join(target, "release/libpocketjs_symbian_core.a"), "-lm", "-lpthread", "-ldl", "-o", binary]);

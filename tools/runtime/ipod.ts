@@ -71,8 +71,8 @@ export async function buildRuntimeIPod(argv: readonly string[] = []): Promise<st
     `-DPOCKETJS_TARGET_ID="${IPODTOUCH4_DEV_TARGET_ID}"`,
     `-DPOCKETJS_HOST_ABI=${IPODTOUCH4_DEV_HOST_ABI}`,
     `-DPOCKET_BUILD_ID="${buildId}"`,
-    "-I", join(repository, "engine/quickjs-c"),
-    "-I", join(repository, "engine/ui-cabi/include"),
+    "-I", join(repository, "programs/native/quickjs"),
+    "-I", join(repository, "programs/native/cabi/include"),
     "-I", join(repository, "contracts/generated"),
     "-Wno-cast-function-type-mismatch",
   ];

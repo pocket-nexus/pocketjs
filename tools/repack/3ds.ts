@@ -8,7 +8,7 @@
 // the relocation tables byte for byte (the runtime's program), and writes a
 // new SMDH (title, description, author, 24 and 48 px icons) and a new RomFS
 // holding `app.pocket`. The host reads the game's surfaces and its state
-// directory from that package at boot (hosts/3ds/src/main.c).
+// directory from that package at boot (programs/3ds/product/src/main.c).
 //
 // The SMDH and RomFS writers follow smdhtool and 3dsxtool (3dstools 1.3.1):
 // tests/repack-3ds.test.ts holds byte-compared fixtures of both.

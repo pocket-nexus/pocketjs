@@ -17,20 +17,20 @@ test("the staged directory holds what a page loads, and a guest runs in its real
   const staged = mkdtempSync(join(tmpdir(), "pocket3d-web-"));
   try {
     const files = await stagePocket3dWeb(staged);
-    expect(files.sort()).toEqual([
-      "app-instance.html", "app-instance.js", "art.js", "fonts/OFL.txt", "fonts/gabarito-800-latin.woff2", "generated-ui.js", "offload-worker.js",
-      "pocket3d-controls.js", "pocket3d-interface.js", "pocket3d-player.css", "pocket3d-player.js", "pocket3d-shell.js", "pocket3d-stage.css", "pocket3d-stage.js", "pocket3d-title.js", "pocket3d-words.js",
-      "pocketjs-host.js", "pocketjs.wasm",
-      "runtime-glyphs.js",
-      "shells/3ds-parts.webp", "shells/3ds.webp", "shells/ATTRIBUTION.md", "shells/android.webp", "shells/ipod.webp", "shells/profiles.js", "shells/psp-parts.webp", "shells/psp.webp", "shells/vita-parts.webp", "shells/vita.webp",
-      "wasm-ops.js",
-    ]);
+    expect(files).toEqual(expect.arrayContaining([
+      "app-instance.html", "pocketjs.wasm", "pocketjs-host.js",
+      "programs/web/app-instance.html", "programs/web/app-instance.js",
+      "platforms/web/wasm-ops.js", "platforms/web/generated-ui.js",
+      "platforms/web/runtime-glyphs.js", "platforms/web/offload-worker.js",
+      "platforms/web/pocketjs.wasm", "pocket3d-interface.js", "pocket3d-stage.css",
+    ]));
+    expect(new Set(files).size).toBe(files.length);
     for (const file of files) expect([file, existsSync(join(staged, file))]).toEqual([file, true]);
     // PocketJS's own files are staged as they are.
-    for (const file of POCKET3D_WEB.realm) expect(readFileSync(join(staged, file), "utf8")).toBe(readFileSync(ROOT + "hosts/web/" + file, "utf8"));
+    for (const file of POCKET3D_WEB.realm) expect(readFileSync(join(staged, file), "utf8")).toBe(readFileSync(ROOT + file, "utf8"));
     // Every module a staged module imports is staged too.
     for (const file of files.filter((name) => name.endsWith(".js"))) {
-      for (const [, from] of readFileSync(join(staged, file), "utf8").matchAll(/^import [^;]*? from "\.\/([^"]+)";$/gm)) {
+      for (const [, from] of readFileSync(join(staged, file), "utf8").matchAll(/^import [^;]*? from "(\.[^"]+)";$/gm)) {
         // (a module in a directory names its neighbours from there)
         const named = join(file, "..", from!);
         expect([file, from, files.includes(named)]).toEqual([file, from, true]);

@@ -69,13 +69,14 @@ function localManifests(program: string): Map<string, Table> {
 }
 /** All local package roots, including optional/target/build dependencies. */
 export function idfProgramCrateRoots(root: string, crate = "runtime"): string[] {
-  return [...localManifests(resolve(root, `hosts/esp-idf/native/${crate}/Cargo.toml`)).keys()].map(dirname);
+  if (crate !== "runtime") throw new Error(`unknown IDF archive composition: ${crate}`);
+  return [...localManifests(resolve(root, "programs/esp-idf/archive/Cargo.toml")).keys()].map(dirname);
 }
 
 /** Discover local dependencies from Cargo manifests; Cargo vendors registry/git crates. */
 export function vendorIdfProgram(root: string, destination: string, cargo = "cargo"): void {
   destination = resolve(destination);
-  const program = resolve(root, "hosts/esp-idf/native/runtime/Cargo.toml");
+  const program = resolve(root, "programs/esp-idf/archive/Cargo.toml");
   const sourceWorkspace = workspace(program, parse(program)).directory;
   const manifests = localManifests(program);
   const directories = new Map([...manifests].map(([file, value]) => [dirname(file), file === program ? "native" : `packages/${value.package.name}`]));

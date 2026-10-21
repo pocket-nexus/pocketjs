@@ -1,8 +1,8 @@
-#[path = "../../../hosts/vita/src/dev_delivery.rs"]
+#[path = "../../../programs/vita/src/dev_delivery.rs"]
 mod delivery;
-#[path = "../../../hosts/vita/src/devmenu/input.rs"]
+#[path = "../../../programs/vita/src/devmenu/input.rs"]
 mod menu_input;
-#[path = "../../../hosts/vita/src/dev_protocol.rs"]
+#[path = "../../../programs/vita/src/dev_protocol.rs"]
 mod protocol;
 
 #[cfg(test)]

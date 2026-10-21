@@ -68,7 +68,7 @@ jobs:
       - name: Upgrade npm for Trusted Publishing
         run: npm install -g npm@latest
 
-      # hosts/web/pocketjs.wasm is a gitignored build artifact shipped in the
+      # platforms/web/pocketjs.wasm is a gitignored build artifact shipped in the
       # framework tarball, so build it from engine/core/wasm. Stable Rust suffices.
       - name: Install the workspace stable compiler
         run: |
@@ -82,7 +82,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
+          key: ${{ runner.os }}-wasm-${{ hashFiles('programs/web/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'programs/web/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
       - name: Install dependencies

@@ -20,5 +20,5 @@ const child = Bun.spawn(
 if ((await child.exited) !== 0 || child.signalCode) process.exit(1);
 copyFileSync(
   resolve(crate, "target/wasm32-unknown-unknown/release/pocket_text.wasm"),
-  resolve(root, "hosts/web/pocket_text.wasm"),
+  resolve(root, "platforms/web/pocket_text.wasm"),
 );

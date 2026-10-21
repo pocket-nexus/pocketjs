@@ -1,5 +1,5 @@
 //! DevTools mailbox transport for desktop hosts — the std twin of the PSP's
-//! `hosts/psp/src/dbg.rs` (docs/DEVTOOLS.md §3). The bridge (`bun run devtools
+//! `programs/psp/src/dbg.rs` (docs/DEVTOOLS.md §3). The bridge (`bun run devtools
 //! --dir <root>`) owns `<root>/pocketjs-dbg/{enable,in,out}.jsonl`; we read
 //! panel commands from `in.jsonl` at a running offset and append replies to
 //! `out.jsonl`. The file is the wire, exactly as on hardware — the same

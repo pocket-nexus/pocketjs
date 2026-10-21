@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { installHost } from "../framework/src/host.ts";
 import { ModelRegion } from "../framework/src/model-reactive.ts";
 import { ModelTasks, disposeModelTasks, drainModelCommands, resumeModelTasks } from "../framework/src/model-tasks.ts";
@@ -9,7 +9,7 @@ import type { NodeMirror } from "../framework/src/native-tree.ts";
 import { PROP } from "../contracts/spec/spec.ts";
 
 test("JS awaited animations use core track identity and completion reasons", async () => {
-  const wasm = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+  const wasm = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
   installHost({ ops: wasm.ops, kind: "injected", target: "model-animation-test", strict: true });
   installModelAnimationCommands();
   const id = wasm.ops.createNode(0);
@@ -36,7 +36,7 @@ test("JS awaited animations use core track identity and completion reasons", asy
 });
 
 test("cancelling a model animation wait preserves motion without resuming the task", async () => {
-  const wasm = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+  const wasm = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
   installHost({ ops: wasm.ops, kind: "injected", target: "model-animation-cancel-test", strict: true });
   installModelAnimationCommands();
   const id = wasm.ops.createNode(0);

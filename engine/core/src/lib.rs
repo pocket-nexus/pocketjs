@@ -65,7 +65,7 @@ pub mod style;
 pub mod text;
 pub mod font_pages;
 pub mod font_stream;
-pub mod font_archive;
+pub use pocket_package::font_archive;
 pub mod touch;
 pub mod tree;
 pub mod wire;

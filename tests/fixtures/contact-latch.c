@@ -1,4 +1,4 @@
-#include "../../hosts/shared/contact_latch.h"
+#include "../../engine/runtime/include/pocket/compat/contact_latch.h"
 #include <assert.h>
 #include <stdio.h>
 static unsigned hits;

@@ -5,7 +5,7 @@ Native build inputs and program configs are listed in [Museum native builds](MUS
 PocketJS runs on the BlackBerry Classic (SQC100, BlackBerry 10.3) through
 **the native QNX host in `hosts/blackberry-classic-qnx`**. It mounts the
 no-std Rust UI core, GLES2 DrawList backend, and QuickJS bridge
-(`engine/quickjs-c/pocket_runtime.c`) against one private device profile:
+(`programs/native/quickjs/pocket_runtime.c`) against one private device profile:
 **720×720 physical, 360×360 logical at raster density 2, 60 Hz fixed
 simulation time, `input.buttons`, `input.touch`, and `text.glyphs.baked`.**
 
@@ -59,11 +59,11 @@ by the Android host and tested with the host compiler in
 | touchscreen | one tracked contact (a second finger never becomes input), divided into 360×360 logical coordinates, with the host-resolved bounds hit fact; **a contact that went down and up between two frames still reports one down frame, and a release is reported at the next frame** |
 
 The frame call is `pocket_runtime_tick(&input)` in
-`engine/quickjs-c/pocket_runtime.c`: **one guest turn followed by one core tick
+`programs/native/quickjs/pocket_runtime.c`: **one guest turn followed by one core tick
 per presented frame** (docs/RUNTIMES.md, law 3), taking the mask, sampled
 contact, and hit fact.
 
-The Rust package is `pocketjs-ui-cabi` (`engine/ui-cabi`): the no-std C-ABI
+The Rust package is `pocketjs-ui-cabi` (`programs/native/cabi`): the no-std C-ABI
 build of `pocketjs-core` plus the GLES2 DrawList backend that the Nokia E7,
 iPhone 2G/4S, and Meizu M8 hosts link. The Classic host builds it with the
 `bare-platform` feature. **Its compatibility archive remains

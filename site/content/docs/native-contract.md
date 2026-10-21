@@ -197,7 +197,7 @@ cases.
 
 | codes | family | condition |
 |---|---|---|
-| 14–15 | `loadStyles`, `loadFontAtlas` — feed the compiled `styles.bin` and one baked atlas blob per call | Installed by the QuickJS hosts (`hosts/psp/src/ffi.rs`, `hosts/vita/src/ffi.rs`, `hosts/3ds/src/qjs.c`, `hosts/nokia-e7/runtime/main.cpp`, `engine/quickjs-c/pocket_runtime.c`) and by web/test hosts. `render()` calls them only when the host publishes no native texture table, so a console host that parses the pak natively never receives the call. |
+| 14–15 | `loadStyles`, `loadFontAtlas` — feed the compiled `styles.bin` and one baked atlas blob per call | Installed by the QuickJS hosts (`programs/psp/src/service_bindings.rs`, `programs/vita/src/service_bindings.rs`, `programs/3ds/product/src/qjs.c`, `hosts/nokia-e7/runtime/main.cpp`, `programs/native/quickjs/pocket_runtime.c`) and by web/test hosts. `render()` calls them only when the host publishes no native texture table, so a console host that parses the pak natively never receives the call. |
 | 18–22 | `debugInspect`, `debugRectXY`, `debugRectWH`, `debugPause`, `debugStep` — inspect one node's world AABB, freeze the world, arm one tick | Debug-only and default-off. See [DevTools](/docs/devtools/). |
 | 23–25 | `loadTileTexture`, `freeTexture`, `uploadImgEntry` — decode one TILESET tile host-side, release a generation-tagged texture, upload a self-contained IMG entry with its CLUT8 palette and RLE flags | Native hosts implement these so tile bytes never transit the JS heap; without them `framework/src/tiles.ts` falls back to `__pak` + `uploadTexture`. |
 | 26 | `setActive` — apply or clear the native `active:` pressed variant | Hosts that predate the op lack it and pressed visuals degrade. |
@@ -425,13 +425,13 @@ On hardware the whole stack lives in **one arena**, and getting there required f
 The fix, at a high level:
 
 1. The exact-revision `pocket-nexus/rust-psp` dependency exposes an **`external-global-alloc`** feature that cfg-gates out its `#[global_allocator]`.
-2. `hosts/psp/src/alloc.rs` installs the PocketJS global allocator, backed by `arena::alloc`/`dealloc` — the **same single kernel block** QuickJS uses. Core, QuickJS, and newlib all draw from one arena.
+2. `platforms/psp/alloc/src/lib.rs` installs the PocketJS global allocator, backed by `arena::alloc`/`dealloc` — the **same single kernel block** QuickJS uses. Core, QuickJS, and newlib all draw from one arena.
 3. `arena.rs`'s `ensure_init` calls `sceKernelAllocPartitionMemory` / `sceKernelGetBlockHeadAddr` **directly** — no recursion back through `alloc::alloc`, now that the arena *is* the global allocator.
 4. Texture uploads and retained core buffers live in that same arena. A **2 MB margin** is reserved for the GE display list and stack safety.
 
 Other inherited hard rules worth knowing when you touch the native side:
 
-- JS runs on a **1 MB `USER | VFPU` worker** created in `hosts/psp/src/host.rs`; the `psp::module!` main thread has only a 256 KB stack, which QuickJS overflows while compiling a bundle. `MAX_TREE_DEPTH = 64` keeps recursive walks inside the worker stack.
+- JS runs on a **1 MB `USER | VFPU` worker** created in `programs/psp/src/host.rs`; the `psp::module!` main thread has only a 256 KB stack, which QuickJS overflows while compiling a bundle. `MAX_TREE_DEPTH = 64` keeps recursive walks inside the worker stack.
 - GE buffers are 16-byte aligned with a dcache writeback per batch.
 - 2D vertex coords are `i16`; the core's CPU clip stage guarantees in-range values so the GE never wraps a coordinate.
 - Textures are power-of-two, `≤ 512` per side, sampled from main RAM.

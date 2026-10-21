@@ -479,12 +479,12 @@ export function buildIPhone2GNative(application: RuntimeApplication, outdir: str
       `-DPOCKET_LOGICAL_WIDTH=${hostInputs.viewport.logical[0]}`,
       `-DPOCKET_LOGICAL_HEIGHT=${hostInputs.viewport.logical[1]}`,
       "-I",
-      join(repository, "engine/quickjs-c"),
+      join(repository, "programs/native/quickjs"),
       "-Wno-cast-function-type-mismatch",
     ],
   );
   compile(
-    join(repository, "engine/quickjs-c/pocket_runtime.c"),
+    join(repository, "programs/native/quickjs/pocket_runtime.c"),
     join(build, "pocket_runtime.o"),
     [
       ...firstPartyWarnings,
@@ -492,7 +492,7 @@ export function buildIPhone2GNative(application: RuntimeApplication, outdir: str
       `-DPOCKETJS_TARGET_ID="${hostInputs.target}"`,
       `-DPOCKETJS_HOST_ABI=${hostInputs.hostAbi}`,
       "-I",
-      join(repository, "engine/ui-cabi/include"),
+      join(repository, "programs/native/cabi/include"),
       "-I", join(repository, "engine/guest-quickjs/include"),
       "-I",
       join(repository, "contracts/generated"),
@@ -541,7 +541,7 @@ export function buildIPhone2GNative(application: RuntimeApplication, outdir: str
     IPHONE2G_TOOLCHAIN.compiler.rustToolchain,
     "cargo",
   ]);
-  const coreDirectory = join(repository, "engine/ui-cabi");
+  const coreDirectory = join(repository, "programs/native/cabi");
   const rustTargetSpec = join(
     repository,
     "tools/build/toolchains/iphone2g/armv6-apple-ios.json",

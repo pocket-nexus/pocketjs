@@ -4,7 +4,7 @@ import { ModelRegion } from "../framework/src/model-reactive.ts";
 import { ModelTasks, disposeModelTasks, drainModelCommands, resumeModelTasks } from "../framework/src/model-tasks.ts";
 import { runServicePumps } from "../framework/src/services.ts";
 import { type NetOps } from "../framework/src/net-api.ts";
-import { createSimNetHost } from "../hosts/sim/net.ts";
+import { createSimNetHost } from "../platforms/sim/net.ts";
 
 const storage=<T>(value:T):[()=>T,(next:T)=>void]=>[()=>value,next=>{value=next;}];
 const regions:ModelRegion[]=[];

@@ -229,7 +229,7 @@ const state: DevtoolsState = {
  * Install the shim for this mount. Called by render() after the host is
  * up. Transport resolution order: an injected `globalThis.
  * __pocketDevtoolsTransport` (browser host, tests, tools/tape.ts), else
- * the PSP mailbox bindings on the ui namespace (hosts/psp/src/dbg.rs).
+ * the PSP mailbox bindings on the ui namespace (programs/psp/src/dbg.rs).
  */
 export function initDevtools(ops: HostOps): void {
   // QuickJS (Solid path) ships no console at all — app code calling

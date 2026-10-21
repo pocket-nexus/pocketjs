@@ -5,7 +5,7 @@
 //
 //   --dir <path>   usbhostfs root the PSP mounts as host0:
 //                  (default: dist/psplink — the `bun psplink` share;
-//                   for `bun run hw` pass hosts/psp/target/mipsel-sony-psp/release)
+//                   for `bun run hw` pass programs/psp/target/mipsel-sony-psp/release)
 //   --port <n>     dev-server port (default 8130 / PORT env)
 
 import { existsSync } from "node:fs";

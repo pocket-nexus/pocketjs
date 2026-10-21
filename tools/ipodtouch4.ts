@@ -210,7 +210,7 @@ export function readExternalIPodTouch4App(descriptorPath: string): IPodTouch4App
 }
 
 /**
- * Optional op families compiled into engine/quickjs-c/pocket_runtime.c for a
+ * Optional op families compiled into programs/native/quickjs/pocket_runtime.c for a
  * resolved plan: ops 52..56 only for an app whose plan resolved ui.physics,
  * so every other app keeps the op table, and the core archive, it was built
  * against.
@@ -766,12 +766,12 @@ export function prepareIPodNative(
   const rustc = mustRun(rustup, ["which", "--toolchain", IPODTOUCH4_TOOLCHAIN.compiler.rustToolchain, "rustc"]);
   mustRun(
     cargo,
-    ["build", "--release", "--locked", "--manifest-path", resolvePath(appRoot, nativeCore?.manifest ?? join(REPOSITORY, "engine/ui-cabi/Cargo.toml")),
+    ["build", "--release", "--locked", "--manifest-path", resolvePath(appRoot, nativeCore?.manifest ?? join(REPOSITORY, "programs/native/cabi/Cargo.toml")),
       ...(nativeCore ? [] : ["--no-default-features"]), "--features", nativeCore?.features.join(",") ?? "standalone-extension-provider,bare-platform,gles1", "--target",
       join(REPOSITORY, "tools/build/toolchains/ios/armv7-apple-ios.json"), "-Z", "json-target-spec",
       "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
     {
-      cwd: join(REPOSITORY, "engine/ui-cabi"),
+      cwd: join(REPOSITORY, "programs/native/cabi"),
       env: { ...process.env, RUSTC: rustc, CARGO_HOME: cargoHome, CARGO_TARGET_DIR: rustTarget, CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort", IPHONEOS_DEPLOYMENT_TARGET: DEPLOYMENT_TARGET },
     },
   );
@@ -794,7 +794,7 @@ export interface IPodHostObjects {
 }
 
 /**
- * Compile engine/quickjs-c/pocket_runtime.c and the files linked beside it.
+ * Compile programs/native/quickjs/pocket_runtime.c and the files linked beside it.
  * `features` are the plan's (ui.physics compiles ops 52..56 in); `rasterDensity`
  * is pocket_runtime.c's default, which a package runtime replaces at launch.
  */
@@ -809,9 +809,9 @@ export function compileIPodHost(native: IPodNative, options: {
   readonly appRoot?: string;
 }): IPodHostObjects {
   const { compile, nativeBuild, quickjs } = native;
-  const offloadDefines = ["-DPOCKET_OFFLOAD_POSIX", "-I", join(REPOSITORY, "hosts/shared")];
+  const offloadDefines = ["-DPOCKET_OFFLOAD_POSIX", "-I", join(REPOSITORY, "platforms/linux/offload"), "-I", join(REPOSITORY, "engine/modules/offload/include")];
   const offload = join(nativeBuild, "offload_posix.o");
-  compile(join(REPOSITORY, "hosts/shared/offload_posix.c"), offload, [...IPOD_WARNINGS, ...offloadDefines]);
+  compile(join(REPOSITORY, "platforms/linux/offload/offload_posix.c"), offload, [...IPOD_WARNINGS, ...offloadDefines]);
   const svcWireDefines = options.svcWire ? ["-DPOCKET_SVC_WIRE", "-I", join(REPOSITORY, "hosts/ios-legacy")] : [];
   const crtGlobals = join(nativeBuild, "crt_globals.o");
   const pocketRuntime = join(nativeBuild, "pocket_runtime.o");
@@ -819,7 +819,7 @@ export function compileIPodHost(native: IPodNative, options: {
   const svcWire = join(nativeBuild, "svcwire.o");
   const compat = join(nativeBuild, "compat.o");
   compile(join(REPOSITORY, "hosts/ios-legacy/crt_globals.c"), crtGlobals, IPOD_WARNINGS);
-  compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntime, [
+  compile(join(REPOSITORY, "programs/native/quickjs/pocket_runtime.c"), pocketRuntime, [
     ...IPOD_WARNINGS,
     "-include", writeHostProfileHeader(nativeBuild, options.profile),
     ...guestRuntimeDefines(options.features),
@@ -829,7 +829,7 @@ export function compileIPodHost(native: IPodNative, options: {
     `-DPOCKETJS_TARGET_ID=\"${options.target}\"`,
     `-DPOCKETJS_HOST_ABI=${options.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${options.rasterDensity}`,
-    "-I", join(REPOSITORY, "engine/ui-cabi/include"),
+    "-I", join(REPOSITORY, "programs/native/cabi/include"),
     "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
     "-I", join(REPOSITORY, "contracts/generated"),
     "-isystem",
@@ -928,7 +928,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
   compile(join(REPOSITORY, "hosts/ipodtouch4/runtime.c"), runtimeIdentityObject, [
     ...firstParty,
     `-DPOCKET_BUILD_ID=\"${BUILD_ID_PLACEHOLDER}\"`,
-    "-I", join(REPOSITORY, "engine/quickjs-c"),
+    "-I", join(REPOSITORY, "programs/native/quickjs"),
     "-Wno-cast-function-type-mismatch",
   ]);
 
@@ -971,7 +971,7 @@ export async function buildIPodTouch4Native(application: RuntimeApplication, out
   compile(join(REPOSITORY, "hosts/ipodtouch4/runtime.c"), runtimeObject, [
     ...firstParty,
     `-DPOCKET_BUILD_ID=\"${buildId}\"`,
-    "-I", join(REPOSITORY, "engine/quickjs-c"),
+    "-I", join(REPOSITORY, "programs/native/quickjs"),
     "-Wno-cast-function-type-mismatch",
   ]);
 

@@ -10,7 +10,7 @@
 // frames at every tested hz.
 
 import { describe, expect, test } from "bun:test";
-import { runScenario, type Trace } from "../hosts/sim/sim.ts";
+import { runScenario, type Trace } from "../programs/sim/sim.ts";
 import { BTN, SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
 
 const JOURNEY = [

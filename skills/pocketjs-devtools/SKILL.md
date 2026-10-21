@@ -109,7 +109,7 @@ Device→panel: `hello{app,host,frame}` · `tree{root:{i,t,n,c,x,k}}` ·
   (display:none, detached, or inside a `paint_3d` perspective subtree — 3D
   interiors aren't captured; the perspective ROOT is).
 - Adding spec ops: edit `contracts/spec/spec.ts` → `bun contracts/spec/gen-rust.ts` → implement
-  on `Ui` + BOTH hosts (`hosts/psp/src/ffi.rs`, `engine/wasm/src/lib.rs`) + `hosts/web/
+  on `Ui` + BOTH hosts (`programs/psp/src/service_bindings.rs`, `programs/web/wasm/src/lib.rs`) + `programs/web/dev/
   wasm-ops.js` + `HostOps` (optional members) — `tests/contract.ts` locks the
   spec halves together.
 - `debugName` / `<Named>` are JS-mirror-only: provably zero pixel impact
@@ -119,7 +119,7 @@ Device→panel: `hello{app,host,frame}` · `tree{root:{i,t,n,c,x,k}}` ·
   transport; `--conditions=browser` required). Core pause/inspect tests in
   `engine/core/src/tests.rs`.
 - Missing QuickJS symbols (vendored libquickjs-sys is minimal): declare a
-  local `extern "C"` block — precedent in `hosts/psp/src/main.rs` and `ffi.rs`.
+  local `extern "C"` block — precedent in `programs/psp/src/main.rs` and `ffi.rs`.
 - NEVER hand VRAM addresses (`0x4xxxxxxx` uncached mirror) to usbhostfs IO:
   its send path runs dcache writeback + USB bulk DMA on the caller's buffer
   and hangs the device on the first 64 KB block (frozen PSP, 0-byte file).
@@ -140,7 +140,7 @@ Device→panel: `hello{app,host,frame}` · `tree{root:{i,t,n,c,x,k}}` ·
 - The whole device-side path (eval, console, screenshot) is testable
   without hardware, at host0: fidelity: **PPSSPP maps the EBOOT's own
   directory as `host0:`**, so a mailbox in
-  `hosts/psp/target/mipsel-sony-psp/debug/pocketjs-dbg/` is found by the SAME
+  `programs/psp/target/mipsel-sony-psp/debug/pocketjs-dbg/` is found by the SAME
   probe hardware uses. Create enable/in/out there, run PPSSPPHeadless with
   a timeout, append commands to in.jsonl mid-run, read out.jsonl. (This
   also means a stale hardware-session mailbox hijacks emulator runs —

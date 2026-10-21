@@ -1,4 +1,4 @@
-// tests/sim-bundle.test.ts — bootBundle (hosts/sim/sim.ts): a bundle built
+// tests/sim-bundle.test.ts — bootBundle (programs/sim/sim.ts): a bundle built
 // anywhere runs from its two files at the viewport its target has, a guest
 // exception comes back as data, and the tree carries each node's box.
 
@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BTN } from "../contracts/spec/spec.ts";
-import { bootBundle, fnv1a, type SimNode } from "../hosts/sim/sim.ts";
+import { bootBundle, fnv1a, type SimNode } from "../programs/sim/sim.ts";
 
 const DIST = new URL("../dist/", import.meta.url).pathname;
 const CAFE = { js: DIST + "cafe-main.js", pak: DIST + "cafe-main.pak" };

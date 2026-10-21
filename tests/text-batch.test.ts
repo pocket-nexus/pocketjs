@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
 import { bakeFontArchive } from "../framework/compiler/font-archive.ts";
 import { createFontArchive } from "../framework/src/fonts.ts";
@@ -20,7 +20,7 @@ async function harness(capacity: number, resident = "你好", maxBytes?: number,
   const dir = mkdtempSync(join(tmpdir(), "pocket-font-"));
   const path = join(dir, "font.pjfa"); writeFileSync(path, fixture.bytes);
   const provider = createFontArchiveProvider({ "font.pjfa": path });
-  const wasm = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+  const wasm = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
   wasm.ops.loadFontAtlas!(fixture.baked);
   const queue: any[] = [], replies: string[] = [], seen: any[] = [];
   let session = 1, fail = false, corrupt = false;
@@ -193,7 +193,7 @@ test("1000 runtime titles survive eviction beside a pinned player title at five 
   }
   for (const [strike, slot] of slots.entries()) {
     const h = await harness(32, "你好", undefined, { bytes: archiveBytes, slot, baked: embedded[strike].bytes });
-    const reference = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+    const reference = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
     const atlas = references[strike], quantized = atlas.bytes.slice();
     // Reference bypasses PJFA packing, its provider, the streamed cmap and LRU.
     const av = new DataView(quantized.buffer), cell = atlas.cellW * atlas.cellH;

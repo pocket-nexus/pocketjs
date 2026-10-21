@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const source = join(root, "site/assets/favicon.svg");
-const output = join(root, "hosts/vita/assets/sce_sys");
+const output = join(root, "programs/vita/assets/sce_sys");
 const magick = Bun.which("magick");
 const args = Bun.argv.slice(2);
 const check = args.includes("--check");

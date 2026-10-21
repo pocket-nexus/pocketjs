@@ -1,7 +1,7 @@
 // tests/agent-layer.test.ts — the system agent's overlay (framework/src/
 // agent-layer.tsx) over a fixture app (tests/fixtures/agent-app), headless on
 // the wasm core with the 3DS geometry and a fake `globalThis.agent`
-// (hosts/sim/agent.ts) in place of the host and the companion.
+// (platforms/sim/agent.ts) in place of the host and the companion.
 //
 // The overlay is added by the build because the fixture's pocket.json
 // declares "system.agent"; nothing in the fixture imports it.
@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_LABELS, AGENT_MODE, AGENT_SCREEN, type AgentClientMessage } from "../contracts/spec/agent.ts";
 import { BTN } from "../contracts/spec/spec.ts";
-import { bootConsole3ds, type Console3ds } from "../hosts/sim/console-3ds.ts";
+import { bootConsole3ds, type Console3ds } from "../programs/sim/console-3ds.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
 import { encodePNG } from "../tools/png.ts";
 

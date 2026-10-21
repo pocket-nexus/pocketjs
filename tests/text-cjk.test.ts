@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { bakeFontArchive } from "../framework/compiler/font-archive.ts";
 import { archiveProvider } from "./helpers/font-archive-provider.ts";
-import { bootWorld, treeHasText, fnv1a } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText, fnv1a } from "../programs/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 import { unpack } from "../framework/compiler/pak.ts";
 

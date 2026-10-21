@@ -1,5 +1,5 @@
 // bun tools/bench-desktop.ts — the desktop markdown-editor benchmark:
-// the pocket note on the gpui host (hosts/desktop, docs/BACKENDS.md) against
+// the pocket note on the gpui host (programs/desktop, docs/BACKENDS.md) against
 // byte-identical web editors shelled by Tauri v2 (WKWebView) and Electron
 // (tools/bench-desktop/). Protocol follows the pocket-character measurement
 // (site/content/blog/pocket-character.md): same machine, hands off, process

@@ -8,7 +8,7 @@
 //
 // The runtime's DATA.PSP (the program) travels unchanged; at boot it reads
 // app.pocket from its own folder, checks the footer, the psp variant and the
-// host ABI, and runs the game (hosts/psp/src/package_file.rs).
+// host ABI, and runs the game (platforms/psp/io/src/package.rs).
 //
 // MEMSIZE = 1 asks the firmware of a PSP-2000 or 3000 for the 52 MB user
 // partition instead of 24 MB: the runtime holds the whole game file in

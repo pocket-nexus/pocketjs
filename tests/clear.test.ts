@@ -10,7 +10,7 @@
 // the ~130px / ~305px the curve maps PULL_CREATE / PULL_BACK to.
 
 import { beforeAll, describe, expect, test } from "bun:test";
-import { bootWorld, treeHasText, type SimWorld } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText, type SimWorld } from "../programs/sim/sim.ts";
 import { __packTouch } from "../framework/src/touch.ts";
 import { KB_GAP, KB_H, KB_PAD, KB_ROW_H } from "../apps/clear/keyboard-metrics.ts";
 import { KB_LAYERS, type KbKey } from "../apps/clear/kb-layout.ts";

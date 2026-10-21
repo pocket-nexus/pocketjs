@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 200112L
-#include "../../../hosts/3ds/src/instance.c"
+#include "../../../programs/3ds/product/src/instance.c"
 #include "package_fixture.h"
 #include <assert.h>
 

@@ -16,7 +16,7 @@
 // The entries are files only, param.sfo and eboot.bin first, as vita-pack-vpk
 // writes them. At startup the runtime reads app0:app.pocket, checks the
 // footer, the vita variant and host ABI 2, and runs the game
-// (hosts/vita/src/package_file.rs). It has no compiled app id: the file is
+// (programs/vita/src/package_file.rs). It has no compiled app id: the file is
 // the app.
 
 import { encodeIndexedPng, quantizeRgb } from "./shared/palette.ts";

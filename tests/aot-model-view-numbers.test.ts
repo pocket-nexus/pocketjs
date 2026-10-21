@@ -30,9 +30,9 @@ test.each(["solid", "vue-vapor"] as const)("compiled %s view arithmetic agrees w
   await Bun.write(oracle, `
 import {render} from ${JSON.stringify(resolve(framework === "solid" ? "framework/src/index.ts" : "framework/src/index-vue-vapor.ts"))};
 import {rootMirror} from ${JSON.stringify(resolve(framework === "solid" ? "framework/src/renderer-solid.ts" : "framework/src/renderer-vue-vapor.ts"))};
-import {createWasmUi} from ${JSON.stringify(resolve("hosts/web/wasm-ops.js"))};
+import {createWasmUi} from ${JSON.stringify(resolve("platforms/web/wasm-ops.js"))};
 import App from ${JSON.stringify(resolve(fixture, `App.${extension}`))};
-const wasm=await createWasmUi(await Bun.file(${JSON.stringify(resolve("hosts/web/pocketjs.wasm"))}).arrayBuffer());
+const wasm=await createWasmUi(await Bun.file(${JSON.stringify(resolve("platforms/web/pocketjs.wasm"))}).arrayBuffer());
 wasm.ops.loadStyles(new Uint8Array(${JSON.stringify(result.program.styles.bytes)}));
 const dispose=render(${framework === "solid" ? "()=>App()" : "App"},{ops:wasm.ops,styles:${JSON.stringify(result.program.styles.ids)}});
 const root=rootMirror.children[0].id;const text=id=>{const node=wasm.inspectNode(id);return node.text+node.children.map(text).join("");};

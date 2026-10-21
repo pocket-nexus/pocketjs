@@ -45,7 +45,7 @@ per tick — never queries.
 **Frame contract.** The module owns a *native-side clock*: the output device
 consumes on its own real-time thread/callback, which never calls the guest,
 never blocks on it, and never allocates on the hot path (rules earned by
-`hosts/psp/src/audio.rs`, whose module header is the reference reading).
+`platforms/psp/audio/src/output.rs`, whose module header is the reference reading).
 Facts produced on that clock are batched to **tick boundaries**; the guest
 stays single-clock and law 3 holds unchanged. Virtual-clock hosts consume
 exactly
@@ -67,13 +67,13 @@ purpose — a bundle that plays anywhere plays everywhere.
 
 | Host | Implementation | Status |
 |---|---|---|
-| web (`hosts/web/audio.js` + `audio-worklet.js`) | AudioWorklet ring on the render thread, main-thread credit mirror, gesture-deferred `AudioContext` | audible, ships with the dev host |
-| sim (`hosts/sim/audio.ts`) | virtual-clock sink, `audioFramesForTick` consumption, PCM FNV-1a + op/event log | deterministic tests (`tests/audio.test.ts`, `tests/audio-sim.test.ts`) |
-| psp / vita | not mounted yet — `engine/spec/src/lib.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy already exists in `hosts/psp/src/audio.rs` + `hosts/vita/src/audio.rs` (built for the video plane) | seam documented, capability not advertised |
+| web (`platforms/web/audio.js` + `audio-worklet.js`) | AudioWorklet ring on the render thread, main-thread credit mirror, gesture-deferred `AudioContext` | audible, ships with the dev host |
+| sim (`platforms/sim/audio.ts`) | virtual-clock sink, `audioFramesForTick` consumption, PCM FNV-1a + op/event log | deterministic tests (`tests/audio.test.ts`, `tests/audio-sim.test.ts`) |
+| psp / vita | not mounted yet — `engine/spec/src/lib.rs` `pub mod audio` carries the contract; the channel/ring/thread discipline to copy already exists in `platforms/psp/audio/src/output.rs` + `platforms/vita/audio/src/lib.rs` (built for the video plane) | seam documented, capability not advertised |
 | macos-widget / pocketbook | not mounted | capability not advertised |
 
 Consoles adopt the module by implementing the namespace in their FFI table
-(`hosts/psp/src/ffi.rs` registration pattern), reusing their existing audio
+(`programs/psp/src/service_bindings.rs` registration pattern), reusing their existing audio
 threads, then appending `audio.pcm` to their target profile in
 `contracts/spec/platforms.ts`. No spec change, no framework change, no app
 change.

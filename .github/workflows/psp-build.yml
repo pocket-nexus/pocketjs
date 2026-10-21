@@ -19,7 +19,7 @@ on:
       - "engine/runtime-cabi/**"
       - "tools/pocket.ts"
       - "tools/cli/**"
-      - "hosts/psp/**"
+      - "programs/psp/**"
       - "devices/psp/**"
       - "engine/core/**"
       - "engine/spec/**"
@@ -45,7 +45,7 @@ on:
       - "engine/runtime-cabi/**"
       - "tools/pocket.ts"
       - "tools/cli/**"
-      - "hosts/psp/**"
+      - "programs/psp/**"
       - "devices/psp/**"
       - "engine/core/**"
       - "engine/spec/**"
@@ -107,4 +107,4 @@ jobs:
           CC_mipsel_sony_psp: /usr/bin/false
           AR_mipsel_sony_psp: /usr/bin/false
         run: bun tools/cli/bin.mjs +psp build --manifest apps/hero/pocket.json --project-root . -- --release
-      - run: test -s hosts/psp/target/mipsel-sony-psp/release/EBOOT.PBP
+      - run: test -s programs/psp/target/mipsel-sony-psp/release/EBOOT.PBP

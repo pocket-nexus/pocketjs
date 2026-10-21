@@ -1,18 +1,18 @@
 import { STABLE_RUST_TOOLCHAIN } from "../toolchains/rust.ts";
 import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { cargo, type RuntimeBuild } from "../../../framework/src/runtime-config.ts";
 import profile from "../../../profiles/web-app.ts";
 import { writeRuntimeManifest } from "../../runtime/manifest.ts";
 import { POCKET_BINDING_GENERATION } from "../../../contracts/spec/binding-generation.ts";
-import { repository, buildHosts, nativeSources, programFiles } from "./handheld-common.ts";
+import { repository, buildHosts, nativeSources } from "./handheld-common.ts";
 import { requireProgramProfile, requireApplication } from "./application.ts";
 
-const webSources = programFiles("hosts/web", /\.(?:js|html)$/);
+import { stageWebAssets, webAssetSources } from "../web-assets.ts";
 
-export const wasmStep = cargo({ manifest: resolve(repository, "engine/wasm/Cargo.toml"), toolchain: STABLE_RUST_TOOLCHAIN, env: { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_OPT_LEVEL: "s" }, target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-target" });
+export const wasmStep = cargo({ manifest: resolve(repository, "programs/web/wasm/Cargo.toml"), toolchain: STABLE_RUST_TOOLCHAIN, env: { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_OPT_LEVEL: "s" }, target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-target" });
 export const build: RuntimeBuild = {
-  sourceInputs: [...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "engine/wasm", "engine/crates/pocket-text", "engine/guest-web"), ...webSources, resolve(repository, "programs/web/main.js"), resolve(repository, "programs/web/index.html")],
+  sourceInputs: [...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/web/wasm", "engine/crates/pocket-text", "engine/guest-web"), ...webAssetSources(), resolve(repository, "programs/web/main.js"), resolve(repository, "programs/web/index.html")],
   hosts: buildHosts, input: "package",
   steps: [wasmStep, cargo({ manifest: resolve(repository, "engine/crates/pocket-text/Cargo.toml"), toolchain: STABLE_RUST_TOOLCHAIN, env: { CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_OPT_LEVEL: "s" }, target: "wasm32-unknown-unknown", targetDirectory: "{outdir}/cargo-text-target" })],
   artifact: "{outdir}/runtime",
@@ -21,11 +21,10 @@ export const build: RuntimeBuild = {
     if (context.args.length) throw new Error("Web native recipe accepts no extra compiler arguments");
     const out = resolve(context.outdir, "runtime");
     mkdirSync(out, { recursive: true });
-    const files = webSources.map(file => basename(file));
-    for (const file of files) copyFileSync(resolve(repository, "hosts/web", file), resolve(out, file));
-    copyFileSync(resolve(context.outdir, "cargo-target/wasm32-unknown-unknown/release/pocketjs_wasm.wasm"), resolve(out, "pocketjs.wasm"));
-    copyFileSync(resolve(context.outdir, "cargo-text-target/wasm32-unknown-unknown/release/pocket_text.wasm"), resolve(out, "pocket_text.wasm"));
-    files.push("pocketjs.wasm", "pocket_text.wasm");
+    const files = stageWebAssets(out, {
+      wasm: resolve(context.outdir, "cargo-target/wasm32-unknown-unknown/release/pocketjs_wasm.wasm"),
+      textWasm: resolve(context.outdir, "cargo-text-target/wasm32-unknown-unknown/release/pocket_text.wasm"),
+    });
     const application = requireApplication(context);
     {
       mkdirSync(resolve(out, "dist"), { recursive: true });
@@ -33,13 +32,13 @@ export const build: RuntimeBuild = {
         copyFileSync(input!, resolve(out, file!)); files.push(file!);
       }
       copyFileSync(resolve(repository, "programs/web/index.html"), resolve(out, "index.html"));
-      copyFileSync(resolve(repository, "programs/web/main.js"), resolve(out, "program.js"));
+      copyFileSync(resolve(repository, "programs/web/main.js"), resolve(out, "programs/web/main.js"));
       const viewport = application.plan.viewport;
       writeFileSync(resolve(out, "program.json"), JSON.stringify({ output: context.output, packageId: application.plan.app.id, title: application.plan.app.title,
         host: context.profile.id, hostAbi: POCKET_BINDING_GENERATION, viewport: viewport.logical, rasterDensity: viewport.rasterDensity, simHz: context.profile.tickHz,
         ...(application.plan.surfaces?.auxiliary ? { auxiliary: application.plan.surfaces?.auxiliary.logical } : {}),
         ...(viewport.policy === "dynamic" ? { dynamic: context.profile.display.dynamicViewport } : {}) }));
-      files.push("program.js", "program.json");
+      files.push("index.html", "programs/web/main.js", "program.json");
     }
     await writeRuntimeManifest(out, { target: profile.id, profile: profile.id, profileHash: context.profileHash, hostAbi: POCKET_BINDING_GENERATION, files });
   },

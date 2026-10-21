@@ -12,7 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import { fontSlotFor } from "../framework/compiler/tailwind.ts";
 import { FONT_META, FONT_MSG } from "../apps/im/wrap.ts";
-import { runScenario, treeHasText, type Trace } from "../hosts/sim/sim.ts";
+import { runScenario, treeHasText, type Trace } from "../programs/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 import { OskScripter } from "./osk-script.ts";
 

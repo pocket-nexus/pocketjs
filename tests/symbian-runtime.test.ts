@@ -439,11 +439,11 @@ describe("experimental Nokia E7 runtime profile", () => {
       "utf8",
     );
     const coreHeader = readFileSync(
-      join(repository, "engine/ui-cabi/include/pocket_native_program.h"),
+      join(repository, "programs/native/cabi/include/pocket_native_program.h"),
       "utf8",
     );
     const coreCargo = readFileSync(
-      join(repository, "engine/ui-cabi/Cargo.toml"),
+      join(repository, "programs/native/cabi/Cargo.toml"),
       "utf8",
     );
     const coreSource = readFileSync(

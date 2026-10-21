@@ -365,7 +365,7 @@ pocket psp my-app --release
 ```
 
 Vita packaging additionally requires VitaSDK and the pinned Rust toolchain
-documented in [`hosts/vita/README.md`](./hosts/vita/README.md). Guest builds can
+documented in [`programs/vita/README.md`](./programs/vita/README.md). Guest builds can
 be packaged as inspectable, target-thinnable
 [`.pocket` files](./docs/PLATFORM.md) instead of per-port directories. The
 [Getting started](https://pocketjs.pocket.nexus/docs/getting-started/) guide
@@ -412,8 +412,10 @@ repository or the Rust AOT build.
 | [`pocket3d/`](./pocket3d/) | The Pocket3D entry point: its design and a map of where its code lives |
 | [`microts/`](./microts/) | The MicroTS ahead-of-time compiler |
 | [`contracts/`](./contracts/) | Generated wire specs, capability registry, manifests, build plans and package formats |
-| [`hosts/`](./hosts/) | PSP, Vita, 3DS, web, desktop, e-reader, phone and MCU host integrations |
-| [`hosts/esp-idf/`](./hosts/esp-idf/) | Composable package, QuickJS, UI, RGB565, PPA and runner components for P4/S3 firmware |
+| [`programs/`](./programs/) | Runtime composition, entry points and native build recipes |
+| [`profiles/`](./profiles/) | Software contracts identified by content hashes |
+| [`platforms/`](./platforms/) | Operating-system, SDK and fixed-console drivers |
+| [`platforms/esp-idf/`](./platforms/esp-idf/) | Runtime, QuickJS, display, PPA, input and runner components |
 | [`apps/`](./apps/) | Framework demos and system applications used by the launcher and acceptance suites |
 | [`tools/`](./tools/) | Build, package, launcher, device, DevTools, benchmark and release commands |
 | [`tests/`](./tests/) | Contract, compiler, simulation, emulator, package and golden verification |

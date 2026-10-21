@@ -16,11 +16,11 @@
 //
 //   1. tools/build.ts        -> <outdir>/<output>.js + <outdir>/<output>.pak
 //   1b. pocket-package.ts    -> dist/3ds/<output>.pocket (also ROMFS recovery)
-//   2. cargo build --release -> hosts/3ds/core/target/armv6k-nintendo-3ds/release/
+//   2. cargo build --release -> programs/3ds/product/core/target/armv6k-nintendo-3ds/release/
 //                               libpocketjs_3ds_core.a   (macOS)
 //   3. QuickJS               -> dist/3ds/quickjs/libquickjs.a  (container, cached)
 //   3b. makerom (--cia)      -> dist/3ds/makerom/bin/makerom    (container, cached)
-//   4. hosts/3ds/Makefile    -> dist/3ds/<output>.3dsx          (container)
+//   4. programs/3ds/product/Makefile    -> dist/3ds/<output>.3dsx          (container)
 //                               dist/3ds/<output>.cia  under --cia
 //
 // <output> is the resolved plan's app.output, not the bare app argument.
@@ -30,9 +30,9 @@
 // name.
 //
 // ---------------------------------------------------------------------------
-// The contract with hosts/3ds/Makefile
+// The contract with programs/3ds/product/Makefile
 // ---------------------------------------------------------------------------
-// The Makefile runs in the container with CWD /repo/hosts/3ds and receives all
+// The Makefile runs in the container with CWD /repo/programs/3ds/product and receives all
 // paths as container paths. It gets the variables hostBuildEnvironment()
 // emits, of which it reads POCKETJS_TARGET and POCKETJS_HOST_ABI: the values
 // the host must publish as ui.__host / ui.__hostAbi, so the C compile derives
@@ -109,13 +109,13 @@ import {
 import { makeVariant } from "./pocket-pack.ts";
 
 const repository = new URL("..", import.meta.url).pathname; // PocketJS/
-const hostDirectory = `${repository}hosts/3ds/`;
+const hostDirectory = `${repository}programs/3ds/product/`;
 const coreDirectory = `${hostDirectory}core/`;
 
 /** The dev profile's target id; a plan for any other target is rejected. */
 const TARGET_ID = THREE_DS_DEV_TARGET_ID;
 const RUST_TARGET = "armv6k-nintendo-3ds";
-/** Produced by the `pocketjs-3ds-core` staticlib crate in hosts/3ds/core. */
+/** Produced by the `pocketjs-3ds-core` staticlib crate in programs/3ds/product/core. */
 const CORE_STATIC_LIBRARY = "libpocketjs_3ds_core.a";
 // Pin the image that produced the hardware-tested CIA. A floating `latest`
 // tag makes fresh machines silently pick a different compiler/libctru/citro3d
@@ -657,7 +657,7 @@ export async function prepare3dsNative(options: {
     throw new Error(
       `PocketJS 3ds: ${CORE_STATIC_LIBRARY} is absent from ${releaseDirectory}` +
         (found.length > 0 ? ` (found ${found.join(", ")})` : "") +
-        " — hosts/3ds/core must be a staticlib crate named pocketjs-3ds-core",
+        " — programs/3ds/product/core must be a staticlib crate named pocketjs-3ds-core",
     );
   }
 
@@ -678,7 +678,7 @@ export async function prepare3dsNative(options: {
   return { imageId, coreLibrary, quickJsDirectory, mounts };
 }
 
-/** Run hosts/3ds/Makefile's default goal in the container. */
+/** Run programs/3ds/product/Makefile's default goal in the container. */
 export async function run3dsMake(
   environment: Readonly<Record<string, string>>,
   mounts: readonly Mount[],
@@ -698,7 +698,7 @@ export async function run3dsMake(
     mounts,
     containerPathFor(hostDirectory, mounts),
     environment,
-    "hosts/3ds/Makefile",
+    "programs/3ds/product/Makefile",
     THREE_DS_CONTAINER_IMAGE,
     context?.run,
   );

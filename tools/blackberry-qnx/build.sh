@@ -68,11 +68,11 @@ first_party_flags=(
   -include /build/pocket_host_profile.h \
   -DPOCKETJS_HOST_ABI="$POCKETJS_HOST_ABI" \
   -DPOCKET_RASTER_DENSITY="$POCKET_RASTER_DENSITY" \
-  -I/repo/engine/quickjs-c \
-  -I/repo/engine/guest-quickjs/include -I/repo/engine/ui-cabi/include \
+  -I/repo/programs/native/quickjs \
+  -I/repo/engine/guest-quickjs/include -I/repo/programs/native/cabi/include \
   -I/repo/contracts/generated \
   -I"$quickjs" \
-  -c /repo/engine/quickjs-c/pocket_runtime.c \
+  -c /repo/programs/native/quickjs/pocket_runtime.c \
   -o "$objects/pocket_runtime.o"
 
 "$qcc" "${first_party_flags[@]}" \
@@ -89,7 +89,7 @@ first_party_flags=(
   -DPOCKET_BUILD_ID=\""$POCKET_BUILD_ID"\" \
   -DPOCKET_LOGICAL_WIDTH="$POCKET_LOGICAL_WIDTH" \
   -DPOCKET_LOGICAL_HEIGHT="$POCKET_LOGICAL_HEIGHT" \
-  -I/repo/engine/quickjs-c \
+  -I/repo/programs/native/quickjs \
   -I/repo/hosts/blackberry-classic \
   -I/repo/contracts/generated \
   -c /repo/hosts/blackberry-classic-qnx/main.c \

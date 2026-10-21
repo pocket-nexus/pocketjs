@@ -1,7 +1,7 @@
 // A Pocket3D game's interface on a page: the PocketJS guest that draws it, in
 // a realm of its own, and what passes between it and the game.
 //
-// The realm is PocketJS's AppInstance (hosts/web/app-instance.html): a hidden
+// The realm is PocketJS's AppInstance (programs/web/app-instance.html): a hidden
 // frame of the page with its own globals and its own instance of the UI core
 // (pocketjs.wasm), started without the text worker. The guest is the bundle
 // the game's build wrote for a device, as that device loads it. It opens the

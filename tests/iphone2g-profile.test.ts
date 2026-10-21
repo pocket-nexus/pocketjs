@@ -21,7 +21,7 @@ const APP_PATH = join(REPOSITORY, "apps/iphone2g-demo/app.tsx");
 const INFO_PLIST_PATH = join(REPOSITORY, "hosts/iphone2g/Info.plist");
 const ICON_PATH = join(REPOSITORY, "hosts/iphone2g/Icon.png");
 const RUNTIME_PATH = join(REPOSITORY, "hosts/ios-legacy/runtime.c");
-const POCKET_RUNTIME_PATH = join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c");
+const POCKET_RUNTIME_PATH = join(REPOSITORY, "programs/native/quickjs/pocket_runtime.c");
 const ROOT_TSCONFIG = join(REPOSITORY, "tsconfig.json");
 const JSX_DECLARATIONS = join(REPOSITORY, "framework/src/jsx.d.ts");
 

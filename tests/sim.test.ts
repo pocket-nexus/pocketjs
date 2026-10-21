@@ -19,7 +19,7 @@
 //                  and the settled final screen is byte-equal across rates.
 
 import { describe, expect, test } from "bun:test";
-import { runScenario, treeHasText, type Trace } from "../hosts/sim/sim.ts";
+import { runScenario, treeHasText, type Trace } from "../programs/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 
 // The user journey, in virtual seconds (one script drives every rate; the

@@ -1,5 +1,5 @@
 // bun run macos [app] [flags…] — build + launch a PocketJS app on the portable Rust
-// macOS host (hosts/desktop over the macos-app target; docs/BACKENDS.md).
+// macOS host (programs/desktop over the macos-app target; docs/BACKENDS.md).
 //
 //   bun run macos                    # the note, baked package fonts
 //   bun run macos hero               # a fixed-viewport console demo,
@@ -28,9 +28,9 @@ const root = new URL("..", import.meta.url).pathname;
 // The portable desktop host is a git-only crate (npm files map ships
 // this wrapper for parity with tools/note.ts, whose widget host is git-only
 // too) — fail with directions instead of a cargo error mid-build.
-if (!existsSync(`${root}hosts/desktop/Cargo.toml`)) {
+if (!existsSync(`${root}programs/desktop/Cargo.toml`)) {
   console.error(
-    "bun run macos needs a git checkout: hosts/desktop is not part of the npm package (github.com/pocket-nexus/pocketjs).",
+    "bun run macos needs a git checkout: programs/desktop is not part of the npm package (github.com/pocket-nexus/pocketjs).",
   );
   process.exit(1);
 }

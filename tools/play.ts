@@ -19,7 +19,7 @@ import { VITA_REQUIRED_SYSTEM_ASSETS } from "./vita-package.ts";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const HOME = homedir();
-const RELEASE_DIR = `${ROOT}hosts/vita/target/armv7-sony-vita-newlibeabihf/release`;
+const RELEASE_DIR = `${ROOT}programs/vita/target/armv7-sony-vita-newlibeabihf/release`;
 const VPK = `${RELEASE_DIR}/pocketjs-vita.vpk`;
 const VPK_STAMP = `${VPK}.play.json`;
 const PLAY_DIR = `${ROOT}dist/play-vita`;

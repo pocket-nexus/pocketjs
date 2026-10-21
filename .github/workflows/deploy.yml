@@ -28,7 +28,7 @@ jobs:
         with:
           bun-version: latest
 
-      # The site copies hosts/web/pocketjs.wasm (a gitignored build artifact), so
+      # The site copies platforms/web/pocketjs.wasm (a gitignored build artifact), so
       # CI must build it from engine/core/wasm first. Stable Rust is enough (no nightly
       # features); wasm32-unknown-unknown is the target.
       - name: Read fixed Rust toolchain
@@ -46,8 +46,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            engine/wasm/target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
+            programs/web/wasm/target
+          key: ${{ runner.os }}-wasm-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'programs/web/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'programs/web/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
       - name: Install dependencies
@@ -100,7 +100,7 @@ jobs:
         run: bunx wrangler deploy -c site/pocket3d/wrangler.jsonc
 
   # microts.pocket.nexus: the MicroTS docs and playground. The playground kit
-  # bundles hosts/web/pocketjs.wasm, so this job builds it like the PocketJS
+  # bundles platforms/web/pocketjs.wasm, so this job builds it like the PocketJS
   # job does; the build also fetches the pinned pocket-retro commit.
   microts:
     name: microts.pocket.nexus
@@ -127,8 +127,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            engine/wasm/target
-          key: ${{ runner.os }}-wasm-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'engine/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'engine/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
+            programs/web/wasm/target
+          key: ${{ runner.os }}-wasm-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'programs/web/wasm/Cargo.toml', 'engine/core/Cargo.toml', 'programs/web/wasm/src/**', 'engine/core/src/**', 'engine/spec/Cargo.toml', 'engine/spec/src/**', 'engine/drivers/Cargo.toml', 'engine/drivers/src/**', 'engine/raster/Cargo.toml', 'engine/raster/src/**', 'engine/present/Cargo.toml', 'engine/present/src/**', 'engine/package/Cargo.toml', 'engine/package/src/**', 'engine/modules/media/Cargo.toml', 'engine/modules/media/src/**', 'engine/render/draw-ops/Cargo.toml', 'engine/render/draw-ops/src/**', 'engine/render/glyph-pages/Cargo.toml', 'engine/render/glyph-pages/src/**') }}
           restore-keys: ${{ runner.os }}-wasm-
 
       - name: Install dependencies

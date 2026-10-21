@@ -2,7 +2,7 @@
 //! (contracts/spec/spec.ts OP table; JS caller in framework/src/host.ts) mounted into a guest
 //! as `globalThis.ui`.
 //!
-//! Boot contract mirrors the PSP host (`hosts/psp/src/ffi.rs` + `pak.rs`):
+//! Boot contract mirrors the PSP host (`programs/psp/src/service_bindings.rs` + `pak.rs`):
 //! styles/atlases feed the core natively BEFORE the bundle evals, pak images
 //! and sprites upload natively, and the (name → handle) tables are exposed
 //! as `ui.__textures` / `ui.__sprites`. Pocket System shells additionally get

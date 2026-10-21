@@ -7,7 +7,7 @@
 //! the scene's samples are resolved: colour × (1 − its alpha) + its colour.
 //! PocketJS's UI core rasterizes such a picture in one drawing
 //! (`ui_render_premultiplied_scaled`, `renderPremultiplied` of
-//! `hosts/web/app-instance.js`): alpha is 0 where the interface draws nothing.
+//! `programs/web/app-instance.js`): alpha is 0 where the interface draws nothing.
 
 use crate::gpu::{Frame, Gpu};
 use wgpu::TextureFormat;

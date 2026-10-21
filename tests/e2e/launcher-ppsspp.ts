@@ -19,13 +19,15 @@
 // Host deps: ~/ppsspp-src/build/PPSSPPHeadless (or PPSSPP_HEADLESS).
 
 import { $ } from "bun";
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname } from "node:path";
+import { buildCaptureLauncher, evidenceDirectory } from "./build.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
 const headless = process.env.PPSSPP_HEADLESS || `${homedir()}/ppsspp-src/build/PPSSPPHeadless`;
 const dccap = `${homedir()}/.ppsspp/dc_cap`;
-const eboot = `${ROOT}hosts/psp/target/mipsel-sony-psp/debug/EBOOT.PBP`;
+const OUT = evidenceDirectory(ROOT, "launcher-ppsspp");
 
 // The journey, in global frames (launcher registry order: Café, Chrome, …).
 // Level-triggered script (capture_input_mask holds the last entry's mask),
@@ -61,28 +63,28 @@ if (!existsSync(headless)) {
   process.exit(1);
 }
 
-console.log("# registry + covers (cached when fresh) ...");
-await $`bun tools/launcher.ts covers`.cwd(ROOT).quiet();
-
-console.log("# build multi-app capture EBOOT ...");
-await $`bun tools/pocket.ts build --target psp --manifest apps/launcher/pocket.json --project-root . -- --capture --launcher-registry=dist/launcher-registry.tsv`
-  .cwd(ROOT)
-  .env({
+console.log("# compile registry packages + build multi-app capture EBOOT ...");
+const eboot = await buildCaptureLauncher({
+  root: ROOT, directory: OUT, target: "psp",
+  env: {
     ...process.env,
     POCKETJS_CAPTURE_INPUT: INPUT,
     POCKETJS_CAP_START: String(CAP_START),
     POCKETJS_CAP_N: String(CAP_N),
-  })
-  .quiet();
+  },
+});
 
 console.log("# PPSSPPHeadless (software renderer) ...");
 rmSync(dccap, { recursive: true, force: true });
-rmSync(`${ROOT}hosts/psp/target/mipsel-sony-psp/debug/pocketjs-dbg`, { recursive: true, force: true });
+rmSync(`${dirname(eboot)}/pocketjs-dbg`, { recursive: true, force: true });
 const timeout = Number(process.env.E2E_PPSSPP_TIMEOUT || 180);
 const run = await $`${headless} --graphics=software --timeout=${timeout} ${eboot}`
   .cwd("/tmp")
   .nothrow()
   .quiet();
+writeFileSync(`${OUT}/ppsspp.stdout.log`, run.stdout);
+writeFileSync(`${OUT}/ppsspp.stderr.log`, run.stderr);
+if (existsSync(dccap)) cpSync(dccap, `${OUT}/captures`, { recursive: true });
 
 let failed = false;
 const produced = existsSync(dccap)

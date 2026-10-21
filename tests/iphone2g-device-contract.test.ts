@@ -22,7 +22,7 @@ const deviceSource = readFileSync(
   "utf8",
 );
 const pocketRuntimeSource = readFileSync(
-  join(repository, "engine/quickjs-c/pocket_runtime.c"),
+  join(repository, "programs/native/quickjs/pocket_runtime.c"),
   "utf8",
 );
 

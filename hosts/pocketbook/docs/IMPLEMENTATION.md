@@ -769,7 +769,7 @@ Tailwind UIs are dark-on-light. Two clean options:
 
 | Layer | What | Command / how |
 | --- | --- | --- |
-| 1. Logic | App behavior, no device | `hosts/sim` scripted-input golden run (unchanged) |
+| 1. Logic | App behavior, no device | `programs/sim` scripted-input golden run (unchanged) |
 | 2. Raster | Byte-exact RGBA8 of the DrawList | unit test: `raster::render_scaled` → write PNG, inspect |
 | 3. Gray + damage | Luminance + tile diff correctness | unit tests in `framebuffer.rs` (synthetic fb → known dirty tiles) |
 | 4. Desktop preview | Fast iteration of the same core+framework | `cargo run -p uihost -- --app <app>` (wgpu host) |

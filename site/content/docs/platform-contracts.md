@@ -224,7 +224,7 @@ new sizes through the framework's `resizeViewport` hook.
 `app.companions` lists the exact strings the app passes to `svcOpen` — the
 service names its adapters speak. The resolver copies the list into
 `plan.companions` unchanged, and a host builds its svc allowlist from that copy
-instead of an app-name convention: `hosts/desktop` calls
+instead of an app-name convention: `programs/desktop` calls
 `set_svc_allowlist(plan.companions)`, and `svcOpen` denies everything else.
 **A host with no adapter for those services rejects a plan whose `companions`
 list is non-empty** rather than starting an app whose services answer false.

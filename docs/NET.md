@@ -31,8 +31,8 @@ sockets.
 | SDK | `framework/src/net-api.ts` | `fetch`, `PocketResponse`, validation, lazy Promise delivery |
 | Spec | `contracts/spec/net.ts` | five ops, two event shapes, buffer ownership, limits, portable errors, tick timing |
 | Core | `engine/crates/pocket-net` | handles, request lifecycle, limits, event batches, completed bodies, transport interface |
-| Deterministic host | `hosts/sim/net.ts` | fixture routes and virtual-tick completions for conformance tests |
-| Browser host | `hosts/web/net.js` | browser `fetch` transport, bounded streaming read, redirects, tick staging |
+| Deterministic host | `platforms/sim/net.ts` | fixture routes and virtual-tick completions for conformance tests |
+| Browser host | `platforms/web/net.js` | browser `fetch` transport, bounded streaming read, redirects, tick staging |
 
 The physical HTTP implementation belongs to the host that owns the network
 resource. PocketJS does not choose one transport library for every runtime.

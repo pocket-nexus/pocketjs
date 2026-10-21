@@ -33,6 +33,7 @@
 // GUI-bound: keep it out of `bun run test` and CI.
 
 import { $ } from "bun";
+import { evidenceDirectory } from "./build.ts";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { demoManifestFor } from "../../tools/demo-identity.ts";
@@ -45,7 +46,7 @@ import {
 } from "../golden-specs.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const OUT = `${ROOT}dist/e2e-3ds`;
+const OUT = evidenceDirectory(ROOT, "azahar");
 // Azahar derives its whole user directory from $HOME on macOS, and has no
 // command line switch for any part of it. A fixture $HOME is therefore the only
 // way to give a run its own config and its own SD card.
@@ -230,7 +231,7 @@ async function runAzahar(rom: string): Promise<void> {
     // away. The console stream redirected at launch is the diagnostic instead.
     throw new Error(
       `timed out after ${TIMEOUT_MS} ms without the guest's done marker ` +
-        "(see dist/e2e-3ds/azahar-console.log)",
+        `(see ${CONSOLE_LOG})`,
     );
   } finally {
     killEmulator();
@@ -406,7 +407,7 @@ for (const spec of specs) {
               ? ` — note: goldens came from ${recordedStamp}, this run is ${buildStamp}`
               : "";
           throw new Error(
-            `${label}: PNG bytes differ (see dist/e2e-3ds/${label}.actual.png)${drift}`,
+            `${label}: PNG bytes differ (see ${OUT}/${label}.actual.png)${drift}`,
           );
         }
         console.log(

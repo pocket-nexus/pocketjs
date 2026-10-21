@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -49,6 +49,8 @@ test("program configurations load without running compilers and declare native a
     expect(loaded.profiles.some(profile => profile.id === id)).toBe(true);
     expect(loaded.value.build!.input).toBe(input);
     expect(loaded.value.build!.artifact).toStartWith("{outdir}/");
+    for (const source of loaded.value.build!.sourceInputs ?? [])
+      expect(existsSync(resolve(dirname(loaded.path), source)), `${directory}: ${source}`).toBe(true);
     expect(loaded.dependencies.some(path => path.endsWith("framework/compiler/jsx-plugin.ts"))).toBe(false);
     if (directory.endsWith("/runtime")) expect(loaded.value.build!.genericRuntime?.repack).toBeFunction();
   }
@@ -101,12 +103,17 @@ test("web assembly stages admitted bytes and the complete runtime/text provider 
   const out = resolve(ctx.outdir, "runtime"), read = (name: string) => readFileSync(resolve(out, name), "utf8");
   expect(read("dist/example.js")).toBe("globalThis.frame=()=>{};");
   expect(readFileSync(resolve(out, "app.pocket"))).toEqual(readFileSync(pocket));
-  expect(read("program.js")).toContain('from "./app-instance.js"');
-  expect(read("app-instance.js")).toContain("createWorkerOffload");
-  expect(read("runtime-glyphs.js")).toContain("installRuntimeGlyphs");
+  expect(read("programs/web/main.js")).toContain('from "./app-instance.js"');
+  expect(read("programs/web/app-instance.js")).toContain("createWorkerOffload");
+  expect(read("platforms/web/runtime-glyphs.js")).toContain("installRuntimeGlyphs");
   expect(JSON.parse(read("program.json"))).toMatchObject({ host: web.id, hostAbi: POCKET_BINDING_GENERATION, viewport: [800, 600] });
   const receipt = JSON.parse(read("runtime.json")); expect(receipt.profileHash).toBe(ctx.profileHash);
-  expect(receipt.files["pocket_text.wasm"].bytes).toBe(4);
+  expect(receipt.files["platforms/web/pocket_text.wasm"].bytes).toBe(4);
+  // Resolve the staged ES module graph, including the worker entry, from the artifact alone.
+  for (const entry of ["programs/web/main.js", "platforms/web/text-worker.js"]) {
+    const bundled = await Bun.build({ entrypoints: [resolve(out, entry)], target: "browser" });
+    expect(bundled.success).toBe(true);
+  }
 });
 
 test("explicit deploy stages only this completed artifact and verifies bytes on mounted volumes", () => {

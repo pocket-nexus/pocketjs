@@ -23,7 +23,7 @@ on:
       - "tests/fixtures/packages/**"
       - "tests/fixtures/repack-*/**"
       - "tools/vita-package.ts"
-      - "hosts/vita/assets/**"
+      - "programs/vita/assets/**"
   push:
     branches: [main]
     paths:
@@ -43,7 +43,7 @@ on:
       - "tests/fixtures/packages/**"
       - "tests/fixtures/repack-*/**"
       - "tools/vita-package.ts"
-      - "hosts/vita/assets/**"
+      - "programs/vita/assets/**"
 
 permissions:
   contents: read

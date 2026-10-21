@@ -53,7 +53,7 @@ let pagehide: (()=>void)|undefined;
   terminate() {}
 };
 
-await import(url("app-instance.js"));
+await import(url("programs/web/app-instance.js"));
 const { attach, realmOptions, screens } = await import(url("pocket3d-interface.js"));
 const realm = (globalThis as unknown as { PocketAppInstance: { create(options: object): Promise<any> } }).PocketAppInstance;
 

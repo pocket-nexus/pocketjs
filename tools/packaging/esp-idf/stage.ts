@@ -2,9 +2,9 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { NATIVE_COMPONENTS, RUST_TARGETS, verifyNativeReceipt, type IdfTarget } from "../../esp-idf-native-receipt.ts";
-import { verifyComponentVersions } from "../../esp-idf-component-versions.ts";
-import { generatedIdfContracts } from "../../esp-idf-contracts.ts";
+import { NATIVE_COMPONENTS, RUST_TARGETS, verifyNativeReceipt, type IdfTarget } from "./receipt.ts";
+import { verifyComponentVersions } from "./component-versions.ts";
+import { generatedIdfContracts } from "./contracts.ts";
 import { vendorIdfProgram } from "./vendor.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("../../..", import.meta.url)));

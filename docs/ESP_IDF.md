@@ -27,17 +27,17 @@ pocket_runtime/lib/<target>/libpocket_idf_runtime.a
 pocket_runtime/lib/<target>/build-receipt.json
 ```
 
-`hosts/esp-idf/native/runtime` composes `pocket-runtime-cabi` and
+`programs/esp-idf/archive` composes `pocket-runtime-cabi` and
 `pocket-render-esp-ppa` with its C factory feature. The generic SDK archive has
 no platform driver dependency. Both compositions use one allocator and panic
 handler backed by the six `pocket_host_*` hooks in `pocket_runtime/src/hooks.c`.
 
 ```sh
-bun tools/esp-idf-native.ts --target esp32p4 --archiver /path/to/llvm-ar
-bun tools/esp-idf-native.ts --target esp32s3 --cargo /path/to/xtensa-rust/bin/cargo
-bun tools/esp-idf-native.ts --target esp32c3
-bun tools/esp-idf-native.ts --target esp32c6
-bun tools/esp-idf-release.ts --output /path/to/staged-components
+bun tools/packaging/esp-idf/native.ts --target esp32p4 --archiver /path/to/llvm-ar
+bun tools/packaging/esp-idf/native.ts --target esp32s3 --cargo /path/to/xtensa-rust/bin/cargo
+bun tools/packaging/esp-idf/native.ts --target esp32c3
+bun tools/packaging/esp-idf/native.ts --target esp32c6
+bun tools/packaging/esp-idf/stage.ts --output /path/to/staged-components
 ```
 
 The script uses the supplied toolchain. Compiler commits are pinned in
@@ -95,7 +95,7 @@ The removed C package parser and UI dispatcher have no independent admission
 or binding path.
 
 `tools/driver-contracts.ts` generates public C/Rust driver/runtime ABI records.
-`tools/esp-idf-contracts.ts` generates package wire constants and Python profile
+`tools/packaging/esp-idf/contracts.ts` generates package wire constants and Python profile
 field names. Both generators support `--check`. TS, Rust and Python readers
 consume `tests/fixtures/packages/corpus`.
 
@@ -143,8 +143,8 @@ renderer/device and display in that order.
 
 ```sh
 bun tools/driver-contracts.ts --check
-bun tools/esp-idf-contracts.ts --check
-bun tools/esp-idf-host-tests.ts
+bun tools/packaging/esp-idf/contracts.ts --check
+bun tools/packaging/esp-idf/host-tests.ts
 bun test tests/idf-embed.test.ts tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts tests/idf-input.test.ts
 cargo test --locked --manifest-path Cargo.toml -p pocket-render-esp-ppa --features cabi
 ```

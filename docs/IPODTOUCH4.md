@@ -58,9 +58,9 @@ mouth. It shares its bodies, toys and bake with the 3DS scene in
 `apps/nexus` (`homepage.ts`, `toys.ts`, `bake.ts`).
 
 **The profile advertises `ui.physics`. For an app whose plan resolves it,
-the build compiles `engine/quickjs-c/pocket_runtime.c` with
+the build compiles `programs/native/quickjs/pocket_runtime.c` with
 `POCKET_PHYSICS`, which binds ops 52..56 to the `ui_physics_*` exports of
-the UI C ABI (`engine/ui-cabi`).** Other apps, and the other hosts that
+the UI C ABI (`programs/native/cabi`).** Other apps, and the other hosts that
 compile the same runtime (iPhone 2G, iPhone 4S, Meizu M8, BlackBerry
 Classic, Android), keep their op tables byte-identical. The host ABI stays 8:
 the family is optional behind its capability, as `io.offload` is, and the

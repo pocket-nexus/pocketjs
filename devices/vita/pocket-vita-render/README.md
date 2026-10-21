@@ -36,7 +36,7 @@ completion, queues the display swap, waits for the display queue, and retires
 submissions.** A failed frame closes its scene without displaying partial work.
 `Config::external_compositor` permits `SURFACE_QUAD` records to be supplied by
 that native compositor; without it, such records return `Unsupported`.
-`TEXT_RUN` remains unsupported. The host adapter in `hosts/vita/src/graphics.rs`
+`TEXT_RUN` remains unsupported. The host adapter in `programs/vita/src/scene.rs`
 registers the process GXM device; frame resource views come from the runtime's
 CoreState. Its generated guest uses the pinned Bellard QuickJS context.
 
@@ -62,9 +62,9 @@ export TARGET_CC=arm-vita-eabi-gcc
 export TARGET_CXX=arm-vita-eabi-g++
 export TARGET_AR=arm-vita-eabi-ar
 export POCKET_QJS_SOURCE="$(cargo +stable metadata --locked --format-version=1 \
-  --manifest-path hosts/vita/Cargo.toml | python3 -c 'import json,sys,pathlib; print(next(pathlib.Path(p["manifest_path"]).parent / "embed/quickjs" for p in json.load(sys.stdin)["packages"] if p["name"] == "libquickjs-sys"))')"
+  --manifest-path programs/vita/Cargo.toml | python3 -c 'import json,sys,pathlib; print(next(pathlib.Path(p["manifest_path"]).parent / "embed/quickjs" for p in json.load(sys.stdin)["packages"] if p["name"] == "libquickjs-sys"))')"
 POCKETJS_EMBED_APP=0 cargo +nightly-2026-05-28 build --locked \
-  --manifest-path hosts/vita/Cargo.toml \
+  --manifest-path programs/vita/Cargo.toml \
   --target armv7-sony-vita-newlibeabihf -Zbuild-std=std,panic_abort \
   --features runtime,capture --release
 ```

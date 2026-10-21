@@ -136,7 +136,7 @@ describe("private iPod touch 4 profile", () => {
     const runtime = readFileSync(join(repository, "hosts/ios-legacy/runtime.c"), "utf8");
     expect(runtime).toContain("landscape = POCKET_LOGICAL_WIDTH > POCKET_LOGICAL_HEIGHT");
     expect(runtime).toContain('sel_registerName("setTransform:")');
-    const guest = readFileSync(join(repository, "engine/quickjs-c/pocket_runtime.c"), "utf8");
+    const guest = readFileSync(join(repository, "programs/native/quickjs/pocket_runtime.c"), "utf8");
     expect(guest).toContain("#ifdef POCKET_SVC_WIRE");
     expect(guest).toContain('pocket_runtime_add_op_provider(handle, &service_table');
     expect(guest).toContain("svcwire_pump();");
@@ -195,7 +195,7 @@ describe("private iPod touch 4 profile", () => {
   test("shares the multi-contact touch host and keeps transactional rollback", () => {
     const wrapper = readFileSync(join(repository, "hosts/ipodtouch4/runtime.c"), "utf8");
     const runtime = readFileSync(join(repository, "hosts/ios-legacy/runtime.c"), "utf8");
-    const guest = readFileSync(join(repository, "engine/quickjs-c/pocket_runtime.c"), "utf8");
+    const guest = readFileSync(join(repository, "programs/native/quickjs/pocket_runtime.c"), "utf8");
     expect(wrapper).toContain('#include "../ios-legacy/runtime.c"');
     expect(wrapper).toContain("#define POCKET_GL_DEFAULT 1");
     expect(wrapper).toContain("#define POCKET_REQUIRE_GL 1");

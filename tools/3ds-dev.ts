@@ -34,7 +34,7 @@ import {
   pocketRuntimeNativeNameValid,
   type PocketRuntimeAck,
 } from "../contracts/spec/pocket-runtime-wire.ts";
-import { startDevServer } from "../hosts/web/server.ts";
+import { startDevServer } from "../tools/dev/web/server.ts";
 import {
   PocketRuntimeClient,
   PocketRuntimeSession,

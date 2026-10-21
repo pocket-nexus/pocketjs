@@ -55,7 +55,7 @@ pub enum NodeType {
     Surface = 3,
 }
 
-/// UI op codes (the engine/wasm/FFI ABI identity of each `ui.*` op; 0 reserved).
+/// UI op codes (the programs/web/wasm/FFI ABI identity of each `ui.*` op; 0 reserved).
 /// Signatures are documented in spec.ts and docs/DESIGN.md.
 pub mod op {
     pub const CREATE_NODE: u8 = 1;

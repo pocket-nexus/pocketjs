@@ -11,7 +11,7 @@ import {
   audioFramesForTick,
 } from "../contracts/spec/audio.ts";
 import { createWavPlayer, decodeWav } from "../framework/src/audio-api.ts";
-import { createSimAudioSink } from "../hosts/sim/audio.ts";
+import { createSimAudioSink } from "../platforms/sim/audio.ts";
 
 // --- the pinned consumption formula ---------------------------------------
 

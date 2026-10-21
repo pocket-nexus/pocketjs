@@ -116,7 +116,7 @@ game**. The game's page has an empty body and no line of its own.
 | The page does | With |
 | --- | --- |
 | Reads the screens, the raster density and the surface that takes touch from the plan | `screens(plan)` in `pocket3d-interface.js`. The page keeps no table of device sizes |
-| Starts the device's guest in a realm of its own | `openInterface`: `hosts/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared. **`simHz` is the turns a second the game gives the guest** (30 where the device's host sets `__simHz` to 30); each turn then advances `ticks` sixtieths |
+| Starts the device's guest in a realm of its own | `openInterface`: `programs/web/app-instance.html` in a hidden frame, `text: false`, `pocket.overlay` declared. **`simHz` is the turns a second the game gives the guest** (30 where the device's host sets `__simHz` to 30); each turn then advances `ticks` sixtieths |
 | Builds the page: the bar, the device's shell, the dock with the game's Download and Remix links | `createPlayer({ title, tagline, devices, runsOn, pick })`. The page links `pocket3d-stage.css` and `pocket3d-player.css` |
 | Shows a device: its shell with one or two screens in it | `player.show(id, { width, height, lower, sticks, glyphs, touch, viewport })`, from `screens(plan)` and the renderer's shape. The scene is drawn into `player.canvas`; the lower screen is `player.stage.second` |
 | Reads the device's buttons and sticks | `player.controls.read()`: the keyboard and the shell's own keys, d-pad and sticks under a pointer or a finger. The bits are PocketJS's, so one mask goes to the guest and to the game's pad mapping |
@@ -161,8 +161,8 @@ them from its channel in one of two ways:
 
 | Host | How the game answers |
 | --- | --- |
-| Rust hosts (`hosts/psp`, `hosts/vita`) | After the host registered its ops and before the bundle is evaluated, set `svcOpen`, `svcPoll`, `svcSend` on the guest's `ui` object to C functions that read and write the channel (`JS_NewCFunction2`, `JS_SetPropertyStr`). |
-| C hosts (`hosts/3ds/src/qjs.c`, `engine/quickjs-c/pocket_runtime.c` with `POCKET_SVC_WIRE`) | Link the six functions of [`hosts/3ds/src/svcwire.h`](../../hosts/3ds/src/svcwire.h) (`svcwire_open`, `svcwire_recv_lines`, `svcwire_send_line`, …) from the game's interface crate in place of the network client. |
+| Rust hosts (`programs/psp`, `programs/vita`) | After the host registered its ops and before the bundle is evaluated, set `svcOpen`, `svcPoll`, `svcSend` on the guest's `ui` object to C functions that read and write the channel (`JS_NewCFunction2`, `JS_SetPropertyStr`). |
+| C hosts (`programs/3ds/product/src/qjs.c`, `programs/native/quickjs/pocket_runtime.c` with `POCKET_SVC_WIRE`) | Link the six functions of [`programs/3ds/product/src/svcwire.h`](../../programs/3ds/product/src/svcwire.h) (`svcwire_open`, `svcwire_recv_lines`, `svcwire_send_line`, …) from the game's interface crate in place of the network client. |
 
 Rules for the state:
 
@@ -239,11 +239,11 @@ entry.
 
 | Device | PocketJS piece | Where the interface is drawn |
 | --- | --- | --- |
-| PSP | `hosts/psp` as a library: `Runtime::new`, `boot`, `advance`, `present` in `hosts/psp/src/program.rs`; the runtime owns guest bindings and assets, and its arena is the program's allocator | The last pass of the frame's GE list |
-| PS Vita | `hosts/vita` as a library: `Runtime::new`, `eval`, `frame_with_input`, `tick`, `render_over` | The display scene, after the game's composite |
-| Nintendo 3DS | `hosts/3ds/src` composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
-| iPod touch 4 | `engine/quickjs-c/pocket_runtime.c` with the UI core's OpenGL ES 2 backend | A texture redrawn when the draw hash changes, laid over the scene |
-| Browser tab | `hosts/web/app-instance.js` in a hidden frame of the page, driven through `openInterface` of the browser kernel; the UI core is `hosts/web/pocketjs.wasm` | `renderPremultiplied` when `drawHash` changes: one software drawing with its alpha, uploaded and laid over the scene in a pass of its own (`pocket_web_wgpu::overlay`). A second screen from `renderAuxiliary` into its own canvas when `drawHashAuxiliary` changes |
+| PSP | `programs/psp` as a library: `Runtime::new`, `boot`, `advance`, `present` in `programs/psp/src/program.rs`; the runtime owns guest bindings and assets, and its arena is the program's allocator | The last pass of the frame's GE list |
+| PS Vita | `programs/vita` as a library: `Runtime::new`, `eval`, `frame_with_input`, `tick`, `render_over` | The display scene, after the game's composite |
+| Nintendo 3DS | `programs/3ds/product/src` composes the canonical Runtime with the PICA renderer: `gfx_bind_targets` binds both targets, `gfx_register` registers their drivers, and `qjs_boot`/`qjs_frame` boot and tick the guest | The upper surface over the scene every frame; the lower surface as its own target |
+| iPod touch 4 | `programs/native/quickjs/pocket_runtime.c` with the UI core's OpenGL ES 2 backend | A texture redrawn when the draw hash changes, laid over the scene |
+| Browser tab | `programs/web/app-instance.js` in a hidden frame of the page, driven through `openInterface` of the browser kernel; the UI core is `platforms/web/pocketjs.wasm` | `renderPremultiplied` when `drawHash` changes: one software drawing with its alpha, uploaded and laid over the scene in a pass of its own (`pocket_web_wgpu::overlay`). A second screen from `renderAuxiliary` into its own canvas when `drawHashAuxiliary` changes |
 
 The guest starts before the world loads when memory has room for both, so
 the loading steps are the interface's first screen.
@@ -251,7 +251,7 @@ the loading steps are the interface's first screen.
 ## Test without a device
 
 1. `bun tools/ui.ts preview`: each device's compiled bundle runs on the wasm
-   UI core (`hosts/web/pocketjs.wasm`, `hosts/web/wasm-ops.js`) against a
+   UI core (`platforms/web/pocketjs.wasm`, `platforms/web/wasm-ops.js`) against a
    mock renderer, and every screen is written as a picture over a capture of
    the scene. **Look at every picture before a device build**: clipped text,
    a readout over another, a row too short for a finger. Then put the same

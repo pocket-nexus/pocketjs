@@ -16,11 +16,11 @@ export async function executeModelView(directory: string) {
   await Bun.write(oracle,`
 import { render } from ${JSON.stringify(resolve("framework/src/index.ts"))};
 import { rootMirror } from ${JSON.stringify(resolve("framework/src/renderer-solid.ts"))};
-import { createWasmUi } from ${JSON.stringify(resolve("hosts/web/wasm-ops.js"))};
+import { createWasmUi } from ${JSON.stringify(resolve("platforms/web/wasm-ops.js"))};
 import App from ${JSON.stringify(resolve(fixture,"App.tsx"))};
 import tape from ${JSON.stringify(resolve(fixture,"tape.json"))};
 const commands=[];const log=console.log;console.log=(...values)=>commands.push(values.join(" "));
-const wasm=await createWasmUi(await Bun.file(${JSON.stringify(resolve("hosts/web/pocketjs.wasm"))}).arrayBuffer());
+const wasm=await createWasmUi(await Bun.file(${JSON.stringify(resolve("platforms/web/pocketjs.wasm"))}).arrayBuffer());
 wasm.ops.loadStyles(new Uint8Array(${JSON.stringify(result.program.styles.bytes)}));
 const dispose=render(()=>App(),{ops:wasm.ops,styles:${JSON.stringify(result.program.styles.ids)}});
 const root=rootMirror.children[0].id;

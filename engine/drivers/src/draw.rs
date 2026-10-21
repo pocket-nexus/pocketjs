@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 /// The core -> backend command list: flat little-endian u32 words.
 /// Format pinned in contracts/spec/spec.ts ("DRAWLIST op format"); op codes in
 /// spec::draw_op. On wasm the host reads this as a Uint32Array; on PSP,
-/// hosts/psp/src/ge.rs walks it into sceGu calls. The words are the COMPLETE
+/// programs/psp/src/scene.rs walks it into sceGu calls. The words are the COMPLETE
 /// pixel truth — TEXT_RUN packs its run string's UTF-8 bytes into the stream,
 /// so snapshots, hashes and damage diffs never need side data.
 pub struct DrawList {

@@ -7,7 +7,7 @@ import { repository, buildHosts, nativeSources, programFiles } from "./handheld-
 import { requireApplication } from "./application.ts";
 
 export const build: RuntimeBuild = {
-  sourceInputs: [...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "engine/wasm"), ...programFiles("hosts/web", /\.(?:js|html)$/), ...programFiles("hosts/sim", /\.ts$/), resolve(repository, "programs/sim/main.ts")],
+  sourceInputs: [...nativeSources("engine/spec", "engine/drivers", "engine/core", "engine/package", "engine/runtime", "engine/runtime-cabi", "engine/present", "engine/raster", "engine/modules/media", "engine/render/glyph-pages", "engine/render/tex-cache", "engine/render/draw-ops", "engine/render/tri-batch", "programs/web/wasm"), ...programFiles("platforms/web", /\.js$/), ...programFiles("platforms/sim", /\.ts$/), ...programFiles("programs/sim", /\.ts$/), resolve(repository, "programs/sim/main.ts")],
   hosts: buildHosts, input: "package", steps: wasmStep, artifact: "{outdir}/simulation",
   async run(context) {
     const app = requireApplication(context), out = resolve(context.outdir, "simulation");

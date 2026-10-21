@@ -45,7 +45,7 @@ With the runtime working, we measured what the board would actually have to hold
 
 Booting the full bundle takes 46.6 MB of heap — 27.4 MB of it just compiled JS functions — against 32 MB of PSRAM that also has to hold framebuffers, Wi-Fi buffers, and TLS. That chart closed the "ship the desktop profile" debate in an afternoon and split the runtime into two compositions of one family:
 
-<svg viewBox="0 0 760 330" width="100%" role="img" aria-label="Architecture diagram. Two profile boxes at the top: crates/pocket-pi, the full desktop profile running the unmodified 9 megabyte pi-coding-agent bundle, feeding hosts/desktop; and crates/pocket-pi-embedded, the embedded profile running pi-agent-core as a 304 kilobyte bundle, feeding crates/pocket-pi-device-ui, which fans out to firmware/esp32-p4 for the physical board and hosts/esp32-p4-sim for the macOS simulator." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+<svg viewBox="0 0 760 330" width="100%" role="img" aria-label="Architecture diagram. Two profile boxes at the top: crates/pocket-pi, the full desktop profile running the unmodified 9 megabyte pi-coding-agent bundle, feeding programs/desktop; and crates/pocket-pi-embedded, the embedded profile running pi-agent-core as a 304 kilobyte bundle, feeding crates/pocket-pi-device-ui, which fans out to firmware/esp32-p4 for the physical board and hosts/esp32-p4-sim for the macOS simulator." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
   <rect x="0" y="0" width="760" height="330" rx="12" fill="#0b0f1a"/>
   <rect x="36" y="28" width="300" height="66" rx="10" fill="#111827" stroke="#38bdf8" stroke-width="1.5"/>
   <text x="186" y="55" fill="#f1f5f9" font-size="13" font-weight="700" text-anchor="middle">crates/pocket-pi</text>
@@ -56,7 +56,7 @@ Booting the full bundle takes 46.6 MB of heap — 27.4 MB of it just compiled JS
   <line x1="186" y1="94" x2="186" y2="142" stroke="#475569" stroke-width="1.5"/>
   <line x1="574" y1="94" x2="574" y2="142" stroke="#475569" stroke-width="1.5"/>
   <rect x="66" y="142" width="240" height="52" rx="10" fill="#111827" stroke="#475569" stroke-width="1.5"/>
-  <text x="186" y="173" fill="#f1f5f9" font-size="13" text-anchor="middle">hosts/desktop</text>
+  <text x="186" y="173" fill="#f1f5f9" font-size="13" text-anchor="middle">programs/desktop</text>
   <rect x="424" y="142" width="300" height="52" rx="10" fill="#111827" stroke="#34d399" stroke-width="1.5"/>
   <text x="574" y="166" fill="#f1f5f9" font-size="13" text-anchor="middle">crates/pocket-pi-device-ui</text>
   <text x="574" y="184" fill="#94a3b8" font-size="11" text-anchor="middle">one draw list · one hit map · one font set</text>

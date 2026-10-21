@@ -322,11 +322,11 @@ pub fn install_ui_namespace(guest: &mut Guest, ui: &mut Ui) {
 
 > **Note:** The exact `pocket-mod` API (`mount`, `ns.func`, argument accessors)
 > is sketched from the patterns in `engine/crates/pocket-ui-wgpu/src/surface.rs`
-> and `hosts/psp/src/ffi.rs`. Consult those files for the precise signatures.
+> and `programs/psp/src/service_bindings.rs`. Consult those files for the precise signatures.
 
 ### Approach B: Direct QuickJS (Like the PSP Host)
 
-The PSP host (`hosts/psp/src/ffi.rs:821–946`) embeds QuickJS directly via
+The PSP host (`programs/psp/src/service_bindings.rs:821–946`) embeds QuickJS directly via
 `libquickjs-sys`, using `JS_NewCFunction2` + `JS_SetPropertyStr` for each op.
 This gives tighter control (arena allocator, VFPU worker thread on PSP) but is
 more boilerplate. For PocketBook, Approach A is sufficient — the device has
@@ -1196,13 +1196,13 @@ means:
 
 ### Layer 1: Headless Simulation (No Device Needed)
 
-PocketJS has a deterministic sim host (`hosts/sim/`) that runs the same wasm core
+PocketJS has a deterministic sim host (`programs/sim/`) that runs the same wasm core
 with scripted inputs and produces per-frame framebuffer hashes. Use it to verify
 your app's logic is correct before touching the device:
 
 ```bash
 # Run the sim host against your app
-cd hosts/sim
+cd programs/sim
 node sim.ts --app ../../apps/my-app --frames 300 --input scripted-input.json
 # Produces golden hashes — byte-identical across runs
 ```
@@ -1331,9 +1331,9 @@ feature-detects optional HostOps methods.
 | `framework/src/renderer-solid.ts` | Solid universal renderer over HostOps |
 | `framework/src/renderer-vue-vapor.ts` | Vue Vapor renderer over HostOps |
 | `framework/src/renderer-octane.ts` | Octane universal driver over HostOps |
-| `hosts/psp/src/ffi.rs` | PSP's HostOps installation (reference implementation) |
-| `hosts/psp/src/ge.rs` | PSP's DrawList walker (reference for a GPU backend) |
-| `hosts/psp/src/main.rs` | PSP's frame loop ordering |
+| `programs/psp/src/service_bindings.rs` | PSP's HostOps installation (reference implementation) |
+| `programs/psp/src/scene.rs` | PSP's DrawList walker (reference for a GPU backend) |
+| `programs/psp/src/main.rs` | PSP's frame loop ordering |
 | `engine/crates/pocket-mod/src/lib.rs` | QuickJS hosting library |
 | `engine/crates/pocket-ui-wgpu/src/surface.rs` | Desktop host using pocket-mod |
 | `site/content/docs/platform-contracts.md` | Custom host build API |

@@ -25,7 +25,7 @@ function(pocketjs_link_native component_dir crate archive override)
             file(GLOB_RECURSE native_sources CONFIGURE_DEPENDS
                 "${component_dir}/vendor/*" "${component_dir}/vendor/.cargo/*")
         else()
-            set(native_root "${component_dir}/../../../hosts/esp-idf/native/${crate}")
+            set(native_root "${component_dir}/../../../programs/esp-idf/archive")
             set(cargo_cwd "${native_root}")
             execute_process(COMMAND "${Python3_EXECUTABLE}"
                 "${component_dir}/tools/native_sources.py" --cargo "${POCKETJS_CARGO}"

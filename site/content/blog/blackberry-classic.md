@@ -8,7 +8,7 @@ We got a freshly written app onto one anyway. If you are new here: [PocketJS](/b
 
 **The native QNX host is now the sole PocketJS host for the Classic.** We removed the earlier Android compatibility host, its APK build path, and its private target. The port described here uses `bun blackberry-qnx` to build a BAR for a rooted device.
 
-Everything above the QuickJS bridge (`engine/quickjs-c/pocket_runtime.c`, also linked by the iPhone 2G/4S and Meizu M8 hosts) is the same code every other PocketJS target runs. Everything the Classic cost us is below it, and almost none of that cost was graphics. It was **getting in**: a phone that carried security to the point where, in 2026, native development is nearly impossible; a community root project that pushed that door back open; the "everything is the network" way a BlackBerry talks to a computer; and a genuinely archaeological pair of protocols — **management and updates over HTTPS + CGI + XML/form-data, file management over SMB/CIFS** — so you can mount the phone's filesystem on your computer and manage it like local files.
+Everything above the QuickJS bridge (`programs/native/quickjs/pocket_runtime.c`, also linked by the iPhone 2G/4S and Meizu M8 hosts) is the same code every other PocketJS target runs. Everything the Classic cost us is below it, and almost none of that cost was graphics. It was **getting in**: a phone that carried security to the point where, in 2026, native development is nearly impossible; a community root project that pushed that door back open; the "everything is the network" way a BlackBerry talks to a computer; and a genuinely archaeological pair of protocols — **management and updates over HTTPS + CGI + XML/form-data, file management over SMB/CIFS** — so you can mount the phone's filesystem on your computer and manage it like local files.
 
 ## The machine
 
@@ -55,7 +55,7 @@ Before the archaeology, the whole shape of the port in one picture.
 
     <rect x="40" y="106" width="418" height="44" rx="6" fill="#0c1a22" stroke="#22d3ee"/>
     <text x="249" y="125" fill="#e2e8f0" text-anchor="middle">no-std Rust core + GLES2 DrawList</text>
-    <text x="249" y="140" fill="#22d3ee" text-anchor="middle" font-size="9.5">engine/ui-cabi · bare-platform</text>
+    <text x="249" y="140" fill="#22d3ee" text-anchor="middle" font-size="9.5">programs/native/cabi · bare-platform</text>
     <text x="474" y="132" fill="#64748b" font-size="9.5">portable · E7 · iPhone 2G/4S · M8</text>
 
     <rect x="40" y="158" width="418" height="44" rx="6" fill="#0c1a22" stroke="#22d3ee"/>
@@ -101,7 +101,7 @@ Before the archaeology, the whole shape of the port in one picture.
 
 `apps/blackberry-classic-demo` is the Hero wrapper this host builds, and the profile module (`tools/blackberry-classic-profile.ts`) registers the target `blackberry-qnx-dev`: **host ABI 9**, `takeover` form, one 720×720 display at raster density 2, and exactly three capabilities. That target id is compiled into the guest bundle *and* into the native host, and checked when the guest mounts, so a bundle built for any other machine refuses to start rather than half-running.
 
-The Rust package is `pocketjs-ui-cabi` under `engine/ui-cabi`: the no-std C-ABI build of `pocketjs-core` plus the GLES2 DrawList backend the Nokia E7, iPhone 2G/4S, and Meizu M8 hosts all link. Its compatibility archive is still `libpocketjs_symbian_core.a`. The Classic builds it with the `bare-platform` feature against a hand-written target spec (`hosts/blackberry-classic-qnx/armv7-qnx-eabi.json`: ARMv7 + VFPv3 + NEON, soft-float ABI, PIC, `build-std`). Note the spec says `"os": "none"` — the core asks the operating system for nothing at all, so as far as Rust is concerned it is a bare-metal build that happens to get linked into a QNX process.
+The Rust package is `pocketjs-ui-cabi` under `programs/native/cabi`: the no-std C-ABI build of `pocketjs-core` plus the GLES2 DrawList backend the Nokia E7, iPhone 2G/4S, and Meizu M8 hosts all link. Its compatibility archive is still `libpocketjs_symbian_core.a`. The Classic builds it with the `bare-platform` feature against a hand-written target spec (`hosts/blackberry-classic-qnx/armv7-qnx-eabi.json`: ARMv7 + VFPv3 + NEON, soft-float ABI, PIC, `build-std`). Note the spec says `"os": "none"` — the core asks the operating system for nothing at all, so as far as Rust is concerned it is a bare-metal build that happens to get linked into a QNX process.
 
 In other words, **the code this port actually adds is very thin**: one 547-line `main.c`, the shared input state machine it feeds (`pocket_input.c`, 115 lines, already unit-tested before BlackBerry existed as a target), a 33-line BAR descriptor, a 24-line target spec, and a deploy tool that has to go find the phone on the network. The core, the renderer, the fonts, the reactivity: not a byte of it changed for BlackBerry.
 

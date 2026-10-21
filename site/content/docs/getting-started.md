@@ -280,7 +280,7 @@ provides PSP and Vita commands for building a demo program:
 ```sh
 pocket compile --target psp --manifest apps/my-app/pocket.json
 pocket psp my-app --release
-# hosts/psp/target/mipsel-sony-psp/release/EBOOT.PBP
+# programs/psp/target/mipsel-sony-psp/release/EBOOT.PBP
 
 export VITASDK="$HOME/vitasdk"
 export PATH="$VITASDK/bin:$HOME/.cargo/bin:$PATH"
@@ -385,7 +385,7 @@ pocket play vita gallery --fullscreen
 
 Vita3K is interactive here; `--fullscreen` controls the emulator window. The
 application still uses the profile's 480×272 logical viewport rendered at
-960×544 density 2. See the [Vita host guide](https://github.com/pocket-nexus/pocketjs/blob/main/hosts/vita/README.md)
+960×544 density 2. See the [Vita host guide](https://github.com/pocket-nexus/pocketjs/blob/main/programs/vita/README.md)
 for toolchain setup, key mappings, real-device installation, and the golden E2E.
 
 ## Next steps

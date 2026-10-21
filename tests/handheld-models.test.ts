@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync, existsSync } from "node:fs";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { Box3, Raycaster, Vector3 } from "three";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { NODE_TYPE, PROP, ROOT_ID } from "../contracts/spec/spec.ts";
 
 const assets = new URL("../engine/pocket3d/examples/handheld/assets/", import.meta.url);
@@ -87,7 +87,7 @@ test("Vita shoulder pockets sit below the front lip and lower strap passages sta
 });
 
 test("WASM auxiliary output has separate dimensions, raster, hit root and reset lifetime", async () => {
-  const bytes = await Bun.file(new URL("../hosts/web/pocketjs.wasm", import.meta.url)).arrayBuffer();
+  const bytes = await Bun.file(new URL("../platforms/web/pocketjs.wasm", import.meta.url)).arrayBuffer();
   const wasm = await createWasmUi(bytes, { width: 400, height: 240, auxiliary: [320,240] });
   const ops = wasm.ops;
   function rect(root: number, color: number, width: number) {

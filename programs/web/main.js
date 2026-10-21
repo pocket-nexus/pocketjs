@@ -3,7 +3,7 @@ import { create } from "./app-instance.js";
 const canvas = document.getElementById("screen");
 const metadata = await (await fetch("./program.json")).json();
 document.title = metadata.title;
-const instance = await create({ ...metadata, bundleUrl: `./dist/${metadata.output}.js`, pakUrl: `./dist/${metadata.output}.pak`, wasmUrl: "./pocketjs.wasm" });
+const instance = await create({ ...metadata, bundleUrl: `./dist/${metadata.output}.js`, pakUrl: `./dist/${metadata.output}.pak`, wasmUrl: "./platforms/web/pocketjs.wasm" });
 let width = metadata.viewport[0], height = metadata.viewport[1];
 canvas.width = width; canvas.height = height;
 const context = canvas.getContext("2d");

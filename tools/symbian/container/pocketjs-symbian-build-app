@@ -350,7 +350,7 @@ qmake \
     "POCKETJS_SYMBIAN_TARGET=$executable" \
     "POCKETJS_SYMBIAN_CAPTION=$package_title" \
     "POCKETJS_QUICKJS_INCLUDE=$quickjs_source" \
-    "POCKETJS_PROGRAM_INCLUDE=/workspace/contracts/generated /workspace/engine/ui-cabi/include /workspace/engine/guest-quickjs/include" \
+    "POCKETJS_PROGRAM_INCLUDE=/workspace/contracts/generated /workspace/programs/native/cabi/include /workspace/engine/guest-quickjs/include" \
     "POCKETJS_QUICKJS_LIBRARY=$build/libquickjs.a" \
     "POCKETJS_CORE_LIBRARY=$rust_library" \
     "POCKETJS_FRAME_RATE=$frame_rate" \

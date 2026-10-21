@@ -1,10 +1,10 @@
 name: Simulation and companion
 on:
   pull_request:
-    paths: ['engine/crates/pocket-sim/**', 'Cargo.toml', 'Cargo.lock', 'tools/companion-session.ts', 'tools/offload-*.ts', 'tests/companion-session.test.ts', 'tests/offload.test.ts', 'hosts/3ds/src/offload*', '.github/workflows/simulation.yml']
+    paths: ['engine/crates/pocket-sim/**', 'Cargo.toml', 'Cargo.lock', 'tools/companion-session.ts', 'tools/offload-*.ts', 'tests/companion-session.test.ts', 'tests/offload.test.ts', 'programs/3ds/product/src/offload*', '.github/workflows/simulation.yml']
   push:
     branches: [main]
-    paths: ['engine/crates/pocket-sim/**', 'Cargo.toml', 'Cargo.lock', 'tools/companion-session.ts', 'tools/offload-*.ts', 'tests/companion-session.test.ts', 'tests/offload.test.ts', 'hosts/3ds/src/offload*', '.github/workflows/simulation.yml']
+    paths: ['engine/crates/pocket-sim/**', 'Cargo.toml', 'Cargo.lock', 'tools/companion-session.ts', 'tools/offload-*.ts', 'tests/companion-session.test.ts', 'tests/offload.test.ts', 'programs/3ds/product/src/offload*', '.github/workflows/simulation.yml']
 permissions:
   contents: read
 concurrency:

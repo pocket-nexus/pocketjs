@@ -8,7 +8,7 @@ Composition registers a `SharedRenderer<NativeDevice>` and a `GeDisplay` sharing
 
 **Both wait success and failure are terminal.** Early retirement waits before storage reuse, and destruction stops native work before freeing storage. Dropping an active shared handle also stops work when the host retains another handle. Native synchronization uses `sceGuSync(Finish, Wait)` from the pinned rust-psp implementation; if firmware does not report `GeListState::Done`, the device waits with all referenced allocations retained. It never converts a still-running list into a terminal error. Device implementations must not reenter their renderer or display.
 
-`Encoder` also supports an external GU list. `hosts/psp/src/ge.rs` is the compatibility adapter for native game overlays: it passes `Ui` through the resource trait and delegates all DrawList rendering. An external caller keeps sources and encoder alive until GU sync, then calls `retire`. It owns list opening, completion, frame timing, and framebuffer selection.
+`Encoder` also supports an external GU list. `programs/psp/src/scene.rs` is the compatibility adapter for native game overlays: it passes `Ui` through the resource trait and delegates all DrawList rendering. An external caller keeps sources and encoder alive until GU sync, then calls `retire`. It owns list opening, completion, frame timing, and framebuffer selection.
 
 The maintained host tests use a delayed mock device that rereads vertex and image pointers at completion. They cover owned copies, explicit borrowed storage, changed revisions, retained font versions, cache pressure, clipping, target identity, terminal errors, early retirement, and shared-handle destruction:
 
@@ -22,7 +22,7 @@ Install the pinned PSP SDK with `bun tools/pocket.ts target add psp`. Native com
 ```sh
 RUSTFLAGS='-C panic=abort' cargo +nightly-2026-05-28 build --release --locked --offline \
   --manifest-path devices/psp/pocket-psp-render/Cargo.toml \
-  --target "$PWD/hosts/psp/targets/mipsel-sony-psp.json" \
+  --target "$PWD/programs/psp/targets/mipsel-sony-psp.json" \
   -Zjson-target-spec -Zbuild-std=core,compiler_builtins,alloc,panic_abort
 ```
 

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { fetch as pocketFetch } from "../framework/src/net-api.ts";
 import { runServicePumps } from "../framework/src/services.ts";
-import { createNetHost } from "../hosts/web/net.js";
+import { createNetHost } from "../platforms/web/net.js";
 
 test("browser net adapter uses native fetch but delivers only at beginFrame", async () => {
   const calls = [];

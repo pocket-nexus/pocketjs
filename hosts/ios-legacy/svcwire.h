@@ -2,8 +2,8 @@
  * SVC WIRE (PKNT) client transport for the legacy Apple hosts — the host
  * service channel (spec ops 30..32) over one TCP connection to a companion
  * process on the LAN, discovered through its UDP beacon (contracts/spec/
- * spec.ts "SVC WIRE protocol"; hosts/vita/src/net.rs is the threaded
- * reference, hosts/3ds/src/svcwire.c the frame-pumped one this file follows:
+ * spec.ts "SVC WIRE protocol"; platforms/vita/net/src/lib.rs is the threaded
+ * reference, programs/3ds/product/src/svcwire.c the frame-pumped one this file follows:
  * non-blocking BSD sockets, a bounded amount of work per frame, no threads).
  *
  * The guest contract is the PSP mailbox, unchanged: svcOpen is a

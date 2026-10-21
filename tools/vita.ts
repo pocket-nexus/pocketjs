@@ -38,11 +38,11 @@ import { RUST_TOOLCHAINS } from "./build/toolchains/rust.ts";
 import { hashPocketProfile } from "../framework/src/profile.ts";
 
 const pspUiDir = new URL("..", import.meta.url).pathname; // PocketJS/
-const nativeDir = pspUiDir + "hosts/vita/";
+const nativeDir = pspUiDir + "programs/vita/";
 const home = process.env.HOME ?? "";
 
 // ---------------------------------------------------------------------------
-// CLI: first bare arg = app name; everything else is passed to cargo vita
+// CLI: first bare arg = app name; everything else is passed to cargo build
 // ---------------------------------------------------------------------------
 
 export async function buildVita(argv: readonly string[], context?: RuntimeBuildContext): Promise<string> {
@@ -252,7 +252,7 @@ if (!skipBuild && !runtime) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. cargo vita build vpk
+// 2. Cargo ELF build, then explicit SDK conversion and packaging
 // ---------------------------------------------------------------------------
 
 const nativeInputs: HostBuildInputs = hostBuildInputs ?? {
@@ -284,15 +284,11 @@ const env = {
   ...process.env,
   CARGO_TARGET_DIR: `${nativeDir}target`,
   CARGO_PROFILE_RELEASE_LTO: "true",
-  // cargo-vita probes `rustc` from PATH even when cargo itself was launched
-  // through `rustup run`. Keep the rustup shim ahead of Homebrew's stable
-  // compiler and expose VitaSDK tools without requiring shell dotfiles.
+  // Keep the selected compiler shim and the explicit SDK tools on PATH.
   PATH: `${vitasdk}/bin:${home}/.cargo/bin:${process.env.PATH ?? ""}`,
   VITASDK: vitasdk,
   POCKET_QJS_SOURCE: quickjsSource,
-  // cargo-vita uses this only when the reusable runtime crate deliberately
-  // omits a static title_id. Pocket's stable manifest id owns installation
-  // identity; every demo therefore gets its own LiveArea application.
+  // The program build identity and final SFO share the manifest title id.
   VITA_DEFAULT_TITLE_ID: titleId,
   POCKETJS_VITA_TITLE_ID: titleId,
   POCKETJS_VITA_PLAN: planPath ?? "",
@@ -323,35 +319,26 @@ if (features.length > 0) cargoArgs.push("--features", features.join(","));
 if (!usbDebug) cargoArgs.push("--no-default-features");
 
 console.log(
-  `PocketJS vita: cargo vita build vpk (app=${runtime ? "none, runtime" : outputApp}${capture ? ", capture" : ""})`,
+  `PocketJS vita: Cargo ELF and SDK VPK (app=${runtime ? "none, runtime" : outputApp}${capture ? ", capture" : ""})`,
 );
-// Forward to cargo-vita
-if (context) await context.run([rustup, "run", RUST_TOOLCHAINS.vita, "cargo", "vita", "build", "vpk", ...cargoArgs], { cwd: nativeDir, env });
-else await $`${rustup} run ${RUST_TOOLCHAINS.vita} cargo vita build vpk ${cargoArgs}`
-  .cwd(nativeDir)
-  .env(env);
-
-// cargo-vita has a target-id fallback but no corresponding dynamic title-name
-// fallback. Recreate only the package metadata and VPK here so both values
-// come from the same ResolvedBuildPlan; the native executable is unchanged.
-const profile =
-  cargoArgs.includes("--release") || cargoArgs.includes("-r")
-    ? "release"
-    : "debug";
+const execute = async (command: string[]) => {
+  if (context) await context.run(command, { cwd: nativeDir, env });
+  else await $`${command}`.cwd(nativeDir).env(env);
+};
+await execute([rustup, "run", RUST_TOOLCHAINS.vita, "cargo", "build", "--target", "armv7-sony-vita-newlibeabihf", "-Z", "build-std=std,panic_abort", ...cargoArgs]);
+const profile = cargoArgs.includes("--release") || cargoArgs.includes("-r") ? "release" : "debug";
 const targetDirectory = `${nativeDir}target/armv7-sony-vita-newlibeabihf/${profile}`;
+const elf = `${targetDirectory}/pocketjs-vita.elf`;
+const velf = `${targetDirectory}/pocketjs-vita.velf`;
 const eboot = `${targetDirectory}/pocketjs-vita.self`;
 const sfo = `${targetDirectory}/pocketjs-vita.sfo`;
 const vpk = `${targetDirectory}/pocketjs-vita.vpk`;
-if (!existsSync(eboot))
-  throw new Error(`PocketJS vita: eboot not found at ${eboot}`);
+if (!existsSync(elf)) throw new Error(`PocketJS vita: ELF not found at ${elf}`);
+await execute([`${vitasdk}/bin/vita-elf-create`, elf, velf]);
+// Debug's kernel USB driver requires unsafe-homebrew SELF permissions.
+await execute([`${vitasdk}/bin/vita-make-fself`, ...(usbDebug ? [] : ["-s"]), velf, eboot]);
+await execute([`${vitasdk}/bin/vita-mksfoex`, "-d", "ATTRIBUTE2=12", "-s", `TITLE_ID=${titleId}`, packageTitle, sfo]);
 
-// cargo-vita defaults to a safe SELF. Kernel driver loading and writing the
-// inactive native slot require the standard unsafe-homebrew SELF permissions.
-if (usbDebug) {
-  await $`${vitasdk}/bin/vita-make-fself ${targetDirectory}/pocketjs-vita.velf ${eboot}`;
-}
-
-await $`${vitasdk}/bin/vita-mksfoex -d ATTRIBUTE2=12 -s TITLE_ID=${titleId} ${packageTitle} ${sfo}`;
 // An app's `vita/` directory (VPK-relative paths, e.g. sce_sys/icon0.png)
 // overlays the framework's LiveArea defaults.
 const entryFile = runtime
@@ -362,6 +349,7 @@ const entryFile = runtime
 const vitaAssets = entryFile ? resolvePath(dirname(entryFile), "vita") : undefined;
 await packageVitaVpk({
   tool: `${vitasdk}/bin/vita-pack-vpk`,
+  execute,
   sfo,
   eboot,
   output: vpk,

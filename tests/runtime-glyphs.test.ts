@@ -1,4 +1,4 @@
-// text.glyphs.runtime in the browser host (hosts/web/runtime-glyphs.js): the
+// text.glyphs.runtime in the browser host (platforms/web/runtime-glyphs.js): the
 // atlas copy round-trips, appended glyphs keep the cmap sorted, a wide glyph
 // widens the cells, a bitmap slot gets bitmap cells, and the wasm core lays
 // out the glyphs the module adds. The rasterizer here is a stand-in: Bun has
@@ -9,8 +9,8 @@ import { describe, expect, test } from "bun:test";
 import opentype from "opentype.js";
 import { bakeSlot } from "../framework/compiler/bake-font.ts";
 import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, FONT_MAGIC } from "../contracts/spec/spec.ts";
-import * as glyphs from "../hosts/web/runtime-glyphs.js";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import * as glyphs from "../platforms/web/runtime-glyphs.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 
 const ASCII = Array.from({ length: 95 }, (_, i) => 32 + i);
 const inter = opentype.parse(await Bun.file("assets/fonts/Inter-Regular.ttf").arrayBuffer());
@@ -92,9 +92,9 @@ describe("runtime glyphs: the atlas copy", () => {
 
 describe("runtime glyphs: the core lays them out", () => {
   test("text with codepoints no atlas maps measures with the added advances", async () => {
-    const wasm = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+    const wasm = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
     wasm.init(1);
-    const plain = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+    const plain = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
     plain.init(1);
     const installed = glyphs.installRuntimeGlyphs(wasm.ops, { rasterize: boxes(10), now: () => 0 });
     wasm.ops.loadFontAtlas!(bake(2, 16));
@@ -109,7 +109,7 @@ describe("runtime glyphs: the core lays them out", () => {
   });
 
   test("an atlas loaded later gets the glyphs already drawn, and set text flushes before the next measure", async () => {
-    const wasm = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+    const wasm = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
     wasm.init(1);
     const installed = glyphs.installRuntimeGlyphs(wasm.ops, { rasterize: boxes(8), now: () => 0 });
     wasm.ops.loadFontAtlas!(bake(2, 16));
@@ -121,7 +121,7 @@ describe("runtime glyphs: the core lays them out", () => {
   });
 
   test("text that the atlases cover adds nothing", async () => {
-    const wasm = await createWasmUi(await Bun.file("hosts/web/pocketjs.wasm").arrayBuffer());
+    const wasm = await createWasmUi(await Bun.file("platforms/web/pocketjs.wasm").arrayBuffer());
     wasm.init(1);
     let drawn = 0;
     const installed = glyphs.installRuntimeGlyphs(wasm.ops, { rasterize: (cp: number, atlas: { density: number; cellH: number }) => (drawn++, boxes(6)(cp, atlas)), now: () => 0 });

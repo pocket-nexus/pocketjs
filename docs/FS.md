@@ -141,7 +141,7 @@ is one db table, not a third module.
 
 | Host | Implementation | Status |
 |---|---|---|
-| sim (`hosts/sim/fs.ts`) | in-memory tree behind the op namespace, injected via `bootWorld` `extraGlobals` | ships with the test host; `tests/fs.test.ts` runs the contract, the SDK, and an oracle comparison against Bun's real fs |
+| sim (`platforms/sim/fs.ts`) | in-memory tree behind the op namespace, injected via `bootWorld` `extraGlobals` | ships with the test host; `tests/fs.test.ts` runs the contract, the SDK, and an oracle comparison against Bun's real fs |
 | reference core (`engine/crates/pocket-fs`) | `Storage::Memory`/`Storage::Dir` over std::fs — grammar confinement, symlink refusal, atomic truncate writes, quota — mountable on any `pocket-mod` guest as `globalThis.fs` | tested including a live QuickJS guest round-trip |
 | consoles / devices | — | a target appends `data.fs` to its profile when its native host ships the module; the port point is the data root (POSIX dir on desktop, a LittleFS directory on MCU hosts) |
 

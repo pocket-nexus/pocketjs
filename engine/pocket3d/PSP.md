@@ -17,7 +17,7 @@ below are historical paths, not current build entrypoints.
 `openstrike` today is a desktop binary: wgpu 25 + winit, rquickjs guest, GoldSrc
 BSP v30 maps parsed at runtime, glTF soldier with GPU skinning. The PSP has none
 of that — but it has something better positioned than any other target: the
-repo's `hosts/psp/` host already runs QuickJS + the `ui` surface + a sceGu DrawList
+repo's `programs/psp/` host already runs QuickJS + the `ui` surface + a sceGu DrawList
 backend at 60 fps on the hardware, with a proven memory model, build pipeline,
 PPSSPP e2e harness, and PSPLINK debug loop.
 
@@ -27,7 +27,7 @@ The port therefore is not "make wgpu run on PSP". It is:
    (no_std core, PVS culling, a cooked asset format),
 2. write a **second renderer backend** (`pocket3d-gu`, sceGu) against the same
    plain-data seam the wgpu renderer consumes,
-3. make the PSP host a **library** (`hosts/psp/` lib + thin bin) so a game EBOOT
+3. make the PSP host a **library** (`programs/psp/` lib + thin bin) so a game EBOOT
    can compose guest + `ui` surface + its own surface,
 4. extract OpenStrike's game systems into a **portable core crate** and add a
    PSP EBOOT bin in the open-strike repo.
@@ -49,8 +49,8 @@ Verified against source (2026-07-08):
 | Textures (`wad.rs`) | WAD3 miptex → RGBA8 | keep them **CLUT8** (they are natively 8-bit paletted) + swizzle |
 | Renderer | wgpu concrete (`renderer.rs`), no trait; `Scene`/`WorldSource` are plain data | the entire sceGu backend |
 | Models (`model.rs`, `anim.rs`) | glTF load, GPU skinning; anim sampling is pure CPU math | cooked model format, CPU/GE skinning |
-| Guest hosting | `pocket-mod` (rquickjs, desktop) | reuse `hosts/psp/` QuickJS embedding instead |
-| PSP host (`hosts/psp/`) | arena allocator, QuickJS boot, `ui` ffi, GU 2D pass, pipelined present, dbg mailbox | lib-ification; depth buffer; a 3D pass in front of the 2D pass |
+| Guest hosting | `pocket-mod` (rquickjs, desktop) | reuse `programs/psp/` QuickJS embedding instead |
+| PSP host (`programs/psp/`) | arena allocator, QuickJS boot, `ui` ffi, GU 2D pass, pipelined present, dbg mailbox | lib-ification; depth buffer; a 3D pass in front of the 2D pass |
 | Verification | PPSSPP byte-exact goldens (2D), tape goldens, hw bench (`--features bench`) | analog input in the capture script; 3D goldens |
 
 Map data ground truth (de_dust2): 5 383 faces, 6 555 verts, 1 455 leaves,
@@ -65,8 +65,8 @@ pocketjs repo
   engine/pocket3d/crates/pocket3d-bsp     [changed] no_std-able core; vis module; cooked module
   engine/pocket3d/crates/pocket3d-cook    [new]     desktop CLI: .bsp+.wad (+.glb) → .p3d
   engine/pocket3d/crates/pocket3d-gu      [new]     sceGu renderer; standalone (excluded from
-                                             the desktop workspace, like hosts/psp/)
-  hosts/psp/                          [changed] lib (modules: arena/alloc/c_heap/qjs_alloc/
+                                             the desktop workspace, like programs/psp/)
+  programs/psp/                          [changed] lib (modules: arena/alloc/c_heap/qjs_alloc/
                                              ffi/ge/pak/dbg/boot) + thin bin pocketjs-psp
                                              — byte-identical EBOOT behavior, e2e-guarded
 
@@ -83,7 +83,7 @@ Why the split lands this way: game code stays open-strike IP; everything the
 *next* 3D game on PSP would need (map substrate, GU renderer, host library,
 cooker) lands in pocketjs as reusable machinery. `pocket3d-gu` and
 `openstrike-psp` are standalone crates outside any workspace for the same
-reason `hosts/psp/` is: cargo-psp wants a lone bin, and workspace membership
+reason `programs/psp/` is: cargo-psp wants a lone bin, and workspace membership
 would break desktop `cargo check` on a tier-3 target.
 
 ## 4. The cooked format (`.p3d`)
@@ -233,7 +233,7 @@ memory machinery is needed; the map deliberately never enters the arena.
    vert/leaf counts, texture inventory for dust2); `WorldSource::from_cooked`
    renders under wgpu (screenshot sanity via openstrike `--screenshot`).
 2. **Host lib-ification guard** — `bun run e2e` + `bun run tape:check` must
-   stay byte-identical after `hosts/psp/` becomes a lib (same goldens, no
+   stay byte-identical after `programs/psp/` becomes a lib (same goldens, no
    re-baseline allowed).
 3. **PPSSPP (emulator, deterministic)** — openstrike-psp capture builds bake
    an extended input script `(frame, buttons, ax, ay)`; scripted sequences
@@ -251,7 +251,7 @@ memory machinery is needed; the map deliberately never enters the arena.
 
 - **M1** `pocket3d-bsp`: no_std core + `vis` + `cooked` + `pocket3d-cook`;
   desktop tests green. *(general capability)*
-- **M2** `hosts/psp/` lib + thin bin; e2e/tape byte-identical. *(general)*
+- **M2** `programs/psp/` lib + thin bin; e2e/tape byte-identical. *(general)*
 - **M3** `pocket3d-gu` world renderer; dust2 flythrough EBOOT in PPSSPP
   (camera on rails, no game). *(general)*
 - **M4** `openstrike-core` extraction (desktop headless scripts still pass) +

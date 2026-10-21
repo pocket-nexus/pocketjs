@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { bootBundle } from "../../hosts/sim/sim.ts";
+import { bootBundle } from "./sim.ts";
 
 const directory = import.meta.dir;
 const metadata = await Bun.file(resolve(directory, "program.json")).json();

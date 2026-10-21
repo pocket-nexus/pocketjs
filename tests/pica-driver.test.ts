@@ -34,7 +34,7 @@ test.skipIf(!cc)("PICA driver retains independent screen submissions and exact r
   writeFileSync(resolve(runDir, "package_fixture.h"), `static const uint8_t package_bytes[] = {${[...packageBytes].join(",")}};\n`);
   const instance = resolve(runDir, "instance");
   run([cc!, "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", `-DPOCKETJS_HOST_ABI=${POCKET_BINDING_GENERATION}`,
-    "-I", resolve(root,"tests/fixtures/pica-driver"), "-I", resolve(root,"hosts/3ds/include"),
+    "-I", resolve(root,"tests/fixtures/pica-driver"), "-I", resolve(root,"programs/3ds/product/include"),
     "-I", resolve(root,"contracts/generated"), "-I", runDir,
     resolve(root,"tests/fixtures/pica-driver/instance.c"), resolve(target,"release/libpocket_runtime_cabi.a"), "-lm", "-o", instance]);
   expect(run([instance])).toContain("3DS runtime composition: package, auxiliary metadata, providers and exact input passed");

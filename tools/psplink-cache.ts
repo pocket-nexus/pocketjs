@@ -43,9 +43,10 @@ export function psplinkPrxStale(root: string, name: string, prx: string): boolea
     join(root, "tools/build/toolchains/psp.ts"),
     join(root, "tools/build/toolchains/rust.ts"),
     join(root, "tools/psp-linker.ts"),
-    join(root, "hosts/psp/src"),
-    join(root, "hosts/psp/build.rs"),
-    join(root, "hosts/psp/Cargo.toml"),
+    join(root, "platforms/psp"),
+    join(root, "programs/psp/src"),
+    join(root, "programs/psp/build.rs"),
+    join(root, "programs/psp/Cargo.toml"),
     join(root, "Cargo.lock"),
     join(root, "profiles/psp.ts"),
   ];

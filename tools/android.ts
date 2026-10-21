@@ -528,7 +528,7 @@ function buildRustCore(abi: AndroidAbi): string {
       "--target-dir",
       rustTarget,
     ],
-    join(repository, "engine/ui-cabi"),
+    join(repository, "programs/native/cabi"),
     {
       ...process.env,
       CARGO_PROFILE_RELEASE_LTO: "false",
@@ -592,7 +592,8 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
     "-Werror",
     "-Wno-unused-parameter",
     "-DPOCKET_OFFLOAD_POSIX",
-    `-I${join(repository, "hosts/shared")}`,
+    `-I${join(repository, "platforms/linux/offload")}`,
+    `-I${join(repository, "engine/modules/offload/include")}`,
   ];
   const portableRuntime = join(objects, "pocket_runtime.o");
   mustRun(clang, [
@@ -601,13 +602,13 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
     `-DPOCKETJS_TARGET_ID="${inputs.target}"`,
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.rasterDensity}`,
-    `-I${join(repository, "engine/quickjs-c")}`,
-    `-I${join(repository, "engine/ui-cabi/include")}`,
+    `-I${join(repository, "programs/native/quickjs")}`,
+    `-I${join(repository, "programs/native/cabi/include")}`,
     `-I${join(repository, "engine/guest-quickjs/include")}`,
     `-I${join(repository, "contracts/generated")}`,
     `-I${quickJs.source}`,
     "-c",
-    join(repository, "engine/quickjs-c/pocket_runtime.c"),
+    join(repository, "programs/native/quickjs/pocket_runtime.c"),
     "-o",
     portableRuntime,
   ]);
@@ -621,7 +622,7 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
     ...cFlags,
     `-DPOCKET_LOGICAL_WIDTH=${inputs.logical[0]}`,
     `-DPOCKET_LOGICAL_HEIGHT=${inputs.logical[1]}`,
-    `-I${join(repository, "engine/quickjs-c")}`,
+    `-I${join(repository, "programs/native/quickjs")}`,
     `-I${join(repository, "hosts/blackberry-classic")}`,
     `-I${join(repository, "contracts/generated")}`,
     "-c",
@@ -638,7 +639,7 @@ function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrar
         `-I${join(repository, "contracts/generated")}`,
       ],
     },
-    { name: "offload_posix", source: join(repository, "hosts/shared/offload_posix.c"), includes: [] },
+    { name: "offload_posix", source: join(repository, "platforms/linux/offload/offload_posix.c"), includes: [] },
   ];
   const sharedObjects = sharedSources.map(({ name, source, includes }) => {
     const object = join(objects, `${name}.o`);

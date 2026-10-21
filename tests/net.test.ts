@@ -7,7 +7,7 @@ import {
   type NetOps,
 } from "../framework/src/net-api.ts";
 import { runServicePumps } from "../framework/src/services.ts";
-import { createSimNetHost } from "../hosts/sim/net.ts";
+import { createSimNetHost } from "../platforms/sim/net.ts";
 
 function mount(ns: NetOps): void {
   (globalThis as { net?: NetOps }).net = ns;

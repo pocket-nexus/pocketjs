@@ -22,7 +22,7 @@ browser's.
 | `src/source.rs` | `Source::range(offset, size)`: an HTTP `Range` request on a pack's file, or whole pieces of a pack cut into files of one size with a manifest (`pocket-pack-pieces/1`). A file read outside a tab. `Source::length()` is the pack's size (the manifest's `bytes`, or the total a server names in `Content-Range`) and `Source::all()` the whole of a file a runtime holds in one piece. |
 | `src/task.rs` | `spawn`: work that waits, started from a frame. `now`: a clock. |
 | `web/pocket3d-shell.js` | `titleCard`: the Pocket3D title card before any other picture. `hasWebGPU`. `frames`: the frame loop, **a whole number of display refreshes a frame**. |
-| `web/pocket3d-interface.js` | `openInterface`: the interface's guest in PocketJS's realm (`hosts/web/app-instance.html`, started with `text: false`), its turns, the lines of its service, its picture when the draw hash has changed. **`simHz` is the turns a second the game gives the guest**, published as `globalThis.__simHz` before the bundle runs, as a device's host does. |
+| `web/pocket3d-interface.js` | `openInterface`: the interface's guest in PocketJS's realm (`programs/web/app-instance.html`, started with `text: false`), its turns, the lines of its service, its picture when the draw hash has changed. **`simHz` is the turns a second the game gives the guest**, published as `globalThis.__simHz` before the bundle runs, as a device's host does. |
 | `web/pocket3d-player.js` | `createPlayer`: **the page of every game**. The bar (the game's name, the devices as text, the mark that says the picture is simulated, the keys and the notices as panels), the stage, and the dock: the game's two doors, Download and Remix, which a host may draw itself. |
 | `web/pocket3d-stage.js` | A device's shell on the page with the game's canvas where the shell's screen is, a second screen for a device that has one, and the shell's keys, d-pad and sticks as elements. **A screen's pixel is a whole number of the display's own where the shell then keeps three quarters of the size that fits.** |
 | `web/pocket3d-words.js` | The player's words in English and Japanese (`WORDS`), **the order a page reads its visitor's language in** (`chooseLanguage`, `readLanguage`), where the choice is kept (`saveLanguage`), and a game's words in a language (`wordsIn`). |
@@ -251,7 +251,7 @@ travels with the pictures.
   names some. A feature the adapter lacks is left out, not refused: a
   renderer reads `Gpu::features` and loads what the device can sample (BC
   blocks on a desktop GPU, ETC2 or ASTC on a phone's).
-- The realm hands the guest a centred stick (`hosts/web/app-instance.js`
+- The realm hands the guest a centred stick (`programs/web/app-instance.js`
   passes `0x8080`): an interface that reads `input.analog` sees none. The
   game reads the page's sticks itself (`pocket3d-controls.js`).
 - A canvas that loses its device is not restored; the page is loaded again.
@@ -284,7 +284,7 @@ This directory is part of Pocket3D and is under the
 [Pocket3D License](../../../pocket3d/LICENSE). A distributed product that
 draws 3D scenes with this kernel shows the Pocket3D title card each time it
 starts; `titleCard` in `web/pocket3d-shell.js` plays it before the page shows
-anything else. `hosts/web/` and `tools/pocket3d-web.ts` are PocketJS's and
+anything else. `programs/web/` and `platforms/web/` and `tools/pocket3d-web.ts` are PocketJS's and
 stay under the MIT License.
 
 Two things under `web/` are other people's: **the PSP's shell is a render of

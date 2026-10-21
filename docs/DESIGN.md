@@ -113,7 +113,7 @@ PocketJS/
                        negative/oversized coords ever reach a backend [R]
     framework/src/raster.rs      shared deterministic software rasterizer used by WASM
                        goldens and Vita guest-side capture
-  hosts/psp/              Rust bin `pocketjs-psp` — the EBOOT (standalone dir, lone bin)
+  programs/psp/              Rust bin `pocketjs-psp` — the EBOOT (standalone dir, lone bin)
     Cargo.toml         exact-revision pocket-nexus psp + libquickjs-sys deps;
                        pocketjs-core (local path)
     build.rs           embeds $POCKETJS_APP_OUTPUT js + app.pak when the stock backend owns packaging;
@@ -132,7 +132,7 @@ PocketJS/
                        sprite atlases are fed to core DIRECTLY from include_bytes!
                        before JS eval (zero QuickJS-heap transit); image + sprite
                        handles are exposed as ui.__textures / ui.__sprites [R]
-  engine/wasm/                Rust cdylib `pocketjs-wasm` — core + rasterizer, no wasm-bindgen
+  programs/web/wasm/                Rust cdylib `pocketjs-wasm` — core + rasterizer, no wasm-bindgen
     framework/src/lib.rs         extern "C" op mirror + byte-exact render() at 480×272;
                        renderScaled(1..4) rasterizes directly at physical density;
                        opt-in incremental exports retain and repaint damage regions
@@ -176,7 +176,7 @@ PocketJS/
     bake-font.ts       atlas baker (charset from AST scan + ASCII always + extraChars
                        option [R]; gid 0 = tofu box)
     pak.ts           writer (standalone; constants imported from contracts/spec/spec.ts)
-  hosts/web/
+  programs/web/dev/
     index.html         480×272 canvas playground, virtual buttons, demo picker
     engine.js          loads wasm, HostOps, rAF loop (fixed-step), keyboard map
     serve.ts           static Bun.serve dev server (no livereload; rebuild + reload manually)
@@ -318,7 +318,7 @@ QuickJS + newlib malloc — it does NOT cover pocketjs-core's Rust allocations
 1. The pinned `pocket-nexus/rust-psp` fork exposes an
    **`external-global-alloc`** feature:
    cfg-gate `psp/src/alloc_impl.rs`'s `#[global_allocator]` out.
-2. `hosts/psp/src/alloc.rs` installs the PocketJS global allocator backed by
+2. `platforms/psp/alloc/src/lib.rs` installs the PocketJS global allocator backed by
    `arena::alloc/dealloc` (same single kernel block as QuickJS).
 3. `arena.rs`'s `ensure_init` must call `sceKernelAllocPartitionMemory` /
    `sceKernelGetBlockHeadAddr` directly (no recursion through `alloc::alloc`).
@@ -434,7 +434,7 @@ Kinetic scroll views, CLUT/swizzled textures, render-to-texture opacity groups
 kerning, `hover:`, percentage sizes beyond `-full`, Android hosts,
 `rounded-full` on runtime-sized nodes.
 
-The 3DS left this list with `hosts/3ds` — a QuickJS guest over a PICA200
+The 3DS left this list with `programs/3ds/product` — a QuickJS guest over a PICA200
 backend. **The CIA boots and renders on a New 3DS LL.** The `3ds-dev` profile
 in `tools/3ds-profile.ts` stays outside the production registry until its
 synthesized-cursor, sprite, streamed-texture and large-atlas paths have direct

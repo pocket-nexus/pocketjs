@@ -1,5 +1,5 @@
 // A game's packs brought to a console over the LAN: tools/pocket3d-delivery.ts
-// against the console's own C (hosts/3ds/src/packs_delivery.c) built for this
+// against the console's own C (programs/3ds/product/src/packs_delivery.c) built for this
 // computer, one process a control line, over real sockets on 127.0.0.1.
 
 import { expect, test } from "bun:test";
@@ -27,7 +27,7 @@ function bytes(length: number, seed: number): Uint8Array {
 function build(): string | null {
   if (!Bun.which("cc")) return null;
   const binary = join(work, "console");
-  const source = join(ROOT, "hosts/3ds/src");
+  const source = join(ROOT, "programs/3ds/product/src");
   const made = Bun.spawnSync(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-I", source, "-o", binary, join(source, "packs_delivery.c"), join(source, "dev_protocol.c"), join(ROOT, "tests/fixtures/pocket3d-delivery-console.c")]);
   if (made.exitCode !== 0) throw new Error(made.stderr.toString());
   return binary;

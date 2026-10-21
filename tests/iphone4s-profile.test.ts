@@ -96,7 +96,7 @@ describe("private iPhone 4S profile", () => {
   test("shares the current touch-hit host and keeps transactional rollback", () => {
     const wrapper = readFileSync(join(repository, "hosts/iphone4s/runtime.c"), "utf8");
     const runtime = readFileSync(join(repository, "hosts/ios-legacy/runtime.c"), "utf8");
-    const guest = readFileSync(join(repository, "engine/quickjs-c/pocket_runtime.c"), "utf8");
+    const guest = readFileSync(join(repository, "programs/native/quickjs/pocket_runtime.c"), "utf8");
     expect(wrapper).toContain('#include "../ios-legacy/runtime.c"');
     expect(wrapper).toContain("#define POCKET_GL_DEFAULT 1");
     expect(wrapper).toContain("#define POCKET_REQUIRE_GL 1");

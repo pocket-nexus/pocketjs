@@ -3,6 +3,7 @@
 // as an immutable blob but the previously accepted package boots again.
 
 import { $ } from "bun";
+import { evidenceDirectory } from "./build.ts";
 import {
   cpSync,
   existsSync,
@@ -21,7 +22,7 @@ import {
 } from "../../contracts/spec/pocket-package.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const OUT = join(ROOT, "dist/e2e-3ds-runtime");
+const OUT = evidenceDirectory(ROOT, "azahar-runtime");
 const FIXTURE_HOME = join(OUT, "home");
 const USER_DIR = join(FIXTURE_HOME, "Library/Application Support/Azahar");
 const CONFIG = join(USER_DIR, "config/qt-config.ini");

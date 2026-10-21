@@ -639,7 +639,7 @@ export async function buildIPhone4SNative(application: RuntimeApplication, outdi
       join(REPOSITORY, "tools/build/toolchains/ios/armv7-apple-ios.json"), "-Z", "json-target-spec",
       "-Z", "build-std=core,alloc,compiler_builtins", "-Z", "build-std-features=compiler-builtins-mem"],
     {
-      cwd: join(REPOSITORY, "engine/ui-cabi"),
+      cwd: join(REPOSITORY, "programs/native/cabi"),
       env: { ...process.env, RUSTC: rustc, CARGO_HOME: cargoHome, CARGO_TARGET_DIR: rustTarget, CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort", IPHONEOS_DEPLOYMENT_TARGET: DEPLOYMENT_TARGET },
     },
   );
@@ -671,16 +671,16 @@ export async function buildIPhone4SNative(application: RuntimeApplication, outdi
   compile(join(REPOSITORY, "hosts/iphone4s/runtime.c"), runtimeIdentityObject, [
     ...firstParty,
     `-DPOCKET_BUILD_ID=\"${BUILD_ID_PLACEHOLDER}\"`,
-    "-I", join(REPOSITORY, "engine/quickjs-c"),
+    "-I", join(REPOSITORY, "programs/native/quickjs"),
     "-Wno-cast-function-type-mismatch",
   ]);
-  compile(join(REPOSITORY, "engine/quickjs-c/pocket_runtime.c"), pocketRuntimeObject, [
+  compile(join(REPOSITORY, "programs/native/quickjs/pocket_runtime.c"), pocketRuntimeObject, [
     ...warnings,
     "-include", writeHostProfileHeader(nativeBuild, inputs.profile),
     `-DPOCKETJS_TARGET_ID=\"${inputs.target}\"`,
     `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
     `-DPOCKET_RASTER_DENSITY=${inputs.viewport.rasterDensity}`,
-    "-I", join(REPOSITORY, "engine/ui-cabi/include"),
+    "-I", join(REPOSITORY, "programs/native/cabi/include"),
     "-I", join(REPOSITORY, "engine/guest-quickjs/include"),
     "-I", join(REPOSITORY, "contracts/generated"),
     "-isystem",
@@ -732,7 +732,7 @@ export async function buildIPhone4SNative(application: RuntimeApplication, outdi
   compile(join(REPOSITORY, "hosts/iphone4s/runtime.c"), runtimeObject, [
     ...firstParty,
     `-DPOCKET_BUILD_ID=\"${buildId}\"`,
-    "-I", join(REPOSITORY, "engine/quickjs-c"),
+    "-I", join(REPOSITORY, "programs/native/quickjs"),
     "-Wno-cast-function-type-mismatch",
   ]);
 

@@ -17,7 +17,7 @@ import {
   moveVertical,
   wordRangeAt,
 } from "../apps/note/editor.ts";
-import { runScenario, treeHasText } from "../hosts/sim/sim.ts";
+import { runScenario, treeHasText } from "../programs/sim/sim.ts";
 
 // ---------------------------------------------------------------------------
 // markdown.ts

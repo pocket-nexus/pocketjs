@@ -9,14 +9,14 @@ import {
   PHYSICS_MODE,
   PHYSICS_QUERY as Q,
 } from "../contracts/spec/physics.ts";
-import { bootConsole3ds, type Console3ds } from "../hosts/sim/console-3ds.ts";
-import type { SimNode } from "../hosts/sim/sim.ts";
+import { bootConsole3ds, type Console3ds } from "../programs/sim/console-3ds.ts";
+import type { SimNode } from "../programs/sim/sim.ts";
 import { encodePNG } from "../tools/png.ts";
 import { WORD_BOX } from "../apps/nexus/art.ts";
 import { WORD } from "../apps/nexus/homepage.ts";
 import { FLOOR_Y, POCKET_CX, POCKET_TIP_Y, POCKET_TOP_Y, W, WORD_TOP } from "../apps/nexus/scene.ts";
 
-// apps/nexus in the 3DS console sim (hosts/sim/console-3ds.ts) with the agent
+// apps/nexus in the 3DS console sim (programs/sim/console-3ds.ts) with the agent
 // namespace mounted: the scene draws on the 320x240 touch screen only, the
 // top screen is the system's. A stylus tape opens the pocket, the spill must
 // put every letter in its slot, a toy popped from the pocket can be grabbed

@@ -1,4 +1,4 @@
-//! Read-only .pak walker — desktop port of `hosts/psp/src/pak.rs` (container
+//! Read-only .pak walker — desktop port of `programs/psp/src/pak.rs` (container
 //! format pinned in spec.ts "PAK container constants", generated into
 //! `pocketjs_core::spec::pak`). Malformed packs/entries are skipped, never
 //! fatal, matching the PSP walker's contract.

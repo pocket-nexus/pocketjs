@@ -49,8 +49,8 @@ const ROOT_SUBPATHS = new Set([
 ]);
 
 export async function buildKit(outDir: string, commit: string): Promise<void> {
-  const wasm = join(ROOT, "hosts/web/pocketjs.wasm");
-  if (!existsSync(wasm)) throw new Error("hosts/web/pocketjs.wasm is missing; run `bun tools/wasm.ts`");
+  const wasm = join(ROOT, "platforms/web/pocketjs.wasm");
+  if (!existsSync(wasm)) throw new Error("platforms/web/pocketjs.wasm is missing; run `bun tools/wasm.ts`");
   const OUT = join(outDir, "pocket");
   const sizes: Record<string, number> = {};
   const write = (rel: string, data: string | Uint8Array) => {

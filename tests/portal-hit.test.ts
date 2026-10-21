@@ -12,7 +12,7 @@ if (Bun.resolveSync("solid-js", import.meta.dir).endsWith("server.js")) {
   throw new Error("solid-js resolved to its SSR build — run: bun test --conditions=browser");
 }
 
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { installHost, detectHost, type HostOps } from "../framework/src/host.ts";
 import { render as publicRender } from "../framework/src/index.ts";
 import { resetRendererState, rootMirror, type NodeMirror } from "../framework/src/renderer.ts";
@@ -22,7 +22,7 @@ import { resetPack } from "../framework/src/pak.ts";
 import { Focusable, Portal, Text } from "../framework/src/components.ts";
 import { View } from "../framework/src/primitives.ts";
 
-const WASM_PATH = new URL("../hosts/web/pocketjs.wasm", import.meta.url).pathname;
+const WASM_PATH = new URL("../platforms/web/pocketjs.wasm", import.meta.url).pathname;
 let wasmBytes: ArrayBuffer | null = null;
 
 let dispose: (() => void) | null = null;

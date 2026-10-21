@@ -18,7 +18,7 @@
  * the reason. `contain-strict` nodes inside a baked subtree are leaves here:
  * their box is a constant, their children stay live in their own region.
  */
-import { createWasmUiSync, type WasmUi } from "../../hosts/web/wasm-ops.js";
+import { createWasmUiSync, type WasmUi } from "../../platforms/web/wasm-ops.js";
 import { AotCompileError, type AotComponent, type AotDiagnostic, type AotExpr, type AotNode, type AotProgram, type SourceLocation } from "./aot-ir.ts";
 import type { ModelProgram } from "./aot-model-ir.ts";
 import { ANIMATABLE, ENUMS, LAYOUT_DIRTYING, PROP, PROP_VALUE_KIND, VALUE_KIND, bitsF32, f32Bits, type PropName, type StyleProp, type StyleRecord } from "../../contracts/spec/spec.ts";

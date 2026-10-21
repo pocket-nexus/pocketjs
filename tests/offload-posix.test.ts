@@ -8,7 +8,7 @@ import { encodeOffloadRecord } from "../tools/offload-wire.ts";
 const directory = mkdtempSync(join(tmpdir(), "pocket-posix-"));
 const library = join(directory, process.platform === "darwin" ? "transport.dylib" : "transport.so");
 const compile = Bun.spawnSync(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-shared", "-fPIC", "-pthread",
-  "hosts/shared/offload_posix.c", "-o", library], { stderr: "pipe" });
+  "platforms/linux/offload/offload_posix.c", "-o", library], { stderr: "pipe" });
 if (compile.exitCode) throw new Error(compile.stderr.toString());
 const native = dlopen(library, {
   pocket_offload_start: { args: [FFIType.cstring, FFIType.u32], returns: FFIType.void },

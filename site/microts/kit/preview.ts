@@ -1,7 +1,7 @@
 // One iframe owns one Runtime. Compiled modules import behind bootAsync's
 // evaluation gate; device facts then enter Runtime at each fixed host step.
 // Closing or replacing the preview disposes the guest and its native buffers.
-import { createWasmUi } from "../../../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../../../platforms/web/wasm-ops.js";
 
 const MODULE_TOKEN = "__pocket_module__:";
 

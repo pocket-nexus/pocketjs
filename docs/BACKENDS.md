@@ -31,7 +31,7 @@ hosts, the PSP GE walker, the ESP32-P4 PPA and Symbian GLES2 ports.
 
 ## The portable desktop host
 
-`hosts/desktop` uses winit for windows/input and the existing `pocket-ui-wgpu`
+`programs/desktop` uses winit for windows/input and the existing `pocket-ui-wgpu`
 DrawList backend for drawing and composition (wgpu/Metal on macOS). It reuses
 `pocket3d::gpu::Gpu`; no extra renderer crate or guest API is introduced.
 QuickJS guests, flex layout and GPU command recording execute on a runtime
@@ -161,7 +161,7 @@ pointer/text/IME/clipboard ids, see contracts/spec/platforms.ts). The host rende
 ## Browser System host
 
 **`web-app` runs every package in an independent same-origin iframe
-JavaScript Realm with its own wasm `Ui`.** `hosts/web/system-engine.js`
+JavaScript Realm with its own wasm `Ui`.** `programs/web/system-engine.js`
 derives the package catalog, surface handles and lifecycle policy from one
 `ResolvedSystemPlan`. Live shell bindings create and remove AppInstances;
 focus and visible painter order determine scheduling.
@@ -174,7 +174,7 @@ Shell chrome emitted after the surface therefore stays above the child. A
 missing child raster leaves the shell's loading fallback visible.
 
 **Each AppInstance draws codepoints its baked atlases lack**
-(`text.glyphs.runtime`, `hosts/web/runtime-glyphs.js`): the realm appends a
+(`text.glyphs.runtime`, `platforms/web/runtime-glyphs.js`): the realm appends a
 cell drawn by the browser to every loaded slot before the core lays the text
 out ([Build pipeline](../site/content/docs/build-pipeline.md)).
 
@@ -213,7 +213,7 @@ System UI role and background-execution policy. **Every installed entry
 reaches the native host as a complete `ResolvedBuildPlan`; ordinary
 applications resolve without the System UI-only compositor capability.**
 
-- **`hosts/desktop` implements a generic `AppSupervisor`; the System contract
+- **`programs/desktop` implements a generic `AppSupervisor`; the System contract
   does not expose that implementation.** The host contains no product catalog
   or package-name rules. Live `<CompositorSurface package>` bindings create
   one AppInstance with its own `Guest`, QuickJS `Runtime`, QuickJS `Context`,
@@ -253,7 +253,7 @@ The desktop benchmark against Tauri and Electron (harness, comparison
 apps, results) lives in its own stacked PR — pocket-nexus/pocketjs#294.
 
 
-`hosts/desktop --trace-frames` emits CPU tick, render-submission, worker-total
+`programs/desktop --trace-frames` emits CPU tick, render-submission, worker-total
 and presentation-submission timestamps. These durations exclude GPU completion
 and display scanout. Use a native input tape and record the binary/package hashes
 when comparing renderer changes.

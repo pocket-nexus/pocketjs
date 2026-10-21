@@ -4904,6 +4904,7 @@ dependencies = [
  "log",
  "pocket-drivers",
  "pocket-mod",
+ "pocket-posix-svc-wire",
  "pocket-runtime",
  "pocket-spec",
  "pocket-text",
@@ -4943,6 +4944,10 @@ dependencies = [
  "pocketjs-core",
  "serde_json",
 ]
+
+[[package]]
+name = "pocket-gba-video"
+version = "0.1.0"
 
 [[package]]
 name = "pocket-gles"
@@ -5094,6 +5099,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-posix-svc-wire"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "pocket-media",
+ "pocket-spec",
+]
+
+[[package]]
 name = "pocket-present"
 version = "0.1.0"
 dependencies = [
@@ -5104,8 +5118,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-psp-alloc"
+version = "0.1.0"
+dependencies = [
+ "psp",
+]
+
+[[package]]
+name = "pocket-psp-audio"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
+ "psp",
+]
+
+[[package]]
+name = "pocket-psp-display"
+version = "0.1.0"
+dependencies = [
+ "pocket-psp-ge",
+ "psp",
+]
+
+[[package]]
 name = "pocket-psp-ge"
 version = "0.1.0"
+
+[[package]]
+name = "pocket-psp-input"
+version = "0.1.0"
+dependencies = [
+ "psp",
+]
+
+[[package]]
+name = "pocket-psp-io"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+ "pocket-package",
+ "pocket-spec",
+ "psp",
+]
+
+[[package]]
+name = "pocket-psp-quickjs-alloc"
+version = "0.1.0"
+dependencies = [
+ "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=a5cac5d8631bdc068b43af93355b9f82d666949e)",
+ "pocket-psp-alloc",
+]
 
 [[package]]
 name = "pocket-psp-render"
@@ -5116,6 +5178,14 @@ dependencies = [
  "pocket-glyph-pages",
  "pocket-psp-ge",
  "pocket-spec",
+ "psp",
+]
+
+[[package]]
+name = "pocket-psp-system"
+version = "0.1.0"
+dependencies = [
+ "cc",
  "psp",
 ]
 
@@ -5140,6 +5210,13 @@ dependencies = [
  "pocket-runtime-cabi",
  "pocket-spec",
  "pocketjs-core",
+]
+
+[[package]]
+name = "pocket-rockbox-input"
+version = "0.1.0"
+dependencies = [
+ "pocket-spec",
 ]
 
 [[package]]
@@ -5271,10 +5348,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-vita-audio"
+version = "0.1.0"
+dependencies = [
+ "vitasdk-sys",
+]
+
+[[package]]
 name = "pocket-vita-gxm"
 version = "0.1.0"
 dependencies = [
  "vita2d-sys",
+ "vitasdk-sys",
+]
+
+[[package]]
+name = "pocket-vita-input"
+version = "0.1.0"
+dependencies = [
+ "vitasdk-sys",
+]
+
+[[package]]
+name = "pocket-vita-io"
+version = "0.1.0"
+dependencies = [
+ "pocket-drivers",
+]
+
+[[package]]
+name = "pocket-vita-net"
+version = "0.1.0"
+dependencies = [
+ "pocket-media",
+ "pocket-spec",
+ "pocket-vita-system",
  "vitasdk-sys",
 ]
 
@@ -5290,6 +5398,13 @@ dependencies = [
  "pocket-tri-batch",
  "pocket-vita-gxm",
  "vita2d-sys",
+ "vitasdk-sys",
+]
+
+[[package]]
+name = "pocket-vita-system"
+version = "0.1.0"
+dependencies = [
  "vitasdk-sys",
 ]
 
@@ -5459,6 +5574,7 @@ dependencies = [
  "linked_list_allocator",
  "microts",
  "pocket-drivers",
+ "pocket-gba-video",
  "pocket-package",
  "pocket-runtime",
  "pocket-spec",
@@ -5484,6 +5600,7 @@ dependencies = [
  "microts",
  "pocket-drivers",
  "pocket-package",
+ "pocket-rockbox-input",
  "pocket-runtime",
  "pocket-spec",
  "pocketjs-core",
@@ -5505,8 +5622,15 @@ dependencies = [
  "libquickjs-sys 0.9.0 (git+https://github.com/pocket-nexus/quickjs-rs.git?rev=a5cac5d8631bdc068b43af93355b9f82d666949e)",
  "pocket-drivers",
  "pocket-package",
+ "pocket-psp-alloc",
+ "pocket-psp-audio",
+ "pocket-psp-display",
  "pocket-psp-ge",
+ "pocket-psp-input",
+ "pocket-psp-io",
+ "pocket-psp-quickjs-alloc",
  "pocket-psp-render",
+ "pocket-psp-system",
  "pocket-runtime",
  "pocket-runtime-cabi",
  "pocket-spec",
@@ -5542,7 +5666,12 @@ dependencies = [
  "pocket-runtime",
  "pocket-runtime-cabi",
  "pocket-spec",
+ "pocket-vita-audio",
+ "pocket-vita-input",
+ "pocket-vita-io",
+ "pocket-vita-net",
  "pocket-vita-render",
+ "pocket-vita-system",
  "pocketjs-core",
  "serde",
  "serde_json",

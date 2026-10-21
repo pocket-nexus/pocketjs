@@ -3,10 +3,10 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { NATIVE_COMPONENTS, NATIVE_POLICY, RUST_TARGETS, nativeSourceFiles, nativeSourceDigest,
-  sha256, verifyNativeReceipt, type NativeReceipt } from "../tools/esp-idf-native-receipt.ts";
-import { verifyComponentVersions } from "../tools/esp-idf-component-versions.ts";
-import { generatedIdfContracts } from "../tools/esp-idf-contracts.ts";
-import { stageEspIdfComponents } from "../tools/esp-idf-release.ts";
+  sha256, verifyNativeReceipt, type NativeReceipt } from "../tools/packaging/esp-idf/receipt.ts";
+import { verifyComponentVersions } from "../tools/packaging/esp-idf/component-versions.ts";
+import { generatedIdfContracts } from "../tools/packaging/esp-idf/contracts.ts";
+import { stageEspIdfComponents } from "../tools/packaging/esp-idf/stage.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const temporary: string[] = [];
@@ -54,7 +54,7 @@ describe("ESP-IDF release integrity", () => {
   });
   test("rejects old archives paired with modified sources", async () => {
     const f = await fixture();
-    writeFileSync(join(f.directory, "hosts/esp-idf/native/runtime/src/lib.rs"), "changed source");
+    writeFileSync(join(f.directory, "programs/esp-idf/archive/src/lib.rs"), "changed source");
     await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
   });
   test.each([
@@ -88,8 +88,8 @@ describe("ESP-IDF release integrity", () => {
     writeFileSync(join(dependency, "Cargo.toml"), '[package]\nname="new-dependency"\nversion="0.1.0"\n');
     writeFileSync(join(dependency, "src/lib.rs"), 'pub const ASSET: &[u8] = include_bytes!("value.bin");');
     writeFileSync(join(dependency, "src/value.bin"), "first");
-    const manifest = join(f.directory, "hosts/esp-idf/native/runtime/Cargo.toml");
-    writeFileSync(manifest, readFileSync(manifest, "utf8") + '\n[dependencies.new-dependency]\npath="../../../../new-dependency"\n');
+    const manifest = join(f.directory, "programs/esp-idf/archive/Cargo.toml");
+    writeFileSync(manifest, readFileSync(manifest, "utf8") + '\n[dependencies.new-dependency]\npath="../../../new-dependency"\n');
     f.receipt.sourceSha256 = await nativeSourceDigest(f.directory, spec); f.save();
     await f.verify();
     writeFileSync(join(dependency, "src/value.bin"), "changed");

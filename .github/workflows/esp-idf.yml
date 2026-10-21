@@ -20,7 +20,7 @@ jobs:
           bun test tests/idf-host-profile.test.ts tests/idf-embed.test.ts
           tests/pocket-package.test.ts tests/platform-contracts.test.ts
           tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts tests/idf-input.test.ts
-      - run: bun tools/esp-idf-contracts.ts --check
+      - run: bun tools/packaging/esp-idf/contracts.ts --check
       - name: Install repository stable Rust
         run: rustup show
       - run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi -p pocket-present -p pocket-render-esp-ppa --features pocket-render-esp-ppa/cabi
@@ -31,7 +31,7 @@ jobs:
         run: |
           bun -e 'const r = await fetch("https://components-file.espressif.com/components/espressif/quickjs-ng/0.14.0/espressif__quickjs-ng-v0.14.0.zip"); if (!r.ok) throw new Error(String(r.status)); await Bun.write(process.env.RUNNER_TEMP + "/quickjs.zip", r);'
           unzip -q "$RUNNER_TEMP/quickjs.zip" -d "$RUNNER_TEMP/pocketjs-quickjs"
-          bun tools/esp-idf-host-tests.ts
+          bun tools/packaging/esp-idf/host-tests.ts
       - name: Install the shared build-std nightly
         run: |
           nightly=$(bun -e 'import { BUILD_STD_NIGHTLY } from "./tools/build/toolchains/rust.ts"; console.log(BUILD_STD_NIGHTLY)')
@@ -68,7 +68,7 @@ jobs:
 
       - name: Build RISC-V native archive
         if: matrix.target != 'esp32s3'
-        run: bun tools/esp-idf-native.ts --target ${{ matrix.target }} --cargo "$HOME/.rustup/toolchains/1.93.0-x86_64-unknown-linux-gnu/bin/cargo"
+        run: bun tools/packaging/esp-idf/native.ts --target ${{ matrix.target }} --cargo "$HOME/.rustup/toolchains/1.93.0-x86_64-unknown-linux-gnu/bin/cargo"
 
       - name: Install user-managed Xtensa Rust toolchain fixture
         if: matrix.target == 'esp32s3'
@@ -91,33 +91,33 @@ jobs:
       - name: Build S3 native archive
         if: matrix.target == 'esp32s3'
         run: >-
-          bun tools/esp-idf-native.ts --target esp32s3
+          bun tools/packaging/esp-idf/native.ts --target esp32s3
           --cargo "$RUNNER_TEMP/esp-rust/bin/cargo"
 
       - name: Compile deterministic smoke package and export its program profile
         run: |
           bun tools/pocket.ts compile \
-            --manifest hosts/esp-idf/examples/smoke/pocket.json \
-            --runtime-config hosts/esp-idf/examples/smoke/pocket.runtime-config.ts \
-            --project-root hosts/esp-idf/examples/smoke \
+            --manifest tests/esp-idf/examples/smoke/pocket.json \
+            --runtime-config tests/esp-idf/examples/smoke/pocket.runtime-config.ts \
+            --project-root tests/esp-idf/examples/smoke \
             --plan-dir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/plans" \
             --outdir "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/app" \
-            --output "$GITHUB_WORKSPACE/hosts/esp-idf/examples/smoke/idf-smoke.pocket"
+            --output "$GITHUB_WORKSPACE/tests/esp-idf/examples/smoke/idf-smoke.pocket"
           bun tools/pocket.ts profile export \
-            --config hosts/esp-idf/examples/smoke/pocket.runtime-config.ts \
+            --config tests/esp-idf/examples/smoke/pocket.runtime-config.ts \
             --out "$GITHUB_WORKSPACE/.pocket-build/validation/idf-ci/profile"
 
       - name: Verify committed prebuilt package
         run: >-
-          cmp hosts/esp-idf/examples/smoke/idf-smoke.pocket
-          hosts/esp-idf/examples/prebuilt/idf-smoke.pocket
+          cmp tests/esp-idf/examples/smoke/idf-smoke.pocket
+          tests/esp-idf/examples/prebuilt/idf-smoke.pocket
 
       - name: Build ESP-IDF smoke firmware
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: ${{ matrix.idf }}
           target: ${{ matrix.target }}
-          path: hosts/esp-idf/examples/smoke
+          path: tests/esp-idf/examples/smoke
           # The action mounts the checkout at its own container path. Resolve
           # exported artifacts from this example's working directory.
           command: >-
@@ -131,7 +131,7 @@ jobs:
         with:
           esp_idf_version: ${{ matrix.idf }}
           target: ${{ matrix.target }}
-          path: hosts/esp-idf/examples/prebuilt
+          path: tests/esp-idf/examples/prebuilt
           command: >-
             idf.py -DPOCKETJS_RUST_FROM_SOURCE=OFF
             -DPOCKETJS_PROFILE_EXPORT_DIR="$PWD/../../../../.pocket-build/validation/idf-ci/profile"
@@ -143,7 +143,7 @@ jobs:
         with:
           esp_idf_version: ${{ matrix.idf }}
           target: ${{ matrix.target }}
-          path: hosts/esp-idf/examples/runner
+          path: tests/esp-idf/examples/runner
           command: >-
             idf.py -DPOCKETJS_RUST_FROM_SOURCE=OFF
             -DPOCKETJS_PROFILE_EXPORT_DIR="$PWD/../../../../.pocket-build/validation/idf-ci/profile"

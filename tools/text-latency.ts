@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { resolve } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 const root = resolve(import.meta.dir, "..");
-if (!existsSync(resolve(root, "hosts/desktop/Cargo.toml")))
+if (!existsSync(resolve(root, "programs/desktop/Cargo.toml")))
   throw Error("The native latency harness requires a PocketJS git checkout");
 const { values } = parseArgs({
   args: process.argv.slice(2),
@@ -63,7 +63,7 @@ const proc = Bun.spawn(
     "--release",
     "--locked",
     "--manifest-path",
-    resolve(root, "hosts/desktop/Cargo.toml"),
+    resolve(root, "programs/desktop/Cargo.toml"),
     "--example",
     "text_latency",
     "--",

@@ -20,7 +20,7 @@ import { pack } from "../framework/compiler/pak.ts";
 import { installHost, type Host, type HostOps } from "../framework/src/host.ts";
 import { loadPack, resetPack } from "../framework/src/pak.ts";
 import { freeTileTexture, loadTileTexture, resetTilesetCache } from "../framework/src/tiles.ts";
-import { scriptToMasks, touchGlide } from "../hosts/sim/sim.ts";
+import { scriptToMasks, touchGlide } from "../programs/sim/sim.ts";
 import { __packTouch } from "../framework/src/touch.ts";
 
 // ---------------------------------------------------------------------------

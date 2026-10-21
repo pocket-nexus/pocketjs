@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { PROP, abgr } from "../contracts/spec/spec.ts";
 
 const core = async (options: { width: number; height: number; rasterDensity?: number }) =>
-  createWasmUi(await Bun.file(new URL("../hosts/web/pocketjs.wasm", import.meta.url)).arrayBuffer(), options);
+  createWasmUi(await Bun.file(new URL("../platforms/web/pocketjs.wasm", import.meta.url)).arrayBuffer(), options);
 
 test("the premultiplied render keeps coverage in one drawing and leaves the opaque render as it is", async () => {
   for (const density of [1, 2]) {

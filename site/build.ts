@@ -13,6 +13,7 @@
 //   /playground/          the live editor page
 //   /docs/*, /index.html  rendered from site/content (added below)
 
+import { stageWebAssets } from "../tools/build/web-assets.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -575,17 +576,12 @@ async function main() {
   // validator. The deployed path is POCKET_MANIFEST_SCHEMA_ID —
   // /schema/pocket-2.json, independent of where the repo keeps the file.
   copy(ROOT + "contracts/schema/pocket-2.json", "schema/pocket-2.json");
-  copy(ROOT + "hosts/web/pocketjs.wasm", "pg/pocketjs.wasm");
-  // The AppInstance realm a docs demo boots into: one hidden same-origin
-  // iframe per demo, so several demos on one page never share globals.
-  copy(ROOT + "hosts/web/app-instance.html", "pg/app-instance.html");
-  copy(ROOT + "hosts/web/app-instance.js", "pg/app-instance.js");
-  copy(ROOT + "hosts/web/wasm-ops.js", "pg/wasm-ops.js");
-  copy(ROOT + "hosts/web/generated-ui.js", "pg/generated-ui.js");
-  copy(ROOT + "hosts/web/runtime-glyphs.js", "pg/runtime-glyphs.js");
-  for (const name of ["offload-worker.js", "text-worker.js", "text-engine.js", "pocket_text.wasm"]) {
-    copy(ROOT + "hosts/web/" + name, "pg/" + name);
-  }
+  copy(ROOT + "platforms/web/pocketjs.wasm", "pg/pocketjs.wasm");
+  // Preserve program/provider module and worker URLs under the deployed root.
+  stageWebAssets(OUT + "pg", {
+    wasm: ROOT + "platforms/web/pocketjs.wasm",
+    textWasm: ROOT + "platforms/web/pocket_text.wasm",
+  });
   copy(ROOT + "assets/fonts/Inter-Regular.ttf", "pg/fonts/Inter-Regular.ttf");
   copy(ROOT + "assets/fonts/Inter-Bold.ttf", "pg/fonts/Inter-Bold.ttf");
   for (const f of readdirSync(ROOT + "assets/images/")) copy(ROOT + "assets/images/" + f, "demo-assets/" + f);
@@ -1030,7 +1026,7 @@ function docDemoFigure(demo: DocDemo, caption: string): string {
   const attrs: Record<string, string> = {
     "data-app": demo.app,
     "data-package-id": demo.packageId,
-    "data-instance": "/pg/app-instance.html",
+    "data-instance": "/pg/programs/web/app-instance.html",
     "data-wasm": "/pg/pocketjs.wasm",
     "data-bundle": `/pg/demos/${demo.bundleFile}`,
     "data-pak": `/pg/demos/${demo.pakFile}`,

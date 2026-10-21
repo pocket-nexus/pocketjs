@@ -1,6 +1,6 @@
 # pocketbook-host — the PocketJS UI runtime on PocketBook e-readers (inkview).
 #
-# STANDALONE LONE-BIN CRATE (same model as hosts/psp and hosts/vita): it lives
+# STANDALONE LONE-BIN CRATE (same model as programs/psp and programs/vita): it lives
 # outside any workspace with its own Cargo.lock, and path-depends on the engine
 # crates. It reuses the backend-agnostic `ui` surface (pocket-ui-surface) and
 # the core's software rasterizer, then blits the frame as RGB24 (inkview

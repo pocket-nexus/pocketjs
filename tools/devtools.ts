@@ -19,7 +19,7 @@ import { $ } from "bun";
 import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import { startDevServer, demoManifest } from "../hosts/web/server.ts";
+import { startDevServer, demoManifest } from "../tools/dev/web/server.ts";
 import { startBridge, type Bridge } from "./devtools-bridge.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
@@ -91,7 +91,7 @@ async function detectUsbhostfs(): Promise<ExternalSession | null> {
 
 const PRX = "host0:/pocketjs-psp.prx";
 const profile = release ? "release" : "debug";
-const targetDir = join(ROOT, "hosts", "psp", "target", "mipsel-sony-psp", profile);
+const targetDir = join(ROOT, "programs", "psp", "target", "mipsel-sony-psp", profile);
 
 function portFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {

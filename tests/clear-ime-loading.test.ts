@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { bootWorld, treeHasText } from "../hosts/sim/sim.ts";
+import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
 import { __packTouchWide } from "../framework/src/touch.ts";
 import type { HostOps } from "../framework/src/host.ts";
 import type { OffloadRequest } from "../contracts/spec/offload.ts";

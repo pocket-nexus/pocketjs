@@ -23,7 +23,7 @@
 #include "pocket_ui_cabi.h"
 
 /* PR #407 adds this declaration to pocket_ui_cabi.h; the symbol
- * already ship in the main-branch archive (engine/ui-cabi/src/lib.rs,
+ * already ship in the main-branch archive (programs/native/cabi/src/lib.rs,
  * ui_render_scaled/ui_render_incremental_scaled). The d211 device calls
  * ui_render_incremental_scaled(POCKET_RASTER_DENSITY). Drop these once the
  * PR #407 header lands in main. */

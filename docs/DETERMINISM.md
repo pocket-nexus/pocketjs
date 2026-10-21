@@ -111,13 +111,13 @@ A run's effect activity is observable through `globalThis.__pocketEffectTrace`
 — every command and delivery with its frame index. That trace plus the input
 tape is the complete causal record of a session.
 
-## The sim host (`hosts/sim/sim.ts`)
+## The sim host (`programs/sim/sim.ts`)
 
 A PocketJS host with no screen, no vblank, and no wall clock — it drives
 virtual frames as fast as the CPU allows and records everything:
 
 ```ts
-import { runScenario } from "./hosts/sim/sim.ts";
+import { runScenario } from "./programs/sim/sim.ts";
 
 const trace = await runScenario({
   app: "cafe-main",
@@ -151,7 +151,7 @@ the target they were built for**, and hands back a world that a tool steps by
 hand:
 
 ```ts
-import { bootBundle } from "./hosts/sim/sim.ts";
+import { bootBundle } from "./programs/sim/sim.ts";
 
 const world = await bootBundle({
   js: "out/3ds/game.js",

@@ -1,5 +1,5 @@
-#include "../../hosts/3ds/src/offload_queue.h"
-#include "../../hosts/3ds/src/offload_coverage.h"
+#include "../../platforms/3ds/offload_queue.h"
+#include "../../platforms/3ds/offload_coverage.h"
 #include <assert.h>
 #include <pthread.h>
 #include <stdio.h>

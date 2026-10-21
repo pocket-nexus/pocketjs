@@ -3,9 +3,9 @@
 extern crate alloc;
 // Compile the production composition/extension code. Only device services are
 // substituted; QuickJS, generated bindings, runtime and core are real.
-#[path = "../../../../hosts/psp/src/ffi.rs"]
-mod ffi;
-#[path = "../../../../hosts/psp/src/instance.rs"]
+#[path = "../../../../programs/psp/src/service_bindings.rs"]
+mod service_bindings;
+#[path = "../../../../programs/psp/src/instance.rs"]
 mod instance;
 mod dbg {
     pub fn active() -> bool {
@@ -321,7 +321,7 @@ mod offload_local {
         true
     }
 }
-#[path = "../../../../hosts/psp/src/offload_image.rs"]
+#[path = "../../../../programs/psp/src/offload_image.rs"]
 mod offload_image;
 
 #[test]

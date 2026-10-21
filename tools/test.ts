@@ -40,7 +40,7 @@ const SUITE: readonly Stage[] = [
     // .github/workflows/native-c-harness.yml; tests/test-suite.test.ts
     // verifies these exclusions against that workflow.
     name: "unit",
-    // wasm-auxiliary.test.ts, wasm-premultiplied.test.ts, pocket3d-web.test.ts and runtime-glyphs.test.ts load hosts/web/pocketjs.wasm.
+    // wasm-auxiliary.test.ts, wasm-premultiplied.test.ts, pocket3d-web.test.ts and runtime-glyphs.test.ts load platforms/web/pocketjs.wasm.
     prep: [["bun", "tools/wasm.ts"]],
     tests: [
       "tests/device-lease.test.ts",
@@ -60,6 +60,7 @@ const SUITE: readonly Stage[] = [
       "tests/runtime-cabi-compat.test.ts",
       "tests/sdk.test.ts",
       "tests/release-artifacts.test.ts",
+      "tests/e2e-build.test.ts",
       "tests/cargo-workspace.test.ts",
       "tests/idf-input.test.ts",
       "tests/zephyr-contract.test.ts",
@@ -241,7 +242,7 @@ const SUITE: readonly Stage[] = [
   },
   {
     // Session golden: a 180-frame deterministic replay hashed per frame.
-    // Placed after a stage that preps hosts/web/pocketjs.wasm so this pays
+    // Placed after a stage that preps platforms/web/pocketjs.wasm so this pays
     // only the hero-main rebuild (~1s), never a cold wasm compile.
     name: "tape golden",
     script: [
@@ -365,7 +366,7 @@ const SUITE: readonly Stage[] = [
   },
   {
     // The system agent's overlay over a fixture app on the 3DS geometry, with
-    // the agent fake (hosts/sim/console-3ds.ts). The test builds its guest
+    // the agent fake (programs/sim/console-3ds.ts). The test builds its guest
     // with `bun tools/3ds.ts --plan=... --pocket-only`. Pocket Home and the
     // Hacker News app live in pocket-shell (shells/3ds) with their own sims.
     name: "agent overlay sim",

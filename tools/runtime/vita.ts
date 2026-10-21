@@ -6,10 +6,10 @@
 //   eboot.bin                                 the program; started without a game, it
 //                                             says on screen that app0:app.pocket is missing
 //   sce_sys/icon0.png, sce_sys/livearea/...   PocketJS's default bubble and LiveArea
-//                                             (hosts/vita/assets/sce_sys/)
+//                                             (programs/vita/assets/sce_sys/)
 //   runtime.json                              { target, hostAbi, pocketjs, profile, files }
 //
-// At startup the program reads app0:app.pocket (hosts/vita/src/package_file.rs).
+// At startup the program reads app0:app.pocket (programs/vita/src/package_file.rs).
 // tools/repack/vita.ts gives it a game: param.sfo, icon and the game's .pocket.
 
 import { buildVita } from "../vita.ts";

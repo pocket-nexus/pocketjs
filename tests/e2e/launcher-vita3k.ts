@@ -15,7 +15,6 @@
 // Run: bun tests/e2e/launcher-vita3k.ts
 // Host deps: VitaSDK, Vita3K, and unzip (same as tests/e2e/vita3k.ts).
 
-import { $ } from "bun";
 import {
   existsSync,
   mkdirSync,
@@ -26,6 +25,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
+import { buildCaptureLauncher, evidenceDirectory } from "./build.ts";
 import {
   DEFAULT_VITA_PACKAGE_ASSETS,
   VITA_REQUIRED_SYSTEM_ASSETS,
@@ -34,12 +34,11 @@ import { vitaTitleId } from "../../framework/src/manifest/vita-package.ts";
 import { encodePNG } from "../png.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const OUT = `${ROOT}dist/e2e-launcher-vita3k`;
+const OUT = evidenceDirectory(ROOT, "launcher-vita3k");
 const VITAFS = `${OUT}/vitafs`;
 const CONFIG = `${OUT}/config/config.yml`;
 const CAPTURE_DIR = `${VITAFS}/ux0/data/pocketjs-captures`;
-const VPK = `${ROOT}dist/vita/launcher-main.vpk`;
-const REGISTRY = `${ROOT}dist/launcher/vita/launcher-registry.json`;
+const REGISTRY = `${OUT}/launcher-registry.json`;
 const LAUNCHER_MANIFEST = `${ROOT}apps/launcher/pocket.json`;
 const W = 960;
 const H = 544;
@@ -226,7 +225,7 @@ async function runVita3K(): Promise<void> {
       "-r",
       titleId,
     ],
-    { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
+    { cwd: ROOT, stdout: Bun.file(`${OUT}/vita3k.stdout.log`), stderr: Bun.file(`${OUT}/vita3k.stderr.log`) },
   );
   const deadline = Date.now() + TIMEOUT_MS;
   try {
@@ -288,7 +287,7 @@ function assertPackagedDefaultLiveArea(): void {
       stdout: "pipe",
       stderr: "pipe",
     });
-    if (unpacked.exitCode !== 0) {
+    if (!unpacked.success) {
       throw new Error(
         `launcher VPK is missing ${path}: ${unpacked.stderr.toString().trim()}`,
       );
@@ -345,27 +344,15 @@ function assertDifferentFrame(a: Buffer, b: Buffer, label: string): void {
 writeFixture();
 
 console.log("# build multi-app Vita capture VPK ...");
-const build =
-  await $`bun tools/launcher.ts build --target vita -- --capture --release`
-    .cwd(ROOT)
-    .env({
-      ...process.env,
-      VITASDK: process.env.VITASDK ?? `${homedir()}/vitasdk`,
-      POCKETJS_CAPTURE_INPUT: INPUT,
-      POCKETJS_CAPTURE_FRAMES: CAPTURE_FRAMES,
-    })
-    .quiet()
-    .nothrow();
-if (build.exitCode !== 0) {
-  console.error(
-    `FAIL: Vita launcher build failed\n${build.stdout}${build.stderr}`,
-  );
-  process.exit(1);
-}
-if (!existsSync(VPK)) {
-  console.error(`FAIL: launcher VPK missing after successful build: ${VPK}`);
-  process.exit(1);
-}
+const VPK = await buildCaptureLauncher({
+  root: ROOT, directory: OUT, target: "vita",
+  env: {
+    ...process.env,
+    VITASDK: process.env.VITASDK ?? `${homedir()}/vitasdk`,
+    POCKETJS_CAPTURE_INPUT: INPUT,
+    POCKETJS_CAPTURE_FRAMES: CAPTURE_FRAMES,
+  },
+});
 if (!existsSync(REGISTRY)) {
   console.error(
     `FAIL: Vita launcher registry missing after successful build: ${REGISTRY}`,
@@ -405,7 +392,7 @@ const install = Bun.spawnSync({
   stdout: "pipe",
   stderr: "pipe",
 });
-if (install.exitCode !== 0) {
+if (!install.success) {
   console.error(
     `FAIL: could not extract launcher VPK: ${install.stderr.toString().trim()}`,
   );

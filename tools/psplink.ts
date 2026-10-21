@@ -143,7 +143,7 @@ async function listDemos(): Promise<Demo[]> {
 
 async function buildDemo(demo: Demo, opts: Options): Promise<void> {
   const profile = opts.release ? "release" : "debug";
-  const source = join(ROOT, "hosts/psp/target/mipsel-sony-psp", profile, "pocketjs-psp.prx");
+  const source = join(ROOT, "programs/psp/target/mipsel-sony-psp", profile, "pocketjs-psp.prx");
   await $`bun tools/psp.ts ${demo.name} ${opts.release ? "--release" : ""}`
     .cwd(ROOT)
     .env({ ...process.env, POCKETJS_TRACE: opts.trace ? "1" : "" });

@@ -117,7 +117,7 @@ export function startBridge(opts: BridgeOptions): Bridge {
   const distDir = opts.dist ?? new URL("../dist", import.meta.url).pathname;
 
   /** Stale-embed tripwire: the device's stats reply carries the FNV-1a64 of
-   *  the js+pak baked into the PRX (hosts/psp/build.rs); compare it with the
+   *  the js+pak baked into the PRX (programs/psp/build.rs); compare it with the
    *  hash of what dist/ holds NOW. A mismatch means the running EBOOT does
    *  not contain the code being edited — every on-device observation would
    *  be evidence about the wrong build. */

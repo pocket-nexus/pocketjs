@@ -11,6 +11,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod embedded;
+pub mod font_archive;
 pub mod package;
 pub mod package_format;
 pub mod pak;

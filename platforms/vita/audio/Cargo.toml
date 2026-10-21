@@ -1,0 +1,11 @@
+[package]
+name = "pocket-vita-audio"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PocketJS vita audio driver"
+
+[dependencies]
+vitasdk-sys = { version = "0.3.3", features = ["SceAudio_stub", "SceKernelThreadMgr_stub", "SceLibKernel_stub"] }

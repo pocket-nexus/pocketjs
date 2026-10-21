@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { createWasmUi, createWasmUiSync, contactFacts } from "../hosts/web/wasm-ops.js";
+import { createWasmUi, createWasmUiSync, contactFacts } from "../platforms/web/wasm-ops.js";
 import { POCKET_BINDING_GENERATION } from "../engine/guest-web/src/generated-ui.js";
 import { PROP, abgr } from "../contracts/spec/spec.ts";
 
-const module = WebAssembly.compile(await Bun.file(new URL("../hosts/web/pocketjs.wasm",import.meta.url)).arrayBuffer());
+const module = WebAssembly.compile(await Bun.file(new URL("../platforms/web/pocketjs.wasm",import.meta.url)).arrayBuffer());
 const make = async (options = {}) => createWasmUi(await module,{width:32,height:24,...options});
 const source = `const n=ui.createNode(0);ui.insertBefore(1,n,0);ui.setProp(n,${PROP.width},12);ui.setProp(n,${PROP.height},10);ui.setProp(n,${PROP.bgColor},${abgr(240,20,40)});globalThis.frame=(...args)=>{globalThis.lastFrame=args;globalThis.calls=(globalThis.calls||0)+1;};`;
 function evaluator(realm: Record<string,any>) {return (code:string)=>new Function("globalThis","ui",code)(realm,realm.ui);}

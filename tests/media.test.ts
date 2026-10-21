@@ -24,7 +24,7 @@ int main(int argc,char **argv) {
   p[7]=0xff;assert(!media_packet_valid(p));p[7]=0;p[1]=1;assert(!media_packet_valid(p));
   p[1]=0;p[0]=2;p[4]=3;assert(!media_packet_valid(p));fclose(f);return 0;
 }`);
-    const compile=Bun.spawnSync(["cc","-std=c11","-I",resolve("hosts/3ds/src"),join(directory,"check.c"),"-o",join(directory,"check")]);
+    const compile=Bun.spawnSync(["cc","-std=c11","-I",resolve("platforms/3ds"),join(directory,"check.c"),"-o",join(directory,"check")]);
     expect(compile.exitCode,compile.stderr.toString()).toBe(0);
     expect(Bun.spawnSync([join(directory,"check"),join(directory,"wire.bin")]).exitCode).toBe(0);
     expect(()=>mediaPacket({kind:1,ptsMs:0,data:new Uint8Array(MEDIA.packetBytes+1)})).toThrow();
@@ -56,7 +56,7 @@ int main(int argc,char **argv) {
   assert(fread(b,1,sizeof b,f)==sizeof b);fclose(f);assert(media_decode_audio(b,sizeof b,out)==1024);
   fwrite(out,sizeof out,1,stdout);b[2]=89;assert(!media_decode_audio(b,sizeof b,out));return 0;
 }`);
-    const compile=Bun.spawnSync(["cc","-std=c11","-I",resolve("hosts/3ds/src"),join(directory,"audio.c"),"-o",join(directory,"audio")]);
+    const compile=Bun.spawnSync(["cc","-std=c11","-I",resolve("platforms/3ds"),join(directory,"audio.c"),"-o",join(directory,"audio")]);
     expect(compile.exitCode,compile.stderr.toString()).toBe(0);
     const decode=Bun.spawnSync([join(directory,"audio"),join(directory,"audio.bin")]);
     expect(decode.exitCode,decode.stderr.toString()).toBe(0);

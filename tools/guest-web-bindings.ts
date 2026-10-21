@@ -13,7 +13,7 @@ export function generatedGuestWebBindings(): string {
 }
 if (import.meta.main) {
   const content = generatedGuestWebBindings();
-  for (const relative of ["engine/guest-web/src/generated-ui.js", "hosts/web/generated-ui.js"]) {
+  for (const relative of ["engine/guest-web/src/generated-ui.js", "platforms/web/generated-ui.js"]) {
   const path = resolve(root, relative);
   if (process.argv.includes("--check")) {
     if (readFileSync(path, "utf8") !== content) throw new Error("generated web guest bindings differ");

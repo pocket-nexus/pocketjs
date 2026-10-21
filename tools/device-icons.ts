@@ -8,8 +8,8 @@ const root = resolve(import.meta.dir, "..");
 const check = process.argv.includes("--check");
 for (const [source, target, size] of [
   ["hosts/iphone4s/Icon.svg", "hosts/iphone2g/Icon.png", 57],
-  ["hosts/3ds/icon.svg", "hosts/3ds/icon.png", 48],
-  ["hosts/3ds/icon-small.svg", "hosts/3ds/icon-small.png", 24],
+  ["programs/3ds/product/icon.svg", "programs/3ds/product/icon.png", 48],
+  ["programs/3ds/product/icon-small.svg", "programs/3ds/product/icon-small.png", 24],
 ] as const) {
   const svg = readFileSync(resolve(root, source), "utf8");
   const canvas = await rasterizeIconSvg(svg, size, size, !target.includes("iphone2g"));

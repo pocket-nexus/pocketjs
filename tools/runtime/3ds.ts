@@ -1,5 +1,5 @@
 // tools/runtime/3ds.ts [--out=<dir>] — the generic Nintendo 3DS runtime: the
-// hosts/3ds program with no game, in dist/runtime/3ds/.
+// programs/3ds/product program with no game, in dist/runtime/3ds/.
 //
 //   runtime.3dsx   the program, the host's SMDH (PocketJS mark, "PocketJS
 //                  Runtime") and no RomFS: started as it is, it says on the
@@ -7,7 +7,7 @@
 //   runtime.json   { target, hostAbi, pocketjs, profile, files }
 //
 // The host reads a game's surfaces and its state directory on the SD card
-// from the plan and identity of romfs:/app.pocket at boot (hosts/3ds/src/
+// from the plan and identity of romfs:/app.pocket at boot (programs/3ds/product/src/
 // main.c), so nothing here depends on a game. tools/repack/3ds.ts gives the
 // program a game: a new SMDH and a RomFS holding the game's `.pocket`.
 //

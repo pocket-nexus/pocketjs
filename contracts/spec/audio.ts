@@ -28,7 +28,7 @@
 //   free-frame budget (starts at AUDIO_RING_FRAMES, minus its own accepted
 //   writes, reset by each credit event) so the hot path never queries.
 //
-//   Virtual-clock hosts (hosts/sim) consume EXACTLY audioFramesForTick()
+//   Virtual-clock hosts (programs/sim) consume EXACTLY audioFramesForTick()
 //   frames per tick while a stream plays. That makes consumed PCM a pure
 //   function of (tick index, op stream) — byte-exact audio traces, the same
 //   determinism story as the pixel goldens.
@@ -113,7 +113,7 @@ export const AUDIO_EVENT = {
  * Accepted stream sample rates. This is the PSP hardware constraint promoted
  * to the portable contract: the PSP outputs at its native 44.1 kHz and only
  * integer upsample ratios avoid the (audibly broken) hardware resampler —
- * see hosts/psp/src/audio.rs. Keeping every stream an integer divisor of
+ * see platforms/psp/audio/src/output.rs. Keeping every stream an integer divisor of
  * 44.1 kHz means every current and future host resamples with cheap exact
  * math, so a bundle that plays anywhere plays everywhere.
  */
@@ -124,7 +124,7 @@ export const AUDIO_MAX_CHANNELS = 2;
 
 /**
  * Per-stream ring capacity in SOURCE sample frames (~740 ms at 22.05 kHz —
- * the same figure hosts/psp/src/audio.rs carries for the video plane ring).
+ * the same figure platforms/psp/audio/src/output.rs carries for the video plane ring).
  * This is the credit ceiling: a guest's free-frame mirror starts here.
  */
 export const AUDIO_RING_FRAMES = 16384;
@@ -141,7 +141,7 @@ export const AUDIO_MAX_STREAMS = 4;
  * zero drift: the sum over any 60 consecutive ticks is exactly `rate`.
  *
  * This formula IS the deterministic-audio contract: virtual-clock hosts
- * (hosts/sim) consume exactly this many frames per playing tick, making the
+ * (programs/sim) consume exactly this many frames per playing tick, making the
  * consumed PCM byte-stream a pure function of (tick index, op stream).
  * Real-time hosts consume on the device clock instead and report through
  * `credit` — the formula is their long-run average by construction.

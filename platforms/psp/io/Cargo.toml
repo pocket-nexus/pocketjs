@@ -1,0 +1,14 @@
+[package]
+name = "pocket-psp-io"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PocketJS psp io driver"
+
+[dependencies]
+psp = { git = "https://github.com/pocket-nexus/rust-psp.git", rev = "2cbaf8c9bc72569c76240a1d9743de10731e5f6b", features = ["external-c-heap", "abort-only", "external-global-alloc"] }
+pocket-package.workspace = true
+pocket-drivers.workspace = true
+pocket-spec.workspace = true

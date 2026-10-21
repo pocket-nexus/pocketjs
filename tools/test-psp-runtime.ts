@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import profile from "../profiles/psp.ts";
 import { canonicalProfileJson, hashPocketProfile } from "../framework/src/profile.ts";
 const root = resolve(import.meta.dir, "..");
-const metadata = Bun.spawnSync(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", join(root, "hosts/psp/Cargo.toml")], { cwd: root, stdout: "pipe", stderr: "pipe" });
+const metadata = Bun.spawnSync(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", join(root, "programs/psp/Cargo.toml")], { cwd: root, stdout: "pipe", stderr: "pipe" });
 if (!metadata.success) throw new Error(metadata.stderr.toString());
 const packages = JSON.parse(metadata.stdout.toString()).packages as {name:string;manifest_path:string;source:string|null;dependencies:{name:string;source:string|null}[]}[];
 const source = packages.find(p => p.name === "pocketjs-psp")?.dependencies.find(p => p.name === "libquickjs-sys")?.source;

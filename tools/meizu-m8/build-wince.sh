@@ -18,16 +18,16 @@ done
   -DPOCKET_BUILD_ID=\"$POCKET_BUILD_ID\" \
   -DPOCKET_LOGICAL_WIDTH=$POCKET_LOGICAL_WIDTH \
   -DPOCKET_LOGICAL_HEIGHT=$POCKET_LOGICAL_HEIGHT \
-  -I/src/engine/quickjs-c \
+  -I/src/programs/native/quickjs \
   -c /src/hosts/meizu-m8/runtime.c -o /build/objects/runtime.o
 "$CC" $COMMON -Wall -Wextra -Werror -Wno-unused-parameter \
   -DPOCKET_RUNTIME_REPORT_BOOT_STAGE=1 \
   -DPOCKETJS_TARGET_ID=\"$POCKETJS_TARGET_ID\" \
   -include /build/pocket_host_profile.h \
   -DPOCKETJS_HOST_ABI=$POCKETJS_HOST_ABI \
-  -I/src/engine/quickjs-c -I/src/engine/guest-quickjs/include -I/src/engine/ui-cabi/include \
+  -I/src/programs/native/quickjs -I/src/engine/guest-quickjs/include -I/src/programs/native/cabi/include \
   -I/src/contracts/generated -I/build/qjs \
-  -c /src/engine/quickjs-c/pocket_runtime.c -o /build/objects/pocket_runtime.o
+  -c /src/programs/native/quickjs/pocket_runtime.c -o /build/objects/pocket_runtime.o
 "$CC" $COMMON -Wall -Wextra -Werror -Wno-unused-parameter \
   -I/src/engine/guest-quickjs/include -I/src/contracts/generated -I/build/qjs \
   -c /src/engine/guest-quickjs/src/guest.c -o /build/objects/pocket_guest_quickjs.o

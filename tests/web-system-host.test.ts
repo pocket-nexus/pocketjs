@@ -3,7 +3,7 @@ import {
   createSurfaceCatalog,
   focusCanvas,
   validateSystemPlan,
-} from "../hosts/web/system-engine.js";
+} from "../programs/web/system-engine.js";
 import { validateAndResolveSystemPlan } from "@pocketjs/framework/manifest";
 import systemInput from "./fixtures/systems/managed-desktop.json";
 import { POCKET_BINDING_GENERATION } from "../engine/guest-web/src/generated-ui.js";

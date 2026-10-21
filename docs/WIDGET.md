@@ -79,7 +79,7 @@ packages prove that `EmbeddedUi` + `PartMap` carry real weight:
   previous, next, and play/pause. No iPod-only guest ABI or native process
   exists.
 - Its default app is the 176×132 iPod nano Hero that also runs on the device
-  as a Rockbox plugin (`hosts/ipodnano`). A settled DrawList produces no
+  as a Rockbox plugin (`programs/ipodnano`). A settled DrawList produces no
   periodic GPU work. Launch the package with `bun run widget:ipod`.
 
 The source remains in the historical `engine/pocket3d/examples/handheld` directory

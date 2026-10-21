@@ -544,7 +544,7 @@ export async function buildApp(
         resolve(payload, "libpocketjs_symbian_core.a"),
       );
     } else {
-      const coreDirectory = resolve(root, "engine/ui-cabi");
+      const coreDirectory = resolve(root, "programs/native/cabi");
       const rustBuild = await spawn(rustHost.rustupPath!, [
         "run",
         rustHost.toolchainName!,

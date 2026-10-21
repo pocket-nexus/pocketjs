@@ -76,7 +76,7 @@ export const SIZE_FULL = -1;
 // ---------------------------------------------------------------------------
 // UI ops (the `ui.*` native contract — see docs/DESIGN.md table)
 // ---------------------------------------------------------------------------
-// Numeric codes are the engine/wasm/FFI ABI identity of each op. 0 is reserved
+// Numeric codes are the programs/web/wasm/FFI ABI identity of each op. 0 is reserved
 // (invalid/nop). Codes are append-only: never renumber, never reuse.
 //
 // Signatures (authoritative; hosts marshal them however they like):
@@ -201,7 +201,7 @@ export const OP = {
   //                      whole session; -1 when no stream is open).
   videoClose: 37, //      () — stop audio, close the stream, free the plane.
   debugStats: 38, //      () -> string. One JSON snapshot of the device's
-  //                      diagnostic counters (hosts/psp/src/stats.rs: audio
+  //                      diagnostic counters (programs/psp/src/stats.rs: audio
   //                      underruns/reserve failures, video frames presented/
   //                      torn/lapped, svc truncation resets) plus build
   //                      identity: the app output name and the FNV-1a64 hash

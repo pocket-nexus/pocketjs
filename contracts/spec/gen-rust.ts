@@ -278,7 +278,7 @@ export function generateRust(): string {
   put("");
 
   // --- op codes ---------------------------------------------------------------
-  put("/// UI op codes (the engine/wasm/FFI ABI identity of each `ui.*` op; 0 reserved).");
+  put("/// UI op codes (the programs/web/wasm/FFI ABI identity of each `ui.*` op; 0 reserved).");
   put("/// Signatures are documented in spec.ts and docs/DESIGN.md.");
   put("pub mod op {");
   for (const [name, v] of Object.entries(OP)) {
@@ -518,7 +518,7 @@ export function generateRust(): string {
   // The audio MODULE's boundary (contracts/spec/audio.ts): its own op space,
   // mounted as `globalThis.audio`, independent of the ui surface. A native
   // host implementing it reads these constants; the ring/thread discipline to
-  // copy is hosts/psp/src/audio.rs (currently serving the video plane).
+  // copy is platforms/psp/audio/src/output.rs (currently serving the video plane).
   if (audioFramesForTick(22050, 0) !== 367 || audioFramesForTick(22050, 1) !== 368) {
     throw new Error("audioFramesForTick drifted from the pinned Bresenham formula");
   }

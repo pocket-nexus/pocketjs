@@ -1,9 +1,9 @@
 // The playground's devices: a picture of each from the front with where its screen and keys are (microts:shells,
 // rendered by tools/handheld-shells.ts), and what each key is to an app. Control mappings follow the pocketjs
 // device hosts:
-//   GBA        hosts/gba/src/main.rs           A → CIRCLE, B → CROSS
-//   3DS        hosts/3ds/src/input.c           A → CIRCLE, B → CROSS, X → TRIANGLE, Y → SQUARE
-//   iPod nano  hosts/ipodnano/src/lib.rs       wheel UP/DOWN, center CIRCLE, MENU TRIANGLE, ⏮⏭ LEFT/RIGHT, ⏯ START
+//   GBA        programs/gba/src/main.rs           A → CIRCLE, B → CROSS
+//   3DS        platforms/3ds/input.c           A → CIRCLE, B → CROSS, X → TRIANGLE, Y → SQUARE
+//   iPod nano  programs/ipodnano/src/lib.rs       wheel UP/DOWN, center CIRCLE, MENU TRIANGLE, ⏮⏭ LEFT/RIGHT, ⏯ START
 //   BlackBerry docs/BLACKBERRY_CLASSIC.md      trackpad move → direction pulses, press → CIRCLE, Menu → TRIANGLE, Space → START
 //   iPhone / iPod touch                        touch screen only; Home belongs to the system
 // ui: PSP button names a UI app receives (contracts/spec/spec.ts BTN); retro: Pocket Retro GBA button names.

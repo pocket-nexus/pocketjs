@@ -11,6 +11,7 @@ use pocket_drivers::{
 use pocket_glyph_pages::{GlyphPageLayout, GlyphSampler};
 use pocket_spec as spec;
 use pocket_tex_cache::{TextureCache, TextureKey};
+pub mod registered;
 mod geometry;
 #[cfg(target_os = "vita")]
 pub mod native;

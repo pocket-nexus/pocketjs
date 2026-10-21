@@ -5,8 +5,8 @@ import { createHash } from "node:crypto";
 
 const root = new URL("..", import.meta.url).pathname;
 const tool = join(root, "platforms/esp-idf/pocket_runtime/tools/embed_package.py");
-const pkg = join(root, "hosts/esp-idf/examples/prebuilt/idf-smoke.pocket");
-const runtimeConfig = join(root, "hosts/esp-idf/examples/smoke/pocket.runtime-config.ts");
+const pkg = join(root, "tests/esp-idf/examples/prebuilt/idf-smoke.pocket");
+const runtimeConfig = join(root, "tests/esp-idf/examples/smoke/pocket.runtime-config.ts");
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
 function directory() {

@@ -30,4 +30,4 @@ for (const demo of demos) {
   run([process.execPath, "tools/build.ts", demo, ...buildFlags]);
 }
 
-await import("../hosts/web/serve.ts");
+await import("../tools/dev/web/serve.ts");

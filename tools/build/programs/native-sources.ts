@@ -12,9 +12,9 @@ const runtime = [
     .flatMap(name => crate(`engine/${name}`)),
 ];
 const cabi = [
-  ...runtime, ...crate("engine/runtime-cabi"), ...crate("engine/ui-cabi"),
-  "engine/ui-cabi/include",
-  "engine/quickjs-c", "engine/guest-quickjs/src", "engine/guest-quickjs/include",
+  ...runtime, ...crate("engine/runtime-cabi"), ...crate("programs/native/cabi"),
+  "programs/native/cabi/include",
+  "programs/native/quickjs", "engine/guest-quickjs/src", "engine/guest-quickjs/include",
   ...["pocket-gles", "pocket-gles1", "pocket-gles2"].flatMap(name => crate(`devices/gles/${name}`)),
 ];
 const apple = [

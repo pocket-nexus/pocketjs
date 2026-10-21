@@ -19,7 +19,7 @@ describe("ESP-IDF incremental package build", () => {
       mkdirSync(join(component, "tools"));
       for (const file of ["native_archive.cmake", "prepare_archive.cmake", "tools/native_sources.py"])
         cpSync(join(root, "platforms/esp-idf/pocket_runtime", file), join(component, file));
-      const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "hosts/esp-idf/native/runtime");
+      const native = layout === "vendor" ? join(component, "vendor/native") : join(temporary, "programs/esp-idf/archive");
       const contracts = layout === "vendor" ? join(component, "vendor") : join(temporary, "engine");
       const crates = ["core", "spec", "drivers", "raster", "present", "package", "modules/media", "render/draw-ops", "render/glyph-pages", "render/tri-batch", "render/tex-cache", "runtime", "runtime-cabi"];
       const extra = ["platforms/esp-idf/render-ppa", "devices/gles/pocket-gles", "devices/gles/pocket-gles1", "devices/gles/pocket-gles2"]
@@ -83,8 +83,8 @@ pocketjs_link_native("${component}" runtime pocket_idf_runtime POCKETJS_TEST_ARC
       mkdirSync(join(app, "node_modules/@pocketjs"), { recursive: true });
       symlinkSync(root, join(app, "node_modules/@pocketjs/framework"), "dir");
       for (const file of ["pocket.json", "pocket.runtime-config.ts", "main.tsx"])
-        cpSync(join(root, "hosts/esp-idf/examples/smoke", file), join(app, file));
-      cpSync(join(root, "hosts/esp-idf/examples/smoke/profiles"), join(app, "profiles"), {recursive:true});
+        cpSync(join(root, "tests/esp-idf/examples/smoke", file), join(app, file));
+      cpSync(join(root, "tests/esp-idf/examples/smoke/profiles"), join(app, "profiles"), {recursive:true});
       const source = (imported: boolean) =>
         'import {Text, View, Image} from "@pocketjs/framework/solid/components";\n' +
         (imported ? 'import {message} from "./new-module";\n' : 'const message="initial";\n') +
