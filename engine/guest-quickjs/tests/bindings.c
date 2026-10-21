@@ -6,7 +6,31 @@
 #include <unistd.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* run.sh redirects libc calls in guest.c alone to these wrappers. */
+static int track_scratch, reject_scratch;
+static size_t scratch_allocations, scratch_frees, scratch_size;
+void *pocket_test_malloc(size_t size) {
+  if(track_scratch) {
+    scratch_allocations++;scratch_size=size;
+    if(reject_scratch)return NULL;
+  }
+  return malloc(size);
+}
+void pocket_test_free(void *pointer) {
+  if(track_scratch&&pointer)scratch_frees++;
+  free(pointer);
+}
+static void begin_scratch(int reject) {
+  scratch_allocations=scratch_frees=scratch_size=0;
+  track_scratch=1;reject_scratch=reject;
+}
+static void end_scratch(size_t allocations,size_t frees,size_t size) {
+  track_scratch=reject_scratch=0;
+  assert(scratch_allocations==allocations&&scratch_frees==frees&&scratch_size==size);
+}
 
 struct pocket_runtime { unsigned calls; uint16_t last_op; int64_t integers[6]; uint8_t bytes[64]; size_t length; };
 static unsigned support_queries;
@@ -127,4 +151,57 @@ static void package_terminal_nul(void) {
     pocket_guest_quickjs_destroy(guest);
   }
 }
-int main(void){binding_generation();canonical();idf();attached_lifetime();extensible_records();package_source_is_read_only();package_terminal_nul();puts("generated QuickJS bindings: ok");return 0;}
+static void evaluation_source_lifetime(void) {
+  size_t page=(size_t)sysconf(_SC_PAGESIZE),span=page*64;
+  uint8_t *source=mmap(NULL,span+page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+  assert(source!=MAP_FAILED&&mprotect(source+span,page,PROT_NONE)==0);
+  for(int profile=POCKET_QJS_CANONICAL;profile<=POCKET_QJS_IDF;profile++) {
+    pocket_runtime runtime={0};pocket_guest_environment env=environment();
+    pocket_guest_quickjs *guest=pocket_guest_quickjs_create((pocket_qjs_profile)profile);
+    assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
+    assert(mprotect(source,span,PROT_READ|PROT_WRITE)==0);
+    memset(source,' ',span);source[span-1]=0;
+    const char *script="globalThis.savedSourceFunction=function(){return 42};globalThis.sourceJob=0;Promise.resolve().then(()=>{sourceJob=savedSourceFunction()});";
+    memcpy(source,script,strlen(script));
+    assert(mprotect(source,span,PROT_READ)==0);
+    /* Reject every adapter allocation: a package-sized script ending in NUL
+     * must evaluate from its immutable bytes without a scratch allocation. */
+    begin_scratch(1);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,source,span)==0);
+    end_scratch(0,0,0);
+    /* Retained functions/source text belong to QuickJS after synchronous eval. */
+    assert(mprotect(source,span,PROT_NONE)==0);
+    eval(guest,&runtime,"if(sourceJob!==42||savedSourceFunction()!==42||!savedSourceFunction.toString().includes('return 42'))throw Error('retained source')");
+
+    /* Nonterminated input ends at an inaccessible page; JS_Eval still gets
+     * its required input[length]==0 through the bounded scratch path. */
+    assert(mprotect(source,span,PROT_READ|PROT_WRITE)==0);
+    uint8_t *boundary=source+span-page;memset(boundary,' ',page);
+    script="globalThis.boundaryResult=73;";memcpy(boundary,script,strlen(script));
+    assert(mprotect(source,span,PROT_READ)==0);
+    begin_scratch(0);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,boundary,page)==0);
+    end_scratch(1,1,page+1);
+    eval(guest,&runtime,"if(boundaryResult!==73)throw Error('boundary')");
+    begin_scratch(1);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,boundary,page)!=0);
+    end_scratch(1,0,page+1);
+
+    static const uint8_t thrown[]="throw Error('source exception')";
+    begin_scratch(0);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,thrown,sizeof thrown)!=0);
+    end_scratch(0,0,0);
+    assert(strstr(pocket_guest_quickjs_error(guest),"source exception"));
+    begin_scratch(0);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,thrown,sizeof thrown-1)!=0);
+    end_scratch(1,1,sizeof thrown);
+    assert(strstr(pocket_guest_quickjs_error(guest),"source exception"));
+    begin_scratch(0);
+    assert(pocket_guest_quickjs_vtable()->evaluate(guest,&runtime,NULL,0)==0);
+    end_scratch(1,1,1);
+    eval(guest,&runtime,"if(savedSourceFunction()!==42)throw Error('exception recovery')");
+    pocket_guest_quickjs_destroy(guest);
+  }
+  assert(munmap(source,span+page)==0);
+}
+int main(void){binding_generation();canonical();idf();attached_lifetime();extensible_records();package_source_is_read_only();package_terminal_nul();evaluation_source_lifetime();puts("generated QuickJS bindings: ok");return 0;}

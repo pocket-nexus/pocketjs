@@ -250,11 +250,20 @@ failed:
 static int32_t collect(void *opaque) {pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context)return -1;JSContext *ctx=NULL;int status;phase(guest,POCKET_QJS_PHASE_JOBS);while((status=JS_ExecutePendingJob(JS_GetRuntime(guest->context),&ctx))>0){}phase(guest,POCKET_QJS_PHASE_IDLE);return status<0?fail(guest):0;}
 static int32_t evaluate(void *opaque,pocket_runtime *runtime,const uint8_t *code,size_t length) {
   pocket_guest_quickjs *guest=opaque;if(!guest||!guest->context||guest->runtime!=runtime||(!code&&length)||length==SIZE_MAX)return -1;
-  /* Package JS sections include one terminal NUL; JS_Eval's length excludes it. */
-  if(length&&code[length-1]==0)length--;
-  char *source=malloc(length+1);if(!source)return -1;if(length)memcpy(source,code,length);source[length]=0;
+  const char *source=(const char *)code;
+  char *scratch=NULL;
+  /* JS_Eval synchronously parses input and owns any retained function source.
+   * Package sections already contain the required terminal NUL; their storage
+   * stays valid through this call. Other callers need a bounded terminator. */
+  if(length&&code[length-1]==0) {
+    length--;
+  } else {
+    scratch=malloc(length+1);if(!scratch)return -1;
+    if(length)memcpy(scratch,code,length);
+    scratch[length]=0;source=scratch;
+  }
   phase(guest,POCKET_QJS_PHASE_EVAL);
-  JSValue result=JS_Eval(guest->context,source,length,"pocket:guest",JS_EVAL_TYPE_GLOBAL);phase(guest,POCKET_QJS_PHASE_IDLE);free(source);int failed=JS_IsException(result);JS_FreeValue(guest->context,result);return failed?fail(guest):collect(guest);
+  JSValue result=JS_Eval(guest->context,source,length,"pocket:guest",JS_EVAL_TYPE_GLOBAL);phase(guest,POCKET_QJS_PHASE_IDLE);free(scratch);int failed=JS_IsException(result);JS_FreeValue(guest->context,result);return failed?fail(guest):collect(guest);
 }
 static JSValue motion_value(JSContext *ctx,const pocket_motion_state *motion) {
   if(!motion)return JS_NULL;
