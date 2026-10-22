@@ -359,12 +359,18 @@ export async function performNet(request: NetRequest, options: NetOptions = {}):
 // System proxy (macOS)
 // ---------------------------------------------------------------------------
 
+/** The proxy the environment names: HTTPS_PROXY, https_proxy, HTTP_PROXY or
+ *  http_proxy, the first set; "" when none is. */
+export function envProxy(env: NodeJS.ProcessEnv = process.env): string {
+  return env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy || "";
+}
+
 /** When no proxy variable is set, copy the macOS HTTP(S) proxy and its
  *  exception list into HTTPS_PROXY / HTTP_PROXY / NO_PROXY. Returns the proxy
  *  URL adopted, or "" when none. */
 export function adoptSystemProxy(env: NodeJS.ProcessEnv = process.env): string {
-  const names = ["https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"];
-  if (names.some((name) => env[name])) return env.https_proxy || env.HTTPS_PROXY || env.http_proxy || env.HTTP_PROXY || "";
+  const set = envProxy(env);
+  if (set) return set;
   if (process.platform !== "darwin") return "";
   const result = spawnSync("scutil", ["--proxy"], { encoding: "utf8" });
   if (result.status !== 0) return "";

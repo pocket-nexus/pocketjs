@@ -11,8 +11,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PSM } from "../contracts/spec/spec.ts";
-import type { ServiceProvider, ServiceRequest } from "../tools/companion/services.ts";
+import type { ServiceProvider } from "../tools/companion/services.ts";
 import { collect, createXService, operationsIn, X_AVATAR_SIZE, type XPost, webpackChunks } from "../tools/companion/services/x.ts";
+import { call, expectImg, serviceContext } from "./helpers/companion-service.ts";
 
 const AUTH = "auth-secret-0123456789";
 const CT0 = "csrf-secret-abcdef";
@@ -165,7 +166,7 @@ afterAll(() => {
 
 function service(): ServiceProvider {
   return createXService(
-    { storeDir: store, log: (line) => logs.push(line), advertiseHost: () => "127.0.0.1" },
+    serviceContext(store, (line) => logs.push(line)),
     {
       origin,
       apiOrigin: origin,
@@ -181,19 +182,9 @@ function service(): ServiceProvider {
   );
 }
 
-const request = (path: string, query = "", method = "GET", body = ""): ServiceRequest => ({
-  method,
-  path,
-  query: new URLSearchParams(query),
-  headers: {},
-  body: new TextEncoder().encode(body),
-  maxBytes: 256 * 1024,
-  console: { id: "c", name: "3DS", model: "3ds", target: "3ds-dev", address: "127.0.0.1" },
-  signal: AbortSignal.timeout(10_000),
-});
 const json = async (provider: ServiceProvider, path: string, query = "", method = "GET") => {
-  const response = await provider.handle(request(path, query, method));
-  return { status: response.status, body: JSON.parse(new TextDecoder().decode(response.body)) as Record<string, unknown> };
+  const response = await call(provider, path, { query, method });
+  return { status: response.status, body: response.json() as Record<string, unknown> };
 };
 
 describe("operations in x.com's scripts", () => {
@@ -274,8 +265,8 @@ describe("the X service", () => {
   test("a reply sends CreateTweet aimed at the post and answers the new post", async () => {
     const x = service();
     mutations.length = 0;
-    const response = await x.handle(request("/reply", "", "POST", JSON.stringify({ id: "101", text: "hello from a 3DS" })));
-    const body = JSON.parse(new TextDecoder().decode(response.body)) as { ok: boolean; post: XPost };
+    const response = await call(x, "/reply", { method: "POST", body: JSON.stringify({ id: "101", text: "hello from a 3DS" }) });
+    const body = response.json() as { ok: boolean; post: XPost };
     expect(response.status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.post).toMatchObject({ id: "300", text: "hello from a 3DS" });
@@ -284,7 +275,7 @@ describe("the X service", () => {
     expect(mutations[0]!.body.variables).toMatchObject({ tweet_text: "hello from a 3DS", reply: { in_reply_to_tweet_id: "101", exclude_reply_user_ids: [] }, dark_request: false });
     expect(mutations[0]!.body.features).toEqual({ view_counts_everywhere_api_enabled: true });
     for (const bad of [{ id: "101", text: "  " }, { id: "x", text: "hi" }, { id: "101", text: "y".repeat(281) }]) {
-      expect((await x.handle(request("/reply", "", "POST", JSON.stringify(bad)))).status).toBe(400);
+      expect((await call(x, "/reply", { method: "POST", body: JSON.stringify(bad) })).status).toBe(400);
     }
   });
 
@@ -314,14 +305,12 @@ describe("the X service", () => {
 
   test("avatars: twimg.com only, a 32x32 5650 IMG entry", async () => {
     const x = service();
-    const response = await x.handle(request("/avatar", `u=${encodeURIComponent("https://pbs.twimg.com/profile_images/1/user101_bigger.jpg")}`));
+    const response = await call(x, "/avatar", { query: { u: "https://pbs.twimg.com/profile_images/1/user101_bigger.jpg" } });
     expect(response.status).toBe(200);
-    const dv = new DataView(response.body.buffer, response.body.byteOffset);
-    expect([dv.getUint16(0, true), dv.getUint16(2, true), response.body[4]]).toEqual([X_AVATAR_SIZE, X_AVATAR_SIZE, PSM.PSM_5650]);
-    expect(response.body.length).toBe(8 + X_AVATAR_SIZE * X_AVATAR_SIZE * 2);
+    const pixels = expectImg(response.body, X_AVATAR_SIZE, X_AVATAR_SIZE, PSM.PSM_5650);
     // The corner is outside the disc: white.
-    expect(dv.getUint16(8, true)).toBe(0xffff);
-    const refused = await x.handle(request("/avatar", `u=${encodeURIComponent(`${origin}/x.png`)}`));
+    expect(pixels.getUint16(0, true)).toBe(0xffff);
+    const refused = await call(x, "/avatar", { query: { u: `${origin}/x.png` } });
     expect(refused.status).toBe(400);
   });
 
@@ -342,7 +331,7 @@ describe("the X service", () => {
   test("login runs the sign-in helper and keeps the cookies it prints", async () => {
     const helper = join(store, "helper.ts");
     writeFileSync(helper, `console.log(JSON.stringify({ cookies: { auth_token: ${JSON.stringify(AUTH)}, ct0: ${JSON.stringify(CT0)} } }));`);
-    const x = createXService({ storeDir: store, log: (line) => logs.push(line), advertiseHost: () => "127.0.0.1" }, { origin, apiOrigin: origin, signInCommand: async () => [process.execPath, helper] });
+    const x = createXService(serviceContext(store, (line) => logs.push(line)), { origin, apiOrigin: origin, signInCommand: async () => [process.execPath, helper] });
     expect(await x.command!(["login"])).toContain("sign-in window");
     for (let i = 0; i < 100 && !existsSync(join(store, "services", "x", "session.json")); i += 1) await Bun.sleep(30);
     expect(JSON.parse(readFileSync(join(store, "services", "x", "session.json"), "utf8")).auth_token).toBe(AUTH);

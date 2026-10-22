@@ -38,28 +38,32 @@
 // refuses the connection; the service then connects without it, and message
 // text is empty except where the bot is mentioned.
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { decodePng, encodeImageEntry } from "../../../framework/compiler/pak.ts";
+import { decodePng } from "../../../framework/compiler/pak.ts";
 import { PSM } from "../../../contracts/spec/spec.ts";
-import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
+import { envProxy } from "../fetch.ts";
+import { discImage } from "../images.ts";
+import { bytesResponse, jsonResponse, readJson, ServiceError, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
+import { writeSecret } from "../store.ts";
 
-export const DISCORD_API = "https://discord.com/api/v10";
-export const DISCORD_CDN = "https://cdn.discordapp.com";
+const DISCORD_API = "https://discord.com/api/v10";
+const DISCORD_CDN = "https://cdn.discordapp.com";
 
-/** View Channels, Send Messages, Read Message History. */
-export const DISCORD_INVITE_PERMISSIONS = (1n << 10n) | (1n << 11n) | (1n << 16n);
 const PERM_ADMINISTRATOR = 1n << 3n;
 const PERM_VIEW_CHANNEL = 1n << 10n;
+const PERM_SEND_MESSAGES = 1n << 11n;
 const PERM_READ_HISTORY = 1n << 16n;
 const ALL_PERMISSIONS = (1n << 64n) - 1n;
+/** View Channels, Send Messages, Read Message History. */
+export const DISCORD_INVITE_PERMISSIONS = PERM_VIEW_CHANNEL | PERM_SEND_MESSAGES | PERM_READ_HISTORY;
 
 const INTENT_GUILDS = 1 << 0;
 const INTENT_GUILD_MESSAGES = 1 << 9;
 const INTENT_MESSAGE_CONTENT = 1 << 15;
 
-export const MESSAGE_PAGE = 30;
-export const MAX_WAIT_S = 10;
+const MESSAGE_PAGE = 30;
+const MAX_WAIT_S = 10;
 const MAX_RETRIES = 3;
 const CHANNEL_KEEP = 50;
 /** Discord's snowflake epoch, and how far the Mac's clock may run behind
@@ -72,19 +76,21 @@ const AVATAR = 32;
 const AVATAR_CIRCLE = 28;
 
 export const DISCORD_SETUP = "bun tools/companion.ts service discord token <bot-token>";
+/** The 409 a data endpoint answers until a token is set. */
+const NOT_SET_UP = { error: "Discord is not set up on the Mac.", setup: DISCORD_SETUP };
 
 // ---------------------------------------------------------------------------
 // What the console gets
 // ---------------------------------------------------------------------------
 
-export interface DiscordGuild {
+interface DiscordGuild {
   id: string;
   name: string;
   /** The icon's hash for /icon/<id>/<hash>, or null. */
   icon: string | null;
 }
 
-export interface DiscordChannel {
+interface DiscordChannel {
   id: string;
   name: string;
   /** The category's name, or null for a channel outside every category. */
@@ -92,7 +98,7 @@ export interface DiscordChannel {
   topic: string;
 }
 
-export interface DiscordAuthor {
+interface DiscordAuthor {
   id: string;
   name: string;
   /** The avatar's hash for /avatar/<id>/<hash>, or null. */
@@ -100,7 +106,7 @@ export interface DiscordAuthor {
   bot: boolean;
 }
 
-export interface DiscordMessage {
+interface DiscordMessage {
   id: string;
   author: DiscordAuthor;
   /** Plain text: mentions, channels, roles, custom emoji and timestamps
@@ -180,7 +186,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Discord's own wording for a message time, against `now`, in the local
  *  time zone of the process (the Mac's). */
-export function discordWhen(time: number, now = Date.now()): string {
+function discordWhen(time: number, now = Date.now()): string {
   const at = new Date(time);
   const today = new Date(now);
   const clock = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
@@ -211,69 +217,13 @@ const SYSTEM_TEXT: Record<number, (name: string) => string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Pictures
-// ---------------------------------------------------------------------------
-
-/** A PNG as a 32x32 PSM_4444 IMG entry: box-filtered to the circle's size
- *  and cut to a circle with an antialiased edge, centred in the texture. */
-export function circleImage(png: Uint8Array): Uint8Array {
-  const source = decodePng(png);
-  const out = new Uint8Array(AVATAR * AVATAR * 4);
-  const scaleX = source.width / AVATAR_CIRCLE;
-  const scaleY = source.height / AVATAR_CIRCLE;
-  const margin = (AVATAR - AVATAR_CIRCLE) / 2;
-  const radius = AVATAR_CIRCLE / 2;
-  for (let y = 0; y < AVATAR; y++) {
-    for (let x = 0; x < AVATAR; x++) {
-      const cx = x - margin;
-      const cy = y - margin;
-      // Coverage of the circle over this pixel, 4x4 samples.
-      let inside = 0;
-      for (let sy = 0; sy < 4; sy++) {
-        for (let sx = 0; sx < 4; sx++) {
-          const dx = cx + (sx + 0.5) / 4 - radius;
-          const dy = cy + (sy + 0.5) / 4 - radius;
-          if (dx * dx + dy * dy <= radius * radius) inside++;
-        }
-      }
-      if (inside === 0) continue;
-      // The source box under this pixel, clamped into the image.
-      const x0 = Math.max(0, Math.min(source.width - 1, Math.floor(cx * scaleX)));
-      const y0 = Math.max(0, Math.min(source.height - 1, Math.floor(cy * scaleY)));
-      const x1 = Math.max(x0 + 1, Math.min(source.width, Math.floor((cx + 1) * scaleX)));
-      const y1 = Math.max(y0 + 1, Math.min(source.height, Math.floor((cy + 1) * scaleY)));
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let a = 0;
-      for (let sy = y0; sy < y1; sy++) {
-        for (let sx = x0; sx < x1; sx++) {
-          const i = (sy * source.width + sx) * 4;
-          r += source.rgba[i]!;
-          g += source.rgba[i + 1]!;
-          b += source.rgba[i + 2]!;
-          a += source.rgba[i + 3]!;
-        }
-      }
-      const n = (x1 - x0) * (y1 - y0);
-      const o = (y * AVATAR + x) * 4;
-      out[o] = Math.round(r / n);
-      out[o + 1] = Math.round(g / n);
-      out[o + 2] = Math.round(b / n);
-      out[o + 3] = Math.round(((a / n) * inside) / 16);
-    }
-  }
-  return encodeImageEntry({ width: AVATAR, height: AVATAR, rgba: out }, PSM.PSM_4444);
-}
-
-// ---------------------------------------------------------------------------
 // Permissions
 // ---------------------------------------------------------------------------
 
 /** What the bot may do in `channel`: the guild's @everyone role and the
  *  bot's roles, then the channel's overwrites for @everyone, the bot's
  *  roles and the bot itself (Discord's documented order). */
-export function channelPermissions(guildId: string, botId: string, guild: GuildCache, channel: RawChannel): bigint {
+function channelPermissions(guildId: string, botId: string, guild: GuildCache, channel: RawChannel): bigint {
   if (guild.ownerId === botId) return ALL_PERMISSIONS;
   let base = BigInt(guild.roles.get(guildId)?.permissions ?? "0");
   for (const id of guild.memberRoles) base |= BigInt(guild.roles.get(id)?.permissions ?? "0");
@@ -300,22 +250,12 @@ export function channelPermissions(guildId: string, botId: string, guild: GuildC
 // The service
 // ---------------------------------------------------------------------------
 
-class DiscordError extends Error {
-  constructor(readonly status: number, message: string) {
-    super(message);
-  }
-}
-
-export interface DiscordServiceOptions {
+interface DiscordServiceOptions {
   /** REST base, default DISCORD_API (tests point it at a fake). */
   api?: string;
   cdn?: string;
-  /** Gateway URL; default the one GET /gateway/bot names. */
-  gateway?: string;
   /** Milliseconds for "now" (message times). */
   now?: () => number;
-  /** Set false to leave the gateway closed (REST only). */
-  gatewayEnabled?: boolean;
 }
 
 interface Waiter {
@@ -327,8 +267,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
   const api = options.api ?? DISCORD_API;
   const cdn = options.cdn ?? DISCORD_CDN;
   const now = options.now ?? Date.now;
-  const dir = join(context.storeDir, "services", "discord");
-  const tokenFile = join(dir, "token");
+  const tokenFile = join(context.storeDir, "services", "discord", "token");
 
   let token: string | null = existsSync(tokenFile) ? readFileSync(tokenFile, "utf8").trim() || null : null;
   let bot: RawUser | null = null;
@@ -350,7 +289,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
   const routeKey = (method: string, path: string) => `${method} ${path.split("?")[0]}`;
 
   async function rest<T>(method: string, path: string, body?: unknown, auth = token): Promise<T> {
-    if (!auth) throw new DiscordError(409, "no-token");
+    if (!auth) throw new ServiceError(409, NOT_SET_UP);
     const key = routeKey(method, path);
     for (let attempt = 0; ; attempt++) {
       const until = blocked.get(key) ?? 0;
@@ -374,9 +313,11 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
         await Bun.sleep(Math.max(0, wait) * 1000);
         continue;
       }
+      if (response.status === 401) throw new ServiceError(409, { error: "Discord no longer accepts the bot token.", setup: DISCORD_SETUP });
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new DiscordError(response.status, payload.message ?? `Discord answered ${response.status}`);
+        const status = response.status === 403 || response.status === 404 ? response.status : 502;
+        throw new ServiceError(status, { error: payload.message ?? `Discord answered ${response.status}` });
       }
       if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
@@ -562,12 +503,12 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
   }
 
   async function startGateway() {
-    if (options.gatewayEnabled === false || !token || socket || starting) return;
+    if (!token || socket || starting) return;
     starting = true;
     closing = false;
     const mine = ++attempt;
     const resuming = sessionId !== null && sequence !== null;
-    let url = (resuming ? resumeUrl : null) ?? options.gateway;
+    let url = resuming ? resumeUrl : null;
     try {
       url ??= (await rest<{ url: string }>("GET", "/gateway/bot")).url;
     } catch (error) {
@@ -582,7 +523,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     if (closing || !token || socket) return;
     const target = `${url}${url.includes("?") ? "&" : "?"}v=10&encoding=json`;
     const host = new URL(target).hostname;
-    const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+    const proxy = envProxy();
     const local = host === "127.0.0.1" || host === "localhost";
     const ws = new WebSocket(target, proxy && !local ? ({ proxy } as never) : undefined);
     socket = ws;
@@ -730,8 +671,10 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     const cached = images.get(key);
     if (cached) return cached;
     const response = await fetch(`${cdn}/${kind}/${owner}/${hash}.png?size=64`);
-    if (!response.ok) throw new DiscordError(404, `no picture ${hash}`);
-    const entry = circleImage(new Uint8Array(await response.arrayBuffer()));
+    if (!response.ok) throw new ServiceError(404, { error: `no picture ${hash}` });
+    // Box-filtered to the circle's size and cut to a circle with an
+    // antialiased edge, centred in the texture.
+    const entry = discImage(decodePng(new Uint8Array(await response.arrayBuffer())), { size: AVATAR, circle: AVATAR_CIRCLE, background: null, psm: PSM.PSM_4444 });
     if (images.size > 400) images.clear();
     images.set(key, entry);
     return entry;
@@ -746,15 +689,13 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     try {
       user = await rest<RawUser>("GET", "/users/@me", undefined, value);
     } catch (error) {
-      const status = error instanceof DiscordError ? error.status : 0;
-      throw new Error(status === 401 ? "Discord did not accept that token." : `Could not check the token: ${(error as Error).message}`);
+      // rest() answers Discord's 401 as the console's 409.
+      const status = error instanceof ServiceError ? error.status : 0;
+      throw new Error(status === 409 ? "Discord did not accept that token." : `Could not check the token: ${(error as Error).message}`);
     }
     if (!user.bot) throw new Error("That is not a bot token. Create a bot in the Discord developer portal and copy its token.");
     stopGateway();
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    chmodSync(dir, 0o700);
-    writeFileSync(tokenFile, value, { mode: 0o600 });
-    chmodSync(tokenFile, 0o600);
+    writeSecret(tokenFile, value);
     token = value;
     bot = user;
     guildCache.clear();
@@ -807,7 +748,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
       void startGateway();
       return jsonResponse(200, { ready: true, bot: displayName(user), gateway: gatewayLive(), contentIntent });
     }
-    if (!token) return jsonResponse(409, { error: "Discord is not set up on the Mac.", setup: DISCORD_SETUP });
+    if (!token) return jsonResponse(409, NOT_SET_UP);
     void startGateway();
     if (request.method === "GET" && head === "guilds" && !id) {
       const list = await rest<{ id: string; name: string; icon: string | null }[]>("GET", "/users/@me/guilds");
@@ -843,7 +784,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     }
     if (head === "channels" && id && tail === "messages") {
       if (request.method === "POST") {
-        const body = JSON.parse(new TextDecoder().decode(request.body) || "{}") as { content?: unknown };
+        const body = readJson<{ content?: unknown }>(request, { error: "A message needs JSON {content}." });
         const content = typeof body.content === "string" ? body.content.trim() : "";
         if (!content) return jsonResponse(400, { error: "A message needs text." });
         if (content.length > 2000) return jsonResponse(400, { error: "A message is at most 2000 characters." });
@@ -871,18 +812,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
 
   return {
     name: "discord",
-    async handle(request) {
-      try {
-        return await route(request);
-      } catch (error) {
-        if (error instanceof DiscordError) {
-          if (error.status === 409) return jsonResponse(409, { error: "Discord is not set up on the Mac.", setup: DISCORD_SETUP });
-          if (error.status === 401) return jsonResponse(409, { error: "Discord no longer accepts the bot token.", setup: DISCORD_SETUP });
-          return jsonResponse(error.status === 403 || error.status === 404 ? error.status : 502, { error: error.message });
-        }
-        throw error;
-      }
-    },
+    handle: route,
     async command(args) {
       const [verb, ...rest] = args;
       if (verb === "token") return await setToken(rest.join(" "));

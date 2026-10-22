@@ -114,7 +114,9 @@ async function write(socket: Socket, bytes: Uint8Array): Promise<void> {
     socket.once("drain",drain);socket.once("close",close);socket.once("error",error);
   });
 }
-export async function createMediaStreamServer(options: { advertiseHost: string; port?: number; log?: (message: string) => void }) {
+/** A stream server on every interface. A ticket names `host` (default
+ *  `advertiseHost`), the address its console reaches this machine at. */
+export async function createMediaStreamServer(options: { advertiseHost?: string; port?: number; log?: (message: string) => void }) {
   type Ticket={ header:Buffer; produce:(signal:AbortSignal)=>AsyncIterable<MediaPacket>; expires:number };
   const tickets=new Map<string,Ticket>(), sockets=new Map<string,Socket>();
   const connections=new Set<Socket>();
@@ -167,11 +169,12 @@ export async function createMediaStreamServer(options: { advertiseHost: string; 
   const address=server.address();
   if(!address || typeof address==="string") throw new Error("No media listener");
   return {
-    publish(header:Buffer,produce:Ticket["produce"]):MediaSource {
+    publish(header:Buffer,produce:Ticket["produce"],host=options.advertiseHost):MediaSource {
+      if(!host) throw new Error("Media stream needs the host its console reaches");
       for(const [token,ticket] of tickets) if(ticket.expires<Date.now()) tickets.delete(token);
       if(tickets.size+sockets.size>=4 || header.length!==MEDIA.headerBytes) throw new Error("Media stream capacity exceeded");
       const token=randomBytes(32).toString("hex"); tickets.set(token,{header,produce,expires:Date.now()+60000});
-      return {host:options.advertiseHost,port:address.port,token};
+      return {host,port:address.port,token};
     },
     revoke(source:MediaSource) { tickets.delete(source.token);sockets.get(source.token)?.destroy(); },
     close() { tickets.clear();for(const socket of connections)socket.destroy();server.close(); },

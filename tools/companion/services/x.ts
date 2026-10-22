@@ -35,18 +35,20 @@
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PSM } from "../../../contracts/spec/spec.ts";
-import { decodePng, encodeImageEntry, type DecodedImage } from "../../../framework/compiler/pak.ts";
-import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
+import { decodePng, type DecodedImage } from "../../../framework/compiler/pak.ts";
+import { discImage } from "../images.ts";
+import { bytesResponse, jsonResponse, readJson, ServiceError, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
+import { writeSecret } from "../store.ts";
 import { helperCommand } from "../swift-helper.ts";
 
 /** The web client's public bearer token (the same for every visitor). */
 const BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 const USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
-export const WEB_SIGN_IN_SOURCE = join(import.meta.dir, "..", "macos", "WebSignIn.swift");
+const WEB_SIGN_IN_SOURCE = join(import.meta.dir, "..", "macos", "WebSignIn.swift");
 export const X_AVATAR_SIZE = 32;
 /** Scripts the operation crawl reads at most, and at once. */
 const CRAWL_MAX = 1500;
@@ -84,7 +86,7 @@ export interface XPost {
   avatar?: string;
 }
 
-export interface XOperation {
+interface XOperation {
   kind: "relay" | "classic";
   id: string;
   name: string;
@@ -93,7 +95,7 @@ export interface XOperation {
   toggles?: string[];
 }
 
-export interface XOptions {
+interface XOptions {
   origin?: string;
   apiOrigin?: string;
   fetch?: typeof fetch;
@@ -110,11 +112,8 @@ interface Session {
   savedAt: number;
 }
 
-class XFailure extends Error {
-  constructor(readonly status: number, readonly code: "signed-out" | "api" | "bad-request", message: string) {
-    super(message);
-  }
-}
+/** A failure as X's endpoints answer it: {error: code, message}. */
+const failure = (status: number, code: "signed-out" | "api" | "bad-request", message: string) => new ServiceError(status, { error: code, message });
 
 export function createXService(context: ServiceContext, options: XOptions = {}): ServiceProvider {
   return new XService(context, options);
@@ -248,30 +247,22 @@ class XService implements ServiceProvider {
       const action = path.match(/^\/(like|unlike|repost|unrepost)$/);
       if (action && request.method === "POST") {
         const id = request.query.get("id") ?? "";
-        if (!/^\d{1,25}$/.test(id)) throw new XFailure(400, "bad-request", `${action[1]} needs a post id`);
+        if (!/^\d{1,25}$/.test(id)) throw failure(400, "bad-request", `${action[1]} needs a post id`);
         await this.act(action[1] as Action, id, request.signal);
         return jsonResponse(200, { ok: true });
       }
       if (path === "/reply" && request.method === "POST") {
-        let body: { id?: unknown; text?: unknown };
-        try {
-          body = JSON.parse(new TextDecoder().decode(request.body)) as { id?: unknown; text?: unknown };
-        } catch {
-          throw new XFailure(400, "bad-request", "reply needs JSON {id, text}");
-        }
+        const body = readJson<{ id?: unknown; text?: unknown }>(request, { error: "bad-request", message: "reply needs JSON {id, text}" });
         const id = typeof body.id === "string" ? body.id : "";
         const text = typeof body.text === "string" ? body.text.trim() : "";
         if (!/^\d{1,25}$/.test(id) || !text || [...text].length > 280) {
-          throw new XFailure(400, "bad-request", "reply needs a post id and 1 to 280 characters");
+          throw failure(400, "bad-request", "reply needs a post id and 1 to 280 characters");
         }
         return jsonResponse(200, { ok: true, ...(await this.reply(id, text, request.signal)) });
       }
       return jsonResponse(404, { error: "bad-request", message: `no X endpoint ${path}` });
     } catch (error) {
-      if (error instanceof XFailure) {
-        if (error.code !== "bad-request") this.lastError = error.message;
-        return jsonResponse(error.status, { error: error.code, message: error.message });
-      }
+      if (error instanceof ServiceError && error.status !== 400) this.lastError = error.message;
       throw error;
     }
   }
@@ -292,15 +283,12 @@ class XService implements ServiceProvider {
   }
 
   private saveSession(session: Session) {
-    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    chmodSync(this.dir, 0o700);
-    writeFileSync(this.sessionPath(), JSON.stringify(session), { mode: 0o600 });
-    chmodSync(this.sessionPath(), 0o600);
+    writeSecret(this.sessionPath(), JSON.stringify(session));
   }
 
   private requireSession(): Session {
     const session = this.session();
-    if (!session) throw new XFailure(401, "signed-out", "Not signed in to X on the Mac. Run: bun tools/companion.ts service x login");
+    if (!session) throw failure(401, "signed-out", "Not signed in to X on the Mac. Run: bun tools/companion.ts service x login");
     return session;
   }
 
@@ -366,7 +354,7 @@ class XService implements ServiceProvider {
     const headers: Record<string, string> = { "user-agent": USER_AGENT };
     if (session) headers.cookie = `auth_token=${session.auth_token}; ct0=${session.ct0}`;
     const page = await this.fetcher(`${this.origin}/home`, { headers, redirect: "follow" });
-    if (!page.ok) throw new XFailure(502, "api", `x.com answered ${page.status} for its home page`);
+    if (!page.ok) throw failure(502, "api", `x.com answered ${page.status} for its home page`);
     const html = await page.text();
     const queue = [...new Set([...html.matchAll(/src="([^"]+\.js)"/g)].map((m) => new URL(m[1]!, page.url || `${this.origin}/home`).href))];
     // Signed in, x.com serves its webpack client, whose operations sit in
@@ -403,7 +391,7 @@ class XService implements ServiceProvider {
       await Promise.all(batch.map(read));
     }
     this.context.log(`x: read ${operations.size} operations from ${seen.size} scripts`);
-    if (operations.size === 0) throw new XFailure(502, "api", "x.com's scripts named no API operations; its web client changed");
+    if (operations.size === 0) throw failure(502, "api", "x.com's scripts named no API operations; its web client changed");
     return operations;
   }
 
@@ -412,13 +400,13 @@ class XService implements ServiceProvider {
     const session = this.requireSession();
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const again = attempt > 0 && Date.now() - this.rediscoveredAt > REDISCOVER_MS;
-      if (attempt > 0 && !again) throw new XFailure(502, "api", `X does not know the ${what} operation in use; x.com's client changed. Try again in a few minutes.`);
+      if (attempt > 0 && !again) throw failure(502, "api", `X does not know the ${what} operation in use; x.com's client changed. Try again in a few minutes.`);
       if (again) this.rediscoveredAt = Date.now();
       const ops = await this.discover(again);
       const op = pick(ops);
       if (!op) {
         if (attempt === 0) continue;
-        throw new XFailure(502, "api", `x.com's client has no ${what} operation this provider knows`);
+        throw failure(502, "api", `x.com's client has no ${what} operation this provider knows`);
       }
       const response = await this.send(op, variables(op), session, signal);
       this.keepCsrf(session, response);
@@ -431,16 +419,16 @@ class XService implements ServiceProvider {
       }
       const message = body?.errors?.map((e) => e.message).filter(Boolean).join("; ") || text.slice(0, 160);
       if (response.status === 401 || body?.errors?.some((e) => e.code === 32 || e.code === 89 || e.code === 239)) {
-        throw new XFailure(401, "signed-out", `X refused the session (${response.status}); sign in again on the Mac`);
+        throw failure(401, "signed-out", `X refused the session (${response.status}); sign in again on the Mac`);
       }
       const unknown = response.status === 404 || /persisted|not found|unknown operation|query: unspecified/i.test(message);
       if (!response.ok || !body?.data) {
         if (unknown && attempt === 0) continue;
-        throw new XFailure(502, "api", `X answered ${response.status} for ${op.name}: ${message}`);
+        throw failure(502, "api", `X answered ${response.status} for ${op.name}: ${message}`);
       }
       return body.data;
     }
-    throw new XFailure(502, "api", `X did not answer ${what}`);
+    throw failure(502, "api", `X did not answer ${what}`);
   }
 
   private send(op: XOperation, variables: Record<string, unknown>, session: Session, signal: AbortSignal): Promise<Response> {
@@ -549,19 +537,21 @@ class XService implements ServiceProvider {
     try {
       parsed = new URL(url);
     } catch {
-      throw new XFailure(400, "bad-request", "avatar needs an image url");
+      throw failure(400, "bad-request", "avatar needs an image url");
     }
     if (parsed.protocol !== "https:" || !/(^|\.)twimg\.com$/.test(parsed.hostname)) {
-      throw new XFailure(400, "bad-request", "avatars come from twimg.com only");
+      throw failure(400, "bad-request", "avatars come from twimg.com only");
     }
     const dir = join(this.dir, "avatars");
     const file = join(dir, `${createHash("sha1").update(url).digest("hex")}.img`);
     if (existsSync(file)) return bytesResponse(new Uint8Array(readFileSync(file)), "application/x-pocket-img");
     const response = await this.fetcher(url, { headers: { "user-agent": USER_AGENT }, signal });
-    if (!response.ok) throw new XFailure(502, "api", `the avatar answered ${response.status}`);
+    if (!response.ok) throw failure(502, "api", `the avatar answered ${response.status}`);
     const decoded = await (this.options.decodeAvatar ?? decodeWithSips)(new Uint8Array(await response.arrayBuffer()), X_AVATAR_SIZE);
-    if (!decoded) throw new XFailure(502, "api", "the avatar could not be read");
-    const entry = encodeImageEntry(roundOnWhite(decoded), PSM.PSM_5650);
+    if (!decoded) throw failure(502, "api", "the avatar could not be read");
+    // A disc on white (the list's background), so it can be a 5650 texture:
+    // 2 KiB a face.
+    const entry = discImage(decoded, { size: X_AVATAR_SIZE, background: [255, 255, 255], psm: PSM.PSM_5650 });
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     writeFileSync(file, entry);
     return bytesResponse(entry, "application/x-pocket-img");
@@ -712,7 +702,7 @@ function postText(post: Json): string {
   return body.length > TEXT_MAX ? `${body.slice(0, TEXT_MAX - 1)}…` : body;
 }
 
-export function normalize(raw: Json): XPost {
+function normalize(raw: Json): XPost {
   const legacy = object(raw.legacy)!;
   const retweeted = unwrap(object(legacy.retweeted_status_result)?.result);
   if (retweeted && isPost(retweeted)) {
@@ -799,24 +789,4 @@ async function decodeWithSips(bytes: Uint8Array, size: number): Promise<DecodedI
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-}
-
-/** The image as a disc on white (the list's background), so it can be a
- *  5650 texture: 2 KiB a face. */
-export function roundOnWhite(image: DecodedImage): DecodedImage {
-  const size = X_AVATAR_SIZE;
-  const out = new Uint8Array(size * size * 4);
-  const r = size / 2;
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const sx = Math.min(image.width - 1, Math.floor((x * image.width) / size));
-      const sy = Math.min(image.height - 1, Math.floor((y * image.height) / size));
-      const s = (sy * image.width + sx) * 4;
-      const d = Math.hypot(x + 0.5 - r, y + 0.5 - r);
-      const cover = Math.max(0, Math.min(1, r - d + 0.5)) * ((image.rgba[s + 3] ?? 255) / 255);
-      for (let c = 0; c < 3; c += 1) out[(y * size + x) * 4 + c] = Math.round((image.rgba[s + c] ?? 255) * cover + 255 * (1 - cover));
-      out[(y * size + x) * 4 + 3] = 255;
-    }
-  }
-  return { width: size, height: size, rgba: out };
 }

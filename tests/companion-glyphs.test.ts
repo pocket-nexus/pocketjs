@@ -6,19 +6,12 @@
 import { describe, expect, test } from "bun:test";
 import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, FONT_MAGIC } from "../contracts/spec/spec.ts";
 import { atlasFont, type GlyphCell } from "../tools/companion/glyphs.ts";
-import type { ServiceRequest } from "../tools/companion/services.ts";
+import type { ServiceProvider } from "../tools/companion/services.ts";
 import { createGlyphsService, glyphCapacity } from "../tools/companion/services/glyphs.ts";
+import { call, serviceContext } from "./helpers/companion-service.ts";
 
-const request = (body: unknown, path = "/atlas", method = "POST", maxBytes = 256 * 1024): ServiceRequest => ({
-  method,
-  path,
-  query: new URLSearchParams(),
-  headers: {},
-  body: new TextEncoder().encode(typeof body === "string" ? body : JSON.stringify(body)),
-  maxBytes,
-  console: { id: "c", name: "3DS", model: "3ds", target: "3ds-dev", address: "127.0.0.1" },
-  signal: AbortSignal.timeout(5_000),
-});
+const post = (glyphs: ServiceProvider, body: unknown, path = "/atlas", method = "POST", maxBytes = 256 * 1024) =>
+  call(glyphs, path, { method, maxBytes, body: typeof body === "string" ? body : JSON.stringify(body) });
 
 /** A rasterizer that draws every codepoint but U+E000 as a full cell. */
 function fakeRaster(asked: { px: number; bold: boolean; codepoints: number[] }[]) {
@@ -43,13 +36,13 @@ function readAtlas(bytes: Uint8Array) {
   return { magic: view.getUint32(0, true), count, cellW: bytes[8]!, cellH: bytes[9]!, slot: bytes[12]!, flags: bytes[13]!, codepoints };
 }
 
-const context = { storeDir: "/nonexistent", log: () => {}, advertiseHost: () => "127.0.0.1" };
+const context = serviceContext();
 
 describe("the glyphs service", () => {
   test("an atlas for the slot holds ASCII and the text's codepoints, bold flagged", async () => {
     const asked: { px: number; bold: boolean; codepoints: number[] }[] = [];
     const glyphs = createGlyphsService(context, { rasterizer: fakeRaster(asked) });
-    const response = await glyphs.handle(request({ px: 13, bold: true, slot: 22, text: "你好 Pocket 🙂\u{e000}" }));
+    const response = await post(glyphs, { px: 13, bold: true, slot: 22, text: "你好 Pocket 🙂\u{e000}" });
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toBe("application/x-pocket-font");
     const atlas = readAtlas(response.body);
@@ -68,18 +61,18 @@ describe("the glyphs service", () => {
   test("one rasterizer per size and weight", async () => {
     const asked: { px: number; bold: boolean; codepoints: number[] }[] = [];
     const glyphs = createGlyphsService(context, { rasterizer: fakeRaster(asked) });
-    await glyphs.handle(request({ px: 13, bold: false, slot: 21, text: "中" }));
-    await glyphs.handle(request({ px: 13, bold: true, slot: 22, text: "中" }));
-    await glyphs.handle(request({ px: 14, bold: false, slot: 21, text: "中" }));
+    await post(glyphs, { px: 13, bold: false, slot: 21, text: "中" });
+    await post(glyphs, { px: 13, bold: true, slot: 22, text: "中" });
+    await post(glyphs, { px: 14, bold: false, slot: 21, text: "中" });
     expect(asked.map((call) => `${call.px}${call.bold ? "b" : ""}`)).toEqual(["13", "13b", "14"]);
   });
 
   test("bad requests are refused: size, slot, method, too many glyphs", async () => {
     const glyphs = createGlyphsService(context, { rasterizer: fakeRaster([]) });
-    expect((await glyphs.handle(request({ px: 4, bold: false, slot: 21, text: "" }))).status).toBe(400);
-    expect((await glyphs.handle(request({ px: 13, bold: false, slot: 24, text: "" }))).status).toBe(400);
-    expect((await glyphs.handle(request("not json"))).status).toBe(400);
-    expect((await glyphs.handle(request({}, "/atlas", "GET"))).status).toBe(404);
+    expect((await post(glyphs, { px: 4, bold: false, slot: 21, text: "" })).status).toBe(400);
+    expect((await post(glyphs, { px: 13, bold: false, slot: 24, text: "" })).status).toBe(400);
+    expect((await post(glyphs, "not json")).status).toBe(400);
+    expect((await post(glyphs, {}, "/atlas", "GET")).status).toBe(404);
   });
 
   test("an atlas past the request's maxBytes is refused with the count that fits", async () => {
@@ -87,19 +80,19 @@ describe("the glyphs service", () => {
     const capacity = glyphCapacity(32, 256 * 1024);
     expect(capacity).toBe(169);
     const many = Array.from({ length: capacity - 95 + 1 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
-    const refused = await glyphs.handle(request({ px: 32, bold: false, slot: 21, text: many }));
+    const refused = await post(glyphs, { px: 32, bold: false, slot: 21, text: many });
     expect(refused.status).toBe(413);
-    expect(JSON.parse(new TextDecoder().decode(refused.body)).capacity).toBe(capacity);
-    const fits = await glyphs.handle(request({ px: 32, bold: false, slot: 21, text: many.slice(0, -1) }));
+    expect(refused.json().capacity).toBe(capacity);
+    const fits = await post(glyphs, { px: 32, bold: false, slot: 21, text: many.slice(0, -1) });
     expect(fits.status).toBe(200);
     expect(fits.body.length).toBeLessThanOrEqual(256 * 1024);
-    const small = await glyphs.handle(request({ px: 13, bold: false, slot: 21, text: "中" }, "/atlas", "POST", 2_000));
+    const small = await post(glyphs, { px: 13, bold: false, slot: 21, text: "中" }, "/atlas", "POST", 2_000);
     expect(small.status).toBe(413);
   });
 
   test("a Mac without the CoreText helper says so", async () => {
     const glyphs = createGlyphsService(context, { rasterizer: () => ({ cells: async () => new Map(), close() {} }) });
-    expect((await glyphs.handle(request({ px: 13, bold: false, slot: 21, text: "中" }))).status).toBe(503);
+    expect((await post(glyphs, { px: 13, bold: false, slot: 21, text: "中" })).status).toBe(503);
   });
 
   test("an atlas of the most glyphs a 13 px slot asks for fits one NET response", async () => {
@@ -107,7 +100,7 @@ describe("the glyphs service", () => {
     // The console's cap (shells' ui/glyphs.ts glyphCap): 891 at 13 px.
     const cap = Math.floor((256 * 1024 - 16 - 1024) / (8 + 15 * 19));
     const text = Array.from({ length: cap - 95 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
-    const response = await glyphs.handle(request({ px: 13, bold: false, slot: 21, text }));
+    const response = await post(glyphs, { px: 13, bold: false, slot: 21, text });
     expect(response.status).toBe(200);
     expect(response.body.length).toBeLessThanOrEqual(256 * 1024);
   });

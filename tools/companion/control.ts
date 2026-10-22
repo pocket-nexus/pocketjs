@@ -11,9 +11,10 @@
 //                          (sign in, set a token) -> {output}
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Companion } from "./server.ts";
+import { writeSecret } from "./store.ts";
 
 export interface ControlInfo {
   port: number;
@@ -78,8 +79,7 @@ export function startControl(companion: Companion, storeDir: string): { info: Co
   });
   const info: ControlInfo = { port: server.port as number, token, pid: process.pid };
   const file = controlFile(storeDir);
-  writeFileSync(file, `${JSON.stringify(info)}\n`, { mode: 0o600 });
-  chmodSync(file, 0o600);
+  writeSecret(file, `${JSON.stringify(info)}\n`);
   return {
     info,
     stop() {

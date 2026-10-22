@@ -7,10 +7,10 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { NET_ERROR } from "../contracts/spec/net.ts";
 import { NetFailure } from "../tools/companion/fetch.ts";
 import { bytesResponse, SERVICE_FACTORIES, ServiceHost, type ServiceProvider } from "../tools/companion/services.ts";
+import { serviceContext, TEST_CONSOLE } from "./helpers/companion-service.ts";
 
-const CONSOLE = { id: "c", name: "3DS", model: "3ds", target: "3ds-dev", address: "127.0.0.1" };
 const logs: string[] = [];
-const host = new ServiceHost({ storeDir: "/nonexistent", log: (line) => logs.push(line), advertiseHost: () => "127.0.0.1" });
+const host = new ServiceHost(serviceContext("/nonexistent", (line) => logs.push(line)));
 
 /** A test service: /bytes?n= answers n bytes, /hang never answers. */
 SERVICE_FACTORIES.probe = (): ServiceProvider => ({
@@ -28,8 +28,8 @@ afterAll(() => {
 
 const call = (path: string, services: readonly string[], options: { timeoutMs?: number; maxBytes?: number; signal?: AbortSignal } = {}) =>
   host.handle(
-    { url: `https://companion.pocket/probe${path}`, method: "GET", headers: {}, body: new Uint8Array(), timeoutMs: options.timeoutMs ?? 5_000, maxBytes: options.maxBytes ?? 1_000 },
-    CONSOLE,
+    { url: `https://companion.pocket/probe${path}`, method: "GET", body: new Uint8Array(), timeoutMs: options.timeoutMs ?? 5_000, maxBytes: options.maxBytes ?? 1_000 },
+    TEST_CONSOLE,
     { app: "dev.pocket-nexus.probe", services },
     options.signal ?? new AbortController().signal,
   );
@@ -37,8 +37,8 @@ const call = (path: string, services: readonly string[], options: { timeoutMs?: 
 describe("the service host", () => {
   test("another host is not a service", async () => {
     const response = await host.handle(
-      { url: "https://example.com/probe", method: "GET", headers: {}, body: new Uint8Array(), timeoutMs: 5_000, maxBytes: 1_000 },
-      CONSOLE,
+      { url: "https://example.com/probe", method: "GET", body: new Uint8Array(), timeoutMs: 5_000, maxBytes: 1_000 },
+      TEST_CONSOLE,
       { app: "a", services: ["probe"] },
       new AbortController().signal,
     );

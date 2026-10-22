@@ -17,13 +17,13 @@
 // as a one-colour picture (Glyphs.swift); a codepoint no font has maps to
 // the atlas's tofu box.
 
-import { atlasFont, codepointsOf, GlyphRasterizer, packAtlas, type GlyphCell } from "../glyphs.ts";
-import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider } from "../services.ts";
+import { atlasFont, codepointsOf, GlyphRasterizer, packAtlas } from "../glyphs.ts";
+import { bytesResponse, jsonResponse, readJson, type ServiceContext, type ServiceProvider } from "../services.ts";
 import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, MAX_FONT_SLOTS } from "../../../contracts/spec/spec.ts";
 
 /** Sizes an app may ask for. */
-export const GLYPH_PX_MIN = 8;
-export const GLYPH_PX_MAX = 32;
+const GLYPH_PX_MIN = 8;
+const GLYPH_PX_MAX = 32;
 
 /** Glyphs an atlas of `px` holds within `maxBytes`, the tofu box counted. */
 export function glyphCapacity(px: number, maxBytes: number): number {
@@ -35,7 +35,7 @@ const TEXT_MAX = 20_000;
 
 const ASCII = Array.from({ length: 0x7f - 0x20 }, (_, i) => 0x20 + i);
 
-export interface GlyphsOptions {
+interface GlyphsOptions {
   /** Test seam: the rasterizer for a size and weight. */
   rasterizer?: (px: number, bold: boolean) => Pick<GlyphRasterizer, "cells" | "close">;
 }
@@ -55,12 +55,7 @@ export function createGlyphsService(context: ServiceContext, options: GlyphsOpti
     name: "glyphs",
     async handle(request) {
       if (request.path !== "/atlas" || request.method !== "POST") return jsonResponse(404, { error: `no glyphs endpoint ${request.path}` });
-      let body: { px?: unknown; bold?: unknown; slot?: unknown; text?: unknown };
-      try {
-        body = JSON.parse(new TextDecoder().decode(request.body)) as typeof body;
-      } catch {
-        return jsonResponse(400, { error: "atlas needs JSON {px, bold, slot, text}" });
-      }
+      const body = readJson<{ px?: unknown; bold?: unknown; slot?: unknown; text?: unknown }>(request, { error: "atlas needs JSON {px, bold, slot, text}" });
       const px = typeof body.px === "number" ? Math.round(body.px) : NaN;
       const slot = typeof body.slot === "number" ? body.slot : NaN;
       const text = typeof body.text === "string" ? body.text : "";
@@ -76,9 +71,7 @@ export function createGlyphsService(context: ServiceContext, options: GlyphsOpti
       const bold = body.bold === true;
       const cells = await rasterizer(px, bold).cells(wanted);
       if (cells.size === 0) return jsonResponse(503, { error: "this Mac cannot draw glyphs (no CoreText helper)" });
-      const drawn = new Map<number, GlyphCell>();
-      for (const [cp, cell] of cells) if (cell) drawn.set(cp, cell);
-      return bytesResponse(packAtlas(drawn, atlasFont(px), slot, bold), "application/x-pocket-font");
+      return bytesResponse(packAtlas(cells, atlasFont(px), slot, bold), "application/x-pocket-font");
     },
     close() {
       for (const raster of rasterizers.values()) raster.close();

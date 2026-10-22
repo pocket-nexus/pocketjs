@@ -11,8 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MEDIA } from "../contracts/spec/media.ts";
 import { PSM } from "../contracts/spec/spec.ts";
-import type { ServiceProvider, ServiceRequest } from "../tools/companion/services.ts";
-import { accessUnits, createYoutubeService, PAL8, pal8Packets, planeFit, rgbFrames } from "../tools/companion/services/youtube.ts";
+import type { ServiceProvider } from "../tools/companion/services.ts";
+import { accessUnits, createYoutubeService, fixedChunks, PAL8, pal8Packets, planeFit } from "../tools/companion/services/youtube.ts";
+import { call, expectImg, serviceContext } from "./helpers/companion-service.ts";
 
 const DIR = mkdtempSync(join(tmpdir(), "pocket-youtube-"));
 const FFMPEG = Bun.which("ffmpeg");
@@ -40,7 +41,6 @@ if (target.startsWith("ytsearch") || target.includes("/results?")) {
 `,
 );
 
-const CONSOLE = { id: "c0ffee0000000000", name: "test 3DS", model: "Nintendo 3DS", target: "3ds-dev", address: "127.0.0.1" };
 let service: ServiceProvider;
 
 beforeAll(() => {
@@ -50,7 +50,7 @@ beforeAll(() => {
     Bun.spawnSync([FFMPEG, "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180", "-frames:v", "1", THUMB]);
   }
   service = createYoutubeService(
-    { storeDir: DIR, log: () => {}, advertiseHost: () => "127.0.0.1" },
+    serviceContext(DIR),
     { ytDlp: [process.execPath, YT_DLP], ffmpeg: [FFMPEG ?? "ffmpeg"], thumbnailUrl: () => THUMB },
   );
 }, 60_000);
@@ -60,8 +60,7 @@ afterAll(() => {
   rmSync(DIR, { recursive: true, force: true });
 });
 
-const get = (path: string, query: Record<string, string> = {}) =>
-  service.handle({ method: "GET", path, query: new URLSearchParams(query), headers: {}, body: new Uint8Array(), maxBytes: 256 * 1024, console: CONSOLE, signal: new AbortController().signal } satisfies ServiceRequest);
+const get = (path: string, query: Record<string, string> = {}) => call(service, path, { query, signal: new AbortController().signal });
 const json = (body: Uint8Array) => JSON.parse(new TextDecoder().decode(body));
 const calls = () => (existsSync(CALLS) ? readFileSync(CALLS, "utf8").trim().split("\n") : []);
 
@@ -103,9 +102,7 @@ describe.skipIf(!FFMPEG)("pictures and streams", () => {
   test("a thumbnail is a 128x64 RGB565 IMG entry", async () => {
     const thumb = await get("/thumb", { id: "vid0abcdefg" });
     expect(thumb.status).toBe(200);
-    const view = new DataView(thumb.body.buffer, thumb.body.byteOffset);
-    expect([view.getUint16(0, true), view.getUint16(2, true), thumb.body[4]]).toEqual([128, 64, PSM.PSM_5650]);
-    expect(thumb.body.length).toBe(8 + 128 * 64 * 2);
+    expectImg(thumb.body, 128, 64, PSM.PSM_5650);
   });
 
   /** Read a published stream as a console does: the token, then the header
@@ -164,14 +161,14 @@ describe.skipIf(!FFMPEG)("pictures and streams", () => {
 });
 
 describe("pure parts", () => {
-  test("rgbFrames cuts a pipe into frames; pal8Packets skips frames only while the stream is behind", async () => {
+  test("fixedChunks cuts a pipe into frames; pal8Packets skips frames only while the stream is behind", async () => {
     const frame = new Uint8Array(PAL8.width * PAL8.height * 3);
     async function* pipe() {
       yield frame.subarray(0, 1000);
       yield frame.subarray(1000);
     }
     let cut = 0;
-    for await (const one of rgbFrames(pipe(), PAL8.width, PAL8.height)) cut += one.length;
+    for await (const one of fixedChunks(pipe(), frame.length)) cut += one.length;
     expect(cut).toBe(frame.length);
     // Frames are due every 83 ms. The clock runs 10 ms a frame (the
     // producer is ahead: nothing skipped), then jumps 880 ms (more than half

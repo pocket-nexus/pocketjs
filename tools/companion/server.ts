@@ -141,11 +141,7 @@ export class Companion {
     this.agent = options.agent
       ? new AgentService({ ...options.agent, storeDir: this.store.dir, catalog: this.catalog, log: (line) => this.log(line) })
       : null;
-    this.services = new ServiceHost({
-      storeDir: this.store.dir,
-      log: (line) => this.log(line),
-      advertiseHost: () => lanInterfaces()[0]?.address ?? "127.0.0.1",
-    });
+    this.services = new ServiceHost({ storeDir: this.store.dir, log: (line) => this.log(line) });
   }
 
   /** The features a linked console is offered: the agent only when codex is usable. */
@@ -388,6 +384,8 @@ interface NetPending {
 
 class LinkConnection {
   readonly address: string;
+  /** This Mac's end of the connection: the address the console reaches it at. */
+  readonly localAddress: string;
   readonly since = Date.now();
   device: { id: string; name: string; model: string; target: string } | undefined;
   ready = false;
@@ -409,6 +407,7 @@ class LinkConnection {
     private readonly socket: Socket,
   ) {
     this.address = shortAddress(socket.remoteAddress ?? "");
+    this.localAddress = shortAddress(socket.localAddress ?? "");
     socket.setNoDelay(true);
     this.decoder = new LinkFrameDecoder({
       preamble: true,
@@ -660,7 +659,7 @@ class LinkConnection {
       const response =
         (await this.companion.services.handle(
           { ...pending.meta, body },
-          { ...device, address: this.address },
+          { name: device.name, address: this.address, localAddress: this.localAddress },
           { app: pending.app, services },
           pending.abort.signal,
         )) ??

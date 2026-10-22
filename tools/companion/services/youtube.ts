@@ -33,16 +33,17 @@
 // stay in UTF-8; the app folds what its fonts lack.
 
 import { existsSync, readdirSync } from "node:fs";
-import { homedir, networkInterfaces } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { MEDIA, type MediaCodec, type MediaSource } from "../../../contracts/spec/media.ts";
 import { encodeMediaAudio } from "../../../contracts/spec/media-adpcm.ts";
 import { IMG_FLAG_LINEAR, PSM } from "../../../contracts/spec/spec.ts";
 import { encodeImageEntry } from "../../../framework/compiler/pak.ts";
 import { createMediaStreamServer, createPal8Encoder, mediaHeader, quantizeCube, type MediaPacket } from "../../media-stream.ts";
+import { envProxy } from "../fetch.ts";
 import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider, type ServiceRequest } from "../services.ts";
 
-export interface Video {
+interface Video {
   id: string;
   title: string;
   channel: string;
@@ -51,7 +52,7 @@ export interface Video {
   views: number;
 }
 
-export interface ResolvedVideo extends Video {
+interface ResolvedVideo extends Video {
   description: string;
   /** Adaptive tracks, or the same URL for a muxed source. */
   videoUrl: string;
@@ -60,7 +61,7 @@ export interface ResolvedVideo extends Video {
   height: number;
 }
 
-export const TOPICS: Record<string, { query: string; recent: boolean }> = {
+const TOPICS: Record<string, { query: string; recent: boolean }> = {
   tech: { query: "technology", recent: false },
   music: { query: "music video", recent: false },
   gaming: { query: "gaming", recent: false },
@@ -69,13 +70,13 @@ export const TOPICS: Record<string, { query: string; recent: boolean }> = {
 
 export const THUMB = { width: 128, height: 64 } as const;
 export const PAL8 = { width: 240, height: 136, fps: 12, maxSkips: 3, skipBehindMs: 500, resetBehindMs: 2000 } as const;
-export const H264 = { fps: 30, bitrate: 650_000, maxrate: 750_000 } as const;
+const H264 = { fps: 30, bitrate: 650_000, maxrate: 750_000 } as const;
 const RESULTS = 20;
 const CACHE_MS = 10 * 60_000;
 const VIDEO_ID = /^[\w-]{11}$/;
 
 /** The command lines the service runs; a test swaps in fakes. */
-export interface YoutubeTools {
+interface YoutubeTools {
   ytDlp: string[];
   ffmpeg: string[];
   /** Where a video's 320x180 thumbnail is; YouTube's by default. */
@@ -85,7 +86,7 @@ export interface YoutubeTools {
 /** yt-dlp and ffmpeg where Homebrew and the usual installers put them: a
  *  menu bar app starts with a short PATH. yt-dlp needs a JavaScript runtime
  *  for YouTube's player; the first of bun, deno and node found is used. */
-export function findYoutubeTools(env: NodeJS.ProcessEnv = process.env): YoutubeTools | null {
+function findYoutubeTools(env: NodeJS.ProcessEnv = process.env): YoutubeTools | null {
   const home = homedir();
   const dirs = (env.PATH ?? "").split(":").filter(Boolean);
   dirs.push("/opt/homebrew/bin", "/usr/local/bin", join(home, ".local", "bin"), join(home, ".bun", "bin"), join(home, ".deno", "bin"));
@@ -102,8 +103,10 @@ export function findYoutubeTools(env: NodeJS.ProcessEnv = process.env): YoutubeT
   };
 }
 
-function proxy(): string | undefined {
-  return process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy || undefined;
+/** `flag` and the environment's proxy, or nothing without one. */
+function proxyArgs(flag: string): string[] {
+  const proxy = envProxy();
+  return proxy ? [flag, proxy] : [];
 }
 
 async function run(command: string[], signal?: AbortSignal): Promise<{ ok: boolean; stdout: Uint8Array; stderr: string }> {
@@ -173,17 +176,18 @@ export async function* accessUnits(chunks: AsyncIterable<Uint8Array>): AsyncGene
   }
 }
 
-/** Fixed-size RGB24 frames from ffmpeg's rawvideo pipe. */
-export async function* rgbFrames(chunks: AsyncIterable<Uint8Array>, width: number, height: number): AsyncGenerator<Uint8Array> {
-  const frameBytes = width * height * 3;
+/** `size`-byte pieces of a pipe whatever its chunking (RGB24 frames,
+ *  PCM blocks); with `tail`, the bytes left at its end as well. */
+export async function* fixedChunks(chunks: AsyncIterable<Uint8Array>, size: number, tail = false): AsyncGenerator<Uint8Array> {
   let buffer = Buffer.alloc(0);
   for await (const chunk of chunks) {
     buffer = Buffer.concat([buffer, chunk]);
-    while (buffer.length >= frameBytes) {
-      yield buffer.subarray(0, frameBytes);
-      buffer = buffer.subarray(frameBytes);
+    while (buffer.length >= size) {
+      yield buffer.subarray(0, size);
+      buffer = buffer.subarray(size);
     }
   }
+  if (tail && buffer.length) yield buffer;
 }
 
 /** PAL8 packets from RGB24 frames, skipping frames while the stream is
@@ -206,38 +210,32 @@ export async function* pal8Packets(frames: AsyncIterable<Uint8Array>, originMs: 
   }
 }
 
+/** ADPCM packets of MEDIA.audioFrames stereo s16 frames, the last one
+ *  shorter. */
 async function* pcmPackets(chunks: AsyncIterable<Uint8Array>, originMs: number): AsyncGenerator<MediaPacket> {
-  let buffer = Buffer.alloc(0), frames = 0;
+  let frames = 0;
   const indices: [number, number] = [0, 0];
-  for await (const chunk of chunks) {
-    buffer = Buffer.concat([buffer, chunk]);
-    while (buffer.length >= MEDIA.audioFrames * 4) {
-      const bytes = buffer.subarray(0, MEDIA.audioFrames * 4);
-      yield { kind: 2, ptsMs: originMs + Math.round((frames * 1000) / MEDIA.sampleRate), data: encodeMediaAudio(bytes, indices) };
-      buffer = buffer.subarray(bytes.length);
-      frames += MEDIA.audioFrames;
-    }
-  }
-  if (buffer.length >= 4) {
-    const bytes = buffer.subarray(0, buffer.length - (buffer.length % 4));
+  for await (const block of fixedChunks(chunks, MEDIA.audioFrames * 4, true)) {
+    const bytes = block.subarray(0, block.length - (block.length % 4));
+    if (!bytes.length) return;
     yield { kind: 2, ptsMs: originMs + Math.round((frames * 1000) / MEDIA.sampleRate), data: encodeMediaAudio(bytes, indices) };
+    frames += bytes.length / 4;
   }
 }
 
 /** One video and one audio ffmpeg, interleaved by timestamp. */
-export async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: MediaCodec, seconds: number, signal: AbortSignal): AsyncGenerator<MediaPacket> {
+async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, codec: MediaCodec, seconds: number, signal: AbortSignal): AsyncGenerator<MediaPacket> {
   if (signal.aborted) return;
   const originMs = Math.round(seconds * 1000);
   const network = (url: string) =>
     /^https?:\/\//.test(url)
-      ? [...(proxy() ? ["-http_proxy", proxy()!] : []), "-rw_timeout", "10000000",
+      ? [...proxyArgs("-http_proxy"), "-rw_timeout", "10000000",
           // googlevideo throttles one open-ended GET to a fraction of real
           // time; 1 MB ranges come at full speed (30 s of video in 0.75 s).
           "-request_size", "1048576", "-initial_request_size", "1048576", "-short_seek_size", "1048576", "-multiple_requests", "1"]
       : [];
   const common = [...tools.ffmpeg, "-hide_banner", "-loglevel", "error", "-xerror"];
   const seek = seconds > 0 ? ["-ss", String(seconds)] : [];
-  const fps = codec === "pal8" ? PAL8.fps : H264.fps;
   const encode =
     codec === "pal8"
       ? ["-an", "-vf",
@@ -272,12 +270,12 @@ export async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, c
   async function* videoPackets(): AsyncGenerator<MediaPacket> {
     let frame = 0;
     if (codec === "pal8") {
-      for await (const packet of pal8Packets(rgbFrames(chunks(videoProcess.stdout), PAL8.width, PAL8.height), originMs)) {
+      for await (const packet of pal8Packets(fixedChunks(chunks(videoProcess.stdout), PAL8.width * PAL8.height * 3), originMs)) {
         frame++;
         yield packet;
       }
     } else {
-      for await (const data of accessUnits(chunks(videoProcess.stdout))) yield { kind: 1, ptsMs: originMs + Math.round((frame++ * 1000) / fps), data };
+      for await (const data of accessUnits(chunks(videoProcess.stdout))) yield { kind: 1, ptsMs: originMs + Math.round((frame++ * 1000) / H264.fps), data };
     }
     if ((await videoProcess.exited) || !frame) {
       if (!signal.aborted) throw new Error(`video encoder failed: ${await videoError}`);
@@ -312,22 +310,14 @@ export async function* mediaPackets(tools: YoutubeTools, video: ResolvedVideo, c
   }
 }
 
-/** The Mac's IPv4 address on the console's /24, else the first LAN one. */
-function addressFor(consoleAddress: string, fallback: string): string {
-  const prefix = consoleAddress.split(".").slice(0, 3).join(".");
-  for (const entries of Object.values(networkInterfaces())) {
-    for (const entry of entries ?? []) {
-      if (entry.family === "IPv4" && !entry.internal && entry.address.split(".").slice(0, 3).join(".") === prefix) return entry.address;
-    }
-  }
-  return fallback;
-}
-
 export function createYoutubeService(context: ServiceContext, tools: YoutubeTools | null = findYoutubeTools()): ServiceProvider {
   const lists = new Map<string, { at: number; items: Video[] }>();
   const resolved = new Map<string, { at: number; video: ResolvedVideo }>();
-  const servers = new Map<string, Promise<Awaited<ReturnType<typeof createMediaStreamServer>>>>();
-  let active: { source: MediaSource; host: string } | undefined;
+  /** The media stream server, on every interface; a ticket names the
+   *  address its console reaches. */
+  let media: ReturnType<typeof createMediaStreamServer> | undefined;
+  const server = () => (media ??= createMediaStreamServer({ log: context.log }));
+  let active: MediaSource | undefined;
 
   const need = (): YoutubeTools => {
     if (!tools) throw new Error("yt-dlp and ffmpeg are not installed on this Mac (brew install yt-dlp ffmpeg)");
@@ -339,7 +329,7 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
     const cached = lists.get(key);
     if (cached && Date.now() - cached.at < CACHE_MS) return cached.items;
     const result = await run(
-      [...need().ytDlp, ...(proxy() ? ["--proxy", proxy()!] : []), "--dump-json", "--flat-playlist", "--no-warnings", "--playlist-end", String(RESULTS), source],
+      [...need().ytDlp, ...proxyArgs("--proxy"), "--dump-json", "--flat-playlist", "--no-warnings", "--playlist-end", String(RESULTS), source],
       signal,
     );
     if (!result.ok) throw new Error(`yt-dlp search failed: ${scrub(result.stderr)}`);
@@ -361,7 +351,7 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
     const cached = resolved.get(id);
     if (cached && Date.now() - cached.at < CACHE_MS) return cached.video;
     const result = await run(
-      [...need().ytDlp, ...(proxy() ? ["--proxy", proxy()!] : []), "--dump-json", "--no-playlist", "--no-warnings",
+      [...need().ytDlp, ...proxyArgs("--proxy"), "--dump-json", "--no-playlist", "--no-warnings",
         "-f", "bv[height<=480]+ba/b[height<=480]/bv+ba/b", `https://www.youtube.com/watch?v=${id}`],
       signal,
     );
@@ -388,7 +378,7 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
     // mqdefault is 320x180; the middle 320x160 scales to 128x64.
     const url = need().thumbnailUrl?.(id) ?? `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
     const result = await run(
-      [...need().ffmpeg, "-hide_banner", "-loglevel", "error", ...(proxy() && /^https?:\/\//.test(url) ? ["-http_proxy", proxy()!] : []), "-i", url,
+      [...need().ffmpeg, "-hide_banner", "-loglevel", "error", ...(/^https?:\/\//.test(url) ? proxyArgs("-http_proxy") : []), "-i", url,
         "-vf", `crop=iw:iw/2,scale=${THUMB.width}:${THUMB.height}:flags=area`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"],
       signal,
     );
@@ -398,20 +388,11 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
     return encodeImageEntry({ width: THUMB.width, height: THUMB.height, rgba }, PSM.PSM_5650, IMG_FLAG_LINEAR);
   };
 
-  const server = (host: string) => {
-    let promise = servers.get(host);
-    if (!promise) {
-      promise = createMediaStreamServer({ advertiseHost: host, log: context.log });
-      servers.set(host, promise);
-    }
-    return promise;
-  };
-
   const stop = async () => {
     if (!active) return false;
-    const { source, host } = active;
+    const source = active;
     active = undefined;
-    (await server(host)).revoke(source);
+    (await server()).revoke(source);
     return true;
   };
 
@@ -422,14 +403,14 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
     const video = await resolve(id, request.signal);
     const at = Math.max(0, Math.min(Number(request.query.get("at")) || 0, Math.max(0, video.duration - 1)));
     await stop();
-    const host = addressFor(request.console.address, context.advertiseHost());
     const fps = codec === "pal8" ? PAL8.fps : H264.fps;
-    const media = await server(host);
     const toolset = need();
-    const source = media.publish(mediaHeader(Math.round(at * 1000), Math.max(0, video.duration) * 1000, fps, codec), (signal) =>
-      mediaPackets(toolset, video, codec, at, signal),
+    const source = (await server()).publish(
+      mediaHeader(Math.round(at * 1000), Math.max(0, video.duration) * 1000, fps, codec),
+      (signal) => mediaPackets(toolset, video, codec, at, signal),
+      request.console.localAddress,
     );
-    active = { source, host };
+    active = source;
     context.log(`youtube: play ${id} ${codec} at ${at}s for ${request.console.name || request.console.address}`);
     return jsonResponse(200, {
       source,
@@ -486,8 +467,8 @@ export function createYoutubeService(context: ServiceContext, tools: YoutubeTool
       return tools ? `yt-dlp: ${tools.ytDlp[0]}\nffmpeg: ${tools.ffmpeg[0]}` : "yt-dlp or ffmpeg is missing: brew install yt-dlp ffmpeg";
     },
     close() {
-      for (const promise of servers.values()) void promise.then((media) => media.close());
-      servers.clear();
+      void media?.then((open) => open.close());
+      media = undefined;
     },
   };
 }

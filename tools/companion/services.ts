@@ -10,8 +10,9 @@
 // other URL is fetched as before.
 //
 // A provider gets the request with the console that sent it and answers an
-// ordinary NET response. Credentials stay in the companion's store; a
-// response never carries one.
+// ordinary NET response, or throws a ServiceError, which answers its status
+// and JSON body. Credentials stay in the companion's store; a response
+// never carries one.
 //
 // The console names the app behind every request (the `app` member, filled
 // by its runtime, not the guest). A service answers only an app this
@@ -28,12 +29,12 @@ import { createXService } from "./services/x.ts";
 import { createYoutubeService } from "./services/youtube.ts";
 
 export interface ServiceConsole {
-  id: string;
   name: string;
-  model: string;
-  target: string;
-  /** The console's address on the LAN, for streams it opens back. */
+  /** The console's address on the LAN. */
   address: string;
+  /** This Mac's address on the console's link connection, which the console
+   *  reaches for a stream it opens back. */
+  localAddress: string;
 }
 
 export interface ServiceRequest {
@@ -41,7 +42,6 @@ export interface ServiceRequest {
   /** The path after the service's name, from "/". */
   path: string;
   query: URLSearchParams;
-  headers: Record<string, string>;
   body: Uint8Array;
   /** The largest response the app takes; a larger one fails the request
    *  with response_too_large. */
@@ -51,7 +51,7 @@ export interface ServiceRequest {
 }
 
 /** The app behind a request and the services its manifest declares. */
-export interface ServiceCaller {
+interface ServiceCaller {
   app: string;
   services: readonly string[];
 }
@@ -61,8 +61,6 @@ export interface ServiceContext {
    *  `<storeDir>/services/<name>/`. */
   storeDir: string;
   log: (line: string) => void;
-  /** The address the console reaches this companion at. */
-  advertiseHost: () => string;
 }
 
 export interface ServiceProvider {
@@ -83,6 +81,37 @@ export function jsonResponse(status: number, value: unknown): Omit<NetResponse, 
 
 export function bytesResponse(body: Uint8Array, contentType: string): Omit<NetResponse, "url"> {
   return { status: 200, headers: { "content-type": contentType }, body };
+}
+
+/** A failure a provider throws; the request answers `status` with the JSON
+ *  `body`. */
+export class ServiceError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: Record<string, unknown>,
+  ) {
+    super(String(body.message ?? body.error ?? `status ${status}`));
+  }
+}
+
+/** The request's body as JSON. A body that does not parse fails the request
+ *  with 400 and `refusal`. */
+export function readJson<T>(request: ServiceRequest, refusal: Record<string, unknown>): T {
+  try {
+    return JSON.parse(new TextDecoder().decode(request.body)) as T;
+  } catch {
+    throw new ServiceError(400, refusal);
+  }
+}
+
+/** `provider`'s response to `request`, a ServiceError answered as its JSON. */
+export async function serve(provider: ServiceProvider, request: ServiceRequest): Promise<Omit<NetResponse, "url">> {
+  try {
+    return await provider.handle(request);
+  } catch (error) {
+    if (error instanceof ServiceError) return jsonResponse(error.status, error.body);
+    throw error;
+  }
 }
 
 export const SERVICE_FACTORIES: Record<string, (context: ServiceContext) => ServiceProvider> = {
@@ -119,7 +148,7 @@ export class ServiceHost {
   /** The response when `request` names a service, else null. Throws a
    *  NetFailure on a timeout or a response past maxBytes. */
   async handle(
-    request: Pick<NetRequest, "url" | "method" | "headers" | "timeoutMs" | "maxBytes"> & { body: Uint8Array },
+    request: Pick<NetRequest, "url" | "method" | "timeoutMs" | "maxBytes"> & { body: Uint8Array },
     console: ServiceConsole,
     caller: ServiceCaller,
     signal: AbortSignal,
@@ -138,11 +167,10 @@ export class ServiceHost {
     let response: Omit<NetResponse, "url">;
     try {
       response = await Promise.race([
-        provider.handle({
+        serve(provider, {
           method: request.method,
           path: `/${rest.join("/")}`,
           query: url.searchParams,
-          headers: request.headers,
           body: request.body,
           maxBytes: request.maxBytes,
           console,

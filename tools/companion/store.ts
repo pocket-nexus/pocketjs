@@ -5,7 +5,7 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { KEY_RE, isLinkId, newLinkId } from "./protocol.ts";
 
 export interface PairedConsole {
@@ -25,6 +25,18 @@ interface StoreFile {
   /** Owner-chosen apps folder, served next to the CLI's --apps dirs. */
   appsDir?: string;
   consoles: PairedConsole[];
+}
+
+/** Write a file only this user reads: `data` to a 0600 temp file, renamed
+ *  to `path` in a 0700 folder, so a crash never leaves half a file. */
+export function writeSecret(path: string, data: string | Uint8Array) {
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, data, { mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, path);
 }
 
 /** `$POCKET_COMPANION_HOME`, else ~/Library/Application Support/Pocket Companion. */
@@ -74,10 +86,7 @@ export class CompanionStore {
   }
 
   private save() {
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(this.data, null, 2)}\n`, { mode: 0o600 });
-    chmodSync(tmp, 0o600);
-    renameSync(tmp, this.file);
+    writeSecret(this.file, `${JSON.stringify(this.data, null, 2)}\n`);
   }
 
   get id(): string {

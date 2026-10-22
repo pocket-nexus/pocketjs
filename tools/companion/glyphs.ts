@@ -79,10 +79,10 @@ export function tofuCell(font: AgentFont = AGENT_FONT): GlyphCell {
 export const TOFU_CODEPOINT = 0xfffd;
 
 /** A FONT ATLAS v3 blob: gid 0 the tofu box (mapped from U+FFFD), then
- *  `cells`; one cmap entry per glyph, sorted by codepoint. `bold` sets the
- *  bold flag. */
-export function packAtlas(cells: ReadonlyMap<number, GlyphCell>, font: AgentFont = AGENT_FONT, slot = AGENT_FONT_SLOT, bold = false): Uint8Array {
-  const codepoints = [...cells.keys()].filter((cp) => cp !== TOFU_CODEPOINT).sort((a, b) => a - b);
+ *  `cells`; one cmap entry per glyph, sorted by codepoint. A null cell (no
+ *  font draws it) is left to the tofu box. `bold` sets the bold flag. */
+export function packAtlas(cells: ReadonlyMap<number, GlyphCell | null>, font: AgentFont = AGENT_FONT, slot = AGENT_FONT_SLOT, bold = false): Uint8Array {
+  const codepoints = [...cells.keys()].filter((cp) => cp !== TOFU_CODEPOINT && cells.get(cp)).sort((a, b) => a - b);
   const count = codepoints.length + 1;
   if (count > 0xffff) throw new Error("atlas: too many glyphs");
   const cellBytes = font.cellW * font.cellH;
@@ -244,9 +244,7 @@ export class GlyphFeed {
     if (this.wanted.size > this.max) this.wanted = new Set([...AGENT_BASE_CODEPOINTS, ...this.turn]);
     const cells = await this.raster.cells(this.wanted);
     if (cells.size === 0) return null; // no helper on this Mac: send text as is
-    const drawn = new Map<number, GlyphCell>();
-    for (const [cp, cell] of cells) if (cell) drawn.set(cp, cell);
     this.delivered = new Set(this.wanted);
-    return packAtlas(drawn, this.font);
+    return packAtlas(cells, this.font);
   }
 }

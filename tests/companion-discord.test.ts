@@ -9,9 +9,11 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
-import { deflateSync } from "node:zlib";
+import { PSM } from "../contracts/spec/spec.ts";
+import { encodePNG } from "../tools/png.ts";
+import type { ServiceProvider } from "../tools/companion/services.ts";
 import { createDiscordService, DISCORD_INVITE_PERMISSIONS, DISCORD_SETUP } from "../tools/companion/services/discord.ts";
-import type { ServiceConsole, ServiceProvider } from "../tools/companion/services.ts";
+import { call, expectImg, serviceContext } from "./helpers/companion-service.ts";
 
 const TOKEN = "MTIz.fake-bot-token.zzz";
 const BOT = { id: "900000000000000001", username: "pocketbot", bot: true, avatar: null };
@@ -24,47 +26,8 @@ const NEWS = "200000000000000013";
 const LOBBY = "200000000000000014";
 const ALICE = { id: "300000000000000001", username: "alice", global_name: "Alice", avatar: "abc123" };
 
-const CONSOLE: ServiceConsole = { id: "c0ffee", name: "3DS", model: "Nintendo 3DS", target: "3ds-dev", address: "127.0.0.1" };
-
-/** A 64x64 opaque red PNG (8-bit RGBA). */
-function redPng(): Uint8Array {
-  const crcTable = Array.from({ length: 256 }, (_, n) => {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    return c >>> 0;
-  });
-  const crc = (bytes: Uint8Array) => {
-    let c = 0xffffffff;
-    for (const b of bytes) c = crcTable[(c ^ b) & 0xff]! ^ (c >>> 8);
-    return (c ^ 0xffffffff) >>> 0;
-  };
-  const chunk = (type: string, data: Uint8Array) => {
-    const out = new Uint8Array(12 + data.length);
-    const view = new DataView(out.buffer);
-    view.setUint32(0, data.length);
-    out.set(new TextEncoder().encode(type), 4);
-    out.set(data, 8);
-    view.setUint32(8 + data.length, crc(out.subarray(4, 8 + data.length)));
-    return out;
-  };
-  const ihdr = new Uint8Array(13);
-  const v = new DataView(ihdr.buffer);
-  v.setUint32(0, 64);
-  v.setUint32(4, 64);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
-  const raw = new Uint8Array(64 * (1 + 64 * 4));
-  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) raw.set([255, 0, 0, 255], y * (1 + 256) + 1 + x * 4);
-  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", new Uint8Array(deflateSync(raw))), chunk("IEND", new Uint8Array(0))];
-  const total = parts.reduce((n, p) => n + p.length, 0);
-  const png = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    png.set(p, at);
-    at += p.length;
-  }
-  return png;
-}
+/** A 64x64 opaque red PNG. */
+const RED_PNG = encodePNG(new Uint8Array(64 * 64 * 4).map((_, i) => (i % 4 === 0 || i % 4 === 3 ? 255 : 0)), 64, 64);
 
 interface Fake {
   server: Server<unknown>;
@@ -110,7 +73,7 @@ beforeAll(() => {
       const url = new URL(request.url);
       if (url.pathname === "/gateway") return srv.upgrade(request, { data: undefined }) ? undefined : new Response("no", { status: 400 });
       if (url.pathname.startsWith("/avatars/") || url.pathname.startsWith("/icons/")) {
-        return new Response(new Blob([redPng() as Uint8Array<ArrayBuffer>]), { headers: { "content-type": "image/png" } });
+        return new Response(new Uint8Array(RED_PNG), { headers: { "content-type": "image/png" } });
       }
       const path = url.pathname.replace(/^\/api\/v10/, "");
       const auth = request.headers.get("authorization");
@@ -200,16 +163,12 @@ afterAll(() => {
 
 function service(): ServiceProvider {
   const base = `http://127.0.0.1:${fake.server.port}`;
-  return createDiscordService(
-    { storeDir: store, log: (line) => logs.push(line), advertiseHost: () => "127.0.0.1" },
-    { api: `${base}/api/v10`, cdn: base, now: () => Date.UTC(2026, 9, 20, 12) },
-  );
+  return createDiscordService(serviceContext(store, (line) => logs.push(line)), { api: `${base}/api/v10`, cdn: base, now: () => Date.UTC(2026, 9, 20, 12) });
 }
 
-async function get(provider: ServiceProvider, path: string, signal = new AbortController().signal) {
+function get(provider: ServiceProvider, path: string) {
   const [pathname, query = ""] = path.split("?");
-  const response = await provider.handle({ method: "GET", path: pathname!, query: new URLSearchParams(query), headers: {}, body: new Uint8Array(0), maxBytes: 256 * 1024, console: CONSOLE, signal });
-  return { status: response.status, json: () => JSON.parse(new TextDecoder().decode(response.body)), body: response.body };
+  return call(provider, pathname!, { query });
 }
 
 /** A message id of `ms` (Discord's snowflake: milliseconds since 2015 << 22). */
@@ -267,12 +226,10 @@ describe("the discord service", () => {
     expect(channels[1]).toEqual({ id: GENERAL, name: "general", category: "Text Channels", topic: "say hi" });
     const icon = await get(provider, `/icon/${GUILD}/def456`);
     expect(icon.status).toBe(200);
-    const view = new DataView(icon.body.buffer, icon.body.byteOffset);
-    expect([view.getUint16(0, true), view.getUint16(2, true), icon.body[4]]).toEqual([32, 32, 2]);
-    expect(icon.body.length).toBe(8 + 32 * 32 * 2);
+    const pixels = expectImg(icon.body, 32, 32, PSM.PSM_4444);
     // A corner outside the circle is transparent; the centre is opaque red.
-    expect(view.getUint16(8, true) >> 12).toBe(0);
-    expect(view.getUint16(8 + (16 * 32 + 16) * 2, true)).toBe(0xf00f);
+    expect(pixels.getUint16(0, true) >> 12).toBe(0);
+    expect(pixels.getUint16((16 * 32 + 16) * 2, true)).toBe(0xf00f);
     provider.close?.();
   });
 
@@ -303,14 +260,19 @@ describe("the discord service", () => {
     provider.close?.();
   });
 
+  test("a message body that is not JSON answers 400", async () => {
+    const provider = service();
+    const refused = await call(provider, `/channels/${GENERAL}/messages`, { method: "POST", body: "not json" });
+    expect(refused.status).toBe(400);
+    expect(refused.json().error).toContain("JSON");
+    expect(fake.requests.filter((r) => r.method === "POST")).toHaveLength(0);
+    provider.close?.();
+  });
+
   test("a waiting poll returns the message the gateway delivers; sending posts it", async () => {
     const provider = service();
     await get(provider, `/channels/${GENERAL}/messages`);
-    let live = false;
-    await until(() => {
-      void get(provider, "/status").then((status) => (live = status.json().gateway));
-      return live;
-    });
+    await live(provider);
     expect(fake.identified.at(-1)!.intents).toBe(1 | 512 | 32768);
     const poll = get(provider, `/channels/${GENERAL}/messages?after=400000000000000003&wait=5`);
     await Bun.sleep(50);
@@ -322,18 +284,9 @@ describe("the discord service", () => {
     expect(Date.now() - started).toBeLessThan(2000);
     expect(arrived.messages.map((m: { content: string; author: { name: string } }) => [m.author.name, m.content])).toEqual([["Al", "live!"]]);
 
-    const response = await provider.handle({
-      method: "POST",
-      path: `/channels/${GENERAL}/messages`,
-      query: new URLSearchParams(),
-      headers: {},
-      body: new TextEncoder().encode(JSON.stringify({ content: "hello from a 3DS" })),
-      maxBytes: 256 * 1024,
-      console: CONSOLE,
-      signal: new AbortController().signal,
-    });
+    const response = await call(provider, `/channels/${GENERAL}/messages`, { method: "POST", body: JSON.stringify({ content: "hello from a 3DS" }) });
     expect(response.status).toBe(200);
-    const sent = JSON.parse(new TextDecoder().decode(response.body)).message;
+    const sent = response.json().message;
     expect(sent.content).toBe("hello from a 3DS");
     const posted = fake.requests.filter((r) => r.method === "POST").at(-1)!;
     expect(posted.body).toEqual({ content: "hello from a 3DS", allowed_mentions: { parse: [] } });
@@ -343,11 +296,7 @@ describe("the discord service", () => {
   test("an empty wait times out with no messages; logout forgets the token", async () => {
     const provider = service();
     await get(provider, `/channels/${GENERAL}/messages`);
-    let live = false;
-    await until(() => {
-      void get(provider, "/status").then((status) => (live = status.json().gateway));
-      return live;
-    });
+    await live(provider);
     const started = Date.now();
     const empty = (await get(provider, `/channels/${LOBBY}/messages?after=1&wait=1`)).json();
     expect(empty.messages).toEqual([]);
