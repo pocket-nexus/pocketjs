@@ -49,7 +49,8 @@ int32_t pocket_runtime_op(pocket_runtime *runtime,uint16_t op,const void *data,s
 }
 static void eval(pocket_guest_quickjs *guest,pocket_runtime *runtime,const char *source) {
   int32_t status=pocket_guest_quickjs_vtable()->evaluate(guest,runtime,(const uint8_t*)source,strlen(source));
-  if(status)fprintf(stderr,"%s\n",pocket_guest_quickjs_error(guest));assert(status==0);
+  if(status)fprintf(stderr,"%s\n",pocket_guest_quickjs_error(guest));
+  assert(status==0);
 }
 static pocket_guest_environment environment(void) {
   pocket_guest_environment env={0};env.struct_size=sizeof env;env.host=(const uint8_t*)"test";env.host_length=4;env.host_abi=POCKET_BINDING_GENERATION;env.tick_hz=60;env.viewport_width=480;env.viewport_height=272;return env;
