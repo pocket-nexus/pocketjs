@@ -154,13 +154,13 @@ export const LINK_REFUSAL = {
   version: "version",
 } as const;
 
-/** Features a companion may list in ready/paired. */
 /** Companion services (tools/companion/services.ts): an app's NET request
  *  to this origin is answered by the companion itself, never fetched. The
  *  path's first segment names the service. */
 export const LINK_SERVICES_HOST = "companion.pocket";
 export const LINK_SERVICES_ORIGIN = `https://${LINK_SERVICES_HOST}`;
 
+/** Features a companion may list in ready/paired. */
 export const LINK_FEATURE = {
   net: "net",
   catalog: "catalog",
