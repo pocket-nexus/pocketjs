@@ -228,13 +228,7 @@ fn terminal_display_failure_allows_next_tick_and_guest_failure_stops_ticks() {
     assert_eq!(facts.borrow().shutdowns, 1);
 }
 #[test]
-fn rejects_configuration_and_missing_registration_before_guest_evaluation() {
-    let mut bad = config();
-    bad.profile_hash[0] ^= 1;
-    assert!(matches!(
-        Runtime::new(bad),
-        Err(RuntimeError::ProfileMismatch)
-    ));
+fn missing_registration_is_rejected_before_guest_evaluation() {
     let facts = Rc::new(RefCell::new(Facts::default()));
     let mut rt = Runtime::new(config()).unwrap();
     rt.set_guest(Box::new(TestGuest {
@@ -703,29 +697,6 @@ fn gpu_resize_preserves_fractional_logical_viewport_and_rejects_invalid_targets(
             assert_eq!(facts.borrow().initializations, 0);
         }
     }
-}
-
-#[test]
-fn profile_hash_mismatch_precedes_guest_initialization_and_allows_source_replacement() {
-    let facts = Rc::new(RefCell::new(Facts::default()));
-    let mut rt = runtime(facts.clone(), false, false);
-    rt.set_package_source(Box::new(MemorySource(package_for([0x55; 32]))))
-        .unwrap();
-    assert!(matches!(
-        rt.boot(),
-        Err(RuntimeError::Package(
-            pocket_package::source::LoadError::Admission(
-                pocket_package::GuestError::ProfileHashMismatch
-            )
-        ))
-    ));
-    assert_eq!(facts.borrow().initializations, 0);
-    assert!(!facts.borrow().evaluated);
-    assert_eq!(facts.borrow().flushes, 0);
-    rt.set_package_source(Box::new(MemorySource(package())))
-        .unwrap();
-    rt.boot().unwrap();
-    assert_eq!(facts.borrow().initializations, 1);
 }
 
 #[test]

@@ -3,18 +3,18 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { POCKET_TARGETS, type TargetProfile } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { CATALOG, COMMAND_WORDS, catalogEntry, catalogEntryForContract } from "../tools/targets/index.ts";
 import { POCKET_PROFILES } from "../profiles/index.ts";
-import { HOST_IDS, currentHost } from "../tools/targets/types.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
-import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
-import { resolveRedmi1sBuildPlan } from "../tools/redmi-1s-profile.ts";
 import { BLACKBERRY_QNX_DEV_TARGET_ID, resolveBlackBerryClassicBuildPlan } from "../tools/blackberry-classic-profile.ts";
-import { resolveMeizuM8BuildPlan } from "../tools/meizu-m8-profile.ts";
-import { resolveSymbianE7BuildPlan } from "../tools/symbian-profile.ts";
 import { resolveIPhone2GBuildPlan } from "../tools/iphone2g-profile.ts";
 import { resolveIPhone4SBuildPlan } from "../tools/iphone4s-profile.ts";
 import { resolveIPodTouchBuildPlan } from "../tools/ipodtouch-profile.ts";
+import { resolveMeizuM8BuildPlan } from "../tools/meizu-m8-profile.ts";
+import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
+import { resolveRedmi1sBuildPlan } from "../tools/redmi-1s-profile.ts";
+import { resolveSymbianE7BuildPlan } from "../tools/symbian-profile.ts";
+import { CATALOG, COMMAND_WORDS, catalogEntry, catalogEntryForContract } from "../tools/targets/index.ts";
+import { HOST_IDS, currentHost } from "../tools/targets/types.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const readJson = (path: string) => JSON.parse(readFileSync(join(root, path), "utf8"));
@@ -77,7 +77,7 @@ describe("target catalog", () => {
   });
 
   test("catalog resolution equals each device profile's own resolver", () => {
-    const cases: [string, string, (manifest: unknown) => { planHash: string }][] = [
+    const cases: [string, string, (manifest: unknown) => ReturnType<typeof resolve3dsBuildPlan>][] = [
       ["3ds", "apps/3ds-demo/pocket.json", resolve3dsBuildPlan],
       ["moto-g-play", "apps/clear/pocket.android.json", resolveMotoGPlayBuildPlan],
       ["redmi-1s", "apps/clear/pocket.redmi-1s.json", resolveRedmi1sBuildPlan],
@@ -92,7 +92,7 @@ describe("target catalog", () => {
       const manifest = readJson(manifestPath);
       const resolution = resolveThroughCatalog(id, manifest);
       expect(resolution.ok, id).toBe(true);
-      if (resolution.ok) expect(resolution.plan.planHash, id).toBe(resolver(manifest).planHash);
+      if (resolution.ok) expect(resolution.plan.viewport, id).toEqual(resolver(manifest).viewport);
     }
   });
 

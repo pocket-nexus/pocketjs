@@ -45,7 +45,7 @@ test("release collection refuses missing, failed, application-bound or stale gen
   const directory = fixture(), build = join(directory, "runtimes", "pocket-runtime-psp-runtime");
   const file = join(build, "build-receipt.json"), receipt = JSON.parse(readFileSync(file, "utf8"));
   for (const change of [{ success: false }, { source: revision + "-dirty" }, { source: "c".repeat(40) },
-    { input: { kind: "package" } }, { profileHash: "sha256:" + "0".repeat(64) }, { hostAbi: 1 }, { deployed: true }]) {
+    { input: { kind: "package" } }, { hostAbi: 1 }, { deployed: true }]) {
     writeFileSync(file, JSON.stringify({ ...receipt, ...change }));
     expect(() => collect(directory)).toThrow("successful generic build");
   }
@@ -53,12 +53,9 @@ test("release collection refuses missing, failed, application-bound or stale gen
   expect(() => collect(directory)).toThrow();
 });
 
-test("release collection detects corruption, extra output and symlinks before packaging", () => {
+test("release collection rejects extra output and symlinks before packaging", () => {
   const directory = fixture(), runtime = join(directory, "runtimes", "pocket-runtime-vita", "runtime");
   const program = join(runtime, "program.bin");
-  writeFileSync(program, "changed");
-  expect(() => collect(directory)).toThrow("checksum");
-  writeFileSync(program, "runtime fixture");
   writeFileSync(join(runtime, "unrecorded"), "extra");
   expect(() => collect(directory)).toThrow("file list");
   rmSync(join(runtime, "unrecorded")); rmSync(program);

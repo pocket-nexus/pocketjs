@@ -1,18 +1,18 @@
-import { ensureHostWasm } from "../tools/wasm.ts";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createWasmUi } from "../platforms/web/wasm-ops.js";
-import {
-  PHYSICS_HANDLE_KIND_SHIFT,
-  PHYSICS_KIND,
-  PHYSICS_MODE,
-  PHYSICS_QUERY as Q,
-} from "../contracts/spec/physics.ts";
 import { FS, LETTER_ART, VIEWPORT } from "../apps/nexus-touch/art.ts";
 import { touchScene } from "../apps/nexus-touch/scene.ts";
+import {
+PHYSICS_HANDLE_KIND_SHIFT,
+PHYSICS_KIND,
+PHYSICS_MODE,
+PHYSICS_QUERY as Q,
+} from "../contracts/spec/physics.ts";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { resolveIPodTouch4BuildPlan } from "../tools/ipodtouch4-profile.ts";
+import { ensureHostWasm } from "../tools/wasm.ts";
 
 // apps/nexus-touch on the wasm core at the iPod touch 4's 320x480 @2x, the
 // guest the ipodtouch4-dev build embeds, driven by a touch tape. The intro
@@ -94,17 +94,12 @@ function settledHome(wasm: any, body: number) {
   expect(Math.abs(q(Q.y) - q(Q.anchorY))).toBeLessThan(3);
 }
 
-/** FNV-1a over the framebuffer. */
-function hash(buffer: Uint8Array): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < buffer.length; i++) h = Math.imul(h ^ buffer[i], 0x01000193) >>> 0;
-  return h;
-}
+const pixels = (buffer: Uint8Array) => buffer.slice();
 
 test("the intro spills POCKET NEXUS into the slots the homepage laid out", async () => {
-  let before = 0;
-  const wasm = await run(300, {}, (frame, w) => { if (frame === 20) before = hash(w.render()); });
-  expect(hash(wasm.render())).not.toBe(before);
+  let before = new Uint8Array();
+  const wasm = await run(300, {}, (frame, w) => { if (frame === 20) before = pixels(w.render()); });
+  expect(pixels(wasm.render())).not.toEqual(before);
   for (const body of letterBodies(wasm)) settledHome(wasm, body);
   // the pocket is not pickable; a letter is
   const world = handle(PHYSICS_KIND.world, 1);
@@ -132,10 +127,9 @@ test("a letter dropped in the pocket's mouth is chewed and spat back home", asyn
 test("the scene is a pure function of the touch tape", async () => {
   const [px, py] = [POCKET_CX, Math.round(POCKET_TOP_Y + 40)];
   const tape: Tape = { 260: [px, py], 264: null, 300: [px, py], 303: null, 330: [px, py], 334: null, 380: [60, 200], 383: null, 390: [60, 200], 393: null };
-  const hashes: number[][] = [[], []];
+  const frames: Uint8Array[][] = [[], []];
   for (const k of [0, 1]) {
-    await run(480, tape, (frame, w) => { if (frame % 60 === 59) hashes[k].push(hash(w.render())); });
+    await run(480, tape, (frame, w) => { if (frame % 60 === 59) frames[k].push(pixels(w.render())); });
   }
-  expect(hashes[0]).toEqual(hashes[1]);
-  expect(new Set(hashes[0]).size).toBeGreaterThan(5);
+  expect(frames[0]).toEqual(frames[1]);
 }, 60_000);

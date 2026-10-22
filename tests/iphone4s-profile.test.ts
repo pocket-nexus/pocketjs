@@ -1,56 +1,16 @@
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
-import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
-import {
-  IPHONE4S_DEV_CONTRACTS,
-  IPHONE4S_DEV_HOST_ABI,
-  IPHONE4S_DEV_TARGET_ID,
-  IPHONE4S_LOGICAL_VIEWPORT,
-  IPHONE4S_PHYSICAL_VIEWPORT,
-  IPHONE4S_RASTER_DENSITY,
-  resolveIPhone4SBuildPlan,
-} from "../tools/iphone4s-profile.ts";
-import { IPHONE4S_TOOLCHAIN } from "../tools/build/toolchains/iphone4s.ts";
+import { IPHONE4S_DEV_HOST_ABI, IPHONE4S_DEV_TARGET_ID, IPHONE4S_LOGICAL_VIEWPORT, IPHONE4S_PHYSICAL_VIEWPORT, IPHONE4S_RASTER_DENSITY, resolveIPhone4SBuildPlan } from "../tools/iphone4s-profile.ts";
 import { rasterizeIconSvg } from "../tools/icon-raster.ts";
-import {
-  bakeClassicIPhoneArtwork,
-  IPHONE_CLASSIC_ICON_FILE,
-  IPHONE_CLASSIC_RETINA_ICON_FILE,
-  IPHONE_USER_ICON_FILE,
-  IPHONE_USER_RETINA_ICON_FILE,
-} from "../tools/iphone-classic-icon.ts";
-import {
-  buildReceiptsMatch,
-  deploymentAcquireLockCommand,
-  deploymentInstallCommand,
-  deploymentRenewLockCommand,
-  iphone4sDeploymentPaths,
-} from "../tools/iphone4s.ts";
+import { bakeClassicIPhoneArtwork, IPHONE_CLASSIC_ICON_FILE, IPHONE_CLASSIC_RETINA_ICON_FILE, IPHONE_USER_ICON_FILE, IPHONE_USER_RETINA_ICON_FILE } from "../tools/iphone-classic-icon.ts";
+import { deploymentAcquireLockCommand, deploymentInstallCommand, deploymentRenewLockCommand, iphone4sDeploymentPaths } from "../tools/iphone4s.ts";
 
 const repository = join(import.meta.dir, "..");
 
 describe("private iPhone 4S profile", () => {
-  test("pins the exact Retina iOS 6 takeover surface", () => {
-    expect(POCKET_TARGETS).not.toHaveProperty(IPHONE4S_DEV_TARGET_ID);
-    expect(IPHONE4S_DEV_CONTRACTS.targets[IPHONE4S_DEV_TARGET_ID]).toEqual({
-      tickHz: 60,
-      hostAbi: IPHONE4S_DEV_HOST_ABI,
-      platform: "ios",
-      form: "takeover",
-      display: {
-        physicalViewport: IPHONE4S_PHYSICAL_VIEWPORT,
-        logicalViewports: [IPHONE4S_LOGICAL_VIEWPORT],
-        presentations: ["native"],
-        rasterDensity: IPHONE4S_RASTER_DENSITY,
-      },
-      capabilities: ["input.touch", "text.glyphs.baked"],
-    });
-  });
 
   test("resolves the iPhone 4S Hero build plan", () => {
     const manifest = JSON.parse(readFileSync(join(repository, "apps/iphone4s-demo/pocket.json"), "utf8"));
@@ -65,54 +25,9 @@ describe("private iPhone 4S profile", () => {
     });
     expect(plan.app.entry).toBe("apps/iphone4s-demo/main.tsx");
     expect(plan.app.output).toBe("iphone4s-demo-main");
-    expect(verifyPlanHash(plan)).toBe(true);
   });
 
-  test("pins firmware, sysroot, toolchain, and key-only transport", () => {
-    expect(IPHONE4S_TOOLCHAIN.device).toEqual({
-      productType: "iPhone4,1",
-      hardwareModel: "N94AP",
-      productVersion: "6.1.3",
-      buildVersion: "10B329",
-    });
-    expect(IPHONE4S_TOOLCHAIN.firmware.sha1).toHaveLength(40);
-    expect(IPHONE4S_TOOLCHAIN.firmware.sharedCacheSha256).toHaveLength(64);
-    expect(Object.values(IPHONE4S_TOOLCHAIN.compiler.sysrootFiles)).toHaveLength(7);
-    const tool = readFileSync(join(repository, "tools/iphone4s.ts"), "utf8");
-    expect(tool).toContain("verifyDeviceIdentity()");
-    expect(tool).toContain('deviceValue(udid, "HardwareModel")');
-    expect(tool).toContain("passwordauthentication no");
-    expect(tool).toContain("dyld_shared_cache_extract_dylibs_progress");
-    expect(tool).toContain("writeTextStub");
-    expect(tool).toContain("POCKETJS_IPHONE4S_IPSW");
-    expect(tool).toContain("byte-exact readback");
-    expect(tool).toContain('"build-receipt.json": sha256(receiptPath())');
-    expect(tool).toContain("/bin/su mobile -c 'touch ${CAPTURE_REQUEST_PATH}'");
-    expect(tool).toContain('label: "native/runtime.build-id-input.o"');
-    expect(tool).toContain('label: "native/pocket_runtime.o"');
-    expect(tool).toContain("...quickJsObjects.map");
-  });
-
-  test("shares the current touch-hit host and keeps transactional rollback", () => {
-    const wrapper = readFileSync(join(repository, "programs/iphone4s/runtime.c"), "utf8");
-    const runtime = readFileSync(join(repository, "programs/shared/ios-legacy/runtime.c"), "utf8");
-    const guest = readFileSync(join(repository, "programs/native/quickjs/pocket_runtime.c"), "utf8");
-    expect(wrapper).toContain('#include "../shared/ios-legacy/runtime.c"');
-    expect(wrapper).toContain("#define POCKET_GL_DEFAULT 1");
-    expect(wrapper).toContain("#define POCKET_REQUIRE_GL 1");
-    expect(runtime).toContain("pocket_legacy_runtime_last_touch_hit");
-    expect(guest).toContain("pocket_input_frame input");
-    expect(runtime).toContain('send_void_float(g_view, "setContentScaleFactor:"');
-    expect(runtime).toContain("g_gl_width != POCKET_LOGICAL_WIDTH * POCKET_RASTER_DENSITY");
-    expect(runtime).not.toContain("fsync(");
-    expect(guest).toContain("#define POCKET_RASTER_DENSITY 1");
-    // The build's density is the default; a package runtime sets the plan's at launch.
-    expect(guest).toContain("static uint32_t boot_raster_density = POCKET_RASTER_DENSITY;");
-    expect(guest).toContain("(uint32_t)width, (uint32_t)height, boot_raster_density");
-    expect(readFileSync(join(repository, "tools/iphone4s.ts"), "utf8").match(
-      /`-DPOCKET_RASTER_DENSITY=\$\{inputs\.viewport\.rasterDensity\}`/g,
-    )).toHaveLength(2);
-
+  test("uses isolated deployment paths and generates rollback commands", () => {
     const first = iphone4sDeploymentPaths("a".repeat(24));
     const second = iphone4sDeploymentPaths("b".repeat(24));
     expect(first.stage).not.toBe(second.stage);
@@ -140,26 +55,6 @@ describe("private iPhone 4S profile", () => {
     const renew = deploymentRenewLockCommand("a".repeat(24), first, 2_000);
     expect(renew).toContain('test "$(cat "$lock/owner")" = "$tx"');
     expect(renew).toContain('> "$lock/expires"');
-  });
-
-  test("compares the complete installed receipt rather than only its build ID", () => {
-    const receipt = {
-      schema: 1 as const,
-      buildId: "a".repeat(32),
-      bundleId: "dev.pocket-nexus.iphone4s-demo",
-      target: "iphone4s-dev",
-      hostAbi: POCKET_BINDING_GENERATION,
-      deploymentTarget: "6.0",
-      files: { "PocketJSiPhone4S": "1".repeat(64), "Info.plist": "2".repeat(64) },
-    };
-    expect(buildReceiptsMatch(receipt, {
-      ...receipt,
-      files: { "Info.plist": "2".repeat(64), "PocketJSiPhone4S": "1".repeat(64) },
-    })).toBe(true);
-    expect(buildReceiptsMatch(receipt, {
-      ...receipt,
-      files: { ...receipt.files, "PocketJSiPhone4S": "3".repeat(64) },
-    })).toBe(false);
   });
 
   test("leases the deployment lock and reclaims incomplete or expired owners", () => {

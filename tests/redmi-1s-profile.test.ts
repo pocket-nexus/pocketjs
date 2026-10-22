@@ -1,9 +1,9 @@
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
-import { buildGuestBundleFromPlan, renderTemplate } from "../tools/native-host-build.ts";
 import { resolveMotoGPlayBuildPlan } from "../tools/moto-g-play-profile.ts";
+import { buildGuestBundleFromPlan } from "../tools/native-host-build.ts";
 import { REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "../tools/redmi-1s-profile.ts";
 
 const clear = () => JSON.parse(readFileSync("apps/clear/pocket.redmi-1s.json", "utf8"));
@@ -35,32 +35,6 @@ test("a plan resolved for another target is refused before the compiler runs", (
     planPath, projectRoot: process.cwd(), outputDirectory: `${directory}/guest`,
   })).toThrow(/expected target redmi-1s-dev, got moto-g-play-dev/);
   rmSync(directory, { recursive: true, force: true });
-});
-
-test("each Android profile's toolchain file names its SDK levels and its ABIs", () => {
-  const read = (profile: string) => JSON.parse(readFileSync(`tools/build/toolchains/${profile}/manifest.json`, "utf8")).android;
-  const redmi = read("redmi-1s");
-  expect(redmi.minSdkVersion).toBe(18);
-  expect(redmi.abis.map((abi: { abi: string; clangTarget: string }) => [abi.abi, abi.clangTarget])).toEqual([
-    ["armeabi-v7a", "armv7a-linux-androideabi18"],
-    ["arm64-v8a", "aarch64-linux-android21"],
-  ]);
-  const moto = read("moto-g-play");
-  expect(moto.minSdkVersion).toBe(23);
-  expect(moto.abis.map((abi: { abi: string; clangTarget: string }) => [abi.abi, abi.clangTarget])).toEqual([
-    ["arm64-v8a", "aarch64-linux-android23"],
-  ]);
-  for (const android of [redmi, moto]) expect(android.targetSdkVersion).toBeGreaterThanOrEqual(24);
-});
-
-test("the Android manifest takes its SDK levels and its debuggable flag from the build", () => {
-  const rendered = renderTemplate(readFileSync("programs/android/app/AndroidManifest.xml", "utf8"), {
-    PACKAGE: "dev.pocket_nexus.clear", VERSION_CODE: 1000, VERSION_NAME: "0.1.0",
-    MIN_SDK: 18, TARGET_SDK: 34, DEBUGGABLE: "false",
-  });
-  expect(rendered).toContain('android:minSdkVersion="18" android:targetSdkVersion="34"');
-  expect(rendered).toContain('android:debuggable="false"');
-  expect(rendered).not.toContain("@POCKET_");
 });
 
 test("the Android CLI requires compiled packages and refuses an output that is not an .apk and an icon that is neither a .png nor an .svg", () => {

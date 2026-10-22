@@ -88,8 +88,7 @@ bun run tape tree   <app> session.tape.json --at 4120         # tree JSON at a f
 ```
 
 `--assert` turns a recorded session into a regression test: replay it against a
-new build and it names the exact frame where behavior changed. The repo ships
-one as a *session golden* (`bun run tape:check`).
+new build and it names the first frame whose recorded hash differs.
 
 Tapes carry touch as well as buttons. `tape record` takes a `--touch` script
 alongside `--input`:

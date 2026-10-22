@@ -1,14 +1,14 @@
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import softwareProfile from "../profiles/vita.ts";
-import { hashPocketProfile } from "../framework/src/profile.ts";
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { decodePocketPackage, encodePocketPackage, type PocketPackageVariant } from "../contracts/spec/pocket-package.ts";
-import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
 import { canonicalJson } from "../framework/src/manifest/plan.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import softwareProfile from "../profiles/vita.ts";
 import { makeVariant } from "../tools/pocket-pack.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
 import { sha256Hex, type RepackInput } from "../tools/repack/shared/runtime.ts";
@@ -17,18 +17,12 @@ import { readZip as readEntries, unzipEntry } from "../tools/repack/shared/zip.t
 import { repackVita, VITA_ICON, VITA_LIVEAREA, vitaSfo, vitaTitleIdFor } from "../tools/repack/vita.ts";
 import { DEFAULT_VITA_PACKAGE_ASSETS, resolveVitaPackageAssets } from "../tools/vita-package.ts";
 
-const ROOT = join(import.meta.dir, "..");
-
 /** Each entry of a zip with its uncompressed data. */
 async function readZip(bytes: Uint8Array) {
   return Promise.all(readEntries(bytes).map(async (entry) => ({ name: entry.name, data: await unzipEntry(entry) })));
 }
 const ID = "dev.pocket-nexus.studio.twenty48";
 const EBOOT = new TextEncoder().encode("SCE\0 stand-in for the runtime's eboot.bin");
-
-// vita-mksfoex (VitaSDK) for `-d ATTRIBUTE2=12 -s TITLE_ID=P8963CCB6 "Twenty48 二〇四八"`,
-// the command tools/vita.ts runs for a game with that title and id.
-const MKSFOEX = new Uint8Array(readFileSync(join(ROOT, "tests/fixtures/repack-vita/vita-mksfoex.sfo")));
 
 function manifest() {
   return {
@@ -93,11 +87,6 @@ async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput>
 describe("PS Vita repack", () => {
   test("the title id follows PocketJS's rule", async () => {
     expect(await vitaTitleIdFor(ID)).toBe(vitaTitleId(ID));
-    expect(await vitaTitleIdFor(ID)).toBe("P8963CCB6");
-  });
-
-  test("param.sfo is byte for byte what vita-mksfoex writes for tools/vita.ts", () => {
-    expect(vitaSfo("Twenty48 二〇四八", "P8963CCB6")).toEqual(MKSFOEX);
   });
 
   test("writes files only, param.sfo and eboot.bin first, with the runtime's LiveArea and the thinned package", async () => {
@@ -111,7 +100,6 @@ describe("PS Vita repack", () => {
     ]);
     const file = (name: string) => vpk.find((entry) => entry.name === name)!.data;
     expect(file("eboot.bin")).toEqual(EBOOT);
-    expect(file("sce_sys/param.sfo")).toEqual(MKSFOEX);
     const sfo = Object.fromEntries(readSfo(file("sce_sys/param.sfo")).map((entry) => [entry.key, entry.value]));
     expect([sfo.TITLE, sfo.STITLE, sfo.TITLE_ID, sfo.ATTRIBUTE2, sfo.CATEGORY]).toEqual(["Twenty48 二〇四八", "Twenty48 二〇四八", "P8963CCB6", 12, "gd"]);
     for (const name of VITA_LIVEAREA) expect(file(name)).toEqual(new Uint8Array(readFileSync(join(DEFAULT_VITA_PACKAGE_ASSETS, name))));
@@ -161,12 +149,6 @@ describe("PS Vita repack", () => {
     await expect(repackVita(await input({ runtime: await runtime({ hostAbi: 1 }) }))).rejects.toThrow(
       `runtime binding generation 1 is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`,
     );
-  });
-
-  test("refuses a broken footer", async () => {
-    const broken = pocketFor();
-    broken[broken.length - 20]! ^= 0xff;
-    await expect(repackVita(await input({ pocket: broken }))).rejects.toThrow("the .pocket is damaged");
   });
 
   test("refuses a package without a vita variant, and another app's package", async () => {

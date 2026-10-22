@@ -232,7 +232,7 @@ memory machinery is needed; the map deliberately never enters the arena.
    gated on the real maps (`POCKET3D_TEST_MAPS`); cooker CLI goldens (face/
    vert/leaf counts, texture inventory for dust2); `WorldSource::from_cooked`
    renders under wgpu (screenshot sanity via openstrike `--screenshot`).
-2. **Host lib-ification guard** — `bun run e2e` + `bun run tape:check` must
+2. **Host lib-ification guard** — `bun run e2e` must
    stay byte-identical after `programs/psp/` becomes a lib (same goldens, no
    re-baseline allowed).
 3. **PPSSPP (emulator, deterministic)** — openstrike-psp capture builds bake

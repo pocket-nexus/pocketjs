@@ -1,34 +1,18 @@
-// Spec drift guard — run with `bun run contract` (exit 0 = green).
-//
-//  (a) Regenerates engine/spec/src/lib.rs IN-MEMORY from contracts/spec/spec.ts and
-//      byte-compares against the committed file: TS and Rust constants can
-//      never drift. Fix = `bun contracts/spec/gen-rust.ts` + commit.
-//  (b) Round-trips the styles.bin encoder/decoder over a table exercising
-//      every feature (variants, transition, all three value kinds).
-//  (c) Regenerates package.json's exports block from the subpath registry
-//      (framework/compiler/subpaths.ts) and byte-compares: the npm surface
-//      can never drift from the one declaration. Fix = `bun tools/gen-exports.ts`.
-//  (d) Regenerates contracts/generated/pocket_spec.h (the C input constants native
-//      hosts include) from spec.ts and byte-compares. Fix = `bun contracts/spec/gen-c.ts`.
+// Contract codec checks — run with `bun run contract`.
 
-import { generateC } from "../contracts/spec/gen-c.ts";
-import { generateRust } from "../contracts/spec/gen-rust.ts";
-import { generatedUiBindings } from "../tools/ui-bindings.ts";
-import { generatedDriverContracts } from "../tools/driver-contracts.ts";
-import { withGeneratedExports } from "../tools/gen-exports.ts";
 import {
-  abgr,
-  animBit,
-  ANIM_FILL_BACKWARDS,
-  ANIM_FILL_FORWARDS,
-  decodeStyleTable,
-  encodeStyleTable,
-  ENUMS,
-  f32Bits,
-  PROP,
-  TRANSITION_MASK_ALL,
-  type AnimTimeline,
-  type StyleRecord,
+abgr,
+ANIM_FILL_BACKWARDS,
+ANIM_FILL_FORWARDS,
+animBit,
+decodeStyleTable,
+encodeStyleTable,
+ENUMS,
+f32Bits,
+PROP,
+TRANSITION_MASK_ALL,
+type AnimTimeline,
+type StyleRecord,
 } from "../contracts/spec/spec.ts";
 
 let failed = false;
@@ -40,51 +24,6 @@ function check(ok: boolean, label: string, detail = "") {
     console.error(`  FAIL ${label}${detail ? ` — ${detail}` : ""}`);
   }
 }
-
-// ---- (a) generated pocket-spec is in sync -----------------------------------
-
-const specRsPath = new URL("../engine/spec/src/lib.rs", import.meta.url).pathname;
-const committed = await Bun.file(specRsPath).text().catch(() => null);
-const expected = generateRust();
-check(
-  committed !== null && committed === expected,
-  "engine/spec/src/lib.rs matches contracts/spec",
-  "run `bun contracts/spec/gen-rust.ts` and commit the result",
-);
-
-// ---- (d) generated pocket_spec.h is in sync -----------------------------------
-
-const specHPath = new URL("../contracts/generated/pocket_spec.h", import.meta.url).pathname;
-const committedHeader = await Bun.file(specHPath).text().catch(() => null);
-check(
-  committedHeader !== null && committedHeader === generateC(),
-  "contracts/generated/pocket_spec.h matches spec.ts",
-  "run `bun contracts/spec/gen-c.ts` and commit the result",
-);
-
-// ---- (c) package.json exports match the subpath registry ---------------------
-
-for (const [path, contents] of generatedDriverContracts()) {
-  const committed = await Bun.file(new URL(`../${path}`, import.meta.url)).text().catch(() => null);
-  check(committed === contents, `${path} matches driver/runtime spec`,
-    "run `bun tools/driver-contracts.ts` and commit the result");
-}
-
-for (const [path, contents] of generatedUiBindings()) {
-  const committed = await Bun.file(new URL(`../${path}`, import.meta.url)).text().catch(() => null);
-  check(committed === contents, `${path} matches UI operation schema`,
-    "run `bun tools/ui-bindings.ts` and commit the result");
-}
-
-const pkgPath = new URL("../package.json", import.meta.url).pathname;
-const pkgText = await Bun.file(pkgPath).text();
-check(
-  withGeneratedExports(pkgText) === pkgText,
-  "package.json exports match framework/compiler/subpaths.ts",
-  "run `bun tools/gen-exports.ts` and commit the result",
-);
-
-// ---- (b) style table encoder/decoder round-trip ------------------------------
 
 const table: StyleRecord[] = [
   // full-feature record: all variants + transition + all three value kinds

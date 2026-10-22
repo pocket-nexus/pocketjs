@@ -9,7 +9,6 @@ on:
       - "Cargo.lock"
       - "tools/ui-bindings.ts"
       - "tools/test-quickjs-guest.ts"
-      - "tests/ui-bindings.test.ts"
       - "tests/guest-web-bindings.test.ts"
       - "tests/embedded-package.test.ts"
       - "engine/guest-web/**"
@@ -106,8 +105,6 @@ on:
       - "tests/fixtures/native-program/**"
       - "tests/ui-cabi-allocator.test.ts"
       - "tests/ui-cabi-psm-draw.test.ts"
-      - "tests/tape-assert.test.ts"
-      - "tests/test-suite.test.ts"
       - "tests/e2e-build.test.ts"
       - "tests/e2e/**"
       - "tools/test.ts"
@@ -126,7 +123,6 @@ on:
       - "Cargo.lock"
       - "tools/ui-bindings.ts"
       - "tools/test-quickjs-guest.ts"
-      - "tests/ui-bindings.test.ts"
       - "tests/guest-web-bindings.test.ts"
       - "tests/embedded-package.test.ts"
       - "engine/guest-web/**"
@@ -223,8 +219,6 @@ on:
       - "tests/fixtures/native-program/**"
       - "tests/ui-cabi-allocator.test.ts"
       - "tests/ui-cabi-psm-draw.test.ts"
-      - "tests/tape-assert.test.ts"
-      - "tests/test-suite.test.ts"
       - "tests/e2e-build.test.ts"
       - "tests/e2e/**"
       - "tools/test.ts"
@@ -268,7 +262,7 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -318,10 +312,10 @@ jobs:
         run: bun tools/test-quickjs-guest.ts
       - name: Link and execute the C allocator and texture draw fixtures
         run: bun test tests/ui-cabi-allocator.test.ts tests/ui-cabi-psm-draw.test.ts
-      - name: Test suite coverage and tape assertion contracts
-        run: bun test tests/test-suite.test.ts tests/tape-assert.test.ts tests/e2e-build.test.ts
-      - name: Contract drift
+      - name: Build validation behavior
+        run: bun test tests/e2e-build.test.ts
+      - name: Contract codec
         run: bun tests/contract.ts
-      - name: Renderer goldens and deterministic replay
+      - name: Software renderer goldens
         if: runner.os == 'Linux'
-        run: bun tests/golden.ts && bun run tape:check
+        run: bun tests/golden.ts

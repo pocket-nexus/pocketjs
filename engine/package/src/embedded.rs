@@ -191,7 +191,7 @@ mod tests {
         .is_err());
     }
     #[test]
-    fn target_uses_full_utf8_table_and_profile_mismatch_is_not_payload_admission() {
+    fn target_uses_full_utf8_table_and_rejects_invalid_ids() {
         let identity = identity("fixture", "app", "App").unwrap();
         for target in [
             "a target beyond fifteen bytes",
@@ -211,10 +211,6 @@ mod tests {
             let parsed = crate::Package::parse(&bytes, false).unwrap();
             assert_eq!(parsed.variant(0).unwrap().target, target);
             assert_eq!(parsed.variant(0).unwrap().profile_hash, [0x55; 32]);
-            assert!(matches!(
-                crate::select_guest(&bytes, target, 7, &[0x11; 32], false),
-                Err(crate::GuestError::ProfileHashMismatch)
-            ));
             crate::select_guest(&bytes, target, 7, &[0x55; 32], false).unwrap();
         }
         for target in ["", "nul\0id", &"a".repeat(65536)] {

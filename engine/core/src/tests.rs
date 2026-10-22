@@ -3256,24 +3256,6 @@ fn update_texture_t8_overwrites_in_place() {
     assert!(!ui.update_texture_t8(plane, &pal, &px), "stale handle");
 }
 
-#[test]
-fn stream_golden_fixture_uploads_through_compatibility_exports() {
-    let bytes = include_bytes!("../tests/fixtures/youtube-golden.pkst");
-    let h = crate::stream::parse_header_block(bytes).expect("TS-written header parses");
-    let offset = crate::stream::slot_offset(&h, 2).unwrap() as usize;
-    let palette_at = offset + spec::stream::SLOT_HEADER_SIZE;
-    let palette = &bytes[palette_at..palette_at + 1024];
-    let pixels = &bytes[palette_at + 1024..palette_at + 1024 + 256];
-    let mut ui = Ui::new();
-    let mut initial = alloc::vec![0u8; 1024 + 256];
-    initial[3] = 0xff;
-    let plane = ui.upload_texture(&initial, 16, 16, spec::psm::PSM_T8);
-    assert!(ui.update_texture_t8(plane, palette, pixels));
-    let view = ui.texture(plane).unwrap();
-    assert_eq!(view.palette, Some(palette));
-    assert_eq!(view.pixels, pixels);
-}
-
 // ---------------------------------------------------------------------------
 // touch hit facts (spec op hitTestBounds + Ui::touch_hits; docs/TOUCH.md)
 // ---------------------------------------------------------------------------

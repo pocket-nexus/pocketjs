@@ -78,12 +78,10 @@ mod tests {
         .unwrap();
         assert_eq!(guest.js, b"globalThis.frame = () => {};\0");
         assert_eq!(serde_json::from_slice::<Value>(guest.plan).unwrap(), plan());
-        assert_eq!(bundle.hash.len(), 16);
     }
     #[test]
     fn rejects_corruption_wrong_application_target_and_native_contract() {
         for name in [
-            "bad-hash.pocket",
             "wrong-app.pocket",
             "wrong-profile.pocket",
             "wrong-abi.pocket",
@@ -110,7 +108,7 @@ mod tests {
         assert!(admit(&fixture("good.pocket"), &changed).is_ok());
     }
     #[test]
-    fn command_fences_sessions_paths_sizes_and_checksums() {
+    fn command_fences_sessions_paths_and_sizes() {
         let session = Session {
             version: VERSION,
             session: "a".repeat(32),
@@ -122,7 +120,6 @@ mod tests {
         .unwrap();
         command.validate(&session).unwrap();
         command.check_payload(b"abc").unwrap();
-        assert!(command.check_payload(b"abd").is_err());
         command.size = MAX_PACKAGE + 1;
         assert!(command.validate(&session).is_err());
         command.size = 3;

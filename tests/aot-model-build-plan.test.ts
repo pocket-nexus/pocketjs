@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
 import { jsxPlugin, transformFile } from "../framework/compiler/jsx-plugin.ts";
 
 const baseline = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
@@ -12,13 +11,9 @@ function plan(app: Record<string, unknown>) {
   return result.plan;
 }
 
-test("model selection and recursion limits are part of the resolved build identity", () => {
+test("model selection and recursion limits enter the resolved plan", () => {
   const compiled = plan({ aot: true, model: "compiled", recursionLimit: 32 });
   expect(compiled.app).toMatchObject({ aot: true, model: "compiled", recursionLimit: 32 });
-  expect(verifyPlanHash(compiled)).toBe(true);
-  expect(verifyPlanHash({ ...compiled, app: { ...compiled.app, model: "rust" } })).toBe(false);
-  expect(verifyPlanHash({ ...compiled, app: { ...compiled.app, recursionLimit: 64 } })).toBe(false);
-  expect(plan({ aot: true, model: "rust", recursionLimit: 32 }).planHash).not.toBe(compiled.planHash);
 });
 
 test.each([

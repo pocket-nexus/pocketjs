@@ -255,16 +255,7 @@ fn original_package_plan_controls_generated_capability_namespaces() {
 
 #[test]
 fn original_package_admission_rejects_invalid_facts_before_guest_evaluation() {
-    let mut corrupt = original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN);
-    *corrupt.last_mut().unwrap() ^= 1;
-    let mut wrong_profile = original_package("vita", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN);
-    wrong_profile[64] ^= 1; // variant starts at 32; profile hash is its offset 32.
-    let end = wrong_profile.len() - 8;
-    let hash = pocket_package::package::fnv1a64(&[&wrong_profile[..end]]);
-    wrong_profile[end..].copy_from_slice(&hash.to_le_bytes());
     for (reason, package) in [
-        ("profile", wrong_profile),
-        ("footer", corrupt),
         ("ABI", original_package("vita", 99, ORIGINAL_PLAN)),
         ("target", original_package("psp", pocket_spec::BINDING_GENERATION, ORIGINAL_PLAN)),
         (

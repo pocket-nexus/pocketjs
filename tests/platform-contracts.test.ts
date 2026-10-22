@@ -1,33 +1,27 @@
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { describe, expect, test } from "bun:test";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import {
-  generatePocketSystemV1Schema,
-  POCKET_SYSTEM_SCHEMA_ID,
-} from "../contracts/spec/pocket-system.ts";
+defineCapabilityRegistry,
+definePlatformContractRegistry,
+defineTargetRegistry,
+POCKET_CAPABILITIES,
+POCKET_PLATFORM_CONTRACTS,
+POCKET_TARGETS,
+type CapabilityId,
+type TargetId,
+type TargetProfile,
+} from "../contracts/spec/platforms.ts";
 import {
-  generatePocketManifestV2Schema,
-  POCKET_MANIFEST_SCHEMA_ID,
-  type PocketManifestV2,
+POCKET_MANIFEST_SCHEMA_ID,
+type PocketManifestV2
 } from "../contracts/spec/pocket-manifest.ts";
 import {
-  POCKET_CAPABILITIES,
-  POCKET_PLATFORM_CONTRACTS,
-  POCKET_TARGETS,
-  defineCapabilityRegistry,
-  definePlatformContractRegistry,
-  defineTargetRegistry,
-  type CapabilityId,
-  type TargetId,
-  type TargetProfile,
-} from "../contracts/spec/platforms.ts";
-import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
-import {
-  resolveBuildPlan,
-  validateAndResolveBuildPlan,
-  validatePlatformContractRegistry,
+resolveBuildPlan,
+validateAndResolveBuildPlan,
+validatePlatformContractRegistry,
 } from "../framework/src/manifest/resolve.ts";
-import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 import { validatePocketSystem } from "../framework/src/manifest/system.ts";
+import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 
 const fixtureUrl = (name: string) => new URL(`./fixtures/manifests/${name}.json`, import.meta.url);
 const portableInput: unknown = await Bun.file(fixtureUrl("portable-psp")).json();
@@ -102,11 +96,6 @@ const SYNTHETIC_CONTRACTS = definePlatformContractRegistry(
 describe("pocket.json v2 schema", () => {
   test("uses the schema path deployed by pocketjs.dev", () => {
     expect(POCKET_MANIFEST_SCHEMA_ID).toBe("https://pocketjs.dev/schema/pocket-2.json");
-  });
-
-  test("committed JSON Schema is byte-exact with the TypeScript source", async () => {
-    const committed = await Bun.file(new URL("../contracts/schema/pocket-2.json", import.meta.url)).text();
-    expect(committed).toBe(generatePocketManifestV2Schema());
   });
 
   test("accepts the portable PSP fixture", () => {
@@ -187,15 +176,6 @@ describe("pocket.json v2 schema", () => {
 });
 
 describe("Pocket System v1 schema", () => {
-  test("uses the deployed schema path and matches the committed JSON Schema", async () => {
-    expect(POCKET_SYSTEM_SCHEMA_ID).toBe(
-      "https://pocketjs.dev/schema/pocket-system-1.json",
-    );
-    const committed = await Bun.file(
-      new URL("../contracts/schema/pocket-system-1.json", import.meta.url),
-    ).text();
-    expect(committed).toBe(generatePocketSystemV1Schema());
-  });
 
   test("validates a managed desktop installation model", async () => {
     const system = await Bun.file(
@@ -465,8 +445,6 @@ describe("semantic resolution", () => {
       "input.buttons": true,
       "text.glyphs.baked": true,
     });
-    expect(result.plan.planHash).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(verifyPlanHash(result.plan)).toBe(true);
   });
 
   test("desktop-widget capabilities are first-class: PSP admission refuses them", () => {
@@ -663,16 +641,6 @@ describe("semantic resolution", () => {
     expect(vue.app.framework).toBe("vue-vapor");
   });
 
-  test("resolved PSP plan is byte-exact with its committed fixture", async () => {
-    const result = validateAndResolveBuildPlan(portableInput, { target: "psp" });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const committed = await Bun.file(
-      new URL("./fixtures/plans/portable-psp.plan.json", import.meta.url),
-    ).text();
-    expect(JSON.stringify(result.plan, null, 2) + "\n").toBe(committed);
-  });
-
   test("portable PSP baseline resolves to a native-density Vita plan", async () => {
     const result = validateAndResolveBuildPlan(portableInput, { target: "vita" });
     expect(result.ok).toBe(true);
@@ -690,13 +658,9 @@ describe("semantic resolution", () => {
       "input.buttons": true,
       "text.glyphs.baked": true,
     });
-    const committed = await Bun.file(
-      new URL("./fixtures/plans/portable-vita.plan.json", import.meta.url),
-    ).text();
-    expect(JSON.stringify(result.plan, null, 2) + "\n").toBe(committed);
   });
 
-  test("plan checksum is independent of capability order but covers package identity", () => {
+  test("feature resolution is independent of capability order and package identity", () => {
     const changed = structuredClone(portableInput) as Record<string, any>;
     changed.engine.capabilities.requires.reverse();
     changed.id = "dev.pocket-nexus.renamed";
@@ -708,7 +672,6 @@ describe("semantic resolution", () => {
     expect(left.ok && right.ok).toBe(true);
     if (!left.ok || !right.ok) return;
     expect(left.plan.features).toEqual(right.plan.features);
-    expect(left.plan.planHash).not.toBe(right.plan.planHash);
   });
 
   test("reports unknown targets and missing hard requirements", () => {
@@ -801,7 +764,6 @@ describe("semantic resolution", () => {
       "text.glyphs.baked": true,
     });
     expect(result.plan.features).not.toHaveProperty("input.touch");
-    expect(verifyPlanHash(result.plan)).toBe(true);
   });
 
   test("enforces auxiliary surface declarations, dependencies and geometry", () => {

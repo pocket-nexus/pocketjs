@@ -1,13 +1,13 @@
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findProjectConfig, loadProject } from "../tools/targets/project.ts";
-import { resolveProfile } from "../tools/profile-resolver.ts";
-import { exportProfile } from "../tools/profile-export.ts";
-import { canonicalProfileJson } from "../framework/src/profile.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { decodePocketPackage, encodePocketPackage, findSection, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { canonicalProfileJson } from "../framework/src/profile.ts";
+import { exportProfile } from "../tools/profile-export.ts";
+import { resolveProfile } from "../tools/profile-resolver.ts";
+import { findProjectConfig, loadProject } from "../tools/targets/project.ts";
 
 const root = realpathSync(new URL("..", import.meta.url).pathname);
 const temporary: string[] = [];
@@ -121,7 +121,7 @@ describe("runtime configuration", () => {
     }
   });
 
-  test("profile export preserves canonical UTF-8 and hash in a C11 consumer and dependencies", async () => {
+  test("profile export supplies canonical UTF-8 and typed records to a C11 consumer", async () => {
     const directory = scratch(); const file = join(directory, "pocket.runtime-config.ts");
     writeFileSync(join(directory, "profile.ts"), `export default ${JSON.stringify({
       ...profile("板子??/"), form: "window", capabilities: ["input.buttons", "text.glyphs.baked", "display.viewport.live", "display.auxiliary"],
@@ -138,7 +138,7 @@ describe("runtime configuration", () => {
     exportProfile(selected, out, dependencyFile);
     expect(() => exportProfile({ ...selected, hostAbi: POCKET_BINDING_GENERATION - 1 }, out)).toThrow("binding generation");
     const sidecar = JSON.parse(readFileSync(join(out, "pocket-profile.json"), "utf8"));
-    expect(sidecar).toMatchObject({ format: "pocket-profile/1", canonicalProfileJson: canonicalProfileJson(selected.profile), profileHash: selected.profileHash, hostAbi: POCKET_BINDING_GENERATION });
+    expect(sidecar).toMatchObject({ format: "pocket-profile/1", canonicalProfileJson: canonicalProfileJson(selected.profile), hostAbi: POCKET_BINDING_GENERATION });
     expect(readFileSync(dependencyFile, "utf8")).toContain(file);
     expect(readFileSync(dependencyFile, "utf8")).toContain(join(directory, "profile.ts"));
     writeFileSync(join(out, "consumer.c"), `#include "pocket_profile.h"
@@ -165,7 +165,6 @@ int main(void) {
     assert(pocket_profile.system_ui_capabilities == POCKET_PROFILE_CAP_UI_COMPOSITOR_SURFACES);
     fwrite(pocket_profile.profile_json, 1, pocket_profile.profile_json_length, stdout);
     putchar(10);
-    for (unsigned i = 0; i < 32; i++) printf("%02x", pocket_profile.profile_hash[i]);
     return 0;
 }
 `);
@@ -173,7 +172,7 @@ int main(void) {
     expect(compile.success, compile.stderr.toString()).toBe(true);
     const run = Bun.spawnSync({ cmd: [join(out, "consumer")], stdout: "pipe" });
     expect(run.success).toBe(true);
-    expect(run.stdout.toString()).toBe(canonicalProfileJson(selected.profile) + "\n" + selected.profileHash.slice(7));
+    expect(run.stdout.toString()).toBe(canonicalProfileJson(selected.profile) + "\n");
   });
 
   test("no-build programs export profiles without an app or node_modules", () => {
@@ -205,7 +204,6 @@ int main(void) {
       expect(variant.target).toBe(target);
       expect(variant.hostAbi).toBe(POCKET_BINDING_GENERATION);
       const plan = JSON.parse(new TextDecoder().decode(findSection(variant, POCKET_SECTION.plan)!));
-      expect(plan.profileHash).toBe(variant.profileHash);
       expect(plan.profile.tickHz).toBe(target === "external-a" ? 60 : 30);
       expect(readFileSync(dependency, "utf8")).toContain(join(directory, "profiles.ts"));
       expect(readFileSync(dependency, "utf8")).toContain(runtime);
@@ -225,12 +223,11 @@ int main(void) {
   test("runtime hooks receive the selected trusted profile and source-relative context", () => {
     const directory = scratch();
     const host = `${process.platform}-${process.arch}`;
-    writeFileSync(join(directory, "pocket.runtime-config.ts"), `import {defineRuntimeConfig,compilerOnly} from '@pocketjs/framework/runtime-config';export default defineRuntimeConfig({profile:${JSON.stringify(profile())},build:{hosts:[${JSON.stringify(host)}],steps:compilerOnly(),async run(ctx){await Bun.write(ctx.outdir+'/observed.json',JSON.stringify({hash:ctx.env.POCKETJS_PROFILE_HASH,dir:import.meta.dir,cwd:ctx.configDirectory}));}}});`);
+    writeFileSync(join(directory, "pocket.runtime-config.ts"), `import {defineRuntimeConfig,compilerOnly} from '@pocketjs/framework/runtime-config';export default defineRuntimeConfig({profile:${JSON.stringify(profile())},build:{hosts:[${JSON.stringify(host)}],steps:compilerOnly(),async run(ctx){await Bun.write(ctx.outdir+'/observed.json',JSON.stringify({dir:import.meta.dir,cwd:ctx.configDirectory}));}}});`);
     const result = command(directory, ["build", "--out", "export"]);
     expect(result.success, result.stderr.toString()).toBe(true);
     const observed = JSON.parse(readFileSync(join(directory, "export/observed.json"), "utf8"));
     expect(observed.dir).toBe(directory); expect(observed.cwd).toBe(directory);
-    expect(observed.hash).toBe(JSON.parse(readFileSync(join(directory, "export/pocket-profile.json"), "utf8")).profileHash);
   });
 
   test("toolchain status and implicit installation follow the program recipe rather than profile ids", () => {

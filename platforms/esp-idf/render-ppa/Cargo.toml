@@ -21,8 +21,6 @@ pocket-raster = { workspace = true, default-features = true }
 pocket-glyph-pages = { workspace = true, default-features = true }
 
 [dev-dependencies]
-pocket-present = { workspace = true, default-features = true }
 pocket-runtime-cabi = { workspace = true, default-features = true, features = ["std"] }
-pocketjs-core = { workspace = true, default-features = true }
 
 # C bridge tests use the host allocator; production builds remain no_std.

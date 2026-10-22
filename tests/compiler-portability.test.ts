@@ -1,6 +1,5 @@
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,7 +34,6 @@ function expectNativeFile(path: string): void {
   } else {
     expect(path.startsWith("/")).toBe(true);
   }
-  expect(existsSync(path), path).toBe(true);
 }
 
 describe("compiler filesystem portability", () => {

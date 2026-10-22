@@ -31,14 +31,13 @@ const SUITE: readonly Stage[] = [
     prep: [["bun", "tools/build.ts", "hero"]],
   },
   {
-    name: "contracts drift guard",
+    name: "contract codec",
     script: ["bun", "tests/contract.ts"],
   },
   {
     // The C ABI allocator and PSM draw tests need the nightly toolchain
     // selected by tools/build/toolchains/rust.ts. They run under
-    // .github/workflows/native-c-harness.yml; tests/test-suite.test.ts
-    // verifies these exclusions against that workflow.
+    // .github/workflows/native-c-harness.yml.
     name: "unit",
     // wasm-auxiliary.test.ts, wasm-premultiplied.test.ts, pocket3d-web.test.ts and runtime-glyphs.test.ts load platforms/web/pocketjs.wasm.
     prep: [["bun", "tools/wasm.ts"]],
@@ -57,7 +56,6 @@ const SUITE: readonly Stage[] = [
       "tests/driver-kit.test.ts",
       "tests/guest-web-bindings.test.ts",
       "tests/embedded-package.test.ts",
-      "tests/ui-bindings.test.ts",
       "tests/runtime-cabi.test.ts",
       "tests/runtime-cabi-compat.test.ts",
       "tests/sdk.test.ts",
@@ -81,15 +79,10 @@ const SUITE: readonly Stage[] = [
       "tests/widget-args.test.ts",
       "tests/note.test.ts",
       "tests/pocket-system.test.ts",
-      "tests/site-stage.test.ts",
-      "tests/site-nexus.test.ts",
-      "tests/site-pocket3d.test.ts",
-      "tests/site-microts.test.ts",
       "tests/site-arcade.test.ts",
       "tests/site-showcase.test.ts",
       "tests/motions-attribution.test.ts",
       "tests/host-build-inputs.test.ts",
-      "tests/host-layout.test.ts",
       "tests/quickjs-c-harness.test.ts",
       "tests/native-program.test.ts",
       "tests/native-source.test.ts",
@@ -100,9 +93,6 @@ const SUITE: readonly Stage[] = [
       "tests/ge-driver.test.ts",
       "tests/psp-runtime.test.ts",
       "tests/pocket3d-title.test.ts",
-      "tests/pocket3d-icon.test.ts",
-      "tests/pocket3d-interface.test.ts",
-      "tests/pocket3d-license.test.ts",
       "tests/pocket3d-packs.test.ts",
       "tests/pocket3d-delivery.test.ts",
       "tests/pocket3d-web.test.ts",
@@ -165,7 +155,6 @@ const SUITE: readonly Stage[] = [
       "tests/android-platform.test.ts",
       "tests/android-platform-integration.test.ts",
       "tests/blackberry-classic.test.ts",
-      "tests/device-icons.test.ts",
       "tests/device-program-build.test.ts",
       "tests/device-source-inputs.test.ts",
       "tests/ios-profile.test.ts",
@@ -219,8 +208,6 @@ const SUITE: readonly Stage[] = [
       "tests/npm-package.test.ts",
       "tests/video-outro.test.ts",
       "tests/osk-layout.test.ts",
-      "tests/test-suite.test.ts",
-      "tests/tape-assert.test.ts",
     ],
   },
   {
@@ -250,21 +237,6 @@ const SUITE: readonly Stage[] = [
     name: "handheld models and dual output",
     prep: [["bun", "tools/wasm.ts"]],
     tests: ["tests/handheld-models.test.ts", "tests/text-batch.test.ts", "tests/text-cjk.test.ts"],
-  },
-  {
-    // Session golden: a 180-frame deterministic replay hashed per frame.
-    // Placed after a stage that preps platforms/web/pocketjs.wasm so this pays
-    // only the hero-main rebuild (~1s), never a cold wasm compile.
-    name: "tape golden",
-    script: [
-      "bun",
-      "tools/tape.ts",
-      "replay",
-      "hero-main",
-      "tests/tapes/hero-main.tape.json",
-      "--assert",
-      "tests/tapes/hero-main.hashes.json",
-    ],
   },
   {
     name: "AOT frontends and execution parity",

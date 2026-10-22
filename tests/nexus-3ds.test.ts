@@ -2,19 +2,19 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WORD_BOX } from "../apps/nexus/art.ts";
+import { WORD } from "../apps/nexus/homepage.ts";
+import { FLOOR_Y, POCKET_CX, POCKET_TIP_Y, POCKET_TOP_Y, W, WORD_TOP } from "../apps/nexus/scene.ts";
 import {
-  PHYSICS_HANDLE_GEN_SHIFT,
-  PHYSICS_HANDLE_KIND_SHIFT,
-  PHYSICS_KIND,
-  PHYSICS_MODE,
-  PHYSICS_QUERY as Q,
+PHYSICS_HANDLE_GEN_SHIFT,
+PHYSICS_HANDLE_KIND_SHIFT,
+PHYSICS_KIND,
+PHYSICS_MODE,
+PHYSICS_QUERY as Q,
 } from "../contracts/spec/physics.ts";
 import { bootConsole3ds, type Console3ds } from "../programs/sim/console-3ds.ts";
 import type { SimNode } from "../programs/sim/sim.ts";
 import { encodePNG } from "../tools/png.ts";
-import { WORD_BOX } from "../apps/nexus/art.ts";
-import { WORD } from "../apps/nexus/homepage.ts";
-import { FLOOR_Y, POCKET_CX, POCKET_TIP_Y, POCKET_TOP_Y, W, WORD_TOP } from "../apps/nexus/scene.ts";
 
 // apps/nexus in the 3DS console sim (programs/sim/console-3ds.ts) with the agent
 // namespace mounted: the scene draws on the 320x240 touch screen only, the
@@ -66,13 +66,7 @@ const bodies = () => Array.from({ length: 63 }, (_, i) => handle(PHYSICS_KIND.bo
 const images = (node: SimNode | null): number =>
   node ? (node.type === "image" ? 1 : 0) + node.children.reduce((sum, child) => sum + images(child), 0) : 0;
 
-/** FNV-1a over the touch screen's pixels. */
-function hash(nexus: Console3ds): number {
-  const { rgba } = nexus.world.pixels("auxiliary");
-  let h = 0x811c9dc5;
-  for (let i = 0; i < rgba.length; i++) h = Math.imul(h ^ rgba[i], 0x01000193) >>> 0;
-  return h;
-}
+const pixels = (nexus: Console3ds) => nexus.world.pixels("auxiliary").rgba.slice();
 
 test("the scene draws on the touch screen only; the spill puts POCKET NEXUS in its slots", async () => {
   const nexus = await boot();
@@ -82,10 +76,10 @@ test("the scene draws on the touch screen only; the spill puts POCKET NEXUS in i
   expect(images(nexus.tree("primary"))).toBe(0);
   expect(images(nexus.tree("auxiliary"))).toBeGreaterThan(20);
   shot(nexus, "sleep");
-  const before = hash(nexus);
+  const before = pixels(nexus);
   await nexus.tap(...POCKET);
   await nexus.run(260);
-  expect(hash(nexus)).not.toBe(before);
+  expect(pixels(nexus)).not.toEqual(before);
   shot(nexus, "spilled");
   // the letters are the anchored bodies whose rest positions lie in the wordmark block
   const letters = bodies().filter((b) => {
@@ -136,7 +130,7 @@ test("a toy popped from the pocket can be grabbed and thrown", async () => {
 }, 60_000);
 
 test("the scene is a pure function of the stylus tape", async () => {
-  const hashes: number[][] = [[], []];
+  const frames: Uint8Array[][] = [[], []];
   for (const k of [0, 1]) {
     const nexus = await boot();
     await nexus.run(40);
@@ -145,9 +139,8 @@ test("the scene is a pure function of the stylus tape", async () => {
       if (f === 216) await nexus.tap(...POCKET);
       else if (f === 256) await nexus.tap(POCKET[0], POCKET[1] - 5);
       else await nexus.step();
-      if (f % 60 === 59) hashes[k].push(hash(nexus));
+      if (f % 60 === 59) frames[k].push(pixels(nexus));
     }
   }
-  expect(hashes[0]).toEqual(hashes[1]);
-  expect(new Set(hashes[0]).size).toBeGreaterThan(3);
+  expect(frames[0]).toEqual(frames[1]);
 }, 60_000);

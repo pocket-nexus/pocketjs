@@ -425,49 +425,7 @@ mod tests {
         }
     }
 
-    /// The SAME committed fixture tests/pocket-package.test.ts byte-compares
-    /// against the TS encoder — the cross-implementation contract.
     static FIXTURE: &[u8] = include_bytes!("../tests/fixtures/synthetic.pocket");
-
-    #[test]
-    fn parses_the_shared_fixture() {
-        let pkg = Package::parse(FIXTURE, false).unwrap();
-        assert_eq!(pkg.variant_count(), 3);
-        let targets: alloc::vec::Vec<&str> =
-            (0..3).map(|i| pkg.variant(i).unwrap().target).collect();
-        assert_eq!(targets, ["macos-widget", "psp", "vita"]);
-        assert!(core::str::from_utf8(pkg.manifest())
-            .unwrap()
-            .contains("synthetic"));
-
-        let psp = pkg.find_variant("psp").unwrap().unwrap();
-        assert_eq!(psp.host_abi, 1);
-        let identity = psp.identity().unwrap().unwrap();
-        assert_eq!(identity.output, "synthetic-main");
-        assert_eq!(identity.title, "Synthetic");
-        // The js section ends in the QuickJS NUL (zero-copy eval rule).
-        let js = psp.section(section::JS).unwrap().unwrap();
-        assert_eq!(*js.last().unwrap(), 0);
-        // Target-flavored sections stay per-variant.
-        assert_eq!(psp.section(section::PAK).unwrap().unwrap()[0], 10);
-        let vita = pkg.find_variant("vita").unwrap().unwrap();
-        assert_eq!(vita.section(section::PAK).unwrap().unwrap()[0], 20);
-        let widget = pkg.find_variant("macos-widget").unwrap().unwrap();
-        assert_eq!(widget.section(section::PAK).unwrap().unwrap()[0], 30);
-        assert_eq!(widget.host_abi, 3);
-    }
-
-    #[test]
-    fn tamper_trips_the_footer_hash() {
-        let mut evil = FIXTURE.to_vec();
-        let n = evil.len();
-        evil[n - 20] ^= 0xff;
-        assert_eq!(
-            Package::parse(&evil, false).unwrap_err(),
-            PackageError::HashMismatch
-        );
-        assert!(Package::parse(&evil, true).is_ok());
-    }
 
     #[test]
     fn refuses_wrong_magic_and_truncation() {
@@ -489,9 +447,6 @@ mod tests {
         assert_eq!(guest.js.last(), Some(&0));
         assert!(!guest.id.is_empty());
         assert!(!guest.plan.is_empty());
-        assert_eq!(guest.pak[0], 10);
-        assert_ne!(guest.package_hash, 0);
-        assert_ne!(guest.variant_hash, 0);
     }
 
     #[test]

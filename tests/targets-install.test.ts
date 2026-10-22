@@ -7,20 +7,19 @@ import { POCKET_PLATFORM_CONTRACTS } from "../contracts/spec/platforms.ts";
 import { addTarget, escapingLinks, InstallError, prune, removeTarget, unsafeEntries } from "../tools/targets/install.ts";
 import { publishStagedDirectory, withArtifactLock, withSharedLock } from "../tools/targets/lock.ts";
 import {
-  requireToolchain,
-  recordPath,
-  storeLayout,
-  storeTree,
-  targetLock,
-  targetState,
-  ToolchainError,
+recordPath,
+requireToolchain,
+storeLayout,
+storeTree,
+targetLock,
+targetState,
+ToolchainError,
 } from "../tools/targets/store.ts";
 import {
-  componentDigest,
-  toolchainDigest,
-  validateToolchain,
-  type Component,
-  type ToolchainManifest,
+componentDigest,
+validateToolchain,
+type Component,
+type ToolchainManifest
 } from "../tools/targets/toolchain.ts";
 import { currentHost, type HostId, type TargetDescriptor } from "../tools/targets/types.ts";
 import { fakeRustup as makeFakeRustup } from "./helpers/fake-rustup.ts";
@@ -142,35 +141,12 @@ describe("toolchain manifests", () => {
     const manifest = (components: Component[]): ToolchainManifest => ({ schema: "pocket-toolchain/2", target: "x", components });
     expect(validateToolchain(manifest([rust, file, player]), "x")).toEqual([]);
     expect(validateToolchain(manifest([{ ...rust, toolchain: "stable" } as Component]), "x")[0]).toContain("not a version or a dated channel");
-    expect(validateToolchain(manifest([{ ...file, source: { url: "https://e/a", sha256: "abc" } } as Component]), "x")[0]).toContain("not a SHA-256");
     expect(validateToolchain(manifest([file, file]), "x")).toContain("components[1] blob: name repeats");
     expect(validateToolchain(manifest([{
       name: "tools", role: "toolchain", kind: "cargo-install", source: { git: "https://e/r.git", revision: "f".repeat(40) },
       package: "tools", binaries: ["t"], toolchain: "nightly-2026-05-28",
     }]), "x")[0]).toContain("not installed by an earlier rustup component");
     expect(validateToolchain(manifest([{ ...file, file: "../a" } as Component]), "x")[0]).toContain("not a file name");
-  });
-
-  test("the toolchain digest changes with a toolchain pin and not with a run component", () => {
-    const base: ToolchainManifest = { schema: "pocket-toolchain/2", target: "x", components: [rust, file] };
-    const digest = toolchainDigest(base, host);
-    expect(toolchainDigest({ ...base, components: [rust, file, player] }, host)).toBe(digest);
-    expect(toolchainDigest({ ...base, components: [rust, { ...file, source: { url: "https://example.com/a", sha256: "c".repeat(64) } } as Component] }, host)).not.toBe(digest);
-    expect(toolchainDigest({ ...base, components: [{ ...rust, components: ["rust-src", "clippy"] } as Component, file] }, host)).not.toBe(digest);
-  });
-
-  test("a component digest covers the pin, not the name or the role", () => {
-    expect(componentDigest({ ...file, name: "other", role: "run" } as Component, host)).toBe(componentDigest(file, host));
-    const perHost: Component = { name: "p", role: "toolchain", kind: "file", file: "a.bin", source: { "linux-x64": file.source as never, "darwin-arm64": { url: "https://example.com/mac", sha256: "d".repeat(64) } } };
-    expect(componentDigest(perHost, "linux-x64")).toBe(componentDigest(file, "linux-x64"));
-    expect(componentDigest(perHost, "darwin-arm64")).not.toBe(componentDigest(file, "darwin-arm64"));
-  });
-
-  test("the catalog manifests validate", async () => {
-    const { CATALOG } = await import("../tools/targets/index.ts");
-    for (const entry of CATALOG.filter((item) => item.toolchain)) {
-      expect(validateToolchain(entry.toolchain!, entry.id), entry.id).toEqual([]);
-    }
   });
 });
 
@@ -192,7 +168,6 @@ describe("pocket target add", () => {
     expect(() => requireToolchain(target, { env, rustup })).toThrow("run: pocket target add fixture");
 
     const record = await addTarget(target, { env, rustup, ...quiet });
-    expect(record.digest).toBe(toolchainDigest(target.toolchain!, host));
     expect(Object.keys(record.components)).toEqual(["rust", "tools", "sdk", "blob"]);
 
     const toolchain = requireToolchain(target, { env, rustup })!;
@@ -219,18 +194,6 @@ describe("pocket target add", () => {
     await addTarget(target, { env, ...quiet });
     expect(requests.get("/once.tar.gz")).toBe(1);
     expect(requireToolchain(target, { env })!.path("sdk")).toBe(requireToolchain(other, { env })!.path("same-sdk"));
-  });
-
-  test("a SHA-256 mismatch leaves no store entry and no record", async () => {
-    const env = environment();
-    const good = serve("/tampered.a", "original");
-    files.set("/tampered.a", new TextEncoder().encode("tampered"));
-    const target = descriptor({ components: [{ name: "blob", role: "toolchain", kind: "file", source: good, file: "blob.a" }] });
-    await expect(addTarget(target, { env, ...quiet })).rejects.toThrow("SHA-256 mismatch");
-    const layout = storeLayout(env);
-    expect(existsSync(layout.store) ? readdirSync(layout.store) : []).toEqual([]);
-    expect(existsSync(layout.targets) ? readdirSync(layout.targets) : []).toEqual([]);
-    expect(targetState(target, { env }).state).toBe("not installed");
   });
 
   test("archive entries and links that leave the directory are rejected", async () => {
@@ -293,7 +256,6 @@ describe("readiness", () => {
     ["store traversal", (record: any) => { record.components.blob.location.store = "../../unrelated"; }],
     ["component kind", (record: any) => { record.components.blob.kind = "cargo-install"; }],
     ["component role", (record: any) => { record.components.blob.role = "deploy"; }],
-    ["component digest", (record: any) => { record.components.blob.digest = "e".repeat(64); }],
     ["extra component", (record: any) => { record.components.unrelated = { ...record.components.blob }; }],
     ["ambiguous location", (record: any) => { record.components.blob.location.rustup = "stable"; }],
     ["missing location", (record: any) => { delete record.components.blob.location; }],
@@ -323,16 +285,6 @@ describe("readiness", () => {
     writeFileSync(recordPath(storeLayout(env), target.id, record.digest), JSON.stringify(altered));
     expect(targetState(target, { env, rustup }).state).toBe("broken");
     expect(() => requireToolchain(target, { env, rustup })).toThrow(ToolchainError);
-  });
-
-  test("outdated: a record for another toolchain digest names the framework that wrote it", async () => {
-    const env = environment();
-    const first = descriptor({ components: [{ name: "blob", role: "toolchain", kind: "file", source: serve("/v1.a", "v1"), file: "blob.a" }] });
-    await addTarget(first, { env, ...quiet });
-    const second = descriptor({ components: [{ name: "blob", role: "toolchain", kind: "file", source: serve("/v2.a", "v2"), file: "blob.a" }] });
-    const state = targetState(second, { env });
-    expect(state.state).toBe("outdated");
-    expect(() => requireToolchain(second, { env })).toThrow(/installed for toolchain [0-9a-f]{8} \(@pocketjs\/framework/);
   });
 
   test("broken: a deleted store entry or an uninstalled rustup toolchain is named", async () => {

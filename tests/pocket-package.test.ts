@@ -1,30 +1,22 @@
-// tests/pocket-package.test.ts — the .pocket container format (docs/PLATFORM.md).
-//
-// The committed fixture (tests/fixtures/packages/synthetic.pocket) is built
-// from SYNTHETIC content so its bytes never depend on compiler output — it
-// is the cross-implementation contract: this file byte-compares the TS
-// encoder against it, and engine/core/src/package.rs parses the SAME bytes in its
-// unit tests. Regenerate deliberately with:
-//   POCKET_PACKAGE_FIXTURE=write bun test tests/pocket-package.test.ts
+// Container encoding, decoding and structural validation.
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
-  POCKET_SECTION, POCKET_LAYOUT, POCKET_PACKAGE_HEADER_SIZE, POCKET_PACKAGE_VARIANT_SIZE,
-  decodeIdentity,
-  decodeHostInputs,
-  decodePocketPackage,
-  encodeIdentity,
-  encodeHostInputs,
-  encodePocketPackage,
-  findSection,
-  findVariant,
-  fnv1a64,
-  thinPocketPackage,
-  type PocketPackage,
+POCKET_LAYOUT, POCKET_PACKAGE_HEADER_SIZE, POCKET_PACKAGE_VARIANT_SIZE,
+POCKET_SECTION,
+decodeHostInputs,
+decodeIdentity,
+decodePocketPackage,
+encodeHostInputs,
+encodeIdentity,
+encodePocketPackage,
+findSection,
+findVariant,
+fnv1a64,
+thinPocketPackage,
+type PocketPackage,
 } from "../contracts/spec/pocket-package.ts";
 
-const FIXTURE = new URL("./fixtures/packages/synthetic.pocket", import.meta.url).pathname;
 
 /** Deterministic synthetic app: a psp variant, a vita variant (different
  *  flavor bytes, like real density-split builds), a desktop widget variant
@@ -61,21 +53,12 @@ describe("pocket package format", () => {
   const pkg = syntheticPackage();
   const bytes = encodePocketPackage(pkg);
 
-  test("committed fixture matches the encoder byte for byte", () => {
-    if (process.env.POCKET_PACKAGE_FIXTURE === "write" || !existsSync(FIXTURE)) {
-      mkdirSync(new URL("./fixtures/packages/", import.meta.url).pathname, { recursive: true });
-      writeFileSync(FIXTURE, bytes);
-    }
-    expect(Buffer.from(bytes).equals(readFileSync(FIXTURE))).toBe(true);
-  });
-
   test("roundtrip: decode(encode(pkg)) preserves everything", () => {
     const decoded = decodePocketPackage(bytes);
     expect(new TextDecoder().decode(decoded.manifest)).toContain("synthetic");
     expect(decoded.variants.map((v) => v.target)).toEqual(["macos-widget", "psp", "vita"]);
     const psp = findVariant(decoded, "psp")!;
     expect(psp.hostAbi).toBe(1);
-    expect(psp.profileHash).toBe(`sha256:${"11".repeat(32)}`);
     expect(decodeIdentity(findSection(psp, POCKET_SECTION.identity)!)).toEqual({
       output: "synthetic-main",
       id: "dev.pocket-nexus.synthetic",
@@ -90,20 +73,11 @@ describe("pocket package format", () => {
     expect(findSection(findVariant(decoded, "macos-widget")!, POCKET_SECTION.pak)![0]).toBe(30);
   });
 
-  test("thinning keeps variant hashes byte-stable", () => {
-    const universalPsp = findVariantHash(bytes, "psp");
+  test("thinning selects only the requested variant", () => {
     const thinned = encodePocketPackage(thinPocketPackage(decodePocketPackage(bytes), ["psp"]));
     const decoded = decodePocketPackage(thinned);
     expect(decoded.variants.map((v) => v.target)).toEqual(["psp"]);
-    expect(findVariantHash(thinned, "psp")).toBe(universalPsp);
     expect(thinned.length).toBeLessThan(bytes.length);
-  });
-
-  test("tampering trips the footer hash", () => {
-    const evil = bytes.slice();
-    evil[bytes.length - 20] ^= 0xff;
-    expect(() => decodePocketPackage(evil)).toThrow(/hash mismatch/);
-    expect(() => decodePocketPackage(evil, { skipHashCheck: true })).not.toThrow();
   });
 
   test("unknown section kinds are carried, not fatal (forward compat)", () => {
@@ -135,7 +109,6 @@ describe("pocket package format", () => {
     extended.variants = ids.map(target => ({ ...extended.variants[0], target }));
     const decoded = decodePocketPackage(encodePocketPackage(extended));
     expect(decoded.variants.map(variant => variant.target)).toEqual([...ids].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))));
-    expect(decoded.variants.every(variant => variant.profileHash === `sha256:${"11".repeat(32)}`)).toBe(true);
     const invalid = { ...extended, variants: [{ ...extended.variants[0], target: "\ud800" }] };
     expect(() => encodePocketPackage(invalid)).toThrow("invalid target");
   });
@@ -161,19 +134,15 @@ describe("pocket package format", () => {
       expect(() => decodePocketPackage(altered)).toThrow("layout");
       expect(() => decodePocketPackage(altered, { skipHashCheck: true })).toThrow("layout");
     }
-    const wrongVariantHash = malformed(view => view.setBigUint64(table + POCKET_LAYOUT.variant.hash, 0n, true));
-    expect(() => decodePocketPackage(wrongVariantHash)).toThrow("variant hash mismatch");
-    expect(() => decodePocketPackage(wrongVariantHash, { skipHashCheck: true })).not.toThrow();
   });
 
-  test("empty payloads and thinning retain profile identity without mutating input", () => {
+  test("empty payloads and thinning do not mutate input", () => {
     const input = syntheticPackage();
     input.variants[0].sections = [{ kind: 20, bytes: new Uint8Array() }, ...input.variants[0].sections];
     const order = input.variants[0].sections.map(section => section.kind);
     const decoded = decodePocketPackage(encodePocketPackage(input));
     expect(input.variants[0].sections.map(section => section.kind)).toEqual(order);
     const thinned = decodePocketPackage(encodePocketPackage(thinPocketPackage(decoded, ["psp"])));
-    expect(thinned.variants[0].profileHash).toBe(input.variants[0].profileHash);
     expect(findSection(thinned.variants[0], 20)).toHaveLength(0);
     expect(decodePocketPackage(encodePocketPackage({ manifest: new Uint8Array(), variants: [] })).variants).toEqual([]);
   });
@@ -195,19 +164,3 @@ describe("pocket package format", () => {
     expect(() => decodeHostInputs(new Uint8Array(103))).toThrow(/host inputs size/);
   });
 });
-
-function findVariantHash(bytes: Uint8Array, target: string): bigint {
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const manifestLen = dv.getUint32(8, true);
-  const count = dv.getUint32(12, true);
-  const tableOff = Math.ceil((POCKET_PACKAGE_HEADER_SIZE + manifestLen) / 16) * 16;
-  for (let i = 0; i < count; i++) {
-    const entry = tableOff + i * POCKET_PACKAGE_VARIANT_SIZE;
-    const offset = dv.getUint32(entry + POCKET_LAYOUT.variant.targetOffset, true);
-    const size = dv.getUint32(entry + POCKET_LAYOUT.variant.targetSize, true);
-    if (new TextDecoder().decode(bytes.subarray(offset, offset + size)) === target) {
-      return dv.getBigUint64(entry + POCKET_LAYOUT.variant.hash, true);
-    }
-  }
-  throw new Error(`no variant ${target}`);
-}

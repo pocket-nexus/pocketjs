@@ -63,8 +63,7 @@ it. Its `mark3d.js` draws the mark: it extrudes the PocketJS outline, turns it
 and projects it to an SVG string. `site/pocket3d/mark.svg`,
 `public/favicon.svg` and the mark inlined in the homepage and `404.html` are
 its `brick` option. To change the mark, pick or tune an option on `/logo/`,
-then write the same string to those four places;
-`tests/site-pocket3d.test.ts` fails while they differ.
+then write the same string to those four places.
 
 After the mark or `site/pocket3d/og-card.html` changes, run
 `bun run pocket3d:icons`. It rasterizes the favicon family from the mark and

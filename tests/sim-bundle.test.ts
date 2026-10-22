@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BTN } from "../contracts/spec/spec.ts";
-import { bootBundle, fnv1a, type SimNode } from "../programs/sim/sim.ts";
+import { bootBundle, type SimNode } from "../programs/sim/sim.ts";
 
 const DIST = new URL("../dist/", import.meta.url).pathname;
 const CAFE = { js: DIST + "cafe-main.js", pak: DIST + "cafe-main.pak" };
@@ -29,16 +29,16 @@ function flat(node: SimNode | null, out: SimNode[] = []): SimNode[] {
 }
 
 /** The café journey of tests/sim.test.ts, as held input per frame. `probe` reads the tree after every frame. */
-async function journey(probe = false): Promise<{ hashes: string[]; world: Awaited<ReturnType<typeof bootBundle>> }> {
+async function journey(probe = false): Promise<{ frames: Uint8Array[]; world: Awaited<ReturnType<typeof bootBundle>> }> {
   const world = await bootBundle(CAFE);
   const presses = new Map([[60, BTN.CIRCLE], [90, BTN.DOWN], [120, BTN.CIRCLE]]);
-  const hashes: string[] = [];
+  const frames: Uint8Array[] = [];
   for (let frame = 0; frame < 150; frame++) {
     expect(world.step({ buttons: presses.get(frame) ?? 0 })).toBe(true);
     if (probe) world.tree();
-    if (frame % 30 === 29) hashes.push(fnv1a(world.pixels().rgba));
+    if (frame % 30 === 29) frames.push(world.pixels().rgba.slice());
   }
-  return { hashes, world };
+  return { frames, world };
 }
 
 describe("bootBundle", () => {
@@ -47,11 +47,11 @@ describe("bootBundle", () => {
     const second = await journey();
     expect(first.world.failure).toBeNull();
     expect(first.world.frames).toBe(150);
-    expect(second.hashes).toEqual(first.hashes);
+    expect(second.frames).toEqual(first.frames);
     // The journey changes what is on screen.
-    expect(new Set(first.hashes).size).toBeGreaterThan(1);
+    expect(first.frames.some(frame => !Buffer.from(frame).equals(Buffer.from(first.frames[0]!)))).toBe(true);
     // Reading the tree runs no guest frame and leaves no highlight: the journey is the same with it.
-    expect((await journey(true)).hashes).toEqual(first.hashes);
+    expect((await journey(true)).frames).toEqual(first.frames);
   }, 30000);
 
   test("pixels come at the raster density, as a copy", async () => {
@@ -59,19 +59,19 @@ describe("bootBundle", () => {
     for (let frame = 0; frame < 40; frame++) world.step();
     const before = world.pixels();
     expect([before.width, before.height, before.rgba.length]).toEqual([960, 544, 960 * 544 * 4]);
-    const hash = fnv1a(before.rgba);
+    const copy = before.rgba.slice();
     world.step({ buttons: BTN.CIRCLE });
     for (let frame = 0; frame < 40; frame++) world.step();
     world.pixels();
-    expect(fnv1a(before.rgba)).toBe(hash);
+    expect(before.rgba).toEqual(copy);
   }, 30000);
 
   test("the tree carries each painted node's box and each text, and reading it changes no pixel", async () => {
     const world = await bootBundle(CAFE);
     for (let frame = 0; frame < 60; frame++) world.step();
-    const before = fnv1a(world.pixels().rgba);
+    const before = world.pixels().rgba.slice();
     const nodes = flat(world.tree());
-    expect(fnv1a(world.pixels().rgba)).toBe(before);
+    expect(world.pixels().rgba).toEqual(before);
 
     expect(nodes[0]!.rect).toEqual([0, 0, 480, 272]);
     const texts = nodes.filter((node) => node.type === "text" && node.text !== "").map((node) => node.text);

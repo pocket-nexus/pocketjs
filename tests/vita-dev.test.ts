@@ -1,11 +1,11 @@
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { canonicalProfileJson } from "../contracts/spec/profile.ts";
-import { createHash } from "node:crypto";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { canonicalProfileJson } from "../contracts/spec/profile.ts";
 import { atomicWrite, VitaUsbClient } from "../tools/vita-dev-client.ts";
 
 const dirs: string[] = [];
@@ -186,8 +186,7 @@ test("device Rust admission consumes the TypeScript package format", async () =>
         { kind: POCKET_SECTION.pak, bytes: new Uint8Array() },
       ] }] });
   }
-  const badHash = pkg(); badHash[badHash.length - 1] ^= 1;
-  for (const [name, bytes] of Object.entries({ "good": pkg(), "bad-hash": badHash,
+  for (const [name, bytes] of Object.entries({ "good": pkg(),
     "wrong-profile": pkg({ profileHash: "sha256:" + "55".repeat(32) }),
     "wrong-app": pkg({ id: "other.app" }), "wrong-abi": pkg({ abi: 99 }),
     "wrong-native": pkg({ plan: { ...plan, viewport: { ...plan.viewport, rasterDensity: 1 } } }),

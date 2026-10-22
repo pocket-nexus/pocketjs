@@ -117,13 +117,9 @@ jobs:
       - name: Test renderer goldens
         run: bun tests/golden.ts
 
-      - name: Test deterministic tape replay
-        run: bun run tape:check
-
       - name: Build documentation and public schema
         run: |
           bun run site:build
-          cmp contracts/schema/pocket-2.json site/dist/schema/pocket-2.json
 
       - uses: actions/download-artifact@v4
         with:

@@ -29,7 +29,7 @@ on every `main` push (`deploy.yml`).
 3. **Validate before merge** (all must pass):
 
 ```bash
-bun run test && bun tests/golden.ts && bun run tape:check
+bun run test && bun tests/golden.ts
 cargo test --manifest-path engine/core/Cargo.toml
 bunx tsc --noEmit
 bun tests/e2e/ppsspp.ts        # when programs/psp/ or engine/core/ changed

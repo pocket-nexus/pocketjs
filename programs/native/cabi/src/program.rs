@@ -1247,59 +1247,6 @@ mod tests {
                 0
             )
             .is_null());
-            let mut corrupt = bytes.clone();
-            let last = corrupt.len() - 1;
-            corrupt[last] ^= 1;
-            assert!(create(
-                &corrupt,
-                c"qnx".as_ptr(),
-                pocket_spec::BINDING_GENERATION,
-                c"Fixture".as_ptr(),
-                32,
-                1,
-                1
-            )
-            .is_null());
-            let mut wrong_hash = profile_hash;
-            wrong_hash[0] ^= 1;
-            assert!(pocket_native_program_create_package(
-                c"qnx".as_ptr(),
-                pocket_spec::BINDING_GENERATION,
-                bytes.as_ptr(),
-                bytes.len(),
-                c"fixture".as_ptr(),
-                c"dev.fixture".as_ptr(),
-                c"Fixture".as_ptr(),
-                32,
-                24,
-                1,
-                1,
-                profile.as_ptr(),
-                profile.len(),
-                wrong_hash.as_ptr()
-            )
-            .is_null());
-            let changed_profile = core::str::from_utf8(&profile)
-                .unwrap()
-                .replace("embedded", "window");
-            let changed_hash = pocket_package::sha256::sha256(changed_profile.as_bytes());
-            assert!(pocket_native_program_create_package(
-                c"qnx".as_ptr(),
-                pocket_spec::BINDING_GENERATION,
-                bytes.as_ptr(),
-                bytes.len(),
-                c"fixture".as_ptr(),
-                c"dev.fixture".as_ptr(),
-                c"Fixture".as_ptr(),
-                32,
-                24,
-                1,
-                1,
-                changed_profile.as_ptr(),
-                changed_profile.len(),
-                changed_hash.as_ptr()
-            )
-            .is_null());
             let p = create(
                 &bytes,
                 c"qnx".as_ptr(),

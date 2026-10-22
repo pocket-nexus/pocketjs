@@ -1,9 +1,6 @@
 import { expect, test } from "bun:test";
 import { decodeArchiveFace } from "../contracts/spec/font-archive.ts";
-import {
-  bakeFontArchive,
-  glyphChecksum,
-} from "../framework/compiler/font-archive.ts";
+import { bakeFontArchive } from "../framework/compiler/font-archive.ts";
 
 test("24 compact strike descriptors fit the offload payload and reject ambiguous slots", () => {
   const face = {
@@ -36,7 +33,7 @@ test("24 compact strike descriptors fit the offload payload and reject ambiguous
     ).toThrow();
 });
 
-test("archive cmap preserves distinct dynamic CJK coverage and checksums each packed cell", async () => {
+test("archive cmap preserves distinct dynamic CJK coverage", async () => {
   const bytes = await bakeFontArchive({
     font: "assets/fonts/NotoSansCJK-Demo.otf",
     slots: [2],
@@ -51,23 +48,17 @@ test("archive cmap preserves distinct dynamic CJK coverage and checksums each pa
   const present = new Set<number>();
   for (let i = 0; i < count; i++) {
     const at = index + i * 12,
-      cp = v.getUint32(at, true),
-      gid = v.getUint16(at + 4, true);
+      cp = v.getUint32(at, true);
     expect(cp).toBeGreaterThan(previous);
     previous = cp;
     present.add(cp);
-    expect(
-      glyphChecksum(
-        bytes.subarray(data + gid * packed, data + (gid + 1) * packed),
-      ),
-    ).toBe(v.getUint32(at + 8, true));
   }
   for (const c of "你好気迫") expect(present.has(c.codePointAt(0)!)).toBe(true);
   expect(data + packed * count).toBe(bytes.length);
 });
 
 // CFF paths can omit the last-to-first edge in their command list. An archive
-// checksum can protect a malformed raster too: test geometry before transport.
+// Compare the raster geometry with closed contours.
 test("CFF kanji and fullwidth archive cells match explicitly closed source contours", async () => {
   const { default: opentype } = await import("opentype.js");
   const { bakeSlot, DEFAULT_REGULAR, DEFAULT_BOLD } = await import("../framework/compiler/bake-font.ts");

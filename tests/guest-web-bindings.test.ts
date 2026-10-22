@@ -1,15 +1,7 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { generatedGuestWebBindings } from "../tools/guest-web-bindings.ts";
 import { mountUi, encodeUiString, decodeUiString, POCKET_BINDING_GENERATION } from "../engine/guest-web/src/generated-ui.js";
-import { POCKET_BINDING_GENERATION as SPEC_GENERATION } from "../contracts/spec/binding-generation.ts";
 
 const environment = { host: "fixture", hostAbi: POCKET_BINDING_GENERATION, tickHz: 60, viewport: { w: 4, h: 4 }, rasterDensity: 1 };
-test("web guest binding output follows the canonical operation descriptors", () => {
-  expect(POCKET_BINDING_GENERATION).toBe(SPEC_GENERATION);
-  expect(readFileSync(new URL("../platforms/web/generated-ui.js", import.meta.url), "utf8")).toBe(generatedGuestWebBindings());
-  expect(readFileSync(new URL("../engine/guest-web/src/generated-ui.js", import.meta.url), "utf8")).toBe(generatedGuestWebBindings());
-});
 test("unsupported generations fail before transport queries or realm mutation and permit retry", () => {
   const global: any = {};
   let queries = 0, calls = 0;

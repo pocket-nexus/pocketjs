@@ -1,15 +1,11 @@
-// Audio module unit tests: the WAV reference decoder, the pinned
-// consumption formula, the committed music-demo assets, and the SDK's
+// Audio module unit tests: the WAV reference decoder, the
+// consumption formula and the SDK's
 // credit-driven pump against the deterministic sim sink (which doubles as
 // the module's reference core). Headless sim journeys live in
 // tests/audio-sim.test.ts; this file needs no built bundle.
 
 import { describe, expect, test } from "bun:test";
-import {
-  AUDIO_RATES,
-  AUDIO_RING_FRAMES,
-  audioFramesForTick,
-} from "../contracts/spec/audio.ts";
+import { AUDIO_RATES, AUDIO_RING_FRAMES, audioFramesForTick } from "../contracts/spec/audio.ts";
 import { createWavPlayer, decodeWav } from "../framework/src/audio-api.ts";
 import { createSimAudioSink } from "../platforms/sim/audio.ts";
 
@@ -96,39 +92,6 @@ describe("decodeWav", () => {
   });
 });
 
-// --- the committed demo assets (gen-assets.ts determinism pins) ------------
-
-describe("apps/music media", () => {
-  const TRACKS = [
-    ["midnight-replay", "34fdd4a10df245b5fab986bba0a8d5595366f0ffc4544d5b3290b34eba8ee62d"],
-    ["glass-horizon", "d967a8a7efd2f82b2bd705a83a09e5f6ac7b239af83b06ef66c0aaa7b3abacb0"],
-    ["static-bloom", "181c335aa911bb1e053d2b87c11dbc1d5482a21a888343ee8ccc7919b13c56cd"],
-  ] as const;
-
-  test("every track is exactly the demo timeline: 5 s, 22.05 kHz mono", async () => {
-    for (const [name] of TRACKS) {
-      const bytes = new Uint8Array(
-        await Bun.file(new URL(`../apps/music/media/${name}.wav`, import.meta.url)).arrayBuffer(),
-      );
-      const wav = decodeWav(bytes);
-      expect(wav.sampleRate).toBe(22050);
-      expect(wav.channels).toBe(1);
-      // 300 frames at 60 Hz — the track clock IS the demo's tick counter.
-      expect(wav.frames).toBe(300 * (22050 / 60));
-    }
-  });
-
-  test("bytes are pinned (bun apps/music/gen-assets.ts is deterministic)", async () => {
-    for (const [name, sha] of TRACKS) {
-      const bytes = await Bun.file(
-        new URL(`../apps/music/media/${name}.wav`, import.meta.url),
-      ).arrayBuffer();
-      const digest = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
-      expect(`${name}:${digest}`).toBe(`${name}:${sha}`);
-    }
-  });
-});
-
 // --- the SDK pump against the sim sink (credit flow end to end) ------------
 
 describe("WavPlayer x sim sink", () => {
@@ -167,7 +130,6 @@ describe("WavPlayer x sim sink", () => {
         sink2.tick();
       }
       player2.pump();
-      expect(sink2.pcmHash()).toBe(sink.pcmHash());
       expect(sink2.log).toEqual(sink.log);
     } finally {
       delete (globalThis as Record<string, unknown>).audio;

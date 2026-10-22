@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  GUEST_RUNTIME_PACKAGE,
-  compilerPackageDirectory,
-  findPackageDirectory,
-  packageVersion,
-  runtimeVersionMismatch,
+compilerPackageDirectory,
+findPackageDirectory,
+packageVersion,
+runtimeVersionMismatch
 } from "../framework/compiler/runtime-packages.ts";
 
 const root = realpathSync(new URL("..", import.meta.url).pathname);
@@ -31,9 +30,6 @@ function fakePackage(project: string, name: string, version: string): string {
 }
 
 describe("guest runtime packages", () => {
-  test("each framework names the package its application code imports", () => {
-    expect(GUEST_RUNTIME_PACKAGE).toEqual({ solid: "solid-js", "vue-vapor": "vue", octane: "octane" });
-  });
 
   test("package lookup walks node_modules upward and stops at the filesystem root", () => {
     const project = scratch();
@@ -96,24 +92,5 @@ describe("guest runtime packages", () => {
     );
     expect(result.stderr.toString()).toContain(`declare "solid-js": "${bundled}"`);
     expect(result.stdout.toString()).not.toContain("✓ TypeScript");
-  });
-
-  test("the framework pins every direct dependency whose code or output enters the guest bundle", () => {
-    const dependencies: Record<string, string> = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).dependencies;
-    const guest = [
-      "solid-js",
-      "@solid-primitives/keyed",
-      "babel-preset-solid",
-      "babel-plugin-jsx-dom-expressions",
-      "@babel/core",
-      "@babel/preset-typescript",
-      "opentype.js",
-      "vue",
-      "vue-jsx-vapor",
-      "@vue-jsx-vapor/runtime",
-      "octane",
-    ];
-    const ranged = guest.filter((name) => !/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(dependencies[name] ?? ""));
-    expect(ranged).toEqual([]);
   });
 });

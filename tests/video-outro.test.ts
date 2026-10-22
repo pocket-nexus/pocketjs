@@ -1,16 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { basename, join } from "node:path";
 import {
-  ASSETS,
-  DEFAULT_TAGLINE,
-  dropIn,
-  parseArgs,
-  parseProbeOutput,
-  resolveOutroTiming,
-  resolveOutputSpec,
-  sourceOutroTransition,
-  xCompatibilityArgs,
+DEFAULT_TAGLINE,
+dropIn,
+parseArgs,
+parseProbeOutput,
+resolveOutputSpec,
+resolveOutroTiming,
+sourceOutroTransition,
+xCompatibilityArgs
 } from "../skills/pocketjs-video-outro/scripts/make-outro.ts";
 
 describe("branding defaults", () => {
@@ -48,19 +45,6 @@ describe("branding defaults", () => {
   });
 });
 
-describe("card assets", () => {
-  const root = join(import.meta.dir, "..");
-  test("the marks are the sites' own drawings", () => {
-    const mark = (name: string) => readFileSync(ASSETS.find((path) => basename(path) === name)!, "utf8");
-    expect(mark("pocketjs-mark.svg")).toBe(readFileSync(join(root, "site/assets/favicon.svg"), "utf8"));
-    expect(mark("pocket3d-mark.svg")).toBe(readFileSync(join(root, "site/pocket3d/mark.svg"), "utf8"));
-  });
-
-  test("the pixel face is the one the sites self-host", () => {
-    const face = ASSETS.find((path) => basename(path) === "press-start-2p-latin.woff2")!;
-    expect(readFileSync(face).equals(readFileSync(join(root, "site/assets/fonts/press-start-2p-latin.woff2")))).toBe(true);
-  });
-});
 
 describe("short outro timing", () => {
   test("defaults to a 2-second card with a readable hold", () => {

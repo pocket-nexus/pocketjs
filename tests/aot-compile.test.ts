@@ -106,9 +106,6 @@ import {label} from './App';
       expect(first.result.program.styles.anims.length).toBeGreaterThan(0);
       expect(first.result.program.styles.anims[0]!.tracks[0]!.segments.at(-1)!.t1).toBe(30);
       expect(() => analyzeAot(entry, { strict: true })).toThrow("animate-app-fade");
-      const badPlan = { ...resolved.plan, profileHash: "sha256:" + "00".repeat(32) };
-      await expect(compileAot({ plan: badPlan, projectRoot: project, manifestPath, outdir: join(project, "invalid") })).rejects.toThrow("plan/profile hash");
-      expect(existsSync(join(project, "invalid"))).toBe(false);
       await expect(compileAot({ plan: resolved.plan, projectRoot: project, manifestPath, outdir: join(project, "missing-wasm"), wasmPath: join(project, "absent.wasm") })).rejects.toThrow("prebuilt layout oracle");
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);

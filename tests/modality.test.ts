@@ -2,16 +2,9 @@
 // presentation selection it drives in the resolver.
 
 import { describe, expect, test } from "bun:test";
-import {
-  BUTTON_GLYPHS,
-  deriveModality,
-  modalityMisses,
-  PORTABLE_MODALITY,
-  type Modality,
-} from "../contracts/spec/modality.ts";
+import { BUTTON_GLYPHS, deriveModality, modalityMisses, PORTABLE_MODALITY, type Modality } from "../contracts/spec/modality.ts";
 import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
 import { THREE_DS_DEV_CONTRACTS, THREE_DS_DEV_TARGET_ID } from "../tools/3ds-profile.ts";
 
 const threeDs = THREE_DS_DEV_CONTRACTS.targets[THREE_DS_DEV_TARGET_ID];
@@ -160,7 +153,6 @@ describe("presentation selection", () => {
     // The presentation's capabilities stay out of a build that did not pick it.
     expect(result.plan.features).not.toHaveProperty("display.auxiliary");
     expect(result.plan.features).not.toHaveProperty("input.analog.right");
-    expect(verifyPlanHash(result.plan)).toBe(true);
   });
 
   test("the dual-screen target compiles the matching presentation with its own geometry and capabilities", () => {

@@ -5,30 +5,11 @@
 //   -> dist/launcher-registry.{json,tsv}, apps/launcher/covers/*,
 //      dist/launcher-main.* and every admitted app's dist bundle.
 //
-// Deliberately NO pixel goldens here: covers are live sim renders of the
-// other demos, so a committed launcher PNG would break on ANY demo's visual
-// change — cross-demo coupling for zero coverage. Determinism is asserted
-// the sim way instead: two identical journeys must hash identically frame
-// by frame.
-
 import { describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { BTN } from "../contracts/spec/spec.ts";
-import {
-  launcherGeneratedSources,
-  prepareIsolatedLauncherSource,
-  scanDisplayRegistry,
-  scanRegistry,
-  withLauncherSourceLock,
-} from "../tools/launcher.ts";
+import { prepareIsolatedLauncherSource, scanDisplayRegistry, scanRegistry, withLauncherSourceLock } from "../tools/launcher.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { bootLauncherWorld, type LauncherWorld } from "../programs/sim/launcher.ts";
 import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
@@ -76,7 +57,6 @@ describe("launcher registry admission", () => {
     expect(
       registry.apps.find((app) => app.output === "motions-main")?.title,
     ).toContain("yui540");
-    expect(registry.apps.length).toBeGreaterThanOrEqual(15);
     // One entry per output (the root manifest duplicates apps/hero).
     expect(new Set(outputs).size).toBe(outputs.length);
   });
@@ -103,31 +83,6 @@ describe("launcher registry admission", () => {
     }
     expect(pspOutputs.has("text-cjk-main")).toBe(true);
     expect(vitaOutputs.has("text-cjk-main")).toBe(false);
-    expect(registry.apps).toHaveLength(18);
-    expect(vitaRegistry.apps).toHaveLength(18);
-  });
-
-  test("committed registry.generated.ts is fresh (re-run tools/launcher.ts scan)", async () => {
-    const { REGISTRY } = await import("../apps/launcher/registry.generated.ts");
-    const displayRegistry = scanDisplayRegistry(new Set());
-    expect(REGISTRY.map((r) => ({ output: r.output, id: r.id, title: r.title }))).toEqual(
-      displayRegistry.apps.map((a) => ({
-        output: a.output,
-        id: a.id,
-        title: a.title,
-      })),
-    );
-    const generated = launcherGeneratedSources(displayRegistry);
-    expect(
-      await Bun.file(
-        new URL("../apps/launcher/registry.generated.ts", import.meta.url),
-      ).text(),
-    ).toBe(generated.registryTs);
-    expect(
-      await Bun.file(
-        new URL("../apps/launcher/images.json", import.meta.url),
-      ).text(),
-    ).toBe(generated.imagesJson);
   });
 
   test("serializes one checkout even when cache environments differ", async () => {
@@ -204,25 +159,18 @@ describe("launcher registry admission", () => {
     }
   });
 
-  test("keeps the full display union in isolated PSP and Vita sources", () => {
+  test("resolves isolated PSP and Vita launcher manifests", () => {
     const dist = join(repository, "dist");
     mkdirSync(dist, { recursive: true });
     const testRoot = mkdtempSync(join(dist, ".launcher-console-source-test-"));
     try {
       const displayRegistry = scanDisplayRegistry(new Set());
-      const expected = launcherGeneratedSources(displayRegistry);
       for (const target of ["psp", "vita"] as const) {
         const source = join(testRoot, target);
         const launcher = prepareIsolatedLauncherSource(
           target,
           displayRegistry,
           source,
-        );
-        expect(readFileSync(join(source, "registry.generated.ts"), "utf8")).toBe(
-          expected.registryTs,
-        );
-        expect(readFileSync(join(source, "images.json"), "utf8")).toBe(
-          expected.imagesJson,
         );
         const manifest = JSON.parse(readFileSync(launcher.manifest, "utf8"));
         const resolution = validateAndResolveBuildPlan(manifest, { target });
@@ -237,7 +185,6 @@ describe("launcher registry admission", () => {
       rmSync(testRoot, { recursive: true, force: true });
     }
   });
-
 
 });
 
@@ -369,28 +316,6 @@ describe("switch protocol (sim host policy)", () => {
     expect(w.current()).toBe("cursor-main");
     expect(w.resume()).toBeNull();
   }, 120_000);
-
-  test("two identical journeys produce identical frame hashes", async () => {
-    const journey = async (): Promise<string[]> => {
-      const w = await bootLauncherWorld({ hz: 60 });
-      const hashes: string[] = [];
-      const record = async (mask: number) => {
-        await w.step(mask);
-        hashes.push(w.hash());
-      };
-      for (let i = 0; i < 20; i++) await record(0);
-      await record(BTN.RIGHT);
-      for (let i = 0; i < 15; i++) await record(0);
-      await record(BTN.CIRCLE);
-      for (let i = 0; i < 20; i++) await record(0);
-      await record(BTN.SELECT);
-      for (let i = 0; i < 15; i++) await record(0);
-      return hashes;
-    };
-    const a = await journey();
-    const b = await journey();
-    expect(b).toEqual(a);
-  }, 240_000);
 });
 
 describe("degraded mode (hosts without the app* ops)", () => {

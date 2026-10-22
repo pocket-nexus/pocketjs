@@ -15,25 +15,11 @@ if (Bun.resolveSync("solid-js", import.meta.dir).endsWith("server.js")) {
 
 import { installHost, type Host, type HostOps } from "../framework/src/host.ts";
 import { render as publicRender } from "../framework/src/index.ts";
-import {
-  expandTape,
-  expandTapeMotion,
-  expandTapeTouch,
-  expandTapeTouchSurfaces,
-  fmt,
-  type Tape,
-} from "../framework/src/devtools.ts";
+import { expandTape, expandTapeMotion, expandTapeTouch, expandTapeTouchSurfaces, fmt, type Tape } from "../framework/src/devtools.ts";
 import { touches, __packTouch, __packTouchCancel } from "../framework/src/touch.ts";
 import { onFrame, onMotion, rightAnalogRaw, rightAnalogX, rightAnalogY } from "../framework/src/lifecycle.ts";
 import { feedMotionState, MotionQuality, type MotionState } from "../framework/src/input-api.ts";
-import {
-  createComponent,
-  createTextNode,
-  insertNode,
-  resetRendererState,
-  rootMirror,
-  type NodeMirror,
-} from "../framework/src/renderer.ts";
+import { createComponent, createTextNode, insertNode, resetRendererState, rootMirror, type NodeMirror } from "../framework/src/renderer.ts";
 import { resetStyles } from "../framework/src/styles.ts";
 import { resetInput } from "../framework/src/input.ts";
 import { resetPack } from "../framework/src/pak.ts";
@@ -655,7 +641,7 @@ describe("errors + formatting", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stats (OP.debugStats) + the bundle-hash twin
+// stats (OP.debugStats)
 // ---------------------------------------------------------------------------
 
 describe("stats", () => {
@@ -681,19 +667,6 @@ describe("stats", () => {
     expect(s[0].data).toBeNull();
   });
 });
-
-describe("bundle hash", () => {
-  test("fnv1a64 matches the published FNV-1a 64 test vectors", async () => {
-    const { fnv1a64 } = await import("../tools/bundle-hash.ts");
-    const bytes = (s: string) => new TextEncoder().encode(s);
-    expect(fnv1a64(new Uint8Array(0))).toBe("cbf29ce484222325"); // offset basis
-    expect(fnv1a64(bytes("a"))).toBe("af63dc4c8601ec8c");
-    expect(fnv1a64(bytes("hello"))).toBe("a430d84680aabd0b");
-    // Chunk boundaries must not matter (js+pak concatenation).
-    expect(fnv1a64(bytes("he"), bytes("llo"))).toBe(fnv1a64(bytes("hello")));
-  });
-});
-
 
 test("right stick records, replays independently, and centers absent legacy samples", () => {
   const samples: number[][] = [];

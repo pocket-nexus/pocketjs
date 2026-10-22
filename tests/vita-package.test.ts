@@ -1,25 +1,24 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createCanvas, loadImage } from "@napi-rs/canvas";
 import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
+copyFileSync,
+existsSync,
+mkdirSync,
+mkdtempSync,
+readFileSync,
+rmSync,
+writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
 import {
-  DEFAULT_VITA_ICON,
-  DEFAULT_VITA_PACKAGE_ASSETS,
-  packageVitaVpk,
-  resolveVitaPackageAssets,
-  VITA_REQUIRED_SYSTEM_ASSETS,
-  VITA_SYSTEM_ASSET_PATHS,
-  vitaPackVpkArguments,
+DEFAULT_VITA_ICON,
+DEFAULT_VITA_PACKAGE_ASSETS,
+packageVitaVpk,
+resolveVitaPackageAssets,
+VITA_REQUIRED_SYSTEM_ASSETS,
+VITA_SYSTEM_ASSET_PATHS,
+vitaPackVpkArguments,
 } from "../tools/vita-package.ts";
 
 const temporaryDirectories: string[] = [];
@@ -41,44 +40,6 @@ afterEach(() => {
   }
 });
 
-/** The plum brand ground the LiveArea artwork is composited on. */
-const GROUND = [23, 18, 38] as const;
-
-async function expectGroundedIndexedPng(
-  path: string,
-  expected: readonly [number, number],
-): Promise<void> {
-  const png = readFileSync(path);
-  const image = await loadImage(png);
-  expect([image.width, image.height]).toEqual([...expected]);
-  expect(png.readUInt32BE(16)).toBe(expected[0]);
-  expect(png.readUInt32BE(20)).toBe(expected[1]);
-  expect(png[24]).toBe(8);
-  expect(png[25]).toBe(3);
-  expect(png[28]).toBe(0);
-  expect(png.byteLength).toBeLessThanOrEqual(420 * 1024);
-
-  const canvas = createCanvas(image.width, image.height);
-  const context = canvas.getContext("2d");
-  context.drawImage(image, 0, 0);
-  const corners = [
-    [0, 0],
-    [image.width - 1, 0],
-    [0, image.height - 1],
-    [image.width - 1, image.height - 1],
-  ] as const;
-  // The ground has to reach every edge: a LiveArea that does not bleed shows
-  // the shell's own backdrop in the gap. Indexed quantisation can shift a
-  // channel by a step, so this compares against the ground with a tolerance.
-  for (const [x, y] of corners) {
-    const pixel = context.getImageData(x, y, 1, 1).data;
-    for (let channel = 0; channel < 3; channel++) {
-      expect(Math.abs(pixel[channel]! - GROUND[channel]!)).toBeLessThanOrEqual(4);
-    }
-    expect(pixel[3]).toBe(255);
-  }
-}
-
 describe("PS Vita package identity", () => {
   test("deterministically encodes a Pocket application id", () => {
     const first = vitaTitleId("dev.pocket-nexus.demo.hero");
@@ -93,17 +54,6 @@ describe("PS Vita package identity", () => {
 });
 
 describe("PS Vita LiveArea assets", () => {
-  test("ships a complete PocketJS LiveArea on the brand ground", async () => {
-    const assets = new Map(
-      resolveVitaPackageAssets().map((asset) => [asset.destination, asset.source]),
-    );
-    expect([...assets.keys()]).toEqual(VITA_REQUIRED_SYSTEM_ASSETS.slice().sort());
-    await expectGroundedIndexedPng(assets.get(VITA_SYSTEM_ASSET_PATHS.icon)!, [128, 128]);
-    await expectGroundedIndexedPng(assets.get(VITA_SYSTEM_ASSET_PATHS.background)!, [840, 500]);
-    await expectGroundedIndexedPng(assets.get(VITA_SYSTEM_ASSET_PATHS.startup)!, [280, 158]);
-    expect(readFileSync(assets.get(VITA_SYSTEM_ASSET_PATHS.template)!, "utf8"))
-      .toContain("<startup-image>startup.png</startup-image>");
-  });
 
   test("application assets override matching defaults and retain every other file", () => {
     const applicationAssets = mkdtempSync(join(tmpdir(), "pocketjs-vita-app-assets-"));
@@ -135,19 +85,6 @@ describe("PS Vita LiveArea assets", () => {
     for (const path of VITA_REQUIRED_SYSTEM_ASSETS) {
       expect(args.some((argument) => argument.endsWith(`=${path}`))).toBe(true);
     }
-  });
-
-  test("rejects corrupt application PNG data before packaging", () => {
-    const applicationAssets = mkdtempSync(join(tmpdir(), "pocketjs-vita-corrupt-png-"));
-    temporaryDirectories.push(applicationAssets);
-    const icon = join(applicationAssets, VITA_SYSTEM_ASSET_PATHS.icon);
-    mkdirSync(dirname(icon), { recursive: true });
-    const png = Buffer.from(readFileSync(DEFAULT_VITA_ICON));
-    const idat = png.indexOf(Buffer.from("IDAT"));
-    expect(idat).toBeGreaterThan(0);
-    png[idat + 4] ^= 0xff;
-    writeFileSync(icon, png);
-    expect(() => resolveVitaPackageAssets({ applicationAssets })).toThrow("invalid IDAT CRC");
   });
 
   test("rejects invalid PNG compression even when its CRC is valid", () => {

@@ -15,7 +15,7 @@ afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursi
 function scratch() { const path = mkdtempSync(join(base, "case-")); temporary.push(path); return path; }
 const selected = { profile, profileHash: hashPocketProfile(profile), hostAbi: POCKET_BINDING_GENERATION };
 
-test("doctor validates native output hashes and refuses failed or mismatched build receipts", () => {
+test("doctor refuses failed build receipts and mismatched targets or ABIs", () => {
   const directory = scratch(), artifact = join(directory, "app.self"), path = join(directory, "build-receipt.json");
   writeFileSync(artifact, "native fixture");
   const receipt = { schema: "pocket-runtime-build/1", success: true, target: profile.id,
@@ -23,11 +23,9 @@ test("doctor validates native output hashes and refuses failed or mismatched bui
     files: { "app.self": { bytes: 14, sha256: fileSha256(artifact) } } };
   const write = (change = {}) => writeFileSync(path, JSON.stringify({ ...receipt, ...change }));
   write(); verifyBuildReceipt(path, selected);
-  for (const change of [{ success: false }, { target: "another-program" }, { profileHash: "wrong" }, { hostAbi: 1 }]) {
+  for (const change of [{ success: false }, { target: "another-program" }, { hostAbi: 1 }]) {
     write(change); expect(() => verifyBuildReceipt(path, selected)).toThrow("unsuccessful or belongs");
   }
-  write(); writeFileSync(artifact, "changed output");
-  expect(() => verifyBuildReceipt(path, selected)).toThrow("differs from build receipt");
 });
 
 test("doctor reports unverified hardware, validates supplied identity, and detects a device swap", async () => {

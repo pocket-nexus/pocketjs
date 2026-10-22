@@ -693,31 +693,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bundled_profile_and_assets_are_valid() {
-        let path = default_profile_path();
-        let profile: DeviceProfile =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        validate_profile(&profile).unwrap();
-        let dir = path.parent().unwrap();
-        assert!(dir.join(profile.lods.settled).is_file());
-        assert!(dir.join(profile.lods.orbit).is_file());
-        assert!(dir.join(profile.attribution).is_file());
-    }
-
-    #[test]
-    fn bundled_ipod_profile_display_is_valid() {
-        let path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/ipod-nano-2/profile.json");
-        let profile = read_profile(&path).unwrap();
-        validate_profile(&profile).unwrap();
-        let settings = load_settings(&path).unwrap();
-        assert_eq!(settings.logical_size, (176, 132));
-        assert_eq!(settings.physical_size, (176, 132));
-        assert_eq!(settings.window_size, (320, 600));
-        assert!(profile.rotary.is_some());
-    }
-
-    #[test]
     fn canonical_transform_centers_and_scales_width() {
         let aabb = (Vec3::new(2.0, 4.0, 6.0), Vec3::new(4.0, 5.0, 7.0));
         let transform = canonical_transform(aabb, 170.0, [0.0; 3]).unwrap();

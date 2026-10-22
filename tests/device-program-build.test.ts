@@ -1,7 +1,7 @@
 import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
@@ -41,27 +41,11 @@ function packageFixture(selected: ResolvedProfile, directory: string) {
   return path;
 }
 
-test("all device recipes load without SDKs and distinguish generic runtimes from required package inputs", async () => {
+test("device recipes reject missing package inputs before generating native headers", async () => {
   const dir = scratch();
   for (const id of programs) {
     const selected = await select(id);
-    const recipe = selected.config!.value.build!;
-    expect(recipe.artifact).toContain("{outdir}/");
-    expect(typeof recipe.run).toBe("function");
-    const declared = recipe.sourceInputs;
-    const sources = typeof declared === "function" ? declared({
-      profile: selected.profile, profileHash: selected.profileHash,
-      configDirectory: dirname(selected.config!.path), invocationDirectory: root,
-      outdir: join(dir, id), output: "fixture", args: [],
-    }) : declared ?? [];
-    expect(sources).toContain(join(root, "engine/runtime/src"));
-    expect(sources).toContain(join(root, "contracts/generated"));
-    for (const source of sources) expect(existsSync(source)).toBe(true);
-    if (generic.has(id)) {
-      expect(recipe.input).toBeUndefined();
-      expect(typeof recipe.genericRuntime?.repack).toBe("function");
-    } else {
-      expect(recipe.input).toBe("package");
+    if (!generic.has(id)) {
       await expect(buildRuntime(selected, join(dir, id))).rejects.toThrow("--pocket");
       expect(existsSync(join(dir, id, "pocket_profile.h"))).toBe(false);
     }

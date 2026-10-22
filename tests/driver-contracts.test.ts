@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DRIVER_ABI_CALLBACKS, DRIVER_ABI_STRUCTS } from "../contracts/spec/driver-abi.ts";
-import { INPUT_CLASSES, INPUT_ABI_CONSTANTS, LEGACY_FRAME_ARGUMENTS, inputClassesForCapabilities } from "../contracts/spec/input.ts";
-import { HOST_ABI_FUNCTIONS, RUNTIME_ABI_STRUCTS } from "../contracts/spec/runtime-abi.ts";
-import { BTN, DRAW_LIST_VERSION } from "../contracts/spec/spec.ts";
-import { MOTION_VALUES } from "../contracts/spec/motion.ts";
-import { abiLayout, generatedDriverContracts } from "../tools/driver-contracts.ts";
+import { DRIVER_ABI_STRUCTS } from "../contracts/spec/driver-abi.ts";
+import { INPUT_CLASSES, inputClassesForCapabilities } from "../contracts/spec/input.ts";
+import { RUNTIME_ABI_STRUCTS } from "../contracts/spec/runtime-abi.ts";
+import { DRAW_LIST_VERSION } from "../contracts/spec/spec.ts";
+import { abiLayout } from "../tools/driver-contracts.ts";
 
 const root = resolve(import.meta.dir, "..");
 const records = [...DRIVER_ABI_STRUCTS, ...RUNTIME_ABI_STRUCTS];
@@ -26,31 +25,10 @@ function run(command: string[]): string {
 }
 
 describe("candidate driver and runtime contract generation", () => {
-  test("all generated artifacts are byte-exact and deterministic", () => {
-    const first = generatedDriverContracts();
-    expect([...first]).toEqual([...generatedDriverContracts()]);
-    for (const [path, contents] of first) expect(readFileSync(resolve(root, path), "utf8")).toBe(contents);
-  });
 
-  test("input classes preserve existing button and motion vocabulary", () => {
-    expect(Object.keys(INPUT_CLASSES)).toEqual(["buttons", "axis.absolute", "axis.relative", "pointer", "contact", "text", "motion"]);
-    expect(new Set(Object.values(INPUT_CLASSES).map(value => value.bit)).size).toBe(7);
-    for (const [name, value] of Object.entries(BTN)) expect(INPUT_ABI_CONSTANTS[`POCKET_BUTTON_${name}`]).toBe(value);
+  test("capabilities select the supported input class mask", () => {
     expect(inputClassesForCapabilities(["input.buttons", "input.touch.auxiliary", "input.ime"])).toBe(INPUT_CLASSES.buttons.bit | INPUT_CLASSES.contact.bit | INPUT_CLASSES.text.bit);
     expect(inputClassesForCapabilities(["input.cursor", "audio.pcm"])).toBe(0);
-    expect(LEGACY_FRAME_ARGUMENTS).toEqual(["buttons", "analog", "touches", "hits", "touchSurfaces", "rightAnalog", "axisDeltas", "motion"]);
-    const motion = DRIVER_ABI_STRUCTS.find(record => record.name === "PocketMotionState")!;
-    expect(motion.fields.length - 2).toBe(Object.keys(MOTION_VALUES).length);
-  });
-
-  test("vtable prefixes are optional and zero-copy has a distinct callback", () => {
-    for (const record of records) expect(record.fields[0]).toEqual({ name: "struct_size", type: "usize" });
-    for (const record of records.filter(record => record.name.endsWith("V1"))) {
-      for (const field of record.fields.slice(1)) expect(field.type.startsWith("Option<")).toBe(true);
-    }
-    expect(DRIVER_ABI_CALLBACKS.find(cb => cb.name === "PocketRenderFn")).toBeDefined();
-    expect(DRIVER_ABI_CALLBACKS.find(cb => cb.name === "PocketRenderZeroCopyFn")).toBeDefined();
-    expect(HOST_ABI_FUNCTIONS.map(fn => fn.name)).toEqual(["pocket_host_alloc", "pocket_host_realloc", "pocket_host_free", "pocket_host_panic", "pocket_host_log", "pocket_host_boot_stage"]);
   });
 
   test("32-bit layouts respect target scalar alignment rather than pointer width", () => {

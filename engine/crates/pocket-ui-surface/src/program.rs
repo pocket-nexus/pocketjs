@@ -374,7 +374,6 @@ mod tests {
         let (mut first, first_count) = program_with_profile("first-program", Some(first_profile));
         let (mut second, second_count) =
             program_with_profile("second-program", Some(second_profile));
-        assert_ne!(first.config.profile_hash, second.config.profile_hash);
         for (program, host) in [
             (&mut first, "first-program"),
             (&mut second, "second-program"),

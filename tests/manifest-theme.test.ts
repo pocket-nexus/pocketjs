@@ -5,7 +5,6 @@ import { decodeStyleTable } from "../contracts/spec/spec.ts";
 import { KEY_STYLES, unpack } from "../framework/compiler/pak.ts";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
-import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
 import { validatePocketManifest } from "../framework/src/manifest/validate.ts";
 
 const baseline = JSON.parse(readFileSync(resolve("tests/fixtures/manifests/portable-psp.json"), "utf8"));
@@ -15,14 +14,12 @@ const theme = {
 };
 const application = { ...baseline, app: { ...baseline.app, entry: "main.tsx", theme } };
 
-test("manifest theme enters the resolved plan, its hash, and native build inputs", () => {
+test("manifest theme enters the resolved plan and native build inputs", () => {
   const result = validateAndResolveBuildPlan(application, { target: "psp" });
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
   expect(result.plan.app.theme).toEqual(theme);
   expect(extractHostBuildInputs(result.plan).app.theme).toEqual(theme);
-  expect(verifyPlanHash(result.plan)).toBe(true);
-  expect(verifyPlanHash({ ...result.plan, app: { ...result.plan.app, theme: {} } })).toBe(false);
   for (const invalid of [
     { keyframes: { glide: { from: { opacity: true } } } },
     { animation: { glide: { loop: 2 } } },

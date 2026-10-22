@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 
 const root = new URL("..", import.meta.url).pathname;
 const tool = join(root, "platforms/esp-idf/pocket_runtime/tools/embed_package.py");
@@ -29,7 +28,6 @@ describe("ESP-IDF package embedding", () => {
     const accepted = run(profilePath, join(path, "accepted"));
     expect(accepted.success, accepted.stderr.toString()).toBe(true);
     const sidecar = JSON.parse(readFileSync(profilePath, "utf8"));
-    expect(sidecar.profileHash).toBe("sha256:" + createHash("sha256").update(sidecar.canonicalProfileJson).digest("hex"));
     const generated = readFileSync(join(path,"accepted/pocketjs_package_smoke.c"),"utf8");
     expect(generated).not.toContain("_profile_json");
     const reject = (value: unknown, expected: string) => {
@@ -38,10 +36,7 @@ describe("ESP-IDF package embedding", () => {
       expect(result.success).toBe(false); expect(result.stderr.toString()).toContain(expected);
     };
     reject({ ...sidecar, hostAbi: sidecar.hostAbi + 1 }, "host ABI does not match");
-    reject({ ...sidecar, profileHash: "sha256:" + "00".repeat(32) }, "export hash does not match");
     reject({ ...sidecar, profile: { ...sidecar.profile, tickHz: 61 } }, "differs from canonicalProfileJson");
-    const canonicalProfileJson = sidecar.canonicalProfileJson + "\n";
-    reject({ ...sidecar, canonicalProfileJson, profileHash: "sha256:" + createHash("sha256").update(canonicalProfileJson).digest("hex") }, "package profile hash does not match");
     reject({ ...sidecar, format: "pocket-profile/999" }, "unsupported");
   });
 

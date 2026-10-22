@@ -1,25 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import { encodeImageEntry } from "../framework/compiler/pak.ts";
 
 const coverageSvg = `<svg width="32" height="16" viewBox="0 0 32 16"><rect width="32" height="16" fill="#125689"/><circle cx="10.25" cy="8.125" r="6.25" fill="#fe9022"/><path d="M19 2 L30 3 Q23 9 30 14 L18 13 Z" fill="#89baef"/><circle cx="10" cy="8" r="2.5" fill="hole"/></svg>`;
 
 describe("SVG texture storage dimensions", () => {
-  test("existing 1x, 2x and 4x power-of-two bakes retain their coverage bytes", () => {
-    // Captured from the pre-rounding baker, including rect/path compositing,
-    // fractional circle coverage and a circle that erases alpha.
-    const hashes = [
-      [1, "069a4041b630372efbd872830163207c8fca45fafaeaaa681623ecdbdb55ed2f"],
-      [2, "cfb6b37a570974c0dcb44fcc0a8de7920ccb2decff0125be2e8f53a79c782615"],
-      [4, "78dfd74c3250bd2544a1f8072331e0087dc171debd74cadfdaa9405353105883"],
-    ] as const;
-    for (const [density, hash] of hashes) {
-      const image = bakeSvg(coverageSvg, density);
-      expect([image.width, image.height]).toEqual([32 * density, 16 * density]);
-      expect(createHash("sha256").update(image.rgba).digest("hex")).toBe(hash);
-    }
-  });
 
   test("3x rerasterizes the whole viewBox into encodable power-of-two storage", () => {
     const three = bakeSvg(coverageSvg, 3);

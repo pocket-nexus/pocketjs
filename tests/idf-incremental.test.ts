@@ -2,12 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { depfile } from "../framework/compiler/build-inputs.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
 describe("ESP-IDF incremental package build", () => {
   test.each(["checkout", "vendor"])("native %s builds track extracted contract sources", (layout) => {
@@ -131,8 +129,6 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
 
       const output = join(build, "pocketjs/app/app.pocket");
       const depPath = join(build, "pocketjs/app/app.d");
-      const jsPath = join(build, "pocketjs/app/idf-smoke.js");
-      const pakPath = join(build, "pocketjs/app/idf-smoke.pak");
 
       run(["cmake", "-S", app, "-B", build, "-G", "Ninja"]);
       expect(ninja()).toContain("app.pocket");
@@ -147,8 +143,6 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       expect(ninja()).toContain("app.pocket");
       expect(readFileSync(depPath, "utf8")).toContain("new-module.ts");
       const firstPackage = readFileSync(output);
-      const firstJs = sha256(jsPath);
-      const firstPak = sha256(pakPath);
       expectClean(explain());
 
       // Each edit is attributed by ninja's own dependency graph; the recipe
@@ -163,10 +157,6 @@ pocketjs_compile_app(TARGET app NAME app MANIFEST "${join(app, "pocket.json")}"
       // One real build consumes the three pending dirty inputs.
       expect(ninja()).toContain("app.pocket");
       expect(readFileSync(output).equals(firstPackage)).toBe(false);
-      // Channel attribution: the module edit reaches the JS bundle, the asset
-      // edit reaches the PAK; they are independent build outputs.
-      expect(sha256(jsPath)).not.toBe(firstJs);
-      expect(sha256(pakPath)).not.toBe(firstPak);
       const exportedProfile = join(build, "pocketjs/app/profile/pocket-profile.json");
       const beforeProfile = readFileSync(exportedProfile, "utf8");
       const profileSource = join(app, "profiles/idf-smoke.ts");

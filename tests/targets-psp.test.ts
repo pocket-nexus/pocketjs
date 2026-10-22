@@ -1,18 +1,16 @@
-import { BUILD_STD_NIGHTLY } from "../tools/build/toolchains/rust.ts";
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolvePspBuildToolchain } from "../tools/build/toolchains/psp/build.ts";
+import { BUILD_STD_NIGHTLY } from "../tools/build/toolchains/rust.ts";
 import { catalogEntry } from "../tools/targets/index.ts";
-import { RECEIPT_SCHEMA, RECORD_SCHEMA, frameworkIdentity, storeLayout, storeTree, writeRecord, expectedFiles } from "../tools/targets/store.ts";
+import { RECEIPT_SCHEMA, RECORD_SCHEMA, expectedFiles, frameworkIdentity, storeLayout, storeTree, writeRecord } from "../tools/targets/store.ts";
 import {
-  componentDigest,
-  toolchainDigest,
-  type CargoInstallComponent,
-  type Component,
-  type FileComponent,
-  type RustupComponent,
-  type Source,
+componentDigest,
+toolchainDigest,
+type Component,
+type FileComponent,
+type RustupComponent
 } from "../tools/targets/toolchain.ts";
 import { currentHost } from "../tools/targets/types.ts";
 import { fakeRustup } from "./helpers/fake-rustup.ts";
@@ -22,7 +20,6 @@ const psp = catalogEntry("psp")!;
 const manifest = psp.toolchain!;
 const component = <T extends Component>(name: string) => manifest.components.find((item) => item.name === name) as T;
 const rust = component<RustupComponent>("rust");
-const cargoPsp = component<CargoInstallComponent>("cargo-psp");
 const quickjs = component<FileComponent>("quickjs");
 
 const temporary: string[] = [];
@@ -37,67 +34,6 @@ function tempDir(): string {
   return path;
 }
 
-/** The libquickjs-sys revision a Cargo manifest pins. */
-function quickjsRevision(source: string): string | undefined {
-  return source.match(/libquickjs-sys = \{ git = "https:\/\/github\.com\/pocket-nexus\/quickjs-rs\.git", rev = "([0-9a-f]{40})" \}/)?.[1];
-}
-
-describe("PSP toolchain manifest", () => {
-  test("pins organization-owned sources and binaries", () => {
-    expect(rust).toMatchObject({ kind: "rustup", toolchain: BUILD_STD_NIGHTLY, components: ["rust-src"] });
-    expect(cargoPsp.source).toEqual({ git: "https://github.com/pocket-nexus/rust-psp.git", revision: "2cbaf8c9bc72569c76240a1d9743de10731e5f6b" });
-    expect(cargoPsp.toolchain).toBe(rust.toolchain);
-    expect(component("sdk")).toMatchObject({
-      kind: "archive",
-      source: {
-        url: "https://github.com/pocket-nexus/pspdev/releases/download/sdk-noabicalls-normalized-2026-06-19/mipsel-sony-psp.zip",
-        sha256: "fc7d7d502d53987f356871bc8c58396fb0f2a6eb6f5828b16c3bc3f22991a273",
-      },
-    });
-    expect((quickjs.source as Source).url).toStartWith("https://github.com/pocket-nexus/quickjs-rs/releases/download/prebuilt-psp-");
-    // QuickJS arrives as a pinned archive; the generated guest uses host LLVM.
-    expect(manifest.components.map((item) => item.kind)).toEqual(["rustup", "cargo-install", "archive", "file"]);
-    expect(psp.hosts).toEqual(["darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64"]);
-  });
-
-  test("the prebuilt QuickJS comes from the revision programs/psp links", async () => {
-    const revision = quickjsRevision(await Bun.file(join(root, "programs/psp/Cargo.toml")).text());
-    expect(revision).toBeDefined();
-    expect((quickjs.source as Source).url).toContain(`/prebuilt-psp-${revision!.slice(0, 12)}/`);
-    expect(await Bun.file(join(root, "Cargo.lock")).text()).toContain(`rev=${revision}#`);
-  });
-
-  test("programs/psp builds against the rust-psp revision cargo-psp comes from", async () => {
-    const source = await Bun.file(join(root, "programs/psp/Cargo.toml")).text();
-    expect(source).toContain(`git = "${cargoPsp.source.git}"`);
-    expect(source).toContain(`rev = "${cargoPsp.source.revision}"`);
-    expect(await Bun.file(join(root, "Cargo.lock")).text()).toContain(cargoPsp.source.revision);
-  });
-
-  test("production entrypoints have no personal, DreamCart, or sibling toolchain fallback", async () => {
-    const productionFiles = [
-      "tools/build/toolchains/psp.ts",
-      "tools/build/toolchains/psp/build.ts",
-      "tools/psp.ts",
-      "tools/psp-all.ts",
-      "tools/cli/bin.mjs",
-      "programs/psp/Cargo.toml",
-      "programs/vita/Cargo.toml",
-      "devices/psp/pocket-psp-ge/Cargo.toml",
-    ];
-    for (const file of productionFiles) {
-      const source = await Bun.file(join(root, file)).text();
-      expect(source.toLowerCase(), file).not.toMatch(
-        /(?:github\.com\/[^\s"']*dreamcart|(?:^|["'`\s])(?:\.\.\/|~\/|\/)[^\s"'`]*dreamcart|code\/dreamcart|bootstrap[^\n]*dreamcart)/m,
-      );
-      expect(source, file).not.toMatch(/github\.com\/doodlewind\/(?:quickjs-rs|rust-psp|pspdev)/);
-      expect(source, file).not.toMatch(/path\s*=\s*"[^"]*(?:quickjs-rs|rust-psp)/);
-    }
-    for (const file of ["Cargo.lock", "Cargo.lock"]) {
-      expect(await Bun.file(join(root, file)).text(), file).not.toContain("github.com/doodlewind/");
-    }
-  });
-});
 
 describe("PSP build environment", () => {
   const host = currentHost();

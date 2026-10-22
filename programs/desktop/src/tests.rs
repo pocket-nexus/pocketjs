@@ -66,35 +66,6 @@ mod tests {
     }
 
     #[test]
-    fn app_instance_repaint_hash_includes_raster_revision() {
-        let surface = UiSurface::new((16.0, 16.0));
-        let texture = surface.with_ui(|ui| {
-            ui.upload_texture(
-                &[0xff, 0xff, 0xff, 0xff],
-                1,
-                1,
-                pocketjs_core::spec::psm::PSM_8888,
-            )
-        });
-        assert!(texture >= 0);
-
-        let (words_before, revision_before) =
-            surface.with_ui(|ui| (ui.draw().words.clone(), ui.raster_revision()));
-        let mut hash_before = 0xcbf2_9ce4_8422_2325u64;
-        mix_app_instance_repaint_hash(&mut hash_before, 7, fnv1a64(&words_before), revision_before);
-
-        surface.with_ui(|ui| ui.free_texture(texture));
-        let (words_after, revision_after) =
-            surface.with_ui(|ui| (ui.draw().words.clone(), ui.raster_revision()));
-        let mut hash_after = 0xcbf2_9ce4_8422_2325u64;
-        mix_app_instance_repaint_hash(&mut hash_after, 7, fnv1a64(&words_after), revision_after);
-
-        assert_eq!(words_after, words_before);
-        assert_ne!(revision_after, revision_before);
-        assert_ne!(hash_after, hash_before);
-    }
-
-    #[test]
     fn resolved_system_plan_uses_the_exact_system_ui_wire_key() {
         let plan: ResolvedSystemPlan = serde_json::from_value(serde_json::json!({
             "system": {

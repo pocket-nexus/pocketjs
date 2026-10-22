@@ -23,7 +23,7 @@ bun run tape replay cards-main crash.tape.json --assert h.json
 # tape: FIRST DIVERGENT FRAME 4118 — expected 91ec0f11, got 5b02a377
 ```
 
-A bug report becomes `pak + tape + frame index` — executable evidence. Replay the same tape against a *new* build and `--assert` names the exact frame where behavior changed; check the tape into `tests/`, and a real user session becomes a regression test that every future build must replay pixel-perfectly. We ship one in the repo (`bun run tape:check`): 180 frames of scripted interaction, verified on every change.
+A bug report becomes `pak + tape + frame index` — executable evidence. Replay the same tape against a *new* build and `--assert` names the exact frame where behavior changed; check the tape into `tests/`, and a real user session becomes a regression test that every future build must replay pixel-perfectly.
 
 Open-world frameworks cannot follow here — not because their tooling is worse, but because their worlds leak. A browser page drinks nondeterminism from everywhere: timers, network, GC pauses, `Date.now()` in a render. Redux-era time travel recorded *actions* precisely because it could not trust the world around them. PocketJS records sixteen buttons, and trusts everything else to physics.
 

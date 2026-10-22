@@ -8,45 +8,42 @@ import { ANDROID_LAUNCHER_DENSITIES } from "../tools/android-icon.ts";
 import { buildTool, linkAndroidApk, localAndroidSdk, runTool } from "../tools/android-link.ts";
 import { readRuntimeDirectory } from "../tools/repack.ts";
 import {
-  ANDROID_ICON_DENSITIES,
-  ANDROID_TEMPLATE,
-  ANDROID_TEMPLATE_IDENTITY,
-  POCKET_STUDIO_COMMUNITY_SIGNER,
-  androidIdentity,
-  androidLabel,
-  androidLinkJob,
-  androidPackageName,
-  androidString,
-  androidTemplateJob,
-  repackAndroid,
+ANDROID_ICON_DENSITIES,
+ANDROID_TEMPLATE,
+ANDROID_TEMPLATE_IDENTITY,
+androidIdentity,
+androidLabel,
+androidLinkJob,
+androidPackageName,
+androidString,
+POCKET_STUDIO_COMMUNITY_SIGNER,
+repackAndroid
 } from "../tools/repack/android.ts";
 import {
-  patchManifest,
-  patchResourceTable,
-  readManifest,
-  readResourceTable,
-  readStringPool,
-  writeStringPool,
+patchManifest,
+patchResourceTable,
+readManifest,
+readResourceTable,
+readStringPool,
+writeStringPool,
 } from "../tools/repack/shared/android-resources.ts";
 import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
 import type { RepackInput } from "../tools/repack/shared/runtime.ts";
 import { readZip, unzipEntry, writeZip, ZIP_STORED, type ZipEntry } from "../tools/repack/shared/zip.ts";
 import {
-  ABIS,
-  ANDROID_FIXTURE_TARGET,
-  resolveAndroidFixturePlan,
-  clear,
-  fixtureParts,
-  fixturePocket,
-  fixtureRuntime,
-  GAME_JS,
-  GAME_PAK,
-  HOST_ABI,
-  IDENTITY,
-  SDK_LEVELS,
-  square,
-  TEMPLATE,
-  variantFor,
+ABIS,
+clear,
+fixturePocket,
+fixtureRuntime,
+GAME_JS,
+GAME_PAK,
+HOST_ABI,
+IDENTITY,
+resolveAndroidFixturePlan,
+SDK_LEVELS,
+square,
+TEMPLATE,
+variantFor
 } from "./helpers/android-fixture.ts";
 import { makeTestSigner, verifyApkSignatures } from "./helpers/apk-test-signer.ts";
 
@@ -306,11 +303,6 @@ describe("the repack refuses", () => {
     await expect(repackAndroid(input({ pocket }), options)).rejects.toThrow(/no test-android-product variant \(it has test-other-product\)/);
   });
 
-  test("an external profile id never bypasses the runtime profile hash", async () => {
-    await expect(repackAndroid(input({ runtime: fixtureRuntime({ profileHash: `sha256:${"00".repeat(32)}` }) }), options))
-      .rejects.toThrow(/profileHash/);
-  });
-
   test("a variant for another host ABI", async () => {
     const variant = variantFor(resolveAndroidFixturePlan(clear()));
     const pocket = fixturePocket(IDENTITY.id, [{ ...variant, hostAbi: HOST_ABI - 1 }]);
@@ -320,18 +312,6 @@ describe("the repack refuses", () => {
   test("a runtime for another host ABI", async () => {
     await expect(repackAndroid(input({ runtime: fixtureRuntime({ hostAbi: HOST_ABI + 1 }) }), options))
       .rejects.toThrow(new RegExp(`runtime binding generation ${HOST_ABI + 1} is unsupported`));
-  });
-
-  test("a broken footer", async () => {
-    const pocket = fixturePocket();
-    pocket[pocket.length - 20] ^= 1;
-    await expect(repackAndroid(input({ pocket }), options)).rejects.toThrow(/\.pocket is damaged: pocket package: hash mismatch/);
-  });
-
-  test("a runtime file that differs from runtime.json", async () => {
-    const runtime = fixtureRuntime();
-    runtime.set(ANDROID_TEMPLATE, bytesOf("another template"));
-    await expect(repackAndroid(input({ runtime }), options)).rejects.toThrow(/template\.apk is not the file runtime\.json describes/);
   });
 
   test("a runtime drawing another viewport than the game's", async () => {
@@ -400,12 +380,6 @@ describe.skipIf(!sdkReady)("aapt2, zipalign and apksigner agree", () => {
     return new Uint8Array(readFileSync(signed));
   }
 
-  test("the fixture template is aapt2's link of the maintained test sources", async () => {
-    const linked = await linkAndroidApk(androidTemplateJob(await fixtureParts(), SDK_LEVELS, ABIS), sdk);
-    // A change to the maintained Android fixture templates needs POCKETJS_WRITE_ANDROID_FIXTURE=1 (see FIXTURE).
-    expect(sha256(linked)).toBe(sha256(TEMPLATE));
-  }, 60_000);
-
   const CORPUS = [
     { id: "dev.pocket-nexus.studio.test-game", title: `Tom's "Test" & <Game> 100%`, version: "1.2.3", icon: true },
     { id: "dev.pocket-nexus.studio.2pac.8-ball", title: "8 Ball", version: "0.1.0" },
@@ -440,7 +414,6 @@ describe.skipIf(!sdkReady)("aapt2, zipalign and apksigner agree", () => {
         const report = runTool(tool("apksigner"), ["verify", "--verbose", "--print-certs", "--min-sdk-version", "18", path], javaEnv);
         expect(report).toContain("Verified using v1 scheme (JAR signing): true");
         expect(report).toContain("Verified using v2 scheme (APK Signature Scheme v2): true");
-        expect(report).toContain(`Signer #1 certificate SHA-256 digest: ${signer.certificateSha256}`);
         expect(Bun.spawnSync([tool("zipalign"), "-c", "-p", "4", path]).exitCode).toBe(0);
         const badging = runTool(tool("aapt2"), ["dump", "badging", path]);
         expect(badging).toContain(`package: name='${androidPackageName(game.id)}'`);

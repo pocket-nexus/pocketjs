@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { bakeFontArchive } from "../framework/compiler/font-archive.ts";
-import { archiveProvider } from "./helpers/font-archive-provider.ts";
-import { bootWorld, treeHasText, fnv1a } from "../programs/sim/sim.ts";
 import { BTN } from "../contracts/spec/spec.ts";
+import { bakeFontArchive } from "../framework/compiler/font-archive.ts";
 import { unpack } from "../framework/compiler/pak.ts";
+import { bootWorld, treeHasText } from "../programs/sim/sim.ts";
+import { archiveProvider } from "./helpers/font-archive-provider.ts";
 
 const chapter = Array.from({ length: 190 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
 const other = Array.from({ length: 60 }, (_, i) => String.fromCodePoint(0x4ec0 + i)).join("");
@@ -38,7 +38,7 @@ test("Text reveals complete runtime content with fallback, pause, cancellation, 
     }
     return count;
   }
-  const bodyHash = (pixels: Uint8Array) => fnv1a(pixels.subarray(50 * 480 * 4, 202 * 480 * 4));
+  const bodyPixels = (pixels: Uint8Array) => pixels.slice(50 * 480 * 4, 202 * 480 * 4);
   // Navigate while the initial common-set file read has no provider reply yet.
   step();
   for (const mask of [BTN.RTRIGGER, 0, BTN.LTRIGGER, 0]) { world.frame(mask); world.tick(); world.render(); }
@@ -55,8 +55,8 @@ test("Text reveals complete runtime content with fallback, pause, cancellation, 
   expect(has("CHAPTER 1 | PENDING")).toBe(true); expect(hasNode("TextSkeleton")).toBe(true);
   expect(has("Loading whole text")).toBe(false); expect(hasNode("PreparedContent")).toBe(false);
   expect(contentInk(step())).toBe(0);
-  const earlySkeleton = bodyHash(step());
-  advance(25); expect(bodyHash(step())).not.toBe(earlySkeleton);
+  const earlySkeleton = bodyPixels(step());
+  advance(25); expect(bodyPixels(step())).not.toEqual(earlySkeleton);
   advance(220); expect(contentInk(step())).toBe(0); // no timeout reveals partial content
   expect(has("I/O PAUSED")).toBe(true);
   press(BTN.CIRCLE);

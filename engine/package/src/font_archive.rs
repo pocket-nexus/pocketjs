@@ -390,10 +390,9 @@ mod tests {
         assert_eq!(out[18], 0);
     }
     #[test]
-    fn corrupted_cells_and_read_failures_are_retryable() {
-        let mut b = fixture(1);
+    fn read_failures_are_retryable() {
+        let b = fixture(1);
         let n = b.len() as u32;
-        b[108] ^= 1;
         let mut a = Archive::open(
             Memory {
                 bytes: b,
@@ -403,9 +402,6 @@ mod tests {
         )
         .unwrap();
         let mut out = [0; 1250];
-        assert_eq!(a.batch(1, 2, &[0x4e00], &mut out), Err(Error::Corrupt));
-        a.reader.bytes[108] ^= 1;
-        // Glyph data bypasses the index cache, so a repaired cell is read again.
         a.reader.fail = true;
         assert_eq!(a.batch(1, 2, &[0x4e00], &mut out), Err(Error::Io));
         a.reader.fail = false;

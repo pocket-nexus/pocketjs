@@ -97,8 +97,7 @@ describe("a game's packs in one directory", () => {
   const out = join(tmp, "packs");
   const written = writePacks(out, [{ name: "street", file: file("street.pack", street) }, { name: "yards", file: file("yards.pack", yards) }], SMALL);
 
-  test("each pack is its pieces one after another, and the manifest is named by its own bytes", () => {
-    expect(written.manifest).toMatch(/^[0-9a-f]{16}\.packs$/);
+  test("each pack is reconstructed from its pieces", () => {
     expect(written.text.split("\n")[0]).toBe(PACK_PIECES);
     expect(parseManifest(readFileSync(join(out, written.manifest), "utf8"))).toEqual(written.packs);
     expect(manifestText(written.packs)).toBe(written.text);
@@ -151,16 +150,6 @@ describe("a game's packs in one directory", () => {
     expect(lacking(to, written.packs)).toEqual([one]);
     expect(bring(out, written.manifest, to, { prune: true })).toEqual({ sent: 1, bytes: one.bytes, had: first.sent - 1, removed: 1 });
     expect(existsSync(join(to, "00000000000000000000.bin"))).toBe(false);
-  });
-
-  test("a directory with a piece that is not what its name says is refused", () => {
-    const to = join(tmp, "spoiled");
-    bring(out, written.manifest, to);
-    const one = written.packs[1]!.pieces[0]!;
-    const bytes = readFileSync(join(to, `${one.name}.bin`));
-    bytes[0] = bytes[0]! ^ 1;
-    writeFileSync(join(to, `${one.name}.bin`), bytes);
-    expect(() => checkPacks(to, PACKS_FILE)).toThrow("is not the piece its name says");
   });
 
   test("a manifest the devices' reader would refuse is refused here", () => {

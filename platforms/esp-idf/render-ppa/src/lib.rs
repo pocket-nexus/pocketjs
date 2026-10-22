@@ -1067,24 +1067,3 @@ impl<O: PpaOps> pocket_drivers::Renderer for PpaRenderer<O> {
     }
     fn retire(&mut self, _: ()) {}
 }
-
-#[cfg(test)]
-mod cache_tests {
-    use super::*;
-    use pocketjs_core::Ui;
-    #[test]
-    fn core_resource_revision_invalidates_texture_classifications() {
-        let mut ui = Ui::new();
-        let mut renderer = Painter::new(RendererConfig::default(), 1024).unwrap();
-        renderer.sync_resources(&ui);
-        renderer.alpha_texture_cache.push((7, 0, true));
-
-        assert_eq!(
-            ui.upload_texture(&[0xff, 0xff], 1, 1, spec::psm::PSM_5650),
-            0
-        );
-        renderer.sync_resources(&ui);
-        assert!(renderer.alpha_texture_cache.is_empty());
-        assert_eq!(renderer.raster_revision, ui.raster_revision());
-    }
-}

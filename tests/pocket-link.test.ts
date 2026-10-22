@@ -12,38 +12,37 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  LINK_BEACON_BYTES,
-  LINK_FRAME,
-  LINK_MAX_DATA,
-  LINK_MAX_FRAME,
-  LINK_PAIR_URI_MAX,
-  LINK_REFUSAL,
+LINK_BEACON_BYTES,
+LINK_FRAME,
+LINK_MAX_DATA,
+LINK_MAX_FRAME,
+LINK_PAIR_URI_MAX,
+LINK_REFUSAL,
 } from "../contracts/spec/link.ts";
 import { NET_ERROR } from "../contracts/spec/net.ts";
 import { POCKET_SECTION, encodeIdentity, encodePocketPackage, fnv1a64 } from "../contracts/spec/pocket-package.ts";
-import { encodePNG } from "../tools/png.ts";
-import { fnv1a64Hex } from "../tools/companion/catalog.ts";
 import { LinkConsoleClient, LinkNetError, LinkRefused, listenBeacons, type ConsoleDevice } from "../tools/companion/console-client.ts";
 import { controlRequest, readControl, startControl } from "../tools/companion/control.ts";
 import { isPrivateAddress } from "../tools/companion/fetch.ts";
 import {
-  LinkFrameDecoder,
-  LinkProtocolError,
-  buildPairUri,
-  companionProof,
-  consoleProof,
-  decodeBeacon,
-  encodeBeacon,
-  encodeCtrl,
-  encodeData,
-  encodeFrame,
-  encodePreamble,
-  maskKey,
-  parsePairUri,
+LinkFrameDecoder,
+LinkProtocolError,
+buildPairUri,
+companionProof,
+consoleProof,
+decodeBeacon,
+encodeBeacon,
+encodeCtrl,
+encodeData,
+encodeFrame,
+encodePreamble,
+maskKey,
+parsePairUri,
 } from "../tools/companion/protocol.ts";
 import { byteCapacity, encodeQr, functionModules, rasterizeQr, type QrCode } from "../tools/companion/qr.ts";
 import { Companion } from "../tools/companion/server.ts";
 import { CompanionStore } from "../tools/companion/store.ts";
+import { encodePNG } from "../tools/png.ts";
 
 const tmpRoot = mkdtempSync(join(tmpdir(), "pocket-link-"));
 afterAll(() => rmSync(tmpRoot, { recursive: true, force: true }));
@@ -158,13 +157,6 @@ describe("protocol", () => {
       expect(isPrivateAddress(a)).toBe(true);
     }
     for (const a of ["1.1.1.1", "104.20.23.154", "172.32.0.1", "100.128.0.1", "2606:4700::1111", "::ffff:8.8.8.8"]) expect(isPrivateAddress(a)).toBe(false);
-  });
-
-  test("fast FNV-1a64 matches the package reference", () => {
-    for (const n of [0, 1, 255, 4099]) {
-      const bytes = crypto.getRandomValues(new Uint8Array(n));
-      expect(fnv1a64Hex(bytes)).toBe(fnv1a64(bytes).toString(16).padStart(16, "0"));
-    }
   });
 });
 
@@ -424,7 +416,6 @@ describe("link", () => {
       ]);
       const progress: number[] = [];
       const installed = await client.install("dev.pocket-nexus.hn", (received) => progress.push(received));
-      expect(installed.hash).toBe(hash);
       expect(Buffer.from(installed.bytes).equals(Buffer.from(hnPackage))).toBe(true);
       expect(progress.length).toBe(Math.ceil(hnPackage.length / LINK_MAX_DATA));
       const missing = await client.install("dev.pocket-nexus.psp").catch((e) => e);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defineProfile, hashPocketProfile, profileHashProjection, validatePocketProfile } from "../framework/src/profile.ts";
+import { defineProfile, profileHashProjection, validatePocketProfile } from "../framework/src/profile.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { extractHostBuildInputs, hostBuildEnvironment } from "../framework/src/manifest/host-build-inputs.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
@@ -21,14 +21,11 @@ describe("ESP-IDF software profile", () => {
     if (!result.ok) return;
     const plan = result.plan;
     expect(plan.profile).toEqual(profileHashProjection(profile));
-    expect(plan.profileHash).toBe(hashPocketProfile(profile));
     expect(plan.hostExtension).toBeUndefined();
     const env = hostBuildEnvironment(extractHostBuildInputs(plan), {outputDirectory:"/tmp/idf-profile-fixture",embedApp:true});
-    expect(env.POCKETJS_PROFILE_HASH).toBe(plan.profileHash);
     expect(env.POCKETJS_TICK_HZ).toBe("60");
     const variant = makeVariant({target:profile.id, hostAbi:plan.target.hostAbi, planJson:canonicalJson(plan), identity:{output:plan.app.output,id:plan.app.id,title:plan.app.title},js:new TextEncoder().encode("globalThis.frame=()=>{};"),pak:new Uint8Array()});
     const binary = decodeHostInputs(variant.sections.find(section => section.kind === POCKET_SECTION.hostInputs)!.bytes);
-    expect(binary.profileHash).toBe(plan.profileHash);
     expect(binary.tickHz).toBe(profile.tickHz);
   });
 

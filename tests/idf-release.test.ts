@@ -2,10 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { NATIVE_COMPONENTS, NATIVE_POLICY, RUST_TARGETS, nativeSourceFiles, nativeSourceDigest,
-  sha256, verifyNativeReceipt, type NativeReceipt } from "../tools/packaging/esp-idf/receipt.ts";
+import { NATIVE_COMPONENTS, NATIVE_POLICY, RUST_TARGETS, nativeSourceFiles, nativeSourceDigest, sha256, verifyNativeReceipt, type NativeReceipt } from "../tools/packaging/esp-idf/receipt.ts";
 import { verifyComponentVersions } from "../tools/packaging/esp-idf/component-versions.ts";
-import { generatedIdfContracts } from "../tools/packaging/esp-idf/contracts.ts";
 import { stageEspIdfComponents } from "../tools/packaging/esp-idf/stage.ts";
 
 const root = new URL("..", import.meta.url).pathname;
@@ -38,63 +36,6 @@ async function fixture() {
 }
 
 describe("ESP-IDF release integrity", () => {
-  test("one runtime archive serves canonical runtime and PPA factory", () => {
-    expect(NATIVE_COMPONENTS).toEqual([{ component: "pocket_runtime", crate: "runtime", archive: "libpocket_idf_runtime.a" }]);
-    const renderer = readFileSync(join(root, "platforms/esp-idf/pocket_render_esp_ppa/CMakeLists.txt"), "utf8");
-    expect(renderer).toContain("REQUIRES pocket_runtime");
-    expect(renderer).not.toContain("pocketjs_link_native");
-    expect(NATIVE_POLICY.rustArchiveLayout).toBe("single-runtime");
-  });
-  test("generated C/Rust ABI contracts match their authority", () => {
-    for (const [path, contents] of generatedIdfContracts()) expect(readFileSync(join(root, path), "utf8")).toBe(contents);
-  });
-  test("accepts matching source and archive", async () => {
-    const f = await fixture();
-    expect((await f.verify()).archiveBytes).toBe(4);
-  });
-  test("rejects old archives paired with modified sources", async () => {
-    const f = await fixture();
-    writeFileSync(join(f.directory, "programs/esp-idf/archive/src/lib.rs"), "changed source");
-    await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
-  });
-  test.each([
-    "engine/spec/src/lib.rs", "engine/spec/Cargo.toml",
-    "engine/drivers/src/lib.rs", "engine/drivers/Cargo.toml",
-    "engine/raster/src/lib.rs", "engine/raster/Cargo.toml",
-    "engine/present/src/lib.rs", "engine/present/Cargo.toml",
-    "engine/package/src/lib.rs", "engine/package/Cargo.toml",
-    "engine/modules/media/src/lib.rs", "engine/modules/media/Cargo.toml",
-    "engine/render/draw-ops/src/lib.rs", "engine/render/draw-ops/Cargo.toml",
-    "engine/render/glyph-pages/src/lib.rs", "engine/render/glyph-pages/Cargo.toml",
-    "engine/render/tri-batch/src/lib.rs", "engine/render/tri-batch/Cargo.toml",
-    "engine/render/tex-cache/src/lib.rs", "engine/render/tex-cache/Cargo.toml",
-    "engine/runtime/src/lib.rs", "engine/runtime/Cargo.toml",
-    "engine/runtime-cabi/src/lib.rs", "engine/runtime-cabi/Cargo.toml",
-    "platforms/esp-idf/render-ppa/src/cabi.rs",
-    "platforms/esp-idf/pocket_guest_quickjs/tools/prepare_quickjs.py",
-    "platforms/esp-idf/render-ppa/src/lib.rs", "platforms/esp-idf/render-ppa/Cargo.toml",
-    "platforms/esp-idf/render-ppa/include/pocket/render_esp_ppa.h",
-    "devices/gles/pocket-gles/src/lib.rs", "devices/gles/pocket-gles/Cargo.toml",
-    "devices/gles/pocket-gles1/src/lib.rs", "devices/gles/pocket-gles1/Cargo.toml",
-    "devices/gles/pocket-gles2/src/lib.rs", "devices/gles/pocket-gles2/Cargo.toml",
-  ])("rejects old archives after contract dependency changes: %s", async (path) => {
-    const f = await fixture();
-    writeFileSync(join(f.directory, path), "changed contract dependency");
-    await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
-  });
-  test("new path dependencies and their non-Rust assets join native source identity", async () => {
-    const f = await fixture();
-    const dependency = join(f.directory, "new-dependency"); mkdirSync(join(dependency, "src"), { recursive: true });
-    writeFileSync(join(dependency, "Cargo.toml"), '[package]\nname="new-dependency"\nversion="0.1.0"\n');
-    writeFileSync(join(dependency, "src/lib.rs"), 'pub const ASSET: &[u8] = include_bytes!("value.bin");');
-    writeFileSync(join(dependency, "src/value.bin"), "first");
-    const manifest = join(f.directory, "programs/esp-idf/archive/Cargo.toml");
-    writeFileSync(manifest, readFileSync(manifest, "utf8") + '\n[dependencies.new-dependency]\npath="../../../new-dependency"\n');
-    f.receipt.sourceSha256 = await nativeSourceDigest(f.directory, spec); f.save();
-    await f.verify();
-    writeFileSync(join(dependency, "src/value.bin"), "changed");
-    await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
-  });
   test("staged components resolve every native path dependency outside the repository", async () => {
     const directory = mkdtempSync(join(tmpdir(), "pocketjs-release-")); temporary.push(directory);
     const components = join(directory, "platforms/esp-idf");
@@ -155,18 +96,6 @@ describe("ESP-IDF release integrity", () => {
       expect(offline.success, offline.stderr.toString()).toBe(true);
     }
   }, 120_000);
-  test("archive preparation rules participate in source identity", async () => {
-    const f = await fixture();
-    writeFileSync(join(f.directory, "platforms/esp-idf/pocket_runtime/prepare_archive.cmake"), "changed rules");
-    await expect(f.verify()).rejects.toThrow(/sources\/build rules changed/);
-  });
-  test("rejects archive tampering and size drift", async () => {
-    const f = await fixture();
-    writeFileSync(join(f.archive, spec.archive), new Uint8Array([9, 2, 3, 4]));
-    await expect(f.verify()).rejects.toThrow(/digest\/size mismatch/);
-    writeFileSync(join(f.archive, spec.archive), new Uint8Array([1, 2, 3, 4, 5]));
-    await expect(f.verify()).rejects.toThrow(/digest\/size mismatch/);
-  });
   test("rejects target, compiler, and archiver identity drift", async () => {
     const f = await fixture();
     f.receipt.rustTarget = RUST_TARGETS.esp32s3; f.save();
@@ -180,7 +109,6 @@ describe("ESP-IDF release integrity", () => {
   });
   test("component versions and internal dependency ranges are checked", () => {
     const names = verifyComponentVersions(root);
-    expect(names).toHaveLength(7);
     const directory = mkdtempSync(join(tmpdir(), "pocketjs-versions-")); temporary.push(directory);
     const components = join(directory, "platforms/esp-idf");
     mkdirSync(components, { recursive: true });

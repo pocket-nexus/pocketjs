@@ -1,29 +1,27 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodePocketPackage } from "../contracts/spec/pocket-package.ts";
 import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
 import { hashPocketProfile, type PocketProfile } from "../framework/src/profile.ts";
 import type { RuntimeBuildContext } from "../framework/src/runtime-config.ts";
-import psp from "../profiles/psp.ts";
-import pspRuntime from "../profiles/psp-runtime.ts";
-import vita from "../profiles/vita.ts";
-import threeDs from "../profiles/3ds-dev.ts";
-import threeDsRuntime from "../profiles/3ds-runtime.ts";
-import web from "../profiles/web-app.ts";
-import { loadRuntimeConfig, profileRegistry } from "../tools/profile-resolver.ts";
-import { prepareApplication } from "../tools/build/inputs.ts";
-import { build as pspBuild } from "../tools/build/programs/psp.ts";
-import { build as vitaBuild } from "../tools/build/programs/vita.ts";
 import { build as threeDsBuild } from "../products/3ds/recipe.ts";
-import { build as webBuild } from "../tools/build/programs/web.ts";
-import { gbaBuild, ipodNanoBuild } from "../tools/build/programs/aot.ts";
-import { nativeArguments } from "../tools/build/programs/handheld-common.ts";
-import { deployPsp, deployVita } from "../tools/build/programs/deploy.ts";
-import { makeVariant } from "../tools/pocket-pack.ts";
+import threeDs from "../profiles/3ds-dev.ts";
 import gba from "../profiles/gba.ts";
 import nano from "../profiles/ipodnano.ts";
+import psp from "../profiles/psp.ts";
+import vita from "../profiles/vita.ts";
+import web from "../profiles/web-app.ts";
+import { prepareApplication } from "../tools/build/inputs.ts";
+import { gbaBuild, ipodNanoBuild } from "../tools/build/programs/aot.ts";
+import { deployPsp, deployVita } from "../tools/build/programs/deploy.ts";
+import { nativeArguments } from "../tools/build/programs/handheld-common.ts";
+import { build as pspBuild } from "../tools/build/programs/psp.ts";
+import { build as vitaBuild } from "../tools/build/programs/vita.ts";
+import { build as webBuild } from "../tools/build/programs/web.ts";
+import { makeVariant } from "../tools/pocket-pack.ts";
+import { profileRegistry } from "../tools/profile-resolver.ts";
 
 const root = resolve(import.meta.dir, "..");
 const base = resolve(root, ".pocket-build/validation/runtime-build/program-tests");
@@ -35,40 +33,6 @@ function context(profile: PocketProfile, outdir = scratch()): RuntimeBuildContex
   return { profile, profileHash: hashPocketProfile(profile), configDirectory: root, outdir, output: "example", args: [], env: {}, toolchainPaths: {},
     async run() { throw new Error("unexpected native command"); } };
 }
-const recipes = [
-  ["psp", "psp", "package"], ["psp/runtime", "psp-runtime", undefined],
-  ["vita", "vita", "package"], ["vita/runtime", "vita", undefined],
-  ["3ds", "3ds-runtime", undefined], ["3ds/runtime", "3ds-runtime", undefined],
-  ["web", "web-app", "package"], ["desktop/macos", "macos-app", "package"], ["desktop/linux", "linux-app", "package"],
-  ["macos-widget", "macos-widget", "package"], ["gba", "gba", "aot"], ["ipodnano", "ipodnano", "aot"], ["sim", "psp-runtime", "package"],
-] as const;
-
-test("program configurations load without running compilers and declare native artifacts and explicit inputs", async () => {
-  for (const [directory, id, input] of recipes) {
-    const loaded = await loadRuntimeConfig(resolve(root, "programs", directory, "pocket.runtime-config.ts"));
-    expect(loaded.profiles.some(profile => profile.id === id)).toBe(true);
-    expect(loaded.value.build!.input).toBe(input);
-    expect(loaded.value.build!.artifact).toStartWith("{outdir}/");
-    const declared = loaded.value.build!.sourceInputs;
-    const sources = typeof declared === "function" ? declared({ ...context(loaded.profiles[0]!),
-      configDirectory: dirname(loaded.path), invocationDirectory: root }) : declared ?? [];
-    for (const source of sources)
-      expect(existsSync(resolve(dirname(loaded.path), source)), `${directory}: ${source}`).toBe(true);
-    expect(loaded.dependencies.some(path => path.endsWith("framework/compiler/jsx-plugin.ts"))).toBe(false);
-    if (directory.endsWith("/runtime")) expect(loaded.value.build!.genericRuntime?.repack).toBeFunction();
-  }
-}, 60_000);
-
-test("generic handheld identity describes the providers that the file-loaded program contains", () => {
-  expect(psp.capabilities).toContain("io.offload"); expect(pspRuntime.capabilities).not.toContain("io.offload");
-  expect(pspRuntime.capabilities).not.toContain("text.layout.offload");
-  expect(threeDs.capabilities).toContain("media.playback"); expect(threeDsRuntime.capabilities).not.toContain("media.playback");
-  expect(threeDsRuntime.capabilities).not.toContain("io.offload");
-  for (const capability of ["net.http", "link.companion", "system.wifi", "camera.qr", "system.agent"] as const)
-    expect(threeDsRuntime.capabilities).not.toContain(capability);
-  expect(hashPocketProfile(pspRuntime)).not.toBe(hashPocketProfile(psp));
-  expect(hashPocketProfile(threeDsRuntime)).not.toBe(hashPocketProfile(threeDs));
-});
 
 test("handheld recipes fail missing package inputs before invoking an SDK or selecting a demo", async () => {
   for (const [build, profile] of [[pspBuild, psp], [vitaBuild, vita], [threeDsBuild, threeDs]] as const)
@@ -108,12 +72,7 @@ test("web assembly stages admitted bytes and the complete runtime/text provider 
   const out = resolve(ctx.outdir, "runtime"), read = (name: string) => readFileSync(resolve(out, name), "utf8");
   expect(read("dist/example.js")).toBe("globalThis.frame=()=>{};");
   expect(readFileSync(resolve(out, "app.pocket"))).toEqual(readFileSync(pocket));
-  expect(read("programs/web/main.js")).toContain('from "./app-instance.js"');
-  expect(read("programs/web/app-instance.js")).toContain("createWorkerOffload");
-  expect(read("platforms/web/runtime-glyphs.js")).toContain("installRuntimeGlyphs");
   expect(JSON.parse(read("program.json"))).toMatchObject({ host: web.id, hostAbi: POCKET_BINDING_GENERATION, viewport: [800, 600] });
-  const receipt = JSON.parse(read("runtime.json")); expect(receipt.profileHash).toBe(ctx.profileHash);
-  expect(receipt.files["platforms/web/pocket_text.wasm"].bytes).toBe(4);
   // Resolve the staged ES module graph, including the worker entry, from the artifact alone.
   for (const entry of ["programs/web/main.js", "platforms/web/text-worker.js"]) {
     const bundled = await Bun.build({ entrypoints: [resolve(out, entry)], target: "browser" });

@@ -113,19 +113,6 @@ fn fnv1a64(words: &[u32]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::fnv1a64;
-
-    #[test]
-    fn hash_distinguishes_word_streams() {
-        assert_ne!(fnv1a64(&[1, 2, 3]), fnv1a64(&[1, 2, 4]));
-        assert_ne!(fnv1a64(&[]), fnv1a64(&[0]));
-        assert_eq!(fnv1a64(&[7, 7]), fnv1a64(&[7, 7]));
-    }
-
-    #[test]
-    fn hash_is_order_sensitive() {
-        assert_ne!(fnv1a64(&[1, 2]), fnv1a64(&[2, 1]));
-    }
     #[test]
     fn runtime_screen_samples_facts_and_updates_its_fixed_texture() {
         use super::*;

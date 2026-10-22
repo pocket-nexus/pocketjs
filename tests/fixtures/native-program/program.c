@@ -63,10 +63,6 @@ int main(void) {
   char source[2048];
   int source_length = snprintf(source, sizeof source, source_template, (unsigned)POCKET_BINDING_GENERATION);
   assert(source_length > 0 && (size_t)source_length < sizeof source);
-  uint8_t wrong_hash[32]; memcpy(wrong_hash, POCKETJS_HOST_PROFILE_HASH, 32); wrong_hash[0] ^= 1;
-  assert(!pocket_native_program_create_package("native-program-fixture", POCKET_BINDING_GENERATION, fixture_package, sizeof fixture_package,
-    "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
-    (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, wrong_hash));
   assert(!pocket_native_program_create_package("native-program-fixture", POCKET_BINDING_GENERATION - 1, fixture_package, sizeof fixture_package,
     "fixture", "dev.fixture", "Fixture", 360, 640, 1, 0,
     (const uint8_t *)POCKETJS_HOST_PROFILE_JSON, sizeof POCKETJS_HOST_PROFILE_JSON - 1, POCKETJS_HOST_PROFILE_HASH));

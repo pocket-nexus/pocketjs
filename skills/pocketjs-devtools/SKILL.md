@@ -28,7 +28,6 @@ bun run tape replay hero-main .pocket-build/validation/devtools/t.json --hashes 
 bun run tape replay hero-main .pocket-build/validation/devtools/t.json --assert .pocket-build/validation/devtools/h.json --outdir .pocket-build/validation/devtools
 bun run tape replay hero-main .pocket-build/validation/devtools/t.json --png 60,120 --outdir .pocket-build/validation/devtools
 bun run tape tree   hero-main .pocket-build/validation/devtools/t.json --at 60
-bun run tape:check                                       # committed session golden
 ```
 
 - Input masks are contracts/spec/spec.ts `BTN` values (`CIRCLE=0x2000=8192`, `DOWN=0x40=64`).

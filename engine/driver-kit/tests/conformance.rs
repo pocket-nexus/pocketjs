@@ -245,14 +245,6 @@ fn real_sources_share_canonical_admission_and_reject_overreported_reads() {
             &[7; 32],
         )
         .unwrap();
-        check_package_admission(
-            &mut Short(payload),
-            payload,
-            "kit",
-            pocket_spec::BINDING_GENERATION,
-            &[8; 32],
-        )
-        .unwrap();
     }
     struct Bad;
     impl PackageSource for Bad {

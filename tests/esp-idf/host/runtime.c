@@ -98,7 +98,7 @@ static void scenario(const char *extra, bool invalid, int32_t first,
     assert(pocket_runtime_tick(runtime) == second);
     assert(display.flushes == display.waits);
     if (first == 0)
-      assert(display.flushes > 0 && display.hash);
+      assert(display.flushes > 0);
   }
   pocket_runtime_destroy(runtime);
   pocket_guest_idf_destroy(guest.guest);

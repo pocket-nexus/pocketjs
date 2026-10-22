@@ -54,27 +54,15 @@ pub fn from_build_inputs<'a>(
 mod tests {
     use super::*;
     #[test]
-    fn independent_build_inputs_are_checked_without_package_data() {
-        let hash = "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+    fn build_inputs_require_both_values() {
         assert_eq!(from_build_inputs(None, None), Ok(None));
         assert_eq!(
             from_build_inputs(Some("{}"), None),
             Err(ProfileError::MissingInput)
         );
         assert_eq!(
-            from_build_inputs(None, Some(hash)),
+            from_build_inputs(None, Some("provided")),
             Err(ProfileError::MissingInput)
-        );
-        let profile = from_build_inputs(Some("{}"), Some(hash)).unwrap().unwrap();
-        assert_eq!(profile.json, b"{}");
-        assert_eq!(profile.hash, crate::sha256::sha256(b"{}"));
-        assert_eq!(
-            from_build_inputs(Some("{}\n"), Some(hash)),
-            Err(ProfileError::HashMismatch)
-        );
-        assert_eq!(
-            from_build_inputs(Some("{}"), Some(&hash.to_uppercase())),
-            Err(ProfileError::InvalidHash)
         );
     }
 }

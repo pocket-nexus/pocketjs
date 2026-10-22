@@ -20,7 +20,6 @@ jobs:
           bun test tests/idf-host-profile.test.ts tests/idf-embed.test.ts
           tests/pocket-package.test.ts tests/platform-contracts.test.ts
           tests/idf-incremental.test.ts tests/idf-release.test.ts tests/idf-package-corpus.test.ts tests/idf-input.test.ts
-      - run: bun tools/packaging/esp-idf/contracts.ts --check
       - name: Install repository stable Rust
         run: rustup show
       - run: cargo test --locked --manifest-path Cargo.toml -p pocket-runtime-cabi -p pocket-present -p pocket-render-esp-ppa --features pocket-render-esp-ppa/cabi

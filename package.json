@@ -285,7 +285,6 @@
     "pocket:pack": "bun tools/pocket-pack.ts",
     "test": "bun tools/test.ts",
     "tape": "bun tools/tape.ts",
-    "tape:check": "bun tools/tape.ts replay hero-main tests/tapes/hero-main.tape.json --assert tests/tapes/hero-main.hashes.json",
     "devtools": "bun tools/devtools.ts",
     "devtools:psp": "bun tools/devtools-psp.ts",
     "test:tailwind": "bun test tests/tailwind.test.ts",

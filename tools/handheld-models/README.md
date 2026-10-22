@@ -56,7 +56,7 @@ until a guest tick has consumed the press; hidden previews stop their clocks.
 
 ```sh
 bun run site:build
-bun test tests/handheld-models.test.ts tests/site-stage.test.ts
+bun test tests/handheld-models.test.ts
 bun site/preview.ts --no-build --port=4173
 # In another terminal:
 bun site/verify-handhelds.ts http://127.0.0.1:4173/

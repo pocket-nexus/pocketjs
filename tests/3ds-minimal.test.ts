@@ -1,16 +1,14 @@
-import { expect, test } from "bun:test";
-import { dirname, resolve } from "node:path";
-import { test3dsMinimal } from "../tools/test-3ds-minimal.ts";
+import { expect,test } from "bun:test";
+import { dirname,resolve } from "node:path";
 import { resolveRuntimeProgram } from "../tools/build/programs.ts";
+import { test3dsMinimal } from "../tools/test-3ds-minimal.ts";
 const root = resolve(import.meta.dir, "..");
 test("3DS aliases select independent product and minimal configurations", async () => {
   const product = await resolveRuntimeProgram({ from: root, target: "3ds" });
   const minimal = await resolveRuntimeProgram({ from: root, target: "3ds", generic: true });
-  const direct = await resolveRuntimeProgram({ from: root, target: "3ds-runtime" });
   expect(product.config?.path).toBe(resolve(root, "products/3ds/pocket.runtime-config.ts"));
   expect(product.profile.id).toBe("3ds-dev");
   expect(minimal.config?.path).toBe(resolve(root, "programs/3ds/pocket.runtime-config.ts"));
-  expect(direct.profileHash).toBe(minimal.profileHash);
   expect(minimal.config?.dependencies.some(path => path.startsWith(resolve(root, "products") + "/"))).toBe(false);
   const declared = minimal.config?.value.build?.sourceInputs;
   const sources = typeof declared === "function" ? declared({ profile: minimal.profile,

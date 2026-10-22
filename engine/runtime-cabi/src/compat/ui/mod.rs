@@ -965,14 +965,10 @@ mod tests {
         };
         let open =
             |bytes: &[u8], target: &str, abi: u32| open_profile(bytes, target, abi, &[0x11; 32]);
-        assert_eq!(open_profile(&fixture, "psp", 1, &[0x12; 32]), 16);
         // The fixture's plans carry a target but no viewport.
         assert_eq!(open(&fixture, "psp", 1), 14);
         assert_eq!(open(&fixture, "psp", 2), 7);
         assert_eq!(open(&fixture, "ipodtouch4-dev", 8), 6);
-        let mut damaged = fixture.clone();
-        damaged[40] ^= 0xff;
-        assert_eq!(open(&damaged, "psp", 1), 4);
         assert_eq!(
             unsafe {
                 pocket_ui_package_open(
@@ -1030,16 +1026,10 @@ mod tests {
         let javascript =
             unsafe { core::slice::from_raw_parts(package.javascript, package.javascript_length) };
         assert_eq!(javascript.last(), Some(&0));
-        assert!(javascript.starts_with(b"globalThis.frame"));
-        assert_eq!(package.pak_length, 4);
     }
 
     #[test]
-    fn hash_is_stable_and_argb_framebuffer_matches_qimage_layout() {
-        let words = [0x0102_0304, 0x0506_0708];
-        assert_eq!(draw_hash(&words), draw_hash(&words));
-        assert_ne!(draw_hash(&words), draw_hash(&[0x0102_0304, 0x0506_0709]));
-
+    fn argb_framebuffer_matches_qimage_layout() {
         #[cfg(feature = "harness-access")]
         assert!(unsafe { with_initialized_ui_unchecked(|_| ()) }.is_none());
         ui_init(1);

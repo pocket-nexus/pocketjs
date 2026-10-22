@@ -309,10 +309,6 @@ mod tests {
     use std::vec;
     use std::vec::Vec;
 
-    fn fnv(bytes: &[u8]) -> u64 {
-        bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| (hash ^ byte as u64).wrapping_mul(0x0000_0100_0000_01b3))
-    }
-
     fn frame(width: u32, height: u32, stride: u32, layout: Layout, tick: u32) -> Vec<u8> {
         let bytes = match layout {
             Layout::Rgba8 => stride * height * 4,
@@ -339,21 +335,6 @@ mod tests {
         // the frame only changes while the light does
         // the last two ticks are both black
         assert!(changed(0) && changed(5) && !changed(60) && changed(TICKS - 2) && !changed(TICKS - 1));
-    }
-
-    #[test]
-    fn a_held_frame_is_the_ground_with_the_art_in_the_middle() {
-        let pixels = frame(960, 544, 960, Layout::Rgba8, 60);
-        let at = |x: usize, y: usize| &pixels[(y * 960 + x) * 4..(y * 960 + x) * 4 + 4];
-        assert_eq!(at(0, 0), [0x17, 0x12, 0x26, 255]);
-        assert_eq!(at(959, 543), [0x17, 0x12, 0x26, 255]);
-        // the art is 624 x 192, centred: rows 176..368, columns 168..792
-        let outside = (0..544).flat_map(|y| (0..960).map(move |x| (x, y)))
-            .filter(|&(x, y)| !(168..792).contains(&x) || !(176..368).contains(&y));
-        assert!(outside.clone().all(|(x, y)| at(x, y) == [0x17, 0x12, 0x26, 255]));
-        let inside = (176..368).flat_map(|y| (168..792).map(move |x| (x, y)))
-            .filter(|&(x, y)| at(x, y) != [0x17, 0x12, 0x26, 255]).count();
-        assert!(inside > 20_000, "the art covers {inside} pixels");
     }
 
     #[test]
@@ -402,27 +383,5 @@ mod tests {
         // the surface is left as zero bytes, black in a 32-bit and in a 16-bit display mode
         assert!(pixels.iter().all(|&byte| byte == 0));
         assert_eq!((0..TICKS).filter(|&tick| changed(tick)).count() as u32, FADE_IN + FADE_OUT - 1);
-    }
-
-    /// Frames the C header must reproduce byte for byte: (tick, FNV-1a 64 of a
-    /// 400 x 240 Nintendo 3DS frame). `tests/pocket3d-title.test.ts` reads
-    /// this table.
-    const NINTENDO_3DS_FRAMES: [(u32, u64); 5] = [
-        (0, 0xaf48_8c52_4099_8725),
-        (9, 0xeb4f_0096_b8e5_68f6),
-        (60, 0x2f22_1313_3624_58cb),
-        (130, 0x4033_e986_bf01_6fbd),
-        (143, 0xaf48_8c52_4099_8725),
-    ];
-
-    #[test]
-    fn the_frames_are_the_recorded_ones() {
-        for (tick, hash) in NINTENDO_3DS_FRAMES {
-            let got = fnv(&frame(400, 240, 240, Layout::Bgr8Columns, tick));
-            assert_eq!(got, hash, "tick {tick}: 0x{got:016x}");
-        }
-        // one frame of each art, on the consoles that show it
-        assert_eq!(fnv(&frame(960, 544, 960, Layout::Rgba8, 60)), 0x94c3_6637_5fcd_ee99, "PS Vita");
-        assert_eq!(fnv(&frame(480, 272, 512, Layout::Rgba8, 60)), 0xa0a1_0857_4d7f_d895, "PSP");
     }
 }

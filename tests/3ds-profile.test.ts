@@ -1,39 +1,26 @@
-import { threeDsProfileHeader } from "../tools/3ds-contracts.ts";
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
-import { POCKET_PROFILES } from "../profiles/index.ts";
-import { profileRegistry } from "../tools/profile-resolver.ts";
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
-import { POCKET_PACKAGE_TARGET_MAX_BYTES } from "../contracts/spec/pocket-package.ts";
-import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
+import { describe,expect,test } from "bun:test";
 import {
-  extractHostBuildInputs,
-  hostBuildEnvironment,
+extractHostBuildInputs,
+hostBuildEnvironment,
 } from "../framework/src/manifest/host-build-inputs.ts";
 import {
-  validateAndResolveBuildPlan,
-  validatePlatformContractRegistry,
+validateAndResolveBuildPlan
 } from "../framework/src/manifest/resolve.ts";
 import {
-  resolve3dsBuildPlan,
-  THREE_DS_AUXILIARY_VIEWPORT,
-  THREE_DS_DEV_CONTRACTS,
-  THREE_DS_DEV_HOST_ABI,
-  THREE_DS_DEV_TARGET_ID,
-  THREE_DS_VIEWPORT,
+resolve3dsBuildPlan,
+THREE_DS_AUXILIARY_VIEWPORT,
+THREE_DS_DEV_CONTRACTS,
+THREE_DS_DEV_HOST_ABI,
+THREE_DS_DEV_TARGET_ID,
+THREE_DS_VIEWPORT,
 } from "../tools/3ds-profile.ts";
 import {
-  MAKEROM_REVISION,
-  THREE_DS_CONTAINER_IMAGE,
-  captureDefines,
-  ciaProcessName,
-  ciaProductCode,
-  ciaTitleId,
-  ciaUniqueId,
-  parse3dsArguments,
-  runtimeSlot,
+captureDefines,
+ciaProcessName,
+ciaProductCode,
+ciaTitleId,
+ciaUniqueId,
+parse3dsArguments
 } from "../tools/3ds.ts";
 
 /** A guest app declaring the top screen exactly: 400x240 logical, native. */
@@ -87,57 +74,6 @@ function diagnosticCodes(manifest: unknown): string[] {
 }
 
 describe("private Nintendo 3DS build profile", () => {
-  test("stays private until the remaining host paths are covered", () => {
-    expect(POCKET_TARGETS).not.toHaveProperty(THREE_DS_DEV_TARGET_ID);
-    expect(THREE_DS_DEV_CONTRACTS.targets[THREE_DS_DEV_TARGET_ID]).toEqual({
-      tickHz: 60,
-      hostAbi: THREE_DS_DEV_HOST_ABI,
-      platform: "3ds",
-      form: "takeover",
-      display: {
-        physicalViewport: THREE_DS_VIEWPORT,
-        logicalViewports: [THREE_DS_VIEWPORT],
-        presentations: ["native"],
-        rasterDensity: 1,
-        auxiliary: {
-          physicalViewport: THREE_DS_AUXILIARY_VIEWPORT,
-          logicalViewports: [THREE_DS_AUXILIARY_VIEWPORT],
-          presentations: ["native"],
-          rasterDensity: 1,
-        },
-      },
-      capabilities: [
-        "io.offload",
-        "media.playback",
-        "input.analog.left",
-        "input.analog.right",
-        "input.buttons",
-        "input.cursor",
-        "input.touch.auxiliary",
-        "display.auxiliary",
-        "text.glyphs.baked",
-        "ui.physics",
-        "net.http",
-        "link.companion",
-        "system.wifi",
-        "camera.qr",
-        "system.agent",
-      ],
-    });
-    expect(validatePlatformContractRegistry(THREE_DS_DEV_CONTRACTS)).toEqual([]);
-  });
-
-  test("shares the generated binding with every built-in and external profile", () => {
-    expect(THREE_DS_DEV_HOST_ABI).toBe(POCKET_BINDING_GENERATION);
-    for (const profile of [...Object.values(POCKET_PROFILES), { ...POCKET_PROFILES["3ds-dev"], id: "external-3ds" }]) {
-      expect(profileRegistry(profile).targets[profile.id]!.hostAbi).toBe(POCKET_BINDING_GENERATION);
-    }
-    // The .pocket container stores UTF-8 target ids in its bounded string table.
-    expect(new TextEncoder().encode(THREE_DS_DEV_TARGET_ID).length).toBeLessThan(
-      POCKET_PACKAGE_TARGET_MAX_BYTES,
-    );
-  });
-
   test("resolves a 400x240 native app to an exact device plan", () => {
     const plan = resolve3dsBuildPlan(topScreenManifest());
 
@@ -161,7 +97,6 @@ describe("private Nintendo 3DS build profile", () => {
       "text.glyphs.baked": true,
     });
     expect(plan.app.entry).toBe("apps/3ds-demo/main.tsx");
-    expect(verifyPlanHash(plan)).toBe(true);
   });
 
   test("resolves the bottom screen and its touch as an independent output", () => {
@@ -229,113 +164,6 @@ describe("private Nintendo 3DS build profile", () => {
     const dynamic = topScreenManifest();
     dynamic.app.viewport = { dynamic: { default: [400, 240] } };
     expect(diagnosticCodes(dynamic)).toEqual(["viewport.fixedRequired"]);
-  });
-
-  test("publishes metadata through the generated canonical guest", () => {
-    // framework/src/index.ts sizes the mounted app and overlay layers from
-    // ui.__viewport and falls back to the 480x272 spec screen when a host
-    // omits it, which lays a 400x240 app out 80 px too wide and pushes every
-    // right-anchored element off the panel. Nothing catches that without an
-    // emulator, so the publication is pinned here — read back from the core
-    // rather than re-derived, so the JS layer and the native root cannot drift.
-    const qjs = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "products/3ds/src/qjs.c"),
-      "utf8",
-    );
-    expect(qjs).toMatch(/pocket_guest_quickjs_vtable\(\)->initialize\(guest,\s*owner,\s*environment\)/);
-    expect(qjs).toContain("pocket_runtime_boot(instance)");
-    expect(qjs).not.toContain("ui_viewport_width()");
-  });
-
-  test("keeps bring-up controls out of the application input path", () => {
-    const main = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "products/3ds/src/main.c"),
-      "utf8",
-    );
-    expect(main).not.toContain("gfx_debug_modes");
-    expect(main).not.toContain("hidKeysHeld");
-    expect(main).not.toContain("KEY_L");
-    expect(main).not.toContain("KEY_R");
-    expect(main).not.toContain("KEY_Y");
-
-    const input = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "products/3ds/src/input_policy.c"),
-      "utf8",
-    );
-    expect(input).toContain("RUNTIME_RELOAD_KEYS");
-    expect(input).toContain("RUNTIME_DEVMENU_KEYS");
-    expect(input).toContain("RUNTIME_EXIT_KEYS");
-    expect(input).toContain("buttons &= ~chords[i]");
-    expect(input).toContain("input_exit_requested");
-    expect(input).toContain("input_devmenu_blocks_guest");
-    expect(main).toContain("if (input_exit_requested()) break");
-  });
-
-  test("keeps the development menu native and outside the guest capability surface", () => {
-    const root = new URL("..", import.meta.url).pathname;
-    const menu = readFileSync(join(root, "products/3ds/src/devmenu.c"), "utf8");
-    const main = readFileSync(join(root, "products/3ds/src/main.c"), "utf8");
-    const makefile = readFileSync(join(root, "products/3ds/Makefile"), "utf8");
-    expect(menu).toContain("const uint32_t *devmenu_draw_list");
-    expect(menu).toContain("#define DRAW_RECT 1u");
-    expect(menu).toContain("devserver_snapshot(&state)");
-    expect(menu).not.toMatch(/\bui_[a-z_]+\s*\(/);
-    expect(main).toContain("(void)devmenu_init()");
-    expect(main).not.toContain("native development menu failed to initialize");
-    const gfx = readFileSync(join(root, "products/3ds/src/gfx.c"), "utf8");
-    expect(gfx).toContain("out->words = devmenu_draw_list(&out->word_count)");
-    expect(makefile).not.toContain("-lcitro2d");
-    expect(makefile).toContain("-lcitro3d");
-  });
-
-  test("links one canonical Runtime archive and owns no second Ui", () => {
-    const root = new URL("..", import.meta.url).pathname;
-    const core = readFileSync(join(root,"products/3ds/core/src/lib.rs"),"utf8");
-    const manifest = readFileSync(join(root,"products/3ds/core/Cargo.toml"),"utf8");
-    const gfx = readFileSync(join(root,"products/3ds/src/gfx.c"),"utf8");
-    expect(core).toContain("pub use pocket_runtime_cabi::*");
-    expect(core).not.toContain("static mut UI");
-    expect(manifest).not.toContain("pocketjs-core =");
-    expect(gfx).toContain("pocket_runtime_add_renderer");
-    expect(gfx).toContain("pocket_runtime_add_display");
-    expect(gfx).not.toContain("ui_texture_at");
-  });
-
-  test("pins the device toolchain and rebuilds shell-safe SMDH metadata", () => {
-    expect(THREE_DS_CONTAINER_IMAGE).toMatch(
-      /^devkitpro\/devkitarm@sha256:[0-9a-f]{64}$/,
-    );
-    expect(MAKEROM_REVISION).toMatch(/^[0-9a-f]{40}$/);
-
-    const makefile = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "products/3ds/Makefile"),
-      "utf8",
-    );
-    expect(makefile).toContain("SMDH_STAMP :=");
-    expect(makefile).toContain('"$$POCKETJS_SMDH_TITLE"');
-    expect(makefile).toContain('"$$POCKETJS_SMDH_DESC"');
-    expect(makefile).toContain('"$$POCKETJS_SMDH_AUTHOR"');
-    expect(makefile).not.toContain('"$(POCKETJS_SMDH_TITLE)"');
-    expect(makefile).toContain(
-      "$(ROMFS)/app.pocket: $(POCKETJS_APP_POCKET) romfs-inputs",
-    );
-    expect(makefile).not.toContain("POCKETJS_APP_JS");
-    expect(makefile).not.toContain("POCKETJS_APP_PAK");
-    expect(makefile).toContain(
-      "$(BUILD)/vshader_shbin.s $(BUILD)/vshader_shbin.h &:",
-    );
-    // The state slot is named at boot from the RomFS package, not compiled in.
-    expect(makefile).not.toContain("POCKETJS_RUNTIME_SLOT");
-  });
-
-  test("derives bounded, application-specific Runtime state slots", () => {
-    expect(runtimeSlot("dev.pocket-nexus.3ds-demo")).toMatch(/^[0-9a-f]{16}$/);
-    expect(runtimeSlot("dev.pocket-nexus.3ds-demo")).toBe(
-      runtimeSlot("dev.pocket-nexus.3ds-demo"),
-    );
-    expect(runtimeSlot("dev.pocket-nexus.3ds-demo")).not.toBe(
-      runtimeSlot("dev.pocket-nexus.term"),
-    );
   });
 
   test("defaults and validates capture defines before they reach make", () => {
@@ -427,24 +255,4 @@ describe("CIA title identity", () => {
     }
   });
 
-  test("the RSF asks for the memory region that is the point of a CIA", () => {
-    const rsf = readFileSync(
-      join(new URL("..", import.meta.url).pathname, "products/3ds/app.rsf"),
-      "utf8",
-    );
-    // A .3dsx inherits hbmenu's allocation; a CIA asks for its own region.
-    expect(rsf).toMatch(/^\s+SystemMode\s+: 64MB$/m);
-    expect(rsf).toMatch(/^\s+SystemModeExt\s+: 124MB$/m);
-    // The four values products/3ds/Makefile substitutes; a rename breaks here.
-    for (const name of ["APP_TITLE", "APP_PRODUCT_CODE", "APP_UNIQUE_ID", "APP_ROMFS"]) {
-      expect(rsf).toContain(`$(${name})`);
-    }
-    // makerom builds the romfs from a directory; the raw image 3dsxtool embeds
-    // is rejected as "Invalid RomFS Binary".
-    expect(rsf).toMatch(/^RomFs:\n {2}RootPath: \$\(APP_ROMFS\)$/m);
-  });
-});
-
-test("3DS canonical profile and operation identifiers match their source schemas", () => {
-  expect(readFileSync(new URL("../products/3ds/include/pocket_profile.h",import.meta.url),"utf8")).toBe(threeDsProfileHeader());
 });

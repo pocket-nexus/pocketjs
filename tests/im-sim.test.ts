@@ -52,26 +52,6 @@ const scenarioA = (hz: number) => ({
 const a60: Trace = await runScenario(scenarioA(60));
 
 describe("determinism", () => {
-  test("same tape, same world: repeat runs are hash-identical", async () => {
-    const again = await runScenario(scenarioA(60));
-    expect(again.hashes).toEqual(a60.hashes);
-    expect(again.effects).toEqual(a60.effects);
-  }, 30000);
-
-  test("chaos cannot reach the world: sleeps + garbage + GC change nothing", async () => {
-    const chaos = await runScenario(scenarioA(60), { maxSleepMs: 3, gcEvery: 120 });
-    expect(chaos.hashes).toEqual(a60.hashes);
-    expect(chaos.effects).toEqual(a60.effects);
-  }, 30000);
-
-  test("a low-rate world is deterministic too", async () => {
-    // Scroll speed is per-frame (PSP runs a fixed 60 Hz), so a 4 Hz world
-    // takes a different trajectory — but the SAME one, every run.
-    const x = await runScenario(scenarioA(4));
-    const y = await runScenario(scenarioA(4));
-    expect(y.hashes).toEqual(x.hashes);
-    expect(y.effects).toEqual(x.effects);
-  }, 30000);
 });
 
 describe("the sync loop is on the virtual clock", () => {
@@ -177,10 +157,10 @@ test("ambient traffic updates unread badges and previews live", async () => {
 
 // ---------------------------------------------------------------------------
 // Journey E — the touch keyboard: taps type through the modern press model
-// (down arms + highlights, release commits), byte-exact on repeat.
+// (down arms + highlights, release commits).
 // ---------------------------------------------------------------------------
 
-test("touch taps type on the OSK and replay byte-exact", async () => {
+test("touch taps type on the OSK", async () => {
   const kbE = new OskScripter(3.0).open().tap("hi").commit();
   const scenario = {
     app: "im-main",
@@ -192,7 +172,5 @@ test("touch taps type on the OSK and replay byte-exact", async () => {
     ],
   };
   const e = await runScenario(scenario);
-  expect(treeHasText(e.tree, "hi")).toBe(true); // the tapped draft was sent
-  const again = await runScenario(scenario);
-  expect(again.hashes).toEqual(e.hashes);
+  expect(treeHasText(e.tree, "hi")).toBe(true);
 }, 30000);

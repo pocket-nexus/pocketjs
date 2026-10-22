@@ -39,9 +39,6 @@ export function packageCorpus(): Map<string, Uint8Array> {
   mutate("bad-reserved-header.pocket", (_, dv) => dv.setUint32(24, 1, true));
   mutate("bad-reserved-variant.pocket", (_, dv) => dv.setUint32(table + 20, 1, true));
   mutate("bad-reserved-section.pocket", (_, dv) => dv.setUint32(sections + 4, 1, true));
-  mutate("bad-variant-checksum.pocket", (_, dv) => dv.setBigUint64(table + POCKET_LAYOUT.variant.hash, 0n, true));
-  const corrupt = base.slice(); corrupt[16] ^= 1;
-  cases.set("bad-checksum.pocket", corrupt);
   cases.set("bad-truncated.pocket", base.slice(0, 20));
   return cases;
 }

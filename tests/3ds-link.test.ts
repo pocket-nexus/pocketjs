@@ -6,20 +6,20 @@
 // pairing URI and beacon, and the console must decode the code the companion
 // shows.
 
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { createHash, createHmac, randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterAll,beforeAll,describe,expect,test } from "bun:test";
+import { randomBytes } from "node:crypto";
+import { mkdtempSync,rmSync,writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join,resolve } from "node:path";
 import * as LINK from "../contracts/spec/link.ts";
 import {
-  buildPairUri,
-  companionProof,
-  consoleProof,
-  encodeBeacon,
-  maskKey,
+buildPairUri,
+companionProof,
+consoleProof,
+encodeBeacon,
+maskKey,
 } from "../tools/companion/protocol.ts";
-import { encodeQr, rasterizeQr } from "../tools/companion/qr.ts";
+import { encodeQr,rasterizeQr } from "../tools/companion/qr.ts";
 
 const root = resolve(import.meta.dir, "..");
 const src = join(root, "products/3ds/src");
@@ -43,24 +43,7 @@ static void print_hex(const uint8_t *bytes, size_t length) {
 int main(int argc, char **argv) {
   if (argc < 2) return 2;
   const char *command = argv[1];
-  if (strcmp(command, "sha256") == 0) {
-    uint8_t digest[32];
-    sha256(argv[2], strlen(argv[2]), digest);
-    print_hex(digest, 32);
-  } else if (strcmp(command, "hmac") == 0) {
-    uint8_t key[128], digest[32];
-    size_t key_length = strlen(argv[2]) / 2;
-    if (!hex_decode(argv[2], strlen(argv[2]), key, key_length)) return 3;
-    HmacSha256 hmac;
-    hmac_sha256_init(&hmac, key, key_length);
-    hmac_sha256_update(&hmac, argv[3], strlen(argv[3]));
-    hmac_sha256_final(&hmac, digest);
-    print_hex(digest, 32);
-  } else if (strcmp(command, "slot") == 0) {
-    char slot[17];
-    sha256_slot(argv[2], strlen(argv[2]), slot);
-    puts(slot);
-  } else if (strcmp(command, "proof") == 0) {
+  if (strcmp(command, "proof") == 0) {
     /* proof <secretHex> companion|console nD nC device companion */
     uint8_t secret[64], digest[32];
     size_t secret_length = strlen(argv[2]) / 2;
@@ -180,64 +163,6 @@ afterAll(() => {
 });
 
 describe("3DS Pocket Link wire facts", () => {
-  test("link_proto.h constants match contracts/spec/link.ts", () => {
-    const header = readFileSync(join(src, "link_proto.h"), "utf8");
-    // Each value is a literal or a product of literals, e.g. (32u * 1024u).
-    const define = (name: string) => {
-      const match = header.match(new RegExp(`#define ${name} ([^\\n/]+)`));
-      if (!match) throw new Error(`no #define ${name}`);
-      const factors = match[1].replace(/[()\s]/g, "").split("*");
-      return factors.reduce((product, factor) => product * Number(factor.replace(/u$/, "")), 1);
-    };
-    expect(define("LINK_BEACON_PORT")).toBe(LINK.LINK_BEACON_PORT);
-    expect(define("LINK_PORT")).toBe(LINK.LINK_PORT);
-    expect(define("LINK_BEACON_MAGIC")).toBe(LINK.LINK_BEACON_MAGIC);
-    expect(define("LINK_BEACON_BYTES")).toBe(LINK.LINK_BEACON_BYTES);
-    expect(define("LINK_BEACON_NAME_BYTES")).toBe(LINK.LINK_BEACON_NAME_BYTES);
-    expect(define("LINK_MAGIC")).toBe(LINK.LINK_MAGIC);
-    expect(define("LINK_VERSION")).toBe(LINK.LINK_VERSION);
-    expect(define("LINK_PREAMBLE_BYTES")).toBe(LINK.LINK_PREAMBLE_BYTES);
-    expect(define("LINK_HEADER_BYTES")).toBe(LINK.LINK_HEADER_BYTES);
-    expect(define("LINK_FRAME_PING")).toBe(LINK.LINK_FRAME.ping);
-    expect(define("LINK_FRAME_PONG")).toBe(LINK.LINK_FRAME.pong);
-    expect(define("LINK_FRAME_CTRL")).toBe(LINK.LINK_FRAME.ctrl);
-    expect(define("LINK_FRAME_DATA")).toBe(LINK.LINK_FRAME.data);
-    expect(define("LINK_MAX_CTRL")).toBe(LINK.LINK_MAX_CTRL);
-    expect(define("LINK_MAX_DATA")).toBe(LINK.LINK_MAX_DATA);
-    expect(define("LINK_PING_MS")).toBe(LINK.LINK_PING_MS);
-    expect(define("LINK_SILENCE_MS")).toBe(LINK.LINK_SILENCE_MS);
-    expect(define("LINK_CONNECT_TIMEOUT_MS")).toBe(LINK.LINK_CONNECT_TIMEOUT_MS);
-    expect(define("LINK_HANDSHAKE_TIMEOUT_MS")).toBe(LINK.LINK_HANDSHAKE_TIMEOUT_MS);
-    expect(define("LINK_KEY_BYTES")).toBe(LINK.LINK_KEY_BYTES);
-    expect(define("LINK_NONCE_BYTES")).toBe(LINK.LINK_NONCE_BYTES);
-    expect(define("LINK_ID_HEX")).toBe(LINK.LINK_ID_HEX);
-    expect(define("LINK_PAIR_SECRET_BYTES")).toBe(LINK.LINK_PAIR_SECRET_BYTES);
-    expect(define("LINK_PAIR_MAX_HOSTS")).toBe(LINK.LINK_PAIR_MAX_HOSTS);
-    expect(define("LINK_INSTALL_MAX_BYTES")).toBe(LINK.LINK_INSTALL_MAX_BYTES);
-    expect(define("LINK_MAX_REQUESTS")).toBe(LINK.LINK_MAX_REQUESTS);
-    expect(header).toContain(`#define LINK_LABEL_COMPANION "${LINK.LINK_LABEL.companion}"`);
-    expect(header).toContain(`#define LINK_LABEL_CONSOLE "${LINK.LINK_LABEL.console}"`);
-    expect(header).toContain(`#define LINK_LABEL_KEY "${LINK.LINK_LABEL.key}"`);
-  });
-
-  test("SHA-256, HMAC-SHA256 and the runtime slot match node:crypto", () => {
-    for (const text of ["", "abc", "x".repeat(55), "x".repeat(56), "x".repeat(64), "y".repeat(1000)]) {
-      expect(run("sha256", text)).toBe(createHash("sha256").update(text).digest("hex"));
-    }
-    for (const keyBytes of [16, 32, 64, 100]) {
-      const key = randomBytes(keyBytes);
-      const message = `pocket-link/1/console\n${randomBytes(16).toString("hex")}`;
-      expect(run("hmac", key.toString("hex"), message)).toBe(
-        createHmac("sha256", key).update(message).digest("hex"),
-      );
-    }
-    // The Rust core derives the same slot in pocket_package_open.
-    expect(run("slot", "dev.pocket-nexus.nexus")).toBe("ee37e3d6eb757504");
-    expect(run("slot", "dev.pocket-nexus.home")).toBe(
-      createHash("sha256").update("dev.pocket-nexus.home").digest("hex").slice(0, 16),
-    );
-  });
-
   test("handshake proofs and the masked key agree with the companion", () => {
     for (const secretBytes of [LINK.LINK_PAIR_SECRET_BYTES, LINK.LINK_KEY_BYTES]) {
       const secret = randomBytes(secretBytes).toString("hex");

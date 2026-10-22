@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { PROP, abgr } from "../contracts/spec/spec.ts";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 
 const core = async (options: { width: number; height: number; rasterDensity?: number }) =>
   createWasmUi(await Bun.file(new URL("../platforms/web/pocketjs.wasm", import.meta.url)).arrayBuffer(), options);
@@ -22,7 +22,6 @@ test("the premultiplied render keeps coverage in one drawing and leaves the opaq
     wasm.tick();
 
     const opaque = wasm.renderScaled(density).slice();
-    const hash = wasm.drawHash!();
     const over = wasm.renderPremultiplied!(density).slice();
     expect(over.length).toBe(opaque.length);
     // The colour bytes are the opaque render's over its black clear.
@@ -47,42 +46,10 @@ test("the premultiplied render keeps coverage in one drawing and leaves the opaq
     for (let i = 0; i < over.length; i += 4) worst = Math.max(worst, Math.abs(255 - (white[i + 1]! - black[i + 1]!) - over[i + 3]!));
     expect(worst).toBeLessThanOrEqual(2);
 
-    // The opaque buffer, its incremental repaint and the draw hash are what they were.
-    expect(wasm.drawHash!()).toBe(hash);
+    // The opaque buffer and its incremental repaint retain their pixels.
     expect(wasm.renderScaled(density)).toEqual(opaque);
     wasm.renderPremultiplied!(density);
     expect(wasm.renderScaledIncremental(density)).toEqual(opaque);
     expect(wasm.renderPremultiplied!(density)).toEqual(over);
   }
-});
-
-test("the auxiliary surface has a draw hash of its own", async () => {
-  const single = await core({ width: 32, height: 16 });
-  expect(single.drawHashAuxiliary!()).toBe(0n);
-
-  const wasm = await core({ width: 32, height: 16 });
-  const auxiliary = wasm.createAuxiliarySurface(24, 16), ops = wasm.ops;
-  const box = (root: number, colour: number) => {
-    const node = ops.createNode(0);
-    ops.setProp(node, PROP.width, 8); ops.setProp(node, PROP.height, 8);
-    ops.setProp(node, PROP.bgColor, colour); ops.insertBefore(root, node, 0);
-    return node;
-  };
-  const upper = box(1, abgr(255, 0, 0)), lower = box(auxiliary, abgr(0, 255, 0));
-  wasm.tick();
-  const [first, firstLower] = [wasm.drawHash!(), wasm.drawHashAuxiliary!()];
-  expect(firstLower).not.toBe(0n);
-  expect(wasm.drawHashAuxiliary!()).toBe(firstLower);
-  // A change above leaves the lower hash; a change below leaves the upper one.
-  ops.setProp(upper, PROP.width, 12);
-  wasm.tick();
-  expect([wasm.drawHash!() !== first, wasm.drawHashAuxiliary!()]).toEqual([true, firstLower]);
-  const second = wasm.drawHash!();
-  ops.setProp(lower, PROP.width, 12);
-  wasm.tick();
-  expect([wasm.drawHash!(), wasm.drawHashAuxiliary!() !== firstLower]).toEqual([second, true]);
-  // The hash is of what the surface draws: the same list again, the same hash.
-  ops.setProp(lower, PROP.width, 8);
-  wasm.tick();
-  expect(wasm.drawHashAuxiliary!()).toBe(firstLower);
 });

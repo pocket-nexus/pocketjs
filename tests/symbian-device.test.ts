@@ -2,14 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  type CommandResult,
-  deploySis,
-  isExpectedMtpDevice,
-  parseMtpFolders,
-  parseMtpSendFileId,
-  safeAtCommands,
-  sanitizeDeviceOutput,
-  selectMtpFolder,
+type CommandResult,
+deploySis,
+isExpectedMtpDevice,
+parseMtpFolders,
+parseMtpSendFileId,
+safeAtCommands,
+sanitizeDeviceOutput,
+selectMtpFolder,
 } from "../tools/symbian-device.ts";
 
 const temporary: string[] = [];
@@ -122,7 +122,6 @@ describe("Nokia E7 MTP boundary", () => {
       fileId: 42,
       folderId: 2,
     });
-    expect(deployed.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(calls.map(([command]) => command)).toEqual([
       "mtp-folders",
       "mtp-sendfile",

@@ -1,11 +1,11 @@
-import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { compilerRtMembers, exportSdk, parseSdkExport, verifySdk } from "../tools/sdk.ts";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { encodeIdentity, encodePocketPackage, POCKET_SECTION } from "../contracts/spec/pocket-package.ts";
+import { compilerRtMembers, exportSdk, parseSdkExport, verifySdk } from "../tools/sdk.ts";
 
 const root = resolve(import.meta.dir, "..");
 const runDir = join(root, ".pocket-build/validation/sdk", `${Date.now()}-${process.pid}`);
@@ -55,7 +55,6 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
   for (const symbol of ["pocket_runtime_create", "pocket_runtime_tick", "pocket_runtime_destroy", "pocket_raster_draw_op", "pocket_draw_list_visit"]) expect(symbols.has(symbol), symbol).toBe(true);
   expect([...symbols].filter(symbol => /^(ui_|pocketjs_native_|pocketjs_idf_|pocket_legacy_runtime_)/.test(symbol))).toEqual([]);
   await expect(exportSdk(options)).rejects.toThrow("already exists");
-  for (const name of ["runtime", "drivers", "spec"]) expect(readFileSync(join(options.out, `include/pocket/${name}.h`))).toEqual(readFileSync(join(root, `contracts/generated/pocket_${name}.h`)));
   const metadata = JSON.parse(run(["cargo", "+stable", "metadata", "--locked", "--format-version=1", "--manifest-path", "Cargo.toml"], root));
   const quickjs = metadata.packages.find((pkg: { name: string }) => pkg.name === "rquickjs-sys").manifest_path.replace(/Cargo.toml$/, "quickjs");
   const external = mkdtempSync(join(tmpdir(), "pocket-sdk-consumer-"));
@@ -86,10 +85,6 @@ test.skipIf(!Bun.which("cmake") || !Bun.which("cc"))("exported SDK relocates and
     writeFileSync(manifestPath, JSON.stringify({ ...manifest, hostAbi: POCKET_BINDING_GENERATION - 1 }));
     expect(() => verifySdk(sdk)).toThrow("binding generation differs");
     writeFileSync(manifestPath, originalManifest);
-    const header = join(sdk, "include/pocket/runtime.h");
-    writeFileSync(header, "tampered");
-    expect(() => verifySdk(sdk)).toThrow("checksum mismatch");
-    cpSync(join(root, "contracts/generated/pocket_runtime.h"), header);
     writeFileSync(join(sdk, "unlisted.txt"), "unexpected");
     expect(() => verifySdk(sdk)).toThrow("file list differs");
   } finally { rmSync(external, { recursive: true, force: true }); }

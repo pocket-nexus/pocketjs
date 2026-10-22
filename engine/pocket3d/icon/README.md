@@ -103,7 +103,7 @@ by the build, and the copy is listed in `.gitignore`.
 
 ```sh
 bun tools/pocket3d-icon.ts --preview   # the ten files, and a sheet under .pocket-build/pocket3d-icon/
-bun tools/pocket3d-icon.ts --check     # what tests/pocket3d-icon.test.ts runs
+bun tools/pocket3d-icon.ts --check     # compare generated icons with the saved files
 ```
 
 The command rasterizes with `@napi-rs/canvas` at four samples per pixel in each

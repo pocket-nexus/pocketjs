@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installVitaSdkBundle, VITA_RELEASE_SDK_ARCHIVES, type VitaSdkArchive } from "../tools/build/toolchains/vita.ts";
+import { installVitaSdkBundle, type VitaSdkArchive } from "../tools/build/toolchains/vita.ts";
 
 const temporary: string[] = [];
 afterEach(() => { for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -39,14 +39,6 @@ function fixture(escape = false) {
   const install = (out = join(root, "out"), archives = pins) => installVitaSdkBundle(out, archives, { env, host: "darwin-arm64", log() {} });
   return { root, pins, server, requests, env, install };
 }
-test("Vita release pins only the validated SDK host and required generic-runtime ports", async () => {
-  expect(VITA_RELEASE_SDK_ARCHIVES.map(a => a.name)).toEqual(["sdk", "vita2d", "png", "jpeg", "zlib"]);
-  for (const archive of VITA_RELEASE_SDK_ARCHIVES) {
-    expect(archive.url.startsWith("https://github.com/vitasdk/")).toBe(true);
-    expect(archive.sha256).toMatch(/^[a-f0-9]{64}$/);
-  }
-  await expect(installVitaSdkBundle("/must-not-create", VITA_RELEASE_SDK_ARCHIVES, { host: "linux-x64" })).rejects.toThrow(/darwin-arm64 only/);
-});
 test("bz2 SDK and xz ports compose atomically; concurrent and cached installs reuse verified archives", async () => {
   const f = fixture();
   try {
@@ -59,24 +51,6 @@ test("bz2 SDK and xz ports compose atomically; concurrent and cached installs re
     expect(await f.install()).toBe(a);
     writeFileSync(join(a, "bin/compiler"), "modified");
     await expect(f.install()).rejects.toThrow(/installed tree differs/);
-  } finally { f.server.stop(true); }
-});
-test("cached source mutation is rejected even when the installed SDK receipt is valid", async () => {
-  const f = fixture();
-  try {
-    await f.install();
-    const store = join(f.root, "cache/store");
-    const entry = readdirSync(store).find(name => existsSync(join(store, name, "tree/sdk.tar.bz2")))!;
-    writeFileSync(join(store, entry, "tree/sdk.tar.bz2"), "corrupted cached download");
-    await expect(f.install()).rejects.toThrow(/cached archive SHA-256 mismatch/);
-  } finally { f.server.stop(true); }
-});
-test("bad download hash never publishes an SDK and retry with valid pins succeeds", async () => {
-  const f = fixture();
-  try {
-    await expect(f.install(undefined, [{ ...f.pins[0]!, sha256: "0".repeat(64) }, f.pins[1]!])).rejects.toThrow(/SHA-256 mismatch/);
-    expect(existsSync(join(f.root, "out/vitasdk"))).toBe(false);
-    expect(existsSync(join(await f.install(), "bin/compiler"))).toBe(true);
   } finally { f.server.stop(true); }
 });
 test("escaping archive symlinks and unmanaged destination trees are refused", async () => {

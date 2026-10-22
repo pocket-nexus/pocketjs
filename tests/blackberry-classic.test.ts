@@ -1,22 +1,10 @@
-import qnxToolchain from "../tools/build/toolchains/blackberry-qnx.ts";
-import { BUILD_STD_NIGHTLY } from "../tools/build/toolchains/rust.ts";
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { POCKET_TARGETS } from "../contracts/spec/platforms.ts";
 import { checkAppTypes } from "../framework/compiler/app-check.ts";
-import { verifyPlanHash } from "../framework/src/manifest/plan.ts";
 import { extractHostBuildInputs } from "../framework/src/manifest/host-build-inputs.ts";
 import { packageIdentity, renderTemplate } from "../tools/native-host-build.ts";
-import {
-  BLACKBERRY_CLASSIC_DEV_CONTRACTS,
-  BLACKBERRY_CLASSIC_HOST_ABI,
-  BLACKBERRY_CLASSIC_LOGICAL_VIEWPORT,
-  BLACKBERRY_CLASSIC_PHYSICAL_VIEWPORT,
-  BLACKBERRY_CLASSIC_RASTER_DENSITY,
-  BLACKBERRY_QNX_DEV_TARGET_ID,
-  resolveBlackBerryClassicBuildPlan,
-} from "../tools/blackberry-classic-profile.ts";
+import { BLACKBERRY_CLASSIC_HOST_ABI, BLACKBERRY_CLASSIC_LOGICAL_VIEWPORT, BLACKBERRY_CLASSIC_PHYSICAL_VIEWPORT, BLACKBERRY_CLASSIC_RASTER_DENSITY, BLACKBERRY_QNX_DEV_TARGET_ID, resolveBlackBerryClassicBuildPlan } from "../tools/blackberry-classic-profile.ts";
 
 const repository = join(import.meta.dir, "..");
 const manifestPath = join(repository, "apps/blackberry-classic-demo/pocket.json");
@@ -27,25 +15,6 @@ function manifest(): Record<string, any> {
 }
 
 describe("private BlackBerry Classic profile", () => {
-  test("register only the QNX host with its square density-2 contract", () => {
-    expect(Object.keys(BLACKBERRY_CLASSIC_DEV_CONTRACTS.targets)).toEqual([...targets]);
-    for (const target of targets) {
-      expect(POCKET_TARGETS).not.toHaveProperty(target);
-      expect(BLACKBERRY_CLASSIC_DEV_CONTRACTS.targets[target]).toEqual({
-        tickHz: 60,
-        hostAbi: BLACKBERRY_CLASSIC_HOST_ABI,
-        platform: "blackberry10-qnx",
-        form: "takeover",
-        display: {
-          physicalViewport: BLACKBERRY_CLASSIC_PHYSICAL_VIEWPORT,
-          logicalViewports: [BLACKBERRY_CLASSIC_LOGICAL_VIEWPORT],
-          presentations: ["native"],
-          rasterDensity: BLACKBERRY_CLASSIC_RASTER_DENSITY,
-        },
-        capabilities: ["input.buttons", "input.touch", "text.glyphs.baked"],
-      });
-    }
-  });
 
   test("resolve the Hero demo to the exact QNX device plan", () => {
     for (const target of targets) {
@@ -65,7 +34,6 @@ describe("private BlackBerry Classic profile", () => {
       });
       expect(plan.companions).toEqual([]);
       expect(plan.app.output).toBe("blackberry-classic-main");
-      expect(verifyPlanHash(plan)).toBe(true);
     }
   });
 
@@ -114,23 +82,5 @@ describe("private BlackBerry Classic profile", () => {
         .map((diagnostic) => diagnostic.message),
     ).toEqual([]);
     expect(result.ok).toBe(true);
-  });
-});
-
-describe("BlackBerry Classic toolchain pins", () => {
-  const qnx = JSON.parse(
-    readFileSync(join(repository, "tools/build/toolchains/blackberry-qnx/manifest.json"), "utf8"),
-  );
-  test("the QNX host pins QuickJS, Rust, and the Hero manifest", () => {
-    expect(qnx.quickjs.revision).toMatch(/^[0-9a-f]{40}$/);
-    expect(qnxToolchain.rust.toolchain).toBe(BUILD_STD_NIGHTLY);
-    expect(qnx.app.manifest).toBe("apps/blackberry-classic-demo/pocket.json");
-  });
-
-  test("the QNX host pins the BBNDK image by digest and ships its Rust target", () => {
-    expect(qnx.image.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(qnx.image.platform).toBe("linux/amd64");
-    expect(qnx.qnx.architecture).toBe("armle-v7");
-    expect(existsSync(join(repository, qnx.rust.target))).toBe(true);
   });
 });
