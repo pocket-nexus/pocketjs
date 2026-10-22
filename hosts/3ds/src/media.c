@@ -9,7 +9,10 @@
  * Without the DSP firmware (an SD card that never had it dumped) NDSP does
  * not start. The stream then plays muted: audio packets are dropped and the
  * clock is the system timer from the first decoded frame, paused with the
- * stream. `audio` in the status is false. */
+ * stream. `audio` in the status is false. With no audio queue to fill,
+ * nothing else holds the reader back, so a packet more than SILENT_LEAD_MS
+ * ahead of that clock waits for it, and so does the companion: it sends on
+ * the credit each packet returns. */
 #include "media.h"
 #include "media_wire.h"
 #include "media_adpcm.h"
@@ -30,6 +33,8 @@
 enum { IDLE, OPENING, BUFFERING, PLAYING, ENDED, FAILED };
 enum { ERR_NONE, ERR_MEMORY, ERR_SOCKET, ERR_HEADER, ERR_PACKET, ERR_MVD_INIT, ERR_MVD_DECODE, ERR_MVD_RENDER, ERR_AUDIO, ERR_REMOTE };
 enum { VIDEO_SLOTS=16, AUDIO_SLOTS=24, COMMAND_SLOTS=4, AUDIO_CHANNEL=0 };
+/* Muted read-ahead: 9 PAL8 frames at 12 fps, inside the 16-frame ring. */
+enum { SILENT_LEAD_MS=750 };
 typedef struct { char host[16], token[65]; unsigned port, generation; } Command;
 typedef struct { uint8_t *pixels; uint32_t pts, generation; } VideoFrame;
 static Command commands[COMMAND_SLOTS];
@@ -104,6 +109,10 @@ static void audio_tick(void) {
     atomic_store(&phase,BUFFERING);
   }
   was_starved=starved;
+}
+static bool silent_wait(uint32_t pts) {
+  while (current() && pts>atomic_load(&position)+SILENT_LEAD_MS) { silent_tick(); svcSleepThread(2000000); }
+  return current();
 }
 static bool receive_exact(int fd, void *data, size_t count) {
   uint8_t *p=data; uint64_t deadline=osGetTime()+10000;
@@ -285,6 +294,7 @@ static void play(const Command *cmd) {
     if(header[0]==1) last_video=pts;
     if(header[0]==2) last_audio=pts;
     if (size && !receive_exact(fd,packet,size)) { fail(ERR_SOCKET,errno); break; }
+    if (silent && (header[0]==1 || header[0]==2) && !silent_wait(pts)) break;
     if (header[0]==1 && (mvd ? !decode_video(&config,packet,size,pts) : !decode_pal8(&pal8,packet,size,pts))) break;
     if (header[0]==2 && !put_audio(packet,size,pts)) break;
     if (!atomic_load(&decoded) && (header[0]==1 || header[0]==2) && pts-origin_position>500) { fail(ERR_MVD_DECODE,0); break; }
