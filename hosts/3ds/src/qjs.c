@@ -1104,18 +1104,24 @@ static void install_host(void) {
   add_operation(wifi, "connect", 1, HostWifiConnect);
   JS_SetPropertyStr(context, global, "wifi", wifi);
 
-  JSValue camera = JS_NewObject(context);
-  add_operation(camera, "open", 0, HostCameraOpen);
-  add_operation(camera, "close", 0, HostCameraClose);
-  add_operation(camera, "poll", 0, HostCameraPoll);
-  add_operation(camera, "info", 0, HostCameraInfo);
-  add_operation(camera, "capture", 0, HostCameraCapture);
-  add_operation(camera, "photos", 0, HostCameraPhotos);
-  add_operation(camera, "load", 2, HostCameraLoad);
-  add_operation(camera, "free", 1, HostCameraFree);
-  add_operation(camera, "remove", 1, HostCameraRemove);
-  add_operation(camera, "events", 0, HostCameraEvents);
-  JS_SetPropertyStr(context, global, "camera", camera);
+  /* camera.qr publishes the viewfinder; camera.photo adds capture and the
+   * photo store. A guest with neither has no namespace (main.c). */
+  if (camera_viewfinder_admitted()) {
+    JSValue camera = JS_NewObject(context);
+    add_operation(camera, "open", 0, HostCameraOpen);
+    add_operation(camera, "close", 0, HostCameraClose);
+    add_operation(camera, "poll", 0, HostCameraPoll);
+    add_operation(camera, "info", 0, HostCameraInfo);
+    if (camera_photos_admitted()) {
+      add_operation(camera, "capture", 0, HostCameraCapture);
+      add_operation(camera, "photos", 0, HostCameraPhotos);
+      add_operation(camera, "load", 2, HostCameraLoad);
+      add_operation(camera, "free", 1, HostCameraFree);
+      add_operation(camera, "remove", 1, HostCameraRemove);
+      add_operation(camera, "events", 0, HostCameraEvents);
+    }
+    JS_SetPropertyStr(context, global, "camera", camera);
+  }
 
   /* Only a guest that declared "data.fs" has a bound tree (main.c). */
   if (fs_bound()) {

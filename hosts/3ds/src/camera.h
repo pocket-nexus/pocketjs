@@ -26,6 +26,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The guest's capabilities, set before qjs_boot: camera.qr admits the
+ * outer camera's viewfinder with QR decoding; camera.photo admits both
+ * cameras, capture and the photo store. qjs_boot publishes only the
+ * operations they admit, and open() and capture() check them again. */
+void camera_admit(bool qr, bool photo);
+bool camera_viewfinder_admitted(void);
+bool camera_photos_admitted(void);
+
 /* CAMERA_OPEN flags (contracts/spec/camera.ts): 1 the inner camera, 2 no QR
  * decoding. Opening again with other flags restarts capture behind the same
  * texture handle. */

@@ -91,6 +91,12 @@ pub const POCKET_GUEST_FEATURE_MEDIA: u32 = 2;
 pub const POCKET_GUEST_FEATURE_AGENT: u32 = 4;
 /// `features.data.fs` is true in the plan: the guest gets `globalThis.fs`.
 pub const POCKET_GUEST_FEATURE_FS: u32 = 8;
+/// `features.camera.qr` is true in the plan: the outer camera's viewfinder
+/// with QR decoding.
+pub const POCKET_GUEST_FEATURE_CAMERA_QR: u32 = 16;
+/// `features.camera.photo` is true in the plan: both cameras, capture and
+/// the photo store.
+pub const POCKET_GUEST_FEATURE_CAMERA_PHOTO: u32 = 32;
 
 struct PakSprite {
     name: String,
@@ -225,7 +231,9 @@ pub unsafe extern "C" fn pocket_package_open(
         features: if facts.feature("io.offload") { POCKET_GUEST_FEATURE_OFFLOAD } else { 0 }
             | if facts.feature("media.playback") { POCKET_GUEST_FEATURE_MEDIA } else { 0 }
             | if facts.feature("system.agent") { POCKET_GUEST_FEATURE_AGENT } else { 0 }
-            | if facts.feature("data.fs") { POCKET_GUEST_FEATURE_FS } else { 0 },
+            | if facts.feature("data.fs") { POCKET_GUEST_FEATURE_FS } else { 0 }
+            | if facts.feature("camera.qr") { POCKET_GUEST_FEATURE_CAMERA_QR } else { 0 }
+            | if facts.feature("camera.photo") { POCKET_GUEST_FEATURE_CAMERA_PHOTO } else { 0 },
         slot,
     });
     0

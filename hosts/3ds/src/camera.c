@@ -6,6 +6,18 @@
 
 #include "photos.h"
 
+static bool admitted_qr;
+static bool admitted_photo;
+
+void camera_admit(bool qr, bool photo) {
+  admitted_qr = qr;
+  admitted_photo = photo;
+}
+
+bool camera_viewfinder_admitted(void) { return admitted_qr || admitted_photo; }
+
+bool camera_photos_admitted(void) { return admitted_photo; }
+
 #if !defined(POCKETJS_CAPTURE) && !defined(POCKETJS_OFFLOAD)
 
 #include <3ds.h>
@@ -365,7 +377,9 @@ static bool start_capture(void) {
 }
 
 int32_t camera_open(int32_t flags) {
-  flags &= CAMERA_OPEN_INNER | CAMERA_OPEN_NO_SCAN;
+  if (!camera_viewfinder_admitted()) return -1;
+  /* The inner camera and a viewfinder without decoding are camera.photo's. */
+  flags = admitted_photo ? flags & (CAMERA_OPEN_INNER | CAMERA_OPEN_NO_SCAN) : 0;
   if (open_now) {
     if (flags == open_flags) return texture_handle;
     /* Another camera or decoding choice: restart capture behind the same
@@ -423,7 +437,9 @@ int32_t camera_open(int32_t flags) {
 
 int32_t camera_capture(void) {
   static int32_t next_job = 1;
-  if (!open_now || atomic_load(&capture_state) != CAPTURE_RUNNING || atomic_load(&still_wanted) != 0) return -1;
+  if (!admitted_photo || !open_now || atomic_load(&capture_state) != CAPTURE_RUNNING || atomic_load(&still_wanted) != 0) {
+    return -1;
+  }
   int32_t job = next_job++;
   if (next_job <= 0) next_job = 1;
   atomic_store(&still_wanted, job);

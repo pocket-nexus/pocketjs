@@ -500,6 +500,10 @@ static bool boot_guest(
     }
   }
 #endif
+  camera_admit(
+    (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_QR) != 0,
+    (package->guest.features & POCKET_GUEST_FEATURE_CAMERA_PHOTO) != 0
+  );
   /* The guest's capability decides who owns the top screen; it must be set
    * before qjs_boot, which publishes `globalThis.agent` only for it. */
   bool agent = stage_ready && (package->guest.features & POCKET_GUEST_FEATURE_AGENT) != 0;
