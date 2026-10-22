@@ -129,22 +129,26 @@ static bool read_hex4(const char *text, size_t length, size_t at, uint32_t *out)
   return true;
 }
 
-bool json_string(JsonSpan value, char *out, size_t capacity) {
+/* The string's UTF-8 bytes + NUL into `out`; the byte length, or -1. Strict
+ * refuses raw control characters and unpaired surrogates; otherwise an
+ * unpaired surrogate decodes as U+FFFD. */
+static long decode_string(JsonSpan value, char *out, size_t capacity, bool strict) {
   const char *text = value.start;
   size_t length = value.length;
   if (text == NULL || capacity == 0 || length < 2 || text[0] != '"' || text[length - 1] != '"') {
-    return false;
+    return -1;
   }
   size_t used = 0;
   for (size_t at = 1; at + 1 < length;) {
     uint32_t code = (unsigned char)text[at];
+    if (strict && code < 0x20) return -1;
     if (code != '\\') {
-      if (used + 1 >= capacity) return false;
+      if (used + 1 >= capacity) return -1;
       out[used++] = (char)code;
       at += 1;
       continue;
     }
-    if (at + 2 >= length) return false;
+    if (at + 2 >= length) return -1;
     char escape = text[at + 1];
     at += 2;
     switch (escape) {
@@ -157,7 +161,7 @@ bool json_string(JsonSpan value, char *out, size_t capacity) {
       case 'r': code = '\r'; break;
       case 't': code = '\t'; break;
       case 'u': {
-        if (!read_hex4(text, length - 1, at, &code)) return false;
+        if (!read_hex4(text, length - 1, at, &code)) return -1;
         at += 4;
         if (code >= 0xd800 && code < 0xdc00) {
           uint32_t low = 0;
@@ -165,16 +169,19 @@ bool json_string(JsonSpan value, char *out, size_t capacity) {
               read_hex4(text, length - 1, at + 2, &low) && low >= 0xdc00 && low < 0xe000) {
             code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
             at += 6;
+          } else if (strict) {
+            return -1;
           } else {
             code = 0xfffd;
           }
         } else if (code >= 0xdc00 && code < 0xe000) {
+          if (strict) return -1;
           code = 0xfffd;
         }
         break;
       }
       default:
-        return false;
+        return -1;
     }
     char encoded[4];
     size_t bytes;
@@ -197,12 +204,20 @@ bool json_string(JsonSpan value, char *out, size_t capacity) {
       encoded[3] = (char)(0x80 | (code & 0x3f));
       bytes = 4;
     }
-    if (used + bytes >= capacity) return false;
+    if (used + bytes >= capacity) return -1;
     memcpy(out + used, encoded, bytes);
     used += bytes;
   }
   out[used] = '\0';
-  return true;
+  return (long)used;
+}
+
+bool json_string(JsonSpan value, char *out, size_t capacity) {
+  return decode_string(value, out, capacity, false) >= 0;
+}
+
+long json_string_strict(JsonSpan value, char *out, size_t capacity) {
+  return decode_string(value, out, capacity, true);
 }
 
 bool json_u64(JsonSpan value, uint64_t *out) {

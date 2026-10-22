@@ -26,6 +26,9 @@ bool json_find(JsonSpan object, const char *key, JsonSpan *value);
 /* Unescape a string value into `out` as UTF-8 + NUL; false when the value is
  * not a string or does not fit. */
 bool json_string(JsonSpan value, char *out, size_t capacity);
+/* The same, refusing raw control characters and unpaired surrogates (no
+ * U+FFFD); the decoded byte length, which may count NUL bytes, or -1. */
+long json_string_strict(JsonSpan value, char *out, size_t capacity);
 /* A non-negative integer value (no fraction, no exponent). */
 bool json_u64(JsonSpan value, uint64_t *out);
 bool json_is_object(JsonSpan value);

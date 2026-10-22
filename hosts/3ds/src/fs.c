@@ -14,7 +14,6 @@
 
 /* contracts/spec/fs.ts */
 #define FS_MAX_SEGMENT_BYTES 64
-#define FS_MAX_DEPTH 8
 #define FS_MAX_PATH_BYTES 160
 #define FS_MAX_IO_BYTES 65536
 #define FS_MAX_DIR_ENTRIES 256
@@ -228,11 +227,11 @@ static bool ensure_directory(const char *path) {
   return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
-static bool remove_tree(const char *full, unsigned depth) {
+static bool remove_tree(const char *full, unsigned depth, unsigned max_depth) {
   struct stat info;
   if (stat(full, &info) != 0) return errno == ENOENT;
   if (!S_ISDIR(info.st_mode)) return remove(full) == 0;
-  if (depth > FS_MAX_DEPTH) return false;
+  if (depth > max_depth) return false;
   DIR *directory = opendir(full);
   if (directory == NULL) return false;
   bool ok = true;
@@ -241,10 +240,14 @@ static bool remove_tree(const char *full, unsigned depth) {
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
     char child[FULL_BYTES];
     int written = snprintf(child, sizeof child, "%s/%s", full, entry->d_name);
-    if (written <= 0 || (size_t)written >= sizeof child || !remove_tree(child, depth + 1)) ok = false;
+    if (written <= 0 || (size_t)written >= sizeof child || !remove_tree(child, depth + 1, max_depth)) ok = false;
   }
   closedir(directory);
   return rmdir(full) == 0 && ok;
+}
+
+bool fs_remove_tree(const char *path, unsigned max_depth) {
+  return remove_tree(path, 0, max_depth);
 }
 
 static bool directory_empty(const char *full) {
@@ -377,91 +380,18 @@ static void base64_append(JsonBuffer *buffer, const uint8_t *bytes, size_t lengt
   if (used > 0) jbuf_raw(buffer, chunk, used);
 }
 
-static bool read_hex4(const char *text, size_t end, size_t at, uint32_t *out) {
-  if (at + 4 > end) return false;
-  uint32_t value = 0;
-  for (size_t i = 0; i < 4; i += 1) {
-    char c = text[at + i];
-    value <<= 4;
-    if (c >= '0' && c <= '9') value |= (uint32_t)(c - '0');
-    else if (c >= 'a' && c <= 'f') value |= (uint32_t)(c - 'a' + 10);
-    else if (c >= 'A' && c <= 'F') value |= (uint32_t)(c - 'A' + 10);
-    else return false;
-  }
-  *out = value;
-  return true;
-}
-
 /* A JSON string's UTF-8 bytes into `out` (capacity >= the span's length);
- * -1 when it is not a well-formed string, an unpaired surrogate included. */
+ * -1 when it is not a well-formed string (json_string_strict) or its raw
+ * bytes are not UTF-8. */
 static long json_text(JsonSpan value, uint8_t *out) {
-  const char *text = value.start;
-  size_t length = value.length;
-  if (length < 2 || text[0] != '"' || text[length - 1] != '"') return -1;
-  size_t end = length - 1;
-  size_t used = 0;
-  for (size_t at = 1; at < end;) {
-    uint32_t code = (unsigned char)text[at];
-    if (code < 0x20) return -1;
-    if (code != '\\') {
-      out[used++] = (uint8_t)code;
-      at += 1;
-      continue;
-    }
-    if (at + 1 >= end) return -1;
-    char escape = text[at + 1];
-    at += 2;
-    switch (escape) {
-      case '"': code = '"'; break;
-      case '\\': code = '\\'; break;
-      case '/': code = '/'; break;
-      case 'b': code = '\b'; break;
-      case 'f': code = '\f'; break;
-      case 'n': code = '\n'; break;
-      case 'r': code = '\r'; break;
-      case 't': code = '\t'; break;
-      case 'u': {
-        if (!read_hex4(text, end, at, &code)) return -1;
-        at += 4;
-        if (code >= 0xdc00 && code <= 0xdfff) return -1;
-        if (code >= 0xd800 && code <= 0xdbff) {
-          uint32_t low = 0;
-          if (at + 6 > end || text[at] != '\\' || text[at + 1] != 'u' || !read_hex4(text, end, at + 2, &low) ||
-              low < 0xdc00 || low > 0xdfff) {
-            return -1;
-          }
-          code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
-          at += 6;
-        }
-        break;
-      }
-      default:
-        return -1;
-    }
-    if (code < 0x80) {
-      out[used++] = (uint8_t)code;
-    } else if (code < 0x800) {
-      out[used++] = (uint8_t)(0xc0 | (code >> 6));
-      out[used++] = (uint8_t)(0x80 | (code & 0x3f));
-    } else if (code < 0x10000) {
-      out[used++] = (uint8_t)(0xe0 | (code >> 12));
-      out[used++] = (uint8_t)(0x80 | ((code >> 6) & 0x3f));
-      out[used++] = (uint8_t)(0x80 | (code & 0x3f));
-    } else {
-      out[used++] = (uint8_t)(0xf0 | (code >> 18));
-      out[used++] = (uint8_t)(0x80 | ((code >> 12) & 0x3f));
-      out[used++] = (uint8_t)(0x80 | ((code >> 6) & 0x3f));
-      out[used++] = (uint8_t)(0x80 | (code & 0x3f));
-    }
-  }
-  /* Raw (unescaped) bytes must be well-formed UTF-8 as well. */
-  for (size_t at = 0; at < used;) {
+  long used = json_string_strict(value, (char *)out, value.length);
+  for (long at = 0; at < used;) {
     uint32_t scalar = 0;
-    size_t step = utf8_scalar(out, used, at, &scalar);
+    size_t step = utf8_scalar(out, (size_t)used, (size_t)at, &scalar);
     if (step == 0) return -1;
-    at += step;
+    at += (long)step;
   }
-  return (long)used;
+  return used;
 }
 
 /* The payload's bytes (malloc'd) in `*out`; -1 when malformed. */
@@ -644,7 +574,7 @@ int fs_remove(const char *path, size_t path_length, int recursive) {
   }
   if (!directory_empty(full) && recursive != 1) return fail_int("directory not empty");
   used_known = false;
-  if (!remove_tree(full, 0)) return fail_int("remove failed");
+  if (!remove_tree(full, 0, FS_MAX_DEPTH)) return fail_int("remove failed");
   return ok_int();
 }
 

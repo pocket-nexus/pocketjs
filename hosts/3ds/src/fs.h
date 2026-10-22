@@ -29,6 +29,8 @@
 /* The quota for a guest that declares data.fs without an applet store
  * (Pocket Home): 4 MiB, the largest store an applet may declare. */
 #define FS_DEFAULT_QUOTA_BYTES (4u * 1024u * 1024u)
+/* The deepest directory a guest's tree holds below its root. */
+#define FS_MAX_DEPTH 8
 
 /* Bind the tree at `root` (created when missing) with staging in `temp`;
  * quota 0 is unmetered. */
@@ -47,6 +49,11 @@ int fs_mkdir(const char *path, size_t path_length);
 int fs_rename(const char *from, size_t from_length, const char *to, size_t to_length);
 const char *fs_usage(void);
 const char *fs_last_error(void);
+
+/* Delete `path` and everything below it, at most max_depth directories
+ * deep; true when nothing of it is left. runtime_slot_remove uses it for a
+ * whole slot. */
+bool fs_remove_tree(const char *path, unsigned max_depth);
 
 /* The quota a package plan asks for: applet.store.maxBytes when present,
  * else FS_DEFAULT_QUOTA_BYTES. */
