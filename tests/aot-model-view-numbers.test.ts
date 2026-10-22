@@ -38,7 +38,9 @@ const dispose=render(${framework === "solid" ? "()=>App()" : "App"},{ops:wasm.op
 const root=rootMirror.children[0].id;const text=id=>{const node=wasm.inspectNode(id);return node.text+node.children.map(text).join("");};
 export function check(){const frames=[text(root)];globalThis.frame(16384,0,[],[],[],0,[]);wasm.tick();frames.push(text(root));dispose();return frames;}
 `);
-  const build = await Bun.build({ entrypoints: [oracle], target: "bun", format: "esm", conditions: ["browser"], plugins: [jsxPlugin(framework)] });
+  const build = await Bun.build({ entrypoints: [oracle], target: "bun", format: "esm", conditions: ["browser"],
+    define: framework === "vue-vapor" ? { document: "globalThis.__pocketDocument" } : {},
+    plugins: [jsxPlugin(framework)] });
   expect(build.success, build.logs.join("\n")).toBe(true);
   const bundle = resolve(run, "oracle.mjs"); await Bun.write(bundle, build.outputs[0]!);
   const javascript = (await import(bundle)).check();
