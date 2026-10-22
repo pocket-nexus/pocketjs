@@ -6,6 +6,7 @@ name: macOS portable renderer
 on:
   pull_request:
     paths: &paths
+      - ".bun-version"
       - ".github/workflows/macos.yml"
       - "contracts/spec/**"
       - "contracts/schema/**"
@@ -81,7 +82,7 @@ jobs:
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
           components: clippy, rustfmt
-          # note.test.ts boots the sim host, which builds the wasm core.
+          # note.test.ts boots the sim host with the prebuilt wasm core.
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
@@ -89,9 +90,16 @@ jobs:
           workspaces: .
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build note sim prerequisites
+        run: |
+          bun tools/wasm.ts
+          bun tools/build.ts note-main
 
       - name: Contract + System + note + platform + npm package tests
         run: bun test tests/platform-contracts.test.ts tests/pocket-system.test.ts tests/web-system-host.test.ts tests/text-layout-client.test.ts tests/offload.test.ts tests/offload-provider.test.ts tests/companion-session.test.ts tests/note.test.ts tests/font-bake.test.ts tests/npm-package.test.ts && bun tests/contract.ts
@@ -126,7 +134,7 @@ jobs:
           bun tools/text-wasm.ts
 
       - name: Clippy native desktop host
-        run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-desktop-host -- -D warnings
+        run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-desktop-host --no-deps -- -D warnings
 
       - name: Test Metal DrawList rendering and frame leases
         run: |

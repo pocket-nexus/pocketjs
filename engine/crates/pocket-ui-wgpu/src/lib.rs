@@ -25,7 +25,7 @@ pub use render::UiRenderer;
 // The backend-agnostic surface (UiSurface + pak walk) — re-exported so desktop
 // consumers (uihost, OpenStrike) stay source-compatible after the split.
 pub use pocket_ui_surface::{
-    program_profile, walk_pak, PakEntry, ProgramConfig, UiProgram, UiSurface,
+    PakEntry, ProgramConfig, UiProgram, UiSurface, program_profile, walk_pak,
 };
 
 #[cfg(test)]

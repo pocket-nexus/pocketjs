@@ -3,6 +3,7 @@ name: Linux portable renderer
 on:
   pull_request:
     paths: &paths
+      - ".bun-version"
       - ".github/workflows/desktop-linux.yml"
       - "contracts/spec/**"
       - "engine/core/**"
@@ -79,6 +80,8 @@ jobs:
           workspaces: .
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - run: bun install --frozen-lockfile
 
@@ -100,7 +103,7 @@ jobs:
       - name: Rust format, lint and tests
         run: |
           cargo fmt --check --manifest-path Cargo.toml -p pocket-desktop-host
-          cargo clippy --locked --manifest-path Cargo.toml -p pocket-desktop-host -- -D warnings
+          cargo clippy --locked --manifest-path Cargo.toml -p pocket-desktop-host --no-deps -- -D warnings
           cargo test --locked --manifest-path Cargo.toml -p pocket-desktop-host
           cargo test --locked --manifest-path Cargo.toml -p pocket-desktop-host -- --ignored
           cargo test --locked --manifest-path Cargo.toml -p pocket-text

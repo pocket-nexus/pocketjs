@@ -2,6 +2,7 @@ name: Model AOT semantics
 on:
   pull_request:
     paths:
+      - ".bun-version"
       - 'microts/compiler/**'
       - 'framework/**'
       - 'engine/core/**'
@@ -56,7 +57,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun tools/test.ts --stage="Model AOT"
       - uses: actions/upload-artifact@v4

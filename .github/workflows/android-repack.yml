@@ -1,10 +1,10 @@
 name: Android runtime and repack
 on:
   pull_request:
-    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android-icon.ts", "platforms/android/**", "programs/android/**", "programs/moto-g-play/**", "programs/redmi-1s/**", "tools/android.ts", "tools/moto-g-play.ts", "profiles/*-dev.ts"]
+    paths: ['.bun-version', ".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android-icon.ts", "platforms/android/**", "programs/android/**", "programs/moto-g-play/**", "programs/redmi-1s/**", "tools/android.ts", "tools/moto-g-play.ts", "profiles/*-dev.ts"]
   push:
     branches: [main]
-    paths: [".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android-icon.ts", "platforms/android/**", "programs/android/**", "programs/moto-g-play/**", "programs/redmi-1s/**", "tools/android.ts", "tools/moto-g-play.ts", "profiles/*-dev.ts"]
+    paths: ['.bun-version', ".github/workflows/android-repack.yml", "tools/repack.ts", "tools/repack/**", "tools/runtime.ts", "tools/runtime/**", "tests/repack-android.test.ts", "tests/repack-worker.test.ts", "tests/helpers/android-fixture.ts", "tests/helpers/apk-test-signer.ts", "tests/fixtures/repack-android/**", "tools/android-link.ts", "tools/community-key.ts", "contracts/spec/pocket-package.ts", "tools/pocket-pack.ts", "tools/android-icon.ts", "platforms/android/**", "programs/android/**", "programs/moto-g-play/**", "programs/redmi-1s/**", "tools/android.ts", "tools/moto-g-play.ts", "profiles/*-dev.ts"]
 permissions:
   contents: read
 jobs:
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       # The aapt2 + zipalign + apksigner comparison is skipped where the
       # pinned Android SDK is absent, as it is on this runner; a TypeScript

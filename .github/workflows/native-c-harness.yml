@@ -3,6 +3,7 @@ name: Native C harness
 on:
   pull_request:
     paths: &paths
+      - ".bun-version"
       - "tools/build/embedded-apps.rs"
       - ".github/workflows/native-c-harness.yml"
       - "programs/native/quickjs/**"
@@ -136,6 +137,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - name: Install the workspace stable compiler
         run: |
           stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
@@ -148,6 +151,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
+      - name: Fetch host test dependencies
+        run: |
+          cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts

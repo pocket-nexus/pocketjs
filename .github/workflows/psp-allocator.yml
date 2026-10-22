@@ -3,6 +3,7 @@ name: PSP allocator contracts
 on:
   pull_request:
     paths: &paths
+      - ".bun-version"
       - ".github/workflows/psp-allocator.yml"
       - "programs/psp/**"
       - "tools/psp-prx.ts"
@@ -30,6 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - name: Read fixed Rust toolchain
         id: rust-pin
         shell: bash

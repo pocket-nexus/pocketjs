@@ -1,3 +1,4 @@
+import { STABLE_RUST_TOOLCHAIN } from "./build/toolchains/rust.ts";
 // Host contract runner: actual file source, Runtime archive and Bellard guest.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
@@ -31,7 +32,7 @@ export function test3dsMinimal(out: string, packagePath?: string): string {
     "programs/3ds/package_source.c", "platforms/3ds/input_source.c", "-o", source]);
   run([source, join(out, "range.bin")]);
   const target = resolve(root, ".pocket-build/validation/pica-driver/cargo-target");
-  run(["cargo", "+stable", "rustc", "--lib", "--crate-type", "staticlib", "--locked", "--offline", "-p", "pocket-runtime-cabi",
+  run(["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "rustc", "--lib", "--crate-type", "staticlib", "--locked", "-p", "pocket-runtime-cabi",
     "--no-default-features", "--release", "--target-dir", target], { ...process.env, RUSTFLAGS: "-C panic=abort" });
   const quickjs = ensureQuickJsSources(), objects: string[] = [];
   const flags = ["-DPOCKET_QJS_BELLARD", "-DJS_NO_NAN_BOXING"];

@@ -12,6 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - id: matrix
         run: |
           bun -e 'import { SDK_MATRIX } from "./tools/release/matrix.ts"; const rows = SDK_MATRIX.map(row => ({ ...row, runner: row.triple.includes("apple") ? "macos-latest" : "ubuntu-latest" })); console.log("rows=" + JSON.stringify({include:rows}));' >> "$GITHUB_OUTPUT"
@@ -24,6 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: Install the matrix compiler
         env:

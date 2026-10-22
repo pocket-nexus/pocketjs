@@ -3,6 +3,7 @@ name: PocketJS UI overlay
 on:
   pull_request:
     paths:
+      - ".bun-version"
       - '.github/workflows/pocket-ui-overlay.yml'
       - 'framework/src/desktop-pointer.ts'
       - 'framework/src/overlay-host.ts'
@@ -43,7 +44,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun test tests/desktop-pointer.test.ts
       - run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers
@@ -60,7 +61,7 @@ jobs:
           workspaces: .
       - run: cargo fmt --manifest-path Cargo.toml -p pocket3d -p pocket-ui-wgpu -- --check
       - run: cargo test --locked --manifest-path Cargo.toml -p pocket3d -p pocket-ui-wgpu --lib
-      - run: cargo clippy --locked --manifest-path Cargo.toml -p pocket3d -p pocket-ui-wgpu --all-targets -- -D warnings
+      - run: cargo clippy --locked --manifest-path Cargo.toml -p pocket3d -p pocket-ui-wgpu --all-targets --no-deps -- -D warnings
       - run: cargo fmt --manifest-path Cargo.toml -p pocket-web-render -- --check
       - run: cargo test --locked --manifest-path Cargo.toml -p pocket-web-render
-      - run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-web-render --all-targets -- -D warnings
+      - run: cargo clippy --locked --manifest-path Cargo.toml -p pocket-web-render --all-targets --no-deps -- -D warnings

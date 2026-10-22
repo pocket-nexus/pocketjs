@@ -111,7 +111,9 @@ export async function runOutOfTreeRust(options: {
     writeFileSync(join(output, "Cargo.toml"), manifest);
     const compiler = (await command(["rustc", "+" + STABLE_RUST_TOOLCHAIN, "-Vv"])).trim();
     await command(["cargo", "+" + STABLE_RUST_TOOLCHAIN, "generate-lockfile", "--manifest-path", join(consumer, "Cargo.toml")]);
-    const json = await command(["cargo", "+" + STABLE_RUST_TOOLCHAIN, "metadata", "--locked", "--offline", "--format-version=1"]);
+    // Lockfile generation resolves versions; metadata also fetches crate sources
+    // before the consumer build can run offline on a fresh Cargo home.
+    const json = await command(["cargo", "+" + STABLE_RUST_TOOLCHAIN, "metadata", "--locked", "--format-version=1"]);
     writeFileSync(join(output, "cargo-metadata.json"), json);
     const metadata = JSON.parse(json) as CargoMetadata;
     const root = metadata.packages.find(pkg => pkg.id === metadata.resolve.root);

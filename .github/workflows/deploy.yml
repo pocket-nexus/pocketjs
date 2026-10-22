@@ -26,7 +26,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       # The site copies platforms/web/pocketjs.wasm (a gitignored build artifact), so
       # CI must build it from engine/core/wasm first. Stable Rust is enough (no nightly
@@ -73,7 +73,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       - name: Deploy to Cloudflare
         env:
@@ -91,7 +91,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       - name: Deploy to Cloudflare
         env:
@@ -111,7 +111,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
       - name: Read fixed Rust toolchain
         id: rust-pin
         shell: bash

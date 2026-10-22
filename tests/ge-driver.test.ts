@@ -1,3 +1,4 @@
+import { STABLE_RUST_TOOLCHAIN } from "../tools/build/toolchains/rust.ts";
 import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -8,7 +9,7 @@ test("independent GE renderer retains owned and zero-copy resources through term
   const directory = resolve(root, `.pocket-build/validation/ge-driver/${Date.now()}-${process.pid}`);
   mkdirSync(directory, { recursive: true });
   const result = Bun.spawnSync([
-    "cargo", "+stable", "test", "--locked", "--offline", "--manifest-path",
+    "cargo", `+${STABLE_RUST_TOOLCHAIN}`, "test", "--locked", "--manifest-path",
     "devices/psp/pocket-psp-render/Cargo.toml", "--lib", "--target-dir",
     resolve(root, ".pocket-build/validation/ge-driver/host-target"),
   ], { cwd: root, stdout: "pipe", stderr: "pipe" });

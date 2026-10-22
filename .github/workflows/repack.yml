@@ -7,6 +7,7 @@ name: Runtime repack
 on:
   pull_request:
     paths: &paths
+      - ".bun-version"
       - ".github/workflows/repack.yml"
       - "tools/repack.ts"
       - "tools/repack/**"
@@ -39,6 +40,6 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.14
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun test tests/repack-*.test.ts

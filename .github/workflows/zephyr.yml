@@ -3,6 +3,7 @@ on:
   workflow_dispatch: {}
   pull_request:
     paths:
+      - ".bun-version"
       - 'platforms/zephyr/**'
       - 'zephyr/**'
       - 'engine/runtime-cabi/**'
@@ -23,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - uses: actions/setup-python@v6
         with:
