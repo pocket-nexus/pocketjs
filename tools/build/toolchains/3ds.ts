@@ -120,6 +120,9 @@ export async function runContainer(
   execute?: (command: readonly string[], options: { cwd: string }) => Promise<void>,
 ): Promise<void> {
   const args = ["run", "--rm", "--network=none"];
+  if (process.getuid && process.getgid) {
+    args.push("--user", `${process.getuid()}:${process.getgid()}`);
+  }
   for (const mount of mounts) {
     args.push("-v", `${resolvePath(mount.hostPath)}:${mount.containerPath}`);
   }
