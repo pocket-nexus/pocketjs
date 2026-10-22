@@ -102,18 +102,21 @@ export function hintSvg(): { svg: string; width: number; height: number; selectW
   const label = "Ask Claude";
   const width = Math.ceil(labelX + advance(label, labelSize) + 9);
   const keySize = 9.5;
-  const key = (letter: string, x: number) => {
-    const w = advance(letter, keySize);
-    return [
-      // The cap's lower lip, then its face.
-      `<path fill="#b9ad9b" d="${roundRect(x, cap.y + 1, cap.w, cap.h, 4)}"/>`,
-      `<path fill="${PAPER}" d="${roundRect(x, cap.y, cap.w, cap.h - 1, 4)}"/>`,
-      `<path fill="${INK}" d="${textPath(letter, x + (cap.w - w) / 2, cap.y + 10, keySize)}"/>`,
+  // A key cap: its lower lip, its face, then its name at `textX` (centred by
+  // default) on the baseline `y + baseline`.
+  const key = (
+    name: string,
+    x: number,
+    { y = cap.y, w = cap.w, size = keySize, baseline = 10, textX = x + (w - advance(name, size)) / 2 } = {},
+  ) =>
+    [
+      `<path fill="#b9ad9b" d="${roundRect(x, y + 1, w, cap.h, 4)}"/>`,
+      `<path fill="${PAPER}" d="${roundRect(x, y, w, cap.h - 1, 4)}"/>`,
+      `<path fill="${INK}" d="${textPath(name, textX, y + baseline, size)}"/>`,
     ].join("");
-  };
   // The SELECT pill: one wide cap with the button's name, then "Home".
   const selectSize = 7.5;
-  const selectCap = { x: 5, y: SELECT_Y + 4, w: Math.ceil(advance("SELECT", selectSize) + 8), h: 14 };
+  const selectCap = { x: 5, y: SELECT_Y + 4, w: Math.ceil(advance("SELECT", selectSize) + 8) };
   const homeX = selectCap.x + selectCap.w + 6;
   const selectWidth = Math.ceil(homeX + advance("Home", labelSize) + 9);
   const svg = [
@@ -124,9 +127,7 @@ export function hintSvg(): { svg: string; width: number; height: number; selectW
     key("R", capR),
     `<path fill="${PAPER}" d="${textPath(label, labelX, top + 15, labelSize)}"/>`,
     `<path fill="${INK}" fill-opacity="0.82" d="${roundRect(0, SELECT_Y, selectWidth, height, height / 2)}"/>`,
-    `<path fill="#b9ad9b" d="${roundRect(selectCap.x, selectCap.y + 1, selectCap.w, selectCap.h, 4)}"/>`,
-    `<path fill="${PAPER}" d="${roundRect(selectCap.x, selectCap.y, selectCap.w, selectCap.h - 1, 4)}"/>`,
-    `<path fill="${INK}" d="${textPath("SELECT", selectCap.x + 4, selectCap.y + 9.5, selectSize)}"/>`,
+    key("SELECT", selectCap.x, { y: selectCap.y, w: selectCap.w, size: selectSize, baseline: 9.5, textX: selectCap.x + 4 }),
     `<path fill="${PAPER}" d="${textPath("Home", homeX, SELECT_Y + 15, labelSize)}"/>`,
     `</svg>`,
   ].join("");

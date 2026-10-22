@@ -98,7 +98,7 @@ export function cameraInfo(): CameraInfo | null {
 
 // ---- camera.photo ---------------------------------------------------------------
 
-export function photoHost(): PhotoOps | null {
+function photoHost(): PhotoOps | null {
   const ops = cameraHost() as (CameraOps & Partial<PhotoOps>) | null;
   return ops &&
       typeof ops.capture === "function" &&

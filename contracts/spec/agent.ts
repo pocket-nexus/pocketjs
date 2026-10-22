@@ -48,11 +48,10 @@
 //                             Home hint as it does in an applet. Cleared at
 //                             every guest boot.
 //
-// Display mode. "dual" (the default on a 3DS): the stage owns the top screen.
-// "single": the top screen is dark and the overlay draws a notch at the top
-// of the touch screen (AGENT_NOTCH); a tap on it summons the agent, the
-// layout a single-screen device uses. The mode belongs to the console, not
-// to an app, and outlasts reboots.
+// Display mode (AGENT_DISPLAY): "dual", the default, gives the stage the top
+// screen; "single" darkens it, and the overlay summons the agent from a notch
+// on the touch screen (AGENT_NOTCH). The console keeps the mode across
+// reboots (docs/POCKET-AGENT.md, "Display mode").
 //
 // The microphone stream opens with
 //   {"t":"agent.audio","id":n,"rate":AGENT_MIC_RATE,"format":"s16le"}
@@ -126,10 +125,8 @@ export interface AgentStatus {
    *  microphone's gain: what a quiet recording is checked against. */
   peak?: number;
   gain?: number;
-  /** The console's display mode; absent on hosts without one (dual). */
-  display?: AgentDisplay;
   /** The top screen's backlight is on (off in single mode while an agent
-   *  guest runs). */
+   *  guest runs); device checks read it. */
   topBacklight?: boolean;
 }
 

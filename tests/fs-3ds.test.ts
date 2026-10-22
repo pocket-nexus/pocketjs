@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { APPLET_STORE_MAX_BYTES } from "../contracts/spec/applet.ts";
 import { FS_MAX_IO_BYTES, FS_WRITE_APPEND, FS_WRITE_TRUNCATE } from "../contracts/spec/fs.ts";
 import { createSimFsHost } from "../hosts/sim/fs.ts";
 
@@ -248,7 +249,7 @@ describe("FAT and power loss", () => {
   test("the quota is the plan's applet store, else 4 MiB", () => {
     const quota = (plan: string) => harness([`quota ${hex(plan)}`])[0]![0];
     expect(quota(JSON.stringify({ app: {}, applet: { version: 1, store: { maxBytes: 65536 } } }))).toBe("65536");
-    expect(quota(JSON.stringify({ app: {}, applet: { version: 1 } }))).toBe(String(4 * 1024 * 1024));
-    expect(quota(JSON.stringify({ app: {} }))).toBe(String(4 * 1024 * 1024));
+    expect(quota(JSON.stringify({ app: {}, applet: { version: 1 } }))).toBe(String(APPLET_STORE_MAX_BYTES));
+    expect(quota(JSON.stringify({ app: {} }))).toBe(String(APPLET_STORE_MAX_BYTES));
   });
 });

@@ -18,6 +18,7 @@ import { createSimWifiHost, type SimWifiFixture, type SimWifiHost } from "./wifi
 import { createSimCameraHost, type SimCameraHost, type SimCameraOptions } from "./camera.ts";
 import { createSimNetHost, type SimNetHost, type SimNetRoute } from "./net.ts";
 import { createSimAgentHost, type SimAgentHost } from "./agent.ts";
+import type { AgentDisplay } from "../../contracts/spec/agent.ts";
 
 export const TOP_SCREEN: [number, number] = [400, 240];
 export const BOTTOM_SCREEN: [number, number] = [320, 240];
@@ -42,7 +43,7 @@ export interface Console3dsOptions {
   /** NET routes; omitted = no NET module. */
   net?: Readonly<Record<string, SimNetRoute>>;
   /** Mount the agent namespace (contracts/spec/agent.ts); omitted = none. */
-  agent?: { available?: boolean; display?: "dual" | "single" };
+  agent?: { available?: boolean; display?: AgentDisplay };
   /** Virtual epoch at boot, ms. Default 2026-10-19T01:41:00Z. */
   epochMs?: number;
 }

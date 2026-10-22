@@ -87,7 +87,7 @@ export function simCameraFrame(): Uint8Array {
 }
 
 /** A face filling the frame: what the inner camera sees. */
-export function simInnerFrame(): Uint8Array {
+function simInnerFrame(): Uint8Array {
   const w = CAMERA_TEXTURE_WIDTH;
   const rgba = new Uint8Array(w * CAMERA_TEXTURE_HEIGHT * 4);
   for (let y = 0; y < CAMERA_HEIGHT; y++) {
@@ -106,11 +106,16 @@ export function simInnerFrame(): Uint8Array {
   return rgba;
 }
 
+/** The file number of a "100POCKT/PKT_0001.JPG" name. */
+function photoNumber(name: string): number {
+  return Number(name.slice(13, 17));
+}
+
 /** A photo's picture, from its name: a sky, a horizon and a sun whose place
  *  and colours follow the file number, fitted into `w` x `h` of a texture
  *  `tw` x `th`. */
-export function simPhotoPixels(name: string, w: number, h: number, tw: number, th: number): Uint8Array {
-  const n = Number(name.slice(13, 17)) || 1;
+function simPhotoPixels(name: string, w: number, h: number, tw: number, th: number): Uint8Array {
+  const n = photoNumber(name) || 1;
   const rgba = new Uint8Array(tw * th * 4);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -193,7 +198,7 @@ export function createSimCameraHost(options: SimCameraOptions = {}): SimCameraHo
     capture() {
       if (!open) return -1;
       job += 1;
-      const highest = stored.filter((name) => name.startsWith("100POCKT/PKT_")).map((name) => Number(name.slice(13, 17)));
+      const highest = stored.filter((name) => name.startsWith("100POCKT/PKT_")).map(photoNumber);
       const name = `100POCKT/PKT_${String(Math.max(0, ...highest) + 1).padStart(4, "0")}.JPG`;
       stored.push(name);
       log.push(`capture ${name}`);
@@ -201,7 +206,7 @@ export function createSimCameraHost(options: SimCameraOptions = {}): SimCameraHo
       return job;
     },
     photos() {
-      const list: PhotoEntry[] = sorted().map((name) => ({ name, bytes: 60_000 + (Number(name.slice(13, 17)) % 97) * 100 }));
+      const list: PhotoEntry[] = sorted().map((name) => ({ name, bytes: 60_000 + (photoNumber(name) % 97) * 100 }));
       return JSON.stringify(list);
     },
     load(name: string, kind: number) {

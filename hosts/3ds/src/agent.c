@@ -670,7 +670,6 @@ const char *agent_status_json(void) {
   jbuf_u64(&status_out, (uint64_t)mic_peak);
   jbuf_text(&status_out, ",\"gain\":");
   jbuf_u64(&status_out, mic_gain);
-  jbuf_text(&status_out, agent_display_mode() == AGENT_DISPLAY_SINGLE ? ",\"display\":\"single\"" : ",\"display\":\"dual\"");
   jbuf_text(&status_out, backlight_off ? ",\"topBacklight\":false}" : ",\"topBacklight\":true}");
   return jbuf_cstr(&status_out);
 }

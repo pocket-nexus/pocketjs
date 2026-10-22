@@ -12,11 +12,9 @@
 //
 // A reply offers the same two choices for the next request.
 //
-// In single display mode (contracts/spec/agent.ts AGENT_DISPLAY) the top
-// screen is dark, and a notch hangs from the top edge of the touch screen
-// over every app. A tap on it makes a small Clawd peek out of the notch and
-// opens the same choice; closing the card sends Clawd back in. While the
-// agent works, a dot pulses in the notch.
+// In single display mode the overlay also draws the notch (AGENT_NOTCH) over
+// every app; a tap on it opens the same choice (docs/POCKET-AGENT.md, "The
+// notch").
 //
 // While the overlay is open the app under it is paused: its frame callbacks
 // and button handlers stop (frame.ts suspendApp), its gestures are cancelled
@@ -375,6 +373,8 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
   let replyArea: NodeMirror | undefined;
   let banner: NodeMirror | undefined;
   let level: NodeMirror | undefined;
+  let dot: NodeMirror | undefined;
+  let dotShown = false;
 
   // -- glyph widths in the agent's slot, dropped when a new atlas arrives --
   const widths = new Map<string, number>();
@@ -765,6 +765,12 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
       bannerHiddenUntil = -1;
     }
     if (level && phase() === "listening") jump(level, "scale", 1 + host.level() / 220);
+    // A dot pulses in the notch while the agent works.
+    const busy = display() === "single" && phase() === "working";
+    if (dot && (busy || dotShown)) {
+      dotShown = busy;
+      jump(dot, "opacity", busy ? 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(frameCount * 0.15)) : 0);
+    }
   });
 
   // -- buttons and the stylus while the overlay is open ----------------------
@@ -1031,7 +1037,6 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
     () => display() === "single" && (peeking() || (phase() !== "closed" && !tucked() && !(phase() === "working" && acting()))),
   );
   let clawd: NodeMirror | undefined;
-  let dot: NodeMirror | undefined;
   createEffect(() => {
     const out = clawdOut();
     if (clawd) animate(clawd, "translateY", out ? CLAWD.out : CLAWD.hidden, out ? { easing: "spring-bouncy" } : { dur: 180, easing: "in" });
@@ -1058,16 +1063,6 @@ function AgentLayer(props: { host: AgentHostOps; ops: HostOps; appRoot: NodeMirr
     surface: "auxiliary",
     region: { rect: () => (display() === "single" && !modal() ? AGENT_NOTCH : null) },
     onTap: () => peek(),
-  });
-
-  // A dot pulses in the notch while the agent works.
-  let dotShown = false;
-  onFrame(() => {
-    if (!dot) return;
-    const busy = display() === "single" && phase() === "working";
-    if (!busy && !dotShown) return;
-    dotShown = busy;
-    jump(dot, "opacity", busy ? 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(frameCount * 0.15)) : 0);
   });
 
   return (

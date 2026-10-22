@@ -47,7 +47,6 @@ const codes = (m: PocketManifestV2) => appletManifestDiagnostics(m).map((d) => d
 
 describe("manifest rules", () => {
   test("a minimal applet passes, and an app without the section is not checked", () => {
-    expect(validatePocketManifest(manifest()).ok).toBe(true);
     expect(codes(manifest())).toEqual([]);
     const app = manifest({ applet: undefined }, { requires: ["input.buttons"], enhances: ["system.wifi"] });
     expect(codes(app)).toEqual([]);

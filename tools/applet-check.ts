@@ -1,24 +1,12 @@
 // tools/applet-check.ts — the source and bundle rules of a Pocket Applet
-// (contracts/spec/applet.ts, docs/APPLETS.md).
+// (docs/APPLETS.md lists them; contracts/spec/applet.ts holds the lists).
 //
 //   bun tools/applet-check.ts <pocket.json> [--project-root=<dir>] [--js=<bundle> --pak=<pak>]
 //
-// The manifest rules run at plan resolution; this file adds the rules that
-// need the applet's code. It walks the import graph from the entry (comments
-// and types removed by Bun's transpiler) and checks every module the applet
-// ships:
-//
-//   - imports: relative modules inside the project root, PocketJS modules on
-//     the applet list (camera, fs and db only with their capability), Solid;
-//     no dynamic import, no other package;
-//   - no code evaluation (eval, Function);
-//   - no launcher work through @pocketjs/framework/link (install, remove,
-//     pair, catalog);
-//   - every URL host and companion service the code names is declared;
-//   - the UI draws on AuxiliarySurface.
-//
-// The bundle rules check the built guest and pak against the size budgets.
-// tools/build.ts runs both for a plan that carries `applet`.
+// It walks the import graph from the entry (comments and types removed by
+// Bun's transpiler), checks every module the applet ships, and checks the
+// built guest and pak against the size budgets. tools/build.ts runs it for a
+// plan that carries `applet`.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
@@ -29,8 +17,9 @@ import {
   APPLET_PACKAGES,
   APPLET_SYSTEM_LINK_EXPORTS,
   appletManifestDiagnostics,
+  capabilityMatches,
   type AppletDeclaration,
-  type AppletDiagnostic,
+  type ContractDiagnostic,
 } from "../contracts/spec/applet.ts";
 import { LINK_SERVICES_HOST } from "../contracts/spec/link.ts";
 import type { PocketManifestV2 } from "../contracts/spec/pocket-manifest.ts";
@@ -62,7 +51,7 @@ function resolveModule(from: string, specifier: string): string | null {
 }
 
 /** The modules an applet ships, from its entry, with their code. */
-function moduleGraph(input: AppletSourceInput, out: AppletDiagnostic[]): Map<string, string> {
+function moduleGraph(input: AppletSourceInput, out: ContractDiagnostic[]): Map<string, string> {
   const root = resolve(input.projectRoot);
   const modules = new Map<string, string>();
   const queue = [resolve(root, input.entry)];
@@ -105,7 +94,7 @@ function moduleGraph(input: AppletSourceInput, out: AppletDiagnostic[]): Map<str
         const module = framework[1] ?? "solid";
         const gate = APPLET_GATED_MODULES[module];
         const allowed = (APPLET_MODULES as readonly string[]).includes(module) ||
-          (gate !== undefined && input.capabilities.some((id) => gate.some((prefix) => id === prefix || (prefix.endsWith(".") && id.startsWith(prefix)))));
+          (gate !== undefined && input.capabilities.some((id) => gate.some((pattern) => capabilityMatches(id, pattern))));
         if (!allowed) {
           out.push({
             code: "applet.module",
@@ -126,8 +115,8 @@ function moduleGraph(input: AppletSourceInput, out: AppletDiagnostic[]): Map<str
 }
 
 /** The source rules. */
-export function checkAppletSources(input: AppletSourceInput): AppletDiagnostic[] {
-  const out: AppletDiagnostic[] = [];
+export function checkAppletSources(input: AppletSourceInput): ContractDiagnostic[] {
+  const out: ContractDiagnostic[] = [];
   const root = resolve(input.projectRoot);
   const modules = moduleGraph(input, out);
   const services = new Set(input.applet.services ?? []);
@@ -174,8 +163,8 @@ export function checkAppletSources(input: AppletSourceInput): AppletDiagnostic[]
 }
 
 /** The bundle rules: the size budgets. */
-export function checkAppletBundle(sizes: { jsBytes: number; pakBytes?: number }): AppletDiagnostic[] {
-  const out: AppletDiagnostic[] = [];
+export function checkAppletBundle(sizes: { jsBytes: number; pakBytes?: number }): ContractDiagnostic[] {
+  const out: ContractDiagnostic[] = [];
   if (sizes.jsBytes > APPLET_BUDGET.jsBytes) {
     out.push({ code: "applet.budget", path: "bundle", message: `the guest bundle is ${sizes.jsBytes} bytes; the budget is ${APPLET_BUDGET.jsBytes}` });
   }
@@ -187,10 +176,10 @@ export function checkAppletBundle(sizes: { jsBytes: number; pakBytes?: number })
 
 /** Every rule for a manifest file: schema, manifest rules, sources and,
  *  when given, the built bundle. A manifest without `applet` passes. */
-export function checkApplet(options: { manifestPath: string; projectRoot?: string; js?: string; pak?: string }): AppletDiagnostic[] {
+export function checkApplet(options: { manifestPath: string; projectRoot?: string; js?: string; pak?: string }): ContractDiagnostic[] {
   const raw = JSON.parse(readFileSync(options.manifestPath, "utf8")) as unknown;
   const validated = validatePocketManifest(raw);
-  if (!validated.ok) return validated.diagnostics.map((d) => ({ ...d }));
+  if (!validated.ok) return [...validated.diagnostics];
   const manifest: PocketManifestV2 = validated.value;
   if (!manifest.applet) return [];
   const out = appletManifestDiagnostics(manifest);
@@ -210,7 +199,7 @@ export function checkApplet(options: { manifestPath: string; projectRoot?: strin
   return out;
 }
 
-export function formatAppletDiagnostics(name: string, diagnostics: readonly AppletDiagnostic[]): string {
+export function formatAppletDiagnostics(name: string, diagnostics: readonly ContractDiagnostic[]): string {
   return diagnostics.map((d) => `${name}: ${d.code} at ${d.path}: ${d.message}`).join("\n");
 }
 

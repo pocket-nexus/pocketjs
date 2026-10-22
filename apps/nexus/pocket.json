@@ -29,20 +29,14 @@
     "surfaces": {
       "auxiliary": {
         "fixed": {
-          "logical": [
-            320,
-            240
-          ],
+          "logical": [320, 240],
           "presentation": "native"
         }
       }
     },
     "viewport": {
       "fixed": {
-        "logical": [
-          400,
-          240
-        ],
+        "logical": [400, 240],
         "presentation": "native"
       }
     }

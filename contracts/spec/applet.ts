@@ -17,7 +17,7 @@
 
 import type { JsonSchema, PocketManifestV2 } from "./pocket-manifest.ts";
 
-export const APPLET_VERSION = 1 as const;
+const APPLET_VERSION = 1 as const;
 
 /** The manifest section. */
 export interface AppletDeclaration {
@@ -60,20 +60,20 @@ export const appletSchema = {
 } as const satisfies JsonSchema;
 
 /** The one surface an applet draws: the touch screen, 320x240 logical. */
-export const APPLET_SURFACE = [320, 240] as const;
+const APPLET_SURFACE = [320, 240] as const;
 
 /** The longest title: what a springboard label and the agent's app list show. */
-export const APPLET_TITLE_MAX = 24;
+const APPLET_TITLE_MAX = 24;
 
 /** Capabilities every applet requires: its surface and its input. */
-export const APPLET_REQUIRED = ["display.auxiliary", "input.touch.auxiliary"] as const;
+const APPLET_REQUIRED = ["display.auxiliary", "input.touch.auxiliary"] as const;
 /** Capabilities every applet enhances: the system agent operates it. */
-export const APPLET_ENHANCED = ["system.agent"] as const;
+const APPLET_ENHANCED = ["system.agent"] as const;
 
 /** Every capability an applet may declare, required or enhanced. System
  *  capabilities (pairing, Wi-Fi, offload workers, launcher control) stay
  *  with the launcher. Any `camera.*` capability is allowed as well. */
-export const APPLET_CAPABILITIES = [
+const APPLET_CAPABILITIES = [
   "text.glyphs.baked",
   "text.glyphs.runtime",
   "input.buttons",
@@ -88,9 +88,9 @@ export const APPLET_CAPABILITIES = [
   "data.sqlite",
   "system.agent",
 ] as const;
-export const APPLET_CAPABILITY_PREFIXES = ["camera."] as const;
+const APPLET_CAPABILITY_PREFIXES = ["camera."] as const;
 /** Capabilities that need `applet.store`. */
-export const APPLET_STORE_CAPABILITIES = ["data.fs", "data.sqlite"] as const;
+const APPLET_STORE_CAPABILITIES = ["data.fs", "data.sqlite"] as const;
 
 /** Size budgets of a built applet (the guest bundle and its pak). */
 export const APPLET_BUDGET = { jsBytes: 640 * 1024, pakBytes: 3 * 1024 * 1024 } as const;
@@ -119,7 +119,7 @@ export const APPLET_MODULES = [
 ] as const;
 /** Modules allowed when the manifest declares the capability that gates them. */
 export const APPLET_GATED_MODULES: Readonly<Record<string, readonly string[]>> = {
-  camera: ["camera."],
+  camera: APPLET_CAPABILITY_PREFIXES,
   fs: ["data.fs"],
   db: ["data.sqlite"],
 };
@@ -129,22 +129,31 @@ export const APPLET_SYSTEM_LINK_EXPORTS = ["installApp", "removeApp", "pairCompa
 /** Bare packages an applet may import besides @pocketjs/framework. */
 export const APPLET_PACKAGES = ["solid-js", "solid-js/store"] as const;
 
-export interface AppletDiagnostic {
+/** A broken contract rule in a manifest, a platform registry or an applet's
+ *  code (framework/src/manifest/validate.ts re-exports it). */
+export interface ContractDiagnostic {
   readonly code: string;
-  /** RFC 6901 JSON Pointer into the manifest, or a source path. */
+  /** RFC 6901 JSON Pointer into the manifest (the root is the empty
+   *  string), or a source path. */
   readonly path: string;
   readonly message: string;
 }
 
-export function appletCapabilityAllowed(id: string): boolean {
-  return (APPLET_CAPABILITIES as readonly string[]).includes(id) || APPLET_CAPABILITY_PREFIXES.some((prefix) => id.startsWith(prefix));
+/** Whether capability `id` is `pattern`, or in its family when the pattern
+ *  ends in "." ("camera." matches "camera.qr"). */
+export function capabilityMatches(id: string, pattern: string): boolean {
+  return pattern.endsWith(".") ? id.startsWith(pattern) : id === pattern;
+}
+
+function appletCapabilityAllowed(id: string): boolean {
+  return [...APPLET_CAPABILITIES, ...APPLET_CAPABILITY_PREFIXES].some((pattern) => capabilityMatches(id, pattern));
 }
 
 /** The manifest rules for a manifest that declares `applet`. */
-export function appletManifestDiagnostics(manifest: PocketManifestV2): AppletDiagnostic[] {
+export function appletManifestDiagnostics(manifest: PocketManifestV2): ContractDiagnostic[] {
   const applet = manifest.applet;
   if (!applet) return [];
-  const out: AppletDiagnostic[] = [];
+  const out: ContractDiagnostic[] = [];
   const push = (code: string, path: string, message: string) => out.push({ code: `applet.${code}`, path, message });
   const requires = manifest.engine.capabilities.requires;
   const enhances = manifest.engine.capabilities.enhances ?? [];

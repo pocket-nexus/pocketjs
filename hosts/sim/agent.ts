@@ -9,7 +9,7 @@
 //   agent.push({ t: "agent.delta", id, text: "Hi" });
 //   agent.sent                             // every message the guest sent
 
-import type { AgentClientMessage, AgentDisplay, AgentEvent, AgentStatus } from "../../contracts/spec/agent.ts";
+import { AGENT_DISPLAY, type AgentClientMessage, type AgentDisplay, type AgentEvent, type AgentStatus } from "../../contracts/spec/agent.ts";
 
 export interface SimAgentHost {
   ns: Record<string, (...args: never[]) => unknown>;
@@ -96,15 +96,15 @@ export function createSimAgentHost(options: { available?: boolean; display?: Age
       return nextStream++;
     },
     status: () => {
-      const status: AgentStatus = { available, listening: host.listening !== 0, recordedMs: 0, chord: false, display: host.display };
+      const status: AgentStatus = { available, listening: host.listening !== 0, recordedMs: 0, chord: false };
       return JSON.stringify(status);
     },
     display: () => host.display,
     homeHint: ((on: boolean) => {
       host.homeHint = on === true;
     }) as never,
-    setDisplay: ((mode: string) => {
-      if (mode !== "dual" && mode !== "single") return false;
+    setDisplay: ((mode: AgentDisplay) => {
+      if (!AGENT_DISPLAY.includes(mode)) return false;
       if (mode !== host.display) {
         host.display = mode;
         queue.push({ t: "display", mode });

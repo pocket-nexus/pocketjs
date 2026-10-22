@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_LABELS, AGENT_MODE, AGENT_SCREEN, type AgentClientMessage } from "../contracts/spec/agent.ts";
+import { AGENT_LABELS, AGENT_MODE, AGENT_SCREEN, type AgentClientMessage, type AgentDisplay } from "../contracts/spec/agent.ts";
 import { BTN } from "../contracts/spec/spec.ts";
 import { bootConsole3ds, type Console3ds } from "../hosts/sim/console-3ds.ts";
 import { resolve3dsBuildPlan } from "../tools/3ds-profile.ts";
@@ -44,7 +44,7 @@ afterAll(() => {
   rmSync(OUT, { recursive: true, force: true });
 });
 
-async function boot(available = true, display: "dual" | "single" = "dual"): Promise<Console3ds> {
+async function boot(available = true, display: AgentDisplay = "dual"): Promise<Console3ds> {
   const app = await bootConsole3ds({
     js: `${GUEST}.js`,
     pak: `${GUEST}.pak`,

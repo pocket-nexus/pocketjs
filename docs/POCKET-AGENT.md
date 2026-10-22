@@ -95,8 +95,8 @@ screen.
 - **The host** (`agent.c`) keeps the mode in
   `sdmc:/pocketjs/runtime/display.txt` (`dual` or `single`), read on first
   use and written by `agent.setDisplay(mode)`, so it **outlasts reboots and
-  app switches**; `agent.display()` reads it and `status()` reports it. A
-  change queues a `{"t":"display","mode":…}` event.
+  app switches**; `agent.display()` reads it. A change queues a
+  `{"t":"display","mode":…}` event.
 - **In single mode, while an agent guest runs,** `main.c` skips the stage's
   draw (the top screen is cleared to black), 3D is off, and the top
   backlight is powered off through `GSPLCD_PowerOffBacklight`. An APT hook
