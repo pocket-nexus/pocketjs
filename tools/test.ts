@@ -140,6 +140,7 @@ const SUITE: readonly Stage[] = [
       "tests/vue-sfc.test.ts",
       "tests/font-bake.test.ts",
       "tests/indexed-image.test.ts",
+      "tests/svg-texture-size.test.ts",
       "tests/touch.test.ts",
       "tests/desktop-pointer.test.ts",
       "tests/keyboard-touch.test.ts",
