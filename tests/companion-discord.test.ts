@@ -74,6 +74,9 @@ interface Fake {
   limit: Map<string, number>;
   messages: Map<string, unknown[]>;
   identified: { intents: number }[];
+  resumed: { session_id: string; seq: number }[];
+  /** Events the gateway replays to the next RESUME. */
+  missed: unknown[];
 }
 
 let fake: Fake;
@@ -99,6 +102,8 @@ beforeAll(() => {
     ]],
   ]);
   const identified: Fake["identified"] = [];
+  const resumed: Fake["resumed"] = [];
+  const missed: unknown[] = [];
   const server: Server<unknown> = Bun.serve({
     port: 0,
     fetch(request, srv): Response | undefined | Promise<Response> {
@@ -173,13 +178,19 @@ beforeAll(() => {
           if (packet.d.token !== TOKEN) return ws.close(4004, "Authentication failed");
           ws.send(JSON.stringify({ op: 0, s: 1, t: "READY", d: { user: BOT, session_id: "s" } }));
         }
+        if (packet.op === 6) {
+          resumed.push({ session_id: packet.d.session_id, seq: packet.d.seq });
+          let seq = packet.d.seq as number;
+          for (const event of missed.splice(0)) ws.send(JSON.stringify({ op: 0, s: ++seq, t: "MESSAGE_CREATE", d: event }));
+          ws.send(JSON.stringify({ op: 0, s: ++seq, t: "RESUMED", d: null }));
+        }
       },
       close(ws) {
         sockets.delete(ws);
       },
     },
   });
-  fake = { server, sockets, requests, limit, messages, identified };
+  fake = { server, sockets, requests, limit, messages, identified, resumed, missed };
 });
 
 afterAll(() => {
@@ -197,9 +208,20 @@ function service(): ServiceProvider {
 
 async function get(provider: ServiceProvider, path: string, signal = new AbortController().signal) {
   const [pathname, query = ""] = path.split("?");
-  const response = await provider.handle({ method: "GET", path: pathname!, query: new URLSearchParams(query), headers: {}, body: new Uint8Array(0), console: CONSOLE, signal });
+  const response = await provider.handle({ method: "GET", path: pathname!, query: new URLSearchParams(query), headers: {}, body: new Uint8Array(0), maxBytes: 256 * 1024, console: CONSOLE, signal });
   return { status: response.status, json: () => JSON.parse(new TextDecoder().decode(response.body)), body: response.body };
 }
+
+/** A message id of `ms` (Discord's snowflake: milliseconds since 2015 << 22). */
+const snowflake = (ms: number) => String(BigInt(ms - 1_420_070_400_000) << 22n);
+
+const live = async (provider: ServiceProvider) => {
+  let up = false;
+  await until(() => {
+    void get(provider, "/status").then((status) => (up = status.json().gateway));
+    return up;
+  });
+};
 
 const until = async (check: () => boolean, ms = 3000) => {
   const end = Date.now() + ms;
@@ -306,6 +328,7 @@ describe("the discord service", () => {
       query: new URLSearchParams(),
       headers: {},
       body: new TextEncoder().encode(JSON.stringify({ content: "hello from a 3DS" })),
+      maxBytes: 256 * 1024,
       console: CONSOLE,
       signal: new AbortController().signal,
     });
@@ -331,6 +354,51 @@ describe("the discord service", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(900);
     expect(await provider.command!(["logout"])).toContain("logged out");
     expect((await get(provider, "/guilds")).status).toBe(409);
+    provider.close?.();
+  });
+  test("requests that arrive together open one gateway", async () => {
+    const setup = service();
+    await setup.command!(["token", TOKEN]);
+    setup.close?.();
+    await Bun.sleep(100);
+    const before = fake.identified.length;
+    const open = fake.sockets.size;
+    const provider = service();
+    await Promise.all([get(provider, "/guilds"), get(provider, "/status"), get(provider, `/channels/${GENERAL}/messages`)]);
+    await live(provider);
+    await Bun.sleep(100);
+    expect(fake.identified.length - before).toBe(1);
+    expect(fake.sockets.size - open).toBe(1);
+    provider.close?.();
+  });
+
+  test("a dropped gateway resumes its session, and `after` gets what it missed from the replay", async () => {
+    const provider = service();
+    await live(provider);
+    const identified = fake.identified.length;
+    // Ids from after the session started: the list holds every message past them.
+    const seen = snowflake(Date.now() + 20_000);
+    const replayed = snowflake(Date.now() + 21_000);
+    fake.missed.push(message(replayed, GENERAL, "sent while the Mac was offline"));
+    for (const ws of fake.sockets) ws.close(4000, "dropped");
+    await until(() => fake.resumed.length > 0, 5_000);
+    await live(provider);
+    expect(fake.resumed.at(-1)).toEqual({ session_id: "s", seq: 1 });
+    expect(fake.identified.length).toBe(identified);
+    const rest = fake.requests.length;
+    const answer = (await get(provider, `/channels/${GENERAL}/messages?after=${seen}`)).json();
+    expect(answer.messages.map((m: { content: string }) => m.content)).toEqual(["sent while the Mac was offline"]);
+    expect(fake.requests.length).toBe(rest);
+    provider.close?.();
+  });
+
+  test("`after` older than the session reads REST, since the list may have missed it", async () => {
+    const provider = service();
+    await live(provider);
+    const rest = fake.requests.length;
+    const answer = (await get(provider, `/channels/${GENERAL}/messages?after=400000000000000001`)).json();
+    expect(answer.messages.map((m: { id: string }) => m.id).slice(0, 2)).toEqual(["400000000000000002", "400000000000000003"]);
+    expect(fake.requests.slice(rest).map((r) => r.path)).toEqual([`/channels/${GENERAL}/messages?after=400000000000000001&limit=30`]);
     provider.close?.();
   });
 });

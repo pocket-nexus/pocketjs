@@ -26,8 +26,14 @@
 // and a 429 waits retry_after and tries again (MAX_RETRIES).
 //
 // The gateway connection (intents GUILDS | GUILD_MESSAGES | MESSAGE_CONTENT)
-// keeps the last messages of every channel it sees, so `after` answers from
-// memory and a waiting request returns the moment a message arrives. Without
+// keeps the last messages of every channel it sees, so a waiting request
+// returns the moment a message arrives. `after` answers from memory when
+// every message after that id arrived in the current session: the id is
+// newer than the session's start (with CLOCK_MARGIN_MS for the Mac's clock)
+// and newer than any message the channel's list dropped. Otherwise it reads
+// REST. A dropped connection resumes its session (op 6), and Discord replays
+// the events it missed; a session Discord will not resume starts over with
+// IDENTIFY, and its start moves to then. Without
 // the Message Content intent (a switch in the developer portal) the gateway
 // refuses the connection; the service then connects without it, and message
 // text is empty except where the bot is mentioned.
@@ -56,6 +62,11 @@ export const MESSAGE_PAGE = 30;
 export const MAX_WAIT_S = 10;
 const MAX_RETRIES = 3;
 const CHANNEL_KEEP = 50;
+/** Discord's snowflake epoch, and how far the Mac's clock may run behind
+ *  Discord's before the cache would claim a message it never saw. */
+const DISCORD_EPOCH_MS = 1_420_070_400_000;
+const CLOCK_MARGIN_MS = 10_000;
+const snowflakeAt = (ms: number) => BigInt(Math.max(0, Math.floor(ms - DISCORD_EPOCH_MS))) << 22n;
 const GUILD_TTL_MS = 60_000;
 const AVATAR = 32;
 const AVATAR_CIRCLE = 28;
@@ -325,6 +336,8 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
   const channelGuild = new Map<string, string>();
   /** Recent messages per channel from the gateway, oldest first. */
   const recent = new Map<string, RawMessage[]>();
+  /** Per channel, the newest id its list dropped to stay at CHANNEL_KEEP. */
+  const trimmed = new Map<string, bigint>();
   const waiters = new Set<Waiter>();
   const images = new Map<string, Uint8Array>();
   /** Rate-limit buckets: route key -> the time its window resets. */
@@ -444,7 +457,11 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     else {
       list.push(message);
       list.sort(byId);
-      if (list.length > CHANNEL_KEEP) list.splice(0, list.length - CHANNEL_KEEP);
+      if (list.length > CHANNEL_KEEP) {
+        const dropped = list.splice(0, list.length - CHANNEL_KEEP);
+        const newest = BigInt(dropped.at(-1)!.id);
+        if (newest > (trimmed.get(message.channel_id) ?? 0n)) trimmed.set(message.channel_id, newest);
+      }
     }
     recent.set(message.channel_id, list);
     for (const waiter of [...waiters]) {
@@ -455,38 +472,56 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     }
   }
 
-  async function newer(channel: string, after: string, waitS: number, signal: AbortSignal): Promise<RawMessage[]> {
+  /** Every message of `channel` after `after` reached the list. */
+  function covered(channel: string, after: string): boolean {
+    if (!gatewayLive() || liveSince === null) return false;
+    const id = BigInt(after);
+    return id >= liveSince && id >= (trimmed.get(channel) ?? 0n);
+  }
+
+  async function newer(channel: string, after: string, waitS: number, signal: AbortSignal): Promise<{ messages: RawMessage[]; more: boolean }> {
     const fromCache = () => (recent.get(channel) ?? []).filter((message) => BigInt(message.id) > BigInt(after));
-    if (gatewayLive()) {
-      let found = fromCache();
-      if (found.length === 0 && waitS > 0) {
-        await new Promise<void>((resolve) => {
-          const waiter: Waiter = { channel, resolve };
-          waiters.add(waiter);
-          const timer = setTimeout(() => {
-            waiters.delete(waiter);
-            resolve();
-          }, Math.min(waitS, MAX_WAIT_S) * 1000);
-          signal.addEventListener("abort", () => {
-            clearTimeout(timer);
-            waiters.delete(waiter);
-            resolve();
-          }, { once: true });
-        });
-        found = fromCache();
-      }
-      return found;
+    let found: RawMessage[];
+    let more = false;
+    if (covered(channel, after)) found = fromCache();
+    else {
+      found = (await rest<RawMessage[]>("GET", `/channels/${channel}/messages?after=${after}&limit=${MESSAGE_PAGE}`)).sort(byId);
+      more = found.length === MESSAGE_PAGE;
     }
-    const raw = await rest<RawMessage[]>("GET", `/channels/${channel}/messages?after=${after}&limit=${MESSAGE_PAGE}`);
-    return raw.sort(byId);
+    if (found.length === 0 && waitS > 0 && gatewayLive()) {
+      await new Promise<void>((resolve) => {
+        const waiter: Waiter = { channel, resolve };
+        waiters.add(waiter);
+        const timer = setTimeout(() => {
+          waiters.delete(waiter);
+          resolve();
+        }, Math.min(waitS, MAX_WAIT_S) * 1000);
+        signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          waiters.delete(waiter);
+          resolve();
+        }, { once: true });
+      });
+      found = fromCache();
+    }
+    return { messages: found, more };
   }
 
   // -- the gateway -----------------------------------------------------------------
 
   let socket: WebSocket | null = null;
+  /** A start is past its checks and waiting for the gateway URL; `attempt`
+   *  numbers starts, so one that stopGateway overtook does not connect. */
+  let starting = false;
+  let attempt = 0;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let reconnect: ReturnType<typeof setTimeout> | undefined;
   let sequence: number | null = null;
+  /** The session a dropped connection resumes, from READY. */
+  let sessionId: string | null = null;
+  let resumeUrl: string | null = null;
+  /** The snowflake the current session's messages start from. */
+  let liveSince: bigint | null = null;
   let acked = true;
   let ready = false;
   let contentIntent = true;
@@ -495,8 +530,19 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
 
   const gatewayLive = () => ready && socket !== null;
 
+  function forgetSession() {
+    sessionId = null;
+    resumeUrl = null;
+    sequence = null;
+    liveSince = null;
+  }
+
   function stopGateway() {
     closing = true;
+    starting = false;
+    attempt += 1;
+    // A close with 1000 ends the session on Discord's side too.
+    forgetSession();
     clearInterval(heartbeat);
     clearTimeout(reconnect);
     heartbeat = undefined;
@@ -516,16 +562,24 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
   }
 
   async function startGateway() {
-    if (options.gatewayEnabled === false || !token || socket) return;
+    if (options.gatewayEnabled === false || !token || socket || starting) return;
+    starting = true;
     closing = false;
-    let url = options.gateway;
+    const mine = ++attempt;
+    const resuming = sessionId !== null && sequence !== null;
+    let url = (resuming ? resumeUrl : null) ?? options.gateway;
     try {
       url ??= (await rest<{ url: string }>("GET", "/gateway/bot")).url;
     } catch (error) {
+      if (mine !== attempt) return;
       context.log(`discord: no gateway URL (${(error as Error).message})`);
+      starting = false;
       scheduleReconnect();
       return;
     }
+    if (mine !== attempt) return;
+    starting = false;
+    if (closing || !token || socket) return;
     const target = `${url}${url.includes("?") ? "&" : "?"}v=10&encoding=json`;
     const host = new URL(target).hostname;
     const proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
@@ -536,6 +590,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
     };
     ws.onmessage = (event) => {
+      if (socket !== ws) return;
       let packet: { op: number; d: unknown; s: number | null; t: string | null };
       try {
         packet = JSON.parse(String(event.data));
@@ -557,6 +612,11 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
             acked = false;
             send({ op: 1, d: sequence });
           }, interval);
+          if (sessionId !== null && sequence !== null) {
+            send({ op: 6, d: { token, session_id: sessionId, seq: sequence } });
+            return;
+          }
+          liveSince = snowflakeAt(Date.now() + CLOCK_MARGIN_MS);
           send({
             op: 2,
             d: {
@@ -577,7 +637,8 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
           ws.close(4000);
           return;
         case 9:
-          sequence = null;
+          // Invalid session: `d` says whether it can still be resumed.
+          if (packet.d !== true) forgetSession();
           ws.close(4000);
           return;
         case 0:
@@ -586,7 +647,9 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
       }
     };
     ws.onclose = (event) => {
-      if (socket === ws) socket = null;
+      // A socket stopGateway replaced or closed: nothing of it is current.
+      if (socket !== ws) return;
+      socket = null;
       ready = false;
       clearInterval(heartbeat);
       for (const waiter of waiters) waiter.resolve();
@@ -595,6 +658,8 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
         context.log("discord: the gateway refused the token");
         return;
       }
+      // Invalid sequence, session timed out, or new intents: identify again.
+      if (event.code === 4007 || event.code === 4009 || event.code === 4014) forgetSession();
       if (event.code === 4014 && contentIntent) {
         contentIntent = false;
         context.log("discord: the Message Content intent is off for this bot; connecting without it");
@@ -609,11 +674,20 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
 
   function dispatch(type: string, data: unknown) {
     switch (type) {
-      case "READY":
+      case "READY": {
+        const session = data as { user: RawUser; session_id?: string; resume_gateway_url?: string };
         ready = true;
         backoff = 1000;
-        bot = (data as { user: RawUser }).user;
+        bot = session.user;
+        sessionId = session.session_id ?? null;
+        resumeUrl = session.resume_gateway_url ?? null;
         context.log(`discord: gateway ready as ${bot.username}`);
+        return;
+      }
+      case "RESUMED":
+        ready = true;
+        backoff = 1000;
+        context.log("discord: gateway resumed");
         return;
       case "MESSAGE_CREATE":
       case "MESSAGE_UPDATE": {
@@ -685,6 +759,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     bot = user;
     guildCache.clear();
     recent.clear();
+    trimmed.clear();
     contentIntent = true;
     backoff = 1000;
     void startGateway();
@@ -715,6 +790,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
     bot = null;
     guildCache.clear();
     recent.clear();
+    trimmed.clear();
     images.clear();
     context.log("discord: token forgotten");
     return "Discord is logged out; the token is deleted from this Mac.";
@@ -779,7 +855,7 @@ export function createDiscordService(context: ServiceContext, options: DiscordSe
       if (after) {
         const wait = Math.max(0, Math.min(MAX_WAIT_S, Number(request.query.get("wait") ?? "0") || 0));
         const found = await newer(id, after, wait, request.signal);
-        return jsonResponse(200, { messages: found.map(normalize), more: false });
+        return jsonResponse(200, { messages: found.messages.map(normalize), more: found.more });
       }
       const before = request.query.get("before");
       const raw = await rest<RawMessage[]>("GET", `/channels/${id}/messages?limit=${MESSAGE_PAGE}${before ? `&before=${before}` : ""}`);
