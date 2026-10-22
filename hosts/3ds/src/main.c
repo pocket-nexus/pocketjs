@@ -485,6 +485,10 @@ static bool boot_guest(
     return false;
   }
   if (!surfaces_admit(package, error, error_length)) return false;
+  /* link.c names the running app in every NET request, and the guest's
+   * first code (a module's top level, the first effects) runs inside
+   * qjs_boot and may fetch: the launcher learns the app before it starts. */
+  launcher_set_current(runtime_slot(), package);
   /* data.fs: the guest's tree is its own slot's data directory, bound before
    * qjs_boot publishes `globalThis.fs`. A card that cannot hold it leaves
    * the namespace out, as on a host without the capability; so does a
@@ -876,7 +880,6 @@ static void boot_home(
   runtime_failure_lineage_reset(failures);
   *choice = home_choice(state, embedded, failures);
   if (!boot_with_recovery(choice, state, embedded, failures, error, sizeof error)) fail(error);
-  launcher_set_current(launcher_home_slot(), choice->package);
 }
 
 /* Boot an installed app from its own slot: `candidate` when one was just
@@ -910,7 +913,6 @@ static bool boot_app(
     return false;
   }
   runtime_write_status(state, choice->package, choice->commit_on_accept ? "candidate" : "booted");
-  launcher_set_current(target->slot, choice->package);
   return true;
 }
 
@@ -1137,7 +1139,6 @@ int main(void) {
     guest.commit_on_accept ? "candidate" : "booted",
     0
   );
-  launcher_set_current(runtime_slot(), guest.package);
 #endif
 #endif /* ordinary recovery boot */
 
