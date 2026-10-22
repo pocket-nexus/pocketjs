@@ -9,19 +9,27 @@
 //
 //   POST /glyphs/atlas {px, bold, slot, text}   the atlas (application/x-pocket-font)
 //
-// One rasterizer per size and weight, each caching its cells, so a later
-// atlas that repeats earlier glyphs draws only the new ones. An emoji draws
+// An atlas fits the request's maxBytes (at most 256 KB, one NET response):
+// text with more glyphs than that holds at the size gets 413 and the
+// largest count that fits. One rasterizer per size and weight, each caching
+// its cells, so a later atlas that repeats earlier glyphs draws only the
+// new ones. An emoji draws
 // as a one-colour picture (Glyphs.swift); a codepoint no font has maps to
 // the atlas's tofu box.
 
 import { atlasFont, codepointsOf, GlyphRasterizer, packAtlas, type GlyphCell } from "../glyphs.ts";
 import { bytesResponse, jsonResponse, type ServiceContext, type ServiceProvider } from "../services.ts";
-import { MAX_FONT_SLOTS } from "../../../contracts/spec/spec.ts";
+import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, MAX_FONT_SLOTS } from "../../../contracts/spec/spec.ts";
 
-/** Sizes an app may ask for, and how many glyphs one atlas holds. */
+/** Sizes an app may ask for. */
 export const GLYPH_PX_MIN = 8;
 export const GLYPH_PX_MAX = 32;
-export const GLYPH_ATLAS_MAX = 1500;
+
+/** Glyphs an atlas of `px` holds within `maxBytes`, the tofu box counted. */
+export function glyphCapacity(px: number, maxBytes: number): number {
+  const font = atlasFont(px);
+  return Math.floor((maxBytes - FONT_HEADER_SIZE) / (FONT_CMAP_ENTRY_SIZE + font.cellW * font.cellH)) - 1;
+}
 /** The text one request may carry, in characters. */
 const TEXT_MAX = 20_000;
 
@@ -61,7 +69,10 @@ export function createGlyphsService(context: ServiceContext, options: GlyphsOpti
       }
       if (text.length > TEXT_MAX) return jsonResponse(400, { error: `atlas text is limited to ${TEXT_MAX} characters` });
       const wanted = [...new Set([...ASCII, ...codepointsOf(text)])];
-      if (wanted.length > GLYPH_ATLAS_MAX) return jsonResponse(400, { error: `an atlas holds at most ${GLYPH_ATLAS_MAX} glyphs` });
+      const capacity = glyphCapacity(px, request.maxBytes);
+      if (wanted.length > capacity) {
+        return jsonResponse(413, { error: `an atlas of ${px} px holds at most ${capacity} glyphs in ${request.maxBytes} bytes`, capacity });
+      }
       const bold = body.bold === true;
       const cells = await rasterizer(px, bold).cells(wanted);
       if (cells.size === 0) return jsonResponse(503, { error: "this Mac cannot draw glyphs (no CoreText helper)" });

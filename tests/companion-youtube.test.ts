@@ -61,7 +61,7 @@ afterAll(() => {
 });
 
 const get = (path: string, query: Record<string, string> = {}) =>
-  service.handle({ method: "GET", path, query: new URLSearchParams(query), headers: {}, body: new Uint8Array(), console: CONSOLE, signal: new AbortController().signal } satisfies ServiceRequest);
+  service.handle({ method: "GET", path, query: new URLSearchParams(query), headers: {}, body: new Uint8Array(), maxBytes: 256 * 1024, console: CONSOLE, signal: new AbortController().signal } satisfies ServiceRequest);
 const json = (body: Uint8Array) => JSON.parse(new TextDecoder().decode(body));
 const calls = () => (existsSync(CALLS) ? readFileSync(CALLS, "utf8").trim().split("\n") : []);
 

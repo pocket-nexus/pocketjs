@@ -60,16 +60,26 @@ interface ScannedFile {
   hash: string;
   version: string;
   summary: string;
+  services: string[];
   variants: ScannedVariant[];
   error?: string;
 }
 
 export interface CatalogEntry extends LinkCatalogApp {
   path: string;
+  /** The manifest's `applet.services`: the companion services the app may
+   *  call (services.ts). */
+  services: string[];
+}
+
+function declaredServices(manifest: Record<string, unknown>): string[] {
+  const applet = manifest.applet as { services?: unknown } | undefined;
+  const services = applet && typeof applet === "object" ? applet.services : undefined;
+  return Array.isArray(services) ? services.filter((name): name is string => typeof name === "string") : [];
 }
 
 function scanFile(path: string, mtimeMs: number, size: number): ScannedFile {
-  const base: ScannedFile = { path, mtimeMs, size, hash: "", version: "", summary: "", variants: [] };
+  const base: ScannedFile = { path, mtimeMs, size, hash: "", version: "", summary: "", services: [], variants: [] };
   if (size > LINK_INSTALL_MAX_BYTES) return { ...base, error: `larger than ${LINK_INSTALL_MAX_BYTES} bytes` };
   try {
     const bytes = new Uint8Array(readFileSync(path));
@@ -96,6 +106,7 @@ function scanFile(path: string, mtimeMs: number, size: number): ScannedFile {
       hash,
       version: typeof manifest.version === "string" ? manifest.version : "",
       summary: summary.replace(/\s+/g, " ").trim().slice(0, 120),
+      services: declaredServices(manifest),
       variants,
     };
   } catch (error) {
@@ -230,6 +241,7 @@ export class AppCatalog {
           bytes: file.size,
           summary: file.summary,
           path: file.path,
+          services: file.services,
         },
       });
     }
@@ -240,7 +252,7 @@ export class AppCatalog {
   }
 
   apps(target: string): LinkCatalogApp[] {
-    return this.entries(target).map(({ path: _path, ...app }) => app);
+    return this.entries(target).map(({ path: _path, services: _services, ...app }) => app);
   }
 
   find(target: string, id: string): CatalogEntry | undefined {

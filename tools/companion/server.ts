@@ -377,6 +377,8 @@ export class Companion {
 
 interface NetPending {
   meta: Omit<NetRequest, "body">;
+  /** The app the console says sent it (its runtime fills it in). */
+  app: string;
   expected: number;
   chunks: Uint8Array[];
   received: number;
@@ -625,7 +627,8 @@ class LinkConnection {
       return error(f.code ?? NET_ERROR.invalidRequest, f.message);
     }
     const { bytes, ...rest } = meta;
-    const pending: NetPending = { meta: rest, expected: bytes, chunks: [], received: 0, abort: new AbortController(), started: false };
+    const app = typeof message.app === "string" ? message.app : "";
+    const pending: NetPending = { meta: rest, app, expected: bytes, chunks: [], received: 0, abort: new AbortController(), started: false };
     this.net.set(id, pending);
     if (bytes === 0) void this.netRun(id, pending);
   }
@@ -653,10 +656,12 @@ class LinkConnection {
     const label = `net ${pending.meta.method} ${pending.meta.url}`;
     try {
       const device = this.device ?? { id: "", name: "", model: "", target: "" };
+      const services = this.companion.catalog.find(device.target, pending.app)?.services ?? [];
       const response =
         (await this.companion.services.handle(
           { ...pending.meta, body },
           { ...device, address: this.address },
+          { app: pending.app, services },
           pending.abort.signal,
         )) ??
         (await performNet(

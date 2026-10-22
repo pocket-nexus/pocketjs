@@ -35,7 +35,7 @@ as a library, which pocket-shell runs over its applets in `bun run check:3ds`.
 | Field | Meaning |
 | --- | --- |
 | `version` | **1**. A later version adds rules; a host refuses versions it does not know. |
-| `services` | Companion services the applet fetches (`companionService(name, path)`, `https://companion.pocket/<name>/…`). At most **8**. |
+| `services` | Companion services the applet fetches (`companionService(name, path)`, `https://companion.pocket/<name>/…`). At most **8**. Pocket Companion reads this list from the package it offers and answers **403** to a service request from an app it does not offer or whose list lacks the service; the console's runtime, not the guest, names the app in each request. |
 | `hosts` | Hosts the applet fetches through `net.http`. At most **8**, bare host names. |
 | `store` | Persistent state: required for `data.fs` and `data.sqlite`; `maxBytes` at most **4 MiB**. |
 

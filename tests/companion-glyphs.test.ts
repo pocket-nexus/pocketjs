@@ -7,14 +7,15 @@ import { describe, expect, test } from "bun:test";
 import { FONT_CMAP_ENTRY_SIZE, FONT_HEADER_SIZE, FONT_MAGIC } from "../contracts/spec/spec.ts";
 import { atlasFont, type GlyphCell } from "../tools/companion/glyphs.ts";
 import type { ServiceRequest } from "../tools/companion/services.ts";
-import { createGlyphsService, GLYPH_ATLAS_MAX } from "../tools/companion/services/glyphs.ts";
+import { createGlyphsService, glyphCapacity } from "../tools/companion/services/glyphs.ts";
 
-const request = (body: unknown, path = "/atlas", method = "POST"): ServiceRequest => ({
+const request = (body: unknown, path = "/atlas", method = "POST", maxBytes = 256 * 1024): ServiceRequest => ({
   method,
   path,
   query: new URLSearchParams(),
   headers: {},
   body: new TextEncoder().encode(typeof body === "string" ? body : JSON.stringify(body)),
+  maxBytes,
   console: { id: "c", name: "3DS", model: "3ds", target: "3ds-dev", address: "127.0.0.1" },
   signal: AbortSignal.timeout(5_000),
 });
@@ -79,8 +80,21 @@ describe("the glyphs service", () => {
     expect((await glyphs.handle(request({ px: 13, bold: false, slot: 24, text: "" }))).status).toBe(400);
     expect((await glyphs.handle(request("not json"))).status).toBe(400);
     expect((await glyphs.handle(request({}, "/atlas", "GET"))).status).toBe(404);
-    const many = Array.from({ length: GLYPH_ATLAS_MAX }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
-    expect((await glyphs.handle(request({ px: 13, bold: false, slot: 21, text: many }))).status).toBe(400);
+  });
+
+  test("an atlas past the request's maxBytes is refused with the count that fits", async () => {
+    const glyphs = createGlyphsService(context, { rasterizer: fakeRaster([]) });
+    const capacity = glyphCapacity(32, 256 * 1024);
+    expect(capacity).toBe(169);
+    const many = Array.from({ length: capacity - 95 + 1 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join("");
+    const refused = await glyphs.handle(request({ px: 32, bold: false, slot: 21, text: many }));
+    expect(refused.status).toBe(413);
+    expect(JSON.parse(new TextDecoder().decode(refused.body)).capacity).toBe(capacity);
+    const fits = await glyphs.handle(request({ px: 32, bold: false, slot: 21, text: many.slice(0, -1) }));
+    expect(fits.status).toBe(200);
+    expect(fits.body.length).toBeLessThanOrEqual(256 * 1024);
+    const small = await glyphs.handle(request({ px: 13, bold: false, slot: 21, text: "中" }, "/atlas", "POST", 2_000));
+    expect(small.status).toBe(413);
   });
 
   test("a Mac without the CoreText helper says so", async () => {

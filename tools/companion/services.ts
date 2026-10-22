@@ -12,9 +12,16 @@
 // A provider gets the request with the console that sent it and answers an
 // ordinary NET response. Credentials stay in the companion's store; a
 // response never carries one.
+//
+// The console names the app behind every request (the `app` member, filled
+// by its runtime, not the guest). A service answers only an app this
+// companion offers whose manifest lists the service in `applet.services`
+// (contracts/spec/applet.ts); any other gets 403. The request's timeoutMs
+// and maxBytes hold as they do for a fetched URL.
 
 import { LINK_SERVICES_HOST } from "../../contracts/spec/link.ts";
-import type { NetRequest, NetResponse } from "./fetch.ts";
+import { NET_ERROR } from "../../contracts/spec/net.ts";
+import { NetFailure, type NetRequest, type NetResponse } from "./fetch.ts";
 import { createDiscordService } from "./services/discord.ts";
 import { createGlyphsService } from "./services/glyphs.ts";
 import { createXService } from "./services/x.ts";
@@ -36,8 +43,17 @@ export interface ServiceRequest {
   query: URLSearchParams;
   headers: Record<string, string>;
   body: Uint8Array;
+  /** The largest response the app takes; a larger one fails the request
+   *  with response_too_large. */
+  maxBytes: number;
   console: ServiceConsole;
   signal: AbortSignal;
+}
+
+/** The app behind a request and the services its manifest declares. */
+export interface ServiceCaller {
+  app: string;
+  services: readonly string[];
 }
 
 export interface ServiceContext {
@@ -100,28 +116,53 @@ export class ServiceHost {
     return await provider.command(args);
   }
 
-  /** The response when `request` names a service, else null. */
-  async handle(request: Pick<NetRequest, "url" | "method" | "headers"> & { body: Uint8Array }, console: ServiceConsole, signal: AbortSignal): Promise<NetResponse | null> {
+  /** The response when `request` names a service, else null. Throws a
+   *  NetFailure on a timeout or a response past maxBytes. */
+  async handle(
+    request: Pick<NetRequest, "url" | "method" | "headers" | "timeoutMs" | "maxBytes"> & { body: Uint8Array },
+    console: ServiceConsole,
+    caller: ServiceCaller,
+    signal: AbortSignal,
+  ): Promise<NetResponse | null> {
     const url = new URL(request.url);
     if (url.hostname !== LINK_SERVICES_HOST) return null;
     const [, name = "", ...rest] = url.pathname.split("/");
-    const provider = this.provider(name);
-    if (!provider) return { ...jsonResponse(404, { error: `no service named ${name}` }), url: request.url };
+    if (!SERVICE_FACTORIES[name]) return { ...jsonResponse(404, { error: `no service named ${name}` }), url: request.url };
+    if (!caller.services.includes(name)) {
+      this.context.log(`service ${name}: refused ${caller.app || "an unnamed app"}`);
+      return { ...jsonResponse(403, { error: `${caller.app || "this app"} does not declare the ${name} service in applet.services of an app this companion offers` }), url: request.url };
+    }
+    const provider = this.provider(name)!;
+    const deadline = AbortSignal.timeout(request.timeoutMs);
+    const done = AbortSignal.any([signal, deadline]);
+    let response: Omit<NetResponse, "url">;
     try {
-      const response = await provider.handle({
-        method: request.method,
-        path: `/${rest.join("/")}`,
-        query: url.searchParams,
-        headers: request.headers,
-        body: request.body,
-        console,
-        signal,
-      });
-      return { ...response, url: request.url };
+      response = await Promise.race([
+        provider.handle({
+          method: request.method,
+          path: `/${rest.join("/")}`,
+          query: url.searchParams,
+          headers: request.headers,
+          body: request.body,
+          maxBytes: request.maxBytes,
+          console,
+          signal: done,
+        }),
+        new Promise<never>((_, reject) => {
+          const stop = () => reject(deadline.aborted ? new NetFailure(NET_ERROR.timeout, `the ${name} service took more than ${request.timeoutMs} ms`) : new NetFailure(NET_ERROR.cancelled, "cancelled"));
+          if (done.aborted) stop();
+          else done.addEventListener("abort", stop, { once: true });
+        }),
+      ]);
     } catch (error) {
+      if (error instanceof NetFailure) throw error;
       this.context.log(`service ${name}: ${(error as Error).message}`);
       return { ...jsonResponse(502, { error: (error as Error).message }), url: request.url };
     }
+    if (response.body.length > request.maxBytes) {
+      throw new NetFailure(NET_ERROR.responseTooLarge, `the ${name} service answered ${response.body.length} bytes, limit ${request.maxBytes}`);
+    }
+    return { ...response, url: request.url };
   }
 
   close() {

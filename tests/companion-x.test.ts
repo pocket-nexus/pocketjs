@@ -187,6 +187,7 @@ const request = (path: string, query = "", method = "GET", body = ""): ServiceRe
   query: new URLSearchParams(query),
   headers: {},
   body: new TextEncoder().encode(body),
+  maxBytes: 256 * 1024,
   console: { id: "c", name: "3DS", model: "3ds", target: "3ds-dev", address: "127.0.0.1" },
   signal: AbortSignal.timeout(10_000),
 });

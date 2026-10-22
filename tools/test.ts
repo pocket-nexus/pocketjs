@@ -157,6 +157,7 @@ const SUITE: readonly Stage[] = [
       "tests/companion-youtube.test.ts",
       "tests/companion-x.test.ts",
       "tests/companion-glyphs.test.ts",
+      "tests/companion-services.test.ts",
       "tests/companion-discord.test.ts",
       "tests/resource-cache.test.ts",
       "tests/font-config.test.ts",
