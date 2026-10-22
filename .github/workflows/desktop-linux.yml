@@ -2,7 +2,7 @@ name: Linux portable renderer
 
 on:
   pull_request:
-    paths:
+    paths: &paths
       - ".github/workflows/desktop-linux.yml"
       - "contracts/spec/**"
       - "engine/core/**"
@@ -44,46 +44,7 @@ on:
       - "tests/web-system-host.test.ts"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/desktop-linux.yml"
-      - "contracts/spec/**"
-      - "engine/core/**"
-      - "engine/spec/**"
-      - "engine/drivers/**"
-      - "engine/raster/**"
-      - "engine/present/**"
-      - "engine/package/**"
-      - "engine/modules/media/**"
-      - "engine/render/draw-ops/**"
-      - "engine/render/glyph-pages/**"
-      - "engine/crates/pocket-mod/**"
-      - "engine/crates/pocket-ui-surface/**"
-      - "engine/crates/pocket-text/**"
-      - "framework/src/text-layout.ts"
-      - "framework/src/offload.ts"
-      - "platforms/web/*offload*.js"
-      - "platforms/web/text-*"
-      - "tools/*offload*"
-      - "tools/companion-session.ts"
-      - "tests/offload-provider.test.ts"
-      - "tests/companion-session.test.ts"
-      - "tests/fixtures/offload-ready-worker.ts"
-      - "tools/text-*"
-      - "tests/text-layout-client.test.ts"
-      - "apps/text-offload/**"
-      - "programs/desktop/**"
-      - "engine/crates/pocket-ui-wgpu/**"
-      - "devices/web/pocket-web-render/**"
-      - "engine/runtime/**"
-      - "engine/guest-rquickjs/**"
-      - "engine/pocket3d/crates/pocket3d/**"
-      - "programs/web/app-instance.*"
-      - "programs/web/system-engine.js"
-      - "platforms/web/wasm-ops.js"
-      - "framework/src/manifest/**"
-      - "tests/platform-contracts.test.ts"
-      - "tests/pocket-system.test.ts"
-      - "tests/web-system-host.test.ts"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:

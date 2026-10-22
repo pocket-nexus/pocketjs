@@ -8,7 +8,7 @@ name: PSP build
 
 on:
   pull_request:
-    paths:
+    paths: &paths
       - ".github/workflows/psp-build.yml"
       - "tools/targets/**"
       - "tools/psp.ts"
@@ -36,32 +36,7 @@ on:
       - "bun.lock"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/psp-build.yml"
-      - "tools/targets/**"
-      - "tools/psp.ts"
-      - "tools/build/**"
-      - "platforms/psp/**"
-      - "profiles/psp.ts"
-      - "tools/psp-linker.ts"
-      - "engine/guest-quickjs/**"
-      - "engine/runtime/**"
-      - "engine/runtime-cabi/**"
-      - "tools/pocket.ts"
-      - "tools/cli/**"
-      - "programs/psp/**"
-      - "devices/psp/**"
-      - "engine/core/**"
-      - "engine/spec/**"
-      - "engine/drivers/**"
-      - "engine/raster/**"
-      - "engine/present/**"
-      - "engine/package/**"
-      - "engine/modules/media/**"
-      - "engine/render/draw-ops/**"
-      - "engine/render/glyph-pages/**"
-      - "package.json"
-      - "bun.lock"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:

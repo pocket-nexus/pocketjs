@@ -110,7 +110,7 @@ export function startDevServer(opts: DevServerOptions = {}): DevServer {
             return Response.json(demoManifest(), { headers: { "cache-control": "no-store" } });
           }
           if (path.startsWith("/dist/")) return fileResponse(DIST_DIR + path.slice("/dist/".length));
-          if (path.startsWith("/platforms/web/") || path.startsWith("/programs/web/")) return fileResponse(join(ROOT, path.slice(1)));
+          if (path.startsWith("/platforms/web/") || path.startsWith("/programs/web/") || path.startsWith("/engine/guest-web/src/")) return fileResponse(join(ROOT, path.slice(1)));
           return fileResponse(HOST_DIR + path.slice(1));
         },
         websocket: {

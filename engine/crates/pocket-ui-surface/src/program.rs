@@ -4,10 +4,10 @@ use std::{cell::RefCell, rc::Rc};
 
 use anyhow::{Result, anyhow};
 use pocket_drivers::{
-    DisplayOutput, InputClasses, InputFrameBuilder, InputSource, PackageSource, Renderer,
-    SourceError,
+    DisplayOutput, InputClasses, InputFrameBuilder, InputSource, Renderer,
 };
 use pocket_mod::{Guest, qjs::CatchResultExt};
+use pocket_package::source::MemorySource;
 use pocket_runtime::{
     GuestEnvironment, GuestFrame, OpContext, Runtime, RuntimeConfig, RuntimeError,
 };
@@ -152,7 +152,7 @@ impl UiProgram {
         })
         .map_err(|error| anyhow!("embedded package: {error:?}"))?;
         self.runtime
-            .set_package_source(Box::new(Source(bytes)))
+            .set_package_source(Box::new(MemorySource(bytes)))
             .host()?;
         self.runtime
             .set_guest(Box::new(NativeGuest {
@@ -184,21 +184,6 @@ impl UiProgram {
     }
 }
 
-struct Source(Vec<u8>);
-impl PackageSource for Source {
-    fn length(&self) -> Result<usize, SourceError> {
-        Ok(self.0.len())
-    }
-    fn all(&mut self) -> Result<&[u8], SourceError> {
-        Ok(&self.0)
-    }
-    fn range(&mut self, offset: usize, output: &mut [u8]) -> Result<usize, SourceError> {
-        let src = self.0.get(offset..).ok_or(SourceError::OutOfBounds)?;
-        let n = src.len().min(output.len());
-        output[..n].copy_from_slice(&src[..n]);
-        Ok(n)
-    }
-}
 struct Input(Rc<RefCell<InputFrameBuilder>>);
 impl InputSource for Input {
     fn classes(&self) -> InputClasses {

@@ -1,5 +1,6 @@
 use super::*;
 use pocket_package::embedded::{self, EmbeddedPackage};
+use pocket_package::source::MemorySource;
 use pocket_runtime::{Guest, GuestEnvironment, GuestFrame, RuntimeConfig};
 
 #[cfg(target_arch = "wasm32")]
@@ -100,21 +101,6 @@ impl InputSource for BrowserInput {
         f.axes.extend_from_slice(&src.axes);
         f.contacts.extend_from_slice(&src.contacts);
         f.relative.extend_from_slice(&src.relative);
-    }
-}
-pub struct OwnedSource(pub Vec<u8>);
-impl PackageSource for OwnedSource {
-    fn length(&self) -> Result<usize, SourceError> {
-        Ok(self.0.len())
-    }
-    fn all(&mut self) -> Result<&[u8], SourceError> {
-        Ok(&self.0)
-    }
-    fn range(&mut self, offset: usize, b: &mut [u8]) -> Result<usize, SourceError> {
-        let src = self.0.get(offset..).ok_or(SourceError::OutOfBounds)?;
-        let n = src.len().min(b.len());
-        b[..n].copy_from_slice(&src[..n]);
-        Ok(n)
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -279,7 +265,7 @@ pub unsafe extern "C" fn web_boot(
             })?;
             runtime.allow_embedded_viewport_changes()?;
             runtime.set_native_asset_loading(false)?;
-            runtime.set_package_source(Box::new(OwnedSource(package)))?;
+            runtime.set_package_source(Box::new(MemorySource(package)))?;
             runtime.set_guest(Box::new(BrowserGuest(h)))?;
             if !h.provider_ops.borrow().is_empty() {
                 runtime.add_provider(Box::new(BrowserProvider {

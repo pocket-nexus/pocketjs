@@ -3,7 +3,7 @@
 // PSP build identity uses FNV-1a 64 over the embedded bytes. A compiled
 // single-app .pocket hashes the complete file; a launcher hashes complete
 // package files in table order. Legacy raw embedding hashes JS followed by
-// pak. tools/build/psp/embed.rs produces the device value reported through
+// pak. tools/build/embedded-apps.rs produces the device value reported through
 // OP.debugStats; the bridge must select the same input mode.
 //
 // Keep both implementations in lockstep; the published FNV-1a test vectors

@@ -6,7 +6,7 @@ name: Runtime repack
 # its refusals, and that every repack bundles for a Worker.
 on:
   pull_request:
-    paths:
+    paths: &paths
       - ".github/workflows/repack.yml"
       - "tools/repack.ts"
       - "tools/repack/**"
@@ -26,24 +26,7 @@ on:
       - "programs/vita/assets/**"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/repack.yml"
-      - "tools/repack.ts"
-      - "tools/repack/**"
-      - "tools/runtime.ts"
-      - "tools/runtime/**"
-      - "tools/median-cut.ts"
-      - "tools/png.ts"
-      - "contracts/spec/pocket-package.ts"
-      - "tests/repack-*.test.ts"
-      - "tests/helpers/android-fixture.ts"
-      - "tests/helpers/apk-test-signer.ts"
-      - "tools/android-link.ts"
-      - "tools/community-key.ts"
-      - "tests/fixtures/packages/**"
-      - "tests/fixtures/repack-*/**"
-      - "tools/vita-package.ts"
-      - "programs/vita/assets/**"
+    paths: *paths
 
 permissions:
   contents: read

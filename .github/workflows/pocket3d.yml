@@ -2,7 +2,7 @@ name: Pocket3D
 
 on:
   pull_request:
-    paths:
+    paths: &paths
       - '.github/workflows/pocket3d.yml'
       - 'engine/pocket3d/crates/pocket3d/**'
       - 'engine/pocket3d/crates/pocket3d-anim/**'
@@ -12,14 +12,7 @@ on:
       - 'Cargo.lock'
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/pocket3d.yml'
-      - 'engine/pocket3d/crates/pocket3d/**'
-      - 'engine/pocket3d/crates/pocket3d-anim/**'
-      - 'engine/pocket3d/crates/pocket3d-mesh/**'
-      - 'engine/pocket3d/crates/pocket3d-world/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
+    paths: *paths
   workflow_dispatch:
 
 permissions:

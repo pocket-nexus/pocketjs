@@ -16,960 +16,168 @@ export interface UiOperation {
   readonly core?: string;
 }
 
+function arg<const Name extends string, const Kind extends UiArgKind>(
+  name: Name, kind: Kind,
+): { readonly name: Name; readonly kind: Kind };
+function arg<const Name extends string, const Kind extends UiArgKind>(
+  name: Name, kind: Kind, optional: true,
+): { readonly name: Name; readonly kind: Kind; readonly optional: true };
+function arg(name: string, kind: UiArgKind, optional?: true) {
+  return optional ? { name, kind, optional } : { name, kind };
+}
+
+function core<
+  const Name extends keyof typeof OP,
+  const Args extends UiOperation["args"],
+  const Result extends UiResultKind,
+  const Expression extends string,
+>(name: Name, args: Args, result: Result, expression: Expression): {
+  readonly name: Name;
+  readonly args: Args;
+  readonly result: Result;
+  readonly provider: "core";
+  readonly core: Expression;
+  readonly id: (typeof OP)[Name];
+};
+function core<
+  const Name extends keyof typeof OP,
+  const Args extends UiOperation["args"],
+  const Result extends UiResultKind,
+  const Expression extends string,
+  const Capability extends NonNullable<UiOperation["capability"]>,
+>(name: Name, args: Args, result: Result, expression: Expression, options: { readonly capability: Capability }): {
+  readonly name: Name;
+  readonly args: Args;
+  readonly result: Result;
+  readonly provider: "core";
+  readonly core: Expression;
+  readonly capability: Capability;
+  readonly id: (typeof OP)[Name];
+};
+function core(
+  name: keyof typeof OP, args: UiOperation["args"], result: UiResultKind,
+  expression: string, options: Pick<UiOperation, "capability"> = {},
+) {
+  return { name, args, result, provider: "core", core: expression, ...options, id: OP[name] } as const;
+}
+
+function provider<
+  const Name extends keyof typeof OP,
+  const Args extends UiOperation["args"],
+  const Result extends UiResultKind,
+  const Provider extends Exclude<UiOperation["provider"], "core" | "private">,
+>(name: Name, args: Args, result: Result, provider: Provider) {
+  return { name, args, result, provider, id: OP[name] } as const;
+}
+
+function privateHook<
+  const Name extends string,
+  const Args extends UiOperation["args"],
+  const Result extends UiResultKind,
+>(name: Name, args: Args, result: Result) {
+  return { name, args, result, provider: "private", id: null } as const;
+}
+
 export const UI_OPS = [
-  {
-    "name": "createNode",
-    "args": [
-      {
-        "name": "type",
-        "kind": "u32"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.create_node(a0 as u8)",
-    "id": 1
-  },
-  {
-    "name": "destroyNode",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.destroy_node(a0)",
-    "id": 2
-  },
-  {
-    "name": "insertBefore",
-    "args": [
-      {
-        "name": "parent",
-        "kind": "i32"
-      },
-      {
-        "name": "child",
-        "kind": "i32"
-      },
-      {
-        "name": "anchorOr0",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.insert_before(a0, a1, a2)",
-    "id": 3
-  },
-  {
-    "name": "removeChild",
-    "args": [
-      {
-        "name": "parent",
-        "kind": "i32"
-      },
-      {
-        "name": "child",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.remove_child(a0, a1)",
-    "id": 4
-  },
-  {
-    "name": "setStyle",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "styleId",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_style(a0, a1)",
-    "id": 5
-  },
-  {
-    "name": "setProp",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "propId",
-        "kind": "u32"
-      },
-      {
-        "name": "value",
-        "kind": "real"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_prop(a0, a1 as u8, a2)",
-    "id": 6
-  },
-  {
-    "name": "setText",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "str",
-        "kind": "string"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_text(a0, a1)",
-    "id": 7
-  },
-  {
-    "name": "replaceText",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "str",
-        "kind": "string"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.replace_text(a0, a1)",
-    "id": 8
-  },
-  {
-    "name": "uploadTexture",
-    "args": [
-      {
-        "name": "buf",
-        "kind": "bytes"
-      },
-      {
-        "name": "w",
-        "kind": "u32"
-      },
-      {
-        "name": "h",
-        "kind": "u32"
-      },
-      {
-        "name": "psm",
-        "kind": "u32"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.upload_texture(a0, a1, a2, a3)",
-    "id": 9
-  },
-  {
-    "name": "setImage",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "texHandle",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_image(a0, a1)",
-    "id": 10
-  },
-  {
-    "name": "animate",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "propId",
-        "kind": "u32"
-      },
-      {
-        "name": "to",
-        "kind": "real"
-      },
-      {
-        "name": "durMs",
-        "kind": "nonnegative"
-      },
-      {
-        "name": "easing",
-        "kind": "u32"
-      },
-      {
-        "name": "delayMs",
-        "kind": "nonnegative"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.animate(a0, a1 as u8, a2, a3, a4 as u8, a5)",
-    "id": 11
-  },
-  {
-    "name": "cancelAnim",
-    "args": [
-      {
-        "name": "animId",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.cancel_anim(a0)",
-    "id": 12
-  },
-  {
-    "name": "setFocus",
-    "args": [
-      {
-        "name": "idOr0",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_focus(a0)",
-    "id": 13
-  },
-  {
-    "name": "loadStyles",
-    "args": [
-      {
-        "name": "buf",
-        "kind": "bytes"
-      }
-    ],
-    "result": "boolean",
-    "provider": "core",
-    "core": "ui.load_styles(a0)",
-    "id": 14
-  },
-  {
-    "name": "loadFontAtlas",
-    "args": [
-      {
-        "name": "buf",
-        "kind": "bytes"
-      }
-    ],
-    "result": "boolean",
-    "provider": "core",
-    "core": "ui.load_font_atlas(a0)",
-    "id": 15
-  },
-  {
-    "name": "measureText",
-    "args": [
-      {
-        "name": "str",
-        "kind": "string"
-      },
-      {
-        "name": "fontSlot",
-        "kind": "u32"
-      }
-    ],
-    "result": "real",
-    "provider": "core",
-    "core": "f64::from(ui.measure_text(a0, a1 as u8))",
-    "id": 16
-  },
-  {
-    "name": "setSprite",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "atlas",
-        "kind": "i32"
-      },
-      {
-        "name": "frames",
-        "kind": "nonnegative"
-      },
-      {
-        "name": "cols",
-        "kind": "nonnegative"
-      },
-      {
-        "name": "step",
-        "kind": "nonnegative"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_sprite(a0, a1, a2, a3, a4)",
-    "id": 17
-  },
-  {
-    "name": "debugInspect",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.debug_inspect(a0)",
-    "id": 18
-  },
-  {
-    "name": "debugRectXY",
-    "args": [],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.debug_rect_xy()",
-    "id": 19
-  },
-  {
-    "name": "debugRectWH",
-    "args": [],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.debug_rect_wh()",
-    "id": 20
-  },
-  {
-    "name": "debugPause",
-    "args": [
-      {
-        "name": "on",
-        "kind": "boolean"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.debug_pause(a0)",
-    "id": 21
-  },
-  {
-    "name": "debugStep",
-    "args": [],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.debug_step()",
-    "id": 22
-  },
-  {
-    "name": "loadTileTexture",
-    "args": [
-      {
-        "name": "key",
-        "kind": "string"
-      },
-      {
-        "name": "index",
-        "kind": "i32"
-      }
-    ],
-    "result": "integer",
-    "provider": "package",
-    "id": 23
-  },
-  {
-    "name": "freeTexture",
-    "args": [
-      {
-        "name": "handle",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.free_texture(a0)",
-    "id": 24
-  },
-  {
-    "name": "uploadImgEntry",
-    "args": [
-      {
-        "name": "blob",
-        "kind": "bytes"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.upload_img_entry(a0)",
-    "id": 25
-  },
-  {
-    "name": "setActive",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "active",
-        "kind": "boolean"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_active(a0, a1)",
-    "id": 26
-  },
-  {
-    "name": "hitTest",
-    "args": [
-      {
-        "name": "x",
-        "kind": "real"
-      },
-      {
-        "name": "y",
-        "kind": "real"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.hit_test(a0 as f32, a1 as f32)",
-    "id": 27
-  },
-  {
-    "name": "setCursor",
-    "args": [
-      {
-        "name": "tex",
-        "kind": "i32"
-      },
-      {
-        "name": "hotX",
-        "kind": "real"
-      },
-      {
-        "name": "hotY",
-        "kind": "real"
-      },
-      {
-        "name": "w",
-        "kind": "real"
-      },
-      {
-        "name": "h",
-        "kind": "real"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_cursor(a0, a1 as f32, a2 as f32, a3 as f32, a4 as f32)",
-    "id": 28
-  },
-  {
-    "name": "setCursorPos",
-    "args": [
-      {
-        "name": "x",
-        "kind": "real"
-      },
-      {
-        "name": "y",
-        "kind": "real"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_cursor_pos(a0 as f32, a1 as f32)",
-    "id": 29
-  },
-  {
-    "name": "svcOpen",
-    "args": [
-      {
-        "name": "app",
-        "kind": "string"
-      }
-    ],
-    "result": "boolean",
-    "provider": "service",
-    "id": 30
-  },
-  {
-    "name": "svcPoll",
-    "args": [],
-    "result": "optionalString",
-    "provider": "service",
-    "id": 31
-  },
-  {
-    "name": "svcSend",
-    "args": [
-      {
-        "name": "line",
-        "kind": "string"
-      }
-    ],
-    "result": "none",
-    "provider": "service",
-    "id": 32
-  },
-  {
-    "name": "loadImgFile",
-    "args": [
-      {
-        "name": "path",
-        "kind": "string"
-      }
-    ],
-    "result": "integer",
-    "provider": "filesystem",
-    "id": 33
-  },
-  {
-    "name": "videoOpen",
-    "args": [
-      {
-        "name": "path",
-        "kind": "string"
-      }
-    ],
-    "result": "boolean",
-    "provider": "video",
-    "id": 34
-  },
-  {
-    "name": "videoTick",
-    "args": [],
-    "result": "integer",
-    "provider": "video",
-    "id": 35
-  },
-  {
-    "name": "videoTexture",
-    "args": [],
-    "result": "integer",
-    "provider": "video",
-    "id": 36
-  },
-  {
-    "name": "videoClose",
-    "args": [],
-    "result": "none",
-    "provider": "video",
-    "id": 37
-  },
-  {
-    "name": "debugStats",
-    "args": [],
-    "result": "string",
-    "provider": "diagnostics",
-    "id": 38
-  },
-  {
-    "name": "appTable",
-    "args": [],
-    "result": "string",
-    "provider": "applications",
-    "id": 39
-  },
-  {
-    "name": "appLaunch",
-    "args": [
-      {
-        "name": "output",
-        "kind": "string"
-      }
-    ],
-    "result": "integer",
-    "provider": "applications",
-    "id": 40
-  },
-  {
-    "name": "appShot",
-    "args": [],
-    "result": "integer",
-    "provider": "applications",
-    "id": 41
-  },
-  {
-    "name": "hitTestBounds",
-    "args": [
-      {
-        "name": "x",
-        "kind": "real"
-      },
-      {
-        "name": "y",
-        "kind": "real"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.hit_test_bounds(a0 as f32, a1 as f32)",
-    "id": 42
-  },
-  {
-    "name": "wrapText",
-    "args": [
-      {
-        "name": "str",
-        "kind": "string"
-      },
-      {
-        "name": "fontSlot",
-        "kind": "u32"
-      },
-      {
-        "name": "maxW",
-        "kind": "real"
-      }
-    ],
-    "result": "u32Array",
-    "provider": "core",
-    "core": "ui.wrap_text(a0, a1 as u8, a2 as f32)",
-    "id": 43
-  },
-  {
-    "name": "setCompositorSurface",
-    "args": [
-      {
-        "name": "id",
-        "kind": "i32"
-      },
-      {
-        "name": "handle",
-        "kind": "i32"
-      },
-      {
-        "name": "focused",
-        "kind": "boolean"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.set_compositor_surface(a0, a1, a2)",
-    "capability": "compositor",
-    "id": 44
-  },
-  {
-    "name": "hitTestAuxiliary",
-    "args": [
-      {
-        "name": "x",
-        "kind": "real"
-      },
-      {
-        "name": "y",
-        "kind": "real"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.hit_test_auxiliary(a0 as f32, a1 as f32)",
-    "capability": "auxiliary",
-    "id": 45
-  },
-  {
-    "name": "hitTestBoundsAuxiliary",
-    "args": [
-      {
-        "name": "x",
-        "kind": "real"
-      },
-      {
-        "name": "y",
-        "kind": "real"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.hit_test_bounds_auxiliary(a0 as f32, a1 as f32)",
-    "capability": "auxiliary",
-    "id": 46
-  },
-  {
-    "name": "fontStreamConfigure",
-    "args": [
-      {
-        "name": "descriptor",
-        "kind": "bytes"
-      }
-    ],
-    "result": "boolean",
-    "provider": "core",
-    "core": "ui.font_stream_configure(a0)",
-    "id": 47
-  },
-  {
-    "name": "fontStreamRequests",
-    "args": [],
-    "result": "string",
-    "provider": "core",
-    "core": "ui.font_stream_requests()",
-    "id": 48
-  },
-  {
-    "name": "fontStreamCommit",
-    "args": [
-      {
-        "name": "glyphs",
-        "kind": "bytes"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.font_stream_commit(a0)",
-    "id": 49
-  },
-  {
-    "name": "fontStreamStats",
-    "args": [],
-    "result": "string",
-    "provider": "core",
-    "core": "ui.font_stream_stats()",
-    "id": 50
-  },
-  {
-    "name": "appClose",
-    "args": [
-      {
-        "name": "output",
-        "kind": "string"
-      }
-    ],
-    "result": "integer",
-    "provider": "applications",
-    "id": 51
-  },
-  {
-    "name": "physicsCreate",
-    "args": [
-      {
-        "name": "kind",
-        "kind": "u32"
-      },
-      {
-        "name": "params",
-        "kind": "bytes"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.physics_create_wire(a0, a1)",
-    "capability": "physics",
-    "id": 52
-  },
-  {
-    "name": "physicsApply",
-    "args": [
-      {
-        "name": "records",
-        "kind": "bytes"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.physics_apply_wire(a0)",
-    "capability": "physics",
-    "id": 53
-  },
-  {
-    "name": "physicsDestroy",
-    "args": [
-      {
-        "name": "handle",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "ui.physics_destroy(a0)",
-    "capability": "physics",
-    "id": 54
-  },
-  {
-    "name": "physicsEvents",
-    "args": [],
-    "result": "optionalBytes",
-    "provider": "core",
-    "core": "physics_events(ui)",
-    "capability": "physics",
-    "id": 55
-  },
-  {
-    "name": "physicsQuery",
-    "args": [
-      {
-        "name": "query",
-        "kind": "u32"
-      },
-      {
-        "name": "handle",
-        "kind": "i32"
-      },
-      {
-        "name": "a",
-        "kind": "real",
-        "optional": true
-      },
-      {
-        "name": "b",
-        "kind": "real",
-        "optional": true
-      },
-      {
-        "name": "c",
-        "kind": "real",
-        "optional": true
-      },
-      {
-        "name": "d",
-        "kind": "real",
-        "optional": true
-      }
-    ],
-    "result": "real",
-    "provider": "core",
-    "core": "ui.physics_query(a0, a1, a2, a3, a4, a5)",
-    "capability": "physics",
-    "id": 56
-  },
-  {
-    "name": "setPropBatch",
-    "args": [
-      {
-        "name": "records",
-        "kind": "bytes"
-      }
-    ],
-    "result": "none",
-    "provider": "core",
-    "core": "set_prop_batch(ui, a0)",
-    "id": 57
-  },
-  {
-    "name": "takeAnimationCompletions",
-    "args": [],
-    "result": "string",
-    "provider": "core",
-    "core": "animation_completions(ui)",
-    "id": 58
-  },
-  {
-    "name": "fontStreamBatch",
-    "args": [
-      {
-        "name": "descriptor",
-        "kind": "bytes"
-      }
-    ],
-    "result": "integer",
-    "provider": "core",
-    "core": "ui.font_stream_batch(a0)",
-    "id": 59
-  },
-  {
-    "name": "captureTexts",
-    "args": [
-      {
-        "name": "surface",
-        "kind": "u32"
-      },
-      {
-        "name": "root",
-        "kind": "i32"
-      }
-    ],
-    "result": "boolean",
-    "provider": "core",
-    "core": "ui.capture_texts(a0, a1)",
-    "id": 60
-  },
-  {
-    "name": "capturedTexts",
-    "args": [
-      {
-        "name": "surface",
-        "kind": "u32"
-      }
-    ],
-    "result": "string",
-    "provider": "core",
-    "core": "ui.captured_texts(a0)",
-    "id": 61
-  },
-  {
-    "name": "__dbgActive",
-    "args": [],
-    "result": "boolean",
-    "provider": "private",
-    "id": null
-  },
-  {
-    "name": "__dbgConnected",
-    "args": [],
-    "result": "boolean",
-    "provider": "private",
-    "id": null
-  },
-  {
-    "name": "__dbgPoll",
-    "args": [],
-    "result": "optionalString",
-    "provider": "private",
-    "id": null
-  },
-  {
-    "name": "__dbgSend",
-    "args": [
-      {
-        "name": "line",
-        "kind": "string"
-      }
-    ],
-    "result": "none",
-    "provider": "private",
-    "id": null
-  },
-  {
-    "name": "__dbgShot",
-    "args": [],
-    "result": "boolean",
-    "provider": "private",
-    "id": null
-  },
-  {
-    "name": "__reportAppAction",
-    "args": [
-      {
-        "name": "name",
-        "kind": "string"
-      },
-      {
-        "name": "value",
-        "kind": "i32"
-      }
-    ],
-    "result": "none",
-    "provider": "private",
-    "id": null
-  }
+  core("createNode", [arg("type", "u32")], "integer", "ui.create_node(a0 as u8)"),
+  core("destroyNode", [arg("id", "i32")], "none", "ui.destroy_node(a0)"),
+  core("insertBefore",
+    [arg("parent", "i32"), arg("child", "i32"), arg("anchorOr0", "i32")],
+    "none", "ui.insert_before(a0, a1, a2)"),
+  core("removeChild", [arg("parent", "i32"), arg("child", "i32")], "none", "ui.remove_child(a0, a1)"),
+  core("setStyle", [arg("id", "i32"), arg("styleId", "i32")], "none", "ui.set_style(a0, a1)"),
+  core("setProp",
+    [arg("id", "i32"), arg("propId", "u32"), arg("value", "real")],
+    "none", "ui.set_prop(a0, a1 as u8, a2)"),
+  core("setText", [arg("id", "i32"), arg("str", "string")], "none", "ui.set_text(a0, a1)"),
+  core("replaceText", [arg("id", "i32"), arg("str", "string")], "none", "ui.replace_text(a0, a1)"),
+  core("uploadTexture",
+    [arg("buf", "bytes"), arg("w", "u32"), arg("h", "u32"), arg("psm", "u32")],
+    "integer", "ui.upload_texture(a0, a1, a2, a3)"),
+  core("setImage", [arg("id", "i32"), arg("texHandle", "i32")], "none", "ui.set_image(a0, a1)"),
+  core("animate",
+    [arg("id", "i32"), arg("propId", "u32"), arg("to", "real"), arg("durMs", "nonnegative"), arg("easing", "u32"), arg("delayMs", "nonnegative")],
+    "integer", "ui.animate(a0, a1 as u8, a2, a3, a4 as u8, a5)"),
+  core("cancelAnim", [arg("animId", "i32")], "none", "ui.cancel_anim(a0)"),
+  core("setFocus", [arg("idOr0", "i32")], "none", "ui.set_focus(a0)"),
+  core("loadStyles", [arg("buf", "bytes")], "boolean", "ui.load_styles(a0)"),
+  core("loadFontAtlas", [arg("buf", "bytes")], "boolean", "ui.load_font_atlas(a0)"),
+  core("measureText",
+    [arg("str", "string"), arg("fontSlot", "u32")],
+    "real", "f64::from(ui.measure_text(a0, a1 as u8))"),
+  core("setSprite",
+    [arg("id", "i32"), arg("atlas", "i32"), arg("frames", "nonnegative"), arg("cols", "nonnegative"), arg("step", "nonnegative")],
+    "none", "ui.set_sprite(a0, a1, a2, a3, a4)"),
+  core("debugInspect", [arg("id", "i32")], "none", "ui.debug_inspect(a0)"),
+  core("debugRectXY", [], "integer", "ui.debug_rect_xy()"),
+  core("debugRectWH", [], "integer", "ui.debug_rect_wh()"),
+  core("debugPause", [arg("on", "boolean")], "none", "ui.debug_pause(a0)"),
+  core("debugStep", [], "none", "ui.debug_step()"),
+  provider("loadTileTexture", [arg("key", "string"), arg("index", "i32")], "integer", "package"),
+  core("freeTexture", [arg("handle", "i32")], "none", "ui.free_texture(a0)"),
+  core("uploadImgEntry", [arg("blob", "bytes")], "integer", "ui.upload_img_entry(a0)"),
+  core("setActive", [arg("id", "i32"), arg("active", "boolean")], "none", "ui.set_active(a0, a1)"),
+  core("hitTest", [arg("x", "real"), arg("y", "real")], "integer", "ui.hit_test(a0 as f32, a1 as f32)"),
+  core("setCursor",
+    [arg("tex", "i32"), arg("hotX", "real"), arg("hotY", "real"), arg("w", "real"), arg("h", "real")],
+    "none", "ui.set_cursor(a0, a1 as f32, a2 as f32, a3 as f32, a4 as f32)"),
+  core("setCursorPos",
+    [arg("x", "real"), arg("y", "real")],
+    "none", "ui.set_cursor_pos(a0 as f32, a1 as f32)"),
+  provider("svcOpen", [arg("app", "string")], "boolean", "service"),
+  provider("svcPoll", [], "optionalString", "service"),
+  provider("svcSend", [arg("line", "string")], "none", "service"),
+  provider("loadImgFile", [arg("path", "string")], "integer", "filesystem"),
+  provider("videoOpen", [arg("path", "string")], "boolean", "video"),
+  provider("videoTick", [], "integer", "video"),
+  provider("videoTexture", [], "integer", "video"),
+  provider("videoClose", [], "none", "video"),
+  provider("debugStats", [], "string", "diagnostics"),
+  provider("appTable", [], "string", "applications"),
+  provider("appLaunch", [arg("output", "string")], "integer", "applications"),
+  provider("appShot", [], "integer", "applications"),
+  core("hitTestBounds",
+    [arg("x", "real"), arg("y", "real")],
+    "integer", "ui.hit_test_bounds(a0 as f32, a1 as f32)"),
+  core("wrapText",
+    [arg("str", "string"), arg("fontSlot", "u32"), arg("maxW", "real")],
+    "u32Array", "ui.wrap_text(a0, a1 as u8, a2 as f32)"),
+  core("setCompositorSurface",
+    [arg("id", "i32"), arg("handle", "i32"), arg("focused", "boolean")],
+    "none", "ui.set_compositor_surface(a0, a1, a2)", { capability: "compositor" }),
+  core("hitTestAuxiliary",
+    [arg("x", "real"), arg("y", "real")],
+    "integer", "ui.hit_test_auxiliary(a0 as f32, a1 as f32)", { capability: "auxiliary" }),
+  core("hitTestBoundsAuxiliary",
+    [arg("x", "real"), arg("y", "real")],
+    "integer", "ui.hit_test_bounds_auxiliary(a0 as f32, a1 as f32)", { capability: "auxiliary" }),
+  core("fontStreamConfigure", [arg("descriptor", "bytes")], "boolean", "ui.font_stream_configure(a0)"),
+  core("fontStreamRequests", [], "string", "ui.font_stream_requests()"),
+  core("fontStreamCommit", [arg("glyphs", "bytes")], "integer", "ui.font_stream_commit(a0)"),
+  core("fontStreamStats", [], "string", "ui.font_stream_stats()"),
+  provider("appClose", [arg("output", "string")], "integer", "applications"),
+  core("physicsCreate",
+    [arg("kind", "u32"), arg("params", "bytes")],
+    "integer", "ui.physics_create_wire(a0, a1)", { capability: "physics" }),
+  core("physicsApply",
+    [arg("records", "bytes")],
+    "none", "ui.physics_apply_wire(a0)", { capability: "physics" }),
+  core("physicsDestroy", [arg("handle", "i32")], "none", "ui.physics_destroy(a0)", { capability: "physics" }),
+  core("physicsEvents", [], "optionalBytes", "physics_events(ui)", { capability: "physics" }),
+  core("physicsQuery",
+    [arg("query", "u32"), arg("handle", "i32"), arg("a", "real", true), arg("b", "real", true), arg("c", "real", true), arg("d", "real", true)],
+    "real", "ui.physics_query(a0, a1, a2, a3, a4, a5)", { capability: "physics" }),
+  core("setPropBatch", [arg("records", "bytes")], "none", "set_prop_batch(ui, a0)"),
+  core("takeAnimationCompletions", [], "string", "animation_completions(ui)"),
+  core("fontStreamBatch", [arg("descriptor", "bytes")], "integer", "ui.font_stream_batch(a0)"),
+  core("captureTexts", [arg("surface", "u32"), arg("root", "i32")], "boolean", "ui.capture_texts(a0, a1)"),
+  core("capturedTexts", [arg("surface", "u32")], "string", "ui.captured_texts(a0)"),
+  privateHook("__dbgActive", [], "boolean"),
+  privateHook("__dbgConnected", [], "boolean"),
+  privateHook("__dbgPoll", [], "optionalString"),
+  privateHook("__dbgSend", [arg("line", "string")], "none"),
+  privateHook("__dbgShot", [], "boolean"),
+  privateHook("__reportAppAction", [arg("name", "string"), arg("value", "i32")], "none"),
 ] as const satisfies readonly UiOperation[];
 
 export const UI_BINDING_PROFILES = {

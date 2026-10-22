@@ -1,6 +1,6 @@
 # Browser runtime
 
-`tools/wasm.ts` builds this standalone Wasm embedding. Each `WasmHost` owns its Runtime, operation context, display buffers, input facts and capture buffers. No process-wide `Ui` exists. `platforms/web/wasm-ops.js` transports canonical argument records to `OpContext::dispatch`; `engine/guest-web` generates the guest functions and the deployed `platforms/web/generated-ui.js` copy.
+`tools/wasm.ts` builds this standalone Wasm embedding. Each `WasmHost` owns its Runtime, operation context, display buffers, input facts and capture buffers. No process-wide `Ui` exists. `platforms/web/wasm-ops.js` transports canonical argument records to `OpContext::dispatch`; `engine/guest-web` implements the guest functions over generated operation descriptors; `platforms/web/generated-ui.js` re-exports that implementation. Web staging includes both directories.
 
 **Product hosts boot the Runtime.** The browser supplies a Guest, input source, memory package source and CPU-visible display. Public service and launcher functions register as `OpProvider` implementations. The generated binding exposes only registered operations; callbacks return owned result bytes and cannot reenter a borrowed core.
 

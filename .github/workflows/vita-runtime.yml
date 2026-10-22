@@ -2,7 +2,8 @@ name: Vita runtime contracts
 
 on:
   pull_request:
-    paths:
+    paths: &paths
+      - "tools/build/embedded-apps.rs"
       - ".github/workflows/vita-runtime.yml"
       - "programs/vita/**"
       - "devices/vita/**"
@@ -33,35 +34,7 @@ on:
       - "bun.lock"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/vita-runtime.yml"
-      - "programs/vita/**"
-      - "devices/vita/**"
-      - "tools/vita*.ts"
-      - "tools/vita-usb/**"
-      - "tests/vita*.test.ts"
-      - "tests/fixtures/vita-dev/**"
-      - "tests/fixtures/vita-runtime/**"
-      - "tools/test-vita-runtime.ts"
-      - "tests/npm-package.test.ts"
-      - "tools/png.ts"
-      - "contracts/**"
-      - "engine/core/**"
-      - "engine/spec/**"
-      - "engine/drivers/**"
-      - "engine/raster/**"
-      - "engine/present/**"
-      - "engine/package/**"
-      - "engine/modules/media/**"
-      - "engine/render/draw-ops/**"
-      - "engine/render/glyph-pages/**"
-      - "engine/render/tex-cache/**"
-      - "engine/render/tri-batch/**"
-      - "engine/runtime/**"
-      - "engine/runtime-cabi/**"
-      - "engine/guest-quickjs/**"
-      - "package.json"
-      - "bun.lock"
+    paths: *paths
 
 permissions:
   contents: read

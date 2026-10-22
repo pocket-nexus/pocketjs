@@ -146,68 +146,25 @@ function rustCallback(cb: AbiCallback): string {
   return `${rustDoc(cb.doc)}pub type ${cb.name} = unsafe extern "C" fn(${cb.args.map(field => `${field.name}: ${rustType(field.type)}`).join(", ")}) -> ${rustType(cb.result)};\n`;
 }
 function rustTypes(): string {
-  let result = `// ${banner}\nuse core::ffi::{c_char, c_void};\n\n`;
+  let result = `// ${banner}\nuse core::ffi::{c_char, c_void};\n\n#[path = "abi_record.rs"]\nmod record;\nuse record::abi_record;\n\n`;
   result += [...DRIVER_ABI_RULES, ...RUNTIME_ABI_RULES].map(rule => `// ${rule}\n`).join("");
   result += "\npub type PocketRendererId = u32;\n#[repr(C)]\npub struct PocketRuntime { _private: [u8; 0] }\n#[repr(C)]\npub struct PocketTickSchedule { _private: [u8; 0] }\n";
   for (const [name, value] of Object.entries({ ...DRIVER_ABI_CONSTANTS, ...RUNTIME_ABI_CONSTANTS })) result += `pub const ${name}: ${name.startsWith("POCKET_STATUS_") ? "i32" : "u32"} = ${value};\n`;
   for (const cb of callbacks) result += "\n" + rustCallback(cb);
   for (const record of records) {
-    result += `\n${rustDoc(record.doc)}#[repr(C)]\n#[derive(Clone, Copy, Debug)]\npub struct ${record.name} {\n`;
-    for (const field of record.fields) result += `    ${rustDoc(field.doc)}pub ${field.name}: ${field.type},\n`;
-    result += "}\n";
-    result += `impl ${record.name} {
-    /// An empty current-version record suitable for an output callback.
-    pub fn empty() -> Self {
-        let mut value: Self = unsafe { core::mem::zeroed() };
-        value.struct_size = core::mem::size_of::<Self>();
-        value
+    if (record.fields[0]?.name !== "struct_size" || record.fields[0]?.type !== "usize") {
+      throw new Error(`${record.name} must begin with a usize struct_size prefix`);
     }
-    /// Copy only complete fields; absent fields remain zero/null.
-    /// # Safety
-    /// A nonnull pointer provides a readable usize prefix and valid field
-    /// representations through min(struct_size, known size). No full-sized
-    /// reference is formed from a possibly shorter caller allocation.
-    pub unsafe fn read_prefix(pointer: *const Self) -> Option<Self> {
-        if pointer.is_null() { return None; }
-        let bytes = pointer.cast::<u8>();
-        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
-        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return None; }
-        let mut value = Self::empty();
-        value.struct_size = capacity;
-`;
-    for (const field of record.fields.slice(1)) result += `        if core::mem::offset_of!(Self, ${field.name}) + core::mem::size_of::<${field.type}>() <= capacity {
-            value.${field.name} = unsafe { bytes.add(core::mem::offset_of!(Self, ${field.name})).cast::<${field.type}>().read_unaligned() };
-        }
-`;
-    result += `        Some(value)
-    }
-    /// Preserve the caller's capacity and write only complete known fields.
-    /// # Safety
-    /// pointer provides a readable usize prefix and writable bytes through
-    /// min(struct_size, known size), with no overlapping live references.
-    pub unsafe fn write_prefix(self, pointer: *mut Self) -> bool {
-        if pointer.is_null() { return false; }
-        let bytes = pointer.cast::<u8>();
-        let capacity = unsafe { bytes.cast::<usize>().read_unaligned() };
-        if capacity < core::mem::size_of::<usize>() || capacity > isize::MAX as usize { return false; }
-`;
-    for (const field of record.fields.slice(1)) result += `        if core::mem::offset_of!(Self, ${field.name}) + core::mem::size_of::<${field.type}>() <= capacity {
-            unsafe { bytes.add(core::mem::offset_of!(Self, ${field.name})).cast::<${field.type}>().write_unaligned(self.${field.name}); }
-        }
-`;
-    result += `        true
-    }
-}
-const _: () = {
-    let mut size = 0usize;
-    let mut align = 1usize;
-`;
-
+    result += `\nabi_record! {\n`;
+    if (record.doc) result += `    ${rustDoc(record.doc)}`;
+    result += `    pub struct ${record.name} {\n`;
     for (const field of record.fields) {
-      const child = layoutExpressions(field.type, "rust");
-      result += `    let field_align = ${child.align};\n    size = size.div_ceil(field_align) * field_align;\n    assert!(core::mem::offset_of!(${record.name}, ${field.name}) == size);\n    size += ${child.size};\n    if field_align > align { align = field_align; }\n`;
+      // Keep the macro's zero-valid scalar/pointer/array vocabulary closed.
+      layoutExpressions(field.type, "rust");
+      if (field.doc) result += `        ${rustDoc(field.doc)}`;
+      result += `        pub ${field.name}: ${field.type},\n`;
     }
-    result += `    assert!(core::mem::size_of::<${record.name}>() == size.div_ceil(align) * align);\n    assert!(core::mem::align_of::<${record.name}>() == align);\n};\n`;
+    result += "    }\n}\n";
   }
   result += '\nunsafe extern "C" {\n';
   for (const fn of [...RUNTIME_ABI_FUNCTIONS, ...HOST_ABI_FUNCTIONS]) result += `    ${rustDoc(fn.doc)}pub fn ${fn.name}(${fn.args.map(field => `${field.name}: ${rustType(field.type)}`).join(", ")}) -> ${rustType(fn.result)};\n`;

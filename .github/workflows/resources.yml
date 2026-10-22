@@ -1,7 +1,7 @@
 name: Resource scheduling
 on:
   pull_request:
-    paths:
+    paths: &paths
       - 'framework/src/resource*.ts'
       - 'framework/src/offload.ts'
       - 'framework/src/ime.ts'
@@ -27,30 +27,7 @@ on:
       - '.github/workflows/resources.yml'
   push:
     branches: [main]
-    paths:
-      - 'framework/src/resource*.ts'
-      - 'framework/src/offload.ts'
-      - 'framework/src/ime.ts'
-      - 'framework/src/text.ts'
-      - 'framework/src/font-coverage.ts'
-      - 'framework/src/pak.ts'
-      - 'contracts/spec/ime.ts'
-      - 'contracts/spec/text.ts'
-      - 'tools/text-glyph-provider.ts'
-      - 'tests/ime.test.ts'
-      - 'tests/text.test.ts'
-      - 'framework/src/keyboard-touch.ts'
-      - 'framework/src/indexed-image.ts'
-      - 'framework/src/frame.ts'
-      - 'framework/src/lifecycle.ts'
-      - 'contracts/spec/offload.ts'
-      - 'tests/resource*.test.ts'
-      - 'tests/offload.test.ts'
-      - 'tests/indexed-image.test.ts'
-      - 'tests/keyboard-touch.test.ts'
-      - 'package.json'
-      - 'bun.lock'
-      - '.github/workflows/resources.yml'
+    paths: *paths
 permissions:
   contents: read
 jobs:

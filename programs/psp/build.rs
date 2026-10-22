@@ -20,7 +20,7 @@
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-#[path = "../../tools/build/psp/embed.rs"]
+#[path = "../../tools/build/embedded-apps.rs"]
 mod embed;
 
 fn dimension(name: &str, fallback: u32) -> u32 {
@@ -231,6 +231,7 @@ fn main() {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     let generated = embed::generate(embed::Config {
+        identity: embed::Identity::PackageTable,
         output: &app,
         enabled: embed_app,
         dist: &dist,
@@ -244,7 +245,7 @@ fn main() {
     for path in generated.inputs {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-    println!("cargo:rerun-if-changed=../../tools/build/psp/embed.rs");
+    println!("cargo:rerun-if-changed=../../tools/build/embedded-apps.rs");
 
     // Switch-veil logo (docs/PLATFORM.md): 128×128 RGBA baked by tools/psp.ts.
     // Empty fallback keeps custom-host builds (no backend env) linking; the

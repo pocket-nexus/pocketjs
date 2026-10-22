@@ -5,7 +5,7 @@ name: macOS portable renderer
 
 on:
   pull_request:
-    paths:
+    paths: &paths
       - ".github/workflows/macos.yml"
       - "contracts/spec/**"
       - "contracts/schema/**"
@@ -60,59 +60,7 @@ on:
       - "package.json"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/macos.yml"
-      - "contracts/spec/**"
-      - "contracts/schema/**"
-      - "engine/core/**"
-      - "engine/spec/**"
-      - "engine/drivers/**"
-      - "engine/raster/**"
-      - "engine/present/**"
-      - "engine/package/**"
-      - "engine/modules/media/**"
-      - "engine/render/draw-ops/**"
-      - "engine/render/glyph-pages/**"
-      - "engine/crates/pocket-ui-surface/**"
-      - "engine/crates/pocket-text/**"
-      - "framework/src/text-layout.ts"
-      - "framework/src/offload.ts"
-      - "platforms/web/*offload*.js"
-      - "platforms/web/text-*"
-      - "tools/*offload*"
-      - "tools/companion-session.ts"
-      - "tests/offload-provider.test.ts"
-      - "tests/companion-session.test.ts"
-      - "tests/fixtures/offload-ready-worker.ts"
-      - "tools/text-*"
-      - "tests/text-layout-client.test.ts"
-      - "apps/text-offload/**"
-      - "programs/web/wasm/**"
-      - "programs/desktop/**"
-      - "engine/crates/pocket-ui-wgpu/**"
-      - "devices/web/pocket-web-render/**"
-      - "engine/runtime/**"
-      - "engine/guest-rquickjs/**"
-      - "engine/pocket3d/crates/pocket3d/**"
-      - "tools/macos.ts"
-      - "framework/src/components*.ts*"
-      - "framework/src/host.ts"
-      - "framework/src/native-tree.ts"
-      - "framework/src/primitives.ts"
-      - "framework/src/manifest/**"
-      - "platforms/web/wasm-ops.js"
-      - "programs/web/app-instance.*"
-      - "programs/web/system-engine.js"
-      - "apps/note/**"
-      - "framework/compiler/**"
-      - "assets/fonts/**"
-      - "tests/platform-contracts.test.ts"
-      - "tests/note.test.ts"
-      - "tests/pocket-system.test.ts"
-      - "tests/web-system-host.test.ts"
-      - "tests/font-bake.test.ts"
-      - "tests/npm-package.test.ts"
-      - "package.json"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:

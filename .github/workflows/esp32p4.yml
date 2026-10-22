@@ -2,7 +2,7 @@ name: ESP32-P4 renderer
 
 on:
   pull_request:
-    paths:
+    paths: &paths
       - ".github/workflows/esp32p4.yml"
       - "engine/core/**"
       - "engine/spec/**"
@@ -19,21 +19,7 @@ on:
       - "platforms/esp-idf/**"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/esp32p4.yml"
-      - "engine/core/**"
-      - "engine/spec/**"
-      - "engine/drivers/**"
-      - "engine/raster/**"
-      - "engine/present/**"
-      - "engine/package/**"
-      - "engine/modules/media/**"
-      - "engine/render/draw-ops/**"
-      - "engine/render/glyph-pages/**"
-      - "engine/render/tri-batch/**"
-      - "engine/render/tex-cache/**"
-      - "devices/gles/**"
-      - "platforms/esp-idf/**"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:

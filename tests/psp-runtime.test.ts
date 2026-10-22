@@ -39,7 +39,7 @@ function embedDirectory() {
 }
 test("PSP writer emits real static tables with exact package bytes and explicit launcher inputs", () => {
   const directory = embedDirectory(), binary = resolve(directory, "embed-tests");
-  const build = Bun.spawnSync(["rustc", "--edition=2021", "--test", "tools/build/psp/embed.rs", "-o", binary],
+  const build = Bun.spawnSync(["rustc", "--edition=2021", "--test", "tools/build/embedded-apps.rs", "-o", binary],
     { cwd: resolve(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
   expect(build.success, build.stderr.toString()).toBe(true);
   const run = Bun.spawnSync([binary], { env: { ...process.env, POCKET_EMBED_TEST_DIR: directory }, stdout: "pipe", stderr: "pipe" });

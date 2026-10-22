@@ -2,7 +2,7 @@ name: PSP allocator contracts
 
 on:
   pull_request:
-    paths:
+    paths: &paths
       - ".github/workflows/psp-allocator.yml"
       - "programs/psp/**"
       - "tools/psp-prx.ts"
@@ -14,16 +14,7 @@ on:
       - "tests/fixtures/psp-allocator/**"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/psp-allocator.yml"
-      - "programs/psp/**"
-      - "tools/psp-prx.ts"
-      - "tests/psp-prx.test.ts"
-      - "tests/fixtures/psp-prx/**"
-      - "tests/psp-arena.test.ts"
-      - "tests/psp-qjs-allocator.test.ts"
-      - "tests/helpers/psp-allocator-harness.ts"
-      - "tests/fixtures/psp-allocator/**"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:

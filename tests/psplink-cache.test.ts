@@ -40,7 +40,7 @@ test("cached PSP PRXs rebuild when extracted contract sources or dependencies ch
       "platforms/psp/alloc/src/arena.rs", "platforms/psp/io/src/local.rs", "platforms/psp/system/fpu.c",
       "platforms/psp/audio/Cargo.toml", "platforms/psp/system/build.rs",
       "programs/psp/src/quickjs_bridge.c", "tools/build/toolchains/psp/build.ts", "tools/psp-linker.ts", "tools/psp.ts",
-      "tools/build/psp/embed.rs",
+      "tools/build/embedded-apps.rs",
       "tools/build/toolchains/psp.ts", "tools/build/toolchains/rust.ts",
       "tools/build/toolchains/psp/mipsel-sony-psp.json",
       "engine/core/Cargo.toml", "programs/psp/Cargo.toml", "Cargo.lock",

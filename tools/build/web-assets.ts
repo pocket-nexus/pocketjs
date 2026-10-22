@@ -7,6 +7,7 @@ const repository = resolve(import.meta.dir, "../..");
 export function webAssetSources(): string[] {
   const groups: readonly [string, RegExp][] = [
     ["platforms/web", /\.js$/],
+    ["engine/guest-web/src", /\.js$/],
     ["programs/web", /^(?:app-instance|system-engine)\.(?:js|html)$/],
   ];
   return groups.flatMap(([directory, pattern]) => {
