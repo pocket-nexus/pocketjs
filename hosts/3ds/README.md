@@ -45,7 +45,7 @@ src/jscan.c           bounded JSON reader/writer for the host's own records
 src/wifi.c            globalThis.wifi over AC and nwm::EXT
 src/camera.c          globalThis.camera: camera texture, QR decode, stills
 src/photos.c          camera.photo: JPEG save, list, decode, thumbnails
-src/stb/              vendored stb_image + stb_image_write (JPEG only)
+src/photos_image.c    DCF names, JPEG through libjpeg, thumbnail and full view
 src/quirc/            vendored quirc (ISC), the QR decoder camera.c runs
 src/input.c           3DS keys and circle pad -> the PSP BTN bitmask
 src/vshader.v.pica    the PICA200 vertex shader
@@ -503,12 +503,12 @@ capture behind the same texture handle. **camera.photo** adds stills on the
 SD card. `capture()` stops the stream, switches the camera to its second
 context (`CONTEXT_B`, 640x480, never mirrored), keeps the second frame, and
 returns to the preview. `src/photos.c` encodes the still on a worker with
-the vendored stb (`src/stb/`) as a JPEG under `sdmc:/DCIM/100POCKT/PKT_nnnn.JPG`,
-the DCF names cameras use, so the console's own camera application and a
-computer reading the card see it; `photos()` lists every `DCIM` JPEG and MPO,
-theirs included. `load(name, kind)` decodes on the same worker into a 78 px
-centre thumbnail (cached under `sdmc:/pocketjs/photos/thumbs`) or the photo
-fitted to 320x240, and `camera_present` uploads the pixels as a core texture
+libjpeg (devkitPro's `3ds-libjpeg-turbo` portlib, linked by the Makefile) as
+a JPEG under `sdmc:/DCIM/100POCKT/PKT_nnnn.JPG` (DCF names,
+contracts/spec/camera.ts). `load(name, kind)` decodes on the same worker at
+the smallest JPEG scale that covers the result (**1/4** of 640x480 for the
+78 px centre thumbnail, cached under `sdmc:/pocketjs/photos/thumbs`; **1/2**
+for the photo fitted to 320x240), and `photos_present` uploads the pixels as a core texture
 and publishes a "loaded" event. Measured on an Old 3DS: the preview at 30 fps
 with the guest at 16.9 ms a frame; a photo saved 3.3 s after the press
 (0.7 s for the still, 2.6 s to encode and write it behind the 60 fps UI); a

@@ -5,9 +5,10 @@
  * encodes stills and decodes photos for drawing.
  *
  * Threads. The worker takes jobs from a short queue: SAVE (a still from
- * camera.c, RGB565, encoded to JPEG with stb_image_write, its thumbnail
- * cached) and LOAD (a thumbnail from the cache or a decode with stb_image,
- * or the whole photo fitted to the touch screen). It leaves results in a
+ * camera.c, RGB565, encoded to JPEG with libjpeg, its thumbnail cached)
+ * and LOAD (a thumbnail from the cache or decoded at the smallest JPEG
+ * scale that covers it, 1/4 for 640x480, or the whole photo at the scale
+ * that covers the touch screen, 1/2 for 640x480, fitted to it). It leaves results in a
  * second queue; photos_present, on the main thread at the frame boundary,
  * uploads decoded pixels as core textures and turns results into the
  * guest's events. The core is touched only from the main thread.

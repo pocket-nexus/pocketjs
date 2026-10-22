@@ -10,14 +10,12 @@
 #include <3ds.h>
 #include <dirent.h>
 #include <errno.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
+#include "jscan.h"
 #include "photos_image.h"
 #include "pocket_core.h"
-#include "stb/stb_image.h"
-#include "stb/stb_image_write.h"
 
 /* contracts/spec/camera.ts */
 #define PHOTO_KIND_THUMB 0
@@ -40,7 +38,7 @@
 #define WORKER_STACK (64u * 1024u)
 #define WORKER_WAIT_NS 100000000LL
 #define MAX_HANDLES 256
-#define EVENTS_CAPACITY 8192u
+#define EVENTS_LIMIT 8192u
 
 enum { JOB_SAVE, JOB_LOAD };
 
@@ -78,9 +76,9 @@ static int next_own_number; /* 0 until the own folder was scanned */
 
 static int32_t handles[MAX_HANDLES];
 static int handle_count;
-static char events[EVENTS_CAPACITY];
-static size_t events_used;
-static char *list_out;
+static JsonBuffer events = { .limit = EVENTS_LIMIT };
+static JsonBuffer events_out;
+static JsonBuffer list_out;
 
 // ---------------------------------------------------------------------------
 // paths
@@ -154,6 +152,15 @@ static void fail(PhotoResult *result, const char *message) {
   result->pixels = NULL;
 }
 
+/* A directory entry's name, upper-cased, when it is `length` characters
+ * (8 for a DCF folder, 12 for a DCF file). */
+static bool entry_name(const struct dirent *entry, char *out, size_t length) {
+  if (strlen(entry->d_name) != length) return false;
+  memcpy(out, entry->d_name, length + 1);
+  photo_upper(out);
+  return true;
+}
+
 /* The next own file number: one past the highest PKT_ in the own folder. */
 static int own_number(void) {
   if (next_own_number > 0) return next_own_number;
@@ -162,10 +169,8 @@ static int own_number(void) {
   if (dir != NULL) {
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-      char name[64];
-      snprintf(name, sizeof name, "%s", entry->d_name);
-      photo_upper(name);
-      if (photo_file_name(name) && strncmp(name, OWN_PREFIX, 4) == 0) {
+      char name[13];
+      if (entry_name(entry, name, 12) && photo_file_name(name) && strncmp(name, OWN_PREFIX, 4) == 0) {
         int number = atoi(name + 4);
         if (number > highest) highest = number;
       }
@@ -174,16 +179,6 @@ static int own_number(void) {
   }
   next_own_number = highest + 1;
   return next_own_number;
-}
-
-typedef struct {
-  FILE *file;
-  bool failed;
-} JpegOut;
-
-static void write_bytes(void *context, void *data, int size) {
-  JpegOut *out = context;
-  if (fwrite(data, 1, (size_t)size, out->file) != (size_t)size) out->failed = true;
 }
 
 static void run_save(Job *job, PhotoResult *result) {
@@ -197,7 +192,7 @@ static void run_save(Job *job, PhotoResult *result) {
   mkdir(DCIM, 0777);
   mkdir(DCIM "/" OWN_FOLDER, 0777);
   int number = own_number();
-  if (number > 9999) {
+  if (number < 1 || number > 9999) {
     free(rgb);
     return fail(result, "the photo folder is full");
   }
@@ -210,9 +205,8 @@ static void run_save(Job *job, PhotoResult *result) {
     free(rgb);
     return fail(result, "the SD card did not take the photo");
   }
-  JpegOut out = { file, false };
-  int written = stbi_write_jpg_to_func(write_bytes, &out, (int)job->width, (int)job->height, 3, rgb, JPEG_QUALITY);
-  bool flushed = !out.failed && fflush(file) == 0 && ferror(file) == 0;
+  bool written = photo_jpeg_write(file, rgb, job->width, job->height, JPEG_QUALITY);
+  bool flushed = fflush(file) == 0 && ferror(file) == 0;
   fclose(file);
   if (!written || !flushed || rename(temporary, path) != 0) {
     remove(temporary);
@@ -228,8 +222,10 @@ static void run_save(Job *job, PhotoResult *result) {
   }
 }
 
-/* Read a photo and decode it to RGB888. */
-static uint8_t *decode(const char *name, long *source_bytes, uint32_t *width, uint32_t *height, char *error, size_t capacity) {
+/* Read a photo and decode it to RGB888, at least min_width x min_height
+ * (photo_jpeg_read). */
+static uint8_t *decode(const char *name, uint32_t min_width, uint32_t min_height, long *source_bytes, uint32_t *width,
+  uint32_t *height, char *error, size_t capacity) {
   char path[96];
   photo_path(path, sizeof path, name);
   long size = file_size(path);
@@ -251,16 +247,9 @@ static uint8_t *decode(const char *name, long *source_bytes, uint32_t *width, ui
     snprintf(error, capacity, "%s could not be read", name);
     return NULL;
   }
-  int w = 0, h = 0, channels = 0;
-  uint8_t *rgb = stbi_load_from_memory(bytes, (int)size, &w, &h, &channels, 3);
+  uint8_t *rgb = photo_jpeg_read(bytes, (size_t)size, min_width, min_height, width, height);
   free(bytes);
-  if (rgb == NULL || w <= 0 || h <= 0) {
-    if (rgb != NULL) stbi_image_free(rgb);
-    snprintf(error, capacity, "%s is not a JPEG this console can read", name);
-    return NULL;
-  }
-  *width = (uint32_t)w;
-  *height = (uint32_t)h;
+  if (rgb == NULL) snprintf(error, capacity, "%s is not a JPEG this console can read", name);
   return rgb;
 }
 
@@ -278,11 +267,13 @@ static void run_load(Job *job, PhotoResult *result) {
     }
     free(texture);
   }
+  bool thumb = job->kind == PHOTO_KIND_THUMB;
   uint32_t width = 0, height = 0;
   long source_bytes = 0;
-  uint8_t *rgb = decode(job->name, &source_bytes, &width, &height, result->error, sizeof result->error);
+  uint8_t *rgb = decode(job->name, thumb ? PHOTO_THUMB_SIZE : PHOTO_SCREEN_WIDTH, thumb ? PHOTO_THUMB_SIZE : PHOTO_SCREEN_HEIGHT,
+    &source_bytes, &width, &height, result->error, sizeof result->error);
   if (rgb == NULL) return;
-  if (job->kind == PHOTO_KIND_THUMB) {
+  if (thumb) {
     result->pixels = photo_thumb(rgb, width, height);
     result->texture_width = result->texture_height = PHOTO_THUMB_TEXTURE;
     if (result->pixels != NULL) write_thumb(job->name, source_bytes, result->pixels);
@@ -291,7 +282,7 @@ static void run_load(Job *job, PhotoResult *result) {
     result->texture_width = PHOTO_SCREEN_TEXTURE_WIDTH;
     result->texture_height = PHOTO_SCREEN_TEXTURE_HEIGHT;
   }
-  stbi_image_free(rgb);
+  free(rgb);
   if (result->pixels == NULL) fail(result, "no memory for the photo");
 }
 
@@ -385,28 +376,22 @@ static int compare_names(const void *a, const void *b) {
 }
 
 const char *photos_list_json(void) {
-  free(list_out);
-  list_out = NULL;
   char **names = calloc(MAX_LIST, sizeof *names);
   int count = 0;
   DIR *dcim = names == NULL ? NULL : opendir(DCIM);
   if (dcim != NULL) {
     struct dirent *folder;
     while (count < MAX_LIST && (folder = readdir(dcim)) != NULL) {
-      char folder_upper[64];
-      snprintf(folder_upper, sizeof folder_upper, "%s", folder->d_name);
-      photo_upper(folder_upper);
-      if (!photo_folder_name(folder_upper)) continue;
+      char folder_upper[9];
+      if (!entry_name(folder, folder_upper, 8) || !photo_folder_name(folder_upper)) continue;
       char path[64];
       snprintf(path, sizeof path, "%s/%s", DCIM, folder_upper);
       DIR *dir = opendir(path);
       if (dir == NULL) continue;
       struct dirent *entry;
       while (count < MAX_LIST && (entry = readdir(dir)) != NULL) {
-        char file[64];
-        snprintf(file, sizeof file, "%s", entry->d_name);
-        photo_upper(file);
-        if (!photo_file_name(file)) continue;
+        char file[13];
+        if (!entry_name(entry, file, 12) || !photo_file_name(file)) continue;
         char name[NAME_CAPACITY];
         snprintf(name, sizeof name, "%s/%s", folder_upper, file);
         names[count] = strdup(name);
@@ -418,23 +403,22 @@ const char *photos_list_json(void) {
     closedir(dcim);
   }
   qsort(names, (size_t)count, sizeof *names, compare_names);
-  size_t capacity = 16u + (size_t)count * 56u;
-  list_out = malloc(capacity);
-  if (list_out == NULL) {
-    for (int i = 0; i < count; i += 1) free(names[i]);
-    free(names);
-    return "[]";
-  }
-  size_t used = (size_t)snprintf(list_out, capacity, "[");
+  jbuf_reset(&list_out);
+  jbuf_text(&list_out, "[");
   for (int i = 0; i < count; i += 1) {
     char full[96];
     photo_path(full, sizeof full, names[i]);
-    used += (size_t)snprintf(list_out + used, capacity - used, "%s{\"name\":\"%s\",\"bytes\":%ld}", i ? "," : "", names[i], file_size(full));
+    jbuf_text(&list_out, i ? ",{\"name\":" : "{\"name\":");
+    jbuf_cstring(&list_out, names[i]);
+    jbuf_text(&list_out, ",\"bytes\":");
+    jbuf_i64(&list_out, file_size(full));
+    jbuf_text(&list_out, "}");
     free(names[i]);
   }
-  snprintf(list_out + used, capacity - used, "]");
+  jbuf_text(&list_out, "]");
   free(names);
-  return list_out;
+  const char *json = jbuf_cstr(&list_out);
+  return json != NULL ? json : "[]";
 }
 
 int32_t photos_load(const char *name, int32_t kind) {
@@ -474,13 +458,16 @@ bool photos_remove(const char *name) {
   return removed;
 }
 
+/* A full buffer (EVENTS_LIMIT) drops the event. */
 static void append_event(const char *json) {
-  size_t length = strlen(json);
-  /* Leave room for the brackets; a full buffer drops the event. */
-  if (events_used + length + 3 >= EVENTS_CAPACITY) return;
-  if (events_used > 0) events[events_used++] = ',';
-  memcpy(events + events_used, json, length);
-  events_used += length;
+  size_t mark = events.length;
+  if (events.length > 0) jbuf_text(&events, ",");
+  jbuf_text(&events, json);
+  if (events.failed) {
+    events.failed = false;
+    events.length = mark;
+    if (events.data != NULL) events.data[mark] = '\0';
+  }
 }
 
 void photos_present(void) {
@@ -517,20 +504,18 @@ void photos_present(void) {
         snprintf(json, sizeof json, "{\"t\":\"loaded\",\"name\":\"%s\",\"kind\":%ld,\"handle\":%ld,\"ms\":%lu}", result->name, (long)result->kind, (long)handle, (unsigned long)result->ms);
       }
     }
-    free(result->pixels);
     append_event(json);
   }
 }
 
 const char *photos_events_json(void) {
-  static char out[EVENTS_CAPACITY + 2];
-  if (events_used == 0) return NULL;
-  out[0] = '[';
-  memcpy(out + 1, events, events_used);
-  out[events_used + 1] = ']';
-  out[events_used + 2] = '\0';
-  events_used = 0;
-  return out;
+  if (events.length == 0) return NULL;
+  jbuf_reset(&events_out);
+  jbuf_text(&events_out, "[");
+  jbuf_raw(&events_out, events.data, events.length);
+  jbuf_text(&events_out, "]");
+  jbuf_reset(&events);
+  return jbuf_cstr(&events_out);
 }
 
 void photos_teardown(void) {
@@ -549,9 +534,9 @@ void photos_teardown(void) {
   result_count = 0;
   /* The core drops every texture with the guest. */
   handle_count = 0;
-  events_used = 0;
-  free(list_out);
-  list_out = NULL;
+  jbuf_free(&events);
+  jbuf_free(&events_out);
+  jbuf_free(&list_out);
 }
 
 #else /* capture and offload builds: no photos */

@@ -1,5 +1,5 @@
-/* Native harness for hosts/3ds/src/photos_image.c and the vendored stb JPEG
- * codec (tests/camera-photo.test.ts).
+/* Native harness for hosts/3ds/src/photos_image.c, linked against the
+ * computer's libjpeg (tests/camera-photo.test.ts).
  *
  *   3ds-photos names <name>...    one line per name: "<name> 1|0"
  *   3ds-photos roundtrip <w> <h>  encode a synthetic RGB565 still as photos.c
@@ -11,23 +11,6 @@
 #include <string.h>
 
 #include "../../hosts/3ds/src/photos_image.h"
-#include "../../hosts/3ds/src/stb/stb_image.h"
-#include "../../hosts/3ds/src/stb/stb_image_write.h"
-
-typedef struct {
-  unsigned char *bytes;
-  size_t length, capacity;
-} Buffer;
-
-static void collect(void *context, void *data, int size) {
-  Buffer *buffer = context;
-  if (buffer->length + (size_t)size > buffer->capacity) {
-    buffer->capacity = (buffer->length + (size_t)size) * 2u;
-    buffer->bytes = realloc(buffer->bytes, buffer->capacity);
-  }
-  memcpy(buffer->bytes + buffer->length, data, (size_t)size);
-  buffer->length += (size_t)size;
-}
 
 /* The camera's RGB565 (red high): left half red, right half blue, a white
  * square in the middle. */
@@ -53,17 +36,29 @@ int main(int argc, char **argv) {
     uint8_t *rgb = malloc((size_t)w * h * 3u);
     for (uint32_t y = 0; y < h; y += 1) for (uint32_t x = 0; x < w; x += 1) still[y * w + x] = synthetic(x, y, w, h);
     photo_rgb565_to_rgb888(still, rgb, (size_t)w * h);
-    Buffer jpeg = { NULL, 0, 0 };
-    int written = stbi_write_jpg_to_func(collect, &jpeg, (int)w, (int)h, 3, rgb, 90);
-    int dw = 0, dh = 0, channels = 0;
-    uint8_t *decoded = stbi_load_from_memory(jpeg.bytes, (int)jpeg.length, &dw, &dh, &channels, 3);
+    FILE *file = tmpfile();
+    int written = file != NULL && photo_jpeg_write(file, rgb, w, h, 90);
+    size_t length = file != NULL ? (size_t)ftell(file) : 0;
+    uint8_t *jpeg = malloc(length + 1u);
+    if (file != NULL) {
+      rewind(file);
+      length = fread(jpeg, 1, length, file);
+      fclose(file);
+    }
+    uint32_t dw = 0, dh = 0, tw = 0, th = 0, sw = 0, sh = 0;
+    uint8_t *decoded = photo_jpeg_read(jpeg, length, w, h, &dw, &dh);
     double error = 0;
     for (size_t i = 0; decoded != NULL && i < (size_t)w * h * 3u; i += 1) error += fabs((double)decoded[i] - rgb[i]);
     error /= (double)w * h * 3.0;
-    uint16_t *thumb = photo_thumb(decoded, (uint32_t)dw, (uint32_t)dh);
-    uint16_t *full = photo_full(decoded, (uint32_t)dw, (uint32_t)dh);
-    printf("{\"written\":%d,\"bytes\":%zu,\"soi\":%d,\"width\":%d,\"height\":%d,\"meanError\":%.2f,", written, jpeg.length,
-      jpeg.length > 2 && jpeg.bytes[0] == 0xff && jpeg.bytes[1] == 0xd8, dw, dh, error);
+    /* The sizes photos.c asks for: a thumbnail, then the touch screen. */
+    uint8_t *small = photo_jpeg_read(jpeg, length, PHOTO_THUMB_SIZE, PHOTO_THUMB_SIZE, &tw, &th);
+    uint8_t *screen = photo_jpeg_read(jpeg, length, PHOTO_SCREEN_WIDTH, PHOTO_SCREEN_HEIGHT, &sw, &sh);
+    uint16_t *thumb = photo_thumb(small, tw, th);
+    uint16_t *full = photo_full(screen, sw, sh);
+    printf("{\"written\":%d,\"bytes\":%zu,\"soi\":%d,\"width\":%u,\"height\":%u,\"meanError\":%.2f,", written, length,
+      length > 2 && jpeg[0] == 0xff && jpeg[1] == 0xd8, dw, dh, error);
+    printf("\"thumbDecode\":[%u,%u],\"screenDecode\":[%u,%u],", tw, th, sw, sh);
+    printf("\"garbage\":%d,", photo_jpeg_read(rgb, 64, 1, 1, &tw, &th) == NULL);
     print_5650("thumbCentre", thumb[(PHOTO_THUMB_SIZE / 2) * PHOTO_THUMB_TEXTURE + PHOTO_THUMB_SIZE / 2]);
     printf(",");
     print_5650("thumbLeft", thumb[(PHOTO_THUMB_SIZE / 2) * PHOTO_THUMB_TEXTURE + 2]);
@@ -76,10 +71,12 @@ int main(int argc, char **argv) {
     printf(",");
     print_5650("fullBelow", full[(PHOTO_SCREEN_HEIGHT + 4) * PHOTO_SCREEN_TEXTURE_WIDTH + 4]);
     printf("}\n");
-    stbi_image_free(decoded);
+    free(decoded);
+    free(small);
+    free(screen);
     free(thumb);
     free(full);
-    free(jpeg.bytes);
+    free(jpeg);
     free(rgb);
     free(still);
     return 0;

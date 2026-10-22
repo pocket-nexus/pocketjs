@@ -75,7 +75,7 @@ CFLAGS := -Wall -Wextra -O2 -g -std=gnu11 -mword-relocations -ffunction-sections
   -DPOCKETJS_TARGET_ID='"$(POCKETJS_TARGET)"' \
   -DPOCKETJS_HOST_ABI=$(POCKETJS_HOST_ABI) \
   -I$(INCLUDE_DIR) -I$(POCKETJS_PICA_INCLUDE) -I$(BUILD) -I$(POCKETJS_QUICKJS_DIR) \
-  -I$(DEVKITPRO)/libctru/include
+  -I$(DEVKITPRO)/libctru/include -I$(DEVKITPRO)/portlibs/3ds/include
 
 ifeq ($(POCKETJS_OFFLOAD),1)
 CFLAGS += -DPOCKETJS_OFFLOAD -DPOCKETJS_OFFLOAD_KEY='"sdmc:/pocketjs/offload/$(POCKETJS_OFFLOAD_SLOT).key"'
@@ -94,15 +94,16 @@ CFLAGS += -DPOCKETJS_CAPTURE \
 endif
 
 LDFLAGS := -specs=3dsx.specs $(ARCH) -Wl,--gc-sections -Wl,-Map,$(BUILD)/pocketjs-3ds.map
-LIBPATHS := -L$(DEVKITPRO)/libctru/lib
-LIBS := -lcitro3d -lctru -lm
+# libjpeg (devkitPro's 3ds-libjpeg-turbo portlib) for photos_image.c.
+LIBPATHS := -L$(DEVKITPRO)/portlibs/3ds/lib -L$(DEVKITPRO)/libctru/lib
+LIBS := -ljpeg -lcitro3d -lctru -lm
 
 # quirc (vendored, ISC; src/quirc/VENDORED.txt) decodes QR codes for camera.c.
 QUIRC_OBJECTS := $(BUILD)/quirc/quirc.o $(BUILD)/quirc/decode.o $(BUILD)/quirc/identify.o $(BUILD)/quirc/version_db.o
 OBJECTS := $(BUILD)/main.o $(BUILD)/media.o $(BUILD)/offload.o $(BUILD)/soc.o $(BUILD)/svcwire.o $(BUILD)/runtime.o $(BUILD)/dev_protocol.o $(BUILD)/devserver.o $(BUILD)/devmenu.o $(BUILD)/native.o $(BUILD)/hbldr.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/input.o \
   $(BUILD)/sha256.o $(BUILD)/jscan.o $(BUILD)/link_proto.o $(BUILD)/link.o $(BUILD)/launcher.o $(BUILD)/wifi.o $(BUILD)/camera.o \
   $(BUILD)/stage.o $(BUILD)/agent.o $(QUIRC_OBJECTS) $(BUILD)/vshader_shbin.o $(BUILD)/stage_shbin.o \
-  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/stb/stb.o $(BUILD)/fs.o
+  $(BUILD)/photos.o $(BUILD)/photos_image.o $(BUILD)/fs.o
 ELF := $(BUILD)/pocketjs-3ds.elf
 SMDH := $(BUILD)/pocketjs-3ds.smdh
 
@@ -161,17 +162,13 @@ $(BUILD)/quirc/%.o: $(SOURCE)/quirc/%.c $(wildcard $(SOURCE)/quirc/*.h) $(FLAGS_
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -c $< -o $@
 
-# stb (vendored, public domain or MIT; src/stb/VENDORED.txt): JPEG for photos.c.
-$(BUILD)/stb/%.o: $(SOURCE)/stb/%.c $(wildcard $(SOURCE)/stb/*.h) $(FLAGS_STAMP) | $(BUILD)
-	mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -w -c $< -o $@
-
 $(BUILD)/offload.o: $(SOURCE)/offload.h $(SOURCE)/offload_queue.h
 $(BUILD)/link.o $(BUILD)/link_proto.o $(BUILD)/launcher.o $(BUILD)/qjs.o $(BUILD)/main.o $(BUILD)/devmenu.o: \
   $(SOURCE)/link.h $(SOURCE)/link_proto.h $(SOURCE)/launcher.h $(SOURCE)/jscan.h $(SOURCE)/sha256.h $(SOURCE)/runtime.h
 $(BUILD)/camera.o $(BUILD)/gfx.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/camera.h
 $(BUILD)/photos.o $(BUILD)/camera.o $(BUILD)/qjs.o: $(SOURCE)/photos.h
 $(BUILD)/photos.o $(BUILD)/photos_image.o: $(SOURCE)/photos_image.h
+$(BUILD)/photos.o: $(SOURCE)/jscan.h
 $(BUILD)/fs.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/fs.h
 $(BUILD)/wifi.o $(BUILD)/qjs.o $(BUILD)/main.o: $(SOURCE)/wifi.h
 $(BUILD)/stage.o $(BUILD)/agent.o $(BUILD)/qjs.o $(BUILD)/main.o $(BUILD)/link.o: $(SOURCE)/stage.h $(SOURCE)/agent.h

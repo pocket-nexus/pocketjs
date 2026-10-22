@@ -1,7 +1,7 @@
 // tests/camera-photo.test.ts — camera.photo (contracts/spec/camera.ts):
 //
 // - the 3DS host's pure photo code (hosts/3ds/src/photos_image.c) and the
-//   vendored stb JPEG codec, compiled natively by tests/fixtures/3ds-photos.c:
+//   libjpeg codec, compiled natively by tests/fixtures/3ds-photos.c:
 //   DCF names, a still encoded the way photos.c saves it and decoded back,
 //   the thumbnail and the full view;
 // - the C constants against the contract;
@@ -48,13 +48,14 @@ function run(...args: string[]): string {
 beforeAll(() => {
   scratch = mkdtempSync(join(tmpdir(), "pocket-3ds-photos-"));
   binary = join(scratch, "harness");
-  // stb shifts signed integers by design; it is compiled without UBSan.
-  const stb = Bun.spawnSync(["cc", "-std=gnu11", "-O1", "-w", "-fsanitize=address", "-c", join(SRC, "stb/stb.c"), "-o", join(scratch, "stb.o")]);
-  expect(stb.exitCode, stb.stderr.toString()).toBe(0);
+  // The console links devkitPro's libjpeg; the harness links the computer's
+  // (brew install jpeg-turbo, apt install libjpeg-turbo8-dev).
+  const pkg = Bun.spawnSync(["pkg-config", "--cflags", "--libs", "libjpeg"]);
+  expect(pkg.exitCode, "libjpeg not found by pkg-config: brew install jpeg-turbo or apt install libjpeg-turbo8-dev").toBe(0);
   const compile = Bun.spawnSync([
     "cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-fsanitize=address,undefined",
-    join(ROOT, "tests/fixtures/3ds-photos.c"), join(SRC, "photos_image.c"), join(scratch, "stb.o"),
-    "-lm", "-o", binary,
+    join(ROOT, "tests/fixtures/3ds-photos.c"), join(SRC, "photos_image.c"),
+    ...pkg.stdout.toString().trim().split(/\s+/), "-lm", "-o", binary,
   ]);
   expect(compile.exitCode, compile.stderr.toString()).toBe(0);
 });
@@ -80,6 +81,10 @@ describe("the 3DS host's photo code", () => {
     expect(facts.soi).toBe(1);
     expect([facts.width, facts.height]).toEqual([PHOTO_WIDTH, PHOTO_HEIGHT]);
     expect(facts.meanError).toBeLessThan(3);
+    // A thumbnail decodes at 1/4 scale and the full view at 1/2.
+    expect(facts.thumbDecode).toEqual([PHOTO_WIDTH / 4, PHOTO_HEIGHT / 4]);
+    expect(facts.screenDecode).toEqual([PHOTO_WIDTH / 2, PHOTO_HEIGHT / 2]);
+    expect(facts.garbage).toBe(1);
     // The camera's red-high RGB565 arrives as red in the core's red-low PSM_5650.
     expect(facts.thumbCentre[0]).toBeGreaterThan(230);
     expect(facts.thumbCentre[1]).toBeGreaterThan(230);
