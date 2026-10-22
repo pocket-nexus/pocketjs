@@ -103,7 +103,7 @@ function cHeader(component: "drivers" | "runtime"): string {
   result += "\n" + rules.map(cDoc).join("") + "\n";
   result += '#ifdef __cplusplus\nextern "C" {\n#endif\n';
   if (component === "runtime") result += "typedef struct pocket_runtime pocket_runtime;\ntypedef struct pocket_tick_schedule pocket_tick_schedule;\ntypedef uint32_t pocket_renderer_id;\n";
-  result += Object.entries(constants).filter(([name]) => name !== "POCKET_ANALOG_CENTER" && name !== "POCKET_DRAW_LIST_VERSION").map(([name, value]) => `#define ${name} ${value < 0 ? `(${value})` : `${value}U`}\n`).join("");
+  result += Object.entries(constants).filter(([name]) => name !== "POCKET_ANALOG_CENTER" && name !== "POCKET_DRAW_LIST_VERSION").map(([name, value]) => `#define ${name} ${value < 0 || name.startsWith("POCKET_STATUS_") ? `(${value})` : `${value}U`}\n`).join("");
   if (component === "drivers") {
     result += "/* Probe member alignment: i386 can align a scalar to 8 but its struct field to 4. */\n";
     for (const type of ["u64", "i64", "f64"]) result += `typedef struct { char prefix; ${cType(type)} value; } pocket_abi_${type}_alignment;\n`;

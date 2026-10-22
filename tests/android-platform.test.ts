@@ -10,7 +10,7 @@ function compileRun(sources: string[], flags: string[], negative = false) {
     const executable = join(directory, "test");
     const compiled = Bun.spawnSync(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
       "-Iplatforms/android/include", "-Iengine/runtime/include", "-Icontracts/generated",
-      ...flags, ...sources, "-o", executable], { cwd: root });
+      ...sources, ...flags, "-o", executable], { cwd: root });
     expect(compiled.success, compiled.stderr.toString()).toBe(true);
     if (!compiled.success) return;
     const ran = Bun.spawnSync([executable], { cwd: root });
