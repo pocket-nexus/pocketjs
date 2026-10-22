@@ -3279,6 +3279,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a257582fdcde896fd96463bf2d40eefea0580021c0712a0e2b028b60b47a837a"
 
 [[package]]
+name = "inkview"
+version = "0.3.0"
+source = "git+https://github.com/simmsb/inkview-rs?rev=0e4ecab93f6e2907c255bb50bc4b6c1882779274#0e4ecab93f6e2907c255bb50bc4b6c1882779274"
+dependencies = [
+ "libloading",
+ "num-derive",
+ "num-traits",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5526,6 +5537,25 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "serde",
+]
+
+[[package]]
+name = "pocketbook-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "env_logger",
+ "inkview",
+ "log",
+ "pocket-drivers",
+ "pocket-mod",
+ "pocket-present",
+ "pocket-runtime",
+ "pocket-spec",
+ "pocket-ui-surface",
+ "pocketjs-core",
+ "rquickjs",
 ]
 
 [[package]]

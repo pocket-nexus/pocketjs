@@ -1,0 +1,242 @@
+#!/bin/bash
+set -euo pipefail
+
+manifest=/opt/pocketjs/symbian-toolchain.json
+: "${POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256:?implementation digest is required}"
+: "${POCKETJS_SYMBIAN_IMAGE_IMPLEMENTATION_SHA256:?image implementation digest is required}"
+if [[ ! "$POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256" =~ ^[a-f0-9]{64}$ ]]; then
+    echo "Invalid Symbian implementation digest." >&2
+    exit 1
+fi
+if test "$POCKETJS_SYMBIAN_IMAGE_IMPLEMENTATION_SHA256" != \
+    "$POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256"; then
+    echo "Symbian image and checkout implementation digests do not match." >&2
+    exit 1
+fi
+root=${POCKETJS_SYMBIAN_ROOT:-/toolchain/current}
+lock=/toolchain/.toolchain.lock
+receipt="$root/$(jq -r .receipt "$manifest")"
+certificate="/signing/$(jq -r .signing.certificate "$manifest")"
+private_key="/signing/$(jq -r .signing.privateKey "$manifest")"
+
+if test "${POCKETJS_SYMBIAN_LOCK_HELD:-0}" != 1; then
+    if test ! -f "$lock"; then
+        echo "Symbian toolchain lock is missing; run setup --yes." >&2
+        exit 1
+    fi
+    exec 9<"$lock"
+    if ! flock --shared --timeout 120 9; then
+        echo "Timed out waiting for the Symbian toolchain setup lock." >&2
+        exit 1
+    fi
+fi
+
+echo "Validating signing identity"
+test -d "$root"
+test -s "$certificate"
+test -s "$private_key"
+test "$(stat -c %a "$private_key")" = 600
+openssl x509 -in "$certificate" -checkend 0 -noout >/dev/null
+
+certificate_sha256=$(
+    openssl x509 -in "$certificate" -outform DER | sha256sum | cut -d " " -f 1
+)
+certificate_public_key=$(
+    openssl x509 -in "$certificate" -pubkey -noout | sha256sum | cut -d " " -f 1
+)
+private_public_key=$(
+    openssl pkey -in "$private_key" -pubout | sha256sum | cut -d " " -f 1
+)
+test "$certificate_public_key" = "$private_public_key"
+
+echo "Validating manifest receipt and critical file hashes"
+test -s "$receipt"
+jq -e \
+    --arg version "$(jq -r .toolchainVersion "$manifest")" \
+    --arg platform "$(jq -r .container.platform "$manifest")" \
+    --arg rev "$(jq -r .gnupoc.rev "$manifest")" \
+    --arg implementation "$POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256" \
+    --arg certificate "$certificate_sha256" \
+    --arg gnupoc_name "$(jq -r .gnupoc.asset "$manifest")" \
+    --arg gnupoc "$(jq -r .gnupoc.sha256 "$manifest")" \
+    --arg sdk_name "$(jq -r .sdk.asset "$manifest")" \
+    --arg sdk "$(jq -r .sdk.sha256 "$manifest")" \
+    --arg gcce_name "$(jq -r .gcce.asset "$manifest")" \
+    --arg gcce "$(jq -r .gcce.sha256 "$manifest")" \
+    --arg qt_name "$(jq -r .qtSource.asset "$manifest")" \
+    --arg qt "$(jq -r .qtSource.sha256 "$manifest")" \
+    '
+      .schemaVersion == 1 and
+      .toolchainVersion == $version and
+      .platform == $platform and
+      .gnupocRev == $rev and
+      .implementationSha256 == $implementation and
+      .certificateSha256 == $certificate and
+      .downloads[$gnupoc_name] == $gnupoc and
+      .downloads[$sdk_name] == $sdk and
+      .downloads[$gcce_name] == $gcce and
+      .downloads[$qt_name] == $qt and
+      (.markersSha256 | type) == "object"
+    ' "$receipt" >/dev/null
+
+while IFS= read -r marker; do
+    marker_path="$root/$marker"
+    expected=$(jq -r --arg marker "$marker" '.markersSha256[$marker] // empty' "$receipt")
+    test "$expected" != ""
+    test -s "$marker_path"
+    echo "$expected  $marker_path" | sha256sum --check --status
+done < <(jq -r '.markers[]' "$manifest")
+
+echo "Validating executable host tools"
+for executable in \
+    "$root/gcce/arm-2012.03/bin/arm-none-symbianelf-g++" \
+    "$root/sdk/bin/qmake" \
+    "$root/sdk/bin/moc" \
+    "$root/sdk/bin/rcc" \
+    "$root/sdk/bin/uic" \
+    "$root/sdk/bin/elf2e32_qtwrapper" \
+    "$root/bin/symbian-gcce-link" \
+    "$root/bin/elf2e32" \
+    "$root/bin/makesis" \
+    "$root/bin/mifconv" \
+    "$root/bin/rcomp" \
+    "$root/bin/signsis"; do
+    test -x "$executable"
+done
+
+export EPOCROOT="$root/sdk/"
+export PATH="$root/sdk/bin:$root/bin:$root/gcce/arm-2012.03/bin:$PATH"
+export QMAKESPEC=symbian-gcce
+
+arm-none-symbianelf-g++ --version >/dev/null
+qmake -v >/dev/null 2>&1
+moc_version=$(moc -v 2>&1 || true)
+rcc_version=$(rcc -version 2>&1 || true)
+grep -Fq "Qt Meta Object Compiler" <<<"$moc_version"
+grep -Fq "Qt Resource Compiler" <<<"$rcc_version"
+uic -version >/dev/null 2>&1
+mifconv_output=$(mifconv 2>&1 || true)
+grep -Fq "No MIF file name specified" <<<"$mifconv_output"
+test "$(readlink "$root/sdk/epoc32/include/GLES2")" = gles2
+test "$(readlink "$root/sdk/epoc32/include/EGL")" = egl
+test -s "$root/sdk/include/QtOpenGL/QGLWidget"
+test -s "$root/sdk/epoc32/include/gles2/gl2.h"
+test -s "$root/sdk/epoc32/include/egl/egl.h"
+test -s "$root/sdk/epoc32/release/armv5/lib/QtOpenGL.dso"
+test -s "$root/sdk/epoc32/release/armv5/lib/libGLESv2.dso"
+test -s "$root/sdk/epoc32/release/armv5/lib/libEGL.dso"
+
+echo "Running Qt code-generator smoke checks"
+smoke=$(mktemp -d /tmp/pocketjs-symbian-doctor.XXXXXX)
+cleanup() {
+    rm -rf "$smoke"
+}
+trap cleanup EXIT
+
+cat > "$smoke/moc-smoke.h" <<'EOF'
+#include <QObject>
+class PocketJsMocSmoke : public QObject
+{
+    Q_OBJECT
+};
+EOF
+cat > "$smoke/payload.txt" <<'EOF'
+PocketJS Symbian doctor
+EOF
+cat > "$smoke/smoke.qrc" <<'EOF'
+<RCC><qresource prefix="/"><file>payload.txt</file></qresource></RCC>
+EOF
+cat > "$smoke/smoke.ui" <<'EOF'
+<ui version="4.0">
+ <class>PocketJsUiSmoke</class>
+ <widget class="QWidget" name="PocketJsUiSmoke"/>
+</ui>
+EOF
+moc "$smoke/moc-smoke.h" -o "$smoke/moc-smoke.cpp"
+rcc -name pocketjs_doctor "$smoke/smoke.qrc" -o "$smoke/qrc-smoke.cpp"
+uic "$smoke/smoke.ui" -o "$smoke/ui-smoke.h"
+test -s "$smoke/moc-smoke.cpp"
+test -s "$smoke/qrc-smoke.cpp"
+test -s "$smoke/ui-smoke.h"
+
+echo "Building a GCCE/E32 smoke executable"
+cat > "$smoke/main.cpp" <<'EOF'
+#include <QApplication>
+#include <QtOpenGL/QGLWidget>
+class PocketJsGlSmoke : public QGLWidget
+{
+protected:
+    void initializeGL()
+    {
+        glClearColor(0.05f, 0.1f, 0.2f, 1.0f);
+    }
+    void paintGL()
+    {
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+};
+int main(int argc, char *argv[])
+{
+    QApplication app(argc, argv);
+    PocketJsGlSmoke widget;
+    widget.show();
+    return 0;
+}
+EOF
+cat > "$smoke/smoke.pro" <<EOF
+TEMPLATE = app
+TARGET = PocketJsDoctorSmoke
+QT += core gui opengl
+CONFIG += release
+CONFIG -= debug app_bundle
+SOURCES += main.cpp
+symbian {
+    QMAKE_LINK = $root/bin/symbian-gcce-link
+    TARGET.UID3 = 0xE7A11FFE
+    TARGET.CAPABILITY = None
+    QMAKE_ELF2E32_FLAGS -= --compressionmethod bytepair
+    QMAKE_ELF2E32_FLAGS += --compressionmethod inflate
+}
+EOF
+
+(
+    cd "$smoke"
+    qmake -spec "$root/sdk/mkspecs/symbian-gcce" smoke.pro
+    make -j2 >/dev/null
+)
+
+test -s "$smoke/PocketJsDoctorSmoke.exe"
+file "$smoke/PocketJsDoctorSmoke.exe" | grep -Fq "Psion Series 5 executable"
+uid3=$(od -An -tx4 -j8 -N4 "$smoke/PocketJsDoctorSmoke.exe" | tr -d "[:space:]")
+test "$uid3" = e7a11ffe
+
+echo "Packaging and signing a smoke SIS"
+cat > "$smoke/smoke.pkg" <<EOF
+&EN
+#{"PocketJS Doctor Smoke"},(0xE7A11FFE),1,0,0
+%{"Pocket Nexus"}
+:"Pocket Nexus"
+"$smoke/PocketJsDoctorSmoke.exe"-"!:\\sys\\bin\\PocketJsDoctorSmoke.exe"
+"$smoke/PocketJsDoctorSmoke.rsc"-"!:\\resource\\apps\\PocketJsDoctorSmoke.rsc"
+"$smoke/PocketJsDoctorSmoke_reg.rsc"-"!:\\private\\10003a3f\\import\\apps\\PocketJsDoctorSmoke_reg.rsc"
+EOF
+
+(
+    cd "$smoke"
+    # The legacy tools parse a leading slash as a Windows-style option
+    # (for example, /tmp becomes the invalid option /t).
+    makesis smoke.pkg smoke-unsigned.sis
+    signsis \
+        smoke-unsigned.sis \
+        smoke.sis \
+        "$certificate" \
+        "$private_key"
+)
+test -s "$smoke/smoke.sis"
+file "$smoke/smoke.sis" | grep -Fq "Symbian installation file"
+signsis -o "$smoke/smoke.sis" > "$smoke/signing.txt"
+grep -Fq "Issued to:" "$smoke/signing.txt"
+
+fingerprint=$(openssl x509 -in "$certificate" -fingerprint -sha256 -noout | cut -d= -f2)
+echo "PocketJS Symbian toolchain doctor: ready"
+echo "Signing certificate SHA-256 fingerprint: $fingerprint"

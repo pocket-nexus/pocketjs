@@ -18,7 +18,9 @@ host.**
 contains OS and SDK adapters; `devices/` contains GPU mechanisms and renderers.
 `profiles/` defines the built-in software contracts. A consuming product can
 supply its own profile module and runtime configuration without a registry
-entry. Device ports live in Pocket Museum. See
+entry. Phone, music-player, reader and console programs use these same
+directories in the main repository. **Code dependencies determine placement;
+device age does not determine repository ownership.** See
 [Platform contracts](/docs/platform-contracts/).
 
 The application's framework can be Solid, Vue Vapor, or Octane. Solid uses its

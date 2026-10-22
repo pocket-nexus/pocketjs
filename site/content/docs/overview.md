@@ -36,9 +36,10 @@ by the browser host and headless Bun.
 
 Two places in the repo decide what you can build for:
 
-- `programs/` contains console and reference program composition. `platforms/`
-  provides OS and SDK drivers; `devices/` provides GPU mechanisms and renderers.
-  Device ports and their profiles live in Pocket Museum.
+- `programs/` contains phone, music-player, reader, console and reference
+  program composition. `platforms/` provides OS and SDK drivers; `devices/`
+  provides GPU mechanisms and renderers. These programs and their profiles
+  share the main repository.
 - `profiles/` defines the software profiles accepted by
   `pocket compile --target <id>`, including logical viewports, raster density,
   presentations and capabilities. A program outside the repository exports a

@@ -1,0 +1,12 @@
+*
+!tools/
+tools/*
+!tools/build/
+tools/build/*
+!tools/build/toolchains/
+tools/build/toolchains/*
+!tools/build/toolchains/symbian/
+tools/build/toolchains/symbian/*
+!tools/build/toolchains/symbian/manifest.json
+!tools/symbian/
+!tools/symbian/**

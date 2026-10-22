@@ -1,0 +1,882 @@
+import { repositoryPath, REPOSITORY_ROOT } from "./repository.ts";
+import motoToolchain from "./build/toolchains/moto-g-play.ts";
+import redmiToolchain from "./build/toolchains/redmi-1s.ts";
+import { applicationBundle, prepareCompiledApplication } from "./build/programs/application.ts";
+import {
+  cpSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import {
+  buildGuestBundle,
+  ensureQuickJsCheckout,
+  type GuestBundle,
+  type GuestBundleRequest,
+  mustRunCommand,
+  packageIdentity,
+  type PackageIdentity,
+  printCheck,
+  quickJsCheckout,
+  quickJsCheckoutStatus,
+  renderTemplate,
+  runCommand,
+  sha256File,
+  xmlEscape,
+} from "./native-host-build.ts";
+
+import { MOTO_G_PLAY_CONTRACTS, MOTO_G_PLAY_TARGET, resolveMotoGPlayBuildPlan } from "./moto-g-play-profile.ts";
+import { REDMI_1S_CONTRACTS, REDMI_1S_TARGET, resolveRedmi1sBuildPlan } from "./redmi-1s-profile.ts";
+import { ANDROID_DEFAULT_ICON, bakeAndroidLauncherIcons } from "../tools/android-icon.ts";
+import type { ResolvedBuildPlan } from "../framework/src/manifest/plan.ts";
+import type { PocketProfile } from "../framework/src/profile.ts";
+import redmiProfile from "../profiles/redmi-1s-dev.ts";
+import motoProfile from "../profiles/moto-g-play-dev.ts";
+import { writeHostProfileHeader } from "../tools/host-profile.ts";
+
+/** The target values the native library is compiled with: the same for every app of a profile. */
+interface NativeInputs {
+  readonly profile: PocketProfile;
+  readonly target: string;
+  readonly hostAbi: number;
+  readonly rasterDensity: number;
+  readonly logical: readonly [number, number];
+}
+
+/**
+ * One Android host (programs/android), built for a named device profile. A
+ * profile is its target id, the resolver of that target, the target's
+ * contract (where `runtime` reads the native inputs), and the toolchain file
+ * `tools/build/toolchains/<profile>/manifest.json`.
+ */
+const PROFILES: Readonly<Record<string, {
+  readonly target: string;
+  readonly resolvePlan: (manifest: unknown) => ResolvedBuildPlan;
+  readonly nativeInputs: () => NativeInputs;
+}>> = {
+  "moto-g-play": {
+    target: MOTO_G_PLAY_TARGET,
+    resolvePlan: resolveMotoGPlayBuildPlan,
+    nativeInputs: () => contractInputs(motoProfile, MOTO_G_PLAY_CONTRACTS.targets[MOTO_G_PLAY_TARGET]),
+  },
+  "redmi-1s": {
+    target: REDMI_1S_TARGET,
+    resolvePlan: resolveRedmi1sBuildPlan,
+    nativeInputs: () => contractInputs(redmiProfile, REDMI_1S_CONTRACTS.targets[REDMI_1S_TARGET]),
+  },
+};
+function contractInputs(profile: PocketProfile, contract: {
+  readonly hostAbi: number;
+  readonly display: { readonly logicalViewports: readonly (readonly [number, number])[]; readonly rasterDensity: number };
+}): NativeInputs {
+  const target = profile.id;
+  if (contract.display.logicalViewports.length !== 1) {
+    throw new Error(`${target}: a runtime is built for one logical viewport, and the contract lists ${contract.display.logicalViewports.length}`);
+  }
+  return {
+    profile,
+    target,
+    hostAbi: contract.hostAbi,
+    rasterDensity: contract.display.rasterDensity,
+    logical: contract.display.logicalViewports[0],
+  };
+}
+const argv = Bun.argv.slice(2);
+function option(name: string): string | undefined {
+  const prefix = `--${name}=`;
+  return argv.find(arg => arg.startsWith(prefix))?.slice(prefix.length);
+}
+const profile = option("profile") ?? "moto-g-play";
+if (!(profile in PROFILES)) {
+  throw new Error(`Unsupported Android profile: ${profile}; use ${Object.keys(PROFILES).join(" or ")}`);
+}
+const LABEL = `PocketJS Android (${profile})`;
+const { target, resolvePlan } = PROFILES[profile];
+const repository = REPOSITORY_ROOT;
+
+const command = argv.find(a => !a.startsWith("--")) ?? "doctor";
+/** A resolved plan for the profile's target, in place of the toolchain file's manifest. */
+const planOption = option("plan");
+const projectRoot = resolve(option("project-root") ?? repository);
+const outOption = option("out");
+/** Signed with the Pocket Nexus Android release key and not debuggable. */
+const release = argv.includes("--release");
+/** The launcher icon's source: a square PNG of at least 192 pixels a side, or an SVG. Default: PocketJS's mark. */
+const iconOption = option("icon");
+
+interface AndroidAbi {
+  /** The APK's `lib/<abi>` directory. */
+  readonly abi: string;
+  /** The NDK clang wrapper's prefix; its trailing number is the API level it links against. */
+  readonly clangTarget: string;
+  readonly rustTarget: string;
+  readonly cFlags?: readonly string[];
+  readonly linkFlags?: readonly string[];
+}
+const toolchain = (profile === "moto-g-play" ? motoToolchain : redmiToolchain) as {
+  readonly toolchainVersion: string;
+  readonly cachePath: string;
+  readonly quickjs: {
+    readonly version: string;
+    readonly repository: string;
+    readonly revision: string;
+  };
+  readonly rust: {
+    readonly toolchain: string;
+  };
+  readonly android: {
+    /** The platform whose android.jar the Activity compiles against. */
+    readonly apiLevel: number;
+    readonly platformVersion: string;
+    readonly buildToolsVersion: string;
+    readonly ndkVersion: string;
+    readonly minSdkVersion: number;
+    readonly targetSdkVersion: number;
+    readonly abis: readonly AndroidAbi[];
+  };
+  readonly app: {
+    readonly manifest: string;
+    readonly output: string;
+  };
+};
+const { minSdkVersion, targetSdkVersion, abis } = toolchain.android;
+
+/**
+ * The NDK ships one LLVM prebuilt per host operating system. Linux x86-64 is
+ * the verified host; the macOS prebuilt is x86-64 as well and runs under
+ * Rosetta on Apple silicon.
+ */
+function ndkHostTag(): string {
+  switch (process.platform) {
+    case "linux":
+      return "linux-x86_64";
+    case "darwin":
+      return "darwin-x86_64";
+    default:
+      throw new Error(`${LABEL}: no NDK ${toolchain.android.ndkVersion} prebuilt for host ${process.platform}`);
+  }
+}
+
+const cache = join(homedir(), ".cache/pocket-nexus", toolchain.cachePath);
+const sdk = process.env.POCKETJS_ANDROID_SDK_ROOT ?? (process.platform === "darwin" ? "/opt/homebrew/share/android-commandlinetools" : join(cache, "sdk"));
+const buildTools = join(sdk, "build-tools", toolchain.android.buildToolsVersion);
+const ndk = join(sdk, "ndk", toolchain.android.ndkVersion);
+const llvm = join(ndk, "toolchains/llvm/prebuilt", ndkHostTag(), "bin");
+const clangFor = (abi: AndroidAbi) => join(llvm, `${abi.clangTarget}-clang`);
+/** The API level an ABI's library links against: the number its clang wrapper ends in. */
+function abiApiLevel(abi: AndroidAbi): number {
+  const match = /(\d+)$/.exec(abi.clangTarget);
+  if (!match) throw new Error(`${LABEL}: ${abi.clangTarget} names no API level`);
+  return Number(match[1]);
+}
+const readelf = join(llvm, "llvm-readelf");
+const androidJar = join(
+  sdk,
+  "platforms",
+  `android-${toolchain.android.apiLevel}`,
+  "android.jar",
+);
+const appHost = join(repository, "programs/android/app");
+const build = join(repository, `.pocket-build/${profile}`);
+const staging = join(build, "staging");
+const appOutput = outOption ? resolve(outOption) : join(repository, toolchain.app.output);
+/** The receipt stands beside the APK: `<profile>.receipt.json` beside the toolchain file's output, `<name>.receipt.json` beside `--out=<name>.apk`. */
+const receiptPath = outOption
+  ? appOutput.replace(/\.apk$/, "") + ".receipt.json"
+  : join(dirname(appOutput), `${profile}.receipt.json`);
+const signing = join(cache, "signing");
+/* Moto builds also used these legacy cache filenames. Reuse an existing key
+ * so installed Android apps can still upgrade; new caches use android-debug.jks. */
+const keystoreName = ["blackberry-android-probe.jks", "blackberry-classic.jks", "android-debug.jks"]
+  .find(name => existsSync(join(signing, name))) ?? "android-debug.jks";
+const keystore = join(signing, keystoreName);
+const quickJs = quickJsCheckout(join(cache, "sources/quickjs-rs"));
+const guest: GuestBundleRequest = {
+  label: LABEL,
+  repository,
+  target,
+  resolvePlan,
+  manifestPath: join(repository, toolchain.app.manifest),
+  planPath: join(repository, `.pocket/${profile}/app.plan.json`),
+  outputDirectory: join(repository, `dist/${profile}/guest`),
+};
+
+function run(program: string, args: readonly string[]) {
+  return runCommand(program, args, repository);
+}
+
+function mustRun(
+  program: string,
+  args: readonly string[],
+  cwd = repository,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return mustRunCommand(LABEL, program, args, cwd, env);
+}
+
+const javaHome = process.env.JAVA_HOME ?? "/opt/homebrew/opt/openjdk@17";
+
+function runJava(args: readonly string[]): string {
+  const mapped = args.map(a => a.replace(/^\/repo(?=\/)/, repository).replace(/^\/android-sdk(?=\/)/, sdk)
+    .replace(/^\/build(?=\/)/, build).replace(/^\/signing(?=\/)/, signing));
+  const program = mapped[0].includes("/") ? mapped[0] : join(javaHome, "bin", mapped[0]);
+  return mustRun(program, mapped.slice(1), repository, { ...process.env, JAVA_HOME: javaHome });
+}
+
+function javaInstalled(): boolean {
+  return existsSync(join(javaHome, "bin/javac"));
+}
+
+function sdkPackages(): string[] {
+  return [
+    `platforms;android-${toolchain.android.apiLevel}`,
+    `build-tools;${toolchain.android.buildToolsVersion}`,
+    `ndk;${toolchain.android.ndkVersion}`,
+  ];
+}
+
+/**
+ * Checks the target's std directory in the pinned toolchain's sysroot. `rustup
+ * target list --toolchain X` would install a missing X on the spot, which a
+ * doctor must not do.
+ */
+function rustTargetInstalled(rustTarget: string): boolean {
+  const sysroot = run("rustup", ["run", toolchain.rust.toolchain, "rustc", "--print", "sysroot"]);
+  if (sysroot.exitCode !== 0) return false;
+  return existsSync(
+    join(sysroot.stdout.trim(), "lib/rustlib", rustTarget, "lib"),
+  );
+}
+
+function checkPath(label: string, path: string): boolean {
+  return printCheck(label, existsSync(path), path);
+}
+
+function doctor(): void {
+  const rust = run("rustup", ["run", toolchain.rust.toolchain, "rustc", "--version"]);
+  const quickjs = quickJsCheckoutStatus(quickJs.root, toolchain.quickjs);
+  const sdkChecks = [
+    checkPath(`Android SDK Platform ${toolchain.android.apiLevel}`, androidJar),
+    ...abis.map(abi => checkPath(`NDK ${toolchain.android.ndkVersion} clang (${abi.abi})`, clangFor(abi))),
+    checkPath("NDK llvm-readelf", readelf),
+    checkPath("aapt2", join(buildTools, "aapt2")),
+    checkPath("aapt", join(buildTools, "aapt")),
+    checkPath("d8", join(buildTools, "d8")),
+    checkPath("zipalign", join(buildTools, "zipalign")),
+    checkPath("apksigner", join(buildTools, "apksigner")),
+  ];
+  const checks = [
+    ...sdkChecks,
+    printCheck("Java 17", javaInstalled(), javaHome),
+    printCheck(
+      "Rust nightly",
+      rust.exitCode === 0,
+      rust.stdout.trim() || toolchain.rust.toolchain,
+    ),
+    ...abis.map(abi => printCheck(
+      `Rust Android target (${abi.abi})`,
+      rustTargetInstalled(abi.rustTarget),
+      `${abi.rustTarget} on ${toolchain.rust.toolchain}`,
+    )),
+    printCheck("pinned QuickJS", quickjs.ok, quickjs.detail),
+  ];
+  if (sdkChecks.some((ok) => !ok)) {
+    console.log(
+      `Run \`bun android --profile=${profile} setup\` to install the pinned SDK packages into ${sdk}, ` +
+        `or point POCKETJS_ANDROID_SDK_ROOT at an SDK that already holds ` +
+        `${sdkPackages().join(", ")}.`,
+    );
+  }
+  if (checks.some((ok) => !ok)) process.exitCode = 1;
+  else console.log(`[ok] toolchain: ${toolchain.toolchainVersion}`);
+}
+
+function requireToolchain(): void {
+  doctor();
+  if (process.exitCode) {
+    throw new Error(`${LABEL}: toolchain is incomplete; see the doctor report above`);
+  }
+}
+
+function setup(): void {
+  if (!javaInstalled()) throw new Error("Install Java 17 and set JAVA_HOME");
+  const manager = join(sdk, "cmdline-tools/latest/bin/sdkmanager");
+  mustRun(manager, [`--sdk_root=${sdk}`, ...sdkPackages()], repository,
+    { ...process.env, JAVA_HOME: javaHome });
+  ensureQuickJsCheckout(LABEL, quickJs.root, toolchain.quickjs);
+  for (const abi of abis) {
+    if (rustTargetInstalled(abi.rustTarget)) continue;
+    mustRun("rustup", [
+      "target",
+      "add",
+      abi.rustTarget,
+      "--toolchain",
+      toolchain.rust.toolchain,
+    ]);
+  }
+  doctor();
+}
+
+function ensureKeystore(): void {
+  mkdirSync(signing, { recursive: true });
+  if (existsSync(keystore)) return;
+  runJava([
+    "keytool",
+    "-genkeypair",
+    "-noprompt",
+    "-keystore",
+    `/signing/${keystoreName}`,
+    "-storepass",
+    "android",
+    "-alias",
+    "androiddebugkey",
+    "-keypass",
+    "android",
+    "-dname",
+    "CN=PocketJS Android,O=PocketJS,C=HK",
+    "-keyalg",
+    "RSA",
+    "-keysize",
+    "2048",
+    "-validity",
+    "10000",
+  ]);
+}
+
+/**
+ * What apksigner signs with. A development build: the debug key in the
+ * toolchain cache. A release: the Pocket Nexus Android release key, a PKCS #12
+ * keystore outside every repository that `POCKET_NEXUS_ANDROID_KEY` names
+ * (default `~/.config/pocket-nexus/signing/pocket-nexus-android-release.p12`,
+ * alias `pocket-nexus`). Its password is the first line of the `.password`
+ * file beside it, which apksigner reads itself, so it is in no command line
+ * and no log.
+ */
+function signerArguments(): string[] {
+  if (!release) {
+    ensureKeystore();
+    return [
+      "--ks", keystore,
+      "--ks-key-alias", "androiddebugkey",
+      "--ks-pass", "pass:android",
+      "--key-pass", "pass:android",
+    ];
+  }
+  const key = process.env.POCKET_NEXUS_ANDROID_KEY ||
+    join(homedir(), ".config/pocket-nexus/signing/pocket-nexus-android-release.p12");
+  const password = key.replace(/\.[^./]*$/, "") + ".password";
+  for (const file of [key, password]) {
+    if (!existsSync(file)) {
+      throw new Error(
+        `${LABEL}: a release is signed with the Pocket Nexus Android release key, and ${file} is absent ` +
+          `(POCKET_NEXUS_ANDROID_KEY names the keystore; its password is the first line of the .password file beside it)`,
+      );
+    }
+  }
+  return ["--ks", key, "--ks-type", "PKCS12", "--ks-pass", `file:${password}`, "--ks-key-alias", "pocket-nexus"];
+}
+
+/** javac → jar → d8 for PocketActivity, into staging/classes.dex. */
+function compileActivity(): void {
+  mkdirSync(join(build, "classes"), { recursive: true });
+  mkdirSync(join(build, "dex"), { recursive: true });
+  runJava([
+    "javac",
+    "-encoding",
+    "UTF-8",
+    "-source",
+    "8",
+    "-target",
+    "8",
+    "-bootclasspath",
+    `/android-sdk/platforms/android-${toolchain.android.apiLevel}/android.jar`,
+    "-d",
+    "/build/classes",
+    "/repo/programs/android/app/src/dev/pocketnexus/android/PocketActivity.java",
+  ]);
+  runJava(["jar", "cf", "/build/classes.jar", "-C", "/build/classes", "."]);
+  runJava([
+    `/android-sdk/build-tools/${toolchain.android.buildToolsVersion}/d8`,
+    "--min-api",
+    String(minSdkVersion),
+    "--output",
+    "/build/dex",
+    "/build/classes.jar",
+  ]);
+  copyFileSync(join(build, "dex/classes.dex"), join(staging, "classes.dex"));
+}
+
+/**
+ * aapt2 → zip → zipalign → apksigner over staging/ (classes.dex + lib/) plus
+ * the guest assets. APKs carry v1 and v2 signatures, which Android reads from
+ * the profile's minSdkVersion on.
+ *
+ * Two builds of one checkout give the same bytes: aapt2 dates its entries
+ * 1980-01-01; `zip` dates an entry by its file and adds the file's access
+ * time, so the staged files take aapt2's date, `-X` leaves the access times
+ * out, and the entries are named in a fixed order; apksigner dates its own
+ * entries by one of its input's.
+ */
+function packageApk(identity: PackageIdentity, resources: string, assets: string): {
+  readonly signature: string;
+  readonly certificateSha256: string;
+  readonly badging: string;
+} {
+  // Before any packaging: a release without its key stops here.
+  const signer = signerArguments();
+  const compiled = join(build, "app-res.zip");
+  // `--no-crunch`: the launcher icons go in as tools/android-icon.ts wrote them, byte for byte.
+  mustRun(join(buildTools, "aapt2"), ["compile", "--no-crunch", "--dir", resources, "-o", compiled]);
+  const manifest = join(build, "AndroidManifest.xml");
+  writeFileSync(
+    manifest,
+    renderTemplate(readFileSync(join(appHost, "AndroidManifest.xml"), "utf8"), {
+      PACKAGE: identity.packageId,
+      VERSION_CODE: identity.versionCode,
+      VERSION_NAME: identity.version,
+      MIN_SDK: minSdkVersion,
+      TARGET_SDK: targetSdkVersion,
+      DEBUGGABLE: String(!release),
+    }),
+  );
+  const unsigned = join(build, "app-unsigned.apk");
+  mustRun(join(buildTools, "aapt2"), [
+    "link",
+    "-o",
+    unsigned,
+    "--manifest",
+    manifest,
+    "-I",
+    androidJar,
+    "-A",
+    assets,
+    "--min-sdk-version",
+    String(minSdkVersion),
+    "--target-sdk-version",
+    String(targetSdkVersion),
+    compiled,
+  ]);
+  const staged = ["classes.dex", ...abis.map(abi => `lib/${abi.abi}/libpocketjs.so`).sort()];
+  const epoch = new Date(1980, 0, 1);
+  for (const entry of staged) utimesSync(join(staging, entry), epoch, epoch);
+  mustRun("zip", ["-q", "-X", unsigned, ...staged], staging);
+  const aligned = join(build, "app-aligned.apk");
+  mustRun(join(buildTools, "zipalign"), ["-f", "-p", "4", unsigned, aligned]);
+  const signed = join(build, "app-signed.apk");
+  const apksigner = join(buildTools, "apksigner");
+  runJava([
+    apksigner,
+    "sign",
+    ...signer,
+    "--min-sdk-version",
+    String(minSdkVersion),
+    "--v1-signing-enabled",
+    "true",
+    "--v2-signing-enabled",
+    "true",
+    "--v3-signing-enabled",
+    "false",
+    "--v4-signing-enabled",
+    "false",
+    "--out",
+    signed,
+    aligned,
+  ]);
+  mkdirSync(dirname(appOutput), { recursive: true });
+  copyFileSync(signed, appOutput);
+  const signature = runJava([
+    apksigner,
+    "verify",
+    "--verbose",
+    "--print-certs",
+    "--min-sdk-version",
+    String(minSdkVersion),
+    signed,
+  ]);
+  const certificate = /^Signer #1 certificate SHA-256 digest: ([0-9a-f]{64})$/m.exec(signature);
+  if (!certificate) throw new Error(`${LABEL}: apksigner printed no signer certificate`);
+  const badging = mustRun(join(buildTools, "aapt"), ["dump", "badging", appOutput]);
+  return { signature, certificateSha256: certificate[1], badging };
+}
+
+function resetBuild(): void {
+  rmSync(build, { recursive: true, force: true });
+  for (const abi of abis) mkdirSync(join(staging, "lib", abi.abi), { recursive: true });
+}
+
+function buildRustCore(abi: AndroidAbi): string {
+  const rustTarget = join(build, "rust");
+  mustRun(
+    "rustup",
+    [
+      "run",
+      toolchain.rust.toolchain,
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "--target",
+      abi.rustTarget,
+      "--no-default-features", "--features",
+      "standalone-extension-provider,bare-platform",
+      "--target-dir",
+      rustTarget,
+    ],
+    repositoryPath("programs/native/cabi"),
+    {
+      ...process.env,
+      CARGO_PROFILE_RELEASE_LTO: "false",
+      CARGO_PROFILE_RELEASE_PANIC: "abort",
+      [`CARGO_TARGET_${abi.rustTarget.toUpperCase().replace(/-/g, "_")}_LINKER`]: clangFor(abi),
+    },
+  );
+  const library = join(rustTarget, abi.rustTarget, "release/libpocketjs_symbian_core.a");
+  if (!existsSync(library)) {
+    throw new Error(`${LABEL}: Rust core archive is absent: ${library}`);
+  }
+  return library;
+}
+
+function buildQuickJs(abi: AndroidAbi): string {
+  const clang = clangFor(abi);
+  const objects = join(build, "objects", abi.abi, "quickjs");
+  mkdirSync(objects, { recursive: true });
+  const flags = [
+    "-std=gnu11",
+    "-O2",
+    "-fPIC",
+    "-funsigned-char",
+    "-fno-strict-aliasing",
+    "-ffunction-sections",
+    "-fdata-sections",
+    ...(abi.cFlags ?? []),
+    "-D_GNU_SOURCE",
+    `-DCONFIG_VERSION="${toolchain.quickjs.version}"`,
+    `-I${quickJs.source}`,
+  ];
+  const objectPaths: string[] = [];
+  for (const source of ["cutils.c", "dtoa.c", "libregexp.c", "libunicode.c", "quickjs.c"]) {
+    const object = join(objects, source.replace(/\.c$/, ".o"));
+    mustRun(clang, [...flags, "-c", join(quickJs.source, source), "-o", object]);
+    objectPaths.push(object);
+  }
+  const staticFunctions = join(objects, "static-functions.o");
+  mustRun(clang, [...flags, "-c", quickJs.staticFunctions, "-o", staticFunctions]);
+  objectPaths.push(staticFunctions);
+  const library = join(build, `libquickjs-${abi.abi}.a`);
+  mustRun(join(llvm, "llvm-ar"), ["rcs", library, ...objectPaths]);
+  return library;
+}
+
+function buildNativeLibrary(abi: AndroidAbi, inputs: NativeInputs, quickJsLibrary: string, coreLibrary: string): string {
+  const clang = clangFor(abi);
+  const objects = join(build, "objects", abi.abi);
+  mkdirSync(objects, { recursive: true });
+  const cFlags = [
+    "-std=gnu11",
+    "-Os",
+    "-fPIC",
+    "-fno-strict-aliasing",
+    "-ffunction-sections",
+    "-fdata-sections",
+    "-fvisibility=hidden",
+    ...(abi.cFlags ?? []),
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-Wno-unused-parameter",
+    "-DPOCKET_OFFLOAD_POSIX",
+    `-I${repositoryPath("platforms/linux/offload")}`,
+    `-I${repositoryPath("engine/modules/offload/include")}`,
+  ];
+  const portableRuntime = join(objects, "pocket_runtime.o");
+  mustRun(clang, [
+    ...cFlags,
+    "-include", writeHostProfileHeader(objects, inputs.profile),
+    `-DPOCKETJS_TARGET_ID="${inputs.target}"`,
+    `-DPOCKETJS_HOST_ABI=${inputs.hostAbi}`,
+    `-DPOCKET_RASTER_DENSITY=${inputs.rasterDensity}`,
+    `-I${repositoryPath("programs/native/quickjs")}`,
+    `-I${repositoryPath("programs/native/cabi/include")}`,
+    `-I${repositoryPath("engine/guest-quickjs/include")}`,
+    `-I${repositoryPath("contracts/generated")}`,
+    `-I${quickJs.source}`,
+    "-c",
+    repositoryPath("programs/native/quickjs/pocket_runtime.c"),
+    "-o",
+    portableRuntime,
+  ]);
+  const guestAdapter = join(objects, "pocket_guest_quickjs.o");
+  mustRun(clang, [...cFlags,
+    `-I${repositoryPath("engine/guest-quickjs/include")}`,
+    `-I${repositoryPath("contracts/generated")}`, `-I${quickJs.source}`,
+    "-c", repositoryPath("engine/guest-quickjs/src/guest.c"), "-o", guestAdapter]);
+  const androidRuntime = join(objects, "android_runtime.o");
+  mustRun(clang, [
+    ...cFlags,
+    `-DPOCKET_LOGICAL_WIDTH=${inputs.logical[0]}`,
+    `-DPOCKET_LOGICAL_HEIGHT=${inputs.logical[1]}`,
+    `-I${repositoryPath("programs/native/quickjs")}`,
+    `-I${repositoryPath("engine/runtime/include")}`,
+    `-I${repositoryPath("platforms/android/include")}`,
+    `-I${repositoryPath("contracts/generated")}`,
+    "-c",
+    join(appHost, "jni/runtime.c"),
+    "-o",
+    androidRuntime,
+  ]);
+  const sharedSources: Array<{ name: string; source: string; includes: string[] }> = [
+    {
+      name: "pocket_input",
+      source: repositoryPath("engine/runtime/compat/input.c"),
+      includes: [
+        `-I${repositoryPath("engine/runtime/include")}`,
+        `-I${repositoryPath("platforms/android/include")}`,
+        `-I${repositoryPath("contracts/generated")}`,
+      ],
+    },
+    { name: "offload_posix", source: repositoryPath("platforms/linux/offload/offload_posix.c"), includes: [] },
+  ];
+  for (const name of ["input", "jni", "hooks"]) {
+    sharedSources.push({ name: `android_${name}`, source: repositoryPath(`platforms/android/src/${name}.c`),
+      includes: [`-I${repositoryPath("platforms/android/include")}`, `-I${repositoryPath("engine/runtime/include")}`,
+        `-I${repositoryPath("contracts/generated")}`] });
+  }
+  const sharedObjects = sharedSources.map(({ name, source, includes }) => {
+    const object = join(objects, `${name}.o`);
+    mustRun(clang, [
+      ...cFlags,
+      ...includes,
+      "-c",
+      source,
+      "-o",
+      object,
+    ]);
+    return object;
+  });
+  const nativeLibrary = join(staging, "lib", abi.abi, "libpocketjs.so");
+  /* No -landroid: the library needs nothing beyond GLESv2/log/dl/m/c, and
+   * --no-undefined turns any missing native symbol into a link failure
+   * against the C library of the ABI's API level. */
+  mustRun(clang, [
+    "-shared",
+    ...(abi.cFlags ?? []),
+    "-Wl,--build-id=none",
+    "-Wl,--gc-sections",
+    "-Wl,--exclude-libs,ALL",
+    "-Wl,--no-undefined",
+    ...(abi.linkFlags ?? []),
+    androidRuntime,
+    portableRuntime,
+    guestAdapter,
+    ...sharedObjects,
+    quickJsLibrary,
+    coreLibrary,
+    "-o",
+    nativeLibrary,
+    "-lGLESv2",
+    "-llog",
+    "-ldl",
+    "-lm",
+  ]);
+  return nativeLibrary;
+}
+
+/** The Rust core, QuickJS and the host, linked into staging/lib/<abi>/libpocketjs.so for each ABI. */
+function buildNativeLibraries(inputs: NativeInputs): Array<{ abi: AndroidAbi; path: string }> {
+  return abis.map((abi) => {
+    const coreLibrary = buildRustCore(abi);
+    const quickJsLibrary = buildQuickJs(abi);
+    return { abi, path: buildNativeLibrary(abi, inputs, quickJsLibrary, coreLibrary) };
+  });
+}
+
+/** The ELF header and dynamic section, with the build attributes where this NDK's readelf prints them (`-A`, LLVM 11 and later). */
+function elfSummary(library: string): string {
+  const full = run(readelf, ["-h", "-A", "-d", library]);
+  return full.exitCode === 0 ? full.stdout.trim() : mustRun(readelf, ["-h", "-d", library]);
+}
+
+/**
+ * The compiled package selected by this native invocation.
+ */
+function guestBundle(): GuestBundle {
+  const selectedProfile = profile === "moto-g-play" ? motoProfile : redmiProfile;
+  return applicationBundle(prepareCompiledApplication(selectedProfile, argv, join(repository, ".pocket-build/native-inputs", profile)), target);
+}
+
+async function buildApp(): Promise<void> {
+  const bundle = guestBundle();
+  requireToolchain();
+  resetBuild();
+  // Before any compile: an icon the tool refuses stops the build here.
+  const iconSource = iconOption ? resolve(iconOption) : repositoryPath(ANDROID_DEFAULT_ICON);
+  if (!existsSync(iconSource)) throw new Error(`${LABEL}: no icon at ${iconSource}`);
+  const resources = join(build, "resources");
+  cpSync(join(appHost, "res"), resources, { recursive: true });
+  const icons = await bakeAndroidLauncherIcons(iconSource, resources);
+  const libraries = buildNativeLibraries({
+    profile: bundle.inputs.profile,
+    target: bundle.inputs.target,
+    hostAbi: bundle.inputs.hostAbi,
+    rasterDensity: bundle.inputs.viewport.rasterDensity,
+    logical: bundle.inputs.viewport.logical,
+  });
+  compileActivity();
+
+  const assets = join(build, "assets");
+  mkdirSync(assets, { recursive: true });
+  copyFileSync(bundle.javaScript, join(assets, "app.js"));
+  copyFileSync(bundle.pack, join(assets, "app.pak"));
+  const identity = packageIdentity(bundle.inputs.app);
+  writeFileSync(
+    join(resources, "values/strings.xml"),
+    renderTemplate(readFileSync(join(appHost, "res/values/strings.xml"), "utf8"), {
+      /* Android string resources also need apostrophes escaped. */
+      TITLE: xmlEscape(identity.title).replace(/'/g, "\\'"),
+    }),
+  );
+  const { signature, certificateSha256, badging } = packageApk(identity, resources, assets);
+  for (const marker of [
+    `package: name='${identity.packageId}' versionCode='${identity.versionCode}' versionName='${identity.version}'`,
+    `sdkVersion:'${minSdkVersion}'`,
+    `targetSdkVersion:'${targetSdkVersion}'`,
+    ...abis.map(abi => `'${abi.abi}'`),
+    "application-icon-160:'res/mipmap-mdpi-v4/icon.png'",
+    "application-icon-320:'res/mipmap-xhdpi-v4/icon.png'",
+    "application-icon-640:'res/mipmap-xxxhdpi-v4/icon.png'",
+  ]) {
+    if (!badging.includes(marker)) {
+      throw new Error(`${LABEL}: APK badging is missing ${marker}`);
+    }
+  }
+  if (badging.includes("application-debuggable") === release) {
+    throw new Error(`${LABEL}: ${release ? "the release APK is debuggable" : "the development APK is not debuggable"}`);
+  }
+  const receipt = {
+    schema: 2,
+    toolchain: toolchain.toolchainVersion,
+    planHash: bundle.plan.planHash,
+    package: identity,
+    target: bundle.inputs.target,
+    hostAbi: bundle.inputs.hostAbi,
+    viewport: bundle.inputs.viewport,
+    release,
+    minSdkVersion,
+    targetSdkVersion,
+    apk: {
+      path: appOutput.startsWith(repository) ? appOutput.slice(repository.length) : appOutput,
+      bytes: readFileSync(appOutput).byteLength,
+      sha256: sha256File(appOutput),
+    },
+    signer: {
+      certificateSha256,
+    },
+    icon: {
+      source: iconSource.startsWith(repository) ? iconSource.slice(repository.length) : iconSource,
+      sha256: icons.sourceSha256,
+      files: icons.files.map(({ density, size, sha256 }) => ({ density, size, sha256 })),
+    },
+    guest: {
+      javaScript: sha256File(bundle.javaScript),
+      pack: sha256File(bundle.pack),
+    },
+    nativeLibraries: libraries.map(({ abi, path }) => ({
+      abi: abi.abi,
+      apiLevel: abiApiLevel(abi),
+      bytes: readFileSync(path).byteLength,
+      sha256: sha256File(path),
+      elf: elfSummary(path),
+    })),
+    quickjs: {
+      version: toolchain.quickjs.version,
+      revision: toolchain.quickjs.revision,
+    },
+    rust: { toolchain: toolchain.rust.toolchain, targets: abis.map(abi => abi.rustTarget) },
+    signature,
+    badging,
+  };
+  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+  console.log(`${LABEL}: APK -> ${appOutput}`);
+  console.log(`SHA-256: ${receipt.apk.sha256}`);
+  console.log(`Signer certificate SHA-256: ${certificateSha256}`);
+  console.log(`Receipt: ${receiptPath}`);
+}
+
+/**
+ * The game-independent part of an APK for this profile, into `--out=<dir>`:
+ * `lib/<abi>/libpocketjs.so` for each ABI and `classes.dex` (the same files
+ * build-app links for any app of the profile, since the library takes only
+ * the profile's target values), the manifest and string templates, and the
+ * default launcher icon in `res/mipmap-<density>/icon.png`. No guest, no
+ * signature: tools/runtime/android.ts writes runtime.json beside them and
+ * tools/repack/android.ts adds a game.
+ */
+async function buildRuntime(): Promise<void> {
+  if (!outOption) throw new Error(`${LABEL}: runtime needs --out=<directory>`);
+  const out = resolve(outOption);
+  // The directory is replaced: refuse one that holds anything but an earlier runtime, before any compile.
+  if (existsSync(out) && readdirSync(out).length && !existsSync(join(out, "classes.dex"))) {
+    throw new Error(`${LABEL}: ${out} is not empty and holds no earlier runtime; runtime replaces its --out directory`);
+  }
+  requireToolchain();
+  resetBuild();
+  const inputs = PROFILES[profile].nativeInputs();
+  const libraries = buildNativeLibraries(inputs);
+  compileActivity();
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  for (const { abi, path } of libraries) {
+    mkdirSync(join(out, "lib", abi.abi), { recursive: true });
+    copyFileSync(path, join(out, "lib", abi.abi, "libpocketjs.so"));
+  }
+  copyFileSync(join(staging, "classes.dex"), join(out, "classes.dex"));
+  copyFileSync(join(appHost, "AndroidManifest.xml"), join(out, "AndroidManifest.xml"));
+  mkdirSync(join(out, "res/values"), { recursive: true });
+  copyFileSync(join(appHost, "res/values/strings.xml"), join(out, "res/values/strings.xml"));
+  await bakeAndroidLauncherIcons(repositoryPath(ANDROID_DEFAULT_ICON), join(out, "res"));
+  console.log(`${LABEL}: runtime -> ${out} (${inputs.target}, host ABI ${inputs.hostAbi}, ${inputs.logical.join("x")} at ${inputs.rasterDensity})`);
+}
+
+const USAGE =
+  `usage: bun tools/android.ts [--profile=${Object.keys(PROFILES).join("|")}] <doctor|setup|build-demo|build-app|build|runtime>\n` +
+  `       build-app --pocket=<application.pocket> [--out=<file.apk>] [--icon=<png|svg>] [--release]\n` +
+  `       runtime --out=<directory>`;
+
+if (planOption) throw new Error(`${LABEL}: native builds take --pocket; compile the application separately with pocket compile`);
+if (iconOption && !/\.(png|svg)$/i.test(iconOption)) {
+  throw new Error(`${LABEL}: --icon names a .png or an .svg file`);
+}
+if (outOption && command !== "runtime" && !outOption.endsWith(".apk")) {
+  throw new Error(`${LABEL}: --out names an .apk file`);
+}
+
+switch (command) {
+  case "doctor":
+    doctor();
+    break;
+  case "setup":
+    setup();
+    break;
+  case "build-demo":
+    buildGuestBundle(guest);
+    break;
+  case "build-app":
+    await buildApp();
+    break;
+  case "build":
+    await buildApp();
+    break;
+  case "runtime":
+    await buildRuntime();
+    break;
+  default:
+    throw new Error(USAGE);
+}

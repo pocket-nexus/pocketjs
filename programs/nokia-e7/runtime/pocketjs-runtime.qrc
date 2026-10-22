@@ -1,0 +1,9 @@
+<RCC>
+    <qresource prefix="/pocketjs">
+        <file alias="navigation.tsv">navigation.tsv</file>
+        <file alias="app.js">app.js</file>
+        <file alias="app.pak">app.pak</file>
+        <file alias="catalog.tsv">catalog.tsv</file>
+        <file alias="catalog.bin">catalog.bin</file>
+    </qresource>
+</RCC>

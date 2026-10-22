@@ -101,7 +101,7 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
   script: import.meta.url,
   args: Bun.argv.slice(2),
 }));\n`;
-    for (const name of ["pocket", "play", "vita"]) {
+    for (const name of ["pocket", "play", "symbian", "vita", "ios"]) {
       writeFileSync(join(scripts, `${name}.ts`), recorder);
     }
 
@@ -112,6 +112,11 @@ await Bun.write(process.env.POCKET_CLI_TEST_LOG, JSON.stringify({
       { cliArgs: ["build", "--target", "vita", "--", "--release"], script: "pocket.ts", args: ["build", "--target", "vita", "--cli-protocol", "1", "--", "--release"] },
       { cliArgs: ["play", "vita", "hero"], script: "play.ts", args: ["vita", "hero"] },
       { cliArgs: ["vita", "hero", "--release"], script: "vita.ts", args: ["hero", "--release"] },
+      { cliArgs: ["symbian", "doctor", "--device"], script: "symbian.ts", args: ["doctor", "--device"] },
+      { cliArgs: ["symbian", "coda", "usb"], script: "symbian.ts", args: ["coda", "usb"] },
+      { cliArgs: ["symbian", "coda", "usb", "launch"], script: "symbian.ts", args: ["coda", "usb", "launch"] },
+      { cliArgs: ["ios", "play", "nsengine"], script: "ios.ts", args: ["play", "nsengine"] },
+      { cliArgs: ["play", "ios", "nsengine"], script: "play.ts", args: ["ios", "nsengine"] },
     ];
 
     for (const fixture of cases) {

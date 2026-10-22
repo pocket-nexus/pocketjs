@@ -1,0 +1,45 @@
+diff --git a/dccm/synce-device.c b/dccm/synce-device.c
+index e922be7..d777f9f 100644
+--- a/dccm/synce-device.c
++++ b/dccm/synce-device.c
+@@ -223 +223 @@ get_password_flag_text(SynceDevicePasswordFlags flag)
+-#ifdef HAVE_GUDEV
++#if HAVE_GUDEV
+diff --git a/dccm/synce-device-manager.c b/dccm/synce-device-manager.c
+index 4c7b44f..7421575 100644
+--- a/dccm/synce-device-manager.c
++++ b/dccm/synce-device-manager.c
+@@ -244,8 +244,10 @@ synce_device_manager_create_device(SynceDeviceManager *self,
+-  if (!(socket_990 = synce_create_socket(local_ip, 990))) {
+-    g_critical("%s: failed to create listening socket on rndis port (990)", G_STRFUNC);
+-    goto error_exit;
+-  }
+-
+-  if (!(socket_5679 = synce_create_socket(local_ip, 5679))) {
+-    g_critical("%s: failed to create listening socket on legacy port (5679)", G_STRFUNC);
+-    goto error_exit;
++  if (deventry->rndis) {
++    if (!(socket_990 = synce_create_socket(local_ip, 990))) {
++      g_critical("%s: failed to create listening socket on rndis port (990)", G_STRFUNC);
++      goto error_exit;
++    }
++  } else {
++    if (!(socket_5679 = synce_create_socket(local_ip, 5679))) {
++      g_critical("%s: failed to create listening socket on legacy port (5679)", G_STRFUNC);
++      goto error_exit;
++    }
+@@ -260 +262 @@ synce_device_manager_create_device(SynceDeviceManager *self,
+-  if (!(g_socket_listener_add_socket(G_SOCKET_LISTENER(deventry->server), socket_990, NULL, &error))) {
++  if (socket_990 && !(g_socket_listener_add_socket(G_SOCKET_LISTENER(deventry->server), socket_990, NULL, &error))) {
+@@ -266 +268 @@ synce_device_manager_create_device(SynceDeviceManager *self,
+-  if (!(g_socket_listener_add_socket(G_SOCKET_LISTENER(deventry->server), socket_5679, NULL, &error))) {
++  if (socket_5679 && !(g_socket_listener_add_socket(G_SOCKET_LISTENER(deventry->server), socket_5679, NULL, &error))) {
+@@ -272,2 +274,2 @@ synce_device_manager_create_device(SynceDeviceManager *self,
+-  g_object_unref(socket_990);
+-  g_object_unref(socket_5679);
++  if (socket_990) g_object_unref(socket_990);
++  if (socket_5679) g_object_unref(socket_5679);
+@@ -320 +322,2 @@ synce_device_manager_check_interface_cb (gpointer userdata)
+-    GInetSocketAddress *sockaddr = G_INET_SOCKET_ADDRESS(g_inet_socket_address_new(local_addr, 990));
++    guint16 port = ((DeviceEntry*)device_entry_iter->data)->rndis ? 990 : 5679;
++    GInetSocketAddress *sockaddr = G_INET_SOCKET_ADDRESS(g_inet_socket_address_new(local_addr, port));

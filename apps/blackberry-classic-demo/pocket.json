@@ -1,0 +1,25 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.blackberry-classic-demo",
+  "name": "pocketjs-blackberry-classic-hero",
+  "title": "PocketJS: BlackBerry Classic Hero",
+  "version": "0.1.1",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.buttons", "text.glyphs.baked"],
+      "enhances": ["input.touch"]
+    }
+  },
+  "app": {
+    "entry": "apps/blackberry-classic-demo/main.tsx",
+    "output": "blackberry-classic-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [360, 360],
+        "presentation": "native"
+      }
+    }
+  }
+}

@@ -2,8 +2,9 @@
 
 **One PSP EBOOT or Vita VPK embeds the target-compatible app packages and a Cover Flow picker.**
 The host exposes three `app*` operations and reserves SELECT to return to the
-launcher. The Symbian launcher and its Qt process-navigation policy are
-maintained in Pocket Museum.
+launcher. The Nokia E7 program uses the same guest operations with a Symbian
+package catalog and Qt process-navigation policy; see
+[Symbian app launcher](SYMBIAN_LAUNCHER.md).
 
 ## Guest lifecycle
 
@@ -72,22 +73,23 @@ boots the next package; vita2d and input remain process-owned.
 
 ## Build pipeline
 
-`bun tools/launcher.ts` owns the artifact chain. `--target psp|vita`
+`bun tools/launcher.ts` owns the artifact chain. `--target psp|vita|symbian`
 selects admission, bundle variants, packages, and the native backend; `psp`
-is the default for compatibility:
+is the default for compatibility. The console pipeline below shares scanning
+and cover generation with the [Symbian pipeline](SYMBIAN_LAUNCHER.md):
 
 1. **scan** — resolve every app manifest for the selected target and dedupe
    by `app.output`. PSP writes `dist/launcher-registry.{json,tsv}`; Vita writes
    `dist/launcher/vita/launcher-registry.{json,tsv}`. The committed display
-   registry is the PSP/Vita union, while `appTable()` remains the runtime truth.
+   registry is the PSP/Vita/Symbian union, while `appTable()` remains the runtime truth.
    A plain in-repository `scan` is the only command that updates
    `apps/launcher/{registry.generated.ts,images.json}`; covers, pack and build
    keep their target artifacts under `dist/`.
 2. **covers** — boot each admitted app in `programs/sim`, settle 90 virtual frames,
    render, box-downscale the full frame to 256×128, write
-   `apps/launcher/covers/cover-<output>.png` (generated, deterministic —
-   the PSP-flavored sim is the target-neutral oracle, so goldens over
-   cover-bearing frames stay stable).
+   `apps/launcher/covers/cover-<output>.png`. Each app uses the first profile it
+   admits in PSP, Vita, Symbian order. The wasm simulator receives that
+   profile's viewport and density; all launcher targets share the cover files.
 3. **pack** — every admitted app + the launcher becomes a `.pocket`
    package (`contracts/spec/pocket-package.ts`) with the selected target variant. PSP uses
    `dist/packages/`; Vita uses `dist/launcher/vita/packages/` so density-2

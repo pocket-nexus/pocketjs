@@ -277,15 +277,16 @@ See also: [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) ·
 
 PocketJS has booted on every operating system below, on the real machine. What
 changes between them is one native host, never the application, and each row
-links to the post or pull request that brought it up. Pocket Museum repairs and
-maintains the older machines used to develop and test PocketJS.
+links to the post or pull request that brought it up. Device programs, profiles
+and build tools are maintained in this repository; see
+[Device native builds](./docs/DEVICE_BUILDS.md).
 
 | Operating system | Native host | Receipt |
 | --- | --- | --- |
 | PSP system software | MIPS, 32 MB | [Introducing PocketJS](https://pocketjs.pocket.nexus/blog/introducing-pocketjs/) |
 | PS Vita system software | ARM, GXM | [Twice the pixels, zero forks](https://pocketjs.pocket.nexus/blog/pocketjs-on-ps-vita/) |
 | iPhone OS 3.1.3 | ARMv6, GL ES 1.1 | [The first iPhone](https://pocketjs.pocket.nexus/blog/pocketjs-on-the-first-iphone/) |
-| iOS 6.1.3 | ARMv7 | [Pocket Museum](./docs/MUSEUM.md) |
+| iOS 6.1.3 | ARMv7 | [iPhone 4S runbook](./docs/IPHONE4S.md) |
 | iOS 12.5.8 | arm64 | [#278](https://github.com/pocket-nexus/pocketjs/pull/278) |
 | iOS, current | NativeScript host | [#256](https://github.com/pocket-nexus/pocketjs/pull/256) |
 | macOS | Metal window and widget | [#293](https://github.com/pocket-nexus/pocketjs/pull/293) |

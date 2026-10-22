@@ -14,6 +14,7 @@
 // variant for one of `target.variantTargets`, the one the runtime's
 // runtime.json names. Android alone takes `signer`.
 
+import { IPOD_RUNTIME_TARGET, repackIPod } from "./ipod.ts";
 import { repackAndroid } from "./android.ts";
 import { THREE_DS_RUNTIME_TARGET, repack3ds } from "./3ds.ts";
 import { PSP_RUNTIME_TARGET, repackPsp } from "./psp.ts";
@@ -25,13 +26,13 @@ export type { RepackIdentity, RepackInput, RuntimeManifest } from "./shared/runt
 export { POCKET_STUDIO_COMMUNITY_SIGNER, androidPackageName } from "./android.ts";
 
 /** The device targets of Pocket Studio, as its catalog names them. */
-export type StudioTarget = "psp" | "vita" | "3ds" | "android";
+export type StudioTarget = "psp" | "vita" | "3ds" | "ipod-touch" | "android";
 
 export interface RepackTarget {
   /** A game's package from a runtime directory and the game's `.pocket`. */
   readonly repack: (input: RepackInput) => Promise<Uint8Array>;
   /** `bun tools/runtime.ts <runtime>`: the runtime's name and its directory's name. */
-  readonly runtime: "psp" | "vita" | "3ds" | "android";
+  readonly runtime: "psp" | "vita" | "3ds" | "ipod" | "android";
   /** The `.pocket` targets this target's runtimes boot; the runtime's runtime.json names the one it was built for. */
   /** Empty means the runtime manifest supplies an external profile identity. */
   readonly variantTargets: readonly string[];
@@ -67,6 +68,10 @@ export const REPACK_TARGETS: Readonly<Record<StudioTarget, RepackTarget>> = {
     extension: ".3dsx",
     contentType: "application/octet-stream",
     signed: false,
+  },
+  "ipod-touch": {
+    repack: repackIPod, runtime: "ipod", variantTargets: [IPOD_RUNTIME_TARGET],
+    extension: ".ipa", contentType: "application/octet-stream", signed: false,
   },
   android: {
     repack: (input) => repackAndroid(input),

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+# Qt 4.7's Unix Symbian mkspec invokes ld directly. GCCE 4.6 keeps the
+# ARM EHABI unwinder in libgcc_eh.a, while the historical mkspec only adds
+# libgcc.a. Append libgcc_eh after every generated library argument.
+exec arm-none-symbianelf-ld "$@" -lgcc_eh

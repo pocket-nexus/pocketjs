@@ -462,6 +462,9 @@ the resolved checkout or `POCKETJS_FRAMEWORK_ROOT`:
 | `pocket devtools [<app>]` | `tools/devtools.ts` | launch the DevTools panel and USB bridge |
 | `pocket tape record\|replay\|tree …` | `tools/tape.ts` | record, replay and inspect input tapes |
 | `pocket play vita <demo>` | `tools/play.ts` | build, install and launch a demo in Vita3K |
+| `pocket play ios <demo>` | `tools/play.ts` | stage a demo in the NativeScript shell and launch the iOS simulator |
+| `pocket symbian doctor\|setup\|build\|deploy\|coda …` | `tools/symbian.ts` | inspect the Nokia E7 toolchain, build SIS packages and use CODA USB |
+| `pocket ios doctor\|setup\|devices\|native\|build\|stage\|play …` | `tools/ios.ts` | inspect the Apple toolchain and build or launch the simulator shell |
 
 ## Environment variables
 

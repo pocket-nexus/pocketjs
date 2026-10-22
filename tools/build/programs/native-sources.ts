@@ -12,19 +12,19 @@ const runtime = [
     .flatMap(name => crate(`engine/${name}`)),
 ];
 const cabi = [
-  ...runtime, ...crate("engine/runtime-cabi"), ...crate("programs/native/cabi"),
-  "programs/native/cabi/include", "platforms/posix/svc-wire/include",
+  ...runtime, "engine/runtime/compat", "engine/runtime/include", ...crate("engine/runtime-cabi"), ...crate("programs/native/cabi"),
+  "platforms/linux/offload", "engine/modules/offload/include", "programs/native/cabi/include", "platforms/posix/svc-wire/include",
   "programs/native/quickjs", "engine/guest-quickjs/src", "engine/guest-quickjs/include",
   ...["pocket-gles", "pocket-gles1", "pocket-gles2"].flatMap(name => crate(`devices/gles/${name}`)),
 ];
 const apple = [
-  ...runtime, ...crate("engine/runtime-cabi"), ...crate("engine/guest-rquickjs"),
+  ...runtime, "engine/runtime/compat", "engine/runtime/include", ...crate("engine/runtime-cabi"), ...crate("engine/guest-rquickjs"),
   ...crate("engine/ios"), "engine/ios/include", "engine/ios/uikit",
 ];
 
-/** Absolute paths also work when an external program imports a Museum recipe. */
-export function nativeSources(kind: "cabi" | "apple" | "pocketbook", ...paths: string[]): string[] {
-  const sources = kind === "cabi" ? cabi : kind === "apple" ? apple : [
+/** Absolute paths also work when a program imports a shared recipe. */
+export function nativeSources(kind: "cabi" | "android" | "apple" | "pocketbook", ...paths: string[]): string[] {
+  const sources = kind === "android" ? [...cabi, "platforms/android/CMakeLists.txt", "platforms/android/include", "platforms/android/src", "assets/brand/pocketjs-avatar-dark.svg"] : kind === "cabi" ? cabi : kind === "apple" ? apple : [
     ...runtime, ...crate("engine/guest-rquickjs"), ...crate("engine/crates/pocket-mod"),
     ...crate("engine/crates/pocket-ui-surface"),
   ];

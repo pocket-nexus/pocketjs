@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "toolchainVersion": "blackberry-qnx-10.3.1.995-v1",
+  "cachePath": "blackberry-qnx",
+  "image": {
+    "name": "accupara/bbndk",
+    "digest": "sha256:91268df2ead23a6fa9c17b600ffc6e04bf6b38eaa97f6a48c2f59ffc221ae6d2",
+    "platform": "linux/amd64"
+  },
+  "qnx": {
+    "apiLevel": "10.3.1.995",
+    "hostVersion": "10.3.1.12",
+    "compiler": "4.8.3,gcc_ntoarmv7le",
+    "architecture": "armle-v7",
+    "dynamicLoader": "/usr/lib/ldqnx.so.2"
+  },
+  "quickjs": {
+    "version": "2026-06-04",
+    "repository": "https://github.com/pocket-nexus/quickjs-rs.git",
+    "revision": "ba5bdd0dc013518768e76cd9e05cd30ed53dd35b"
+  },
+  "rust": {
+    "target": "tools/build/toolchains/blackberry-qnx/armv7-qnx-eabi.json"
+  },
+  "app": {
+    "manifest": "apps/blackberry-classic-demo/pocket.json",
+    "binary": "pocketjs-classic",
+    "bar": "dist/blackberry-qnx/pocketjs-blackberry-classic-hero.bar"
+  }
+}

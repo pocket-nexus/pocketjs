@@ -1,0 +1,24 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.iphone4s-demo",
+  "name": "pocketjs-iphone4s-hero",
+  "title": "PocketJS: iPhone 4S Hero",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.touch", "text.glyphs.baked"]
+    }
+  },
+  "app": {
+    "entry": "apps/iphone4s-demo/main.tsx",
+    "output": "iphone4s-demo-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [320, 480],
+        "presentation": "native"
+      }
+    }
+  }
+}

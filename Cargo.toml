@@ -85,6 +85,7 @@ members = [
     "platforms/linux/fbdev",
     "platforms/linux/hooks",
     "programs/linux-kms",
+    "programs/pocketbook",
 ]
 default-members = [
     "platforms/vita/input",
@@ -186,6 +187,7 @@ pocket-linux-evdev = { path = "platforms/linux/evdev", version = "0.1.0", defaul
 pocket-linux-fbdev = { path = "platforms/linux/fbdev", version = "0.1.0", default-features = false }
 pocket-linux-hooks = { path = "platforms/linux/hooks", version = "0.1.0", default-features = false }
 pocket-linux-kms = { path = "programs/linux-kms", version = "0.1.0", default-features = false }
+pocketbook-host = { path = "programs/pocketbook", version = "0.1.0", default-features = false }
 pocket-media = { path = "engine/modules/media", version = "0.1.0", default-features = false }
 pocket-mod = { path = "engine/crates/pocket-mod", version = "0.1.0", default-features = false }
 pocket-net = { path = "engine/crates/pocket-net", version = "0.1.0", default-features = false }

@@ -244,11 +244,10 @@ test("every compatibility entry cites a receipt that resolves", () => {
   // Receipts, so they open in their own tab like the rest of the references.
   expect(readFileSync(ROOT + "site/assets/landing.js", "utf8")).toContain('[data-refs] a, .cgrid a');
 
-  // Keeping the hardware bootable is its own project, without linking away.
-  expect(compat).toContain("Pocket Museum repairs and maintains the older machines");
+  expect(compat).toContain("Device programs and their build instructions are maintained in the PocketJS repository.");
 });
 
-test("Pocket Lab and Pocket Museum are not linked from the README or website", () => {
+test("legacy project sites are not linked from the README or website", () => {
   const readme = readFileSync(ROOT + "README.md", "utf8");
   const home = readFileSync(ROOT + "site/home.html", "utf8");
   const templates = readFileSync(ROOT + "site/templates.ts", "utf8");

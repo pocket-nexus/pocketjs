@@ -13,6 +13,17 @@ export interface ProgramEntry {
 }
 /** CLI aliases locate program-owned recipes; external programs need no entry. */
 export const PROGRAMS: readonly ProgramEntry[] = [
+  { id: "pocketbook", profile: "pocketbook", directory: "pocketbook" },
+  { id: "moto-g-play", profile: "moto-g-play-dev", directory: "moto-g-play", generic: { directory: "moto-g-play", profile: "moto-g-play-dev" } },
+  { id: "redmi-1s", profile: "redmi-1s-dev", directory: "redmi-1s", generic: { directory: "redmi-1s", profile: "redmi-1s-dev" } },
+  { id: "blackberry-classic", profile: "blackberry-qnx-dev", directory: "blackberry-classic" },
+  { id: "meizu-m8", profile: "meizu-m8-dev", directory: "meizu-m8" },
+  { id: "nokia-e7", profile: "symbian-e7-dev", directory: "nokia-e7" },
+  { id: "ios-simulator", profile: "ios-dev", directory: "ios-simulator" },
+  { id: "iphone2g", profile: "iphone2g-dev", directory: "iphone2g" },
+  { id: "iphone4s", profile: "iphone4s-dev", directory: "iphone4s" },
+  { id: "ipodtouch6", profile: "ipodtouch-dev", directory: "ipodtouch6" },
+  { id: "ipodtouch4", profile: "ipodtouch4-dev", directory: "ipodtouch4", generic: { directory: "ipodtouch4", profile: "ipodtouch4-dev" } },
   { id: "psp", profile: "psp", directory: "psp", generic: { directory: "psp/runtime", profile: "psp-runtime" } },
   { id: "vita", profile: "vita", directory: "vita", generic: { directory: "vita/runtime", profile: "vita" } },
   { id: "3ds", profile: "3ds-dev", directory: "3ds", runtimeConfig: "products/3ds/pocket.runtime-config.ts", generic: { directory: "3ds", profile: "3ds-runtime" } },

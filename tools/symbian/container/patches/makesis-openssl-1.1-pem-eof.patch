@@ -1,0 +1,31 @@
+diff --git a/tools/makesis-4/src/signutils.cpp b/tools/makesis-4/src/signutils.cpp
+--- a/tools/makesis-4/src/signutils.cpp
++++ b/tools/makesis-4/src/signutils.cpp
+@@ -262,9 +262,10 @@ SISCertificateChain* makeChain(const char* certData, int certLen, EVP_PKEY** publ
+ 		if (!cert) {
+ 			unsigned long err = ERR_peek_last_error();
+ 			int lib = ERR_GET_LIB(err);
+-			int func = ERR_GET_FUNC(err);
+ 			int reason = ERR_GET_REASON(err);
+-			if (lib == ERR_LIB_PEM && func == PEM_F_PEM_READ_BIO && reason == PEM_R_NO_START_LINE)
++			if (lib == ERR_LIB_PEM && reason == PEM_R_NO_START_LINE) {
++				ERR_clear_error();
+ 				break;
++			}
+ 			ERR_print_errors_fp(stderr);
+ 			throw SignBadCert;
+ 		}
+@@ -294,9 +295,10 @@ SISCertificateChain* makeChain(const char* certData, int certLen, EVP_PKEY** publ
+ 		if (!cert) {
+ 			unsigned long err = ERR_peek_last_error();
+ 			int lib = ERR_GET_LIB(err);
+-			int func = ERR_GET_FUNC(err);
+ 			int reason = ERR_GET_REASON(err);
+-			if (lib == ERR_LIB_ASN1 && func == ASN1_F_ASN1_GET_OBJECT && reason == ASN1_R_HEADER_TOO_LONG)
++			if (lib == ERR_LIB_ASN1 && reason == ASN1_R_HEADER_TOO_LONG) {
++				ERR_clear_error();
+ 				break;
++			}
+ 			ERR_print_errors_fp(stderr);
+ 			throw SignBadCert;
+ 		}

@@ -1,0 +1,504 @@
+#!/bin/bash
+set -euo pipefail
+
+manifest=/opt/pocketjs/symbian-toolchain.json
+version=$(jq -r .toolchainVersion "$manifest")
+: "${POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256:?implementation digest is required}"
+: "${POCKETJS_SYMBIAN_IMAGE_IMPLEMENTATION_SHA256:?image implementation digest is required}"
+if [[ ! "$POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256" =~ ^[a-f0-9]{64}$ ]]; then
+    echo "Invalid Symbian implementation digest." >&2
+    exit 1
+fi
+if test "$POCKETJS_SYMBIAN_IMAGE_IMPLEMENTATION_SHA256" != \
+    "$POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256"; then
+    echo "Symbian image and checkout implementation digests do not match." >&2
+    exit 1
+fi
+current=/toolchain/current
+generations=/toolchain/generations
+migration_journal=/toolchain/.current-migration.json
+signing=/signing
+certificate="$signing/$(jq -r .signing.certificate "$manifest")"
+private_key="$signing/$(jq -r .signing.privateKey "$manifest")"
+legacy_certificate="/toolchain/$(jq -r .signing.legacyCertificate "$manifest")"
+legacy_private_key="/toolchain/$(jq -r .signing.legacyPrivateKey "$manifest")"
+failed_log="/toolchain/logs/setup-${version}-failed.log"
+stage=
+signing_stage=
+generation=
+published=0
+old_target=
+
+mkdir -p "$generations" "$signing"
+exec 9>/toolchain/.toolchain.lock
+if ! flock --exclusive --timeout 7200 9; then
+    echo "Timed out waiting for the shared Symbian toolchain setup lock." >&2
+    exit 1
+fi
+exec 8>"$signing/.identity.lock"
+if ! flock --exclusive --timeout 300 8; then
+    echo "Timed out waiting for the shared Symbian signing identity lock." >&2
+    exit 1
+fi
+
+while IFS= read -r -d '' abandoned_stage; do
+    rm -rf "$abandoned_stage"
+done < <(
+    find "$generations" \
+        -mindepth 1 \
+        -maxdepth 1 \
+        -type d \
+        -name ".stage-${version}.*" \
+        -print0
+)
+
+asset() {
+    jq -r ".$1.asset" "$manifest"
+}
+
+expected_sha256() {
+    jq -r ".$1.sha256" "$manifest"
+}
+
+verify_download() {
+    local section=$1
+    local path="/downloads/$(asset "$section")"
+    test -f "$path"
+    echo "$(expected_sha256 "$section")  $path" | sha256sum --check --status
+}
+
+identity_sha256() {
+    local cert=$1
+    openssl x509 -in "$cert" -outform DER | sha256sum | cut -d " " -f 1
+}
+
+identity_is_valid() {
+    local cert=$1
+    local key=$2
+    test -s "$cert" && test -s "$key" || return 1
+    test "$(stat -c %a "$key")" = 600 || return 1
+    openssl x509 -in "$cert" -checkend 0 -noout >/dev/null 2>&1 || return 1
+    local certificate_public_key
+    local private_public_key
+    certificate_public_key=$(
+        openssl x509 -in "$cert" -pubkey -noout 2>/dev/null | sha256sum | cut -d " " -f 1
+    ) || return 1
+    private_public_key=$(
+        openssl pkey -in "$key" -pubout 2>/dev/null | sha256sum | cut -d " " -f 1
+    ) || return 1
+    test "$certificate_public_key" = "$private_public_key"
+}
+
+publish_symlink() {
+    local link=$1
+    local target=$2
+    local temporary
+    temporary=$(mktemp -d "$(dirname "$link")/.link.XXXXXX")
+    rmdir "$temporary"
+    ln -s "$target" "$temporary"
+    mv -Tf "$temporary" "$link"
+}
+
+ensure_signing_identity() {
+    local stable_present=0
+    if test -e "$signing/current" || test -L "$signing/current"; then
+        stable_present=1
+    fi
+
+    if test "$stable_present" = 1; then
+        if ! identity_is_valid "$certificate" "$private_key"; then
+            echo "The persistent Symbian signing identity is incomplete, expired, or mismatched." >&2
+            echo "Refusing to replace it automatically because that would break app upgrades." >&2
+            return 1
+        fi
+        if test -e "$legacy_certificate" && test -e "$legacy_private_key"; then
+            if identity_is_valid "$legacy_certificate" "$legacy_private_key"; then
+                if test "$(identity_sha256 "$legacy_certificate")" != \
+                    "$(identity_sha256 "$certificate")"; then
+                    echo "Stable and legacy Symbian signing identities do not match." >&2
+                    return 1
+                fi
+            else
+                echo "Ignoring an invalid legacy signer; the stable signer is valid." >&2
+            fi
+        elif test -e "$legacy_certificate" || test -e "$legacy_private_key"; then
+            echo "Ignoring an incomplete legacy signer; the stable signer is valid." >&2
+        fi
+        return 0
+    fi
+
+    if test -e "$legacy_certificate" || test -e "$legacy_private_key"; then
+        if ! identity_is_valid "$legacy_certificate" "$legacy_private_key"; then
+            echo "The legacy Symbian signing identity is incomplete or invalid." >&2
+            return 1
+        fi
+        echo "Migrating the persistent development signer to its stable volume"
+        signing_stage=$(mktemp -d "$signing/.identity.XXXXXX")
+        cp "$legacy_certificate" "$signing_stage/pocketjs-e7-development.cer"
+        cp "$legacy_private_key" "$signing_stage/pocketjs-e7-development.key"
+    else
+        echo "Creating a persistent local development signing identity"
+        signing_stage=$(mktemp -d "$signing/.identity.XXXXXX")
+        openssl req \
+            -new \
+            -newkey rsa:2048 \
+            -nodes \
+            -x509 \
+            -sha1 \
+            -days 3650 \
+            -subj "/CN=PocketJS E7 Development/O=Pocket Nexus/C=CN" \
+            -keyout "$signing_stage/pocketjs-e7-development.key" \
+            -out "$signing_stage/pocketjs-e7-development.cer" \
+            >/dev/null 2>&1
+    fi
+
+    chmod 0600 "$signing_stage/pocketjs-e7-development.key"
+    chmod 0644 "$signing_stage/pocketjs-e7-development.cer"
+    if ! identity_is_valid \
+        "$signing_stage/pocketjs-e7-development.cer" \
+        "$signing_stage/pocketjs-e7-development.key"; then
+        echo "Failed to create a valid persistent Symbian signing identity." >&2
+        return 1
+    fi
+
+    local fingerprint
+    local identity
+    fingerprint=$(identity_sha256 "$signing_stage/pocketjs-e7-development.cer")
+    identity="$signing/identities/$fingerprint"
+    mkdir -p "$signing/identities"
+    if test -e "$identity"; then
+        if ! identity_is_valid \
+            "$identity/pocketjs-e7-development.cer" \
+            "$identity/pocketjs-e7-development.key"; then
+            echo "Existing Symbian signing identity generation is invalid." >&2
+            return 1
+        fi
+        if test "$(identity_sha256 "$identity/pocketjs-e7-development.cer")" != \
+            "$fingerprint"; then
+            echo "Symbian signing identity directory fingerprint does not match." >&2
+            return 1
+        fi
+        rm -rf "$signing_stage"
+    else
+        mv "$signing_stage" "$identity"
+    fi
+    signing_stage=
+    publish_symlink "$signing/current" "identities/$fingerprint"
+}
+
+recover_interrupted_migration() {
+    if { test -e "$current" || test -L "$current"; }; then
+        rm -f "$migration_journal"
+        return 0
+    fi
+    if test ! -s "$migration_journal"; then
+        return 0
+    fi
+    local target
+    target=$(jq -r .target "$migration_journal")
+    if [[ ! "$target" =~ ^generations/legacy-[A-Za-z0-9._-]+$ ]]; then
+        echo "Unsafe Symbian toolchain migration journal target: $target" >&2
+        return 1
+    fi
+    test -d "/toolchain/$target"
+    publish_symlink "$current" "$target"
+    rm -f "$migration_journal"
+}
+
+migrate_legacy_current() {
+    if test ! -d "$current" || test -L "$current"; then
+        return 0
+    fi
+    local legacy_id
+    local target
+    local journal_stage
+    legacy_id=$(jq -r '.implementationSha256 // "unknown"' \
+        "$current/$(jq -r .receipt "$manifest")" 2>/dev/null || echo unknown)
+    if [[ ! "$legacy_id" =~ ^[a-f0-9]{64}$ ]]; then
+        legacy_id=unknown
+    fi
+    target="generations/legacy-${legacy_id}-$(date +%s)-$$"
+    journal_stage=$(mktemp /toolchain/.migration.XXXXXX)
+    jq -n --arg target "$target" '{target: $target}' > "$journal_stage"
+    mv "$journal_stage" "$migration_journal"
+    mv "$current" "/toolchain/$target"
+    publish_symlink "$current" "$target"
+    rm -f "$migration_journal"
+}
+
+rollback_publish() {
+    if test "$published" != 1; then
+        return 0
+    fi
+    if test -n "$old_target"; then
+        if ! publish_symlink "$current" "$old_target"; then
+            return 1
+        fi
+    else
+        if ! rm -f "$current"; then
+            return 1
+        fi
+    fi
+    published=0
+}
+
+cleanup() {
+    local status=$?
+    local rollback_ok=1
+    set +e
+    recover_interrupted_migration
+    if ! rollback_publish; then
+        rollback_ok=0
+    fi
+    if test "$status" != 0; then
+        local log_source=
+        if test -n "$stage" && test -s "$stage/setup.log"; then
+            log_source="$stage/setup.log"
+        elif test -n "$generation" && test -s "$generation/setup.log"; then
+            log_source="$generation/setup.log"
+        fi
+        if test -n "$log_source"; then
+            mkdir -p "$(dirname "$failed_log")"
+            cp "$log_source" "$failed_log"
+        fi
+        if test "$rollback_ok" = 1 && test -n "$generation" && test -d "$generation"; then
+            mkdir -p /toolchain/failed
+            failed_generation="/toolchain/failed/$(basename "$generation")"
+            mv "$generation" "$failed_generation"
+            echo "Failed Symbian generation preserved at $failed_generation" >&2
+        fi
+    fi
+    if test -n "$stage" && test -d "$stage"; then
+        rm -rf "$stage"
+    fi
+    if test -n "$signing_stage" && test -d "$signing_stage"; then
+        rm -rf "$signing_stage"
+    fi
+    trap - EXIT
+    exit "$status"
+}
+trap cleanup EXIT
+
+recover_interrupted_migration
+migrate_legacy_current
+ensure_signing_identity
+flock --unlock 8
+
+if POCKETJS_SYMBIAN_LOCK_HELD=1 \
+    /usr/local/bin/pocketjs-symbian-doctor >/dev/null 2>&1; then
+    echo "PocketJS Symbian toolchain is already current: $version"
+    rm -f "$failed_log"
+    trap - EXIT
+    exit 0
+fi
+
+for section in gnupoc sdk gcce qtSource; do
+    echo "Verifying $(asset "$section")"
+    verify_download "$section"
+done
+
+stage=$(mktemp -d "$generations/.stage-${version}.XXXXXX")
+mkdir -p "$stage/sdk" "$stage/gcce" "$stage/bin" "$stage/work"
+setup_log="$stage/setup.log"
+
+echo "Extracting Belle SDK and GCCE 4.6.3"
+7z x -bd -y -o"$stage/work/sdk" "/downloads/$(asset sdk)" >/dev/null
+mv "$stage/work/sdk/$(jq -r .sdk.extractRoot "$manifest")" "$stage/sdk-root"
+rm -rf "$stage/sdk"
+mv "$stage/sdk-root" "$stage/sdk"
+
+unzip -p "/downloads/$(asset gcce)" "$(jq -r .gcce.linuxArchive "$manifest")" \
+    | tar -xj -C "$stage/gcce"
+
+echo "Building native EKA2 resource, executable, and SIS tools"
+mkdir -p "$stage/work/gnupoc"
+tar -xzf "/downloads/$(asset gnupoc)" --strip-components=1 -C "$stage/work/gnupoc"
+set +e
+(
+    set -e
+    patch -d "$stage/work/gnupoc" -p1 < /opt/pocketjs/patches/makesis-openssl-1.1.patch
+    patch -d "$stage/work/gnupoc" -p1 < /opt/pocketjs/patches/makesis-openssl-1.1-pem-eof.patch
+    install -d "$stage/native/bin"
+    make -C "$stage/work/gnupoc/tools/elf2e32" \
+        -f Makefile.local-libelf \
+        libelf.a \
+        all
+    install -m 0755 \
+        "$stage/work/gnupoc/tools/elf2e32/elf2e32" \
+        "$stage/work/gnupoc/tools/elf2e32/elftran" \
+        "$stage/work/gnupoc/tools/elf2e32/gendirective" \
+        "$stage/work/gnupoc/tools/elf2e32/genstubs" \
+        "$stage/work/gnupoc/tools/elf2e32/getexports" \
+        "$stage/native/bin/"
+    make -C "$stage/work/gnupoc/tools/makesis-4"
+    install -m 0755 \
+        "$stage/work/gnupoc/tools/makesis-4/src/makesis" \
+        "$stage/work/gnupoc/tools/makesis-4/src/signsis" \
+        "$stage/work/gnupoc/tools/makesis-4/src/makekeys" \
+        "$stage/native/bin/"
+    make -C "$stage/work/gnupoc/tools/rcomp-7.0.1"
+    install -m 0755 \
+        "$stage/work/gnupoc/tools/rcomp-7.0.1/src/rcomp" \
+        "$stage/native/bin/"
+    make -C "$stage/work/gnupoc/tools/petran-1.1.0/e32uid"
+    install -m 0755 \
+        "$stage/work/gnupoc/tools/petran-1.1.0/e32uid/uidcrc" \
+        "$stage/native/bin/"
+    g++ -O2 \
+        -o "$stage/native/bin/mifconv" \
+        "$stage/work/gnupoc/tools/mifconv.cpp"
+) >>"$setup_log" 2>&1
+native_status=$?
+set -e
+if test "$native_status" != 0; then
+    tail -n 80 "$setup_log"
+    exit "$native_status"
+fi
+cp "$stage/native/bin/"* "$stage/bin/"
+install -m 0755 /usr/local/bin/symbian-gcce-link "$stage/bin/"
+install -m 0755 \
+    "$stage/bin/makesis" \
+    "$stage/bin/signsis" \
+    "$stage/sdk/epoc32/tools/"
+
+echo "Adding case-insensitive SDK aliases required by the original Windows layout"
+set +e
+(
+    set -e
+    "$stage/work/gnupoc/sdks/lowercase" -symlink "$stage/sdk/epoc32/include"
+    "$stage/work/gnupoc/sdks/lowercase" -symlink "$stage/sdk/epoc32/release"
+) >>"$setup_log" 2>&1
+lowercase_status=$?
+set -e
+if test "$lowercase_status" != 0; then
+    tail -n 80 "$setup_log"
+    exit "$lowercase_status"
+fi
+# Qt's Linux-hosted Symbian mkspec includes the canonical Khronos directory
+# names, while the SDK extraction above exposes only lowercase aliases.
+# Restore the original case-sensitive include surface inside this immutable
+# generation rather than teaching every application about the SDK defect.
+for alias_pair in GLES2:gles2 EGL:egl GLES:gles; do
+    alias_name=${alias_pair%%:*}
+    target_name=${alias_pair#*:}
+    if test -d "$stage/sdk/epoc32/include/$target_name" &&
+        test ! -e "$stage/sdk/epoc32/include/$alias_name"; then
+        ln -s "$target_name" "$stage/sdk/epoc32/include/$alias_name"
+    fi
+done
+
+echo "Building native Qt 4.7.4 host tools"
+mkdir -p "$stage/work/qt"
+tar -xzf "/downloads/$(asset qtSource)" --strip-components=1 -C "$stage/work/qt"
+set +e
+(
+    set -e
+    cd "$stage/work/qt"
+    ./configure \
+        -opensource \
+        -fast \
+        -confirm-license \
+        -nomake examples \
+        -nomake demos \
+        -no-opengl \
+        -prefix /toolchain/current/sdk
+    make -j2 sub-tools-bootstrap
+    make -j2 sub-moc
+    make -j2 sub-rcc
+    make -j2 sub-uic
+) >>"$setup_log" 2>&1
+qt_status=$?
+set -e
+if test "$qt_status" != 0; then
+    tail -n 80 "$setup_log"
+    exit "$qt_status"
+fi
+install -m 0755 \
+    "$stage/work/qt/bin/qmake" \
+    "$stage/work/qt/bin/moc" \
+    "$stage/work/qt/bin/rcc" \
+    "$stage/work/qt/bin/uic" \
+    "$stage/sdk/bin/"
+install -m 0755 "$stage/work/qt/bin/elf2e32_qtwrapper" "$stage/sdk/bin/"
+install -m 0644 "$stage/work/qt/bin/elf2e32_qtwrapper.pl" "$stage/sdk/bin/"
+install -m 0755 "$stage/work/qt/bin/createpackage" "$stage/sdk/bin/"
+install -m 0644 "$stage/work/qt/bin/createpackage.pl" "$stage/sdk/bin/"
+
+cat > "$stage/sdk/bin/qt.conf" <<'EOF'
+[Paths]
+Prefix = /toolchain/current/sdk
+Binaries = /toolchain/current/sdk/bin
+Headers = /toolchain/current/sdk/include
+Libraries = /toolchain/current/sdk/lib
+Data = /toolchain/current/sdk
+Plugins = /toolchain/current/sdk/plugins
+Imports = /toolchain/current/sdk/epoc32/data/z/resource/qt/imports
+EOF
+
+# GCCE expects this standard variant include to be visible below include/variant.
+ln -sfn ../symbian_os.hrh "$stage/sdk/epoc32/include/variant/symbian_os.hrh"
+
+markers_json="$stage/work/markers.json"
+printf '{}\n' > "$markers_json"
+while IFS= read -r marker; do
+    marker_path="$stage/$marker"
+    test -s "$marker_path"
+    marker_digest=$(sha256sum "$marker_path" | cut -d " " -f 1)
+    jq \
+        --arg marker "$marker" \
+        --arg digest "$marker_digest" \
+        '. + {($marker): $digest}' \
+        "$markers_json" > "$markers_json.next"
+    mv "$markers_json.next" "$markers_json"
+done < <(jq -r '.markers[]' "$manifest")
+
+jq -n \
+    --arg version "$version" \
+    --arg platform "$(jq -r .container.platform "$manifest")" \
+    --arg rev "$(jq -r .gnupoc.rev "$manifest")" \
+    --arg implementation "$POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256" \
+    --arg certificate "$(identity_sha256 "$certificate")" \
+    --arg gnupoc_name "$(asset gnupoc)" \
+    --arg gnupoc "$(expected_sha256 gnupoc)" \
+    --arg sdk_name "$(asset sdk)" \
+    --arg sdk "$(expected_sha256 sdk)" \
+    --arg gcce_name "$(asset gcce)" \
+    --arg gcce "$(expected_sha256 gcce)" \
+    --arg qt_name "$(asset qtSource)" \
+    --arg qt "$(expected_sha256 qtSource)" \
+    --argjson markers "$(cat "$markers_json")" \
+    '{
+      schemaVersion: 1,
+      toolchainVersion: $version,
+      platform: $platform,
+      gnupocRev: $rev,
+      implementationSha256: $implementation,
+      certificateSha256: $certificate,
+      downloads: {
+        ($gnupoc_name): $gnupoc,
+        ($sdk_name): $sdk,
+        ($gcce_name): $gcce,
+        ($qt_name): $qt
+      },
+      markersSha256: $markers
+    }' > "$stage/$(jq -r .receipt "$manifest")"
+
+rm -rf "$stage/work" "$stage/native"
+generation="$generations/${version}-${POCKETJS_SYMBIAN_IMPLEMENTATION_SHA256}-$(date +%s)-$$"
+mv "$stage" "$generation"
+stage=
+
+old_target=$(readlink "$current" 2>/dev/null || true)
+publish_symlink "$current" "generations/$(basename "$generation")"
+published=1
+
+if ! POCKETJS_SYMBIAN_LOCK_HELD=1 /usr/local/bin/pocketjs-symbian-doctor; then
+    echo "The new Symbian toolchain generation failed strict validation; rolling back." >&2
+    exit 1
+fi
+
+published=0
+rm -f "$failed_log"
+trap - EXIT
+
+echo "PocketJS Symbian toolchain installed: $version"

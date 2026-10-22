@@ -9,7 +9,9 @@ on:
     paths:
       - ".github/workflows/repack.yml"
       - "tools/repack.ts"
+      - "tools/repack/**"
       - "tools/runtime.ts"
+      - "tools/runtime/**"
       - "tools/median-cut.ts"
       - "tools/png.ts"
       - "contracts/spec/pocket-package.ts"
@@ -27,7 +29,9 @@ on:
     paths:
       - ".github/workflows/repack.yml"
       - "tools/repack.ts"
+      - "tools/repack/**"
       - "tools/runtime.ts"
+      - "tools/runtime/**"
       - "tools/median-cut.ts"
       - "tools/png.ts"
       - "contracts/spec/pocket-package.ts"

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.iphone2g-demo",
+  "name": "pocketjs-iphone2g-hero",
+  "title": "PocketJS: iPhone 2G Hero",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.touch", "text.glyphs.baked"]
+    }
+  },
+  "app": {
+    "entry": "apps/iphone2g-demo/main.tsx",
+    "output": "iphone2g-demo-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [320, 480],
+        "presentation": "native"
+      }
+    }
+  }
+}

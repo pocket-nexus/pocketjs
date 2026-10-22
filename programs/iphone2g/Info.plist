@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>English</string>
+  <key>CFBundleExecutable</key>
+  <string>PocketJSDemo</string>
+  <key>CFBundleIdentifier</key>
+  <string>dev.pocket-nexus.iphone2g-demo</string>
+  <key>CFBundleDisplayName</key>
+  <string>PocketJS</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>PocketJS Demo</string>
+  <key>CFBundleIconFile</key>
+  <string>Icon.png</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>dev.pocket-nexus.iphone2g-demo.launch</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>pocketjs-iphone2g-demo</string>
+      </array>
+    </dict>
+  </array>
+  <key>CFBundleSupportedPlatforms</key>
+  <array>
+    <string>iPhoneOS</string>
+  </array>
+  <key>MinimumOSVersion</key>
+  <string>3.1.3</string>
+  <key>UIStatusBarHidden</key>
+  <true/>
+</dict>
+</plist>

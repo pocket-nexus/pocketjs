@@ -26,6 +26,10 @@ const env = {
   PATH: `${join(homedir(), ".cargo/bin")}${delimiter}${process.env.PATH ?? ""}`,
 };
 
+let pending: Promise<string> | undefined;
+/** Build the current checkout core once, for headless consumers and the web host. */
+export function ensureHostWasm(): Promise<string> {
+  return pending ??= (async () => {
 const proc = Bun.spawnSync(
   ["cargo", `+${STABLE_RUST_TOOLCHAIN}`, "build", "-p", "pocketjs-wasm", "--locked", "--release", "--target", "wasm32-unknown-unknown"],
   { cwd: WASM_DIR, env, stdout: "inherit", stderr: "inherit" },
@@ -35,11 +39,11 @@ if (!proc.success) {
     "PocketJS wasm: cargo build failed" +
       " (missing target? run: rustup target add wasm32-unknown-unknown)",
   );
-  process.exit(proc.exitCode ?? 1);
+  throw new Error(`PocketJS wasm build failed: ${proc.signalCode ?? proc.exitCode}`);
 }
 if (!existsSync(BUILT)) {
   console.error(`PocketJS wasm: build succeeded but ${BUILT} is missing`);
-  process.exit(1);
+  throw new Error(`missing wasm build output: ${BUILT}`);
 }
 
 const bytes = await Bun.file(BUILT).arrayBuffer();
@@ -47,3 +51,9 @@ await Bun.write(OUT, bytes);
 console.log(
   `PocketJS wasm: platforms/web/pocketjs.wasm (${bytes.byteLength} bytes, ${(bytes.byteLength / 1024).toFixed(1)} KiB)`,
 );
+
+return OUT;
+  })();
+}
+
+if (import.meta.main) await ensureHostWasm();

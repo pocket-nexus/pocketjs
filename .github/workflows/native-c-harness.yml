@@ -35,6 +35,18 @@ on:
       - "tests/fixtures/runtime-cabi/**"
       - "engine/runtime/include/pocket/compat/contact_latch.h"
       - "platforms/android/**"
+      - "programs/android/**"
+      - "programs/shared/ios-legacy/**"
+      - "programs/ios-simulator/**"
+      - "programs/ipodtouch4/**"
+      - "tests/android-platform-integration.test.ts"
+      - "tests/fixtures/android/**"
+      - "tests/nativescript-bridge.test.ts"
+      - "tests/ipodtouch4-*.test.ts"
+      - "tests/repack-ipod.test.ts"
+      - "tools/ipodtouch4*.ts"
+      - "tools/repack/**"
+      - "tools/runtime/**"
       - "tests/android-platform.test.ts"
       - "tests/fixtures/android-*.c"
       - "engine/runtime/compat/**"
@@ -140,6 +152,18 @@ on:
       - "tests/fixtures/runtime-cabi/**"
       - "engine/runtime/include/pocket/compat/contact_latch.h"
       - "platforms/android/**"
+      - "programs/android/**"
+      - "programs/shared/ios-legacy/**"
+      - "programs/ios-simulator/**"
+      - "programs/ipodtouch4/**"
+      - "tests/android-platform-integration.test.ts"
+      - "tests/fixtures/android/**"
+      - "tests/nativescript-bridge.test.ts"
+      - "tests/ipodtouch4-*.test.ts"
+      - "tests/repack-ipod.test.ts"
+      - "tools/ipodtouch4*.ts"
+      - "tools/repack/**"
+      - "tools/runtime/**"
       - "tests/android-platform.test.ts"
       - "tests/fixtures/android-*.c"
       - "engine/runtime/compat/**"
@@ -244,7 +268,7 @@ jobs:
       - name: Build renderer test styles
         run: bun tools/build.ts hero
       - name: Renderer and runtime stage/dispatcher contracts
-        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
+        run: bun test --conditions=browser tests/quickjs-c-harness.test.ts tests/native-program.test.ts tests/ui-bindings.test.ts tests/guest-web-bindings.test.ts tests/embedded-package.test.ts tests/nativescript-bridge.test.ts tests/runtime-cabi.test.ts tests/runtime-cabi-compat.test.ts tests/sdk.test.ts tests/sdk-idf.test.ts tests/out-of-tree-rust.test.ts tests/renderer.test.ts tests/virtual-list.test.ts tests/vue-vapor-dom.test.ts
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -257,7 +281,19 @@ jobs:
           else
             export POCKET_TEST_JNI_PLATFORM_INCLUDE="$JAVA_HOME/include/linux"
           fi
-          bun test tests/contact-latch.test.ts tests/pocket-input.test.ts tests/android-platform.test.ts tests/idf-package-corpus.test.ts
+          export POCKET_TEST_ANDROID_INCLUDE="$PWD/.pocket-build/validation/android-platform/headers"
+          python3 - <<'PY'
+          import base64, hashlib, os, pathlib, urllib.request
+          url = "https://android.googlesource.com/platform/system/logging/+/efbed624fef7eaf28f8bd50686302a5576f544a1/liblog/include/android/log.h?format=TEXT"
+          data = base64.b64decode(urllib.request.urlopen(url, timeout=60).read())
+          expected = "ec7e66a6a6b7342c08ffa7459c15929da0c42e871f0ca5a003cbf1d024c5f597"
+          if hashlib.sha256(data).hexdigest() != expected:
+              raise SystemExit("pinned Android log header checksum mismatch")
+          header = pathlib.Path(os.environ["POCKET_TEST_ANDROID_INCLUDE"]) / "android/log.h"
+          header.parent.mkdir(parents=True, exist_ok=True)
+          header.write_bytes(data)
+          PY
+          bun test tests/contact-latch.test.ts tests/pocket-input.test.ts tests/android-platform.test.ts tests/android-platform-integration.test.ts tests/idf-package-corpus.test.ts tests/ipodtouch4-installation.test.ts tests/ipodtouch4-profile.test.ts tests/ipodtouch4-resources.test.ts tests/repack-ipod.test.ts
       - name: Build Clear simulator inputs
         run: bun tools/wasm.ts && bun tools/build.ts clear-main --framework=vue-vapor
       - name: Clear input and text chain

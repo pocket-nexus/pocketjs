@@ -371,7 +371,7 @@ describe("zip", () => {
   });
 });
 
-// Where the Android SDK is installed (Museum Android builder
+// Where the Android SDK is installed (Android program builder
 // setup`): aapt2 links each game of a corpus, zipalign aligns it and
 // apksigner signs it with the test key, and the TypeScript repack gives the
 // same entries in the same order with the same bytes, apart from META-INF/;

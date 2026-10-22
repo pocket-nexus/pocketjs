@@ -58,7 +58,7 @@ bun tools/ime/verify.ts
 
 ## iPod touch 4
 
-Follow the `docs/IPODTOUCH4.md` runbook in [Pocket Museum](MUSEUM.md) for the pinned iOS 6 toolchain, SSH and User-app installation prerequisites. This path requires the prepared device's existing jailbreak and AppSync. Select its exact USB identifier:
+Follow the [iPod touch 4 runbook](IPODTOUCH4.md) for the pinned iOS 6 toolchain, SSH and User-app installation prerequisites. This path requires the prepared device's existing jailbreak and AppSync. Select its exact USB identifier:
 
 ```sh
 export POCKETJS_IPODTOUCH4_UDID=<idevice_id output>

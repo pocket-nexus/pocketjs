@@ -1,0 +1,24 @@
+{
+  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
+  "pocket": 2,
+  "id": "dev.pocket-nexus.ipodtouch-demo",
+  "name": "pocketjs-ipodtouch-hero",
+  "title": "PocketJS: iPod touch Hero",
+  "version": "0.1.0",
+  "engine": {
+    "capabilities": {
+      "requires": ["input.touch", "text.glyphs.baked"]
+    }
+  },
+  "app": {
+    "entry": "apps/ipodtouch-demo/main.tsx",
+    "output": "ipodtouch-demo-main",
+    "framework": "solid",
+    "viewport": {
+      "fixed": {
+        "logical": [320, 568],
+        "presentation": "native"
+      }
+    }
+  }
+}

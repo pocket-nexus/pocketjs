@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="ios7-background" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#231b3b"/>
+      <stop offset="0.52" stop-color="#1a1430"/>
+      <stop offset="1" stop-color="#171226"/>
+    </linearGradient>
+    <radialGradient id="ios7-highlight" cx="0.24" cy="0.08" r="0.86">
+      <stop offset="0" stop-color="#ffd23f" stop-opacity="0.22"/>
+      <stop offset="0.48" stop-color="#ffd23f" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#ffd23f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="pocket-ambient" cx="0.94" cy="0.12" r="0.72">
+      <stop offset="0" stop-color="#ff5f9e" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ff5f9e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Edge-to-edge flat color; SpringBoard provides the installed icon mask. -->
+  <rect width="1024" height="1024" fill="url(#ios7-background)"/>
+  <rect width="1024" height="1024" fill="url(#ios7-highlight)"/>
+  <rect width="1024" height="1024" fill="url(#pocket-ambient)"/>
+
+  <!-- Exact compact Pocket mark geometry from site/assets/favicon.svg. -->
+  <g id="pocket-mark" data-brand-source="site/assets/favicon.svg"
+     transform="translate(96 96) scale(26)">
+    <rect x="2" y="6" width="28" height="20" rx="6" fill="none" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/>
+    <circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/>
+    <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/>
+    <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/>
+  </g>
+</svg>

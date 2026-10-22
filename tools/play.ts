@@ -50,6 +50,7 @@ function usage(message?: string): never {
   if (message) console.error(`play: ${message}\n`);
   console.error(
     "usage: bun play vita <demo> [--fullscreen] [--no-build] [--no-launch] [--framework=solid|vue-vapor|octane]\n" +
+      "       bun play ios <demo> [--no-build] [--no-launch] [ios flags]\n" +
       `demos: ${demos().join(", ")}`,
   );
   process.exit(message ? 2 : 0);
@@ -124,9 +125,30 @@ const args = Bun.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) usage();
 const platform = args.shift();
 const demoArg = args.shift();
-const playTargets = { vita: true } as const;
+const playTargets = { vita: true, ios: true } as const;
 if (!platform || !(platform in playTargets)) usage(`unsupported platform ${platform ?? "<missing>"}`);
 if (!demoArg) usage("missing demo name");
+
+if (platform === "ios") {
+  const demo = demoArg.replace(/-main$/, "");
+  if (!demos().includes(demo)) usage(`unknown demo ${demoArg}`);
+  const framework = args.find(arg => arg.startsWith("--framework="))?.slice("--framework=".length) ??
+    (demo.endsWith("vue-vapor") ? "vue-vapor" : demo.endsWith("octane") ? "octane" : "solid");
+  const output = `${ROOT}.pocket-build/play-ios/${demo}`;
+  const pocket = `${output}/application.pocket`;
+  if (!args.includes("--no-build")) {
+    mkdirSync(output, { recursive: true });
+    const manifest = `${output}/pocket.json`;
+    writeFileSync(manifest, JSON.stringify(demoManifestFor(ROOT, demo, framework), null, 2) + "\n");
+    await run([process.execPath, "tools/pocket.ts", "compile", "--target", "ios-dev",
+      "--manifest", manifest, "--project-root", ROOT, "--outdir", `${output}/compiler`, "--output", pocket],
+      "iOS application compile");
+  }
+  if (!existsSync(pocket)) throw new Error(`compiled iOS package is missing: ${pocket}; remove --no-build and retry`);
+  await run([process.execPath, "tools/ios.ts", "play", "--pocket", pocket,
+    ...args.filter(arg => !arg.startsWith("--framework="))], "iOS simulator play");
+  process.exit(0);
+}
 
 const fullscreen = args.includes("--fullscreen");
 const noBuild = args.includes("--no-build");

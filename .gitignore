@@ -37,3 +37,10 @@ tests/goldens/psp/*.actual.png
 tools/bench-desktop/tauri/src-tauri/gen/
 
 platforms/web/pocket_text.wasm
+
+# Device tooling and NativeScript generated state
+.irecovery
+programs/ios-simulator/shell/platforms/
+programs/ios-simulator/shell/hooks/
+programs/ios-simulator/shell/src/assets/pocket/
+programs/ios-simulator/shell/package-lock.json

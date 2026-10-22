@@ -39,7 +39,7 @@ pocketjs/
 │  ├─ psp/ vita/ 3ds/       input, display, audio, I/O and system services
 │  ├─ gba/ rockbox/         display and input adapters
 │  ├─ web/ sim/             browser and deterministic service providers
-│  ├─ android/               JNI helpers, input queue, logging and clock
+│  ├─ android/              JNI helpers, input queue, logging and clock
 │  ├─ linux/ posix/         DRM, fbdev, evdev, ALSA and transport
 │  └─ esp-idf/ zephyr/      SDK drivers, hooks and build descriptions
 ├─ profiles/                software contracts identified by content hashes
@@ -47,6 +47,14 @@ pocketjs/
 │  ├─ psp/ vita/ 3ds/       console entries and runtime configurations
 │  ├─ gba/ ipodnano/        fixed-console programs
 │  ├─ web/ sim/ desktop/    reference programs and their composition
+│  ├─ iphone2g/ iphone4s/   phone entries and runtime configurations
+│  ├─ ipodtouch4/ ipodtouch6/ music-player programs
+│  ├─ ios-simulator/        NativeScript shell and UIKit integration
+│  ├─ android/             shared Android application shell
+│  ├─ moto-g-play/ redmi-1s/ Android device runtime configurations
+│  ├─ meizu-m8/ nokia-e7/   Windows CE and Symbian programs
+│  ├─ blackberry-classic/   QNX program
+│  ├─ pocketbook/           reader program and InkView integration
 │  ├─ linux-kms/            Linux program with its own profile
 │  ├─ esp-idf/archive/      one Rust archive for the IDF composition
 │  └─ native/               compatibility C-shell composition and QuickJS glue
@@ -70,9 +78,14 @@ pocketjs/
 └─ .pocket-build/           ignored build and validation output
 ```
 
-**Device ports live in the separate Pocket Museum repository.** Their profiles,
-runtime configurations, build tools, tests and runbooks move with the programs.
-See [Museum migration](MUSEUM.md). **The 3DS product lives in `products/3ds`.**
+**Phone, music-player, reader and console programs live in this repository.**
+Shared mechanisms belong in `engine/`, OS and SDK adapters in `platforms/`,
+and GPU mechanisms in `devices/`. Programs own their entries and driver
+composition; profiles describe the software contract. Device age and product
+category do not determine directory or repository ownership. See
+[Device native builds](DEVICE_BUILDS.md).
+
+**The 3DS product lives in `products/3ds`.**
 Its private package inspection, Link, camera, launcher and development services
 are separate from the file-backed reference program in `programs/3ds`. Both
 compose the same Runtime, generated guest and PICA driver.
@@ -145,8 +158,9 @@ and Pocket3D consumers.
   `.pocket-build/validation/<task>/<run>/`. Maintained fixtures belong in `tests/`.
 
 Directory moves preserve public framework import keys through the package export
-map. Device profiles and tools that leave for Museum are tracked as a separate
-migration with their owning programs.
+map. Device programs use the shared workspace and lockfile. A separate consumer
+can still use the exported SDK or versioned Rust crates without moving the
+maintained device programs out of this repository.
 
 Solid AOT admission, contract mapping and JSX lowering live in `microts/compiler/aot-solid-frontend.ts`. Both front ends share `aot-contract.ts`, `aot-program.ts` and the Rust generator. The reference is `site/content/docs/microts-solid.md`; `apps/solid-aot-lab/` contains the TSX view and compiled TypeScript model example.
 

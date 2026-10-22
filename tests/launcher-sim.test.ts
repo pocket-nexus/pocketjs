@@ -54,19 +54,11 @@ const registry = scanRegistry(new Set());
 const vitaRegistry = scanRegistry(new Set(), "vita");
 
 describe("launcher registry admission", () => {
-  test("framework launch commands reject Museum targets before native or emulator work", () => {
-    for (const target of ["symbian", "symbian-e7-dev"]) {
-      const child = Bun.spawnSync([process.execPath, "tools/launcher.ts", "build", "--target", target], { cwd: repository });
-      expect(child.success).toBe(false);
-      expect(child.stderr.toString()).toContain("--target must be psp or vita");
-    }
+  test("play help lists the in-repository device commands", () => {
     const help = Bun.spawnSync([process.execPath, "tools/play.ts", "--help"], { cwd: repository });
     expect(help.success).toBe(true);
     expect(help.stderr.toString()).toContain("bun play vita");
-    expect(help.stderr.toString()).not.toContain("bun play ios");
-    const ios = Bun.spawnSync([process.execPath, "tools/play.ts", "ios", "hero"], { cwd: repository });
-    expect(ios.success).toBe(false);
-    expect(ios.stderr.toString()).toContain("unsupported platform ios");
+    expect(help.stderr.toString()).toContain("bun play ios");
   });
 
   test("admits every PSP-compatible demo, excludes the rest", () => {
@@ -105,14 +97,14 @@ describe("launcher registry admission", () => {
     // not advertise that transport. A shared DrawList does not imply equal
     // runtime capabilities or make either target a superset of the other.
     expect(pspOnly.map((app) => app.output)).toEqual(["text-cjk-main", "text-offload-main"]);
-    expect(vitaOnly.map((app) => app.output).sort()).toEqual(["nsengine-main"]);
+    expect(vitaOnly.map((app) => app.output).sort()).toEqual(["iphone16-demo-main", "nsengine-main"]);
     for (const app of registry.apps.filter((app) => vitaOutputs.has(app.output))) {
       expect(vitaRegistry.apps).toContainEqual(app);
     }
     expect(pspOutputs.has("text-cjk-main")).toBe(true);
     expect(vitaOutputs.has("text-cjk-main")).toBe(false);
     expect(registry.apps).toHaveLength(18);
-    expect(vitaRegistry.apps).toHaveLength(17);
+    expect(vitaRegistry.apps).toHaveLength(18);
   });
 
   test("committed registry.generated.ts is fresh (re-run tools/launcher.ts scan)", async () => {
@@ -176,13 +168,13 @@ describe("launcher registry admission", () => {
         "tools/launcher.ts",
         "build",
         "--target",
-        "museum-only",
+        "unknown-device",
         "--",
         "--unknown-backend-option",
       ], { cwd: repository });
       expect(invalid.exitCode).toBe(1);
       expect(new TextDecoder().decode(invalid.stderr)).toContain(
-        "--target must be psp or vita",
+        "--target must be psp, vita, or symbian",
       );
       expect(readFileSync(registrySource)).toEqual(registryBefore);
       expect(readFileSync(imagesSource)).toEqual(imagesBefore);

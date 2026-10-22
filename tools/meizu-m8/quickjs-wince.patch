@@ -1,0 +1,61 @@
+diff --git a/quickjs.c b/quickjs.c
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -34,6 +34,17 @@
+ #include <time.h>
+ #include <fenv.h>
+ #include <math.h>
++#ifdef _WIN32_WCE
++#define alloca __builtin_alloca
++#ifndef signbit
++#define signbit(value) __builtin_signbit(value)
++#endif
++static double qjs_wince_log2(double value)
++{
++    return log(value) / 0.69314718055994530942;
++}
++#define log2 qjs_wince_log2
++#endif
+ #ifdef __PSP__
+ #ifndef FE_TONEAREST
+ #define FE_TONEAREST 0
+@@ -97,6 +108,6 @@
+ #if !defined(__EMSCRIPTEN__)
+ #define CONFIG_ATOMICS
+ #endif
+-#if defined(__PSP__) || defined(__vita__)
++#if defined(__PSP__) || defined(__vita__) || defined(_WIN32_WCE)
+ #undef CONFIG_ATOMICS
+ #endif
+@@ -2166,7 +2176,9 @@ static size_t js_def_malloc_usable_size(const void *ptr)
+ {
+ #if defined(__APPLE__)
+     return malloc_size(ptr);
+-#elif defined(_WIN32)
++#elif defined(_WIN32_WCE)
++    return 0;
++#elif defined(_WIN32)
+     return _msize((void *)ptr);
+ #elif defined(__EMSCRIPTEN__)
+     return 0;
+@@ -47298,7 +47310,7 @@ static int getTimezoneOffset(int64_t time)
+         res = (gm_ti - loc_ti) / 60;
+     }
+ #else
+-#if defined(__PSP__) || defined(__vita__)
++#if defined(__PSP__) || defined(__vita__) || defined(_WIN32_WCE)
+     (void)ti;
+     res = 0;
+ #else
+diff --git a/quickjs.h b/quickjs.h
+--- a/quickjs.h
++++ b/quickjs.h
+@@ -1065,6 +1065,7 @@ static inline JSValue JS_NewCFunctionMagic(JSContext *ctx, JSCFunctionMagic *fun
+                                            int length, JSCFunctionEnum cproto, int magic)
+ {
+     /* Used to squelch a -Wcast-function-type warning. */
+-    JSCFunctionType ft = { .generic_magic = func };
++    JSCFunctionType ft;
++    ft.generic_magic = func;
+     return JS_NewCFunction2(ctx, ft.generic, name, length, cproto, magic);
+ }

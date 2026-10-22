@@ -6,12 +6,13 @@ import { rasterizeIconSvg } from "./icon-raster.ts";
 // build systems. Keep both 3DS optical sizes independent all the way to SMDH.
 const root = resolve(import.meta.dir, "..");
 const check = process.argv.includes("--check");
-for (const [source, target, size] of [
-  ["products/3ds/icon.svg", "products/3ds/icon.png", 48],
-  ["products/3ds/icon-small.svg", "products/3ds/icon-small.png", 24],
+for (const [source, target, size, opaque] of [
+  ["products/3ds/icon.svg", "products/3ds/icon.png", 48, true],
+  ["products/3ds/icon-small.svg", "products/3ds/icon-small.png", 24, true],
+  ["programs/iphone4s/Icon.svg", "programs/iphone2g/Icon.png", 57, false],
 ] as const) {
   const svg = readFileSync(resolve(root, source), "utf8");
-  const canvas = await rasterizeIconSvg(svg, size, size, true);
+  const canvas = await rasterizeIconSvg(svg, size, size, opaque);
   const png = canvas.toBuffer("image/png");
   const path = resolve(root, target);
   if (check) {

@@ -1,0 +1,21 @@
+diff --git a/libquickjs-sys/embed/quickjs/quickjs.c b/libquickjs-sys/embed/quickjs/quickjs.c
+index dc296a7..3796ead 100644
+--- a/libquickjs-sys/embed/quickjs/quickjs.c
++++ b/libquickjs-sys/embed/quickjs/quickjs.c
+@@ -97,6 +97,6 @@
+ #if !defined(__EMSCRIPTEN__)
+ #define CONFIG_ATOMICS
+ #endif
+-#if defined(__PSP__) || defined(__vita__)
++#if defined(__PSP__) || defined(__vita__) || defined(__QNXNTO__)
+ #undef CONFIG_ATOMICS
+ #endif
+@@ -2172,6 +2172,8 @@ static size_t js_def_malloc_usable_size(const void *ptr)
+     return 0;
+ #elif defined(__vita__)
+     return malloc_usable_size((void *)ptr);
++#elif defined(__QNXNTO__)
++    return 0;
+ #elif defined(__linux__) || defined(__GLIBC__)
+     return malloc_usable_size((void *)ptr);
+ #else

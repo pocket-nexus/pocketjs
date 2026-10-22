@@ -116,6 +116,8 @@ const SCRIPTS = {
   dev: "tools/dev.ts",
   psp: "tools/psp.ts",
   vita: "tools/vita.ts",
+  symbian: "tools/symbian.ts",
+  ios: "tools/ios.ts",
   hw: "tools/hw.ts",
   psplink: "tools/psplink.ts",
   devtools: "tools/devtools.ts",
@@ -282,7 +284,7 @@ const HELP = `${C.bold("pocket")} — PocketJS applications and runtimes
   pocket target add [ID…] | list [--check] [--json] | remove ID…
   pocket sdk export         export a relocatable C SDK
   pocket doctor --target ID inspect program tools, output receipts and device evidence
-  pocket dev|psp|vita|hw|psplink|devtools|tape|play [...args]
+  pocket dev|psp|vita|symbian|ios|hw|psplink|devtools|tape|play [...args]
   pocket --version
 `;
 
@@ -314,6 +316,8 @@ switch (cmd) {
   case "dev":
   case "psp":
   case "vita":
+  case "symbian":
+  case "ios":
   case "hw":
   case "psplink":
   case "devtools":

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!-- Template: package identity is rendered from the resolved build plan by
+     tools/blackberry-qnx.ts (packageIdentity); this file is not the source of
+     the app id or version. -->
+<qnx xmlns="http://www.qnx.com/schemas/application/1.0">
+    <id>@POCKET_ID@</id>
+    <name>@POCKET_TITLE@</name>
+    <versionNumber>@POCKET_VERSION@</versionNumber>
+    <buildId>@POCKET_BUILD_ID@</buildId>
+    <description>PocketJS Hero running as a native BlackBerry 10 application.</description>
+    <author>PocketJS</author>
+    <platformVersion>10.3.1.995</platformVersion>
+
+    <asset path="icon.png">icon.png</asset>
+    <asset path="app.js">app.js</asset>
+    <asset path="app.pak">app.pak</asset>
+
+    <configuration name="Device-Release">
+        <platformArchitecture>armle-v7</platformArchitecture>
+        <asset path="pocketjs-classic" entry="true" type="Qnx/Elf">pocketjs-classic</asset>
+    </configuration>
+
+    <initialWindow>
+        <autoOrients>false</autoOrients>
+        <systemChrome>none</systemChrome>
+    </initialWindow>
+
+    <icon>
+        <image>icon.png</image>
+    </icon>
+
+    <env var="LD_LIBRARY_PATH" value="app/native/lib"/>
+</qnx>

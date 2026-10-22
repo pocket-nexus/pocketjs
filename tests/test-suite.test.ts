@@ -83,9 +83,11 @@ describe("declared test suite", () => {
     expect(threeDsTests.filter((file) => !declared.has(file))).toEqual([]);
   });
 
-  test("Museum device suites are owned by the external repository", () => {
+  test("device program suites are included in the repository validation", () => {
     const declared = stageTestFiles();
-    expect([...declared].filter(file => /\/(?:iphone|ipodtouch|symbian|moto-g-play|redmi-1s|blackberry|meizu)/.test(file))).toEqual([]);
+    for (const file of ["device-program-build", "android-platform-integration", "iphone2g-profile", "iphone4s-profile", "ipodtouch-profile", "ipodtouch4-profile", "symbian-runtime", "moto-g-play-profile", "redmi-1s-profile", "blackberry-classic", "meizu-m8-profile", "launcher-symbian"]) {
+      expect(declared.has(`tests/${file}.test.ts`), file).toBe(true);
+    }
   });
 
 
