@@ -124,7 +124,8 @@ static void raster_test(void){
   pocket_render_resources resources={0};resources.struct_size=sizeof(resources);resources.viewport_width=4;resources.viewport_height=4;
   assert(pocket_raster_draw_op(&surface,&operation,&resources)==0);
   for(int row=0;row<2;row++)for(int x=0;x<2;x++){size_t at=(size_t)row*12+(size_t)x*4;assert(memory[at]==255 && memory[at+1]==0 && memory[at+2]==0 && memory[at+3]==255);}
-  for(int i=8;i<12;i++)assert(memory[i]==0x5a);for(int i=20;i<24;i++)assert(memory[i]==0x5a);
+  for(int i=8;i<12;i++)assert(memory[i]==0x5a);
+  for(int i=20;i<24;i++)assert(memory[i]==0x5a);
   operation.scale=0;assert(pocket_raster_draw_op(&surface,&operation,&resources)<0);
 }
 int main(int argc,char **argv){
