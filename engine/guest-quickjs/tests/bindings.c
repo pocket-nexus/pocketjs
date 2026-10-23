@@ -109,11 +109,18 @@ static void idf(void) {
   pocket_guest_quickjs_destroy(guest);
 }
 static void attached_lifetime(void) {
-  JSRuntime *engine=JS_NewRuntime();JSContext *ctx=JS_NewContext(engine);pocket_runtime runtime={0};pocket_guest_environment env=environment();const uint8_t pak[]={1,2,3};env.pak=pak;env.pak_length=3;
-  pocket_guest_quickjs *guest=pocket_guest_quickjs_attach(ctx,POCKET_QJS_CANONICAL);assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
-  eval(guest,&runtime,"globalThis.saved=ui.createNode;globalThis.savedPak=__pak");pocket_guest_quickjs_destroy(guest);
-  const char *source="let rejected=false;try{saved(0)}catch(e){rejected=true}if(!rejected||savedPak.byteLength!==0||'ui' in globalThis)throw new Error('lifetime')";
-  JSValue result=JS_Eval(ctx,source,strlen(source),"test",JS_EVAL_TYPE_GLOBAL);assert(!JS_IsException(result));JS_FreeValue(ctx,result);JS_FreeContext(ctx);JS_FreeRuntime(engine);
+  size_t page=(size_t)sysconf(_SC_PAGESIZE);
+  for(int profile=POCKET_QJS_CANONICAL;profile<=POCKET_QJS_IDF;profile++) {
+    uint8_t *pak=mmap(NULL,page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(pak!=MAP_FAILED);pak[0]=1;pak[1]=2;pak[2]=3;
+    JSRuntime *engine=JS_NewRuntime();JSContext *ctx=JS_NewContext(engine);pocket_runtime runtime={0};pocket_guest_environment env=environment();env.pak=pak;env.pak_length=3;
+    pocket_guest_quickjs *guest=pocket_guest_quickjs_attach(ctx,(pocket_qjs_profile)profile);assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
+    eval(guest,&runtime,"globalThis.saved=Object.values(ui).find(v=>typeof v==='function');globalThis.savedPak=__pak;globalThis.savedView=new Uint8Array(__pak);if(!saved||savedView[2]!==3)throw Error('view')");pocket_guest_quickjs_destroy(guest);
+    /* Shutdown detached __pak before its storage went away: retained views
+     * read nothing instead of the unmapped page. */
+    assert(munmap(pak,page)==0);
+    const char *source="let rejected=false;try{saved(0)}catch(e){rejected=true}if(!rejected||savedPak.byteLength!==0||savedPak.detached!==true||savedView.byteLength!==0||savedView[0]!==undefined||'ui' in globalThis||'__pak' in globalThis)throw new Error('lifetime')";
+    JSValue result=JS_Eval(ctx,source,strlen(source),"test",JS_EVAL_TYPE_GLOBAL);assert(!JS_IsException(result));JS_FreeValue(ctx,result);JS_FreeContext(ctx);JS_FreeRuntime(engine);
+  }
 }
 static void extensible_records(void) {
   struct extended_texture {pocket_named_texture base;uint64_t future;} textures[2]={0};
@@ -130,14 +137,43 @@ static void extensible_records(void) {
   frame.struct_size=sizeof frame;frame.axis_deltas=&deltas[0].base;frame.axis_delta_count=2;assert(pocket_guest_quickjs_vtable()->frame(guest,&frame)==0);
   pocket_guest_quickjs_destroy(guest);
 }
-static void package_source_is_read_only(void) {
+static uint8_t *package_pointer(pocket_guest_quickjs *guest,size_t *length) {
+  JSContext *ctx=pocket_guest_quickjs_context(guest);JSValue global=JS_GetGlobalObject(ctx),pak=JS_GetPropertyStr(ctx,global,"__pak");
+  uint8_t *bytes=JS_GetArrayBuffer(ctx,length,pak);assert(bytes);JS_FreeValue(ctx,pak);JS_FreeValue(ctx,global);return bytes;
+}
+/* Canonical/IDF guests mount the package storage itself; the legacy profile
+ * owns a copy that JS may write. The source page is read-only, so a borrowed
+ * write that escapes the engine's immutable checks faults here. */
+static void package_storage(void) {
   size_t page=(size_t)sysconf(_SC_PAGESIZE);uint8_t *source=mmap(NULL,page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(source!=MAP_FAILED);source[0]=1;source[1]=2;source[2]=3;assert(mprotect(source,page,PROT_READ)==0);
   for(int profile=POCKET_QJS_CANONICAL;profile<=POCKET_QJS_IDF;profile++) {
     pocket_runtime runtime={0};pocket_guest_environment env=environment();env.pak=source;env.pak_length=3;pocket_guest_quickjs *guest=pocket_guest_quickjs_create((pocket_qjs_profile)profile);assert(pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env)==0);
-    eval(guest,&runtime,"try{new Uint8Array(__pak)[0]=99}catch(e){};try{new DataView(__pak).setUint8(1,88)}catch(e){}");
+    size_t length=0;uint8_t *bytes=package_pointer(guest,&length);assert(length==3&&memcmp(bytes,source,3)==0);
+    if(profile==POCKET_QJS_LEGACY_C) {
+      assert(bytes!=source);
+      eval(guest,&runtime,"new Uint8Array(__pak)[0]=99;if(new Uint8Array(__pak)[0]!==99)throw Error('legacy copy')");
+    } else {
+      assert(bytes==source);
+      /* Only an engine that reports the immutable flag rejects writes; without
+       * it a write would land in the source page, so none is attempted. */
+      eval(guest,&runtime,"if(__pak.immutable===true){try{new Uint8Array(__pak)[0]=99}catch(e){};try{new DataView(__pak).setUint8(1,88)}catch(e){};let moved=false;try{__pak.transfer();moved=true}catch(e){};if(moved)throw Error('transfer')}if(__pak.byteLength!==3||new Uint8Array(__pak)[0]!==1)throw Error('borrowed bytes')");
+    }
     assert(source[0]==1&&source[1]==2&&source[2]==3);pocket_guest_quickjs_destroy(guest);
   }
   assert(munmap(source,page)==0);
+}
+/* Borrowed package bytes stay outside the guest heap limit; the legacy copy
+ * must fit inside it. */
+static void package_outside_heap_limit(void) {
+  size_t span=(size_t)4<<20;uint8_t *source=mmap(NULL,span,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);assert(source!=MAP_FAILED);source[span-1]=7;assert(mprotect(source,span,PROT_READ)==0);
+  for(int profile=POCKET_QJS_CANONICAL;profile<=POCKET_QJS_IDF;profile++) {
+    pocket_runtime runtime={0};pocket_guest_environment env=environment();env.pak=source;env.pak_length=span;env.heap_limit=span/2;pocket_guest_quickjs *guest=pocket_guest_quickjs_create((pocket_qjs_profile)profile);
+    int32_t status=pocket_guest_quickjs_vtable()->initialize(guest,&runtime,&env);
+    if(profile==POCKET_QJS_LEGACY_C) assert(status!=0&&strstr(pocket_guest_quickjs_error(guest),"out of memory"));
+    else {assert(status==0);size_t length=0;assert(package_pointer(guest,&length)==source&&length==span);eval(guest,&runtime,"if(__pak.byteLength!==4194304||new Uint8Array(__pak)[4194303]!==7)throw Error('borrowed span')");}
+    pocket_guest_quickjs_destroy(guest);
+  }
+  assert(munmap(source,span)==0);
 }
 static void package_terminal_nul(void) {
   static const uint8_t source[]="globalThis.packageEvaluated=42;";
@@ -205,4 +241,4 @@ static void evaluation_source_lifetime(void) {
   }
   assert(munmap(source,span+page)==0);
 }
-int main(void){binding_generation();canonical();idf();attached_lifetime();extensible_records();package_source_is_read_only();package_terminal_nul();evaluation_source_lifetime();puts("generated QuickJS bindings: ok");return 0;}
+int main(void){binding_generation();canonical();idf();attached_lifetime();extensible_records();package_storage();package_outside_heap_limit();package_terminal_nul();evaluation_source_lifetime();puts("generated QuickJS bindings: ok");return 0;}

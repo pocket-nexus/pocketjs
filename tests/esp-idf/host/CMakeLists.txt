@@ -28,7 +28,7 @@ target_include_directories(idf_components PUBLIC include "${ROOT}/contracts/gene
  "${COMPONENTS}/pocket_runtime/include" "${COMPONENTS}/pocket_guest_quickjs/include"
  "${ROOT}/engine/guest-quickjs/include" "${ROOT}/engine/guest-quickjs/src" "${ROOT}/tests/esp-idf/examples/common")
 target_compile_options(idf_components PRIVATE -Wall -Wextra -Werror)
-target_compile_definitions(idf_components PRIVATE _GNU_SOURCE POCKET_QJS_VERIFIED_IMMUTABLE_PAK)
+target_compile_definitions(idf_components PRIVATE _GNU_SOURCE)
 target_link_libraries(idf_components PUBLIC quickjs "${POCKET_RUNTIME_ARCHIVE}")
 add_executable(runtime runtime.c alloc.c "${CMAKE_CURRENT_BINARY_DIR}/pocketjs_package_host.c")
 target_include_directories(runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")

@@ -12,9 +12,12 @@ typedef enum { POCKET_QJS_CANONICAL, POCKET_QJS_LEGACY_C, POCKET_QJS_IDF } pocke
  * Shutdown removes this guest's ui/__pak properties and invalidates callbacks.
  * Initialize requires POCKET_BINDING_GENERATION before creating engine state
  * or changing the attached realm. Namespace/coercion profiles do not change it.
- * Package buffers copy the source by default. Only builds with a verified
- * immutable-buffer patch may define POCKET_QJS_VERIFIED_IMMUTABLE_PAK to borrow
- * canonical/IDF package bytes; the LegacyC profile always owns a copy. */
+ * Canonical/IDF guests mount globalThis.__pak over the environment's package
+ * bytes without a copy. That storage stays valid through guest shutdown, which
+ * detaches the buffer so retained views read nothing afterwards. QuickJS-NG
+ * marks the buffer immutable, rejecting JS writes and transfer(); without that
+ * API a JS write lands in the package bytes and transfer() aliases them past
+ * shutdown. The LegacyC profile owns a copy that JS may write. */
 pocket_guest_quickjs *pocket_guest_quickjs_create(pocket_qjs_profile profile);
 pocket_guest_quickjs *pocket_guest_quickjs_attach(JSContext *context, pocket_qjs_profile profile);
 const pocket_guest_v1 *pocket_guest_quickjs_vtable(void);

@@ -33,8 +33,8 @@ build_and_run() {
   "$build_dir/$name"
 }
 build_and_run bindings
-# The adapter's weak immutable API is absent in this link. Source ownership
-# must still hold when JavaScript can write to its copied package buffer.
+# The adapter's weak immutable API is absent in this link. Canonical guests
+# still borrow package bytes; only the legacy profile owns a writable copy.
 if [ "$(uname -s)" = Darwin ]; then
   link_flags='-Wl,-U,_pocket_test_missing_immutable_api'
   build_and_run bindings-without-immutable -DJS_SetImmutableArrayBuffer=pocket_test_missing_immutable_api

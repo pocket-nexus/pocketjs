@@ -173,24 +173,17 @@ done:
 }
 static int set(JSContext *ctx,JSValueConst object,const char *name,JSValue value) { return JS_DefinePropertyValueStr(ctx,object,name,value,JS_PROP_C_W_E); }
 static JSValue viewport(JSContext *ctx,uint32_t width,uint32_t height) {JSValue value=JS_NewObject(ctx);if(set(ctx,value,"w",JS_NewUint32(ctx,width))<0||set(ctx,value,"h",JS_NewUint32(ctx,height))<0){JS_FreeValue(ctx,value);return JS_EXCEPTION;}return value;}
-#if defined(POCKET_QJS_VERIFIED_IMMUTABLE_PAK)
 static void borrowed_free(JSRuntime *rt,void *opaque,void *ptr) {(void)rt;(void)opaque;(void)ptr;}
-#endif
 static JSValue package_buffer(JSContext *ctx,pocket_guest_quickjs *guest,const pocket_guest_environment *env) {
-  JSValue pak;
-  /* LoadedPackage belongs to Rust. A normal JS ArrayBuffer must never expose
-   * its bytes for writing, even when the legacy profile permits JS mutation. */
-#if defined(POCKET_QJS_VERIFIED_IMMUTABLE_PAK)
-  if(guest->profile!=POCKET_QJS_LEGACY_C&&HAS_IMMUTABLE_API) {
-    pak=JS_NewArrayBuffer(ctx,(uint8_t*)env->pak,env->pak_length,borrowed_free,NULL,false);
-  } else
-#endif
-  {pak=JS_NewArrayBufferCopy(ctx,env->pak,env->pak_length);}
-  if(!JS_IsException(pak)&&guest->profile!=POCKET_QJS_LEGACY_C&&HAS_IMMUTABLE_API) {
+  /* Package storage stays valid through shutdown, which detaches this buffer,
+   * so canonical/IDF guests borrow the bytes in place. QuickJS-NG refuses JS
+   * writes and transfer() through the immutable flag. Legacy hosts let JS
+   * write __pak, so that profile owns a copy. */
+  if(guest->profile==POCKET_QJS_LEGACY_C) return JS_NewArrayBufferCopy(ctx,env->pak,env->pak_length);
+  JSValue pak=JS_NewArrayBuffer(ctx,(uint8_t*)env->pak,env->pak_length,borrowed_free,NULL,false);
 #if !defined(POCKET_QJS_BELLARD) && (defined(__GNUC__) || defined(POCKET_QJS_IMMUTABLE_API))
-    if(JS_SetImmutableArrayBuffer(pak,true)<0){JS_FreeValue(ctx,pak);return JS_ThrowInternalError(ctx,"cannot protect package buffer");}
+  if(!JS_IsException(pak)&&HAS_IMMUTABLE_API&&JS_SetImmutableArrayBuffer(pak,true)<0){JS_FreeValue(ctx,pak);return JS_ThrowInternalError(ctx,"cannot protect package buffer");}
 #endif
-  }
   return pak;
 }
 static JSValue console_log(JSContext *ctx,JSValueConst self,int argc,JSValueConst *argv) {
