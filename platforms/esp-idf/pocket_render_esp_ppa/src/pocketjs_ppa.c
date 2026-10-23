@@ -6,7 +6,12 @@
 #include <stdlib.h>
 
 #include "driver/ppa.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
+#if __has_include("esp_private/esp_cache_private.h")
+#include "esp_private/esp_cache_private.h"
+#define POCKETJS_PPA_HAS_CACHE_ALIGNMENT 1
+#endif
 
 static const char *TAG = "pocketjs_ppa";
 
@@ -62,13 +67,17 @@ static color_pixel_argb8888_data_t rgb565_to_argb8888(uint16_t color) {
   return expanded;
 }
 
-static void log_operation_failure_once(const char *operation, esp_err_t error,
-                                       bool *already_logged) {
+/* Blocking ppa_do_* calls validate their arguments and queue the DMA2D
+ * transaction before any destination write. A rejected call leaves the
+ * destination unchanged, so the renderer draws that operation in software. */
+static int decline_operation(const char *operation, esp_err_t error,
+                             bool *already_logged) {
   if (!*already_logged) {
-    ESP_LOGW(TAG, "PPA %s failed (%s); frame aborted before display flush",
-             operation, esp_err_to_name(error));
+    ESP_LOGW(TAG, "PPA %s rejected (%s); drawing it in software", operation,
+             esp_err_to_name(error));
     *already_logged = true;
   }
+  return POCKET_STATUS_UNSUPPORTED;
 }
 
 static esp_err_t register_client(ppa_operation_t operation,
@@ -127,6 +136,18 @@ void pocketjs_ppa_destroy(pocketjs_ppa_handle_t handle) {
   free(handle);
 }
 
+size_t pocketjs_ppa_buffer_alignment(void) {
+#ifdef POCKETJS_PPA_HAS_CACHE_ALIGNMENT
+  size_t alignment = 0;
+  if (esp_cache_get_alignment(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA,
+                              &alignment) == ESP_OK &&
+      alignment > 0) {
+    return alignment;
+  }
+#endif
+  return 64;
+}
+
 int pocketjs_ppa_fill_rgb565(pocketjs_ppa_handle_t handle,
                              uint16_t *destination, size_t destination_pixels,
                              uint32_t width, uint32_t height, uint32_t x,
@@ -159,8 +180,7 @@ int pocketjs_ppa_fill_rgb565(pocketjs_ppa_handle_t handle,
   };
   const esp_err_t result = ppa_do_fill(handle->fill, &operation);
   if (result != ESP_OK) {
-    log_operation_failure_once("fill", result, &handle->fill_error_logged);
-    return POCKET_STATUS_FAILED;
+    return decline_operation("fill", result, &handle->fill_error_logged);
   }
   return POCKET_STATUS_OK;
 }
@@ -235,8 +255,7 @@ int pocketjs_ppa_blend_a8_rgb565(pocketjs_ppa_handle_t handle,
 
   const esp_err_t result = ppa_do_blend(handle->blend, &operation);
   if (result != ESP_OK) {
-    log_operation_failure_once("blend", result, &handle->blend_error_logged);
-    return POCKET_STATUS_FAILED;
+    return decline_operation("blend", result, &handle->blend_error_logged);
   }
   return POCKET_STATUS_OK;
 }
@@ -342,8 +361,7 @@ int pocketjs_ppa_srm_psm5650_rgb565(
   };
   const esp_err_t result = ppa_do_scale_rotate_mirror(handle->srm, &operation);
   if (result != ESP_OK) {
-    log_operation_failure_once("SRM", result, &handle->srm_error_logged);
-    return POCKET_STATUS_FAILED;
+    return decline_operation("SRM", result, &handle->srm_error_logged);
   }
   return POCKET_STATUS_OK;
 }

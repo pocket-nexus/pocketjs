@@ -32,6 +32,10 @@ static int32_t status_srm(void *context, uint16_t *destination, size_t pixels,
       source, source_size, source_width, source_height, src.x, src.y, src.width, src.height,
       dst.x, dst.y, dst.width, dst.height, turn, mx, my);
 }
+static size_t status_alignment(void *context) {
+  (void)context;
+  return pocketjs_ppa_buffer_alignment();
+}
 
 esp_err_t pocketjs_esp32p4_ppa_create(pocketjs_esp32p4_ppa_t **out_ppa) {
   if (out_ppa == NULL)
@@ -46,7 +50,8 @@ esp_err_t pocketjs_esp32p4_ppa_create(pocketjs_esp32p4_ppa_t **out_ppa) {
     return result;
   }
   ppa->status_ops = (pocket_ppa_ops){.struct_size = sizeof(ppa->status_ops), .context = ppa,
-      .fill = status_fill, .blend = status_blend, .srm = status_srm};
+      .fill = status_fill, .blend = status_blend, .srm = status_srm,
+      .buffer_alignment = status_alignment};
   *out_ppa = ppa;
   return ESP_OK;
 }

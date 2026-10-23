@@ -5,9 +5,10 @@
 #include <stdbool.h>
 typedef struct pocket_display_esp_lcd pocket_display_esp_lcd;
 /* SPI/I80 panel IO with GRAM. Panel and IO stay live until destroy. This
- * instance exclusively submits color transfers to the IO. Configure the panel
- * for RGB565, with no rotation after creation. byte_swap adapts wire order.
- * budget counts both DMA pixel allocations; no full-frame scratch is allocated.
+ * instance exclusively submits color transfers to the IO and owns its
+ * on_color_trans_done callback. Configure the panel for RGB565, with no
+ * rotation after creation. byte_swap adapts wire order. budget counts both
+ * DMA pixel allocations; no full-frame scratch is allocated.
  */
 typedef struct {
   size_t struct_size;

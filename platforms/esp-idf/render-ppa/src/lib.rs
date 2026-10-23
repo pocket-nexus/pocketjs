@@ -1,5 +1,7 @@
 //! ESP PPA rendering with ordered software fallback and bounded A8 storage.
-//! Hardware operations finish before returning, including error paths.
+//! Hardware operations finish before returning, including error paths. A
+//! declined operation or a strip the device cannot address draws in
+//! software; frame damage bounds every path to the dirty pixels.
 #![no_std]
 extern crate alloc;
 #[cfg(feature = "cabi")]
@@ -7,7 +9,7 @@ pub mod cabi;
 use alloc::vec::Vec;
 use pocket_draw_ops::{DrawOps, Operation};
 use pocket_drivers::{
-    DamageRect as Clip, PixelFormat, RenderError, RenderResources, Surface, TexView,
+    DamageRect as Clip, PixelFormat, Rect as Region, RenderError, RenderResources, Surface, TexView,
 };
 use pocket_glyph_pages::composite_mask;
 use pocket_raster::{linear_sample_coordinates, pack_rgb565, render_operation, OperationResources};
@@ -70,7 +72,8 @@ pub struct SrmTransform {
 /// All calls are synchronous from the DrawList interpreter's perspective:
 /// on every return, the destination pixels must be visible to
 /// subsequent CPU or PPA operations. `Unsupported` is allowed only before any write and requests ordered
-/// software fallback. `Failed` is terminal and prevents display flush.
+/// software fallback; a transaction the device driver rejects before writing
+/// reports it. `Failed` is terminal and prevents display flush.
 #[allow(clippy::too_many_arguments)]
 pub trait PpaOps {
     /// Fill `rect` in the full RGB565 destination.
@@ -111,6 +114,13 @@ pub trait PpaOps {
         destination_rect: Rect,
         transform: SrmTransform,
     ) -> Result<(), PpaError>;
+
+    /// Byte alignment the device requires of a destination address and of the
+    /// strip's byte length. The renderer reads it once at construction and
+    /// draws strips that miss it in software. Zero means one.
+    fn buffer_alignment(&self) -> usize {
+        1
+    }
 }
 
 /// Heuristics controlling when transaction overhead is worth paying.
@@ -160,6 +170,7 @@ pub struct Painter {
     mask_capacity: usize,
     mask_len: usize,
     mask_budget: usize,
+    buffer_alignment: usize,
     alpha_texture_cache: Vec<(i32, u64, bool)>,
     raster_revision: u64,
 }
@@ -177,12 +188,21 @@ impl Painter {
             mask_capacity: 0,
             mask_len: 0,
             mask_budget,
+            buffer_alignment: 1,
             alpha_texture_cache: Vec::new(),
             raster_revision: 0,
         })
     }
     pub fn config(&self) -> RendererConfig {
         self.config
+    }
+    /// Destination address and strip byte length must be multiples of this
+    /// for any device call; other strips draw in software. Zero means one.
+    pub fn set_buffer_alignment(&mut self, alignment: usize) {
+        self.buffer_alignment = alignment.max(1);
+    }
+    pub fn buffer_alignment(&self) -> usize {
+        self.buffer_alignment
     }
     /// Active A8 payload bytes for the most recent accelerated strip. This is
     /// bounded by mask_budget; allocation includes at most 143 alignment bytes.
@@ -236,8 +256,9 @@ impl Painter {
     ) -> Result<RenderStats, RenderError> {
         self.render_clipped(resources, words, target, None, ppa)
     }
-    /// Compatibility entry for callers retaining a full strip while repainting
-    /// a logical subrectangle. New presenters acquire the required region.
+    /// `requested` is the logical dirty rectangle, normally the frame's damage
+    /// bounds from [`damage_clip`]. Pixels outside it keep their contents;
+    /// `None` repaints the whole acquired region.
     pub fn render_clipped<O: PpaOps>(
         &mut self,
         resources: &(impl RenderResources + ?Sized),
@@ -272,6 +293,7 @@ impl Painter {
         let region = target.region();
         let stride = target.stride_bytes();
         let scale = self.config.scale;
+        let count = region.width as usize * region.height as usize;
         let mut stats = RenderStats {
             damage_regions: 1,
             damage_pixels: region.width.saturating_mul(region.height),
@@ -281,15 +303,19 @@ impl Painter {
                 w: region.width,
                 h: region.height,
             },
-            full_redraw: true,
+            full_redraw: requested.is_none(),
             ..RenderStats::default()
         };
+        // The device addresses the packed strip as one output buffer; IDF
+        // rejects an address or byte length off its DMA cache line.
         let hardware = region.x % scale == 0
             && region.y % scale == 0
             && region.width % scale == 0
             && region.height % scale == 0
             && stride == region.width as usize * 2
-            && target.pixels().as_ptr().align_offset(2) == 0;
+            && target.pixels().as_ptr().align_offset(2) == 0
+            && (target.pixels().as_ptr() as usize).is_multiple_of(self.buffer_alignment)
+            && (count * 2).is_multiple_of(self.buffer_alignment);
         let surface = Clip::new(
             (region.x / scale) as i32,
             (region.y / scale) as i32,
@@ -324,7 +350,6 @@ impl Painter {
             w: physical.w,
             h: physical.h,
         };
-        let count = region.width as usize * region.height as usize;
         let mut cleared = false;
         if hardware && clear.area() >= self.config.min_fill_pixels {
             // Checked alignment, exact RGB565 packed length, and exclusive borrow.
@@ -1005,9 +1030,49 @@ fn alpha_quad_into_mask(
     }
 }
 
+/// Logical dirty bounds for one acquired strip: the union of the frame's
+/// physical damage rectangles, clipped to `region` and widened to whole
+/// logical pixels at `scale`. `None` repaints the whole strip: for an empty
+/// damage list, one that misses the region, or one that covers it.
+pub fn damage_clip(
+    damage: impl IntoIterator<Item = Region>,
+    region: Region,
+    scale: u32,
+) -> Option<Clip> {
+    let scale = scale.max(1);
+    let right = region.x.saturating_add(region.width);
+    let bottom = region.y.saturating_add(region.height);
+    let mut bounds: Option<(u32, u32, u32, u32)> = None;
+    for rect in damage {
+        let x0 = rect.x.max(region.x);
+        let y0 = rect.y.max(region.y);
+        let x1 = rect.x.saturating_add(rect.width).min(right);
+        let y1 = rect.y.saturating_add(rect.height).min(bottom);
+        if x0 >= x1 || y0 >= y1 {
+            continue;
+        }
+        bounds = Some(match bounds {
+            None => (x0, y0, x1, y1),
+            Some((bx0, by0, bx1, by1)) => (bx0.min(x0), by0.min(y0), bx1.max(x1), by1.max(y1)),
+        });
+    }
+    let (x0, y0, x1, y1) = bounds?;
+    if x0 == region.x && y0 == region.y && x1 == right && y1 == bottom {
+        return None;
+    }
+    Some(Clip::new(
+        (x0 / scale) as i32,
+        (y0 / scale) as i32,
+        x1.div_ceil(scale) as i32,
+        y1.div_ceil(scale) as i32,
+    ))
+}
+
 /// A registered PPA renderer owns one hardware device and its bounded scratch.
 /// Each render call completes its CPU-visible writes, so submissions carry no
 /// borrowed frame resources and multiple displays may share the instance.
+/// Frame damage bounds each strip's repaint; the device's buffer alignment is
+/// read once at construction.
 pub struct PpaRenderer<O> {
     painter: Painter,
     device: O,
@@ -1015,8 +1080,10 @@ pub struct PpaRenderer<O> {
 }
 impl<O: PpaOps> PpaRenderer<O> {
     pub fn new(config: RendererConfig, mask_budget: usize, device: O) -> Result<Self, RenderError> {
+        let mut painter = Painter::new(config, mask_budget)?;
+        painter.set_buffer_alignment(device.buffer_alignment());
         Ok(Self {
-            painter: Painter::new(config, mask_budget)?,
+            painter,
             device,
             last_stats: RenderStats::default(),
         })
@@ -1054,10 +1121,16 @@ impl<O: PpaOps> pocket_drivers::Renderer for PpaRenderer<O> {
         let pocket_drivers::Target::CpuVisible(surface) = &mut frame.target else {
             return Err(RenderError::Unsupported);
         };
-        self.last_stats = self.painter.render(
+        let requested = damage_clip(
+            frame.damage.iter().copied(),
+            surface.region(),
+            self.painter.config().scale,
+        );
+        self.last_stats = self.painter.render_clipped(
             frame.resources,
             &frame.list.words,
             surface,
+            requested,
             &mut self.device,
         )?;
         Ok(())

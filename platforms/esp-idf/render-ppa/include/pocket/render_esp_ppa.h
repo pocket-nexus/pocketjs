@@ -5,14 +5,19 @@
 extern "C" {
 #endif
 /* Device-specific translation seam. Every callback is terminal, including
- * errors. UNSUPPORTED promises that it performed no writes. FAILED must stop
- * all hardware access and prevents software replay/display flush. */
+ * errors. UNSUPPORTED promises that it performed no writes; the renderer then
+ * draws that operation in software. FAILED must stop all hardware access and
+ * prevents software replay/display flush. buffer_alignment returns the byte
+ * alignment the device requires of a destination address and length; the
+ * renderer reads it once at creation and draws strips that miss it in
+ * software. A null callback declares no alignment requirement. */
 typedef struct {
   size_t struct_size;
   void *context;
   int32_t (*fill)(void *, uint16_t *, size_t, uint32_t, uint32_t, pocket_rect, uint16_t);
   int32_t (*blend)(void *, uint16_t *, size_t, uint32_t, uint32_t, const uint8_t *, size_t, pocket_rect, uint8_t, uint8_t, uint8_t, uint8_t);
   int32_t (*srm)(void *, uint16_t *, size_t, uint32_t, uint32_t, const uint8_t *, size_t, uint32_t, uint32_t, pocket_rect, pocket_rect, uint32_t, bool, bool);
+  size_t (*buffer_alignment)(void *);
 } pocket_ppa_ops;
 typedef struct {
   size_t struct_size;

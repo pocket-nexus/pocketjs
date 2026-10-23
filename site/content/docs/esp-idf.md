@@ -161,13 +161,17 @@ Its configuration accepts panel and IO handles, dimensions, strip rows,
 buffer count, byte order and a pixel-buffer budget.
 **The budget counts both DMA buffers.** The driver allocates no full-frame
 scratch buffer. With two strips, the coordinator can render into one while
-DMA reads the other. It waits before reusing either allocation.
+DMA reads the other. **Each buffer's wait ends when the panel IO has reported
+that buffer's own transfers complete**, through `on_color_trans_done`; the
+other buffer's transfer keeps streaming. A wait longer than 1000 ms returns
+`POCKET_STATUS_FAILED` and keeps that buffer reserved until its transfer
+lands.
 
 The display reports panel identity and generation to retain damage history.
 Call `pocket_display_esp_lcd_invalidate` after a panel reset or external write,
 while no runtime call is active. It drains pending transfers and makes the
 next frame repaint the panel. The driver must have exclusive use of color
-transfers on its panel IO.
+transfers on its panel IO and owns the IO's color-transfer callback.
 
 On P4, create the hardware device with `pocketjs_esp32p4_ppa_create`, pass its
 status operations to `pocket_render_esp_ppa_create`, and register the returned
@@ -175,9 +179,12 @@ renderer with `pocket_runtime_add_renderer`. Use that renderer ID when adding
 the display. The smoke example contains the complete setup.
 
 PPA handles supported fills, glyph coverage and RGB565 transfers. An
-unsupported operation falls back to software before hardware writes. A
-hardware failure after writes aborts the frame and invalidates damage history.
-The A8 mask staging budget is separate from display pixel storage.
+unsupported operation, or a transaction the IDF driver rejects, falls back to
+software before hardware writes; the first rejection per operation is logged
+with its IDF error name. **A strip whose address or byte length is not a
+multiple of the DMA cache line renders in software.** Each strip repaints the
+frame's damage rectangles and no other pixels. The A8 mask staging budget is
+separate from display pixel storage.
 
 ## Scheduling and destruction
 
@@ -208,6 +215,7 @@ display buffers and accelerator staging have their own budgets.
 The `smoke` and `runner` examples compile for both targets. Their transfer-hash
 sink exercises runtime registration and strip output; it does not initialize
 a physical panel. Host regressions cover package admission, immutable buffers,
-promise errors, two pending DMA buffers, terminal drain and software pixel
-parity. Final device acceptance must exercise the product's panel, input
-sources, PPA output, reset recovery and task stop/join behavior.
+promise errors, two pending DMA buffers, per-buffer waits, terminal drain,
+the bounded wait timeout and software pixel parity. Final device acceptance
+must exercise the product's panel, input sources, PPA output, reset recovery
+and task stop/join behavior.

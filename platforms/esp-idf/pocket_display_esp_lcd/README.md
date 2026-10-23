@@ -11,10 +11,15 @@ the next strip can render while the previous transfer reads the other buffer.
 The runtime expands damage to full-width rows. Flush submits those rows through
 `esp_lcd_panel_draw_bitmap`.
 
-Wait uses the panel IO's synchronous no-command parameter transaction to drain
-queued color transfers. An error after a submitted transfer also drains the
-queue before returning failure. If IDF cannot establish this terminal barrier,
-`ESP_ERROR_CHECK` stops the program instead of releasing DMA storage.
+The driver registers the panel IO's `on_color_trans_done` callback and counts
+completed transfers. Wait blocks until the waited buffer's own transfers have
+completed, while the other buffer's transfer keeps streaming. A wait longer
+than 1000 ms returns failure and keeps that buffer reserved until its transfer
+lands. Invalidation, destruction and an error after a submitted transfer use
+the panel IO's synchronous no-command parameter transaction to drain the
+queue. If IDF cannot establish this terminal barrier, `ESP_ERROR_CHECK` stops
+the program instead of releasing DMA storage. The product must not register
+its own color-transfer callback on this IO.
 
 The retained panel identity keeps per-panel damage history. Call
 `pocket_display_esp_lcd_invalidate` after resets or external pixel writes.

@@ -9,7 +9,7 @@ idf_component_register(
     INCLUDE_DIRS ${pocketjs_ppa_includes}
     PRIV_INCLUDE_DIRS "src"
     REQUIRES pocket_runtime esp_driver_ppa
-    PRIV_REQUIRES log
+    PRIV_REQUIRES log esp_mm
     REQUIRED_IDF_TARGETS esp32p4
 )
 

@@ -1,9 +1,16 @@
 //! Explicit PPA composition bridge. The default SDK contains no device driver.
 #![allow(clippy::missing_safety_doc)]
-use crate::{Painter, PpaError, PpaOps, QuarterTurn, Rect, RendererConfig, SrmTransform};
+use crate::{
+    damage_clip, Painter, PpaError, PpaOps, QuarterTurn, Rect, RendererConfig, SrmTransform,
+};
 use alloc::{boxed::Box, vec::Vec};
-use core::{cell::RefCell, ffi::c_void, mem::size_of, ptr};
-use pocket_drivers::{abi::*, RenderError, Surface};
+use core::{
+    cell::RefCell,
+    ffi::c_void,
+    mem::{align_of, size_of},
+    ptr,
+};
+use pocket_drivers::{abi::*, Rect as Region, RenderError, Surface};
 use pocket_runtime_cabi::adapters::{
     borrowed, pixel_format, rect, writable, AdapterError, CResources,
 };
@@ -40,6 +47,7 @@ pub type PpaSrmFn = unsafe extern "C" fn(
     bool,
     bool,
 ) -> i32;
+pub type PpaAlignmentFn = unsafe extern "C" fn(*mut c_void) -> usize;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -49,6 +57,7 @@ pub struct PpaOpsV1 {
     pub fill: Option<PpaFillFn>,
     pub blend: Option<PpaBlendFn>,
     pub srm: Option<PpaSrmFn>,
+    pub buffer_alignment: Option<PpaAlignmentFn>,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -160,12 +169,50 @@ impl PpaOps for PpaOpsV1 {
             )
         })
     }
+    fn buffer_alignment(&self) -> usize {
+        self.buffer_alignment
+            .map_or(1, |call| unsafe { call(self.context) })
+            .max(1)
+    }
 }
 struct Instance {
     painter: Painter,
     device: PpaOpsV1,
     next: u64,
     live: Vec<u64>,
+    damage: Vec<Region>,
+}
+/// Packed damage records advance by their own struct_size. Empty records
+/// carry nothing and are skipped; `out` keeps its capacity across frames.
+unsafe fn collect_damage(
+    pointer: *const PocketRect,
+    count: usize,
+    out: &mut Vec<Region>,
+) -> Result<(), AdapterError> {
+    out.clear();
+    if count == 0 {
+        return Ok(());
+    }
+    if pointer.is_null() || !(pointer as usize).is_multiple_of(align_of::<PocketRect>()) {
+        return Err(AdapterError::Invalid);
+    }
+    out.try_reserve(count).map_err(|_| AdapterError::Failed)?;
+    let mut cursor = pointer.cast::<u8>();
+    for _ in 0..count {
+        let record =
+            unsafe { PocketRect::read_prefix(cursor.cast()) }.ok_or(AdapterError::Invalid)?;
+        if !record.struct_size.is_multiple_of(align_of::<PocketRect>())
+            || record.x.checked_add(record.width).is_none()
+            || record.y.checked_add(record.height).is_none()
+        {
+            return Err(AdapterError::Invalid);
+        }
+        if record.width != 0 && record.height != 0 {
+            out.push(Region::new(record.x, record.y, record.width, record.height));
+        }
+        cursor = cursor.wrapping_add(record.struct_size);
+    }
+    Ok(())
 }
 pub struct NativePpaRenderer(RefCell<Instance>);
 unsafe fn full_prefix<T: Copy>(pointer: *const T) -> Option<T> {
@@ -187,7 +234,7 @@ pub unsafe extern "C" fn pocket_render_esp_ppa_create(
     else {
         return ptr::null_mut();
     };
-    let Ok(painter) = Painter::new(
+    let Ok(mut painter) = Painter::new(
         RendererConfig {
             scale: config.scale,
             min_fill_pixels: config.min_fill_pixels,
@@ -198,11 +245,13 @@ pub unsafe extern "C" fn pocket_render_esp_ppa_create(
     ) else {
         return ptr::null_mut();
     };
+    painter.set_buffer_alignment(ops.buffer_alignment());
     Box::into_raw(Box::new(NativePpaRenderer(RefCell::new(Instance {
         painter,
         device: ops,
         next: 0,
         live: Vec::new(),
+        damage: Vec::new(),
     }))))
 }
 #[no_mangle]
@@ -280,10 +329,15 @@ unsafe fn render_inner(
         .try_reserve(1)
         .map_err(|_| AdapterError::Failed)?;
     let Instance {
-        painter, device, ..
+        painter,
+        device,
+        damage,
+        ..
     } = &mut *instance;
+    unsafe { collect_damage(frame.damage, frame.damage_count, damage) }?;
+    let requested = damage_clip(damage.iter().copied(), region, painter.config().scale);
     painter
-        .render(&resources, words, &mut surface, device)
+        .render_clipped(&resources, words, &mut surface, requested, device)
         .map_err(|e| match e {
             RenderError::Unsupported => AdapterError::Unsupported,
             RenderError::InvalidFrame => AdapterError::Invalid,
@@ -398,6 +452,7 @@ mod tests {
                 fill: None,
                 blend: None,
                 srm: None,
+                buffer_alignment: None,
             };
             let mut config = config();
             config.struct_size = size_of::<usize>();
@@ -438,6 +493,7 @@ mod tests {
                 fill: Some(fill),
                 blend: None,
                 srm: None,
+                buffer_alignment: None,
             };
             let p = pocket_render_esp_ppa_create(&config(), &ops);
             state.renderer = p;
@@ -500,6 +556,83 @@ mod tests {
             assert!(!state.fail);
             assert_eq!(render(p.cast(), &frame, &mut a), POCKET_STATUS_OK);
             retire(p.cast(), a);
+            pocket_render_esp_ppa_destroy(p);
+        }
+    }
+    #[test]
+    fn frame_damage_records_bound_the_repaint() {
+        unsafe {
+            let ops = PpaOpsV1 {
+                struct_size: size_of::<PpaOpsV1>(),
+                context: ptr::null_mut(),
+                fill: None,
+                blend: None,
+                srm: None,
+                buffer_alignment: None,
+            };
+            let p = pocket_render_esp_ppa_create(&config(), &ops);
+            let region = PocketRect {
+                x: 0,
+                y: 0,
+                width: 4,
+                height: 2,
+                ..PocketRect::empty()
+            };
+            let mut pixels = [0xffffu16; 8];
+            let mut surface = PocketSurface {
+                pixels: pixels.as_mut_ptr().cast(),
+                byte_length: 16,
+                region: &region,
+                stride_bytes: 8,
+                pixel_format: POCKET_PIXEL_FORMAT_RGB565,
+                ..PocketSurface::empty()
+            };
+            let target = PocketTarget {
+                kind: POCKET_TARGET_CPU_VISIBLE,
+                surface: &mut surface,
+                region: &region,
+                pixel_format: POCKET_PIXEL_FORMAT_RGB565,
+                ..PocketTarget::empty()
+            };
+            let list = PocketDrawList {
+                version: pocket_spec::DRAW_LIST_VERSION,
+                ..PocketDrawList::empty()
+            };
+            let resources = PocketRenderResources {
+                viewport_width: 4.,
+                viewport_height: 2.,
+                ..PocketRenderResources::empty()
+            };
+            // An empty record and the second row, as packed records.
+            let damage = [
+                PocketRect::empty(),
+                PocketRect {
+                    x: 0,
+                    y: 1,
+                    width: 4,
+                    height: 1,
+                    ..PocketRect::empty()
+                },
+            ];
+            let frame = PocketFrameInput {
+                list: &list,
+                resources: &resources,
+                damage: damage.as_ptr(),
+                damage_count: damage.len(),
+                target: &target,
+                ..PocketFrameInput::empty()
+            };
+            let mut token = 0;
+            assert_eq!(render(p.cast(), &frame, &mut token), POCKET_STATUS_OK);
+            assert_eq!(pixels[..4], [0xffff; 4]);
+            assert_eq!(pixels[4..], [0; 4]);
+            retire(p.cast(), token);
+            let frame = PocketFrameInput {
+                damage: ptr::null(),
+                ..frame
+            };
+            assert_eq!(render(p.cast(), &frame, &mut token), POCKET_STATUS_INVALID);
+            assert_eq!(pixels[..4], [0xffff; 4]);
             pocket_render_esp_ppa_destroy(p);
         }
     }

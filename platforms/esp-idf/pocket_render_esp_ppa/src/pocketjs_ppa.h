@@ -25,9 +25,18 @@ esp_err_t pocketjs_ppa_create(pocketjs_ppa_handle_t *out_handle);
 void pocketjs_ppa_destroy(pocketjs_ppa_handle_t handle);
 
 /**
+ * Alignment the PPA driver requires of an output buffer address and byte
+ * length: the internal DMA data cache line, or 64 bytes when IDF cannot
+ * report it.
+ */
+size_t pocketjs_ppa_buffer_alignment(void);
+
+/**
  * The component's public accelerator wrapper consumes this private C ABI.
- * Each function returns POCKET_STATUS_OK after a completed transaction,
- * UNSUPPORTED before any write, or terminal FAILED after a hardware error.
+ * Each function returns POCKET_STATUS_OK after a completed transaction or
+ * UNSUPPORTED before any write. A transaction the IDF driver rejects is
+ * UNSUPPORTED as well: blocking ppa_do_* calls stop before their first
+ * destination write, so the renderer draws that operation in software.
  */
 int pocketjs_ppa_fill_rgb565(pocketjs_ppa_handle_t handle,
                              uint16_t *destination, size_t destination_pixels,

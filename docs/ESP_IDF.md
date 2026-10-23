@@ -122,17 +122,25 @@ before returning and invalidate presentation history.
 The SPI/I80 display adapter reserves one or two full-width RGB565 strips under
 the configured pixel budget. Two buffers let the coordinator render a strip
 while the previous DMA transfer reads the other buffer. Partial damage expands
-to full-width rows. Per-panel identity retains damage history; invalidate its
-generation after reset or external writes.
+to full-width rows, and the renderer repaints those rows and no other pixels.
+Per-panel identity retains damage history; invalidate its generation after
+reset or external writes.
 
-**Display wait is terminal on success and returned failure.** The adapter uses
-IDF's synchronous parameter transaction to drain color transfers. A failure to
-establish the drain is fatal because DMA storage cannot be released. The driver
-does not implement RGB/MIPI framebuffer output.
+**Display wait is terminal on success and returned failure.** The adapter
+counts the panel IO's `on_color_trans_done` callbacks and blocks until the
+waited buffer's own transfers have completed, while the other buffer's
+transfer keeps streaming. A wait longer than 1000 ms returns
+`POCKET_STATUS_FAILED` and keeps the buffer reserved until its transfer lands.
+Invalidation, destruction and submission errors use IDF's synchronous
+parameter transaction to drain all color transfers; a failure to establish
+that drain is fatal because DMA storage cannot be released. The driver does
+not implement RGB/MIPI framebuffer output.
 
 PPA preserves opaque fill, A8 glyph coverage, white-alpha batching and RGB565
-SRM. Unsupported operations fall back before hardware writes; failures after
-writes abort the frame. A8 payload storage has its own configured budget.
+SRM. Unsupported operations and transactions the IDF driver rejects fall back
+to software before hardware writes. A strip whose address or byte length is
+not a multiple of the DMA cache line (`esp_cache_get_alignment`, 64 bytes on
+P4) renders in software. A8 payload storage has its own configured budget.
 
 The optional runner uses `pocket_tick_schedule` for deadlines and skipped ticks.
 Stop interrupts the guest, wakes the task and joins it. A timeout retains the
@@ -152,8 +160,9 @@ cargo test --locked --manifest-path Cargo.toml -p pocket-render-esp-ppa --featur
 `POCKETJS_QUICKJS_SOURCE` selects another copy of the exact pinned source.
 Host regressions compile the generated guest, platform wrapper and single Rust
 archive. Tests cover package admission, immutable writes, promise rejection,
-allocator failure, two pending display buffers, reverse waits, DMA drain after
-submission failure and old RGB565 pixel/strip parity.
+allocator failure, two pending display buffers, per-buffer and reverse waits,
+DMA drain after submission failure, the bounded wait timeout and old RGB565
+pixel/strip parity.
 
 The smoke and runner examples use a transfer-hash sink; they do not initialize
 panel hardware. Real panel validation must supply board setup and compare pixels
